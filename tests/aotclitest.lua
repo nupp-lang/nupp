@@ -4854,12 +4854,12 @@ function M.aSpeciesBindingIsDecidedPerTier()
         local decoded, raw, code = lowered(dir, tier.args .. " --json scan.nupp")
         test.equal(code, 0, raw)
         local body = scanBody(decoded.c)
-        assert(body:find("ks_exp_load_full_u32x" .. tier.lanes .. "(", 1, true), tier.args .. ": the arm is the vector loop\n" .. body)
+        assert(body:find("ks_exp_load_at_u32x" .. tier.lanes .. "(p_cps + (size_t)v1_cursor)", 1, true), tier.args .. ": the arm is the vector loop\n" .. body)
         assert(
             body:find("<= (uint64_t)count_cps)", 1, true) and body:find("UINT32_C(" .. tier.lanes .. "))", 1, true),
             tier.args .. ": species.lanes is the tier's constant\n" .. body
         )
-        assert(body:find("uint32_t v3_first = ((uint32_t)(", 1, true), tier.args .. ": first() is a uint32\n" .. body)
+        assert(body:find("uint32_t v3_first = ks_exp_first_u32x" .. tier.lanes .. "(", 1, true), tier.args .. ": first() is a uint32\n" .. body)
         assert(body:find(tail, 1, true), tier.args .. ": the scalar tail follows\n" .. body)
     end
 
@@ -4871,14 +4871,15 @@ function M.aSpeciesBindingIsDecidedPerTier()
     assert(not decoded.ir:find("species", 1, true), "nothing of the test survives lowering\n" .. decoded.ir)
 end
 
-function M.aFullVectorAccessIsOneCopyAndAnIntegerCompare()
-    -- An unmasked load or store is the `_full` helper, whose whole-vector
-    -- case is one memcpy the C compiler turns into the vector instruction;
-    -- the lane loop is only for the elements a partial tail has. A masked
-    -- one tests all-active with a vector compare rather than a lane loop,
-    -- and builds a tail mask the same way. The cursor is compared with the
-    -- span count as an integer, and reaches the helper as a 0-based size_t
-    -- through nupp_first_*, so nothing in the loop goes through a double.
+function M.aProvenVectorAccessIsOneCopyAndAnIntegerCompare()
+    -- `cursor + s.lanes <= #span`, taken exactly in u64, is the guard that
+    -- proves a whole vector at `cursor + 1` lies inside the span. Under it
+    -- an unmasked load or store is the `_at` helper: one memcpy the C
+    -- compiler turns into the vector instruction, with no count and no
+    -- check. The masked tail keeps the checked helper, tests all-active
+    -- with a vector compare rather than a lane loop, and moves its partial
+    -- vector through general registers rather than a stack array. Nothing
+    -- in the loop goes through a double.
     local dir = project{
         [
             "map.nupp"
@@ -4908,25 +4909,41 @@ return {add = add}
     local c = decoded.c
     local body = c:match("KS_API void ks_add%(.-\n}\n")
     assert(body, "the kernel is emitted:\n" .. c)
-    assert(body:find("ks_exp_load_full_u8x16(p_input, count_input, nupp_first_u64(", 1, true), "the unmasked load\n" .. body)
-    assert(body:find("ks_exp_store_full_u8x16(p_output, count_output, nupp_first_u64(", 1, true), "the unmasked store\n" .. body)
-    assert(body:find("ks_exp_load_u8x16(p_input, count_input, nupp_first_u64(", 1, true), "the masked tail load\n" .. body)
-    assert(body:find("<= (uint64_t)count_output)", 1, true), "the count is compared as an integer\n" .. body)
     local loop = body:match("while %(.-\n    }\n")
-    assert(loop and not loop:find("(double)", 1, true), "nothing in the loop goes through a double\n" .. body)
+    assert(loop, "the vector loop\n" .. body)
+    assert(
+        loop:find("+ (uint64_t)(((uint64_t)UINT32_C(16)))) <= (uint64_t)count_input)", 1, true)
+            and loop:find("+ (uint64_t)(((uint64_t)UINT32_C(16)))) <= (uint64_t)count_output)", 1, true),
+        "the guard is exact and compares the count as an integer\n" .. body
+    )
+    assert(
+        loop:find("ks_exp_store_at_u8x16(p_output + (size_t)v2_cursor, (ks_exp_load_at_u8x16(p_input + (size_t)v2_cursor) + ", 1, true),
+        "the proven load and store are bare copies\n" .. body
+    )
+    assert(not loop:find("(double)", 1, true), "nothing in the loop goes through a double\n" .. body)
+    assert(not loop:find("count_input, nupp_first", 1, true), "the loop carries no checked access\n" .. body)
+    assert(body:find("ks_exp_load_u8x16(p_input, count_input, nupp_first_u64(", 1, true), "the masked tail load is checked\n" .. body)
+    assert(body:find("ks_exp_store_u8x16(p_output, count_output, nupp_first_u64(", 1, true), "and so is the masked tail store\n" .. body)
+    assert(
+        c:find("ks_exp_u8x16 ks_exp_load_at_u8x16(const uint8_t *source) { ks_exp_u8x16 out; memcpy(&out, source, sizeof out); return out; }", 1, true)
+            and c:find("void ks_exp_store_at_u8x16(uint8_t *destination, ks_exp_u8x16 value) { memcpy(destination, &value, sizeof value); }", 1, true),
+        "a proven vector is one copy\n" .. c
+    )
     assert(
         c:find("ks_exp_load_full_u8x16(const uint8_t *source, size_t count, size_t first) {", 1, true)
             and c:find("if (room >= 16u) { memcpy(&out, source + first, sizeof out); return out; }", 1, true),
-        "a whole vector loads as one copy\n" .. c
+        "a checked whole vector is still one copy\n" .. c
     )
     assert(
-        c:find("if (room >= 16u) { memcpy(destination + first, &value, sizeof value); return; }", 1, true),
-        "and stores as one\n" .. c
-    )
-    assert(
-        c:find("static __attribute__((noinline, cold, unused)) ks_exp_u8x16 ks_exp_load_part_u8x16(const uint8_t *source, size_t room) {", 1, true)
+        c:find("static inline __attribute__((unused)) ks_exp_u8x16 ks_exp_load_part_u8x16(const uint8_t *source, size_t room) {\n#if KS_WORD_TAIL\n", 1, true)
+            and c:find("switch (n >> 3u) { case 0u: w0 |= ks_gather_word(p + 0u, n & 7u); break; case 1u: w1 |= ks_gather_word(p + 8u, n & 7u); break; default: break; }", 1, true)
             and c:find("return ks_exp_load_part_u8x16(source + first, room); }", 1, true),
-        "a partial vector is a cold copy of its own\n" .. c
+        "a partial vector gathers into words\n" .. c
+    )
+    assert(
+        c:find("case 0u: ks_scatter_word(p + 0u, n & 7u, w0); break; case 1u: ks_scatter_word(p + 8u, n & 7u, w1); break;", 1, true)
+            and c:find("static __attribute__((noinline, cold, unused)) void ks_exp_store_masked_part_u8x16(", 1, true),
+        "and scatters from them, with the lane loop cold\n" .. c
     )
     assert(
         c:find("bool ks_exp_full_u8x16(ks_exp_mask_u8x16 active) { ks_exp_mask_u8x16 inactive = (ks_exp_mask_u8x16)(active == (ks_exp_mask_u8x16){0});", 1, true),
@@ -4937,6 +4954,69 @@ return {add = add}
             and c:find("return (ks_exp_mask_u8x16)(lane < limit); }", 1, true),
         "and so is a tail mask\n" .. c
     )
+end
+
+function M.aProofNeedsTheGuardAndTheCursorItLeft()
+    -- A guard for one span proves nothing about another; a masked access
+    -- keeps its mask and its checks; a cursor moved between the guard and
+    -- the access is no longer the one the guard was about. Each stays on
+    -- the checked `_full` helper.
+    local dir = project{
+        [
+            "unproven.nupp"
+        ] = [[
+local span = require("nupp.mem.span")
+local array = require("nupp.mem.array")
+local simd = require("nupp.simd")
+
+@aot
+local function other(exclusive output: span.WriteSpan<uint8>, borrows input: span.Span<uint8>): nil
+    local s = assert(simd.species(array.uint8))
+    local cursor: uint32 = 0
+    while cursor + s.lanes <= #input do
+        s:store(output, cursor + 1, s:load(input, cursor + 1))
+        cursor = cursor + s.lanes
+    end
+end
+
+@aot
+local function masked(borrows input: span.Span<uint8>): uint32
+    local s = assert(simd.species(array.uint8))
+    local cursor: uint32 = 0
+    local total: uint32 = 0
+    while cursor + s.lanes <= #input do
+        total = total + (s:load(input, cursor + 1, s:tail(8)) <= 15):count()
+        cursor = cursor + s.lanes
+    end
+    return total
+end
+
+@aot
+local function moved(borrows input: span.Span<uint8>): uint32
+    local s = assert(simd.species(array.uint8))
+    local cursor: uint32 = 0
+    local total: uint32 = 0
+    while cursor + s.lanes <= #input do
+        cursor = cursor + 1
+        total = total + (s:load(input, cursor + 1) <= 15):count()
+        cursor = cursor + s.lanes
+    end
+    return total
+end
+return {other = other, masked = masked, moved = moved}
+]],
+    }
+    local decoded, raw, code = lowered(dir, "--target aarch64-apple-darwin --features neon --json unproven.nupp")
+    test.equal(code, 0, raw)
+    local c = decoded.c
+    local other = c:match("KS_API void ks_other%(.-\n}\n")
+    assert(other and other:find("ks_exp_store_full_u8x16(p_output, count_output, nupp_first_u64(", 1, true), "the unguarded span is checked\n" .. c)
+    assert(other:find("ks_exp_load_at_u8x16(p_input + (size_t)v2_cursor)", 1, true), "while the guarded one is proven\n" .. c)
+    local masked = c:match("KS_API uint32_t ks_masked%(.-\n}\n")
+    assert(masked and masked:find("ks_exp_load_u8x16(p_input, count_input, nupp_first_u64(", 1, true), "a masked access keeps its checks\n" .. c)
+    local moved = c:match("KS_API uint32_t ks_moved%(.-\n}\n")
+    assert(moved and moved:find("ks_exp_load_full_u8x16(p_input, count_input, nupp_first_u64(", 1, true), "a moved cursor loses the proof\n" .. c)
+    assert(not moved:find("load_at_", 1, true) and not masked:find("load_at_", 1, true), "no bare copy without a proof\n" .. c)
 end
 
 function M.aSpeciesBindingIsTheOnlyPlaceItsSpeciesLives()

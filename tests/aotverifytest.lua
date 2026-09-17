@@ -351,6 +351,100 @@ function M.anAndBoundsItsRightSpanReadByItsLeftAlone()
     verify.program(program)
 end
 
+local VECTOR_MAP = [[
+local span = require("nupp.mem.span")
+local array = require("nupp.mem.array")
+local simd = require("nupp.simd")
+@aot
+local function add(exclusive output: span.WriteSpan<uint8>, borrows input: span.Span<uint8>): nil
+    local s = assert(simd.species(array.uint8))
+    local cursor: uint32 = 0
+    while cursor + s.lanes <= #input and cursor + s.lanes <= #output do
+        s:store(output, cursor + 1, s:load(input, cursor + 1) + 90)
+        cursor = cursor + s.lanes
+    end
+end
+return {add = add}
+]]
+
+function M.aProvenVectorAccessIsHeldToTheGuardThatProvesIt()
+    -- `cursor + s.lanes <= #span`, exact in u64, is what lets a whole-vector
+    -- access at `cursor + 1` drop its checks. The verifier reproves it from
+    -- the loop condition: the same cursor, the same span, the same species
+    -- -- and the cursor still where the guard left it.
+    local program = lowered(VECTOR_MAP, "map.g.nupp")
+    verify.program(program)
+    local loop = find(program.body, function(statement)
+        return statement.op == "while"
+    end)
+    local store = loop.body[1]
+    local load = store.args[3].args[1]
+    assert(store.op == "simd_store" and store.cursor == "cursor", "the proven store")
+    assert(load.op == "simd_load" and load.cursor == "cursor", "the proven load")
+    local condition = loop.condition
+    assert(condition.op == "and" and condition.left.op == "le" and condition.right.op == "le", "the two guards")
+
+    -- The loop declares the bounds its condition proves, and each is
+    -- reproved from the condition. Either guard proves only its own span.
+    local reproved = "invalid loop cursor bounds proof for cursor against "
+    condition.right.right.span = "input"
+    refuses(program, reproved .. "output")
+    condition.right.right.span = "output"
+
+    -- `<` is not the guard: one lane past it is still inside the span.
+    condition.left.op = "lt"
+    refuses(program, reproved .. "input")
+    condition.left.op = "le"
+
+    -- A wrapped sum proves nothing about a cursor near the top of u32.
+    local sum = condition.left.left
+    assert(sum.op == "u64_add" and sum.left.op == "numeric_cast" and sum.right.op == "numeric_cast", "the exact sum")
+    condition.left.left = {op = "u32_add", left = sum.left.value, right = sum.right.value, type = "u32"}
+    refuses(program, reproved .. "input")
+    condition.left.left = sum
+
+    -- The room a guard buys is the species it names, not one element.
+    loop.cursorBounds.cursor.input = "1"
+    refuses(program, reproved .. "input")
+
+    -- And one element, which `cursor < #input` does prove, is not room
+    -- for a vector.
+    local guard = condition.left
+    condition.left = {op = "lt", left = sum.left.value, right = guard.right, type = "bool"}
+    refuses(program, "unbounded SIMD cursor load")
+    condition.left = guard
+    loop.cursorBounds.cursor.input = load.args[1].type
+    verify.program(program)
+
+    -- An access whose span the loop declares no bound for has nothing to
+    -- stand on, however the condition reads.
+    local declared = loop.cursorBounds.cursor.output
+    loop.cursorBounds.cursor.output = nil
+    refuses(program, "unbounded SIMD cursor store")
+    loop.cursorBounds.cursor.output = declared
+    verify.program(program)
+
+    -- The access must sit at `cursor + 1`, not anywhere the cursor bounds.
+    local offset = load.args[2].value
+    load.args[2].value = {op = "u32_add", left = offset.left, right = {op = "constant_i32", value = "2", type = "u32"}, type = "u32"}
+    refuses(program, "unbounded SIMD cursor load")
+    load.args[2].value = offset
+
+    -- Moving the cursor before the access leaves the guard behind.
+    table.insert(loop.body, 1, {
+        op = "assign",
+        values = {
+            {
+                target = {kind = "local", name = "cursor", cName = store.cursorCName, type = "u32"},
+                value = {op = "constant_i32", value = "1", type = "u32"},
+            }
+        },
+    })
+    refuses(program, "unbounded SIMD cursor")
+    table.remove(loop.body, 1)
+    verify.program(program)
+end
+
 function M.aRootedByteReadIsIndexedByTheCursorThatProvesIt()
     -- The proof is about `cursor`; a read that names the cursor and then reads
     -- at some other uint32 would be proved by a fact about a different value.

@@ -448,6 +448,20 @@ local function firstSmall(borrows cps: span.Span<uint32>): integer
 end
 ```
 
+The guard `cursor + species.lanes <= #cps` is what makes the load in that
+loop cheap. The compiler takes the sum in exact arithmetic, so a cursor near
+the top of its range makes the guard false instead of wrapping it true, and
+the verifier proves that every vector access the guard dominates fits inside
+the span it names, as long as the cursor is not reassigned before the access.
+A proven access compiles to one copy at `p + cursor` with no lane-wise bounds
+check, and a `store` proven the same way skips the mask as well. One guard
+that names two spans with `and` proves both. An access the verifier cannot
+prove keeps the checked form, which is still correct and still vectorized,
+only slower: a cursor reassigned inside the loop, a guard written with `<`
+instead of `<=`, or a load at an offset the guard did not cover all fall back
+to it. The masked tail after the loop, where fewer than a vector of elements
+remain, is where the checked form belongs.
+
 Code with no scalar continuation asserts it, the same way it states every
 other requirement. The assertion is refused at compile time on a tier that has
 no vectors, and it raises in a body that runs as ordinary Lua, where

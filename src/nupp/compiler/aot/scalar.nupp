@@ -797,6 +797,14 @@ record scalarIR.Simd
     args: {scalarIR.Expr}
     span: string?
     intrinsic: string?
+
+    --- On a `simd_load` or `simd_store` at `cursor + 1`, the cursor a
+    --- dominating `cursor + species.lanes <= #span` bounded, so the whole
+    --- vector is in the span and the access is one copy with no lane check.
+    cursor: string?
+
+    cursorCName: string?
+
     type: scalarIR.Type
     source: scalarIR.Source?
 end
@@ -1101,10 +1109,22 @@ end
 ----------------------------------------------------------------------------
 
 --- One arm of a conditional.
+--- The cursor bounds a branch or loop condition proves for its body, by
+--- cursor and then by span: `cursorBounds[cursor][span]` is the room the
+--- condition established below the span's count -- `"1"` for one element,
+--- from `cursor < #span`, or the species type whose lane count fits, from
+--- `cursor + species.lanes <= #span`. A species bound implies the one-element
+--- bound, so an ordinary `span[cursor + 1]` is proven under either.
+type scalarIR.CursorBounds = {[string]: {[string]: string}}
+
+--- The room a one-element bound records.
+const scalarIR.ONE_ELEMENT = "1"
+
+--- One arm of a conditional.
 record scalarIR.Clause
     condition: scalarIR.Expr
     body: {scalarIR.Statement}
-    cursorBounds: {[string]: string}?
+    cursorBounds: scalarIR.CursorBounds?
     source: scalarIR.Source?
 end
 
@@ -1138,7 +1158,7 @@ record scalarIR.While
     op: 'while'
     condition: scalarIR.Expr
     body: {scalarIR.Statement}
-    cursorBounds: {[string]: string}?
+    cursorBounds: scalarIR.CursorBounds?
     source: scalarIR.Source?
 end
 

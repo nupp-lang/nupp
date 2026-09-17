@@ -78,8 +78,9 @@ record verify.Scope
     --- so an index access is only sound against this set.
     indexSpans: {[string]: boolean}?
 
-    --- Zero-based uint32 cursors authorized by dominating count checks.
-    cursorBounds: {[string]: string}
+    --- Zero-based uint32 cursors authorized by dominating count checks, by
+    --- cursor and then by root, holding the room each check established.
+    cursorBounds: scalarIR.CursorBounds
 
     resultTypes: {scalarIR.Type}
 
@@ -324,6 +325,38 @@ local laneWalk: function(lane.Expr, {[string]: string}, verify.Context): nil
 
 local bitOperand = admit.bitOperand
 
+--- The room a cursor is bounded with below a root's count, or nil when no
+--- dominating check bounded it against that root.
+local function boundRoom(bounds: scalarIR.CursorBounds, cursor: string?, root: string?): string?
+    local spans = cursor ~= nil and bounds[cursor as string] or nil
+
+    return spans ~= nil and root ~= nil and spans[root as string] or nil
+end
+
+--- Records one bound, replacing the inner table an enclosing scope shares
+--- rather than writing into it. A vector's room implies an element's, so an
+--- element bound never narrows one.
+local function withBound(bounds: scalarIR.CursorBounds, cursor: string, root: string, room: string): nil
+    local spans: {[string]: string} = {}
+    for name, held in pairs(bounds[cursor] or {}) do
+        spans[name] = held
+    end
+    if spans[root] == nil or room ~= scalarIR.ONE_ELEMENT then
+        spans[root] = room
+    end
+    bounds[cursor] = spans
+end
+
+--- A scope's cursor bounds, copied so a nested scope can retire its own.
+local function inheritBounds(bounds: scalarIR.CursorBounds): scalarIR.CursorBounds
+    local copied: scalarIR.CursorBounds = {}
+    for name, spans in pairs(bounds) do
+        copied[name] = spans
+    end
+
+    return copied
+end
+
 --- Whether a direct read at `index` is proved by a cursor: the index is that
 --- very cursor local -- by name and by the C name the emitter addresses -- the
 --- cursor is a uint32, and a dominating check bounded it against `root`.
@@ -345,7 +378,7 @@ local function cursorRead(
 
     return named.name == cursor and named.cName == cursorCName and values[
         cursor as string
-    ] == "u32" and scope.cursorBounds[cursor as string] == root
+    ] == "u32" and boundRoom(scope.cursorBounds, cursor, root) ~= nil
 end
 
 --- The prefix a fixed word buffer's width is recorded under, in the same map
@@ -453,7 +486,7 @@ local function load(node: scalarIR.Load, values: {[string]: string}, scope: veri
         holds(
             node.index == "" and values[
                 node.cursor as string
-            ] == "u32" and scope.cursorBounds[node.cursor as string] == node.span and node.cursorCName ~= nil,
+            ] == "u32" and boundRoom(scope.cursorBounds, node.cursor, node.span) ~= nil and node.cursorCName ~= nil,
             "unbounded cursor load"
         )
     else
@@ -485,9 +518,11 @@ local function elementRef(node: scalarIR.ElementRef, values: {[string]: string},
     )
     local bounded = node.cursor ~= nil and node.index == "" and values[
         node.cursor as string
-    ] == "u32" and scope.cursorBounds[
-        node.cursor as string
-    ] == node.span and node.cursorCName ~= nil or node.cursor == nil and node.index == scope.index and (
+    ] == "u32" and boundRoom(
+        scope.cursorBounds,
+        node.cursor,
+        node.span
+    ) ~= nil and node.cursorCName ~= nil or node.cursor == nil and node.index == scope.index and (
         scope.mapIndex == true and (
             scope.indexSpans as {[string]: boolean}
         )[node.span] == true or node.span == scope.boundSpan
@@ -518,6 +553,70 @@ local function corrected(node: scalarIR.Corrected, values: {[string]: string}, s
     )
     scalarWalk(left as scalarIR.Expr, values, scope)
     scalarWalk(right as scalarIR.Expr, values, scope)
+end
+
+--- The whole-vector bound one comparison proves: `le(u64_add(cast cursor,
+--- cast lanes(s)), span_count)` for a `u32` local cursor and a species `s`
+--- bounds the cursor one of `s`'s vectors below the span's count. Returns the
+--- cursor, the span, and the species type, whose lane count is the room. The
+--- sum has to be the exact 64-bit one the lowerer writes for this guard; the
+--- wrapping 32-bit sum proves nothing, because a cursor near 2^32 wraps it
+--- small.
+local function laneBound(
+    comparison: scalarIR.Binary,
+    values: {[string]: string},
+    scope: verify.Scope
+): (string?, string?, string?)
+    if comparison.op ~= "le" or comparison.left.op ~= "u64_add" or comparison.right.op ~= "span_count" then
+        return nil, nil, nil
+    end
+    local sum = comparison.left as scalarIR.Fixed
+    if sum.left.op ~= "numeric_cast" or sum.right.op ~= "numeric_cast" then
+        return nil, nil, nil
+    end
+    local cursorNode = (sum.left as scalarIR.Convert).value
+    local lanesNode = (sum.right as scalarIR.Convert).value
+    if cursorNode.op ~= "local" or cursorNode.type ~= "u32" or lanesNode.op ~= "simd_lanes_generic" then
+        return nil, nil, nil
+    end
+    local cursor = (cursorNode as scalarIR.Name).name
+    local species = (lanesNode as scalarIR.Simd).args[1]
+    local spanName = (comparison.right as scalarIR.SpanCount).span
+    local root = scope.spans[spanName]
+    if values[cursor] ~= "u32" or species == nil or root == nil or (root as scalarIR.Param).region == nil then
+        return nil, nil, nil
+    end
+
+    return cursor, spanName, tostring(species.type)
+end
+
+--- Whether a vector access's cursor claim holds: the access is at `cursor +
+--- 1`, spelled as the promoted wrapping sum the lowerer writes for it, and a
+--- dominating guard bounded that cursor a whole vector of the access's own
+--- species below the span's count.
+local function vectorCursor(access: scalarIR.Simd, values: {[string]: string}, scope: verify.Scope): boolean
+    local cursor = access.cursor as string
+    local offset = access.args[2]
+    if offset.op ~= "int_to_f64" then
+        return false
+    end
+    local sum = (offset as scalarIR.Convert).value
+    if sum.op ~= "u32_add" then
+        return false
+    end
+    local added = sum as scalarIR.Fixed
+    local one = added.right.op == "constant_i32" and added.right.type == "u32" and tonumber(
+        (added.right as scalarIR.IntConstant).value
+    ) == 1
+    local named = added.left.op == "local" and added.left as scalarIR.Name or nil
+
+    return one and named ~= nil and (
+        named as scalarIR.Name
+    ).name == cursor and (
+        named as scalarIR.Name
+    ).cName == access.cursorCName and access.cursorCName ~= nil and values[
+        cursor
+    ] == "u32" and boundRoom(scope.cursorBounds, cursor, access.span) == tostring(access.args[1].type)
 end
 
 --- Checks one binary64 operation, comparison, or bitwise operation.
@@ -559,11 +658,17 @@ local function binary(node: scalarIR.Binary, values: {[string]: string}, scope: 
         ] == "u32" and bound ~= nil and (
             op == "and" and node.left.op == "lt" or op == "or" and node.left.op == "ge"
         ) then
-            local cursorBounds: {[string]: string} = {}
-            for name, root in pairs(scope.cursorBounds) do
-                cursorBounds[name] = root
-            end
-            cursorBounds[cursor as string] = bound as string
+            local cursorBounds = inheritBounds(scope.cursorBounds)
+            withBound(cursorBounds, cursor as string, bound as string, scalarIR.ONE_ELEMENT)
+            rightScope = derive(scope, {cursorBounds = cursorBounds})
+        end
+    elseif op == "and" and node.left.op == "le" then
+        -- The same for a whole vector: `cursor + s.lanes <= #span and
+        -- s:load(span, cursor + 1)`.
+        local cursor, spanName, speciesType = laneBound(node.left as scalarIR.Binary, values, scope)
+        if cursor ~= nil then
+            local cursorBounds = inheritBounds(scope.cursorBounds)
+            withBound(cursorBounds, cursor as string, spanName as string, speciesType as string)
             rightScope = derive(scope, {cursorBounds = cursorBounds})
         end
     end
@@ -824,6 +929,12 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
                 ).kind == "read_span" and genericSimdSpanElement(span as scalarIR.Param) == element,
                 "invalid generic SIMD load root"
             )
+            if simd.cursor ~= nil then
+                holds(
+                    simd.intrinsic == "load" and args[3] == nil and vectorCursor(simd, values, scope),
+                    "unbounded SIMD cursor load"
+                )
+            end
         elseif op == "simd_binary" or op == "simd_unary" then
             holds(
                 (
@@ -1960,7 +2071,9 @@ local function provesCursorBound(
     condition: scalarIR.Expr,
     cursor: string,
     spanName: string,
-    values: {[string]: string}
+    room: string,
+    values: {[string]: string},
+    scope: verify.Scope
 ): boolean
     if condition.op == "and" then
         local binary = condition as scalarIR.Binary
@@ -1968,8 +2081,16 @@ local function provesCursorBound(
             binary.left,
             cursor,
             spanName,
-            values
-        ) or provesCursorBound(binary.right, cursor, spanName, values)
+            room,
+            values,
+            scope
+        ) or provesCursorBound(binary.right, cursor, spanName, room, values, scope)
+    elseif condition.op == "le" then
+        local boundCursor, boundSpan, speciesType = laneBound(condition as scalarIR.Binary, values, scope)
+
+        return boundCursor == cursor and boundSpan == spanName and speciesType == room
+    elseif room ~= scalarIR.ONE_ELEMENT then
+        return false
     elseif condition.op == "lt" then
         local comparison = condition as scalarIR.Binary
         local right = comparison.right
@@ -2023,36 +2144,38 @@ end
 --- not get to manufacture a bounds fact on its own.
 local function proveCursorBounds(
     condition: scalarIR.Expr,
-    declared: {[string]: string}?,
+    declared: scalarIR.CursorBounds?,
     values: {[string]: string},
     scope: verify.Scope,
     body: {scalarIR.Statement}?,
     why: string
-): {[string]: string}
+): scalarIR.CursorBounds
     local reassigned = body ~= nil and assignedLocals(body as {scalarIR.Statement}, {}) or {}
-    local cursorBounds: {[string]: string} = {}
-    for name, spanName in pairs(scope.cursorBounds) do
+    local cursorBounds: scalarIR.CursorBounds = {}
+    for name, spans in pairs(scope.cursorBounds) do
         if reassigned[name] ~= true then
-            cursorBounds[name] = spanName
+            cursorBounds[name] = spans
         end
     end
-    for name, spanName in pairs(declared or {}) do
-        local root = scope.spans[spanName]
-        holds(
-            values[
-                name
-            ] == "u32" and (
-                root ~= nil and (
-                    (
-                        root as scalarIR.Param
-                    ).region ~= nil or (
-                        root as scalarIR.Param
-                    ).type == "lua_string" or (root as scalarIR.Param).type == "lua_bytes"
-                ) or values[spanName] == "lua_scratch_u32"
-            ) and provesCursorBound(condition, name, spanName, values),
-            why .. " for " .. name .. " against " .. spanName
-        )
-        cursorBounds[name] = spanName
+    for name, spans in pairs(declared or {}) do
+        for spanName, room in pairs(spans) do
+            local root = scope.spans[spanName]
+            holds(
+                values[
+                    name
+                ] == "u32" and (
+                    root ~= nil and (
+                        (
+                            root as scalarIR.Param
+                        ).region ~= nil or (
+                            root as scalarIR.Param
+                        ).type == "lua_string" or (root as scalarIR.Param).type == "lua_bytes"
+                    ) or values[spanName] == "lua_scratch_u32"
+                ) and provesCursorBound(condition, name, spanName, room, values, scope),
+                why .. " for " .. name .. " against " .. spanName
+            )
+            withBound(cursorBounds, name, spanName, room)
+        end
     end
 
     return cursorBounds
@@ -2192,9 +2315,11 @@ local function block(
         elseif statement.op == "store" then
             local bounded = statement.cursor ~= nil and statement.index == "" and values[
                 statement.cursor as string
-            ] == "u32" and scope.cursorBounds[
-                statement.cursor as string
-            ] == statement.span
+            ] == "u32" and boundRoom(
+                scope.cursorBounds,
+                statement.cursor,
+                statement.span
+            ) ~= nil
                 and statement.cursorCName ~= nil
                 or statement.cursor == nil
                 and statement.index == scope.index
@@ -2381,6 +2506,12 @@ local function block(
                 ).kind == "write_span" and genericSimdSpanElement(span as scalarIR.Param) == element,
                 "invalid generic SIMD store root"
             )
+            if store.cursor ~= nil then
+                holds(
+                    store.intrinsic == "store" and store.args[4] == nil and vectorCursor(store, values, scope),
+                    "unbounded SIMD cursor store"
+                )
+            end
             for _, argument in ipairs(store.args) do
                 scalarWalk(argument, values, scope)
             end
@@ -2719,7 +2850,7 @@ local function block(
             invalidateCursors(scope, nestedScope)
         elseif statement.op == "repeat" then
             local inner = inherit(values)
-            local nestedScope = derive(scope, {cursorBounds = inherit(scope.cursorBounds)})
+            local nestedScope = derive(scope, {cursorBounds = inheritBounds(scope.cursorBounds)})
             block(statement.body, inner, nestedScope, stored, true)
             holds(statement.condition.type == "bool", "non-boolean repeat condition")
             scalarWalk(statement.condition, inner, nestedScope)

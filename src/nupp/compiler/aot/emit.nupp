@@ -624,12 +624,20 @@ function emit.genericStore(store: scalarIR.Simd): string
     if store.intrinsic == "scatter" or store.intrinsic == "scatterUnchecked" then
         return emit.indexedSimd(store)
     end
-    local _, element, lanes = explicitType(store.args[3].type)
+    local _, element, lanes, shape = explicitType(store.args[3].type)
     if element == nil or lanes == nil then
         error("generic SIMD store has no resolved species", 0)
     end
     local suffix = element .. "x" .. tostring(lanes)
     local helper = explicitScalar and "ks_scalar_exp_" or "ks_exp_"
+    local elementBits = tonumber(element:match("%d+")) or 0
+    local nativeLanes = elementBits > 0 and math.floor(explicitWidth * 8 / elementBits) or 0
+    -- The verified cursor store is the whole-vector copy, as the load is.
+    if store.cursor ~= nil and (shape == "preferred" or lanes == nativeLanes) then
+        return helper .. "store_at_" .. suffix .. "(p_" .. tostring(
+            store.span
+        ) .. " + (size_t)" .. tostring(store.cursorCName) .. ", " .. emit.scalar(store.args[3]) .. ")"
+    end
     local count = independentSpanCounts and "count_" .. tostring(store.span) or "count"
     local at = "p_" .. tostring(
         store.span
@@ -1041,6 +1049,15 @@ function emit.scalar(node: scalarIR.Expr): string
                 if simd.intrinsic == "gather" then
                     return emit.indexedSimd(simd)
                 end
+                -- A verified cursor access is a whole vector inside the span:
+                -- one copy at the cursor, no count and no lane check. A
+                -- composite vector keeps the checked form, because its last
+                -- chunk may be partial and its size is not its lane count.
+                if simd.cursor ~= nil and not composite then
+                    return genericHelper .. "load_at_" .. genericSuffix .. "(p_" .. tostring(
+                        simd.span
+                    ) .. " + (size_t)" .. tostring(simd.cursorCName) .. ")"
+                end
                 local count = independentSpanCounts and "count_" .. tostring(simd.span) or "count"
                 local at = "p_" .. tostring(simd.span) .. ", " .. count .. ", " .. emit.spanFirst(args[2])
                 if args[3] == nil then
@@ -1140,7 +1157,7 @@ function emit.scalar(node: scalarIR.Expr): string
                 if operation == "simd_mask_bits" then
                     return bits
                 elseif operation == "simd_mask_any" then
-                    return "(" .. bits .. " != UINT64_C(0))"
+                    return genericHelper .. "any_" .. genericSuffix .. "(" .. emit.scalar(args[1]) .. ")"
                 elseif operation == "simd_mask_all" then
                     local all = lanes == 64 and "UINT64_MAX" or "((UINT64_C(1) << " .. tostring(
                         lanes
@@ -1149,11 +1166,7 @@ function emit.scalar(node: scalarIR.Expr): string
                 elseif operation == "simd_mask_count" then
                     return "((uint32_t)__builtin_popcountll(" .. bits .. "))"
                 else
-                    return "((uint32_t)("
-                        .. bits
-                        .. " == UINT64_C(0) ? 0u : (uint32_t)__builtin_ctzll("
-                        .. bits
-                        .. ") + 1u))"
+                    return genericHelper .. "first_" .. genericSuffix .. "(" .. emit.scalar(args[1]) .. ")"
                 end
             end
         elseif operation == "simd_species_u8" or operation == "simd_lanes" then
@@ -2131,6 +2144,28 @@ function emit.includes(): {string}
         "#define KS_UNUSED",
         "#define KS_COLD",
         "#define KS_UNLIKELY(cond) (cond)",
+        "#endif",
+        "/* A partial vector moves through general registers rather than a stack",
+        " * array: fewer than eight bytes are gathered by their bits of width,",
+        " * so a tail is a few loads and no call. The layout is little-endian's,",
+        " * which every target here has; anything else keeps the array copy. */",
+        "#if defined(__BYTE_ORDER__) && defined(__ORDER_LITTLE_ENDIAN__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__",
+        "#define KS_WORD_TAIL 1",
+        "static inline KS_UNUSED uint64_t ks_gather_word(const uint8_t *source, size_t n) {",
+        "    uint64_t word = 0u; size_t at = 0u;",
+        "    if (n & 4u) { uint32_t part; memcpy(&part, source, 4u); word = part; at = 4u; }",
+        "    if (n & 2u) { uint16_t part; memcpy(&part, source + at, 2u); word |= (uint64_t)part << (at * 8u); at += 2u; }",
+        "    if (n & 1u) { word |= (uint64_t)source[at] << (at * 8u); }",
+        "    return word;",
+        "}",
+        "static inline KS_UNUSED void ks_scatter_word(uint8_t *destination, size_t n, uint64_t word) {",
+        "    size_t at = 0u;",
+        "    if (n & 4u) { uint32_t part = (uint32_t)word; memcpy(destination, &part, 4u); word >>= 32u; at = 4u; }",
+        "    if (n & 2u) { uint16_t part = (uint16_t)word; memcpy(destination + at, &part, 2u); word >>= 16u; at += 2u; }",
+        "    if (n & 1u) { destination[at] = (uint8_t)word; }",
+        "}",
+        "#else",
+        "#define KS_WORD_TAIL 0",
         "#endif",
         "/* Scalar oracles and their helpers keep their arithmetic unoptimized.",
         " * GCC x86 excludes AVX instructions from aggregate copies so stack",
@@ -4409,6 +4444,236 @@ local function sseBits(width: integer): string
         .. "| ((uint32_t)(uint16_t)_mm_movemask_epi8(v1) << 16u);"
 end
 
+--- The body of a generic species' `bits`: one bit per lane, lane zero lowest.
+---
+--- A lane's high bit decides, as for the byte block above. Each 16-byte
+--- register packs the same way whatever the lane width: a selector holds one
+--- power of two in the top byte of each lane and zero elsewhere, so the two
+--- eight-byte sums are the two halves of the register's bits. SSE2 has the
+--- move-mask for every width but sixteen bits, which packs to bytes first.
+--- The portable arm reads a lane's high bit through a multiply per word.
+local function genericBits(width: integer, bytes: integer): string
+    local perRegister = (16 / bytes) as integer
+    local perHalf = (8 / bytes) as integer
+    local registers = (width / 16) as integer
+    local selectors: {string} = {}
+    for i = 0, 15 do
+        local lane = math.floor(i / bytes)
+        selectors[#selectors + 1] = i % bytes == bytes - 1 and tostring(emit.LANE_POWERS[lane % perHalf + 1]) or "0"
+    end
+    local neon: {
+        string
+    } = {
+        "    static const uint8_t ks_lane_powers[16] = { " .. table.concat(selectors, ", ") .. " };",
+        "    const uint8x16_t selectors = vld1q_u8(ks_lane_powers);",
+        "    const uint8x16_t highBits = vdupq_n_u8(0x80u);",
+        "    uint64_t out = 0u; uint8x16_t v;",
+    }
+    local sse: {string} = {"    uint64_t out = 0u; __m128i v;"}
+    for r = 0, registers - 1 do
+        local at = "((const uint8_t *)&value) + " .. tostring(r * 16) .. "u"
+        neon[
+            #neon + 1
+        ] = "    memcpy(&v, "
+            .. at
+            .. ", 16u); v = vandq_u8(vtstq_u8(v, highBits), selectors); "
+            .. "out |= ((uint64_t)vaddv_u8(vget_low_u8(v)) | (uint64_t)vaddv_u8(vget_high_u8(v)) << "
+            .. tostring(
+                perHalf
+            ) .. "u) << " .. tostring(r * perRegister) .. "u;"
+        local moved = bytes == 1
+            and "(uint64_t)(uint16_t)_mm_movemask_epi8(v)"
+            or bytes == 2
+            and "(uint64_t)(uint8_t)_mm_movemask_epi8(_mm_packs_epi16(v, _mm_setzero_si128()))"
+            or bytes == 4
+            and "(uint64_t)_mm_movemask_ps(_mm_castsi128_ps(v))"
+            or "(uint64_t)_mm_movemask_pd(_mm_castsi128_pd(v))"
+        sse[
+            #sse + 1
+        ] = "    memcpy(&v, " .. at .. ", 16u); out |= " .. moved .. " << " .. tostring(r * perRegister) .. "u;"
+    end
+    -- Per lane width: the low bit of every lane in a word, the multiplier
+    -- that gathers those bits into the word's top lane, and the mask of the
+    -- lanes a word holds. The multiplier's partial products never overlap
+    -- because lane width and lane width minus one are coprime.
+    local laneBits = bytes * 8
+    local packing = ({
+        [1] = {"0x0101010101010101", "0x0002040810204081", "0xFF"},
+        [2] = {"0x0001000100010001", "0x0000200040008001", "0xF"},
+        [4] = {"0x0000000100000001", "0x0000000080000001", "0x3"},
+        [8] = {"0x0000000000000001", "0x0000000000000001", "0x1"},
+    })[bytes]
+
+    return table.concat(
+        {
+            "#if defined(__aarch64__)",
+            table.concat(neon, "\n"),
+            "    return out;",
+            "#elif defined(__SSE2__)",
+            table.concat(sse, "\n"),
+            "    return out;",
+            "#else",
+            "    uint64_t out = 0u;",
+            "    for (uint32_t i = 0u; i < " .. tostring(width / 8) .. "u; ++i) {",
+            "        uint64_t word; memcpy(&word, ((const uint8_t *)&value) + i * 8u, 8u);",
+            "        word = (word >> " .. tostring(laneBits - 1) .. "u) & UINT64_C(" .. packing[1] .. ");",
+            "        out |= ((word * UINT64_C(" .. packing[
+                2
+            ] .. ")) >> " .. tostring(
+                (perHalf - 1) * (laneBits - 1)
+            ) .. "u & UINT64_C(" .. packing[3] .. ")) << (i * " .. tostring(perHalf) .. "u);",
+            "    }",
+            "    return out;",
+            "#endif",
+        },
+        "\n"
+    )
+end
+
+--- The body of a partial load: `room` elements, fewer than a vector, into
+--- the words a vector is made of, none of them touching the stack.
+local function partLoad(width: integer, bytes: integer, vector: string): string
+    local words = (width / 8) as integer
+    local names: {string} = {}
+    for w = 0, words - 1 do
+        names[#names + 1] = "w" .. tostring(w) .. " = 0u"
+    end
+    local out: {
+        string
+    } = {
+        "    size_t n = room * " .. tostring(
+            bytes
+        ) .. "u; const uint8_t *p = (const uint8_t *)source; uint64_t " .. table.concat(names, ", ") .. ";",
+    }
+    for w = 0, words - 2 do
+        out[
+            #out + 1
+        ] = "    if (n >= " .. tostring(
+            (w + 1) * 8
+        ) .. "u) memcpy(&w" .. tostring(w) .. ", p + " .. tostring(w * 8) .. "u, 8u);"
+    end
+    if bytes < 8 then
+        local cases: {string} = {}
+        for w = 0, words - 1 do
+            cases[
+                #cases + 1
+            ] = "case " .. tostring(
+                w
+            ) .. "u: w" .. tostring(w) .. " |= ks_gather_word(p + " .. tostring(w * 8) .. "u, n & 7u); break;"
+        end
+        out[#out + 1] = "    switch (n >> 3u) { " .. table.concat(cases, " ") .. " default: break; }"
+    end
+    local assemble: {string} = {}
+    for w = 0, words - 1 do
+        assemble[#assemble + 1] = "memcpy((uint8_t *)&out + " .. tostring(w * 8) .. "u, &w" .. tostring(w) .. ", 8u);"
+    end
+    out[#out + 1] = "    " .. vector .. " out; " .. table.concat(assemble, " ") .. " return out;"
+
+    return table.concat(out, "\n")
+end
+
+--- The body of a partial store of a vector whose every lane in `room` is
+--- active: the mirror of `partLoad`.
+local function partStore(width: integer, bytes: integer): string
+    local words = (width / 8) as integer
+    local names: {string} = {}
+    local split: {string} = {}
+    for w = 0, words - 1 do
+        names[#names + 1] = "w" .. tostring(w)
+        split[#split + 1] = "memcpy(&w" .. tostring(w) .. ", (const uint8_t *)&value + " .. tostring(w * 8) .. "u, 8u);"
+    end
+    local out: {
+        string
+    } = {
+        "    size_t n = room * " .. tostring(
+            bytes
+        ) .. "u; uint8_t *p = (uint8_t *)destination; uint64_t " .. table.concat(
+            names,
+            ", "
+        ) .. "; " .. table.concat(split, " "),
+    }
+    for w = 0, words - 2 do
+        out[
+            #out + 1
+        ] = "    if (n >= " .. tostring(
+            (w + 1) * 8
+        ) .. "u) memcpy(p + " .. tostring(w * 8) .. "u, &w" .. tostring(w) .. ", 8u);"
+    end
+    if bytes < 8 then
+        local cases: {string} = {}
+        for w = 0, words - 1 do
+            cases[
+                #cases + 1
+            ] = "case " .. tostring(
+                w
+            ) .. "u: ks_scatter_word(p + " .. tostring(w * 8) .. "u, n & 7u, w" .. tostring(w) .. "); break;"
+        end
+        out[#out + 1] = "    switch (n >> 3u) { " .. table.concat(cases, " ") .. " default: break; }"
+    end
+
+    return table.concat(out, "\n")
+end
+
+--- The body of a generic species' `any`, on the same reading as `bits`.
+---
+--- AArch64 answers from the top byte of every lane in one maximum; anywhere
+--- else `bits` is already the cheapest way to look at every lane at once.
+local function genericAny(width: integer, bytes: integer, bitsHelper: string): string
+    local registers = (width / 16) as integer
+    local signs: {string} = {}
+    for i = 0, 15 do
+        signs[#signs + 1] = i % bytes == bytes - 1 and "0x80" or "0"
+    end
+    local neon: {
+        string
+    } = {
+        "    static const uint8_t ks_lane_signs[16] = { " .. table.concat(signs, ", ") .. " };",
+        "    const uint8x16_t signs = vld1q_u8(ks_lane_signs);",
+        "    uint8x16_t v, all;",
+    }
+    for r = 0, registers - 1 do
+        neon[
+            #neon + 1
+        ] = "    memcpy(&v, ((const uint8_t *)&value) + " .. tostring(
+            r * 16
+        ) .. "u, 16u); " .. (r == 0 and "all = v;" or "all = vorrq_u8(all, v);")
+    end
+
+    return table.concat(
+        {
+            "#if defined(__aarch64__)",
+            table.concat(neon, "\n"),
+            "    return vmaxvq_u8(vandq_u8(all, signs)) != 0u;",
+            "#else",
+            "    return " .. bitsHelper .. "(value) != UINT64_C(0);",
+            "#endif",
+        },
+        "\n"
+    )
+end
+
+--- The `any` and `first` of one mask type, over its `bits` helper.
+---
+--- `first` asks `any` before it counts, so a scan that finds nothing pays for
+--- the cheaper of the two, and the mask is evaluated once whatever it is.
+local function maskQueries(prefix: string, suffix: string, mask: string, anyBody: string?): {string}
+    local bits = prefix .. "bits_" .. suffix
+    return {
+        "static inline __attribute__((unused)) bool " .. prefix .. "any_" .. suffix .. "(" .. mask .. " value) {",
+        anyBody or "    return " .. bits .. "(value) != UINT64_C(0);",
+        "}",
+        "static inline __attribute__((unused)) uint32_t " .. prefix .. "first_" .. suffix .. "(" .. mask .. " value) {",
+        "    return "
+        .. prefix
+        .. "any_"
+        .. suffix
+        .. "(value) ? (uint32_t)__builtin_ctzll("
+        .. bits
+        .. "(value)) + 1u : 0u;",
+        "}",
+    }
+end
+
 --- Scalar executable definitions for the named horizontal contracts.
 ---
 --- `scalar` selects the independent struct oracle; `composite` selects a fixed
@@ -4929,25 +5194,28 @@ local function genericSimdPrelude(width: integer): {string}
                 #words
             ) .. "]; memcpy(words, &inactive, sizeof words); return (" .. table.concat(words, " | ") .. ") == 0u; }"
         local cold = "static __attribute__((noinline, cold, unused)) "
+        local apart = "static inline __attribute__((unused)) "
         lines[
             #lines + 1
-        ] = cold
-            .. vector
-            .. " ks_exp_load_part_"
-            .. suffix
-            .. "(const "
-            .. element.c
-            .. " *source, size_t room) { "
+        ] = apart .. vector .. " ks_exp_load_part_" .. suffix .. "(const " .. element.c .. " *source, size_t room) {"
+        lines[#lines + 1] = "#if KS_WORD_TAIL"
+        lines[#lines + 1] = partLoad(width, element.bytes, vector)
+        lines[#lines + 1] = "#else"
+        lines[
+            #lines + 1
+        ] = "    "
             .. element.c
             .. " lanes["
             .. laneCount
             .. "] = {0}; memcpy(lanes, source, room * sizeof lanes[0]); "
             .. vector
-            .. " out; memcpy(&out, lanes, sizeof out); return out; }"
+            .. " out; memcpy(&out, lanes, sizeof out); return out;"
+        lines[#lines + 1] = "#endif"
+        lines[#lines + 1] = "}"
         lines[
             #lines + 1
         ] = cold
-            .. "void ks_exp_store_part_"
+            .. "void ks_exp_store_masked_part_"
             .. suffix
             .. "("
             .. element.c
@@ -4959,15 +5227,44 @@ local function genericSimdPrelude(width: integer): {string}
             .. element.c
             .. " lanes["
             .. laneCount
-            .. "]; memcpy(lanes, &value, sizeof lanes); if (ks_exp_full_"
-            .. suffix
-            .. "(active | ~ks_exp_tail_"
-            .. suffix
-            .. "((uint32_t)room))) { memcpy(destination, lanes, room * sizeof lanes[0]); return; } "
+            .. "]; memcpy(lanes, &value, sizeof lanes); "
             .. element.mask
             .. " keep["
             .. laneCount
             .. "]; memcpy(keep, &active, sizeof keep); for (size_t i = 0u; i < room; ++i) if (keep[i]) destination[i] = lanes[i]; }"
+        lines[
+            #lines + 1
+        ] = apart
+            .. "void ks_exp_store_part_"
+            .. suffix
+            .. "("
+            .. element.c
+            .. " *destination, size_t room, "
+            .. vector
+            .. " value, "
+            .. mask
+            .. " active) {"
+        lines[
+            #lines + 1
+        ] = "    if (!ks_exp_full_"
+            .. suffix
+            .. "(active | ~ks_exp_tail_"
+            .. suffix
+            .. "((uint32_t)room))) { ks_exp_store_masked_part_"
+            .. suffix
+            .. "(destination, room, value, active); return; }"
+        lines[#lines + 1] = "#if KS_WORD_TAIL"
+        lines[#lines + 1] = partStore(width, element.bytes)
+        lines[#lines + 1] = "#else"
+        lines[
+            #lines + 1
+        ] = "    "
+            .. element.c
+            .. " lanes["
+            .. laneCount
+            .. "]; memcpy(lanes, &value, sizeof lanes); memcpy(destination, lanes, room * sizeof lanes[0]);"
+        lines[#lines + 1] = "#endif"
+        lines[#lines + 1] = "}"
         lines[
             #lines + 1
         ] = unused
@@ -5018,6 +5315,29 @@ local function genericSimdPrelude(width: integer): {string}
             .. "(destination + first, room, value, ~("
             .. mask
             .. "){0}); }"
+        -- The proven access: a whole vector the verifier holds to be inside
+        -- the span, so it is the copy and nothing else.
+        lines[
+            #lines + 1
+        ] = unused
+            .. vector
+            .. " ks_exp_load_at_"
+            .. suffix
+            .. "(const "
+            .. element.c
+            .. " *source) { "
+            .. vector
+            .. " out; memcpy(&out, source, sizeof out); return out; }"
+        lines[
+            #lines + 1
+        ] = unused
+            .. "void ks_exp_store_at_"
+            .. suffix
+            .. "("
+            .. element.c
+            .. " *destination, "
+            .. vector
+            .. " value) { memcpy(destination, &value, sizeof value); }"
         lines[
             #lines + 1
         ] = unused
@@ -5059,17 +5379,14 @@ local function genericSimdPrelude(width: integer): {string}
             .. ")yes) | (~active & ("
             .. mask
             .. ")no)); }"
-        lines[
-            #lines + 1
-        ] = unused
-            .. "uint64_t ks_exp_bits_"
-            .. suffix
-            .. "("
-            .. mask
-            .. " value) { uint64_t out = 0u; for (uint32_t i = 0u; i < "
-            .. tostring(
-                lanes
-            ) .. "u; ++i) if (value[i]) out |= UINT64_C(1) << i; return out; }"
+        lines[#lines + 1] = unused .. "uint64_t ks_exp_bits_" .. suffix .. "(" .. mask .. " value) {"
+        lines[#lines + 1] = genericBits(width, element.bytes)
+        lines[#lines + 1] = "}"
+        for _, line in ipairs(
+            maskQueries("ks_exp_", suffix, mask, genericAny(width, element.bytes, "ks_exp_bits_" .. suffix))
+        ) do
+            lines[#lines + 1] = line
+        end
         lines[
             #lines + 1
         ] = unused
@@ -5429,6 +5746,33 @@ local function genericSimdPrelude(width: integer): {string}
             #lines + 1
         ] = unused
             .. scalarVector
+            .. " ks_scalar_exp_load_at_"
+            .. suffix
+            .. "(const "
+            .. element.c
+            .. " *source) { "
+            .. scalarVector
+            .. " out; for (uint32_t i = 0u; i < "
+            .. tostring(
+                lanes
+            ) .. "u; ++i) out.lane[i] = source[i]; return out; }"
+        lines[
+            #lines + 1
+        ] = unused
+            .. "void ks_scalar_exp_store_at_"
+            .. suffix
+            .. "("
+            .. element.c
+            .. " *destination, "
+            .. scalarVector
+            .. " value) { for (uint32_t i = 0u; i < "
+            .. tostring(
+                lanes
+            ) .. "u; ++i) destination[i] = value.lane[i]; }"
+        lines[
+            #lines + 1
+        ] = unused
+            .. scalarVector
             .. " ks_scalar_exp_select_"
             .. suffix
             .. "("
@@ -5452,6 +5796,9 @@ local function genericSimdPrelude(width: integer): {string}
             .. tostring(
                 lanes
             ) .. "u; ++i) if (value.lane[i]) out |= UINT64_C(1) << i; return out; }"
+        for _, line in ipairs(maskQueries("ks_scalar_exp_", suffix, scalarMask)) do
+            lines[#lines + 1] = line
+        end
         lines[
             #lines + 1
         ] = unused
@@ -6087,6 +6434,9 @@ local function fixedSimdPrelude(width: integer): {string}
                 ) .. "u); " .. (
                     lanes == 64 and "" or "out &= (UINT64_C(1) << " .. tostring(lanes) .. "u) - UINT64_C(1); "
                 ) .. "return out; }"
+            for _, line in ipairs(maskQueries("ks_exp_", suffix, mask)) do
+                lines[#lines + 1] = line
+            end
             lines[
                 #lines + 1
             ] = unused
@@ -6577,6 +6927,9 @@ local function fixedSimdPrelude(width: integer): {string}
                 .. tostring(
                     lanes
                 ) .. "u; ++i) if (value.lane[i]) out |= UINT64_C(1) << i; return out; }"
+            for _, line in ipairs(maskQueries("ks_scalar_exp_", suffix, scalarMask)) do
+                lines[#lines + 1] = line
+            end
             lines[
                 #lines + 1
             ] = unused

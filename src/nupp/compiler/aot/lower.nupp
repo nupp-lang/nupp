@@ -911,9 +911,11 @@ record lower.Kernel
     --- list; this is only for `return` statements in a general block body.
     resultTypes: {scalarIR.Type}
 
-    --- Zero-based uint32 cursors proved safe by enclosing branches, mapped to
-    --- the span whose checked count bounds `cursor + 1`.
-    cursorBounds: {[string]: string}
+    --- Zero-based uint32 cursors proved safe by enclosing branches, by cursor
+    --- and then by the span whose checked count bounds it: the room recorded is
+    --- `scalarIR.ONE_ELEMENT` for `cursor + 1`, or the species type whose whole
+    --- vector fits at `cursor + 1`.
+    cursorBounds: scalarIR.CursorBounds
 
     --- Immutable uint32 locals initialized from one rooted string's length.
     lengthBounds: {[string]: string}
@@ -1098,12 +1100,35 @@ local function assignedNames(body: cst.Node?, out: {[string]: boolean}): {[strin
     return out
 end
 
+--- The room a cursor is proved to have below a root's count: nil when no
+--- dominating check bounded it against that root.
+local function boundRoom(bounds: scalarIR.CursorBounds, cursor: string?, root: string?): string?
+    local spans = cursor ~= nil and bounds[cursor as string] or nil
+
+    return spans ~= nil and root ~= nil and spans[root as string] or nil
+end
+
+--- Records one bound in a map of cursor bounds. The inner table is replaced
+--- rather than written, because an enclosing scope's map shares it. A vector's
+--- room implies an element's, so an element bound never narrows one.
+local function withBound(bounds: scalarIR.CursorBounds, cursor: string, root: string, room: string): nil
+    local spans: {[string]: string} = {}
+    for name, held in pairs(bounds[cursor] or {}) do
+        spans[name] = held
+    end
+    if spans[root] == nil or room ~= scalarIR.ONE_ELEMENT then
+        spans[root] = room
+    end
+    bounds[cursor] = spans
+end
+
 --- The cursor a `candidate + 1` index names, when a dominating check bounded
---- that cursor against this span.
+--- that cursor against this span: with any room, or with exactly `room` when
+--- one is asked for, which is how a vector access asks for its whole width.
 ---
 --- Shared by the load and the store for the same reason `provenIndex` is: two
 --- spellings of one proof drift apart.
-local function provedCursor(indexArg: cst.Node?, spanName: string?, kernel: lower.Kernel): string?
+local function provedCursor(indexArg: cst.Node?, spanName: string?, kernel: lower.Kernel, room: string?): string?
     if indexArg == nil or indexArg.kind ~= "binop" then
         return nil
     end
@@ -1112,11 +1137,59 @@ local function provedCursor(indexArg: cst.Node?, spanName: string?, kernel: lowe
     local token = index.rhs ~= nil and index.rhs.kind == "number" and (index.rhs as cst.NumberLit).token or nil
     local offset = token ~= nil and tonumber((token as lexer.Token).text) or nil
     local candidate = lower.nameOf(index.lhs)
-    if written == "+" and offset == 1 and candidate ~= nil and kernel.cursorBounds[candidate as string] == spanName then
+    local held = boundRoom(kernel.cursorBounds, candidate, spanName)
+    if written == "+" and offset == 1 and held ~= nil and (room == nil or held == room) then
         return candidate
     end
 
     return nil
+end
+
+--- The whole-vector bound one comparison establishes: `cursor + s.lanes <=
+--- #span`, for a `uint32` cursor and a species `s`, proves the cursor has room
+--- for one of `s`'s vectors below the span's count. Returns the cursor, the
+--- span, and the species type, whose lane count is the room.
+---
+--- The sum is exact here, not the wrapping `uint32` addition the operator
+--- otherwise means: past 2^32 - 1 the guard is false. Read as wrapping it
+--- would restart the loop from the top of the span, which no program means,
+--- and it is the exact reading the proof needs.
+local function laneBound(
+    comparison: cst.Binop,
+    environment: {[string]: any},
+    kernel: lower.Kernel
+): (string?, string?, string?)
+    local written = comparison.op ~= nil and (comparison.op as lexer.Token).text or ""
+    local sum, counted = comparison.lhs, comparison.rhs
+    if written == ">=" then
+        sum, counted = comparison.rhs, comparison.lhs
+    elseif written ~= "<=" then
+        return nil, nil, nil
+    end
+    if sum == nil or sum.kind ~= "binop" then
+        return nil, nil, nil
+    end
+    local added = sum as cst.Binop
+    if added.op == nil or (added.op as lexer.Token).text ~= "+" or added.rhs == nil or added.rhs.kind ~= "dotIndex" then
+        return nil, nil, nil
+    end
+    local cursor = lower.nameOf(added.lhs)
+    local cursorBinding = cursor ~= nil and environment[cursor as string] or nil
+    local lanes = added.rhs as cst.DotIndex
+    local speciesName = lanes.name ~= nil and (
+        lanes.name as lexer.Token
+    ).text == "lanes" and lower.nameOf(lanes.obj) or nil
+    local species = speciesName ~= nil and environment[speciesName as string] or nil
+    local speciesType = species ~= nil and tostring(species.type) or ""
+    local spanName = lower.dotCount(counted)
+    local param = spanName ~= nil and kernel.params[spanName as string] or nil
+    if cursorBinding ~= nil and cursorBinding.type == "u32" and speciesType:match(
+        "^simd_species_"
+    ) ~= nil and speciesType ~= "simd_species_u8" and param ~= nil and param.region ~= nil then
+        return cursor, spanName, speciesType
+    end
+
+    return nil, nil, nil
 end
 
 --- One indexed span read.
@@ -1441,6 +1514,27 @@ local function speciesNilTest(written: string, lhs: cst.Node, rhs: cst.Node, env
     return nil
 end
 
+--- `cursor + s.lanes` widened to an exact 64-bit sum, when `sum` is that
+--- wrapping 32-bit addition of a local cursor and a species' lane count;
+--- anything else comes back as it was.
+local function exactLaneSum(sum: scalarIR.Expr, source: scalarIR.Source?): scalarIR.Expr
+    if sum.op ~= "u32_add" then
+        return sum
+    end
+    local added = sum as scalarIR.Fixed
+    if added.left.op ~= "local" or added.left.type ~= "u32" or added.right.op ~= "simd_lanes_generic" then
+        return sum
+    end
+
+    return new scalarIR.Fixed(
+        op = "u64_add",
+        left = new scalarIR.Convert(op = "numeric_cast", value = added.left, type = "u64", source = source),
+        right = new scalarIR.Convert(op = "numeric_cast", value = added.right, type = "u64", source = source),
+        type = "u64",
+        source = source
+    )
+end
+
 --- One binary operator.
 local function binary(node: cst.Binop, left: scalarIR.Expr, right: scalarIR.Expr, kernel: lower.Kernel): scalarIR.Expr
     local context = kernel.context
@@ -1588,6 +1682,16 @@ local function binary(node: cst.Binop, left: scalarIR.Expr, right: scalarIR.Expr
         -- answers the same question in the width it was asked about.
         local narrowedLeft = exactWidthConstant(left, right.type) or left
         local narrowedRight = exactWidthConstant(right, left.type) or right
+        -- A whole-vector cursor guard, `cursor + s.lanes <= #span`, is taken
+        -- exactly: the sum is widened to 64 bits rather than wrapped at 32,
+        -- so past 2^32 - 1 the guard is false. Wrapped it would restart the
+        -- loop from the top of the span, which no program means, and only the
+        -- exact sum proves the vector access under it. See `laneBound`.
+        if written == "<=" and right.op == "span_count" then
+            narrowedLeft = exactLaneSum(left, source)
+        elseif written == ">=" and left.op == "span_count" then
+            narrowedRight = exactLaneSum(right, source)
+        end
 
         return new scalarIR.Binary(
             op = comparison,
@@ -2240,7 +2344,7 @@ local function call(
         markLua(kernel, lower.site(node))
         local scratchName = (args[1] as scalarIR.Name).name
         local cursor = args[2].op == "local" and (args[2] as scalarIR.Name).name or nil
-        local proved = cursor ~= nil and kernel.cursorBounds[cursor as string] == scratchName
+        local proved = boundRoom(kernel.cursorBounds, cursor, scratchName) ~= nil
         return new scalarIR.LuaScratchU32Get(
             fixedBound = identity == "nupp.codec.valuebuilder.scratchWord" and kernel.scratchBounds[
                 (args[1] as scalarIR.Name).name
@@ -2486,7 +2590,7 @@ local function call(
         local byteAt = identity == "nupp.codec.valuebuilder.byteAt"
         local cursor = byteAt and args[2].op == "local" and (args[2] as scalarIR.Name).name or nil
         local bytesName = (args[1] as scalarIR.Name).name
-        if byteAt and (cursor == nil or kernel.cursorBounds[cursor as string] ~= bytesName) then
+        if byteAt and boundRoom(kernel.cursorBounds, cursor, bytesName) == nil then
             context.reject(lower.site(node), "valuebuilder.byteAt needs offset < length(bytes) to dominate the read")
         end
         return new scalarIR.LuaBytes(
@@ -2982,6 +3086,19 @@ local function simdMethod(
             else
                 offset = lower.convert(offset, "f64", source, kernel.context)
             end
+            -- An unmasked access at `cursor + 1` under a dominating `cursor +
+            -- s.lanes <= #span` is a whole vector inside the span: it carries
+            -- the cursor so the verifier can hold that and the emitter can
+            -- copy without checking any lane. A masked one keeps its mask.
+            local masked = raw[reading and 3 or 4] ~= nil
+            local cursor = not indexed and not masked and provedCursor(
+                lower.unwrapped(raw[2]),
+                spanName,
+                kernel,
+                tostring(receiverType)
+            ) or nil
+            local cursorBinding = cursor ~= nil and environment[cursor as string] or nil
+            local cursorCName = cursorBinding ~= nil and cursorBinding.cName or nil
             if reading then
                 local loadArgs: {scalarIR.Expr} = {receiver as scalarIR.Expr, offset}
                 if raw[3] ~= nil then
@@ -2996,6 +3113,8 @@ local function simdMethod(
                     args = loadArgs,
                     span = spanName,
                     intrinsic = method,
+                    cursor = cursor,
+                    cursorCName = cursorCName,
                     type = vectorType,
                     source = source
                 )
@@ -3017,6 +3136,8 @@ local function simdMethod(
                     args = storeArgs,
                     span = spanName,
                     intrinsic = method,
+                    cursor = cursor,
+                    cursorCName = cursorCName,
                     type = "lua_effect",
                     source = source
                 )
@@ -3669,41 +3790,50 @@ end
 --- A short-circuit left operand whose truth value proves the right operand's
 --- cursor in bounds: `cursor < #span and span[cursor + 1] ...`, or the same
 --- against a scratch's initialized length, and either turned around under
---- `or`. The right operand only runs when the left held, so what the left
---- proves is what the right may rely on -- the same fact a branch gets from
---- its condition, reaching the one place a condition is itself the consumer.
+--- `or`; or `cursor + s.lanes <= #span and s:load(span, cursor + 1) ...`,
+--- which proves a whole vector's room. The right operand only runs when the
+--- left held, so what the left proves is what the right may rely on -- the
+--- same fact a branch gets from its condition, reaching the one place a
+--- condition is itself the consumer. Returns the cursor, the root it is
+--- bounded against, and the room.
 local function shortCircuitBound(
     connective: string,
     left: cst.Node?,
     environment: {[string]: any},
     kernel: lower.Kernel
-): (string?, string?)
+): (string?, string?, string?)
     if left == nil or left.kind ~= "binop" then
-        return nil, nil
+        return nil, nil, nil
     end
     local comparison = left as cst.Binop
+    if connective == "and" then
+        local vectorCursor, vectorSpan, speciesType = laneBound(comparison, environment, kernel)
+        if vectorCursor ~= nil then
+            return vectorCursor, vectorSpan, speciesType
+        end
+    end
     local written = comparison.op ~= nil and (comparison.op as lexer.Token).text or ""
     if not (connective == "and" and written == "<" or connective == "or" and written == ">=") then
-        return nil, nil
+        return nil, nil, nil
     end
     local cursor = lower.nameOf(comparison.lhs)
     local cursorBinding = cursor ~= nil and environment[cursor as string] or nil
     if cursorBinding == nil or cursorBinding.type ~= "u32" then
-        return nil, nil
+        return nil, nil, nil
     end
     local spanName = lower.dotCount(comparison.rhs)
     local param = spanName ~= nil and kernel.params[spanName as string] or nil
     if param ~= nil and param.region ~= nil then
-        return cursor, spanName
+        return cursor, spanName, scalarIR.ONE_ELEMENT
     end
     local lengthName = lower.nameOf(comparison.rhs)
     local scratchName = lengthName ~= nil and kernel.scratchLengthBounds[lengthName as string] or nil
     local scratchBinding = scratchName ~= nil and environment[scratchName as string] or nil
     if scratchBinding ~= nil and scratchBinding.type == "lua_scratch_u32" then
-        return cursor, scratchName
+        return cursor, scratchName, scalarIR.ONE_ELEMENT
     end
 
-    return nil, nil
+    return nil, nil, nil
 end
 
 --- One admitted expression, and everything under it.
@@ -4092,14 +4222,14 @@ function lower.expression(
             return new scalarIR.Bool(op = "bool", value = decided as boolean, type = "bool", source = lower.site(node))
         end
         local left = lower.expression(operator.lhs as cst.Node, environment, activeIndex, kernel)
-        local cursor, boundName = shortCircuitBound(written, operator.lhs, environment, kernel)
+        local cursor, boundName, room = shortCircuitBound(written, operator.lhs, environment, kernel)
         local previous = kernel.cursorBounds
         if cursor ~= nil then
-            local bounds: {[string]: string} = {}
-            for name, root in pairs(previous) do
-                bounds[name] = root
+            local bounds: scalarIR.CursorBounds = {}
+            for name, spans in pairs(previous) do
+                bounds[name] = spans
             end
-            bounds[cursor as string] = boundName as string
+            withBound(bounds, cursor as string, boundName as string, room as string)
             kernel.cursorBounds = bounds
         end
         local right = lower.expression(operator.rhs as cst.Node, environment, activeIndex, kernel)
@@ -5385,28 +5515,22 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
         return lower.block(block ~= nil and (block as cst.Block).stats or {}, inherit(environment), kernel)
     end
 
-    --- A positive `uint32 cursor < #span` fact authorizes exactly
-    --- `span[cursor + 1]` in that arm.
-    local function cursorBound(condition: cst.Node?): (string?, string?)
-        if condition == nil or condition.kind ~= "binop" then
-            return nil, nil
+    --- The bounds one comparison establishes: a positive `uint32 cursor <
+    --- #span` fact authorizes exactly `span[cursor + 1]` in that arm, and
+    --- `cursor + s.lanes <= #span` authorizes `s:load(span, cursor + 1)` as
+    --- well. Returns the cursor, the root it is bounded against, and the room.
+    local function comparedBound(comparison: cst.Binop): (string?, string?, string?)
+        local vectorCursor, vectorSpan, speciesType = laneBound(comparison, environment, kernel)
+        if vectorCursor ~= nil then
+            return vectorCursor, vectorSpan, speciesType
         end
-        local comparison = condition as cst.Binop
         local written = comparison.op ~= nil and (comparison.op as lexer.Token).text or ""
-        if written == "and" then
-            local cursor, spanName = cursorBound(comparison.lhs)
-            if cursor ~= nil then
-                return cursor, spanName
-            end
-
-            return cursorBound(comparison.rhs)
-        end
         local cursor = lower.nameOf(comparison.lhs)
         local spanName = lower.dotCount(comparison.rhs)
         local binding = cursor ~= nil and environment[cursor as string] or nil
         local param = spanName ~= nil and kernel.params[spanName as string] or nil
         if written == "<" and binding ~= nil and binding.type == "u32" and param ~= nil and param.region ~= nil then
-            return cursor, spanName
+            return cursor, spanName, scalarIR.ONE_ELEMENT
         end
         local lengthName = lower.nameOf(comparison.rhs)
         local bytesName = lengthName ~= nil and kernel.lengthBounds[lengthName as string] or nil
@@ -5414,7 +5538,7 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
         if written == "<" and binding ~= nil and binding.type == "u32" and bytes ~= nil and bytes.kind == "scalar" and (
             bytes.type == "lua_string" or bytes.type == "lua_bytes"
         ) then
-            return cursor, bytesName
+            return cursor, bytesName, scalarIR.ONE_ELEMENT
         end
         local scratchName = lengthName ~= nil and kernel.scratchLengthBounds[lengthName as string] or nil
         local scratch = scratchName ~= nil and environment[scratchName as string] or nil
@@ -5424,14 +5548,35 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
             and scratch ~= nil
             and scratch.type == "lua_scratch_u32"
         then
-            return cursor, scratchName
+            return cursor, scratchName, scalarIR.ONE_ELEMENT
         end
 
-        return nil, nil
+        return nil, nil, nil
+    end
+
+    --- Every bound a condition proves when it holds: each comparison it
+    --- conjoins with `and` that `comparedBound` reads. Nil when there is none.
+    local function cursorBound(condition: cst.Node?, into: scalarIR.CursorBounds?): scalarIR.CursorBounds?
+        if condition == nil or condition.kind ~= "binop" then
+            return into
+        end
+        local comparison = condition as cst.Binop
+        local written = comparison.op ~= nil and (comparison.op as lexer.Token).text or ""
+        if written == "and" then
+            return cursorBound(comparison.rhs, cursorBound(comparison.lhs, into))
+        end
+        local cursor, root, room = comparedBound(comparison)
+        if cursor == nil then
+            return into
+        end
+        local bounds = into or {}
+        withBound(bounds as scalarIR.CursorBounds, cursor as string, root as string, room as string)
+
+        return bounds
     end
 
     --- Lowers a nested block under the cursor bounds it runs with: the
-    --- enclosing ones, less any a loop body reassigns, plus the one its own
+    --- enclosing ones, less any a loop body reassigns, plus those its own
     --- condition proves.
     ---
     --- A cursor the loop body assigns is bounded by the enclosing proof on the
@@ -5441,23 +5586,24 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
     --- verifier applies -- refused here so the refusal names the read.
     local function nestedWithCursor(
         body: cst.Node?,
-        cursor: string?,
-        spanName: string?,
+        proved: scalarIR.CursorBounds?,
         loop: boolean?
     ): {scalarIR.Statement}
-        if loop ~= true and (cursor == nil or spanName == nil) then
+        if loop ~= true and proved == nil then
             return nested(body)
         end
         local previous = kernel.cursorBounds
         local reassigned = loop == true and assignedNames(body, {}) or {}
-        local bounds: {[string]: string} = {}
-        for name, span in pairs(previous) do
+        local bounds: scalarIR.CursorBounds = {}
+        for name, spans in pairs(previous) do
             if reassigned[name] ~= true then
-                bounds[name] = span
+                bounds[name] = spans
             end
         end
-        if cursor ~= nil and spanName ~= nil then
-            bounds[cursor as string] = spanName as string
+        for name, spans in pairs(proved or {}) do
+            for root, room in pairs(spans) do
+                withBound(bounds, name, root, room)
+            end
         end
         kernel.cursorBounds = bounds
         local lowered = nested(body)
@@ -5839,16 +5985,12 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
                     end
                     local known = staticTruth(condition)
                     if known ~= false then
-                        local cursor, spanName = cursorBound(arm.cond)
-                        local cursorBounds: {[string]: string}? = nil
-                        if cursor ~= nil and spanName ~= nil then
-                            cursorBounds = {[cursor as string] = spanName as string}
-                        end
+                        local cursorBounds = cursorBound(arm.cond, nil)
                         clauses[
                             #clauses + 1
                         ] = new scalarIR.Clause(
                             condition = condition,
-                            body = nestedWithCursor(arm.body, cursor, spanName),
+                            body = nestedWithCursor(arm.body, cursorBounds),
                             cursorBounds = cursorBounds,
                             source = lower.site(arm)
                         )
@@ -5921,10 +6063,10 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
             kernel.mapEntry = false
             local previousBounds = kernel.cursorBounds
             local reassigned = assignedNames(loop.body, {})
-            local loopBounds: {[string]: string} = {}
-            for name, span in pairs(previousBounds) do
+            local loopBounds: scalarIR.CursorBounds = {}
+            for name, spans in pairs(previousBounds) do
                 if reassigned[name] ~= true then
-                    loopBounds[name] = span
+                    loopBounds[name] = spans
                 end
             end
             kernel.cursorBounds = loopBounds
@@ -5978,14 +6120,14 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
             if condition.type ~= "bool" then
                 context.reject(lower.site(loop.cond), "native loop conditions must be boolean")
             end
-            local cursor, spanName = cursorBound(loop.cond)
+            local cursorBounds = cursorBound(loop.cond, nil)
             out[
                 #out + 1
             ] = new scalarIR.While(
                 op = "while",
                 condition = condition,
-                body = nestedWithCursor(loop.body, cursor, spanName, true),
-                cursorBounds = cursor ~= nil and {[cursor as string] = spanName as string} or nil,
+                body = nestedWithCursor(loop.body, cursorBounds, true),
+                cursorBounds = cursorBounds,
                 source = lower.site(stat)
             )
         elseif kind == "repeatStmt" then
