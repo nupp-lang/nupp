@@ -42,7 +42,7 @@ local explicitFixedTypes: {[string]: boolean} = {}
 --- self-contained translation unit. What a header is for and what it may be
 --- conditioned on is at its top.
 --- @raises when this compiler carries no header by that name
-local function carried(name: string): {string}
+function emit.carried(name: string): {string}
     local text = bundled.source("/aot/include/" .. name)
     if text == nil then
         error("this compiler carries no /aot/include/" .. name)
@@ -2031,7 +2031,7 @@ end
 --- What every generated file starts with: `ks_prelude.h` carried whole.
 function emit.includes(): {string}
     local lines = {"/* Generated from verified test-only native C IR. */"}
-    for _, line in ipairs(carried("ks_prelude.h")) do
+    for _, line in ipairs(emit.carried("ks_prelude.h")) do
         lines[#lines + 1] = line
     end
 
@@ -2042,7 +2042,7 @@ end
 --- `ks_feature_tier.h` as the whole of one translation unit.
 function emit.featureDetector(): string
     local lines = emit.includes()
-    for _, line in ipairs(carried("ks_feature_tier.h")) do
+    for _, line in ipairs(emit.carried("ks_feature_tier.h")) do
         lines[#lines + 1] = line
     end
 
@@ -2100,7 +2100,7 @@ function emit.luaPrelude(wideNumbers: boolean): {string}
     if wideNumbers then
         lines[#lines + 1] = "#define KS_JSON_WIDE 1"
     end
-    for _, line in ipairs(carried("ks_lua.h")) do
+    for _, line in ipairs(emit.carried("ks_lua.h")) do
         lines[#lines + 1] = line
     end
 
@@ -3661,7 +3661,7 @@ end
 --- because they depend on which `Fixed<N>` types the program mentions.
 function emit.simdPrelude(width: integer): {string}
     local lines: {string} = {"#define KS_SIMD_WIDTH " .. tostring(width)}
-    for _, line in ipairs(carried("ks_simd.h")) do
+    for _, line in ipairs(emit.carried("ks_simd.h")) do
         lines[#lines + 1] = line
     end
     lines[#lines + 1] = "#undef KS_SIMD_WIDTH"
@@ -5111,14 +5111,14 @@ function emit.program(programs: {scalarIR.Program}, tier: string?): string
 
     for _, program in ipairs(programs) do
         if program.lanes ~= nil or hasLanes(program.body or {}) then
-            for _, line in ipairs(carried("ks_gang.h")) do
+            for _, line in ipairs(emit.carried("ks_gang.h")) do
                 lines[#lines + 1] = line
             end
             break
         end
     end
 
-    for _, line in ipairs(carried("ks_scalar.h")) do
+    for _, line in ipairs(emit.carried("ks_scalar.h")) do
         lines[#lines + 1] = line
     end
 
