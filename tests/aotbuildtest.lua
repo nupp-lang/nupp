@@ -384,7 +384,19 @@ local function reusedScratchName(probe: uint32, nullValue: any): any
     return valueBuilder.finish(state)
 end
 
+local function adjacent(value: number): (number, number)
+    return value, value + 1
+end
+
+@aot(vectorize = false)
+local function multipleBindings(value: number): {number}
+    local first, second = adjacent(value)
+    local third, fourth = adjacent(second)
+    return {first, second, third, fourth}
+end
+
 return {
+    multipleBindings = multipleBindings,
     rows = rows,
     object = object,
     stream = stream,
@@ -2426,6 +2438,7 @@ function M.luaBuilderRegistrationReturnsOrdinaryTables()
          print(table.concat(rows, ","))
          print(object.name, object.ready, table.concat(object.nested, ","))
          print(streamed.name, streamed.flag, byte, word)
+         print(table.concat(builder.multipleBindings(7), ","))
       ]]
 
     local ordinary, ordinaryDir = builderAnswer("off", REGISTRATION)
@@ -2456,6 +2469,10 @@ function M.luaBuilderRegistrationReturnsOrdinaryTables()
     assert(
         native:find("42\ttrue\t52\t7", 1, true),
         builderReport("streamed members", "require", dir, native) .. context
+    )
+    assert(
+        native:find("7,8,8,9", 1, true),
+        "multiple helper bindings keep their values and distinct temporaries: " .. native
     )
     local primitiveText = builderAnswer(
         "require",
@@ -2821,7 +2838,11 @@ function M.scopedPackedBytesHandleEveryTailWithoutOverreading()
     -- it.
     local header = assert(io.open(HERE .. "/../src/nupp/compiler/aot/include/ks_simd.h", "rb")):read("*a")
     assert(
-        header:find('#define KS_SCALAR_REGION_BEGIN _Pragma("GCC push_options") _Pragma("GCC optimize (\\"O0\\")") _Pragma("GCC target (\\"no-avx\\")")', 1, true),
+        header:find(
+            '#define KS_SCALAR_REGION_BEGIN _Pragma("GCC push_options") _Pragma("GCC optimize (\\"O0\\")") _Pragma("GCC target (\\"no-avx\\")")',
+            1,
+            true
+        ),
         "the scalar region holds its helpers to the oracle target"
     )
     local regions, inRegion = 0, false
@@ -3478,12 +3499,15 @@ end
 return m
 ]]
     local script = 'print(require("plain").answer())'
+
     local function answer(open)
         local dir = project("off")
         local handle = assert(io.open(dir .. "/src/kernel.nupp", "wb"))
-        handle:write((body:gsub("OPEN", function()
-            return open
-        end)))
+        handle:write(
+            (body:gsub("OPEN", function()
+                return open
+            end))
+        )
         handle:close()
         handle = assert(io.open(dir .. "/src/plain.nupp", "wb"))
         handle:write(driver)

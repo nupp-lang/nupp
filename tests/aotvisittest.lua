@@ -403,4 +403,135 @@ function M.laneWalkReachesAUniformMultipleBinding()
     assert(seen.argument, "the lane walk reaches the call's arguments")
 end
 
+-- C rendering owns its contexts and selections, never fields on semantic IR.
+function M.cEmissionDoesNotMutateHelpersOrLeakBetweenTargets()
+    local emit = require("nupp.compiler.aot.emit")
+    local json = require("testjson")
+
+    local function unit(width, name)
+        local vector = "simd_vector_f32_preferred"
+        local value = {op = "helper_param", name = "x", cName = "x", type = vector}
+        return {
+            name = name,
+            symbol = name,
+            entryMode = "kernel",
+            simdWidth = width,
+            params = {},
+            guards = {},
+            resultTypes = {},
+            body = {{op = "return", values = {}}},
+            helpers = {
+                {
+                    name = "pair",
+                    cName = name .. "_pair",
+                    params = {value},
+                    resultType = "multi",
+                    resultTypes = {vector, vector},
+                    values = {value, value}
+                }
+            },
+        }
+    end
+
+    local first, second = unit(16, "first"), unit(32, "second")
+    local before = json.encode(first)
+    local rendered = emit.program({first})
+    emit.program({second})
+    assert(emit.program({first}) == rendered, "another width changed a subsequent emission")
+    assert(json.encode(first) == before, "emission mutated semantic IR")
+    assert(rendered:find("ks_scalar_exp_f32x4", 1, true), "scalar helper lost its physical type")
+    assert(rendered:find("ks_exp_f32x4", 1, true), "vector helper lost its physical type")
+end
+
+function M.cControlFlowKeepsRepeatContinuationsInsideTheirOwnLoop()
+    local emit = require("nupp.compiler.aot.emit")
+    local yes = {op = "bool", value = true, type = "bool"}
+    local statements = {
+        {
+            op = "repeat",
+            condition = yes,
+            body = {
+                {op = "block", body = {{op = "continue"}}},
+                {op = "while", condition = yes, body = {{op = "continue"}, {op = "break"}}},
+                {op = "repeat", condition = yes, body = {{op = "continue"}}},
+                {op = "continue"},
+            }
+        }
+    }
+
+    local function render(renderer)
+        return table.concat(renderer(emit.context(), statements, 0, {helpers = {}, lanes = 0, layouts = {}}), "\n")
+    end
+
+    local kernel, builder = render(emit.block), render(emit.luaBlock)
+    assert(kernel == builder, "kernel and Lua builder disagree about shared control flow")
+    assert(kernel:find("goto ks_repeat_continue_1;", 1, true))
+    assert(kernel:find("goto ks_repeat_continue_2;", 1, true))
+    assert(kernel:find("        continue;", 1, true), "inner while inherited the outer repeat's continuation")
+    local _, outerJumps = kernel:gsub("goto ks_repeat_continue_1;", "")
+    assert(outerJumps == 2, "nested repeat changed the enclosing repeat's continuation")
+end
+
+function M.cSelectionsPreserveIntegerCountBoundsAndStoreOffsets()
+    local emit = require("nupp.compiler.aot.emit")
+    local cplan = require("nupp.compiler.aot.cplan")
+    local count = {op = "span_count", span = "input", type = "f64"}
+    local signed = {op = "local", name = "cursor", cName = "cursor", type = "i64"}
+    local widened = {op = "int_to_f64", value = signed, type = "f64"}
+    local comparison = {op = "lt", left = count, right = widened, type = "bool"}
+    local offset = {op = "int_to_f64", value = localValue("offset"), type = "f64"}
+    local store = {op = "simd_store", args = {localValue("species"), offset, localValue("value")}, type = "lua_effect"}
+    local context = emit.context()
+    context.expressions = cplan.expressions({{body = {{op = "return", values = {comparison}}, store}, helpers = {}}})
+    assert(emit.scalar(context, comparison) == "ks_gt_i64_u64((int64_t)cursor, (uint64_t)count_input)")
+    assert(emit.spanFirst(context, offset) == "nupp_first_u64((uint64_t)offset)")
+    local common = emit.context(context)
+    common.independentSpanCounts = false
+    assert(emit.scalar(common, comparison) == "ks_gt_i64_u64((int64_t)cursor, (uint64_t)count)")
+end
+
+function M.cFieldPairsAreDisjointAndRequireMatchingPhysicalLayouts()
+    local cplan = require("nupp.compiler.aot.cplan")
+
+    local function load(name, field)
+        return {
+            op = "let",
+            name = name,
+            cName = name,
+            type = "f32x4",
+            value = {
+                op = "vfield_load",
+                span = "input",
+                layout = "Pair",
+                field = field,
+                lanes = 4,
+                scalarType = "f32",
+                sourceType = "float",
+                type = "f32x4",
+            }
+        }
+    end
+
+    local layout = {
+        name = "Pair",
+        fields = {{name = "x", type = "f32", sourceType = "float"}, {name = "y", type = "f32", sourceType = "float"}}
+    }
+    local first, second, third = load("a", "y"), load("b", "x"), load("c", "y")
+    local selected = cplan.fieldPairs({first, second, third}, {Pair = layout})
+    assert(selected[1] and not selected[2] and not selected[3], "adjacent triples must not overlap")
+    assert(selected[1].leftIndex == 1 and selected[1].rightIndex == 0, "field order was lost")
+    layout.fields[2].sourceType = "int32"
+    assert(next(cplan.fieldPairs({first, second}, {Pair = layout})) == nil, "mixed storage was paired")
+end
+
+function M.cStatementsRejectUnsupportedAndUnknownOperations()
+    local emit = require("nupp.compiler.aot.emit")
+    for _, renderer in ipairs({emit.block, emit.luaBlock}) do
+        for _, op in ipairs({"phase", "simd_splat", "future_statement"}) do
+            local ok = pcall(renderer, emit.context(), {{op = op}}, 0, {helpers = {}, layouts = {}, lanes = 0})
+            assert(not ok, "C renderer silently accepted " .. op)
+        end
+    end
+end
+
 return M

@@ -67,9 +67,7 @@ end
 --- Appends Lua-callable closures and one deterministic registrar to a kernel C unit.
 function wasmemit.registrar(programs: {scalarIR.Program}, unit: string, tier: string): string
     local lines: {string} = {""}
-    for _, line in ipairs(emit.carried("ks_wasm.h")) do
-        lines[#lines + 1] = line
-    end
+    lines[#lines + 1] = emit.carried("ks_wasm.h")
 
     for _, program in ipairs(programs) do
         if program.entryMode == "kernel" then
