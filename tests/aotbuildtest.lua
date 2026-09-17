@@ -2815,27 +2815,36 @@ function M.scopedPackedBytesHandleEveryTailWithoutOverreading()
     local out, code = build(dir)
     test.equal(code, 0, out)
 
+    -- The scalar oracle helpers are authored in ks_simd.h inside
+    -- KS_SCALAR_REGION_BEGIN/END, which on GCC x86 is the O0 no-avx target, so
+    -- the regions are read from the header and the tiers are checked to carry
+    -- it.
+    local header = assert(io.open(HERE .. "/../src/nupp/compiler/aot/include/ks_simd.h", "rb")):read("*a")
+    assert(
+        header:find('#define KS_SCALAR_REGION_BEGIN _Pragma("GCC push_options") _Pragma("GCC optimize (\\"O0\\")") _Pragma("GCC target (\\"no-avx\\")")', 1, true),
+        "the scalar region holds its helpers to the oracle target"
+    )
+    local regions, inRegion = 0, false
+    local sawLoad, sawCopy = false, false
+    for line in header:gmatch("[^\n]*") do
+        if line:find("^KS_SCALAR_REGION_BEGIN") then
+            regions, inRegion = regions + 1, true
+        elseif line:find("^KS_SCALAR_REGION_END") then
+            inRegion = false
+        elseif inRegion then
+            sawLoad = sawLoad or line:find("ks_scalar_load_", 1, true) ~= nil
+            sawCopy = sawCopy or line:find("void ks_scalar_copy_bytes(", 1, true) ~= nil
+            assert(not line:find("memcpy(", 1, true), "fortified copies stay out of the scalar target: " .. line)
+            assert(not line:find("ks_store4_", 1, true), "packed helpers stay at the tier target: " .. line)
+        end
+    end
+    assert(regions >= 2 and not inRegion, "every scalar region is closed")
+    assert(sawLoad, "the scalar helpers sit inside a region")
+    assert(sawCopy, "and so does the unvectorized scalar copy")
     for _, tier in ipairs(buildTiers(nil, nil)) do
         local c = assert(read(tieredC(dir, tier.tier)), tier.tier)
-        local scalarTarget = assert(
-            c:find('#pragma GCC target ("no-avx")', 1, true),
-            tier.tier .. " holds scalar helpers to the oracle target"
-        )
-        local scalarHelper = assert(
-            c:find("ks_scalar_load_", scalarTarget, true),
-            tier.tier .. " emits the scalar helpers after that target"
-        )
-        local scalarRestore = assert(
-            c:find("#pragma GCC pop_options", scalarHelper, true),
-            tier.tier .. " restores the tier target after the scalar helpers"
-        )
-        local scalarSection = c:sub(scalarTarget, scalarRestore)
-        assert(scalarSection:find("ks_scalar_copy_bytes", 1, true), tier.tier .. " emits an unvectorized scalar copy")
-        assert(
-            not scalarSection:find("memcpy(", 1, true),
-            tier.tier .. " keeps fortified copies out of the scalar target"
-        )
-        assert(not scalarSection:find("ks_store4_", 1, true), tier.tier .. " keeps packed helpers at the tier target")
+        assert(c:find("\nKS_SCALAR_REGION_BEGIN\n", 1, true), tier.tier .. " carries the scalar regions")
+        assert(c:find("\n#define KS_SIMD_WIDTH ", 1, true), tier.tier .. " instantiates a packed width")
     end
 
     if artifacts then

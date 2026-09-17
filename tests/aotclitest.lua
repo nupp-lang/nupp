@@ -2405,7 +2405,7 @@ function M.genericExplicitSimdKeepsIntrinsicTypesAndAnIndependentOracle()
         decoded.ir:find("simd_store.store:lua_effect", 1, true),
         where .. ": the masked store is intrinsic\n" .. decoded.ir
     )
-    assert(decoded.c:find("typedef float ks_exp_f32x8", 1, true), where .. ": AVX2 selects eight binary32 lanes")
+    assert(decoded.c:find("KS_EXP_ELEMENT(32, f32x8, float", 1, true), where .. ": AVX2 selects eight binary32 lanes")
     assert(decoded.c:find("ks_saxpy_forced_scalar", 1, true), where .. ": the scalar-source oracle remains separate")
     assert(decoded.c:find("ks_scalar_exp_mul_f32x8", 1, true), where .. ": oracle primitives execute lane by lane")
 end
@@ -2442,7 +2442,7 @@ return {increment = increment}
     local decoded, raw, code, where = lowered(dir, "--target aarch64-apple-darwin --features neon --json narrow.nupp")
     test.equal(code, 0, raw)
     assert(decoded.ir:find("simd_vector_u8_preferred", 1, true), where .. ": physical byte identity reaches IR")
-    assert(decoded.c:find("typedef uint8_t ks_exp_u8x16", 1, true), where .. ": NEON retains sixteen byte lanes")
+    assert(decoded.c:find("KS_EXP_ELEMENT(16, u8x16, uint8_t", 1, true), where .. ": NEON retains sixteen byte lanes")
 
     local asm, asmCode = run(dir, "--target aarch64-apple-darwin --features neon --emit asm narrow.nupp")
     test.equal(asmCode, 0, asm)
@@ -3711,12 +3711,12 @@ function M.scopedSimdSelectsOnePackedRegisterForTheTargetTier()
     local dir = project{["simd.nupp"] = SCOPED_SIMD}
     local baseline, baselineCode = run(dir, "--target x86_64-unknown-linux-gnu --emit c simd.nupp")
     test.equal(baselineCode, 0, baseline)
-    assert(baseline:find("vector_size(16)", 1, true), baseline)
+    assert(baseline:find("#define KS_SIMD_WIDTH 16", 1, true), baseline)
     assert(baseline:find("ks_load_u8x16", 1, true), baseline)
 
     local avx, avxCode = run(dir, "--target x86_64-unknown-linux-gnu --features avx2 --emit c simd.nupp")
     test.equal(avxCode, 0, avx)
-    assert(avx:find("vector_size(32)", 1, true), avx)
+    assert(avx:find("#define KS_SIMD_WIDTH 32", 1, true), avx)
     assert(avx:find("ks_bits_u8x32", 1, true), avx)
 
     local neon, neonCode = run(dir, "--target aarch64-unknown-linux-gnu --emit ir simd.nupp")
@@ -4924,35 +4924,40 @@ return {add = add}
     assert(not loop:find("count_input, nupp_first", 1, true), "the loop carries no checked access\n" .. body)
     assert(body:find("ks_exp_load_u8x16(p_input, count_input, nupp_first_u64(", 1, true), "the masked tail load is checked\n" .. body)
     assert(body:find("ks_exp_store_u8x16(p_output, count_output, nupp_first_u64(", 1, true), "and so is the masked tail store\n" .. body)
+
+    -- The helpers themselves are authored C, carried as ks_simd.h and
+    -- instantiated per element by macro, so their shape is read from the
+    -- header rather than from the emitted text.
+    local header = assert(io.open(HERE .. "/../src/nupp/compiler/aot/include/ks_simd.h", "rb")):read("*a")
+    assert(c:find("KS_EXP_ELEMENT(16, u8x16, uint8_t, int8_t, 16, 1, INT)", 1, true), "the u8x16 helpers are instantiated\n" .. c)
     assert(
-        c:find("ks_exp_u8x16 ks_exp_load_at_u8x16(const uint8_t *source) { ks_exp_u8x16 out; memcpy(&out, source, sizeof out); return out; }", 1, true)
-            and c:find("void ks_exp_store_at_u8x16(uint8_t *destination, ks_exp_u8x16 value) { memcpy(destination, &value, sizeof value); }", 1, true),
-        "a proven vector is one copy\n" .. c
+        header:find("ks_exp_load_at_##ELEM(const CTYPE *source) { ks_exp_##ELEM out; memcpy(&out, source, sizeof out); return out; }", 1, true)
+            and header:find("ks_exp_store_at_##ELEM(CTYPE *destination, ks_exp_##ELEM value) { memcpy(destination, &value, sizeof value); }", 1, true),
+        "a proven vector is one copy"
     )
     assert(
-        c:find("ks_exp_load_full_u8x16(const uint8_t *source, size_t count, size_t first) {", 1, true)
-            and c:find("if (room >= 16u) { memcpy(&out, source + first, sizeof out); return out; }", 1, true),
-        "a checked whole vector is still one copy\n" .. c
+        header:find("ks_exp_load_full_##ELEM(const CTYPE *source, size_t count, size_t first) {", 1, true)
+            and header:find("if (room >= LANES##u) { memcpy(&out, source + first, sizeof out); return out; }", 1, true),
+        "a checked whole vector is still one copy"
     )
     assert(
-        c:find("static inline __attribute__((unused)) ks_exp_u8x16 ks_exp_load_part_u8x16(const uint8_t *source, size_t room) {\n#if KS_WORD_TAIL\n", 1, true)
-            and c:find("switch (n >> 3u) { case 0u: w0 |= ks_gather_word(p + 0u, n & 7u); break; case 1u: w1 |= ks_gather_word(p + 8u, n & 7u); break; default: break; }", 1, true)
-            and c:find("return ks_exp_load_part_u8x16(source + first, room); }", 1, true),
-        "a partial vector gathers into words\n" .. c
+        header:find("#if KS_WORD_TAIL", 1, true)
+            and header:find("switch (n >> 3u) { case 0u: w0 |= ks_gather_word(p + 0u, n & 7u); break; case 1u: w1 |= ks_gather_word(p + 8u, n & 7u); break; default: break; }", 1, true),
+        "a partial vector gathers into words"
     )
     assert(
-        c:find("case 0u: ks_scatter_word(p + 0u, n & 7u, w0); break; case 1u: ks_scatter_word(p + 8u, n & 7u, w1); break;", 1, true)
-            and c:find("static __attribute__((noinline, cold, unused)) void ks_exp_store_masked_part_u8x16(", 1, true),
-        "and scatters from them, with the lane loop cold\n" .. c
+        header:find("case 0u: ks_scatter_word(p + 0u, n & 7u, w0); break; case 1u: ks_scatter_word(p + 8u, n & 7u, w1); break;", 1, true)
+            and header:find("static __attribute__((noinline, cold, unused)) void ks_exp_store_masked_part_##ELEM(", 1, true),
+        "and scatters from them, with the lane loop cold"
     )
     assert(
-        c:find("bool ks_exp_full_u8x16(ks_exp_mask_u8x16 active) { ks_exp_mask_u8x16 inactive = (ks_exp_mask_u8x16)(active == (ks_exp_mask_u8x16){0});", 1, true),
-        "all-active is a vector compare\n" .. c
+        header:find("bool ks_exp_full_##ELEM(ks_exp_mask_##ELEM active) { ks_exp_mask_##ELEM inactive = (ks_exp_mask_##ELEM)(active == (ks_exp_mask_##ELEM){0});", 1, true),
+        "all-active is a vector compare"
     )
     assert(
-        c:find("ks_exp_mask_u8x16 ks_exp_tail_u8x16(uint32_t active) { if (active > 16u) active = 16u; ks_exp_mask_u8x16 lane = (ks_exp_mask_u8x16){ (int8_t)0, (int8_t)1,", 1, true)
-            and c:find("return (ks_exp_mask_u8x16)(lane < limit); }", 1, true),
-        "and so is a tail mask\n" .. c
+        header:find("ks_exp_mask_##ELEM ks_exp_tail_##ELEM(uint32_t active) { if (active > LANES##u) active = LANES##u;", 1, true)
+            and header:find("return (ks_exp_mask_##ELEM)(lane < limit); }", 1, true),
+        "and so is a tail mask"
     )
 end
 
@@ -5135,7 +5140,10 @@ return {total = total}
         test.equal(code, 0, raw)
         assert(decoded.ir:find("simd_species_f32_preferred", 1, true), tier.args .. ": the preferred shape\n" .. decoded.ir)
         assert(decoded.ir:find("simd_vector_f32_fixed8", 1, true), tier.args .. ": the fixed shape\n" .. decoded.ir)
-        assert(decoded.c:find("ks_exp_load_full_f32x" .. tier.lanes .. "(", 1, true), tier.args .. ": the tier's width\n" .. decoded.c)
+        assert(
+            decoded.c:find("KS_EXP_ELEMENT(" .. tier.lanes * 4 .. ", f32x" .. tier.lanes .. ", float", 1, true),
+            tier.args .. ": the tier's width\n" .. decoded.c
+        )
         assert(not decoded.c:find("assert", 1, true), tier.args .. ": nothing of the assert survives\n" .. decoded.c)
     end
 

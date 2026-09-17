@@ -14,9 +14,6 @@
 #ifndef KS_SIMD_H
 #define KS_SIMD_H
 
-#define KS_CAT_(a, b) a##b
-#define KS_CAT(a, b) KS_CAT_(a, b)
-
 /* `v` repeated N times, comma separated: a splat or zero initialiser. */
 #define KS_REP_2(v) v, v
 #define KS_REP_4(v) KS_REP_2(v), KS_REP_2(v)
@@ -384,4 +381,495 @@ static inline __attribute__((unused)) uint32_t ks_any_u8x##W(ks_u8x##W mask) { \
     KS_ANY_BODY_##W \
 }
 
-/*KS_SIMD_CONTINUE*/
+/* ---- The scalar oracle beside it ----------------------------------- */
+
+#define KS_U8_SCALAR(W) \
+typedef struct { uint8_t lane[W]; } __attribute__((aligned(W))) ks_scalar_u8x##W; \
+typedef struct { uint8_t bytes[64]; } __attribute__((aligned(64))) KsScalarBlockU8x64x##W; \
+KS_SCALAR_REGION_BEGIN \
+static inline __attribute__((unused)) ks_scalar_u8x##W ks_scalar_load_u8x##W(const uint8_t *source, size_t count, uint32_t offset) { \
+    ks_scalar_u8x##W out = {{0}}; \
+    if ((size_t)offset < count) { \
+        size_t active = count - (size_t)offset; \
+        if (active > W##u) active = W##u; \
+        ks_scalar_copy_bytes(out.lane, source + offset, active); \
+    } \
+    return out; \
+} \
+static inline __attribute__((unused)) ks_scalar_u8x##W ks_scalar_splat_u8x##W(uint8_t value) { ks_scalar_u8x##W out; for (uint32_t i = 0; i < W##u; ++i) out.lane[i] = value; return out; } \
+static inline __attribute__((unused)) ks_scalar_u8x##W ks_scalar_shl_u8x##W(ks_scalar_u8x##W value, uint32_t count) { if (count >= 8u) return ks_scalar_splat_u8x##W(0u); for (uint32_t i = 0; i < W##u; ++i) value.lane[i] = (uint8_t)(value.lane[i] << count); return value; } \
+static inline __attribute__((unused)) ks_scalar_u8x##W ks_scalar_lookup64_u8x##W(ks_scalar_u8x##W indexes, KsTableU8x16 t0, KsTableU8x16 t1, KsTableU8x16 t2, KsTableU8x16 t3) { const uint8_t *lanes[4]; lanes[0] = t0.lane; lanes[1] = t1.lane; lanes[2] = t2.lane; lanes[3] = t3.lane; ks_scalar_u8x##W out; for (uint32_t i = 0; i < W##u; ++i) { uint8_t index = indexes.lane[i]; out.lane[i] = index < 64u ? lanes[index >> 4][index & 15u] : 0u; } return out; } \
+static inline __attribute__((unused)) ks_scalar_u8x##W ks_scalar_load_stride3_u8x##W(const uint8_t *source, size_t count, uint32_t offset, uint32_t lane) { ks_scalar_u8x##W out; for (uint32_t i = 0; i < W##u; ++i) out.lane[i] = 0u; if (lane > 2u) { return out; } for (uint32_t i = 0; i < W##u; ++i) { size_t at = (size_t)offset + (size_t)i * 3u + (size_t)lane; if (at < count) { out.lane[i] = source[at]; } } return out; } \
+static inline __attribute__((unused)) ks_scalar_u8x##W ks_scalar_shr_u8x##W(ks_scalar_u8x##W value, uint32_t count) { if (count >= 8u) return ks_scalar_splat_u8x##W(0u); for (uint32_t i = 0; i < W##u; ++i) value.lane[i] = (uint8_t)(value.lane[i] >> count); return value; } \
+static inline __attribute__((unused)) ks_scalar_u8x##W ks_scalar_padded_load_full_u8x##W(const KsPaddedStringU8x##W *view, uint32_t offset) { \
+    ks_scalar_u8x##W out = {{0}}; if (offset >= view->full_length || offset % W##u != 0u) return out; ks_scalar_copy_bytes(out.lane, view->source + offset, W##u); return out; \
+} \
+static inline __attribute__((unused)) ks_scalar_u8x##W ks_scalar_padded_load_tail_u8x##W(const KsPaddedStringU8x##W *view) { ks_scalar_u8x##W out = {{0}}; ks_scalar_copy_bytes(out.lane, &view->tail, W##u); return out; } \
+static inline __attribute__((unused)) KsScalarBlockU8x64x##W ks_scalar_block64_load_u8x##W(const KsPaddedStringU8x##W *view, uint32_t offset) { KsScalarBlockU8x64x##W out = {{0}}; if ((size_t)offset > view->source_length || view->source_length - (size_t)offset < 64u || offset % W##u != 0u) return out; ks_scalar_copy_bytes(out.bytes, view->source + offset, 64u); return out; } \
+static inline __attribute__((unused)) KsMaskBits64 ks_scalar_block64_eq_u8x##W(KsScalarBlockU8x64x##W block, uint8_t value) { KsMaskBits64 out = {0u, 0u}; for (uint32_t i = 0u; i < 32u; ++i) { out.low |= (uint32_t)(block.bytes[i] == value) << i; out.high |= (uint32_t)(block.bytes[i + 32u] == value) << i; } return out; } \
+static inline __attribute__((unused)) KsScalarBlockU8x64x##W ks_scalar_block64_and_byte_u8x##W(KsScalarBlockU8x64x##W block, uint8_t value) { for (uint32_t i = 0u; i < 64u; ++i) { block.bytes[i] &= value; } return block; } \
+static inline __attribute__((unused)) KsScalarBlockU8x64x##W ks_scalar_block64_and_u8x##W(KsScalarBlockU8x64x##W left, KsScalarBlockU8x64x##W right) { for (uint32_t i = 0u; i < 64u; ++i) { left.bytes[i] &= right.bytes[i]; } return left; } \
+static inline __attribute__((unused)) KsScalarBlockU8x64x##W ks_scalar_block64_shr_u8x##W(KsScalarBlockU8x64x##W block, uint32_t count) { for (uint32_t i = 0u; i < 64u; ++i) { block.bytes[i] = count < 8u ? (uint8_t)(block.bytes[i] >> count) : 0u; } return block; } \
+static inline __attribute__((unused)) KsScalarBlockU8x64x##W ks_scalar_block64_lookup16_u8x##W(KsScalarBlockU8x64x##W block, KsTableU8x16 table) { for (uint32_t i = 0u; i < 64u; ++i) { uint8_t index = block.bytes[i]; block.bytes[i] = index < 16u ? table.lane[index] : 0u; } return block; } \
+static inline __attribute__((unused)) KsMaskBits64 ks_scalar_block64_any_bits_u8x##W(KsScalarBlockU8x64x##W block, uint8_t value) { KsMaskBits64 out = {0u, 0u}; for (uint32_t i = 0u; i < 32u; ++i) { out.low |= (uint32_t)((block.bytes[i] & value) != 0u) << i; out.high |= (uint32_t)((block.bytes[i + 32u] & value) != 0u) << i; } return out; } \
+static inline __attribute__((unused)) ks_scalar_u8x##W ks_scalar_block64_last_u8x##W(KsScalarBlockU8x64x##W block) { ks_scalar_u8x##W out = {{0}}; for (uint32_t i = 0u; i < W##u; ++i) out.lane[i] = block.bytes[64u - W##u + i]; return out; } \
+static inline __attribute__((unused)) KsMaskBits64 ks_scalar_block64_utf8_errors_u8x##W(KsScalarBlockU8x64x##W block, ks_scalar_u8x##W previous, KsTableU8x16 byte1_high, KsTableU8x16 byte1_low, KsTableU8x16 byte2_high) { KsMaskBits64 out = {0u, 0u}; for (uint32_t i = 0u; i < 64u; ++i) { uint8_t p1 = i >= 1u ? block.bytes[i - 1u] : previous.lane[W##u - 1u], p2 = i >= 2u ? block.bytes[i - 2u] : previous.lane[W##u - 2u + i], p3 = i >= 3u ? block.bytes[i - 3u] : previous.lane[W##u - 3u + i]; uint8_t special = byte1_high.lane[p1 >> 4u] & byte1_low.lane[p1 & 15u] & byte2_high.lane[block.bytes[i] >> 4u], required = (p2 >= 224u || p3 >= 240u) ? 128u : 0u; if (required != special) { if (i < 32u) { out.low |= UINT32_C(1) << i; } else { out.high |= UINT32_C(1) << (i - 32u); } } } return out; } \
+static inline __attribute__((unused)) KsMaskBits64 ks_scalar_block64_range_u8x##W(KsScalarBlockU8x64x##W block, uint8_t low, uint8_t high) { KsMaskBits64 out = {0u, 0u}; for (uint32_t i = 0u; i < 32u; ++i) { out.low |= (uint32_t)(block.bytes[i] >= low && block.bytes[i] <= high) << i; out.high |= (uint32_t)(block.bytes[i + 32u] >= low && block.bytes[i + 32u] <= high) << i; } return out; } \
+static inline __attribute__((unused)) KsMaskBits64 ks_scalar_block64_outside_range_u8x##W(KsScalarBlockU8x64x##W block, uint8_t low, uint8_t high) { KsMaskBits64 out = {0u, 0u}; for (uint32_t i = 0u; i < 32u; ++i) { out.low |= (uint32_t)(block.bytes[i] < low || block.bytes[i] > high) << i; out.high |= (uint32_t)(block.bytes[i + 32u] < low || block.bytes[i + 32u] > high) << i; } return out; } \
+static inline __attribute__((unused)) ks_scalar_u8x##W ks_scalar_lookup16_u8x##W(ks_scalar_u8x##W indexes, KsTableU8x16 table) { ks_scalar_u8x##W out = {{0}}; for (uint32_t i = 0; i < W##u; ++i) out.lane[i] = indexes.lane[i] < 16u ? table.lane[indexes.lane[i]] : 0u; return out; } \
+static inline __attribute__((unused)) ks_scalar_u8x##W ks_scalar_align_u8x##W(ks_scalar_u8x##W previous, ks_scalar_u8x##W current, uint32_t offset) { ks_scalar_u8x##W out = {{0}}; if (offset < 1u || offset > 3u) { return out; } ks_scalar_copy_bytes(out.lane, previous.lane + W##u - offset, offset); ks_scalar_copy_bytes(out.lane + offset, current.lane, W##u - offset); return out; } \
+static inline __attribute__((unused)) ks_scalar_u8x##W ks_scalar_tail_u8x##W(uint32_t active) { \
+    ks_scalar_u8x##W out; \
+    if (active > W##u) active = W##u; \
+    for (uint32_t i = 0; i < W##u; ++i) { out.lane[i] = i < active ? UINT8_MAX : 0u; } \
+    return out; \
+} \
+static inline __attribute__((unused)) ks_scalar_u8x##W ks_scalar_and_u8x##W(ks_scalar_u8x##W a, ks_scalar_u8x##W b) { \
+    for (uint32_t i = 0; i < W##u; ++i) { a.lane[i] &= b.lane[i]; } \
+    return a; \
+} \
+static inline __attribute__((unused)) ks_scalar_u8x##W ks_scalar_or_u8x##W(ks_scalar_u8x##W a, ks_scalar_u8x##W b) { \
+    for (uint32_t i = 0; i < W##u; ++i) { a.lane[i] |= b.lane[i]; } \
+    return a; \
+} \
+static inline __attribute__((unused)) ks_scalar_u8x##W ks_scalar_xor_u8x##W(ks_scalar_u8x##W a, ks_scalar_u8x##W b) { \
+    for (uint32_t i = 0; i < W##u; ++i) { a.lane[i] ^= b.lane[i]; } \
+    return a; \
+} \
+static inline __attribute__((unused)) ks_scalar_u8x##W ks_scalar_not_u8x##W(ks_scalar_u8x##W a) { \
+    for (uint32_t i = 0; i < W##u; ++i) { a.lane[i] = (uint8_t)~a.lane[i]; } \
+    return a; \
+} \
+static inline __attribute__((unused)) ks_scalar_u8x##W ks_scalar_eq_u8x##W(ks_scalar_u8x##W a, uint8_t value) { \
+    for (uint32_t i = 0; i < W##u; ++i) a.lane[i] = a.lane[i] == value ? UINT8_MAX : 0u; \
+    return a; \
+} \
+static inline __attribute__((unused)) ks_scalar_u8x##W ks_scalar_range_u8x##W(ks_scalar_u8x##W a, uint8_t low, uint8_t high) { \
+    for (uint32_t i = 0; i < W##u; ++i) a.lane[i] = a.lane[i] >= low && a.lane[i] <= high ? UINT8_MAX : 0u; \
+    return a; \
+} \
+static inline __attribute__((unused)) ks_scalar_u8x##W ks_scalar_select_u8x##W(ks_scalar_u8x##W mask, ks_scalar_u8x##W yes, ks_scalar_u8x##W no) { \
+    for (uint32_t i = 0; i < W##u; ++i) yes.lane[i] = mask.lane[i] ? yes.lane[i] : no.lane[i]; \
+    return yes; \
+} \
+static inline __attribute__((unused)) uint32_t ks_scalar_bits_u8x##W(ks_scalar_u8x##W mask) { \
+    uint32_t bits = 0u; \
+    for (uint32_t i = 0; i < W##u; ++i) { bits |= (uint32_t)(mask.lane[i] != 0u) << i; } \
+    return bits; \
+} \
+static inline __attribute__((unused)) uint32_t ks_scalar_any_u8x##W(ks_scalar_u8x##W mask) { return (uint32_t)(ks_scalar_bits_u8x##W(mask) != 0u); } \
+KS_SCALAR_REGION_END
+
+/* ---- Interleaved stores into the Lua builder's byte scratch -------- */
+
+/* Four vectors interleaved byte by byte, TOTAL bytes in all. NEON has
+ * the store; everywhere else writes a byte at a time. */
+#if defined(__aarch64__)
+#define KS_STORE4_FAST_16 \
+    uint8x16x4_t packed; memcpy(&packed.val[0], &v0, 16u); memcpy(&packed.val[1], &v1, 16u); memcpy(&packed.val[2], &v2, 16u); memcpy(&packed.val[3], &v3, 16u); vst4q_u8(scratch->bytes + offset, packed); return;
+#define KS_STORE4_FAST_32 \
+    uint8x16x4_t lo, hi; memcpy(&lo.val[0], &v0, 16u); memcpy(&lo.val[1], &v1, 16u); memcpy(&lo.val[2], &v2, 16u); memcpy(&lo.val[3], &v3, 16u); memcpy(&hi.val[0], ((const uint8_t *)&v0) + 16u, 16u); memcpy(&hi.val[1], ((const uint8_t *)&v1) + 16u, 16u); memcpy(&hi.val[2], ((const uint8_t *)&v2) + 16u, 16u); memcpy(&hi.val[3], ((const uint8_t *)&v3) + 16u, 16u); vst4q_u8(scratch->bytes + offset, lo); vst4q_u8(scratch->bytes + offset + 64u, hi); return;
+#define KS_STORE4_BODY(W) KS_STORE4_FAST_##W
+#else
+#define KS_STORE4_BODY(W) \
+    for (uint32_t i = 0; i < W##u; ++i) { \
+        scratch->bytes[offset + i * 4u] = ((const uint8_t *)&v0)[i]; \
+        scratch->bytes[offset + i * 4u + 1u] = ((const uint8_t *)&v1)[i]; \
+        scratch->bytes[offset + i * 4u + 2u] = ((const uint8_t *)&v2)[i]; \
+        scratch->bytes[offset + i * 4u + 3u] = ((const uint8_t *)&v3)[i]; \
+    }
+#endif
+#define KS_U8_STORE4(W, TOTAL) \
+static inline __attribute__((unused)) void ks_store4_u8x##W(lua_State *L, KsLuaScratchU8 *scratch, uint32_t offset, ks_u8x##W v0, ks_u8x##W v1, ks_u8x##W v2, ks_u8x##W v3) { \
+    const uint32_t total = TOTAL##u; \
+    if (KS_UNLIKELY(offset > scratch->length || offset > scratch->capacity || scratch->capacity - offset < total)) { ks_scratch_raise(L, "AOT byte scratch write is out of bounds"); return; } \
+    if (KS_UNLIKELY(offset < scratch->length && scratch->length - offset < total)) { ks_scratch_raise(L, "AOT byte scratch write straddles the length"); return; } \
+    if (offset == scratch->length) { scratch->length += total; } \
+    KS_STORE4_BODY(W) \
+} \
+KS_SCALAR_REGION_BEGIN \
+static inline __attribute__((unused)) void ks_scalar_store4_u8x##W(lua_State *L, KsLuaScratchU8 *scratch, uint32_t offset, ks_scalar_u8x##W v0, ks_scalar_u8x##W v1, ks_scalar_u8x##W v2, ks_scalar_u8x##W v3) { const uint32_t total = TOTAL##u; if (KS_UNLIKELY(offset > scratch->length || offset > scratch->capacity || scratch->capacity - offset < total)) { ks_scratch_raise(L, "AOT byte scratch write is out of bounds"); return; } if (KS_UNLIKELY(offset < scratch->length && scratch->length - offset < total)) { ks_scratch_raise(L, "AOT byte scratch write straddles the length"); return; } if (offset == scratch->length) { scratch->length += total; } for (uint32_t i = 0; i < W##u; ++i) { scratch->bytes[offset + i * 4u] = v0.lane[i]; scratch->bytes[offset + i * 4u + 1u] = v1.lane[i]; scratch->bytes[offset + i * 4u + 2u] = v2.lane[i]; scratch->bytes[offset + i * 4u + 3u] = v3.lane[i]; } } \
+KS_SCALAR_REGION_END
+
+/* ---- Explicit vectors: nupp.simd elements ------------------------- */
+
+/* A vector of width W is this many 64-bit words. */
+#define KS_WORDS_16 2
+#define KS_WORDS_32 4
+#define KS_WORD_COUNT_16 2u
+#define KS_WORD_COUNT_32 4u
+#define KS_WORDS_OR_16 words[0] | words[1]
+#define KS_WORDS_OR_32 words[0] | words[1] | words[2] | words[3]
+
+/* A partial vector moves through 64-bit words on a little-endian
+ * target, whole words first and the odd bytes gathered or scattered
+ * by the prelude's helpers; elsewhere it goes through a lane array. */
+#define KS_LOAD_WORDS_16 uint64_t w0 = 0u, w1 = 0u; \
+    if (n >= 8u) memcpy(&w0, p + 0u, 8u);
+#define KS_LOAD_WORDS_32 uint64_t w0 = 0u, w1 = 0u, w2 = 0u, w3 = 0u; \
+    if (n >= 8u) memcpy(&w0, p + 0u, 8u); \
+    if (n >= 16u) memcpy(&w1, p + 8u, 8u); \
+    if (n >= 24u) memcpy(&w2, p + 16u, 8u);
+#define KS_GATHER_WORDS_16 switch (n >> 3u) { case 0u: w0 |= ks_gather_word(p + 0u, n & 7u); break; case 1u: w1 |= ks_gather_word(p + 8u, n & 7u); break; default: break; }
+#define KS_GATHER_WORDS_32 switch (n >> 3u) { case 0u: w0 |= ks_gather_word(p + 0u, n & 7u); break; case 1u: w1 |= ks_gather_word(p + 8u, n & 7u); break; case 2u: w2 |= ks_gather_word(p + 16u, n & 7u); break; case 3u: w3 |= ks_gather_word(p + 24u, n & 7u); break; default: break; }
+#define KS_ASSEMBLE_WORDS_16 memcpy((uint8_t *)&out + 0u, &w0, 8u); memcpy((uint8_t *)&out + 8u, &w1, 8u);
+#define KS_ASSEMBLE_WORDS_32 memcpy((uint8_t *)&out + 0u, &w0, 8u); memcpy((uint8_t *)&out + 8u, &w1, 8u); memcpy((uint8_t *)&out + 16u, &w2, 8u); memcpy((uint8_t *)&out + 24u, &w3, 8u);
+#define KS_SPLIT_WORDS_16 uint64_t w0, w1; memcpy(&w0, (const uint8_t *)&value + 0u, 8u); memcpy(&w1, (const uint8_t *)&value + 8u, 8u); \
+    if (n >= 8u) memcpy(p + 0u, &w0, 8u);
+#define KS_SPLIT_WORDS_32 uint64_t w0, w1, w2, w3; memcpy(&w0, (const uint8_t *)&value + 0u, 8u); memcpy(&w1, (const uint8_t *)&value + 8u, 8u); memcpy(&w2, (const uint8_t *)&value + 16u, 8u); memcpy(&w3, (const uint8_t *)&value + 24u, 8u); \
+    if (n >= 8u) memcpy(p + 0u, &w0, 8u); \
+    if (n >= 16u) memcpy(p + 8u, &w1, 8u); \
+    if (n >= 24u) memcpy(p + 16u, &w2, 8u);
+#define KS_SCATTER_WORDS_16 switch (n >> 3u) { case 0u: ks_scatter_word(p + 0u, n & 7u, w0); break; case 1u: ks_scatter_word(p + 8u, n & 7u, w1); break; default: break; }
+#define KS_SCATTER_WORDS_32 switch (n >> 3u) { case 0u: ks_scatter_word(p + 0u, n & 7u, w0); break; case 1u: ks_scatter_word(p + 8u, n & 7u, w1); break; case 2u: ks_scatter_word(p + 16u, n & 7u, w2); break; case 3u: ks_scatter_word(p + 24u, n & 7u, w3); break; default: break; }
+/* An eight-byte lane never leaves a partial word behind. */
+#define KS_GATHER_TAIL_1(W) KS_GATHER_WORDS_##W
+#define KS_GATHER_TAIL_2(W) KS_GATHER_WORDS_##W
+#define KS_GATHER_TAIL_4(W) KS_GATHER_WORDS_##W
+#define KS_GATHER_TAIL_8(W)
+#define KS_SCATTER_TAIL_1(W) KS_SCATTER_WORDS_##W
+#define KS_SCATTER_TAIL_2(W) KS_SCATTER_WORDS_##W
+#define KS_SCATTER_TAIL_4(W) KS_SCATTER_WORDS_##W
+#define KS_SCATTER_TAIL_8(W)
+#if KS_WORD_TAIL
+#define KS_EXP_LOAD_PART_BODY(W, ELEM, CTYPE, LANES, BYTES) \
+    size_t n = room * BYTES##u; const uint8_t *p = (const uint8_t *)source; KS_LOAD_WORDS_##W \
+    KS_GATHER_TAIL_##BYTES(W) \
+    ks_exp_##ELEM out; KS_ASSEMBLE_WORDS_##W return out;
+#define KS_EXP_STORE_PART_BODY(W, ELEM, CTYPE, LANES, BYTES) \
+    size_t n = room * BYTES##u; uint8_t *p = (uint8_t *)destination; KS_SPLIT_WORDS_##W \
+    KS_SCATTER_TAIL_##BYTES(W)
+#else
+#define KS_EXP_LOAD_PART_BODY(W, ELEM, CTYPE, LANES, BYTES) \
+    CTYPE lanes[LANES##u] = {0}; memcpy(lanes, source, room * sizeof lanes[0]); ks_exp_##ELEM out; memcpy(&out, lanes, sizeof out); return out;
+#define KS_EXP_STORE_PART_BODY(W, ELEM, CTYPE, LANES, BYTES) \
+    CTYPE lanes[LANES##u]; memcpy(lanes, &value, sizeof lanes); memcpy(destination, lanes, room * sizeof lanes[0]);
+#endif
+
+/* The mask bitmap, one bit per lane of BYTES bytes. NEON sums a
+ * power-of-two selector per lane; SSE has a movemask per lane width;
+ * the portable path packs each word's sign bits with a multiply. */
+#define KS_LANE_POWERS_1 1, 2, 4, 8, 16, 32, 64, 128, 1, 2, 4, 8, 16, 32, 64, 128
+#define KS_LANE_POWERS_2 0, 1, 0, 2, 0, 4, 0, 8, 0, 1, 0, 2, 0, 4, 0, 8
+#define KS_LANE_POWERS_4 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 1, 0, 0, 0, 2
+#define KS_LANE_POWERS_8 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1
+#define KS_LANE_SIGNS_1 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80
+#define KS_LANE_SIGNS_2 0, 0x80, 0, 0x80, 0, 0x80, 0, 0x80, 0, 0x80, 0, 0x80, 0, 0x80, 0, 0x80
+#define KS_LANE_SIGNS_4 0, 0, 0, 0x80, 0, 0, 0, 0x80, 0, 0, 0, 0x80, 0, 0, 0, 0x80
+#define KS_LANE_SIGNS_8 0, 0, 0, 0, 0, 0, 0, 0x80, 0, 0, 0, 0, 0, 0, 0, 0x80
+#define KS_LANES_PER_HALF_1 8u
+#define KS_LANES_PER_HALF_2 4u
+#define KS_LANES_PER_HALF_4 2u
+#define KS_LANES_PER_HALF_8 1u
+#define KS_LANES_PER_REGISTER_1 16u
+#define KS_LANES_PER_REGISTER_2 8u
+#define KS_LANES_PER_REGISTER_4 4u
+#define KS_LANES_PER_REGISTER_8 2u
+#define KS_SSE_MOVEMASK_1(v) (uint64_t)(uint16_t)_mm_movemask_epi8(v)
+#define KS_SSE_MOVEMASK_2(v) (uint64_t)(uint8_t)_mm_movemask_epi8(_mm_packs_epi16(v, _mm_setzero_si128()))
+#define KS_SSE_MOVEMASK_4(v) (uint64_t)_mm_movemask_ps(_mm_castsi128_ps(v))
+#define KS_SSE_MOVEMASK_8(v) (uint64_t)_mm_movemask_pd(_mm_castsi128_pd(v))
+#define KS_PACK_SIGNS_1 word = (word >> 7u) & UINT64_C(0x0101010101010101); \
+        out |= ((word * UINT64_C(0x0002040810204081)) >> 49u & UINT64_C(0xFF)) << (i * 8u);
+#define KS_PACK_SIGNS_2 word = (word >> 15u) & UINT64_C(0x0001000100010001); \
+        out |= ((word * UINT64_C(0x0000200040008001)) >> 45u & UINT64_C(0xF)) << (i * 4u);
+#define KS_PACK_SIGNS_4 word = (word >> 31u) & UINT64_C(0x0000000100000001); \
+        out |= ((word * UINT64_C(0x0000000080000001)) >> 31u & UINT64_C(0x3)) << (i * 2u);
+#define KS_PACK_SIGNS_8 word = (word >> 63u) & UINT64_C(0x0000000000000001); \
+        out |= ((word * UINT64_C(0x0000000000000001)) >> 0u & UINT64_C(0x1)) << (i * 1u);
+#if defined(__aarch64__)
+#define KS_EXP_BITS_REGISTER(BYTES, offset, shift) \
+    memcpy(&v, ((const uint8_t *)&value) + offset, 16u); v = vandq_u8(vtstq_u8(v, highBits), selectors); out |= ((uint64_t)vaddv_u8(vget_low_u8(v)) | (uint64_t)vaddv_u8(vget_high_u8(v)) << KS_LANES_PER_HALF_##BYTES) << shift;
+#define KS_EXP_BITS_BODY(W, ELEM, BYTES) \
+    static const uint8_t ks_lane_powers[16] = { KS_LANE_POWERS_##BYTES }; \
+    const uint8x16_t selectors = vld1q_u8(ks_lane_powers); \
+    const uint8x16_t highBits = vdupq_n_u8(0x80u); \
+    uint64_t out = 0u; uint8x16_t v; \
+    KS_EXP_BITS_REGISTERS_##W(BYTES) \
+    return out;
+#define KS_EXP_ANY_BODY(W, ELEM, BYTES) \
+    static const uint8_t ks_lane_signs[16] = { KS_LANE_SIGNS_##BYTES }; \
+    const uint8x16_t signs = vld1q_u8(ks_lane_signs); \
+    uint8x16_t v, all; \
+    KS_EXP_ANY_REGISTERS_##W \
+    return vmaxvq_u8(vandq_u8(all, signs)) != 0u;
+#define KS_EXP_ANY_REGISTERS_16 memcpy(&v, ((const uint8_t *)&value) + 0u, 16u); all = v;
+#define KS_EXP_ANY_REGISTERS_32 memcpy(&v, ((const uint8_t *)&value) + 0u, 16u); all = v; \
+    memcpy(&v, ((const uint8_t *)&value) + 16u, 16u); all = vorrq_u8(all, v);
+#elif defined(__SSE2__)
+#define KS_EXP_BITS_REGISTER(BYTES, offset, shift) \
+    memcpy(&v, ((const uint8_t *)&value) + offset, 16u); out |= KS_SSE_MOVEMASK_##BYTES(v) << shift;
+#define KS_EXP_BITS_BODY(W, ELEM, BYTES) \
+    uint64_t out = 0u; __m128i v; \
+    KS_EXP_BITS_REGISTERS_##W(BYTES) \
+    return out;
+#define KS_EXP_ANY_BODY(W, ELEM, BYTES) return ks_exp_bits_##ELEM(value) != UINT64_C(0);
+#else
+#define KS_EXP_BITS_BODY(W, ELEM, BYTES) \
+    uint64_t out = 0u; \
+    for (uint32_t i = 0u; i < KS_WORD_COUNT_##W; ++i) { \
+        uint64_t word; memcpy(&word, ((const uint8_t *)&value) + i * 8u, 8u); \
+        KS_PACK_SIGNS_##BYTES \
+    } \
+    return out;
+#define KS_EXP_ANY_BODY(W, ELEM, BYTES) return ks_exp_bits_##ELEM(value) != UINT64_C(0);
+#endif
+#define KS_EXP_BITS_REGISTERS_16(BYTES) KS_EXP_BITS_REGISTER(BYTES, 0u, 0u)
+#define KS_EXP_BITS_REGISTERS_32(BYTES) KS_EXP_BITS_REGISTER(BYTES, 0u, 0u) \
+    KS_EXP_BITS_REGISTER(BYTES, 16u, KS_LANES_PER_REGISTER_##BYTES)
+
+/* A byte swizzle has a table instruction on NEON, SSSE3 and wasm; a
+ * wider lane, or a 32-byte vector on x86, walks the lanes. */
+#define KS_EXP_SWIZZLE_LOOP(CTYPE, LANES) \
+    for (uint32_t i = 0u; i < LANES##u; ++i) { uint32_t at = (uint32_t)indices[i]; out[i] = (at - 1u) < LANES##u ? value[at - 1u] : (CTYPE)0; }
+#if defined(__aarch64__)
+#define KS_EXP_BYTE_SWIZZLE_BODY_16(CTYPE, LANES) \
+    uint8x16_t t, x; memcpy(&t, &value, 16u); memcpy(&x, &zeroBased, 16u); x = vqtbl1q_u8(t, x); memcpy(&out, &x, 16u);
+#define KS_EXP_BYTE_SWIZZLE_BODY_32(CTYPE, LANES) \
+    uint8x16x2_t t; memcpy(&t.val[0], &value, 16u); memcpy(&t.val[1], ((const uint8_t *)&value) + 16u, 16u); uint8x16_t lo, hi; memcpy(&lo, &zeroBased, 16u); memcpy(&hi, ((const uint8_t *)&zeroBased) + 16u, 16u); lo = vqtbl2q_u8(t, lo); hi = vqtbl2q_u8(t, hi); memcpy(&out, &lo, 16u); memcpy(((uint8_t *)&out) + 16u, &hi, 16u);
+#elif defined(__SSSE3__)
+#define KS_EXP_BYTE_SWIZZLE_BODY_16(CTYPE, LANES) \
+    __m128i t, x, high, shuffled; memcpy(&t, &value, 16u); memcpy(&x, &zeroBased, 16u); high = _mm_and_si128(x, _mm_set1_epi8((char)0xf0)); shuffled = _mm_shuffle_epi8(t, x); shuffled = _mm_and_si128(shuffled, _mm_cmpeq_epi8(high, _mm_setzero_si128())); memcpy(&out, &shuffled, 16u);
+#define KS_EXP_BYTE_SWIZZLE_BODY_32(CTYPE, LANES) KS_EXP_SWIZZLE_LOOP(CTYPE, LANES)
+#elif defined(__wasm_simd128__)
+/* `i8x16.swizzle` is exactly this, zero for out of range. */
+#define KS_EXP_BYTE_SWIZZLE_BODY_16(CTYPE, LANES) \
+    typedef signed char KsSwizzle __attribute__((vector_size(16))); \
+    KsSwizzle t, x, y; memcpy(&t, &value, 16u); memcpy(&x, &zeroBased, 16u); \
+    y = __builtin_wasm_swizzle_i8x16(t, x); memcpy(&out, &y, 16u);
+#define KS_EXP_BYTE_SWIZZLE_BODY_32(CTYPE, LANES) KS_EXP_SWIZZLE_LOOP(CTYPE, LANES)
+#else
+#define KS_EXP_BYTE_SWIZZLE_BODY_16(CTYPE, LANES) KS_EXP_SWIZZLE_LOOP(CTYPE, LANES)
+#define KS_EXP_BYTE_SWIZZLE_BODY_32(CTYPE, LANES) KS_EXP_SWIZZLE_LOOP(CTYPE, LANES)
+#endif
+#define KS_EXP_SWIZZLE_1(W, ELEM, CTYPE, LANES) \
+static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_swizzle_##ELEM(ks_exp_##ELEM value, ks_exp_##ELEM indices) { \
+    ks_exp_##ELEM out; ks_exp_##ELEM zeroBased KS_UNUSED = indices - 1; \
+    KS_EXP_BYTE_SWIZZLE_BODY_##W(CTYPE, LANES) \
+    return out; \
+}
+#define KS_EXP_SWIZZLE_WIDE(W, ELEM, CTYPE, LANES) \
+static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_swizzle_##ELEM(ks_exp_##ELEM value, ks_exp_##ELEM indices) { ks_exp_##ELEM out; KS_EXP_SWIZZLE_LOOP(CTYPE, LANES) return out; }
+#define KS_EXP_SWIZZLE_2 KS_EXP_SWIZZLE_WIDE
+#define KS_EXP_SWIZZLE_4 KS_EXP_SWIZZLE_WIDE
+#define KS_EXP_SWIZZLE_8 KS_EXP_SWIZZLE_WIDE
+
+/* The highest lane index, for reverse. */
+#define KS_LAST_LANE_2 1u
+#define KS_LAST_LANE_4 3u
+#define KS_LAST_LANE_8 7u
+#define KS_LAST_LANE_16 15u
+#define KS_LAST_LANE_32 31u
+
+/* The explicit vector of one element: the vector type, its mask, the
+ * scalar oracle of both, and the lane operations the compiler calls by
+ * name. ELEM is the full type suffix (f64x4), so it can be pasted
+ * straight into names; W, LANES and BYTES arrive as literal tokens. */
+#define KS_EXP_VECTOR(W, ELEM, CTYPE, MASK, LANES, BYTES) \
+typedef CTYPE ks_exp_##ELEM __attribute__((vector_size(W))); \
+typedef MASK ks_exp_mask_##ELEM __attribute__((vector_size(W))); \
+typedef struct { CTYPE lane[LANES]; } ks_scalar_exp_##ELEM; \
+typedef struct { MASK lane[LANES]; } ks_scalar_exp_mask_##ELEM; \
+static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_splat_##ELEM(CTYPE value) { return (ks_exp_##ELEM){ KS_REP_##LANES(value) }; } \
+static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_iota_##ELEM(CTYPE first, CTYPE step) { return (ks_exp_##ELEM){ KS_LANES_##LANES(KS_IOTA_LANE, CTYPE) }; } \
+static inline __attribute__((unused)) ks_exp_mask_##ELEM ks_exp_tail_##ELEM(uint32_t active) { if (active > LANES##u) active = LANES##u; ks_exp_mask_##ELEM lane = (ks_exp_mask_##ELEM){ KS_LANES_##LANES(KS_CAST_LANE, MASK) }; ks_exp_mask_##ELEM limit = (ks_exp_mask_##ELEM){ KS_REP_##LANES((MASK)active) }; return (ks_exp_mask_##ELEM)(lane < limit); } \
+static inline __attribute__((unused)) bool ks_exp_full_##ELEM(ks_exp_mask_##ELEM active) { ks_exp_mask_##ELEM inactive = (ks_exp_mask_##ELEM)(active == (ks_exp_mask_##ELEM){0}); uint64_t words[KS_WORDS_##W]; memcpy(words, &inactive, sizeof words); return (KS_WORDS_OR_##W) == 0u; } \
+static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_load_part_##ELEM(const CTYPE *source, size_t room) { \
+    KS_EXP_LOAD_PART_BODY(W, ELEM, CTYPE, LANES, BYTES) \
+} \
+static __attribute__((noinline, cold, unused)) void ks_exp_store_masked_part_##ELEM(CTYPE *destination, size_t room, ks_exp_##ELEM value, ks_exp_mask_##ELEM active) { CTYPE lanes[LANES##u]; memcpy(lanes, &value, sizeof lanes); MASK keep[LANES##u]; memcpy(keep, &active, sizeof keep); for (size_t i = 0u; i < room; ++i) if (keep[i]) destination[i] = lanes[i]; } \
+static inline __attribute__((unused)) void ks_exp_store_part_##ELEM(CTYPE *destination, size_t room, ks_exp_##ELEM value, ks_exp_mask_##ELEM active) { \
+    if (!ks_exp_full_##ELEM(active | ~ks_exp_tail_##ELEM((uint32_t)room))) { ks_exp_store_masked_part_##ELEM(destination, room, value, active); return; } \
+    KS_EXP_STORE_PART_BODY(W, ELEM, CTYPE, LANES, BYTES) \
+} \
+static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_load_full_##ELEM(const CTYPE *source, size_t count, size_t first) { ks_exp_##ELEM out = (ks_exp_##ELEM){0}; if (first >= count) return out; size_t room = count - first; if (room >= LANES##u) { memcpy(&out, source + first, sizeof out); return out; } return ks_exp_load_part_##ELEM(source + first, room); } \
+static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_load_##ELEM(const CTYPE *source, size_t count, size_t first, ks_exp_mask_##ELEM active) { return (ks_exp_##ELEM)(active & (ks_exp_mask_##ELEM)ks_exp_load_full_##ELEM(source, count, first)); } \
+static inline __attribute__((unused)) void ks_exp_store_full_##ELEM(CTYPE *destination, size_t count, size_t first, ks_exp_##ELEM value) { if (first >= count) return; size_t room = count - first; if (room >= LANES##u) { memcpy(destination + first, &value, sizeof value); return; } ks_exp_store_part_##ELEM(destination + first, room, value, ~(ks_exp_mask_##ELEM){0}); } \
+static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_load_at_##ELEM(const CTYPE *source) { ks_exp_##ELEM out; memcpy(&out, source, sizeof out); return out; } \
+static inline __attribute__((unused)) void ks_exp_store_at_##ELEM(CTYPE *destination, ks_exp_##ELEM value) { memcpy(destination, &value, sizeof value); } \
+static inline __attribute__((unused)) void ks_exp_store_##ELEM(CTYPE *destination, size_t count, size_t first, ks_exp_##ELEM value, ks_exp_mask_##ELEM active) { if (ks_exp_full_##ELEM(active)) { ks_exp_store_full_##ELEM(destination, count, first, value); return; } if (first >= count) return; size_t room = count - first; if (room > LANES##u) room = LANES##u; ks_exp_store_part_##ELEM(destination + first, room, value, active); } \
+static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_select_##ELEM(ks_exp_mask_##ELEM active, ks_exp_##ELEM yes, ks_exp_##ELEM no) { return (ks_exp_##ELEM)((active & (ks_exp_mask_##ELEM)yes) | (~active & (ks_exp_mask_##ELEM)no)); } \
+static inline __attribute__((unused)) uint64_t ks_exp_bits_##ELEM(ks_exp_mask_##ELEM value) { \
+    KS_EXP_BITS_BODY(W, ELEM, BYTES) \
+} \
+static inline __attribute__((unused)) bool ks_exp_any_##ELEM(ks_exp_mask_##ELEM value) { \
+    KS_EXP_ANY_BODY(W, ELEM, BYTES) \
+} \
+static inline __attribute__((unused)) uint32_t ks_exp_first_##ELEM(ks_exp_mask_##ELEM value) { \
+    return ks_exp_any_##ELEM(value) ? (uint32_t)__builtin_ctzll(ks_exp_bits_##ELEM(value)) + 1u : 0u; \
+} \
+static inline __attribute__((unused)) CTYPE ks_exp_extract_##ELEM(ks_exp_##ELEM value, double lane) { return value[(uint32_t)lane - 1u]; } \
+static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_insert_##ELEM(ks_exp_##ELEM value, double lane, CTYPE replacement) { value[(uint32_t)lane - 1u] = replacement; return value; } \
+static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_swizzle_pair_##ELEM(ks_exp_##ELEM first, ks_exp_##ELEM second, ks_exp_##ELEM indices) { ks_exp_##ELEM out; for (uint32_t i = 0u; i < LANES##u; ++i) { uint32_t at = (uint32_t)indices[i] - 1u; out[i] = at < LANES##u ? first[at] : (at - LANES##u) < LANES##u ? second[at - LANES##u] : (CTYPE)0; } return out; } \
+KS_EXP_SWIZZLE_##BYTES(W, ELEM, CTYPE, LANES) \
+static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_reverse_##ELEM(ks_exp_##ELEM value) { ks_exp_##ELEM out; for (uint32_t i = 0u; i < LANES##u; ++i) out[i] = value[KS_LAST_LANE_##LANES - i]; return out; } \
+static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_rotate_left_##ELEM(ks_exp_##ELEM value, double count) { ks_exp_##ELEM out; uint32_t n = (uint32_t)count % LANES##u; for (uint32_t i = 0u; i < LANES##u; ++i) out[i] = value[(i + n) % LANES##u]; return out; } \
+static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_rotate_right_##ELEM(ks_exp_##ELEM value, double count) { ks_exp_##ELEM out; uint32_t n = (uint32_t)count % LANES##u; for (uint32_t i = 0u; i < LANES##u; ++i) out[i] = value[(i + LANES##u - n) % LANES##u]; return out; } \
+static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_align_##ELEM(ks_exp_##ELEM previous, ks_exp_##ELEM current, double count) { ks_exp_##ELEM out; uint32_t n = (uint32_t)count; if (n > LANES##u) n = LANES##u; for (uint32_t i = 0u; i < LANES##u; ++i) out[i] = i < n ? previous[LANES##u - n + i] : current[i - n]; return out; } \
+static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_compress_##ELEM(ks_exp_##ELEM value, ks_exp_mask_##ELEM selected) { ks_exp_##ELEM out = (ks_exp_##ELEM){0}; uint32_t cursor = 0u; for (uint32_t i = 0u; i < LANES##u; ++i) if (selected[i]) out[cursor++] = value[i]; return out; } \
+static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_expand_##ELEM(ks_exp_##ELEM value, ks_exp_mask_##ELEM selected) { ks_exp_##ELEM out = (ks_exp_##ELEM){0}; uint32_t cursor = 0u; for (uint32_t i = 0u; i < LANES##u; ++i) if (selected[i]) out[i] = value[cursor++]; return out; } \
+static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_prefix_sum_ordered_##ELEM(ks_exp_##ELEM value) { for (uint32_t i = 1u; i < LANES##u; ++i) value[i] = value[i - 1u] + value[i]; return value; }
+
+/* The scalar oracle: the same operations one lane at a time. */
+#define KS_EXP_SCALAR(ELEM, CTYPE, MASK, LANES) \
+static inline __attribute__((unused)) ks_scalar_exp_##ELEM ks_scalar_exp_splat_##ELEM(CTYPE value) { ks_scalar_exp_##ELEM out; for (uint32_t i = 0u; i < LANES##u; ++i) out.lane[i] = value; return out; } \
+static inline __attribute__((unused)) ks_scalar_exp_##ELEM ks_scalar_exp_iota_##ELEM(CTYPE first, CTYPE step) { ks_scalar_exp_##ELEM out; for (uint32_t i = 0u; i < LANES##u; ++i) out.lane[i] = first + (CTYPE)i * step; return out; } \
+static inline __attribute__((unused)) ks_scalar_exp_mask_##ELEM ks_scalar_exp_tail_##ELEM(uint32_t active) { ks_scalar_exp_mask_##ELEM out; if (active > LANES##u) active = LANES##u; for (uint32_t i = 0u; i < LANES##u; ++i) out.lane[i] = i < active ? (MASK)-1 : 0; return out; } \
+static inline __attribute__((unused)) ks_scalar_exp_##ELEM ks_scalar_exp_load_##ELEM(const CTYPE *source, size_t count, size_t first, ks_scalar_exp_mask_##ELEM active) { ks_scalar_exp_##ELEM out = {{0}}; if (first >= count) return out; for (uint32_t i = 0u; i < LANES##u; ++i) if (active.lane[i] && i < count - first) out.lane[i] = source[first + i]; return out; } \
+static inline __attribute__((unused)) ks_scalar_exp_##ELEM ks_scalar_exp_load_full_##ELEM(const CTYPE *source, size_t count, size_t first) { return ks_scalar_exp_load_##ELEM(source, count, first, ks_scalar_exp_tail_##ELEM(LANES##u)); } \
+static inline __attribute__((unused)) void ks_scalar_exp_store_##ELEM(CTYPE *destination, size_t count, size_t first, ks_scalar_exp_##ELEM value, ks_scalar_exp_mask_##ELEM active) { if (first >= count) return; for (uint32_t i = 0u; i < LANES##u; ++i) if (active.lane[i] && i < count - first) destination[first + i] = value.lane[i]; } \
+static inline __attribute__((unused)) void ks_scalar_exp_store_full_##ELEM(CTYPE *destination, size_t count, size_t first, ks_scalar_exp_##ELEM value) { ks_scalar_exp_store_##ELEM(destination, count, first, value, ks_scalar_exp_tail_##ELEM(LANES##u)); } \
+static inline __attribute__((unused)) ks_scalar_exp_##ELEM ks_scalar_exp_load_at_##ELEM(const CTYPE *source) { ks_scalar_exp_##ELEM out; for (uint32_t i = 0u; i < LANES##u; ++i) out.lane[i] = source[i]; return out; } \
+static inline __attribute__((unused)) void ks_scalar_exp_store_at_##ELEM(CTYPE *destination, ks_scalar_exp_##ELEM value) { for (uint32_t i = 0u; i < LANES##u; ++i) destination[i] = value.lane[i]; } \
+static inline __attribute__((unused)) ks_scalar_exp_##ELEM ks_scalar_exp_select_##ELEM(ks_scalar_exp_mask_##ELEM active, ks_scalar_exp_##ELEM yes, ks_scalar_exp_##ELEM no) { for (uint32_t i = 0u; i < LANES##u; ++i) if (!active.lane[i]) yes.lane[i] = no.lane[i]; return yes; } \
+static inline __attribute__((unused)) uint64_t ks_scalar_exp_bits_##ELEM(ks_scalar_exp_mask_##ELEM value) { uint64_t out = 0u; for (uint32_t i = 0u; i < LANES##u; ++i) if (value.lane[i]) out |= UINT64_C(1) << i; return out; } \
+static inline __attribute__((unused)) bool ks_scalar_exp_any_##ELEM(ks_scalar_exp_mask_##ELEM value) { \
+    return ks_scalar_exp_bits_##ELEM(value) != UINT64_C(0); \
+} \
+static inline __attribute__((unused)) uint32_t ks_scalar_exp_first_##ELEM(ks_scalar_exp_mask_##ELEM value) { \
+    return ks_scalar_exp_any_##ELEM(value) ? (uint32_t)__builtin_ctzll(ks_scalar_exp_bits_##ELEM(value)) + 1u : 0u; \
+} \
+static inline __attribute__((unused)) CTYPE ks_scalar_exp_extract_##ELEM(ks_scalar_exp_##ELEM value, double lane) { return value.lane[(uint32_t)lane - 1u]; } \
+static inline __attribute__((unused)) ks_scalar_exp_##ELEM ks_scalar_exp_insert_##ELEM(ks_scalar_exp_##ELEM value, double lane, CTYPE replacement) { value.lane[(uint32_t)lane - 1u] = replacement; return value; } \
+static inline __attribute__((unused)) ks_scalar_exp_##ELEM ks_scalar_exp_swizzle_pair_##ELEM(ks_scalar_exp_##ELEM first, ks_scalar_exp_##ELEM second, ks_scalar_exp_##ELEM indices) { ks_scalar_exp_##ELEM out; for (uint32_t i = 0u; i < LANES##u; ++i) { uint32_t at = (uint32_t)indices.lane[i] - 1u; out.lane[i] = at < LANES##u ? first.lane[at] : (at - LANES##u) < LANES##u ? second.lane[at - LANES##u] : (CTYPE)0; } return out; } \
+static inline __attribute__((unused)) ks_scalar_exp_##ELEM ks_scalar_exp_swizzle_##ELEM(ks_scalar_exp_##ELEM value, ks_scalar_exp_##ELEM indices) { ks_scalar_exp_##ELEM out; for (uint32_t i = 0u; i < LANES##u; ++i) { uint32_t at = (uint32_t)indices.lane[i]; out.lane[i] = (at - 1u) < LANES##u ? value.lane[at - 1u] : (CTYPE)0; } return out; } \
+static inline __attribute__((unused)) ks_scalar_exp_##ELEM ks_scalar_exp_reverse_##ELEM(ks_scalar_exp_##ELEM value) { ks_scalar_exp_##ELEM out; for (uint32_t i = 0u; i < LANES##u; ++i) out.lane[i] = value.lane[KS_LAST_LANE_##LANES - i]; return out; } \
+static inline __attribute__((unused)) ks_scalar_exp_##ELEM ks_scalar_exp_rotate_left_##ELEM(ks_scalar_exp_##ELEM value, double count) { ks_scalar_exp_##ELEM out; uint32_t n = (uint32_t)count % LANES##u; for (uint32_t i = 0u; i < LANES##u; ++i) out.lane[i] = value.lane[(i + n) % LANES##u]; return out; } \
+static inline __attribute__((unused)) ks_scalar_exp_##ELEM ks_scalar_exp_rotate_right_##ELEM(ks_scalar_exp_##ELEM value, double count) { ks_scalar_exp_##ELEM out; uint32_t n = (uint32_t)count % LANES##u; for (uint32_t i = 0u; i < LANES##u; ++i) out.lane[i] = value.lane[(i + LANES##u - n) % LANES##u]; return out; } \
+static inline __attribute__((unused)) ks_scalar_exp_##ELEM ks_scalar_exp_align_##ELEM(ks_scalar_exp_##ELEM previous, ks_scalar_exp_##ELEM current, double count) { ks_scalar_exp_##ELEM out; uint32_t n = (uint32_t)count; if (n > LANES##u) n = LANES##u; for (uint32_t i = 0u; i < LANES##u; ++i) out.lane[i] = i < n ? previous.lane[LANES##u - n + i] : current.lane[i - n]; return out; } \
+static inline __attribute__((unused)) ks_scalar_exp_##ELEM ks_scalar_exp_compress_##ELEM(ks_scalar_exp_##ELEM value, ks_scalar_exp_mask_##ELEM selected) { ks_scalar_exp_##ELEM out = {{0}}; uint32_t cursor = 0u; for (uint32_t i = 0u; i < LANES##u; ++i) if (selected.lane[i]) out.lane[cursor++] = value.lane[i]; return out; } \
+static inline __attribute__((unused)) ks_scalar_exp_##ELEM ks_scalar_exp_expand_##ELEM(ks_scalar_exp_##ELEM value, ks_scalar_exp_mask_##ELEM selected) { ks_scalar_exp_##ELEM out = {{0}}; uint32_t cursor = 0u; for (uint32_t i = 0u; i < LANES##u; ++i) if (selected.lane[i]) out.lane[i] = value.lane[cursor++]; return out; } \
+static inline __attribute__((unused)) ks_scalar_exp_##ELEM ks_scalar_exp_prefix_sum_ordered_##ELEM(ks_scalar_exp_##ELEM value) { for (uint32_t i = 1u; i < LANES##u; ++i) value.lane[i] = value.lane[i - 1u] + value.lane[i]; return value; } \
+static inline __attribute__((unused)) ks_scalar_exp_##ELEM ks_scalar_exp_add_##ELEM(ks_scalar_exp_##ELEM left, ks_scalar_exp_##ELEM right) { for (uint32_t i = 0u; i < LANES##u; ++i) left.lane[i] = left.lane[i] + right.lane[i]; return left; } \
+static inline __attribute__((unused)) ks_scalar_exp_##ELEM ks_scalar_exp_sub_##ELEM(ks_scalar_exp_##ELEM left, ks_scalar_exp_##ELEM right) { for (uint32_t i = 0u; i < LANES##u; ++i) left.lane[i] = left.lane[i] - right.lane[i]; return left; } \
+static inline __attribute__((unused)) ks_scalar_exp_##ELEM ks_scalar_exp_mul_##ELEM(ks_scalar_exp_##ELEM left, ks_scalar_exp_##ELEM right) { for (uint32_t i = 0u; i < LANES##u; ++i) left.lane[i] = left.lane[i] * right.lane[i]; return left; } \
+static inline __attribute__((unused)) ks_scalar_exp_##ELEM ks_scalar_exp_div_##ELEM(ks_scalar_exp_##ELEM left, ks_scalar_exp_##ELEM right) { for (uint32_t i = 0u; i < LANES##u; ++i) left.lane[i] = left.lane[i] / right.lane[i]; return left; } \
+static inline __attribute__((unused)) ks_scalar_exp_mask_##ELEM ks_scalar_exp_lt_##ELEM(ks_scalar_exp_##ELEM left, ks_scalar_exp_##ELEM right) { ks_scalar_exp_mask_##ELEM out; for (uint32_t i = 0u; i < LANES##u; ++i) out.lane[i] = left.lane[i] < right.lane[i] ? (MASK)-1 : 0; return out; } \
+static inline __attribute__((unused)) ks_scalar_exp_mask_##ELEM ks_scalar_exp_le_##ELEM(ks_scalar_exp_##ELEM left, ks_scalar_exp_##ELEM right) { ks_scalar_exp_mask_##ELEM out; for (uint32_t i = 0u; i < LANES##u; ++i) out.lane[i] = left.lane[i] <= right.lane[i] ? (MASK)-1 : 0; return out; } \
+static inline __attribute__((unused)) ks_scalar_exp_mask_##ELEM ks_scalar_exp_gt_##ELEM(ks_scalar_exp_##ELEM left, ks_scalar_exp_##ELEM right) { ks_scalar_exp_mask_##ELEM out; for (uint32_t i = 0u; i < LANES##u; ++i) out.lane[i] = left.lane[i] > right.lane[i] ? (MASK)-1 : 0; return out; } \
+static inline __attribute__((unused)) ks_scalar_exp_mask_##ELEM ks_scalar_exp_ge_##ELEM(ks_scalar_exp_##ELEM left, ks_scalar_exp_##ELEM right) { ks_scalar_exp_mask_##ELEM out; for (uint32_t i = 0u; i < LANES##u; ++i) out.lane[i] = left.lane[i] >= right.lane[i] ? (MASK)-1 : 0; return out; } \
+static inline __attribute__((unused)) ks_scalar_exp_mask_##ELEM ks_scalar_exp_eq_##ELEM(ks_scalar_exp_##ELEM left, ks_scalar_exp_##ELEM right) { ks_scalar_exp_mask_##ELEM out; for (uint32_t i = 0u; i < LANES##u; ++i) out.lane[i] = left.lane[i] == right.lane[i] ? (MASK)-1 : 0; return out; } \
+static inline __attribute__((unused)) ks_scalar_exp_mask_##ELEM ks_scalar_exp_ne_##ELEM(ks_scalar_exp_##ELEM left, ks_scalar_exp_##ELEM right) { ks_scalar_exp_mask_##ELEM out; for (uint32_t i = 0u; i < LANES##u; ++i) out.lane[i] = left.lane[i] != right.lane[i] ? (MASK)-1 : 0; return out; } \
+static inline __attribute__((unused)) ks_scalar_exp_mask_##ELEM ks_scalar_exp_mask_and_##ELEM(ks_scalar_exp_mask_##ELEM left, ks_scalar_exp_mask_##ELEM right) { for (uint32_t i = 0u; i < LANES##u; ++i) left.lane[i] = left.lane[i] & right.lane[i]; return left; } \
+static inline __attribute__((unused)) ks_scalar_exp_mask_##ELEM ks_scalar_exp_mask_or_##ELEM(ks_scalar_exp_mask_##ELEM left, ks_scalar_exp_mask_##ELEM right) { for (uint32_t i = 0u; i < LANES##u; ++i) left.lane[i] = left.lane[i] | right.lane[i]; return left; } \
+static inline __attribute__((unused)) ks_scalar_exp_mask_##ELEM ks_scalar_exp_mask_xor_##ELEM(ks_scalar_exp_mask_##ELEM left, ks_scalar_exp_mask_##ELEM right) { for (uint32_t i = 0u; i < LANES##u; ++i) left.lane[i] = left.lane[i] ^ right.lane[i]; return left; } \
+static inline __attribute__((unused)) ks_scalar_exp_mask_##ELEM ks_scalar_exp_mask_eq_##ELEM(ks_scalar_exp_mask_##ELEM left, ks_scalar_exp_mask_##ELEM right) { ks_scalar_exp_mask_##ELEM out; for (uint32_t i = 0u; i < LANES##u; ++i) out.lane[i] = left.lane[i] == right.lane[i] ? (MASK)-1 : 0; return out; } \
+static inline __attribute__((unused)) ks_scalar_exp_mask_##ELEM ks_scalar_exp_mask_ne_##ELEM(ks_scalar_exp_mask_##ELEM left, ks_scalar_exp_mask_##ELEM right) { ks_scalar_exp_mask_##ELEM out; for (uint32_t i = 0u; i < LANES##u; ++i) out.lane[i] = left.lane[i] != right.lane[i] ? (MASK)-1 : 0; return out; } \
+static inline __attribute__((unused)) ks_scalar_exp_##ELEM ks_scalar_exp_neg_##ELEM(ks_scalar_exp_##ELEM value) { for (uint32_t i = 0u; i < LANES##u; ++i) value.lane[i] = -value.lane[i]; return value; } \
+static inline __attribute__((unused)) ks_scalar_exp_mask_##ELEM ks_scalar_exp_mask_not_##ELEM(ks_scalar_exp_mask_##ELEM value) { for (uint32_t i = 0u; i < LANES##u; ++i) value.lane[i] = ~value.lane[i]; return value; }
+
+/* What an integer element has that a float does not. */
+#define KS_EXP_INT_ONLY(ELEM, CTYPE, LANES) \
+static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_prefix_xor_##ELEM(ks_exp_##ELEM value) { for (uint32_t i = 1u; i < LANES##u; ++i) value[i] = value[i - 1u] ^ value[i]; return value; } \
+static inline __attribute__((unused)) ks_scalar_exp_##ELEM ks_scalar_exp_prefix_xor_##ELEM(ks_scalar_exp_##ELEM value) { for (uint32_t i = 1u; i < LANES##u; ++i) value.lane[i] = value.lane[i - 1u] ^ value.lane[i]; return value; } \
+static inline __attribute__((unused)) ks_scalar_exp_##ELEM ks_scalar_exp_and_##ELEM(ks_scalar_exp_##ELEM left, ks_scalar_exp_##ELEM right) { for (uint32_t i = 0u; i < LANES##u; ++i) left.lane[i] = left.lane[i] & right.lane[i]; return left; } \
+static inline __attribute__((unused)) ks_scalar_exp_##ELEM ks_scalar_exp_or_##ELEM(ks_scalar_exp_##ELEM left, ks_scalar_exp_##ELEM right) { for (uint32_t i = 0u; i < LANES##u; ++i) left.lane[i] = left.lane[i] | right.lane[i]; return left; } \
+static inline __attribute__((unused)) ks_scalar_exp_##ELEM ks_scalar_exp_xor_##ELEM(ks_scalar_exp_##ELEM left, ks_scalar_exp_##ELEM right) { for (uint32_t i = 0u; i < LANES##u; ++i) left.lane[i] = left.lane[i] ^ right.lane[i]; return left; } \
+static inline __attribute__((unused)) ks_scalar_exp_##ELEM ks_scalar_exp_shl_##ELEM(ks_scalar_exp_##ELEM left, ks_scalar_exp_##ELEM right) { for (uint32_t i = 0u; i < LANES##u; ++i) left.lane[i] = left.lane[i] << right.lane[i]; return left; } \
+static inline __attribute__((unused)) ks_scalar_exp_##ELEM ks_scalar_exp_shr_##ELEM(ks_scalar_exp_##ELEM left, ks_scalar_exp_##ELEM right) { for (uint32_t i = 0u; i < LANES##u; ++i) left.lane[i] = left.lane[i] >> right.lane[i]; return left; } \
+static inline __attribute__((unused)) ks_scalar_exp_##ELEM ks_scalar_exp_not_##ELEM(ks_scalar_exp_##ELEM value) { for (uint32_t i = 0u; i < LANES##u; ++i) value.lane[i] = ~value.lane[i]; return value; }
+#define KS_EXP_FLOAT_ONLY(ELEM, CTYPE, LANES)
+
+/* Horizontal reductions, emitted once over the vector (P = exp, lanes
+ * indexed AT = KS_AT_VECTOR) and once over the oracle (P = scalar_exp,
+ * AT = KS_AT_LANE). The three summation orders are distinct contracts. */
+#define KS_AT_VECTOR(v, i) v[i]
+#define KS_AT_LANE(v, i) v.lane[i]
+#define KS_EXP_HORIZONTAL(P, ELEM, CTYPE, LANES, AT) \
+static inline __attribute__((unused)) CTYPE ks_##P##_horizontal_ordered_sum_##ELEM(ks_##P##_##ELEM left) { CTYPE out = (CTYPE)0; for (uint32_t i = 0u; i < LANES##u; ++i) out = out + AT(left, i); return out; } \
+static inline __attribute__((unused)) CTYPE ks_##P##_horizontal_pairwise_sum_##ELEM(ks_##P##_##ELEM left) { CTYPE partials[LANES]; for (uint32_t i = 0u; i < LANES##u; ++i) partials[i] = AT(left, i); uint32_t n = LANES##u; while (n > 1u) { uint32_t out = 0u; uint32_t i = 0u; for (; i + 1u < n; i += 2u) partials[out++] = partials[i] + partials[i + 1u]; if (i < n) partials[out++] = partials[i]; n = out; } return partials[0]; } \
+static inline __attribute__((unused)) CTYPE ks_##P##_horizontal_algebraic_sum_##ELEM(ks_##P##_##ELEM left) { CTYPE even = (CTYPE)0, odd = (CTYPE)0; uint32_t i = 0u; for (; i + 1u < LANES##u; i += 2u) { even = even + AT(left, i); odd = odd + AT(left, i + 1u); } if (i < LANES##u) even = even + AT(left, i); return even + odd; } \
+static inline __attribute__((unused)) CTYPE ks_##P##_horizontal_ordered_product_##ELEM(ks_##P##_##ELEM left) { CTYPE out = (CTYPE)1; for (uint32_t i = 0u; i < LANES##u; ++i) out = out * AT(left, i); return out; } \
+static inline __attribute__((unused)) CTYPE ks_##P##_horizontal_pairwise_product_##ELEM(ks_##P##_##ELEM left) { CTYPE partials[LANES]; for (uint32_t i = 0u; i < LANES##u; ++i) partials[i] = AT(left, i); uint32_t n = LANES##u; while (n > 1u) { uint32_t out = 0u; uint32_t i = 0u; for (; i + 1u < n; i += 2u) partials[out++] = partials[i] * partials[i + 1u]; if (i < n) partials[out++] = partials[i]; n = out; } return partials[0]; } \
+static inline __attribute__((unused)) CTYPE ks_##P##_horizontal_algebraic_product_##ELEM(ks_##P##_##ELEM left) { CTYPE even = (CTYPE)1, odd = (CTYPE)1; uint32_t i = 0u; for (; i + 1u < LANES##u; i += 2u) { even = even * AT(left, i); odd = odd * AT(left, i + 1u); } if (i < LANES##u) even = even * AT(left, i); return even * odd; } \
+static inline __attribute__((unused)) CTYPE ks_##P##_horizontal_ordered_dot_##ELEM(ks_##P##_##ELEM left, ks_##P##_##ELEM right) { CTYPE out = (CTYPE)0; for (uint32_t i = 0u; i < LANES##u; ++i) { CTYPE product = AT(left, i) * AT(right, i); out = out + product; } return out; } \
+static inline __attribute__((unused)) CTYPE ks_##P##_horizontal_pairwise_dot_##ELEM(ks_##P##_##ELEM left, ks_##P##_##ELEM right) { CTYPE partials[LANES]; for (uint32_t i = 0u; i < LANES##u; ++i) partials[i] = AT(left, i) * AT(right, i); uint32_t n = LANES##u; while (n > 1u) { uint32_t out = 0u; uint32_t i = 0u; for (; i + 1u < n; i += 2u) partials[out++] = partials[i] + partials[i + 1u]; if (i < n) partials[out++] = partials[i]; n = out; } return partials[0]; }
+
+/* Lane-wise and horizontal folds over a pair helper that holds the
+ * NaN policy, so only the helper and the arg search differ by kind. */
+#define KS_EXP_FOLD(P, ELEM, CTYPE, LANES, AT, contract, which) \
+static inline __attribute__((unused)) ks_##P##_##ELEM ks_##P##_##contract##_##which##_##ELEM(ks_##P##_##ELEM left, ks_##P##_##ELEM right) { ks_##P##_##ELEM out = left; for (uint32_t i = 0u; i < LANES##u; ++i) AT(out, i) = ks_##P##_##contract##_##which##2_##ELEM(AT(left, i), AT(right, i)); return out; } \
+static inline __attribute__((unused)) CTYPE ks_##P##_horizontal_##contract##_##which##_##ELEM(ks_##P##_##ELEM left) { CTYPE out = AT(left, 0u); for (uint32_t i = 1u; i < LANES##u; ++i) out = ks_##P##_##contract##_##which##2_##ELEM(out, AT(left, i)); return out; }
+
+/* Floats: the fused dot, a quiet NaN, and min/max that either propagate
+ * a NaN or skip it, ordering -0 below +0 either way. */
+#define KS_EXP_FMA_double fma
+#define KS_EXP_FMA_float fmaf
+#define KS_EXP_NAN_double uint64_t b = UINT64_C(0x7ff8000000000000);
+#define KS_EXP_NAN_float uint32_t b = UINT32_C(0x7fc00000);
+#define KS_EXP_EXTREMES_FLOAT(P, ELEM, CTYPE, LANES, AT) \
+static inline __attribute__((unused)) CTYPE ks_##P##_horizontal_algebraic_dot_##ELEM(ks_##P##_##ELEM left, ks_##P##_##ELEM right) { CTYPE even = (CTYPE)0, odd = (CTYPE)0; uint32_t i = 0u; for (; i + 1u < LANES##u; i += 2u) { even = KS_EXP_FMA_##CTYPE(AT(left, i), AT(right, i), even); odd = KS_EXP_FMA_##CTYPE(AT(left, i + 1u), AT(right, i + 1u), odd); } if (i < LANES##u) even = KS_EXP_FMA_##CTYPE(AT(left, i), AT(right, i), even); return even + odd; } \
+static inline __attribute__((unused)) CTYPE ks_##P##_nan_##ELEM(void) { KS_EXP_NAN_##CTYPE CTYPE out; memcpy(&out, &b, sizeof out); return out; } \
+static inline __attribute__((unused)) CTYPE ks_##P##_propagating_min2_##ELEM(CTYPE left, CTYPE right) { if (left != left || right != right) { return ks_##P##_nan_##ELEM(); } if (left == right) { return left != (CTYPE)0 ? left : (signbit(left) ? left : right); } return left < right ? left : right; } \
+KS_EXP_FOLD(P, ELEM, CTYPE, LANES, AT, propagating, min) \
+static inline __attribute__((unused)) double ks_##P##_horizontal_propagating_arg_min_##ELEM(ks_##P##_##ELEM left) { uint32_t at = 0u; CTYPE best = AT(left, 0u); for (uint32_t i = 1u; i < LANES##u; ++i) { CTYPE value = AT(left, i); if (best == best) { if (value != value) { at = i; best = value; } else if (value < best || (value == best && signbit(value) != signbit(best) && signbit(value))) { at = i; best = value; } } } return (double)(at + 1u); } \
+static inline __attribute__((unused)) CTYPE ks_##P##_number_min2_##ELEM(CTYPE left, CTYPE right) { if (left != left) { return right != right ? ks_##P##_nan_##ELEM() : right; } if (right != right) { return left; } if (left == right) { return left != (CTYPE)0 ? left : (signbit(left) ? left : right); } return left < right ? left : right; } \
+KS_EXP_FOLD(P, ELEM, CTYPE, LANES, AT, number, min) \
+static inline __attribute__((unused)) double ks_##P##_horizontal_number_arg_min_##ELEM(ks_##P##_##ELEM left) { uint32_t at = 0u; CTYPE best = AT(left, 0u); for (uint32_t i = 1u; i < LANES##u; ++i) { CTYPE value = AT(left, i); if (value == value) { if (best != best) { at = i; best = value; } else if (value < best || (value == best && signbit(value) != signbit(best) && signbit(value))) { at = i; best = value; } } } return (double)(at + 1u); } \
+static inline __attribute__((unused)) CTYPE ks_##P##_propagating_max2_##ELEM(CTYPE left, CTYPE right) { if (left != left || right != right) { return ks_##P##_nan_##ELEM(); } if (left == right) { return left != (CTYPE)0 ? left : (signbit(left) ? right : left); } return left > right ? left : right; } \
+KS_EXP_FOLD(P, ELEM, CTYPE, LANES, AT, propagating, max) \
+static inline __attribute__((unused)) double ks_##P##_horizontal_propagating_arg_max_##ELEM(ks_##P##_##ELEM left) { uint32_t at = 0u; CTYPE best = AT(left, 0u); for (uint32_t i = 1u; i < LANES##u; ++i) { CTYPE value = AT(left, i); if (best == best) { if (value != value) { at = i; best = value; } else if (value > best || (value == best && signbit(value) != signbit(best) && signbit(best))) { at = i; best = value; } } } return (double)(at + 1u); } \
+static inline __attribute__((unused)) CTYPE ks_##P##_number_max2_##ELEM(CTYPE left, CTYPE right) { if (left != left) { return right != right ? ks_##P##_nan_##ELEM() : right; } if (right != right) { return left; } if (left == right) { return left != (CTYPE)0 ? left : (signbit(left) ? right : left); } return left > right ? left : right; } \
+KS_EXP_FOLD(P, ELEM, CTYPE, LANES, AT, number, max) \
+static inline __attribute__((unused)) double ks_##P##_horizontal_number_arg_max_##ELEM(ks_##P##_##ELEM left) { uint32_t at = 0u; CTYPE best = AT(left, 0u); for (uint32_t i = 1u; i < LANES##u; ++i) { CTYPE value = AT(left, i); if (value == value) { if (best != best) { at = i; best = value; } else if (value > best || (value == best && signbit(value) != signbit(best) && signbit(best))) { at = i; best = value; } } } return (double)(at + 1u); }
+
+/* Integers have no NaN, so both contracts are the plain comparison. */
+#define KS_EXP_INT_EXTREME(P, ELEM, CTYPE, LANES, AT, contract, which, op) \
+static inline __attribute__((unused)) CTYPE ks_##P##_##contract##_##which##2_##ELEM(CTYPE left, CTYPE right) { return left op right ? left : right; } \
+KS_EXP_FOLD(P, ELEM, CTYPE, LANES, AT, contract, which) \
+static inline __attribute__((unused)) double ks_##P##_horizontal_##contract##_arg_##which##_##ELEM(ks_##P##_##ELEM left) { uint32_t at = 0u; CTYPE best = AT(left, 0u); for (uint32_t i = 1u; i < LANES##u; ++i) { CTYPE value = AT(left, i); if (value op best) { at = i; best = value; } } return (double)(at + 1u); }
+#define KS_EXP_EXTREMES_INT(P, ELEM, CTYPE, LANES, AT) \
+KS_EXP_INT_EXTREME(P, ELEM, CTYPE, LANES, AT, propagating, min, <) \
+KS_EXP_INT_EXTREME(P, ELEM, CTYPE, LANES, AT, number, min, <) \
+KS_EXP_INT_EXTREME(P, ELEM, CTYPE, LANES, AT, propagating, max, >) \
+KS_EXP_INT_EXTREME(P, ELEM, CTYPE, LANES, AT, number, max, >)
+
+/* One element, KIND being FLOAT or INT. */
+#define KS_EXP_ELEMENT(W, ELEM, CTYPE, MASK, LANES, BYTES, KIND) \
+KS_EXP_VECTOR(W, ELEM, CTYPE, MASK, LANES, BYTES) \
+KS_EXP_SCALAR(ELEM, CTYPE, MASK, LANES) \
+KS_EXP_##KIND##_ONLY(ELEM, CTYPE, LANES) \
+KS_EXP_HORIZONTAL(exp, ELEM, CTYPE, LANES, KS_AT_VECTOR) \
+KS_EXP_EXTREMES_##KIND(exp, ELEM, CTYPE, LANES, KS_AT_VECTOR) \
+KS_EXP_HORIZONTAL(scalar_exp, ELEM, CTYPE, LANES, KS_AT_LANE) \
+KS_EXP_EXTREMES_##KIND(scalar_exp, ELEM, CTYPE, LANES, KS_AT_LANE)
+
+#endif /* KS_SIMD_H */
+
+/* ---- This width --------------------------------------------------- */
+
+#if KS_SIMD_WIDTH == 16
+KS_U8_PACKED(16, 4, 3)
+KS_U8_SCALAR(16)
+#if KS_LUA_BUILDER
+KS_U8_STORE4(16, 64)
+#endif
+KS_EXP_ELEMENT(16, f64x2, double, int64_t, 2, 8, FLOAT)
+KS_EXP_ELEMENT(16, f32x4, float, int32_t, 4, 4, FLOAT)
+KS_EXP_ELEMENT(16, i8x16, int8_t, int8_t, 16, 1, INT)
+KS_EXP_ELEMENT(16, u8x16, uint8_t, int8_t, 16, 1, INT)
+KS_EXP_ELEMENT(16, i16x8, int16_t, int16_t, 8, 2, INT)
+KS_EXP_ELEMENT(16, u16x8, uint16_t, int16_t, 8, 2, INT)
+KS_EXP_ELEMENT(16, i32x4, int32_t, int32_t, 4, 4, INT)
+KS_EXP_ELEMENT(16, u32x4, uint32_t, int32_t, 4, 4, INT)
+KS_EXP_ELEMENT(16, i64x2, int64_t, int64_t, 2, 8, INT)
+KS_EXP_ELEMENT(16, u64x2, uint64_t, int64_t, 2, 8, INT)
+#elif KS_SIMD_WIDTH == 32
+KS_U8_PACKED(32, 2, 1)
+KS_U8_SCALAR(32)
+#if KS_LUA_BUILDER
+KS_U8_STORE4(32, 128)
+#endif
+KS_EXP_ELEMENT(32, f64x4, double, int64_t, 4, 8, FLOAT)
+KS_EXP_ELEMENT(32, f32x8, float, int32_t, 8, 4, FLOAT)
+KS_EXP_ELEMENT(32, i8x32, int8_t, int8_t, 32, 1, INT)
+KS_EXP_ELEMENT(32, u8x32, uint8_t, int8_t, 32, 1, INT)
+KS_EXP_ELEMENT(32, i16x16, int16_t, int16_t, 16, 2, INT)
+KS_EXP_ELEMENT(32, u16x16, uint16_t, int16_t, 16, 2, INT)
+KS_EXP_ELEMENT(32, i32x8, int32_t, int32_t, 8, 4, INT)
+KS_EXP_ELEMENT(32, u32x8, uint32_t, int32_t, 8, 4, INT)
+KS_EXP_ELEMENT(32, i64x4, int64_t, int64_t, 4, 8, INT)
+KS_EXP_ELEMENT(32, u64x4, uint64_t, int64_t, 4, 8, INT)
+#else
+#error "KS_SIMD_WIDTH must be 16 or 32"
+#endif
