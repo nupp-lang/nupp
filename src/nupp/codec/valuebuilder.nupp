@@ -801,8 +801,10 @@ end
 
 local function scratchString(scratch: any, start: uint32, length: uint32): string
     local parts: {string} = {}
-    for offset = 0, length - 1 do
-        parts[#parts + 1] = string.char(tonumber(scratch.bytes[start + offset + 1]) as integer)
+    -- Counted from one: `length - 1` is a uint32 subtraction, which wraps when
+    -- the scratch is empty.
+    for offset = 1, length do
+        parts[offset] = string.char(tonumber(scratch.bytes[start + offset]) as integer)
     end
 
     return table.concat(parts)
