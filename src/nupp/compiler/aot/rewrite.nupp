@@ -1962,6 +1962,7 @@ function rewrite.block(
                         state
                     ),
                     boundSpan = statement.boundSpan,
+                    carried = statement.carried,
                     source = statement.source
                 )
             else

@@ -552,8 +552,8 @@ local function breakResultProgram()
       }},
    }
    return program({
-      {op = "let", name = "iteration", cName = "iteration", type = "i32", value = integer(0, "i32")},
-      {op = "let", name = "escaped", cName = "escaped", type = "i32", value = integer(0, "i32")},
+      {op = "let", name = "iteration", cName = "iteration", type = "i32", value = integer(0, "i32"), assigned = true},
+      {op = "let", name = "escaped", cName = "escaped", type = "i32", value = integer(0, "i32"), assigned = true},
       {
          op = "while",
          condition = condition,
@@ -563,6 +563,10 @@ local function breakResultProgram()
                clauses = {{condition = named("stop", "bool"), body = {setEscaped, {op = "break"}}}},
             },
             iterationStep,
+         },
+         carried = {
+            {name = "escaped", cName = "escaped", type = "i32"},
+            {name = "iteration", cName = "iteration", type = "i32"},
          },
       },
       {op = "return", values = {named("escaped", "i32")}},

@@ -1,0 +1,49 @@
+#!/bin/sh
+# Emits C, WGSL and SPIR-V for every @aot kernel under bench/ and tests/wasm-aot
+# into one directory, so two compilers can be compared byte for byte.
+#
+#   scripts/aot-emit-corpus OUTDIR [NUPP]
+#
+# NUPP is the compiler to run, default ./bin/nupp of this checkout. Each kernel
+# is emitted at the native target and at x86_64 avx2; a project with a
+# manifest is emitted from its own root so its module names resolve. Kernels
+# that a target or artifact does not apply to write nothing, and that is
+# recorded in OUTDIR/skipped so a missing file reads as a decision, not a
+# difference.
+set -u
+out=${1:?output directory}
+nupp=${2:-$(pwd)/bin/nupp}
+root=$(pwd)
+mkdir -p "$out"
+: > "$out/skipped"
+
+emit() {
+    dir=$1
+    rel=$2
+    tag=$3
+    shift 3
+    name=$(printf '%s' "$dir/$rel" | tr '/' '_')
+    if ! (cd "$dir" && "$nupp" aot "$@" "$rel" > "$out/$name.$tag" 2> "$out/$name.$tag.err"); then
+        printf '%s %s: %s\n' "$name" "$tag" "$(head -1 "$out/$name.$tag.err")" >> "$out/skipped"
+        rm -f "$out/$name.$tag"
+    fi
+    rm -f "$out/$name.$tag.err"
+}
+
+grep -rl '@aot' bench tests/wasm-aot --include='*.nupp' | sort | while read -r file; do
+    dir=$(dirname "$file")
+    while [ "$dir" != "." ] && [ ! -f "$dir/nupp.lua" ]; do
+        dir=$(dirname "$dir")
+    done
+    if [ "$dir" = "." ]; then
+        rel=$file
+    else
+        rel=${file#$dir/}
+    fi
+    dir=$root/$dir
+    emit "$dir" "$rel" c --emit c
+    emit "$dir" "$rel" avx2.c --emit c --target x86_64-unknown-linux-gnu --features avx2
+    emit "$dir" "$rel" wgsl --emit wgsl
+    emit "$dir" "$rel" spirv --emit spirv
+    emit "$dir" "$rel" ir --emit ir
+done

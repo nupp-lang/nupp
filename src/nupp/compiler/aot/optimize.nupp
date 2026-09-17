@@ -475,6 +475,16 @@ local function deriveBreakResults(statements: {scalarIR.Statement}, state: optim
             local found = breakResult(statements, position, loop)
             if found ~= nil then
                 loop.body = removeBreakWrites(loop.body, found)
+                -- Every write the body made to the result was a break write,
+                -- so the loop no longer carries it; the `let` before the loop
+                -- stays assigned, by the derivation below.
+                local stillCarried: {scalarIR.Carried} = {}
+                for _, entry in ipairs(loop.carried) do
+                    if entry.cName ~= found.identity then
+                        stillCarried[#stillCarried + 1] = entry
+                    end
+                end
+                loop.carried = stillCarried
                 local assignment = new scalarIR.Assignment(
                     target = specialize.copy(found.target, {}),
                     value = specialize.copy(found.value, {})

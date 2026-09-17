@@ -396,6 +396,71 @@ const SCRATCH_LENGTH = "scratch length "
 --- it no longer holds.
 const LENGTH_OF = "length of "
 
+--- The `values` keys under which a local remembers whether its `let` declared
+--- it assigned, and the loop depth it was declared at. Both sit beside the
+--- binding for the same reason `LENGTH_OF` does: they are established by the
+--- declaration this verifier saw and go out of scope with it.
+const ASSIGNED = "assigned "
+
+const DECLARED_AT = "declared at "
+
+--- One loop being checked: what it says it carries, and which of those names
+--- its body has been seen to assign.
+record verify.LoopFrame
+    carried: {[string]: scalarIR.Carried}
+    seen: {[string]: boolean}
+end
+
+--- The loops enclosing the statement being checked, innermost last. Kept
+--- beside the walk rather than in the scope because a frame is the loop
+--- statement's own, not something a nested scope derives from.
+local loopFrames: {verify.LoopFrame} = {}
+
+--- Enters a loop: its carried list names visible, assigned locals declared
+--- outside it, and nothing else.
+local function enterLoop(carried: {scalarIR.Carried}?, values: {[string]: string}): nil
+    holds(carried ~= nil, "a loop without its carried list")
+    local frame = new verify.LoopFrame(carried = {}, seen = {})
+    for _, entry in ipairs(carried as {scalarIR.Carried}) do
+        holds(values[entry.name] == entry.type, "a loop carries a local it cannot see")
+        holds(values[ASSIGNED .. entry.name] ~= nil, "a loop carries a local its binding did not declare assigned")
+        holds(frame.carried[entry.name] == nil, "a loop carries one local twice")
+        frame.carried[entry.name] = entry
+    end
+    loopFrames[#loopFrames + 1] = frame
+end
+
+--- Leaves a loop: everything it said it carried, its body assigned.
+local function leaveLoop(): nil
+    local frame = loopFrames[#loopFrames]
+    loopFrames[#loopFrames] = nil
+    for name in pairs(frame.carried) do
+        holds(frame.seen[name] == true, "a loop carries a local its body does not assign")
+    end
+end
+
+--- Declares a local at the current loop depth.
+local function declareLocal(values: {[string]: string}, name: string, assigned: boolean?): nil
+    if assigned == true then
+        values[ASSIGNED .. name] = "true"
+    else
+        values[ASSIGNED .. name] = nil
+    end
+    values[DECLARED_AT .. name] = tostring(#loopFrames)
+end
+
+--- An assignment to a local: its binding must have said so, and every loop
+--- entered since it was declared must carry it.
+local function assignedLocal(values: {[string]: string}, name: string): nil
+    holds(values[ASSIGNED .. name] ~= nil, "assignment to a local its binding did not declare assigned")
+    local from = tonumber(values[DECLARED_AT .. name]) or #loopFrames
+    for level = (from as integer) + 1, #loopFrames do
+        local frame = loopFrames[level]
+        holds(frame.carried[name] ~= nil, "a loop assigns a local it does not carry")
+        frame.seen[name] = true
+    end
+end
+
 local function scratchLengthSource(value: scalarIR.Expr, values: {[string]: string}): string?
     if value.op == "lua_scratch_u32_length" or value.op == "lua_scratch_u32_escape_length" then
         return ((value as scalarIR.LuaScratchU32Length).scratch as scalarIR.Name).name
@@ -2265,6 +2330,7 @@ local function block(
             holds(values[statement.name] == nil and statement.type == statement.value.type, "invalid local declaration")
             scalarWalk(statement.value, values, scope)
             values[statement.name] = statement.type
+            declareLocal(values, statement.name, statement.assigned)
             if statement.value.op == "lua_string_length" then
                 values[
                     LENGTH_OF .. statement.name
@@ -2311,6 +2377,7 @@ local function block(
                     "invalid multiple-result binding"
                 )
                 values[bound.name] = bound.type
+                declareLocal(values, bound.name, nil)
             end
         elseif statement.op == "store" then
             local bounded = statement.cursor ~= nil and statement.index == "" and values[
@@ -2731,6 +2798,7 @@ local function block(
             for _, entry in ipairs(statement.values) do
                 local target = entry.target
                 if target.kind == "local" and target.name ~= nil then
+                    assignedLocal(values, target.name as string)
                     scope.cursorBounds[target.name as string] = nil
                     values[LENGTH_OF .. (target.name as string)] = nil
                     local scratchLength = scratchLengthSource(entry.value, values)
@@ -2804,7 +2872,9 @@ local function block(
             holds(statement.binding.type == "i32", "for induction variable type")
 
             local inner = inherit(values)
+            enterLoop(statement.carried, inner)
             inner[statement.binding.name] = "i32"
+            declareLocal(inner, statement.binding.name, nil)
             -- Only this loop's own bound proves an index under it, so the map's
             -- guarded spans do not carry in.
             local nestedScope = derive(scope, {
@@ -2832,6 +2902,7 @@ local function block(
                 )
             end
             block(statement.body, inner, nestedScope, stored)
+            leaveLoop()
             invalidateCursors(scope, nestedScope)
         elseif statement.op == "while" then
             holds(statement.condition.type == "bool", "non-boolean loop condition")
@@ -2846,14 +2917,18 @@ local function block(
                     "invalid loop cursor bounds proof"
                 ),
             })
+            enterLoop(statement.carried, values)
             block(statement.body, values, nestedScope, stored)
+            leaveLoop()
             invalidateCursors(scope, nestedScope)
         elseif statement.op == "repeat" then
             local inner = inherit(values)
             local nestedScope = derive(scope, {cursorBounds = inheritBounds(scope.cursorBounds)})
+            enterLoop(statement.carried, inner)
             block(statement.body, inner, nestedScope, stored, true)
             holds(statement.condition.type == "bool", "non-boolean repeat condition")
             scalarWalk(statement.condition, inner, nestedScope)
+            leaveLoop()
             invalidateCursors(scope, nestedScope)
         elseif statement.op == "block" then
             block(statement.body, values, scope, stored)
@@ -3619,6 +3694,7 @@ end
 --- @return the same program, so a caller may verify and use it in one step
 --- @raises when anything about it is not well formed
 function verify.program(program: scalarIR.Program): scalarIR.Program
+    loopFrames = {}
     holds(program.version == scalarIR.VERSION, "unknown native C IR version")
     holds(program.symbol == scalarIR.privateSymbol(program.name), "private symbol does not match function identity")
     holds(program.entryMode == "kernel" or program.entryMode == "lua-builder", "invalid AOT entry mode")

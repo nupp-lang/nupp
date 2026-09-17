@@ -1,0 +1,155 @@
+module nupp.compiler.aot.carried
+
+-- Names what a body's loops carry and which of its locals are ever assigned.
+--
+-- Lowering produces a body and then asks this once for the facts every later
+-- reader used to rediscover by scanning: each `let` learns whether an
+-- `assign` after it targets the name, and each loop learns which locals bound
+-- outside it are assigned inside it. A pass that removes or moves an
+-- assignment keeps the two in step itself, and the verifier holds them to
+-- the body, so a stale answer is refused rather than trusted.
+local scalarIR = require("nupp.compiler.aot.scalar")
+local carried = {}
+
+--- One loop being walked: what it has been found to carry, in the order the
+--- assignments were met, and whether an entry is already there.
+record carried.Frame
+    node: any
+    order: {scalarIR.Carried}
+    present: {[string]: boolean}
+end
+
+record carried.State
+    --- The loop nesting depth each name was declared at, by C name.
+    depth: {[string]: integer}
+
+    --- The `let` that declared each name, when a `let` did: a `multi_let`
+    --- binding or an induction variable has no flag to set.
+    lets: {[string]: scalarIR.Let}
+
+    frames: {carried.Frame}
+end
+
+local walk: function({scalarIR.Statement}, carried.State): nil
+
+local function declare(state: carried.State, cName: string, declared: scalarIR.Let?): nil
+    state.depth[cName] = #state.frames
+    if declared ~= nil then
+        state.lets[cName] = declared as scalarIR.Let
+    else
+        state.lets[cName] = nil
+    end
+end
+
+--- An assignment to a local: the declaring `let` is a variable from here, and
+--- every loop entered since it was declared carries the name.
+local function assigned(state: carried.State, target: scalarIR.Target): nil
+    if target.kind ~= "local" or target.cName == nil then
+        return
+    end
+    local cName = target.cName as string
+    local declared = state.lets[cName]
+    if declared ~= nil then
+        (declared as scalarIR.Let).assigned = true
+    end
+    local from = state.depth[cName]
+    if from == nil then
+        return
+    end
+    local type = target.type
+    if type == nil and declared ~= nil then
+        type = (declared as scalarIR.Let).type
+    end
+    for level = (from as integer) + 1, #state.frames do
+        local frame = state.frames[level]
+        if not frame.present[cName] then
+            frame.present[cName] = true
+            frame.order[
+                #frame.order + 1
+            ] = new scalarIR.Carried(name = target.name as string, cName = cName, type = type as scalarIR.Type)
+        end
+    end
+end
+
+local function loop(state: carried.State, node: any, body: {scalarIR.Statement}, binding: scalarIR.Binding?): nil
+    local frame = new carried.Frame(node = node, order = {}, present = {})
+    state.frames[#state.frames + 1] = frame
+    if binding ~= nil then
+        declare(state, (binding as scalarIR.Binding).cName, nil)
+    end
+    walk(body, state)
+    state.frames[#state.frames] = nil
+    node.carried = frame.order
+end
+
+walk = function(statements: {scalarIR.Statement}, state: carried.State): nil
+    for _, statement in ipairs(statements) do
+        local op = statement.op
+        if op == "let" then
+            local declared = statement as scalarIR.Let
+            declared.assigned = nil
+            declare(state, declared.cName, declared)
+        elseif op == "multi_let" then
+            for _, bound in ipairs((statement as scalarIR.MultiLet).bindings) do
+                declare(state, bound.cName, nil)
+            end
+        elseif op == "assign" then
+            for _, entry in ipairs((statement as scalarIR.Assign).values) do
+                assigned(state, entry.target)
+            end
+        elseif op == "if" then
+            local branch = statement as scalarIR.If
+            for _, clause in ipairs(branch.clauses) do
+                walk(clause.body, state)
+            end
+            if branch.elseBody ~= nil then
+                walk(branch.elseBody as {scalarIR.Statement}, state)
+            end
+        elseif op == "while" then
+            local node = statement as scalarIR.While
+            loop(state, node, node.body, nil)
+        elseif op == "repeat" then
+            local node = statement as scalarIR.Repeat
+            loop(state, node, node.body, nil)
+        elseif op == "fornum" then
+            local node = statement as scalarIR.Fornum
+            loop(state, node, node.body, node.binding)
+        elseif op == "block" then
+            walk((statement as scalarIR.Block).body, state)
+        elseif op == "phase" then
+            walk((statement as scalarIR.Phase).body, state)
+        end
+    end
+end
+
+--- Annotates one body in place. Names declared in an earlier body of the same
+--- program (a workgroup prelude before its statements) are visible to a later
+--- one through the shared state, so a program passes each of its bodies to
+--- the same state in order.
+function carried.body(statements: {scalarIR.Statement}, state: carried.State): nil
+    walk(statements, state)
+end
+
+function carried.state(): carried.State
+    return new carried.State(depth = {}, lets = {}, frames = {})
+end
+
+--- Annotates every body a program has.
+function carried.program(program: scalarIR.Program): scalarIR.Program
+    local state = carried.state()
+    if program.loop ~= nil then
+        walk((program.loop as scalarIR.Loop).statements, state)
+    end
+    if program.workgroup ~= nil then
+        local group = program.workgroup as scalarIR.Workgroup
+        walk(group.prelude, state)
+        walk(group.statements, state)
+    end
+    if program.body ~= nil then
+        walk(program.body as {scalarIR.Statement}, state)
+    end
+
+    return program
+end
+
+export = carried

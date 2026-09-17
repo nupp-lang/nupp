@@ -282,12 +282,20 @@ function M.aLoopBodyReassigningACursorRetiresTheEnclosingProof()
             }
         },
     }
-    local loop = {op = "while", condition = {op = "bool", value = true, type = "bool"}, body = {read, advance}}
+    cursor.assigned = true
+    local direct = {name = "direct", cName = read.values[1].target.cName, type = "u32"}
+    local loop = {
+        op = "while",
+        condition = {op = "bool", value = true, type = "bool"},
+        body = {read, advance},
+        carried = {direct, {name = "cursor", cName = cursor.cName, type = "u32"}},
+    }
     branch.clauses[1].body = {loop}
     refuses(program, "direct rooted byte read lacks a bounds proof")
 
     -- A loop that leaves the cursor alone keeps the proof on every pass.
     loop.body = {read}
+    loop.carried = {direct}
     verify.program(program)
 end
 
@@ -303,6 +311,80 @@ local function scan(borrows cps: span.Span<uint32>, borrows other: span.Span<uin
 end
 return {scan = scan}
 ]]
+
+local CARRIED = [[
+local span = require("nupp.mem.span")
+@aot
+local function total(borrows values: span.Span<uint32>): uint32
+    local sum: uint32 = 0
+    local cursor: uint32 = 0
+    while cursor < #values do
+        local step: uint32 = 1
+        if values[cursor + 1] > 0xF then
+            step = 2
+        end
+        sum = sum + values[cursor + 1]
+        cursor = cursor + step
+    end
+    return sum
+end
+return {total = total}
+]]
+
+function M.aLoopNamesExactlyTheOuterLocalsItsBodyAssigns()
+    -- Lowering writes the list once and the verifier holds it to the body,
+    -- both ways: a name the body assigns must be listed, and a listed name
+    -- must be assigned. `let` says whether anything assigns it at all.
+    local program = lowered(CARRIED, "carried.nupp")
+    verify.program(program)
+    local loop = find(program.body, function(statement)
+        return statement.op == "while"
+    end)
+    local carried = {}
+    for position, entry in ipairs(loop.carried) do
+        carried[position] = entry.name
+    end
+    assert(table.concat(carried, ",") == "sum,cursor", "the outer locals the body assigns, in body order")
+    for _, statement in ipairs(program.body) do
+        if statement.op == "let" then
+            assert(
+                (statement.assigned == true) == (statement.name == "sum" or statement.name == "cursor"),
+                statement.name .. " says whether it is assigned"
+            )
+        end
+    end
+    local step = find(loop.body, function(statement)
+        return statement.op == "let" and statement.name == "step"
+    end)
+    assert(step.assigned == true, "a local assigned inside its own iteration is assigned, not carried")
+
+    local entries = loop.carried
+    loop.carried = {entries[1]}
+    refuses(program, "a loop assigns a local it does not carry")
+    loop.carried = {entries[1], entries[2], {name = "values", cName = "values", type = "u32"}}
+    refuses(program, "a loop carries a local it cannot see")
+    loop.carried = nil
+    refuses(program, "a loop without its carried list")
+    loop.carried = entries
+
+    local cursor = find(program.body, function(statement)
+        return statement.op == "let" and statement.name == "cursor"
+    end)
+    cursor.assigned = nil
+    refuses(program, "a loop carries a local its binding did not declare assigned")
+    cursor.assigned = true
+    step.assigned = nil
+    refuses(program, "assignment to a local its binding did not declare assigned")
+    step.assigned = true
+
+    -- An assignment the body no longer makes leaves the list stale.
+    local advance = loop.body[#loop.body]
+    assert(advance.op == "assign" and advance.values[1].target.name == "cursor", "the cursor advance")
+    loop.body[#loop.body] = nil
+    refuses(program, "a loop carries a local its body does not assign")
+    loop.body[#loop.body + 1] = advance
+    verify.program(program)
+end
 
 function M.anAndBoundsItsRightSpanReadByItsLeftAlone()
     -- `cursor < #cps and cps[cursor + 1] > 0xF` reads under the comparison

@@ -28,7 +28,7 @@ local scalarIR = {}
 ---
 --- Carried in the IR and checked when it is read back, so an IR written by an
 --- older compiler is refused rather than half-understood.
-const scalarIR.VERSION = 35
+const scalarIR.VERSION = 36
 
 --- The calling convention selected for one complete AOT entry.
 ---
@@ -964,7 +964,28 @@ record scalarIR.Let
     cName: string
     value: scalarIR.Expr
     type: scalarIR.Type
+
+    --- Whether an `assign` anywhere after this declaration targets the name.
+    --- Absent, the binding is a value: nothing in the body changes it, so a
+    --- fact established about it holds until the name goes out of scope, and
+    --- a pass may substitute its value without asking what else writes it.
+    --- Present, it is a variable, and every reader treats an assignment to it
+    --- as the end of what it knew. Lowering sets it from the body it produced;
+    --- the verifier refuses an `assign` to a name whose `let` does not say so.
+    assigned: boolean?
+
     source: scalarIR.Source?
+end
+
+--- One local a loop carries from one iteration into the next: bound before
+--- the loop and assigned somewhere in its body, so the value entering an
+--- iteration is whatever the previous one left. The loop names these once so
+--- that no reader has to scan the body to learn which facts its entry
+--- retires; a name not listed here is the same on every iteration.
+record scalarIR.Carried
+    name: string
+    cName: string
+    type: scalarIR.Type
 end
 
 --- A name the body introduced, as the environment records it.
@@ -1158,6 +1179,11 @@ record scalarIR.While
     op: 'while'
     condition: scalarIR.Expr
     body: {scalarIR.Statement}
+
+    --- The outer locals the body assigns; see `scalarIR.Carried`. The verifier
+    --- holds it to exactly that set, so it is trusted rather than recomputed.
+    carried: {scalarIR.Carried}
+
     cursorBounds: scalarIR.CursorBounds?
     source: scalarIR.Source?
 end
@@ -1168,6 +1194,7 @@ record scalarIR.Repeat
     op: 'repeat'
     condition: scalarIR.Expr
     body: {scalarIR.Statement}
+    carried: {scalarIR.Carried}
     source: scalarIR.Source?
 end
 
@@ -1177,6 +1204,10 @@ record scalarIR.Fornum
     from: scalarIR.Expr
     to: scalarIR.Expr
     body: {scalarIR.Statement}
+
+    --- Accumulators and cursors the body advances. The induction variable is
+    --- not among them: it is the loop's own, bound afresh each iteration.
+    carried: {scalarIR.Carried}
 
     --- The span whose count is this loop's inclusive upper bound. Present only
     --- when `from` is one and `to` is that span's checked count; it is the proof

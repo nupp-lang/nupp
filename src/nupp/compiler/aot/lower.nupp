@@ -15,6 +15,7 @@ narrowing that is not in the IR is a narrowing that did not happen.
 ]]
 
 local admit = require("nupp.compiler.aot.admit")
+local carriedFacts = require("nupp.compiler.aot.carried")
 local reducers = require("nupp.compiler.aot.reducers")
 local fold = require("nupp.compiler.aot.fold")
 local simdindices = require("nupp.compiler.aot.simdindices")
@@ -6104,6 +6105,7 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
                 from = from,
                 to = to,
                 body = loopBody,
+                carried = {},
                 boundSpan = bounding,
                 simdRequired = authoredSimd,
                 source = lower.site(stat)
@@ -6127,6 +6129,7 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
                 op = "while",
                 condition = condition,
                 body = nestedWithCursor(loop.body, cursorBounds, true),
+                carried = {},
                 cursorBounds = cursorBounds,
                 source = lower.site(stat)
             )
@@ -6143,7 +6146,13 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
             end
             out[
                 #out + 1
-            ] = new scalarIR.Repeat(op = "repeat", condition = condition, body = lowered, source = lower.site(stat))
+            ] = new scalarIR.Repeat(
+                op = "repeat",
+                condition = condition,
+                body = lowered,
+                carried = {},
+                source = lower.site(stat)
+            )
         elseif kind == "doStmt" then
             out[
                 #out + 1
@@ -7767,38 +7776,40 @@ function lower.program(
             context.reject(lower.site(args[3]), "workgroup phases admit fixed-width scalar operations only")
         end
 
-        return new scalarIR.Program(
-            version = scalarIR.VERSION,
-            name = name,
-            symbol = symbol,
-            entryMode = "kernel",
-            executionTarget = "gpu",
-            fpContract = contract.fpContract,
-            fpTranscendentals = contract.fpTranscendentals,
-            vectorizeAttempted = false,
-            params = signature.params,
-            layouts = layouts.ordered,
-            regions = regions,
-            aliasFacts = aliasFacts,
-            guards = {},
-            helpers = kernel.helperOrder,
-            constants = kernel.constantOrder,
-            resultTypes = {},
-            resultSourceTypes = {},
-            usesSimd = false,
-            usesNumberToken = false,
-            workgroup = new scalarIR.Workgroup(
-                prelude = prelude,
-                groups = groups,
-                dispatchSpan = dispatchSpan,
-                size = size as integer,
-                groupIndex = groupName,
-                localIndex = "localIndex",
-                shared = kernel.sharedOrder as {scalarIR.Shared},
-                statements = lowered,
-                source = lower.site(workgroupCall)
-            ),
-            source = lower.site(fn)
+        return carriedFacts.program(
+            new scalarIR.Program(
+                version = scalarIR.VERSION,
+                name = name,
+                symbol = symbol,
+                entryMode = "kernel",
+                executionTarget = "gpu",
+                fpContract = contract.fpContract,
+                fpTranscendentals = contract.fpTranscendentals,
+                vectorizeAttempted = false,
+                params = signature.params,
+                layouts = layouts.ordered,
+                regions = regions,
+                aliasFacts = aliasFacts,
+                guards = {},
+                helpers = kernel.helperOrder,
+                constants = kernel.constantOrder,
+                resultTypes = {},
+                resultSourceTypes = {},
+                usesSimd = false,
+                usesNumberToken = false,
+                workgroup = new scalarIR.Workgroup(
+                    prelude = prelude,
+                    groups = groups,
+                    dispatchSpan = dispatchSpan,
+                    size = size as integer,
+                    groupIndex = groupName,
+                    localIndex = "localIndex",
+                    shared = kernel.sharedOrder as {scalarIR.Shared},
+                    statements = lowered,
+                    source = lower.site(workgroupCall)
+                ),
+                source = lower.site(fn)
+            )
         )
     end
 
@@ -7913,7 +7924,7 @@ function lower.program(
         -- this program. `verify` re-runs the same derivation.
         blockProgram.reusableScratch = visit.reusableScratch(blockProgram)
 
-        return blockProgram
+        return carriedFacts.program(blockProgram)
     end
 
     local primary = signature.writes[1]
@@ -7958,39 +7969,41 @@ function lower.program(
         )
     end
 
-    return new scalarIR.Program(
-        version = scalarIR.VERSION,
-        name = name,
-        symbol = symbol,
-        entryMode = "kernel",
-        executionTarget = contract.target,
-        fpContract = contract.fpContract,
-        fpTranscendentals = contract.fpTranscendentals,
-        vectorizeRequest = contract.vectorizeRequest,
-        simdRequired = contract.simdRequired,
-        vectorizeAttempted = contract.simdRequired or contract.vectorizeRequest ~= "decline",
-        params = signature.params,
-        layouts = layouts.ordered,
-        regions = regions,
-        aliasFacts = aliasFacts,
-        relations = admission.relations,
-        guards = guards,
-        rangeGuard = rangeGuard,
-        helpers = kernel.helperOrder,
-        constants = kernel.constantOrder,
-        resultTypes = {},
-        resultSourceTypes = {},
-        usesSimd = kernel.usesSimd,
-        usesNumberToken = kernel.usesNumberToken,
-        loop = new scalarIR.Loop(
-            index = index,
-            first = rangeGuard ~= nil and (rangeGuard as scalarIR.RangeGuard).first or 1,
-            last = rangeGuard ~= nil and (rangeGuard as scalarIR.RangeGuard).last or primary.name,
-            count = primary.name,
-            statements = body_,
-            source = lower.site(loop)
-        ),
-        source = lower.site(fn)
+    return carriedFacts.program(
+        new scalarIR.Program(
+            version = scalarIR.VERSION,
+            name = name,
+            symbol = symbol,
+            entryMode = "kernel",
+            executionTarget = contract.target,
+            fpContract = contract.fpContract,
+            fpTranscendentals = contract.fpTranscendentals,
+            vectorizeRequest = contract.vectorizeRequest,
+            simdRequired = contract.simdRequired,
+            vectorizeAttempted = contract.simdRequired or contract.vectorizeRequest ~= "decline",
+            params = signature.params,
+            layouts = layouts.ordered,
+            regions = regions,
+            aliasFacts = aliasFacts,
+            relations = admission.relations,
+            guards = guards,
+            rangeGuard = rangeGuard,
+            helpers = kernel.helperOrder,
+            constants = kernel.constantOrder,
+            resultTypes = {},
+            resultSourceTypes = {},
+            usesSimd = kernel.usesSimd,
+            usesNumberToken = kernel.usesNumberToken,
+            loop = new scalarIR.Loop(
+                index = index,
+                first = rangeGuard ~= nil and (rangeGuard as scalarIR.RangeGuard).first or 1,
+                last = rangeGuard ~= nil and (rangeGuard as scalarIR.RangeGuard).last or primary.name,
+                count = primary.name,
+                statements = body_,
+                source = lower.site(loop)
+            ),
+            source = lower.site(fn)
+        )
     )
 end
 

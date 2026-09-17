@@ -377,6 +377,20 @@ local function scratchWrite(label: string, statement: any): string
     ) .. "] = " .. text.expression(statement.value as scalarIR.Expr)
 end
 
+--- What a loop carries, as a suffix on its header: nothing when it carries
+--- nothing, which is most counted loops.
+local function carrying(carried: {scalarIR.Carried}?): string
+    if carried == nil or #(carried as {scalarIR.Carried}) == 0 then
+        return ""
+    end
+    local names: {string} = {}
+    for position, entry in ipairs(carried as {scalarIR.Carried}) do
+        names[position] = entry.name .. ":" .. entry.type
+    end
+
+    return " carrying " .. table.concat(names, ", ")
+end
+
 --- One block of statements, scalar or lane, indented by `depth`.
 ---
 --- @param lanes how wide a lane store is, for a body that was rewritten
@@ -396,7 +410,9 @@ function text.block(statements: {any}, depth: integer, lanes: integer): {string}
         if op == "let" then
             lines[
                 #lines + 1
-            ] = prefix .. "let " .. statement.name .. ":" .. statement.type .. " = " .. text.expression(statement.value)
+            ] = prefix .. (
+                statement.assigned == true and "var " or "let "
+            ) .. statement.name .. ":" .. statement.type .. " = " .. text.expression(statement.value)
         elseif op == "multi_let" then
             local names: {string} = {}
             for position, bound in ipairs(statement.bindings) do
@@ -533,7 +549,7 @@ function text.block(statements: {any}, depth: integer, lanes: integer): {string}
                 region.simdRequired == true and "@simd " or ""
             ) .. "for " .. statement.binding.name .. " = " .. text.expression(
                 statement.from
-            ) .. " .. " .. text.expression(statement.to)
+            ) .. " .. " .. text.expression(statement.to) .. carrying(region.carried)
             nested(statement.body)
             if region.lanes ~= nil then
                 local body = region.lanes as scalarIR.LaneBody
@@ -544,11 +560,13 @@ function text.block(statements: {any}, depth: integer, lanes: integer): {string}
             end
             lines[#lines + 1] = prefix .. "end"
         elseif op == "while" then
-            lines[#lines + 1] = prefix .. "while " .. text.expression(statement.condition)
+            lines[
+                #lines + 1
+            ] = prefix .. "while " .. text.expression(statement.condition) .. carrying(statement.carried)
             nested(statement.body)
             lines[#lines + 1] = prefix .. "end"
         elseif op == "repeat" then
-            lines[#lines + 1] = prefix .. "repeat"
+            lines[#lines + 1] = prefix .. "repeat" .. carrying(statement.carried)
             nested(statement.body)
             lines[#lines + 1] = prefix .. "until " .. text.expression(statement.condition)
         elseif op == "block" then
