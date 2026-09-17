@@ -229,6 +229,7 @@ local RESOURCES = {
     {source = "tests/run.lua", output = "nupp/compiler/nupp/test/runner.lua"},
     {source = "src/nupp/compiler/build/stub-catalog.json", output = "nupp/compiler/build/stub-catalog.json",},
     {source = "src/nupp/compiler/doc/theme.css", output = "nupp/compiler/doc/theme.css"},
+    "src/nupp/compiler/aot/include/*.h",
     {source = "src/nupp/derive.nupp", output = "nupp/compiler/nupp/derive.nupp"},
     {source = "src/nupp/services.nupp", output = "nupp/compiler/nupp/services.nupp"},
     {source = "src/nupp/bench/init.nupp", output = "nupp/compiler/nupp/bench/init.nupp"},
@@ -327,10 +328,7 @@ local RESOURCES = {
     {source = "src/nupp/system.nupp", output = "nupp/compiler/nupp/system.nupp"},
     {source = "src/nupp/runtime/browser/system.nupp", output = "nupp/compiler/nupp/runtime/browser/system.nupp"},
     {source = "src/nupp/util/init.nupp", output = "nupp/compiler/nupp/util/init.nupp"},
-    {
-        source = "src/nupp/util/internal/bitset.nupp",
-        output = "nupp/compiler/nupp/util/internal/bitset.nupp"
-    },
+    {source = "src/nupp/util/internal/bitset.nupp", output = "nupp/compiler/nupp/util/internal/bitset.nupp"},
     {source = "src/nupp/util/internal/store.nupp", output = "nupp/compiler/nupp/util/internal/store.nupp"},
     {source = "src/nupp/mem/init.nupp", output = "nupp/compiler/nupp/mem/init.nupp"},
     {source = "src/nupp/io/path/init.nupp", output = "nupp/compiler/nupp/io/path/init.nupp"},

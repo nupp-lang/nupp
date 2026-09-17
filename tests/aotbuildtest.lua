@@ -1655,14 +1655,17 @@ function M.theFeatureTierReachesTheBackend()
 
     local out, code = build(dir)
     test.equal(code, 0, ("the manifest key is accepted (emit-c fixture at %s)\n%s"):format(dir, out))
+    -- Every gang's types are in the one carried header whichever a body chose,
+    -- so the body is what says which: its binary64 lanes are named by the
+    -- gang's lane count.
     local after = assert(read(tieredC(dir, tier)))
     assert(
-        after:find(widens and "vector_size(64)" or "vector_size(32)", 1, true),
+        after:find(widens and "ks_f64x8" or "ks_f64x4", 1, true),
         "the widest tier gets the widest gang: " .. after:sub(1, 200)
     )
 
     if widens then
-        assert(baseline:find("vector_size(16)", 1, true), "the same build carries its baseline fallback")
+        assert(baseline:find("ks_f64x2", 1, true), "the same build carries its baseline fallback")
         assert(after ~= baseline, "and the ceiling also carries the wide unit")
         assert(read(dir .. "/build/native/aot/features.c"), "several tiers bring one baseline runtime detector")
     else
@@ -1802,7 +1805,7 @@ function M.crossCompilingEmitsThatTargetsCode()
     test.equal(code, 0, ("a target this machine is not still emits (fixture at %s)\n%s"):format(dir, out))
     local crossTiers = buildTiers(elsewhere, nil)
     local cross = assert(read(tieredC(dir, crossTiers[1].tier)))
-    assert(cross:find("vector_size(", 1, true), "which is that target's code: " .. cross:sub(1, 200))
+    assert(cross:find("ks_f64x%d"), "which is that target's code: " .. cross:sub(1, 200))
     assert(cross ~= host, "and not what the host produced")
 end
 
