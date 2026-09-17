@@ -125,6 +125,28 @@ if nupp.log.enabled("debug") then
 end
 ```
 
+### Module levels
+
+`levelFor` overrides the threshold for one exact module name. Modules without an
+override inherit the global threshold, including after it changes:
+
+```nupp
+nupp.log.level("warn")
+nupp.log.levelFor("game.physics", "debug")
+```
+
+The override reaches existing and future module views. Passing `"inherit"`
+removes it, and omitting the second argument reads the effective threshold:
+
+```nupp
+nupp.log.levelFor("game.physics") -- "debug"
+nupp.log.levelFor("game.physics", "inherit") -- restore the global threshold
+```
+
+Names are exact: configuring `game.physics` does not also configure
+`game.physics.collision`. A named logger with the same name uses the same
+threshold.
+
 ## Swapping the back end
 
 A host that logs through its own facility installs a sink function and takes
@@ -219,6 +241,10 @@ local log = {}
 --- @export
 type log.Level = "off" | "error" | "warn" | "info" | "debug"
 
+--- A module threshold or the instruction to resume inheriting the global one.
+--- @export
+type log.LevelOverride = log.Level | "inherit"
+
 --- A level as a sink sees it: 1 error, 2 warn, 3 info, 4 debug.
 --- @export
 type log.Severity = integer
@@ -307,12 +333,24 @@ local cachedTick: any = -1
 local cachedStamp = ""
 local cachedFormat = ""
 local registry: any = {}
+local moduleViews: any = {}
+local scopedOn: any = {}
+local overrides: any = {}
+
+local function setOn(flags: {boolean}, index: integer): nil
+    for i = 1, 4 do
+        flags[i] = i <= index
+    end
+end
 
 local function admit(index: integer): nil
-    for i = 1, 4 do
-        on[i] = i <= index
-    end
+    setOn(on, index)
     threshold = index
+    for name, flags in pairs(scopedOn) do
+        if overrides[name] == nil then
+            setOn(flags, index)
+        end
+    end
 end
 
 admit(threshold)
@@ -349,6 +387,17 @@ end
 log.on = on
 log.emit = emit
 
+local function onFor(name: string): {boolean}
+    local flags = scopedOn[name]
+    if not flags then
+        flags = {false, false, false, false,}
+        setOn(flags, overrides[name] or threshold)
+        scopedOn[name] = flags
+    end
+
+    return flags
+end
+
 --- The view a generated chunk binds once, so a site carries only severity and line.
 ---
 --- Generated code calls this in a module's prologue. Nothing written by hand needs
@@ -358,12 +407,18 @@ log.emit = emit
 --- @param module the module name its lines carry
 --- @return the view, whose `on` a site indexes and whose `emit` it calls
 function log.forModule(module: string): any
-    return {
-        on = on,
-        emit = function(severity: integer, line: integer, message: string): any
-            return emit(severity, module, line, message)
-        end,
-    }
+    local view = moduleViews[module]
+    if not view then
+        view = {
+            on = onFor(module),
+            emit = function(severity: integer, line: integer, message: string): any
+                return emit(severity, module, line, message)
+            end,
+        }
+        moduleViews[module] = view
+    end
+
+    return view
 end
 
 local function named(severity: log.Level): integer
@@ -486,14 +541,14 @@ local WRITE = {writer(1), writer(2), writer(3), writer(4),}
 local function loggerEnabled(self: any, level: log.Level): boolean
     local index = named(level)
 
-    return index > 0 and on[index] or false
+    return index > 0 and self.on[index] or false
 end
 
 local function stampLogger(logger: any): nil
-    logger.error = on[1] and WRITE[1] or NO_OP
-    logger.warn = on[2] and WRITE[2] or NO_OP
-    logger.info = on[3] and WRITE[3] or NO_OP
-    logger.debug = on[4] and WRITE[4] or NO_OP
+    logger.error = logger.on[1] and WRITE[1] or NO_OP
+    logger.warn = logger.on[2] and WRITE[2] or NO_OP
+    logger.info = logger.on[3] and WRITE[3] or NO_OP
+    logger.debug = logger.on[4] and WRITE[4] or NO_OP
 end
 
 local function restamp(): nil
@@ -523,7 +578,7 @@ function log.named(name: string): log.Logger
     end
     local logger = registry[name]
     if not logger then
-        logger = {name = name, enabled = loggerEnabled,}
+        logger = {name = name, on = onFor(name), enabled = loggerEnabled,}
         stampLogger(logger)
         registry[name] = logger
     end
@@ -544,6 +599,41 @@ function log.level(level: log.Level?): log.Level
     restamp()
 
     return previous
+end
+
+--- Reads or replaces the threshold for one exact module or named logger.
+---
+--- A name without an override inherits the global threshold. Passing `"inherit"`
+--- removes an override. Existing and future generated module views observe the
+--- change while retaining the call-site guard that avoids evaluating filtered
+--- arguments.
+---
+--- @param name the exact module or logger name
+--- @param level the new threshold, `"inherit"`, or nil to read the effective one
+--- @return the effective threshold this call replaced
+--- @raises when name is not a string or level is unknown
+function log.levelFor(name: string, level: log.LevelOverride?): log.Level
+    if type(name) ~= "string" then
+        error("nupp: log module name must be a string", 2)
+    end
+    local previousIndex = overrides[name] or threshold
+    if level == nil then
+        return (NAMES[previousIndex] or "off") as log.Level
+    end
+    if level == "inherit" then
+        overrides[name] = nil
+        setOn(onFor(name), threshold)
+    else
+        local index = named(level)
+        overrides[name] = index
+        setOn(onFor(name), index)
+    end
+    local logger = registry[name]
+    if logger then
+        stampLogger(logger)
+    end
+
+    return (NAMES[previousIndex] or "off") as log.Level
 end
 
 --- Whether a level is currently admitted.
