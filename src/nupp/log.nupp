@@ -127,20 +127,20 @@ end
 
 ### Module levels
 
-`levelFor` overrides the threshold for one exact module name. Modules without an
+`setLevel` overrides the threshold for one exact module name. Modules without an
 override inherit the global threshold, including after it changes:
 
 ```nupp
 nupp.log.level("warn")
-nupp.log.levelFor("game.physics", "debug")
+nupp.log.setLevel("game.physics", "debug")
 ```
 
 The override reaches existing and future module views. Passing `"inherit"`
 removes it, and omitting the second argument reads the effective threshold:
 
 ```nupp
-nupp.log.levelFor("game.physics") -- "debug"
-nupp.log.levelFor("game.physics", "inherit") -- restore the global threshold
+nupp.log.setLevel("game.physics") -- "debug"
+nupp.log.setLevel("game.physics", "inherit") -- restore the global threshold
 ```
 
 Names are exact: configuring `game.physics` does not also configure
@@ -612,7 +612,7 @@ end
 --- @param level the new threshold, `"inherit"`, or nil to read the effective one
 --- @return the effective threshold this call replaced
 --- @raises when name is not a string or level is unknown
-function log.levelFor(name: string, level: log.LevelOverride?): log.Level
+function log.setLevel(name: string, level: log.LevelOverride?): log.Level
     if type(name) ~= "string" then
         error("nupp: log module name must be a string", 2)
     end

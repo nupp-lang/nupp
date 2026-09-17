@@ -85,15 +85,15 @@ end
 
 function M.levelNamesAreCheckedAtTheCallSite()
     assertEq(codesOf("nupp.log.level('debug')"), "", "a known level is clean")
-    assertEq(codesOf("nupp.log.levelFor('game.physics', 'debug')"), "", "a module level is checked")
-    assertEq(codesOf("nupp.log.levelFor('game.physics', 'inherit')"), "", "an override can be removed")
+    assertEq(codesOf("nupp.log.setLevel('game.physics', 'debug')"), "", "a module level is checked")
+    assertEq(codesOf("nupp.log.setLevel('game.physics', 'inherit')"), "", "an override can be removed")
     assertEq(codesOf("nupp.log.enabled('warn')"), "", "enabled takes the same names")
     assertTrue(
         codesOf("nupp.log.level('verbose')"):find("NUPP2006") ~= nil,
         "an unknown level is not one of the level names"
     )
     assertTrue(
-        codesOf("nupp.log.levelFor('game.physics', 'verbose')"):find("NUPP2006") ~= nil,
+        codesOf("nupp.log.setLevel('game.physics', 'verbose')"):find("NUPP2006") ~= nil,
         "an unknown module level is refused"
     )
 end
@@ -365,8 +365,8 @@ end
 function M.anUnknownLevelRaisesWhereItIsNotALiteral()
     local log = runtime()
     assertTrue(not pcall(log.level, "verbose"), "an unknown level is refused")
-    assertTrue(not pcall(log.levelFor, "test.scoped.invalid", "verbose"), "including for a module")
-    assertTrue(not pcall(log.levelFor, 3, "debug"), "a module name must be a string")
+    assertTrue(not pcall(log.setLevel, "test.scoped.invalid", "verbose"), "including for a module")
+    assertTrue(not pcall(log.setLevel, 3, "debug"), "a module name must be a string")
     assertTrue(not pcall(log.enabled, "verbose"), "including when only asked about")
     assertTrue(not pcall(log.sink, 3), "a target that is neither function nor file is refused")
     assertTrue(not pcall(log.formatter, "text"), "a formatter that is not a function is refused")
@@ -478,35 +478,35 @@ function M.aModuleLevelOverridesOnlyThatExactModule()
     local render = log.forModule("test.scoped.render")
     assertEq(log.forModule("test.scoped.physics"), physics, "a module view is cached")
 
-    assertEq(log.levelFor("test.scoped.physics", "debug"), "warn", "setting answers the inherited level")
+    assertEq(log.setLevel("test.scoped.physics", "debug"), "warn", "setting answers the inherited level")
     assertTrue(physics.on[4], "the selected module admits debug")
     assertTrue(not collision.on[4], "a child module does not inherit an exact override")
     assertTrue(not render.on[4], "an unrelated module keeps the global level")
-    assertEq(log.levelFor("test.scoped.physics"), "debug", "the effective override can be read")
+    assertEq(log.setLevel("test.scoped.physics"), "debug", "the effective override can be read")
 
     log.level("error")
     assertTrue(physics.on[4], "a global change leaves the override in place")
     assertTrue(collision.on[1] and not collision.on[2], "an inheriting module follows the global change")
 
-    assertEq(log.levelFor("test.scoped.physics", "inherit"), "debug", "inherit answers the replaced override")
-    assertEq(log.levelFor("test.scoped.physics"), "error", "inherit restores the effective global level")
+    assertEq(log.setLevel("test.scoped.physics", "inherit"), "debug", "inherit answers the replaced override")
+    assertEq(log.setLevel("test.scoped.physics"), "error", "inherit restores the effective global level")
     assertTrue(physics.on[1] and not physics.on[2], "the existing view resumes inheritance")
 
-    log.levelFor("test.scoped.physics", "off")
+    log.setLevel("test.scoped.physics", "off")
     assertTrue(not physics.on[1], "off is retained as a real override")
-    log.levelFor("test.scoped.physics", "inherit")
+    log.setLevel("test.scoped.physics", "inherit")
 end
 
 function M.aModuleLevelConfiguredBeforeTheViewIsCreatedIsApplied()
     local log = runtime()
     log.level("warn")
 
-    log.levelFor("test.scoped.future", "info")
+    log.setLevel("test.scoped.future", "info")
     local future = log.forModule("test.scoped.future")
     assertTrue(future.on[3], "a future view receives its override")
     assertTrue(not future.on[4], "the override still filters lower severities")
 
-    log.levelFor("test.scoped.future", "inherit")
+    log.setLevel("test.scoped.future", "inherit")
 end
 
 function M.aNamedLoggerUsesTheLevelForItsName()
@@ -517,12 +517,12 @@ function M.aNamedLoggerUsesTheLevelForItsName()
 
     local name = "test.scoped.named"
     local logger = log.named(name)
-    log.levelFor(name, "debug")
+    log.setLevel(name, "debug")
     assertTrue(logger:enabled("debug"), "the named logger sees its override")
     logger:debug("selected")
     assertEq(#lines, 1, "the override admits the named logger")
 
-    log.levelFor(name, "inherit")
+    log.setLevel(name, "inherit")
     assertTrue(not logger:enabled("debug"), "the named logger resumes inheritance")
     logger:debug("filtered")
     assertEq(#lines, 1, "the inherited global level filters it again")
