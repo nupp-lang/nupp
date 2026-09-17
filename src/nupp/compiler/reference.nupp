@@ -1246,6 +1246,14 @@ parameter, through `self`, to a captured local, or through the functions it
 calls. A loop body's writes are forgotten at the loop's entry, and a function
 literal does not carry a fact about a captured local that is assigned after
 the literal is made.
+
+`if NAME = EXPR then` evaluates an optional once and takes the arm when the
+value is not nil, with NAME bound to the value less nil for that arm only.
+`false` is a value, so it takes the arm too; the test is against nil, not
+truthiness. An `elseif` arm binds the same way. EXPR must admit nil
+(`NUPP2001` otherwise), and the name is out of scope in every later arm and
+after the statement, so a later arm that spells the same name reads whatever
+the name meant outside.
 ]=],
         example = [=[
 local m = {}
@@ -1264,12 +1272,11 @@ end
 function m.nameOf(user: {
     name: string?
 }): string
-    local name = user.name
-    if not name then
-        return "anonymous"
+    if name = user.name then
+        return name
     end
 
-    return name
+    return "anonymous"
 end
 
 return m
@@ -1504,10 +1511,14 @@ The establishing conversions are `nupp.math.f32.narrow(number)`,
 performs one binary32 store/load without changing a NaN payload; `f32.round`
 retains its canonical-NaN contract.
 
-Ordinary arithmetic still has LuaJIT's numeric meaning and produces `number`.
-Code that requires an explicitly sized operation calls `nupp.math.i32`,
-`nupp.math.u32`, or `nupp.math.f32`; its fixed-width inputs must already be
-established.
+`+`, `-`, and `*` between two established `uint32` values, or between an
+established `uint32` and an exact literal, are `nupp.math.u32.add`, `sub`,
+and `mul`: they wrap modulo 2^32 and produce an established `uint32`. The
+same holds for `int32` with `nupp.math.i32`. Mixing the two widths, or either
+with a `number`, is ordinary arithmetic. Every other operator still has
+LuaJIT's numeric meaning and produces `number`; code that requires one of
+those explicitly sized calls `nupp.math.i32`, `nupp.math.u32`, or
+`nupp.math.f32`, whose fixed-width inputs must already be established.
 
 The integer namespaces wrap modulo 2^32; shift counts are masked by 31 and
 signedness is stated by the operation. The binary32 namespace rounds every

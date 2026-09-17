@@ -252,11 +252,20 @@ local function missingRequiredLanes(program: scalarIR.Program): boolean
     return false
 end
 
+--- Whether a target has vector registers, which is what `simd.trySpecies`
+--- answers. No target means the standalone harness, which has always assumed
+--- them.
+function compile.vectors(selected: targets.Target?): boolean
+    return selected == nil or (targets.TIERS[(selected as targets.Target).tier] or 0) > 0
+end
+
 --- Lowers one source to verified scalar IR.
 ---
 --- @param source the text, used when `parsed` is not supplied
 --- @param filename what diagnostics name
 --- @param parsed an already-parsed tree, which is how the checker hands one over
+--- @param selected the target, which decides whether `simd.trySpecies` answers
+---   with a species or with nil; absent, vectors are assumed
 --- @return the IR, the reasons it was refused, and where each program was
 ---   written
 --- @raises when the IR the source lowered to is not well formed, which is a
@@ -264,7 +273,8 @@ end
 function compile.lower(
     source: string,
     filename: string,
-    parsed: parser.ParseResult?
+    parsed: parser.ParseResult?,
+    selected: targets.Target?
 ): ({scalarIR.Program}, {compile.Diagnostic}, {compile.Site})
     local tree = parsed or parser.parse(source, filename)
     local diagnostics: {compile.Diagnostic} = {}
@@ -285,6 +295,7 @@ function compile.lower(
 
     local context = new lower.Context(
         checked = parsed ~= nil,
+        vectors = compile.vectors(selected),
         constantNames = {},
         constantValues = {},
         reject = rejection(filename, diagnostics)
@@ -348,7 +359,11 @@ function compile.constSpecializations(
 ): (compile.Artifacts?, {compile.Diagnostic})
     const maxPerModule = 8
     local diagnostics: {compile.Diagnostic} = {}
-    local context = new lower.Context(checked = true, reject = rejection(filename, diagnostics))
+    local context = new lower.Context(
+        checked = true,
+        vectors = compile.vectors(selected),
+        reject = rejection(filename, diagnostics)
+    )
 
     -- Returned rather than rejected: `reject` unwinds to the pcall below, and
     -- there is none yet.
@@ -829,7 +844,7 @@ function compile.artifacts(
     local step = at or function(_: string): nil
     end
     step("lower")
-    local programs, diagnostics, sites = compile.lower(source, filename, parsed)
+    local programs, diagnostics, sites = compile.lower(source, filename, parsed, selected)
     if #diagnostics > 0 then
         return nil, diagnostics
     end

@@ -796,7 +796,14 @@ record cst.IfClause is cst.Hints
     --- Names the production this node stands for.
     kind: 'ifClause'
 
-    --- The condition.
+    --- The name an `if NAME = EXPR then` clause binds; nil for a plain
+    --- condition.
+    binding: lexer.Token?
+
+    --- The `=` of a binding clause.
+    eq: lexer.Token?
+
+    --- The condition, or the bound expression of a binding clause.
     cond: cst.Node?
 
     --- The block it guards.
@@ -810,7 +817,14 @@ record cst.ElseifClause is cst.Hints
     --- Names the production this node stands for.
     kind: 'elseifClause'
 
-    --- The condition.
+    --- The name an `elseif NAME = EXPR then` clause binds; nil for a plain
+    --- condition.
+    binding: lexer.Token?
+
+    --- The `=` of a binding clause.
+    eq: lexer.Token?
+
+    --- The condition, or the bound expression of a binding clause.
     cond: cst.Node?
 
     --- The block it guards.
@@ -2210,6 +2224,12 @@ record cst.Binop is cst.Hints
     --- Set when the result is a 64-bit integer, which LuaJIT boxes in a fresh
     --- cdata object: an allocation a `noalloc` region has to hear about.
     wideArithmetic: boolean?
+
+    --- Set when both sides are established at one thirty-two bit width, to the
+    --- `nupp.math` intrinsic the operator is then: `u32.add`, `i32.mul`. The
+    --- generator emits that arithmetic rather than Lua's, so the result wraps
+    --- where the type says it does.
+    fixedArithmetic: string?
 end
 
 --- `e as T`, which asserts a type rather than checking one.

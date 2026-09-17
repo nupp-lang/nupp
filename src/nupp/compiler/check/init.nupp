@@ -271,6 +271,9 @@ local function reportTypedLayer(c: state.Checker, node: any)
         c.diag("NUPP1006", node, named .. " is not plain Lua")
         return
     end
+    if (node.kind == "ifClause" or node.kind == "elseifClause") and node.binding then
+        c.diag("NUPP1006", node.binding, "an `if NAME = EXPR then` binding is not plain Lua")
+    end
     for _, child in ipairs(node) do
         reportTypedLayer(c, child)
     end

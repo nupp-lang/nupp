@@ -289,6 +289,66 @@ function M.aLoopBodyReassigningACursorRetiresTheEnclosingProof()
     verify.program(program)
 end
 
+local AND_TAIL = [[
+local span = require("nupp.mem.span")
+@aot
+local function scan(borrows cps: span.Span<uint32>, borrows other: span.Span<uint32>): integer
+    local cursor: uint32 = 0
+    while cursor < #cps and cps[cursor + 1] > 0xF do
+        cursor = cursor + 1
+    end
+    return cursor + 1 + #other
+end
+return {scan = scan}
+]]
+
+function M.anAndBoundsItsRightSpanReadByItsLeftAlone()
+    -- `cursor < #cps and cps[cursor + 1] > 0xF` reads under the comparison
+    -- the left side makes. The right side is the only place that bound holds,
+    -- and only the exact shape -- `and`, `<`, the same span -- makes it.
+    local program = lowered(AND_TAIL, "tail.g.nupp")
+    verify.program(program)
+    local loop = find(program.body, function(statement)
+        return statement.op == "while"
+    end)
+    local condition = loop.condition
+    assert(condition.op == "and" and condition.right.left.op == "load", "the tail loop")
+
+    local original = {op = condition.op, leftOp = condition.left.op, span = condition.left.right.span}
+    local function restore()
+        condition.op = original.op
+        condition.left.op = original.leftOp
+        condition.left.right.span = original.span
+    end
+
+    condition.op = "or"
+    refuses(program, "unbounded cursor load")
+    restore()
+
+    condition.left.op = "le"
+    refuses(program, "unbounded cursor load")
+    restore()
+
+    condition.left.right.span = "other"
+    refuses(program, "unbounded cursor load")
+    restore()
+
+    -- The bound is the right operand's alone: the same read after the loop
+    -- has left the comparison behind.
+    table.insert(program.body, #program.body, {
+        op = "assign",
+        values = {
+            {
+                target = {kind = "local", name = "cursor", cName = "v1_cursor", type = "u32"},
+                value = condition.right.left,
+            }
+        },
+    })
+    refuses(program, "unbounded cursor load")
+    table.remove(program.body, #program.body - 1)
+    verify.program(program)
+end
+
 function M.aRootedByteReadIsIndexedByTheCursorThatProvesIt()
     -- The proof is about `cursor`; a read that names the cursor and then reads
     -- at some other uint32 would be proved by a fact about a different value.

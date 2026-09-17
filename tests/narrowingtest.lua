@@ -1071,4 +1071,69 @@ function M.safeNavigationProvesThePathItWalked()
     )
 end
 
+-- `if NAME = EXPR then` binds the value less nil for its arm: `false` stays,
+-- a union keeps its other members, and the name is gone in the later arms and
+-- after the statement, where it reads whatever it meant outside.
+function M.ifBindingsHoldTheNonNilValueForTheirArmOnly()
+    assertClean(
+        table.concat(
+            {
+                "local record Cfg",
+                "    port: integer?",
+                "    flag: boolean | nil",
+                "    mixed: string | integer | nil",
+                "end",
+                "local function read(cfg: Cfg, other: Cfg?): integer",
+                "    local port = 'outer'",
+                "    if port = cfg.port then",
+                "        local p: integer = port",
+                "        return p",
+                "    elseif flag = cfg.flag then",
+                "        local f: boolean = flag",
+                "        local text: string = port",
+                "        print(f, text)",
+                "    elseif seen = other then",
+                "        local c: Cfg = seen",
+                "        print(c)",
+                "    end",
+                "    local outer: string = port",
+                "    if v = cfg.mixed then",
+                "        local m: string | integer = v",
+                "        print(m)",
+                "    end",
+                "    return #outer",
+                "end",
+                "return read",
+            },
+            "\n"
+        )
+    )
+    -- The bound expression must admit nil, and the arm binds no fact about
+    -- anything else: a plain `cfg.port` is not narrowed by the binding.
+    assertEq(
+        diagsOf(
+            table.concat(
+                {
+                    "local record Cfg",
+                    "    port: integer?",
+                    "end",
+                    "local function read(cfg: Cfg, count: integer): integer",
+                    "    if n = count then",
+                    "        return n",
+                    "    end",
+                    "    if p = cfg.port then",
+                    "        local direct: integer = cfg.port",
+                    "        return direct + p",
+                    "    end",
+                    "    return 0",
+                    "end",
+                    "return read",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2001:5 NUPP2001:9"
+    )
+end
+
 return M

@@ -720,4 +720,34 @@ function M.strayHalfCloseIsReported()
    assertEq(#result.errors > 0, true, "a stray > went unreported")
 end
 
+-- `if NAME = EXPR then` and `elseif NAME = EXPR then` carry the name and the
+-- `=` on the clause, with the expression where a condition goes; a name that
+-- is a condition on its own, or the start of one, is still a condition.
+function M.ifClausesBindANameFollowedByEquals()
+   local src = table.concat({
+      "if a = f() then",
+      "   print(a)",
+      "elseif b = g(a) then",
+      "   print(b)",
+      "elseif c == 1 then",
+      "   print(c)",
+      "elseif d then",
+      "   print(d)",
+      "end",
+      "",
+   }, "\n")
+   local result = assertRoundtrip(src)
+   assertEq(#result.errors, 0, result.errors[1] and result.errors[1].msg or "")
+   local clauses = result.root.blocks[1].stats[1].clauses
+   assertEq(clauses[1].binding.text, "a")
+   assertEq(clauses[1].eq.kind, "=")
+   assertEq(clauses[1].cond.kind, "call")
+   assertEq(clauses[2].binding.text, "b")
+   assertEq(clauses[2].cond.kind, "call")
+   assertEq(clauses[3].binding, nil, "a comparison is a condition")
+   assertEq(clauses[3].cond.kind, "binop")
+   assertEq(clauses[4].binding, nil, "a bare name is a condition")
+   assertEq(clauses[4].cond.kind, "name")
+end
+
 return M

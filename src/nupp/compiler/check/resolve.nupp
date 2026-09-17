@@ -521,7 +521,9 @@ function resolve.install(c: state.Checker): nil
             origin.moduleName == "nupp.mem.soa" and (
                 origin.name == "Array" or origin.name == "Span" or origin.name == "WriteSpan"
             )
-        ) or origin.moduleName == "nupp.mem.heap" and origin.name == "Array" or isGpuBuffer or (
+        ) or origin.moduleName == "nupp.mem.heap" and origin.name == "Array" or (
+            origin.moduleName == "nupp.mem.array" and origin.name == "Scalar"
+        ) or isGpuBuffer or (
             origin.moduleName == "nupp.simd" or origin.sealedModule == "nupp.simd"
         ) and (origin.name == "Vector" or origin.name == "Mask" or origin.name == "Species")
         if not storageGeneric then

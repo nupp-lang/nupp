@@ -4792,4 +4792,195 @@ return {bad = bad}
     end
 end
 
+local CONDITIONAL_SCAN = [[
+local span = require("nupp.mem.span")
+local array = require("nupp.mem.array")
+local simd = require("nupp.simd")
+
+@aot
+local function scan(borrows cps: span.Span<uint32>): integer
+    local cursor: uint32 = 0
+    if species = simd.trySpecies(array.uint32) then
+        while cursor + species.lanes <= #cps do
+            local first = (species:load(cps, cursor + 1) <= 0xF):first()
+            if first ~= 0 then
+                cursor = cursor + first - 1
+                break
+            end
+            cursor = cursor + species.lanes
+        end
+    end
+    while cursor < #cps and cps[cursor + 1] > 0xF do
+        cursor = cursor + 1
+    end
+    return cursor + 1
+end
+
+return {scan = scan}
+]]
+
+local function scanBody(c)
+    local body = c:match("KS_API double ks_scan%(.-\n}\n")
+    assert(body, "the kernel is emitted:\n" .. c)
+    return body
+end
+
+function M.aTrySpeciesBindingIsDecidedPerTier()
+    -- `if species = simd.trySpecies(array.uint32) then` is the vector loop on
+    -- a tier that has vectors and nothing at all on one that does not; the
+    -- scalar tail that follows is the same C on every tier, its span read
+    -- proved by the left of the `and` it sits under.
+    local dir = project{["scan.nupp"] = CONDITIONAL_SCAN}
+    local tail = "while (((v1_cursor < ((double)count_cps)) && (p_cps[((size_t)v1_cursor)] > UINT32_C(15))))"
+    for _, tier in ipairs({
+        {args = "--target aarch64-apple-darwin --features neon", lanes = 4},
+        {args = "--target x86_64-unknown-linux-gnu --features baseline", lanes = 4},
+        {args = "--target x86_64-unknown-linux-gnu --features avx2", lanes = 8},
+        {args = "--target wasm32-unknown-emscripten --features simd128", lanes = 4},
+    }) do
+        local decoded, raw, code = lowered(dir, tier.args .. " --json scan.nupp")
+        test.equal(code, 0, raw)
+        local body = scanBody(decoded.c)
+        assert(body:find("ks_exp_load_u32x" .. tier.lanes .. "(", 1, true), tier.args .. ": the arm is the vector loop\n" .. body)
+        assert(
+            body:find("<= ((double)count_cps)", 1, true) and body:find("UINT32_C(" .. tier.lanes .. "))", 1, true),
+            tier.args .. ": species.lanes is the tier's constant\n" .. body
+        )
+        assert(body:find("uint32_t v3_first = ((uint32_t)(", 1, true), tier.args .. ": first() is a uint32\n" .. body)
+        assert(body:find(tail, 1, true), tier.args .. ": the scalar tail follows\n" .. body)
+    end
+
+    local decoded, raw, code = lowered(dir, "--target wasm32-unknown-emscripten --features scalar --json scan.nupp")
+    test.equal(code, 0, raw)
+    local body = scanBody(decoded.c)
+    assert(not body:find("ks_exp_", 1, true), "the scalar tier drops the arm\n" .. body)
+    assert(body:find(tail, 1, true), "and keeps the tail\n" .. body)
+    assert(not decoded.ir:find("trySpecies", 1, true), "nothing of the test survives lowering\n" .. decoded.ir)
+end
+
+function M.aTrySpeciesBindingIsTheOnlyPlaceItsSpeciesLives()
+    local dir = project{
+        [
+            "outside.nupp"
+        ] = [[
+local span = require("nupp.mem.span")
+local array = require("nupp.mem.array")
+local simd = require("nupp.simd")
+
+@aot
+local function lanes(borrows cps: span.Span<uint32>): integer
+    local species = simd.trySpecies(array.uint32)
+    if species == nil then
+        return #cps
+    end
+    return species.lanes
+end
+
+return {lanes = lanes}
+]],
+        [
+            "other.nupp"
+        ] = [[
+local span = require("nupp.mem.span")
+
+local function limit(): integer?
+    return nil
+end
+
+@aot
+local function first(borrows cps: span.Span<uint32>): integer
+    local cursor: integer = 0
+    if bound = limit() then
+        cursor = bound
+    end
+    return cursor + #cps
+end
+
+return {first = first}
+]],
+        [
+            "witness.nupp"
+        ] = [[
+local span = require("nupp.mem.span")
+local simd = require("nupp.simd")
+
+@aot
+local function lanes(borrows cps: span.Span<uint32>): integer
+    if species = simd.trySpecies(cps) then
+        return species.lanes
+    end
+    return 0
+end
+
+return {lanes = lanes}
+]],
+    }
+    local scalar = "--target wasm32-unknown-emscripten --features scalar "
+    local out, code = run(dir, scalar .. "outside.nupp")
+    test.equal(code, 1, "a use after the nil test on a tier without vectors\n" .. out)
+    assert(
+        out:find(
+            "outside.nupp:11:12: aot: this tier has no vectors, so species is nil here; "
+                .. "keep the vector path inside the branch that tested it against nil",
+            1,
+            true
+        ),
+        out
+    )
+
+    out, code = run(dir, scalar .. "other.nupp")
+    test.equal(code, 1, "a native if binding is the trySpecies test\n" .. out)
+    assert(out:find("other.nupp:10:16: aot: a native if binding takes simd.trySpecies only", 1, true), out)
+
+    out, code = run(dir, scalar .. "witness.nupp")
+    test.equal(code, 1, "the argument is an array witness\n" .. out)
+    assert(out:find("NUPP2006: argument 1: Span<uint32> is not a Scalar<any>", 1, true), out)
+end
+
+function M.anAndProvesItsRightSpanReadOnlyByTheShapeItPromises()
+    -- `cursor < #span and span[cursor + 1] ...` reads under the bound the left
+    -- side just tested. Any other left, a different span, or a different
+    -- offset is not that proof.
+    local body = [[
+local span = require("nupp.mem.span")
+
+@aot
+local function scan(borrows cps: span.Span<uint32>, borrows other: span.Span<uint32>): integer
+    local cursor: uint32 = 0
+    while CONDITION do
+        cursor = cursor + 1
+    end
+    return cursor + 1 + #other
+end
+
+return {scan = scan}
+]]
+    local files = {["proved.nupp"] = body:gsub("CONDITION", "cursor < #cps and cps[cursor + 1] > 0xF")}
+    local rejected = {
+        {"reversed", "#cps > cursor and cps[cursor + 1] > 0xF"},
+        {"disjunction", "cursor < #cps or cps[cursor + 1] > 0xF"},
+        {"otherspan", "cursor < #other and cps[cursor + 1] > 0xF"},
+        {"inclusive", "cursor <= #cps and cps[cursor + 1] > 0xF"},
+        {"offset", "cursor < #cps and cps[cursor + 2] > 0xF"},
+    }
+    for _, case in ipairs(rejected) do
+        files[case[1] .. ".nupp"] = body:gsub("CONDITION", function()
+            return case[2]
+        end)
+    end
+    local dir = project(files)
+    local scalar = "--target wasm32-unknown-emscripten --features scalar "
+    local out, code = run(dir, scalar .. "proved.nupp")
+    test.equal(code, 0, out)
+    for _, case in ipairs(rejected) do
+        out, code = run(dir, scalar .. case[1] .. ".nupp")
+        test.equal(code, 1, case[1] .. " is not the proof\n" .. out)
+        assert(
+            out:find(case[1] .. ".nupp:6:", 1, true)
+                and out:find("span loads need a counted-loop index or cursor + 1 under cursor < #span", 1, true),
+            case[1] .. ": " .. out
+        )
+    end
+end
+
 return M

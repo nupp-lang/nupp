@@ -539,17 +539,31 @@ local function binary(node: scalarIR.Binary, values: {[string]: string}, scope: 
     scalarWalk(node.left, values, scope)
     local rightScope = scope
     if (op == "and" or op == "or") and (node.left.op == "lt" or node.left.op == "ge") then
+        -- The right operand only runs when the left held, so a left that
+        -- bounds a cursor -- below a span's count, or below a scratch's
+        -- initialized length -- bounds it for the right operand alone.
         local comparison = node.left as scalarIR.Binary
         local cursor = comparison.left.op == "local" and (comparison.left as scalarIR.Name).name or nil
-        local scratch = comparison.right.op == "local" and scratchLengthSource(comparison.right, values) or nil
-        if cursor ~= nil and scratch ~= nil and (
+        local bound: string? = nil
+        if comparison.right.op == "span_count" then
+            local spanName = (comparison.right as scalarIR.SpanCount).span
+            local root = scope.spans[spanName]
+            if root ~= nil and (root as scalarIR.Param).region ~= nil then
+                bound = spanName
+            end
+        elseif comparison.right.op == "local" then
+            bound = scratchLengthSource(comparison.right, values)
+        end
+        if cursor ~= nil and values[
+            cursor as string
+        ] == "u32" and bound ~= nil and (
             op == "and" and node.left.op == "lt" or op == "or" and node.left.op == "ge"
         ) then
             local cursorBounds: {[string]: string} = {}
             for name, root in pairs(scope.cursorBounds) do
                 cursorBounds[name] = root
             end
-            cursorBounds[cursor as string] = scratch as string
+            cursorBounds[cursor as string] = bound as string
             rightScope = derive(scope, {cursorBounds = cursorBounds})
         end
     end
@@ -971,7 +985,7 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
             local maskFamily = args[1] ~= nil and genericSimdType(args[1].type) or nil
             local result = (
                 op == "simd_mask_any" or op == "simd_mask_all"
-            ) and "bool" or op == "simd_mask_count" and "u32" or op == "simd_mask_first" and "f64" or nil
+            ) and "bool" or op == "simd_mask_count" and "u32" or op == "simd_mask_first" and "u32" or nil
             holds(
                 #args == 1 and maskFamily == "mask" and (
                     node.type == result or op == "simd_mask_bits" and node.type == "u64"

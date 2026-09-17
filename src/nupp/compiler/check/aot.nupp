@@ -344,18 +344,23 @@ function aot.install(c: state.Checker): aot.Ops
                 local callee = call.obj
                 local exact = exactCall(call)
                 local selected = c.env.config and c.env.config._target or nil
-                if selected ~= nil
-                    and selected.aot == "off"
-                    and exact ~= nil
-                    and exact.identity == "nupp.simd.preferredU8"
-                    and c.opts.dialect ~= "lua51"
-                then
-                    c.diag(
-                        "NUPP2903",
-                        callee or current,
-                        "simd.preferredU8 creates an AOT-only value and cannot run with aot=off; "
-                        .. "select aot=emit-c or aot=require"
-                    )
+                if selected ~= nil and selected.aot == "off" and exact ~= nil and c.opts.dialect ~= "lua51" then
+                    if exact.identity == "nupp.simd.preferredU8" then
+                        c.diag(
+                            "NUPP2903",
+                            callee or current,
+                            "simd.preferredU8 creates an AOT-only value and cannot run with aot=off; "
+                            .. "select aot=emit-c or aot=require"
+                        )
+                    elseif exact.identity == "nupp.simd.species" then
+                        c.diag(
+                            "NUPP2903",
+                            callee or current,
+                            "simd.species creates an AOT-only value and cannot run with aot=off; "
+                            .. "select aot=emit-c or aot=require, or ask simd.trySpecies, "
+                            .. "which answers nil where there are no vectors"
+                        )
+                    end
                 end
                 if exact ~= nil and exact.identity == "nupp.gpu.workgroups" then
                     walk(callee, false)

@@ -1049,7 +1049,7 @@ function emit.scalar(node: scalarIR.Expr): string
                 elseif operation == "simd_mask_count" then
                     return "((uint32_t)__builtin_popcountll(" .. bits .. "))"
                 else
-                    return "((double)("
+                    return "((uint32_t)("
                         .. bits
                         .. " == UINT64_C(0) ? 0u : (uint32_t)__builtin_ctzll("
                         .. bits

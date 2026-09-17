@@ -136,6 +136,9 @@ local type Token = lexer.Token
 --- It matters because a cursor is written `uint32` and then indexes with
 --- `cursor + 1`. Calling that sum a `number` left a checked view append with no
 --- spelling that both checked and compiled.
+--- The intrinsic each fixed-width arithmetic operator lowers to.
+local FIXED_ARITHMETIC: {[string]: string} = {["+"] = "add", ["-"] = "sub", ["*"] = "mul"}
+
 local function integral(t: Type): boolean
     if fixedWidth.isValue(t) then
         return fixedWidth.widenedName(t) == "integer"
@@ -419,6 +422,41 @@ function operators.install(c: state.Checker): state.ExprHandlers
 
     local handlers = {}
 
+    --- The fixed width `+`, `-` and `*` answer, or nothing when they answer
+    --- `integer` as before.
+    ---
+    --- One operand must be typed at the width and both must be established at
+    --- it: an exact integer literal beside a `uint32` is a `uint32`, an erased
+    --- `as uint32` beside one is not, and `1 + 1` is still an integer. A
+    --- literal spelled as a number, `x * 1.0`, asks for a number and gets one.
+    --- Mixed widths answer nothing rather than guess which one wins.
+    local function fixedArithmeticTarget(lt: Type, rt: Type, lhs: any, rhs: any): Type?
+        local left = T.unwrapOwnership(lt)
+        local right = T.unwrapOwnership(rt)
+        local leftTag = left.tag
+        local rightTag = right.tag
+        local target = (
+            leftTag == "uint32" or rightTag == "uint32"
+        ) and T.uint32 or (leftTag == "int32" or rightTag == "int32") and T.int32 or nil
+        if target == nil then
+            return nil
+        end
+        local other = target == T.uint32 and "int32" or "uint32"
+        if leftTag == other or rightTag == other then
+            return nil
+        end
+        for _, operand in ipairs({left, right}) do
+            if operand.tag == "literal" and (operand as T.Literal).base == T.number then
+                return nil
+            end
+        end
+        if c.fixedWidth.established(lhs, target as Type) and c.fixedWidth.established(rhs, target as Type) then
+            return target
+        end
+
+        return nil
+    end
+
     --- Whether one operand of a bitwise operator is already a fixed 32-bit value.
     ---
     --- The same condition `nupp.compiler.aot.lower` puts on them, spelled here
@@ -589,6 +627,20 @@ function operators.install(c: state.Checker): state.ExprHandlers
             end
             if op == "/" or op == "^" then
                 return T.number
+            end
+            local fixedTarget = fixedArithmeticTarget(lt, rt, lhs, rhs)
+            local fixedOperation = FIXED_ARITHMETIC[op]
+            if fixedTarget ~= nil and fixedOperation ~= nil then
+                -- Both operands are established at one thirty-two bit width and
+                -- one of them is typed with it, so the result is that width
+                -- wrapped: what `nupp.math.u32.add` and its siblings answer,
+                -- reached by the operator. `+ - *` only; division leaves the
+                -- width, and a literal beside a literal stays an integer.
+                c.fixedWidth.mark(node, fixedTarget as Type)
+                local family = (fixedTarget as Type).tag == "uint32" and "u32." or "i32."
+                node.fixedArithmetic = family .. (fixedOperation as string)
+
+                return fixedTarget as Type
             end
             if integral(lt) and integral(rt) then
                 return T.integer

@@ -40,6 +40,12 @@ record lower.Context
     --- parser harness which deliberately exercises lowering in isolation.
     checked: boolean
 
+    --- Whether the selected tier has vector registers. This is the one fact
+    --- `simd.trySpecies` answers from: a species where there are vectors, nil
+    --- where there are none, decided here so the branch that tested it is
+    --- pruned rather than compiled.
+    vectors: boolean = true
+
     --- Compile-time byte tables named so far, by their contents.
     ---
     --- Shared by every entry in the file rather than held per entry, because
@@ -1284,6 +1290,120 @@ const VECTOR_EXTREMA = {
     numberMax = "number_max",
 }
 
+--- The standard scalar witnesses `simd.trySpecies` accepts, by their field
+--- name in `nupp.mem.array`.
+const SPECIES_WITNESSES: {
+    [string]: boolean
+} = {uint32 = true, int32 = true, uint64 = true, int64 = true, float = true, number = true,}
+
+--- What a call names, once module aliases and intrinsic aliases are followed.
+local function calledIdentity(node: cst.Call, kernel: lower.Kernel): string?
+    local path = lower.dottedName(node.obj)
+    local identity = lower.callIdentity(node.obj)
+    if identity == nil and path ~= nil then
+        local root, rest = (path as string):match("^([^.]+)%.(.+)$")
+        local moduleName = root ~= nil and kernel.modules[root as string] or nil
+        if moduleName ~= nil then
+            identity = moduleName .. "." .. tostring(rest)
+        else
+            identity = kernel.intrinsicAliases[path as string]
+        end
+    end
+
+    return identity
+end
+
+--- Checks a `simd.trySpecies(witness)` call's shape and where it sits.
+local function admitTrySpecies(node: cst.Call, kernel: lower.Kernel): nil
+    local context = kernel.context
+    local site = lower.site(node)
+    local arguments = node.args ~= nil and (node.args as cst.Args).exprs or {}
+    local witness = #arguments == 1 and lower.dottedName(arguments[1]) or nil
+    local root: string? = nil
+    local field: string? = nil
+    if witness ~= nil then
+        root, field = (witness as string):match("^([^.]+)%.([^.]+)$")
+    end
+    if root == nil or kernel.modules[root as string] ~= "nupp.mem.array" or not SPECIES_WITNESSES[field as string] then
+        context.reject(
+            site,
+            "simd.trySpecies takes one of the scalar witnesses in nupp.mem.array, such as array.uint32"
+        )
+    end
+    if kernel.workgroupSize ~= nil or kernel.phasesName ~= nil then
+        context.reject(site, "simd.trySpecies has no answer inside a GPU kernel; it is for @aot CPU functions")
+    end
+end
+
+--- `simd.trySpecies(witness)`: the preferred species for the witness's element
+--- where the tier has vectors, and nil where it does not.
+---
+--- The answer is decided here, per tier, rather than at run time: a tier with
+--- vectors gets the same species constructor `simd.species()` lowers to, and
+--- one without gets nothing at all -- the local it initializes is bound as
+--- absent by `localStmt`, and the `~= nil` test that guards the vector path
+--- folds to false so the path is pruned rather than compiled. The Lua path is
+--- the library's own answer and never reaches here.
+local function trySpecies(node: cst.Call, kernel: lower.Kernel): scalarIR.Expr
+    local context = kernel.context
+    local site = lower.site(node)
+    admitTrySpecies(node, kernel)
+    if not context.vectors then
+        context.reject(
+            site,
+            "simd.trySpecies answers nil on this tier, so it must initialize a local that is tested against nil"
+        )
+    end
+    local inferred = semanticRaw((node as any).inferredType)
+    local resolved: scalarIR.Type? = nil
+    if inferred ~= nil and inferred.tag == "union" then
+        for _, member in ipairs(inferred.members or {}) do
+            if semanticRaw(member).tag ~= "nil" then
+                resolved = resolved or semanticValueType(member)
+            end
+        end
+    else
+        resolved = semanticValueType(inferred)
+    end
+    if resolved == nil or not tostring(resolved):match("^simd_species_") then
+        context.reject(site, "simd.trySpecies needs the checker to resolve its species from the witness")
+    end
+    kernel.usesSimd = true
+
+    return new scalarIR.Simd(
+        op = "simd_species",
+        args = {},
+        intrinsic = "species",
+        type = resolved as scalarIR.Type,
+        source = site
+    )
+end
+
+--- Whether a comparison against nil is answered statically: a species from
+--- `simd.trySpecies` is never nil where the tier has vectors, and always nil
+--- where it does not. Nothing else in the subset compares with nil.
+local function speciesNilTest(written: string, lhs: cst.Node, rhs: cst.Node, environment: {[string]: any}): boolean?
+    if written ~= "==" and written ~= "~=" then
+        return nil
+    end
+    local named = lhs.kind == "nilExpr" and rhs or rhs.kind == "nilExpr" and lhs or nil
+    if named == nil or (named as cst.Node).kind == "nilExpr" then
+        return nil
+    end
+    local name = lower.nameOf(named as cst.Node)
+    local bound = name ~= nil and environment[name as string] or nil
+    if bound == nil then
+        return nil
+    end
+    if bound.kind == "absent_species" then
+        return written == "=="
+    elseif bound.kind == "local" and tostring(bound.type):match("^simd_species_") ~= nil then
+        return written == "~="
+    end
+
+    return nil
+end
+
 --- One binary operator.
 local function binary(node: cst.Binop, left: scalarIR.Expr, right: scalarIR.Expr, kernel: lower.Kernel): scalarIR.Expr
     local context = kernel.context
@@ -1355,6 +1475,29 @@ local function binary(node: cst.Binop, left: scalarIR.Expr, right: scalarIR.Expr
                 type = wide as scalarIR.Type,
                 source = source
             )
+        end
+        if written == "+" or written == "-" or written == "*" then
+            -- Established thirty-two bit operands stay at their width, as the
+            -- checker decided when it typed the operator: `cursor + 1` on a
+            -- `uint32` cursor is a `u32_add`, not a binary64 sum narrowed at
+            -- the next store. A literal beside the operand is read at its width
+            -- where it is exact there, so the constant does not widen the sum.
+            local narrowedLeft = exactWidthConstant(left, right.type) or left
+            local narrowedRight = exactWidthConstant(right, left.type) or right
+            local width = narrowedLeft.type == narrowedRight.type and (
+                narrowedLeft.type == "u32" or narrowedLeft.type == "i32"
+            ) and narrowedLeft.type or nil
+            if width ~= nil and (not context.checked or node.fixedArithmetic ~= nil) then
+                return new scalarIR.Fixed(
+                    op = (
+                        tostring(width) .. "_" .. (written == "+" and "add" or written == "-" and "sub" or "mul")
+                    ) as scalarIR.FixedOp,
+                    left = narrowedLeft,
+                    right = narrowedRight,
+                    type = width as scalarIR.Type,
+                    source = source
+                )
+            end
         end
         return new scalarIR.Binary(
             op = arithmetic,
@@ -1711,21 +1854,17 @@ local function call(
     kernel: lower.Kernel
 ): scalarIR.Expr
     local context = kernel.context
+    local path = lower.dottedName(node.obj)
+    local identity = calledIdentity(node, kernel)
+    if identity == "nupp.simd.trySpecies" then
+        -- Answered before the arguments lower: the witness is a library value,
+        -- not something native code can hold.
+        return trySpecies(node, kernel)
+    end
+
     local args: {scalarIR.Expr} = {}
     for _, argument in ipairs(node.args ~= nil and (node.args as cst.Args).exprs or {}) do
         args[#args + 1] = lower.expression(argument, environment, activeIndex, kernel)
-    end
-
-    local path = lower.dottedName(node.obj)
-    local identity = lower.callIdentity(node.obj)
-    if identity == nil and path ~= nil then
-        local root, rest = (path as string):match("^([^.]+)%.(.+)$")
-        local moduleName = root ~= nil and kernel.modules[root as string] or nil
-        if moduleName ~= nil then
-            identity = moduleName .. "." .. tostring(rest)
-        else
-            identity = kernel.intrinsicAliases[path as string]
-        end
     end
     -- A spelling is only the prelude's when nothing between here and the
     -- prelude has rebound `string`, which is the same test `table.new` makes.
@@ -3049,7 +3188,7 @@ local function simdMethod(
                 any = {op = "simd_mask_any", type = "bool"},
                 all = {op = "simd_mask_all", type = "bool"},
                 count = {op = "simd_mask_count", type = "u32"},
-                first = {op = "simd_mask_first", type = "f64"},
+                first = {op = "simd_mask_first", type = "u32"},
                 bits = {op = "simd_mask_bits", type = "u64"},
             }
             local reduction = reductions[method]
@@ -3508,8 +3647,12 @@ end
 ----------------------------------------------------------------------------
 
 --- A short-circuit left operand whose truth value proves the right operand's
---- scratch cursor in bounds.
-local function scratchShortCircuitBound(
+--- cursor in bounds: `cursor < #span and span[cursor + 1] ...`, or the same
+--- against a scratch's initialized length, and either turned around under
+--- `or`. The right operand only runs when the left held, so what the left
+--- proves is what the right may rely on -- the same fact a branch gets from
+--- its condition, reaching the one place a condition is itself the consumer.
+local function shortCircuitBound(
     connective: string,
     left: cst.Node?,
     environment: {[string]: any},
@@ -3524,15 +3667,19 @@ local function scratchShortCircuitBound(
         return nil, nil
     end
     local cursor = lower.nameOf(comparison.lhs)
+    local cursorBinding = cursor ~= nil and environment[cursor as string] or nil
+    if cursorBinding == nil or cursorBinding.type ~= "u32" then
+        return nil, nil
+    end
+    local spanName = lower.dotCount(comparison.rhs)
+    local param = spanName ~= nil and kernel.params[spanName as string] or nil
+    if param ~= nil and param.region ~= nil then
+        return cursor, spanName
+    end
     local lengthName = lower.nameOf(comparison.rhs)
     local scratchName = lengthName ~= nil and kernel.scratchLengthBounds[lengthName as string] or nil
-    local cursorBinding = cursor ~= nil and environment[cursor as string] or nil
     local scratchBinding = scratchName ~= nil and environment[scratchName as string] or nil
-    if cursorBinding ~= nil
-        and cursorBinding.type == "u32"
-        and scratchBinding ~= nil
-        and scratchBinding.type == "lua_scratch_u32"
-    then
+    if scratchBinding ~= nil and scratchBinding.type == "lua_scratch_u32" then
         return cursor, scratchName
     end
 
@@ -3589,6 +3736,14 @@ function lower.expression(
                 )
             end
             context.reject(lower.site(node), "value " .. tostring(name) .. " is not available in native code")
+        end
+        if bound.kind == "absent_species" then
+            context.reject(
+                lower.site(node),
+                "this tier has no vectors, so " .. tostring(
+                    name
+                ) .. " is nil here; keep the vector path inside the branch that tested it against nil"
+            )
         end
 
         -- A specialization binds its const carriers to IR values rather than
@@ -3912,15 +4067,19 @@ function lower.expression(
     elseif kind == "binop" and (node as cst.Binop).op ~= nil then
         local operator = node as cst.Binop
         local written = (operator.op as lexer.Token).text
+        local decided = speciesNilTest(written, operator.lhs as cst.Node, operator.rhs as cst.Node, environment)
+        if decided ~= nil then
+            return new scalarIR.Bool(op = "bool", value = decided as boolean, type = "bool", source = lower.site(node))
+        end
         local left = lower.expression(operator.lhs as cst.Node, environment, activeIndex, kernel)
-        local cursor, scratchName = scratchShortCircuitBound(written, operator.lhs, environment, kernel)
+        local cursor, boundName = shortCircuitBound(written, operator.lhs, environment, kernel)
         local previous = kernel.cursorBounds
         if cursor ~= nil then
             local bounds: {[string]: string} = {}
             for name, root in pairs(previous) do
                 bounds[name] = root
             end
-            bounds[cursor as string] = scratchName as string
+            bounds[cursor as string] = boundName as string
             kernel.cursorBounds = bounds
         end
         local right = lower.expression(operator.rhs as cst.Node, environment, activeIndex, kernel)
@@ -4724,6 +4883,25 @@ local function localStmt(
     end
     if #exprs == 1 and exprs[1].kind == "switchExpr" then
         return switchLocal(stat, exprs[1] as cst.SwitchExpr, out, environment, kernel)
+    end
+
+    if #exprs == 1 and exprs[
+        1
+    ].kind == "call" and not context.vectors and calledIdentity(
+        exprs[1] as cst.Call,
+        kernel
+    ) == "nupp.simd.trySpecies" then
+        -- `simd.trySpecies` on a tier without vectors: the name is bound to
+        -- nothing, and the branch that tests it against nil prunes.
+        admitTrySpecies(exprs[1] as cst.Call, kernel)
+        if #names ~= 1 then
+            context.reject(lower.site(stat), "native local initializer count must match names")
+        end
+        if environment[names[1].text] ~= nil then
+            context.reject(lower.site(stat), "native locals may not shadow " .. names[1].text)
+        end
+        environment[names[1].text] = {kind = "absent_species"}
+        return
     end
 
     local values: {scalarIR.Expr} = {}
@@ -5586,7 +5764,55 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
             -- body; a statically true one absorbs everything after it.
             local decided = false
             for _, arm in ipairs(branch.clauses or {}) do
-                if not decided then
+                local bindingToken = arm.binding
+                if not decided and bindingToken ~= nil then
+                    -- `if NAME = simd.trySpecies(...) then` is decided per tier:
+                    -- a tier with vectors takes the arm with NAME bound to the
+                    -- species, and one without drops the arm without lowering
+                    -- it. Nothing else lowers to a nil-tested native value.
+                    local bound = arm.cond as cst.Node
+                    if bound.kind ~= "call" or calledIdentity(bound as cst.Call, kernel) ~= "nupp.simd.trySpecies" then
+                        context.reject(lower.site(bound), "a native if binding takes simd.trySpecies only")
+                    end
+                    if context.vectors then
+                        local value = lower.expression(bound, environment, kernel.index, kernel)
+                        local inner = inherit(environment)
+                        local binding = bind((bindingToken as lexer.Token).text, value.type, nil, arm, inner, kernel)
+                        noteBinding((bindingToken as lexer.Token).text, value, binding, kernel)
+                        local body: {
+                            scalarIR.Statement
+                        } = {
+                            new scalarIR.Let(
+                                op = "let",
+                                name = binding.name,
+                                cName = binding.cName,
+                                type = value.type,
+                                value = value,
+                                source = lower.site(arm)
+                            ),
+                        }
+                        local block = arm.body as cst.Block?
+                        local stats = block ~= nil and (block as cst.Block).stats or {}
+                        for _, lowered in ipairs(lower.block(stats, inner, kernel)) do
+                            body[#body + 1] = lowered
+                        end
+                        clauses[
+                            #clauses + 1
+                        ] = new scalarIR.Clause(
+                            condition = new scalarIR.Bool(
+                                op = "bool",
+                                value = true,
+                                type = "bool",
+                                source = lower.site(arm)
+                            ),
+                            body = body,
+                            source = lower.site(arm)
+                        )
+                        decided = true
+                    else
+                        admitTrySpecies(bound as cst.Call, kernel)
+                    end
+                elseif not decided then
                     local condition = lower.expression(arm.cond as cst.Node, environment, kernel.index, kernel)
                     if condition.type ~= "bool" then
                         context.reject(lower.site(arm.cond), "native branch conditions must be boolean")

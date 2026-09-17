@@ -432,6 +432,15 @@ function M.longUnionsBreakBetweenTheirMembers()
     assertEq(formatter:format(out, "union.d.nupp"), out, "and the layout is stable")
 end
 
+-- An `if NAME = EXPR then` binding is spaced like an assignment and stays one.
+function M.ifBindingsAreSpacedLikeAssignments()
+    local src = "if   v=f( x )   then\n    print(v)\nelseif w=g()then\n    print(w)\nend\n"
+    local once = fmt1(src)
+    assertEq(once, "if v = f(x) then\n    print(v)\nelseif w = g() then\n    print(w)\nend\n")
+    assertEq(fmt1(once), once, "and the layout is stable")
+    assertEq(kinds(once), kinds(src), "parse changed")
+end
+
 -- One case per file rather than one loop over all six.
 --
 -- Formatting a compiler source twice and reparsing it is seconds of work, and together

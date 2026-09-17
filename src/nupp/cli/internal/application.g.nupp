@@ -686,7 +686,10 @@ export record Application
         local style = terminal.style(stream)
         local inExamples = false
         local lines: {string} = {}
-        for line in (text .. "\n"):gmatch("(.-)\n") do
+        for raw in (text .. "\n"):gmatch("(.-)\n") do
+            -- Lua 5.5 holds a loop variable constant, so the coloured line is
+            -- its own name.
+            local line = raw
             if line == "Examples:" then
                 inExamples = true
             elseif inExamples and line:match("^    %S") then

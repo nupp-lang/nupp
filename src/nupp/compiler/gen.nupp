@@ -2106,6 +2106,17 @@ function gen.generate(
 
             return nil
         end,
+        -- Whether any arm of an `if` is an `if NAME = EXPR then` binding, which
+        -- has to be spelled out rather than copied through.
+        hasBindingClause = function(node)
+            for _, clause in ipairs(node.clauses or {}) do
+                if clause.binding then
+                    return true
+                end
+            end
+
+            return false
+        end,
         -- Why each lowering that still builds a function inside a loop cannot be
         -- declared once for the module instead. Every one is the same shape: the body
         -- writes a local belonging to its own site, and Lua gives no way to hand
@@ -4848,6 +4859,31 @@ function gen.generate(
                 return
             end
         end
+        if kind == "binop" and x.fixedArithmetic and x.lhs and x.rhs then
+            -- Established thirty-two bit operands: the operator is the
+            -- `nupp.math` intrinsic the checker named, inlined where the bit
+            -- library is native and called where it is not, exactly as the
+            -- spelled-out call would be.
+            local form = not pluck.bitops.portable and pluck.scalarInline.forms[x.fixedArithmetic] or nil
+            if form ~= nil then
+                local sides = {x.lhs, x.rhs}
+                for index, piece in ipairs(form.parts) do
+                    if type(piece) == "number" then
+                        emit(sides[piece as integer])
+                    else
+                        e((piece as string):gsub("@(%a+)", pluck.scalarInline.bitop), index == 1 and x.op.line or nil)
+                    end
+                end
+            else
+                pluck.needRuntimeEffect("stdlib.math")
+                e("nupp.math." .. x.fixedArithmetic .. "(", x.op.line)
+                emit(x.lhs)
+                e(",")
+                emit(x.rhs)
+                e(")")
+            end
+            return
+        end
         if pluck.bitops.portable and kind == "unop" and x.op and x.op.kind == "~" and x.operand then
             if pluck.bitops.compatibility then
                 needsCompatibilityBitops = true
@@ -5163,6 +5199,45 @@ function gen.generate(
             e("do", sourceLine(x))
             local endTok = pluck.endToken(x)
             e("end", endTok and endTok.line or nil)
+            return
+        end
+        if kind == "ifStmt" and pluck.hasBindingClause(x) then
+            -- `if NAME = EXPR then` has no Lua spelling. The value is held in a
+            -- temporary tested against nil and NAME is a local of the arm, so a
+            -- later arm that reads an outer NAME still sees the outer one. Every
+            -- opening lands on the clause's own line and every closing on the
+            -- statement's `end` line, so the output stays line-identical.
+            local opened = 0
+            for index, clause in ipairs(x.clauses) do
+                if clause.binding and clause.cond then
+                    local temp = nextTemp()
+                    local head = clause[1]
+                    local headLine = cst.isToken(head) and head.line or sourceLine(clause)
+                    e((index == 1 and "do local %s =" or "else local %s ="):format(temp), headLine)
+                    opened = opened + 1
+                    emit(clause.cond)
+                    local thenLine = nil
+                    for _, child in ipairs(clause) do
+                        if cst.isToken(child) and child.kind == "then" then
+                            thenLine = child.line
+                        end
+                    end
+                    e(("if %s ~= nil then local %s = %s"):format(temp, clause.binding.text, temp), thenLine)
+                    if clause.body then
+                        emit(clause.body)
+                    end
+                else
+                    emit(clause)
+                end
+            end
+            if x.elseClause then
+                emit(x.elseClause)
+            end
+            local endTok = pluck.endToken(x)
+            e("end", endTok and endTok.line or nil)
+            for _ = 1, opened do
+                e("end")
+            end
             return
         end
         if kind == "ifStmt" and (x.constantBranch or x.constantBranchNone) then

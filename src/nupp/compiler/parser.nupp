@@ -2718,16 +2718,28 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
 
         elseif kind == "if" then
             local n = new cst.IfStmt(clauses = {}, kind = "ifStmt")
+
+            -- `if NAME = EXPR then` binds NAME to EXPR for the arm it guards and
+            -- takes the arm when the value is not nil. A name followed by `=`
+            -- cannot start a condition, so one token of lookahead decides it.
+            local function bindingClause(clause: cst.IfClause | cst.ElseifClause)
+                if cur().kind == "name" and tokens[i + 1] and tokens[i + 1].kind == "=" then
+                    clause.binding = add(clause, advance())
+                    clause.eq = add(clause, advance())
+                end
+                clause.cond = add(clause, parseExp())
+            end
+
             local clause = new cst.IfClause(kind = "ifClause")
             add(clause, advance()) -- 'if'
-            clause.cond = add(clause, parseExp())
+            bindingClause(clause)
             add(clause, expect("then", "after condition"))
             clause.body = add(clause, parseBlock())
             n.clauses[1] = add(n, clause)
             while cur().kind == "elseif" do
                 clause = new cst.ElseifClause(kind = "elseifClause")
                 add(clause, advance())
-                clause.cond = add(clause, parseExp())
+                bindingClause(clause)
                 add(clause, expect("then", "after condition"))
                 clause.body = add(clause, parseBlock())
                 n.clauses[#n.clauses + 1] = add(n, clause)

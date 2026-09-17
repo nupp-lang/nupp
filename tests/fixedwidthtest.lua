@@ -699,4 +699,77 @@ function M.physicalStoresRefuseLiteralsTheSlotCannotHold()
    }, "\n")), "")
 end
 
+-- `+`, `-` and `*` between established values of one 32-bit width are that
+-- width's wrapping operation and establish their result; a literal in range
+-- joins in. Mixed widths, a `number` operand, an erased claim, and every
+-- other operator keep LuaJIT's meaning and produce `number`.
+function M.arithmeticBetweenOneFixedWidthWrapsAndEstablishes()
+   assertEq(errorCodes(table.concat({
+      "local function wrapAdd(a: uint32, b: uint32): uint32",
+      "   return a + b",
+      "end",
+      "local function step(cursor: uint32, first: uint32): uint32",
+      "   return cursor + first - 1",
+      "end",
+      "local function signedMul(a: int32, b: int32): int32",
+      "   return a * b",
+      "end",
+      "local function stays(a: uint32): uint32",
+      "   local next: uint32 = a * 2",
+      "   return next + a",
+      "end",
+      "local function widened(a: uint32): number",
+      "   local asNumber: number = a * 1.0",
+      "   return asNumber + a * 0.5",
+      "end",
+      "return wrapAdd, step, signedMul, stays, widened",
+   }, "\n")), "")
+   for _, case in ipairs({
+      {"local function f(a: uint32, b: int32): uint32 return a + b end", "NUPP2011"},
+      {"local function f(a: uint32, b: integer): uint32 return a + b end", "NUPP2011"},
+      {"local function f(a: uint32, b: number): uint32 return a + (b as uint32) end", "NUPP2011"},
+      {"local function f(a: uint32, b: uint32): uint32 return a / b end", "NUPP2011"},
+      {"local function f(a: uint32): uint32 return a + 4294967296 end", "NUPP2011"},
+   }) do
+      assertEq(errorCodes(case[1] .. "\nreturn f"), case[2], case[1])
+   end
+
+   local source = table.concat({
+      "local function wrapAdd(a: uint32, b: uint32): uint32",
+      "   return a + b",
+      "end",
+      "local function wrapSub(a: uint32): uint32",
+      "   return a - 1",
+      "end",
+      "local function signedMul(a: int32, b: int32): int32",
+      "   return a * b",
+      "end",
+      "local function plain(a: integer, b: integer): integer",
+      "   return a + b",
+      "end",
+      "return wrapAdd, wrapSub, signedMul, plain",
+   }, "\n")
+   local result = parser.parse(source, "fixed-arithmetic.nupp")
+   assertEq(#result.errors, 0, "arithmetic source parses")
+   assertEq(#check.check(result, "fixed-arithmetic.nupp", sharedEnv), 0, "arithmetic source checks")
+   local gen = require("nupp.compiler.gen")
+   local code, loweringDiags = gen.generate(result, "fixed-arithmetic.nupp")
+   assertEq(#loweringDiags, 0, "arithmetic source lowers")
+   local wrapAdd, wrapSub, signedMul, plain = assert(loadstring(code, "@fixed-arithmetic"))()
+   assertEq(wrapAdd(4294967295, 1), 0, "uint32 addition wraps")
+   assertEq(wrapSub(0), 4294967295, "uint32 subtraction wraps")
+   assertEq(signedMul(65536, 65536), 0, "int32 multiplication wraps")
+   assertEq(signedMul(-2147483648, -1), -2147483648, "and keeps the sign convention")
+   assertEq(plain(4294967295, 1), 4294967296, "integer arithmetic does not")
+
+   local portable = parser.parse(source, "fixed-arithmetic.nupp")
+   assertEq(#check.check(portable, "fixed-arithmetic.nupp", sharedEnv, {dialect = "lua51",}), 0, "checks portably")
+   local portableCode, portableDiags = gen.generate(portable, "fixed-arithmetic.nupp", nil, nil, nil, "lua51")
+   assertEq(#portableDiags, 0, "lowers portably")
+   assert(portableCode:find("nupp.math.u32.add(", 1, true), "the portable dialect calls the library:\n" .. portableCode)
+   assert(portableCode:find("nupp.math.u32.sub(", 1, true), portableCode)
+   assert(portableCode:find("nupp.math.i32.mul(", 1, true), portableCode)
+   assert(not portableCode:find("bit.tobit", 1, true), "and never LuaJIT's BitOp:\n" .. portableCode)
+end
+
 return M

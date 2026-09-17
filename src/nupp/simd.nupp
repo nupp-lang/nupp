@@ -49,6 +49,7 @@ the whole of it.
 ]]
 
 const {type Span, type WriteSpan} = require("nupp.mem.span")
+const {type Scalar as StorageWitness} = require("nupp.mem.array")
 
 -- Packed operations use the target's AOT instructions inside compiled entries.
 -- Ordinary calls use the scalar implementation.
@@ -1066,7 +1067,7 @@ sealed interface simd.Mask<T, S>
     count: function(borrows self: simd.Mask<T, S>): uint32
 
     --- Returns the first set lane, or zero when the mask is empty.
-    first: function(borrows self: simd.Mask<T, S>): integer
+    first: function(borrows self: simd.Mask<T, S>): uint32
 
     --- Returns lane bits in a `uint64`; bit zero denotes lane one.
     bits: function(borrows self: simd.Mask<T, S>): uint64
@@ -1186,7 +1187,7 @@ end
 --- Operations whose lane count is selected from `T` and `S` at AOT lowering.
 --- @export
 sealed interface simd.Species<T, S>
-    readonly lanes: integer
+    readonly lanes: uint32
 
     --- Converts each lane using LuaJIT FFI numeric conversion rules. Integer
     --- narrowing keeps low bits; float-to-integer truncates through int64,
@@ -1273,6 +1274,38 @@ end
 --- @export
 function simd.species<T, S>(): simd.Species<T, S>
     error("simd.species is available only inside an AOT-compiled function", 2)
+end
+
+--- The preferred species for one element where the running code has vectors,
+--- and nil where it does not.
+---
+--- The element is named by its storage witness -- `array.uint32` is an
+--- `array.Scalar<uint32>` -- so `T` is inferred from an ordinary argument and
+--- the result is an optional the caller tests before using:
+---
+--- ```nupp
+--- if species = simd.trySpecies(array.uint32) then
+---     while cursor + species.lanes <= #cps do
+---         ...
+---     end
+--- end
+--- while cursor < #cps and cps[cursor + 1] > 0xF do
+---     cursor = cursor + 1
+--- end
+--- ```
+---
+--- The answer is decided when the enclosing `@aot` function is lowered, once
+--- per artifact tier: a species on every native tier and on Wasm `simd128`,
+--- nil on the scalar Wasm tier. A body running as ordinary Lua -- under
+--- `aot = "off"`, in the retained body beside an emitted artifact, or in a
+--- function that is not `@aot` at all -- takes this library body, which
+--- answers nil, so the scalar continuation runs and no vector operation
+--- executes. The argument must be one of the standard witnesses or an alias
+--- of one; the checker refuses any other expression, since the Lua path would
+--- evaluate it and the compiled path would not.
+--- @export
+function simd.trySpecies<T>(element: StorageWitness<T>): simd.Species<T, simd.Preferred>?
+    return nil
 end
 
 local comptime function Transposed(Rows: typepack, Vector: type, Fixed: type): typepack

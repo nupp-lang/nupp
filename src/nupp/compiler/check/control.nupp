@@ -1101,11 +1101,60 @@ function control.install(c: state.Checker): state.StatHandlers
             applyFacts(accumulatedElse)
             unassignedRestore(unassignedBefore)
             local facts = {t = {}, f = {}}
-            local cond, body = nil, nil
+            local cond, body, binding = nil, nil, nil
             if clause.kind == "ifClause" or clause.kind == "elseifClause" then
-                cond, body = clause.cond, clause.body
+                cond, body, binding = clause.cond, clause.body, clause.binding
             end
-            if cond then
+            if cond and binding then
+                -- `if NAME = EXPR then` evaluates EXPR once and takes the arm when
+                -- it is not nil, with NAME bound to the value minus nil for that
+                -- arm only. It says nothing about any other name, so no fact
+                -- reaches the later arms; the binding itself is out of scope there.
+                local valueType = c.infer(cond)
+                if c.callMayMutate then
+                    c.facts.invalidateForCall()
+                    c.callMayMutate = false
+                end
+                local bound = valueType
+                if valueType == T.any or valueType == T.unknown then
+                    bound = T.any
+                elseif ownershipKind(valueType) then
+                    c.diag("NUPP2603", cond, "an if binding cannot take an owned or borrowed value")
+                    bound = T.any
+                else
+                    bound = narrowing.subtract(valueType, T.nil_)
+                    if bound == valueType then
+                        c.diag(
+                            "NUPP2001",
+                            cond,
+                            ("cannot bind %s: %s is never nil"):format(binding.text, T.tostring(valueType)),
+                            nil,
+                            {
+                                help = "an if binding takes its arm when the value is not nil, so the value must admit nil"
+                            }
+                        )
+                    elseif bound == T.never then
+                        c.diag("NUPP2001", cond, ("cannot bind %s: the value is always nil"):format(binding.text))
+                        bound = T.any
+                    end
+                    if bound.tag == "literal" then
+                        bound = bound.base or T.string
+                        if bound == T.integer then
+                            bound = T.number
+                        end
+                    end
+                    bound = T.settled(bound)
+                end
+                c.bindVar(binding.text, bound, false, binding, nil, false)
+                local boundEntry = c.scope.vars[binding.text]
+                if boundEntry then
+                    if boundEntry.definition then
+                        boundEntry.definition.initialized = true
+                    end
+                    c.fixedWidth.setBinding(boundEntry, cond, nil)
+                    c.unused.declared(binding, boundEntry, "variable")
+                end
+            elseif cond then
                 c.infer(cond)
                 local cleared = nil
                 if c.callMayMutate then

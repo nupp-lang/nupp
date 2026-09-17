@@ -314,8 +314,8 @@ local function wrapped(value: integer, nullValue: any): any
     local signedValue = nupp.math.i32.wrap(value)
     local unsignedValue = nupp.math.u32.wrap(value)
     valueBuilder.openArray(state, nupp.math.u32.wrap(2))
-    valueBuilder.number(state, signedValue + 0)
-    valueBuilder.number(state, unsignedValue + 0)
+    valueBuilder.number(state, signedValue + 0.0)
+    valueBuilder.number(state, unsignedValue + 0.0)
     valueBuilder.close(state)
     return valueBuilder.finish(state)
 end
@@ -3407,6 +3407,59 @@ function M.explicitSimdNamesWhyAotOffCannotRunIt()
     test.equal(code, 1, out)
     assert(out:find("simd.preferredU8", 1, true), out)
     assert(out:find("cannot run with aot=off", 1, true), out)
+end
+
+function M.speciesIsRefusedUnderAotOffWhereTrySpeciesIsNil()
+    -- `simd.species()` is a promise of vectors, which `aot = "off"` cannot
+    -- keep; `simd.trySpecies(witness)` asks instead, answers nil there, and
+    -- the function around it is the scalar path it wrote for that answer.
+    local body = [[
+local span = require("nupp.mem.span")
+local array = require("nupp.mem.array")
+local simd = require("nupp.simd")
+
+@aot
+local function scan(borrows cps: span.Span<uint32>): integer
+    local cursor: uint32 = 0
+    OPEN
+        while cursor + species.lanes <= #cps do
+            local first = (species:load(cps, cursor + 1) <= 0xF):first()
+            if first ~= 0 then
+                cursor = cursor + first - 1
+                break
+            end
+            cursor = cursor + species.lanes
+        end
+    end
+    while cursor < #cps and cps[cursor + 1] > 0xF do
+        cursor = cursor + 1
+    end
+    return cursor + 1
+end
+
+return {scan = scan}
+]]
+    local dir = project("off")
+    local handle = assert(io.open(dir .. "/src/kernel.nupp", "wb"))
+    handle:write((body:gsub("OPEN", function()
+        return "local species: simd.Species<uint32, simd.Preferred> = simd.species()\n    do"
+    end)))
+    handle:close()
+    local out, code = build(dir)
+    test.equal(code, 1, out)
+    assert(out:find("NUPP2903", 1, true), out)
+    assert(
+        out:find("simd.species creates an AOT-only value and cannot run with aot=off", 1, true),
+        out
+    )
+    assert(out:find("ask simd.trySpecies, which answers nil where there are no vectors", 1, true), out)
+
+    handle = assert(io.open(dir .. "/src/kernel.nupp", "wb"))
+    handle:write((body:gsub("OPEN", "if species = simd.trySpecies(array.uint32) then")))
+    handle:close()
+    out, code = build(dir)
+    test.equal(code, 0, "trySpecies is admitted where species is not\n" .. out)
+    assert(not out:find("NUPP2903", 1, true), out)
 end
 
 --- Two `@aot` functions over one struct, which is what used to produce a

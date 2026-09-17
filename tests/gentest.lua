@@ -126,6 +126,7 @@ function M.lineCountInvariant()
         "local t = nil\nlocal v = t?.a\n   ?.b\nreturn v",
         "local n = 7\nn //=\n   2\nreturn n",
         "local m = nil\nm ??=\n   3\nreturn m",
+        "local t = nil\nif v = t\nthen\n   return v\nelseif w =\n   t then\n   return w\nend",
     }
     for _, src in ipairs(cases) do
         local code = generate(src)
@@ -133,6 +134,53 @@ function M.lineCountInvariant()
             "line count changed for:\n" .. src .. "\n---\n" .. code)
     -- (+1: generated output always ends with a final newline)
     end
+end
+
+-- `if NAME = EXPR then` takes its arm on any value but nil, evaluates EXPR
+-- once, binds NAME for that arm only, and leaves an outer NAME to the later
+-- arms: the desugaring holds the value in a temporary and makes NAME a local
+-- of the arm rather than of the chain.
+function M.ifBindingsTakeNonNilValuesOnceAndScopeToTheirArm()
+    local src = table.concat({
+        "local v = 'outer'",
+        "local calls = 0",
+        "local function probe(value)",
+        "   calls = calls + 1",
+        "   return value",
+        "end",
+        "local function classify(value)",
+        "   if v = probe(value) then",
+        "      return 'bound:' .. tostring(v)",
+        "   elseif v == 'outer' then",
+        "      return 'outer seen'",
+        "   else",
+        "      return 'no outer'",
+        "   end",
+        "end",
+        "local function chain(first, second)",
+        "   if a = probe(first) then",
+        "      return 'a' .. tostring(a)",
+        "   elseif b = probe(second) then",
+        "      return 'b' .. tostring(b)",
+        "   end",
+        "   return 'none'",
+        "end",
+        "return classify, chain, function() return calls end",
+    }, "\n")
+    local classify, chain, callsSoFar = run(src)
+    assertEq(classify(1), "bound:1")
+    assertEq(classify(false), "bound:false", "false is a value, not nil")
+    assertEq(classify(nil), "outer seen", "the binding is not the outer name in a later arm")
+    assertEq(callsSoFar(), 3, "the bound expression is evaluated once per test")
+    assertEq(chain(nil, 2), "b2")
+    assertEq(chain(1, 2), "a1")
+    assertEq(callsSoFar(), 6, "a later arm's expression is evaluated only when reached")
+    assertEq(chain(nil, nil), "none")
+    local code = generate(src)
+    assert(code:find("do local __nuppT%d+ = probe %( value %) if __nuppT%d+ ~= nil then local v = __nuppT%d+\n"),
+        "the first arm opens a block around its temporary:\n" .. code)
+    assert(code:find("else local __nuppT%d+ = probe %( second %) if __nuppT%d+ ~= nil then local b = __nuppT%d+\n"),
+        "a later binding arm nests under the else of the one before:\n" .. code)
 end
 
 function M.generatedLinesHaveNoTrailingWhitespace()
