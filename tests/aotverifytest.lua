@@ -386,6 +386,40 @@ function M.aLoopNamesExactlyTheOuterLocalsItsBodyAssigns()
     verify.program(program)
 end
 
+local COUNTED = [[
+local span = require("nupp.mem.span")
+@aot(vectorize = false)
+local function fill(exclusive output: span.WriteSpan<uint64>, delta: uint64): nil
+    local total: uint64 = delta
+    for index = 1, 3 do
+        index = index + 1
+        total = total + delta
+    end
+    for index = 1, #output do
+        output[index] = total
+    end
+end
+return {fill = fill}
+]]
+
+function M.aCountedLoopSaysWhetherItsBodyAssignsTheCounter()
+    -- The counter is bound by the loop, not a `let`, so the binding carries
+    -- the flag; the counter is never among what the loop carries.
+    local program = lowered(COUNTED, "counted.nupp")
+    verify.program(program)
+    local loop = find(program.body, function(statement)
+        return statement.op == "fornum" and statement.binding.assigned == true
+    end)
+    assert(loop ~= nil, "the loop whose body assigns its counter")
+    local carried = {}
+    for position, entry in ipairs(loop.carried) do
+        carried[position] = entry.name
+    end
+    assert(table.concat(carried, ",") == "total", "the counter is not carried")
+    loop.binding.assigned = nil
+    refuses(program, "assignment to a local its binding did not declare assigned")
+end
+
 function M.anAndBoundsItsRightSpanReadByItsLeftAlone()
     -- `cursor < #cps and cps[cursor + 1] > 0xF` reads under the comparison
     -- the left side makes. The right side is the only place that bound holds,

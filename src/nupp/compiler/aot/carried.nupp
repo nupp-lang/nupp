@@ -23,22 +23,19 @@ record carried.State
     --- The loop nesting depth each name was declared at, by C name.
     depth: {[string]: integer}
 
-    --- The `let` that declared each name, when a `let` did: a `multi_let`
-    --- binding or an induction variable has no flag to set.
-    lets: {[string]: scalarIR.Let}
+    --- What declared each name: a `let`, or the `multi_let` or `fornum`
+    --- binding, each of which carries the `assigned` flag to set.
+    declared: {[string]: any}
 
     frames: {carried.Frame}
 end
 
 local walk: function({scalarIR.Statement}, carried.State): nil
 
-local function declare(state: carried.State, cName: string, declared: scalarIR.Let?): nil
+local function declare(state: carried.State, cName: string, declared: any): nil
     state.depth[cName] = #state.frames
-    if declared ~= nil then
-        state.lets[cName] = declared as scalarIR.Let
-    else
-        state.lets[cName] = nil
-    end
+    declared.assigned = nil
+    state.declared[cName] = declared
 end
 
 --- An assignment to a local: the declaring `let` is a variable from here, and
@@ -48,9 +45,9 @@ local function assigned(state: carried.State, target: scalarIR.Target): nil
         return
     end
     local cName = target.cName as string
-    local declared = state.lets[cName]
+    local declared = state.declared[cName]
     if declared ~= nil then
-        (declared as scalarIR.Let).assigned = true
+        declared.assigned = true
     end
     local from = state.depth[cName]
     if from == nil then
@@ -58,7 +55,7 @@ local function assigned(state: carried.State, target: scalarIR.Target): nil
     end
     local type = target.type
     if type == nil and declared ~= nil then
-        type = (declared as scalarIR.Let).type
+        type = declared.type
     end
     for level = (from as integer) + 1, #state.frames do
         local frame = state.frames[level]
@@ -75,7 +72,7 @@ local function loop(state: carried.State, node: any, body: {scalarIR.Statement},
     local frame = new carried.Frame(node = node, order = {}, present = {})
     state.frames[#state.frames + 1] = frame
     if binding ~= nil then
-        declare(state, (binding as scalarIR.Binding).cName, nil)
+        declare(state, (binding as scalarIR.Binding).cName, binding)
     end
     walk(body, state)
     state.frames[#state.frames] = nil
@@ -87,11 +84,10 @@ walk = function(statements: {scalarIR.Statement}, state: carried.State): nil
         local op = statement.op
         if op == "let" then
             local declared = statement as scalarIR.Let
-            declared.assigned = nil
             declare(state, declared.cName, declared)
         elseif op == "multi_let" then
             for _, bound in ipairs((statement as scalarIR.MultiLet).bindings) do
-                declare(state, bound.cName, nil)
+                declare(state, bound.cName, bound)
             end
         elseif op == "assign" then
             for _, entry in ipairs((statement as scalarIR.Assign).values) do
@@ -131,7 +127,7 @@ function carried.body(statements: {scalarIR.Statement}, state: carried.State): n
 end
 
 function carried.state(): carried.State
-    return new carried.State(depth = {}, lets = {}, frames = {})
+    return new carried.State(depth = {}, declared = {}, frames = {})
 end
 
 --- Annotates every body a program has.

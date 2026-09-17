@@ -28,7 +28,7 @@ local scalarIR = {}
 ---
 --- Carried in the IR and checked when it is read back, so an IR written by an
 --- older compiler is refused rather than half-understood.
-const scalarIR.VERSION = 36
+const scalarIR.VERSION = 37
 
 --- The calling convention selected for one complete AOT entry.
 ---
@@ -1001,6 +1001,10 @@ record scalarIR.Binding
     --- Whether what it was bound to may be written through, which is how a
     --- name bound to `getMut(i)` stays writable at its uses.
     mutable: boolean?
+
+    --- Whether an `assign` after the binding targets the name; the same flag
+    --- as `Let.assigned`, for a name a `multi_let` or a `fornum` binds.
+    assigned: boolean?
 
     lengthOf: string?
     builderMode: ('eager' | 'pull' | 'serde')?

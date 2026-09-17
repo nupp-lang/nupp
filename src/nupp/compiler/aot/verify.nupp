@@ -2175,52 +2175,32 @@ local function provesCursorBound(
     end
 end
 
---- The locals a statement list assigns anywhere inside it.
-local function assignedLocals(statements: {scalarIR.Statement}, out: {[string]: boolean}): {[string]: boolean}
-    for _, statement in ipairs(statements) do
-        if statement.op == "assign" then
-            for _, entry in ipairs(statement.values) do
-                if entry.target.kind == "local" and entry.target.name ~= nil then
-                    out[entry.target.name as string] = true
-                end
-            end
-        elseif statement.op == "if" then
-            for _, clause in ipairs(statement.clauses) do
-                assignedLocals(clause.body, out)
-            end
-            assignedLocals(statement.elseBody or {}, out)
-        elseif (statement as any).body ~= nil then
-            assignedLocals((statement as any).body as {scalarIR.Statement}, out)
-        end
-    end
-
-    return out
-end
-
 --- The cursor bounds a block runs under: the enclosing ones, less any a loop
---- body reassigns, plus those `condition` proves.
+--- carries, plus those `condition` proves.
 ---
---- A cursor the loop body assigns is bounded by the enclosing proof on the
---- first iteration only; from the second it holds whatever the body left in
---- it, which nothing checked. So under a loop such a cursor keeps a bound only
---- when the loop's own condition re-proves it every time round. `declared` is
---- what the lowerer claims the condition proves; each claim is held against
---- the condition itself, because cursor metadata narrows the search and does
---- not get to manufacture a bounds fact on its own.
+--- A cursor the loop carries is bounded by the enclosing proof on the first
+--- iteration only; from the second it holds whatever the body left in it,
+--- which nothing checked. So under a loop such a cursor keeps a bound only
+--- when the loop's own condition re-proves it every time round. `carried` is
+--- the loop's own list, already held to its body by `enterLoop` and
+--- `leaveLoop`. `declared` is what the lowerer claims the condition proves;
+--- each claim is held against the condition itself, because cursor metadata
+--- narrows the search and does not get to manufacture a bounds fact on its
+--- own.
 local function proveCursorBounds(
     condition: scalarIR.Expr,
     declared: scalarIR.CursorBounds?,
     values: {[string]: string},
     scope: verify.Scope,
-    body: {scalarIR.Statement}?,
+    carried: {scalarIR.Carried}?,
     why: string
 ): scalarIR.CursorBounds
-    local reassigned = body ~= nil and assignedLocals(body as {scalarIR.Statement}, {}) or {}
     local cursorBounds: scalarIR.CursorBounds = {}
     for name, spans in pairs(scope.cursorBounds) do
-        if reassigned[name] ~= true then
-            cursorBounds[name] = spans
-        end
+        cursorBounds[name] = spans
+    end
+    for _, entry in ipairs(carried or {}) do
+        cursorBounds[entry.name] = nil
     end
     for name, spans in pairs(declared or {}) do
         for spanName, room in pairs(spans) do
@@ -2377,7 +2357,7 @@ local function block(
                     "invalid multiple-result binding"
                 )
                 values[bound.name] = bound.type
-                declareLocal(values, bound.name, nil)
+                declareLocal(values, bound.name, bound.assigned)
             end
         elseif statement.op == "store" then
             local bounded = statement.cursor ~= nil and statement.index == "" and values[
@@ -2874,7 +2854,7 @@ local function block(
             local inner = inherit(values)
             enterLoop(statement.carried, inner)
             inner[statement.binding.name] = "i32"
-            declareLocal(inner, statement.binding.name, nil)
+            declareLocal(inner, statement.binding.name, statement.binding.assigned)
             -- Only this loop's own bound proves an index under it, so the map's
             -- guarded spans do not carry in.
             local nestedScope = derive(scope, {
@@ -2886,7 +2866,7 @@ local function block(
                     nil,
                     values,
                     scope,
-                    statement.body,
+                    statement.carried,
                     "invalid loop cursor bounds proof"
                 ),
             })
@@ -2913,7 +2893,7 @@ local function block(
                     statement.cursorBounds,
                     values,
                     scope,
-                    statement.body,
+                    statement.carried,
                     "invalid loop cursor bounds proof"
                 ),
             })

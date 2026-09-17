@@ -416,7 +416,7 @@ function text.block(statements: {any}, depth: integer, lanes: integer): {string}
         elseif op == "multi_let" then
             local names: {string} = {}
             for position, bound in ipairs(statement.bindings) do
-                names[position] = bound.name .. ":" .. bound.type
+                names[position] = (bound.assigned == true and "var " or "") .. bound.name .. ":" .. bound.type
             end
             lines[#lines + 1] = prefix .. "let " .. table.concat(names, ",") .. " = " .. text.expression(statement.call)
         elseif op == "store" then
@@ -547,7 +547,9 @@ function text.block(statements: {any}, depth: integer, lanes: integer): {string}
                 #lines + 1
             ] = prefix .. (
                 region.simdRequired == true and "@simd " or ""
-            ) .. "for " .. statement.binding.name .. " = " .. text.expression(
+            ) .. "for " .. (
+                statement.binding.assigned == true and "var " or ""
+            ) .. statement.binding.name .. " = " .. text.expression(
                 statement.from
             ) .. " .. " .. text.expression(statement.to) .. carrying(region.carried)
             nested(statement.body)

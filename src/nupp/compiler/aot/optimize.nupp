@@ -520,44 +520,40 @@ local function inheritConstants(values: {[string]: scalarIR.Expr}): {[string]: s
     return copied
 end
 
-local function mutatedLocals(value: any, mutated: {[string]: boolean}): nil
-    if type(value) ~= "table" then
-        return
+--- Constant propagation over one block: the literal `let`s in scope, by C
+--- name, and the C name each source name currently denotes.
+record optimize.Propagation
+    constants: {[string]: scalarIR.Expr}
+    cNames: {[string]: string}
+end
+
+local function inheritPropagation(inherited: optimize.Propagation): optimize.Propagation
+    local cNames: {[string]: string} = {}
+    for name, cName in pairs(inherited.cNames) do
+        cNames[name] = cName
     end
-    if value.op == "assign" then
-        for _, assignment in ipairs(value.values or {}) do
-            if assignment.target.kind == "local" and assignment.target.cName ~= nil then
-                mutated[tostring(assignment.target.cName)] = true
-            end
-        end
-    end
-    -- A proof names the local whose value the dominating comparison checked.
-    -- Replacing that occurrence with a literal would leave valid source code
-    -- attached to an unverifiable (and misleading) proof identity.
-    for name in pairs(value.cursorBounds or {}) do
-        mutated[name] = true
-    end
-    for key, child in pairs(value) do
-        if key ~= "source" then
-            mutatedLocals(child, mutated)
+
+    return new optimize.Propagation(constants = inheritConstants(inherited.constants), cNames = cNames)
+end
+
+--- A proof names the local whose value the dominating comparison checked.
+--- Replacing that occurrence with a literal would leave valid source code
+--- attached to an unverifiable (and misleading) proof identity, so a name a
+--- proof is about stops propagating from the statement carrying the proof.
+local function retainProved(proved: scalarIR.CursorBounds?, propagation: optimize.Propagation): nil
+    for name in pairs(proved or {}) do
+        local cName = propagation.cNames[name]
+        if cName ~= nil then
+            propagation.constants[cName as string] = nil
         end
     end
 end
 
-local propagateBlock: function(
-    {scalarIR.Statement},
-    {[string]: scalarIR.Expr},
-    {[string]: boolean},
-    optimize.State
-): nil
+local propagateBlock: function({scalarIR.Statement}, optimize.Propagation, optimize.State): nil
 
-propagateBlock = function(
-    statements: {scalarIR.Statement},
-    inherited: {[string]: scalarIR.Expr},
-    mutated: {[string]: boolean},
-    state: optimize.State
-): nil
-    local constants = inheritConstants(inherited)
+propagateBlock = function(statements: {scalarIR.Statement}, inherited: optimize.Propagation, state: optimize.State): nil
+    local propagation = inheritPropagation(inherited)
+    local constants = propagation.constants
 
     local function rewrite(child: scalarIR.Expr): scalarIR.Expr
         return rewriteExpression(child, constants, BODY_REWRITE, state)
@@ -566,26 +562,36 @@ propagateBlock = function(
     for _, statement in ipairs(statements) do
         effects.statement(tostring(statement.op))
         local value = statement as any
+        if statement.op == "if" then
+            for _, clause in ipairs(statement.clauses) do
+                retainProved(clause.cursorBounds, propagation)
+            end
+        elseif statement.op == "while" then
+            retainProved(statement.cursorBounds, propagation)
+        end
         visit.statementExpressions(statement, rewrite)
-        if statement.op == "let" and mutated[
-            statement.cName
-        ] ~= true and mutated[statement.name] ~= true and fold.isLiteral(statement.value) then
-            constants[statement.cName] = statement.value
+        if statement.op == "let" then
+            -- A `let` that is never assigned is a value: what it binds is
+            -- what every later read sees.
+            propagation.cNames[statement.name] = statement.cName
+            if statement.assigned ~= true and fold.isLiteral(statement.value) then
+                constants[statement.cName] = statement.value
+            end
         elseif statement.op == "if" then
             -- The statement walk above already rewrote every clause condition
             -- and the native switch selector; only the nested blocks remain.
             for _, clause in ipairs(statement.clauses) do
-                propagateBlock(clause.body, constants, mutated, state)
+                propagateBlock(clause.body, propagation, state)
             end
             if statement.elseBody ~= nil then
-                propagateBlock(statement.elseBody as {scalarIR.Statement}, constants, mutated, state)
+                propagateBlock(statement.elseBody as {scalarIR.Statement}, propagation, state)
             end
         elseif statement.op == "fornum"
             or statement.op == "while"
             or statement.op == "repeat"
             or statement.op == "block"
         then
-            propagateBlock(value.body as {scalarIR.Statement}, constants, mutated, state)
+            propagateBlock(value.body as {scalarIR.Statement}, propagation, state)
         end
     end
 end
@@ -667,6 +673,7 @@ optimizeBlock = function(statements: {scalarIR.Statement}, state: optimize.State
                                 cName = loop.binding.cName,
                                 value = value,
                                 type = loop.binding.type,
+                                assigned = loop.binding.assigned,
                                 source = loop.source
                             ),
                         }
@@ -910,8 +917,6 @@ function optimize.program(program: scalarIR.Program): optimize.Stats
         removedStatements = 0,
         changed = false
     )
-    local mutated: {[string]: boolean} = {}
-    mutatedLocals(program, mutated)
     local iterations = 0
     repeat
         iterations = iterations + 1
@@ -923,7 +928,7 @@ function optimize.program(program: scalarIR.Program): optimize.Stats
         end
         if program.loop ~= nil then
             local loop = program.loop as scalarIR.Loop
-            propagateBlock(loop.statements, {}, mutated, state)
+            propagateBlock(loop.statements, new optimize.Propagation(constants = {}, cNames = {}), state)
             loop.statements = optimizeBlock(loop.statements, state)
             loop.statements = removeDead(loop.statements, state)
         elseif program.workgroup ~= nil then
@@ -944,7 +949,7 @@ function optimize.program(program: scalarIR.Program): optimize.Stats
             -- every controller statement and phase node verbatim.
             optimizePhaseBodies(workgroup.statements, state)
         else
-            propagateBlock(program.body or {}, {}, mutated, state)
+            propagateBlock(program.body or {}, new optimize.Propagation(constants = {}, cNames = {}), state)
             program.body = optimizeBlock(program.body or {}, state)
             program.body = removeDead(program.body or {}, state)
         end

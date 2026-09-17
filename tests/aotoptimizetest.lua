@@ -653,6 +653,41 @@ function M.propagatesAndFoldsInOneIterationThenGoesQuiet()
    assert(stats.iterations == 2, "one changing pass and one quiet pass")
 end
 
+function M.propagationReadsTheLetsOwnFlagAndStopsAtAProof()
+   -- An assigned `let` is a variable and never propagates, whatever the
+   -- optimizer can see of its assignments. A value a cursor proof names keeps
+   -- its name from the proof onward, so the proof's identity stays readable;
+   -- before the proof it folds like any other value.
+   local function use(name)
+      return {op = "u32_add", left = named(name, "u32"), right = integer(1, "u32"), type = "u32"}
+   end
+   local before = {op = "let", name = "early", cName = "early", value = use("cursor"), type = "u32"}
+   local guarded = {op = "let", name = "inside", cName = "inside", value = use("cursor"), type = "u32"}
+   local ir = program({
+      {op = "let", name = "cursor", cName = "cursor", value = integer(0, "u32"), type = "u32"},
+      {op = "let", name = "counter", cName = "counter", value = integer(0, "u32"), type = "u32", assigned = true},
+      before,
+      {
+         op = "if",
+         clauses = {{
+            condition = {op = "lt", left = named("cursor", "u32"), right = named("length", "u32"), type = "bool"},
+            cursorBounds = {cursor = {values = 0}},
+            body = {guarded},
+         }},
+      },
+      {op = "assign", values = {{target = {kind = "local", name = "counter", cName = "counter", type = "u32"}, value = integer(1, "u32")}}},
+      {op = "return", values = {use("counter"), named("early", "u32"), named("inside", "u32")}},
+   })
+   optimize.program(ir)
+   assert(before.value.op == "constant_i32" and before.value.value == "1", "a use before the proof folds")
+   assert(guarded.value.left.op == "local", "a use under the proof keeps the proof's name")
+   assert(ir.body[3].op == "if" and ir.body[3].clauses[1].condition.left.op == "local",
+      "the proof's own comparison keeps the name")
+   local returned = ir.body[#ir.body].values
+   assert(returned[1].left.op == "local", "an assigned let never propagates")
+   assert(returned[2].op == "constant_i32", "the folded value reached its use and its let is dead")
+end
+
 function M.propagationInsertsTheSharedValueNodeItself()
    local value = integer(2, "u32")
    local use = {op = "return", values = {named("x", "u32")}}
