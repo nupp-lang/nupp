@@ -176,6 +176,68 @@ function M.selectsAStaticBranchWithoutLeakingItsScope()
    assert(ir.body[1].body[1].values[1].value == "2")
 end
 
+local function assignTo(name, valueType, value)
+   return {
+      op = "assign",
+      values = {{target = {kind = "local", name = name, cName = name, type = valueType}, value = value}},
+   }
+end
+
+-- A specialised branch can fold away the only read of a variable and leave
+-- its writes behind; the C compiler then refuses the unit under -Werror for
+-- a variable that is set but never used.
+function M.removesALetThatIsOnlyEverAssigned()
+   local function ir(write)
+      return program({
+         {op = "let", name = "iteration", cName = "iteration", type = "i32", value = integer(0, "i32"), assigned = true},
+         {op = "let", name = "count", cName = "count", type = "u32", value = integer(0, "u32"), assigned = true},
+         {op = "let", name = "kept", cName = "kept", type = "u32", value = integer(0, "u32"), assigned = true},
+         {
+            op = "while",
+            condition = {op = "lt", left = named("iteration", "i32"), right = named("limit", "i32"), type = "bool"},
+            body = {
+               {
+                  op = "if",
+                  clauses = {{
+                     condition = named("stop", "bool"),
+                     body = {assignTo("count", "u32", write), assignTo("kept", "u32", integer(2, "u32"))},
+                  }},
+               },
+               assignTo("iteration", "i32", {
+                  op = "i32_add", left = named("iteration", "i32"), right = integer(1, "i32"), type = "i32",
+               }),
+            },
+            carried = {
+               {name = "count", cName = "count", type = "u32"},
+               {name = "iteration", cName = "iteration", type = "i32"},
+               {name = "kept", cName = "kept", type = "u32"},
+            },
+         },
+         {op = "return", values = {named("kept", "u32")}},
+      })
+   end
+
+   local pure = ir(integer(1, "u32"))
+   local stats = optimize.program(pure)
+   assert(stats.removedStatements == 2, "the let and its one assignment")
+   assert(#pure.body == 4 and pure.body[2].name == "kept", "count is gone, kept stays")
+   local loop = pure.body[3]
+   assert(#loop.carried == 2 and loop.carried[1].name == "iteration" and loop.carried[2].name == "kept",
+      "the loop no longer carries a local that no longer exists")
+   local clause = loop.body[1].clauses[1].body
+   assert(#clause == 1 and clause[1].values[1].target.name == "kept", "only the live assignment remains")
+
+   local raising = ir({
+      op = "lua_string_byte",
+      bytes = {op = "local", name = "input", cName = "input_0", type = "lua_string"},
+      index = {op = "constant_i32", value = "0", type = "u32"},
+      type = "u32",
+   })
+   stats = optimize.program(raising)
+   assert(stats.removedStatements == 0, "a write that may raise keeps its variable")
+   assert(#raising.body == 5 and #raising.body[4].carried == 3)
+end
+
 function M.keepsUnusedLuaAllocationsAndMayRaiseReads()
    local ir = program({
       {

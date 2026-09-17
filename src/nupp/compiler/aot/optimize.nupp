@@ -713,27 +713,91 @@ optimizeBlock = function(statements: {scalarIR.Statement}, state: optimize.State
     return deriveBreakResults(rewritten, state)
 end
 
-local function countUses(value: any, uses: {[string]: integer}): nil
+--- Counts every read of each local in a structured value, and collects the
+--- values assigned to it. A write is not a use: a local that is only ever
+--- assigned is dead, and so are its assignments when their values are pure.
+local function countUses(value: any, reads: {[string]: integer}, writes: {[string]: {scalarIR.Expr}}): nil
     if type(value) ~= "table" then
         return
     end
     if value.op == "local" then
         local identity = tostring(value.cName or value.name)
-        uses[identity] = (uses[identity] or 0) + 1
+        reads[identity] = (reads[identity] or 0) + 1
     end
     if value.op == "assign" then
         for _, assignment in ipairs(value.values or {}) do
             if assignment.target.kind == "local" and assignment.target.cName ~= nil then
                 local identity = tostring(assignment.target.cName)
-                uses[identity] = (uses[identity] or 0) + 1
+                local written = writes[identity] or {}
+                written[#written + 1] = assignment.value as scalarIR.Expr
+                writes[identity] = written
             end
         end
     end
     for key, child in pairs(value) do
         if key ~= "source" and key ~= "cName" and key ~= "name" and key ~= "cursorCName" and key ~= "indexCName" then
-            countUses(child, uses)
+            countUses(child, reads, writes)
         end
     end
+end
+
+--- Strips every write to a dead local from a region: the assignment entries
+--- that target it, and the carried entry of each loop that carried it, so the
+--- loop no longer claims a local that no longer exists.
+local removeWrites: function({scalarIR.Statement}, {[string]: boolean}, optimize.State): {scalarIR.Statement}
+
+removeWrites = function(
+    statements: {scalarIR.Statement},
+    dead: {[string]: boolean},
+    state: optimize.State
+): {scalarIR.Statement}
+    local kept: {scalarIR.Statement} = {}
+    for _, statement in ipairs(statements) do
+        local keep = true
+        if statement.op == "assign" then
+            local assign = statement as scalarIR.Assign
+            local remaining: {scalarIR.Assignment} = {}
+            for _, assignment in ipairs(assign.values) do
+                local target = assignment.target
+                if not (target.kind == "local" and target.cName ~= nil and dead[tostring(target.cName)] == true) then
+                    remaining[#remaining + 1] = assignment
+                end
+            end
+            if #remaining ~= #assign.values then
+                state.changed = true
+                assign.values = remaining
+                keep = #remaining > 0
+                if not keep then
+                    state.removedStatements = state.removedStatements + 1
+                end
+            end
+        elseif statement.op == "if" then
+            local branch = statement as scalarIR.If
+            for _, clause in ipairs(branch.clauses) do
+                clause.body = removeWrites(clause.body, dead, state)
+            end
+            if branch.elseBody ~= nil then
+                branch.elseBody = removeWrites(branch.elseBody as {scalarIR.Statement}, dead, state)
+            end
+        elseif statement.op == "while" or statement.op == "repeat" or statement.op == "fornum" then
+            local loop = statement as any
+            local stillCarried: {scalarIR.Carried} = {}
+            for _, entry in ipairs(loop.carried as {scalarIR.Carried}) do
+                if dead[entry.cName] ~= true then
+                    stillCarried[#stillCarried + 1] = entry
+                end
+            end
+            loop.carried = stillCarried
+            loop.body = removeWrites(loop.body as {scalarIR.Statement}, dead, state)
+        elseif statement.op == "block" or statement.op == "phase" then
+            (statement as any).body = removeWrites((statement as any).body as {scalarIR.Statement}, dead, state)
+        end
+        if keep then
+            kept[#kept + 1] = statement
+        end
+    end
+
+    return kept
 end
 
 --- Drops pure unused declarations in one sequential region. `extraUses` holds
@@ -745,14 +809,17 @@ local function removeDead(
     state: optimize.State,
     extraUses: {any}?
 ): {scalarIR.Statement}
-    local uses: {[string]: integer} = {}
-    countUses(statements, uses)
+    local reads: {[string]: integer} = {}
+    local writes: {[string]: {scalarIR.Expr}} = {}
+    countUses(statements, reads, writes)
     if extraUses ~= nil then
         for _, value in ipairs(extraUses as {any}) do
-            countUses(value, uses)
+            countUses(value, reads, writes)
         end
     end
     local kept: {scalarIR.Statement} = {}
+    local dead: {[string]: boolean} = {}
+    local anyDead = false
     for _, statement in ipairs(statements) do
         if statement.op == "if" then
             for _, clause in ipairs(statement.clauses) do
@@ -768,14 +835,32 @@ local function removeDead(
             (statement as any).body = removeDead((statement as any).body as {scalarIR.Statement}, state)
         end
 
-        if statement.op == "let" and uses[
-            statement.cName
-        ] == nil and fold.discardable(statement.value, state.foldContext) then
+        local unread = false
+        local identity = ""
+        if statement.op == "let" then
+            identity = (statement as scalarIR.Let).cName
+            if reads[identity] == nil and fold.discardable(statement.value, state.foldContext) then
+                unread = true
+                for _, written in ipairs(writes[identity] or {}) do
+                    if not fold.discardable(written, state.foldContext) then
+                        unread = false
+                    end
+                end
+            end
+        end
+        if unread then
             state.removedStatements = state.removedStatements + 1
             state.changed = true
+            if writes[identity] ~= nil then
+                dead[identity] = true
+                anyDead = true
+            end
         else
             kept[#kept + 1] = statement
         end
+    end
+    if anyDead then
+        return removeWrites(kept, dead, state)
     end
 
     return kept
