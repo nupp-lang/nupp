@@ -654,13 +654,6 @@ static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_swizzle_##ELEM(ks_exp
 #define KS_EXP_SWIZZLE_4 KS_EXP_SWIZZLE_WIDE
 #define KS_EXP_SWIZZLE_8 KS_EXP_SWIZZLE_WIDE
 
-/* The highest lane index, for reverse. */
-#define KS_LAST_LANE_2 1u
-#define KS_LAST_LANE_4 3u
-#define KS_LAST_LANE_8 7u
-#define KS_LAST_LANE_16 15u
-#define KS_LAST_LANE_32 31u
-
 /* The explicit vector of one element: the vector type, its mask, the
  * scalar oracle of both, and the lane operations the compiler calls by
  * name. ELEM is the full type suffix (f64x4), so it can be pasted
@@ -702,7 +695,7 @@ static inline __attribute__((unused)) CTYPE ks_exp_extract_##ELEM(ks_exp_##ELEM 
 static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_insert_##ELEM(ks_exp_##ELEM value, double lane, CTYPE replacement) { value[(uint32_t)lane - 1u] = replacement; return value; } \
 static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_swizzle_pair_##ELEM(ks_exp_##ELEM first, ks_exp_##ELEM second, ks_exp_##ELEM indices) { ks_exp_##ELEM out; for (uint32_t i = 0u; i < LANES##u; ++i) { uint32_t at = (uint32_t)indices[i] - 1u; out[i] = at < LANES##u ? first[at] : (at - LANES##u) < LANES##u ? second[at - LANES##u] : (CTYPE)0; } return out; } \
 KS_EXP_SWIZZLE_##BYTES(W, ELEM, CTYPE, LANES) \
-static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_reverse_##ELEM(ks_exp_##ELEM value) { ks_exp_##ELEM out; for (uint32_t i = 0u; i < LANES##u; ++i) out[i] = value[KS_LAST_LANE_##LANES - i]; return out; } \
+static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_reverse_##ELEM(ks_exp_##ELEM value) { ks_exp_##ELEM out; for (uint32_t i = 0u; i < LANES##u; ++i) out[i] = value[LANES##u - 1u - i]; return out; } \
 static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_rotate_left_##ELEM(ks_exp_##ELEM value, double count) { ks_exp_##ELEM out; uint32_t n = (uint32_t)count % LANES##u; for (uint32_t i = 0u; i < LANES##u; ++i) out[i] = value[(i + n) % LANES##u]; return out; } \
 static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_rotate_right_##ELEM(ks_exp_##ELEM value, double count) { ks_exp_##ELEM out; uint32_t n = (uint32_t)count % LANES##u; for (uint32_t i = 0u; i < LANES##u; ++i) out[i] = value[(i + LANES##u - n) % LANES##u]; return out; } \
 static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_align_##ELEM(ks_exp_##ELEM previous, ks_exp_##ELEM current, double count) { ks_exp_##ELEM out; uint32_t n = (uint32_t)count; if (n > LANES##u) n = LANES##u; for (uint32_t i = 0u; i < LANES##u; ++i) out[i] = i < n ? previous[LANES##u - n + i] : current[i - n]; return out; } \
@@ -733,7 +726,7 @@ static inline __attribute__((unused)) CTYPE ks_scalar_exp_extract_##ELEM(ks_scal
 static inline __attribute__((unused)) ks_scalar_exp_##ELEM ks_scalar_exp_insert_##ELEM(ks_scalar_exp_##ELEM value, double lane, CTYPE replacement) { value.lane[(uint32_t)lane - 1u] = replacement; return value; } \
 static inline __attribute__((unused)) ks_scalar_exp_##ELEM ks_scalar_exp_swizzle_pair_##ELEM(ks_scalar_exp_##ELEM first, ks_scalar_exp_##ELEM second, ks_scalar_exp_##ELEM indices) { ks_scalar_exp_##ELEM out; for (uint32_t i = 0u; i < LANES##u; ++i) { uint32_t at = (uint32_t)indices.lane[i] - 1u; out.lane[i] = at < LANES##u ? first.lane[at] : (at - LANES##u) < LANES##u ? second.lane[at - LANES##u] : (CTYPE)0; } return out; } \
 static inline __attribute__((unused)) ks_scalar_exp_##ELEM ks_scalar_exp_swizzle_##ELEM(ks_scalar_exp_##ELEM value, ks_scalar_exp_##ELEM indices) { ks_scalar_exp_##ELEM out; for (uint32_t i = 0u; i < LANES##u; ++i) { uint32_t at = (uint32_t)indices.lane[i]; out.lane[i] = (at - 1u) < LANES##u ? value.lane[at - 1u] : (CTYPE)0; } return out; } \
-static inline __attribute__((unused)) ks_scalar_exp_##ELEM ks_scalar_exp_reverse_##ELEM(ks_scalar_exp_##ELEM value) { ks_scalar_exp_##ELEM out; for (uint32_t i = 0u; i < LANES##u; ++i) out.lane[i] = value.lane[KS_LAST_LANE_##LANES - i]; return out; } \
+static inline __attribute__((unused)) ks_scalar_exp_##ELEM ks_scalar_exp_reverse_##ELEM(ks_scalar_exp_##ELEM value) { ks_scalar_exp_##ELEM out; for (uint32_t i = 0u; i < LANES##u; ++i) out.lane[i] = value.lane[LANES##u - 1u - i]; return out; } \
 static inline __attribute__((unused)) ks_scalar_exp_##ELEM ks_scalar_exp_rotate_left_##ELEM(ks_scalar_exp_##ELEM value, double count) { ks_scalar_exp_##ELEM out; uint32_t n = (uint32_t)count % LANES##u; for (uint32_t i = 0u; i < LANES##u; ++i) out.lane[i] = value.lane[(i + n) % LANES##u]; return out; } \
 static inline __attribute__((unused)) ks_scalar_exp_##ELEM ks_scalar_exp_rotate_right_##ELEM(ks_scalar_exp_##ELEM value, double count) { ks_scalar_exp_##ELEM out; uint32_t n = (uint32_t)count % LANES##u; for (uint32_t i = 0u; i < LANES##u; ++i) out.lane[i] = value.lane[(i + LANES##u - n) % LANES##u]; return out; } \
 static inline __attribute__((unused)) ks_scalar_exp_##ELEM ks_scalar_exp_align_##ELEM(ks_scalar_exp_##ELEM previous, ks_scalar_exp_##ELEM current, double count) { ks_scalar_exp_##ELEM out; uint32_t n = (uint32_t)count; if (n > LANES##u) n = LANES##u; for (uint32_t i = 0u; i < LANES##u; ++i) out.lane[i] = i < n ? previous.lane[LANES##u - n + i] : current.lane[i - n]; return out; } \
@@ -758,9 +751,8 @@ static inline __attribute__((unused)) ks_scalar_exp_mask_##ELEM ks_scalar_exp_ma
 static inline __attribute__((unused)) ks_scalar_exp_##ELEM ks_scalar_exp_neg_##ELEM(ks_scalar_exp_##ELEM value) { for (uint32_t i = 0u; i < LANES##u; ++i) value.lane[i] = -value.lane[i]; return value; } \
 static inline __attribute__((unused)) ks_scalar_exp_mask_##ELEM ks_scalar_exp_mask_not_##ELEM(ks_scalar_exp_mask_##ELEM value) { for (uint32_t i = 0u; i < LANES##u; ++i) value.lane[i] = ~value.lane[i]; return value; }
 
-/* What an integer element has that a float does not. */
-#define KS_EXP_INT_ONLY(ELEM, CTYPE, LANES) \
-static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_prefix_xor_##ELEM(ks_exp_##ELEM value) { for (uint32_t i = 1u; i < LANES##u; ++i) value[i] = value[i - 1u] ^ value[i]; return value; } \
+/* What an integer element has that a float does not, over the oracle. */
+#define KS_EXP_INT_SCALAR(ELEM, CTYPE, LANES) \
 static inline __attribute__((unused)) ks_scalar_exp_##ELEM ks_scalar_exp_prefix_xor_##ELEM(ks_scalar_exp_##ELEM value) { for (uint32_t i = 1u; i < LANES##u; ++i) value.lane[i] = value.lane[i - 1u] ^ value.lane[i]; return value; } \
 static inline __attribute__((unused)) ks_scalar_exp_##ELEM ks_scalar_exp_and_##ELEM(ks_scalar_exp_##ELEM left, ks_scalar_exp_##ELEM right) { for (uint32_t i = 0u; i < LANES##u; ++i) left.lane[i] = left.lane[i] & right.lane[i]; return left; } \
 static inline __attribute__((unused)) ks_scalar_exp_##ELEM ks_scalar_exp_or_##ELEM(ks_scalar_exp_##ELEM left, ks_scalar_exp_##ELEM right) { for (uint32_t i = 0u; i < LANES##u; ++i) left.lane[i] = left.lane[i] | right.lane[i]; return left; } \
@@ -768,28 +760,41 @@ static inline __attribute__((unused)) ks_scalar_exp_##ELEM ks_scalar_exp_xor_##E
 static inline __attribute__((unused)) ks_scalar_exp_##ELEM ks_scalar_exp_shl_##ELEM(ks_scalar_exp_##ELEM left, ks_scalar_exp_##ELEM right) { for (uint32_t i = 0u; i < LANES##u; ++i) left.lane[i] = left.lane[i] << right.lane[i]; return left; } \
 static inline __attribute__((unused)) ks_scalar_exp_##ELEM ks_scalar_exp_shr_##ELEM(ks_scalar_exp_##ELEM left, ks_scalar_exp_##ELEM right) { for (uint32_t i = 0u; i < LANES##u; ++i) left.lane[i] = left.lane[i] >> right.lane[i]; return left; } \
 static inline __attribute__((unused)) ks_scalar_exp_##ELEM ks_scalar_exp_not_##ELEM(ks_scalar_exp_##ELEM value) { for (uint32_t i = 0u; i < LANES##u; ++i) value.lane[i] = ~value.lane[i]; return value; }
+#define KS_EXP_FLOAT_SCALAR(ELEM, CTYPE, LANES)
+
+/* The same, over the vector. */
+#define KS_EXP_INT_ONLY(ELEM, CTYPE, LANES) \
+static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_prefix_xor_##ELEM(ks_exp_##ELEM value) { for (uint32_t i = 1u; i < LANES##u; ++i) value[i] = value[i - 1u] ^ value[i]; return value; } \
+KS_EXP_INT_SCALAR(ELEM, CTYPE, LANES)
 #define KS_EXP_FLOAT_ONLY(ELEM, CTYPE, LANES)
 
-/* Horizontal reductions, emitted once over the vector (P = exp, lanes
- * indexed AT = KS_AT_VECTOR) and once over the oracle (P = scalar_exp,
- * AT = KS_AT_LANE). The three summation orders are distinct contracts. */
-#define KS_AT_VECTOR(v, i) v[i]
-#define KS_AT_LANE(v, i) v.lane[i]
-#define KS_EXP_HORIZONTAL(P, ELEM, CTYPE, LANES, AT) \
-static inline __attribute__((unused)) CTYPE ks_##P##_horizontal_ordered_sum_##ELEM(ks_##P##_##ELEM left) { CTYPE out = (CTYPE)0; for (uint32_t i = 0u; i < LANES##u; ++i) out = out + AT(left, i); return out; } \
-static inline __attribute__((unused)) CTYPE ks_##P##_horizontal_pairwise_sum_##ELEM(ks_##P##_##ELEM left) { CTYPE partials[LANES]; for (uint32_t i = 0u; i < LANES##u; ++i) partials[i] = AT(left, i); uint32_t n = LANES##u; while (n > 1u) { uint32_t out = 0u; uint32_t i = 0u; for (; i + 1u < n; i += 2u) partials[out++] = partials[i] + partials[i + 1u]; if (i < n) partials[out++] = partials[i]; n = out; } return partials[0]; } \
-static inline __attribute__((unused)) CTYPE ks_##P##_horizontal_algebraic_sum_##ELEM(ks_##P##_##ELEM left) { CTYPE even = (CTYPE)0, odd = (CTYPE)0; uint32_t i = 0u; for (; i + 1u < LANES##u; i += 2u) { even = even + AT(left, i); odd = odd + AT(left, i + 1u); } if (i < LANES##u) even = even + AT(left, i); return even + odd; } \
-static inline __attribute__((unused)) CTYPE ks_##P##_horizontal_ordered_product_##ELEM(ks_##P##_##ELEM left) { CTYPE out = (CTYPE)1; for (uint32_t i = 0u; i < LANES##u; ++i) out = out * AT(left, i); return out; } \
-static inline __attribute__((unused)) CTYPE ks_##P##_horizontal_pairwise_product_##ELEM(ks_##P##_##ELEM left) { CTYPE partials[LANES]; for (uint32_t i = 0u; i < LANES##u; ++i) partials[i] = AT(left, i); uint32_t n = LANES##u; while (n > 1u) { uint32_t out = 0u; uint32_t i = 0u; for (; i + 1u < n; i += 2u) partials[out++] = partials[i] * partials[i + 1u]; if (i < n) partials[out++] = partials[i]; n = out; } return partials[0]; } \
-static inline __attribute__((unused)) CTYPE ks_##P##_horizontal_algebraic_product_##ELEM(ks_##P##_##ELEM left) { CTYPE even = (CTYPE)1, odd = (CTYPE)1; uint32_t i = 0u; for (; i + 1u < LANES##u; i += 2u) { even = even * AT(left, i); odd = odd * AT(left, i + 1u); } if (i < LANES##u) even = even * AT(left, i); return even * odd; } \
-static inline __attribute__((unused)) CTYPE ks_##P##_horizontal_ordered_dot_##ELEM(ks_##P##_##ELEM left, ks_##P##_##ELEM right) { CTYPE out = (CTYPE)0; for (uint32_t i = 0u; i < LANES##u; ++i) { CTYPE product = AT(left, i) * AT(right, i); out = out + product; } return out; } \
-static inline __attribute__((unused)) CTYPE ks_##P##_horizontal_pairwise_dot_##ELEM(ks_##P##_##ELEM left, ks_##P##_##ELEM right) { CTYPE partials[LANES]; for (uint32_t i = 0u; i < LANES##u; ++i) partials[i] = AT(left, i) * AT(right, i); uint32_t n = LANES##u; while (n > 1u) { uint32_t out = 0u; uint32_t i = 0u; for (; i + 1u < n; i += 2u) partials[out++] = partials[i] + partials[i + 1u]; if (i < n) partials[out++] = partials[i]; n = out; } return partials[0]; }
+/* Horizontal reductions, emitted once over the vector (P = exp) and
+ * once over the oracle (P = scalar_exp). VIA names how a lane is read
+ * and written: VECTOR indexes a native vector, LANE the oracle's array,
+ * and CHUNKED goes through the extract and insert helpers of a fixed
+ * species spread over several native vectors, which is not an lvalue
+ * per lane. The three summation orders are distinct contracts. */
+#define KS_AT_VECTOR(ELEM, v, i) v[i]
+#define KS_AT_LANE(ELEM, v, i) v.lane[i]
+#define KS_AT_CHUNKED(ELEM, v, i) ks_exp_extract_##ELEM(v, (double)((i) + 1u))
+#define KS_SET_VECTOR(ELEM, v, i, x) v[i] = x
+#define KS_SET_LANE(ELEM, v, i, x) v.lane[i] = x
+#define KS_SET_CHUNKED(ELEM, v, i, x) v = ks_exp_insert_##ELEM(v, (double)((i) + 1u), x)
+#define KS_EXP_HORIZONTAL(P, ELEM, CTYPE, LANES, VIA) \
+static inline __attribute__((unused)) CTYPE ks_##P##_horizontal_ordered_sum_##ELEM(ks_##P##_##ELEM left) { CTYPE out = (CTYPE)0; for (uint32_t i = 0u; i < LANES##u; ++i) out = out + KS_AT_##VIA(ELEM, left, i); return out; } \
+static inline __attribute__((unused)) CTYPE ks_##P##_horizontal_pairwise_sum_##ELEM(ks_##P##_##ELEM left) { CTYPE partials[LANES]; for (uint32_t i = 0u; i < LANES##u; ++i) partials[i] = KS_AT_##VIA(ELEM, left, i); uint32_t n = LANES##u; while (n > 1u) { uint32_t out = 0u; uint32_t i = 0u; for (; i + 1u < n; i += 2u) partials[out++] = partials[i] + partials[i + 1u]; if (i < n) partials[out++] = partials[i]; n = out; } return partials[0]; } \
+static inline __attribute__((unused)) CTYPE ks_##P##_horizontal_algebraic_sum_##ELEM(ks_##P##_##ELEM left) { CTYPE even = (CTYPE)0, odd = (CTYPE)0; uint32_t i = 0u; for (; i + 1u < LANES##u; i += 2u) { even = even + KS_AT_##VIA(ELEM, left, i); odd = odd + KS_AT_##VIA(ELEM, left, i + 1u); } if (i < LANES##u) even = even + KS_AT_##VIA(ELEM, left, i); return even + odd; } \
+static inline __attribute__((unused)) CTYPE ks_##P##_horizontal_ordered_product_##ELEM(ks_##P##_##ELEM left) { CTYPE out = (CTYPE)1; for (uint32_t i = 0u; i < LANES##u; ++i) out = out * KS_AT_##VIA(ELEM, left, i); return out; } \
+static inline __attribute__((unused)) CTYPE ks_##P##_horizontal_pairwise_product_##ELEM(ks_##P##_##ELEM left) { CTYPE partials[LANES]; for (uint32_t i = 0u; i < LANES##u; ++i) partials[i] = KS_AT_##VIA(ELEM, left, i); uint32_t n = LANES##u; while (n > 1u) { uint32_t out = 0u; uint32_t i = 0u; for (; i + 1u < n; i += 2u) partials[out++] = partials[i] * partials[i + 1u]; if (i < n) partials[out++] = partials[i]; n = out; } return partials[0]; } \
+static inline __attribute__((unused)) CTYPE ks_##P##_horizontal_algebraic_product_##ELEM(ks_##P##_##ELEM left) { CTYPE even = (CTYPE)1, odd = (CTYPE)1; uint32_t i = 0u; for (; i + 1u < LANES##u; i += 2u) { even = even * KS_AT_##VIA(ELEM, left, i); odd = odd * KS_AT_##VIA(ELEM, left, i + 1u); } if (i < LANES##u) even = even * KS_AT_##VIA(ELEM, left, i); return even * odd; } \
+static inline __attribute__((unused)) CTYPE ks_##P##_horizontal_ordered_dot_##ELEM(ks_##P##_##ELEM left, ks_##P##_##ELEM right) { CTYPE out = (CTYPE)0; for (uint32_t i = 0u; i < LANES##u; ++i) { CTYPE product = KS_AT_##VIA(ELEM, left, i) * KS_AT_##VIA(ELEM, right, i); out = out + product; } return out; } \
+static inline __attribute__((unused)) CTYPE ks_##P##_horizontal_pairwise_dot_##ELEM(ks_##P##_##ELEM left, ks_##P##_##ELEM right) { CTYPE partials[LANES]; for (uint32_t i = 0u; i < LANES##u; ++i) partials[i] = KS_AT_##VIA(ELEM, left, i) * KS_AT_##VIA(ELEM, right, i); uint32_t n = LANES##u; while (n > 1u) { uint32_t out = 0u; uint32_t i = 0u; for (; i + 1u < n; i += 2u) partials[out++] = partials[i] + partials[i + 1u]; if (i < n) partials[out++] = partials[i]; n = out; } return partials[0]; }
 
 /* Lane-wise and horizontal folds over a pair helper that holds the
  * NaN policy, so only the helper and the arg search differ by kind. */
-#define KS_EXP_FOLD(P, ELEM, CTYPE, LANES, AT, contract, which) \
-static inline __attribute__((unused)) ks_##P##_##ELEM ks_##P##_##contract##_##which##_##ELEM(ks_##P##_##ELEM left, ks_##P##_##ELEM right) { ks_##P##_##ELEM out = left; for (uint32_t i = 0u; i < LANES##u; ++i) AT(out, i) = ks_##P##_##contract##_##which##2_##ELEM(AT(left, i), AT(right, i)); return out; } \
-static inline __attribute__((unused)) CTYPE ks_##P##_horizontal_##contract##_##which##_##ELEM(ks_##P##_##ELEM left) { CTYPE out = AT(left, 0u); for (uint32_t i = 1u; i < LANES##u; ++i) out = ks_##P##_##contract##_##which##2_##ELEM(out, AT(left, i)); return out; }
+#define KS_EXP_FOLD(P, ELEM, CTYPE, LANES, VIA, contract, which) \
+static inline __attribute__((unused)) ks_##P##_##ELEM ks_##P##_##contract##_##which##_##ELEM(ks_##P##_##ELEM left, ks_##P##_##ELEM right) { ks_##P##_##ELEM out = left; for (uint32_t i = 0u; i < LANES##u; ++i) KS_SET_##VIA(ELEM, out, i, ks_##P##_##contract##_##which##2_##ELEM(KS_AT_##VIA(ELEM, left, i), KS_AT_##VIA(ELEM, right, i))); return out; } \
+static inline __attribute__((unused)) CTYPE ks_##P##_horizontal_##contract##_##which##_##ELEM(ks_##P##_##ELEM left) { CTYPE out = KS_AT_##VIA(ELEM, left, 0u); for (uint32_t i = 1u; i < LANES##u; ++i) out = ks_##P##_##contract##_##which##2_##ELEM(out, KS_AT_##VIA(ELEM, left, i)); return out; }
 
 /* Floats: the fused dot, a quiet NaN, and min/max that either propagate
  * a NaN or skip it, ordering -0 below +0 either way. */
@@ -797,42 +802,128 @@ static inline __attribute__((unused)) CTYPE ks_##P##_horizontal_##contract##_##w
 #define KS_EXP_FMA_float fmaf
 #define KS_EXP_NAN_double uint64_t b = UINT64_C(0x7ff8000000000000);
 #define KS_EXP_NAN_float uint32_t b = UINT32_C(0x7fc00000);
-#define KS_EXP_EXTREMES_FLOAT(P, ELEM, CTYPE, LANES, AT) \
-static inline __attribute__((unused)) CTYPE ks_##P##_horizontal_algebraic_dot_##ELEM(ks_##P##_##ELEM left, ks_##P##_##ELEM right) { CTYPE even = (CTYPE)0, odd = (CTYPE)0; uint32_t i = 0u; for (; i + 1u < LANES##u; i += 2u) { even = KS_EXP_FMA_##CTYPE(AT(left, i), AT(right, i), even); odd = KS_EXP_FMA_##CTYPE(AT(left, i + 1u), AT(right, i + 1u), odd); } if (i < LANES##u) even = KS_EXP_FMA_##CTYPE(AT(left, i), AT(right, i), even); return even + odd; } \
+#define KS_EXP_EXTREMES_FLOAT(P, ELEM, CTYPE, LANES, VIA) \
+static inline __attribute__((unused)) CTYPE ks_##P##_horizontal_algebraic_dot_##ELEM(ks_##P##_##ELEM left, ks_##P##_##ELEM right) { CTYPE even = (CTYPE)0, odd = (CTYPE)0; uint32_t i = 0u; for (; i + 1u < LANES##u; i += 2u) { even = KS_EXP_FMA_##CTYPE(KS_AT_##VIA(ELEM, left, i), KS_AT_##VIA(ELEM, right, i), even); odd = KS_EXP_FMA_##CTYPE(KS_AT_##VIA(ELEM, left, i + 1u), KS_AT_##VIA(ELEM, right, i + 1u), odd); } if (i < LANES##u) even = KS_EXP_FMA_##CTYPE(KS_AT_##VIA(ELEM, left, i), KS_AT_##VIA(ELEM, right, i), even); return even + odd; } \
 static inline __attribute__((unused)) CTYPE ks_##P##_nan_##ELEM(void) { KS_EXP_NAN_##CTYPE CTYPE out; memcpy(&out, &b, sizeof out); return out; } \
 static inline __attribute__((unused)) CTYPE ks_##P##_propagating_min2_##ELEM(CTYPE left, CTYPE right) { if (left != left || right != right) { return ks_##P##_nan_##ELEM(); } if (left == right) { return left != (CTYPE)0 ? left : (signbit(left) ? left : right); } return left < right ? left : right; } \
-KS_EXP_FOLD(P, ELEM, CTYPE, LANES, AT, propagating, min) \
-static inline __attribute__((unused)) double ks_##P##_horizontal_propagating_arg_min_##ELEM(ks_##P##_##ELEM left) { uint32_t at = 0u; CTYPE best = AT(left, 0u); for (uint32_t i = 1u; i < LANES##u; ++i) { CTYPE value = AT(left, i); if (best == best) { if (value != value) { at = i; best = value; } else if (value < best || (value == best && signbit(value) != signbit(best) && signbit(value))) { at = i; best = value; } } } return (double)(at + 1u); } \
+KS_EXP_FOLD(P, ELEM, CTYPE, LANES, VIA, propagating, min) \
+static inline __attribute__((unused)) double ks_##P##_horizontal_propagating_arg_min_##ELEM(ks_##P##_##ELEM left) { uint32_t at = 0u; CTYPE best = KS_AT_##VIA(ELEM, left, 0u); for (uint32_t i = 1u; i < LANES##u; ++i) { CTYPE value = KS_AT_##VIA(ELEM, left, i); if (best == best) { if (value != value) { at = i; best = value; } else if (value < best || (value == best && signbit(value) != signbit(best) && signbit(value))) { at = i; best = value; } } } return (double)(at + 1u); } \
 static inline __attribute__((unused)) CTYPE ks_##P##_number_min2_##ELEM(CTYPE left, CTYPE right) { if (left != left) { return right != right ? ks_##P##_nan_##ELEM() : right; } if (right != right) { return left; } if (left == right) { return left != (CTYPE)0 ? left : (signbit(left) ? left : right); } return left < right ? left : right; } \
-KS_EXP_FOLD(P, ELEM, CTYPE, LANES, AT, number, min) \
-static inline __attribute__((unused)) double ks_##P##_horizontal_number_arg_min_##ELEM(ks_##P##_##ELEM left) { uint32_t at = 0u; CTYPE best = AT(left, 0u); for (uint32_t i = 1u; i < LANES##u; ++i) { CTYPE value = AT(left, i); if (value == value) { if (best != best) { at = i; best = value; } else if (value < best || (value == best && signbit(value) != signbit(best) && signbit(value))) { at = i; best = value; } } } return (double)(at + 1u); } \
+KS_EXP_FOLD(P, ELEM, CTYPE, LANES, VIA, number, min) \
+static inline __attribute__((unused)) double ks_##P##_horizontal_number_arg_min_##ELEM(ks_##P##_##ELEM left) { uint32_t at = 0u; CTYPE best = KS_AT_##VIA(ELEM, left, 0u); for (uint32_t i = 1u; i < LANES##u; ++i) { CTYPE value = KS_AT_##VIA(ELEM, left, i); if (value == value) { if (best != best) { at = i; best = value; } else if (value < best || (value == best && signbit(value) != signbit(best) && signbit(value))) { at = i; best = value; } } } return (double)(at + 1u); } \
 static inline __attribute__((unused)) CTYPE ks_##P##_propagating_max2_##ELEM(CTYPE left, CTYPE right) { if (left != left || right != right) { return ks_##P##_nan_##ELEM(); } if (left == right) { return left != (CTYPE)0 ? left : (signbit(left) ? right : left); } return left > right ? left : right; } \
-KS_EXP_FOLD(P, ELEM, CTYPE, LANES, AT, propagating, max) \
-static inline __attribute__((unused)) double ks_##P##_horizontal_propagating_arg_max_##ELEM(ks_##P##_##ELEM left) { uint32_t at = 0u; CTYPE best = AT(left, 0u); for (uint32_t i = 1u; i < LANES##u; ++i) { CTYPE value = AT(left, i); if (best == best) { if (value != value) { at = i; best = value; } else if (value > best || (value == best && signbit(value) != signbit(best) && signbit(best))) { at = i; best = value; } } } return (double)(at + 1u); } \
+KS_EXP_FOLD(P, ELEM, CTYPE, LANES, VIA, propagating, max) \
+static inline __attribute__((unused)) double ks_##P##_horizontal_propagating_arg_max_##ELEM(ks_##P##_##ELEM left) { uint32_t at = 0u; CTYPE best = KS_AT_##VIA(ELEM, left, 0u); for (uint32_t i = 1u; i < LANES##u; ++i) { CTYPE value = KS_AT_##VIA(ELEM, left, i); if (best == best) { if (value != value) { at = i; best = value; } else if (value > best || (value == best && signbit(value) != signbit(best) && signbit(best))) { at = i; best = value; } } } return (double)(at + 1u); } \
 static inline __attribute__((unused)) CTYPE ks_##P##_number_max2_##ELEM(CTYPE left, CTYPE right) { if (left != left) { return right != right ? ks_##P##_nan_##ELEM() : right; } if (right != right) { return left; } if (left == right) { return left != (CTYPE)0 ? left : (signbit(left) ? right : left); } return left > right ? left : right; } \
-KS_EXP_FOLD(P, ELEM, CTYPE, LANES, AT, number, max) \
-static inline __attribute__((unused)) double ks_##P##_horizontal_number_arg_max_##ELEM(ks_##P##_##ELEM left) { uint32_t at = 0u; CTYPE best = AT(left, 0u); for (uint32_t i = 1u; i < LANES##u; ++i) { CTYPE value = AT(left, i); if (value == value) { if (best != best) { at = i; best = value; } else if (value > best || (value == best && signbit(value) != signbit(best) && signbit(best))) { at = i; best = value; } } } return (double)(at + 1u); }
+KS_EXP_FOLD(P, ELEM, CTYPE, LANES, VIA, number, max) \
+static inline __attribute__((unused)) double ks_##P##_horizontal_number_arg_max_##ELEM(ks_##P##_##ELEM left) { uint32_t at = 0u; CTYPE best = KS_AT_##VIA(ELEM, left, 0u); for (uint32_t i = 1u; i < LANES##u; ++i) { CTYPE value = KS_AT_##VIA(ELEM, left, i); if (value == value) { if (best != best) { at = i; best = value; } else if (value > best || (value == best && signbit(value) != signbit(best) && signbit(best))) { at = i; best = value; } } } return (double)(at + 1u); }
 
 /* Integers have no NaN, so both contracts are the plain comparison. */
-#define KS_EXP_INT_EXTREME(P, ELEM, CTYPE, LANES, AT, contract, which, op) \
+#define KS_EXP_INT_EXTREME(P, ELEM, CTYPE, LANES, VIA, contract, which, op) \
 static inline __attribute__((unused)) CTYPE ks_##P##_##contract##_##which##2_##ELEM(CTYPE left, CTYPE right) { return left op right ? left : right; } \
-KS_EXP_FOLD(P, ELEM, CTYPE, LANES, AT, contract, which) \
-static inline __attribute__((unused)) double ks_##P##_horizontal_##contract##_arg_##which##_##ELEM(ks_##P##_##ELEM left) { uint32_t at = 0u; CTYPE best = AT(left, 0u); for (uint32_t i = 1u; i < LANES##u; ++i) { CTYPE value = AT(left, i); if (value op best) { at = i; best = value; } } return (double)(at + 1u); }
-#define KS_EXP_EXTREMES_INT(P, ELEM, CTYPE, LANES, AT) \
-KS_EXP_INT_EXTREME(P, ELEM, CTYPE, LANES, AT, propagating, min, <) \
-KS_EXP_INT_EXTREME(P, ELEM, CTYPE, LANES, AT, number, min, <) \
-KS_EXP_INT_EXTREME(P, ELEM, CTYPE, LANES, AT, propagating, max, >) \
-KS_EXP_INT_EXTREME(P, ELEM, CTYPE, LANES, AT, number, max, >)
+KS_EXP_FOLD(P, ELEM, CTYPE, LANES, VIA, contract, which) \
+static inline __attribute__((unused)) double ks_##P##_horizontal_##contract##_arg_##which##_##ELEM(ks_##P##_##ELEM left) { uint32_t at = 0u; CTYPE best = KS_AT_##VIA(ELEM, left, 0u); for (uint32_t i = 1u; i < LANES##u; ++i) { CTYPE value = KS_AT_##VIA(ELEM, left, i); if (value op best) { at = i; best = value; } } return (double)(at + 1u); }
+#define KS_EXP_EXTREMES_INT(P, ELEM, CTYPE, LANES, VIA) \
+KS_EXP_INT_EXTREME(P, ELEM, CTYPE, LANES, VIA, propagating, min, <) \
+KS_EXP_INT_EXTREME(P, ELEM, CTYPE, LANES, VIA, number, min, <) \
+KS_EXP_INT_EXTREME(P, ELEM, CTYPE, LANES, VIA, propagating, max, >) \
+KS_EXP_INT_EXTREME(P, ELEM, CTYPE, LANES, VIA, number, max, >)
 
 /* One element, KIND being FLOAT or INT. */
 #define KS_EXP_ELEMENT(W, ELEM, CTYPE, MASK, LANES, BYTES, KIND) \
 KS_EXP_VECTOR(W, ELEM, CTYPE, MASK, LANES, BYTES) \
 KS_EXP_SCALAR(ELEM, CTYPE, MASK, LANES) \
 KS_EXP_##KIND##_ONLY(ELEM, CTYPE, LANES) \
-KS_EXP_HORIZONTAL(exp, ELEM, CTYPE, LANES, KS_AT_VECTOR) \
-KS_EXP_EXTREMES_##KIND(exp, ELEM, CTYPE, LANES, KS_AT_VECTOR) \
-KS_EXP_HORIZONTAL(scalar_exp, ELEM, CTYPE, LANES, KS_AT_LANE) \
-KS_EXP_EXTREMES_##KIND(scalar_exp, ELEM, CTYPE, LANES, KS_AT_LANE)
+KS_EXP_HORIZONTAL(exp, ELEM, CTYPE, LANES, VECTOR) \
+KS_EXP_EXTREMES_##KIND(exp, ELEM, CTYPE, LANES, VECTOR) \
+KS_EXP_HORIZONTAL(scalar_exp, ELEM, CTYPE, LANES, LANE) \
+KS_EXP_EXTREMES_##KIND(scalar_exp, ELEM, CTYPE, LANES, LANE)
+
+/* ---- Fixed logical species ---------------------------------------- */
+
+/* A fixed species whose lane count is not one native register's: ELEM
+ * is its suffix (f32x3), NATIVE the preferred species of the same
+ * element it is built from (f32x4), NLANES that species' lane count and
+ * CHUNKS how many of them cover LANES. Lane i lives in chunk i / NLANES
+ * at position i % NLANES, so the lanes of a partial last chunk past
+ * LANES are never read: `bits` masks them off, and the whole-vector
+ * loads and stores reach the last chunk under a tail mask. Keeping the
+ * value an aggregate of native vectors is what makes `Fixed<N>`
+ * target-neutral while still executing as vectors when N is smaller,
+ * larger, or not a multiple of the register. The compiler instantiates
+ * this after the width block, once per fixed species the program
+ * mentions, so nothing here reads KS_SIMD_WIDTH. */
+#define KS_EXP_FIXED_VECTOR(ELEM, CTYPE, MASK, LANES, NATIVE, NLANES, CHUNKS) \
+typedef struct { ks_exp_##NATIVE chunk[CHUNKS]; } ks_exp_##ELEM; \
+typedef struct { ks_exp_mask_##NATIVE chunk[CHUNKS]; } ks_exp_mask_##ELEM; \
+typedef struct { CTYPE lane[LANES]; } ks_scalar_exp_##ELEM; \
+typedef struct { MASK lane[LANES]; } ks_scalar_exp_mask_##ELEM; \
+static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_splat_##ELEM(CTYPE value) { ks_exp_##ELEM out; for (uint32_t c = 0u; c < CHUNKS##u; ++c) out.chunk[c] = ks_exp_splat_##NATIVE(value); return out; } \
+static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_iota_##ELEM(CTYPE first, CTYPE step) { ks_exp_##ELEM out; for (uint32_t c = 0u; c < CHUNKS##u; ++c) out.chunk[c] = ks_exp_iota_##NATIVE(first + (CTYPE)(c * NLANES##u) * step, step); return out; } \
+static inline __attribute__((unused)) ks_exp_mask_##ELEM ks_exp_tail_##ELEM(uint32_t active) { ks_exp_mask_##ELEM out; if (active > LANES##u) active = LANES##u; for (uint32_t c = 0u; c < CHUNKS##u; ++c) { uint32_t base = c * NLANES##u; uint32_t remaining = active > base ? active - base : 0u; out.chunk[c] = ks_exp_tail_##NATIVE(remaining); } return out; } \
+static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_load_##ELEM(const CTYPE *source, size_t count, size_t first, ks_exp_mask_##ELEM active) { ks_exp_##ELEM out; for (uint32_t c = 0u; c < CHUNKS##u; ++c) out.chunk[c] = ks_exp_load_##NATIVE(source, count, first >= count ? SIZE_MAX : first + (size_t)(c * NLANES##u), active.chunk[c]); return out; } \
+static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_load_full_##ELEM(const CTYPE *source, size_t count, size_t first) { ks_exp_##ELEM out; for (uint32_t c = 0u; (c + 1u) * NLANES##u <= LANES##u; ++c) out.chunk[c] = ks_exp_load_full_##NATIVE(source, count, first >= count ? SIZE_MAX : first + (size_t)(c * NLANES##u)); if (LANES##u % NLANES##u != 0u) out.chunk[CHUNKS##u - 1u] = ks_exp_load_##NATIVE(source, count, first >= count ? SIZE_MAX : first + (size_t)(LANES##u / NLANES##u * NLANES##u), ks_exp_tail_##NATIVE(LANES##u % NLANES##u)); return out; } \
+static inline __attribute__((unused)) void ks_exp_store_##ELEM(CTYPE *destination, size_t count, size_t first, ks_exp_##ELEM value, ks_exp_mask_##ELEM active) { for (uint32_t c = 0u; c < CHUNKS##u; ++c) ks_exp_store_##NATIVE(destination, count, first >= count ? SIZE_MAX : first + (size_t)(c * NLANES##u), value.chunk[c], active.chunk[c]); } \
+static inline __attribute__((unused)) void ks_exp_store_full_##ELEM(CTYPE *destination, size_t count, size_t first, ks_exp_##ELEM value) { for (uint32_t c = 0u; (c + 1u) * NLANES##u <= LANES##u; ++c) ks_exp_store_full_##NATIVE(destination, count, first >= count ? SIZE_MAX : first + (size_t)(c * NLANES##u), value.chunk[c]); if (LANES##u % NLANES##u != 0u) ks_exp_store_##NATIVE(destination, count, first >= count ? SIZE_MAX : first + (size_t)(LANES##u / NLANES##u * NLANES##u), value.chunk[CHUNKS##u - 1u], ks_exp_tail_##NATIVE(LANES##u % NLANES##u)); } \
+static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_select_##ELEM(ks_exp_mask_##ELEM active, ks_exp_##ELEM yes, ks_exp_##ELEM no) { for (uint32_t c = 0u; c < CHUNKS##u; ++c) yes.chunk[c] = ks_exp_select_##NATIVE(active.chunk[c], yes.chunk[c], no.chunk[c]); return yes; } \
+static inline __attribute__((unused)) uint64_t ks_exp_bits_##ELEM(ks_exp_mask_##ELEM value) { uint64_t out = 0u; for (uint32_t c = 0u; c < CHUNKS##u; ++c) out |= ks_exp_bits_##NATIVE(value.chunk[c]) << (c * NLANES##u); out &= UINT64_MAX >> (64u - LANES##u); return out; } \
+static inline __attribute__((unused)) bool ks_exp_any_##ELEM(ks_exp_mask_##ELEM value) { \
+    return ks_exp_bits_##ELEM(value) != UINT64_C(0); \
+} \
+static inline __attribute__((unused)) uint32_t ks_exp_first_##ELEM(ks_exp_mask_##ELEM value) { \
+    return ks_exp_any_##ELEM(value) ? (uint32_t)__builtin_ctzll(ks_exp_bits_##ELEM(value)) + 1u : 0u; \
+} \
+static inline __attribute__((unused)) CTYPE ks_exp_extract_##ELEM(ks_exp_##ELEM value, double lane) { uint32_t index = (uint32_t)lane - 1u; return value.chunk[index / NLANES##u][index % NLANES##u]; } \
+static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_insert_##ELEM(ks_exp_##ELEM value, double lane, CTYPE replacement) { uint32_t index = (uint32_t)lane - 1u; value.chunk[index / NLANES##u][index % NLANES##u] = replacement; return value; } \
+static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_swizzle_pair_##ELEM(ks_exp_##ELEM first, ks_exp_##ELEM second, ks_exp_##ELEM indices) { ks_exp_##ELEM out = ks_exp_splat_##ELEM((CTYPE)0); for (uint32_t i = 0u; i < LANES##u; ++i) { uint32_t at = (uint32_t)ks_exp_extract_##ELEM(indices, (double)(i + 1u)) - 1u; CTYPE picked = (CTYPE)0; bool found = false; if (at < LANES##u) { picked = ks_exp_extract_##ELEM(first, (double)(at + 1u)); found = true; } else if ((at - LANES##u) < LANES##u) { picked = ks_exp_extract_##ELEM(second, (double)(at - LANES##u + 1u)); found = true; } if (found) { out = ks_exp_insert_##ELEM(out, (double)(i + 1u), picked); } } return out; } \
+static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_swizzle_##ELEM(ks_exp_##ELEM value, ks_exp_##ELEM indices) { ks_exp_##ELEM out = ks_exp_splat_##ELEM((CTYPE)0); for (uint32_t i = 0u; i < LANES##u; ++i) { uint32_t at = (uint32_t)ks_exp_extract_##ELEM(indices, (double)(i + 1u)); if ((at - 1u) < LANES##u) out = ks_exp_insert_##ELEM(out, (double)(i + 1u), ks_exp_extract_##ELEM(value, (double)at)); } return out; } \
+static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_reverse_##ELEM(ks_exp_##ELEM value) { ks_exp_##ELEM out = ks_exp_splat_##ELEM((CTYPE)0); for (uint32_t i = 0u; i < LANES##u; ++i) out = ks_exp_insert_##ELEM(out, (double)(i + 1u), ks_exp_extract_##ELEM(value, (double)(LANES##u - 1u - i + 1u))); return out; } \
+static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_rotate_left_##ELEM(ks_exp_##ELEM value, double count) { ks_exp_##ELEM out = ks_exp_splat_##ELEM((CTYPE)0); uint32_t n = (uint32_t)count % LANES##u; for (uint32_t i = 0u; i < LANES##u; ++i) out = ks_exp_insert_##ELEM(out, (double)(i + 1u), ks_exp_extract_##ELEM(value, (double)((i + n) % LANES##u + 1u))); return out; } \
+static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_rotate_right_##ELEM(ks_exp_##ELEM value, double count) { ks_exp_##ELEM out = ks_exp_splat_##ELEM((CTYPE)0); uint32_t n = (uint32_t)count % LANES##u; for (uint32_t i = 0u; i < LANES##u; ++i) out = ks_exp_insert_##ELEM(out, (double)(i + 1u), ks_exp_extract_##ELEM(value, (double)((i + LANES##u - n) % LANES##u + 1u))); return out; } \
+static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_align_##ELEM(ks_exp_##ELEM previous, ks_exp_##ELEM current, double count) { ks_exp_##ELEM out = ks_exp_splat_##ELEM((CTYPE)0); uint32_t n = (uint32_t)count; if (n > LANES##u) n = LANES##u; for (uint32_t i = 0u; i < LANES##u; ++i) out = ks_exp_insert_##ELEM(out, (double)(i + 1u), i < n ? ks_exp_extract_##ELEM(previous, (double)(LANES##u - n + i + 1u)) : ks_exp_extract_##ELEM(current, (double)(i - n + 1u))); return out; } \
+static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_compress_##ELEM(ks_exp_##ELEM value, ks_exp_mask_##ELEM selected) { ks_exp_##ELEM out = ks_exp_splat_##ELEM((CTYPE)0); uint64_t bits = ks_exp_bits_##ELEM(selected); uint32_t cursor = 0u; for (uint32_t i = 0u; i < LANES##u; ++i) if ((bits & (UINT64_C(1) << i)) != 0u) out = ks_exp_insert_##ELEM(out, (double)(cursor++ + 1u), ks_exp_extract_##ELEM(value, (double)(i + 1u))); return out; } \
+static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_expand_##ELEM(ks_exp_##ELEM value, ks_exp_mask_##ELEM selected) { ks_exp_##ELEM out = ks_exp_splat_##ELEM((CTYPE)0); uint64_t bits = ks_exp_bits_##ELEM(selected); uint32_t cursor = 0u; for (uint32_t i = 0u; i < LANES##u; ++i) if ((bits & (UINT64_C(1) << i)) != 0u) out = ks_exp_insert_##ELEM(out, (double)(i + 1u), ks_exp_extract_##ELEM(value, (double)(cursor++ + 1u))); return out; } \
+static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_prefix_sum_ordered_##ELEM(ks_exp_##ELEM value) { for (uint32_t i = 1u; i < LANES##u; ++i) value = ks_exp_insert_##ELEM(value, (double)(i + 1u), ks_exp_extract_##ELEM(value, (double)i) + ks_exp_extract_##ELEM(value, (double)(i + 1u))); return value; } \
+static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_add_##ELEM(ks_exp_##ELEM left, ks_exp_##ELEM right) { for (uint32_t c = 0u; c < CHUNKS##u; ++c) left.chunk[c] = left.chunk[c] + right.chunk[c]; return left; } \
+static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_sub_##ELEM(ks_exp_##ELEM left, ks_exp_##ELEM right) { for (uint32_t c = 0u; c < CHUNKS##u; ++c) left.chunk[c] = left.chunk[c] - right.chunk[c]; return left; } \
+static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_mul_##ELEM(ks_exp_##ELEM left, ks_exp_##ELEM right) { for (uint32_t c = 0u; c < CHUNKS##u; ++c) left.chunk[c] = left.chunk[c] * right.chunk[c]; return left; } \
+static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_div_##ELEM(ks_exp_##ELEM left, ks_exp_##ELEM right) { for (uint32_t c = 0u; c < CHUNKS##u; ++c) left.chunk[c] = left.chunk[c] / right.chunk[c]; return left; } \
+static inline __attribute__((unused)) ks_exp_mask_##ELEM ks_exp_lt_##ELEM(ks_exp_##ELEM left, ks_exp_##ELEM right) { ks_exp_mask_##ELEM out; for (uint32_t c = 0u; c < CHUNKS##u; ++c) out.chunk[c] = left.chunk[c] < right.chunk[c]; return out; } \
+static inline __attribute__((unused)) ks_exp_mask_##ELEM ks_exp_le_##ELEM(ks_exp_##ELEM left, ks_exp_##ELEM right) { ks_exp_mask_##ELEM out; for (uint32_t c = 0u; c < CHUNKS##u; ++c) out.chunk[c] = left.chunk[c] <= right.chunk[c]; return out; } \
+static inline __attribute__((unused)) ks_exp_mask_##ELEM ks_exp_gt_##ELEM(ks_exp_##ELEM left, ks_exp_##ELEM right) { ks_exp_mask_##ELEM out; for (uint32_t c = 0u; c < CHUNKS##u; ++c) out.chunk[c] = left.chunk[c] > right.chunk[c]; return out; } \
+static inline __attribute__((unused)) ks_exp_mask_##ELEM ks_exp_ge_##ELEM(ks_exp_##ELEM left, ks_exp_##ELEM right) { ks_exp_mask_##ELEM out; for (uint32_t c = 0u; c < CHUNKS##u; ++c) out.chunk[c] = left.chunk[c] >= right.chunk[c]; return out; } \
+static inline __attribute__((unused)) ks_exp_mask_##ELEM ks_exp_eq_##ELEM(ks_exp_##ELEM left, ks_exp_##ELEM right) { ks_exp_mask_##ELEM out; for (uint32_t c = 0u; c < CHUNKS##u; ++c) out.chunk[c] = left.chunk[c] == right.chunk[c]; return out; } \
+static inline __attribute__((unused)) ks_exp_mask_##ELEM ks_exp_ne_##ELEM(ks_exp_##ELEM left, ks_exp_##ELEM right) { ks_exp_mask_##ELEM out; for (uint32_t c = 0u; c < CHUNKS##u; ++c) out.chunk[c] = left.chunk[c] != right.chunk[c]; return out; } \
+static inline __attribute__((unused)) ks_exp_mask_##ELEM ks_exp_mask_and_##ELEM(ks_exp_mask_##ELEM left, ks_exp_mask_##ELEM right) { for (uint32_t c = 0u; c < CHUNKS##u; ++c) left.chunk[c] = left.chunk[c] & right.chunk[c]; return left; } \
+static inline __attribute__((unused)) ks_exp_mask_##ELEM ks_exp_mask_or_##ELEM(ks_exp_mask_##ELEM left, ks_exp_mask_##ELEM right) { for (uint32_t c = 0u; c < CHUNKS##u; ++c) left.chunk[c] = left.chunk[c] | right.chunk[c]; return left; } \
+static inline __attribute__((unused)) ks_exp_mask_##ELEM ks_exp_mask_xor_##ELEM(ks_exp_mask_##ELEM left, ks_exp_mask_##ELEM right) { for (uint32_t c = 0u; c < CHUNKS##u; ++c) left.chunk[c] = left.chunk[c] ^ right.chunk[c]; return left; } \
+static inline __attribute__((unused)) ks_exp_mask_##ELEM ks_exp_mask_eq_##ELEM(ks_exp_mask_##ELEM left, ks_exp_mask_##ELEM right) { for (uint32_t c = 0u; c < CHUNKS##u; ++c) left.chunk[c] = left.chunk[c] == right.chunk[c]; return left; } \
+static inline __attribute__((unused)) ks_exp_mask_##ELEM ks_exp_mask_ne_##ELEM(ks_exp_mask_##ELEM left, ks_exp_mask_##ELEM right) { for (uint32_t c = 0u; c < CHUNKS##u; ++c) left.chunk[c] = left.chunk[c] != right.chunk[c]; return left; } \
+static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_neg_##ELEM(ks_exp_##ELEM value) { for (uint32_t c = 0u; c < CHUNKS##u; ++c) value.chunk[c] = -value.chunk[c]; return value; } \
+static inline __attribute__((unused)) ks_exp_mask_##ELEM ks_exp_mask_not_##ELEM(ks_exp_mask_##ELEM value) { for (uint32_t c = 0u; c < CHUNKS##u; ++c) value.chunk[c] = ~value.chunk[c]; return value; }
+
+/* What an integer fixed species has that a float one does not. */
+#define KS_EXP_FIXED_INT(ELEM, CTYPE, LANES, CHUNKS) \
+static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_prefix_xor_##ELEM(ks_exp_##ELEM value) { for (uint32_t i = 1u; i < LANES##u; ++i) value = ks_exp_insert_##ELEM(value, (double)(i + 1u), ks_exp_extract_##ELEM(value, (double)i) ^ ks_exp_extract_##ELEM(value, (double)(i + 1u))); return value; } \
+static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_and_##ELEM(ks_exp_##ELEM left, ks_exp_##ELEM right) { for (uint32_t c = 0u; c < CHUNKS##u; ++c) left.chunk[c] = left.chunk[c] & right.chunk[c]; return left; } \
+static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_or_##ELEM(ks_exp_##ELEM left, ks_exp_##ELEM right) { for (uint32_t c = 0u; c < CHUNKS##u; ++c) left.chunk[c] = left.chunk[c] | right.chunk[c]; return left; } \
+static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_xor_##ELEM(ks_exp_##ELEM left, ks_exp_##ELEM right) { for (uint32_t c = 0u; c < CHUNKS##u; ++c) left.chunk[c] = left.chunk[c] ^ right.chunk[c]; return left; } \
+static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_shl_##ELEM(ks_exp_##ELEM left, ks_exp_##ELEM right) { for (uint32_t c = 0u; c < CHUNKS##u; ++c) left.chunk[c] = left.chunk[c] << right.chunk[c]; return left; } \
+static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_shr_##ELEM(ks_exp_##ELEM left, ks_exp_##ELEM right) { for (uint32_t c = 0u; c < CHUNKS##u; ++c) left.chunk[c] = left.chunk[c] >> right.chunk[c]; return left; } \
+static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_not_##ELEM(ks_exp_##ELEM value) { for (uint32_t c = 0u; c < CHUNKS##u; ++c) value.chunk[c] = ~value.chunk[c]; return value; }
+#define KS_EXP_FIXED_FLOAT(ELEM, CTYPE, LANES, CHUNKS)
+
+/* One fixed species, KIND being FLOAT or INT: the composite vector, the
+ * oracle it shares with a native species, and both sets of horizontals. */
+#define KS_EXP_FIXED(ELEM, CTYPE, MASK, LANES, NATIVE, NLANES, CHUNKS, KIND) \
+KS_EXP_FIXED_VECTOR(ELEM, CTYPE, MASK, LANES, NATIVE, NLANES, CHUNKS) \
+KS_EXP_FIXED_##KIND(ELEM, CTYPE, LANES, CHUNKS) \
+KS_EXP_SCALAR(ELEM, CTYPE, MASK, LANES) \
+KS_EXP_##KIND##_SCALAR(ELEM, CTYPE, LANES) \
+KS_EXP_HORIZONTAL(exp, ELEM, CTYPE, LANES, CHUNKED) \
+KS_EXP_EXTREMES_##KIND(exp, ELEM, CTYPE, LANES, CHUNKED) \
+KS_EXP_HORIZONTAL(scalar_exp, ELEM, CTYPE, LANES, LANE) \
+KS_EXP_EXTREMES_##KIND(scalar_exp, ELEM, CTYPE, LANES, LANE)
 
 #endif /* KS_SIMD_H */
 

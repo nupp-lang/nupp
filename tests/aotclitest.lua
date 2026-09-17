@@ -2900,15 +2900,28 @@ return {extrema = extrema, counted = counted, ignoringMissing = ignoringMissing}
         decoded.c:find("ks_scalar_exp_horizontal_number_arg_max_f32x8", 1, true),
         where .. ": the scalar executable reference is emitted"
     )
+    -- The extremum bodies are authored C in ks_simd.h, instantiated for a
+    -- fixed species by one line the compiler emits after the width block.
+    local header = assert(io.open(HERE .. "/../src/nupp/compiler/aot/include/ks_simd.h", "rb")):read("*a")
     assert(
-        decoded.c:find("ks_exp_propagating_min2_f32x8", 1, true) and decoded.c:find("ks_exp_nan_f32x8", 1, true),
-        where .. ": the propagating contract answers a canonical NaN"
+        decoded.c:find("KS_EXP_FIXED(f32x8, float, int32_t, 8, f32x4, 4, 2, FLOAT)", 1, true),
+        where .. ": the f32x8 helpers are instantiated\n" .. decoded.c
     )
     assert(
-        decoded.c:find("ks_exp_number_min2_f32x8", 1, true) and decoded.c:find("ks_exp_number_min_f32x8", 1, true),
-        where .. ": the number-preferring contract is a separate body"
+        header:find("KS_EXP_EXTREMES_##KIND(exp, ELEM, CTYPE, LANES, CHUNKED)", 1, true),
+        "a fixed species takes its extrema from the shared bodies"
     )
-    assert(decoded.c:find("signbit", 1, true), where .. ": both contracts order the two zeros by sign")
+    assert(
+        header:find("ks_##P##_propagating_min2_##ELEM(CTYPE left, CTYPE right) { if (left != left || right != right) { return ks_##P##_nan_##ELEM(); }", 1, true),
+        "the propagating contract answers a canonical NaN"
+    )
+    assert(
+        header:find("ks_##P##_number_min2_##ELEM(CTYPE left, CTYPE right) { if (left != left) { return right != right ? ks_##P##_nan_##ELEM() : right; }", 1, true)
+            and header:find("KS_EXP_FOLD(P, ELEM, CTYPE, LANES, VIA, number, min)", 1, true)
+            and decoded.c:find("ks_exp_number_min_f32x8(", 1, true),
+        "the number-preferring contract is a separate body"
+    )
+    assert(header:find("signbit", 1, true), "both contracts order the two zeros by sign")
     assert(
         decoded.ir:find(
             "simd_horizontal.propagating_min",
@@ -2917,7 +2930,15 @@ return {extrema = extrema, counted = counted, ignoringMissing = ignoringMissing}
         ) and decoded.c:find("ks_exp_propagating_min_i32x", 1, true),
         where .. ": an extremum is defined at an integer element a sum is refused at\n" .. decoded.c
     )
-    assert(not decoded.c:find("ks_exp_nan_i32x", 1, true), where .. ": an integer extremum carries no NaN case")
+    assert(
+        decoded.c:find("KS_EXP_FIXED(i32x8, int32_t, int32_t, 8, i32x4, 4, 2, INT)", 1, true),
+        where .. ": the i32x8 helpers are instantiated\n" .. decoded.c
+    )
+    assert(
+        header:find("ks_##P##_##contract##_##which##2_##ELEM(CTYPE left, CTYPE right) { return left op right ? left : right; }", 1, true)
+            and not decoded.c:find("ks_exp_nan_i32x", 1, true),
+        where .. ": an integer extremum carries no NaN case"
+    )
 end
 
 function M.horizontalSumsStillRefuseANonFloatingElement()
@@ -2988,7 +3009,15 @@ function M.fixedExplicitSimdSplitsIntoNativeRegistersWithoutChangingItsIdentity(
     local dir = project{["vectors.nupp"] = source}
     local c, cCode = run(dir, "--target aarch64-apple-darwin --features neon --emit c vectors.nupp")
     test.equal(cCode, 0, c)
-    assert(c:find("ks_exp_f32x4 chunk[2]", 1, true), "Fixed<8> is two native NEON registers: " .. c)
+    assert(
+        c:find("KS_EXP_FIXED(f32x8, float, int32_t, 8, f32x4, 4, 2, FLOAT)", 1, true),
+        "Fixed<8> is two native NEON registers: " .. c
+    )
+    local header = assert(io.open(HERE .. "/../src/nupp/compiler/aot/include/ks_simd.h", "rb")):read("*a")
+    assert(
+        header:find("typedef struct { ks_exp_##NATIVE chunk[CHUNKS]; } ks_exp_##ELEM;", 1, true),
+        "a fixed species is an aggregate of native vectors"
+    )
 
     local asm, asmCode = run(dir, "--target aarch64-apple-darwin --features neon --emit asm vectors.nupp")
     test.equal(asmCode, 0, asm)
