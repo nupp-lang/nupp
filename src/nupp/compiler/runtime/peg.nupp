@@ -499,33 +499,50 @@ end
 --- @return the matcher
 --- @export
 export function fromPattern(pattern: any): any
-    local function pack(...: any): any
-        return {n = select("#", ...), ...,}
-    end
-
+    -- One capture is held as a value and several as a pack, because the one-result
+    -- shapes -- a recognizer, or a grammar folding everything into a single value --
+    -- are the common ones, and holding them in a table cost an allocation and an
+    -- `unpack` per match that kept LuaJIT from compiling the caller's loop.
+    local resultValue: any = nil
     local resultValues: any = nil
     local execution = (pattern as lpeg.Pattern<any>) * lpeg.Cp()
 
-    local function run(subject: string, position: integer): integer?
-        local values = pack(lpeg.match(execution, subject, position))
-        local nextPosition = values[values.n]
-        if nextPosition == nil then
-            return nil
+    local function keep(...: any): integer?
+        local count = select("#", ...)
+        if count <= 1 then
+            -- A recognizer captures nothing, so the position it stopped at is the
+            -- result.
+            local nextPosition = ...
+            resultValue, resultValues = nextPosition, nil
+
+            return nextPosition as integer?
+        elseif count == 2 then
+            local value, nextPosition = ...
+            resultValue, resultValues = value, nil
+
+            return nextPosition as integer
         end
-        values[values.n] = nil
-        values.n = values.n - 1
-        -- A recognizer captures nothing, so the position it stopped at is the result.
-        if values.n == 0 then
-            values.n = 1
-            values[1] = nextPosition
-        end
-        resultValues = values
+        local values: any = {...}
+        local nextPosition = values[count]
+        values[count] = nil
+        values.n = count - 1
+        resultValue, resultValues = nil, values
 
         return nextPosition as integer
     end
 
+    local function run(subject: string, position: integer): integer?
+        return keep(lpeg.match(execution, subject, position))
+    end
+
     local function take(): any
         local values = resultValues
+        if values == nil then
+            local value = resultValue
+            resultValue = nil
+
+            return value
+        end
         resultValues = nil
 
         return unpack(values, 1, values.n)
