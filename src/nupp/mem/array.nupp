@@ -29,6 +29,20 @@ record array.Scalar<T>
     private readonly physical: any
 end
 
+--- A witness for an element the checker admits only in storage positions.
+---
+--- The element is named through a span type rather than written as the
+--- witness's own argument: a span element is one of the places a narrow
+--- width is meaningful, and the compiler this library is first built with
+--- knows no other.
+local function narrow<T>(kind: string, _shape: span.Span<T>): array.Scalar<T>
+    return new array.Scalar(physical = storage.scalar(kind)) as array.Scalar<T>
+end
+
+const array.uint8 = narrow("uint8", (nil as any) as span.Span<uint8>)
+const array.int8 = narrow("int8", (nil as any) as span.Span<int8>)
+const array.uint16 = narrow("uint16", (nil as any) as span.Span<uint16>)
+const array.int16 = narrow("int16", (nil as any) as span.Span<int16>)
 const array.uint32 = new array.Scalar(physical = storage.scalar("uint32")) as array.Scalar<uint32>
 const array.int32 = new array.Scalar(physical = storage.scalar("int32")) as array.Scalar<int32>
 const array.uint64 = new array.Scalar(physical = storage.scalar("uint64")) as array.Scalar<uint64>

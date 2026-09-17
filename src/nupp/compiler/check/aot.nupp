@@ -350,14 +350,7 @@ function aot.install(c: state.Checker): aot.Ops
                             "NUPP2903",
                             callee or current,
                             "simd.preferredU8 creates an AOT-only value and cannot run with aot=off; "
-                            .. "select aot=emit-c or aot=require"
-                        )
-                    elseif exact.identity == "nupp.simd.species" then
-                        c.diag(
-                            "NUPP2903",
-                            callee or current,
-                            "simd.species creates an AOT-only value and cannot run with aot=off; "
-                            .. "select aot=emit-c or aot=require, or ask simd.trySpecies, "
+                            .. "select aot=emit-c or aot=require, or ask simd.species, "
                             .. "which answers nil where there are no vectors"
                         )
                     end

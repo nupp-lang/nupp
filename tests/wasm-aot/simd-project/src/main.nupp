@@ -53,8 +53,8 @@ assert(rows[3].value == 10 and rows[3].bias == 32 and rows[3].weight == 9)
 
 @aot
 local function rearrange(exclusive output: span.WriteSpan<uint32>, borrows input: span.Span<uint32>): nil
-    local bits: simd.Species<uint32, simd.Fixed<3>> = simd.species()
-    local floats: simd.Species<float, simd.Fixed<3>> = simd.species()
+    local bits = assert(simd.species(array.uint32, 3))
+    local floats = assert(simd.species(array.float, 3))
     local a, b = floats:reinterpret(bits:load(input, 1)):interleave(floats:reinterpret(bits:load(input, 4)))
     local first, second = a:deinterleave(b)
     local x, y, z = simd.transpose(first, second, floats:reinterpret(bits:load(input, 7)))

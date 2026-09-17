@@ -1254,37 +1254,19 @@ sealed interface simd.Species<T, S>
     ): nil
 end
 
---- Selects the species the result annotation names.
----
---- One constructor rather than one per shape: the shape is already written in
---- the type this is assigned to, and `Preferred` and `Fixed<N>` are the two
---- ways of writing it. `T` and `S` are both inferred from that annotation, so
---- there are no explicit type arguments at the call.
----
---- ```nupp
---- local wide: simd.Species<float, simd.Preferred> = simd.species()
---- local four: simd.Species<float, simd.Fixed<4>> = simd.species()
---- ```
----
---- `Preferred` takes the target's own lane count, so a program written against
---- it runs a different number of lanes per tier and says nothing about which.
---- `Fixed<N>` names a lane count the algorithm needs without naming an
---- instruction set, and may occupy several native registers to get it.
---- @raises outside an AOT-compiled function
---- @export
-function simd.species<T, S>(): simd.Species<T, S>
-    error("simd.species is available only inside an AOT-compiled function", 2)
-end
-
---- The preferred species for one element where the running code has vectors,
---- and nil where it does not.
+--- The species for one element where the running code has vectors, and nil
+--- where it does not.
 ---
 --- The element is named by its storage witness -- `array.uint32` is an
---- `array.Scalar<uint32>` -- so `T` is inferred from an ordinary argument and
---- the result is an optional the caller tests before using:
+--- `array.Scalar<uint32>` -- so `T` is inferred from an ordinary argument. One
+--- argument asks for `Preferred`, the target's own lane count; a second, a
+--- literal lane count, asks for `Fixed<N>`, which names the count the
+--- algorithm needs without naming an instruction set and may occupy several
+--- native registers to get it. Either way the result is an optional. Code
+--- that has a scalar continuation tests it:
 ---
 --- ```nupp
---- if species = simd.trySpecies(array.uint32) then
+--- if species = simd.species(array.uint32) then
 ---     while cursor + species.lanes <= #cps do
 ---         ...
 ---     end
@@ -1294,19 +1276,31 @@ end
 --- end
 --- ```
 ---
+--- and code that has none asserts it, which is the same word it uses for every
+--- other requirement:
+---
+--- ```nupp
+--- local wide = assert(simd.species(array.float))
+--- local four = assert(simd.species(array.float, 4))
+--- ```
+---
 --- The answer is decided when the enclosing `@aot` function is lowered, once
 --- per artifact tier: a species on every native tier and on Wasm `simd128`,
---- nil on the scalar Wasm tier. A body running as ordinary Lua -- under
---- `aot = "off"`, in the retained body beside an emitted artifact, or in a
---- function that is not `@aot` at all -- takes this library body, which
---- answers nil, so the scalar continuation runs and no vector operation
---- executes. The argument must be one of the standard witnesses or an alias
---- of one; the checker refuses any other expression, since the Lua path would
---- evaluate it and the compiled path would not.
+--- nil on the scalar Wasm tier, where an `assert` of it is refused at compile
+--- time rather than left to fail at run time. A body running as ordinary Lua
+--- -- under `aot = "off"`, in the retained body beside an emitted artifact, or
+--- in a function that is not `@aot` at all -- takes this library body, which
+--- answers nil, so a tested species takes its scalar continuation and an
+--- asserted one raises. The argument must be one of the standard witnesses or
+--- an alias of one; the checker refuses any other expression, since the Lua
+--- path would evaluate it and the compiled path would not.
 --- @export
-function simd.trySpecies<T>(element: StorageWitness<T>): simd.Species<T, simd.Preferred>?
+simd.species = (function(_element: any, _lanes: any): nil
     return nil
-end
+end) as(
+    function<T>(element: StorageWitness<T>): simd.Species<T, simd.Preferred>?
+    & function<T, const N: integer>(element: StorageWitness<T>, lanes: N): simd.Species<T, simd.Fixed<N>>?
+)
 
 local comptime function Transposed(Rows: typepack, Vector: type, Fixed: type): typepack
     const rows = nupp.types.elements(Rows)

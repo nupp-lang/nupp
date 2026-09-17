@@ -1419,10 +1419,10 @@ ENTRIES[
     .. "vararg, `goto`, dynamic call, or unsafe operation, so a body containing one "
     .. "cannot compile ahead of time and says so here rather than failing in a "
     .. "backend. Rewrite the body without it, or remove `@aot` and let the function "
-    .. "run as ordinary Nupp. The same code reports explicit SIMD -- `simd.species` "
-    .. "and the u8 lane width -- in a body the manifest holds to `aot = \"off\"`, "
-    .. "since without a native build there is nothing to run it; `simd.trySpecies` "
-    .. "answers nil there and is admitted.",
+    .. "run as ordinary Nupp. The same code reports the u8 lane width, "
+    .. "`simd.preferredU8`, in a body the manifest holds to `aot = \"off\"`, since "
+    .. "without a native build there is nothing to run it; `simd.species` answers "
+    .. "nil there and is admitted.",
     wrong = "@aot\nlocal function total(scale: number): number\n"
     .. "    local function double(x: number): number\n        return x * 2.0\n    end\n\n"
     .. "    return double(scale)\nend\n",

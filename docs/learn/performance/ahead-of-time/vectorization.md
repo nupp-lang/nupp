@@ -414,6 +414,49 @@ arg reducers do not invent an index for a seed.
 
 ## Explicit SIMD
 
+### Selecting a species
+
+`simd.species(witness)` is the target's preferred species for one element,
+named by its storage witness, and `simd.species(witness, N)` is the
+target-neutral `Fixed<N>` shape. Both answer an optional: a species on every
+tier that has vector registers, `nil` where there are none. Code with a
+scalar continuation tests it, and the compiler decides the test per artifact
+tier, so a tier with vectors compiles the vector arm and one without drops it
+without compiling it:
+
+```nupp
+local array = nupp.mem.array
+local simd = nupp.simd
+
+@aot
+local function firstSmall(borrows cps: span.Span<uint32>): integer
+    local cursor: uint32 = 0
+    if species = simd.species(array.uint32) then
+        while cursor + species.lanes <= #cps do
+            local first = (species:load(cps, cursor + 1) <= 0xF):first()
+            if first ~= 0 then
+                cursor = cursor + first - 1
+                break
+            end
+            cursor = cursor + species.lanes
+        end
+    end
+    while cursor < #cps and cps[cursor + 1] > 0xF do
+        cursor = cursor + 1
+    end
+    return cursor + 1
+end
+```
+
+Code with no scalar continuation asserts it, the same way it states every
+other requirement. The assertion is refused at compile time on a tier that has
+no vectors, and it raises in a body that runs as ordinary Lua, where
+`simd.species` answers `nil`:
+
+```nupp
+local eight = assert(simd.species(array.float, 8))
+```
+
 ### Interleave, deinterleave, and transpose
 
 `interleave` alternates the lanes of two vectors and returns both halves.
@@ -511,7 +554,8 @@ loads are span-checked, inactive tail lanes are zero, and `bits()` maps the
 first logical lane to bit zero. The values and masks cannot leave the kernel:
 they have no boxed Lua representation, so calling `preferredU8` under
 `aot = "off"` is a named checking error, while importing the module without
-constructing a species stays ordinary Lua.
+constructing a species stays ordinary Lua. `simd.species` answers `nil` there
+instead, since it is written to be tested.
 
 `simd.tableU8x16` embeds one immutable 16-byte lookup table in the generated
 code, and `lookup16` reads every lane through it, producing zero for indexes

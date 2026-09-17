@@ -137,11 +137,12 @@ function M.simdConversionRechecksWidthsAndLaneCounts()
     local program = lowered(
         [[
 local span = require("nupp.mem.span")
+local array = require("nupp.mem.array")
 local simd = require("nupp.simd")
 @aot
 local function cast(exclusive out: span.WriteSpan<int32>, borrows input: span.Span<number>): nil
-    local source: simd.Species<number, simd.Fixed<3>> = simd.species()
-    local target: simd.Species<int32, simd.Fixed<3>> = simd.species()
+    local source = assert(simd.species(array.number, 3))
+    local target = assert(simd.species(array.int32, 3))
     target:store(out, 1, target:convert(source:load(input, 1)))
 end
 return {cast = cast}
@@ -171,11 +172,12 @@ function M.scatterRechecksUniquenessAndAddressing()
     local program = lowered(
         [[
 local span = require("nupp.mem.span")
+local array = require("nupp.mem.array")
 local simd = require("nupp.simd")
 @aot
 local function write(exclusive out: span.WriteSpan<float>): nil
-    local data: simd.Species<float, simd.Fixed<8>> = simd.species()
-    local offsets: simd.Species<uint32, simd.Fixed<8>> = simd.species()
+    local data = assert(simd.species(array.float, 8))
+    local offsets = assert(simd.species(array.uint32, 8))
     data:scatter(out, offsets:iota(1, 2), data:splat(1))
 end
 return {write = write}
@@ -500,10 +502,11 @@ end
 
 function M.rearrangementsRecheckOperandShapesAndOutputSelection()
     local source = [[
+local array = require("nupp.mem.array")
 local simd = require("nupp.simd")
 @aot
 local function rearrange(): number
-    local s: simd.Species<float, simd.Fixed<2>> = simd.species()
+    local s = assert(simd.species(array.float, 2))
     local a, b = s:splat(1.0):interleave(s:splat(2.0))
     local c, d = a:deinterleave(b)
     local e, f = simd.transpose(c, d)

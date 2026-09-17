@@ -41,7 +41,7 @@ record lower.Context
     checked: boolean
 
     --- Whether the selected tier has vector registers. This is the one fact
-    --- `simd.trySpecies` answers from: a species where there are vectors, nil
+    --- `simd.species` answers from: a species where there are vectors, nil
     --- where there are none, decided here so the branch that tested it is
     --- pruned rather than compiled.
     vectors: boolean = true
@@ -1290,11 +1290,22 @@ const VECTOR_EXTREMA = {
     numberMax = "number_max",
 }
 
---- The standard scalar witnesses `simd.trySpecies` accepts, by their field
+--- The standard scalar witnesses `simd.species` accepts, by their field
 --- name in `nupp.mem.array`.
 const SPECIES_WITNESSES: {
     [string]: boolean
-} = {uint32 = true, int32 = true, uint64 = true, int64 = true, float = true, number = true,}
+} = {
+    uint8 = true,
+    int8 = true,
+    uint16 = true,
+    int16 = true,
+    uint32 = true,
+    int32 = true,
+    uint64 = true,
+    int64 = true,
+    float = true,
+    number = true,
+}
 
 --- What a call names, once module aliases and intrinsic aliases are followed.
 local function calledIdentity(node: cst.Call, kernel: lower.Kernel): string?
@@ -1313,45 +1324,50 @@ local function calledIdentity(node: cst.Call, kernel: lower.Kernel): string?
     return identity
 end
 
---- Checks a `simd.trySpecies(witness)` call's shape and where it sits.
-local function admitTrySpecies(node: cst.Call, kernel: lower.Kernel): nil
+--- Checks a `simd.species(witness[, lanes])` call's shape and where it sits.
+local function admitSpecies(node: cst.Call, kernel: lower.Kernel): nil
     local context = kernel.context
     local site = lower.site(node)
     local arguments = node.args ~= nil and (node.args as cst.Args).exprs or {}
-    local witness = #arguments == 1 and lower.dottedName(arguments[1]) or nil
+    local witness = #arguments >= 1 and lower.dottedName(arguments[1]) or nil
     local root: string? = nil
     local field: string? = nil
     if witness ~= nil then
         root, field = (witness as string):match("^([^.]+)%.([^.]+)$")
     end
     if root == nil or kernel.modules[root as string] ~= "nupp.mem.array" or not SPECIES_WITNESSES[field as string] then
-        context.reject(
-            site,
-            "simd.trySpecies takes one of the scalar witnesses in nupp.mem.array, such as array.uint32"
-        )
+        context.reject(site, "simd.species takes one of the scalar witnesses in nupp.mem.array, such as array.uint32")
+    end
+    if #arguments > 2 or #arguments == 2 and arguments[2].kind ~= "number" then
+        context.reject(site, "simd.species takes a witness and, for a fixed shape, one literal lane count")
     end
     if kernel.workgroupSize ~= nil or kernel.phasesName ~= nil then
-        context.reject(site, "simd.trySpecies has no answer inside a GPU kernel; it is for @aot CPU functions")
+        context.reject(site, "simd.species has no answer inside a GPU kernel; it is for @aot CPU functions")
     end
 end
 
---- `simd.trySpecies(witness)`: the preferred species for the witness's element
+--- `simd.species(witness[, lanes])`: the species for the witness's element
 --- where the tier has vectors, and nil where it does not.
 ---
 --- The answer is decided here, per tier, rather than at run time: a tier with
---- vectors gets the same species constructor `simd.species()` lowers to, and
---- one without gets nothing at all -- the local it initializes is bound as
---- absent by `localStmt`, and the `~= nil` test that guards the vector path
---- folds to false so the path is pruned rather than compiled. The Lua path is
---- the library's own answer and never reaches here.
-local function trySpecies(node: cst.Call, kernel: lower.Kernel): scalarIR.Expr
+--- vectors gets the species constructor, and one without gets nothing at all
+--- -- the local it initializes is bound as absent by `localStmt`, and the
+--- `~= nil` test that guards the vector path folds to false so the path is
+--- pruned rather than compiled. An `assert` of it is the one place the
+--- expression form is admitted on a tier without vectors, and there it is
+--- refused: the assert would fail on every call. The Lua path is the
+--- library's own answer and never reaches here.
+local function species(node: cst.Call, kernel: lower.Kernel, asserted: boolean): scalarIR.Expr
     local context = kernel.context
     local site = lower.site(node)
-    admitTrySpecies(node, kernel)
+    admitSpecies(node, kernel)
     if not context.vectors then
         context.reject(
             site,
-            "simd.trySpecies answers nil on this tier, so it must initialize a local that is tested against nil"
+            asserted
+            and "this tier has no vectors, so simd.species is nil here and the assert would always fail; "
+            .. "test it against nil and keep the vector path inside that branch"
+            or "simd.species answers nil on this tier, so it must initialize a local that is tested against nil"
         )
     end
     local inferred = semanticRaw((node as any).inferredType)
@@ -1366,21 +1382,42 @@ local function trySpecies(node: cst.Call, kernel: lower.Kernel): scalarIR.Expr
         resolved = semanticValueType(inferred)
     end
     if resolved == nil or not tostring(resolved):match("^simd_species_") then
-        context.reject(site, "simd.trySpecies needs the checker to resolve its species from the witness")
+        context.reject(site, "simd.species needs the checker to resolve its species from the witness")
     end
     kernel.usesSimd = true
 
     return new scalarIR.Simd(
         op = "simd_species",
         args = {},
+        -- The resolved type already carries the shape --
+        -- `simd_species_f32_preferred` beside `simd_species_f32_fixed8` -- and
+        -- every consumer reads it from there, so there is nothing for a second
+        -- spelling to record.
         intrinsic = "species",
         type = resolved as scalarIR.Type,
         source = site
     )
 end
 
+--- The `simd.species(...)` call an `assert(...)` requires, or nothing.
+local function assertedSpecies(node: cst.Call, kernel: lower.Kernel): cst.Call?
+    if (node as any).aotGuardBuiltin ~= "assert" then
+        return nil
+    end
+    local arguments = node.args ~= nil and (node.args as cst.Args).exprs or {}
+    local first = arguments[1]
+    if first == nil or first.kind ~= "call" or calledIdentity(first as cst.Call, kernel) ~= "nupp.simd.species" then
+        return nil
+    end
+    if #arguments > 2 or #arguments == 2 and arguments[2].kind ~= "string" then
+        kernel.context.reject(lower.site(node), "assert(simd.species(...)) takes at most a literal message")
+    end
+
+    return first as cst.Call
+end
+
 --- Whether a comparison against nil is answered statically: a species from
---- `simd.trySpecies` is never nil where the tier has vectors, and always nil
+--- `simd.species` is never nil where the tier has vectors, and always nil
 --- where it does not. Nothing else in the subset compares with nil.
 local function speciesNilTest(written: string, lhs: cst.Node, rhs: cst.Node, environment: {[string]: any}): boolean?
     if written ~= "==" and written ~= "~=" then
@@ -1856,10 +1893,14 @@ local function call(
     local context = kernel.context
     local path = lower.dottedName(node.obj)
     local identity = calledIdentity(node, kernel)
-    if identity == "nupp.simd.trySpecies" then
+    if identity == "nupp.simd.species" then
         -- Answered before the arguments lower: the witness is a library value,
         -- not something native code can hold.
-        return trySpecies(node, kernel)
+        return species(node, kernel, false)
+    end
+    local required = assertedSpecies(node, kernel)
+    if required ~= nil then
+        return species(required as cst.Call, kernel, true)
     end
 
     local args: {scalarIR.Expr} = {}
@@ -2017,27 +2058,6 @@ local function call(
         )
     elseif identity == "nupp.simd.transpose" then
         return lower.rearrange("transpose", args, lower.site(node), kernel)
-    elseif identity == "nupp.simd.species" then
-        if #args ~= 0 then
-            context.reject(lower.site(node), "a generic SIMD species constructor takes no arguments")
-        end
-        local inferred = (node as any).inferredType
-        local resolved = semanticValueType(inferred)
-        if resolved == nil or not resolved:match("^simd_species_") then
-            context.reject(lower.site(node), "a SIMD species constructor needs an explicit expected result type")
-        end
-        kernel.usesSimd = true
-        return new scalarIR.Simd(
-            op = "simd_species",
-            args = {},
-            -- The resolved type already carries the shape --
-            -- `simd_species_f32_preferred` beside `simd_species_f32_fixed8` -- and
-            -- every consumer reads it from there, so there is nothing for a second
-            -- spelling to record.
-            intrinsic = "species",
-            type = resolved as scalarIR.Type,
-            source = lower.site(node)
-        )
     elseif identity == "nupp.simd.preferredU8" then
         if #args ~= 0 then
             context.reject(lower.site(node), "simd.preferredU8 takes no arguments")
@@ -4890,10 +4910,10 @@ local function localStmt(
     ].kind == "call" and not context.vectors and calledIdentity(
         exprs[1] as cst.Call,
         kernel
-    ) == "nupp.simd.trySpecies" then
-        -- `simd.trySpecies` on a tier without vectors: the name is bound to
+    ) == "nupp.simd.species" then
+        -- `simd.species` on a tier without vectors: the name is bound to
         -- nothing, and the branch that tests it against nil prunes.
-        admitTrySpecies(exprs[1] as cst.Call, kernel)
+        admitSpecies(exprs[1] as cst.Call, kernel)
         if #names ~= 1 then
             context.reject(lower.site(stat), "native local initializer count must match names")
         end
@@ -5766,13 +5786,13 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
             for _, arm in ipairs(branch.clauses or {}) do
                 local bindingToken = arm.binding
                 if not decided and bindingToken ~= nil then
-                    -- `if NAME = simd.trySpecies(...) then` is decided per tier:
+                    -- `if NAME = simd.species(...) then` is decided per tier:
                     -- a tier with vectors takes the arm with NAME bound to the
                     -- species, and one without drops the arm without lowering
                     -- it. Nothing else lowers to a nil-tested native value.
                     local bound = arm.cond as cst.Node
-                    if bound.kind ~= "call" or calledIdentity(bound as cst.Call, kernel) ~= "nupp.simd.trySpecies" then
-                        context.reject(lower.site(bound), "a native if binding takes simd.trySpecies only")
+                    if bound.kind ~= "call" or calledIdentity(bound as cst.Call, kernel) ~= "nupp.simd.species" then
+                        context.reject(lower.site(bound), "a native if binding takes simd.species only")
                     end
                     if context.vectors then
                         local value = lower.expression(bound, environment, kernel.index, kernel)
@@ -5810,7 +5830,7 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
                         )
                         decided = true
                     else
-                        admitTrySpecies(bound as cst.Call, kernel)
+                        admitSpecies(bound as cst.Call, kernel)
                     end
                 elseif not decided then
                     local condition = lower.expression(arm.cond as cst.Node, environment, kernel.index, kernel)

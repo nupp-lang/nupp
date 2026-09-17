@@ -252,7 +252,7 @@ local function missingRequiredLanes(program: scalarIR.Program): boolean
     return false
 end
 
---- Whether a target has vector registers, which is what `simd.trySpecies`
+--- Whether a target has vector registers, which is what `simd.species`
 --- answers. No target means the standalone harness, which has always assumed
 --- them.
 function compile.vectors(selected: targets.Target?): boolean
@@ -264,7 +264,7 @@ end
 --- @param source the text, used when `parsed` is not supplied
 --- @param filename what diagnostics name
 --- @param parsed an already-parsed tree, which is how the checker hands one over
---- @param selected the target, which decides whether `simd.trySpecies` answers
+--- @param selected the target, which decides whether `simd.species` answers
 ---   with a species or with nil; absent, vectors are assumed
 --- @return the IR, the reasons it was refused, and where each program was
 ---   written

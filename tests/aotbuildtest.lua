@@ -3184,7 +3184,11 @@ function M.numericSimdConversionsMatchLuaJitAndIndependentScalarResults()
     local dir = project("require")
     local cases, modules = {}, {}
     for _, from in ipairs(types) do
-        local source = {'local span = require("nupp.mem.span")', 'local simd = require("nupp.simd")'}
+        local source = {
+            'local span = require("nupp.mem.span")',
+            'local array = require("nupp.mem.array")',
+            'local simd = require("nupp.simd")',
+        }
         local exports = {}
         for _, lanes in ipairs({3, 128 / from.bits}) do
             for _, to in ipairs(types) do
@@ -3196,8 +3200,8 @@ function M.numericSimdConversionsMatchLuaJitAndIndependentScalarResults()
                         [[
 @aot
 local function %s(exclusive out: span.WriteSpan<%s>, borrows input: span.Span<%s>): nil
-    local source: simd.Species<%s, simd.Fixed<%d>> = simd.species()
-    local target: simd.Species<%s, simd.Fixed<%d>> = simd.species()
+    local source = assert(simd.species(array.%s, %d))
+    local target = assert(simd.species(array.%s, %d))
     target:store(out, 1, target:%s(source:load(input, 1)))
 end
 ]]
@@ -3326,11 +3330,12 @@ function M.indexedSimdMemoryMatchesAnIndependentScalarReference()
     handle:write(
         [[
 local span = require("nupp.mem.span")
+local array = require("nupp.mem.array")
 local simd = require("nupp.simd")
 @aot
 local function indexed(exclusive out: span.WriteSpan<float>, borrows input: span.Span<float>, borrows map: span.Span<int64>): nil
-    local data: simd.Species<float, simd.Fixed<8>> = simd.species()
-    local offsets: simd.Species<int64, simd.Fixed<8>> = simd.species()
+    local data = assert(simd.species(array.float, 8))
+    local offsets = assert(simd.species(array.int64, 8))
     local active = data:tail(#map)
     local indices = offsets:load(map, 1)
     local values = data:gather(input, indices, active)
@@ -3338,8 +3343,8 @@ local function indexed(exclusive out: span.WriteSpan<float>, borrows input: span
 end
 @aot
 local function gather(exclusive out: span.WriteSpan<float>, borrows input: span.Span<float>, borrows map: span.Span<int64>): nil
-    local data: simd.Species<float, simd.Fixed<8>> = simd.species()
-    local offsets: simd.Species<int64, simd.Fixed<8>> = simd.species()
+    local data = assert(simd.species(array.float, 8))
+    local offsets = assert(simd.species(array.int64, 8))
     local indices = offsets:load(map, 1)
     data:store(out, 1, data:gather(input, indices, data:tail(#map)))
 end
@@ -3409,10 +3414,10 @@ function M.explicitSimdNamesWhyAotOffCannotRunIt()
     assert(out:find("cannot run with aot=off", 1, true), out)
 end
 
-function M.speciesIsRefusedUnderAotOffWhereTrySpeciesIsNil()
-    -- `simd.species()` is a promise of vectors, which `aot = "off"` cannot
-    -- keep; `simd.trySpecies(witness)` asks instead, answers nil there, and
-    -- the function around it is the scalar path it wrote for that answer.
+function M.speciesIsNilUnderAotOffSoATestTakesTheScalarPathAndAnAssertRaises()
+    -- `aot = "off"` runs the body as Lua, where `simd.species` answers nil:
+    -- a body that tests it takes the scalar continuation it wrote for that
+    -- answer, and one that asserts it raises there, with the message it gave.
     local body = [[
 local span = require("nupp.mem.span")
 local array = require("nupp.mem.array")
@@ -3439,27 +3444,51 @@ end
 
 return {scan = scan}
 ]]
-    local dir = project("off")
-    local handle = assert(io.open(dir .. "/src/kernel.nupp", "wb"))
-    handle:write((body:gsub("OPEN", function()
-        return "local species: simd.Species<uint32, simd.Preferred> = simd.species()\n    do"
-    end)))
-    handle:close()
-    local out, code = build(dir)
-    test.equal(code, 1, out)
-    assert(out:find("NUPP2903", 1, true), out)
-    assert(
-        out:find("simd.species creates an AOT-only value and cannot run with aot=off", 1, true),
-        out
-    )
-    assert(out:find("ask simd.trySpecies, which answers nil where there are no vectors", 1, true), out)
+    local driver = [[
+local array = require("nupp.mem.array")
+local kernel = require("kernel")
 
-    handle = assert(io.open(dir .. "/src/kernel.nupp", "wb"))
-    handle:write((body:gsub("OPEN", "if species = simd.trySpecies(array.uint32) then")))
-    handle:close()
-    out, code = build(dir)
-    test.equal(code, 0, "trySpecies is admitted where species is not\n" .. out)
-    assert(not out:find("NUPP2903", 1, true), out)
+local m = {}
+
+function m.answer(): (boolean, any)
+    local values = array.scalar(array.uint32, 40)
+    do
+        local writable = values:write()
+        for index = 1, 40 do
+            writable[index] = 100
+        end
+        writable[37] = 3
+        drop writable
+    end
+    return pcall(kernel.scan, values:read())
+end
+
+return m
+]]
+    local script = 'print(require("plain").answer())'
+    local function answer(open)
+        local dir = project("off")
+        local handle = assert(io.open(dir .. "/src/kernel.nupp", "wb"))
+        handle:write((body:gsub("OPEN", function()
+            return open
+        end)))
+        handle:close()
+        handle = assert(io.open(dir .. "/src/plain.nupp", "wb"))
+        handle:write(driver)
+        handle:close()
+        local out, code = build(dir)
+        test.equal(code, 0, out)
+        assert(not out:find("NUPP2903", 1, true), out)
+        local pipe = assert(io.popen(("cd %q && luajit -e %q 2>&1"):format(dir, searchPathPrelude() .. script)))
+        local text = pipe:read("*a")
+        pipe:close()
+
+        return (text:gsub("%s+$", ""))
+    end
+
+    test.equal(answer("if species = simd.species(array.uint32) then"), "true\t37")
+    local raised = answer('local species = assert(simd.species(array.uint32), "this scan needs vectors")\n    do')
+    assert(raised:find("^false\t") and raised:find("this scan needs vectors", 1, true), raised)
 end
 
 --- Two `@aot` functions over one struct, which is what used to produce a
@@ -4035,7 +4064,11 @@ function M.rearrangementsPreserveEveryLaneBitInNativeAndScalarCode()
         {"int64", "int64_t"},
         {"uint64", "uint64_t"},
     }) do
-        local source = {'local span = require("nupp.mem.span")', 'local simd = require("nupp.simd")'}
+        local source = {
+            'local span = require("nupp.mem.span")',
+            'local array = require("nupp.mem.array")',
+            'local simd = require("nupp.simd")',
+        }
         local exports = {}
         for _, n in ipairs({2, 3, 4, 8, 17, 64}) do
             for _, op in ipairs(
@@ -4059,7 +4092,7 @@ function M.rearrangementsPreserveEveryLaneBitInNativeAndScalarCode()
                     [[
 @aot
 local function %s(exclusive output: span.WriteSpan<%s>, borrows input: span.Span<%s>): nil
-    local s: simd.Species<%s, simd.Fixed<%d>> = simd.species()
+    local s = assert(simd.species(array.%s, %d))
     local %s = %s
     %s
 end

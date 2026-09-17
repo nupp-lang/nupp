@@ -1424,6 +1424,7 @@ return {varying = varying}
 
 local GENERIC_EXPLICIT_SIMD = [[
 local span = require("nupp.mem.span")
+local array = require("nupp.mem.array")
 local simd = require("nupp.simd")
 
 @aot
@@ -1433,7 +1434,7 @@ local function saxpy(
     borrows y: span.Span<float>,
     scale: float
 ): nil
-    local species: simd.Species<float, simd.Preferred> = simd.species()
+    local species = assert(simd.species(array.float))
     local offset: integer = 1
     while offset <= #output do
         local active = species:tail(#output - offset + 1)
@@ -2421,6 +2422,7 @@ end
 function M.narrowIntegerVectorsRetainPhysicalLaneWidth()
     local source = [[
 local span = require("nupp.mem.span")
+local array = require("nupp.mem.array")
 local simd = require("nupp.simd")
 
 @aot
@@ -2428,7 +2430,7 @@ local function increment(
     exclusive output: span.WriteSpan<uint8>,
     borrows input: span.Span<uint8>
 ): nil
-    local species: simd.Species<uint8, simd.Preferred> = simd.species()
+    local species = assert(simd.species(array.uint8))
     local active = species:tail(#input)
     local values = species:load(input, 1, active)
     species:store(output, 1, values + 1, active)
@@ -2451,6 +2453,7 @@ end
 function M.structuralVectorOperationsHaveScalarReferenceSemantics()
     local source = [[
 local span = require("nupp.mem.span")
+local array = require("nupp.mem.array")
 local simd = require("nupp.simd")
 
 @aot
@@ -2458,7 +2461,7 @@ local function transform(
     exclusive output: span.WriteSpan<uint8>,
     borrows input: span.Span<uint8>
 ): uint32
-    local species: simd.Species<uint8, simd.Fixed<8>> = simd.species()
+    local species = assert(simd.species(array.uint8, 8))
     local active = species:tail(#input)
     local values = species:load(input, 1, active)
     local selected = values > 4
@@ -2504,11 +2507,12 @@ end
 
 local CONVERT_SIMD = [[
 local span = require("nupp.mem.span")
+local array = require("nupp.mem.array")
 local simd = require("nupp.simd")
 @aot
 local function convert(exclusive out: span.WriteSpan<int32>, borrows input: span.Span<number>): nil
-    local source: simd.Species<number, simd.Fixed<8>> = simd.species()
-    local target: simd.Species<int32, simd.Fixed<8>> = simd.species()
+    local source = assert(simd.species(array.number, 8))
+    local target = assert(simd.species(array.int32, 8))
     target:store(out, 1, target:convert(source:load(input, 1)))
 end
 return {convert = convert}
@@ -2539,7 +2543,7 @@ end
 
 function M.numericSimdConversionsRejectLaneAndBitWidthMismatches()
     for _, case in ipairs({
-        {source = CONVERT_SIMD:gsub("Fixed<8>", "Preferred"), reason = "matching logical lane counts"},
+        {source = CONVERT_SIMD:gsub(", 8%)", ")"), reason = "matching logical lane counts"},
         {source = CONVERT_SIMD:gsub("target:convert", "target:reinterpret"), reason = "equal element widths"},
     }) do
         local dir = project{["convert.nupp"] = case.source}
@@ -2550,7 +2554,7 @@ function M.numericSimdConversionsRejectLaneAndBitWidthMismatches()
 end
 
 function M.preferredSimdConversionsPreserveLanesAndReinterpretWithoutArithmetic()
-    local source = CONVERT_SIMD:gsub("number", "float"):gsub("Fixed<8>", "Preferred")
+    local source = CONVERT_SIMD:gsub("number", "float"):gsub(", 8%)", ")")
     for _, method in ipairs({"convert", "reinterpret"}) do
         local dir = project{["convert.nupp"] = source:gsub("target:convert", "target:" .. method)}
         local decoded, raw, code = lowered(dir, "--target aarch64-apple-darwin --features neon --json convert.nupp")
@@ -2566,11 +2570,12 @@ end
 
 local INDEXED_SIMD = [[
 local span = require("nupp.mem.span")
+local array = require("nupp.mem.array")
 local simd = require("nupp.simd")
 @aot
 local function move(exclusive output: span.WriteSpan<float>, borrows input: span.Span<float>, borrows map: span.Span<uint32>): nil
-    local values: simd.Species<float, simd.Fixed<8>> = simd.species()
-    local positions: simd.Species<uint32, simd.Fixed<8>> = simd.species()
+    local values = assert(simd.species(array.float, 8))
+    local positions = assert(simd.species(array.uint32, 8))
     local indices = positions:load(map, 1)
     local active = values:tail(#map)
     local gathered = values:gather(input, indices, active)
@@ -2602,7 +2607,7 @@ end
 function M.indexedSimdUsesNativeAvx512MemoryInstructions()
     local host = assert(require("nupp.compiler.aot.target").hostTriple())
     local triple = host:gsub("^[^-]+", "x86_64")
-    for _, source in ipairs({INDEXED_SIMD, (INDEXED_SIMD:gsub("float", "number"):gsub("Fixed<8>", "Fixed<4>"))}) do
+    for _, source in ipairs({INDEXED_SIMD, (INDEXED_SIMD:gsub("float", "number"):gsub(", 8%)", ", 4)"))}) do
         local dir = project{["indexed.nupp"] = source}
         local asm, code = run(dir, "--target " .. triple .. " --features avx512f --emit asm indexed.nupp")
         test.equal(code, 0, asm)
@@ -2635,12 +2640,8 @@ end
 
 function M.indexedSimdRefusesFloatingIndicesAndMismatchedPreferredWidths()
     for _, source in ipairs({
-        INDEXED_SIMD:gsub("Span<uint32>", "Span<float>"):gsub("Species<uint32", "Species<float"),
-        (
-            INDEXED_SIMD:gsub("Span<float>", "Span<number>")
-                :gsub("Species<float", "Species<number")
-                :gsub("simd.Fixed<8>", "simd.Preferred")
-        ),
+        INDEXED_SIMD:gsub("Span<uint32>", "Span<float>"):gsub("array.uint32", "array.float"),
+        (INDEXED_SIMD:gsub("Span<float>", "Span<number>"):gsub("array.float", "array.number"):gsub(", 8%)", ")")),
     }) do
         local dir = project{["indexed.nupp"] = source}
         local out, code = run(dir, "--target aarch64-apple-darwin --features neon --emit c indexed.nupp")
@@ -2662,11 +2663,12 @@ end
 
 function M.horizontalVectorOperationsNameTheirArithmeticContracts()
     local source = [[
+local array = require("nupp.mem.array")
 local simd = require("nupp.simd")
 
 @aot
 local function horizontal(): (number, number, number)
-    local species: simd.Species<float, simd.Fixed<8>> = simd.species()
+    local species = assert(simd.species(array.float, 8))
     local left = species:iota(1.0, 1.0)
     local right = species:splat(2.0)
     local ordered: float = simd.horizontal.orderedSum(left)
@@ -2754,11 +2756,12 @@ end
 
 function M.aSwizzleIsTheTableLookupAndReachesTheTargetsTableInstruction()
     local source = [[
+local array = require("nupp.mem.array")
 local simd = require("nupp.simd")
 
 @aot
 local function lookup(): (number, number, number)
-    local species: simd.Species<uint8, simd.Fixed<16>> = simd.species()
+    local species = assert(simd.species(array.uint8, 16))
     -- A table is a vector, so there is no table type and no constructor
     -- taking one entry per argument. Entry k here is ten times k.
     local table = species:iota(0, 10)
@@ -2786,11 +2789,12 @@ end
 
 function M.aPairedSwizzleNumbersBothVectorsInOneRun()
     local source = [[
+local array = require("nupp.mem.array")
 local simd = require("nupp.simd")
 
 @aot
 local function joined(): (number, number, number, number)
-    local species: simd.Species<uint8, simd.Fixed<16>> = simd.species()
+    local species = assert(simd.species(array.uint8, 16))
     local first = species:splat(1)
     local second = species:splat(2)
     -- Lane 1 reads first, lane 17 the first lane of second, 99 neither.
@@ -2821,11 +2825,12 @@ end
 
 function M.aSwizzleNeedsLaneNumbersRatherThanAFloatingElement()
     local source = [[
+local array = require("nupp.mem.array")
 local simd = require("nupp.simd")
 
 @aot
 local function bad(): number
-    local species: simd.Species<float, simd.Fixed<8>> = simd.species()
+    local species = assert(simd.species(array.float, 8))
     local values = species:iota(1.0, 1.0)
 
     return values:swizzle(values):extract(1)
@@ -2841,11 +2846,12 @@ end
 
 function M.horizontalExtremaNameTheirNanContractAndAreDefinedAtEveryElement()
     local source = [[
+local array = require("nupp.mem.array")
 local simd = require("nupp.simd")
 
 @aot
 local function extrema(): (number, number, number, number)
-    local species: simd.Species<float, simd.Fixed<8>> = simd.species()
+    local species = assert(simd.species(array.float, 8))
     local values = species:iota(3.0, -1.0)
     local smallest: float = simd.horizontal.propagatingMin(values)
     local largest: float = simd.horizontal.propagatingMax(values)
@@ -2856,7 +2862,7 @@ end
 
 @aot
 local function ignoringMissing(): (number, number)
-    local species: simd.Species<float, simd.Fixed<8>> = simd.species()
+    local species = assert(simd.species(array.float, 8))
     local values = species:iota(3.0, -1.0)
     local other = species:splat(0.5)
 
@@ -2865,7 +2871,7 @@ end
 
 @aot
 local function counted(): (number, number)
-    local species: simd.Species<int32, simd.Fixed<8>> = simd.species()
+    local species = assert(simd.species(array.int32, 8))
     local values = species:iota(3, -1)
     local clamped = values:propagatingMin(species:splat(1)):propagatingMax(species:splat(-1))
     return simd.horizontal.propagatingMin(clamped), simd.horizontal.propagatingArgMax(clamped)
@@ -2916,11 +2922,12 @@ end
 
 function M.horizontalSumsStillRefuseANonFloatingElement()
     local source = [[
+local array = require("nupp.mem.array")
 local simd = require("nupp.simd")
 
 @aot
 local function total(): number
-    local species: simd.Species<int32, simd.Fixed<8>> = simd.species()
+    local species = assert(simd.species(array.int32, 8))
     return simd.horizontal.orderedSum(species:iota(1, 1))
 end
 
@@ -2975,9 +2982,9 @@ return {total = total}
 end
 
 function M.fixedExplicitSimdSplitsIntoNativeRegistersWithoutChangingItsIdentity()
-    -- Only the annotation changes. One constructor serves both shapes, which
-    -- is the point: the call site says nothing about which one it built.
-    local source = GENERIC_EXPLICIT_SIMD:gsub("simd%.Preferred", "simd.Fixed<8>", 1)
+    -- Only the lane count is added. One constructor serves both shapes, which
+    -- is the point: nothing else at the call site says which one it built.
+    local source = GENERIC_EXPLICIT_SIMD:gsub("array%.float%)", "array.float, 8)", 1)
     local dir = project{["vectors.nupp"] = source}
     local c, cCode = run(dir, "--target aarch64-apple-darwin --features neon --emit c vectors.nupp")
     test.equal(cCode, 0, c)
@@ -2991,11 +2998,12 @@ end
 
 function M.explicitSimdValuesCannotCrossAnEntryAbi()
     local source = [[
+local array = require("nupp.mem.array")
 local simd = require("nupp.simd")
 
 @aot
 local function leaked(): simd.Vector<float, simd.Preferred>
-    local species: simd.Species<float, simd.Preferred> = simd.species()
+    local species = assert(simd.species(array.float))
     return species:splat(1.0)
 end
 
@@ -3010,6 +3018,7 @@ end
 function M.genericHelpersPreserveSpeciesAndKeepASeparateScalarTwin()
     local source = [[
 local span = require("nupp.mem.span")
+local array = require("nupp.mem.array")
 local simd = require("nupp.simd")
 
 local function twice<T, S>(value: simd.Vector<T, S>): simd.Vector<T, S>
@@ -3021,7 +3030,7 @@ local function apply(
     exclusive output: span.WriteSpan<float>,
     borrows input: span.Span<float>
 ): nil
-    local species: simd.Species<float, simd.Preferred> = simd.species()
+    local species = assert(simd.species(array.float))
     local active = species:tail(#input)
     species:store(output, 1, twice(species:load(input, 1, active)), active)
 end
@@ -3044,11 +3053,12 @@ end
 function M.explicitLaneAndBitmaskOperationsKeepOneBasedLaneIdentity()
     local source = [[
 local span = require("nupp.mem.span")
+local array = require("nupp.mem.array")
 local simd = require("nupp.simd")
 
 @aot
 local function inspect(borrows input: span.Span<float>): (float, uint32, integer)
-    local species: simd.Species<float, simd.Fixed<8>> = simd.species()
+    local species = assert(simd.species(array.float, 8))
     local active = species:tail(#input)
     local values = species:load(input, 1, active):insert(2, 3.0)
     local bits = (values > 0.0):bits()
@@ -3074,11 +3084,12 @@ end
 function M.uint64MaskBitsReplaceTheFixedSixtyFourBitHelperSurface()
     local source = [[
 local span = require("nupp.mem.span")
+local array = require("nupp.mem.array")
 local simd = require("nupp.simd")
 
 @aot
 local function inspect(borrows input: span.Span<float>): (uint32, integer, boolean, boolean)
-    local species: simd.Species<float, simd.Fixed<8>> = simd.species()
+    local species = assert(simd.species(array.float, 8))
     local values = species:load(input, 1, species:tail(#input))
     local positive = (values > 0.0):bits()
     local large = (values >= 4.0):bits()
@@ -4724,10 +4735,11 @@ end
 function M.pairedRearrangementsAndTransposeKeepNativeResultsAtEveryTier()
     local source = [[
 local span = require("nupp.mem.span")
+local array = require("nupp.mem.array")
 local simd = require("nupp.simd")
 @aot
 local function rearrange(exclusive output: span.WriteSpan<float>, borrows input: span.Span<float>): nil
-    local s: simd.Species<float, simd.Fixed<4>> = simd.species()
+    local s = assert(simd.species(array.float, 4))
     local a, b = s:load(input, 1):interleave(s:load(input, 5))
     local c, d = a:deinterleave(b)
     local w, x, y, z = simd.transpose(a, b, c, d)
@@ -4738,7 +4750,7 @@ local function rearrange(exclusive output: span.WriteSpan<float>, borrows input:
 end
 @aot
 local function preferred(exclusive output: span.WriteSpan<float>, borrows input: span.Span<float>): nil
-    local s: simd.Species<float, simd.Preferred> = simd.species()
+    local s = assert(simd.species(array.float))
     local a, b = s:load(input, 1):interleave(s:load(input, s.lanes + 1))
     local first = a:deinterleave(b)
     s:store(output, 1, first)
@@ -4768,18 +4780,19 @@ end
 
 function M.transposeRejectsNonSquareMixedAndPreferredRows()
     for _, case in ipairs({
-        {shape = "simd.Fixed<4>", value = "s:splat(2.0)", reason = "square tile"},
-        {shape = "simd.Preferred", value = "s:splat(2.0)", reason = "fixed-width rows"},
-        {shape = "simd.Fixed<2>", value = "3.0", reason = "SIMD vector rows"},
-        {shape = "simd.Fixed<2>", value = "other:splat(2)", reason = "same vector type"},
+        {shape = ", 4", value = "s:splat(2.0)", reason = "square tile"},
+        {shape = "", value = "s:splat(2.0)", reason = "fixed-width rows"},
+        {shape = ", 2", value = "3.0", reason = "SIMD vector rows"},
+        {shape = ", 2", value = "other:splat(2)", reason = "same vector type"},
     }) do
         local source = (
             [[
+local array = require("nupp.mem.array")
 local simd = require("nupp.simd")
 @aot
 local function bad(): number
-    local s: simd.Species<float, %s> = simd.species()
-    local other: simd.Species<uint32, simd.Fixed<2>> = simd.species()
+    local s = assert(simd.species(array.float%s))
+    local other = assert(simd.species(array.uint32, 2))
     local a, b = simd.transpose(s:splat(1.0), %s)
     return a:extract(1) + b:extract(1)
 end
@@ -4800,7 +4813,7 @@ local simd = require("nupp.simd")
 @aot
 local function scan(borrows cps: span.Span<uint32>): integer
     local cursor: uint32 = 0
-    if species = simd.trySpecies(array.uint32) then
+    if species = simd.species(array.uint32) then
         while cursor + species.lanes <= #cps do
             local first = (species:load(cps, cursor + 1) <= 0xF):first()
             if first ~= 0 then
@@ -4825,8 +4838,8 @@ local function scanBody(c)
     return body
 end
 
-function M.aTrySpeciesBindingIsDecidedPerTier()
-    -- `if species = simd.trySpecies(array.uint32) then` is the vector loop on
+function M.aSpeciesBindingIsDecidedPerTier()
+    -- `if species = simd.species(array.uint32) then` is the vector loop on
     -- a tier that has vectors and nothing at all on one that does not; the
     -- scalar tail that follows is the same C on every tier, its span read
     -- proved by the left of the `and` it sits under.
@@ -4855,10 +4868,10 @@ function M.aTrySpeciesBindingIsDecidedPerTier()
     local body = scanBody(decoded.c)
     assert(not body:find("ks_exp_", 1, true), "the scalar tier drops the arm\n" .. body)
     assert(body:find(tail, 1, true), "and keeps the tail\n" .. body)
-    assert(not decoded.ir:find("trySpecies", 1, true), "nothing of the test survives lowering\n" .. decoded.ir)
+    assert(not decoded.ir:find("species", 1, true), "nothing of the test survives lowering\n" .. decoded.ir)
 end
 
-function M.aTrySpeciesBindingIsTheOnlyPlaceItsSpeciesLives()
+function M.aSpeciesBindingIsTheOnlyPlaceItsSpeciesLives()
     local dir = project{
         [
             "outside.nupp"
@@ -4869,7 +4882,7 @@ local simd = require("nupp.simd")
 
 @aot
 local function lanes(borrows cps: span.Span<uint32>): integer
-    local species = simd.trySpecies(array.uint32)
+    local species = simd.species(array.uint32)
     if species == nil then
         return #cps
     end
@@ -4906,7 +4919,7 @@ local simd = require("nupp.simd")
 
 @aot
 local function lanes(borrows cps: span.Span<uint32>): integer
-    if species = simd.trySpecies(cps) then
+    if species = simd.species(cps) then
         return species.lanes
     end
     return 0
@@ -4929,12 +4942,66 @@ return {lanes = lanes}
     )
 
     out, code = run(dir, scalar .. "other.nupp")
-    test.equal(code, 1, "a native if binding is the trySpecies test\n" .. out)
-    assert(out:find("other.nupp:10:16: aot: a native if binding takes simd.trySpecies only", 1, true), out)
+    test.equal(code, 1, "a native if binding is the species test\n" .. out)
+    assert(out:find("other.nupp:10:16: aot: a native if binding takes simd.species only", 1, true), out)
 
     out, code = run(dir, scalar .. "witness.nupp")
     test.equal(code, 1, "the argument is an array witness\n" .. out)
-    assert(out:find("NUPP2006: argument 1: Span<uint32> is not a Scalar<any>", 1, true), out)
+    assert(out:find("NUPP2125", 1, true) and out:find("Span<uint32> is not a Scalar<any>", 1, true), out)
+end
+
+function M.anAssertedSpeciesIsTheSpeciesWhereThereAreVectorsAndRefusedWhereThereAreNone()
+    -- `assert(simd.species(...))` is the required form: the species itself on
+    -- a tier with vectors, both shapes, and on one without a refusal at
+    -- compile time, since the assert would fail on every call.
+    local dir = project{
+        [
+            "required.nupp"
+        ] = [[
+local span = require("nupp.mem.span")
+local array = require("nupp.mem.array")
+local simd = require("nupp.simd")
+
+@aot
+local function total(borrows values: span.Span<float>): number
+    local wide = assert(simd.species(array.float), "this sum needs vectors")
+    local eight = assert(simd.species(array.float, 8))
+    local sum = wide:splat(0.0)
+    local cursor: uint32 = 0
+    while cursor + wide.lanes <= #values do
+        sum = sum + wide:load(values, cursor + 1)
+        cursor = cursor + wide.lanes
+    end
+    return simd.horizontal.orderedSum(sum) + simd.horizontal.orderedSum(eight:splat(1.0))
+end
+
+return {total = total}
+]],
+    }
+    for _, tier in ipairs({
+        {args = "--target aarch64-apple-darwin --features neon", lanes = 4},
+        {args = "--target x86_64-unknown-linux-gnu --features avx2", lanes = 8},
+        {args = "--target wasm32-unknown-emscripten --features simd128", lanes = 4},
+    }) do
+        local decoded, raw, code = lowered(dir, tier.args .. " --json required.nupp")
+        test.equal(code, 0, raw)
+        assert(decoded.ir:find("simd_species_f32_preferred", 1, true), tier.args .. ": the preferred shape\n" .. decoded.ir)
+        assert(decoded.ir:find("simd_vector_f32_fixed8", 1, true), tier.args .. ": the fixed shape\n" .. decoded.ir)
+        assert(decoded.c:find("ks_exp_load_f32x" .. tier.lanes .. "(", 1, true), tier.args .. ": the tier's width\n" .. decoded.c)
+        assert(not decoded.c:find("assert", 1, true), tier.args .. ": nothing of the assert survives\n" .. decoded.c)
+    end
+
+    local out, code = run(dir, "--target wasm32-unknown-emscripten --features scalar required.nupp")
+    test.equal(code, 1, "no vectors, so the assert would always fail\n" .. out)
+    assert(
+        out:find(
+            "required.nupp:7:25: aot: this tier has no vectors, so simd.species is nil here and the assert "
+                .. "would always fail; test it against nil and keep the vector path inside that branch",
+            1,
+            true
+        ),
+        out
+    )
 end
 
 function M.anAndProvesItsRightSpanReadOnlyByTheShapeItPromises()

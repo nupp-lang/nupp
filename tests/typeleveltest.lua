@@ -1920,9 +1920,10 @@ function M.simdSpeciesIdentityIsInvariantAndComparisonsReturnMasks()
     clean(
         table.concat(
             {
+                'local array = require("nupp.mem.array")',
                 'local simd = require("nupp.simd")',
-                "local species: simd.Species<float, simd.Preferred> = simd.species()",
-                "local fixed: simd.Species<float, simd.Fixed<8>> = simd.species()",
+                "local species = assert(simd.species(array.float))",
+                "local fixed = assert(simd.species(array.float, 8))",
                 "local left: simd.Vector<float, simd.Preferred> = nil as any",
                 "local right: simd.Vector<float, simd.Preferred> = nil as any",
                 "local selected: simd.Mask<float, simd.Preferred> = (left < right) & (left <= right)",
@@ -1967,8 +1968,9 @@ function M.narrowStorageWidthsAreValidOnlyInsideCompilerOwnedSimdFamilies()
     clean(
         table.concat(
             {
+                'local array = require("nupp.mem.array")',
                 'local simd = require("nupp.simd")',
-                "local species: simd.Species<uint8, simd.Preferred> = simd.species()",
+                "local species = assert(simd.species(array.uint8))",
                 "local vector: simd.Vector<uint8, simd.Preferred> = nil as any",
                 "local mask: simd.Mask<uint8, simd.Preferred> = vector == vector",
                 "local lane: uint32 = vector:extract(1)",
