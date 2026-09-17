@@ -4924,6 +4924,11 @@ return {add = add}
         "and stores as one\n" .. c
     )
     assert(
+        c:find("static __attribute__((noinline, cold, unused)) ks_exp_u8x16 ks_exp_load_part_u8x16(const uint8_t *source, size_t room) {", 1, true)
+            and c:find("return ks_exp_load_part_u8x16(source + first, room); }", 1, true),
+        "a partial vector is a cold copy of its own\n" .. c
+    )
+    assert(
         c:find("bool ks_exp_full_u8x16(ks_exp_mask_u8x16 active) { ks_exp_mask_u8x16 inactive = (ks_exp_mask_u8x16)(active == (ks_exp_mask_u8x16){0});", 1, true),
         "all-active is a vector compare\n" .. c
     )

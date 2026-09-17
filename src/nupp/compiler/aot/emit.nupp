@@ -4893,10 +4893,19 @@ local function genericSimdPrelude(width: integer): {string}
         ) .. " }; return (" .. mask .. ")(lane < limit); }"
         -- A load or store that starts at `first` and has a whole vector's worth
         -- of elements ahead of it is one memcpy, which the C compiler turns
-        -- into the one vector instruction; the lane loop is only for a
-        -- partial or masked one. `first` is out of range at or past the count,
-        -- which is what nupp_first_* answer for an offset no span can hold, so
-        -- `first + i` never wraps once that comparison has been made.
+        -- into the one vector instruction. A partial one is the `_part`
+        -- helper: a shorter memcpy of the elements that are there, through a
+        -- plain array so that the vector is never address-taken with a
+        -- variable length -- when it was, the C compiler kept the vector on
+        -- the stack in the whole helper and folded the whole-vector copy into
+        -- the same memcpy call. It is a cold function of its own for the
+        -- same reason. A masked load is the unmasked one with the inactive
+        -- lanes cleared by one and; a masked store whose mask covers the
+        -- elements in range is the same short copy, and only a mask with a
+        -- hole in it writes lane by lane. `first` is out of range at or past
+        -- the count, which is what nupp_first_* answer for an offset no span
+        -- can hold, so `first + i` never wraps once that comparison has been
+        -- made.
         local laneCount = tostring(lanes) .. "u"
         local words = {}
         for word = 1, (width / 8) as integer do
@@ -4919,6 +4928,46 @@ local function genericSimdPrelude(width: integer): {string}
             .. tostring(
                 #words
             ) .. "]; memcpy(words, &inactive, sizeof words); return (" .. table.concat(words, " | ") .. ") == 0u; }"
+        local cold = "static __attribute__((noinline, cold, unused)) "
+        lines[
+            #lines + 1
+        ] = cold
+            .. vector
+            .. " ks_exp_load_part_"
+            .. suffix
+            .. "(const "
+            .. element.c
+            .. " *source, size_t room) { "
+            .. element.c
+            .. " lanes["
+            .. laneCount
+            .. "] = {0}; memcpy(lanes, source, room * sizeof lanes[0]); "
+            .. vector
+            .. " out; memcpy(&out, lanes, sizeof out); return out; }"
+        lines[
+            #lines + 1
+        ] = cold
+            .. "void ks_exp_store_part_"
+            .. suffix
+            .. "("
+            .. element.c
+            .. " *destination, size_t room, "
+            .. vector
+            .. " value, "
+            .. mask
+            .. " active) { "
+            .. element.c
+            .. " lanes["
+            .. laneCount
+            .. "]; memcpy(lanes, &value, sizeof lanes); if (ks_exp_full_"
+            .. suffix
+            .. "(active | ~ks_exp_tail_"
+            .. suffix
+            .. "((uint32_t)room))) { memcpy(destination, lanes, room * sizeof lanes[0]); return; } "
+            .. element.mask
+            .. " keep["
+            .. laneCount
+            .. "]; memcpy(keep, &active, sizeof keep); for (size_t i = 0u; i < room; ++i) if (keep[i]) destination[i] = lanes[i]; }"
         lines[
             #lines + 1
         ] = unused
@@ -4933,7 +4982,9 @@ local function genericSimdPrelude(width: integer): {string}
             .. vector
             .. "){0}; if (first >= count) return out; size_t room = count - first; if (room >= "
             .. laneCount
-            .. ") { memcpy(&out, source + first, sizeof out); return out; } for (size_t i = 0u; i < room; ++i) out[i] = source[first + i]; return out; }"
+            .. ") { memcpy(&out, source + first, sizeof out); return out; } return ks_exp_load_part_"
+            .. suffix
+            .. "(source + first, room); }"
         lines[
             #lines + 1
         ] = unused
@@ -4944,19 +4995,13 @@ local function genericSimdPrelude(width: integer): {string}
             .. element.c
             .. " *source, size_t count, size_t first, "
             .. mask
-            .. " active) { if (ks_exp_full_"
-            .. suffix
-            .. "(active)) return ks_exp_load_full_"
-            .. suffix
-            .. "(source, count, first); "
+            .. " active) { return ("
             .. vector
-            .. " out = ("
-            .. vector
-            .. "){0}; if (first >= count) return out; size_t room = count - first; if (room > "
-            .. laneCount
-            .. ") room = "
-            .. laneCount
-            .. "; for (size_t i = 0u; i < room; ++i) if (active[i]) out[i] = source[first + i]; return out; }"
+            .. ")(active & ("
+            .. mask
+            .. ")ks_exp_load_full_"
+            .. suffix
+            .. "(source, count, first)); }"
         lines[
             #lines + 1
         ] = unused
@@ -4968,7 +5013,11 @@ local function genericSimdPrelude(width: integer): {string}
             .. vector
             .. " value) { if (first >= count) return; size_t room = count - first; if (room >= "
             .. laneCount
-            .. ") { memcpy(destination + first, &value, sizeof value); return; } for (size_t i = 0u; i < room; ++i) destination[first + i] = value[i]; }"
+            .. ") { memcpy(destination + first, &value, sizeof value); return; } ks_exp_store_part_"
+            .. suffix
+            .. "(destination + first, room, value, ~("
+            .. mask
+            .. "){0}); }"
         lines[
             #lines + 1
         ] = unused
@@ -4988,7 +5037,9 @@ local function genericSimdPrelude(width: integer): {string}
             .. laneCount
             .. ") room = "
             .. laneCount
-            .. "; for (size_t i = 0u; i < room; ++i) if (active[i]) destination[first + i] = value[i]; }"
+            .. "; ks_exp_store_part_"
+            .. suffix
+            .. "(destination + first, room, value, active); }"
         lines[
             #lines + 1
         ] = unused
