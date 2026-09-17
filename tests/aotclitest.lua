@@ -4736,6 +4736,48 @@ return {decode = decode}
     test.equal(code, 0, "a loop whose own condition proves the cursor proves it every pass\n" .. out)
 end
 
+function M.anAnnotatedLoopMovingACursorRetiresTheEnclosingProof()
+    -- The look-ahead that retires a proof reads the body's statements, and an
+    -- `@simd` loop is a pragma wrapping the loop. It used to stop at the
+    -- pragma, so a cursor moved inside the annotated loop kept the enclosing
+    -- proof through lowering and the verifier crashed on the read instead of
+    -- the lowerer refusing it at its line.
+    local dir = project{
+        ["annotated.nupp"] = [[
+local span = require("nupp.mem.span")
+
+@aot
+local function scan(borrows bytes: span.Span<number>, exclusive out: span.WriteSpan<number>): number
+    local cursor: uint32 = nupp.math.u32.wrap(0)
+    local total = 0.0
+    if cursor < #bytes then
+        while total < 10.0 do
+            total = total + bytes[cursor + 1]
+            @simd
+            for i = 1, #out do
+                out[i] = total
+                cursor = cursor + nupp.math.u32.wrap(1)
+            end
+        end
+    end
+    return total
+end
+
+return {scan = scan}
+]],
+    }
+    local out, code = run(dir, "annotated.nupp")
+    test.equal(code, 1, "a cursor an annotated loop moves is not proved by the enclosing check\n" .. out)
+    assert(
+        out:find(
+            "annotated.nupp:9:29: aot: span loads need a counted-loop index or cursor + 1 under cursor < #span",
+            1,
+            true
+        ),
+        "and the read is what is refused: " .. out
+    )
+end
+
 function M.moduloIsFlooredLikeLuas()
     -- Lua's `%` takes the divisor's sign: `-1 % 3` is 2. C's `fmod` truncates
     -- and says -1, so a kernel that rendered `%` as `fmod` disagreed with the

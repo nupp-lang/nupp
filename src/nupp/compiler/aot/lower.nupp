@@ -1076,7 +1076,13 @@ end
 --- The names a block assigns anywhere inside it, so a loop knows which cursor
 --- proofs its body retires.
 local function assignedNames(body: cst.Node?, out: {[string]: boolean}): {[string]: boolean}
-    for _, stat in ipairs(body ~= nil and (body as cst.Block).stats or {}) do
+    for _, authored in ipairs(body ~= nil and (body as cst.Block).stats or {}) do
+        local stat = authored
+        -- A pragma is the statement it annotates: an `@simd` loop assigns
+        -- what its body assigns.
+        while stat.kind == "pragmaStmt" do
+            stat = (stat as cst.PragmaStmt).stat as cst.Node
+        end
         local kind = stat.kind
         if kind == "assignStmt" then
             for _, target in ipairs((stat as cst.AssignStmt).targets or {}) do
