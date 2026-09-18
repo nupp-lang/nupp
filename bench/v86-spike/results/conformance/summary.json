@@ -1,0 +1,13 @@
+{
+  "transport": true,
+  "modes": {
+    "features": true,
+    "native": true,
+    "services": true,
+    "gpu": true,
+    "workers": true,
+    "deadline": true,
+    "lifecycle": true,
+    "game": true
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "ok": true,
+  "mode": "native",
+  "native": {
+    "value": {
+      "bytecodeReload": true,
+      "yieldAcrossPcall": true,
+      "allocationRetained": true,
+      "nuppGeneratedAot": true,
+      "cModule": "LPeg 1.1.0",
+      "jit": true,
+      "jitHelpers": true,
+      "dynamicCompilation": true
+    },
+    "metrics": {
+      "frames": 0,
+      "effects": 0,
+      "effectBytes": 0,
+      "responseBytes": 0,
+      "copiedIn": 0,
+      "copiedOut": 0,
+      "hostEffectMs": [],
+      "guestIntervalsMs": [],
+      "bootMs": 1101.7549999952316,
+      "wasmMemoryBytes": 281149440,
+      "totalMs": 1267.1200000047684
+    }
+  },
+  "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+  "isolated": true,
+  "browserErrors": []
+}

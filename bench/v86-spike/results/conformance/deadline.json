@@ -1,0 +1,31 @@
+{
+  "ok": true,
+  "mode": "deadline",
+  "deadline": {
+    "value": {
+      "elapsedMs": 307.60000000000036,
+      "cancelled": true
+    },
+    "metrics": {
+      "frames": 2,
+      "effects": 4,
+      "effectBytes": 625,
+      "responseBytes": 330,
+      "copiedIn": 0,
+      "copiedOut": 0,
+      "hostEffectMs": [
+        1434.155000090599,
+        266.2300000190735
+      ],
+      "guestIntervalsMs": [
+        32.889999985694885
+      ],
+      "bootMs": 1232.164999961853,
+      "wasmMemoryBytes": 281608192,
+      "totalMs": 3234.110000014305
+    }
+  },
+  "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+  "isolated": true,
+  "browserErrors": []
+}

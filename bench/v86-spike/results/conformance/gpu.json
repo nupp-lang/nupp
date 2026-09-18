@@ -1,0 +1,55 @@
+{
+  "ok": true,
+  "mode": "gpu",
+  "gpu": {
+    "value": {
+      "generatedWgsl": true,
+      "residentCompute": true,
+      "noLeakedLeases": true,
+      "elements": 1024
+    },
+    "metrics": {
+      "frames": 10,
+      "effects": 10,
+      "effectBytes": 1734,
+      "responseBytes": 1205,
+      "copiedIn": 8216,
+      "copiedOut": 4096,
+      "hostEffectMs": [
+        2.065000057220459,
+        2.524999976158142,
+        0.12999999523162842,
+        0.060000061988830566,
+        1.4250000715255737,
+        0.21000003814697266,
+        0.23000001907348633,
+        0.2399998903274536,
+        0.7749999761581421,
+        0.11000001430511475
+      ],
+      "guestIntervalsMs": [
+        17.12999999523163,
+        5.554999947547913,
+        11.375,
+        26.454999923706055,
+        6.534999966621399,
+        11.009999990463257,
+        13.84500002861023,
+        10.520000100135803,
+        5.25
+      ],
+      "bootMs": 1180.6750000715256,
+      "wasmMemoryBytes": 281804800,
+      "totalMs": 1511.6600000858307
+    }
+  },
+  "adapter": {
+    "vendor": "apple",
+    "architecture": "metal-3",
+    "device": "",
+    "description": ""
+  },
+  "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+  "isolated": true,
+  "browserErrors": []
+}

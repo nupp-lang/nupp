@@ -1,0 +1,26 @@
+{
+  "ok": true,
+  "mode": "features",
+  "features": {
+    "value": {
+      "passed": 12,
+      "log": "\r\n@@NUPP_QEMU_READY@@\r\n@@NUPP_QEMU@@\tINFO\truntime\tLuaJIT 2.1.1785763465 Linux x86\r\n@@NUPP_QEMU@@\tPASS\tbit\tband, rol, bxor\r\n@@NUPP_QEMU@@\tPASS\tffi-array-pointer\t32-bit pointers and mutable cdata\r\n@@NUPP_QEMU@@\tPASS\tffi-int64\t9007199254740993LL\r\n@@NUPP_QEMU@@\tPASS\tffi-libc\tdefault namespace and C varargs\r\n@@NUPP_QEMU@@\tPASS\tffi-load\tLinux x86 shared library\r\n@@NUPP_QEMU@@\tPASS\tffi-callback\tLua to C to Lua to C to Lua\r\n@@NUPP_QEMU@@\tPASS\tstring-buffer\tput/get and reserve/commit\r\n@@NUPP_QEMU@@\tPASS\tbuffer-serialization\tencode/decode\r\n@@NUPP_QEMU@@\tPASS\tjit-trace\tinstructions=14 machineBytes=78\r\nNUPP_STRUCT_OK\t500000\r\n@@NUPP_QEMU@@\tPASS\tnupp-struct\tNupp luajit lowering, FFI-backed struct\r\n@@NUPP_QEMU@@\tBENCH\toff\t1358.385000,1,1000000\r\n@@NUPP_QEMU@@\tBENCH\toff\t1365.770000,2,1000000\r\n@@NUPP_QEMU@@\tBENCH\toff\t1373.440000,3,1000000\r\n@@NUPP_QEMU@@\tBENCH\toff\t1368.195000,4,1000000\r\n@@NUPP_QEMU@@\tBENCH\toff\t1366.060000,5,1000000\r\n@@NUPP_QEMU@@\tBENCH\ton\t2.845000,1,1000000\r\n@@NUPP_QEMU@@\tBENCH\ton\t2.960000,2,1000000\r\n@@NUPP_QEMU@@\tBENCH\ton\t2.940000,3,1000000\r\n@@NUPP_QEMU@@\tBENCH\ton\t2.905000,4,1000000\r\n@@NUPP_QEMU@@\tBENCH\ton\t3.205000,5,1000000\r\n@@NUPP_QEMU@@\tPASS\tjit-on-off-correctness\tidentical result in both modes; timings are exploratory\r\n@@NUPP_QEMU@@\tPASS\tpinned-syntax-extensions\tconst, bit/logical/compound/ternary operators, safe navigation, coalescing, continue, digit separators\r\n@@NUPP_QEMU@@\tDONE\tfailures\t0\r\n\r\n@@NUPP_QEMU_EXIT@@ 0\r\n",
+      "wasmMemoryBytes": 281477120
+    },
+    "metrics": {
+      "frames": 0,
+      "effects": 0,
+      "effectBytes": 0,
+      "responseBytes": 0,
+      "copiedIn": 0,
+      "copiedOut": 0,
+      "hostEffectMs": [],
+      "guestIntervalsMs": [],
+      "bootMs": 1093.4400000572205,
+      "totalMs": 14985.085000038147
+    }
+  },
+  "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+  "isolated": true,
+  "browserErrors": []
+}

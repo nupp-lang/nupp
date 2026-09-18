@@ -1,0 +1,141 @@
+{
+  "gameAssetBytes": 14621849,
+  "gameFiles": [
+    "assets/libv86.mjs",
+    "assets/v86.wasm",
+    "assets/bzimage.bin",
+    "assets/seabios.bin",
+    "assets/vgabios.bin",
+    "initramfs.gz",
+    "app.ljbc",
+    "integration.html",
+    "integration.mjs",
+    "guest-runtime.mjs",
+    "vm-worker.mjs",
+    "runtime/app-runtime.mjs",
+    "runtime/worker-pool.mjs"
+  ],
+  "scope": "Sum of game startup files, before HTTP content encoding; initramfs is already gzip. Excludes optional v86 fallback, unused debug/source assets, worker/native/GPU fixtures, and the separate portable comparison host. This is not a network transfer capture.",
+  "assets": {
+    "app.ljbc": {
+      "bytes": 434901,
+      "sha256": "14368339d2a072f8c4fb983024d779bbfb13175158ecfad95c54c13cd1ed966b"
+    },
+    "app.lua": {
+      "bytes": 679040,
+      "sha256": "99bf8f77113c35489e6d3d1a191ca1162e71adb6d58cfe651983dff071d80b7f"
+    },
+    "assets/bzimage.bin": {
+      "bytes": 10068480,
+      "sha256": "507a759c70ab7a490a233be454d0b5b88bc667956a410b531cb4edc091e2eb1c"
+    },
+    "assets/libv86-debug.mjs": {
+      "bytes": 1101385,
+      "sha256": "95b1a7cbedb4526418599532eddf1dba260442d76b8f7f7b6f1263fa44fdbe08"
+    },
+    "assets/libv86.mjs": {
+      "bytes": 359552,
+      "sha256": "581c169db27daad9d64679bd117f4a90c37c23c6ad9e660b7e89ee731eb2a446"
+    },
+    "assets/seabios.bin": {
+      "bytes": 131072,
+      "sha256": "73e3f359102e3a9982c35fce98eb7cd08f18303ac7f1ba6ebfbe6cdc1c244d98"
+    },
+    "assets/v86-fallback.wasm": {
+      "bytes": 2130381,
+      "sha256": "ea95aff75edd5136576026dc5a2d3350b333530d647df3dc3798daf3f30022b9"
+    },
+    "assets/v86.wasm": {
+      "bytes": 2101621,
+      "sha256": "aa0d0e149d6b60063b85de4871e78505637ce92821e14a9f9802c4008ba2336e"
+    },
+    "assets/vgabios.bin": {
+      "bytes": 36352,
+      "sha256": "a4bc0d80cc3ca028c73dafa8fee396b8d054ce87ebd8abfbd31b06b437607880"
+    },
+    "guest-runtime.mjs": {
+      "bytes": 7116,
+      "sha256": "5fcc7d02bd4de9f45305592505a862da472fa2098f5aef2cb08b703ccdf27c1d"
+    },
+    "initramfs.gz": {
+      "bytes": 1416872,
+      "sha256": "b6a3ee34e6b7bc3a22300dbca4324ff3739297756e21b17c6fa2e5bd1a666cfb"
+    },
+    "integration.html": {
+      "bytes": 1390,
+      "sha256": "0580bc9e3896e4ffcc0121b184b95bff4eea7804461f75d22153d23b158e441d"
+    },
+    "integration.mjs": {
+      "bytes": 8008,
+      "sha256": "3df751f97220280a95e6e08bd762b21ab00ab0cd8aa9083c8c2f12b39f28547c"
+    },
+    "kernel.wgsl": {
+      "bytes": 663,
+      "sha256": "53b2eee55101607d881845ded478e3149835817a79928e2c41bd30d3c9b229e7"
+    },
+    "native-modules.lua": {
+      "bytes": 1734,
+      "sha256": "bf7385d24d43f115fdf39bb06f084219c6f19426132cc63d8ed338c0b375aa5b"
+    },
+    "notices/LPeg.html": {
+      "bytes": 43617,
+      "sha256": "3f4f8a7997d9e0d9d0fca6d2b9877a5714251fff056783dd71288413b0abcf36"
+    },
+    "notices/LuaJIT.txt": {
+      "bytes": 2935,
+      "sha256": "6cda3076a8c09b31bb1f90da614ea89e7ee194589626eeac613e522849604e47"
+    },
+    "notices/v86.txt": {
+      "bytes": 1306,
+      "sha256": "3f61ba65e3215b09ef264ba8d777d73c19644309fbb705967634eb5147e500a0"
+    },
+    "nupp-runner.mjs": {
+      "bytes": 33225,
+      "sha256": "e64e7325443d4aff81e298e2093519ef26987b610581d1b0ff89afad8331ca28"
+    },
+    "nupp-runner.wasm": {
+      "bytes": 322279,
+      "sha256": "b06658352eb4b5faeca6aa9979421eb221ab731ae429b3e0b7476334d109caea"
+    },
+    "portable-app.lua": {
+      "bytes": 205801,
+      "sha256": "0c3b03e8751261fa6d30cd8d29849628300fb369a9637f283b7f01b60dffa0a6"
+    },
+    "runtime/app-runtime.mjs": {
+      "bytes": 39300,
+      "sha256": "3f55db3a0ce45f46664b7ad180afcceffc3d3f56ea3d4de203278c1a3dc2ce62"
+    },
+    "runtime/browser-entry.mjs": {
+      "bytes": 2314,
+      "sha256": "5da722b5bfc6f0f0826c732f587b14baa7e1217411b4e07db344ccfd008f86ce"
+    },
+    "runtime/browser-worker.mjs": {
+      "bytes": 1071,
+      "sha256": "e9b111b03bf63ee470631a4efd6e6729bd2d4fed491e08239efc58d305eac0f6"
+    },
+    "runtime/build-runtime-package.mjs": {
+      "bytes": 5327,
+      "sha256": "1d33cf2b3ec58492b60b636bc5de0fda86fa86285ef518be776420c6787cd345"
+    },
+    "runtime/package-browser-app.mjs": {
+      "bytes": 10017,
+      "sha256": "9351d30a345f8a944fe75759d692f640d0039c3da3ed964145f56f7a23119145"
+    },
+    "runtime/worker-lane.mjs": {
+      "bytes": 4402,
+      "sha256": "e9276b35c8d9c850fb7029988563e4bac9c6462ab634335630245474891d3f74"
+    },
+    "runtime/worker-pool.mjs": {
+      "bytes": 8274,
+      "sha256": "8e5e0b821ad662fdac346e874f09a18c272dad4940def550483d24cc8bc03e32"
+    },
+    "vm-worker.mjs": {
+      "bytes": 8911,
+      "sha256": "83ebd3dc2228ddb0d4b5e875ced86421db9f54acd7df5dc1b9920ed235fd1571"
+    },
+    "worker-lane.mjs": {
+      "bytes": 4008,
+      "sha256": "fa764b972a5dcf24c741e3b752ce69600ffc8578e3214edec3899d0501a6f3a7"
+    }
+  }
+}

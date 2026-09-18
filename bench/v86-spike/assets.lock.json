@@ -1,0 +1,79 @@
+{
+  "luajitRevision": "1edc3e52b67eaf6ce5f809be8e17d6862594b8bc",
+  "v86Version": "0.5.461",
+  "v86Revision": "589487c7758a2775f606ec631bd78609497f6e05",
+  "assets": [
+    {
+      "path": "upstream/v86.tgz",
+      "url": "https://registry.npmjs.org/v86/-/v86-0.5.461.tgz",
+      "sha256": "1e180db36a808c2e1c0056efe419f5b5530dd17328c26a9981fd00cd9f8f4328",
+      "bytes": 3951747
+    },
+    {
+      "path": "web/assets/bzimage.bin",
+      "url": "https://i.copy.sh/buildroot-bzimage68.bin",
+      "sha256": "507a759c70ab7a490a233be454d0b5b88bc667956a410b531cb4edc091e2eb1c",
+      "bytes": 10068480
+    },
+    {
+      "path": "upstream/musl.apk",
+      "url": "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/x86/musl-1.2.5-r3.apk",
+      "sha256": "7e56fb578429d6c493c3cc07a7390635a5d76dcc6e38c74fbec9279b2d68ab63",
+      "bytes": 410096
+    },
+    {
+      "path": "upstream/musl-dev.apk",
+      "url": "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/x86/musl-dev-1.2.5-r3.apk",
+      "sha256": "307e33b04095707f39b8c2ec9224e66c11acd5510651e09a6e199ae364c68cd5",
+      "bytes": 3272424
+    },
+    {
+      "path": "upstream/libgcc.apk",
+      "url": "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/x86/libgcc-13.2.1_git20240309-r1.apk",
+      "sha256": "36801df97420537a36dcd4442bcf46384764dad71529bb588e0e0a82e2595b77",
+      "bytes": 73973
+    },
+    {
+      "path": "upstream/busybox.apk",
+      "url": "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/x86/busybox-1.36.1-r31.apk",
+      "sha256": "07cc6ec53296a8c84f598a05fd30e651498f3e20beb758e592cd0a21974bf092",
+      "bytes": 507194
+    },
+    {
+      "path": "web/assets/seabios.bin",
+      "url": "https://raw.githubusercontent.com/copy/v86/589487c7758a2775f606ec631bd78609497f6e05/bios/seabios.bin",
+      "sha256": "73e3f359102e3a9982c35fce98eb7cd08f18303ac7f1ba6ebfbe6cdc1c244d98",
+      "bytes": 131072
+    },
+    {
+      "path": "web/assets/vgabios.bin",
+      "url": "https://raw.githubusercontent.com/copy/v86/589487c7758a2775f606ec631bd78609497f6e05/bios/vgabios.bin",
+      "sha256": "a4bc0d80cc3ca028c73dafa8fee396b8d054ce87ebd8abfbd31b06b437607880",
+      "bytes": 36352
+    },
+    {
+      "path": "upstream/starter.js",
+      "url": "https://raw.githubusercontent.com/copy/v86/589487c7758a2775f606ec631bd78609497f6e05/src/browser/starter.js",
+      "sha256": "eff0d7afa7a5290c291529e5e14f0976c1543c0a49381f115629e22212776120",
+      "bytes": 47611
+    },
+    {
+      "path": "upstream/cpu.js",
+      "url": "https://raw.githubusercontent.com/copy/v86/589487c7758a2775f606ec631bd78609497f6e05/src/cpu.js",
+      "sha256": "6c05908055e3e8e912f7688609c4c4877260a4ebeeb8efef58fcee2f2aa0e3cb",
+      "bytes": 77681
+    },
+    {
+      "path": "upstream/luajit-source.tar.gz",
+      "url": "https://github.com/LuaJIT/LuaJIT/archive/1edc3e52b67eaf6ce5f809be8e17d6862594b8bc.tar.gz",
+      "sha256": "85497ea149d136afbe2d7ef222e08849248e52cecc6dc8deefd8588e551e4e00",
+      "bytes": 1102561
+    },
+    {
+      "path": "upstream/lpeg.tar.gz",
+      "url": "https://www.inf.puc-rio.br/~roberto/lpeg/lpeg-1.1.0.tar.gz",
+      "sha256": "4b155d67d2246c1ffa7ad7bc466c1ea899bbc40fef0257cc9c03cecbaed4352a",
+      "bytes": 78042
+    }
+  ]
+}
