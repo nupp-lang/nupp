@@ -39,7 +39,7 @@ file and every importer gets the compiled body without naming anything new.
 Kernel wrappers call FFI symbols. Builder wrappers call a cached registered Lua
 C closure, so no generated FFI code fabricates or discovers a `lua_State *`.
 
-::: deepdive
+::: deepdive Explicit compilation modes
 There is deliberately no mode that quietly mixes compiled functions with
 ordinary fallbacks. Disabling compilation is meant to change performance and
 packaging, never an answer, and a policy that silently fell back per function
@@ -231,7 +231,7 @@ Copy the output tree, move it, hand it to someone: it runs. Copy it without the
 where, rather than with a missing symbol later on. See
 [distribution.md](../../../reference/distribution.md) for the artifact kinds.
 
-::: deepdive
+::: deepdive Relocatable library paths
 A path decided at build time could not be relocatable: an absolute path pins the
 program to one machine, and a relative one pins it to one directory. Resolving
 against the loaded chunk is the only form that survives being copied, because

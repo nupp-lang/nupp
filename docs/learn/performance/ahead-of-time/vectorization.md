@@ -192,7 +192,7 @@ scalar, and says what would give it a gang:
 src/kernel.nupp:50:5: aot: the baseline feature tier has no 16-byte vector; select avx2 to run several iterations at once
 ```
 
-::: deepdive
+::: deepdive Portable target defaults
 x86-64 defaults to `baseline`, so a loop written with ordinary operators gets
 two lanes there and four at `avx2`. The conservative default is deliberate: a
 binary built for AVX2 does not run on a machine without it, and a default that
@@ -339,7 +339,7 @@ that works with the backend off, and the freedom to change gang shape later.
 What replaced the boxed design is [explicit SIMD](#explicit-simd), whose values
 exist only inside an `@aot` body and cannot escape it.
 
-::: deepdive
+::: deepdive Cross-lane operations
 A boxed vector type would mostly restate a map loop, while adding decisions
 about preferred versus fixed width, boxing outside `@aot`, escape rules, and
 cross-target ABI. What a scalar loop genuinely cannot express is cross-lane
@@ -582,7 +582,7 @@ Adding a run's start bit to the run propagates a carry to the first bit past its
 end, which is how a scanner separates an odd run of escapes from an even one
 without walking the runs. It carries between the two words, as the shifts do.
 
-::: deepdive
+::: deepdive Predicate bitmaps
 The two `uint32` halves are deliberate. A general 64-bit integer would have to
 answer for its LuaJIT representation and its exactness rules everywhere in
 ordinary Nupp, where all this needs is a predicate bitmap that scanners can

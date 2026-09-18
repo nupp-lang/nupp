@@ -120,7 +120,7 @@ frame;physics;app.nupp:stepWorld_[N] 812
 frame;render;app.nupp:drawWorld_[N] 233
 ```
 
-::: deepdive
+::: deepdive Avoiding allocations while profiling
 `zone.path` caches the joined path until the stack next changes, so reading it
 repeatedly between two pushes costs a comparison. That is worth the two words
 of state it takes. A profiler reads the path from the sampling callback, on the

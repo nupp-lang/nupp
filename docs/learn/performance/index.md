@@ -715,7 +715,7 @@ end
 The root and every field must be `const`. Calls share the binding within the
 same block.
 
-::: deepdive
+::: deepdive Call binding limits
 The binding is created at first use to preserve lookup order and error
 locations. Labels and `goto` prevent reuse, as do calls with special handling
 for FFI, ownership, constructors, or output parameters. A single call needs no
@@ -884,7 +884,7 @@ field projections are supported too. Arbitrary indices keep bounds checks.
 
 See [SIMD lowering](ahead-of-time/vectorization.md) for AOT vectorization.
 
-::: deepdive
+::: deepdive Removing view allocations
 The pass can remove temporary view objects: `left` and `right` in the earlier
 example become counts, while accesses use the original views. Slices, shared
 downgrades, and SoA field projections combine their offsets without creating
@@ -961,7 +961,7 @@ end
 
 [AOT](ahead-of-time/index.md) applies the same helper eligibility rules.
 
-::: deepdive
+::: deepdive Inlining limits
 Inlining requires:
 
 - A nonrecursive, nongeneric local helper with one return expression.
@@ -1078,8 +1078,8 @@ them when enabled or inside `@jit` functions.
 Measure your own workload with [benchmarks](benchmarks.md) before choosing an
 optimization level or disabling a pass.
 
-Recorded local medians with LuaJIT enabled, measuring generated code rather than
-checker time:
+Recorded local medians, measuring generated code rather than checker time.
+Rows use LuaJIT unless marked AOT:
 
 | Pass and scenario | Before | After | Change |
 | --- | --- | --- | --- |
@@ -1097,6 +1097,8 @@ checker time:
 | OPT-6, 8 million struct element updates | 0.01075s | 0.00735s | 1.46x faster |
 | OPT-6, SoA projected update vs handwritten columns | 0.00296s | 0.00307s | 1.037x of direct |
 | OPT-6, 500,000 slice constructions | 0.12183s | 0.00425s | 28.7x faster |
+| OPT-8, AOT scalar, four rounds over 1,048,576 doubles | 0.001084359s | 0.000512742s | 2.121x faster |
+| OPT-8, AOT four lanes, four rounds over 1,048,576 doubles | 0.001084359s | 0.000259625s | 4.176x faster |
 
 Primitive folding, nested propagation, and static callable binding reduced
 source size by 32.1%, 60.8%, and 63.6%. Warmed speedups were 0.99x, 2.01x, and
@@ -1110,12 +1112,20 @@ luajit bench/constant-propagation.lua
 luajit bench/static-callable.lua
 luajit bench/concat.lua
 bench/span-range-lowering/run.sh
+bench/kernel-subset-spike/const-monomorph-prototype.sh
 ```
 
 The `OPT-6` measurements used an arm64 Apple host after warmup, comparing
 disabled and enabled passes. Slice results cover derived-view replacement, not
 general escape analysis. See `bench/span-range-lowering/README.md` for the full
 matrix and `trace.sh` for IR comparisons.
+
+The `OPT-8` rows compare a runtime round count with a specialization for four
+rounds, using fifteen paired samples on Apple arm64. Times are medians; speedups
+are medians of paired ratios. See [const-monomorphization
+measurements](https://github.com/nupp-lang/nupp/blob/c7771128d6c10f06cd6150d0eb625b9ad4a62962/bench/kernel-subset-spike/README.md#const-monomorphization-evidence)
+for the recorded run. The script also measures hand-written Lua variants;
+those are separate from the compiler-generated AOT results shown here.
 :::
 
 ## Inspecting, controlling, and measuring

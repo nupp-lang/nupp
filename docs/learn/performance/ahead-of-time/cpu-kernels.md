@@ -428,7 +428,7 @@ call, and it returns exactly one of them. A span does not cross an entry
 boundary this way: the callee would need the caller's bounds proof, which is the
 caller's and not transportable.
 
-::: deepdive
+::: deepdive Calls inside SIMD loops
 A `@simd` loop that calls an entry cannot lower lane-parallel, and the build
 fails saying so:
 

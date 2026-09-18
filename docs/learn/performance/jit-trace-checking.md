@@ -542,7 +542,7 @@ Adding a newly proved unconditional blocker creates a new catalog identity and
 version, and it can make an existing `@jit` contract fail after a compiler
 upgrade.
 
-::: deepdive
+::: deepdive Evidence for static checks
 The bar for promoting an observation to a static rule is a deterministic VM
 fixture, a neighboring accepted fixture, source attribution, and a specific
 working alternative. One application abort is evidence to investigate rather

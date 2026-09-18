@@ -85,7 +85,7 @@ That is the largest single win where it applies, and the source decides where
 it applies: the mark is a requirement, so a marked loop that cannot run in lanes
 fails the build rather than quietly running one iteration at a time.
 
-::: deepdive
+::: deepdive Required compilation
 The annotation is a contract over ordinary Nupp rather than a restricted
 sublanguage: the body uses the same parser, type system, operators, and
 diagnostics, so removing the annotation changes performance and artifacts but
