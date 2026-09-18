@@ -277,25 +277,6 @@ elseif kind == __nuppSwitchNil2 then kind = nil end
 
 Maps are allocated once per module. Missing keys need no range guard.
 
-#### Ordered branches
-
-Coverage builds, small maps, block arms, destructuring, refinements, nested
-switches, and effectful results keep ordered branches.
-
-Record cases compare nominal metatable identities. Proven record-only selectors
-can share an unguarded identity read; open or optional selectors keep guards.
-
-#### Rejected and deferred plans
-
-Lookup maps return final values. LuaJIT has no computed jump into a lexical arm,
-so other cases retain branches.
-
-String perfect hashing lost to LuaJIT tables. Sparse integer perfect hashes
-improved traced execution but slowed interpretation, so they remain deferred.
-
-`bench/switch-dispatch.lua` retains the `ph-ffi` and `ph-lua` experiments.
-Choosing between them needs hotness information the compiler does not have.
-
 AOT can emit a native C `switch` for exact-width selectors. See [scalar switches
 and do
 blocks](ahead-of-time/numeric-semantics.md#scalar-switch-expressions-and-do-blocks).
@@ -909,6 +890,7 @@ end
 ```
 :::
 
+::: note
 `--remarks` reports both rewrites:
 
 ```text
@@ -919,6 +901,7 @@ OPT-6: view-scalar-replacement: virtualizes one alias
 Column pointers and the physical base are bound once; each iteration computes
 one physical index. The source owner stays live. These bindings primarily help
 interpreted execution; LuaJIT can discover the same invariants.
+:::
 
 #### Admitted roots
 
