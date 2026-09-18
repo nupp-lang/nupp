@@ -768,8 +768,65 @@ local function truthy(value)
     return value.kind ~= "nil" and not (value.kind == "boolean" and not value.value)
 end
 
-local function scope(parent)
-    return {parent = parent, constants = {}, paths = {}}
+local function bindingKey(token)
+    return token.definition or token.text
+end
+
+local function markWritten(writes, token)
+    if token then
+        writes[bindingKey(token)] = true
+    end
+end
+
+-- Include writes in nested functions: an escaping closure may run between any
+-- two reads. Definition identity keeps a shadowing local's writes separate.
+local function writtenBindings(node, writes)
+    if not node or isToken(node) then
+        return
+    end
+
+    if node.kind == "assignStmt" then
+        for _, target in ipairs(node.targets or {}) do
+            if target.kind == "name" then
+                markWritten(writes, target.token)
+            end
+        end
+    elseif node.kind == "compoundAssign" then
+        if node.target and node.target.kind == "name" then
+            markWritten(writes, node.target.token)
+        end
+    elseif node.kind == "funcStmt" then
+        local name = node.name
+        if name and not name.method and #name == 1 then
+            markWritten(writes, name.base)
+            -- A function declaration may receive a fresh checker definition
+            -- even when Lua assigns an existing local of the same name.
+            writes[name.base.text] = true
+        end
+    end
+    for _, child in ipairs(node) do
+        writtenBindings(child, writes)
+    end
+end
+
+local function scope(parent, writes)
+    return {parent = parent, constants = {}, paths = {}, writes = writes or parent and parent.writes or {}}
+end
+
+local function unchangedScalar(name, value, current)
+    if not value or not value.code or not name.definition or current.writes[
+        bindingKey(name)
+    ] or current.writes[name.text] then
+        return false
+    end
+    -- Wider representations and ownership still belong to the checker and
+    -- generator. Only plain Lua scalar bindings take this implicit propagation.
+    local t = name.inferredType
+    if t and t.tag == "literal" then
+        t = t.base
+    end
+
+    return t and (t.tag == "number" or t.tag == "integer" or t.tag == "string" or t.tag == "boolean" or t.tag == "nil")
 end
 
 local function lookupConstant(current, name)
@@ -890,6 +947,10 @@ local function foldExpr(node, current)
     if not node or isToken(node) then
         return nil
     end
+    -- A second visit after inlining must recompute directives, including the
+    -- parentheses added when a literal was used as a call or index prefix.
+    node.folded = nil
+    node.foldedExpression = nil
     local kind = node.kind
     if kind == "number" then
         local value = integerLiteral(node)
@@ -913,7 +974,7 @@ local function foldExpr(node, current)
     elseif kind == "comptimeExpr" then
         return comptimeLiteral(node)
     elseif kind == "name" and node.token then
-        local value = lookupConstant(current, node.token.text)
+        local value = lookupConstant(current, bindingKey(node.token))
         if value then
             node.folded = value.code
         end
@@ -954,23 +1015,31 @@ local function foldExpr(node, current)
         return nil
     elseif kind == "binop" then
         local left, right = foldExpr(node.lhs, current), foldExpr(node.rhs, current)
-        if not left or not right or not node.op then
+        if not node.op then
             return nil
         end
         local op = node.op.kind
-        if op == "and" then
-            local folded = truthy(left) and right or left
-            node.folded = folded.code
-            return folded
-        elseif op == "or" then
-            local folded = truthy(left) and left or right
-            node.folded = folded.code
-            return folded
-        elseif op == "??" then
-            local folded = left.kind == "nil" and right or left
-            node.folded = folded.code
-            return folded
-        elseif left.kind == "number" and right.kind == "number" then
+        if left and left.code and (op == "and" or op == "or" or op == "??") then
+            local takeRight = op == "and" and truthy(
+                left
+            ) or op == "or" and not truthy(left) or op == "??" and left.kind == "nil"
+            local selected = left
+            if takeRight then
+                selected = right
+                -- A logical expression projects one result, even when its
+                -- selected operand is a call or vararg. gen keeps parentheses.
+                node.foldedExpression = node.rhs
+            end
+            if selected and selected.code then
+                node.folded = selected.code
+                return selected
+            end
+            return nil
+        end
+        if not left or not right then
+            return nil
+        end
+        if left.kind == "number" and right.kind == "number" then
             local answer
             if op == "+" then
                 answer = left.value + right.value
@@ -1007,11 +1076,10 @@ local function foldExpr(node, current)
         local comparable = scalar and (left.kind == right.kind or (left.kind == "nil" or right.kind == "nil"))
         if comparable and (op == "==" or op == "~=") then
             local equal = left.value == right.value
-            local folded = literal(
-                "boolean",
-                op == "==" and equal or not equal,
-                tostring(op == "==" and equal or not equal)
-            )
+            if op == "~=" then
+                equal = not equal
+            end
+            local folded = literal("boolean", equal, tostring(equal))
             node.folded = folded.code
             return folded
         end
@@ -1120,7 +1188,7 @@ local function foldExpr(node, current)
         local inner = scope(current)
         for _, param in ipairs(node.params or {}) do
             if param.name then
-                inner.constants[param.name.text] = false
+                inner.constants[bindingKey(param.name)] = false
             end
         end
         if node.expr then
@@ -1138,7 +1206,7 @@ foldFunction = function(body, current)
     local inner = scope(current)
     for _, param in ipairs(body.params or {}) do
         if param.name then
-            inner.constants[param.name.text] = false
+            inner.constants[bindingKey(param.name)] = false
         end
     end
     if body.body then
@@ -1154,7 +1222,8 @@ local function foldStatement(stat, current)
             values[i] = foldExpr(expr, current)
         end
         for i, name in ipairs(stat.names or {}) do
-            current.constants[name.text] = stat.isConst and values[i] or false
+            local known = stat.isConst or not stat.pattern and unchangedScalar(name, values[i], current)
+            current.constants[bindingKey(name)] = known and values[i] or false
             if stat.isConst and values[i] and values[i].kind == "table" then
                 bindObjectFields(current, name.text, values[i])
             else
@@ -1169,7 +1238,7 @@ local function foldStatement(stat, current)
         for i, target in ipairs(stat.targets or {}) do
             local path = textPath(target)
             if target.kind == "name" and target.token then
-                current.constants[target.token.text] = false
+                current.constants[bindingKey(target.token)] = false
                 bindPath(current, target.token.text, nil)
             else
                 foldExpr(target, current)
@@ -1193,29 +1262,51 @@ local function foldStatement(stat, current)
         foldExpr(stat.target, current)
         foldExpr(stat.value, current)
         if stat.target and stat.target.kind == "name" and stat.target.token then
-            current.constants[stat.target.token.text] = false
+            current.constants[bindingKey(stat.target.token)] = false
         end
     elseif kind == "yieldStmt" then
         foldExpr(stat.value, current)
     elseif kind == "ifStmt" then
-        local selected, allConstant = nil, true
+        stat.constantBranch, stat.constantBranchNone = nil, nil
+        stat.constantClauses, stat.constantElse = nil, nil
+        local kept, selected, finished, changed, hasBinding = {}, nil, false, false, false
         for _, clause in ipairs(stat.clauses or {}) do
             local condition = foldExpr(clause.cond, current)
-            if not condition then
-                allConstant = false
-            elseif not selected and truthy(condition) then
-                selected = clause.body
+            hasBinding = hasBinding or clause.binding ~= nil
+            if not finished then
+                if condition and condition.code and not clause.binding then
+                    changed = true
+                    if truthy(condition) then
+                        selected, finished = clause.body, true
+                    end
+                else
+                    kept[#kept + 1] = clause
+                end
             end
             if clause.body then
-                foldBlock(clause.body, scope(current))
+                local inner = scope(current)
+                if clause.binding then
+                    inner.constants[bindingKey(clause.binding)] = false
+                    bindPath(inner, clause.binding.text, nil)
+                end
+                foldBlock(clause.body, inner)
             end
         end
         if stat.elseClause and stat.elseClause.body then
             foldBlock(stat.elseClause.body, scope(current))
         end
-        if allConstant then
-            stat.constantBranch = selected or (stat.elseClause and stat.elseClause.body)
-            stat.constantBranchNone = stat.constantBranch == nil
+        if not finished then
+            selected = stat.elseClause and stat.elseClause.body
+        end
+        -- Binding conditions test nil rather than truthiness and introduce a
+        -- local. Their existing lowering keeps that separate contract intact.
+        if changed and not hasBinding then
+            if #kept == 0 then
+                stat.constantBranch = selected
+                stat.constantBranchNone = selected == nil
+            else
+                stat.constantClauses, stat.constantElse = kept, selected
+            end
         end
     elseif kind == "whileStmt" then
         local condition = foldExpr(stat.cond, current)
@@ -1264,7 +1355,7 @@ local function foldStatement(stat, current)
         end
         local inner = scope(current)
         if stat.var then
-            inner.constants[stat.var.text] = false
+            inner.constants[bindingKey(stat.var)] = false
         end
         if stat.body then
             foldBlock(stat.body, inner)
@@ -1275,14 +1366,14 @@ local function foldStatement(stat, current)
         end
         local inner = scope(current)
         for _, name in ipairs(stat.names or {}) do
-            inner.constants[name.text] = false
+            inner.constants[bindingKey(name)] = false
         end
         if stat.body then
             foldBlock(stat.body, inner)
         end
     elseif kind == "localFuncStmt" then
         if stat.name then
-            current.constants[stat.name.text] = false
+            current.constants[bindingKey(stat.name)] = false
         end
         if stat.body then
             foldFunction(stat.body, current)
@@ -1302,16 +1393,20 @@ foldBlock = function(block, current)
     end
 end
 
-local function constantFoldWalk(node)
+local function constantFoldWalk(node, writes)
     if not node or isToken(node) then
         return
     end
+    if not writes then
+        writes = {}
+        writtenBindings(node, writes)
+    end
     if node.kind == "block" then
-        foldBlock(node, scope(nil))
+        foldBlock(node, scope(nil, writes))
         return
     end
     for _, child in ipairs(node) do
-        constantFoldWalk(child)
+        constantFoldWalk(child, writes)
     end
 end
 
@@ -2440,14 +2535,15 @@ local function inlineReturnHelperWalk(result, remarks)
     local root = result.root
     local candidates = inlinableHelpers(root)
     if not next(candidates) then
-        return
+        return false
     end
     dropReassigned(root, candidates)
     dropRebound(root, candidates)
     if not next(candidates) then
-        return
+        return false
     end
 
+    local changed = false
     local shadowed = {}
     -- A call in statement position is a statement, and a parenthesized expression is
     -- not one. `f(x)` alone on a line has nowhere to become `(body)`, so it stays a
@@ -2560,6 +2656,7 @@ local function inlineReturnHelperWalk(result, remarks)
             end
             local helper, subs, name = helperFor(node)
             if helper and inlineInto(node, helper, subs) then
+                changed = true
                 remark(remarks, node, "OPT-7", ("inline-return-helper: inlines %s"):format(name))
             end
 
@@ -2611,6 +2708,8 @@ local function inlineReturnHelperWalk(result, remarks)
             walkNode(stat)
         end
     end
+
+    return changed
 end
 
 ----------------------------------------------------------------------------
@@ -2761,7 +2860,10 @@ function optimize.run(result: optimize.Checked, opts: optimize.Options?): ({any}
         finalizeIndexedViewParameterTransport(parameterTransports, remarks)
     end
     if level >= optimize.passes["OPT-7"].level and not disabled["OPT-7"] then
-        inlineReturnHelperWalk(result, remarks)
+        local inlined = inlineReturnHelperWalk(result, remarks)
+        if inlined and not disabled["OPT-3"] then
+            constantFoldWalk(result.root)
+        end
     end
     local specializedBodies: integer = 0
     if level >= optimize.passes["OPT-8"].level and not disabled["OPT-8"] then
@@ -2817,6 +2919,17 @@ function optimize.allocationSites(result: optimize.Checked): {optimize.Allocatio
             return
         end
         if node.comptimeValue or node.folded then
+            return
+        end
+        if node.foldedExpression then
+            visit(node.foldedExpression)
+            return
+        end
+        if node.constantClauses then
+            for _, clause in ipairs(node.constantClauses) do
+                visit(clause)
+            end
+            visit(node.constantElse)
             return
         end
         local kind = nil as string?
@@ -2876,6 +2989,17 @@ function optimize.liveEffects(result: optimize.Checked): {[string]: boolean}
             return
         end
         if node.comptimeValue or node.folded then
+            return
+        end
+        if node.foldedExpression then
+            visit(node.foldedExpression)
+            return
+        end
+        if node.constantClauses then
+            for _, clause in ipairs(node.constantClauses) do
+                visit(clause)
+            end
+            visit(node.constantElse)
             return
         end
         if node.compilerFeatureEffect then

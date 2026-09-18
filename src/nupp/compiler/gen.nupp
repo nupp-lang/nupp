@@ -2861,8 +2861,11 @@ function gen.generate(
     ---------------------------------------------------------------------
 
     local function switchContains(node): boolean
-        if not node or cst.isToken(node) then
+        if not node or cst.isToken(node) or node.folded then
             return false
+        end
+        if node.foldedExpression then
+            return switchContains(node.foldedExpression)
         end
         if node.kind == "switchExpr" or node.kind == "doExpr" then
             return true
@@ -3010,7 +3013,13 @@ function gen.generate(
     end
 
     local function lowerSwitches(node, lazy: boolean?)
-        if not node or cst.isToken(node) or emitDepth.switchValueTemps[node] or emitDepth.switchTemps[node] then
+        if not node or cst.isToken(
+            node
+        ) or node.folded or emitDepth.switchValueTemps[node] or emitDepth.switchTemps[node] then
+            return
+        end
+        if node.foldedExpression then
+            lowerSwitches(node.foldedExpression, lazy)
             return
         end
         local kind = node.kind
@@ -5150,6 +5159,12 @@ function gen.generate(
             e(x.folded, sourceLine(x))
             return
         end
+        if x.foldedExpression then
+            e("(", sourceLine(x))
+            emit(x.foldedExpression)
+            e(")")
+            return
+        end
         if pluck.int64.enabled and kind == "unop" and x.op and x.operand and pluck.int64.isWide(x.inferredType) then
             pluck.needRuntimeEffect(pluck.int64.effect)
             e(("%s.%s("):format(pluck.int64.name, x.op.kind == "-" and "neg" or "bnot"), x.op.line)
@@ -5537,9 +5552,12 @@ function gen.generate(
             e("end", endTok and endTok.line or nil)
             return
         end
-        if kind == "ifStmt" and emitDepth.hasBlockCondition(x) then
+        if kind == "ifStmt" and not (
+            x.constantBranch or x.constantBranchNone
+        ) and (x.constantClauses or emitDepth.hasBlockCondition(x)) then
+            local clauses = x.constantClauses or x.clauses
             e("do ", sourceLine(x))
-            for index, clause in ipairs(x.clauses) do
+            for index, clause in ipairs(clauses) do
                 if index > 1 then
                     e("else ", sourceLine(clause))
                 end
@@ -5568,11 +5586,16 @@ function gen.generate(
                 end
                 emit(clause.body)
             end
-            if x.elseClause then
+            if x.constantClauses then
+                if x.constantElse then
+                    e("else ", sourceLine(x.constantElse))
+                    emit(x.constantElse)
+                end
+            elseif x.elseClause then
                 emit(x.elseClause)
             end
             local endTok = pluck.endToken(x)
-            for _ = 1, #x.clauses + 1 do
+            for _ = 1, #clauses + 1 do
                 e("end ", endTok and endTok.line)
             end
             return

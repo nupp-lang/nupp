@@ -491,7 +491,9 @@ compile-time value.
 ### `OPT-3`, constant folding
 
 Exact integer arithmetic, strings, comparisons, and boolean selection fold, and
-primitive `const` values propagate through later expressions.
+primitive `const` values propagate through later expressions. Ordinary scalar
+locals propagate too when no assignment anywhere in the file, including a
+nested function, writes that binding. Shadowing names remain separate bindings.
 
 ::: code-group
 ```nupp [Nupp]
@@ -522,8 +524,13 @@ end
 ```
 :::
 
-Floating-point arithmetic, cdata, calls, allocation, and mutable bindings stay
+Floating-point arithmetic, cdata, calls, allocation, and reassigned bindings stay
 at runtime so LuaJIT retains their rounding, identity, errors, and lifetimes.
+
+A known left operand also simplifies `and`, `or`, and `??` without requiring
+the right operand to be constant. A selected call still runs once and produces
+one value; an unselected operand does not run. An unknown left operand keeps
+its evaluation even when the right operand is constant.
 
 #### Integer division and the bit operators
 
@@ -629,8 +636,10 @@ removing it would remove the hang rather than the cost of it.
 
 #### Constant branches
 
-If every tested condition is constant, only the selected arm is emitted; a `do`
-preserves the arm's original scope.
+Constant false arms disappear even among dynamic conditions. A constant true
+arm becomes the final fallback, removing every later arm. The remaining
+conditions keep their evaluation order. When no dynamic conditions remain,
+only the selected arm is emitted; a `do` preserves its original scope.
 
 ::: code-group
 ```nupp [Nupp]
@@ -1017,6 +1026,10 @@ end
 
 The declaration stays, because something else may still call it, and a call this
 pass declines is an ordinary call.
+
+When `OPT-3` is enabled, folding runs again after inlining. Constants exposed
+by a helper's arguments can then propagate to later expressions and select
+branches in the caller.
 
 `@aot` already inlines exactly these into a compiled body, so without this pass
 the two routes did not see the same source: the annotated body got the helper's

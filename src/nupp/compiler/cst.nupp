@@ -177,6 +177,10 @@ interface cst.Hints
     --- Lua source replacing a primitive expression the optimizer proved constant.
     folded: string?
 
+    --- The selected operand of a constant short-circuit expression. It still
+    --- produces exactly one value and may have runtime effects.
+    foldedExpression: cst.Node?
+
     --- Every edge from a const root to this expression is read-only.
     immutablePath: boolean?
 
@@ -200,6 +204,12 @@ interface cst.Hints
 
     --- A branch whose preceding conditions the optimizer proved false.
     constantBranch: cst.Node?
+
+    --- Runtime conditions left after removing constant arms, with the final
+    --- selected fallback body (if any).
+    constantClauses: {cst.Node}?
+
+    constantElse: cst.Node?
 
     --- A `..` the checker resolved to Lua's primitive concatenation: no `__concat` was
     --- reached, and neither side was `any`. False or absent means a rewrite may not
