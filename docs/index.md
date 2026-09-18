@@ -25,6 +25,10 @@ flow.
 ```playground
 ```
 
+<p style="text-align: right;"><small><em>
+Note: for WASM compatibility, these examples lower to Lua 5.1, not LuaJIT.
+</em></small></p>
+
 ---
 
 <!-- nupp:features -->
