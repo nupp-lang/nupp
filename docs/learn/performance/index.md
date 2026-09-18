@@ -1175,11 +1175,6 @@ permission.
 No. Optimization preserves results; other observable guarantees require explicit
 `@relax` permission to change.
 
-### Which level should a project ship?
-
-`-O1`. Use `-O0` for faster builds and simpler generated Lua. `-O2` currently
-matches `-O1`.
-
 ### Why did a pass not fire on code that looks eligible?
 
 Use `--remarks` to find the failed proof. Common blockers are mutable bindings
