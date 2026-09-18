@@ -67,6 +67,12 @@ local function familyOf(typeName: string): string?
 end
 
 --- The reducer operations a vector may contribute to.
+---
+--- Every one of them: a lane is a logical iteration, so a whole group of them
+--- contributes exactly what that run of iterations would have contributed one
+--- at a time. The two that answer a position need nothing extra for that --
+--- the reducer counts its own contributions, and ascending lane order is
+--- ascending iteration order.
 const VECTOR_CONTRIBUTIONS = {
     ["sum"] = true,
     ["product"] = true,
@@ -76,6 +82,11 @@ const VECTOR_CONTRIBUTIONS = {
     ["xor"] = true,
     ["min"] = true,
     ["max"] = true,
+    ["argmin"] = true,
+    ["argmax"] = true,
+    ["any"] = true,
+    ["all"] = true,
+    ["count"] = true,
 }
 
 ----------------------------------------------------------------------------
@@ -733,6 +744,17 @@ expression = function(node: scalarIR.Expr, state: simdrewrite.State): scalarIR.E
             vectorType("f32", state),
             source
         )
+    elseif op == "f32_fma" then
+        -- The prelude's own correction, one lane at a time. Nothing binary64
+        -- computes is this: a fused product-sum rounded to binary64 and then to
+        -- binary32 rounds twice, and the two answers differ around a subnormal.
+        local corrected = node as scalarIR.Corrected
+        local args: {scalarIR.Expr} = {}
+        for position, argument in ipairs(corrected.args as {scalarIR.Expr}) do
+            args[position] = asLocal(vec(argument, "f32", state), state)
+        end
+
+        return simd("simd_call", op, args, vectorType("f32", state), source)
     elseif COMPARISONS[op] == true then
         local binary = node as scalarIR.Binary
         local element = rewrite.comparisonElement(binary.left, binary.right)
@@ -1035,7 +1057,7 @@ local function contribution(
         state.reject("a reducer contribution inside an inner loop has no lane-parallel form")
     end
     if VECTOR_CONTRIBUTIONS[statement.operation] ~= true then
-        state.reject("a " .. statement.operation .. " reducer takes no vector contribution")
+        state.reject("the " .. statement.operation .. " reducer takes no vector contribution")
     end
     local named = statement.reducer as scalarIR.Name
     local reducerType = tostring(named.type)
@@ -1045,6 +1067,11 @@ local function contribution(
     end
     local element = input as string
     local _, _, parsed = reducers.parse(reducerType)
+    -- A predicate reducer takes a truth per lane, which is a mask of the
+    -- control element rather than a vector of its own; everything else takes a
+    -- vector of the element the binding names.
+    local predicate = element == "bool"
+    local carrier = predicate and state.control or element
     local entry = state.reducerEntries[named.name]
     if entry == nil then
         entry = new scalarIR.SimdRegionReducer(
@@ -1053,20 +1080,20 @@ local function contribution(
             order = statement.order,
             operation = statement.operation,
             element = parsed,
-            vectorType = vectorType(element, state)
+            vectorType = predicate and maskType(carrier, state) or vectorType(carrier, state)
         )
         state.reducerEntries[named.name] = entry
         state.reducerOrder[#state.reducerOrder + 1] = named.name
     end
     local mask: scalarIR.Expr
     if statementMask ~= nil then
-        mask = maskAs(statementMask as scalarIR.Expr, element, state)
+        mask = maskAs(statementMask as scalarIR.Expr, carrier, state)
     else
-        mask = maskSplat(boolConstant(true, statement.source), element, state)
+        mask = maskSplat(boolConstant(true, statement.source), carrier, state)
     end
     local right: scalarIR.Expr? = nil
     if statement.right ~= nil then
-        right = vec(statement.right as scalarIR.Expr, element, state)
+        right = vec(statement.right as scalarIR.Expr, carrier, state)
     end
 
     return new scalarIR.SimdReducerAdd(
@@ -1078,7 +1105,7 @@ local function contribution(
             type = named.type,
             source = named.source
         ),
-        value = vec(statement.value, element, state),
+        value = predicate and conditionMask(statement.value, state) or vec(statement.value, carrier, state),
         mask = mask,
         right = right,
         order = statement.order,

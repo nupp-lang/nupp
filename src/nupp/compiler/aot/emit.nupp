@@ -206,6 +206,13 @@ const GENERIC_SPECIES = {
     ["simd_math"] = 0,
 }
 
+--- The binary32 operations whose native instruction is right about the value
+--- and wrong about NaN, by the prelude function that repairs each. A lane-wise
+--- `simd_call` names one of these through its intrinsic rather than naming a
+--- compiled Nupp helper, which is what keeps a vector answer bit-identical to
+--- the scalar one: it is the same C function on the same binary32 lane.
+const CORRECTED_C = {["f32_min"] = "nupp_f32_min", ["f32_max"] = "nupp_f32_max", ["f32_fma"] = "nupp_f32_fma",}
+
 --- The generic SIMD operations that render as one helper call over their
 --- arguments in order, by the verb the helper is named for. The rest that
 --- render so are named for their intrinsic.
@@ -1347,6 +1354,13 @@ function emit.scalar(context: emit.Context, node: scalarIR.Expr): string
                         perLane[
                             #perLane + 1
                         ] = "(" .. elementC .. ")" .. emit.mathFrom(context, tostring(simd.intrinsic), parts)
+                    elseif CORRECTED_C[tostring(simd.intrinsic)] ~= nil then
+                        -- A correction is binary32 all the way through: the lane
+                        -- goes to the prelude as it stands, because widening it
+                        -- would round the answer twice.
+                        perLane[
+                            #perLane + 1
+                        ] = tostring(CORRECTED_C[tostring(simd.intrinsic)]) .. "(" .. table.concat(parts, ", ") .. ")"
                     else
                         local names = context.explicitScalar and context.scalarHelperNames or context.helperNames
                         local selected = names[tostring(simd.helper)]
@@ -1753,8 +1767,7 @@ function emit.scalarCall(context: emit.Context, node: scalarIR.Expr): string
             .. "ks_bits ^= ks_bits << 8u; ks_bits ^= ks_bits << 16u; ks_bits ^= ks_bits << 32u; ks_bits; })"
     end
 
-    local corrected = {["f32_min"] = "nupp_f32_min", ["f32_max"] = "nupp_f32_max", ["f32_fma"] = "nupp_f32_fma",}
-    local helper = corrected[operation]
+    local helper = CORRECTED_C[operation]
     if helper ~= nil then
         local parts: {string} = {}
         local three = node as scalarIR.Corrected
@@ -4008,6 +4021,10 @@ function emit.block(
                 local stateful = reducerHelper(contribution.order, contribution.operation, contribution.element)
                 for index = 0, species.lanes - 1 do
                     local laneValue = genericLane(context, species, "simd_value_" .. serial, index)
+                    if contribution.element == "bool" then
+                        -- A predicate lane is a mask lane, all bits or none.
+                        laneValue = "(bool)" .. laneValue
+                    end
                     if right ~= nil then
                         laneValue = "(" .. laneValue .. " * " .. genericLane(
                             context,
@@ -4038,12 +4055,13 @@ function emit.block(
                 local parallel: {scalarIR.SimdRegionReducer} = {}
                 lines[#lines + 1] = prefix .. "{"
                 -- A parallel order over a native species accumulates lane-wise
-                -- and folds once at the end; the oracle, a composite and every
-                -- other order contribute lane by lane as they go.
+                -- and folds once at the end; the oracle, a composite, a
+                -- predicate whose lanes are a mask and every other order
+                -- contribute lane by lane as they go.
                 if body.forceScalar ~= true and not context.explicitScalar then
                     for _, reducer in ipairs(region.reducers) do
                         local species = genericSpecies(context, reducer.vectorType)
-                        if reducers.parallel(reducer.order) and not species.composite then
+                        if reducers.parallel(reducer.order) and not species.composite and reducer.element ~= "bool" then
                             temporary = temporary + 1
                             local name = "simd_acc_" .. tostring(temporary)
                             accumulators[reducer.name] = name

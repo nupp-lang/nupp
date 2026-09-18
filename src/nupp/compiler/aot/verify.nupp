@@ -211,6 +211,10 @@ const verify.BITWISE_ARITY = {["and"] = 2, ["or"] = 2, ["xor"] = 2, ["shl"] = 2,
 --- The correcting binary32 helpers, and how many operands each takes.
 const verify.CORRECTED_ARITY = {["nupp_f32_min"] = 2, ["nupp_f32_max"] = 2, ["nupp_f32_fma"] = 3,}
 
+--- The same three named as a lane-wise `simd_call` names them: by the operation
+--- being corrected rather than by the prelude function that corrects it.
+const CORRECTED_LANES = {["f32_min"] = 2, ["f32_max"] = 2, ["f32_fma"] = 3,}
+
 --- The element each explicitly fixed-width binary operation works in.
 const verify.FIXED_BINARY = {
     ["f32_add"] = "f32",
@@ -1131,7 +1135,16 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
         elseif op == "simd_call" or op == "simd_math" then
             holds(family == "vector" and #args >= 1, "invalid generic SIMD lane-wise call")
             local scalar = genericSimdScalar(element)
-            if op == "simd_call" then
+            local corrected = op == "simd_call" and CORRECTED_LANES[tostring(simd.intrinsic)] or nil
+            if corrected ~= nil then
+                -- A correction is the prelude's own binary32 function applied
+                -- lane by lane, so it names no compiled helper and takes its
+                -- lanes as they stand.
+                holds(
+                    simd.helper == nil and element == "f32" and #args == corrected,
+                    "invalid generic SIMD lane-wise correction"
+                )
+            elseif op == "simd_call" then
                 local found = simd.helper ~= nil and scope.helpers[simd.helper as string] or nil
                 holds(found ~= nil, "invalid generic SIMD lane-wise helper")
                 local helper = found as scalarIR.Helper
@@ -2508,11 +2521,29 @@ end
 ---
 --- `stored` accumulates which outputs were written, because a kernel whose
 --- output is never assigned is a kernel that silently did nothing.
---- The reducer operations a masked vector contribution can make. The rest
---- take a lane index or a boolean the vector vocabulary has no carrier for.
+--- The reducer operations a masked vector contribution can make, which is all
+--- of them. A lane is one logical iteration, so a group of active lanes in
+--- ascending order contributes what those iterations would have contributed
+--- one at a time -- including the position the two argument extrema answer,
+--- which the reducer derives from the contributions it has counted. A
+--- predicate reducer takes its truth per lane as a mask rather than a vector.
 local VECTOR_CONTRIBUTIONS: {
     [string]: boolean
-} = {sum = true, product = true, dot = true, ["and"] = true, ["or"] = true, xor = true, min = true, max = true,}
+} = {
+    sum = true,
+    product = true,
+    dot = true,
+    ["and"] = true,
+    ["or"] = true,
+    xor = true,
+    min = true,
+    max = true,
+    argmin = true,
+    argmax = true,
+    any = true,
+    all = true,
+    count = true,
+}
 
 --- How many times one pass over a statement sequence contributes to each
 --- reducer: statements in sequence add and the arms of a branch take the
@@ -2848,7 +2879,9 @@ local function block(
             )
             local family, element, shape = genericSimdType(entry.vectorType)
             holds(
-                family == "vector"
+                family == (
+                    entry.element == "bool" and "mask" or "vector"
+                )
                 and contribution.value.type == entry.vectorType
                 and contribution.mask.type == "simd_mask_"
                 .. tostring(
@@ -2885,10 +2918,14 @@ local function block(
                     "a SIMD region's reducer does not match its binding"
                 )
                 local family, element = genericSimdType(entry.vectorType)
+                -- A predicate reducer takes a mask of whichever element carries
+                -- control; every other one takes a vector of its own element.
                 holds(
-                    family == "vector" and genericSimdScalar(
-                        element
-                    ) == input and VECTOR_CONTRIBUTIONS[entry.operation] == true,
+                    (
+                        input == "bool" and family == "mask" or family == "vector" and genericSimdScalar(
+                            element
+                        ) == input
+                    ) and VECTOR_CONTRIBUTIONS[entry.operation] == true,
                     "a SIMD region's reducer takes no vector contribution"
                 )
                 accumulated[entry.name] = entry
