@@ -28,7 +28,7 @@ local scalarIR = {}
 ---
 --- Carried in the IR and checked when it is read back, so an IR written by an
 --- older compiler is refused rather than half-understood.
-const scalarIR.VERSION = 38
+const scalarIR.VERSION = 39
 
 --- The calling convention selected for one complete AOT entry.
 ---
@@ -154,6 +154,15 @@ record scalarIR.LuaString
     op: 'lua_string'
     value: string
     type: 'lua_string'
+    source: scalarIR.Source?
+end
+
+--- Compares a rooted string with literal bytes without allocating a case value.
+record scalarIR.LuaStringMatch
+    op: 'lua_string_match'
+    bytes: scalarIR.Expr
+    value: string
+    type: 'bool'
     source: scalarIR.Source?
 end
 
@@ -891,6 +900,7 @@ type scalarIR.Expr = scalarIR.Constant
     | scalarIR.Bool
     | scalarIR.LuaNil
     | scalarIR.LuaString
+    | scalarIR.LuaStringMatch
     | scalarIR.LuaConcat
     | scalarIR.LuaSubstring
     | scalarIR.LuaStringByte

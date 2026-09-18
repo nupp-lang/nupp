@@ -863,4 +863,34 @@ return {count = count}
     assert(not ok, "a condition cannot read locals from omitted setup")
 end
 
+function M.stringSwitchMatchesRootedBytesAndVisitsTheSelector()
+    local program = lowered(
+        [[
+@aot(vectorize = false)
+local function command(value: string): number
+    return switch value do case "start" -> 1 else -> 0 end
+end
+return {command = command}
+]],
+        "string-switch.nupp"
+    )
+    local matched
+    local visited = {}
+    require("nupp.compiler.aot.visit").program(program, {
+        scalarExpression = function(node)
+            visited[node] = true
+            if node.op == "lua_string_match" then
+                matched = node
+            end
+        end,
+    })
+    assert(matched and matched.value == "start")
+    assert(visited[matched.bytes], "the string selector is included in expression traversal")
+    matched.value = 17
+    refuses(program, "string match literal is not bytes")
+    matched.value = "start"
+    matched.bytes.op = "lua_string"
+    refuses(program, "string match input is not rooted")
+end
+
 return M

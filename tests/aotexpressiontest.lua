@@ -12,6 +12,7 @@ local M = {}
 local SOURCE = [[
 module expressions
 local span = require("nupp.mem.span")
+const STRING_COMMAND = "ready\0go"
 @aot(vectorize = false)
 local function choose(value: number): number
     local seen = 1.0
@@ -256,6 +257,61 @@ local function textBlock(flag: boolean): string
         yield text
     end
 end
+@aot
+local function stringSelector(command: string): number
+    return switch command do
+        case "" -> 0
+        case "start", "run" -> 1
+        case "stop" -> 2
+        case (STRING_COMMAND) -> 8
+        case "a\0b" -> 3
+        case "a\0c" -> 4
+        case "\255" -> 5
+        case "λ" -> 6
+        case "quote\"\\" -> 7
+        else -> -1
+    end
+end
+@aot(vectorize = false)
+local function computedStringSelector(command: string): number
+    local visits = 0.0
+    local current = command
+    local result = switch do visits = visits + 1 yield current end do
+        case "start" -> do current = "stop" yield 9 end
+        case "stop" -> do return 20 + visits end
+        else -> -1
+    end
+    return result + visits * 10
+end
+@aot(vectorize = false)
+local function staticStringSelector(): number
+    return switch "a\0b" do case "a\0b" -> do local result = 23 yield result end end
+end
+@aot
+local function capturedStringSelector(): number
+    return switch (STRING_COMMAND) do case "ready\0go" -> 29 end
+end
+@aot(vectorize = false)
+local function stringBlockSelector(flag: boolean): string
+    return switch do
+        local start = "start"
+        if flag then yield start end
+        local stop = "stop"
+        yield stop
+    end do
+        case "start" -> do local result = "go" yield result end
+        else -> do local result = "halt" yield result end
+    end
+end
+@aot(vectorize = false)
+local function repeatedStringSelector(command: string, count: integer): number
+    local total = 0.0
+    for i = 1, count do
+        local label = i % 2 == 0 ? command : "other"
+        total = total + switch label do case "start" -> 3 else -> 1 end
+    end
+    return total
+end
 @aot(vectorize = false)
 local function countedHeaders(): number
     local first = 1.0
@@ -337,7 +393,7 @@ local function repeatedStrings(count: integer): string
     end
     return result
 end
-export = {returningSwitchCondition = returningSwitchCondition, mappedHeaders = mappedHeaders, repeatedStrings = repeatedStrings, mapped = mapped, countedHeaders = countedHeaders, countedHeaderExits = countedHeaderExits, nilBlock = nilBlock, textBlock = textBlock, lazyReturns = lazyReturns, returningCondition = returningCondition, choose = choose, lazy = lazy, nested = nested, whileHeader = whileHeader, repeatHeader = repeatHeader, headerExits = headerExits, switchExits = switchExits, elseifSetup = elseifSetup, order = order, booleanResult = booleanResult, booleanSelector = booleanSelector, fractionalSelector = fractionalSelector, nilSelector = nilSelector, fixed = fixed, arguments = arguments, mixed = mixed, neverArm = neverArm, packed = packed, yieldFromHeader = yieldFromHeader, repeatedOuterExits = repeatedOuterExits}
+export = {capturedStringSelector = capturedStringSelector, stringSelector = stringSelector, computedStringSelector = computedStringSelector, staticStringSelector = staticStringSelector, stringBlockSelector = stringBlockSelector, repeatedStringSelector = repeatedStringSelector, returningSwitchCondition = returningSwitchCondition, mappedHeaders = mappedHeaders, repeatedStrings = repeatedStrings, mapped = mapped, countedHeaders = countedHeaders, countedHeaderExits = countedHeaderExits, nilBlock = nilBlock, textBlock = textBlock, lazyReturns = lazyReturns, returningCondition = returningCondition, choose = choose, lazy = lazy, nested = nested, whileHeader = whileHeader, repeatHeader = repeatHeader, headerExits = headerExits, switchExits = switchExits, elseifSetup = elseifSetup, order = order, booleanResult = booleanResult, booleanSelector = booleanSelector, fractionalSelector = fractionalSelector, nilSelector = nilSelector, fixed = fixed, arguments = arguments, mixed = mixed, neverArm = neverArm, packed = packed, yieldFromHeader = yieldFromHeader, repeatedOuterExits = repeatedOuterExits}
 ]]
 
 local SCRIPT = [[
@@ -386,6 +442,23 @@ assert(not m.returningSwitchCondition(0))
 assert(m.nilBlock() == 67)
 assert(m.textBlock(true) == "first")
 assert(m.textBlock(false) == "second")
+for _, case in ipairs({
+    {"", 0}, {"start", 1}, {"run", 1}, {"stop", 2}, {"a\0b", 3}, {"a\0c", 4},
+    {"\255", 5}, {"λ", 6}, {"quote\"\\", 7}, {"a", -1}, {"a\0d", -1},
+    {"a\0b\0", -1}, {"starter", -1}, {"Start", -1}, {"unknown", -1},
+}) do
+    assert(m.stringSelector(case[1]) == case[2], "string selector for " .. string.format("%q", case[1]))
+end
+assert(m.computedStringSelector("start") == 19)
+assert(m.computedStringSelector("stop") == 21)
+assert(m.computedStringSelector("other") == 9)
+assert(m.staticStringSelector() == 23)
+assert(m.capturedStringSelector() == 29)
+assert(m.stringSelector("ready\0go") == 8)
+assert(m.stringBlockSelector(true) == "go")
+assert(m.stringBlockSelector(false) == "halt")
+assert(m.repeatedStringSelector("start", 10000) == 20000)
+assert(m.repeatedStringSelector("stop", 10000) == 10000)
 assert(m.countedHeaders() == 69)
 assert(m.countedHeaderExits() == 24)
 local ffi = require("ffi")

@@ -236,6 +236,7 @@ local LUA_READ_OPS: {
     lua_string_byte_at = true,
     lua_string_u32 = true,
     lua_string_length = true,
+    lua_string_match = true,
     lua_string_byte_lua = true,
     lua_table_get_index = true,
     lua_builder_depth = true,

@@ -1379,6 +1379,12 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
             scope.entryMode == "lua-builder" and node.type == "lua_string" and type(node.value) == "string",
             "Lua string outside a builder"
         )
+    elseif op == "lua_string_match" then
+        local matched = node as scalarIR.LuaStringMatch
+        holds(scope.entryMode == "lua-builder" and node.type == "bool", "string match outside a builder")
+        holds(matched.bytes.type == "lua_string" and matched.bytes.op == "local", "string match input is not rooted")
+        holds(type(matched.value) == "string", "string match literal is not bytes")
+        scalarWalk(matched.bytes, values, scope)
     elseif op == "lua_concat" then
         local joined = node as scalarIR.LuaConcat
         holds(scope.entryMode == "lua-builder" and node.type == "lua_string", "Lua concat outside a builder")

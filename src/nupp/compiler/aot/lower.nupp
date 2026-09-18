@@ -4941,12 +4941,25 @@ local function switchLocal(
         context.reject(lower.site(node), "a native numeric switch requires an arm")
     end
 
-    local selector = lower.expression(node.selector as cst.Node, environment, kernel.index, kernel)
+    -- Captured immutable strings otherwise lower to native byte tables, not
+    -- Lua stack slots. Keep their known value for constant arm selection.
+    local constantString = lower.constantString(lower.unwrapped(node.selector) as cst.Node)
+    local selector: scalarIR.Expr
+    if constantString ~= nil then
+        selector = new scalarIR.LuaString(
+            op = "lua_string",
+            value = constantString,
+            type = "lua_string",
+            source = lower.site(node.selector)
+        )
+    else
+        selector = lower.expression(node.selector as cst.Node, environment, kernel.index, kernel)
+    end
     local numeric = selector.type == "f64" or selector.type == "f32" or selector.type == "i32" or selector.type == "u32"
-    if not numeric and selector.type ~= "bool" and selector.type ~= "lua_nil" then
+    if not numeric and selector.type ~= "bool" and selector.type ~= "lua_nil" and selector.type ~= "lua_string" then
         context.reject(lower.site(node.selector), "a native switch selector needs a supported primitive representation")
     end
-    if selector.type == "lua_nil" then
+    if selector.type == "lua_nil" or selector.type == "lua_string" then
         markLua(kernel, lower.site(node))
     end
     local nativeLabelsFit = selector.type == "i32" or selector.type == "u32"
@@ -4979,7 +4992,7 @@ local function switchLocal(
     end
 
     local staticSelector = fold.exactInteger(selector)
-    local staticPrimitive = selector.op == "bool" or selector.type == "lua_nil"
+    local staticPrimitive = selector.op == "bool" or selector.type == "lua_nil" or selector.op == "lua_string"
     if staticSelector ~= nil or staticPrimitive then
         -- The selector is a constant -- a monomorphized const carrier -- so
         -- the arm is decided here and the untaken arms are never lowered.
@@ -5140,6 +5153,14 @@ local function switchLocal(
             local comparable = right.type == selector.type or numeric and right.type == "f64"
             if not comparable then
                 equal = new scalarIR.Bool(op = "bool", value = false, type = "bool", source = lower.site(caseValue))
+            elseif right.type == "lua_string" then
+                equal = new scalarIR.LuaStringMatch(
+                    op = "lua_string_match",
+                    bytes = selectorRef,
+                    value = (right as scalarIR.LuaString).value,
+                    type = "bool",
+                    source = lower.site(caseValue)
+                )
             elseif right.type == "lua_nil" then
                 equal = new scalarIR.Bool(op = "bool", value = true, type = "bool", source = lower.site(caseValue))
             else

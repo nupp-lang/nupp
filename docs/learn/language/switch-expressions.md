@@ -396,8 +396,8 @@ using the same lowering as [do expressions](do-expressions.md).
 
 Static cases with expression arms, including do expressions, are supported by
 `comptime`. Comptime type cases receive the unsupported-construct diagnostic.
-Native AOT supports numeric and boolean switches in expression positions, including block
-arms and early function returns. String and type cases remain outside its
+Native AOT supports numeric, boolean, and string switches in expression positions,
+including block arms and early function returns. Type cases remain outside its
 current scalar subset. Ordinary Lua lowering supports the complete
 switch described above. See
 [numeric-semantics.md](../performance/ahead-of-time/numeric-semantics.md#scalar-switch-expressions-and-do-blocks)

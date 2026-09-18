@@ -819,6 +819,16 @@ function emit.indexedSimd(context: emit.Context, node: scalarIR.Simd): string
     return table.concat(parts, " ")
 end
 
+--- Bytes as an unambiguous C string literal.
+local function cBytes(value: string): string
+    local bytes: {string} = {}
+    for index = 1, #value do
+        bytes[index] = ("\\x%02x"):format(value:byte(index))
+    end
+
+    return '"' .. table.concat(bytes) .. '"'
+end
+
 --- One scalar expression, as a C expression.
 --- Parenthesised generously so C preserves the IR tree's precedence.
 --- @raises when verified IR names an operation with no backend implementation
@@ -875,6 +885,12 @@ function emit.scalar(context: emit.Context, node: scalarIR.Expr): string
         end
 
         return name
+    elseif operation == "lua_string_match" then
+        local matched = node as scalarIR.LuaStringMatch
+        return "ks_lua_string_match(L, " .. emit.scalar(
+            context,
+            matched.bytes
+        ) .. ", " .. cBytes(matched.value) .. ", " .. tostring(#matched.value) .. "u)"
     elseif operation == "lua_string_length" then
         local bytes = (node as scalarIR.LuaBytes).bytes as scalarIR.Name
         return "ks_lua_string_length(L, ks_length_" .. tostring(bytes.cName) .. ")"
@@ -2128,16 +2144,6 @@ end
 ----------------------------------------------------------------------------
 -- Layout reporters
 ----------------------------------------------------------------------------
-
---- Bytes as an unambiguous C string literal.
-local function cBytes(value: string): string
-    local bytes: {string} = {}
-    for index = 1, #value do
-        bytes[index] = ("\\x%02x"):format(value:byte(index))
-    end
-
-    return '"' .. table.concat(bytes) .. '"'
-end
 
 luaSite = function(source: scalarIR.Source?): string
     return source ~= nil and tostring(

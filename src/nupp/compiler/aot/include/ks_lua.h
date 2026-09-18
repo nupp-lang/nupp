@@ -798,6 +798,13 @@ typedef struct { int null_index, array_marker_index, object_marker_index, root_i
 typedef struct { uint32_t capacity; uint32_t words[1]; } KsLuaScratchU32Storage;
 typedef struct { uint32_t *words; uint32_t capacity, length, escape_length; int root_index; uint32_t inline_words[32]; } KsLuaScratchU32;
 typedef struct { unsigned char *bytes; uint32_t capacity, length; int root_index, cached; } KsLuaScratchU8;
+/* The selector is already a rooted string. Length-aware equality preserves
+ * embedded NUL bytes and never allocates or interns the literal case. */
+static KS_UNUSED bool ks_lua_string_match(lua_State *L, int index, const char *literal, size_t literal_length) {
+    size_t length = 0;
+    const char *bytes = lua_tolstring(L, index, &length);
+    return bytes != NULL && length == literal_length && memcmp(bytes, literal, length) == 0;
+}
 static KS_UNUSED uint32_t ks_lua_string_length(lua_State *L, size_t length) {
     if (length > (size_t)UINT32_MAX) { luaL_error(L, "AOT builder string exceeds uint32 range"); return 0u; }
     return (uint32_t)length;

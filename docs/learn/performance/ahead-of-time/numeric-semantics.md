@@ -203,7 +203,7 @@ The scalar subset admits a
 [switch](../../language/switch-expressions.md) in expression positions, including
 initializers, assignments, arguments, return values, and loop conditions, when:
 
-- the selector is `number`, `float`, `int32`, `uint32`, `boolean`, or statically known nil;
+- the selector is `number`, `float`, `int32`, `uint32`, `boolean`, `string`, or statically known nil;
 - every case is a static primitive value;
 - each completing arm produces an admitted scalar value; and
 - the checker has proved the switch exhaustive, either from its cases or an
@@ -257,7 +257,11 @@ default:
 The annotation is optional: scalar-IR verification and lane rewriting may ignore
 it and retain the complete equality chain. Nupp `integer` is normally binary64,
 so those selectors deliberately remain equality branches rather than being
-converted. Strings and type patterns report the ordinary subset boundary.
+converted. String selectors use the existing Lua-string AOT interface: the
+selector is evaluated once and rooted, then each case compares its byte length
+and contents with the literal. Comparisons preserve embedded NUL bytes, do not
+allocate case strings, and use byte equality rather than locale rules. Type
+patterns still report the ordinary subset boundary.
 Block arms use ordinary branches so that `break` still targets the authored
 loop. The C compiler chooses the physical native dispatch; Nupp does not force
 a jump table or synthesize a C perfect hash.

@@ -166,6 +166,11 @@ function text.expression(node: scalarIR.Expr | lane.Expr): string
         return "lua.nil"
     elseif op == "lua_string" then
         return "lua.string " .. string.format("%q", node.value)
+    elseif op == "lua_string_match" then
+        local matched = node as scalarIR.LuaStringMatch
+        return "lua.string_match(" .. text.expression(
+            matched.bytes
+        ) .. ", " .. string.format("%q", matched.value) .. ")"
     elseif op == "lua_concat" then
         return "lua.concat(" .. text.expression(node.left) .. ", " .. text.expression(node.right) .. ")"
     elseif op == "lua_substring" then
