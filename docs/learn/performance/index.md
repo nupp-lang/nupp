@@ -541,7 +541,7 @@ end
 
 Division by zero stays at runtime.
 
-#### Loops that cannot run
+#### Dead loops
 
 Loops with no possible first iteration disappear. The remaining empty `do`
 compiles to nothing:

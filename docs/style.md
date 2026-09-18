@@ -75,6 +75,7 @@ Titles are short, and they are one of two kinds.
  Type mapping
  Suspension regions
  Diagnostics
+ Dead loops
 ```
 
 **Declarative or imperative** is a sentence that states the fact the section
@@ -84,7 +85,6 @@ proves, when the fact is the point:
  Intrinsics live under `nupp`
  Literal unions are enums
  Shared borrowing allows mutation
- Loops that cannot run
 ```
 
 Never write a title that describes the writing instead of the subject.
