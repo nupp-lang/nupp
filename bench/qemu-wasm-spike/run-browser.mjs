@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 const url = new URL(process.argv[2] || 'http://127.0.0.1:8097/').href;
+const initialUrl = process.env.SPIKE_NAVIGATE_AFTER_ATTACH === '1' ? 'about:blank' : url;
 const resultFile = process.argv[3];
 const chrome = process.env.CHROME || (process.platform === 'darwin'
   ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' : 'google-chrome');
@@ -11,7 +12,7 @@ const profile = process.env.SPIKE_PROFILE_DIR || await mkdtemp(path.join(os.tmpd
 await mkdir(profile, {recursive: true});
 const child = spawn(chrome, [
   '--headless=new', '--no-sandbox', ...(process.env.SPIKE_GPU === '1' ? ['--enable-unsafe-webgpu'] : ['--disable-gpu']), '--no-first-run', '--no-default-browser-check',
-  '--disable-background-networking', `--user-data-dir=${profile}`, '--remote-debugging-port=0', url,
+  '--disable-background-networking', `--user-data-dir=${profile}`, '--remote-debugging-port=0', initialUrl,
 ], { detached: process.platform !== 'win32', stdio: ['ignore', 'ignore', 'pipe'] });
 const deadline = Date.now() + Number(process.env.SPIKE_TIMEOUT_MS || 240000);
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -55,7 +56,7 @@ try {
   const port = new URL(endpoint).port;
   const page = await until(async () => {
     const pages = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
-    return pages.find(page => page.type === 'page' && page.url === url);
+    return pages.find(page => page.type === 'page' && page.url === initialUrl);
   });
   socket = new WebSocket(page.webSocketDebuggerUrl);
   await new Promise((resolve, reject) => {
@@ -77,6 +78,7 @@ try {
   });
   await rpc('Runtime.enable');
   await rpc('Emulation.setDeviceMetricsOverride', {width: 1000, height: 900, deviceScaleFactor: 1, mobile: false});
+  if (initialUrl !== url) await rpc('Page.navigate', {url});
   let lastProgress = 0;
   let lastOutput = '';
   let clicked = false;

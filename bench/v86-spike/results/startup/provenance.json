@@ -1,0 +1,225 @@
+{
+  "recordedAt": "2026-09-18T22:24:50.465Z",
+  "baseRevision": "2acaeb04fb969de0d3325b4e9aa5c36a970b1cb7",
+  "platform": "darwin",
+  "arch": "arm64",
+  "osRelease": "25.6.0",
+  "cpu": "Apple M5 Pro",
+  "node": "v26.7.0",
+  "chrome": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+  "sourceFiles": {
+    "bench/v86-spike/build-snapshot.mjs": {
+      "bytes": 2095,
+      "sha256": "73a1e69bffa6defd7bdc62266cdf6cf9de8c9800f8c44efa67fb499b1a90ac68"
+    },
+    "bench/v86-spike/check-startup.mjs": {
+      "bytes": 2203,
+      "sha256": "0df3493130c74d79cdb79aeb382b5328ae49933a179de9a19e25525362207f5c"
+    },
+    "bench/v86-spike/prepare-startup.py": {
+      "bytes": 4073,
+      "sha256": "d920547fcc4e888a0a1bce817ea841c4ea1e4642abb6e564cd2f865062472f91"
+    },
+    "bench/v86-spike/startup-boot.mjs": {
+      "bytes": 5116,
+      "sha256": "412d8913cdf70306746089bb4570f86f5068efa45abe15e99d5eb206242a2241"
+    },
+    "bench/v86-spike/startup-receive.c": {
+      "bytes": 3299,
+      "sha256": "91d4e4b32852dc4c3593e2d3afabb1cb9d9b40afd96cd1e9446769ce23a3289e"
+    },
+    "bench/v86-spike/delivery-server.mjs": {
+      "bytes": 4966,
+      "sha256": "e39b71094bf0f4be6655ed153d30719279a5c37a778f360f959d622d6d931ba6"
+    },
+    "bench/v86-spike/probe-delivery.mjs": {
+      "bytes": 2399,
+      "sha256": "bfeea1de51e32281258e52c6ede29a91c8c911dc725b777760b63a362d2f86ca"
+    },
+    "bench/v86-spike/record-startup.mjs": {
+      "bytes": 5198,
+      "sha256": "23b1cf257aad18a8a906b5c66f61806664b43d110f52b52dd479cfcfe76b2fc1"
+    },
+    "bench/qemu-wasm-spike/run-browser.mjs": {
+      "bytes": 6319,
+      "sha256": "1417235af20d6de5554ac573462967e1a93e876afd6ec578f8002de4b5d4d2b5"
+    }
+  },
+  "artifacts": {
+    "serial/vm-worker.mjs": {
+      "bytes": 11475,
+      "sha256": "d510e0fe958861a9fb8b191dc6431daa4389b6d733b6abd4686e8844ce739dcd"
+    },
+    "serial/guest-runtime.mjs": {
+      "bytes": 7256,
+      "sha256": "d98d2d2c84e629aa57cc9374b216c86f166c536ff297f107fc5578609c425bab"
+    },
+    "serial/integration.mjs": {
+      "bytes": 8117,
+      "sha256": "80b517b33a99641329e69fd25553501fa5bb2d28e1fb6bfc299f5cb9d53c424f"
+    },
+    "serial/app.ljbc": {
+      "bytes": 434901,
+      "sha256": "14368339d2a072f8c4fb983024d779bbfb13175158ecfad95c54c13cd1ed966b"
+    },
+    "serial/initramfs.gz": {
+      "bytes": 1419995,
+      "sha256": "0cc320c9c3b46a6bd978a2303c3eb06eb6e43cf2bd9490b9505aa02e389ad866"
+    },
+    "serial/assets/libv86.mjs": {
+      "bytes": 359552,
+      "sha256": "a07d5f6d3276fabde989194a84be5f4266cb65a0e7000c84c2ff69c09fb5a4c2"
+    },
+    "serial/assets/v86.wasm": {
+      "bytes": 2101621,
+      "sha256": "aa0d0e149d6b60063b85de4871e78505637ce92821e14a9f9802c4008ba2336e"
+    },
+    "serial/assets/bzimage.bin": {
+      "bytes": 10068480,
+      "sha256": "1d3b8ed9ff4dcee9d3116d9104d07d6039ead8a88947b48f8c7e4754e1b5a194"
+    },
+    "parallel/vm-worker.mjs": {
+      "bytes": 11477,
+      "sha256": "fb017e615a9e82a795d560b7857dc96cd9af94c4ea0e25832822958a9d1b9b22"
+    },
+    "parallel/guest-runtime.mjs": {
+      "bytes": 7256,
+      "sha256": "d98d2d2c84e629aa57cc9374b216c86f166c536ff297f107fc5578609c425bab"
+    },
+    "parallel/integration.mjs": {
+      "bytes": 8117,
+      "sha256": "80b517b33a99641329e69fd25553501fa5bb2d28e1fb6bfc299f5cb9d53c424f"
+    },
+    "parallel/app.ljbc": {
+      "bytes": 434901,
+      "sha256": "14368339d2a072f8c4fb983024d779bbfb13175158ecfad95c54c13cd1ed966b"
+    },
+    "parallel/initramfs.gz": {
+      "bytes": 1419995,
+      "sha256": "0cc320c9c3b46a6bd978a2303c3eb06eb6e43cf2bd9490b9505aa02e389ad866"
+    },
+    "parallel/assets/libv86.mjs": {
+      "bytes": 359552,
+      "sha256": "a07d5f6d3276fabde989194a84be5f4266cb65a0e7000c84c2ff69c09fb5a4c2"
+    },
+    "parallel/assets/v86.wasm": {
+      "bytes": 2101621,
+      "sha256": "aa0d0e149d6b60063b85de4871e78505637ce92821e14a9f9802c4008ba2336e"
+    },
+    "parallel/assets/bzimage.bin": {
+      "bytes": 10068480,
+      "sha256": "1d3b8ed9ff4dcee9d3116d9104d07d6039ead8a88947b48f8c7e4754e1b5a194"
+    },
+    "parallel-raw/vm-worker.mjs": {
+      "bytes": 11481,
+      "sha256": "890b43ed1717867119e05095fc74d90b66f23c8cc075f84b38b9715751090d81"
+    },
+    "parallel-raw/guest-runtime.mjs": {
+      "bytes": 7256,
+      "sha256": "d98d2d2c84e629aa57cc9374b216c86f166c536ff297f107fc5578609c425bab"
+    },
+    "parallel-raw/integration.mjs": {
+      "bytes": 8117,
+      "sha256": "80b517b33a99641329e69fd25553501fa5bb2d28e1fb6bfc299f5cb9d53c424f"
+    },
+    "parallel-raw/app.ljbc": {
+      "bytes": 434901,
+      "sha256": "14368339d2a072f8c4fb983024d779bbfb13175158ecfad95c54c13cd1ed966b"
+    },
+    "parallel-raw/initramfs.gz": {
+      "bytes": 1419995,
+      "sha256": "0cc320c9c3b46a6bd978a2303c3eb06eb6e43cf2bd9490b9505aa02e389ad866"
+    },
+    "parallel-raw/initramfs.cpio": {
+      "bytes": 2687492,
+      "sha256": "df7fb5244a5e03b37364c416fee7a04672f56b98c595671ea6e096dcd05a12f9"
+    },
+    "parallel-raw/assets/libv86.mjs": {
+      "bytes": 359552,
+      "sha256": "a07d5f6d3276fabde989194a84be5f4266cb65a0e7000c84c2ff69c09fb5a4c2"
+    },
+    "parallel-raw/assets/v86.wasm": {
+      "bytes": 2101621,
+      "sha256": "aa0d0e149d6b60063b85de4871e78505637ce92821e14a9f9802c4008ba2336e"
+    },
+    "parallel-raw/assets/bzimage.bin": {
+      "bytes": 10068480,
+      "sha256": "1d3b8ed9ff4dcee9d3116d9104d07d6039ead8a88947b48f8c7e4754e1b5a194"
+    },
+    "snapshot/vm-worker.mjs": {
+      "bytes": 11477,
+      "sha256": "8499e7de10009f528d824a11f7d51c5e2771e4eb8bc445a093543499813a9cba"
+    },
+    "snapshot/guest-runtime.mjs": {
+      "bytes": 7256,
+      "sha256": "d98d2d2c84e629aa57cc9374b216c86f166c536ff297f107fc5578609c425bab"
+    },
+    "snapshot/integration.mjs": {
+      "bytes": 8117,
+      "sha256": "80b517b33a99641329e69fd25553501fa5bb2d28e1fb6bfc299f5cb9d53c424f"
+    },
+    "snapshot/app.ljbc": {
+      "bytes": 434901,
+      "sha256": "14368339d2a072f8c4fb983024d779bbfb13175158ecfad95c54c13cd1ed966b"
+    },
+    "snapshot/initramfs.gz": {
+      "bytes": 1419995,
+      "sha256": "0cc320c9c3b46a6bd978a2303c3eb06eb6e43cf2bd9490b9505aa02e389ad866"
+    },
+    "snapshot/guest-state.bin": {
+      "bytes": 17770320,
+      "sha256": "262d2b5ea8a36f72eac7905e6c7d3ca641d9be1f40b3a531dfe501632680ff47"
+    },
+    "snapshot/assets/libv86.mjs": {
+      "bytes": 359552,
+      "sha256": "a07d5f6d3276fabde989194a84be5f4266cb65a0e7000c84c2ff69c09fb5a4c2"
+    },
+    "snapshot/assets/v86.wasm": {
+      "bytes": 2101621,
+      "sha256": "aa0d0e149d6b60063b85de4871e78505637ce92821e14a9f9802c4008ba2336e"
+    },
+    "snapshot/assets/bzimage.bin": {
+      "bytes": 10068480,
+      "sha256": "1d3b8ed9ff4dcee9d3116d9104d07d6039ead8a88947b48f8c7e4754e1b5a194"
+    },
+    "snapshot-bundled/vm-worker.mjs": {
+      "bytes": 370969,
+      "sha256": "7348c9b81b96d9e27d2b04ad2f745fff846ad0adef39cc1472543efa7c797e20"
+    },
+    "snapshot-bundled/guest-runtime.mjs": {
+      "bytes": 7257,
+      "sha256": "77d299113b2261744eb58b51476b586d2357aed0d6e84434629fb6ce5ed405c5"
+    },
+    "snapshot-bundled/integration.mjs": {
+      "bytes": 8117,
+      "sha256": "80b517b33a99641329e69fd25553501fa5bb2d28e1fb6bfc299f5cb9d53c424f"
+    },
+    "snapshot-bundled/app.ljbc": {
+      "bytes": 434901,
+      "sha256": "14368339d2a072f8c4fb983024d779bbfb13175158ecfad95c54c13cd1ed966b"
+    },
+    "snapshot-bundled/initramfs.gz": {
+      "bytes": 1419995,
+      "sha256": "0cc320c9c3b46a6bd978a2303c3eb06eb6e43cf2bd9490b9505aa02e389ad866"
+    },
+    "snapshot-bundled/guest-state.bin": {
+      "bytes": 17770320,
+      "sha256": "262d2b5ea8a36f72eac7905e6c7d3ca641d9be1f40b3a531dfe501632680ff47"
+    },
+    "snapshot-bundled/assets/libv86.mjs": {
+      "bytes": 359552,
+      "sha256": "a07d5f6d3276fabde989194a84be5f4266cb65a0e7000c84c2ff69c09fb5a4c2"
+    },
+    "snapshot-bundled/assets/v86.wasm": {
+      "bytes": 2101621,
+      "sha256": "aa0d0e149d6b60063b85de4871e78505637ce92821e14a9f9802c4008ba2336e"
+    },
+    "snapshot-bundled/assets/bzimage.bin": {
+      "bytes": 10068480,
+      "sha256": "1d3b8ed9ff4dcee9d3116d9104d07d6039ead8a88947b48f8c7e4754e1b5a194"
+    }
+  },
+  "method": "Sequential fresh Chrome processes; each cached visit reuses only its paired disk-cache profile. Alternating variant order. Brotli quality 9 when smaller, except quality11-10mbps uses 11. Link model shares a 1,250,000 byte/s body budget and delays each response 80 ms. No TCP simulation. Body bytes exclude headers.",
+  "timing": "firstFrameMs starts when the page calls startGuest, after page module loading; navigationToFirstFrameMs includes that earlier loading. Startup marks share performance.timeOrigin. Controlled runs attach CDP before navigation; initial runs attach while the page loads.",
+  "limitations": "Exploratory samples on one desktop Chromium version, not a confidence interval, mobile/browser survey, production integration, or playground compiler snapshot."
+}

@@ -5,11 +5,12 @@ import os from 'node:os';
 
 const base = process.argv[2] || 'http://127.0.0.1:8103';
 const label = process.argv[3] || 'local';
-const output = path.resolve('build/v86-spike/performance/delivery-' + label);
+const output = path.resolve(process.env.DELIVERY_OUTPUT || 'build/v86-spike/performance/delivery-' + label);
+const variants = (process.env.DELIVERY_VARIANTS || 'raw,compressed,slim').split(',');
 await mkdir(output, {recursive: true});
 const samples = [];
 for (let pair = 0; pair < Number(process.env.DELIVERY_PAIRS || 3); pair++) {
-  for (const variant of pair % 2 ? ['slim', 'compressed', 'raw'] : ['raw', 'compressed', 'slim']) {
+  for (const variant of pair % 2 ? [...variants].reverse() : variants) {
     const profile = await mkdtemp(path.join(os.tmpdir(), 'nupp-delivery-'));
     try {
       for (const visit of ['cold', 'cached']) {
@@ -29,7 +30,9 @@ for (let pair = 0; pair < Number(process.env.DELIVERY_PAIRS || 3); pair++) {
         const result = JSON.parse(await readFile(path.join(output, name + '.json'), 'utf8'));
         const delivery = await (await fetch(base + '/_stats')).json();
         samples.push({pair, variant, visit, firstFrameMs: result.firstFrameMs,
+          navigationToFirstFrameMs: result.navigationToFirstFrameMs,
           bootMs: result.game.metrics.bootMs, wasmMemoryBytes: result.game.metrics.wasmMemoryBytes,
+          startup: result.game.metrics.startup,
           warmFps: result.frameTiming.warmAverageFps, delivery});
         await writeFile(path.join(output, 'summary.json'), JSON.stringify(samples, null, 2) + '\n');
         console.log(name, result.firstFrameMs.toFixed(1), delivery.payloadBytes);

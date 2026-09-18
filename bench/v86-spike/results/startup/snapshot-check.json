@@ -1,0 +1,94 @@
+{
+  "ok": true,
+  "checks": [
+    {
+      "launch": 0,
+      "freshApp": true,
+      "freshConfig": true,
+      "freshEntropy": true,
+      "freshKernelRandom": true,
+      "currentWallClock": true,
+      "ffi": true,
+      "bit": true,
+      "stringBuffer": true,
+      "jit": true
+    },
+    {
+      "launch": 1,
+      "freshApp": true,
+      "freshConfig": true,
+      "freshEntropy": true,
+      "freshKernelRandom": true,
+      "currentWallClock": true,
+      "ffi": true,
+      "bit": true,
+      "stringBuffer": true,
+      "jit": true
+    },
+    {
+      "launch": 2,
+      "freshApp": true,
+      "freshConfig": true,
+      "freshEntropy": true,
+      "freshKernelRandom": true,
+      "currentWallClock": true,
+      "ffi": true,
+      "bit": true,
+      "stringBuffer": true,
+      "jit": true
+    },
+    {
+      "launch": 3,
+      "freshApp": true,
+      "freshConfig": true,
+      "freshEntropy": true,
+      "freshKernelRandom": true,
+      "currentWallClock": true,
+      "ffi": true,
+      "bit": true,
+      "stringBuffer": true,
+      "jit": true
+    }
+  ],
+  "native": {
+    "value": {
+      "dynamicCompilation": true,
+      "bytecodeReload": true,
+      "yieldAcrossPcall": true,
+      "allocationRetained": true,
+      "nuppGeneratedAot": true,
+      "cModule": "LPeg 1.1.0",
+      "jit": true,
+      "jitHelpers": true
+    },
+    "metrics": {
+      "frames": 0,
+      "effects": 0,
+      "effectBytes": 0,
+      "responseBytes": 0,
+      "copiedIn": 0,
+      "copiedOut": 0,
+      "hostEffectMs": [],
+      "guestIntervalsMs": [],
+      "startup": {
+        "workerBoot": 6.855224609375,
+        "fetched:native-modules.lua": 10.775146484375,
+        "fetched:v86.wasm": 15.060302734375,
+        "fetched:guest-state.bin": 63.365234375,
+        "emulatorConstruct": 63.41015625,
+        "wasmInstantiateBegin": 63.5751953125,
+        "wasmInstantiateEnd": 65.315185546875,
+        "emulatorLoaded": 80.91015625,
+        "emulatorStarted": 81.46533203125,
+        "guestReady": 96.740234375,
+        "mailboxReady": 198.1552734375
+      },
+      "bootMs": 96.82999992370605,
+      "wasmMemoryBytes": 79101952,
+      "totalMs": 267.6999999284744
+    }
+  },
+  "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+  "isolated": true,
+  "browserErrors": []
+}

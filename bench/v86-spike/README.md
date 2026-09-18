@@ -165,6 +165,9 @@ JIT-off compiler execution now pass the full smoke corpus at 128 MiB, with
 direct measurements against the existing Lua 5.1 Wasm host. It also measures
 HTTP delivery and a diagnostic kernel without the unrelated embedded filesystem.
 
+The [startup follow-up](STARTUP.md) measures parallel asset loading and a reusable
+snapshot captured before LuaJIT starts, including cold and cached browser visits.
+
 The small profiles reserve an 8 MiB mailbox, with 1 MiB JSON slots and 2 MiB
 binary-transfer slots. Linux gets 48 MiB in the 64 MiB guest and 112 MiB in the
 128 MiB guest. The pinned v86 JavaScript loader is patched at one checked

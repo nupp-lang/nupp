@@ -1,0 +1,374 @@
+[
+  {
+    "pair": 0,
+    "variant": "serial",
+    "visit": "cold",
+    "firstFrameMs": 1195.5499999523163,
+    "navigationToFirstFrameMs": 1218.4099999666214,
+    "bootMs": 1021.5650000572205,
+    "wasmMemoryBytes": 80412672,
+    "startup": {
+      "workerBoot": 13.465087890625,
+      "fetched:app.ljbc": 17.469970703125,
+      "fetched:initramfs.gz": 20.89501953125,
+      "emulatorConstruct": 27.330078125,
+      "fetched:v86.wasm": 32.864990234375,
+      "wasmInstantiateBegin": 32.925048828125,
+      "wasmInstantiateEnd": 34.655029296875,
+      "emulatorStarted": 72.255126953125,
+      "emulatorLoaded": 72.3701171875,
+      "guestReady": 1021.47998046875,
+      "mailboxReady": 1098.22509765625,
+      "firstEffect": 1194.804931640625
+    },
+    "warmFps": 59.99831465408275,
+    "delivery": {
+      "rateBytesPerSecond": 0,
+      "firstByteDelayMs": 0,
+      "requests": [
+        {
+          "path": "/serial/integration.html",
+          "bytes": 642,
+          "encoding": "br",
+          "startedAt": 218637.035709,
+          "finishedAt": 218638.095125
+        },
+        {
+          "path": "/serial/integration.mjs",
+          "bytes": 2929,
+          "encoding": "br",
+          "startedAt": 218645.741,
+          "finishedAt": 218647.420834
+        },
+        {
+          "path": "/serial/guest-runtime.mjs",
+          "bytes": 2303,
+          "encoding": "br",
+          "startedAt": 218648.946125,
+          "finishedAt": 218650.535625
+        },
+        {
+          "path": "/serial/runtime/worker-pool.mjs",
+          "bytes": 2589,
+          "encoding": "br",
+          "startedAt": 218649.0065,
+          "finishedAt": 218650.604125
+        },
+        {
+          "path": "/serial/runtime/app-runtime.mjs",
+          "bytes": 9800,
+          "encoding": "br",
+          "startedAt": 218656.134959,
+          "finishedAt": 218657.70375
+        },
+        {
+          "path": "/serial/vm-worker.mjs",
+          "bytes": 3649,
+          "encoding": "br",
+          "startedAt": 218660.29425,
+          "finishedAt": 218661.86
+        },
+        {
+          "path": "/serial/assets/libv86.mjs",
+          "bytes": 87228,
+          "encoding": "br",
+          "startedAt": 218665.2155,
+          "finishedAt": 218666.67625
+        },
+        {
+          "path": "/serial/app.ljbc",
+          "bytes": 117424,
+          "encoding": "br",
+          "startedAt": 218673.505,
+          "finishedAt": 218675.083792
+        },
+        {
+          "path": "/serial/initramfs.gz",
+          "bytes": 1419995,
+          "encoding": "identity",
+          "startedAt": 218673.372625,
+          "finishedAt": 218675.419625
+        },
+        {
+          "path": "/serial/assets/v86.wasm",
+          "bytes": 323281,
+          "encoding": "br",
+          "startedAt": 218687.167209,
+          "finishedAt": 218688.6185
+        },
+        {
+          "path": "/serial/assets/seabios.bin",
+          "bytes": 64849,
+          "encoding": "br",
+          "startedAt": 218698.650834,
+          "finishedAt": 218700.075959
+        },
+        {
+          "path": "/serial/assets/vgabios.bin",
+          "bytes": 15546,
+          "encoding": "br",
+          "startedAt": 218701.396167,
+          "finishedAt": 218702.782625
+        },
+        {
+          "path": "/serial/assets/bzimage.bin",
+          "bytes": 3819183,
+          "encoding": "br",
+          "startedAt": 218703.308834,
+          "finishedAt": 218705.303792
+        }
+      ],
+      "payloadBytes": 5869418
+    },
+    "validation": {
+      "game": {
+        "inputs": 2,
+        "frames": 120,
+        "updates": 3932160,
+        "checksum": 1966080,
+        "x": 16,
+        "jit": true
+      },
+      "interaction": {
+        "clicks": 1,
+        "keyEvents": 1,
+        "audioState": "running",
+        "offlineAudioPeak": 1,
+        "canvasPixel": [
+          122,
+          230,
+          177,
+          255
+        ]
+      },
+      "isolated": true,
+      "browserErrors": []
+    }
+  },
+  {
+    "pair": 0,
+    "variant": "serial",
+    "visit": "cached",
+    "firstFrameMs": 1179.8100000619888,
+    "navigationToFirstFrameMs": 1191.4400000572205,
+    "bootMs": 1008.0949999094009,
+    "wasmMemoryBytes": 80216064,
+    "startup": {
+      "workerBoot": 15.22998046875,
+      "fetched:app.ljbc": 17.139892578125,
+      "fetched:initramfs.gz": 17.669921875,
+      "emulatorConstruct": 23.989990234375,
+      "fetched:v86.wasm": 27.85009765625,
+      "wasmInstantiateBegin": 27.909912109375,
+      "wasmInstantiateEnd": 29.715087890625,
+      "emulatorStarted": 55.014892578125,
+      "emulatorLoaded": 55.14501953125,
+      "guestReady": 1008.034912109375,
+      "mailboxReady": 1092.75,
+      "firstEffect": 1179.070068359375
+    },
+    "warmFps": 59.99143942072739,
+    "delivery": {
+      "rateBytesPerSecond": 0,
+      "firstByteDelayMs": 0,
+      "requests": [],
+      "payloadBytes": 0
+    },
+    "validation": {
+      "game": {
+        "inputs": 2,
+        "frames": 120,
+        "updates": 3932160,
+        "jit": true,
+        "x": 16,
+        "checksum": 1966080
+      },
+      "interaction": {
+        "clicks": 1,
+        "keyEvents": 1,
+        "audioState": "running",
+        "offlineAudioPeak": 1,
+        "canvasPixel": [
+          122,
+          230,
+          177,
+          255
+        ]
+      },
+      "isolated": true,
+      "browserErrors": []
+    }
+  },
+  {
+    "pair": 0,
+    "variant": "snapshot-bundled",
+    "visit": "cold",
+    "firstFrameMs": 271.5199999809265,
+    "navigationToFirstFrameMs": 295.5549999475479,
+    "bootMs": 100.79999995231628,
+    "wasmMemoryBytes": 79429632,
+    "startup": {
+      "workerBoot": 16.4599609375,
+      "fetched:app.ljbc": 22.679931640625,
+      "fetched:v86.wasm": 27.889892578125,
+      "fetched:guest-state.bin": 66.284912109375,
+      "emulatorConstruct": 66.330078125,
+      "wasmInstantiateBegin": 66.494873046875,
+      "wasmInstantiateEnd": 68.284912109375,
+      "emulatorLoaded": 84.635009765625,
+      "emulatorStarted": 85.119873046875,
+      "guestReady": 100.77490234375,
+      "mailboxReady": 185.43505859375,
+      "firstEffect": 270.77490234375
+    },
+    "warmFps": 59.99305698348578,
+    "delivery": {
+      "rateBytesPerSecond": 0,
+      "firstByteDelayMs": 0,
+      "requests": [
+        {
+          "path": "/snapshot-bundled/integration.html",
+          "bytes": 642,
+          "encoding": "br",
+          "startedAt": 229164.565917,
+          "finishedAt": 229166.379875
+        },
+        {
+          "path": "/snapshot-bundled/integration.mjs",
+          "bytes": 2929,
+          "encoding": "br",
+          "startedAt": 229174.878292,
+          "finishedAt": 229176.406834
+        },
+        {
+          "path": "/snapshot-bundled/guest-runtime.mjs",
+          "bytes": 2303,
+          "encoding": "br",
+          "startedAt": 229178.0235,
+          "finishedAt": 229179.438959
+        },
+        {
+          "path": "/snapshot-bundled/runtime/worker-pool.mjs",
+          "bytes": 2589,
+          "encoding": "br",
+          "startedAt": 229178.102375,
+          "finishedAt": 229179.50225
+        },
+        {
+          "path": "/snapshot-bundled/runtime/app-runtime.mjs",
+          "bytes": 9800,
+          "encoding": "br",
+          "startedAt": 229180.489584,
+          "finishedAt": 229182.148292
+        },
+        {
+          "path": "/snapshot-bundled/vm-worker.mjs",
+          "bytes": 90657,
+          "encoding": "br",
+          "startedAt": 229193.147375,
+          "finishedAt": 229194.603209
+        },
+        {
+          "path": "/snapshot-bundled/app.ljbc",
+          "bytes": 117424,
+          "encoding": "br",
+          "startedAt": 229205.1165,
+          "finishedAt": 229207.029584
+        },
+        {
+          "path": "/snapshot-bundled/assets/v86.wasm",
+          "bytes": 323281,
+          "encoding": "br",
+          "startedAt": 229205.139917,
+          "finishedAt": 229207.320209
+        },
+        {
+          "path": "/snapshot-bundled/guest-state.bin",
+          "bytes": 5243187,
+          "encoding": "br",
+          "startedAt": 229204.961709,
+          "finishedAt": 229242.116209
+        }
+      ],
+      "payloadBytes": 5792812
+    },
+    "validation": {
+      "game": {
+        "jit": true,
+        "checksum": 1966080,
+        "frames": 120,
+        "updates": 3932160,
+        "x": 16,
+        "inputs": 2
+      },
+      "interaction": {
+        "clicks": 1,
+        "keyEvents": 1,
+        "audioState": "running",
+        "offlineAudioPeak": 1,
+        "canvasPixel": [
+          122,
+          230,
+          177,
+          255
+        ]
+      },
+      "isolated": true,
+      "browserErrors": []
+    }
+  },
+  {
+    "pair": 0,
+    "variant": "snapshot-bundled",
+    "visit": "cached",
+    "firstFrameMs": 267.1299999952316,
+    "navigationToFirstFrameMs": 278.8950001001358,
+    "bootMs": 97.24500000476837,
+    "wasmMemoryBytes": 79364096,
+    "startup": {
+      "workerBoot": 12.804931640625,
+      "fetched:app.ljbc": 17.070068359375,
+      "fetched:v86.wasm": 22.68994140625,
+      "fetched:guest-state.bin": 63.419921875,
+      "emulatorConstruct": 63.469970703125,
+      "wasmInstantiateBegin": 63.639892578125,
+      "wasmInstantiateEnd": 65.554931640625,
+      "emulatorLoaded": 81.43505859375,
+      "emulatorStarted": 81.949951171875,
+      "guestReady": 97.219970703125,
+      "mailboxReady": 183.455078125,
+      "firstEffect": 266.385009765625
+    },
+    "warmFps": 60.041624359353705,
+    "delivery": {
+      "rateBytesPerSecond": 0,
+      "firstByteDelayMs": 0,
+      "requests": [],
+      "payloadBytes": 0
+    },
+    "validation": {
+      "game": {
+        "inputs": 2,
+        "frames": 120,
+        "updates": 3932160,
+        "checksum": 1966080,
+        "x": 16,
+        "jit": true
+      },
+      "interaction": {
+        "clicks": 1,
+        "keyEvents": 1,
+        "audioState": "running",
+        "offlineAudioPeak": 1,
+        "canvasPixel": [
+          122,
+          230,
+          177,
+          255
+        ]
+      },
+      "isolated": true,
+      "browserErrors": []
+    }
+  }
+]
