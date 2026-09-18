@@ -441,6 +441,10 @@ function M.cEmissionDoesNotMutateHelpersOrLeakBetweenTargets()
     assert(json.encode(first) == before, "emission mutated semantic IR")
     assert(rendered:find("ks_scalar_exp_f32x4", 1, true), "scalar helper lost its physical type")
     assert(rendered:find("ks_exp_f32x4", 1, true), "vector helper lost its physical type")
+    local widest = emit.program({unit(64, "third")})
+    assert(widest:find("#define KS_SIMD_WIDTH 64", 1, true), "a 64-byte program instantiates its own width")
+    assert(widest:find("ks_exp_f32x16", 1, true), "sixteen binary32 lanes fill a 64-byte preferred vector")
+    assert(emit.program({first}) == rendered, "the 64-byte width changed a subsequent emission")
 end
 
 function M.cControlFlowKeepsRepeatContinuationsInsideTheirOwnLoop()

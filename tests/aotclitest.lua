@@ -2412,6 +2412,42 @@ function M.genericExplicitSimdKeepsIntrinsicTypesAndAnIndependentOracle()
     assert(decoded.c:find("ks_scalar_exp_mul_f32x8", 1, true), where .. ": oracle primitives execute lane by lane")
 end
 
+-- AVX-512F is the one tier whose preferred vector is 64 bytes, and it only
+-- gets there once every earlier width is compiled with narrower flags: the
+-- 64-byte block is instantiated for this tier alone, so no wider vector ever
+-- meets a `-mavx2` compilation and the ABI warning that follows.
+function M.genericExplicitSimdPrefersSixteenLanesAtAvx512f()
+    local host = assert(require("nupp.compiler.aot.target").hostTriple())
+    local triple = host:gsub("^[^-]+", "x86_64")
+    local dir = project{["vectors.nupp"] = GENERIC_EXPLICIT_SIMD}
+    local decoded, raw, code, where = lowered(dir, "--target " .. triple .. " --features avx512f --json vectors.nupp")
+    test.equal(code, 0, raw)
+    assert(decoded.c:find("#define KS_SIMD_WIDTH 64", 1, true), where .. ": AVX-512F selects the 64-byte width")
+    assert(decoded.c:find("KS_EXP_ELEMENT(64, f32x16, float", 1, true), where .. ": sixteen binary32 lanes")
+    assert(decoded.c:find("ks_scalar_exp_mul_f32x16", 1, true), where .. ": the oracle walks sixteen lanes")
+    local asm, asmCode = run(dir, "--target " .. triple .. " --features avx512f --emit asm vectors.nupp")
+    test.equal(asmCode, 0, asm)
+    assert(asm:find("zmm", 1, true), "the multiply lives in a 64-byte register: " .. asm)
+    -- The packed byte scanner stays at 32 bytes there: AVX-512F alone has no
+    -- byte compare or shuffle, so a program carrying both keeps compiling.
+    local both = project{["mixed.nupp"] = SCOPED_SIMD:gsub("return {quotes = quotes}", "") .. [[
+local array = require("nupp.mem.array")
+
+@aot
+local function twice(exclusive output: span.WriteSpan<float>, borrows input: span.Span<float>): nil
+    local species = assert(simd.species(array.float))
+    local active = species:tail(#input)
+    species:store(output, 1, species:load(input, 1, active) * 2, active)
+end
+
+return {quotes = quotes, twice = twice}
+]]}
+    local mixed, mixedCode = run(both, "--target " .. triple .. " --features avx512f --emit c mixed.nupp")
+    test.equal(mixedCode, 0, mixed)
+    assert(mixed:find("ks_u8x32", 1, true), "byte vectors keep the 32-byte scanner: " .. mixed)
+    assert(not mixed:find("ks_u8x64", 1, true), "no 64-byte byte scanner exists: " .. mixed)
+end
+
 function M.genericExplicitSimdEmitsRealTargetVectorArithmetic()
     local dir = project{["vectors.nupp"] = GENERIC_EXPLICIT_SIMD}
     local out = neonAsm(dir, "vectors.nupp")
@@ -2657,11 +2693,17 @@ function M.scatterRefusesUnprovedUniquenessWithoutARuntimeFallback()
     assert(out:find("scatterUnchecked", 1, true), out)
 end
 
+-- At AVX-512F the preferred binary32 vector holds sixteen lanes, so the eight
+-- the fixture names are one partial chunk of it and the gather still reaches
+-- the native instruction through that chunk's contiguous lanes.
 function M.indexedSimdUsesNativeAvx512MemoryInstructions()
     local host = assert(require("nupp.compiler.aot.target").hostTriple())
     local triple = host:gsub("^[^-]+", "x86_64")
     for _, source in ipairs({INDEXED_SIMD, (INDEXED_SIMD:gsub("float", "number"):gsub(", 8%)", ", 4)"))}) do
         local dir = project{["indexed.nupp"] = source}
+        local c, cCode = run(dir, "--target " .. triple .. " --features avx512f --emit c indexed.nupp")
+        test.equal(cCode, 0, c)
+        assert(c:find("#define KS_SIMD_WIDTH 64", 1, true), c)
         local asm, code = run(dir, "--target " .. triple .. " --features avx512f --emit asm indexed.nupp")
         test.equal(code, 0, asm)
         assert(asm:find("vpgather", 1, true), asm)

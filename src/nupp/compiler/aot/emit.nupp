@@ -400,6 +400,20 @@ const emit.VECTOR_ELEMENT_C = {
     ["u64"] = "uint64_t",
 }
 
+--- Whether the program selected an explicit SIMD width this backend emits.
+local function explicitWidthSelected(context: emit.Context): boolean
+    return context.explicitWidth == 16 or context.explicitWidth == 32 or context.explicitWidth == 64
+end
+
+--- The vector width of the packed byte scanner under the selected width.
+---
+--- The scanner's byte compares and shuffles stop at 32 bytes: AVX-512F alone
+--- carries no byte-lane instructions, so a 64-byte program scans strings with
+--- the 32-byte vector the tier's flags always cover.
+local function byteWidth(context: emit.Context): integer
+    return math.min(context.explicitWidth, 32) as integer
+end
+
 --- Resolves one target-neutral explicit SIMD type for the selected tier.
 local function explicitType(context: emit.Context, typeName: string): (string?, string?, integer?, string?)
     local family, element, shape = typeName:match("^simd_(%a+)_([fiu]%d+)_(.+)$")
@@ -437,7 +451,7 @@ local function resolveCType(context: emit.Context, typeName: string): string
     end
     local explicitFamily, explicitElement, explicitLanes = explicitType(context, typeName)
     if explicitFamily ~= nil then
-        if context.explicitWidth ~= 16 and context.explicitWidth ~= 32 then
+        if not explicitWidthSelected(context) then
             error("explicit SIMD width was not selected", 0)
         end
         local suffix = tostring(explicitElement) .. "x" .. tostring(explicitLanes)
@@ -454,24 +468,24 @@ local function resolveCType(context: emit.Context, typeName: string): string
     if typeName == "simd_species_u8" then
         return "uint32_t"
     elseif typeName == "simd_vector_u8" or typeName == "simd_mask_u8" then
-        if context.explicitWidth ~= 16 and context.explicitWidth ~= 32 then
+        if not explicitWidthSelected(context) then
             error("explicit SIMD width was not selected", 0)
         end
-        return (context.explicitScalar and "ks_scalar_u8x" or "ks_u8x") .. tostring(context.explicitWidth)
+        return (context.explicitScalar and "ks_scalar_u8x" or "ks_u8x") .. tostring(byteWidth(context))
     elseif typeName == "simd_mask_bits64" then
         return "KsMaskBits64"
     elseif typeName == "simd_table_u8x16" then
         return "KsTableU8x16"
     elseif typeName == "simd_padded_string_u8" then
-        if context.explicitWidth ~= 16 and context.explicitWidth ~= 32 then
+        if not explicitWidthSelected(context) then
             error("explicit SIMD width was not selected", 0)
         end
-        return "KsPaddedStringU8x" .. tostring(context.explicitWidth)
+        return "KsPaddedStringU8x" .. tostring(byteWidth(context))
     elseif typeName == "simd_block_u8x64" then
-        if context.explicitWidth ~= 16 and context.explicitWidth ~= 32 then
+        if not explicitWidthSelected(context) then
             error("explicit SIMD width was not selected", 0)
         end
-        return (context.explicitScalar and "KsScalarBlockU8x64x" or "KsBlockU8x64x") .. tostring(context.explicitWidth)
+        return (context.explicitScalar and "KsScalarBlockU8x64x" or "KsBlockU8x64x") .. tostring(byteWidth(context))
     elseif typeName == "simd_reducer_pairwise_sum"
         or typeName == "simd_reducer_pairwise_product"
         or typeName == "simd_reducer_pairwise_dot"
@@ -1116,7 +1130,7 @@ function emit.scalar(context: emit.Context, node: scalarIR.Expr): string
     elseif tostring(operation):match("^simd_") ~= nil then
         local simd = node as scalarIR.Simd
         local args = simd.args
-        local suffix = "u8x" .. tostring(context.explicitWidth)
+        local suffix = "u8x" .. tostring(byteWidth(context))
         local helper = context.explicitScalar and "ks_scalar_" or "ks_"
         local speciesArg = GENERIC_SPECIES[tostring(operation)]
         if speciesArg ~= nil then
@@ -1226,7 +1240,7 @@ function emit.scalar(context: emit.Context, node: scalarIR.Expr): string
             end
             return genericHelper .. tostring(verb) .. "_" .. genericSuffix .. "(" .. table.concat(rendered, ", ") .. ")"
         elseif operation == "simd_species_u8" or operation == "simd_lanes" then
-            return "UINT32_C(" .. tostring(context.explicitWidth) .. ")"
+            return "UINT32_C(" .. tostring(byteWidth(context)) .. ")"
         elseif operation == "simd_load_u8" then
             local count = context.independentSpanCounts and "count_" .. tostring(simd.span) or "count"
             return helper .. "load_" .. suffix .. "(p_" .. tostring(
@@ -1337,7 +1351,7 @@ function emit.scalar(context: emit.Context, node: scalarIR.Expr): string
         elseif operation == "simd_any" then
             return "(" .. helper .. "any_" .. suffix .. "(" .. emit.scalar(context, args[1]) .. ") != 0u)"
         elseif operation == "simd_all" then
-            local all = context.explicitWidth == 32 and "UINT32_MAX" or "UINT32_C(65535)"
+            local all = byteWidth(context) == 32 and "UINT32_MAX" or "UINT32_C(65535)"
             return "(" .. helper .. "bits_" .. suffix .. "(" .. emit.scalar(context, args[1]) .. ") == " .. all .. ")"
         elseif operation == "simd_count" then
             return "((uint32_t)__builtin_popcount(" .. helper .. "bits_" .. suffix .. "(" .. emit.scalar(
@@ -3130,7 +3144,7 @@ function emit.luaBlock(
                     #lines + 1
                 ] = prefix .. (
                     context.explicitScalar and "ks_scalar_" or "ks_"
-                ) .. "store4_u8x" .. tostring(context.explicitWidth) .. "(" .. table.concat(operands, ", ") .. ");"
+                ) .. "store4_u8x" .. tostring(byteWidth(context)) .. "(" .. table.concat(operands, ", ") .. ");"
                 yield true
             end
             case "lua_scratch_u8_set4" -> do

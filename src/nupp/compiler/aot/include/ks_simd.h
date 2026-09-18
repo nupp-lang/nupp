@@ -2,7 +2,7 @@
  * scanners run on, the scalar oracle beside it, and the explicit vector
  * elements of `nupp.simd`. Appended verbatim after the scalar prelude,
  * once per vector width the program uses, with `KS_SIMD_WIDTH` set to
- * 16 or 32 around each copy and `KS_LUA_BUILDER` defined to 1 when the
+ * 16, 32 or 64 around each copy and `KS_LUA_BUILDER` defined to 1 when the
  * Lua builder prelude is present. The reusable part sits under the
  * include guard and runs once; the per-width block at the end runs for
  * every copy.
@@ -20,6 +20,7 @@
 #define KS_REP_8(v) KS_REP_4(v), KS_REP_4(v)
 #define KS_REP_16(v) KS_REP_8(v), KS_REP_8(v)
 #define KS_REP_32(v) KS_REP_16(v), KS_REP_16(v)
+#define KS_REP_64(v) KS_REP_32(v), KS_REP_32(v)
 
 /* `X(a, i)` for each lane index i, comma separated. */
 #define KS_LANES_2(X, a) X(a, 0), X(a, 1)
@@ -27,6 +28,7 @@
 #define KS_LANES_8(X, a) KS_LANES_4(X, a), X(a, 4), X(a, 5), X(a, 6), X(a, 7)
 #define KS_LANES_16(X, a) KS_LANES_8(X, a), X(a, 8), X(a, 9), X(a, 10), X(a, 11), X(a, 12), X(a, 13), X(a, 14), X(a, 15)
 #define KS_LANES_32(X, a) KS_LANES_16(X, a), X(a, 16), X(a, 17), X(a, 18), X(a, 19), X(a, 20), X(a, 21), X(a, 22), X(a, 23), X(a, 24), X(a, 25), X(a, 26), X(a, 27), X(a, 28), X(a, 29), X(a, 30), X(a, 31)
+#define KS_LANES_64(X, a) KS_LANES_32(X, a), X(a, 32), X(a, 33), X(a, 34), X(a, 35), X(a, 36), X(a, 37), X(a, 38), X(a, 39), X(a, 40), X(a, 41), X(a, 42), X(a, 43), X(a, 44), X(a, 45), X(a, 46), X(a, 47), X(a, 48), X(a, 49), X(a, 50), X(a, 51), X(a, 52), X(a, 53), X(a, 54), X(a, 55), X(a, 56), X(a, 57), X(a, 58), X(a, 59), X(a, 60), X(a, 61), X(a, 62), X(a, 63)
 #define KS_INDEX_LANE(a, i) i
 #define KS_CAST_LANE(type, i) (type)i
 #define KS_IOTA_LANE(ctype, i) first + (ctype)i * step
@@ -532,10 +534,13 @@ static inline __attribute__((unused)) void ks_scalar_store4_u8x##W(lua_State *L,
 /* A vector of width W is this many 64-bit words. */
 #define KS_WORDS_16 2
 #define KS_WORDS_32 4
+#define KS_WORDS_64 8
 #define KS_WORD_COUNT_16 2u
 #define KS_WORD_COUNT_32 4u
+#define KS_WORD_COUNT_64 8u
 #define KS_WORDS_OR_16 words[0] | words[1]
 #define KS_WORDS_OR_32 words[0] | words[1] | words[2] | words[3]
+#define KS_WORDS_OR_64 words[0] | words[1] | words[2] | words[3] | words[4] | words[5] | words[6] | words[7]
 
 /* A partial vector moves through 64-bit words on a little-endian
  * target, whole words first and the odd bytes gathered or scattered
@@ -548,8 +553,18 @@ static inline __attribute__((unused)) void ks_scalar_store4_u8x##W(lua_State *L,
     if (n >= 24u) memcpy(&w2, p + 16u, 8u);
 #define KS_GATHER_WORDS_16 switch (n >> 3u) { case 0u: w0 |= ks_gather_word(p + 0u, n & 7u); break; case 1u: w1 |= ks_gather_word(p + 8u, n & 7u); break; default: break; }
 #define KS_GATHER_WORDS_32 switch (n >> 3u) { case 0u: w0 |= ks_gather_word(p + 0u, n & 7u); break; case 1u: w1 |= ks_gather_word(p + 8u, n & 7u); break; case 2u: w2 |= ks_gather_word(p + 16u, n & 7u); break; case 3u: w3 |= ks_gather_word(p + 24u, n & 7u); break; default: break; }
+#define KS_LOAD_WORDS_64 uint64_t w0 = 0u, w1 = 0u, w2 = 0u, w3 = 0u, w4 = 0u, w5 = 0u, w6 = 0u, w7 = 0u; \
+    if (n >= 8u) memcpy(&w0, p + 0u, 8u); \
+    if (n >= 16u) memcpy(&w1, p + 8u, 8u); \
+    if (n >= 24u) memcpy(&w2, p + 16u, 8u); \
+    if (n >= 32u) memcpy(&w3, p + 24u, 8u); \
+    if (n >= 40u) memcpy(&w4, p + 32u, 8u); \
+    if (n >= 48u) memcpy(&w5, p + 40u, 8u); \
+    if (n >= 56u) memcpy(&w6, p + 48u, 8u);
+#define KS_GATHER_WORDS_64 switch (n >> 3u) { case 0u: w0 |= ks_gather_word(p + 0u, n & 7u); break; case 1u: w1 |= ks_gather_word(p + 8u, n & 7u); break; case 2u: w2 |= ks_gather_word(p + 16u, n & 7u); break; case 3u: w3 |= ks_gather_word(p + 24u, n & 7u); break; case 4u: w4 |= ks_gather_word(p + 32u, n & 7u); break; case 5u: w5 |= ks_gather_word(p + 40u, n & 7u); break; case 6u: w6 |= ks_gather_word(p + 48u, n & 7u); break; case 7u: w7 |= ks_gather_word(p + 56u, n & 7u); break; default: break; }
 #define KS_ASSEMBLE_WORDS_16 memcpy((uint8_t *)&out + 0u, &w0, 8u); memcpy((uint8_t *)&out + 8u, &w1, 8u);
 #define KS_ASSEMBLE_WORDS_32 memcpy((uint8_t *)&out + 0u, &w0, 8u); memcpy((uint8_t *)&out + 8u, &w1, 8u); memcpy((uint8_t *)&out + 16u, &w2, 8u); memcpy((uint8_t *)&out + 24u, &w3, 8u);
+#define KS_ASSEMBLE_WORDS_64 KS_ASSEMBLE_WORDS_32 memcpy((uint8_t *)&out + 32u, &w4, 8u); memcpy((uint8_t *)&out + 40u, &w5, 8u); memcpy((uint8_t *)&out + 48u, &w6, 8u); memcpy((uint8_t *)&out + 56u, &w7, 8u);
 #define KS_SPLIT_WORDS_16 uint64_t w0, w1; memcpy(&w0, (const uint8_t *)&value + 0u, 8u); memcpy(&w1, (const uint8_t *)&value + 8u, 8u); \
     if (n >= 8u) memcpy(p + 0u, &w0, 8u);
 #define KS_SPLIT_WORDS_32 uint64_t w0, w1, w2, w3; memcpy(&w0, (const uint8_t *)&value + 0u, 8u); memcpy(&w1, (const uint8_t *)&value + 8u, 8u); memcpy(&w2, (const uint8_t *)&value + 16u, 8u); memcpy(&w3, (const uint8_t *)&value + 24u, 8u); \
@@ -558,6 +573,15 @@ static inline __attribute__((unused)) void ks_scalar_store4_u8x##W(lua_State *L,
     if (n >= 24u) memcpy(p + 16u, &w2, 8u);
 #define KS_SCATTER_WORDS_16 switch (n >> 3u) { case 0u: ks_scatter_word(p + 0u, n & 7u, w0); break; case 1u: ks_scatter_word(p + 8u, n & 7u, w1); break; default: break; }
 #define KS_SCATTER_WORDS_32 switch (n >> 3u) { case 0u: ks_scatter_word(p + 0u, n & 7u, w0); break; case 1u: ks_scatter_word(p + 8u, n & 7u, w1); break; case 2u: ks_scatter_word(p + 16u, n & 7u, w2); break; case 3u: ks_scatter_word(p + 24u, n & 7u, w3); break; default: break; }
+#define KS_SPLIT_WORDS_64 uint64_t w0, w1, w2, w3, w4, w5, w6, w7; memcpy(&w0, (const uint8_t *)&value + 0u, 8u); memcpy(&w1, (const uint8_t *)&value + 8u, 8u); memcpy(&w2, (const uint8_t *)&value + 16u, 8u); memcpy(&w3, (const uint8_t *)&value + 24u, 8u); memcpy(&w4, (const uint8_t *)&value + 32u, 8u); memcpy(&w5, (const uint8_t *)&value + 40u, 8u); memcpy(&w6, (const uint8_t *)&value + 48u, 8u); memcpy(&w7, (const uint8_t *)&value + 56u, 8u); \
+    if (n >= 8u) memcpy(p + 0u, &w0, 8u); \
+    if (n >= 16u) memcpy(p + 8u, &w1, 8u); \
+    if (n >= 24u) memcpy(p + 16u, &w2, 8u); \
+    if (n >= 32u) memcpy(p + 24u, &w3, 8u); \
+    if (n >= 40u) memcpy(p + 32u, &w4, 8u); \
+    if (n >= 48u) memcpy(p + 40u, &w5, 8u); \
+    if (n >= 56u) memcpy(p + 48u, &w6, 8u);
+#define KS_SCATTER_WORDS_64 switch (n >> 3u) { case 0u: ks_scatter_word(p + 0u, n & 7u, w0); break; case 1u: ks_scatter_word(p + 8u, n & 7u, w1); break; case 2u: ks_scatter_word(p + 16u, n & 7u, w2); break; case 3u: ks_scatter_word(p + 24u, n & 7u, w3); break; case 4u: ks_scatter_word(p + 32u, n & 7u, w4); break; case 5u: ks_scatter_word(p + 40u, n & 7u, w5); break; case 6u: ks_scatter_word(p + 48u, n & 7u, w6); break; case 7u: ks_scatter_word(p + 56u, n & 7u, w7); break; default: break; }
 /* An eight-byte lane never leaves a partial word behind. */
 #define KS_GATHER_TAIL_1(W) KS_GATHER_WORDS_##W
 #define KS_GATHER_TAIL_2(W) KS_GATHER_WORDS_##W
@@ -632,6 +656,9 @@ static inline __attribute__((unused)) void ks_scalar_store4_u8x##W(lua_State *L,
 #define KS_EXP_ANY_REGISTERS_16 memcpy(&v, ((const uint8_t *)&value) + 0u, 16u); all = v;
 #define KS_EXP_ANY_REGISTERS_32 memcpy(&v, ((const uint8_t *)&value) + 0u, 16u); all = v; \
     memcpy(&v, ((const uint8_t *)&value) + 16u, 16u); all = vorrq_u8(all, v);
+#define KS_EXP_ANY_REGISTERS_64 KS_EXP_ANY_REGISTERS_32 \
+    memcpy(&v, ((const uint8_t *)&value) + 32u, 16u); all = vorrq_u8(all, v); \
+    memcpy(&v, ((const uint8_t *)&value) + 48u, 16u); all = vorrq_u8(all, v);
 #elif defined(__SSE2__)
 #define KS_EXP_BITS_REGISTER(BYTES, offset, shift) \
     memcpy(&v, ((const uint8_t *)&value) + offset, 16u); out |= KS_SSE_MOVEMASK_##BYTES(v) << shift;
@@ -653,6 +680,9 @@ static inline __attribute__((unused)) void ks_scalar_store4_u8x##W(lua_State *L,
 #define KS_EXP_BITS_REGISTERS_16(BYTES) KS_EXP_BITS_REGISTER(BYTES, 0u, 0u)
 #define KS_EXP_BITS_REGISTERS_32(BYTES) KS_EXP_BITS_REGISTER(BYTES, 0u, 0u) \
     KS_EXP_BITS_REGISTER(BYTES, 16u, KS_LANES_PER_REGISTER_##BYTES)
+#define KS_EXP_BITS_REGISTERS_64(BYTES) KS_EXP_BITS_REGISTERS_32(BYTES) \
+    KS_EXP_BITS_REGISTER(BYTES, 32u, (2u * KS_LANES_PER_REGISTER_##BYTES)) \
+    KS_EXP_BITS_REGISTER(BYTES, 48u, (3u * KS_LANES_PER_REGISTER_##BYTES))
 
 /* A byte swizzle has a table instruction on NEON, SSSE3 and wasm; a
  * wider lane, or a 32-byte vector on x86, walks the lanes. */
@@ -702,6 +732,9 @@ static inline __attribute__((unused)) void ks_scalar_store4_u8x##W(lua_State *L,
 #define KS_EXP_BYTE_SWIZZLE_PAIR_BODY_16(CTYPE, LANES) KS_EXP_SWIZZLE_PAIR_LOOP(CTYPE, LANES)
 #define KS_EXP_BYTE_SWIZZLE_PAIR_BODY_32(CTYPE, LANES) KS_EXP_SWIZZLE_PAIR_LOOP(CTYPE, LANES)
 #endif
+/* A 64-byte vector exists only under AVX-512F, whose byte shuffle needs
+ * the BW extension that tier does not promise; the lanes are walked. */
+#define KS_EXP_BYTE_SWIZZLE_BODY_64(CTYPE, LANES) KS_EXP_SWIZZLE_LOOP(CTYPE, LANES)
 #define KS_EXP_SWIZZLE_1(W, ELEM, CTYPE, LANES) \
 static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_swizzle_##ELEM(ks_exp_##ELEM value, ks_exp_##ELEM indices) { \
     ks_exp_##ELEM out; ks_exp_##ELEM zeroBased KS_UNUSED = indices - 1; \
@@ -1011,10 +1044,13 @@ KS_EXP_ELEMENT(16, u32x4, uint32_t, int32_t, 4, 4, INT)
 KS_EXP_ELEMENT(16, i64x2, int64_t, int64_t, 2, 8, INT)
 KS_EXP_ELEMENT(16, u64x2, uint64_t, int64_t, 2, 8, INT)
 #elif KS_SIMD_WIDTH == 32
+#ifndef KS_U8_PACKED_32
+#define KS_U8_PACKED_32 1
 KS_U8_PACKED(32, 2, 1)
 KS_U8_SCALAR(32)
 #if KS_LUA_BUILDER
 KS_U8_STORE4(32, 128)
+#endif
 #endif
 KS_EXP_ELEMENT(32, f64x4, double, int64_t, 4, 8, FLOAT)
 KS_EXP_ELEMENT(32, f32x8, float, int32_t, 8, 4, FLOAT)
@@ -1026,6 +1062,30 @@ KS_EXP_ELEMENT(32, i32x8, int32_t, int32_t, 8, 4, INT)
 KS_EXP_ELEMENT(32, u32x8, uint32_t, int32_t, 8, 4, INT)
 KS_EXP_ELEMENT(32, i64x4, int64_t, int64_t, 4, 8, INT)
 KS_EXP_ELEMENT(32, u64x4, uint64_t, int64_t, 4, 8, INT)
+#elif KS_SIMD_WIDTH == 64
+/* The 64-byte width is only ever selected for the AVX-512F tier and the
+ * copy is compiled with that tier's flags, so a `zmm` register class is
+ * always there for these. The packed byte scanner keeps the 32-byte
+ * vector: its byte compares and shuffles need AVX-512BW, which the tier
+ * does not promise, and 32 is already one register here. */
+#ifndef KS_U8_PACKED_32
+#define KS_U8_PACKED_32 1
+KS_U8_PACKED(32, 2, 1)
+KS_U8_SCALAR(32)
+#if KS_LUA_BUILDER
+KS_U8_STORE4(32, 128)
+#endif
+#endif
+KS_EXP_ELEMENT(64, f64x8, double, int64_t, 8, 8, FLOAT)
+KS_EXP_ELEMENT(64, f32x16, float, int32_t, 16, 4, FLOAT)
+KS_EXP_ELEMENT(64, i8x64, int8_t, int8_t, 64, 1, INT)
+KS_EXP_ELEMENT(64, u8x64, uint8_t, int8_t, 64, 1, INT)
+KS_EXP_ELEMENT(64, i16x32, int16_t, int16_t, 32, 2, INT)
+KS_EXP_ELEMENT(64, u16x32, uint16_t, int16_t, 32, 2, INT)
+KS_EXP_ELEMENT(64, i32x16, int32_t, int32_t, 16, 4, INT)
+KS_EXP_ELEMENT(64, u32x16, uint32_t, int32_t, 16, 4, INT)
+KS_EXP_ELEMENT(64, i64x8, int64_t, int64_t, 8, 8, INT)
+KS_EXP_ELEMENT(64, u64x8, uint64_t, int64_t, 8, 8, INT)
 #else
-#error "KS_SIMD_WIDTH must be 16 or 32"
+#error "KS_SIMD_WIDTH must be 16, 32 or 64"
 #endif

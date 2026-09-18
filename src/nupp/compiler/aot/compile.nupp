@@ -712,7 +712,7 @@ end
 ---   fails the build; nothing when every required loop did
 function compile.lanes(program: scalarIR.Program, filename: string, selected: targets.Target): {compile.Diagnostic}?
     if program.usesSimd == true then
-        program.simdWidth = (selected.tier == "avx2" or selected.tier == "avx512f") and 32 or 16
+        program.simdWidth = targets.simdWidth(selected)
     end
     if program.simdRequired ~= true then
         return nil

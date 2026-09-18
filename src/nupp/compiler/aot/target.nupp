@@ -292,4 +292,21 @@ function target.noGangReason(selected: target.Target): string
     ):format(selected.tier, target.NARROWEST_GANG, table.concat(wider, " or "))
 end
 
+--- The vector width, in bytes, an explicit SIMD program takes on this target.
+---
+--- This is the width of one native register the tier's flags cover, which is
+--- narrower than the gang shapes above where those pair registers: NEON pairs
+--- two 16-byte registers for a 32-byte gang, but a `preferred` species there
+--- is one register wide. A 64-byte value only exists under AVX-512F, so only
+--- that tier answers 64 and no wider block is ever instantiated for the others.
+function target.simdWidth(selected: target.Target): integer
+    if selected.tier == "avx512f" then
+        return 64
+    elseif selected.tier == "avx2" then
+        return 32
+    end
+
+    return 16
+end
+
 export = target

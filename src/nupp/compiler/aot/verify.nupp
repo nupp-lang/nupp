@@ -3819,7 +3819,10 @@ function verify.program(program: scalarIR.Program): scalarIR.Program
     end
     if program.usesSimd == true then
         holds(body ~= nil and loop == nil and workgroup == nil, "explicit SIMD requires a block kernel")
-        holds(program.simdWidth == nil or program.simdWidth == 16 or program.simdWidth == 32, "invalid SIMD width")
+        holds(
+            program.simdWidth == nil or program.simdWidth == 16 or program.simdWidth == 32 or program.simdWidth == 64,
+            "invalid SIMD width"
+        )
     else
         holds(program.simdWidth == nil, "a scalar program carries a SIMD width")
     end
