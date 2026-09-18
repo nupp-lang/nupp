@@ -857,21 +857,32 @@ local function validateTarget(target, label, dependencies)
         end
     end
     if target.aotFeatures ~= nil then
-        -- The inclusive feature range every emitted tier must satisfy. The
-        -- string form is accepted only across the stage-zero transition and
-        -- retains its former ceiling behavior.
+        -- The inclusive feature range every emitted tier must satisfy. A bound
+        -- left out opens that end of the range to the architecture's own, so
+        -- `{minimum = "simd128"}` is the whole of "this artifact requires
+        -- vectors" -- which is what a tier-failure diagnostic tells its reader
+        -- to write. A record saying neither is a record saying nothing, and is
+        -- refused rather than silently meaning every tier. The string form
+        -- names a maximum, which is what it has always meant.
         if type(target.aotFeatures) == "table" then
             local valid, err = validateKeys(target.aotFeatures, {"minimum", "maximum"}, label .. ".aotFeatures")
             if not valid then
                 return nil, err
             end
-            valid, err = validateString(target.aotFeatures.minimum, label .. ".aotFeatures.minimum")
-            if not valid then
-                return nil, err
+            if target.aotFeatures.minimum == nil and target.aotFeatures.maximum == nil then
+                return nil, label .. ".aotFeatures needs a minimum, a maximum, or both"
             end
-            valid, err = validateString(target.aotFeatures.maximum, label .. ".aotFeatures.maximum")
-            if not valid then
-                return nil, err
+            if target.aotFeatures.minimum ~= nil then
+                valid, err = validateString(target.aotFeatures.minimum, label .. ".aotFeatures.minimum")
+                if not valid then
+                    return nil, err
+                end
+            end
+            if target.aotFeatures.maximum ~= nil then
+                valid, err = validateString(target.aotFeatures.maximum, label .. ".aotFeatures.maximum")
+                if not valid then
+                    return nil, err
+                end
             end
         else
             local valid, err = validateString(target.aotFeatures, label .. ".aotFeatures")

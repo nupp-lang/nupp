@@ -626,10 +626,12 @@ function M.theBrowserSimdTemplateChecksBuildsAndTests()
    scaffoldAndVerify("browser-simd", "sample-browser-simd", nil, function(into)
       withDevelopmentRocks(into)
       local config = assert(loadfile(into .. "/nupp.lua"))()
-      assertEq(config.build.targets.scalar.aotFeatures, "scalar",
+      assertEq(config.build.targets.scalar.aotFeatures.maximum, "scalar",
          "the fallback is scalar Wasm AOT")
-      assertEq(config.build.targets.simd.aotFeatures, "simd128",
+      assertEq(config.build.targets.simd.aotFeatures.minimum, "simd128",
          "the fast package requires Wasm SIMD128")
+      assertEq(config.build.targets.simd.aotFeatures.maximum, nil,
+         "and names no ceiling above the tier it requires")
 
       local prefix = "NUPP_CACHE_DIR='" .. SCAFFOLD_STORE .. "' NUPP="
          .. NUPP .. " " .. NUPP

@@ -1741,12 +1741,72 @@ function M.aFeatureRangeCarriesOnlyItsInclusiveTiers()
     assert(read(tieredC(dir, "avx512f")), "the inclusive maximum travels")
 end
 
-function M.aFeatureRangeRequiresBothClosedBounds()
+function M.aFeatureRangeWithoutAMaximumRunsToTheWidestTier()
+    -- The minimum on its own is what a tier-failure diagnostic tells its reader
+    -- to write, so it has to be a manifest that builds.
     local dir = project("emit-c")
     withKeys(dir, 'aotTarget = "x86_64-unknown-linux-gnu", aotFeatures = {minimum = "avx2"},')
     local out, code = build(dir)
+    test.equal(code, 0, out)
+    test.equal(read(tieredC(dir, "baseline")), nil, "the declared minimum drops what is below it")
+    assert(read(tieredC(dir, "avx2")), "the declared minimum travels")
+    assert(read(tieredC(dir, "avx512f")), "and everything above it up to the architecture's widest")
+end
+
+function M.aFeatureRangeWithoutAMinimumKeepsItsNarrowestTier()
+    local dir = project("emit-c")
+    withKeys(dir, 'aotTarget = "x86_64-unknown-linux-gnu", aotFeatures = {maximum = "avx2"},')
+    local out, code = build(dir)
+    test.equal(code, 0, out)
+    assert(read(tieredC(dir, "baseline")), "an absent minimum is the architecture's narrowest tier")
+    assert(read(tieredC(dir, "avx2")), "the declared maximum travels")
+    test.equal(read(tieredC(dir, "avx512f")), nil, "and nothing above it")
+end
+
+function M.aFeatureRangeRequiresOneBound()
+    local dir = project("emit-c")
+    withKeys(dir, 'aotTarget = "x86_64-unknown-linux-gnu", aotFeatures = {},')
+    local out, code = build(dir)
     test.equal(code, 1, out)
-    assert(out:find("aotFeatures.maximum", 1, true), out)
+    assert(out:find("aotFeatures needs a minimum, a maximum, or both", 1, true), out)
+end
+
+function M.theStringFeatureFormIsTheMaximum()
+    -- Every manifest written before the range says a bare tier name, and it has
+    -- to keep meaning the ceiling it has always meant.
+    local dir = project("emit-c")
+    withKeys(dir, 'aotTarget = "x86_64-unknown-linux-gnu", aotFeatures = "avx2",')
+    local out, code = build(dir)
+    test.equal(code, 0, out)
+    local ranged = project("emit-c")
+    withKeys(ranged, 'aotTarget = "x86_64-unknown-linux-gnu", aotFeatures = {maximum = "avx2"},')
+    local rangedOut, rangedCode = build(ranged)
+    test.equal(rangedCode, 0, rangedOut)
+    for _, tier in ipairs({"baseline", "avx2", "avx512f"}) do
+        test.equal(
+            read(tieredC(dir, tier)) ~= nil,
+            read(tieredC(ranged, tier)) ~= nil,
+            tier .. " travels the same either way"
+        )
+    end
+end
+
+function M.aTierWithoutVectorsRefusesARequiredLoopAndNamesTheMinimum()
+    local dir = project("emit-c")
+    withKeys(dir, 'aotTarget = "wasm32-unknown-emscripten", aotFeatures = "scalar",')
+    local out, code = build(dir)
+    test.equal(code, 1, out)
+    assert(out:find("the scalar feature tier has no 16-byte vector", 1, true), out)
+    assert(out:find('set aotFeatures.minimum = "simd128"', 1, true), "and says what to write: " .. out)
+end
+
+function M.aDeclaredMinimumCarriesTheTierARequiredLoopNeeds()
+    local dir = project("emit-c")
+    withKeys(dir, 'aotTarget = "wasm32-unknown-emscripten", aotFeatures = {minimum = "simd128"},')
+    local out, code = build(dir)
+    test.equal(code, 0, out)
+    assert(read(tieredC(dir, "simd128")), "the required tier travels")
+    test.equal(read(tieredC(dir, "scalar")), nil, "and the tier that cannot lower the loop does not")
 end
 
 function M.aFeatureRangeRejectsUnknownKeys()

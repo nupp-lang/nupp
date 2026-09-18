@@ -1,3 +1,7 @@
+-- `aotFeatures` is an inclusive host range. The scalar package pins both bounds
+-- to the tier with no vectors; the SIMD package names only a minimum, because
+-- `@simd` in `src/simd.nupp` is a requirement and simd128 is the tier that
+-- satisfies it.
 local function target(entry, output, outDir, features)
     return {
         kind = "bundle",
@@ -24,8 +28,8 @@ return {
         default = "app",
         targets = {
             app = target("scalar", "dist/app.lua", "build/app"),
-            scalar = target("scalar", "dist/scalar.lua", "build/scalar", "scalar"),
-            simd = target("simd", "dist/simd.lua", "build/simd", "simd128"),
+            scalar = target("scalar", "dist/scalar.lua", "build/scalar", {minimum = "scalar", maximum = "scalar"}),
+            simd = target("simd", "dist/simd.lua", "build/simd", {minimum = "simd128"}),
         },
     },
 

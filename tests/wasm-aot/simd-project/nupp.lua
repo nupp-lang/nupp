@@ -11,7 +11,7 @@ return {
                 dialect = "lua51",
 
                 aot = "require-wasm",
-                aotFeatures = "simd128",
+                aotFeatures = {minimum = "simd128"},
             },
         },
     },

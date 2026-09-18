@@ -19,7 +19,7 @@ return {
         default = "scalar",
         targets = {
             scalar = target("dist/scalar.lua", "build/scalar", "scalar"),
-            simd = target("dist/simd.lua", "build/simd", "simd128"),
+            simd = target("dist/simd.lua", "build/simd", {minimum = "simd128"}),
         },
     },
 }

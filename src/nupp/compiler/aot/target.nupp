@@ -121,9 +121,16 @@ end
 
 --- The tiers a project build carries, narrowest first.
 ---
---- A range is an explicit inclusive host contract. The temporary string form
---- retains the former x86-64 ceiling semantics until the stage-zero pin moves;
---- other architectures continue to read it as one exact tier.
+--- A range is an explicit inclusive host contract: every tier between its
+--- bounds is emitted, and a `@simd` region that will not lower at one of them
+--- fails the build rather than losing that tier. A bound left out is the
+--- architecture's own -- `{minimum = "simd128"}` on wasm32 is simd128 alone,
+--- `{minimum = "avx2"}` on x86-64 is avx2 through avx512f -- so the minimum a
+--- tier-failure diagnostic names can be written on its own.
+---
+--- The string form names a maximum and keeps the x86-64 ceiling semantics it
+--- has always had, every tier below it included; other architectures read it as
+--- one exact tier.
 function target.buildTiers(triple: string?, features: any): ({target.Target}?, string?)
     local base, baseErr = target.select(triple, nil)
     if base == nil then
@@ -147,8 +154,8 @@ function target.buildTiers(triple: string?, features: any): ({target.Target}?, s
     if type(features) == "string" then
         last = features
     elseif type(features) == "table" then
-        first = features.minimum as string
-        last = features.maximum as string
+        first = (features.minimum or first) as string
+        last = (features.maximum or last) as string
     end
     local _, firstErr = target.select(actual.triple, first)
     if firstErr ~= nil then

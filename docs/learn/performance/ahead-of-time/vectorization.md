@@ -173,9 +173,31 @@ the other entries does not execute them. A machine without AVX therefore gets
 the two-lane baseline body, while one with AVX2 gets four lanes from the same
 artifact.
 
-`aotFeatures` is a ceiling. Use it to omit tiers a project does not want to
-ship; every tier below it still travels, so `avx2` retains its baseline
-fallback:
+`aotFeatures` is the inclusive range of tiers an artifact carries. Every tier in
+it is emitted, and a `@simd` loop that will not lower at one of them fails the
+build rather than quietly losing that tier:
+
+```lua
+targets = {
+   game = {
+      kind = "modules",
+      entries = {"game"},
+      aot = "require",
+      aotFeatures = {minimum = "avx2", maximum = "avx512f"},
+   },
+}
+```
+
+A bound left out is the architecture's own end, so `{minimum = "avx2"}` runs
+from AVX2 to AVX-512 and `{maximum = "avx2"}` keeps the baseline fallback below
+it. A record naming neither bound says nothing and is refused, as is a minimum
+wider than its maximum. Raising `minimum` narrows the hosts the artifact claims,
+which is how a project whose source requires lanes states that requirement;
+nothing else rewrites the range.
+
+A plain string names the maximum, which is what it has always meant. Use it to
+omit tiers a project does not want to ship; every tier below it still travels,
+so `avx2` retains its baseline fallback:
 
 ```lua
 targets = {
@@ -189,12 +211,23 @@ The standalone inspection command still selects one exact tier:
 nupp aot --target x86_64-unknown-linux-gnu --features avx2 src/kernel.nupp
 ```
 
-Each `(source, tier)` C file has its own artifact key. Changing the ceiling adds
+Each `(source, tier)` C file has its own artifact key. Changing the range adds
 or removes those files rather than reusing one tier's output as another's.
 
 There is nothing to search for within a tier: the width and the widest element
 decide the lane count, so at AVX-512 a body carrying one binary64 value gets
 eight lanes and an all-32-bit body gets sixteen.
+
+When the source carries `@simd` and a wider tier in the same architecture does
+lower the whole of it, the build says which, and the answer is a manifest one:
+
+```text
+nupp: feature tier scalar: src/simd.nupp:17:5: aot: the scalar feature tier has no 16-byte vector; select simd128 to run several iterations at once
+this complete SIMD source lowers at simd128; set aotFeatures.minimum = "simd128" to require that host tier
+```
+
+That is advice, not a fix the build applies: raising the minimum is a claim
+about where the artifact may run, so it stays the author's to make.
 
 ::: deepdive Portable target defaults
 x86-64 defaults to `baseline`, so a loop written with ordinary operators gets

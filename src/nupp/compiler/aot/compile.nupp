@@ -723,6 +723,34 @@ function compile.lanes(program: scalarIR.Program, filename: string, selected: ta
         return nil
     end
     local width = targets.simdRegionWidth(selected)
+    if width == 0 then
+        -- A tier with no vector register has nothing for a required loop to
+        -- run in. Refused here, before the rewrite is handed a zero width and
+        -- the verifier is handed the zero-width program it produces, so that
+        -- the failure is a diagnostic the build can answer with the tier that
+        -- would lower the source and the `aotFeatures.minimum` naming it.
+        local why = "the " .. selected.tier .. " feature tier has no 16-byte vector"
+        local narrowest: string? = nil
+        for _, tier in ipairs(targets.tiers(selected.architecture)) do
+            if narrowest == nil and (targets.TIERS[tier] or 0) > 0 then
+                narrowest = tier
+            end
+        end
+        if narrowest ~= nil then
+            why = why .. "; select " .. (narrowest as string) .. " to run several iterations at once"
+        end
+        local refused: {compile.Diagnostic} = {}
+        local zeroRegions: {scalarIR.Fornum} = {}
+        requiredRegions(program.body or {}, zeroRegions)
+        for _, region in ipairs(zeroRegions) do
+            refused[#refused + 1] = regionDiagnostic(region, filename, why)
+        end
+        if #refused == 0 then
+            refused[1] = loopDiagnostic(program, filename, why)
+        end
+
+        return refused
+    end
     if program.loop ~= nil then
         local refusals = simdrewrite.program(program, width)
         if program.vector == nil then

@@ -48,8 +48,9 @@ app = {
 ```
 
 `require-wasm` fixes the AOT target to `wasm32-unknown-emscripten`. The default
-feature tier is scalar; `aotFeatures = "simd128"` selects Wasm SIMD and narrows
-the set of hosts that may load the result.
+feature tier is scalar; `aotFeatures = {minimum = "simd128"}` selects Wasm SIMD
+and narrows the set of hosts that may load the result. A source with a `@simd`
+loop has to say that, because the scalar tier has no vector to lower it to.
 
 ## Lua values
 

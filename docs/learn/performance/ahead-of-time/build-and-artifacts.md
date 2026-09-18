@@ -90,15 +90,16 @@ targets = {
       entries = {"game"},
       aot = "emit-c",
       aotTarget = "x86_64-unknown-linux-gnu",
-      aotFeatures = "avx2",
+      aotFeatures = {minimum = "baseline", maximum = "avx2"},
    },
 }
 ```
 
 The triple decides the available tiers, how a shared library is produced and
 what it is called, so a Windows target gets a `.dll` and no `-lm` whether or not
-the build is running on Windows. A ceiling is checked against that target's
-architecture, so asking aarch64 for `avx2` is refused where it is written.
+the build is running on Windows. Each bound of the feature range is checked
+against that target's architecture, so asking aarch64 for `avx2` is refused
+where it is written.
 
 `emit-c` needs nothing installed for the target: it writes one C file per
 `(source, tier)`, the baseline feature detector where selection is needed, and
