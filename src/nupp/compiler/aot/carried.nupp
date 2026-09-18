@@ -74,7 +74,13 @@ local function loop(state: carried.State, node: any, body: {scalarIR.Statement},
     if binding ~= nil then
         declare(state, (binding as scalarIR.Binding).cName, binding)
     end
+    if node.op == "while" and node.conditionBody ~= nil then
+        walk(node.conditionBody, state)
+    end
     walk(body, state)
+    if node.op == "repeat" and node.conditionBody ~= nil then
+        walk(node.conditionBody, state)
+    end
     state.frames[#state.frames] = nil
     node.carried = frame.order
 end

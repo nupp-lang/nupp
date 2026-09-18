@@ -32,6 +32,10 @@ local lower = {}
 
 --- What lowering needs from the caller.
 record lower.Context
+    --- Temporary values of expressions whose only exits leave their context.
+    --- This lowering-only fact lets unreachable consumers use any scalar type.
+    unreachableValues: {[any]: boolean} = {}
+
     --- Reports a construct the subset does not admit, naming where it was
     --- written. Does not return.
     reject: function(scalarIR.Source?, string): nil
@@ -132,6 +136,9 @@ function lower.convert(
     source: scalarIR.Source?,
     context: lower.Context
 ): scalarIR.Expr
+    if context.unreachableValues[value] then
+        return lower.zeroValue(targetType, source, context)
+    end
     local converted = lower.conversion(value, targetType, source)
     if converted == nil then
         context.reject(
@@ -816,7 +823,25 @@ record lower.ReducerState
 end
 
 --- What lowering one kernel's body needs to know.
+record lower.ExpressionFrame
+    output: {scalarIR.Statement}
+    operands: {scalarIR.Expr} = {}
+    replacements: {[any]: scalarIR.Expr} = {}
+end
+
+record lower.ValueFrame
+    result: scalarIR.Name?
+    assignments: {scalarIR.Assignment} = {}
+    done: scalarIR.Name
+    yields: integer = 0
+end
+
 record lower.Kernel
+    pending: {scalarIR.Statement} = {}
+    expressionFrame: lower.ExpressionFrame?
+    valueFrame: lower.ValueFrame?
+    expectedType: scalarIR.Type?
+
     --- Span and uniform parameters by name, as the signature admitted them.
     params: {[string]: any}
 
@@ -1076,31 +1101,24 @@ end
 --- The names a block assigns anywhere inside it, so a loop knows which cursor
 --- proofs its body retires.
 local function assignedNames(body: cst.Node?, out: {[string]: boolean}): {[string]: boolean}
-    for _, authored in ipairs(body ~= nil and (body as cst.Block).stats or {}) do
-        local stat = authored
-        -- A pragma is the statement it annotates: an `@simd` loop assigns
-        -- what its body assigns.
-        while stat.kind == "pragmaStmt" do
-            stat = (stat as cst.PragmaStmt).stat as cst.Node
+    if body == nil then
+        return out
+    end
+    local node = body as cst.Node
+    if node.kind == "funcExpr" or node.kind == "shortfn" or node.kind == "localFuncStmt" then
+        return out
+    end
+    if node.kind == "assignStmt" then
+        for _, target in ipairs((node as cst.AssignStmt).targets or {}) do
+            local name = lower.nameOf(target)
+            if name ~= nil then
+                out[name as string] = true
+            end
         end
-        local kind = stat.kind
-        if kind == "assignStmt" then
-            for _, target in ipairs((stat as cst.AssignStmt).targets or {}) do
-                local name = lower.nameOf(target)
-                if name ~= nil then
-                    out[name as string] = true
-                end
-            end
-        elseif kind == "ifStmt" then
-            local branch = stat as cst.IfStmt
-            for _, clause in ipairs(branch.clauses or {}) do
-                assignedNames((clause as cst.IfClause).body, out)
-            end
-            if branch.elseClause ~= nil then
-                assignedNames((branch.elseClause as cst.ElseClause).body, out)
-            end
-        elseif kind == "whileStmt" or kind == "doStmt" or kind == "fornumStmt" or kind == "repeatStmt" then
-            assignedNames((stat as any).body, out)
+    end
+    for _, child in ipairs(node as any) do
+        if type(child) == "table" then
+            assignedNames(child as cst.Node, out)
         end
     end
 
@@ -3843,11 +3861,140 @@ local function shortCircuitBound(
     return nil, nil, nil
 end
 
---- One admitted expression, and everything under it.
----
---- @param environment the names in scope, by name
---- @param activeIndex the loop counter, where one is in scope
-function lower.expression(
+--- A compiler temporary is an ordinary IR local, visible to all later passes.
+local function temporary(value: scalarIR.Expr, kernel: lower.Kernel, out: {scalarIR.Statement}): scalarIR.Name
+    kernel.serial = kernel.serial + 1
+    local name = "$value_" .. tostring(kernel.serial)
+    local cName = "__nupp_value_" .. tostring(kernel.serial)
+    local ref = new scalarIR.Name(op = "local", name = name, cName = cName, type = value.type, source = value.source)
+    out[
+        #out + 1
+    ] = new scalarIR.Let(
+        op = "let",
+        name = name,
+        cName = cName,
+        type = value.type,
+        value = value,
+        source = value.source
+    )
+
+    return ref
+end
+
+--- Value blocks and switch arms consume exactly the first result.
+local function firstValue(value: scalarIR.Expr, kernel: lower.Kernel, out: {scalarIR.Statement}): scalarIR.Expr
+    if value.type ~= "multi" then
+        return value
+    end
+    local call = value as scalarIR.HelperCall
+    local bindings: {scalarIR.Binding} = {}
+    for position, valueType in ipairs(call.resultTypes or {}) do
+        if position > 1 then
+            break
+        end
+        kernel.serial = kernel.serial + 1
+        local suffix = tostring(kernel.serial)
+        bindings[
+            #bindings + 1
+        ] = new scalarIR.Binding(
+            kind = "local",
+            name = "$first_" .. suffix,
+            cName = "__nupp_first_" .. suffix,
+            type = valueType
+        )
+    end
+    if #bindings == 0 then
+        kernel.context.reject(value.source, "a value expression needs at least one result")
+    end
+    out[#out + 1] = new scalarIR.MultiLet(op = "multi_let", call = call, bindings = bindings, source = value.source)
+    local first = bindings[1]
+
+    return new scalarIR.Name(
+        op = "local",
+        name = first.name,
+        cName = first.cName,
+        type = first.type,
+        source = value.source
+    )
+end
+
+local function joinedType(
+    left: scalarIR.Type?,
+    right: scalarIR.Type,
+    at: scalarIR.Source?,
+    context: lower.Context
+): scalarIR.Type
+    if left == nil or left == right then
+        return right
+    end
+    local ordinary = {f64 = true, f32 = true, i32 = true, u32 = true}
+    if ordinary[left as string] and ordinary[right] then
+        return "f64"
+    end
+    context.reject(at, "native expression results need a common scalar representation")
+
+    return right
+end
+
+local function neverExpression(node: cst.Node): boolean
+    local inferred = semanticRaw((node as any).inferredType)
+    return inferred ~= nil and inferred.tag == "never"
+end
+
+local function assignValue(target: scalarIR.Name, value: scalarIR.Expr): scalarIR.Assign
+    return new scalarIR.Assign(
+        op = "assign",
+        values = {
+            new scalarIR.Assignment(
+                target = new scalarIR.Target(
+                    kind = "local",
+                    name = target.name,
+                    cName = target.cName,
+                    type = target.type
+                ),
+                value = value
+            )
+        },
+        source = value.source
+    )
+end
+
+local function booleanValue(value: scalarIR.Expr, kernel: lower.Kernel): scalarIR.Expr
+    if kernel.context.unreachableValues[value] then
+        return new scalarIR.Bool(op = "bool", value = false, type = "bool", source = value.source)
+    end
+    return value
+end
+
+local function negate(value: scalarIR.Expr): scalarIR.Expr
+    return new scalarIR.Unary(op = "not", value = value, type = "bool", source = value.source)
+end
+
+local function guarded(condition: scalarIR.Expr, body: {scalarIR.Statement}): scalarIR.If
+    return new scalarIR.If(
+        op = "if",
+        clauses = {new scalarIR.Clause(condition = condition, body = body)},
+        source = condition.source
+    )
+end
+
+--- Capture setup where the expression is evaluated, including lazy operands.
+function lower.capture(
+    node: cst.Node,
+    environment: {[string]: any},
+    activeIndex: string?,
+    kernel: lower.Kernel
+): (scalarIR.Expr, {scalarIR.Statement})
+    local previous, parent = kernel.pending, kernel.expressionFrame
+    kernel.pending, kernel.expressionFrame = {}, nil
+    local value = lower.expression(node, environment, activeIndex, kernel)
+    local setup = kernel.pending
+    kernel.pending, kernel.expressionFrame = previous, parent
+
+    return value, setup
+end
+
+local function expressionRaw(
     node: cst.Node,
     environment: {[string]: any},
     activeIndex: string?,
@@ -3866,6 +4013,39 @@ function lower.expression(
         local inner = kind == "paren" and (node as cst.Paren).expr or (node as cst.CastExpr).expr
 
         return lower.expression(inner as cst.Node, environment, activeIndex, kernel)
+    elseif kind == "doExpr" then
+        return lower.doExpression(node as cst.DoExpr, environment, kernel)
+    elseif kind == "switchExpr" then
+        return lower.switchExpression(node as cst.SwitchExpr, environment, kernel)
+    elseif kind == "ternary" then
+        local choice = node as cst.Ternary
+        local condition = booleanValue(
+            lower.expression(choice.cond as cst.Node, environment, activeIndex, kernel),
+            kernel
+        )
+        if condition.type ~= "bool" then
+            context.reject(lower.site(node), "native conditional expressions require a boolean condition")
+        end
+        local yes, yesBody = lower.capture(choice.ifTrue as cst.Node, environment, activeIndex, kernel)
+        local no, noBody = lower.capture(choice.ifFalse as cst.Node, environment, activeIndex, kernel)
+        local yesNever = neverExpression(choice.ifTrue as cst.Node)
+        local noNever = neverExpression(choice.ifFalse as cst.Node)
+        local resultType = not yesNever and yes.type or nil
+        if not noNever then
+            resultType = joinedType(resultType, no.type, lower.site(node), context)
+        end
+        resultType = resultType or yes.type
+        local result = temporary(lower.zeroValue(resultType, lower.site(node), context), kernel, kernel.pending)
+        if not yesNever then
+            yesBody[#yesBody + 1] = assignValue(result, lower.convert(yes, resultType, lower.site(node), context))
+        end
+        if not noNever then
+            noBody[#noBody + 1] = assignValue(result, lower.convert(no, resultType, lower.site(node), context))
+        end
+        local branch = guarded(condition, yesBody)
+        branch.elseBody = noBody
+        kernel.pending[#kernel.pending + 1] = branch
+        return result
     elseif kind == "name" then
         local name = lower.nameOf(node)
         local bound = name ~= nil and environment[name as string] or nil
@@ -4239,9 +4419,33 @@ function lower.expression(
             withBound(bounds, cursor as string, boundName as string, room as string)
             kernel.cursorBounds = bounds
         end
-        local right = lower.expression(operator.rhs as cst.Node, environment, activeIndex, kernel)
+        local right, setup = lower.capture(operator.rhs as cst.Node, environment, activeIndex, kernel)
         kernel.cursorBounds = previous
-
+        if written == "and" or written == "or" then
+            left, right = booleanValue(left, kernel), booleanValue(right, kernel)
+        else
+            if context.unreachableValues[left] then
+                left = lower.zeroValue(right.type, lower.site(node), context)
+            end
+            if context.unreachableValues[right] then
+                right = lower.zeroValue(left.type, lower.site(node), context)
+            end
+        end
+        if #setup > 0 and (written == "and" or written == "or") then
+            if left.type ~= "bool" or right.type ~= "bool" then
+                context.reject(lower.site(node), "native logical operands must be boolean")
+            end
+            local result = temporary(left, kernel, kernel.pending)
+            setup[#setup + 1] = assignValue(result, right)
+            kernel.pending[#kernel.pending + 1] = guarded(written == "and" and result or negate(result), setup)
+            return result
+        end
+        if #setup > 0 then
+            left = temporary(left, kernel, kernel.pending)
+            for _, statement in ipairs(setup) do
+                kernel.pending[#kernel.pending + 1] = statement
+            end
+        end
         return binary(operator, left, right, kernel)
     elseif kind == "call" then
         return call(node as cst.Call, environment, activeIndex, kernel)
@@ -4250,6 +4454,63 @@ function lower.expression(
     context.reject(lower.site(node), "expression kind " .. tostring(kind) .. " is not admitted")
 
     return new scalarIR.Bool(op = "bool", value = false, type = "bool", source = lower.site(node))
+end
+
+--- Keep earlier operands ahead of statementful later operands. The original
+--- expression stays intact when no operand needs setup.
+function lower.expression(
+    node: cst.Node,
+    environment: {[string]: any},
+    activeIndex: string?,
+    kernel: lower.Kernel
+): scalarIR.Expr
+    local parent, previous = kernel.expressionFrame, kernel.pending
+    local frame = new lower.ExpressionFrame(output = {})
+    kernel.expressionFrame, kernel.pending = frame, frame.output
+    local value = expressionRaw(node, environment, activeIndex, kernel)
+
+    local function rewrite(child: scalarIR.Expr): scalarIR.Expr
+        local replacement = frame.replacements[child]
+        if replacement ~= nil then
+            return replacement
+        end
+        local copy: {[string]: any} = {}
+        for key, entry in pairs(child as any) do
+            copy[key] = entry
+        end
+        visit.expressionChildren(copy as any, rewrite)
+
+        return copy as any
+    end
+
+    if next(frame.replacements) ~= nil then
+        value = rewrite(value)
+    end
+    if neverExpression(node) then
+        kernel.context.unreachableValues[value] = true
+    end
+    kernel.expressionFrame, kernel.pending = parent, previous
+    if #frame.output > 0 and parent ~= nil then
+        for _, operand in ipairs(parent.operands) do
+            if parent.replacements[
+                operand
+            ] == nil
+                and operand.op ~= "constant"
+                and operand.op ~= "constant_i32"
+                and operand.op ~= "constant_i64"
+                and operand.op ~= "bool" then
+                parent.replacements[operand] = temporary(operand, kernel, previous)
+            end
+        end
+    end
+    for _, statement in ipairs(frame.output) do
+        previous[#previous + 1] = statement
+    end
+    if parent ~= nil then
+        parent.operands[#parent.operands + 1] = value
+    end
+
+    return value
 end
 
 ----------------------------------------------------------------------------
@@ -4459,7 +4720,10 @@ function lower.helper(name: string, at: cst.Node?, kernel: lower.Kernel): scalar
     kernel.helpers[helperKey] = helper
 
     for position, result in ipairs((returned as cst.ReturnStmt).exprs or {}) do
-        local value = lower.expression(result, environment, nil, kernel)
+        local value, setup = lower.capture(result, environment, nil, kernel)
+        if #setup > 0 then
+            context.reject(lower.site(result), "a statementful helper must be declared @aot")
+        end
         if value.type ~= resultTypes[position] then
             context.reject(lower.site(returned), "native helper result type does not match")
         end
@@ -4618,37 +4882,49 @@ local function staticTruth(value: scalarIR.Expr): boolean?
     end
 end
 
---- The static integer a switch case names, or nil when the case is not one.
-local function switchCaseNumber(caseValue: cst.Node): number?
-    local exact = caseValue.switchStaticValue
-    if exact and exact.tag == "literal" and type(exact.constant) == "number" then
-        return exact.constant
+--- Checker-normalized primitive cases, with the same literal fallback used
+--- by the standalone parser harness. Cases never run source expressions.
+local function switchCaseValue(node: cst.Node, kernel: lower.Kernel): scalarIR.Expr
+    local exact = (node as any).switchStaticValue
+    local value: any = nil
+    local kind: string? = nil
+    if exact ~= nil then
+        kind = exact.tag == "literal" and type(exact.constant) or "nil"
+        value = exact.constant
+    else
+        local raw = node as any
+        while raw.kind == "paren" do
+            raw = raw.expr
+        end
+        if raw.kind == "number" then
+            kind, value = "number", tonumber((raw.token.text:gsub("_", "")))
+        elseif raw.kind == "unop" and raw.op.text == "-" and raw.operand.kind == "number" then
+            kind, value = "number", -(tonumber((raw.operand.token.text:gsub("_", ""))) as number)
+        elseif raw.kind == "string" then
+            kind, value = "string", stringBytes(raw.token.text)
+        elseif raw.kind == "trueExpr" or raw.kind == "falseExpr" then
+            kind, value = "boolean", raw.kind == "trueExpr"
+        elseif raw.kind == "nilExpr" then
+            kind = "nil"
+        end
     end
-    local value = caseValue
-    while value.kind == "paren" and value.expr do
-        value = value.expr
+    local source = lower.site(node)
+    if kind == "number" and value ~= nil then
+        return new scalarIR.Constant(op = "constant", value = ("%.17g"):format(value), type = "f64", source = source)
+    elseif kind == "string" then
+        return new scalarIR.LuaString(op = "lua_string", value = value, type = "lua_string", source = source)
+    elseif kind == "boolean" then
+        return new scalarIR.Bool(op = "bool", value = value, type = "bool", source = source)
+    elseif kind == "nil" then
+        return new scalarIR.LuaNil(op = "lua_nil", type = "lua_nil", source = source)
     end
-    if value.kind == "number" and value.token then
-        return tonumber((value.token.text:gsub("_", "")))
-    elseif value.kind == "unop"
-        and value.op
-        and value.op.kind == "-"
-        and value.operand
-        and value.operand.kind == "number"
-        and value.operand.token
-    then
-        local parsed = tonumber((value.operand.token.text:gsub("_", "")))
-        return parsed and -parsed or nil
-    end
+    kernel.context.reject(source, "native switch cases must be static primitive values")
 
-    return nil
+    return new scalarIR.Bool(op = "bool", value = false, type = "bool", source = source)
 end
 
---- Lowers the AOT subset of a switch initializer. Native switches admit numeric
---- integer-valued static cases and expression arms; strings, type patterns, block
---- arms, and early arm returns stay explicit subset boundaries. A selector that
---- is itself a constant -- a const carrier under monomorphization -- selects its
---- arm statically, and only that arm is lowered.
+--- Lower a switch to a result binding and ordered branches. Constant selectors
+--- prune untaken arms before lowering, including noncopyable intrinsic builders.
 local function switchLocal(
     stat: cst.LocalStmt,
     node: cst.SwitchExpr,
@@ -4666,39 +4942,57 @@ local function switchLocal(
     end
 
     local selector = lower.expression(node.selector as cst.Node, environment, kernel.index, kernel)
-    if selector.type ~= "f64" and selector.type ~= "i32" and selector.type ~= "u32" then
-        context.reject(lower.site(node.selector), "a native switch selector must be numeric")
+    local numeric = selector.type == "f64" or selector.type == "f32" or selector.type == "i32" or selector.type == "u32"
+    if not numeric and selector.type ~= "bool" and selector.type ~= "lua_nil" then
+        context.reject(lower.site(node.selector), "a native switch selector needs a supported primitive representation")
     end
+    if selector.type == "lua_nil" then
+        markLua(kernel, lower.site(node))
+    end
+    local nativeLabelsFit = selector.type == "i32" or selector.type == "u32"
 
-    -- Every arm is an expression arm over integer-valued static cases,
-    -- whichever path lowers it. Checked once, before the paths part, so the
-    -- constant-selector path and the dynamic one cannot come to disagree.
+    -- Validate every case before constant selection prunes untaken arms.
     for _, arm in ipairs(node.cases or {}) do
         if arm.patternKind ~= "static" then
             context.reject(lower.site(arm), "native switches do not admit type cases")
-        elseif arm.body ~= nil or arm.expr == nil or arm.expr.kind == "doExpr" then
+        elseif arm.body ~= nil or arm.expr == nil then
             context.reject(lower.site(arm), "native switches require expression arms")
         end
         for _, caseValue in ipairs(arm.values or {}) do
-            local constant = switchCaseNumber(caseValue)
-            if constant == nil or constant ~= math.floor(constant as number) then
-                context.reject(lower.site(caseValue), "native switch cases must be integer-valued numbers")
-            end
+            local constant = switchCaseValue(caseValue, kernel)
+            local number = constant.op == "constant" and tonumber((constant as scalarIR.Constant).value) or nil
+            nativeLabelsFit = nativeLabelsFit and number ~= nil and number == math.floor(
+                number as number
+            ) and (
+                selector.type == "i32"
+                and number >= -2147483648
+                and number <= 2147483647
+                or selector.type == "u32"
+                and number >= 0
+                and number <= 4294967295
+            )
         end
     end
     local otherwise = node.elseCase
-    if otherwise and (otherwise.body ~= nil or otherwise.expr == nil or otherwise.expr.kind == "doExpr") then
+    if otherwise and (otherwise.body ~= nil or otherwise.expr == nil) then
         context.reject(lower.site(otherwise), "native switches require expression arms")
     end
 
     local staticSelector = fold.exactInteger(selector)
-    if staticSelector ~= nil then
+    local staticPrimitive = selector.op == "bool" or selector.type == "lua_nil"
+    if staticSelector ~= nil or staticPrimitive then
         -- The selector is a constant -- a monomorphized const carrier -- so
         -- the arm is decided here and the untaken arms are never lowered.
         local chosen: cst.Node? = nil
         for _, arm in ipairs(node.cases or {}) do
             for _, caseValue in ipairs(arm.values or {}) do
-                if chosen == nil and switchCaseNumber(caseValue) == staticSelector then
+                local label = switchCaseValue(caseValue, kernel)
+                local matched = staticSelector ~= nil and label.op == "constant" and tonumber(
+                    (label as scalarIR.Constant).value
+                ) == staticSelector or staticPrimitive and label.type == selector.type and (
+                    selector.type == "lua_nil" or (label as any).value == (selector as any).value
+                )
+                if chosen == nil and matched then
                     chosen = arm.expr
                 end
             end
@@ -4709,9 +5003,13 @@ local function switchLocal(
         if chosen == nil then
             context.reject(lower.site(node), "a constant switch selector matches no arm")
         end
-        local chosenValue = lower.expression(chosen as cst.Node, environment, kernel.index, kernel)
+        local chosenValue = firstValue(
+            lower.expression(chosen as cst.Node, environment, kernel.index, kernel),
+            kernel,
+            out
+        )
         local annotation = stat.types ~= nil and (stat.types as {cst.Node})[1] or nil
-        local resultType = annotatedValueType(annotation, context) or chosenValue.type
+        local resultType = annotatedValueType(annotation, context) or kernel.expectedType or chosenValue.type
         if resultType == nil or resultType == "multi" or resultType:match("^ref:") then
             context.reject(lower.site(stat), "native switch results must be scalar")
         end
@@ -4732,7 +5030,7 @@ local function switchLocal(
         return
     end
 
-    local selectorName = "__nupp_switch_selector_" .. tostring(kernel.serial + 1)
+    local selectorName = "$switch_selector_" .. tostring(kernel.serial + 1)
     local selectorBinding = bind(selectorName, selector.type, false, node, environment, kernel)
     out[
         #out + 1
@@ -4754,33 +5052,39 @@ local function switchLocal(
 
     local arms = {}
     for _, arm in ipairs(node.cases or {}) do
-        arms[
-            #arms + 1
-        ] = {case = arm, value = lower.expression(arm.expr as cst.Node, environment, kernel.index, kernel)}
+        local value, setup = lower.capture(arm.expr as cst.Node, environment, kernel.index, kernel)
+        value = firstValue(value, kernel, setup)
+        arms[#arms + 1] = {case = arm, value = value, setup = setup, never = neverExpression(arm.expr as cst.Node)}
     end
-    local elseValue = otherwise and lower.expression(
-        otherwise.expr as cst.Node,
-        environment,
-        kernel.index,
-        kernel
-    ) or nil
+    local elseValue: scalarIR.Expr? = nil
+    local elseSetup: {scalarIR.Statement} = {}
+    if otherwise ~= nil then
+        local value, setup = lower.capture(otherwise.expr as cst.Node, environment, kernel.index, kernel)
+        elseValue, elseSetup = firstValue(value, kernel, setup), setup
+    end
     local annotation = stat.types ~= nil and (stat.types as {cst.Node})[1] or nil
-    local inferredResult = elseValue and elseValue.type or arms[1] and arms[1].value.type or nil
-    local resultType = annotatedValueType(annotation, context) or inferredResult
+    local inferredResult: scalarIR.Type? = nil
+    for _, arm in ipairs(arms) do
+        if not arm.never then
+            inferredResult = joinedType(inferredResult, arm.value.type, lower.site(arm.case), context)
+        end
+    end
+    local elseNever = otherwise ~= nil and neverExpression(otherwise.expr as cst.Node)
+    if elseValue ~= nil and not elseNever then
+        inferredResult = joinedType(inferredResult, elseValue.type, lower.site(otherwise), context)
+    end
+    inferredResult = inferredResult or "f64"
+    local resultType = annotatedValueType(
+        annotation,
+        context
+    ) or kernel.expectedType or semanticValueType((node as any).inferredType) or inferredResult
     if resultType == nil or resultType == "multi" or resultType:match("^ref:") then
         context.reject(lower.site(stat), "native switch results must be scalar")
     end
     resultType = resultType as scalarIR.Type
 
     local resultBinding = bind(names[1].text, resultType, false, stat, environment, kernel)
-    local zero: scalarIR.Expr
-    if resultType == "bool" then
-        zero = new scalarIR.Bool(op = "bool", value = false, type = "bool", source = lower.site(stat))
-    elseif resultType == "i32" or resultType == "u32" then
-        zero = new scalarIR.IntConstant(op = "constant_i32", value = "0", type = resultType, source = lower.site(stat))
-    else
-        zero = new scalarIR.Constant(op = "constant", value = "0", type = "f64", source = lower.site(stat))
-    end
+    local zero = lower.zeroValue(resultType, lower.site(stat), context)
     out[
         #out + 1
     ] = new scalarIR.Let(
@@ -4799,15 +5103,17 @@ local function switchLocal(
         type = resultType
     )
     local clauses: {scalarIR.Clause} = {}
-    local nativePlan = switchplan.native(selector.type)
+    local nativePlan = switchplan.native(nativeLabelsFit and selector.type or "f64")
     local nativeArms: {scalarIR.SwitchArm} = {}
     for _, lowered in ipairs(arms) do
         local condition: scalarIR.Expr? = nil
         local nativeLabels: {scalarIR.SwitchLabel} = {}
         for _, caseValue in ipairs(lowered.case.values or {}) do
-            local number = switchCaseNumber(caseValue) as number
+            local label = switchCaseValue(caseValue, kernel)
+            local number = label.op == "constant" and tonumber((label as scalarIR.Constant).value) or nil
             local right: scalarIR.Expr
             if nativePlan.tag == "NativeIntegerSwitch" then
+                local number = number as number
                 if selector.type == "i32" and (number < -2147483648 or number > 2147483647) then
                     context.reject(lower.site(caseValue), "native switch case is outside int32")
                 elseif selector.type == "u32" and (number < 0 or number > 4294967295) then
@@ -4828,15 +5134,23 @@ local function switchLocal(
                     source = lower.site(caseValue)
                 )
             else
-                right = lower.expression(caseValue, environment, kernel.index, kernel)
+                right = label
             end
-            local equal = new scalarIR.Binary(
-                op = "eq",
-                left = selectorRef,
-                right = right,
-                type = "bool",
-                source = lower.site(caseValue)
-            )
+            local equal: scalarIR.Expr
+            local comparable = right.type == selector.type or numeric and right.type == "f64"
+            if not comparable then
+                equal = new scalarIR.Bool(op = "bool", value = false, type = "bool", source = lower.site(caseValue))
+            elseif right.type == "lua_nil" then
+                equal = new scalarIR.Bool(op = "bool", value = true, type = "bool", source = lower.site(caseValue))
+            else
+                equal = new scalarIR.Binary(
+                    op = "eq",
+                    left = selectorRef,
+                    right = right,
+                    type = "bool",
+                    source = lower.site(caseValue)
+                )
+            end
             condition = condition ~= nil and new scalarIR.Binary(
                 op = "or",
                 left = condition as scalarIR.Expr,
@@ -4845,15 +5159,20 @@ local function switchLocal(
                 source = lower.site(caseValue)
             ) or equal
         end
-        local assignment = new scalarIR.Assignment(
-            target = target,
-            value = lower.convert(lowered.value, resultType, lower.site(lowered.case), context)
-        )
+        if not lowered.never then
+            local assignment = new scalarIR.Assignment(
+                target = target,
+                value = lower.convert(lowered.value, resultType, lower.site(lowered.case), context)
+            )
+            lowered.setup[
+                #lowered.setup + 1
+            ] = new scalarIR.Assign(op = "assign", values = {assignment}, source = lower.site(lowered.case))
+        end
         clauses[
             #clauses + 1
         ] = new scalarIR.Clause(
             condition = condition as scalarIR.Expr,
-            body = {new scalarIR.Assign(op = "assign", values = {assignment}, source = lower.site(lowered.case))},
+            body = lowered.setup,
             source = lower.site(lowered.case)
         )
         if nativePlan.tag == "NativeIntegerSwitch" then
@@ -4861,14 +5180,24 @@ local function switchLocal(
         end
     end
     local elseBody: {scalarIR.Statement}? = nil
-    if otherwise and elseValue then
+    if otherwise and elseValue and not elseNever then
         local elseAssignment = new scalarIR.Assignment(
             target = target,
             value = lower.convert(elseValue, resultType, lower.site(otherwise), context)
         )
-        elseBody = {new scalarIR.Assign(op = "assign", values = {elseAssignment}, source = lower.site(otherwise))}
+        elseSetup[
+            #elseSetup + 1
+        ] = new scalarIR.Assign(op = "assign", values = {elseAssignment}, source = lower.site(otherwise))
+        elseBody = elseSetup
     end
-    local nativeSwitch = nativePlan.tag == "NativeIntegerSwitch" and new scalarIR.NativeSwitch(
+    if elseNever then
+        elseBody = elseSetup
+    end
+    local expressionArms = #elseSetup <= 1
+    for _, arm in ipairs(arms) do
+        expressionArms = expressionArms and #arm.setup == 1
+    end
+    local nativeSwitch = expressionArms and nativePlan.tag == "NativeIntegerSwitch" and new scalarIR.NativeSwitch(
         selector = selectorRef,
         arms = nativeArms
     ) or nil
@@ -4882,6 +5211,146 @@ local function switchLocal(
         nativeSwitch = nativeSwitch
     )
     environment[selectorName] = nil
+end
+
+function lower.zeroValue(valueType: scalarIR.Type, source: scalarIR.Source?, context: lower.Context): scalarIR.Expr
+    if valueType == "bool" then
+        return new scalarIR.Bool(op = "bool", value = false, type = "bool", source = source)
+    elseif valueType == "i32" or valueType == "u32" then
+        return new scalarIR.IntConstant(op = "constant_i32", value = "0", type = valueType, source = source)
+    elseif valueType == "i64" or valueType == "u64" then
+        return new scalarIR.Int64Constant(op = "constant_i64", value = "0", type = valueType, source = source)
+    elseif valueType == "f64" or valueType == "f32" then
+        return lower.convert(
+            new scalarIR.Constant(op = "constant", value = "0", type = "f64", source = source),
+            valueType,
+            source,
+            context
+        )
+    elseif valueType == "lua_nil" then
+        return new scalarIR.LuaNil(op = "lua_nil", type = "lua_nil", source = source)
+    elseif valueType == "lua_string" then
+        return new scalarIR.LuaString(op = "lua_string", value = "", type = "lua_string", source = source)
+    end
+    context.reject(source, "native expression blocks require an admitted scalar result")
+
+    return new scalarIR.Bool(op = "bool", value = false, type = "bool")
+end
+
+--- Yields use a completion flag, leaving authored loop control untouched.
+--- Every loop crossed by a yield exits before its next condition or iteration.
+local function exitValueLoops(body: {scalarIR.Statement}, done: scalarIR.Name): nil
+    for _, statement in ipairs(body) do
+        if statement.op == "if" then
+            local branch = statement as scalarIR.If
+            -- A source break inside a block arm targets a loop, not C's switch.
+            branch.nativeSwitch = nil
+            for _, clause in ipairs(branch.clauses) do
+                exitValueLoops(clause.body, done)
+            end
+            if branch.elseBody ~= nil then
+                exitValueLoops(branch.elseBody, done)
+            end
+        elseif statement.op == "block" then
+            exitValueLoops((statement as scalarIR.Block).body, done)
+        elseif statement.op == "fornum" or statement.op == "while" or statement.op == "repeat" then
+            local loop = statement as any
+            exitValueLoops(loop.body, done)
+            if loop.conditionBody ~= nil then
+                exitValueLoops(loop.conditionBody, done)
+                loop.condition = new scalarIR.Binary(
+                    op = loop.op == "repeat" and "or" or "and",
+                    left = loop.op == "repeat" and done or negate(done),
+                    right = loop.condition,
+                    type = "bool"
+                )
+            end
+            loop.body[#loop.body + 1] = guarded(done, {new scalarIR.Break(op = "break")})
+        end
+    end
+end
+
+function lower.doExpression(node: cst.DoExpr, environment: {[string]: any}, kernel: lower.Kernel): scalarIR.Expr
+    local output = kernel.pending
+    local done = temporary(
+        new scalarIR.Bool(op = "bool", value = false, type = "bool", source = lower.site(node)),
+        kernel,
+        output
+    )
+    local previous = kernel.valueFrame
+    local frame = new lower.ValueFrame(done = done)
+    kernel.valueFrame = frame
+    local body = lower.block(node.body ~= nil and (node.body as cst.Block).stats or {}, inherit(environment), kernel)
+    kernel.valueFrame = previous
+    local result = frame.result
+    if result == nil then
+        -- Only nonlocal exits remain. No completion flag or result local is
+        -- read on any reachable path.
+        output[#output] = nil
+        output[#output + 1] = new scalarIR.Block(op = "block", body = body, source = lower.site(node))
+        return lower.zeroValue(kernel.expectedType or kernel.resultTypes[1] or "f64", lower.site(node), kernel.context)
+    end
+    local inferred: scalarIR.Type? = nil
+    for _, assignment in ipairs(frame.assignments) do
+        inferred = joinedType(inferred, assignment.value.type, lower.site(node), kernel.context)
+    end
+    local valueType = semanticValueType(
+        (node as any).inferredType
+    ) or inferred or kernel.expectedType or kernel.resultTypes[1] or result.type
+    result.type = valueType
+    for _, assignment in ipairs(frame.assignments) do
+        assignment.target.type = valueType
+        assignment.value = lower.convert(assignment.value, valueType, lower.site(node), kernel.context)
+    end
+    output[
+        #output + 1
+    ] = new scalarIR.Let(
+        op = "let",
+        name = result.name,
+        cName = result.cName as string,
+        type = result.type,
+        value = lower.zeroValue(result.type, lower.site(node), kernel.context),
+        source = lower.site(node)
+    )
+    exitValueLoops(body, done)
+    output[#output + 1] = new scalarIR.Block(op = "block", body = body, source = lower.site(node))
+
+    return result
+end
+
+function lower.switchExpression(node: cst.SwitchExpr, environment: {[string]: any}, kernel: lower.Kernel): scalarIR.Expr
+    local name = "$switch_value_" .. tostring(kernel.serial + 1)
+    local stat = new cst.LocalStmt(
+        kind = "localStmt",
+        names = {
+            (
+                {
+                    kind = "name",
+                    text = name,
+                    line = 1,
+                    col = 1,
+                    offset = 1,
+                    trivia = lexer.arena(""),
+                    triviaCount = 0,
+                    triviaFirst = 0
+                } as lexer.Token
+            )
+        },
+        exprs = {node},
+        types = {}
+    )
+    stat[1] = node
+    local inner = inherit(environment)
+    switchLocal(stat, node, kernel.pending, inner, kernel)
+    local bound = inner[name]
+
+    return new scalarIR.Name(
+        op = "local",
+        name = bound.name,
+        cName = bound.cName,
+        type = bound.type,
+        source = lower.site(node)
+    )
 end
 
 --- Flattens `name = name .. ...` into the appended string expressions.
@@ -5038,7 +5507,8 @@ local function localStmt(
         markLua(kernel, lower.site(stat))
         return
     end
-    if #exprs == 1 and exprs[1].kind == "switchExpr" then
+
+    if #exprs == 1 and #names == 1 and exprs[1].kind == "switchExpr" then
         return switchLocal(stat, exprs[1] as cst.SwitchExpr, out, environment, kernel)
     end
 
@@ -5063,7 +5533,10 @@ local function localStmt(
 
     local values: {scalarIR.Expr} = {}
     if #exprs == 1 then
+        local previousType = kernel.expectedType
+        kernel.expectedType = annotatedValueType(stat.types ~= nil and (stat.types as {cst.Node})[1] or nil, context)
         local only = lower.expression(exprs[1], environment, kernel.index, kernel)
+        kernel.expectedType = previousType
         if only.type == "multi" then
             -- One call, several results. The names are bound together because
             -- the call happens once, whatever it is later inlined into.
@@ -5514,6 +5987,9 @@ end
 function lower.block(statements: {cst.Node}, environment: {[string]: any}, kernel: lower.Kernel): {scalarIR.Statement}
     local context = kernel.context
     local out: {scalarIR.Statement} = {}
+    local root = out
+    local previous, parent = kernel.pending, kernel.expressionFrame
+    kernel.pending, kernel.expressionFrame = out, nil
 
     --- One nested block, under its own scope.
     local function nested(body: cst.Node?): {scalarIR.Statement}
@@ -5638,8 +6114,39 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
             ).text == "simd" or (pragma.stat as any).simdRequired == true
             stat = pragma.stat as cst.Node
         end
+        local expressionFrame = new lower.ExpressionFrame(output = out)
+        kernel.expressionFrame = expressionFrame
+        local firstStatement = #out + 1
+        local frame = kernel.valueFrame
+        local before = frame ~= nil and frame.yields or 0
         local kind = stat.kind
-        if kind == "localStmt" then
+        if kind == "yieldStmt" then
+            if frame == nil then
+                context.reject(lower.site(stat), "yield requires an enclosing do expression")
+            end
+            local frame = frame as lower.ValueFrame
+            local value = firstValue(
+                lower.expression((stat as cst.YieldStmt).value as cst.Node, environment, kernel.index, kernel),
+                kernel,
+                out
+            )
+            local target = (frame as lower.ValueFrame).result
+            if target == nil then
+                target = new scalarIR.Name(
+                    op = "local",
+                    name = frame.done.name .. "_result",
+                    cName = tostring(frame.done.cName) .. "_result",
+                    type = value.type,
+                    source = lower.site(stat)
+                )
+                frame.result = target
+            end
+            local assigned = assignValue(target as scalarIR.Name, value)
+            frame.assignments[#frame.assignments + 1] = assigned.values[1]
+            out[#out + 1] = assigned
+            out[#out + 1] = assignValue(frame.done, new scalarIR.Bool(op = "bool", value = true, type = "bool"))
+            frame.yields = frame.yields + 1
+        elseif kind == "localStmt" then
             localStmt(stat as cst.LocalStmt, out, environment, kernel)
         elseif kind == "callStmt" then
             local statement = stat as cst.CallStmt
@@ -5932,6 +6439,7 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
         elseif kind == "ifStmt" then
             local branch = stat as cst.IfStmt
             local clauses: {scalarIR.Clause} = {}
+            local setups: {{scalarIR.Statement}} = {}
             -- A condition that is statically false -- a monomorphized const
             -- carrier comparison -- drops its clause without lowering the
             -- body; a statically true one absorbs everything after it.
@@ -5986,7 +6494,9 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
                         admitSpecies(bound as cst.Call, kernel)
                     end
                 elseif not decided then
-                    local condition = lower.expression(arm.cond as cst.Node, environment, kernel.index, kernel)
+                    local condition, setup = lower.capture(arm.cond as cst.Node, environment, kernel.index, kernel)
+                    condition = booleanValue(condition, kernel)
+                    setups[#clauses + 1] = setup
                     if condition.type ~= "bool" then
                         context.reject(lower.site(arm.cond), "native branch conditions must be boolean")
                     end
@@ -6024,9 +6534,32 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
                 elseBody = nil
             end
             if #clauses > 0 then
-                out[
-                    #out + 1
-                ] = new scalarIR.If(op = "if", clauses = clauses, elseBody = elseBody, source = lower.site(stat))
+                local hasSetup = false
+                for _, setup in pairs(setups) do
+                    hasSetup = hasSetup or #setup > 0
+                end
+                if hasSetup then
+                    local tail = elseBody
+                    for position = #clauses, 1, -1 do
+                        local setup = setups[position] or {}
+                        setup[
+                            #setup + 1
+                        ] = new scalarIR.If(
+                            op = "if",
+                            clauses = {clauses[position]},
+                            elseBody = tail,
+                            source = lower.site(stat)
+                        )
+                        tail = setup
+                    end
+                    for _, statement in ipairs(tail or {}) do
+                        out[#out + 1] = statement
+                    end
+                else
+                    out[
+                        #out + 1
+                    ] = new scalarIR.If(op = "if", clauses = clauses, elseBody = elseBody, source = lower.site(stat))
+                end
             end
         elseif kind == "fornumStmt" then
             -- A bounded nested loop with an integer induction variable. The
@@ -6124,7 +6657,8 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
             -- ordinary Nupp. That is a real difference from the outer loop,
             -- whose bounds the IR carries and the verifier checks.
             local loop = stat as cst.WhileStmt
-            local condition = lower.expression(loop.cond as cst.Node, environment, kernel.index, kernel)
+            local condition, conditionBody = lower.capture(loop.cond as cst.Node, environment, kernel.index, kernel)
+            condition = booleanValue(condition, kernel)
             if condition.type ~= "bool" then
                 context.reject(lower.site(loop.cond), "native loop conditions must be boolean")
             end
@@ -6134,6 +6668,7 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
             ] = new scalarIR.While(
                 op = "while",
                 condition = condition,
+                conditionBody = #conditionBody > 0 and conditionBody or nil,
                 body = nestedWithCursor(loop.body, cursorBounds, true),
                 carried = {},
                 cursorBounds = cursorBounds,
@@ -6146,7 +6681,8 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
             local inner = inherit(environment)
             local body = loop.body as cst.Block?
             local lowered = lower.block(body ~= nil and (body as cst.Block).stats or {}, inner, kernel)
-            local condition = lower.expression(loop.cond as cst.Node, inner, kernel.index, kernel)
+            local condition, conditionBody = lower.capture(loop.cond as cst.Node, inner, kernel.index, kernel)
+            condition = booleanValue(condition, kernel)
             if condition.type ~= "bool" then
                 context.reject(lower.site(loop.cond), "native repeat conditions must be boolean")
             end
@@ -6155,6 +6691,7 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
             ] = new scalarIR.Repeat(
                 op = "repeat",
                 condition = condition,
+                conditionBody = #conditionBody > 0 and conditionBody or nil,
                 body = lowered,
                 carried = {},
                 source = lower.site(stat)
@@ -6210,9 +6747,40 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
                 "statement kind " .. tostring(kind) .. " is not admitted in the native loop"
             )
         end
-    end
+        if next(expressionFrame.replacements) ~= nil then
+            local function rewrite(child: scalarIR.Expr): scalarIR.Expr
+                local replacement = expressionFrame.replacements[child]
+                if replacement ~= nil then
+                    return replacement
+                end
+                local copy: {[string]: any} = {}
+                for key, value in pairs(child as any) do
+                    copy[key] = value
+                end
+                visit.expressionChildren(copy as any, rewrite)
 
-    return out
+                return copy as any
+            end
+
+            for position = firstStatement, #out do
+                local statement = out[position]
+                local captured = statement.op == "let" and expressionFrame.replacements[statement.value] or nil
+                if captured == nil or (captured as scalarIR.Name).cName ~= (statement as any).cName then
+                    visit.statementExpressions(statement, rewrite)
+                end
+            end
+        end
+        kernel.expressionFrame = nil
+        if frame ~= nil and frame.yields > before then
+            local rest: {scalarIR.Statement} = {}
+            out[#out + 1] = guarded(negate(frame.done), rest)
+            out = rest
+            kernel.pending = out
+        end
+    end
+    kernel.pending, kernel.expressionFrame = previous, parent
+
+    return root
 end
 
 ----------------------------------------------------------------------------

@@ -2402,6 +2402,18 @@ end
 
 --- What a block needs from the program around it.
 record emit.Body
+    --- Labels are emitted only when an edge names them.
+    controlUsed: {[string]: boolean} = {}
+
+    --- Each rooted local has one reserved Lua stack slot for the invocation,
+    --- including when its declaration is executed repeatedly inside a loop.
+    luaRootSlots: {[string]: integer} = {}
+
+    controlSerial: integer = 0
+    controlBreak: string?
+    controlContinue: string?
+    headerControl: boolean?
+
     --- How wide a lane store is, for a body that was rewritten.
     lanes: integer
 
@@ -2569,6 +2581,28 @@ type emit.Flow = scalarIR.If
 type emit.BlockRenderer = function(cplan.Block, integer, emit.Body, string?): {string}
 type emit.ExpressionRenderer = function(scalarIR.Expr | lane.Expr): string
 
+local function hasConditionBody(statements: cplan.Block): boolean
+    for _, statement in ipairs(statements) do
+        local node = statement as any
+        if node.conditionBody ~= nil then
+            return true
+        end
+        if node.body ~= nil and hasConditionBody(node.body) then
+            return true
+        end
+        if node.elseBody ~= nil and hasConditionBody(node.elseBody) then
+            return true
+        end
+        for _, clause in ipairs(node.clauses or {}) do
+            if hasConditionBody(clause.body) then
+                return true
+            end
+        end
+    end
+
+    return false
+end
+
 --- The C control structure is shared; each backend supplies its expressions
 --- and recursive block renderer, retaining its own leaf effects and returns.
 local function controlFlow(
@@ -2587,6 +2621,50 @@ local function controlFlow(
         for _, line in ipairs(block(statements, depth + 1, body, continuation)) do
             lines[#lines + 1] = line
         end
+    end
+
+    if body.headerControl == true and (node.op == "while" or node.op == "repeat" or node.op == "fornum") then
+        body.controlSerial = body.controlSerial + 1
+        local suffix = tostring(body.controlSerial)
+        local breakLabel, continueLabel = "ks_loop_break_" .. suffix, "ks_loop_continue_" .. suffix
+        local outerBreak, outerContinue = body.controlBreak, body.controlContinue
+        local loop = node as any
+        local header = loop.conditionBody
+        if node.op == "fornum" then
+            local counter = loop.binding.cName
+            lines[
+                #lines + 1
+            ] = prefix .. "for (int32_t " .. counter .. " = " .. expression(
+                loop.from
+            ) .. "; " .. counter .. " <= (int32_t)" .. expression(loop.to) .. "; ++" .. counter .. ") {"
+        else
+            lines[#lines + 1] = prefix .. "while (true) {"
+        end
+        if node.op == "while" then
+            if header ~= nil then
+                nested(header, repeatContinue)
+            end
+            body.controlUsed[breakLabel] = true
+            lines[#lines + 1] = prefix .. "    if (!(" .. expression(loop.condition) .. ")) goto " .. breakLabel .. ";"
+        end
+        body.controlBreak, body.controlContinue = breakLabel, continueLabel
+        nested(loop.body, continueLabel)
+        body.controlBreak, body.controlContinue = outerBreak, outerContinue
+        if body.controlUsed[continueLabel] then
+            lines[#lines + 1] = prefix .. "    " .. continueLabel .. ":;"
+        end
+        if node.op == "repeat" then
+            if header ~= nil then
+                nested(header, repeatContinue)
+            end
+            body.controlUsed[breakLabel] = true
+            lines[#lines + 1] = prefix .. "    if (" .. expression(loop.condition) .. ") goto " .. breakLabel .. ";"
+        end
+        lines[#lines + 1] = prefix .. "}"
+        if body.controlUsed[breakLabel] then
+            lines[#lines + 1] = prefix .. breakLabel .. ":;"
+        end
+        return lines
     end
 
     local function render(): nil
@@ -2672,11 +2750,29 @@ local function controlFlow(
                 yield nil
             end
             case "break" -> do
-                lines[#lines + 1] = prefix .. "break;"
+                if body.controlBreak ~= nil then
+                    body.controlUsed[body.controlBreak] = true
+                end
+                lines[
+                    #lines + 1
+                ] = prefix .. (body.controlBreak ~= nil and "goto " .. body.controlBreak or "break") .. ";"
                 yield nil
             end
             case "continue" -> do
-                lines[#lines + 1] = prefix .. (repeatContinue ~= nil and "goto " .. repeatContinue or "continue") .. ";"
+                if body.controlContinue ~= nil then
+                    body.controlUsed[body.controlContinue] = true
+                end
+                lines[
+                    #lines + 1
+                ] = prefix .. (
+                    body.controlContinue ~= nil
+                    and "goto "
+                    .. body.controlContinue
+                    or repeatContinue ~= nil
+                    and "goto "
+                    .. repeatContinue
+                    or "continue"
+                ) .. ";"
                 yield nil
             end
         end
@@ -2724,6 +2820,7 @@ function emit.luaBlock(
     body: emit.Body,
     repeatContinue: string?
 ): {string}
+    body.headerControl = body.headerControl or hasConditionBody(statements)
     local lines: {string} = {}
     local prefix = string.rep("    ", depth)
 
@@ -2887,7 +2984,15 @@ function emit.luaBlock(
                     or statement.type == "lua_value"
                 ) then
                     append(luaPush(context, statement.value, prefix))
-                    lines[#lines + 1] = prefix .. "int " .. statement.cName .. " = lua_gettop(L);"
+                    local slot = body.luaRootSlots[statement.cName]
+                    if slot ~= nil then
+                        lines[
+                            #lines + 1
+                        ] = prefix .. "int " .. statement.cName .. " = ks_root_base + " .. tostring(slot) .. ";"
+                        lines[#lines + 1] = prefix .. "lua_replace(L, " .. statement.cName .. ");"
+                    else
+                        lines[#lines + 1] = prefix .. "int " .. statement.cName .. " = lua_gettop(L);"
+                    end
                 else
                     lines[
                         #lines + 1
@@ -3127,10 +3232,14 @@ function emit.luaBlock(
                 local assignment = statement as scalarIR.Assign
                 local hasLua = false
                 for _, entry in ipairs(assignment.values) do
-                    hasLua = hasLua or entry.target.type == "lua_string"
+                    hasLua = hasLua or entry.target.type == "lua_string" or entry.target.type == "lua_nil"
                 end
                 if hasLua then
-                    if #assignment.values ~= 1 or assignment.values[1].target.type ~= "lua_string" then
+                    if #assignment.values ~= 1 or (
+                        assignment.values[
+                            1
+                        ].target.type ~= "lua_string" and assignment.values[1].target.type ~= "lua_nil"
+                    ) then
                         error("mixed or multiple Lua string assignment reached emission", 0)
                     end
                     append(luaPush(context, assignment.values[1].value, prefix))
@@ -3249,6 +3358,7 @@ function emit.block(
     body: emit.Body,
     repeatContinue: string?
 ): {string}
+    body.headerControl = body.headerControl or hasConditionBody(statements)
     local lines: {string} = {}
     local prefix = string.rep("    ", depth)
     local temporary = 0
@@ -3843,6 +3953,9 @@ function emit.program(programs: {scalarIR.Program}, tier: string?): string
     -- `-Wpsabi` the target model exists to avoid.
     local function hasLanes(statements: {scalarIR.Statement}): boolean
         for _, statement in ipairs(statements) do
+            if hasLanes((statement as any).conditionBody or {}) then
+                return true
+            end
             if statement.op == "fornum" then
                 local loop = statement as scalarIR.Fornum
                 if loop.lanes ~= nil or hasLanes(loop.body) then
@@ -3967,6 +4080,28 @@ function emit.program(programs: {scalarIR.Program}, tier: string?): string
                     error("Lua builders currently take scalar parameters", 0)
                 end
             end
+            local rootCount: integer = 0
+            visit.program(
+                program,
+                new visit.Visitor(scalarStatement = function(statement: scalarIR.Statement): nil
+                    if statement.op == "let" and (
+                        statement.type == "lua_string"
+                        or statement.type == "lua_nil"
+                        or statement.type == "lua_table"
+                        or statement.type == "lua_value"
+                    ) then
+                        local name = statement.cName
+                        if body.luaRootSlots[name] == nil then
+                            rootCount = rootCount + 1
+                            body.luaRootSlots[name] = rootCount
+                        end
+                    end
+                end)
+            )
+            if rootCount > 0 then
+                lines[#lines + 1] = "    int ks_root_base = lua_gettop(L);"
+                lines[#lines + 1] = "    lua_settop(L, ks_root_base + " .. tostring(rootCount) .. ");"
+            end
             for _, line in ipairs(emit.luaBlock(context, program.body or {}, 1, body)) do
                 lines[#lines + 1] = line
             end
@@ -3986,6 +4121,12 @@ function emit.program(programs: {scalarIR.Program}, tier: string?): string
             local function implementation(symbol: string, forced: boolean): nil
                 local context = emit.context(context, nil, forced and program.usesSimd == true)
                 body.forceScalar = forced
+                body.controlUsed = {}
+                if not general and hasConditionBody((program.loop as scalarIR.Loop).statements) then
+                    body.headerControl = true
+                    body.controlBreak = "ks_map_break"
+                    body.controlContinue = "ks_map_continue"
+                end
                 if forced and general then
                     -- The block may declare locals before its first loop, so a
                     -- loop pragma cannot be placed at function entry. Keep this
@@ -4030,7 +4171,13 @@ function emit.program(programs: {scalarIR.Program}, tier: string?): string
                     for _, line in ipairs(emit.block(context, (program.loop as scalarIR.Loop).statements, 2, body)) do
                         lines[#lines + 1] = line
                     end
+                    if body.controlUsed["ks_map_continue"] then
+                        lines[#lines + 1] = "        ks_map_continue:;"
+                    end
                     lines[#lines + 1] = "    }"
+                    if body.controlUsed["ks_map_break"] then
+                        lines[#lines + 1] = "    ks_map_break:;"
+                    end
                 end
                 lines[#lines + 1] = "}"
                 lines[#lines + 1] = ""

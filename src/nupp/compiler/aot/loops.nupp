@@ -166,6 +166,7 @@ local function structured(statements: {scalarIR.Statement}, reports: {loops.Repo
                 lowered and "lowered" or explicit and "explicit-simd" or "scalar",
                 reason
             )
+            structured((statement as any).conditionBody or {}, reports)
             structured(statement.body, reports)
         elseif statement.op == "if" then
             for _, clause in ipairs(statement.clauses) do

@@ -250,10 +250,16 @@ local function emitProgram(
                     line(depth, "}")
                 end
             elseif op == "while" then
+                if statement.conditionBody ~= nil then
+                    refuse("statementful loop conditions are not admitted by this GPU profile")
+                end
                 line(depth, "while (" .. expression(statement.condition) .. ") {")
                 statements(statement.body, depth + 1)
                 line(depth, "}")
             elseif op == "repeat" then
+                if statement.conditionBody ~= nil then
+                    refuse("statementful loop conditions are not admitted by this GPU profile")
+                end
                 line(depth, "loop {")
                 statements(statement.body, depth + 1)
                 line(depth + 1, "continuing {")

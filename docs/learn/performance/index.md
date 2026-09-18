@@ -349,10 +349,10 @@ deferred rather than rejected, and `bench/switch-dispatch.lua` keeps both
 `ph-ffi` and `ph-lua` baselines. See
 [switch expressions](../language/switch-expressions.md) for more information.
 
-The AOT scalar subset admits a switch as the sole initializer of one local and
-emits a native C `switch` for an exact-width selector. See [scalar switch
-initializers](ahead-of-time/numeric-semantics.md#scalar-switch-initializers) for more
-information.
+The AOT scalar subset admits switch expressions and do blocks, and can emit a
+native C `switch` for an exact-width selector. See [scalar switch expressions
+and do blocks](ahead-of-time/numeric-semantics.md#scalar-switch-expressions-and-do-blocks)
+for more information.
 
 ## Optimization passes
 

@@ -470,7 +470,7 @@ local function deriveBreakResults(statements: {scalarIR.Statement}, state: optim
     local rewritten: {scalarIR.Statement} = {}
     for position, statement in ipairs(statements) do
         rewritten[#rewritten + 1] = statement
-        if statement.op == "while" then
+        if statement.op == "while" and statement.conditionBody == nil then
             local loop = statement as scalarIR.While
             local found = breakResult(statements, position, loop)
             if found ~= nil then
@@ -591,6 +591,9 @@ propagateBlock = function(statements: {scalarIR.Statement}, inherited: optimize.
             or statement.op == "repeat"
             or statement.op == "block"
         then
+            if value.conditionBody ~= nil then
+                propagateBlock(value.conditionBody, propagation, state)
+            end
             propagateBlock(value.body as {scalarIR.Statement}, propagation, state)
         end
     end
@@ -638,8 +641,13 @@ optimizeBlock = function(statements: {scalarIR.Statement}, state: optimize.State
                 end
             elseif statement.op == "while" then
                 local loop = statement as scalarIR.While
+                if loop.conditionBody ~= nil then
+                    loop.conditionBody = optimizeBlock(loop.conditionBody, state)
+                end
                 loop.body = optimizeBlock(loop.body, state)
-                if loop.condition.op == "bool" and not (loop.condition as scalarIR.Bool).value then
+                if loop.conditionBody == nil and loop.condition.op == "bool" and not (
+                    loop.condition as scalarIR.Bool
+                ).value then
                     state.removedStatements = state.removedStatements + 1
                     state.changed = true
                 else
@@ -648,6 +656,9 @@ optimizeBlock = function(statements: {scalarIR.Statement}, state: optimize.State
             elseif statement.op == "repeat" then
                 local loop = statement as scalarIR.Repeat
                 loop.body = optimizeBlock(loop.body, state)
+                if loop.conditionBody ~= nil then
+                    loop.conditionBody = optimizeBlock(loop.conditionBody, state)
+                end
                 rewritten[#rewritten + 1] = statement
             elseif statement.op == "fornum" then
                 local loop = statement as scalarIR.Fornum
@@ -789,6 +800,9 @@ removeWrites = function(
             end
             loop.carried = stillCarried
             loop.body = removeWrites(loop.body as {scalarIR.Statement}, dead, state)
+            if loop.conditionBody ~= nil then
+                loop.conditionBody = removeWrites(loop.conditionBody, dead, state)
+            end
         elseif statement.op == "block" or statement.op == "phase" then
             (statement as any).body = removeWrites((statement as any).body as {scalarIR.Statement}, dead, state)
         end
@@ -830,8 +844,17 @@ local function removeDead(
             end
         elseif statement.op == "repeat" then
             local loop = statement as scalarIR.Repeat
-            loop.body = removeDead(loop.body, state, {loop.condition})
-        elseif statement.op == "fornum" or statement.op == "while" or statement.op == "block" then
+            if loop.conditionBody ~= nil then
+                loop.conditionBody = removeDead(loop.conditionBody, state, {loop.condition})
+            end
+            loop.body = removeDead(loop.body, state, {loop.condition, loop.conditionBody})
+        elseif statement.op == "while" then
+            local loop = statement as scalarIR.While
+            if loop.conditionBody ~= nil then
+                loop.conditionBody = removeDead(loop.conditionBody, state, {loop.condition, loop.body})
+            end
+            loop.body = removeDead(loop.body, state)
+        elseif statement.op == "fornum" or statement.op == "block" then
             (statement as any).body = removeDead((statement as any).body as {scalarIR.Statement}, state)
         end
 

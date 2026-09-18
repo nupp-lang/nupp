@@ -225,6 +225,7 @@ local function requiredRegions(statements: {scalarIR.Statement}, out: {scalarIR.
             end
             requiredRegions((statement as scalarIR.If).elseBody or {}, out)
         elseif statement.op == "while" or statement.op == "repeat" or statement.op == "block" then
+            requiredRegions((statement as any).conditionBody or {}, out)
             requiredRegions((statement as any).body as {scalarIR.Statement}, out)
         end
     end

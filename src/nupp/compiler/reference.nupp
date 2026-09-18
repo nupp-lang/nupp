@@ -1036,7 +1036,7 @@ Cleanup runs when an exit leaves its region. A function boundary stops yield.
 Lazy operands and branches evaluate a block only when selected. Eager operands
 keep their order. Each do expression produces exactly one value. Lua lowering
 uses locals, branches and loop exits without introducing a closure. Comptime
-supports do expressions; the native AOT numeric subset does not yet.
+supports do expressions, as does native AOT for its admitted types and operations.
 
 `yield` is contextual. Its operand must begin on the same line, and
 `yield(...)`, `yield {...}`, and `yield "text"` remain calls. Bind such an

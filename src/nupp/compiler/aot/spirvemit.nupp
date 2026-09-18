@@ -1355,6 +1355,9 @@ function spirv.program(
                 terminated = false
                 readonlyReferenceValues = {}
             elseif op == "while" then
+                if statement.conditionBody ~= nil then
+                    error("statementful loop conditions are not admitted by this GPU profile", 0)
+                end
                 readonlyReferenceValues = {}
                 local header, body, continuing, merge = id(), id(), id(), id()
                 instruction(functions, OP.Branch, {header})
@@ -1378,6 +1381,9 @@ function spirv.program(
                 terminated = false
                 readonlyReferenceValues = {}
             elseif op == "repeat" then
+                if statement.conditionBody ~= nil then
+                    error("statementful loop conditions are not admitted by this GPU profile", 0)
+                end
                 readonlyReferenceValues = {}
                 local header, body, continuing, merge = id(), id(), id(), id()
                 instruction(functions, OP.Branch, {header})

@@ -433,6 +433,7 @@ function M.anAndBoundsItsRightSpanReadByItsLeftAlone()
     assert(condition.op == "and" and condition.right.left.op == "load", "the tail loop")
 
     local original = {op = condition.op, leftOp = condition.left.op, span = condition.left.right.span}
+
     local function restore()
         condition.op = original.op
         condition.left.op = original.leftOp
@@ -542,7 +543,14 @@ function M.aProvenVectorAccessIsHeldToTheGuardThatProvesIt()
 
     -- The access must sit at `cursor + 1`, not anywhere the cursor bounds.
     local offset = load.args[2].value
-    load.args[2].value = {op = "u32_add", left = offset.left, right = {op = "constant_i32", value = "2", type = "u32"}, type = "u32"}
+    load.args[
+        2
+    ].value = {
+        op = "u32_add",
+        left = offset.left,
+        right = {op = "constant_i32", value = "2", type = "u32"},
+        type = "u32"
+    }
     refuses(program, "unbounded SIMD cursor load")
     load.args[2].value = offset
 
@@ -821,6 +829,38 @@ return {rearrange = rearrange}
             refuses(program, "invalid generic SIMD rearrangement")
         end
     end
+end
+
+function M.statementfulLoopConditionsAreVisitedAndVerified()
+    local program = lowered(
+        [[
+@aot(vectorize = false)
+local function count(): number
+    local n = 0.0
+    while do n = n + 1.0 yield n < 3.0 end do
+    end
+    return n
+end
+return {count = count}
+]],
+        "condition.nupp"
+    )
+    local loop = find(program.body, function(node)
+        return node.op == "while"
+    end)
+    assert(loop and #loop.conditionBody > 0)
+    local setupLets = 0
+    require("nupp.compiler.aot.visit").program(program, {
+        scalarStatement = function(node)
+            if node.op == "let" and node.name:find("$value_", 1, true) then
+                setupLets = setupLets + 1
+            end
+        end,
+    })
+    assert(setupLets >= 2, "the closed visitor includes header declarations")
+    loop.conditionBody = nil
+    local ok = pcall(verify.program, program)
+    assert(not ok, "a condition cannot read locals from omitted setup")
 end
 
 return M

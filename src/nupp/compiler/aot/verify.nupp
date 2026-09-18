@@ -2414,6 +2414,9 @@ local function block(
                     if nested.op == "shared_store" then
                         written[(nested as scalarIR.SharedStore).shared] = true
                     end
+                    if (nested as any).conditionBody ~= nil then
+                        inspectBlock((nested as any).conditionBody)
+                    end
                     visit.statementExpressions(nested, function(value: scalarIR.Expr): scalarIR.Expr
                         inspectExpression(value)
                         return value
@@ -2885,6 +2888,11 @@ local function block(
             leaveLoop()
             invalidateCursors(scope, nestedScope)
         elseif statement.op == "while" then
+            local values = inherit(values)
+            enterLoop(statement.carried, values)
+            if statement.conditionBody ~= nil then
+                block(statement.conditionBody, values, scope, stored, true)
+            end
             holds(statement.condition.type == "bool", "non-boolean loop condition")
             scalarWalk(statement.condition, values, scope)
             local nestedScope = derive(scope, {
@@ -2897,7 +2905,6 @@ local function block(
                     "invalid loop cursor bounds proof"
                 ),
             })
-            enterLoop(statement.carried, values)
             block(statement.body, values, nestedScope, stored)
             leaveLoop()
             invalidateCursors(scope, nestedScope)
@@ -2906,6 +2913,9 @@ local function block(
             local nestedScope = derive(scope, {cursorBounds = inheritBounds(scope.cursorBounds)})
             enterLoop(statement.carried, inner)
             block(statement.body, inner, nestedScope, stored, true)
+            if statement.conditionBody ~= nil then
+                block(statement.conditionBody, inner, nestedScope, stored, true)
+            end
             holds(statement.condition.type == "bool", "non-boolean repeat condition")
             scalarWalk(statement.condition, inner, nestedScope)
             leaveLoop()
@@ -3206,7 +3216,13 @@ local function regionLaneBlocks(
             end
             regionLaneBlocks(program, (statement as scalarIR.If).elseBody or {}, values, scope)
         elseif statement.op == "while" or statement.op == "repeat" or statement.op == "block" then
+            if statement.op == "while" then
+                regionLaneBlocks(program, statement.conditionBody or {}, values, scope)
+            end
             regionLaneBlocks(program, (statement as any).body as {scalarIR.Statement}, values, scope)
+            if statement.op == "repeat" then
+                regionLaneBlocks(program, statement.conditionBody or {}, values, scope)
+            end
         end
     end
 end
@@ -3515,10 +3531,10 @@ end
 
 --- Computes a conservative entry stack reservation.
 ---
---- A table local inside a loop would retain one VM stack root per iteration in
---- the current physical assignment, so it is rejected rather than relying on
---- an unbounded stack. Nested literals consumed directly by raw-set are bounded
---- by their authored depth and are included in the reservation.
+--- Rooted scalar locals reserve fixed slots, including inside loops. Fresh
+--- table construction and native builder resources in loops remain outside
+--- this verified subset. Nested literals consumed directly by raw-set are
+--- bounded by their authored depth and included in the reservation.
 local function constructionStack(statements: {scalarIR.Statement}, inLoop: boolean): (integer, integer)
     local roots, depth = 0, 0
     for _, statement in ipairs(statements) do
@@ -3572,6 +3588,9 @@ local function constructionStack(statements: {scalarIR.Statement}, inLoop: boole
             depth = math.max(depth, nestedDepth) as integer
         elseif statement.op == "fornum" or statement.op == "while" or statement.op == "repeat" then
             local nestedRoots, nestedDepth = constructionStack(statement.body, true)
+            local headerRoots, headerDepth = constructionStack((statement as any).conditionBody or {}, true)
+            roots = roots + headerRoots
+            depth = math.max(depth, headerDepth) as integer
             roots = roots + nestedRoots
             depth = math.max(depth, nestedDepth) as integer
         elseif statement.op == "block" then
@@ -3604,7 +3623,7 @@ local function streamBuilders(statements: {scalarIR.Statement}): number
             or statement.op == "repeat"
             or statement.op == "block"
         then
-            count = count + streamBuilders(statement.body)
+            count = count + streamBuilders(statement.body) + streamBuilders((statement as any).conditionBody or {})
         end
     end
 
@@ -3651,9 +3670,19 @@ local function stringBufferOrder(statements: {scalarIR.Statement}, seen: boolean
             or statement.op == "repeat"
             or statement.op == "block"
         then
+            if statement.op == "while" then
+                local headerSeen, headerCount = stringBufferOrder(statement.conditionBody or {}, seen)
+                seen = seen or headerSeen
+                count = (count + headerCount) as integer
+            end
             local nestedSeen, nestedCount = stringBufferOrder(statement.body, seen)
             seen = seen or nestedSeen
             count = (count + nestedCount) as integer
+            if statement.op == "repeat" then
+                local headerSeen, headerCount = stringBufferOrder(statement.conditionBody or {}, seen)
+                seen = seen or headerSeen
+                count = (count + headerCount) as integer
+            end
         end
     end
 

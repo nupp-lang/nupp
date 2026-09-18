@@ -68,5 +68,10 @@ expression. There is no separate switch-block result mechanism.
 
 LuaJIT and portable Lua lowering use scoped locals, branches, and loop exits;
 the expression itself introduces no function or closure. Do expressions also
-work during `comptime` evaluation. They are outside the current native AOT
-numeric subset, as switch block arms already were.
+work during `comptime` evaluation and native AOT compilation. In AOT, the
+statements and result must fit the backend's existing supported types and
+operations. This includes nested blocks, early function returns, and ordinary
+loop exits; a block does not create a separate function boundary.
+
+See [AOT expression blocks](../performance/ahead-of-time/numeric-semantics.md#scalar-switch-expressions-and-do-blocks)
+for the native subset.

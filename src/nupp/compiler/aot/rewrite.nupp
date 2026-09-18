@@ -1703,6 +1703,9 @@ function rewrite.block(
     end
 
     for position, statement in ipairs(statements) do
+        if statement.conditionBody ~= nil then
+            state.reject("statementful loop conditions currently require scalar control flow")
+        end
         local statementMask = rewrite.activeMask(mask, loopContext, statement.source, state)
         local op = statement.op
         if op == "let" and statement.value.op == "element_ref" and statement.value.index == state.index then

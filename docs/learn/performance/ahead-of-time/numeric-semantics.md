@@ -197,15 +197,15 @@ elsewhere and run from a third directory, a cross build's object is inspected to
 confirm it is the other machine's, and a stamped binary is run from `/` to
 confirm it finds the library it was given.
 
-## Scalar switch initializers
+## Scalar switch expressions and do blocks
 
 The scalar subset admits a
-[switch](../../language/switch-expressions.md) as the sole initializer of one local
-when:
+[switch](../../language/switch-expressions.md) in expression positions, including
+initializers, assignments, arguments, return values, and loop conditions, when:
 
-- the selector lowers to `f64`, `i32`, or `u32`;
-- every case is an integer-valued numeric constant;
-- every arm is one scalar expression; and
+- the selector is `number`, `float`, `int32`, `uint32`, `boolean`, or statically known nil;
+- every case is a static primitive value;
+- each completing arm produces an admitted scalar value; and
 - the checker has proved the switch exhaustive, either from its cases or an
   `else` arm.
 
@@ -235,7 +235,7 @@ end
 ```
 
 It lowers to one selector `Let`, one result `Let`, an ordered scalar-IR `If`,
-and branch `Assign` operations. For an established `int32` or `uint32` selector,
+and branch `Assign` operations. For an established `int32` or `uint32` selector with integer cases in its range,
 lowering annotates that ordinary `If` with its exact-width labels and the C
 emitter writes a native `switch` (temporary names are abbreviated here):
 
@@ -257,6 +257,35 @@ default:
 The annotation is optional: scalar-IR verification and lane rewriting may ignore
 it and retain the complete equality chain. Nupp `integer` is normally binary64,
 so those selectors deliberately remain equality branches rather than being
-converted. Strings, type patterns, block arms, and early arm returns report the
-ordinary subset boundary. The C compiler chooses the physical native
-dispatch, and Nupp neither forces a jump table nor synthesizes a C perfect hash.
+converted. Strings and type patterns report the ordinary subset boundary.
+Block arms use ordinary branches so that `break` still targets the authored
+loop. The C compiler chooses the physical native dispatch; Nupp does not force
+a jump table or synthesize a C perfect hash.
+
+A [do expression](../../language/do-expressions.md) may contain locals, branches,
+and supported loops. `yield` supplies its result and exits the nearest value
+block, including through nested loops. `return` exits the AOT function, while
+`break` and `continue` keep their authored loop targets.
+
+```nupp
+@aot(vectorize = false)
+local function classify(value: number): number
+    return do
+        if value < 0 then return -1 end
+        yield switch value do
+            case 0 -> 0
+            else -> do
+                local doubled = value * 2
+                yield doubled + 1
+            end
+        end
+    end
+end
+```
+
+Lowering preserves left-to-right operand evaluation and conditional execution
+in boolean `and`/`or` and ternaries. A loop condition's statements execute on
+every condition test, including the test reached by `continue`. These blocks
+compile to native locals and control flow without closures. Statementful loop
+conditions currently use scalar execution; GPU profiles and automatic lane
+rewriting reject that particular loop shape.

@@ -562,6 +562,10 @@ function text.block(statements: {any}, depth: integer, lanes: integer): {string}
             end
             lines[#lines + 1] = prefix .. "end"
         elseif op == "while" then
+            if statement.conditionBody ~= nil then
+                lines[#lines + 1] = prefix .. "condition setup"
+                nested(statement.conditionBody)
+            end
             lines[
                 #lines + 1
             ] = prefix .. "while " .. text.expression(statement.condition) .. carrying(statement.carried)
@@ -570,6 +574,10 @@ function text.block(statements: {any}, depth: integer, lanes: integer): {string}
         elseif op == "repeat" then
             lines[#lines + 1] = prefix .. "repeat" .. carrying(statement.carried)
             nested(statement.body)
+            if statement.conditionBody ~= nil then
+                lines[#lines + 1] = prefix .. "condition setup"
+                nested(statement.conditionBody)
+            end
             lines[#lines + 1] = prefix .. "until " .. text.expression(statement.condition)
         elseif op == "block" then
             lines[#lines + 1] = prefix .. "block"

@@ -415,6 +415,12 @@ scalarStatement = function(node: scalarIR.Statement, visitor: visit.Visitor): ni
     if callback ~= nil then
         callback(node)
     end
+    if node.op == "while" or node.op == "repeat" then
+        local setup = (node as any).conditionBody
+        if setup ~= nil then
+            scalarBlock(setup, visitor)
+        end
+    end
     visit.statementExpressions(node, function(child: scalarIR.Expr): scalarIR.Expr
         scalarExpression(child, visitor)
         return child
