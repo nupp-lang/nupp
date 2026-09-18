@@ -1462,7 +1462,12 @@ local function buildModules(root: string, outDir: string, config: Config, target
         ) ~= nil or envMod.isDependencyTypePath(inc.env, path) and not linkedModules[name]
         local result = inc.checkFile(path)
         stats.checkedModules = stats.checkedModules + 1
-        local mine = {}
+        -- What checking found, once the substitution below is accounted for. The
+        -- record keeps this list rather than the checker's own, because a reused
+        -- record replays its diagnostics and the checker's list describes the
+        -- rewritten text: replaying it would report the `unused-binding` the first
+        -- build had already answered from the file as written.
+        local checkedDiags = {}
         -- An `@aot` policy that links hands the checker this source with each
         -- compiled declaration replaced by the wrapper that calls it, body and
         -- all. A binding the removed body was the only reader of then has no
@@ -1476,13 +1481,17 @@ local function buildModules(root: string, outDir: string, config: Config, target
         local rewritten = substituted[normalize(path)] ~= nil
         for _, diag in ipairs(result.diags or {}) do
             if not (rewritten and diag.code == "NUPP2507") then
-                mine[#mine + 1] = diag
+                checkedDiags[#checkedDiags + 1] = diag
             end
         end
         if rewritten then
             for _, diag in ipairs(authoredLints[normalize(path)] or {}) do
-                mine[#mine + 1] = diag
+                checkedDiags[#checkedDiags + 1] = diag
             end
+        end
+        local mine = {}
+        for _, diag in ipairs(checkedDiags) do
+            mine[#mine + 1] = diag
         end
         local fatal = isFatalIn(mine)
         local depNames = inc.moduleDependencies(path)
@@ -1587,7 +1596,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
             -- Only what checking found. Generation runs once per artifact and a reused
             -- module does not run it again, so its remarks belong to the run that
             -- produced them and not to the record.
-            diags = jsonArray(result.diags or {}),
+            diags = jsonArray(checkedDiags),
             coverage = coverage,
             materializations = jsonArray(materializations),
             derives = jsonArray(derives),

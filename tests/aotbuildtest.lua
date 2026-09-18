@@ -2260,8 +2260,7 @@ function M.unusedBindingJudgesTheSourceAsWrittenNotTheAotRewrite()
         return
     end
 
-    local function named(policy)
-        local dir = unusedProject(policy)
+    local function report(dir)
         local out = build(dir)
         local found = {}
         for name in out:gmatch("nothing uses ([%a_][%w_]*)") do
@@ -2271,6 +2270,10 @@ function M.unusedBindingJudgesTheSourceAsWrittenNotTheAotRewrite()
         return found, out
     end
 
+    local function named(policy)
+        return report(unusedProject(policy))
+    end
+
     -- With no compilation the body is still there, so this is the plain answer.
     local interpreted = named("off")
     assert(interpreted.trulyUnused, "a binding nothing reads is reported")
@@ -2278,10 +2281,19 @@ function M.unusedBindingJudgesTheSourceAsWrittenNotTheAotRewrite()
     assert(not interpreted.valueBuilder, "a require the body uses is not")
 
     -- With the declaration replaced, the answer has to be the same one.
-    local compiled, out = named("require")
+    local dir = unusedProject("require")
+    local compiled, out = report(dir)
     assert(not compiled.READ_ONLY_IN_THE_BODY, "a constant the compiled body reads is not reported: " .. out)
     assert(not compiled.valueBuilder, "a require the compiled body uses is not reported: " .. out)
     assert(compiled.trulyUnused, "a binding nothing reads is still reported: " .. out)
+
+    -- And again when nothing changed: a reused module record replays what the
+    -- first build said, so it has to have kept the verdict for the file as
+    -- written rather than the checker's answer for the rewritten text.
+    local reused, again = report(dir)
+    assert(not reused.READ_ONLY_IN_THE_BODY, "a reused record does not report the constant: " .. again)
+    assert(not reused.valueBuilder, "a reused record does not report the require: " .. again)
+    assert(reused.trulyUnused, "a reused record still reports the unread binding: " .. again)
 end
 
 --- A fixed word buffer answers zero for a word nothing wrote, and refuses an
