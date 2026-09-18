@@ -1,0 +1,1834 @@
+[
+  {
+    "pair": 0,
+    "backend": "v86-jit",
+    "result": {
+      "ok": true,
+      "mode": "compiler",
+      "compiler": {
+        "value": {
+          "totalMs": 23156.18,
+          "nativeBit": true,
+          "jitEnabled": true,
+          "rounds": [
+            22489.314000000002,
+            223.86599999999817,
+            187.75
+          ],
+          "hashKnownAnswers": true,
+          "guestProcess": "Name:\tluajit\nUmask:\t0022\nState:\tR (running)\nTgid:\t37\nNgid:\t0\nPid:\t37\nPPid:\t1\nTracerPid:\t0\nUid:\t0\t0\t0\t0\nGid:\t0\t0\t0\t0\nFDSize:\t32\nGroups:\t \nNStgid:\t37\nNSpid:\t37\nNSpgid:\t0\nNSsid:\t0\nKthread:\t0\nVmPeak:\t   87572 kB\nVmSize:\t   86872 kB\nVmLck:\t       0 kB\nVmPin:\t       0 kB\nVmHWM:\t   78964 kB\nVmRSS:\t   78276 kB\nRssAnon:\t   76960 kB\nRssFile:\t    1316 kB\nRssShmem:\t       0 kB\nVmData:\t   76480 kB\nVmStk:\t     132 kB\nVmExe:\t     476 kB\nVmLib:\t    1072 kB\nVmPTE:\t      96 kB\nVmSwap:\t       0 kB\nCoreDumping:\t0\nTHP_enabled:\t0\nuntag_mask:\t0xffffffff\nThreads:\t1\nSigQ:\t0/745\nSigPnd:\t0000000000000000\nShdPnd:\t0000000000000000\nSigBlk:\t0000000000000000\nSigIgn:\t0000000000000000\nSigCgt:\t0000000000000002\nCapInh:\t0000000000000000\nCapPrm:\t000001ffffffffff\nCapEff:\t000001ffffffffff\nCapBnd:\t000001ffffffffff\nCapAmb:\t0000000000000000\nNoNewPrivs:\t0\nSpeculation_Store_Bypass:\tvulnerable\nSpeculationIndirectBranch:\talways enabled\nCpus_allowed:\t1\nCpus_allowed_list:\t0\nvoluntary_ctxt_switches:\t1\nnonvoluntary_ctxt_switches:\t5035\n",
+          "requests": [
+            {
+              "response": {
+                "diagnostics": {}
+              },
+              "name": "check:playground.nupp",
+              "ms": 1104.4389999999999,
+              "input": {
+                "options": {
+                  "strict": true,
+                  "dialect": "lua51"
+                },
+                "filename": "playground.nupp",
+                "kind": "check",
+                "source": "local answer: integer = 42\nreturn answer"
+              }
+            },
+            {
+              "response": {
+                "diagnostics": {},
+                "code": "_G.assert((_G.loadstring or _G.load)(\"local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\\\"math\\\")or{};rawset(__nupp,\\\"math\\\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\\\"closed file\\\"then return end;local ok,reason=handle:close();if not ok then error(reason or \\\"the file could not be closed\\\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\\\"nupp:lua.d.nupp#__nuppCloseFile\\\"]=__nuppCloseFile require(\\\"nupp.runtime.managed\\\").install(__nupp,_G);\\n\",\"@nupp-prelude\"))();local unpack=unpack or table.unpack;local loadstring=loadstring or load;local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile require(\"nupp.runtime.managed\").install(__nupp,_G);\nreturn 42\n"
+              },
+              "name": "compile:playground.nupp",
+              "ms": 36.68100000000004,
+              "input": {
+                "options": {
+                  "strict": true,
+                  "dialect": "lua51",
+                  "optimize": true
+                },
+                "filename": "playground.nupp",
+                "kind": "compile",
+                "source": "local answer: integer = 42\nreturn answer"
+              }
+            },
+            {
+              "response": {
+                "found": true,
+                "name": "answer",
+                "length": 6,
+                "offset": 7,
+                "signature": "answer: integer"
+              },
+              "name": "hover:wire",
+              "ms": 0,
+              "input": {
+                "kind": "hover",
+                "offset": 7
+              }
+            },
+            {
+              "response": {
+                "diagnostics": {},
+                "code": "_G.assert(_G.loadstring(\"local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\\\"math\\\")or{};rawset(__nupp,\\\"math\\\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\\\"closed file\\\"then return end;local ok,reason=handle:close();if not ok then error(reason or \\\"the file could not be closed\\\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\\\"nupp:lua.d.nupp#__nuppCloseFile\\\"]=__nuppCloseFile require(\\\"nupp.runtime.managed\\\").install(__nupp,_G);\\n\",\"@nupp-prelude\"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile require(\"nupp.runtime.managed\").install(__nupp,_G);const value = 2ULL\nreturn value\n"
+              },
+              "name": "compile:playground.nupp",
+              "ms": 856.5799999999999,
+              "input": {
+                "options": {
+                  "dialect": "luajit"
+                },
+                "filename": "playground.nupp",
+                "kind": "compile",
+                "source": "const value = 2ULL\nreturn value"
+              }
+            },
+            {
+              "response": {
+                "diagnostics": {},
+                "code": "_G.assert((_G.loadstring or _G.load)(\"local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\\\"math\\\")or{};rawset(__nupp,\\\"math\\\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\\\"closed file\\\"then return end;local ok,reason=handle:close();if not ok then error(reason or \\\"the file could not be closed\\\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\\\"nupp:lua.d.nupp#__nuppCloseFile\\\"]=__nuppCloseFile require(\\\"nupp.runtime.managed\\\").install(__nupp,_G);\\n\",\"@nupp-prelude\"))();local unpack=unpack or table.unpack;local loadstring=loadstring or load;local __nuppProtectedCreate=require(\"nupp.suspension\").create;local function __nuppYieldPack(...) return {n=select(\"#\",...),...} end;local function __nuppProtected(handler,body,...) local thread=__nuppProtectedCreate(function(...) return body(...) end);local input=__nuppYieldPack(...);while true do local out=__nuppYieldPack(coroutine.resume(thread,unpack(input,1,input.n)));if not out[1] then if handler then return false,handler(out[2]) end return false,out[2] end if coroutine.status(thread)==\"dead\" then return unpack(out,1,out.n) end input=__nuppYieldPack(coroutine.yield(unpack(out,2,out.n))) end end;local function pcall(body,...) return __nuppProtected(nil,body,...) end;local function xpcall(body,handler,...) return __nuppProtected(handler,body,...) end;local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile require(\"nupp.runtime.managed\").install(__nupp,_G);local __nuppBitops=require(\"nupp.runtime.bitops\");local random = require ( \"nupp.random\" )\nlocal storage = require ( \"nupp.io.storage\" )\nlocal time = require ( \"nupp.time\" )\nlocal digest = require ( \"nupp.digest\" )\nlocal mac = require ( \"nupp.mac\" )\nlocal uuid = require ( \"nupp.util\" )\nlocal system = require ( \"nupp.system\" )\ntime . sleep ( 1 )\nstorage . set ( \"key\" , digest . hexDigest ( \"sha256\" , random . randomBytes ( 16 ) ) )\nprint ( storage . get ( \"key\" ) , mac . hexDigest ( \"hmac-sha256\" , \"key\" , \"message\" ) , uuid . uuid4 ( ) , system . availableParallelism ( ) )\n"
+              },
+              "name": "compile:browser-platform.nupp",
+              "ms": 18863.925,
+              "input": {
+                "options": {
+                  "strict": true,
+                  "dialect": "lua51"
+                },
+                "filename": "browser-platform.nupp",
+                "kind": "compile",
+                "source": "local random = require(\"nupp.random\")\nlocal storage = require(\"nupp.io.storage\")\nlocal time = require(\"nupp.time\")\nlocal digest = require(\"nupp.digest\")\nlocal mac = require(\"nupp.mac\")\nlocal uuid = require(\"nupp.util\")\nlocal system = require(\"nupp.system\")\ntime.sleep(1)\nstorage.set(\"key\", digest.hexDigest(\"sha256\", random.randomBytes(16)))\nprint(storage.get(\"key\"), mac.hexDigest(\"hmac-sha256\", \"key\", \"message\"), uuid.uuid4(), system.availableParallelism())\n"
+              }
+            },
+            {
+              "response": {
+                "diagnostics": {},
+                "code": "_G.assert((_G.loadstring or _G.load)(\"local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\\\"math\\\")or{};rawset(__nupp,\\\"math\\\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\\\"closed file\\\"then return end;local ok,reason=handle:close();if not ok then error(reason or \\\"the file could not be closed\\\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\\\"nupp:lua.d.nupp#__nuppCloseFile\\\"]=__nuppCloseFile require(\\\"nupp.runtime.managed\\\").install(__nupp,_G);\\n\",\"@nupp-prelude\"))();local unpack=unpack or table.unpack;local loadstring=loadstring or load;local __nuppProtectedCreate=require(\"nupp.suspension\").create;local function __nuppYieldPack(...) return {n=select(\"#\",...),...} end;local function __nuppProtected(handler,body,...) local thread=__nuppProtectedCreate(function(...) return body(...) end);local input=__nuppYieldPack(...);while true do local out=__nuppYieldPack(coroutine.resume(thread,unpack(input,1,input.n)));if not out[1] then if handler then return false,handler(out[2]) end return false,out[2] end if coroutine.status(thread)==\"dead\" then return unpack(out,1,out.n) end input=__nuppYieldPack(coroutine.yield(unpack(out,2,out.n))) end end;local function pcall(body,...) return __nuppProtected(nil,body,...) end;local function xpcall(body,handler,...) return __nuppProtected(handler,body,...) end;local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile require(\"nupp.runtime.managed\").install(__nupp,_G); require(\"nupp.compiler.runtime.math\").install(rawget(__nupp,\"math\"));local __nuppBitops=require(\"nupp.runtime.bitops\");local gpu = require ( \"nupp.browser\" )\nlocal u32 = nupp . math . u32 . wrap\nlocal values = { u32 ( 0 ) , u32 ( 1 ) }\nlocal result = gpu . xorU32 ( values , u32 ( 0xa5a5a5a5 ) )\nprint ( result [ 1 ] , result [ 2 ] )\n"
+              },
+              "name": "compile:webgpu-compute.nupp",
+              "ms": 1524.4850000000006,
+              "input": {
+                "options": {
+                  "strict": true,
+                  "dialect": "lua51"
+                },
+                "filename": "webgpu-compute.nupp",
+                "kind": "compile",
+                "source": "local gpu = require(\"nupp.browser\")\nlocal u32 = nupp.math.u32.wrap\nlocal values: {uint32} = {u32(0), u32(1)}\nlocal result = gpu.xorU32(values, u32(0xa5a5a5a5))\nprint(result[1], result[2])\n"
+              }
+            },
+            {
+              "response": {
+                "diagnostics": {}
+              },
+              "name": "check:playground.nupp",
+              "ms": 8.110000000000582,
+              "input": {
+                "options": {
+                  "dialect": "lua51"
+                },
+                "filename": "playground.nupp",
+                "kind": "check",
+                "source": "return 1"
+              }
+            },
+            {
+              "response": "{\"diagnostics\":[]}",
+              "name": "request:wire",
+              "ms": 11.505000000001019
+            },
+            {
+              "response": {
+                "diagnostics": {}
+              },
+              "name": "check:playground.nupp",
+              "ms": 6.84599999999773,
+              "input": {
+                "options": {
+                  "strict": true,
+                  "dialect": "lua51"
+                },
+                "filename": "playground.nupp",
+                "kind": "check",
+                "source": "local answer: integer = 42\nreturn answer"
+              }
+            },
+            {
+              "response": {
+                "diagnostics": {},
+                "code": "_G.assert((_G.loadstring or _G.load)(\"local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\\\"math\\\")or{};rawset(__nupp,\\\"math\\\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\\\"closed file\\\"then return end;local ok,reason=handle:close();if not ok then error(reason or \\\"the file could not be closed\\\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\\\"nupp:lua.d.nupp#__nuppCloseFile\\\"]=__nuppCloseFile require(\\\"nupp.runtime.managed\\\").install(__nupp,_G);\\n\",\"@nupp-prelude\"))();local unpack=unpack or table.unpack;local loadstring=loadstring or load;local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile require(\"nupp.runtime.managed\").install(__nupp,_G);\nreturn 42\n"
+              },
+              "name": "compile:playground.nupp",
+              "ms": 16.44000000000233,
+              "input": {
+                "options": {
+                  "strict": true,
+                  "dialect": "lua51",
+                  "optimize": true
+                },
+                "filename": "playground.nupp",
+                "kind": "compile",
+                "source": "local answer: integer = 42\nreturn answer"
+              }
+            },
+            {
+              "response": {
+                "found": true,
+                "name": "answer",
+                "length": 6,
+                "offset": 7,
+                "signature": "answer: integer"
+              },
+              "name": "hover:wire",
+              "ms": 0,
+              "input": {
+                "kind": "hover",
+                "offset": 7
+              }
+            },
+            {
+              "response": {
+                "diagnostics": {},
+                "code": "_G.assert(_G.loadstring(\"local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\\\"math\\\")or{};rawset(__nupp,\\\"math\\\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\\\"closed file\\\"then return end;local ok,reason=handle:close();if not ok then error(reason or \\\"the file could not be closed\\\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\\\"nupp:lua.d.nupp#__nuppCloseFile\\\"]=__nuppCloseFile require(\\\"nupp.runtime.managed\\\").install(__nupp,_G);\\n\",\"@nupp-prelude\"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile require(\"nupp.runtime.managed\").install(__nupp,_G);const value = 2ULL\nreturn value\n"
+              },
+              "name": "compile:playground.nupp",
+              "ms": 7.664999999997235,
+              "input": {
+                "options": {
+                  "dialect": "luajit"
+                },
+                "filename": "playground.nupp",
+                "kind": "compile",
+                "source": "const value = 2ULL\nreturn value"
+              }
+            },
+            {
+              "response": {
+                "diagnostics": {},
+                "code": "_G.assert((_G.loadstring or _G.load)(\"local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\\\"math\\\")or{};rawset(__nupp,\\\"math\\\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\\\"closed file\\\"then return end;local ok,reason=handle:close();if not ok then error(reason or \\\"the file could not be closed\\\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\\\"nupp:lua.d.nupp#__nuppCloseFile\\\"]=__nuppCloseFile require(\\\"nupp.runtime.managed\\\").install(__nupp,_G);\\n\",\"@nupp-prelude\"))();local unpack=unpack or table.unpack;local loadstring=loadstring or load;local __nuppProtectedCreate=require(\"nupp.suspension\").create;local function __nuppYieldPack(...) return {n=select(\"#\",...),...} end;local function __nuppProtected(handler,body,...) local thread=__nuppProtectedCreate(function(...) return body(...) end);local input=__nuppYieldPack(...);while true do local out=__nuppYieldPack(coroutine.resume(thread,unpack(input,1,input.n)));if not out[1] then if handler then return false,handler(out[2]) end return false,out[2] end if coroutine.status(thread)==\"dead\" then return unpack(out,1,out.n) end input=__nuppYieldPack(coroutine.yield(unpack(out,2,out.n))) end end;local function pcall(body,...) return __nuppProtected(nil,body,...) end;local function xpcall(body,handler,...) return __nuppProtected(handler,body,...) end;local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile require(\"nupp.runtime.managed\").install(__nupp,_G);local __nuppBitops=require(\"nupp.runtime.bitops\");local random = require ( \"nupp.random\" )\nlocal storage = require ( \"nupp.io.storage\" )\nlocal time = require ( \"nupp.time\" )\nlocal digest = require ( \"nupp.digest\" )\nlocal mac = require ( \"nupp.mac\" )\nlocal uuid = require ( \"nupp.util\" )\nlocal system = require ( \"nupp.system\" )\ntime . sleep ( 1 )\nstorage . set ( \"key\" , digest . hexDigest ( \"sha256\" , random . randomBytes ( 16 ) ) )\nprint ( storage . get ( \"key\" ) , mac . hexDigest ( \"hmac-sha256\" , \"key\" , \"message\" ) , uuid . uuid4 ( ) , system . availableParallelism ( ) )\n"
+              },
+              "name": "compile:browser-platform.nupp",
+              "ms": 71.65999999999985,
+              "input": {
+                "options": {
+                  "strict": true,
+                  "dialect": "lua51"
+                },
+                "filename": "browser-platform.nupp",
+                "kind": "compile",
+                "source": "local random = require(\"nupp.random\")\nlocal storage = require(\"nupp.io.storage\")\nlocal time = require(\"nupp.time\")\nlocal digest = require(\"nupp.digest\")\nlocal mac = require(\"nupp.mac\")\nlocal uuid = require(\"nupp.util\")\nlocal system = require(\"nupp.system\")\ntime.sleep(1)\nstorage.set(\"key\", digest.hexDigest(\"sha256\", random.randomBytes(16)))\nprint(storage.get(\"key\"), mac.hexDigest(\"hmac-sha256\", \"key\", \"message\"), uuid.uuid4(), system.availableParallelism())\n"
+              }
+            },
+            {
+              "response": {
+                "diagnostics": {},
+                "code": "_G.assert((_G.loadstring or _G.load)(\"local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\\\"math\\\")or{};rawset(__nupp,\\\"math\\\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\\\"closed file\\\"then return end;local ok,reason=handle:close();if not ok then error(reason or \\\"the file could not be closed\\\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\\\"nupp:lua.d.nupp#__nuppCloseFile\\\"]=__nuppCloseFile require(\\\"nupp.runtime.managed\\\").install(__nupp,_G);\\n\",\"@nupp-prelude\"))();local unpack=unpack or table.unpack;local loadstring=loadstring or load;local __nuppProtectedCreate=require(\"nupp.suspension\").create;local function __nuppYieldPack(...) return {n=select(\"#\",...),...} end;local function __nuppProtected(handler,body,...) local thread=__nuppProtectedCreate(function(...) return body(...) end);local input=__nuppYieldPack(...);while true do local out=__nuppYieldPack(coroutine.resume(thread,unpack(input,1,input.n)));if not out[1] then if handler then return false,handler(out[2]) end return false,out[2] end if coroutine.status(thread)==\"dead\" then return unpack(out,1,out.n) end input=__nuppYieldPack(coroutine.yield(unpack(out,2,out.n))) end end;local function pcall(body,...) return __nuppProtected(nil,body,...) end;local function xpcall(body,handler,...) return __nuppProtected(handler,body,...) end;local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile require(\"nupp.runtime.managed\").install(__nupp,_G); require(\"nupp.compiler.runtime.math\").install(rawget(__nupp,\"math\"));local __nuppBitops=require(\"nupp.runtime.bitops\");local gpu = require ( \"nupp.browser\" )\nlocal u32 = nupp . math . u32 . wrap\nlocal values = { u32 ( 0 ) , u32 ( 1 ) }\nlocal result = gpu . xorU32 ( values , u32 ( 0xa5a5a5a5 ) )\nprint ( result [ 1 ] , result [ 2 ] )\n"
+              },
+              "name": "compile:webgpu-compute.nupp",
+              "ms": 47.845000000001164,
+              "input": {
+                "options": {
+                  "strict": true,
+                  "dialect": "lua51"
+                },
+                "filename": "webgpu-compute.nupp",
+                "kind": "compile",
+                "source": "local gpu = require(\"nupp.browser\")\nlocal u32 = nupp.math.u32.wrap\nlocal values: {uint32} = {u32(0), u32(1)}\nlocal result = gpu.xorU32(values, u32(0xa5a5a5a5))\nprint(result[1], result[2])\n"
+              }
+            },
+            {
+              "response": {
+                "diagnostics": {}
+              },
+              "name": "check:playground.nupp",
+              "ms": 3.9249999999992724,
+              "input": {
+                "options": {
+                  "dialect": "lua51"
+                },
+                "filename": "playground.nupp",
+                "kind": "check",
+                "source": "return 1"
+              }
+            },
+            {
+              "response": "{\"diagnostics\":[]}",
+              "name": "request:wire",
+              "ms": 3.9249999999992724
+            },
+            {
+              "response": {
+                "diagnostics": {}
+              },
+              "name": "check:playground.nupp",
+              "ms": 11.130000000001019,
+              "input": {
+                "options": {
+                  "strict": true,
+                  "dialect": "lua51"
+                },
+                "filename": "playground.nupp",
+                "kind": "check",
+                "source": "local answer: integer = 42\nreturn answer"
+              }
+            },
+            {
+              "response": {
+                "diagnostics": {},
+                "code": "_G.assert((_G.loadstring or _G.load)(\"local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\\\"math\\\")or{};rawset(__nupp,\\\"math\\\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\\\"closed file\\\"then return end;local ok,reason=handle:close();if not ok then error(reason or \\\"the file could not be closed\\\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\\\"nupp:lua.d.nupp#__nuppCloseFile\\\"]=__nuppCloseFile require(\\\"nupp.runtime.managed\\\").install(__nupp,_G);\\n\",\"@nupp-prelude\"))();local unpack=unpack or table.unpack;local loadstring=loadstring or load;local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile require(\"nupp.runtime.managed\").install(__nupp,_G);\nreturn 42\n"
+              },
+              "name": "compile:playground.nupp",
+              "ms": 12.599999999998545,
+              "input": {
+                "options": {
+                  "strict": true,
+                  "dialect": "lua51",
+                  "optimize": true
+                },
+                "filename": "playground.nupp",
+                "kind": "compile",
+                "source": "local answer: integer = 42\nreturn answer"
+              }
+            },
+            {
+              "response": {
+                "found": true,
+                "name": "answer",
+                "length": 6,
+                "offset": 7,
+                "signature": "answer: integer"
+              },
+              "name": "hover:wire",
+              "ms": 0,
+              "input": {
+                "kind": "hover",
+                "offset": 7
+              }
+            },
+            {
+              "response": {
+                "diagnostics": {},
+                "code": "_G.assert(_G.loadstring(\"local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\\\"math\\\")or{};rawset(__nupp,\\\"math\\\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\\\"closed file\\\"then return end;local ok,reason=handle:close();if not ok then error(reason or \\\"the file could not be closed\\\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\\\"nupp:lua.d.nupp#__nuppCloseFile\\\"]=__nuppCloseFile require(\\\"nupp.runtime.managed\\\").install(__nupp,_G);\\n\",\"@nupp-prelude\"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile require(\"nupp.runtime.managed\").install(__nupp,_G);const value = 2ULL\nreturn value\n"
+              },
+              "name": "compile:playground.nupp",
+              "ms": 11.66400000000067,
+              "input": {
+                "options": {
+                  "dialect": "luajit"
+                },
+                "filename": "playground.nupp",
+                "kind": "compile",
+                "source": "const value = 2ULL\nreturn value"
+              }
+            },
+            {
+              "response": {
+                "diagnostics": {},
+                "code": "_G.assert((_G.loadstring or _G.load)(\"local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\\\"math\\\")or{};rawset(__nupp,\\\"math\\\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\\\"closed file\\\"then return end;local ok,reason=handle:close();if not ok then error(reason or \\\"the file could not be closed\\\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\\\"nupp:lua.d.nupp#__nuppCloseFile\\\"]=__nuppCloseFile require(\\\"nupp.runtime.managed\\\").install(__nupp,_G);\\n\",\"@nupp-prelude\"))();local unpack=unpack or table.unpack;local loadstring=loadstring or load;local __nuppProtectedCreate=require(\"nupp.suspension\").create;local function __nuppYieldPack(...) return {n=select(\"#\",...),...} end;local function __nuppProtected(handler,body,...) local thread=__nuppProtectedCreate(function(...) return body(...) end);local input=__nuppYieldPack(...);while true do local out=__nuppYieldPack(coroutine.resume(thread,unpack(input,1,input.n)));if not out[1] then if handler then return false,handler(out[2]) end return false,out[2] end if coroutine.status(thread)==\"dead\" then return unpack(out,1,out.n) end input=__nuppYieldPack(coroutine.yield(unpack(out,2,out.n))) end end;local function pcall(body,...) return __nuppProtected(nil,body,...) end;local function xpcall(body,handler,...) return __nuppProtected(handler,body,...) end;local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile require(\"nupp.runtime.managed\").install(__nupp,_G);local __nuppBitops=require(\"nupp.runtime.bitops\");local random = require ( \"nupp.random\" )\nlocal storage = require ( \"nupp.io.storage\" )\nlocal time = require ( \"nupp.time\" )\nlocal digest = require ( \"nupp.digest\" )\nlocal mac = require ( \"nupp.mac\" )\nlocal uuid = require ( \"nupp.util\" )\nlocal system = require ( \"nupp.system\" )\ntime . sleep ( 1 )\nstorage . set ( \"key\" , digest . hexDigest ( \"sha256\" , random . randomBytes ( 16 ) ) )\nprint ( storage . get ( \"key\" ) , mac . hexDigest ( \"hmac-sha256\" , \"key\" , \"message\" ) , uuid . uuid4 ( ) , system . availableParallelism ( ) )\n"
+              },
+              "name": "compile:browser-platform.nupp",
+              "ms": 56.125,
+              "input": {
+                "options": {
+                  "strict": true,
+                  "dialect": "lua51"
+                },
+                "filename": "browser-platform.nupp",
+                "kind": "compile",
+                "source": "local random = require(\"nupp.random\")\nlocal storage = require(\"nupp.io.storage\")\nlocal time = require(\"nupp.time\")\nlocal digest = require(\"nupp.digest\")\nlocal mac = require(\"nupp.mac\")\nlocal uuid = require(\"nupp.util\")\nlocal system = require(\"nupp.system\")\ntime.sleep(1)\nstorage.set(\"key\", digest.hexDigest(\"sha256\", random.randomBytes(16)))\nprint(storage.get(\"key\"), mac.hexDigest(\"hmac-sha256\", \"key\", \"message\"), uuid.uuid4(), system.availableParallelism())\n"
+              }
+            },
+            {
+              "response": {
+                "diagnostics": {},
+                "code": "_G.assert((_G.loadstring or _G.load)(\"local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\\\"math\\\")or{};rawset(__nupp,\\\"math\\\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\\\"closed file\\\"then return end;local ok,reason=handle:close();if not ok then error(reason or \\\"the file could not be closed\\\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\\\"nupp:lua.d.nupp#__nuppCloseFile\\\"]=__nuppCloseFile require(\\\"nupp.runtime.managed\\\").install(__nupp,_G);\\n\",\"@nupp-prelude\"))();local unpack=unpack or table.unpack;local loadstring=loadstring or load;local __nuppProtectedCreate=require(\"nupp.suspension\").create;local function __nuppYieldPack(...) return {n=select(\"#\",...),...} end;local function __nuppProtected(handler,body,...) local thread=__nuppProtectedCreate(function(...) return body(...) end);local input=__nuppYieldPack(...);while true do local out=__nuppYieldPack(coroutine.resume(thread,unpack(input,1,input.n)));if not out[1] then if handler then return false,handler(out[2]) end return false,out[2] end if coroutine.status(thread)==\"dead\" then return unpack(out,1,out.n) end input=__nuppYieldPack(coroutine.yield(unpack(out,2,out.n))) end end;local function pcall(body,...) return __nuppProtected(nil,body,...) end;local function xpcall(body,handler,...) return __nuppProtected(handler,body,...) end;local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile require(\"nupp.runtime.managed\").install(__nupp,_G); require(\"nupp.compiler.runtime.math\").install(rawget(__nupp,\"math\"));local __nuppBitops=require(\"nupp.runtime.bitops\");local gpu = require ( \"nupp.browser\" )\nlocal u32 = nupp . math . u32 . wrap\nlocal values = { u32 ( 0 ) , u32 ( 1 ) }\nlocal result = gpu . xorU32 ( values , u32 ( 0xa5a5a5a5 ) )\nprint ( result [ 1 ] , result [ 2 ] )\n"
+              },
+              "name": "compile:webgpu-compute.nupp",
+              "ms": 36.51100000000224,
+              "input": {
+                "options": {
+                  "strict": true,
+                  "dialect": "lua51"
+                },
+                "filename": "webgpu-compute.nupp",
+                "kind": "compile",
+                "source": "local gpu = require(\"nupp.browser\")\nlocal u32 = nupp.math.u32.wrap\nlocal values: {uint32} = {u32(0), u32(1)}\nlocal result = gpu.xorU32(values, u32(0xa5a5a5a5))\nprint(result[1], result[2])\n"
+              }
+            },
+            {
+              "response": {
+                "diagnostics": {}
+              },
+              "name": "check:playground.nupp",
+              "ms": 3.404999999998836,
+              "input": {
+                "options": {
+                  "dialect": "lua51"
+                },
+                "filename": "playground.nupp",
+                "kind": "check",
+                "source": "return 1"
+              }
+            },
+            {
+              "response": "{\"diagnostics\":[]}",
+              "name": "request:wire",
+              "ms": 3.404999999998836
+            }
+          ],
+          "samples": {},
+          "states": {},
+          "luaHeapKiB": 29560.763671875,
+          "loadMs": 255.25,
+          "phases": {}
+        },
+        "metrics": {
+          "frames": 0,
+          "effects": 0,
+          "effectBytes": 0,
+          "responseBytes": 0,
+          "copiedIn": 0,
+          "copiedOut": 0,
+          "hostEffectMs": [],
+          "guestIntervalsMs": [],
+          "bootMs": 1100.1449999809265,
+          "wasmMemoryBytes": 148504576,
+          "totalMs": 24375.099999904633
+        }
+      },
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+      "isolated": true,
+      "browserErrors": [],
+      "responsesMatchNativeAndLua51": true
+    }
+  },
+  {
+    "pair": 0,
+    "backend": "v86-interpreter",
+    "result": {
+      "ok": true,
+      "mode": "compiler",
+      "compiler": {
+        "value": {
+          "requests": [
+            {
+              "name": "check:playground.nupp",
+              "ms": 1220.1799999999998,
+              "input": {
+                "kind": "check",
+                "source": "local answer: integer = 42\nreturn answer",
+                "filename": "playground.nupp",
+                "options": {
+                  "dialect": "lua51",
+                  "strict": true
+                }
+              },
+              "response": {
+                "diagnostics": {}
+              }
+            },
+            {
+              "name": "compile:playground.nupp",
+              "ms": 3.050000000000182,
+              "input": {
+                "kind": "compile",
+                "source": "local answer: integer = 42\nreturn answer",
+                "filename": "playground.nupp",
+                "options": {
+                  "dialect": "lua51",
+                  "optimize": true,
+                  "strict": true
+                }
+              },
+              "response": {
+                "code": "_G.assert((_G.loadstring or _G.load)(\"local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\\\"math\\\")or{};rawset(__nupp,\\\"math\\\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\\\"closed file\\\"then return end;local ok,reason=handle:close();if not ok then error(reason or \\\"the file could not be closed\\\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\\\"nupp:lua.d.nupp#__nuppCloseFile\\\"]=__nuppCloseFile require(\\\"nupp.runtime.managed\\\").install(__nupp,_G);\\n\",\"@nupp-prelude\"))();local unpack=unpack or table.unpack;local loadstring=loadstring or load;local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile require(\"nupp.runtime.managed\").install(__nupp,_G);\nreturn 42\n",
+                "diagnostics": {}
+              }
+            },
+            {
+              "name": "hover:wire",
+              "ms": 0,
+              "input": {
+                "offset": 7,
+                "kind": "hover"
+              },
+              "response": {
+                "name": "answer",
+                "signature": "answer: integer",
+                "offset": 7,
+                "length": 6,
+                "found": true
+              }
+            },
+            {
+              "name": "compile:playground.nupp",
+              "ms": 1084.37,
+              "input": {
+                "kind": "compile",
+                "source": "const value = 2ULL\nreturn value",
+                "filename": "playground.nupp",
+                "options": {
+                  "dialect": "luajit"
+                }
+              },
+              "response": {
+                "code": "_G.assert(_G.loadstring(\"local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\\\"math\\\")or{};rawset(__nupp,\\\"math\\\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\\\"closed file\\\"then return end;local ok,reason=handle:close();if not ok then error(reason or \\\"the file could not be closed\\\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\\\"nupp:lua.d.nupp#__nuppCloseFile\\\"]=__nuppCloseFile require(\\\"nupp.runtime.managed\\\").install(__nupp,_G);\\n\",\"@nupp-prelude\"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile require(\"nupp.runtime.managed\").install(__nupp,_G);const value = 2ULL\nreturn value\n",
+                "diagnostics": {}
+              }
+            },
+            {
+              "name": "compile:browser-platform.nupp",
+              "ms": 6124.0650000000005,
+              "input": {
+                "kind": "compile",
+                "source": "local random = require(\"nupp.random\")\nlocal storage = require(\"nupp.io.storage\")\nlocal time = require(\"nupp.time\")\nlocal digest = require(\"nupp.digest\")\nlocal mac = require(\"nupp.mac\")\nlocal uuid = require(\"nupp.util\")\nlocal system = require(\"nupp.system\")\ntime.sleep(1)\nstorage.set(\"key\", digest.hexDigest(\"sha256\", random.randomBytes(16)))\nprint(storage.get(\"key\"), mac.hexDigest(\"hmac-sha256\", \"key\", \"message\"), uuid.uuid4(), system.availableParallelism())\n",
+                "filename": "browser-platform.nupp",
+                "options": {
+                  "dialect": "lua51",
+                  "strict": true
+                }
+              },
+              "response": {
+                "code": "_G.assert((_G.loadstring or _G.load)(\"local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\\\"math\\\")or{};rawset(__nupp,\\\"math\\\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\\\"closed file\\\"then return end;local ok,reason=handle:close();if not ok then error(reason or \\\"the file could not be closed\\\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\\\"nupp:lua.d.nupp#__nuppCloseFile\\\"]=__nuppCloseFile require(\\\"nupp.runtime.managed\\\").install(__nupp,_G);\\n\",\"@nupp-prelude\"))();local unpack=unpack or table.unpack;local loadstring=loadstring or load;local __nuppProtectedCreate=require(\"nupp.suspension\").create;local function __nuppYieldPack(...) return {n=select(\"#\",...),...} end;local function __nuppProtected(handler,body,...) local thread=__nuppProtectedCreate(function(...) return body(...) end);local input=__nuppYieldPack(...);while true do local out=__nuppYieldPack(coroutine.resume(thread,unpack(input,1,input.n)));if not out[1] then if handler then return false,handler(out[2]) end return false,out[2] end if coroutine.status(thread)==\"dead\" then return unpack(out,1,out.n) end input=__nuppYieldPack(coroutine.yield(unpack(out,2,out.n))) end end;local function pcall(body,...) return __nuppProtected(nil,body,...) end;local function xpcall(body,handler,...) return __nuppProtected(handler,body,...) end;local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile require(\"nupp.runtime.managed\").install(__nupp,_G);local __nuppBitops=require(\"nupp.runtime.bitops\");local random = require ( \"nupp.random\" )\nlocal storage = require ( \"nupp.io.storage\" )\nlocal time = require ( \"nupp.time\" )\nlocal digest = require ( \"nupp.digest\" )\nlocal mac = require ( \"nupp.mac\" )\nlocal uuid = require ( \"nupp.util\" )\nlocal system = require ( \"nupp.system\" )\ntime . sleep ( 1 )\nstorage . set ( \"key\" , digest . hexDigest ( \"sha256\" , random . randomBytes ( 16 ) ) )\nprint ( storage . get ( \"key\" ) , mac . hexDigest ( \"hmac-sha256\" , \"key\" , \"message\" ) , uuid . uuid4 ( ) , system . availableParallelism ( ) )\n",
+                "diagnostics": {}
+              }
+            },
+            {
+              "name": "compile:webgpu-compute.nupp",
+              "ms": 620.3600000000006,
+              "input": {
+                "kind": "compile",
+                "source": "local gpu = require(\"nupp.browser\")\nlocal u32 = nupp.math.u32.wrap\nlocal values: {uint32} = {u32(0), u32(1)}\nlocal result = gpu.xorU32(values, u32(0xa5a5a5a5))\nprint(result[1], result[2])\n",
+                "filename": "webgpu-compute.nupp",
+                "options": {
+                  "dialect": "lua51",
+                  "strict": true
+                }
+              },
+              "response": {
+                "code": "_G.assert((_G.loadstring or _G.load)(\"local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\\\"math\\\")or{};rawset(__nupp,\\\"math\\\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\\\"closed file\\\"then return end;local ok,reason=handle:close();if not ok then error(reason or \\\"the file could not be closed\\\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\\\"nupp:lua.d.nupp#__nuppCloseFile\\\"]=__nuppCloseFile require(\\\"nupp.runtime.managed\\\").install(__nupp,_G);\\n\",\"@nupp-prelude\"))();local unpack=unpack or table.unpack;local loadstring=loadstring or load;local __nuppProtectedCreate=require(\"nupp.suspension\").create;local function __nuppYieldPack(...) return {n=select(\"#\",...),...} end;local function __nuppProtected(handler,body,...) local thread=__nuppProtectedCreate(function(...) return body(...) end);local input=__nuppYieldPack(...);while true do local out=__nuppYieldPack(coroutine.resume(thread,unpack(input,1,input.n)));if not out[1] then if handler then return false,handler(out[2]) end return false,out[2] end if coroutine.status(thread)==\"dead\" then return unpack(out,1,out.n) end input=__nuppYieldPack(coroutine.yield(unpack(out,2,out.n))) end end;local function pcall(body,...) return __nuppProtected(nil,body,...) end;local function xpcall(body,handler,...) return __nuppProtected(handler,body,...) end;local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile require(\"nupp.runtime.managed\").install(__nupp,_G); require(\"nupp.compiler.runtime.math\").install(rawget(__nupp,\"math\"));local __nuppBitops=require(\"nupp.runtime.bitops\");local gpu = require ( \"nupp.browser\" )\nlocal u32 = nupp . math . u32 . wrap\nlocal values = { u32 ( 0 ) , u32 ( 1 ) }\nlocal result = gpu . xorU32 ( values , u32 ( 0xa5a5a5a5 ) )\nprint ( result [ 1 ] , result [ 2 ] )\n",
+                "diagnostics": {}
+              }
+            },
+            {
+              "name": "check:playground.nupp",
+              "ms": 0,
+              "input": {
+                "kind": "check",
+                "source": "return 1",
+                "filename": "playground.nupp",
+                "options": {
+                  "dialect": "lua51"
+                }
+              },
+              "response": {
+                "diagnostics": {}
+              }
+            },
+            {
+              "name": "request:wire",
+              "ms": 0,
+              "response": "{\"diagnostics\":[]}"
+            },
+            {
+              "name": "check:playground.nupp",
+              "ms": 3.389999999999418,
+              "input": {
+                "kind": "check",
+                "source": "local answer: integer = 42\nreturn answer",
+                "filename": "playground.nupp",
+                "options": {
+                  "dialect": "lua51",
+                  "strict": true
+                }
+              },
+              "response": {
+                "diagnostics": {}
+              }
+            },
+            {
+              "name": "compile:playground.nupp",
+              "ms": 3.780000000000655,
+              "input": {
+                "kind": "compile",
+                "source": "local answer: integer = 42\nreturn answer",
+                "filename": "playground.nupp",
+                "options": {
+                  "dialect": "lua51",
+                  "optimize": true,
+                  "strict": true
+                }
+              },
+              "response": {
+                "code": "_G.assert((_G.loadstring or _G.load)(\"local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\\\"math\\\")or{};rawset(__nupp,\\\"math\\\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\\\"closed file\\\"then return end;local ok,reason=handle:close();if not ok then error(reason or \\\"the file could not be closed\\\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\\\"nupp:lua.d.nupp#__nuppCloseFile\\\"]=__nuppCloseFile require(\\\"nupp.runtime.managed\\\").install(__nupp,_G);\\n\",\"@nupp-prelude\"))();local unpack=unpack or table.unpack;local loadstring=loadstring or load;local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile require(\"nupp.runtime.managed\").install(__nupp,_G);\nreturn 42\n",
+                "diagnostics": {}
+              }
+            },
+            {
+              "name": "hover:wire",
+              "ms": 0,
+              "input": {
+                "offset": 7,
+                "kind": "hover"
+              },
+              "response": {
+                "name": "answer",
+                "signature": "answer: integer",
+                "offset": 7,
+                "length": 6,
+                "found": true
+              }
+            },
+            {
+              "name": "compile:playground.nupp",
+              "ms": 4.299999999999272,
+              "input": {
+                "kind": "compile",
+                "source": "const value = 2ULL\nreturn value",
+                "filename": "playground.nupp",
+                "options": {
+                  "dialect": "luajit"
+                }
+              },
+              "response": {
+                "code": "_G.assert(_G.loadstring(\"local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\\\"math\\\")or{};rawset(__nupp,\\\"math\\\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\\\"closed file\\\"then return end;local ok,reason=handle:close();if not ok then error(reason or \\\"the file could not be closed\\\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\\\"nupp:lua.d.nupp#__nuppCloseFile\\\"]=__nuppCloseFile require(\\\"nupp.runtime.managed\\\").install(__nupp,_G);\\n\",\"@nupp-prelude\"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile require(\"nupp.runtime.managed\").install(__nupp,_G);const value = 2ULL\nreturn value\n",
+                "diagnostics": {}
+              }
+            },
+            {
+              "name": "compile:browser-platform.nupp",
+              "ms": 15.720000000001164,
+              "input": {
+                "kind": "compile",
+                "source": "local random = require(\"nupp.random\")\nlocal storage = require(\"nupp.io.storage\")\nlocal time = require(\"nupp.time\")\nlocal digest = require(\"nupp.digest\")\nlocal mac = require(\"nupp.mac\")\nlocal uuid = require(\"nupp.util\")\nlocal system = require(\"nupp.system\")\ntime.sleep(1)\nstorage.set(\"key\", digest.hexDigest(\"sha256\", random.randomBytes(16)))\nprint(storage.get(\"key\"), mac.hexDigest(\"hmac-sha256\", \"key\", \"message\"), uuid.uuid4(), system.availableParallelism())\n",
+                "filename": "browser-platform.nupp",
+                "options": {
+                  "dialect": "lua51",
+                  "strict": true
+                }
+              },
+              "response": {
+                "code": "_G.assert((_G.loadstring or _G.load)(\"local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\\\"math\\\")or{};rawset(__nupp,\\\"math\\\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\\\"closed file\\\"then return end;local ok,reason=handle:close();if not ok then error(reason or \\\"the file could not be closed\\\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\\\"nupp:lua.d.nupp#__nuppCloseFile\\\"]=__nuppCloseFile require(\\\"nupp.runtime.managed\\\").install(__nupp,_G);\\n\",\"@nupp-prelude\"))();local unpack=unpack or table.unpack;local loadstring=loadstring or load;local __nuppProtectedCreate=require(\"nupp.suspension\").create;local function __nuppYieldPack(...) return {n=select(\"#\",...),...} end;local function __nuppProtected(handler,body,...) local thread=__nuppProtectedCreate(function(...) return body(...) end);local input=__nuppYieldPack(...);while true do local out=__nuppYieldPack(coroutine.resume(thread,unpack(input,1,input.n)));if not out[1] then if handler then return false,handler(out[2]) end return false,out[2] end if coroutine.status(thread)==\"dead\" then return unpack(out,1,out.n) end input=__nuppYieldPack(coroutine.yield(unpack(out,2,out.n))) end end;local function pcall(body,...) return __nuppProtected(nil,body,...) end;local function xpcall(body,handler,...) return __nuppProtected(handler,body,...) end;local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile require(\"nupp.runtime.managed\").install(__nupp,_G);local __nuppBitops=require(\"nupp.runtime.bitops\");local random = require ( \"nupp.random\" )\nlocal storage = require ( \"nupp.io.storage\" )\nlocal time = require ( \"nupp.time\" )\nlocal digest = require ( \"nupp.digest\" )\nlocal mac = require ( \"nupp.mac\" )\nlocal uuid = require ( \"nupp.util\" )\nlocal system = require ( \"nupp.system\" )\ntime . sleep ( 1 )\nstorage . set ( \"key\" , digest . hexDigest ( \"sha256\" , random . randomBytes ( 16 ) ) )\nprint ( storage . get ( \"key\" ) , mac . hexDigest ( \"hmac-sha256\" , \"key\" , \"message\" ) , uuid . uuid4 ( ) , system . availableParallelism ( ) )\n",
+                "diagnostics": {}
+              }
+            },
+            {
+              "name": "compile:webgpu-compute.nupp",
+              "ms": 12.429999999998472,
+              "input": {
+                "kind": "compile",
+                "source": "local gpu = require(\"nupp.browser\")\nlocal u32 = nupp.math.u32.wrap\nlocal values: {uint32} = {u32(0), u32(1)}\nlocal result = gpu.xorU32(values, u32(0xa5a5a5a5))\nprint(result[1], result[2])\n",
+                "filename": "webgpu-compute.nupp",
+                "options": {
+                  "dialect": "lua51",
+                  "strict": true
+                }
+              },
+              "response": {
+                "code": "_G.assert((_G.loadstring or _G.load)(\"local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\\\"math\\\")or{};rawset(__nupp,\\\"math\\\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\\\"closed file\\\"then return end;local ok,reason=handle:close();if not ok then error(reason or \\\"the file could not be closed\\\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\\\"nupp:lua.d.nupp#__nuppCloseFile\\\"]=__nuppCloseFile require(\\\"nupp.runtime.managed\\\").install(__nupp,_G);\\n\",\"@nupp-prelude\"))();local unpack=unpack or table.unpack;local loadstring=loadstring or load;local __nuppProtectedCreate=require(\"nupp.suspension\").create;local function __nuppYieldPack(...) return {n=select(\"#\",...),...} end;local function __nuppProtected(handler,body,...) local thread=__nuppProtectedCreate(function(...) return body(...) end);local input=__nuppYieldPack(...);while true do local out=__nuppYieldPack(coroutine.resume(thread,unpack(input,1,input.n)));if not out[1] then if handler then return false,handler(out[2]) end return false,out[2] end if coroutine.status(thread)==\"dead\" then return unpack(out,1,out.n) end input=__nuppYieldPack(coroutine.yield(unpack(out,2,out.n))) end end;local function pcall(body,...) return __nuppProtected(nil,body,...) end;local function xpcall(body,handler,...) return __nuppProtected(handler,body,...) end;local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile require(\"nupp.runtime.managed\").install(__nupp,_G); require(\"nupp.compiler.runtime.math\").install(rawget(__nupp,\"math\"));local __nuppBitops=require(\"nupp.runtime.bitops\");local gpu = require ( \"nupp.browser\" )\nlocal u32 = nupp . math . u32 . wrap\nlocal values = { u32 ( 0 ) , u32 ( 1 ) }\nlocal result = gpu . xorU32 ( values , u32 ( 0xa5a5a5a5 ) )\nprint ( result [ 1 ] , result [ 2 ] )\n",
+                "diagnostics": {}
+              }
+            },
+            {
+              "name": "check:playground.nupp",
+              "ms": 0,
+              "input": {
+                "kind": "check",
+                "source": "return 1",
+                "filename": "playground.nupp",
+                "options": {
+                  "dialect": "lua51"
+                }
+              },
+              "response": {
+                "diagnostics": {}
+              }
+            },
+            {
+              "name": "request:wire",
+              "ms": 0,
+              "response": "{\"diagnostics\":[]}"
+            },
+            {
+              "name": "check:playground.nupp",
+              "ms": 3.400000000001455,
+              "input": {
+                "kind": "check",
+                "source": "local answer: integer = 42\nreturn answer",
+                "filename": "playground.nupp",
+                "options": {
+                  "dialect": "lua51",
+                  "strict": true
+                }
+              },
+              "response": {
+                "diagnostics": {}
+              }
+            },
+            {
+              "name": "compile:playground.nupp",
+              "ms": 3.3840000000000146,
+              "input": {
+                "kind": "compile",
+                "source": "local answer: integer = 42\nreturn answer",
+                "filename": "playground.nupp",
+                "options": {
+                  "dialect": "lua51",
+                  "optimize": true,
+                  "strict": true
+                }
+              },
+              "response": {
+                "code": "_G.assert((_G.loadstring or _G.load)(\"local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\\\"math\\\")or{};rawset(__nupp,\\\"math\\\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\\\"closed file\\\"then return end;local ok,reason=handle:close();if not ok then error(reason or \\\"the file could not be closed\\\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\\\"nupp:lua.d.nupp#__nuppCloseFile\\\"]=__nuppCloseFile require(\\\"nupp.runtime.managed\\\").install(__nupp,_G);\\n\",\"@nupp-prelude\"))();local unpack=unpack or table.unpack;local loadstring=loadstring or load;local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile require(\"nupp.runtime.managed\").install(__nupp,_G);\nreturn 42\n",
+                "diagnostics": {}
+              }
+            },
+            {
+              "name": "hover:wire",
+              "ms": 0,
+              "input": {
+                "offset": 7,
+                "kind": "hover"
+              },
+              "response": {
+                "name": "answer",
+                "signature": "answer: integer",
+                "offset": 7,
+                "length": 6,
+                "found": true
+              }
+            },
+            {
+              "name": "compile:playground.nupp",
+              "ms": 4.555999999998676,
+              "input": {
+                "kind": "compile",
+                "source": "const value = 2ULL\nreturn value",
+                "filename": "playground.nupp",
+                "options": {
+                  "dialect": "luajit"
+                }
+              },
+              "response": {
+                "code": "_G.assert(_G.loadstring(\"local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\\\"math\\\")or{};rawset(__nupp,\\\"math\\\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\\\"closed file\\\"then return end;local ok,reason=handle:close();if not ok then error(reason or \\\"the file could not be closed\\\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\\\"nupp:lua.d.nupp#__nuppCloseFile\\\"]=__nuppCloseFile require(\\\"nupp.runtime.managed\\\").install(__nupp,_G);\\n\",\"@nupp-prelude\"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile require(\"nupp.runtime.managed\").install(__nupp,_G);const value = 2ULL\nreturn value\n",
+                "diagnostics": {}
+              }
+            },
+            {
+              "name": "compile:browser-platform.nupp",
+              "ms": 16.1200000000008,
+              "input": {
+                "kind": "compile",
+                "source": "local random = require(\"nupp.random\")\nlocal storage = require(\"nupp.io.storage\")\nlocal time = require(\"nupp.time\")\nlocal digest = require(\"nupp.digest\")\nlocal mac = require(\"nupp.mac\")\nlocal uuid = require(\"nupp.util\")\nlocal system = require(\"nupp.system\")\ntime.sleep(1)\nstorage.set(\"key\", digest.hexDigest(\"sha256\", random.randomBytes(16)))\nprint(storage.get(\"key\"), mac.hexDigest(\"hmac-sha256\", \"key\", \"message\"), uuid.uuid4(), system.availableParallelism())\n",
+                "filename": "browser-platform.nupp",
+                "options": {
+                  "dialect": "lua51",
+                  "strict": true
+                }
+              },
+              "response": {
+                "code": "_G.assert((_G.loadstring or _G.load)(\"local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\\\"math\\\")or{};rawset(__nupp,\\\"math\\\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\\\"closed file\\\"then return end;local ok,reason=handle:close();if not ok then error(reason or \\\"the file could not be closed\\\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\\\"nupp:lua.d.nupp#__nuppCloseFile\\\"]=__nuppCloseFile require(\\\"nupp.runtime.managed\\\").install(__nupp,_G);\\n\",\"@nupp-prelude\"))();local unpack=unpack or table.unpack;local loadstring=loadstring or load;local __nuppProtectedCreate=require(\"nupp.suspension\").create;local function __nuppYieldPack(...) return {n=select(\"#\",...),...} end;local function __nuppProtected(handler,body,...) local thread=__nuppProtectedCreate(function(...) return body(...) end);local input=__nuppYieldPack(...);while true do local out=__nuppYieldPack(coroutine.resume(thread,unpack(input,1,input.n)));if not out[1] then if handler then return false,handler(out[2]) end return false,out[2] end if coroutine.status(thread)==\"dead\" then return unpack(out,1,out.n) end input=__nuppYieldPack(coroutine.yield(unpack(out,2,out.n))) end end;local function pcall(body,...) return __nuppProtected(nil,body,...) end;local function xpcall(body,handler,...) return __nuppProtected(handler,body,...) end;local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile require(\"nupp.runtime.managed\").install(__nupp,_G);local __nuppBitops=require(\"nupp.runtime.bitops\");local random = require ( \"nupp.random\" )\nlocal storage = require ( \"nupp.io.storage\" )\nlocal time = require ( \"nupp.time\" )\nlocal digest = require ( \"nupp.digest\" )\nlocal mac = require ( \"nupp.mac\" )\nlocal uuid = require ( \"nupp.util\" )\nlocal system = require ( \"nupp.system\" )\ntime . sleep ( 1 )\nstorage . set ( \"key\" , digest . hexDigest ( \"sha256\" , random . randomBytes ( 16 ) ) )\nprint ( storage . get ( \"key\" ) , mac . hexDigest ( \"hmac-sha256\" , \"key\" , \"message\" ) , uuid . uuid4 ( ) , system . availableParallelism ( ) )\n",
+                "diagnostics": {}
+              }
+            },
+            {
+              "name": "compile:webgpu-compute.nupp",
+              "ms": 12.094999999999345,
+              "input": {
+                "kind": "compile",
+                "source": "local gpu = require(\"nupp.browser\")\nlocal u32 = nupp.math.u32.wrap\nlocal values: {uint32} = {u32(0), u32(1)}\nlocal result = gpu.xorU32(values, u32(0xa5a5a5a5))\nprint(result[1], result[2])\n",
+                "filename": "webgpu-compute.nupp",
+                "options": {
+                  "dialect": "lua51",
+                  "strict": true
+                }
+              },
+              "response": {
+                "code": "_G.assert((_G.loadstring or _G.load)(\"local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\\\"math\\\")or{};rawset(__nupp,\\\"math\\\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\\\"closed file\\\"then return end;local ok,reason=handle:close();if not ok then error(reason or \\\"the file could not be closed\\\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\\\"nupp:lua.d.nupp#__nuppCloseFile\\\"]=__nuppCloseFile require(\\\"nupp.runtime.managed\\\").install(__nupp,_G);\\n\",\"@nupp-prelude\"))();local unpack=unpack or table.unpack;local loadstring=loadstring or load;local __nuppProtectedCreate=require(\"nupp.suspension\").create;local function __nuppYieldPack(...) return {n=select(\"#\",...),...} end;local function __nuppProtected(handler,body,...) local thread=__nuppProtectedCreate(function(...) return body(...) end);local input=__nuppYieldPack(...);while true do local out=__nuppYieldPack(coroutine.resume(thread,unpack(input,1,input.n)));if not out[1] then if handler then return false,handler(out[2]) end return false,out[2] end if coroutine.status(thread)==\"dead\" then return unpack(out,1,out.n) end input=__nuppYieldPack(coroutine.yield(unpack(out,2,out.n))) end end;local function pcall(body,...) return __nuppProtected(nil,body,...) end;local function xpcall(body,handler,...) return __nuppProtected(handler,body,...) end;local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile require(\"nupp.runtime.managed\").install(__nupp,_G); require(\"nupp.compiler.runtime.math\").install(rawget(__nupp,\"math\"));local __nuppBitops=require(\"nupp.runtime.bitops\");local gpu = require ( \"nupp.browser\" )\nlocal u32 = nupp . math . u32 . wrap\nlocal values = { u32 ( 0 ) , u32 ( 1 ) }\nlocal result = gpu . xorU32 ( values , u32 ( 0xa5a5a5a5 ) )\nprint ( result [ 1 ] , result [ 2 ] )\n",
+                "diagnostics": {}
+              }
+            },
+            {
+              "name": "check:playground.nupp",
+              "ms": 3.25,
+              "input": {
+                "kind": "check",
+                "source": "return 1",
+                "filename": "playground.nupp",
+                "options": {
+                  "dialect": "lua51"
+                }
+              },
+              "response": {
+                "diagnostics": {}
+              }
+            },
+            {
+              "name": "request:wire",
+              "ms": 3.25,
+              "response": "{\"diagnostics\":[]}"
+            }
+          ],
+          "samples": {},
+          "states": {},
+          "nativeBit": true,
+          "phases": {},
+          "totalMs": 9648.385,
+          "loadMs": 239.82999999999993,
+          "jitEnabled": false,
+          "rounds": [
+            9204.465,
+            104.0049999999992,
+            100.08500000000095
+          ],
+          "hashKnownAnswers": true,
+          "luaHeapKiB": 28519.888671875,
+          "guestProcess": "Name:\tluajit\nUmask:\t0022\nState:\tR (running)\nTgid:\t37\nNgid:\t0\nPid:\t37\nPPid:\t1\nTracerPid:\t0\nUid:\t0\t0\t0\t0\nGid:\t0\t0\t0\t0\nFDSize:\t32\nGroups:\t \nNStgid:\t37\nNSpid:\t37\nNSpgid:\t0\nNSsid:\t0\nKthread:\t0\nVmPeak:\t   70800 kB\nVmSize:\t   70800 kB\nVmLck:\t       0 kB\nVmPin:\t       0 kB\nVmHWM:\t   62216 kB\nVmRSS:\t   62216 kB\nRssAnon:\t   61016 kB\nRssFile:\t    1200 kB\nRssShmem:\t       0 kB\nVmData:\t   60984 kB\nVmStk:\t     132 kB\nVmExe:\t     476 kB\nVmLib:\t     496 kB\nVmPTE:\t      80 kB\nVmSwap:\t       0 kB\nCoreDumping:\t0\nTHP_enabled:\t0\nuntag_mask:\t0xffffffff\nThreads:\t1\nSigQ:\t0/745\nSigPnd:\t0000000000000000\nShdPnd:\t0000000000000000\nSigBlk:\t0000000000000000\nSigIgn:\t0000000000000000\nSigCgt:\t0000000000000002\nCapInh:\t0000000000000000\nCapPrm:\t000001ffffffffff\nCapEff:\t000001ffffffffff\nCapBnd:\t000001ffffffffff\nCapAmb:\t0000000000000000\nNoNewPrivs:\t0\nSpeculation_Store_Bypass:\tvulnerable\nSpeculationIndirectBranch:\talways enabled\nCpus_allowed:\t1\nCpus_allowed_list:\t0\nvoluntary_ctxt_switches:\t1\nnonvoluntary_ctxt_switches:\t94\n"
+        },
+        "metrics": {
+          "frames": 0,
+          "effects": 0,
+          "effectBytes": 0,
+          "responseBytes": 0,
+          "copiedIn": 0,
+          "copiedOut": 0,
+          "hostEffectMs": [],
+          "guestIntervalsMs": [],
+          "bootMs": 1093.9150000810623,
+          "wasmMemoryBytes": 147521536,
+          "totalMs": 10860.005000114441
+        }
+      },
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+      "isolated": true,
+      "browserErrors": [],
+      "responsesMatchNativeAndLua51": true
+    }
+  },
+  {
+    "pair": 0,
+    "backend": "lua51",
+    "result": {
+      "ok": true,
+      "backend": "existing-lua51-wasm",
+      "boot": {
+        "importMs": 3.049999952316284,
+        "instantiateMs": 2.8100000619888306,
+        "fetchCompilerMs": 6.184999942779541,
+        "bootCompilerMs": 61.44000005722046,
+        "totalMs": 73.48500001430511
+      },
+      "rounds": [
+        [
+          {
+            "name": "check:playground.nupp",
+            "ms": 133.1450001001358
+          },
+          {
+            "name": "compile:playground.nupp",
+            "ms": 0.7100000381469727
+          },
+          {
+            "name": "hover:wire",
+            "ms": 0.034999966621398926
+          },
+          {
+            "name": "compile:playground.nupp",
+            "ms": 104.2299998998642
+          },
+          {
+            "name": "compile:browser-platform.nupp",
+            "ms": 23317.62000000477
+          },
+          {
+            "name": "compile:webgpu-compute.nupp",
+            "ms": 4363.069999933243
+          },
+          {
+            "name": "check:playground.nupp",
+            "ms": 0.3400000333786011
+          }
+        ],
+        [
+          {
+            "name": "check:playground.nupp",
+            "ms": 0.35500001907348633
+          },
+          {
+            "name": "compile:playground.nupp",
+            "ms": 0.6150000095367432
+          },
+          {
+            "name": "hover:wire",
+            "ms": 0.034999966621398926
+          },
+          {
+            "name": "compile:playground.nupp",
+            "ms": 0.4249999523162842
+          },
+          {
+            "name": "compile:browser-platform.nupp",
+            "ms": 2.2649999856948853
+          },
+          {
+            "name": "compile:webgpu-compute.nupp",
+            "ms": 1.465000033378601
+          },
+          {
+            "name": "check:playground.nupp",
+            "ms": 0.25
+          }
+        ],
+        [
+          {
+            "name": "check:playground.nupp",
+            "ms": 0.30500006675720215
+          },
+          {
+            "name": "compile:playground.nupp",
+            "ms": 0.6649999618530273
+          },
+          {
+            "name": "hover:wire",
+            "ms": 0.02499997615814209
+          },
+          {
+            "name": "compile:playground.nupp",
+            "ms": 0.43000006675720215
+          },
+          {
+            "name": "compile:browser-platform.nupp",
+            "ms": 2.2350000143051147
+          },
+          {
+            "name": "compile:webgpu-compute.nupp",
+            "ms": 1.350000023841858
+          },
+          {
+            "name": "check:playground.nupp",
+            "ms": 0.21499991416931152
+          }
+        ]
+      ],
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+      "isolated": true,
+      "browserErrors": []
+    }
+  },
+  {
+    "pair": 1,
+    "backend": "lua51",
+    "result": {
+      "ok": true,
+      "backend": "existing-lua51-wasm",
+      "boot": {
+        "importMs": 2.8799999952316284,
+        "instantiateMs": 2.490000009536743,
+        "fetchCompilerMs": 7.590000033378601,
+        "bootCompilerMs": 60.68999993801117,
+        "totalMs": 73.64999997615814
+      },
+      "rounds": [
+        [
+          {
+            "name": "check:playground.nupp",
+            "ms": 133.41499996185303
+          },
+          {
+            "name": "compile:playground.nupp",
+            "ms": 0.7300000190734863
+          },
+          {
+            "name": "hover:wire",
+            "ms": 0.034999966621398926
+          },
+          {
+            "name": "compile:playground.nupp",
+            "ms": 106.32000005245209
+          },
+          {
+            "name": "compile:browser-platform.nupp",
+            "ms": 23499.180000066757
+          },
+          {
+            "name": "compile:webgpu-compute.nupp",
+            "ms": 4381.800000071526
+          },
+          {
+            "name": "check:playground.nupp",
+            "ms": 0.3700000047683716
+          }
+        ],
+        [
+          {
+            "name": "check:playground.nupp",
+            "ms": 0.43000006675720215
+          },
+          {
+            "name": "compile:playground.nupp",
+            "ms": 0.6699999570846558
+          },
+          {
+            "name": "hover:wire",
+            "ms": 0.040000081062316895
+          },
+          {
+            "name": "compile:playground.nupp",
+            "ms": 0.4299999475479126
+          },
+          {
+            "name": "compile:browser-platform.nupp",
+            "ms": 2.2949999570846558
+          },
+          {
+            "name": "compile:webgpu-compute.nupp",
+            "ms": 1.5399999618530273
+          },
+          {
+            "name": "check:playground.nupp",
+            "ms": 0.28999996185302734
+          }
+        ],
+        [
+          {
+            "name": "check:playground.nupp",
+            "ms": 0.33000004291534424
+          },
+          {
+            "name": "compile:playground.nupp",
+            "ms": 0.5700000524520874
+          },
+          {
+            "name": "hover:wire",
+            "ms": 0.029999971389770508
+          },
+          {
+            "name": "compile:playground.nupp",
+            "ms": 0.3999999761581421
+          },
+          {
+            "name": "compile:browser-platform.nupp",
+            "ms": 2.159999966621399
+          },
+          {
+            "name": "compile:webgpu-compute.nupp",
+            "ms": 1.524999976158142
+          },
+          {
+            "name": "check:playground.nupp",
+            "ms": 0.3049999475479126
+          }
+        ]
+      ],
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+      "isolated": true,
+      "browserErrors": []
+    }
+  },
+  {
+    "pair": 1,
+    "backend": "v86-interpreter",
+    "result": {
+      "ok": true,
+      "mode": "compiler",
+      "compiler": {
+        "value": {
+          "guestProcess": "Name:\tluajit\nUmask:\t0022\nState:\tR (running)\nTgid:\t37\nNgid:\t0\nPid:\t37\nPPid:\t1\nTracerPid:\t0\nUid:\t0\t0\t0\t0\nGid:\t0\t0\t0\t0\nFDSize:\t32\nGroups:\t \nNStgid:\t37\nNSpid:\t37\nNSpgid:\t0\nNSsid:\t0\nKthread:\t0\nVmPeak:\t   70292 kB\nVmSize:\t   70292 kB\nVmLck:\t       0 kB\nVmPin:\t       0 kB\nVmHWM:\t   61676 kB\nVmRSS:\t   61676 kB\nRssAnon:\t   60508 kB\nRssFile:\t    1168 kB\nRssShmem:\t       0 kB\nVmData:\t   60476 kB\nVmStk:\t     132 kB\nVmExe:\t     476 kB\nVmLib:\t     496 kB\nVmPTE:\t      80 kB\nVmSwap:\t       0 kB\nCoreDumping:\t0\nTHP_enabled:\t0\nuntag_mask:\t0xffffffff\nThreads:\t1\nSigQ:\t0/745\nSigPnd:\t0000000000000000\nShdPnd:\t0000000000000000\nSigBlk:\t0000000000000000\nSigIgn:\t0000000000000000\nSigCgt:\t0000000000000002\nCapInh:\t0000000000000000\nCapPrm:\t000001ffffffffff\nCapEff:\t000001ffffffffff\nCapBnd:\t000001ffffffffff\nCapAmb:\t0000000000000000\nNoNewPrivs:\t0\nSpeculation_Store_Bypass:\tvulnerable\nSpeculationIndirectBranch:\talways enabled\nCpus_allowed:\t1\nCpus_allowed_list:\t0\nvoluntary_ctxt_switches:\t1\nnonvoluntary_ctxt_switches:\t94\n",
+          "requests": [
+            {
+              "name": "check:playground.nupp",
+              "input": {
+                "options": {
+                  "dialect": "lua51",
+                  "strict": true
+                },
+                "source": "local answer: integer = 42\nreturn answer",
+                "kind": "check",
+                "filename": "playground.nupp"
+              },
+              "ms": 1128.191,
+              "response": {
+                "diagnostics": {}
+              }
+            },
+            {
+              "name": "compile:playground.nupp",
+              "input": {
+                "options": {
+                  "dialect": "lua51",
+                  "optimize": true,
+                  "strict": true
+                },
+                "source": "local answer: integer = 42\nreturn answer",
+                "kind": "compile",
+                "filename": "playground.nupp"
+              },
+              "ms": 7.608999999999924,
+              "response": {
+                "diagnostics": {},
+                "code": "_G.assert((_G.loadstring or _G.load)(\"local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\\\"math\\\")or{};rawset(__nupp,\\\"math\\\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\\\"closed file\\\"then return end;local ok,reason=handle:close();if not ok then error(reason or \\\"the file could not be closed\\\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\\\"nupp:lua.d.nupp#__nuppCloseFile\\\"]=__nuppCloseFile require(\\\"nupp.runtime.managed\\\").install(__nupp,_G);\\n\",\"@nupp-prelude\"))();local unpack=unpack or table.unpack;local loadstring=loadstring or load;local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile require(\"nupp.runtime.managed\").install(__nupp,_G);\nreturn 42\n"
+              }
+            },
+            {
+              "name": "hover:wire",
+              "input": {
+                "kind": "hover",
+                "offset": 7
+              },
+              "ms": 0,
+              "response": {
+                "signature": "answer: integer",
+                "found": true,
+                "name": "answer",
+                "offset": 7,
+                "length": 6
+              }
+            },
+            {
+              "name": "compile:playground.nupp",
+              "input": {
+                "options": {
+                  "dialect": "luajit"
+                },
+                "source": "const value = 2ULL\nreturn value",
+                "kind": "compile",
+                "filename": "playground.nupp"
+              },
+              "ms": 1040.9360000000001,
+              "response": {
+                "diagnostics": {},
+                "code": "_G.assert(_G.loadstring(\"local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\\\"math\\\")or{};rawset(__nupp,\\\"math\\\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\\\"closed file\\\"then return end;local ok,reason=handle:close();if not ok then error(reason or \\\"the file could not be closed\\\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\\\"nupp:lua.d.nupp#__nuppCloseFile\\\"]=__nuppCloseFile require(\\\"nupp.runtime.managed\\\").install(__nupp,_G);\\n\",\"@nupp-prelude\"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile require(\"nupp.runtime.managed\").install(__nupp,_G);const value = 2ULL\nreturn value\n"
+              }
+            },
+            {
+              "name": "compile:browser-platform.nupp",
+              "input": {
+                "options": {
+                  "dialect": "lua51",
+                  "strict": true
+                },
+                "source": "local random = require(\"nupp.random\")\nlocal storage = require(\"nupp.io.storage\")\nlocal time = require(\"nupp.time\")\nlocal digest = require(\"nupp.digest\")\nlocal mac = require(\"nupp.mac\")\nlocal uuid = require(\"nupp.util\")\nlocal system = require(\"nupp.system\")\ntime.sleep(1)\nstorage.set(\"key\", digest.hexDigest(\"sha256\", random.randomBytes(16)))\nprint(storage.get(\"key\"), mac.hexDigest(\"hmac-sha256\", \"key\", \"message\"), uuid.uuid4(), system.availableParallelism())\n",
+                "kind": "compile",
+                "filename": "browser-platform.nupp"
+              },
+              "ms": 6411.509,
+              "response": {
+                "diagnostics": {},
+                "code": "_G.assert((_G.loadstring or _G.load)(\"local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\\\"math\\\")or{};rawset(__nupp,\\\"math\\\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\\\"closed file\\\"then return end;local ok,reason=handle:close();if not ok then error(reason or \\\"the file could not be closed\\\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\\\"nupp:lua.d.nupp#__nuppCloseFile\\\"]=__nuppCloseFile require(\\\"nupp.runtime.managed\\\").install(__nupp,_G);\\n\",\"@nupp-prelude\"))();local unpack=unpack or table.unpack;local loadstring=loadstring or load;local __nuppProtectedCreate=require(\"nupp.suspension\").create;local function __nuppYieldPack(...) return {n=select(\"#\",...),...} end;local function __nuppProtected(handler,body,...) local thread=__nuppProtectedCreate(function(...) return body(...) end);local input=__nuppYieldPack(...);while true do local out=__nuppYieldPack(coroutine.resume(thread,unpack(input,1,input.n)));if not out[1] then if handler then return false,handler(out[2]) end return false,out[2] end if coroutine.status(thread)==\"dead\" then return unpack(out,1,out.n) end input=__nuppYieldPack(coroutine.yield(unpack(out,2,out.n))) end end;local function pcall(body,...) return __nuppProtected(nil,body,...) end;local function xpcall(body,handler,...) return __nuppProtected(handler,body,...) end;local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile require(\"nupp.runtime.managed\").install(__nupp,_G);local __nuppBitops=require(\"nupp.runtime.bitops\");local random = require ( \"nupp.random\" )\nlocal storage = require ( \"nupp.io.storage\" )\nlocal time = require ( \"nupp.time\" )\nlocal digest = require ( \"nupp.digest\" )\nlocal mac = require ( \"nupp.mac\" )\nlocal uuid = require ( \"nupp.util\" )\nlocal system = require ( \"nupp.system\" )\ntime . sleep ( 1 )\nstorage . set ( \"key\" , digest . hexDigest ( \"sha256\" , random . randomBytes ( 16 ) ) )\nprint ( storage . get ( \"key\" ) , mac . hexDigest ( \"hmac-sha256\" , \"key\" , \"message\" ) , uuid . uuid4 ( ) , system . availableParallelism ( ) )\n"
+              }
+            },
+            {
+              "name": "compile:webgpu-compute.nupp",
+              "input": {
+                "options": {
+                  "dialect": "lua51",
+                  "strict": true
+                },
+                "source": "local gpu = require(\"nupp.browser\")\nlocal u32 = nupp.math.u32.wrap\nlocal values: {uint32} = {u32(0), u32(1)}\nlocal result = gpu.xorU32(values, u32(0xa5a5a5a5))\nprint(result[1], result[2])\n",
+                "kind": "compile",
+                "filename": "webgpu-compute.nupp"
+              },
+              "ms": 655.9609999999993,
+              "response": {
+                "diagnostics": {},
+                "code": "_G.assert((_G.loadstring or _G.load)(\"local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\\\"math\\\")or{};rawset(__nupp,\\\"math\\\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\\\"closed file\\\"then return end;local ok,reason=handle:close();if not ok then error(reason or \\\"the file could not be closed\\\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\\\"nupp:lua.d.nupp#__nuppCloseFile\\\"]=__nuppCloseFile require(\\\"nupp.runtime.managed\\\").install(__nupp,_G);\\n\",\"@nupp-prelude\"))();local unpack=unpack or table.unpack;local loadstring=loadstring or load;local __nuppProtectedCreate=require(\"nupp.suspension\").create;local function __nuppYieldPack(...) return {n=select(\"#\",...),...} end;local function __nuppProtected(handler,body,...) local thread=__nuppProtectedCreate(function(...) return body(...) end);local input=__nuppYieldPack(...);while true do local out=__nuppYieldPack(coroutine.resume(thread,unpack(input,1,input.n)));if not out[1] then if handler then return false,handler(out[2]) end return false,out[2] end if coroutine.status(thread)==\"dead\" then return unpack(out,1,out.n) end input=__nuppYieldPack(coroutine.yield(unpack(out,2,out.n))) end end;local function pcall(body,...) return __nuppProtected(nil,body,...) end;local function xpcall(body,handler,...) return __nuppProtected(handler,body,...) end;local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile require(\"nupp.runtime.managed\").install(__nupp,_G); require(\"nupp.compiler.runtime.math\").install(rawget(__nupp,\"math\"));local __nuppBitops=require(\"nupp.runtime.bitops\");local gpu = require ( \"nupp.browser\" )\nlocal u32 = nupp . math . u32 . wrap\nlocal values = { u32 ( 0 ) , u32 ( 1 ) }\nlocal result = gpu . xorU32 ( values , u32 ( 0xa5a5a5a5 ) )\nprint ( result [ 1 ] , result [ 2 ] )\n"
+              }
+            },
+            {
+              "name": "check:playground.nupp",
+              "input": {
+                "options": {
+                  "dialect": "lua51"
+                },
+                "source": "return 1",
+                "kind": "check",
+                "filename": "playground.nupp"
+              },
+              "ms": 0,
+              "response": {
+                "diagnostics": {}
+              }
+            },
+            {
+              "name": "request:wire",
+              "ms": 0,
+              "response": "{\"diagnostics\":[]}"
+            },
+            {
+              "name": "check:playground.nupp",
+              "input": {
+                "options": {
+                  "dialect": "lua51",
+                  "strict": true
+                },
+                "source": "local answer: integer = 42\nreturn answer",
+                "kind": "check",
+                "filename": "playground.nupp"
+              },
+              "ms": 7.669000000001688,
+              "response": {
+                "diagnostics": {}
+              }
+            },
+            {
+              "name": "compile:playground.nupp",
+              "input": {
+                "options": {
+                  "dialect": "lua51",
+                  "optimize": true,
+                  "strict": true
+                },
+                "source": "local answer: integer = 42\nreturn answer",
+                "kind": "compile",
+                "filename": "playground.nupp"
+              },
+              "ms": 4.335999999999331,
+              "response": {
+                "diagnostics": {},
+                "code": "_G.assert((_G.loadstring or _G.load)(\"local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\\\"math\\\")or{};rawset(__nupp,\\\"math\\\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\\\"closed file\\\"then return end;local ok,reason=handle:close();if not ok then error(reason or \\\"the file could not be closed\\\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\\\"nupp:lua.d.nupp#__nuppCloseFile\\\"]=__nuppCloseFile require(\\\"nupp.runtime.managed\\\").install(__nupp,_G);\\n\",\"@nupp-prelude\"))();local unpack=unpack or table.unpack;local loadstring=loadstring or load;local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile require(\"nupp.runtime.managed\").install(__nupp,_G);\nreturn 42\n"
+              }
+            },
+            {
+              "name": "hover:wire",
+              "input": {
+                "kind": "hover",
+                "offset": 7
+              },
+              "ms": 0,
+              "response": {
+                "signature": "answer: integer",
+                "found": true,
+                "name": "answer",
+                "offset": 7,
+                "length": 6
+              }
+            },
+            {
+              "name": "compile:playground.nupp",
+              "input": {
+                "options": {
+                  "dialect": "luajit"
+                },
+                "source": "const value = 2ULL\nreturn value",
+                "kind": "compile",
+                "filename": "playground.nupp"
+              },
+              "ms": 0,
+              "response": {
+                "diagnostics": {},
+                "code": "_G.assert(_G.loadstring(\"local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\\\"math\\\")or{};rawset(__nupp,\\\"math\\\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\\\"closed file\\\"then return end;local ok,reason=handle:close();if not ok then error(reason or \\\"the file could not be closed\\\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\\\"nupp:lua.d.nupp#__nuppCloseFile\\\"]=__nuppCloseFile require(\\\"nupp.runtime.managed\\\").install(__nupp,_G);\\n\",\"@nupp-prelude\"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile require(\"nupp.runtime.managed\").install(__nupp,_G);const value = 2ULL\nreturn value\n"
+              }
+            },
+            {
+              "name": "compile:browser-platform.nupp",
+              "input": {
+                "options": {
+                  "dialect": "lua51",
+                  "strict": true
+                },
+                "source": "local random = require(\"nupp.random\")\nlocal storage = require(\"nupp.io.storage\")\nlocal time = require(\"nupp.time\")\nlocal digest = require(\"nupp.digest\")\nlocal mac = require(\"nupp.mac\")\nlocal uuid = require(\"nupp.util\")\nlocal system = require(\"nupp.system\")\ntime.sleep(1)\nstorage.set(\"key\", digest.hexDigest(\"sha256\", random.randomBytes(16)))\nprint(storage.get(\"key\"), mac.hexDigest(\"hmac-sha256\", \"key\", \"message\"), uuid.uuid4(), system.availableParallelism())\n",
+                "kind": "compile",
+                "filename": "browser-platform.nupp"
+              },
+              "ms": 17.28599999999824,
+              "response": {
+                "diagnostics": {},
+                "code": "_G.assert((_G.loadstring or _G.load)(\"local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\\\"math\\\")or{};rawset(__nupp,\\\"math\\\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\\\"closed file\\\"then return end;local ok,reason=handle:close();if not ok then error(reason or \\\"the file could not be closed\\\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\\\"nupp:lua.d.nupp#__nuppCloseFile\\\"]=__nuppCloseFile require(\\\"nupp.runtime.managed\\\").install(__nupp,_G);\\n\",\"@nupp-prelude\"))();local unpack=unpack or table.unpack;local loadstring=loadstring or load;local __nuppProtectedCreate=require(\"nupp.suspension\").create;local function __nuppYieldPack(...) return {n=select(\"#\",...),...} end;local function __nuppProtected(handler,body,...) local thread=__nuppProtectedCreate(function(...) return body(...) end);local input=__nuppYieldPack(...);while true do local out=__nuppYieldPack(coroutine.resume(thread,unpack(input,1,input.n)));if not out[1] then if handler then return false,handler(out[2]) end return false,out[2] end if coroutine.status(thread)==\"dead\" then return unpack(out,1,out.n) end input=__nuppYieldPack(coroutine.yield(unpack(out,2,out.n))) end end;local function pcall(body,...) return __nuppProtected(nil,body,...) end;local function xpcall(body,handler,...) return __nuppProtected(handler,body,...) end;local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile require(\"nupp.runtime.managed\").install(__nupp,_G);local __nuppBitops=require(\"nupp.runtime.bitops\");local random = require ( \"nupp.random\" )\nlocal storage = require ( \"nupp.io.storage\" )\nlocal time = require ( \"nupp.time\" )\nlocal digest = require ( \"nupp.digest\" )\nlocal mac = require ( \"nupp.mac\" )\nlocal uuid = require ( \"nupp.util\" )\nlocal system = require ( \"nupp.system\" )\ntime . sleep ( 1 )\nstorage . set ( \"key\" , digest . hexDigest ( \"sha256\" , random . randomBytes ( 16 ) ) )\nprint ( storage . get ( \"key\" ) , mac . hexDigest ( \"hmac-sha256\" , \"key\" , \"message\" ) , uuid . uuid4 ( ) , system . availableParallelism ( ) )\n"
+              }
+            },
+            {
+              "name": "compile:webgpu-compute.nupp",
+              "input": {
+                "options": {
+                  "dialect": "lua51",
+                  "strict": true
+                },
+                "source": "local gpu = require(\"nupp.browser\")\nlocal u32 = nupp.math.u32.wrap\nlocal values: {uint32} = {u32(0), u32(1)}\nlocal result = gpu.xorU32(values, u32(0xa5a5a5a5))\nprint(result[1], result[2])\n",
+                "kind": "compile",
+                "filename": "webgpu-compute.nupp"
+              },
+              "ms": 15.104000000001179,
+              "response": {
+                "diagnostics": {},
+                "code": "_G.assert((_G.loadstring or _G.load)(\"local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\\\"math\\\")or{};rawset(__nupp,\\\"math\\\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\\\"closed file\\\"then return end;local ok,reason=handle:close();if not ok then error(reason or \\\"the file could not be closed\\\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\\\"nupp:lua.d.nupp#__nuppCloseFile\\\"]=__nuppCloseFile require(\\\"nupp.runtime.managed\\\").install(__nupp,_G);\\n\",\"@nupp-prelude\"))();local unpack=unpack or table.unpack;local loadstring=loadstring or load;local __nuppProtectedCreate=require(\"nupp.suspension\").create;local function __nuppYieldPack(...) return {n=select(\"#\",...),...} end;local function __nuppProtected(handler,body,...) local thread=__nuppProtectedCreate(function(...) return body(...) end);local input=__nuppYieldPack(...);while true do local out=__nuppYieldPack(coroutine.resume(thread,unpack(input,1,input.n)));if not out[1] then if handler then return false,handler(out[2]) end return false,out[2] end if coroutine.status(thread)==\"dead\" then return unpack(out,1,out.n) end input=__nuppYieldPack(coroutine.yield(unpack(out,2,out.n))) end end;local function pcall(body,...) return __nuppProtected(nil,body,...) end;local function xpcall(body,handler,...) return __nuppProtected(handler,body,...) end;local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile require(\"nupp.runtime.managed\").install(__nupp,_G); require(\"nupp.compiler.runtime.math\").install(rawget(__nupp,\"math\"));local __nuppBitops=require(\"nupp.runtime.bitops\");local gpu = require ( \"nupp.browser\" )\nlocal u32 = nupp . math . u32 . wrap\nlocal values = { u32 ( 0 ) , u32 ( 1 ) }\nlocal result = gpu . xorU32 ( values , u32 ( 0xa5a5a5a5 ) )\nprint ( result [ 1 ] , result [ 2 ] )\n"
+              }
+            },
+            {
+              "name": "check:playground.nupp",
+              "input": {
+                "options": {
+                  "dialect": "lua51"
+                },
+                "source": "return 1",
+                "kind": "check",
+                "filename": "playground.nupp"
+              },
+              "ms": 0,
+              "response": {
+                "diagnostics": {}
+              }
+            },
+            {
+              "name": "request:wire",
+              "ms": 0,
+              "response": "{\"diagnostics\":[]}"
+            },
+            {
+              "name": "check:playground.nupp",
+              "input": {
+                "options": {
+                  "dialect": "lua51",
+                  "strict": true
+                },
+                "source": "local answer: integer = 42\nreturn answer",
+                "kind": "check",
+                "filename": "playground.nupp"
+              },
+              "ms": 0,
+              "response": {
+                "diagnostics": {}
+              }
+            },
+            {
+              "name": "compile:playground.nupp",
+              "input": {
+                "options": {
+                  "dialect": "lua51",
+                  "optimize": true,
+                  "strict": true
+                },
+                "source": "local answer: integer = 42\nreturn answer",
+                "kind": "compile",
+                "filename": "playground.nupp"
+              },
+              "ms": 7.375,
+              "response": {
+                "diagnostics": {},
+                "code": "_G.assert((_G.loadstring or _G.load)(\"local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\\\"math\\\")or{};rawset(__nupp,\\\"math\\\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\\\"closed file\\\"then return end;local ok,reason=handle:close();if not ok then error(reason or \\\"the file could not be closed\\\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\\\"nupp:lua.d.nupp#__nuppCloseFile\\\"]=__nuppCloseFile require(\\\"nupp.runtime.managed\\\").install(__nupp,_G);\\n\",\"@nupp-prelude\"))();local unpack=unpack or table.unpack;local loadstring=loadstring or load;local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile require(\"nupp.runtime.managed\").install(__nupp,_G);\nreturn 42\n"
+              }
+            },
+            {
+              "name": "hover:wire",
+              "input": {
+                "kind": "hover",
+                "offset": 7
+              },
+              "ms": 0,
+              "response": {
+                "signature": "answer: integer",
+                "found": true,
+                "name": "answer",
+                "offset": 7,
+                "length": 6
+              }
+            },
+            {
+              "name": "compile:playground.nupp",
+              "input": {
+                "options": {
+                  "dialect": "luajit"
+                },
+                "source": "const value = 2ULL\nreturn value",
+                "kind": "compile",
+                "filename": "playground.nupp"
+              },
+              "ms": 3.9390000000003056,
+              "response": {
+                "diagnostics": {},
+                "code": "_G.assert(_G.loadstring(\"local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\\\"math\\\")or{};rawset(__nupp,\\\"math\\\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\\\"closed file\\\"then return end;local ok,reason=handle:close();if not ok then error(reason or \\\"the file could not be closed\\\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\\\"nupp:lua.d.nupp#__nuppCloseFile\\\"]=__nuppCloseFile require(\\\"nupp.runtime.managed\\\").install(__nupp,_G);\\n\",\"@nupp-prelude\"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile require(\"nupp.runtime.managed\").install(__nupp,_G);const value = 2ULL\nreturn value\n"
+              }
+            },
+            {
+              "name": "compile:browser-platform.nupp",
+              "input": {
+                "options": {
+                  "dialect": "lua51",
+                  "strict": true
+                },
+                "source": "local random = require(\"nupp.random\")\nlocal storage = require(\"nupp.io.storage\")\nlocal time = require(\"nupp.time\")\nlocal digest = require(\"nupp.digest\")\nlocal mac = require(\"nupp.mac\")\nlocal uuid = require(\"nupp.util\")\nlocal system = require(\"nupp.system\")\ntime.sleep(1)\nstorage.set(\"key\", digest.hexDigest(\"sha256\", random.randomBytes(16)))\nprint(storage.get(\"key\"), mac.hexDigest(\"hmac-sha256\", \"key\", \"message\"), uuid.uuid4(), system.availableParallelism())\n",
+                "kind": "compile",
+                "filename": "browser-platform.nupp"
+              },
+              "ms": 16.034999999999854,
+              "response": {
+                "diagnostics": {},
+                "code": "_G.assert((_G.loadstring or _G.load)(\"local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\\\"math\\\")or{};rawset(__nupp,\\\"math\\\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\\\"closed file\\\"then return end;local ok,reason=handle:close();if not ok then error(reason or \\\"the file could not be closed\\\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\\\"nupp:lua.d.nupp#__nuppCloseFile\\\"]=__nuppCloseFile require(\\\"nupp.runtime.managed\\\").install(__nupp,_G);\\n\",\"@nupp-prelude\"))();local unpack=unpack or table.unpack;local loadstring=loadstring or load;local __nuppProtectedCreate=require(\"nupp.suspension\").create;local function __nuppYieldPack(...) return {n=select(\"#\",...),...} end;local function __nuppProtected(handler,body,...) local thread=__nuppProtectedCreate(function(...) return body(...) end);local input=__nuppYieldPack(...);while true do local out=__nuppYieldPack(coroutine.resume(thread,unpack(input,1,input.n)));if not out[1] then if handler then return false,handler(out[2]) end return false,out[2] end if coroutine.status(thread)==\"dead\" then return unpack(out,1,out.n) end input=__nuppYieldPack(coroutine.yield(unpack(out,2,out.n))) end end;local function pcall(body,...) return __nuppProtected(nil,body,...) end;local function xpcall(body,handler,...) return __nuppProtected(handler,body,...) end;local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile require(\"nupp.runtime.managed\").install(__nupp,_G);local __nuppBitops=require(\"nupp.runtime.bitops\");local random = require ( \"nupp.random\" )\nlocal storage = require ( \"nupp.io.storage\" )\nlocal time = require ( \"nupp.time\" )\nlocal digest = require ( \"nupp.digest\" )\nlocal mac = require ( \"nupp.mac\" )\nlocal uuid = require ( \"nupp.util\" )\nlocal system = require ( \"nupp.system\" )\ntime . sleep ( 1 )\nstorage . set ( \"key\" , digest . hexDigest ( \"sha256\" , random . randomBytes ( 16 ) ) )\nprint ( storage . get ( \"key\" ) , mac . hexDigest ( \"hmac-sha256\" , \"key\" , \"message\" ) , uuid . uuid4 ( ) , system . availableParallelism ( ) )\n"
+              }
+            },
+            {
+              "name": "compile:webgpu-compute.nupp",
+              "input": {
+                "options": {
+                  "dialect": "lua51",
+                  "strict": true
+                },
+                "source": "local gpu = require(\"nupp.browser\")\nlocal u32 = nupp.math.u32.wrap\nlocal values: {uint32} = {u32(0), u32(1)}\nlocal result = gpu.xorU32(values, u32(0xa5a5a5a5))\nprint(result[1], result[2])\n",
+                "kind": "compile",
+                "filename": "webgpu-compute.nupp"
+              },
+              "ms": 8.219999999999345,
+              "response": {
+                "diagnostics": {},
+                "code": "_G.assert((_G.loadstring or _G.load)(\"local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\\\"math\\\")or{};rawset(__nupp,\\\"math\\\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\\\"closed file\\\"then return end;local ok,reason=handle:close();if not ok then error(reason or \\\"the file could not be closed\\\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\\\"nupp:lua.d.nupp#__nuppCloseFile\\\"]=__nuppCloseFile require(\\\"nupp.runtime.managed\\\").install(__nupp,_G);\\n\",\"@nupp-prelude\"))();local unpack=unpack or table.unpack;local loadstring=loadstring or load;local __nuppProtectedCreate=require(\"nupp.suspension\").create;local function __nuppYieldPack(...) return {n=select(\"#\",...),...} end;local function __nuppProtected(handler,body,...) local thread=__nuppProtectedCreate(function(...) return body(...) end);local input=__nuppYieldPack(...);while true do local out=__nuppYieldPack(coroutine.resume(thread,unpack(input,1,input.n)));if not out[1] then if handler then return false,handler(out[2]) end return false,out[2] end if coroutine.status(thread)==\"dead\" then return unpack(out,1,out.n) end input=__nuppYieldPack(coroutine.yield(unpack(out,2,out.n))) end end;local function pcall(body,...) return __nuppProtected(nil,body,...) end;local function xpcall(body,handler,...) return __nuppProtected(handler,body,...) end;local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile require(\"nupp.runtime.managed\").install(__nupp,_G); require(\"nupp.compiler.runtime.math\").install(rawget(__nupp,\"math\"));local __nuppBitops=require(\"nupp.runtime.bitops\");local gpu = require ( \"nupp.browser\" )\nlocal u32 = nupp . math . u32 . wrap\nlocal values = { u32 ( 0 ) , u32 ( 1 ) }\nlocal result = gpu . xorU32 ( values , u32 ( 0xa5a5a5a5 ) )\nprint ( result [ 1 ] , result [ 2 ] )\n"
+              }
+            },
+            {
+              "name": "check:playground.nupp",
+              "input": {
+                "options": {
+                  "dialect": "lua51"
+                },
+                "source": "return 1",
+                "kind": "check",
+                "filename": "playground.nupp"
+              },
+              "ms": 7.5,
+              "response": {
+                "diagnostics": {}
+              }
+            },
+            {
+              "name": "request:wire",
+              "ms": 7.5,
+              "response": "{\"diagnostics\":[]}"
+            }
+          ],
+          "samples": {},
+          "states": {},
+          "totalMs": 9832.125,
+          "loadMs": 236.3499999999999,
+          "jitEnabled": false,
+          "nativeBit": true,
+          "phases": {},
+          "hashKnownAnswers": true,
+          "rounds": [
+            9383.946,
+            116.61000000000058,
+            95.21900000000096
+          ],
+          "luaHeapKiB": 28520.142578125
+        },
+        "metrics": {
+          "frames": 0,
+          "effects": 0,
+          "effectBytes": 0,
+          "responseBytes": 0,
+          "copiedIn": 0,
+          "copiedOut": 0,
+          "hostEffectMs": [],
+          "guestIntervalsMs": [],
+          "bootMs": 1081.2200000286102,
+          "wasmMemoryBytes": 147259392,
+          "totalMs": 11030.320000052452
+        }
+      },
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+      "isolated": true,
+      "browserErrors": [],
+      "responsesMatchNativeAndLua51": true
+    }
+  },
+  {
+    "pair": 1,
+    "backend": "v86-jit",
+    "result": {
+      "ok": true,
+      "mode": "compiler",
+      "compiler": {
+        "value": {
+          "loadMs": 252.34100000000012,
+          "guestProcess": "Name:\tluajit\nUmask:\t0022\nState:\tR (running)\nTgid:\t37\nNgid:\t0\nPid:\t37\nPPid:\t1\nTracerPid:\t0\nUid:\t0\t0\t0\t0\nGid:\t0\t0\t0\t0\nFDSize:\t32\nGroups:\t \nNStgid:\t37\nNSpid:\t37\nNSpgid:\t0\nNSsid:\t0\nKthread:\t0\nVmPeak:\t   87376 kB\nVmSize:\t   86740 kB\nVmLck:\t       0 kB\nVmPin:\t       0 kB\nVmHWM:\t   78888 kB\nVmRSS:\t   78296 kB\nRssAnon:\t   76944 kB\nRssFile:\t    1352 kB\nRssShmem:\t       0 kB\nVmData:\t   76348 kB\nVmStk:\t     132 kB\nVmExe:\t     476 kB\nVmLib:\t    1072 kB\nVmPTE:\t      96 kB\nVmSwap:\t       0 kB\nCoreDumping:\t0\nTHP_enabled:\t0\nuntag_mask:\t0xffffffff\nThreads:\t1\nSigQ:\t0/745\nSigPnd:\t0000000000000000\nShdPnd:\t0000000000000000\nSigBlk:\t0000000000000000\nSigIgn:\t0000000000000000\nSigCgt:\t0000000000000002\nCapInh:\t0000000000000000\nCapPrm:\t000001ffffffffff\nCapEff:\t000001ffffffffff\nCapBnd:\t000001ffffffffff\nCapAmb:\t0000000000000000\nNoNewPrivs:\t0\nSpeculation_Store_Bypass:\tvulnerable\nSpeculationIndirectBranch:\talways enabled\nCpus_allowed:\t1\nCpus_allowed_list:\t0\nvoluntary_ctxt_switches:\t1\nnonvoluntary_ctxt_switches:\t4751\n",
+          "totalMs": 22365.071,
+          "luaHeapKiB": 29634.197265625,
+          "requests": [
+            {
+              "input": {
+                "filename": "playground.nupp",
+                "source": "local answer: integer = 42\nreturn answer",
+                "options": {
+                  "strict": true,
+                  "dialect": "lua51"
+                },
+                "kind": "check"
+              },
+              "ms": 1084.63,
+              "response": {
+                "diagnostics": {}
+              },
+              "name": "check:playground.nupp"
+            },
+            {
+              "input": {
+                "filename": "playground.nupp",
+                "source": "local answer: integer = 42\nreturn answer",
+                "options": {
+                  "optimize": true,
+                  "strict": true,
+                  "dialect": "lua51"
+                },
+                "kind": "compile"
+              },
+              "ms": 31.585000000000036,
+              "response": {
+                "code": "_G.assert((_G.loadstring or _G.load)(\"local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\\\"math\\\")or{};rawset(__nupp,\\\"math\\\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\\\"closed file\\\"then return end;local ok,reason=handle:close();if not ok then error(reason or \\\"the file could not be closed\\\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\\\"nupp:lua.d.nupp#__nuppCloseFile\\\"]=__nuppCloseFile require(\\\"nupp.runtime.managed\\\").install(__nupp,_G);\\n\",\"@nupp-prelude\"))();local unpack=unpack or table.unpack;local loadstring=loadstring or load;local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile require(\"nupp.runtime.managed\").install(__nupp,_G);\nreturn 42\n",
+                "diagnostics": {}
+              },
+              "name": "compile:playground.nupp"
+            },
+            {
+              "input": {
+                "offset": 7,
+                "kind": "hover"
+              },
+              "ms": 0,
+              "response": {
+                "offset": 7,
+                "length": 6,
+                "signature": "answer: integer",
+                "found": true,
+                "name": "answer"
+              },
+              "name": "hover:wire"
+            },
+            {
+              "input": {
+                "filename": "playground.nupp",
+                "source": "const value = 2ULL\nreturn value",
+                "options": {
+                  "dialect": "luajit"
+                },
+                "kind": "compile"
+              },
+              "ms": 880.5499999999997,
+              "response": {
+                "code": "_G.assert(_G.loadstring(\"local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\\\"math\\\")or{};rawset(__nupp,\\\"math\\\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\\\"closed file\\\"then return end;local ok,reason=handle:close();if not ok then error(reason or \\\"the file could not be closed\\\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\\\"nupp:lua.d.nupp#__nuppCloseFile\\\"]=__nuppCloseFile require(\\\"nupp.runtime.managed\\\").install(__nupp,_G);\\n\",\"@nupp-prelude\"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile require(\"nupp.runtime.managed\").install(__nupp,_G);const value = 2ULL\nreturn value\n",
+                "diagnostics": {}
+              },
+              "name": "compile:playground.nupp"
+            },
+            {
+              "input": {
+                "filename": "browser-platform.nupp",
+                "source": "local random = require(\"nupp.random\")\nlocal storage = require(\"nupp.io.storage\")\nlocal time = require(\"nupp.time\")\nlocal digest = require(\"nupp.digest\")\nlocal mac = require(\"nupp.mac\")\nlocal uuid = require(\"nupp.util\")\nlocal system = require(\"nupp.system\")\ntime.sleep(1)\nstorage.set(\"key\", digest.hexDigest(\"sha256\", random.randomBytes(16)))\nprint(storage.get(\"key\"), mac.hexDigest(\"hmac-sha256\", \"key\", \"message\"), uuid.uuid4(), system.availableParallelism())\n",
+                "options": {
+                  "strict": true,
+                  "dialect": "lua51"
+                },
+                "kind": "compile"
+              },
+              "ms": 18191.465,
+              "response": {
+                "code": "_G.assert((_G.loadstring or _G.load)(\"local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\\\"math\\\")or{};rawset(__nupp,\\\"math\\\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\\\"closed file\\\"then return end;local ok,reason=handle:close();if not ok then error(reason or \\\"the file could not be closed\\\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\\\"nupp:lua.d.nupp#__nuppCloseFile\\\"]=__nuppCloseFile require(\\\"nupp.runtime.managed\\\").install(__nupp,_G);\\n\",\"@nupp-prelude\"))();local unpack=unpack or table.unpack;local loadstring=loadstring or load;local __nuppProtectedCreate=require(\"nupp.suspension\").create;local function __nuppYieldPack(...) return {n=select(\"#\",...),...} end;local function __nuppProtected(handler,body,...) local thread=__nuppProtectedCreate(function(...) return body(...) end);local input=__nuppYieldPack(...);while true do local out=__nuppYieldPack(coroutine.resume(thread,unpack(input,1,input.n)));if not out[1] then if handler then return false,handler(out[2]) end return false,out[2] end if coroutine.status(thread)==\"dead\" then return unpack(out,1,out.n) end input=__nuppYieldPack(coroutine.yield(unpack(out,2,out.n))) end end;local function pcall(body,...) return __nuppProtected(nil,body,...) end;local function xpcall(body,handler,...) return __nuppProtected(handler,body,...) end;local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile require(\"nupp.runtime.managed\").install(__nupp,_G);local __nuppBitops=require(\"nupp.runtime.bitops\");local random = require ( \"nupp.random\" )\nlocal storage = require ( \"nupp.io.storage\" )\nlocal time = require ( \"nupp.time\" )\nlocal digest = require ( \"nupp.digest\" )\nlocal mac = require ( \"nupp.mac\" )\nlocal uuid = require ( \"nupp.util\" )\nlocal system = require ( \"nupp.system\" )\ntime . sleep ( 1 )\nstorage . set ( \"key\" , digest . hexDigest ( \"sha256\" , random . randomBytes ( 16 ) ) )\nprint ( storage . get ( \"key\" ) , mac . hexDigest ( \"hmac-sha256\" , \"key\" , \"message\" ) , uuid . uuid4 ( ) , system . availableParallelism ( ) )\n",
+                "diagnostics": {}
+              },
+              "name": "compile:browser-platform.nupp"
+            },
+            {
+              "input": {
+                "filename": "webgpu-compute.nupp",
+                "source": "local gpu = require(\"nupp.browser\")\nlocal u32 = nupp.math.u32.wrap\nlocal values: {uint32} = {u32(0), u32(1)}\nlocal result = gpu.xorU32(values, u32(0xa5a5a5a5))\nprint(result[1], result[2])\n",
+                "options": {
+                  "strict": true,
+                  "dialect": "lua51"
+                },
+                "kind": "compile"
+              },
+              "ms": 1444.719000000001,
+              "response": {
+                "code": "_G.assert((_G.loadstring or _G.load)(\"local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\\\"math\\\")or{};rawset(__nupp,\\\"math\\\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\\\"closed file\\\"then return end;local ok,reason=handle:close();if not ok then error(reason or \\\"the file could not be closed\\\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\\\"nupp:lua.d.nupp#__nuppCloseFile\\\"]=__nuppCloseFile require(\\\"nupp.runtime.managed\\\").install(__nupp,_G);\\n\",\"@nupp-prelude\"))();local unpack=unpack or table.unpack;local loadstring=loadstring or load;local __nuppProtectedCreate=require(\"nupp.suspension\").create;local function __nuppYieldPack(...) return {n=select(\"#\",...),...} end;local function __nuppProtected(handler,body,...) local thread=__nuppProtectedCreate(function(...) return body(...) end);local input=__nuppYieldPack(...);while true do local out=__nuppYieldPack(coroutine.resume(thread,unpack(input,1,input.n)));if not out[1] then if handler then return false,handler(out[2]) end return false,out[2] end if coroutine.status(thread)==\"dead\" then return unpack(out,1,out.n) end input=__nuppYieldPack(coroutine.yield(unpack(out,2,out.n))) end end;local function pcall(body,...) return __nuppProtected(nil,body,...) end;local function xpcall(body,handler,...) return __nuppProtected(handler,body,...) end;local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile require(\"nupp.runtime.managed\").install(__nupp,_G); require(\"nupp.compiler.runtime.math\").install(rawget(__nupp,\"math\"));local __nuppBitops=require(\"nupp.runtime.bitops\");local gpu = require ( \"nupp.browser\" )\nlocal u32 = nupp . math . u32 . wrap\nlocal values = { u32 ( 0 ) , u32 ( 1 ) }\nlocal result = gpu . xorU32 ( values , u32 ( 0xa5a5a5a5 ) )\nprint ( result [ 1 ] , result [ 2 ] )\n",
+                "diagnostics": {}
+              },
+              "name": "compile:webgpu-compute.nupp"
+            },
+            {
+              "input": {
+                "filename": "playground.nupp",
+                "source": "return 1",
+                "options": {
+                  "dialect": "lua51"
+                },
+                "kind": "check"
+              },
+              "ms": 6.860000000000582,
+              "response": {
+                "diagnostics": {}
+              },
+              "name": "check:playground.nupp"
+            },
+            {
+              "ms": 6.860000000000582,
+              "response": "{\"diagnostics\":[]}",
+              "name": "request:wire"
+            },
+            {
+              "input": {
+                "filename": "playground.nupp",
+                "source": "local answer: integer = 42\nreturn answer",
+                "options": {
+                  "strict": true,
+                  "dialect": "lua51"
+                },
+                "kind": "check"
+              },
+              "ms": 7.986000000000786,
+              "response": {
+                "diagnostics": {}
+              },
+              "name": "check:playground.nupp"
+            },
+            {
+              "input": {
+                "filename": "playground.nupp",
+                "source": "local answer: integer = 42\nreturn answer",
+                "options": {
+                  "optimize": true,
+                  "strict": true,
+                  "dialect": "lua51"
+                },
+                "kind": "compile"
+              },
+              "ms": 8.025000000001455,
+              "response": {
+                "code": "_G.assert((_G.loadstring or _G.load)(\"local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\\\"math\\\")or{};rawset(__nupp,\\\"math\\\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\\\"closed file\\\"then return end;local ok,reason=handle:close();if not ok then error(reason or \\\"the file could not be closed\\\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\\\"nupp:lua.d.nupp#__nuppCloseFile\\\"]=__nuppCloseFile require(\\\"nupp.runtime.managed\\\").install(__nupp,_G);\\n\",\"@nupp-prelude\"))();local unpack=unpack or table.unpack;local loadstring=loadstring or load;local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile require(\"nupp.runtime.managed\").install(__nupp,_G);\nreturn 42\n",
+                "diagnostics": {}
+              },
+              "name": "compile:playground.nupp"
+            },
+            {
+              "input": {
+                "offset": 7,
+                "kind": "hover"
+              },
+              "ms": 0,
+              "response": {
+                "offset": 7,
+                "length": 6,
+                "signature": "answer: integer",
+                "found": true,
+                "name": "answer"
+              },
+              "name": "hover:wire"
+            },
+            {
+              "input": {
+                "filename": "playground.nupp",
+                "source": "const value = 2ULL\nreturn value",
+                "options": {
+                  "dialect": "luajit"
+                },
+                "kind": "compile"
+              },
+              "ms": 12.193999999999505,
+              "response": {
+                "code": "_G.assert(_G.loadstring(\"local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\\\"math\\\")or{};rawset(__nupp,\\\"math\\\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\\\"closed file\\\"then return end;local ok,reason=handle:close();if not ok then error(reason or \\\"the file could not be closed\\\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\\\"nupp:lua.d.nupp#__nuppCloseFile\\\"]=__nuppCloseFile require(\\\"nupp.runtime.managed\\\").install(__nupp,_G);\\n\",\"@nupp-prelude\"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile require(\"nupp.runtime.managed\").install(__nupp,_G);const value = 2ULL\nreturn value\n",
+                "diagnostics": {}
+              },
+              "name": "compile:playground.nupp"
+            },
+            {
+              "input": {
+                "filename": "browser-platform.nupp",
+                "source": "local random = require(\"nupp.random\")\nlocal storage = require(\"nupp.io.storage\")\nlocal time = require(\"nupp.time\")\nlocal digest = require(\"nupp.digest\")\nlocal mac = require(\"nupp.mac\")\nlocal uuid = require(\"nupp.util\")\nlocal system = require(\"nupp.system\")\ntime.sleep(1)\nstorage.set(\"key\", digest.hexDigest(\"sha256\", random.randomBytes(16)))\nprint(storage.get(\"key\"), mac.hexDigest(\"hmac-sha256\", \"key\", \"message\"), uuid.uuid4(), system.availableParallelism())\n",
+                "options": {
+                  "strict": true,
+                  "dialect": "lua51"
+                },
+                "kind": "compile"
+              },
+              "ms": 56.57999999999811,
+              "response": {
+                "code": "_G.assert((_G.loadstring or _G.load)(\"local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\\\"math\\\")or{};rawset(__nupp,\\\"math\\\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\\\"closed file\\\"then return end;local ok,reason=handle:close();if not ok then error(reason or \\\"the file could not be closed\\\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\\\"nupp:lua.d.nupp#__nuppCloseFile\\\"]=__nuppCloseFile require(\\\"nupp.runtime.managed\\\").install(__nupp,_G);\\n\",\"@nupp-prelude\"))();local unpack=unpack or table.unpack;local loadstring=loadstring or load;local __nuppProtectedCreate=require(\"nupp.suspension\").create;local function __nuppYieldPack(...) return {n=select(\"#\",...),...} end;local function __nuppProtected(handler,body,...) local thread=__nuppProtectedCreate(function(...) return body(...) end);local input=__nuppYieldPack(...);while true do local out=__nuppYieldPack(coroutine.resume(thread,unpack(input,1,input.n)));if not out[1] then if handler then return false,handler(out[2]) end return false,out[2] end if coroutine.status(thread)==\"dead\" then return unpack(out,1,out.n) end input=__nuppYieldPack(coroutine.yield(unpack(out,2,out.n))) end end;local function pcall(body,...) return __nuppProtected(nil,body,...) end;local function xpcall(body,handler,...) return __nuppProtected(handler,body,...) end;local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile require(\"nupp.runtime.managed\").install(__nupp,_G);local __nuppBitops=require(\"nupp.runtime.bitops\");local random = require ( \"nupp.random\" )\nlocal storage = require ( \"nupp.io.storage\" )\nlocal time = require ( \"nupp.time\" )\nlocal digest = require ( \"nupp.digest\" )\nlocal mac = require ( \"nupp.mac\" )\nlocal uuid = require ( \"nupp.util\" )\nlocal system = require ( \"nupp.system\" )\ntime . sleep ( 1 )\nstorage . set ( \"key\" , digest . hexDigest ( \"sha256\" , random . randomBytes ( 16 ) ) )\nprint ( storage . get ( \"key\" ) , mac . hexDigest ( \"hmac-sha256\" , \"key\" , \"message\" ) , uuid . uuid4 ( ) , system . availableParallelism ( ) )\n",
+                "diagnostics": {}
+              },
+              "name": "compile:browser-platform.nupp"
+            },
+            {
+              "input": {
+                "filename": "webgpu-compute.nupp",
+                "source": "local gpu = require(\"nupp.browser\")\nlocal u32 = nupp.math.u32.wrap\nlocal values: {uint32} = {u32(0), u32(1)}\nlocal result = gpu.xorU32(values, u32(0xa5a5a5a5))\nprint(result[1], result[2])\n",
+                "options": {
+                  "strict": true,
+                  "dialect": "lua51"
+                },
+                "kind": "compile"
+              },
+              "ms": 36.45600000000195,
+              "response": {
+                "code": "_G.assert((_G.loadstring or _G.load)(\"local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\\\"math\\\")or{};rawset(__nupp,\\\"math\\\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\\\"closed file\\\"then return end;local ok,reason=handle:close();if not ok then error(reason or \\\"the file could not be closed\\\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\\\"nupp:lua.d.nupp#__nuppCloseFile\\\"]=__nuppCloseFile require(\\\"nupp.runtime.managed\\\").install(__nupp,_G);\\n\",\"@nupp-prelude\"))();local unpack=unpack or table.unpack;local loadstring=loadstring or load;local __nuppProtectedCreate=require(\"nupp.suspension\").create;local function __nuppYieldPack(...) return {n=select(\"#\",...),...} end;local function __nuppProtected(handler,body,...) local thread=__nuppProtectedCreate(function(...) return body(...) end);local input=__nuppYieldPack(...);while true do local out=__nuppYieldPack(coroutine.resume(thread,unpack(input,1,input.n)));if not out[1] then if handler then return false,handler(out[2]) end return false,out[2] end if coroutine.status(thread)==\"dead\" then return unpack(out,1,out.n) end input=__nuppYieldPack(coroutine.yield(unpack(out,2,out.n))) end end;local function pcall(body,...) return __nuppProtected(nil,body,...) end;local function xpcall(body,handler,...) return __nuppProtected(handler,body,...) end;local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile require(\"nupp.runtime.managed\").install(__nupp,_G); require(\"nupp.compiler.runtime.math\").install(rawget(__nupp,\"math\"));local __nuppBitops=require(\"nupp.runtime.bitops\");local gpu = require ( \"nupp.browser\" )\nlocal u32 = nupp . math . u32 . wrap\nlocal values = { u32 ( 0 ) , u32 ( 1 ) }\nlocal result = gpu . xorU32 ( values , u32 ( 0xa5a5a5a5 ) )\nprint ( result [ 1 ] , result [ 2 ] )\n",
+                "diagnostics": {}
+              },
+              "name": "compile:webgpu-compute.nupp"
+            },
+            {
+              "input": {
+                "filename": "playground.nupp",
+                "source": "return 1",
+                "options": {
+                  "dialect": "lua51"
+                },
+                "kind": "check"
+              },
+              "ms": 6.933999999997468,
+              "response": {
+                "diagnostics": {}
+              },
+              "name": "check:playground.nupp"
+            },
+            {
+              "ms": 6.933999999997468,
+              "response": "{\"diagnostics\":[]}",
+              "name": "request:wire"
+            },
+            {
+              "input": {
+                "filename": "playground.nupp",
+                "source": "local answer: integer = 42\nreturn answer",
+                "options": {
+                  "strict": true,
+                  "dialect": "lua51"
+                },
+                "kind": "check"
+              },
+              "ms": 8.415000000000873,
+              "response": {
+                "diagnostics": {}
+              },
+              "name": "check:playground.nupp"
+            },
+            {
+              "input": {
+                "filename": "playground.nupp",
+                "source": "local answer: integer = 42\nreturn answer",
+                "options": {
+                  "optimize": true,
+                  "strict": true,
+                  "dialect": "lua51"
+                },
+                "kind": "compile"
+              },
+              "ms": 15.360000000000582,
+              "response": {
+                "code": "_G.assert((_G.loadstring or _G.load)(\"local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\\\"math\\\")or{};rawset(__nupp,\\\"math\\\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\\\"closed file\\\"then return end;local ok,reason=handle:close();if not ok then error(reason or \\\"the file could not be closed\\\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\\\"nupp:lua.d.nupp#__nuppCloseFile\\\"]=__nuppCloseFile require(\\\"nupp.runtime.managed\\\").install(__nupp,_G);\\n\",\"@nupp-prelude\"))();local unpack=unpack or table.unpack;local loadstring=loadstring or load;local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile require(\"nupp.runtime.managed\").install(__nupp,_G);\nreturn 42\n",
+                "diagnostics": {}
+              },
+              "name": "compile:playground.nupp"
+            },
+            {
+              "input": {
+                "offset": 7,
+                "kind": "hover"
+              },
+              "ms": 0,
+              "response": {
+                "offset": 7,
+                "length": 6,
+                "signature": "answer: integer",
+                "found": true,
+                "name": "answer"
+              },
+              "name": "hover:wire"
+            },
+            {
+              "input": {
+                "filename": "playground.nupp",
+                "source": "const value = 2ULL\nreturn value",
+                "options": {
+                  "dialect": "luajit"
+                },
+                "kind": "compile"
+              },
+              "ms": 8.489999999997963,
+              "response": {
+                "code": "_G.assert(_G.loadstring(\"local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\\\"math\\\")or{};rawset(__nupp,\\\"math\\\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\\\"closed file\\\"then return end;local ok,reason=handle:close();if not ok then error(reason or \\\"the file could not be closed\\\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\\\"nupp:lua.d.nupp#__nuppCloseFile\\\"]=__nuppCloseFile require(\\\"nupp.runtime.managed\\\").install(__nupp,_G);\\n\",\"@nupp-prelude\"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile require(\"nupp.runtime.managed\").install(__nupp,_G);const value = 2ULL\nreturn value\n",
+                "diagnostics": {}
+              },
+              "name": "compile:playground.nupp"
+            },
+            {
+              "input": {
+                "filename": "browser-platform.nupp",
+                "source": "local random = require(\"nupp.random\")\nlocal storage = require(\"nupp.io.storage\")\nlocal time = require(\"nupp.time\")\nlocal digest = require(\"nupp.digest\")\nlocal mac = require(\"nupp.mac\")\nlocal uuid = require(\"nupp.util\")\nlocal system = require(\"nupp.system\")\ntime.sleep(1)\nstorage.set(\"key\", digest.hexDigest(\"sha256\", random.randomBytes(16)))\nprint(storage.get(\"key\"), mac.hexDigest(\"hmac-sha256\", \"key\", \"message\"), uuid.uuid4(), system.availableParallelism())\n",
+                "options": {
+                  "strict": true,
+                  "dialect": "lua51"
+                },
+                "kind": "compile"
+              },
+              "ms": 67.4900000000016,
+              "response": {
+                "code": "_G.assert((_G.loadstring or _G.load)(\"local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\\\"math\\\")or{};rawset(__nupp,\\\"math\\\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\\\"closed file\\\"then return end;local ok,reason=handle:close();if not ok then error(reason or \\\"the file could not be closed\\\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\\\"nupp:lua.d.nupp#__nuppCloseFile\\\"]=__nuppCloseFile require(\\\"nupp.runtime.managed\\\").install(__nupp,_G);\\n\",\"@nupp-prelude\"))();local unpack=unpack or table.unpack;local loadstring=loadstring or load;local __nuppProtectedCreate=require(\"nupp.suspension\").create;local function __nuppYieldPack(...) return {n=select(\"#\",...),...} end;local function __nuppProtected(handler,body,...) local thread=__nuppProtectedCreate(function(...) return body(...) end);local input=__nuppYieldPack(...);while true do local out=__nuppYieldPack(coroutine.resume(thread,unpack(input,1,input.n)));if not out[1] then if handler then return false,handler(out[2]) end return false,out[2] end if coroutine.status(thread)==\"dead\" then return unpack(out,1,out.n) end input=__nuppYieldPack(coroutine.yield(unpack(out,2,out.n))) end end;local function pcall(body,...) return __nuppProtected(nil,body,...) end;local function xpcall(body,handler,...) return __nuppProtected(handler,body,...) end;local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile require(\"nupp.runtime.managed\").install(__nupp,_G);local __nuppBitops=require(\"nupp.runtime.bitops\");local random = require ( \"nupp.random\" )\nlocal storage = require ( \"nupp.io.storage\" )\nlocal time = require ( \"nupp.time\" )\nlocal digest = require ( \"nupp.digest\" )\nlocal mac = require ( \"nupp.mac\" )\nlocal uuid = require ( \"nupp.util\" )\nlocal system = require ( \"nupp.system\" )\ntime . sleep ( 1 )\nstorage . set ( \"key\" , digest . hexDigest ( \"sha256\" , random . randomBytes ( 16 ) ) )\nprint ( storage . get ( \"key\" ) , mac . hexDigest ( \"hmac-sha256\" , \"key\" , \"message\" ) , uuid . uuid4 ( ) , system . availableParallelism ( ) )\n",
+                "diagnostics": {}
+              },
+              "name": "compile:browser-platform.nupp"
+            },
+            {
+              "input": {
+                "filename": "webgpu-compute.nupp",
+                "source": "local gpu = require(\"nupp.browser\")\nlocal u32 = nupp.math.u32.wrap\nlocal values: {uint32} = {u32(0), u32(1)}\nlocal result = gpu.xorU32(values, u32(0xa5a5a5a5))\nprint(result[1], result[2])\n",
+                "options": {
+                  "strict": true,
+                  "dialect": "lua51"
+                },
+                "kind": "compile"
+              },
+              "ms": 32.52000000000044,
+              "response": {
+                "code": "_G.assert((_G.loadstring or _G.load)(\"local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\\\"math\\\")or{};rawset(__nupp,\\\"math\\\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\\\"closed file\\\"then return end;local ok,reason=handle:close();if not ok then error(reason or \\\"the file could not be closed\\\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\\\"nupp:lua.d.nupp#__nuppCloseFile\\\"]=__nuppCloseFile require(\\\"nupp.runtime.managed\\\").install(__nupp,_G);\\n\",\"@nupp-prelude\"))();local unpack=unpack or table.unpack;local loadstring=loadstring or load;local __nuppProtectedCreate=require(\"nupp.suspension\").create;local function __nuppYieldPack(...) return {n=select(\"#\",...),...} end;local function __nuppProtected(handler,body,...) local thread=__nuppProtectedCreate(function(...) return body(...) end);local input=__nuppYieldPack(...);while true do local out=__nuppYieldPack(coroutine.resume(thread,unpack(input,1,input.n)));if not out[1] then if handler then return false,handler(out[2]) end return false,out[2] end if coroutine.status(thread)==\"dead\" then return unpack(out,1,out.n) end input=__nuppYieldPack(coroutine.yield(unpack(out,2,out.n))) end end;local function pcall(body,...) return __nuppProtected(nil,body,...) end;local function xpcall(body,handler,...) return __nuppProtected(handler,body,...) end;local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile require(\"nupp.runtime.managed\").install(__nupp,_G); require(\"nupp.compiler.runtime.math\").install(rawget(__nupp,\"math\"));local __nuppBitops=require(\"nupp.runtime.bitops\");local gpu = require ( \"nupp.browser\" )\nlocal u32 = nupp . math . u32 . wrap\nlocal values = { u32 ( 0 ) , u32 ( 1 ) }\nlocal result = gpu . xorU32 ( values , u32 ( 0xa5a5a5a5 ) )\nprint ( result [ 1 ] , result [ 2 ] )\n",
+                "diagnostics": {}
+              },
+              "name": "compile:webgpu-compute.nupp"
+            },
+            {
+              "input": {
+                "filename": "playground.nupp",
+                "source": "return 1",
+                "options": {
+                  "dialect": "lua51"
+                },
+                "kind": "check"
+              },
+              "ms": 0,
+              "response": {
+                "diagnostics": {}
+              },
+              "name": "check:playground.nupp"
+            },
+            {
+              "ms": 7.369999999998981,
+              "response": "{\"diagnostics\":[]}",
+              "name": "request:wire"
+            }
+          ],
+          "samples": {},
+          "states": {},
+          "nativeBit": true,
+          "phases": {},
+          "hashKnownAnswers": true,
+          "rounds": [
+            21716.034,
+            196.8060000000005,
+            199.88999999999942
+          ],
+          "jitEnabled": true
+        },
+        "metrics": {
+          "frames": 0,
+          "effects": 0,
+          "effectBytes": 0,
+          "responseBytes": 0,
+          "copiedIn": 0,
+          "copiedOut": 0,
+          "hostEffectMs": [],
+          "guestIntervalsMs": [],
+          "bootMs": 1083.8400000333786,
+          "wasmMemoryBytes": 148439040,
+          "totalMs": 23568.350000023842
+        }
+      },
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+      "isolated": true,
+      "browserErrors": [],
+      "responsesMatchNativeAndLua51": true
+    }
+  }
+]

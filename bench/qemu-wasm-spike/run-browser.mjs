@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -7,7 +7,8 @@ const url = new URL(process.argv[2] || 'http://127.0.0.1:8097/').href;
 const resultFile = process.argv[3];
 const chrome = process.env.CHROME || (process.platform === 'darwin'
   ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' : 'google-chrome');
-const profile = await mkdtemp(path.join(os.tmpdir(), 'nupp-qemu-chrome-'));
+const profile = process.env.SPIKE_PROFILE_DIR || await mkdtemp(path.join(os.tmpdir(), 'nupp-qemu-chrome-'));
+await mkdir(profile, {recursive: true});
 const child = spawn(chrome, [
   '--headless=new', '--no-sandbox', ...(process.env.SPIKE_GPU === '1' ? ['--enable-unsafe-webgpu'] : ['--disable-gpu']), '--no-first-run', '--no-default-browser-check',
   '--disable-background-networking', `--user-data-dir=${profile}`, '--remote-debugging-port=0', url,
@@ -115,5 +116,5 @@ try {
   kill('SIGTERM');
   await Promise.race([new Promise(resolve => child.once('exit', resolve)), pause(1000)]);
   kill('SIGKILL');
-  await rm(profile, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+  if (!process.env.SPIKE_PROFILE_DIR) await rm(profile, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
 }

@@ -1,0 +1,219 @@
+{
+  "compiler": [
+    {
+      "backend": "v86-jit",
+      "bootAndBundleMsMedian": 1345.7880000071527,
+      "coldRequestsMsMedian": 22017.0145,
+      "warmRequestsMsMedian": 131.85500000000138,
+      "coldPlatformCompileMsMedian": 18527.695,
+      "warmPlatformCompileMsMedian": 62.034999999999854
+    },
+    {
+      "backend": "v86-interpreter",
+      "bootAndBundleMsMedian": 1325.6575000548362,
+      "coldRequestsMsMedian": 9148.1155,
+      "warmRequestsMsMedian": 42.9369999999999,
+      "coldPlatformCompileMsMedian": 6267.787,
+      "warmPlatformCompileMsMedian": 16.077500000000327
+    },
+    {
+      "backend": "lua51",
+      "bootAndBundleMsMedian": 73.56749999523163,
+      "coldRequestsMsMedian": 28020.500000059605,
+      "warmRequestsMsMedian": 5.364999949932098,
+      "coldPlatformCompileMsMedian": 23408.400000035763,
+      "warmPlatformCompileMsMedian": 2.25
+    }
+  ],
+  "delivery": [
+    {
+      "link": "local",
+      "variant": "raw",
+      "visit": "cold",
+      "runs": 2,
+      "payloadBytes": 14625003,
+      "firstFrameMsMedian": 1335.3374999761581
+    },
+    {
+      "link": "local",
+      "variant": "raw",
+      "visit": "cached",
+      "runs": 2,
+      "payloadBytes": 14625003,
+      "firstFrameMsMedian": 1864.195000052452
+    },
+    {
+      "link": "local",
+      "variant": "compressed",
+      "visit": "cold",
+      "runs": 2,
+      "payloadBytes": 12108927,
+      "firstFrameMsMedian": 1366.9374999403954
+    },
+    {
+      "link": "local",
+      "variant": "compressed",
+      "visit": "cached",
+      "runs": 2,
+      "payloadBytes": 0,
+      "firstFrameMsMedian": 1890.5674999952316
+    },
+    {
+      "link": "local",
+      "variant": "slim",
+      "visit": "cold",
+      "runs": 2,
+      "payloadBytes": 5868658,
+      "firstFrameMsMedian": 1205.3349999785423
+    },
+    {
+      "link": "local",
+      "variant": "slim",
+      "visit": "cached",
+      "runs": 2,
+      "payloadBytes": 0,
+      "firstFrameMsMedian": 1705.4699999690056
+    },
+    {
+      "link": "10mbps",
+      "variant": "raw",
+      "visit": "cold",
+      "runs": 1,
+      "payloadBytes": 14625003,
+      "firstFrameMsMedian": 14085.695000052452
+    },
+    {
+      "link": "10mbps",
+      "variant": "raw",
+      "visit": "cached",
+      "runs": 1,
+      "payloadBytes": 14625003,
+      "firstFrameMsMedian": 14159.149999976158
+    },
+    {
+      "link": "10mbps",
+      "variant": "compressed",
+      "visit": "cold",
+      "runs": 1,
+      "payloadBytes": 12108927,
+      "firstFrameMsMedian": 12002.389999985695
+    },
+    {
+      "link": "10mbps",
+      "variant": "compressed",
+      "visit": "cached",
+      "runs": 1,
+      "payloadBytes": 0,
+      "firstFrameMsMedian": 1338.8650000095367
+    },
+    {
+      "link": "10mbps",
+      "variant": "slim",
+      "visit": "cold",
+      "runs": 1,
+      "payloadBytes": 5868658,
+      "firstFrameMsMedian": 6635.550000071526
+    },
+    {
+      "link": "10mbps",
+      "variant": "slim",
+      "visit": "cached",
+      "runs": 1,
+      "payloadBytes": 0,
+      "firstFrameMsMedian": 1714.5650000572205
+    }
+  ],
+  "kernel": {
+    "method": "Pinned-image diagnostic repack, same-size ELF and bzImage. Not a source-built production kernel.",
+    "originalSha256": "507a759c70ab7a490a233be454d0b5b88bc667956a410b531cb4edc091e2eb1c",
+    "candidateSha256": "1d3b8ed9ff4dcee9d3116d9104d07d6039ead8a88947b48f8c7e4754e1b5a194",
+    "rawKernelBytes": 10068480,
+    "originalGzipBytes": 10053284,
+    "candidateGzipBytes": 3824844,
+    "embeddedRootfsCompressedBytes": 6261511,
+    "embeddedRootfsArchiveBytes": 15133184,
+    "embeddedRootfsFiles": 453,
+    "largestEmbeddedFiles": [
+      {
+        "name": "usr/lib/libgfortran.so.5.0.0",
+        "bytes": 2883376
+      },
+      {
+        "name": "usr/lib/libstdc++.so.6.0.32",
+        "bytes": 2467604
+      },
+      {
+        "name": "usr/bin/links",
+        "bytes": 1046184
+      },
+      {
+        "name": "root/tests/test-i386",
+        "bytes": 796296
+      },
+      {
+        "name": "usr/bin/tcpdump",
+        "bytes": 758332
+      },
+      {
+        "name": "lib/libuClibc-1.0.45.so",
+        "bytes": 710584
+      },
+      {
+        "name": "usr/lib/libquadmath.so.0.0.0",
+        "bytes": 673252
+      },
+      {
+        "name": "bin/busybox",
+        "bytes": 666088
+      },
+      {
+        "name": "usr/bin/joe",
+        "bytes": 564348
+      },
+      {
+        "name": "usr/sbin/ntpd",
+        "bytes": 519744
+      },
+      {
+        "name": "usr/lib/libgomp.so.1.0.0",
+        "bytes": 338320
+      },
+      {
+        "name": "usr/lib/libcurl.so.4.8.0",
+        "bytes": 318768
+      },
+      {
+        "name": "usr/lib/libevent-2.1.so.7.0.1",
+        "bytes": 293968
+      },
+      {
+        "name": "usr/bin/socat1",
+        "bytes": 272836
+      },
+      {
+        "name": "root/tests/reference.test",
+        "bytes": 264193
+      },
+      {
+        "name": "usr/bin/ntpq",
+        "bytes": 237320
+      },
+      {
+        "name": "usr/lib/libpcap.so.1.10.4",
+        "bytes": 235344
+      },
+      {
+        "name": "usr/lib/liblua.so.5.4.6",
+        "bytes": 223252
+      },
+      {
+        "name": "usr/lib/libevent_core-2.1.so.7.0.1",
+        "bytes": 182676
+      },
+      {
+        "name": "lib/libgcc_s.so.1",
+        "bytes": 173596
+      }
+    ]
+  }
+}

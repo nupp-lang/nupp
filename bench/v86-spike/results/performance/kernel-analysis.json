@@ -1,0 +1,93 @@
+{
+  "method": "Pinned-image diagnostic repack, same-size ELF and bzImage. Not a source-built production kernel.",
+  "originalSha256": "507a759c70ab7a490a233be454d0b5b88bc667956a410b531cb4edc091e2eb1c",
+  "candidateSha256": "1d3b8ed9ff4dcee9d3116d9104d07d6039ead8a88947b48f8c7e4754e1b5a194",
+  "rawKernelBytes": 10068480,
+  "originalGzipBytes": 10053284,
+  "candidateGzipBytes": 3824844,
+  "embeddedRootfsCompressedBytes": 6261511,
+  "embeddedRootfsArchiveBytes": 15133184,
+  "embeddedRootfsFiles": 453,
+  "largestEmbeddedFiles": [
+    {
+      "name": "usr/lib/libgfortran.so.5.0.0",
+      "bytes": 2883376
+    },
+    {
+      "name": "usr/lib/libstdc++.so.6.0.32",
+      "bytes": 2467604
+    },
+    {
+      "name": "usr/bin/links",
+      "bytes": 1046184
+    },
+    {
+      "name": "root/tests/test-i386",
+      "bytes": 796296
+    },
+    {
+      "name": "usr/bin/tcpdump",
+      "bytes": 758332
+    },
+    {
+      "name": "lib/libuClibc-1.0.45.so",
+      "bytes": 710584
+    },
+    {
+      "name": "usr/lib/libquadmath.so.0.0.0",
+      "bytes": 673252
+    },
+    {
+      "name": "bin/busybox",
+      "bytes": 666088
+    },
+    {
+      "name": "usr/bin/joe",
+      "bytes": 564348
+    },
+    {
+      "name": "usr/sbin/ntpd",
+      "bytes": 519744
+    },
+    {
+      "name": "usr/lib/libgomp.so.1.0.0",
+      "bytes": 338320
+    },
+    {
+      "name": "usr/lib/libcurl.so.4.8.0",
+      "bytes": 318768
+    },
+    {
+      "name": "usr/lib/libevent-2.1.so.7.0.1",
+      "bytes": 293968
+    },
+    {
+      "name": "usr/bin/socat1",
+      "bytes": 272836
+    },
+    {
+      "name": "root/tests/reference.test",
+      "bytes": 264193
+    },
+    {
+      "name": "usr/bin/ntpq",
+      "bytes": 237320
+    },
+    {
+      "name": "usr/lib/libpcap.so.1.10.4",
+      "bytes": 235344
+    },
+    {
+      "name": "usr/lib/liblua.so.5.4.6",
+      "bytes": 223252
+    },
+    {
+      "name": "usr/lib/libevent_core-2.1.so.7.0.1",
+      "bytes": 182676
+    },
+    {
+      "name": "lib/libgcc_s.so.1",
+      "bytes": 173596
+    }
+  ]
+}

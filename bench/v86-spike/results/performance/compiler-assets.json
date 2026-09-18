@@ -1,0 +1,84 @@
+{
+  "scope": "Compiler fixture asset inventory with Brotli quality 9 when smaller; not a network capture or the full playground UI. Contains its own combined initramfs. Shared URLs/base-image deduplication are not implemented.",
+  "payloadBytes": 7355499,
+  "files": [
+    {
+      "name": "assets/libv86.mjs",
+      "rawBytes": 359552,
+      "encodedBytes": 87228,
+      "sha256": "a07d5f6d3276fabde989194a84be5f4266cb65a0e7000c84c2ff69c09fb5a4c2"
+    },
+    {
+      "name": "assets/v86.wasm",
+      "rawBytes": 2101621,
+      "encodedBytes": 323281,
+      "sha256": "aa0d0e149d6b60063b85de4871e78505637ce92821e14a9f9802c4008ba2336e"
+    },
+    {
+      "name": "assets/kernel-empty-rootfs.bin",
+      "rawBytes": 10068480,
+      "encodedBytes": 3819183,
+      "sha256": "1d3b8ed9ff4dcee9d3116d9104d07d6039ead8a88947b48f8c7e4754e1b5a194"
+    },
+    {
+      "name": "assets/seabios.bin",
+      "rawBytes": 131072,
+      "encodedBytes": 64849,
+      "sha256": "73e3f359102e3a9982c35fce98eb7cd08f18303ac7f1ba6ebfbe6cdc1c244d98"
+    },
+    {
+      "name": "assets/vgabios.bin",
+      "rawBytes": 36352,
+      "encodedBytes": 15546,
+      "sha256": "a4bc0d80cc3ca028c73dafa8fee396b8d054ce87ebd8abfbd31b06b437607880"
+    },
+    {
+      "name": "initramfs.gz",
+      "rawBytes": 3021176,
+      "encodedBytes": 3021176,
+      "sha256": "6f17e16bb053c8ce56be2a967d1faf69d24a55b92848c1e157e104cb5f117d90"
+    },
+    {
+      "name": "compiler-performance.lua",
+      "rawBytes": 9468,
+      "encodedBytes": 2977,
+      "sha256": "ccc0b1b128b25e850b0c95771965e64209a7e3792b24344ccc5176e6679f6357"
+    },
+    {
+      "name": "integration.html",
+      "rawBytes": 1390,
+      "encodedBytes": 642,
+      "sha256": "0580bc9e3896e4ffcc0121b184b95bff4eea7804461f75d22153d23b158e441d"
+    },
+    {
+      "name": "integration.mjs",
+      "rawBytes": 8262,
+      "encodedBytes": 2978,
+      "sha256": "b0eeb3261f578c8b035e9b1c8bcf4bf7e70fe46af9c4222f15edb30e76a4ea94"
+    },
+    {
+      "name": "guest-runtime.mjs",
+      "rawBytes": 7116,
+      "encodedBytes": 2253,
+      "sha256": "5fcc7d02bd4de9f45305592505a862da472fa2098f5aef2cb08b703ccdf27c1d"
+    },
+    {
+      "name": "vm-worker.mjs",
+      "rawBytes": 8977,
+      "encodedBytes": 2997,
+      "sha256": "700a259fffcc5e5d6f09a4d45563827aa187448e4790177af2d0d3db6c1e73b6"
+    },
+    {
+      "name": "runtime/app-runtime.mjs",
+      "rawBytes": 39300,
+      "encodedBytes": 9800,
+      "sha256": "3f55db3a0ce45f46664b7ad180afcceffc3d3f56ea3d4de203278c1a3dc2ce62"
+    },
+    {
+      "name": "runtime/worker-pool.mjs",
+      "rawBytes": 8274,
+      "encodedBytes": 2589,
+      "sha256": "8e5e0b821ad662fdac346e874f09a18c272dad4940def550483d24cc8bc03e32"
+    }
+  ]
+}

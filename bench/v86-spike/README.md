@@ -159,6 +159,12 @@ memory bound for arbitrary programs. The optional full corpus, including
 larger standard-library imports, exceeded the exploratory time limit at
 128 MiB; the passing result is explicitly the basic request subset.
 
+The [compiler and delivery follow-up](PERFORMANCE.md) diagnoses that timeout:
+the portable bundle selected scalar bit operations. Native bit operations and
+JIT-off compiler execution now pass the full smoke corpus at 128 MiB, with
+direct measurements against the existing Lua 5.1 Wasm host. It also measures
+HTTP delivery and a diagnostic kernel without the unrelated embedded filesystem.
+
 The small profiles reserve an 8 MiB mailbox, with 1 MiB JSON slots and 2 MiB
 binary-transfer slots. Linux gets 48 MiB in the 64 MiB guest and 112 MiB in the
 128 MiB guest. The pinned v86 JavaScript loader is patched at one checked
@@ -206,7 +212,9 @@ Chrome/macOS is the tested browser/host combination. Safari, Firefox, mobile
 memory pressure, CSP deployment, remote download latency, long-running workloads,
 and larger native dependency sets are unmeasured. Startup is still much slower
 than the small Lua 5.1 Wasm host. Snapshots, a smaller custom kernel, shared
-resource caching, and memory tuning are not part of this measurement.
+resource caching, and memory tuning were not part of the original baseline;
+the linked follow-up measures compression/caching and an empty-filesystem kernel
+repack, but not a source-built minimal kernel or snapshots.
 
 The emulator has a permissive [BSD-2-Clause license](https://github.com/copy/v86/blob/master/LICENSE),
 but this Linux/BusyBox/BIOS guest is **not an entirely permissive stack**.

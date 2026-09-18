@@ -1,0 +1,19 @@
+<!doctype html><meta charset="utf-8"><title>Compiler comparison</title>
+<pre id="terminal">Starting compiler</pre><pre id="result" data-status="running"></pre>
+<script type="module">
+const worker = new Worker('./compiler-portable.mjs', {type: 'module'});
+worker.onmessage = ({data}) => {
+  if (data.progress) document.querySelector('#terminal').textContent = data.progress;
+  if (data.result) {
+    const output = document.querySelector('#result');
+    output.textContent = JSON.stringify(data.result);
+    output.dataset.status = data.result.ok ? 'passed' : 'failed';
+    worker.terminate();
+  }
+};
+worker.onerror = event => {
+  const output = document.querySelector('#result');
+  output.textContent = JSON.stringify({ok: false, error: event.message});
+  output.dataset.status = 'failed';
+};
+</script>

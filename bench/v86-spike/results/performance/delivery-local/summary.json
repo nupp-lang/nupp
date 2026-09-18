@@ -1,0 +1,710 @@
+[
+  {
+    "pair": 0,
+    "variant": "raw",
+    "visit": "cold",
+    "firstFrameMs": 1321.2799999713898,
+    "bootMs": 1155.4350000619888,
+    "wasmMemoryBytes": 80478208,
+    "warmFps": 60.015307278089224,
+    "delivery": {
+      "rateBytesPerSecond": 0,
+      "firstByteDelayMs": 0,
+      "requests": [
+        {
+          "path": "/raw/integration.html",
+          "bytes": 1390,
+          "encoding": "identity"
+        },
+        {
+          "path": "/raw/integration.mjs",
+          "bytes": 8060,
+          "encoding": "identity"
+        },
+        {
+          "path": "/raw/guest-runtime.mjs",
+          "bytes": 7116,
+          "encoding": "identity"
+        },
+        {
+          "path": "/raw/runtime/worker-pool.mjs",
+          "bytes": 8274,
+          "encoding": "identity"
+        },
+        {
+          "path": "/raw/runtime/app-runtime.mjs",
+          "bytes": 39300,
+          "encoding": "identity"
+        },
+        {
+          "path": "/raw/vm-worker.mjs",
+          "bytes": 8890,
+          "encoding": "identity"
+        },
+        {
+          "path": "/raw/assets/libv86.mjs",
+          "bytes": 359552,
+          "encoding": "identity"
+        },
+        {
+          "path": "/raw/initramfs.gz",
+          "bytes": 1419995,
+          "encoding": "identity"
+        },
+        {
+          "path": "/raw/app.ljbc",
+          "bytes": 434901,
+          "encoding": "identity"
+        },
+        {
+          "path": "/raw/assets/v86.wasm",
+          "bytes": 2101621,
+          "encoding": "identity"
+        },
+        {
+          "path": "/raw/assets/seabios.bin",
+          "bytes": 131072,
+          "encoding": "identity"
+        },
+        {
+          "path": "/raw/assets/vgabios.bin",
+          "bytes": 36352,
+          "encoding": "identity"
+        },
+        {
+          "path": "/raw/assets/bzimage.bin",
+          "bytes": 10068480,
+          "encoding": "identity"
+        }
+      ],
+      "payloadBytes": 14625003
+    }
+  },
+  {
+    "pair": 0,
+    "variant": "raw",
+    "visit": "cached",
+    "firstFrameMs": 1823.9150000810623,
+    "bootMs": 1670.585000038147,
+    "wasmMemoryBytes": 80674816,
+    "warmFps": 60.03129721311699,
+    "delivery": {
+      "rateBytesPerSecond": 0,
+      "firstByteDelayMs": 0,
+      "requests": [
+        {
+          "path": "/raw/integration.html",
+          "bytes": 1390,
+          "encoding": "identity"
+        },
+        {
+          "path": "/raw/integration.mjs",
+          "bytes": 8060,
+          "encoding": "identity"
+        },
+        {
+          "path": "/raw/guest-runtime.mjs",
+          "bytes": 7116,
+          "encoding": "identity"
+        },
+        {
+          "path": "/raw/runtime/worker-pool.mjs",
+          "bytes": 8274,
+          "encoding": "identity"
+        },
+        {
+          "path": "/raw/runtime/app-runtime.mjs",
+          "bytes": 39300,
+          "encoding": "identity"
+        },
+        {
+          "path": "/raw/vm-worker.mjs",
+          "bytes": 8890,
+          "encoding": "identity"
+        },
+        {
+          "path": "/raw/assets/libv86.mjs",
+          "bytes": 359552,
+          "encoding": "identity"
+        },
+        {
+          "path": "/raw/initramfs.gz",
+          "bytes": 1419995,
+          "encoding": "identity"
+        },
+        {
+          "path": "/raw/app.ljbc",
+          "bytes": 434901,
+          "encoding": "identity"
+        },
+        {
+          "path": "/raw/assets/v86.wasm",
+          "bytes": 2101621,
+          "encoding": "identity"
+        },
+        {
+          "path": "/raw/assets/seabios.bin",
+          "bytes": 131072,
+          "encoding": "identity"
+        },
+        {
+          "path": "/raw/assets/vgabios.bin",
+          "bytes": 36352,
+          "encoding": "identity"
+        },
+        {
+          "path": "/raw/assets/bzimage.bin",
+          "bytes": 10068480,
+          "encoding": "identity"
+        }
+      ],
+      "payloadBytes": 14625003
+    }
+  },
+  {
+    "pair": 0,
+    "variant": "compressed",
+    "visit": "cold",
+    "firstFrameMs": 1346.0599999427795,
+    "bootMs": 1184.1900000572205,
+    "wasmMemoryBytes": 80543744,
+    "warmFps": 60.00478689737976,
+    "delivery": {
+      "rateBytesPerSecond": 0,
+      "firstByteDelayMs": 0,
+      "requests": [
+        {
+          "path": "/compressed/integration.html",
+          "bytes": 642,
+          "encoding": "br"
+        },
+        {
+          "path": "/compressed/integration.mjs",
+          "bytes": 2899,
+          "encoding": "br"
+        },
+        {
+          "path": "/compressed/guest-runtime.mjs",
+          "bytes": 2253,
+          "encoding": "br"
+        },
+        {
+          "path": "/compressed/runtime/worker-pool.mjs",
+          "bytes": 2589,
+          "encoding": "br"
+        },
+        {
+          "path": "/compressed/runtime/app-runtime.mjs",
+          "bytes": 9800,
+          "encoding": "br"
+        },
+        {
+          "path": "/compressed/vm-worker.mjs",
+          "bytes": 2969,
+          "encoding": "br"
+        },
+        {
+          "path": "/compressed/assets/libv86.mjs",
+          "bytes": 87228,
+          "encoding": "br"
+        },
+        {
+          "path": "/compressed/app.ljbc",
+          "bytes": 117424,
+          "encoding": "br"
+        },
+        {
+          "path": "/compressed/initramfs.gz",
+          "bytes": 1419995,
+          "encoding": "identity"
+        },
+        {
+          "path": "/compressed/assets/v86.wasm",
+          "bytes": 323281,
+          "encoding": "br"
+        },
+        {
+          "path": "/compressed/assets/seabios.bin",
+          "bytes": 64849,
+          "encoding": "br"
+        },
+        {
+          "path": "/compressed/assets/vgabios.bin",
+          "bytes": 15546,
+          "encoding": "br"
+        },
+        {
+          "path": "/compressed/assets/bzimage.bin",
+          "bytes": 10059452,
+          "encoding": "br"
+        }
+      ],
+      "payloadBytes": 12108927
+    }
+  },
+  {
+    "pair": 0,
+    "variant": "compressed",
+    "visit": "cached",
+    "firstFrameMs": 1876.5649999380112,
+    "bootMs": 1717.5699999332428,
+    "wasmMemoryBytes": 80478208,
+    "warmFps": 59.98739590747394,
+    "delivery": {
+      "rateBytesPerSecond": 0,
+      "firstByteDelayMs": 0,
+      "requests": [],
+      "payloadBytes": 0
+    }
+  },
+  {
+    "pair": 0,
+    "variant": "slim",
+    "visit": "cold",
+    "firstFrameMs": 1216.344999909401,
+    "bootMs": 1032.3700000047684,
+    "wasmMemoryBytes": 80609280,
+    "warmFps": 59.989619772307464,
+    "delivery": {
+      "rateBytesPerSecond": 0,
+      "firstByteDelayMs": 0,
+      "requests": [
+        {
+          "path": "/slim/integration.html",
+          "bytes": 642,
+          "encoding": "br"
+        },
+        {
+          "path": "/slim/integration.mjs",
+          "bytes": 2899,
+          "encoding": "br"
+        },
+        {
+          "path": "/slim/guest-runtime.mjs",
+          "bytes": 2253,
+          "encoding": "br"
+        },
+        {
+          "path": "/slim/runtime/worker-pool.mjs",
+          "bytes": 2589,
+          "encoding": "br"
+        },
+        {
+          "path": "/slim/runtime/app-runtime.mjs",
+          "bytes": 9800,
+          "encoding": "br"
+        },
+        {
+          "path": "/slim/vm-worker.mjs",
+          "bytes": 2969,
+          "encoding": "br"
+        },
+        {
+          "path": "/slim/assets/libv86.mjs",
+          "bytes": 87228,
+          "encoding": "br"
+        },
+        {
+          "path": "/slim/app.ljbc",
+          "bytes": 117424,
+          "encoding": "br"
+        },
+        {
+          "path": "/slim/initramfs.gz",
+          "bytes": 1419995,
+          "encoding": "identity"
+        },
+        {
+          "path": "/slim/assets/v86.wasm",
+          "bytes": 323281,
+          "encoding": "br"
+        },
+        {
+          "path": "/slim/assets/seabios.bin",
+          "bytes": 64849,
+          "encoding": "br"
+        },
+        {
+          "path": "/slim/assets/vgabios.bin",
+          "bytes": 15546,
+          "encoding": "br"
+        },
+        {
+          "path": "/slim/assets/bzimage.bin",
+          "bytes": 3819183,
+          "encoding": "br"
+        }
+      ],
+      "payloadBytes": 5868658
+    }
+  },
+  {
+    "pair": 0,
+    "variant": "slim",
+    "visit": "cached",
+    "firstFrameMs": 1709.9649999141693,
+    "bootMs": 1539.5950000286102,
+    "wasmMemoryBytes": 80281600,
+    "warmFps": 60.00397779120749,
+    "delivery": {
+      "rateBytesPerSecond": 0,
+      "firstByteDelayMs": 0,
+      "requests": [],
+      "payloadBytes": 0
+    }
+  },
+  {
+    "pair": 1,
+    "variant": "slim",
+    "visit": "cold",
+    "firstFrameMs": 1194.3250000476837,
+    "bootMs": 1002.210000038147,
+    "wasmMemoryBytes": 80543744,
+    "warmFps": 59.970217040977474,
+    "delivery": {
+      "rateBytesPerSecond": 0,
+      "firstByteDelayMs": 0,
+      "requests": [
+        {
+          "path": "/slim/integration.html",
+          "bytes": 642,
+          "encoding": "br"
+        },
+        {
+          "path": "/slim/integration.mjs",
+          "bytes": 2899,
+          "encoding": "br"
+        },
+        {
+          "path": "/slim/guest-runtime.mjs",
+          "bytes": 2253,
+          "encoding": "br"
+        },
+        {
+          "path": "/slim/runtime/worker-pool.mjs",
+          "bytes": 2589,
+          "encoding": "br"
+        },
+        {
+          "path": "/slim/runtime/app-runtime.mjs",
+          "bytes": 9800,
+          "encoding": "br"
+        },
+        {
+          "path": "/slim/vm-worker.mjs",
+          "bytes": 2969,
+          "encoding": "br"
+        },
+        {
+          "path": "/slim/assets/libv86.mjs",
+          "bytes": 87228,
+          "encoding": "br"
+        },
+        {
+          "path": "/slim/app.ljbc",
+          "bytes": 117424,
+          "encoding": "br"
+        },
+        {
+          "path": "/slim/initramfs.gz",
+          "bytes": 1419995,
+          "encoding": "identity"
+        },
+        {
+          "path": "/slim/assets/v86.wasm",
+          "bytes": 323281,
+          "encoding": "br"
+        },
+        {
+          "path": "/slim/assets/seabios.bin",
+          "bytes": 64849,
+          "encoding": "br"
+        },
+        {
+          "path": "/slim/assets/vgabios.bin",
+          "bytes": 15546,
+          "encoding": "br"
+        },
+        {
+          "path": "/slim/assets/bzimage.bin",
+          "bytes": 3819183,
+          "encoding": "br"
+        }
+      ],
+      "payloadBytes": 5868658
+    }
+  },
+  {
+    "pair": 1,
+    "variant": "slim",
+    "visit": "cached",
+    "firstFrameMs": 1700.9750000238419,
+    "bootMs": 1528.179999947548,
+    "wasmMemoryBytes": 80281600,
+    "warmFps": 60.01692612340523,
+    "delivery": {
+      "rateBytesPerSecond": 0,
+      "firstByteDelayMs": 0,
+      "requests": [],
+      "payloadBytes": 0
+    }
+  },
+  {
+    "pair": 1,
+    "variant": "compressed",
+    "visit": "cold",
+    "firstFrameMs": 1387.8149999380112,
+    "bootMs": 1212.9800000190735,
+    "wasmMemoryBytes": 80936960,
+    "warmFps": 59.97082318107922,
+    "delivery": {
+      "rateBytesPerSecond": 0,
+      "firstByteDelayMs": 0,
+      "requests": [
+        {
+          "path": "/compressed/integration.html",
+          "bytes": 642,
+          "encoding": "br"
+        },
+        {
+          "path": "/compressed/integration.mjs",
+          "bytes": 2899,
+          "encoding": "br"
+        },
+        {
+          "path": "/compressed/guest-runtime.mjs",
+          "bytes": 2253,
+          "encoding": "br"
+        },
+        {
+          "path": "/compressed/runtime/worker-pool.mjs",
+          "bytes": 2589,
+          "encoding": "br"
+        },
+        {
+          "path": "/compressed/runtime/app-runtime.mjs",
+          "bytes": 9800,
+          "encoding": "br"
+        },
+        {
+          "path": "/compressed/vm-worker.mjs",
+          "bytes": 2969,
+          "encoding": "br"
+        },
+        {
+          "path": "/compressed/assets/libv86.mjs",
+          "bytes": 87228,
+          "encoding": "br"
+        },
+        {
+          "path": "/compressed/app.ljbc",
+          "bytes": 117424,
+          "encoding": "br"
+        },
+        {
+          "path": "/compressed/initramfs.gz",
+          "bytes": 1419995,
+          "encoding": "identity"
+        },
+        {
+          "path": "/compressed/assets/v86.wasm",
+          "bytes": 323281,
+          "encoding": "br"
+        },
+        {
+          "path": "/compressed/assets/seabios.bin",
+          "bytes": 64849,
+          "encoding": "br"
+        },
+        {
+          "path": "/compressed/assets/vgabios.bin",
+          "bytes": 15546,
+          "encoding": "br"
+        },
+        {
+          "path": "/compressed/assets/bzimage.bin",
+          "bytes": 10059452,
+          "encoding": "br"
+        }
+      ],
+      "payloadBytes": 12108927
+    }
+  },
+  {
+    "pair": 1,
+    "variant": "compressed",
+    "visit": "cached",
+    "firstFrameMs": 1904.570000052452,
+    "bootMs": 1723.070000052452,
+    "wasmMemoryBytes": 80609280,
+    "warmFps": 60.00256190790918,
+    "delivery": {
+      "rateBytesPerSecond": 0,
+      "firstByteDelayMs": 0,
+      "requests": [],
+      "payloadBytes": 0
+    }
+  },
+  {
+    "pair": 1,
+    "variant": "raw",
+    "visit": "cold",
+    "firstFrameMs": 1349.3949999809265,
+    "bootMs": 1184.9599999189377,
+    "wasmMemoryBytes": 80412672,
+    "warmFps": 59.98537435042488,
+    "delivery": {
+      "rateBytesPerSecond": 0,
+      "firstByteDelayMs": 0,
+      "requests": [
+        {
+          "path": "/raw/integration.html",
+          "bytes": 1390,
+          "encoding": "identity"
+        },
+        {
+          "path": "/raw/integration.mjs",
+          "bytes": 8060,
+          "encoding": "identity"
+        },
+        {
+          "path": "/raw/guest-runtime.mjs",
+          "bytes": 7116,
+          "encoding": "identity"
+        },
+        {
+          "path": "/raw/runtime/worker-pool.mjs",
+          "bytes": 8274,
+          "encoding": "identity"
+        },
+        {
+          "path": "/raw/runtime/app-runtime.mjs",
+          "bytes": 39300,
+          "encoding": "identity"
+        },
+        {
+          "path": "/raw/vm-worker.mjs",
+          "bytes": 8890,
+          "encoding": "identity"
+        },
+        {
+          "path": "/raw/assets/libv86.mjs",
+          "bytes": 359552,
+          "encoding": "identity"
+        },
+        {
+          "path": "/raw/app.ljbc",
+          "bytes": 434901,
+          "encoding": "identity"
+        },
+        {
+          "path": "/raw/initramfs.gz",
+          "bytes": 1419995,
+          "encoding": "identity"
+        },
+        {
+          "path": "/raw/assets/v86.wasm",
+          "bytes": 2101621,
+          "encoding": "identity"
+        },
+        {
+          "path": "/raw/assets/seabios.bin",
+          "bytes": 131072,
+          "encoding": "identity"
+        },
+        {
+          "path": "/raw/assets/vgabios.bin",
+          "bytes": 36352,
+          "encoding": "identity"
+        },
+        {
+          "path": "/raw/assets/bzimage.bin",
+          "bytes": 10068480,
+          "encoding": "identity"
+        }
+      ],
+      "payloadBytes": 14625003
+    }
+  },
+  {
+    "pair": 1,
+    "variant": "raw",
+    "visit": "cached",
+    "firstFrameMs": 1904.4750000238419,
+    "bootMs": 1734.1399999856949,
+    "wasmMemoryBytes": 80478208,
+    "warmFps": 59.99002412908337,
+    "delivery": {
+      "rateBytesPerSecond": 0,
+      "firstByteDelayMs": 0,
+      "requests": [
+        {
+          "path": "/raw/integration.html",
+          "bytes": 1390,
+          "encoding": "identity"
+        },
+        {
+          "path": "/raw/integration.mjs",
+          "bytes": 8060,
+          "encoding": "identity"
+        },
+        {
+          "path": "/raw/guest-runtime.mjs",
+          "bytes": 7116,
+          "encoding": "identity"
+        },
+        {
+          "path": "/raw/runtime/worker-pool.mjs",
+          "bytes": 8274,
+          "encoding": "identity"
+        },
+        {
+          "path": "/raw/runtime/app-runtime.mjs",
+          "bytes": 39300,
+          "encoding": "identity"
+        },
+        {
+          "path": "/raw/vm-worker.mjs",
+          "bytes": 8890,
+          "encoding": "identity"
+        },
+        {
+          "path": "/raw/assets/libv86.mjs",
+          "bytes": 359552,
+          "encoding": "identity"
+        },
+        {
+          "path": "/raw/initramfs.gz",
+          "bytes": 1419995,
+          "encoding": "identity"
+        },
+        {
+          "path": "/raw/app.ljbc",
+          "bytes": 434901,
+          "encoding": "identity"
+        },
+        {
+          "path": "/raw/assets/v86.wasm",
+          "bytes": 2101621,
+          "encoding": "identity"
+        },
+        {
+          "path": "/raw/assets/seabios.bin",
+          "bytes": 131072,
+          "encoding": "identity"
+        },
+        {
+          "path": "/raw/assets/vgabios.bin",
+          "bytes": 36352,
+          "encoding": "identity"
+        },
+        {
+          "path": "/raw/assets/bzimage.bin",
+          "bytes": 10068480,
+          "encoding": "identity"
+        }
+      ],
+      "payloadBytes": 14625003
+    }
+  }
+]

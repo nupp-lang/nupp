@@ -1,0 +1,101 @@
+{
+  "ok": true,
+  "mode": "compiler",
+  "compiler": {
+    "value": {
+      "nativeBit": true,
+      "phases": {
+        "check.check": {
+          "calls": 46,
+          "ms": 97582.182
+        },
+        "env.new": {
+          "calls": 2,
+          "ms": 3371.1620000000003
+        },
+        "preludeimage.new": {
+          "calls": 2,
+          "ms": 3283.6890000000003
+        },
+        "hash.sha256": {
+          "calls": 104,
+          "ms": 1914.0869999999813
+        },
+        "optimize.run": {
+          "calls": 4,
+          "ms": 5.0649999999996
+        },
+        "optimize.liveEffects": {
+          "calls": 4,
+          "ms": 3.7999999999992724
+        },
+        "gen.generate": {
+          "calls": 4,
+          "ms": 67.1760000000022
+        },
+        "parser.parse": {
+          "calls": 75,
+          "ms": 3433.651000000018
+        }
+      },
+      "totalMs": 30348.145000000004,
+      "rounds": [
+        29875.525
+      ],
+      "luaHeapKiB": 22516.9736328125,
+      "samples": {},
+      "requests": [
+        {
+          "ms": 1971.9160000000002,
+          "name": "check:playground.nupp"
+        },
+        {
+          "ms": 55.73000000000047,
+          "name": "compile:playground.nupp"
+        },
+        {
+          "ms": 0,
+          "name": "hover:wire"
+        },
+        {
+          "ms": 1451.6009999999997,
+          "name": "compile:playground.nupp"
+        },
+        {
+          "ms": 24540.375,
+          "name": "compile:browser-platform.nupp"
+        },
+        {
+          "ms": 1719.5600000000013,
+          "name": "compile:webgpu-compute.nupp"
+        },
+        {
+          "ms": 7.684999999997672,
+          "name": "check:playground.nupp"
+        },
+        {
+          "ms": 7.684999999997672,
+          "name": "request:wire"
+        }
+      ],
+      "loadMs": 472.6199999999999,
+      "states": {}
+    },
+    "metrics": {
+      "frames": 0,
+      "effects": 0,
+      "effectBytes": 0,
+      "responseBytes": 0,
+      "copiedIn": 0,
+      "copiedOut": 0,
+      "hostEffectMs": [],
+      "guestIntervalsMs": [],
+      "bootMs": 2351.2400000095367,
+      "wasmMemoryBytes": 148570112,
+      "totalMs": 32883.44499993324
+    }
+  },
+  "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+  "isolated": true,
+  "browserErrors": []
+}
