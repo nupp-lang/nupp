@@ -75,7 +75,7 @@ assert(#emptyView == 3)
 local _emptyElement = emptyView[3]
 
 local buffers = require("nupp.text")
-local queue = buffers.new()
+local queue = buffers.newBuffer()
 queue:put("ab", "", "cd", "ef")
 assert(#queue == 6 and queue:get(3) == "abc" and #queue == 3)
 queue:put("gh")
