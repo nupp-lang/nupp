@@ -2668,6 +2668,16 @@ local function inlinableHelpers(root)
                     and returned.kind == "returnStmt"
                     and returned.exprs
                     and #returned.exprs == 1
+                -- The call becomes a parenthesized expression, which yields one
+                -- value. A body returning a call or `...` yields as many as that
+                -- does, so it is inlined only where its own signature says one.
+                local expr = single and returned.exprs[1] or nil
+                local multi = expr ~= nil and (
+                    expr.kind == "call" or expr.kind == "methodCall" or expr.kind == "vararg"
+                )
+                if multi and (body.rets == nil or #body.rets ~= 1) then
+                    single = false
+                end
                 if single and not body.varargParam and not body.generics then
                     local params, ok = {}, true
                     for _, param in ipairs(body.params or {}) do

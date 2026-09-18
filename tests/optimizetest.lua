@@ -1353,6 +1353,22 @@ function M.inliningKeepsAComputedRequireComputed()
     )
 end
 
+--- A helper returning a call yields every value that call does, and a
+--- parenthesized expression yields one, so the helper is inlined only when its
+--- signature says one value.
+function M.leavesAMultipleValueHelperCallAlone()
+   local code = compile(
+      "local function parts(v: string): (string?, string?) return v:match(\"(%a+)_(%a+)\") end\n"
+      .. "local function m(x: string): (string?, string?) return parts(x) end\nreturn m")
+   assertTrue(code:find("return parts ( x )", 1, true) ~= nil,
+      "the call stays a call: " .. code)
+   local single = compile(
+      "local function head(v: string): string? return v:match(\"(%a+)\") end\n"
+      .. "local function m(x: string): string? return head(x) end\nreturn m")
+   assertTrue(single:find("return ( x : match (", 1, true) ~= nil,
+      "a single declared value is still inlined: " .. single)
+end
+
 --- A helper whose body constructs a record substitutes into every field.
 ---
 --- The named fields of `new T(...)` hold their value expressions where the copy's
