@@ -177,15 +177,15 @@ the arithmetic is specified to be the same work in the same order:
 bench/kernel-subset-spike/simd.sh                     # lane rewrite vs scalar
 luajit bench/kernel-subset-spike/corrected_main.lua   # binary32 min/max/fma
 luajit bench/kernel-subset-spike/tecsbits_main.lua    # bitwise lanes over entities
-luajit bench/kernel-subset-spike/mixedwidth_main.lua  # binary32 and binary64 in one gang
+luajit bench/kernel-subset-spike/mixedwidth_main.lua  # binary32 and binary64 in one region
 luajit bench/kernel-subset-spike/mandelbrot_main.lua  # every pixel, three ways
 ```
 
-Tails are exercised at every remainder for both gang widths, so a four-lane and
-an eight-lane tail are both covered.
+Tails are exercised at every remainder for both region widths, so a four-lane
+and an eight-lane tail are both covered.
 
 `bench/kernel-subset-spike/crosscheck.sh` runs the same agreement in C with no
-LuaJIT in the process, over every committed kernel, at both gang widths and at
+LuaJIT in the process, over every committed kernel, at both region widths and at
 whatever feature tier is asked for. CI runs it on Linux and macOS at three tiers
 and through both Clang and GCC, and on Windows, so the platform is checked
 rather than reasoned about from the other two.
@@ -272,7 +272,7 @@ block, including through nested loops. `return` exits the AOT function, while
 `break` and `continue` keep their authored loop targets.
 
 ```nupp
-@aot(vectorize = false)
+@aot
 local function classify(value: number): number
     return do
         if value < 0 then return -1 end
@@ -291,5 +291,5 @@ Lowering preserves left-to-right operand evaluation and conditional execution
 in boolean `and`/`or` and ternaries. A loop condition's statements execute on
 every condition test, including the test reached by `continue`. These blocks
 compile to native locals and control flow without closures. Statementful loop
-conditions currently use scalar execution; GPU profiles and automatic lane
-rewriting reject that particular loop shape.
+conditions currently use scalar execution; GPU profiles and the `@simd` rewrite
+do not admit that particular loop shape.

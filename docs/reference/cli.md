@@ -427,7 +427,7 @@ That is the whole of `return 1`, down to the newline the file ends with.
 ```text [nupp aot --help]
 Show what the @aot functions in a file compile to.
 
-With no artifact, reports what each function lowered to: the gang every
+With no artifact, reports what each function lowered to: the species every
 `@simd` loop runs in, or that it runs scalar. Select verified IR, generated
 C, native GPU SPIR-V, browser GPU WGSL, native assembly, or the generated
 Nupp binding with `--emit`.
@@ -462,15 +462,16 @@ Options:
 ```
 
 The bare command says what every `@aot` function in the file lowered to: its
-entry mode, and the [gang](../learn/performance/ahead-of-time/vectorization.md)
-each `@simd` loop in it runs in, or `scalar` for a body with none.
+entry mode, and the
+[species](../learn/performance/ahead-of-time/vectorization.md) each `@simd` loop
+in it runs in, or `scalar` for a body with none.
 
 ```text [nupp aot bench/kernel-subset-spike/mandelbrot.nupp]
-bench/kernel-subset-spike/mandelbrot.nupp: mandelbrot, kernel, mixed4, 4 lanes
+bench/kernel-subset-spike/mandelbrot.nupp: mandelbrot, kernel, Fixed<4>, 4 lanes
 ```
 
-`--emit` prints one artifact. `ir` is the verified IR with the lane body beside
-the scalar one it was rewritten from, `c` is the generated C, `spirv` is the
+`--emit` prints one artifact. `ir` is the verified IR with the vector body
+beside the scalar loop it was rewritten from, `c` is the generated C, `spirv` is the
 native GPU module, `wgsl` is the browser WebGPU integer artifact, `asm` is the
 instructions that C became, and `binding` is the Nupp module that stands in
 front of it.
@@ -526,7 +527,7 @@ A loop without the mark runs one iteration at a time and is reported as
 have paid.
 
 See [vectorization.md](../learn/performance/ahead-of-time/vectorization.md#targets-and-feature-tiers)
-for how a gang is chosen and for the tiers `--features` names.
+for how a lane count is chosen and for the tiers `--features` names.
 
 ### `bc`
 

@@ -38,6 +38,7 @@ local function mandelbrot(
     assert(#escapes == #points, "length mismatch")
     assert(first >= 1 and last <= #escapes and first <= last + 1, "range out of bounds")
 
+    @simd
     for i = first, last do
         local escape = escapes[i]
         local point = points[i]
@@ -66,7 +67,7 @@ local function mandelbrot(
 end
 ```
 
-Two guards, then one numeric `for` loop.
+Two guards, then one marked numeric `for` loop.
 
 ## Guards
 
@@ -183,7 +184,7 @@ nupp aot bench/kernel-subset-spike/mandelbrot.nupp
 ```
 
 ```text
-bench/kernel-subset-spike/mandelbrot.nupp: mandelbrot, kernel, mixed4, 4 lanes
+bench/kernel-subset-spike/mandelbrot.nupp: mandelbrot, kernel, Fixed<4>, 4 lanes
 ```
 
 `nupp aot` names each function's `kernel` or `lua-builder` entry mode, and JSON
@@ -220,7 +221,7 @@ once for the listing instead.
 
 A file may hold any number of `@aot` functions, and they need not agree about
 width. They come out as one C file: a shared struct is declared once, each
-function brings its own bodies, and each gang's prelude appears once.
+function brings its own bodies, and each region width's prelude appears once.
 
 Inspection checks the source before lowering it, just as `nupp build` does. The
 backend consumes the checker's resolved signatures, ownership modes, effects,
@@ -287,66 +288,77 @@ width changes without the source asking.
 
 ### Lane-parallel body
 
-The same loop, four iterations at a time. Vector types are C vector extensions,
-so an elementwise operation is written as though it were scalar:
+The same loop, four iterations at a time. The `@simd` mark is lowered onto the
+same `simd.Species` operations [explicit SIMD](vectorization.md#explicit-simd)
+exposes, so the C is the C explicit source would have produced: one species per
+element type at the region's lane count, out of the `ks_simd.h` header the
+prelude carries.
 
 ```c
-typedef long long ks_m64x4 __attribute__((vector_size(32)));
-typedef double ks_f64x4 __attribute__((vector_size(32)));
-
-static inline ks_f64x4 ks_splat_f64x4(double v) { return (ks_f64x4){v, v, v, v}; }
-static inline ks_f64x4 ks_sel_f64x4(ks_m64x4 m, ks_f64x4 a, ks_f64x4 b) {
-    return (ks_f64x4)((m & (ks_m64x4)a) | (~m & (ks_m64x4)b));
-}
+#define KS_SIMD_WIDTH 32
 ```
 
 ```c
-    size_t groups = (end > i) ? ((end - i) / 4) * 4 + i : i;
-    for (; i < groups; i += 4) {
-        ks_f64x4 v3_cx = ((ks_f64x4){p_points[i + 0].re, p_points[i + 1].re,
-                                     p_points[i + 2].re, p_points[i + 3].re});
-        ks_f64x4 v9_zx = ks_splat_f64x4(0.0);
-        ks_m64x4 lm4_live = (v13_iteration < ks_splat_f64x4(((double)p_maxIterations)));
-        while (ks_any(lm4_live)) {
-            ks_m64x4 lm5_exec = lm4_live;
-            ks_m64x4 lm6_if = (lm5_exec & ((v11_zxSquared + v12_zySquared) > ks_splat_f64x4(4.0)));
-            v14_escaped = ks_sel_f64x4((lm6_if & lm5_exec), ks_splat_f64x4(1.0), v14_escaped);
-            lm4_live &= ~((lm6_if & lm5_exec));
-            lm5_exec &= ~((lm6_if & lm5_exec));
-            v10_zy = (((ks_splat_f64x4(2.0) * v9_zx) * v10_zy) + v4_cy);
-            v9_zx = ((v11_zxSquared - v12_zySquared) + v3_cx);
-            v11_zxSquared = (v9_zx * v9_zx);
-            v12_zySquared = (v10_zy * v10_zy);
-            v13_iteration = ks_sel_f64x4(lm5_exec, (v13_iteration + ks_splat_f64x4(1.0)), v13_iteration);
-            lm4_live &= (v13_iteration < ks_splat_f64x4(((double)p_maxIterations)));
-        }
+KS_EXP_ELEMENT(16, f32x4, float, int32_t, 4, 4, FLOAT)
+KS_EXP_ELEMENT(32, f64x4, double, int64_t, 4, 8, FLOAT)
+```
+
+Each of those declares `ks_exp_<species>` and `ks_exp_mask_<species>` as C
+vector extensions plus the operations over them, so an elementwise operation in
+the body is written as though it were scalar (the conversions between species
+are statement expressions, elided here):
+
+```c
+    uint32_t sr0_base1 = ((uint32_t)(nupp_wrap_u32(p_first) + UINT32_C(4294967295)));
+    {
+        while (/* base + lanes fits both spans, and base + lanes <= last */) {
+            ks_exp_f64x4 v3_cx = /* converted from f32x4 */ ks_exp_field_load_at_f32x4(
+                p_points + (size_t)sr0_base1, sizeof(KsPoint), offsetof(KsPoint, re));
+            ks_exp_f64x4 v9_zx = ks_exp_splat_f64x4(0.0);
+            ks_exp_mask_f64x4 sr0_live5 = (v13_iteration < ks_exp_splat_f64x4(((double)p_maxIterations)));
+            while (ks_exp_any_f64x4(sr0_live5)) {
+                ks_exp_mask_f64x4 sr0_exec6 = sr0_live5;
+                ks_exp_mask_f64x4 sr0_if7 = (sr0_exec6 & ((v11_zxSquared + v12_zySquared) > ks_exp_splat_f64x4(4.0)));
+                ks_exp_mask_f64x4 as1 = (sr0_live5 & (~(sr0_if7 & sr0_exec6)));
+                sr0_live5 = as1;
+                ks_exp_mask_f64x4 as2 = (sr0_exec6 & (~(sr0_if7 & sr0_exec6)));
+                sr0_exec6 = as2;
+                ks_exp_f64x4 as3 = (((ks_exp_splat_f64x4(2.0) * v9_zx) * v10_zy) + v4_cy);
+                v10_zy = as3;
+                ks_exp_f64x4 as4 = ((v11_zxSquared - v12_zySquared) + v3_cx);
+                v9_zx = as4;
+                ks_exp_f64x4 as7 = ks_exp_select_f64x4(sr0_exec6, (v13_iteration + ks_exp_splat_f64x4(1.0)), v13_iteration);
+                v13_iteration = as7;
+                ks_exp_mask_f64x4 as8 = (sr0_live5 & (v13_iteration < ks_exp_splat_f64x4(((double)p_maxIterations))));
+                sr0_live5 = as8;
+            }
 ```
 
 Read what happened to the source's control flow. The `if` became a mask. The
-`break` became `lm4_live &= ~mask`, so the lane retires from the loop instead of
-branching out of it, and the loop ends when `ks_any` says nothing is live. The
-assignment to `iteration` became a select, so a lane that already escaped keeps
-what it had. `live` and `exec` are two masks because they differ: a lane that
-hit `continue` is not running the rest of this iteration but is still in the
-loop.
+`break` became `sr0_live5 & ~mask`, so the lane retires from the loop instead of
+branching out of it, and the loop ends when `ks_exp_any_f64x4` says nothing is
+live. The assignment to `iteration` became a select, so a lane that already
+escaped keeps what it had. `live` and `exec` are two masks because they differ:
+a lane that hit `continue` is not running the rest of this iteration but is
+still in the loop.
 
-The store writes consecutive elements one lane each, which Clang turns into an
-interleaving store where the target has one:
+Storing a field of consecutive structs is one strided store per field, under the
+proof that the guard on the `while` gave it:
 
 ```c
-        {
-            ks_f64x4 lanes = v13_iteration;
-            p_escapes[i + 0].iterations = (int32_t)lanes[0];
-            p_escapes[i + 1].iterations = (int32_t)lanes[1];
-            p_escapes[i + 2].iterations = (int32_t)lanes[2];
-            p_escapes[i + 3].iterations = (int32_t)lanes[3];
+            ks_exp_field_store_at_i32x4(p_escapes + (size_t)sr0_base1, sizeof(KsEscape),
+                offsetof(KsEscape, iterations), /* the f64x4 -> i32x4 conversion */);
+            uint32_t as5 = ((uint32_t)(sr0_base1 + UINT32_C(4)));
+            sr0_base1 = as5;
         }
-    }
 ```
 
-The remainder runs the scalar body one iteration at a time rather than a masked
-final group, because a masked load still reads the addresses it masked off, and
-the last element of a span may be the last byte of a page.
+The remainder is a masked final group rather than a scalar tail. It is the same
+body under `ks_exp_tail_f64x4`, and it reaches memory through the checked
+`ks_exp_field_load_f32x4` and `ks_exp_field_store_i32x4` rather than the `_at_`
+forms above, which copy only the elements that remain: a masked-off lane never
+touches the address it masked off, and the last element of a span may be the
+last byte of a page.
 
 Two whole functions come out: `ks_mandelbrot`, and `ks_mandelbrot_forced_scalar`
 carrying a pragma that refuses vectorization. The second is the oracle the first
@@ -494,7 +506,7 @@ registers:
 
 | Body | MPix/s | Notes |
 | --- | --- | --- |
-| AOT f32x8 | 213.06 | eight lanes, 32-byte gang |
+| AOT f32x8 | 213.06 | eight lanes, 32-byte region |
 | AOT forced scalar | 65.82 | same width as the f64 scalar |
 | LuaJIT | 0.13 | every rounding through an FFI store and load |
 
@@ -523,7 +535,7 @@ iteration = nupp.math.i32.add(iteration, 1)
 :::
 
 ```text
-bench/kernel-subset-spike/mandelbrot_f32.nupp: mandelbrot, kernel, f32x8, 8 lanes
+bench/kernel-subset-spike/mandelbrot_f32.nupp: mandelbrot, kernel, Fixed<8>, 8 lanes
 ```
 
 The LuaJIT row collapses because explicit binary32 in ordinary Nupp performs
@@ -531,7 +543,7 @@ each rounding point through an FFI store and load, which is the price of the
 source rather than an artifact of measuring it.
 
 Eight lanes over four is 1.66x, not 2x, and that is the algorithm rather than
-the lowering. A gang runs until its slowest lane retires, so widening it takes
+the lowering. A group runs until its slowest lane retires, so widening it takes
 that maximum over more pixels. Measured on this view the eight-lane ceiling is
 1.68x at 256 iterations, falling to 1.58x at 4096 as escape counts spread
 further apart, against measured ratios of 1.66x and 1.48x. The lowering runs at

@@ -447,8 +447,8 @@ operation inside the body reports `NUPP2903` at the construct. Stacking it with
 reports `NUPP2902`, since neither is a whole function to compile.
 
 A numeric `for` loop inside the body marked `@simd` runs several iterations at
-once, in the widest lane gang the target offers for the widths the body mixes.
-The mark is a requirement, not a hint: a loop that cannot run in lanes fails the
+once, in as many lanes as the target's region width holds of the widest element
+the body carries. The mark is a requirement, not a hint: a loop that cannot run in lanes fails the
 build at the construct that stopped it, and an unmarked loop runs one iteration
 at a time without anything having to decide that. See
 [vectorization.md](../learn/performance/ahead-of-time/vectorization.md) for
@@ -545,18 +545,18 @@ local function scale(
     if #out ~= #input then error("length mismatch", 2) end
     @simd
     for i = 1, #out do
-        out[i] = nupp.math.f32.mul(input[i], factor)
+        out[i] = nupp.math.f32.mul(nupp.math.f32.narrow(input[i]), factor)
     end
 end
 ```
 
-The gang is chosen from the widths the body mixes and the tier the build
-compiles for; `nupp aot FILE` names it. A body the backend cannot run in lanes
--- a call to a compiled entry, a statement with no lane-parallel form, a bound
-that is not the span's extent -- fails the build at that construct rather than
-running scalar, because the mark is a statement about the program and not a
-preference. A loop without the mark runs one iteration at a time, and the
-report says `scalar` for it. `@simd` on anything but a numeric `for` loop
+The lane count is the tier's region width over the widest element the body
+carries; `nupp aot FILE` names the resulting `Fixed<N>` species. A body the
+backend cannot run in lanes -- a call to a compiled entry, a statement with no
+lane-parallel form, a bound that is not the span's extent -- fails the build at
+that construct rather than running scalar, because the mark is a statement about
+the program and not a preference. A loop without the mark runs one iteration at
+a time, and the report says `scalar` for it. `@simd` on anything but a numeric `for` loop
 inside an `@aot` body, or on a loop inside a `target = "gpu"` body, is refused
 where it is written.
 

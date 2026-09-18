@@ -122,7 +122,7 @@ were all forbidden to reorder.
 1.79x at 262 144. `nupp aot` reports the reason —
 
 ```text
-src/kernels.nupp: mandelbrot, kernel, mixed4, 4 lanes
+src/kernels.nupp: mandelbrot, kernel, Fixed<4>, 4 lanes
 ```
 
 — and disassembling the other two confirms the other half of it. Neither clang
@@ -258,7 +258,7 @@ checks, including the `%a` bit patterns of every `float` `advance` writes.
 
 The sizes are chosen around the edges of the lane-lowered loops rather than for
 being round — 0, 1, 2, 3, 4, 5, 7, 8, 9, 16, 17, 63, 64, 65, 1 000, 1 024. A
-kernel that lowers four lanes at a time has a vector body and a scalar tail, and
+kernel that lowers four lanes at a time has a vector body and a masked tail, and
 a length that is a multiple of four never runs the tail. Each kernel is then
 required to write something non-trivial at a real size, because four
 implementations agreeing on nothing is not agreement.
@@ -274,7 +274,7 @@ for _ = 1, 4 do
 end
 ```
 
-— it lowers to the same `mixed4, 4 lanes` today, a nested numeric loop being a
+— it lowers to the same `Fixed<8>, 8 lanes` today, a nested numeric loop being a
 shape the lane path now controls; when this bench was written it was not, and
 the `@simd` mark on the outer loop would have failed the build. Clang and Terra
 unroll their own four-round loops without being asked, so all three

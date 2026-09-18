@@ -6,8 +6,8 @@ order: 633
 
 A numeric loop over checked spans inside an `@aot` body runs one iteration at a
 time unless it is marked `@simd`, in which case it runs several at once without
-changing its source-level result. The backend reports the gang each marked loop
-runs in and the feature tier required to load the artifact.
+changing its source-level result. The backend reports the species each marked
+loop runs in and the feature tier required to load the artifact.
 
 ```nupp
 local span = nupp.mem.span
@@ -56,23 +56,29 @@ src/particles.nupp:27:5: aot: a lane-parallel body cannot call a compiled entry
 
 That is the whole of the check, and it is why the mark is worth writing even on
 a loop that lowers today: nothing else notices when an ordinary edit stops it
-from happening. `nupp aot FILE` reports every `@aot` function, with the gang of
-each marked loop or `scalar` for a body with none:
+from happening. `nupp aot FILE` reports every `@aot` function, with the species
+of each marked loop or `scalar` for a body with none:
 
 ```bash
 nupp aot bench/kernel-subset-spike/mandelbrot.nupp
 ```
 
 ```text
-bench/kernel-subset-spike/mandelbrot.nupp: mandelbrot, kernel, mixed4, 4 lanes
+bench/kernel-subset-spike/mandelbrot.nupp: mandelbrot, kernel, Fixed<4>, 4 lanes
 ```
 
-**How wide** is the backend's decision. Gangs come in 16-, 32-, and 64-byte shapes. Ordinary Nupp
-arithmetic is binary64, so a loop written with operators gets two lanes at the
-x86-64 baseline, four at AVX2, and eight at AVX-512. A loop whose varying values
-are all 32-bit gets four lanes at baseline and eight at every wider tier. At
-equal lane counts the narrower shape is tried first, so an all-32-bit loop does
-not pay for 64-byte values it does not use.
+**How wide** is the backend's decision. A region groups its iterations into 16,
+32, or 64 bytes depending on the tier, and the lane count is that width divided
+by the widest element the body carries. Ordinary Nupp arithmetic is binary64, so
+a loop written with operators gets two lanes at the x86-64 baseline, four at AVX2
+and NEON, and eight at AVX-512. A loop whose varying values are all 32-bit gets
+twice that: four, eight, and sixteen.
+
+`Fixed<4>` in that report is the same `simd.Fixed<N>` species a programmer writes
+by hand under [Explicit SIMD](#explicit-simd). There is one vector vocabulary: a
+`@simd` region is rewritten onto the `simd.Species` operations rather than onto a
+second, private one, so every operation the rewrite needs is an operation the
+source could have written itself, and a legalization fix reaches both.
 
 ## Admitted loop shape
 
@@ -108,7 +114,7 @@ end
 ```
 
 ```text
-src/normalize.nupp: normalize, kernel, mixed4, 4 lanes
+src/normalize.nupp: normalize, kernel, Fixed<4>, 4 lanes
 ```
 
 A nested numeric loop whose ascending bounds are integer literals is expanded
@@ -136,23 +142,28 @@ quietly substituted for the one the source asked for.
 
 ## Targets and feature tiers
 
-A gang is 16, 32, or 64 bytes, which are one SSE2, AVX, or AVX-512 register on
-x86-64. A target takes the widest shapes that fit its register class and no
-wider. A wider vector still compiles by being split, but has no stable ABI at a
-function boundary, and Clang reports that through `-Wpsabi` even at a `static
-inline` helper's call site.
+A region is 16, 32, or 64 bytes wide, and the lane count is that width over the
+widest element the body carries:
 
-| Tier | Widest vector | Gangs | Default for |
-| --- | --- | --- | --- |
-| `baseline` | 16 bytes | `mixed2`, `f32x4` | x86-64, i686 |
-| `avx2` | 32 bytes | `mixed2`/`4`, `f32x4`/`8` | |
-| `avx512f` | 64 bytes | `mixed2`/`4`/`8`, `f32x4`/`8` | |
-| `neon` | 32 bytes | `mixed2`/`4`, `f32x4`/`8` | aarch64 |
+| Tier | Region width | Binary64 body | All-32-bit body | Default for |
+| --- | --- | --- | --- | --- |
+| `baseline` | 16 bytes | `Fixed<2>` | `Fixed<4>` | x86-64, i686 |
+| `avx2` | 32 bytes | `Fixed<4>` | `Fixed<8>` | |
+| `avx512f` | 64 bytes | `Fixed<8>` | `Fixed<16>` | |
+| `neon` | 32 bytes | `Fixed<4>` | `Fixed<8>` | aarch64 |
+| `simd128` | 16 bytes | `Fixed<2>` | `Fixed<4>` | |
 
-`f32x8` and `f32x4` carry everything 32-bit and hold twice the iterations, which
-is why they are tried first and why a loop with any binary64 value cannot have
-them. A `mixed` gang is the alternative, described under
-[Mixing widths](#mixing-widths).
+On x86-64 the region width is one SSE2, AVX, or AVX-512 register. NEON is the
+one tier where it is not: its registers are 16 bytes, but two of them pair for a
+32-byte value without an ABI question, so a region takes the pair. That is a
+different question from the one `simd.species(witness)` answers, and the two
+answers are allowed to differ: `preferred` is a promise to whoever reads the
+source that names it -- one register, 16 bytes on NEON -- while the region width
+is only what the rewrite groups iterations by, and nobody writes it down.
+
+A vector wider than the register class still compiles by being split into
+native-width chunks, but has no stable ABI at a function boundary, and Clang
+reports that through `-Wpsabi` even at a `static inline` helper's call site.
 
 x86-64 project builds carry `baseline`, `avx2` and `avx512f` translation units
 in one library. Their exported symbols carry the tier name, and the generated
@@ -181,16 +192,9 @@ nupp aot --target x86_64-unknown-linux-gnu --features avx2 src/kernel.nupp
 Each `(source, tier)` C file has its own artifact key. Changing the ceiling adds
 or removes those files rather than reusing one tier's output as another's.
 
-Within a tier, the gang with the most lanes that admits the loop wins. At
-AVX-512 a mixed body and an all-32-bit body both get eight lanes, but the latter
-takes the 32-byte `f32x8` shape instead of the 64-byte `mixed8` one.
-
-A target too narrow for even the 16-byte pair refuses rather than going quietly
-scalar, and says what would give it a gang:
-
-```text
-src/kernel.nupp:50:5: aot: the baseline feature tier has no 16-byte vector; select avx2 to run several iterations at once
-```
+There is nothing to search for within a tier: the width and the widest element
+decide the lane count, so at AVX-512 a body carrying one binary64 value gets
+eight lanes and an all-32-bit body gets sixteen.
 
 ::: deepdive Portable target defaults
 x86-64 defaults to `baseline`, so a loop written with ordinary operators gets
@@ -224,7 +228,7 @@ local function advance(
 ```
 
 ```text
-bench/kernel-subset-spike/lanedemo.nupp: advance, kernel, mixed4, 4 lanes
+bench/kernel-subset-spike/lanedemo.nupp: advance, kernel, Fixed<4>, 4 lanes
 ```
 
 Leaving the mark off a loop that is deliberately scalar is the other direction,
@@ -269,13 +273,16 @@ Removing `@relax` changes the answer.
 
 ## Mixing widths
 
-A mixed gang carries each value at its own element width, so an explicit
-binary32 operation is a native single-precision instruction rather than a wide
-one rounded back: binary32 operations use `f32xN`, binary64 operations use
-`f64xN`, and masks convert immediately after a comparison and immediately before
-a select. Baseline and AVX2 still limit a mixed loop to two or four lanes
-because `f64x8` has no register class there. AVX-512 admits `mixed8`, so one
-binary64 running total no longer halves the lane count:
+A region carries each value at its own element width. One lane count covers the
+whole body, and every scalar type in it gets its own species at that count: a
+loop holding binary64 and `int32` values at four lanes carries a `Fixed<4>` of
+each. So an explicit binary32 operation is a native single-precision instruction
+rather than a wide one rounded back, and masks convert lane for lane immediately
+after a comparison and immediately before a select.
+
+What the widest element costs is the lane count, because that is what the
+region's bytes are divided by. One binary64 running total halves it, and AVX-512
+is where a body carrying one still gets eight lanes:
 
 ```bash
 nupp aot --target x86_64-unknown-linux-gnu --features avx512f \
@@ -283,20 +290,19 @@ nupp aot --target x86_64-unknown-linux-gnu --features avx512f \
 ```
 
 ```text
-bench/kernel-subset-spike/mixedwidth.nupp: integrate, kernel, mixed8, 8 lanes
+bench/kernel-subset-spike/mixedwidth.nupp: integrate, kernel, Fixed<8>, 8 lanes
 ```
 
-The 64-byte shape is AVX-512-only. Compiling the same source for AVX2 reports
-`mixed4`, and the x86-64 baseline reports `mixed2`; selecting a tier never
+The 64-byte region is AVX-512-only. Compiling the same source for AVX2 reports
+`Fixed<4>`, and the x86-64 baseline reports `Fixed<2>`; selecting a tier never
 promises instructions the target did not name.
 
-The third lever is the source itself, and it is the strongest one. On the
-baseline and AVX2 tiers, writing the arithmetic through [](nupp.math.f32)
-doubles the lane count, because it tells the backend the values are genuinely
-32-bit rather than binary64 values that happen to be small. AVX-512 carries
-eight of either, using the narrower shape when every value is 32-bit. That
-source choice changes the program's meaning, giving different roundings and
-different results, which is exactly why the compiler will not make it for you.
+The third lever is the source itself, and it is the strongest one. Writing the
+arithmetic through [](nupp.math.f32) doubles the lane count at every tier,
+because it tells the backend the values are genuinely 32-bit rather than
+binary64 values that happen to be small. That source choice changes the
+program's meaning, giving different roundings and different results, which is
+exactly why the compiler will not make it for you.
 
 `mixedwidth.nupp` carries one binary64 running total and one binary64 step
 counter. `mixedwidth_f32.nupp` is the same loop with both narrowed, so nothing
@@ -320,12 +326,12 @@ step = nupp.math.i32.add(step, 1)
 ```
 :::
 
-At AVX2 the first reports `mixed4` and the second `f32x8`, from the same
+At AVX2 the first reports `Fixed<4>` and the second `Fixed<8>`, from the same
 arithmetic over the same bytes:
 
 ```text
-bench/kernel-subset-spike/mixedwidth.nupp: integrate, kernel, mixed4, 4 lanes
-bench/kernel-subset-spike/mixedwidth_f32.nupp: integrate, kernel, f32x8, 8 lanes
+bench/kernel-subset-spike/mixedwidth.nupp: integrate, kernel, Fixed<4>, 4 lanes
+bench/kernel-subset-spike/mixedwidth_f32.nupp: integrate, kernel, Fixed<8>, 8 lanes
 ```
 
 ## Vectorization limits
@@ -333,8 +339,8 @@ bench/kernel-subset-spike/mixedwidth_f32.nupp: integrate, kernel, f32x8, 8 lanes
 Ordinary Nupp has no vector type, no mask value, no shuffle, and no way to name
 a width. An earlier design exposed `F32x8`, `I32x8` and boxed mask values, and
 it was built, measured, and removed. Scalar source already gets target-selected
-width, masks and divergent control flow, exact scalar tails, one source form
-that works with the backend off, and the freedom to change gang shape later.
+width, masks and divergent control flow, an exact masked tail, one source form
+that works with the backend off, and the freedom to change the lane count later.
 
 What replaced the boxed design is [explicit SIMD](#explicit-simd), whose values
 exist only inside an `@aot` body and cannot escape it.
