@@ -1,6 +1,6 @@
 local span = require("nupp.mem.span")
 
-@aot(vectorize = true)
+@aot
 local function advance(
     exclusive xs: span.WriteSpan<float>,
     exclusive ys: span.WriteSpan<float>,
@@ -17,13 +17,14 @@ local function advance(
         error("range out of bounds", 2)
     end
 
+    @simd
     for index = first, last do
         xs[index] = xs[index] + vxs[index] * dt
         ys[index] = ys[index] + vys[index] * dt
     end
 end
 
-@aot(vectorize = false)
+@aot
 local function advanceScalar(
     exclusive xs: span.WriteSpan<float>,
     exclusive ys: span.WriteSpan<float>,

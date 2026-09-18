@@ -52,7 +52,7 @@ end
 --- for every `n`, and the scratch tracks the length actually written, so the
 --- entry needs no division to size itself.
 --- @raises when the builder cannot allocate or publish
-@aot(vectorize = false)
+@aot
 local function encodeAot(source: string, alphabet: string, nullValue: any): any
     local length = valuebuilder.length(source)
     local bound = add(shl(length, u32(1)), u32(4))
@@ -139,7 +139,7 @@ end
 --- reads and the arithmetic are the word entry's; only the output path differs,
 --- which is what makes the pair a measurement of that path.
 --- @raises when the builder cannot allocate or publish
-@aot(vectorize = false)
+@aot
 local function encodeConstAot(source: string, nullValue: any): any
     local length = valuebuilder.length(source)
     local bound = add(shl(length, u32(1)), u32(4))

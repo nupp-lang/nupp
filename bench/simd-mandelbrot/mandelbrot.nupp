@@ -13,7 +13,7 @@ local struct Escape
     escaped: uint32
 end
 
-@aot(vectorize = true)
+@aot
 local function mandelbrot(
     exclusive escapes: span.WriteSpan<Escape>,
     borrows points: span.Span<Point>,
@@ -28,6 +28,7 @@ local function mandelbrot(
         error("range out of bounds", 2)
     end
 
+    @simd
     for i = first, last do
         local escape = escapes[i]
         local point = points[i]

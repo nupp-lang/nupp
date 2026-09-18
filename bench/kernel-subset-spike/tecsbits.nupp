@@ -15,9 +15,10 @@ local struct Motion
     drag: float
 end
 
--- Forced: this kernel exists to prove the bitwise lane path, and a component
--- update is exactly the shape the intensity estimate declines.
-@aot(vectorize = true)
+-- Scalar: the `int32` layer increment has no lane in any gang, so a `@simd`
+-- mark here would refuse the build. It is kept as the differential for the
+-- bitwise scalar path rather than the lane one.
+@aot
 local function advance(
     exclusive transforms: span.WriteSpan<Transform2D>,
     borrows motions: span.Span<Motion>,

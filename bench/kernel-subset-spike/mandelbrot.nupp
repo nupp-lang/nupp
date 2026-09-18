@@ -42,6 +42,7 @@ local function mandelbrot(
     assert(#escapes == #points, "length mismatch")
     assert(first >= 1 and last <= #escapes and first <= last + 1, "range out of bounds")
 
+    @simd
     for i = first, last do
         local escape = escapes[i]
         local point = points[i]

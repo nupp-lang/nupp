@@ -43,6 +43,7 @@ local function mandelbrot(
         error("range out of bounds", 2)
     end
 
+    @simd
     for i = first, last do
         local escape = escapes[i]
         local point = points[i]
@@ -57,9 +58,7 @@ local function mandelbrot(
         local ySquared = nupp.math.f32.mul(cy, cy)
         local q = nupp.math.f32.add(nupp.math.f32.mul(cardioidX, cardioidX), ySquared)
         local inCardioid: int32 = 0
-        if nupp.math.f32.mul(q, nupp.math.f32.add(q, cardioidX))
-            <= nupp.math.f32.mul(quarter, ySquared)
-        then
+        if nupp.math.f32.mul(q, nupp.math.f32.add(q, cardioidX)) <= nupp.math.f32.mul(quarter, ySquared) then
             inCardioid = 1
         end
         local shifted = nupp.math.f32.add(cx, 1.0)
@@ -80,8 +79,7 @@ local function mandelbrot(
                 escaped = 1
                 break
             end
-            zy = nupp.math.f32.add(
-                nupp.math.f32.mul(nupp.math.f32.mul(zx, 2.0), zy), cy)
+            zy = nupp.math.f32.add(nupp.math.f32.mul(nupp.math.f32.mul(zx, 2.0), zy), cy)
             zx = nupp.math.f32.add(nupp.math.f32.sub(zxSquared, zySquared), cx)
             zxSquared = nupp.math.f32.mul(zx, zx)
             zySquared = nupp.math.f32.mul(zy, zy)

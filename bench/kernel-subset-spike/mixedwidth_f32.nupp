@@ -27,7 +27,7 @@ local struct Track
     steps: int32
 end
 
-@aot(vectorize = true)
+@aot
 local function integrate(
     exclusive tracks: span.WriteSpan<Track>,
     borrows bodies: span.Span<Body>,
@@ -45,6 +45,7 @@ local function integrate(
         error("range out of bounds", 2)
     end
 
+    @simd
     for i = first, last do
         local track = tracks[i]
         local body = bodies[i]

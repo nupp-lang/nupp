@@ -8,7 +8,7 @@ local struct Sample
     weight: float
 end
 
-@aot(vectorize = false)
+@aot
 local function scale(exclusive output: span.WriteSpan<Sample>, borrows input: span.Span<Sample>, factor: number): nil
     if #output ~= #input then
         error("length mismatch", 2)

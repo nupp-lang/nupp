@@ -52,17 +52,18 @@ module k$1
 
 local span = require("nupp.mem.span")
 
-@aot(vectorize = true)
+@aot
 local function scale$1(exclusive out: span.WriteSpan<float>, borrows input: span.Span<float>, factor: number): nil
     if #out ~= #input then
         error("length mismatch", 2)
     end
+    @simd
     for i = 1, #out do
         out[i] = input[i] * factor + $1.0
     end
 end
 
-@aot(vectorize = false)
+@aot
 local function total$1(borrows input: span.Span<uint8>): number
     local sum = 0.0
     for i = 1, #input do

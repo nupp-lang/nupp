@@ -119,18 +119,19 @@ does, so 0.995x and 1.000x are three compilers agreeing about arithmetic they
 were all forbidden to reorder.
 
 `mandelbrot` is the exception, and it goes Nupp's way: 1.37x at 1 024 pixels and
-1.79x at 262 144. `nupp aot` reports the reason without being asked —
+1.79x at 262 144. `nupp aot` reports the reason —
 
 ```text
-src/kernels.nupp: mandelbrot, kernel, 4.50 operations per byte (72 over 16), mixed4, 4 lanes
+src/kernels.nupp: mandelbrot, kernel, mixed4, 4 lanes
 ```
 
 — and disassembling the other two confirms the other half of it. Neither clang
 nor Terra vectorizes `tbMandelbrot`: the loop exits on a data-dependent
 condition, which is not a shape either auto-vectorizer will take. Nupp's backend
 turns the `if` into a mask and the `break` into a lane retiring from the loop,
-so it runs four pixels at a time on a loop LLVM leaves scalar. Nothing in the
-source asks for this, and the same source on LuaJIT is 0.45x.
+so it runs four pixels at a time on a loop LLVM leaves scalar. The source asks
+for this with one `@simd` mark on the loop, and the same source on LuaJIT is
+0.45x.
 
 The gap widens with size, and not because of the call: a 1 024-pixel
 `mandelbrot` call runs about 15 microseconds, so the boundary priced below is a
@@ -273,15 +274,10 @@ for _ = 1, 4 do
 end
 ```
 
-— it compiles, and `nupp aot` declines to lower it lane-parallel:
-
-```text
-src/kernels.nupp: mix, kernel, 6.00 operations per byte (48 over 8), none, ran one iteration at a time
-```
-
-Lane lowering takes a body that is one top-level numeric map loop, and a nested
-loop inside the body is not that shape. Unrolled, the same arithmetic reports
-`mixed4, 4 lanes`, which is how it is written here. Clang and Terra
+— it lowers to the same `mixed4, 4 lanes` today, a nested numeric loop being a
+shape the lane path now controls; when this bench was written it was not, and
+the `@simd` mark on the outer loop would have failed the build. Clang and Terra
 unroll their own four-round loops without being asked, so all three
 implementations here are written unrolled and the comparison is of one program;
-the constraint is Nupp's and it is recorded here rather than hidden in a ratio.
+the constraint was Nupp's and it is recorded here rather than hidden in a
+ratio.

@@ -59,6 +59,7 @@ local function mandelbrot(
 ): nil
     assert(#escapes == #points, "length mismatch")
 
+    @simd
     for i = 1, #escapes do
         local escape = escapes[i]
         local point = points[i]
@@ -130,6 +131,7 @@ local function sumSquares(borrows values: span.Span<number>): number
     for i = 1, #values do
         total = total + values[i] * values[i]
     end
+
     return total
 end
 
@@ -142,12 +144,10 @@ exclusive-ors on `uint32` are exact and associative, so unlike `sumSquares` this
 one may be lowered lane-parallel without any relaxation being asked for.
 ]]
 @aot
-local function mix(
-    exclusive output: span.WriteSpan<uint32>,
-    borrows input: span.Span<uint32>
-): nil
+local function mix(exclusive output: span.WriteSpan<uint32>, borrows input: span.Span<uint32>): nil
     assert(#output == #input, "length mismatch")
 
+    @simd
     for i = 1, #output do
         local state = input[i]
         state = state ~ (state << 13)
@@ -166,9 +166,4 @@ local function mix(
     end
 end
 
-export = {
-    mandelbrot = mandelbrot,
-    advance = advance,
-    sumSquares = sumSquares,
-    mix = mix,
-}
+export = {mandelbrot = mandelbrot, advance = advance, sumSquares = sumSquares, mix = mix,}

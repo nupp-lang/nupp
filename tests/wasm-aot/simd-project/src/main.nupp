@@ -12,7 +12,7 @@ local struct Sample
     weight: float
 end
 
-@aot(vectorize = true)
+@aot
 local function scale(
     exclusive output: span.WriteSpan<Sample>,
     borrows input: span.Span<Sample>,
@@ -22,6 +22,7 @@ local function scale(
     if #output ~= #input then
         error("length mismatch", 2)
     end
+    @simd
     for index = 1, #output do
         if enabled then
             output[index].value = input[index].value * factor

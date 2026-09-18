@@ -28,7 +28,7 @@ end
 
 -- Forced: this kernel exists to prove the lane form of three operations, so
 -- it has to have one. Its arithmetic per byte is far below where lanes pay.
-@aot(vectorize = true)
+@aot
 local function corrected(
     exclusive results: span.WriteSpan<Result>,
     borrows samples: span.Span<Sample>,
@@ -42,6 +42,7 @@ local function corrected(
         error("range out of bounds", 2)
     end
 
+    @simd
     for i = first, last do
         local result = results[i]
         local sample = samples[i]

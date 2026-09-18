@@ -12,8 +12,8 @@ control from the repository root:
 bench/simd-mandelbrot/run.sh
 ```
 
-The source contains an ordinary scalar escape loop annotated with
-`@aot(vectorize = true)`. Nupp automatically supplies the active mask, per-lane
+The source contains an ordinary scalar escape loop marked `@simd` inside an
+`@aot` body. Nupp automatically supplies the active mask, per-lane
 retirement, horizontal any-live termination, and target-selected lane width.
 The harness also forces an `f32x4` build so the cost of one-register and
 two-register gangs can be reported separately.

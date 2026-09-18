@@ -3,7 +3,7 @@
 -- backend emits the specialized body directly from the generic declaration.
 local span = require("nupp.mem.span")
 
-@aot(vectorize = true)
+@aot
 local function transform<const Rounds: integer>(
     exclusive output: span.WriteSpan<number>,
     borrows input: span.Span<number>,
@@ -18,6 +18,7 @@ local function transform<const Rounds: integer>(
         error("range out of bounds", 2)
     end
 
+    @simd
     for index = first, last do
         local value = input[index]
         for round = 1, rounds as integer do

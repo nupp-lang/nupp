@@ -25,7 +25,7 @@ local function schedule(dt: number, drag: number): (number, number)
     return dt * 0.5, 1.0 - drag * dt
 end
 
-@aot(vectorize = true)
+@aot
 local function advance(
     exclusive positions: span.WriteSpan<Position>,
     borrows velocities: span.Span<Velocity>,
@@ -41,6 +41,7 @@ local function advance(
         error("range out of bounds", 2)
     end
 
+    @simd
     for i = first, last do
         -- Both operands are uniform parameters, so both results are uniform and
         -- every lane reads the same two numbers.

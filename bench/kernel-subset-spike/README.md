@@ -31,18 +31,15 @@ local function advance(
 end
 ```
 
-Lane lowering is attempted for every `@aot` body, and a body of exactly one
-top-level numeric map loop is the shape it can take. Nothing requests it and
-nothing names a lane, a mask, or a width. `@aot(vectorize = false)` declines
-it for a body that is deliberately scalar. Explicit `F32x8`, `I32x8`, mask
-helpers, and hand-unrolled lane structs were removed; compiler-internal
-vectors are the only vector values.
+A loop runs in lanes when the source marks it `@simd`, and a body of exactly
+one top-level numeric map loop is the shape that mark can take here. Nothing
+else names a lane, a mask, or a width. A body without the mark is deliberately
+scalar. Explicit `F32x8`, `I32x8`, mask helpers, and hand-unrolled lane structs
+were removed; compiler-internal vectors are the only vector values.
 
-A body that cannot lower lane-parallel compiles anyway, one iteration at a time.
-Whether it vectorized is a performance property -- no answer depends on it, so no
-ordinary check reports it and an edit can quietly take it away. That is the
-category `nupp bc --check` already covers for a loop LuaJIT cannot record, and it
-gets the same treatment here:
+A `@simd` loop that cannot run in lanes fails the build with the construct that
+refused it, so there is nothing to check for after the fact. What the compiler
+chose for a marked loop is printed with:
 
 ```sh
 bench/kernel-subset-spike/generate.sh KERNEL.nupp OUT --check-lanes
@@ -72,7 +69,7 @@ at every wider tier. That happens only when the source says so, through the
 released `nupp.math.f32` and `nupp.math.i32` operations, and it is a different
 program with different answers. At AVX-512 a mixed loop also gets eight lanes:
 binary64 values occupy `f64x8`, binary32 values occupy `f32x8`, and masks convert
-between their widths. Set `NUPP_SPIKE_SHAPES=1` to see why a shape declined.
+between their widths.
 
 Bitwise operations on flag words lower too, because an entity query is made of
 them. A gang that carries integers in binary64 lanes converts a lane out to a
@@ -113,45 +110,40 @@ element width moves it. `columns.nupp` is kept as the standing measurement of
 the losing side, because a backend change that claims to fix this has to move
 that row.
 
-So the pass estimates it, from the arithmetic a loop performs per byte it
-touches, and declines below a threshold. `--check-lanes` prints the number
-beside the decision, and the estimates sit either side of a gap of more than ten
-times:
+So the rule is the source's to apply: a loop that stays in registers is marked
+`@simd`, and a loop that streams memory is not. Measured arithmetic per byte the
+loop touches sits either side of a gap of more than ten times, which is what
+makes the choice easy to make by hand:
 
 ```
- Kernel                  ops/byte   decision
+ Kernel                  ops/byte   mark
  ──────────────────────  ────────   ───────────────────────
- mandelbrot                  5.19   lowered to 4 lanes
- mandelbrot_f32              5.12   lowered to 8 lanes
- tecsbits                    0.43   declined
- kernels                     0.39   declined
- lanedemo                    0.29   declined
- columns                     0.17   declined
- corrected                   0.12   declined
+ mandelbrot                  5.19   @simd, 4 lanes
+ mandelbrot_f32              5.12   @simd, 8 lanes
+ tecsbits                    0.43   scalar
+ kernels                     0.39   scalar
+ lanedemo                    0.29   scalar
+ columns                     0.17   scalar
+ corrected                   0.12   scalar
 ```
 
-Statements inside a data-dependent inner loop are weighted, because they run many
-times per iteration and the trip count is not a static fact. The weight stands in
-for that count rather than claiming it, which is why this is an estimate and why
-`@aot(vectorize = true)` and `@aot(vectorize = false)` override it in either
-direction.
-The kernels here that exist to exercise the lane path -- `corrected`, `tecsbits`
-and `lanedemo` -- all carry the first, because a differential for a lane form
-needs a lane form whatever it would cost in production.
+The kernels here that exist to exercise the lane path -- `corrected` and
+`lanedemo` -- carry the mark anyway, because a differential for a lane form
+needs a lane form whatever it would cost in production. `tecsbits` cannot: its
+`int32` layer increment has no lane in any gang, so it stays scalar.
 
-The estimate is deliberately static. Measuring at build time would pick better
+The choice is deliberately static. Measuring at build time would pick better
 and would make two builds of one source disagree, which the artifact cache
 cannot have.
 
 ## What a Tecs kernel still cannot do
 
-`kernels.nupp` is the shape this feature exists for, and running the
-vectorisation check over it is how to find out what it needs. Today it reports
-one thing:
+`kernels.nupp` is the shape this feature exists for, and marking its loop
+`@simd` is how to find out what it needs: the build fails with the construct
+that refused. It used to report one thing:
 
 ```
-kernels.nupp: ran one iteration at a time
-  statement multi_let has no lane-parallel form
+kernels.nupp:28:5: aot: statement multi_let has no lane-parallel form
 ```
 
 That gap is closed: a pure helper call is inlined into the lane body, with each
