@@ -314,7 +314,7 @@ return {two = two}
 
     reports(
         [[
-@aot(vectorize = false)
+@aot
 local function scalar(count: integer): number
     local total = 0.0
     for i = 1, count do
@@ -327,11 +327,12 @@ end
 return {scalar = scalar}
 ]],
         "",
-        "a deliberately scalar body declines lane lowering"
+        "a body without @simd is scalar, and needs no member to say so"
     )
 
-    -- The setting overrides an estimate in either direction, so both literals
-    -- are accepted. Neither is a lane-count knob.
+    -- Whether a loop runs in lanes is the loop's own `@simd` to say, so `@aot`
+    -- has no member for it: the old spelling is an unknown member, not a
+    -- request.
     reports(
         [[
 @aot(vectorize = true)
@@ -346,13 +347,26 @@ end
 
 return {forced = forced}
 ]],
-        "",
-        "a body may take lane lowering whatever the estimate says"
+        "NUPP2115",
+        "vectorize is not a member of @aot"
     )
 
     reports(
         [[
-@aot(vectorize = 4)
+@aot(vectorize = false)
+local function scalar(value: number): number
+    return value
+end
+
+return {scalar = scalar}
+]],
+        "NUPP2115",
+        "nor is declining one"
+    )
+
+    reports(
+        [[
+@aot(lanes = true)
 local function wrong(value: number): number
     return value
 end
@@ -360,7 +374,7 @@ end
 return {wrong = wrong}
 ]],
         "NUPP2115",
-        "lanes is not a lane count"
+        "and the withdrawn lanes spelling is gone with it"
     )
 end
 
@@ -393,22 +407,7 @@ end
 return {wrong = wrong}
 ]],
         "NUPP2115",
-        "GPU invocation mapping does not also select CPU lanes"
-    )
-
-    -- The withdrawn spelling still compiles and still means the same thing, so
-    -- source written before the rename keeps its refusal rather than gaining a
-    -- fresh unknown-member error on top of it.
-    reports(
-        [[
-@aot(target = "gpu", lanes = true)
-local function wrong(value: number): number
-    return value
-end
-return {wrong = wrong}
-]],
-        "NUPP2115",
-        "GPU invocation mapping does not also select CPU lanes"
+        "GPU invocation mapping has no CPU lane member to combine with"
     )
 
     reports(

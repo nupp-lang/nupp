@@ -345,7 +345,7 @@ function M.aotHelpNamesArtifactsAndShowsHighlightedExamples()
         plain:find("nupp aot --emit asm --function scale src/kernel.nupp", 1, true),
         "the help includes an assembly example: " .. plain
     )
-    assert(plain:find("nupp aot --check src/kernel.nupp", 1, true), "the help includes a check example: " .. plain)
+    assert(plain:find("nupp aot --format json src/kernel.nupp", 1, true), "the help includes a JSON example: " .. plain)
 
     local coloured = capture("aot --color=always --help")
     assert(coloured:find("\27[1mExamples:\27[0m", 1, true), "the example heading is highlighted: " .. coloured)

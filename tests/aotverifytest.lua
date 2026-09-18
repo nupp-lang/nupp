@@ -69,7 +69,7 @@ end
 
 local CURSOR_READ = [[
 local builder = require("nupp.codec.valuebuilder")
-@aot(vectorize = false)
+@aot
 local function decode(source: string): uint32
     local n = builder.length(source)
     local cursor: uint32 = nupp.math.u32.wrap(0)
@@ -388,7 +388,7 @@ end
 
 local COUNTED = [[
 local span = require("nupp.mem.span")
-@aot(vectorize = false)
+@aot
 local function fill(exclusive output: span.WriteSpan<uint64>, delta: uint64): nil
     local total: uint64 = delta
     for index = 1, 3 do
@@ -645,6 +645,7 @@ local function escapes(
     if #out ~= #points then
         error("length mismatch", 2)
     end
+    @simd
     for i = 1, #out do
         local cell = out[i]
         local point = points[i]
@@ -735,6 +736,7 @@ local function radii(
     if #out ~= #points then
         error("length mismatch", 2)
     end
+    @simd
     for i = 1, #out do
         local point = points[i]
         local x = point.x
@@ -834,7 +836,7 @@ end
 function M.statementfulLoopConditionsAreVisitedAndVerified()
     local program = lowered(
         [[
-@aot(vectorize = false)
+@aot
 local function count(): number
     local n = 0.0
     while do n = n + 1.0 yield n < 3.0 end do
@@ -866,7 +868,7 @@ end
 function M.stringSwitchMatchesRootedBytesAndVisitsTheSelector()
     local program = lowered(
         [[
-@aot(vectorize = false)
+@aot
 local function command(value: string): number
     return switch value do case "start" -> 1 else -> 0 end
 end

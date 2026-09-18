@@ -361,17 +361,15 @@ end
 return advance
 ]])
    assertEq(#errors, 0, errors[1] and (errors[1].code .. ": " .. errors[1].msg) or "SoA AOT source subset")
-   local fields, mapLoop = {}, false
+   local fields = {}
    local seen = {}
    local function walk(node)
       if type(node) ~= "table" or seen[node] then return end
       seen[node] = true
       if node.soaField then fields[node.soaField.name] = node.soaField.ordinal end
-      if node.aotMapLoop then mapLoop = true end
       for _, child in ipairs(node) do walk(child) end
    end
    walk(parsed.root)
-   assert(mapLoop, "the AOT body lost its single map loop")
    assertEq(fields.x, 1, "x unit-stride field identity")
    assertEq(fields.dx, 3, "dx unit-stride field identity")
 end

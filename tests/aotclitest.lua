@@ -1,8 +1,10 @@
--- `nupp aot`: what an `@aot` function compiles to, and whether it vectorised.
+-- `nupp aot`: what an `@aot` function compiles to, and the gang each `@simd`
+-- loop in it runs in.
 --
 -- Driven through the real binary rather than the module, because the artifacts and
--- the exit status are the whole interface. `--check` is an exit status, so a test that
--- could not read one would not be testing it.
+-- the exit status are the whole interface: a `@simd` loop that cannot run in
+-- lanes is an exit status, so a test that could not read one would not be
+-- testing it.
 
 local test = require("assert")
 
@@ -132,7 +134,7 @@ end
 --- them used to start the compiler twice over the same file. `--json` without
 --- `--emit` carries the IR, the C and the binding together, and the C in it is
 --- byte for byte the C `--emit c` prints. The exit status comes back beside
---- them, which is what `--check` is asked for.
+--- them, which is what says every `@simd` loop got its lanes.
 ---
 --- The command and the directory it ran in come back last, because a project is
 --- now shared between the cases that ask about the same sources and a failure
@@ -251,7 +253,7 @@ local function assertSpirvStructure(module)
 end
 
 -- A register-resident loop: sixteen bytes read once, then arithmetic over locals that
--- touches no memory. Above the intensity threshold, so lanes are expected to pay.
+-- touches no memory. Marked `@simd`, so it runs in lanes or fails to compile.
 local COMPUTE = [[
 local span = require("nupp.mem.span")
 
@@ -280,6 +282,7 @@ local function escapes(
         error("range out of bounds", 2)
     end
 
+    @simd
     for i = first, last do
         local cell = out[i]
         local point = points[i]
@@ -365,13 +368,12 @@ return {doubled = doubled}
     assert(wasmBinding:find("webgpu-int32", 1, true), wasmBinding)
     assert(not wasmBinding:find('wgsl = "nil"', 1, true), wasmBinding)
 
-    local summary, summaryCode = run(dir, "--check gpu.nupp")
+    local summary, summaryCode = run(dir, "gpu.nupp")
     test.equal(summaryCode, 0, summary)
     assert(
         summary:find(", gpu, one iteration per GPU invocation", 1, true),
         "a compiled GPU artifact is reported with its lowered shape: " .. summary
     )
-    assert(not summary:find("refused", 1, true), "a working GPU kernel is not treated as a refusal: " .. summary)
 end
 
 function M.mandelbrotGpuBenchmarkUsesTheCpuFmaRecurrence()
@@ -497,11 +499,8 @@ return doubled
     })
     local summary, code = run(dir, "scalar.nupp")
     test.equal(code, 0, summary)
-    assert(
-        summary:find("no map loop to run in lanes", 1, true),
-        "the summary describes the body rather than inventing lanes=false: " .. summary
-    )
-    assert(not summary:find("@aot(vectorize = false)", 1, true), summary)
+    assert(summary:find(", scalar", 1, true), "the summary says the body runs scalar: " .. summary)
+    assert(not summary:find("lanes", 1, true), "and does not invent a lane decision for it: " .. summary)
 end
 
 function M.qualifiedAotDeclarationIsRefusedWithoutATraceback()
@@ -1297,7 +1296,7 @@ return {apply = apply, scale = scale}
 ]]
 
 -- The same shape with almost no arithmetic: two fields in, two fields out, one multiply
--- and add each. Below the threshold, so lane lowering is declined rather than refused.
+-- and add each. Not marked, so it compiles scalar and nothing has to decide that.
 local STREAMING = [[
 local span = require("nupp.mem.span")
 
@@ -1465,16 +1464,17 @@ end
 return {saxpy = saxpy}
 ]]
 
--- Lanes asked for around a real native entry call. A compiled entry has one
--- scalar ABI call, not one invocation per lane, so it remains a hard refusal.
+-- Lanes required around a real native entry call. A compiled entry has one
+-- scalar ABI call, not one invocation per lane, so the build fails.
 local REFUSED = STREAMING:gsub(
     "@aot\nlocal function advance",
     "@aot\nlocal function compiledScale(value: float): float\n"
     .. "    return value\n"
     .. "end\n\n"
-    .. "@aot(vectorize = true)\nlocal function advance",
+    .. "@aot\nlocal function advance",
     1
 )
+    :gsub("    for i = first, last do", "    @simd\n    for i = first, last do", 1)
     :gsub(
         "        local position = positions%[i%]",
         "        local position = positions[i]\n        local scale = compiledScale(position.x)",
@@ -1486,7 +1486,7 @@ local REFUSED = STREAMING:gsub(
 local FIXED_MIX = [[
 local span = require("nupp.mem.span")
 
-@aot(vectorize = true)
+@aot
 local function mix(
     exclusive output: span.WriteSpan<number>,
     borrows input: span.Span<number>,
@@ -1495,6 +1495,7 @@ local function mix(
 ): nil
     if #output ~= #input then error("length mismatch", 2) end
     if first < 1 or last > #output or first > last + 1 then error("range out of bounds", 2) end
+    @simd
     for index = first, last do
         local value = input[index]
         for round = 1, 4 do
@@ -1516,12 +1517,13 @@ local PINNED = "--target x86_64-unknown-linux-gnu --features avx2 "
 local BYTE_CLASSIFIER = [[
 local span = require("nupp.mem.span")
 
-@aot(vectorize = true)
+@aot
 local function classify(
     exclusive flags: span.WriteSpan<uint8>,
     borrows bytes: span.Span<uint8>
 ): nil
     if #flags ~= #bytes then error("length mismatch", 2) end
+    @simd
     for i = 1, #flags do
         local byte = bytes[i]
         local flag: uint32 = 0
@@ -1542,7 +1544,7 @@ return {classify = classify}
 local DELIMITERS = [[
 local span = require("nupp.mem.span")
 
-@aot(vectorize = false)
+@aot
 local function delimiters(
     borrows source: span.Span<uint8>,
     exclusive offsets: span.WriteSpan<uint32>
@@ -1567,7 +1569,7 @@ return {delimiters = delimiters}
 local MUTATED_WHILE_CURSOR = [[
 local span = require("nupp.mem.span")
 
-@aot(vectorize = false)
+@aot
 local function afterIncrement(borrows source: span.Span<uint8>): uint32
     local cursor: uint32 = 0
     local byte: uint32 = 0
@@ -1586,7 +1588,7 @@ local span = require("nupp.mem.span")
 local simd = require("nupp.simd")
 local preferredBytes = simd.preferredU8
 
-@aot(vectorize = false)
+@aot
 local function quotes(borrows source: span.Span<uint8>): uint32
     local species = preferredBytes()
     local cursor: integer = 0
@@ -2045,51 +2047,37 @@ function M.aRegisterResidentLoopReportsItsGangAndWidth()
     test.equal(code, 0, out)
     assert(out:find("mixed4", 1, true), "the gang is named: " .. out)
     assert(out:find("4 lanes", 1, true), "the width is named: " .. out)
-    assert(out:find("operations per byte", 1, true), "the estimate behind the decision is shown: " .. out)
 end
 
-function M.theWithdrawnLanesSpellingStillDeclinesAndReportsTheCurrentOne()
-    local dir = project{["compute.nupp"] = replaceOnce(COMPUTE, "@aot\n", "@aot(lanes = false)\n")}
-    local out, code = run(dir, PINNED .. "compute.nupp")
-    test.equal(code, 0, "the withdrawn spelling still compiles\n" .. out)
-    assert(
-        out:find("declined by `@aot(vectorize = false)`", 1, true),
-        "the withdrawn spelling declines and the report names the current one: " .. out
-    )
-end
-
-function M.aStreamingLoopDeclinesRatherThanFailing()
+function M.anUnmarkedLoopCompilesScalarAndSaysSo()
     local dir = project{["stream.nupp"] = STREAMING}
-    local out, code = run(dir, "--check stream.nupp")
-    test.equal(code, 0, "declining is not a failure\n" .. out)
-    assert(out:find("too little arithmetic per byte", 1, true), "the reason it declined is the estimate: " .. out)
-    assert(
-        out:find("nupp.mem.soa", 1, true) and out:find("make them contiguous", 1, true),
-        "strided field traffic points at the layout that removes it: " .. out
-    )
+    local out, code = run(dir, "stream.nupp")
+    test.equal(code, 0, "a loop without @simd is not a failure\n" .. out)
+    assert(out:find("advance, kernel, scalar", 1, true), "the report says it runs scalar: " .. out)
+    assert(not out:find("lanes", 1, true), "and offers no lane decision to read: " .. out)
 end
 
-function M.aContiguousStreamingLoopDoesNotReceiveAnAoSLayoutSuggestion()
-    local dir = project{["stream.nupp"] = CONTIGUOUS_STREAMING}
-    local out, code = run(dir, "--check stream.nupp")
-    test.equal(code, 0, out)
-    assert(out:find("too little arithmetic per byte", 1, true), "the loop declines: " .. out)
-    assert(not out:find("nupp.mem.soa", 1, true), "contiguous spans need no layout suggestion: " .. out)
+function M.aVectorizeMemberOnAotIsUnknown()
+    -- Whether a loop runs in lanes is the loop's own `@simd` to say, so `@aot`
+    -- has no member for it and the old spelling is refused at the source.
+    for _, spelling in ipairs({"@aot(vectorize = true)", "@aot(vectorize = false)", "@aot(lanes = true)"}) do
+        local dir = project{["stream.nupp"] = replaceOnce(STREAMING, "@aot\n", spelling .. "\n")}
+        local out, code = run(dir, "stream.nupp")
+        test.equal(code, 1, spelling .. " is not accepted\n" .. out)
+        assert(out:find("NUPP2115", 1, true), spelling .. " is an unknown member: " .. out)
+    end
 end
 
-function M.aRequiredSimdLoopLowersDespiteTheProfitabilityEstimate()
+function M.aRequiredSimdLoopLowersAContiguousCopy()
     local dir = project{["required.nupp"] = REQUIRED_CONTIGUOUS}
     local out, code = run(dir, PINNED .. "required.nupp")
     test.equal(code, 0, out)
     assert(out:find("f32x8", 1, true), "the required gang is named: " .. out)
     assert(out:find("8 lanes", 1, true), "the required width is named: " .. out)
-    assert(not out:find("too little arithmetic", 1, true), "the estimate cannot decline @simd: " .. out)
 end
 
 function M.aRequiredSimdLoopFailsWithoutLaneCode()
-    local required = REFUSED:gsub("@aot%(vectorize = true%)", "@aot", 1)
-        :gsub("    for i = first, last do", "    @simd\n    for i = first, last do", 1)
-    local dir = project{["required.nupp"] = required}
+    local dir = project{["required.nupp"] = REFUSED}
     local out, code = run(dir, PINNED .. "required.nupp")
     test.equal(code, 1, "required SIMD cannot fall back to scalar execution\n" .. out)
     assert(out:find("cannot call a compiled entry", 1, true), "the failed construct is named: " .. out)
@@ -2153,8 +2141,7 @@ function M.mandelbrotUsesRequiredSimdWithLaneLocalEarlyExit()
     local handle = assert(io.open(HERE .. "/../bench/simd-mandelbrot/mandelbrot.nupp", "rb"))
     local source = handle:read("*a")
     handle:close()
-    source = source:gsub("@aot%(vectorize = true%)", "@aot", 1)
-        :gsub("    for i = first, last do", "    @simd\n    for i = first, last do", 1)
+    assert(source:find("@simd", 1, true), "the bench marks its loop")
     local dir = project{["mandelbrot.nupp"] = source}
     local decoded, raw, code, where = lowered(dir, PINNED .. "--json mandelbrot.nupp")
     test.equal(code, 0, raw)
@@ -2296,7 +2283,6 @@ return {totals = totals}
         where .. ": algebraic sum uses lane accumulators rather than an ordered chain"
     )
     assert(decoded.c:find("ks_totals_forced_scalar", 1, true), where .. ": reducers retain the scalar-source C oracle")
-    test.equal(decoded.functions[1].outcome, "lowered", where .. ": required regions are the function outcome")
     test.equal(#decoded.functions[1].regions, 3, where .. ": each authored region is reported")
     test.equal(decoded.functions[1].regions[1].gang.lanes, 4, where .. ": the selected gang is reported")
     test.equal(decoded.functions[1].regions[1].reducers[1].serialized, true, where .. ": ordered edges are visible")
@@ -2512,7 +2498,7 @@ return {nibbles = nibbles}
     local words = assert(simd.species(array.uint32))
     local low = entries:swizzle((bytes & words:splat(15)) + 1)]])
     local refused = project{["mismatched.nupp"] = mismatched}
-    local out, refusedCode = run(refused, "--target aarch64-apple-darwin --features neon --check mismatched.nupp")
+    local out, refusedCode = run(refused, "--target aarch64-apple-darwin --features neon mismatched.nupp")
     assert(refusedCode ~= 0, "a byte vector against a word vector is refused: " .. out)
     assert(out:find("NUPP2003", 1, true), "as an operand type error: " .. out)
 end
@@ -3249,17 +3235,6 @@ return {reductions = reductions}
     assert(decoded.c:find("reduce_acc_", 1, true), where .. ": algebraic dot uses lane accumulators")
 end
 
-function M.aLoopThatWantedLanesAndDidNotGetThemFails()
-    local dir = project{["refused.nupp"] = REFUSED}
-    local out, code = run(dir, "--check refused.nupp")
-    test.equal(code, 1, "wanting lanes and not getting them is the failure\n" .. out)
-    assert(out:find("ran one iteration at a time", 1, true), "the outcome is named: " .. out)
-    assert(
-        out:find("cannot call a compiled entry", 1, true),
-        "the construct that stopped it is named, not only that it stopped: " .. out
-    )
-end
-
 -- The lane body out of `--emit ir`, which is what a helper call and the same source
 -- written inline have to agree on. The scalar body cannot be compared directly: one
 -- spelling carries a `helper_call` and the other carries the expression, which is the
@@ -3405,9 +3380,9 @@ function M.oneCompiledEntryCallsAnotherAsARealCall()
     assert(out:find("KS_API double ks_scale", 1, true), "and it keeps its own exported definition: " .. out)
 end
 
-function M.aLaneBodyDeclinesRatherThanCallingAnEntryPerLane()
+function M.aLaneBodyRefusesRatherThanCallingAnEntryPerLane()
     -- A compiled entry takes one set of scalars and answers once, so there is no
-    -- per-lane form of it. Declining names that, rather than the loop quietly
+    -- per-lane form of it. The refusal names that, rather than the loop quietly
     -- running scalar for a reason nothing reports.
     local source = COMPUTE:gsub(
         "@aot\n",
@@ -3416,18 +3391,12 @@ function M.aLaneBodyDeclinesRatherThanCallingAnEntryPerLane()
     )
         :gsub("if zxSquared %+ zySquared > 4%.0 then", "if beyondFour(zxSquared, zySquared) > 0.0 then")
     local dir = project{["perlane.nupp"] = source}
-    local out, code = run(dir, "--check perlane.nupp")
-    test.equal(code, 1, "a loop that wanted lanes and did not get them fails --check\n" .. out)
+    local out, code = run(dir, "perlane.nupp")
+    test.equal(code, 1, "a @simd loop that cannot run in lanes fails the build\n" .. out)
     assert(
         out:find("cannot call a compiled entry", 1, true),
         "the refusal names the call, not just the outcome: " .. out
     )
-end
-
-function M.checkAloneDoesNotFailAWorkingLoop()
-    local dir = project{["compute.nupp"] = COMPUTE}
-    local out, code = run(dir, "--check compute.nupp")
-    test.equal(code, 0, out)
 end
 
 function M.emitPrintsTheGeneratedC()
@@ -3464,7 +3433,7 @@ function M.aSingleFixedWidthResultIsEstablishedByItsWrapper()
             {
                 "module counter",
                 "local valuebuilder = require(\"nupp.codec.valuebuilder\")",
-                "@aot(vectorize = false)",
+                "@aot",
                 "local function count(bytes: string): uint32",
                 "    local limit: uint32 = valuebuilder.length(bytes)",
                 "    local at: uint32 = nupp.math.u32.wrap(0)",
@@ -3481,10 +3450,8 @@ function M.aSingleFixedWidthResultIsEstablishedByItsWrapper()
             "\n"
         ),
     }
-    -- `--check` so the exit status is still the one that says nothing wanted
-    -- lanes and missed them, and `--json` so the binding it also carries needs
-    -- no second command.
-    local decoded, raw, code, where = lowered(dir, "--check --json counter.nupp")
+    -- `--json` so the binding it also carries needs no second command.
+    local decoded, raw, code, where = lowered(dir, "--json counter.nupp")
     test.equal(code, 0, raw)
     assert(
         decoded.binding:find("nupp.math.u32.wrap(native1 as integer)", 1, true),
@@ -3579,9 +3546,7 @@ function M.asmJsonCountsWhatItLists()
         end
     end
     test.equal(kernel.counts.vector, vector, "every count is over the instructions it lists")
-    if decoded.functions[1].outcome == "lowered" then
-        assert(vector > 0, "a body that lowered has vector instructions to show for it: " .. out)
-    end
+    assert(vector > 0, "a body that lowered has vector instructions to show for it: " .. out)
 end
 
 -- A total with six zeroes beside it would read as a kernel that touches no
@@ -3613,9 +3578,9 @@ end
 function M.narrowScalarSpansKeepTheirStorageAndUseLanes()
     local dir = project{["bytes.nupp"] = BYTE_CLASSIFIER}
 
-    -- One pinned command for both artifacts, and `--check` so the exit status is
-    -- still the one that says the loop got its lanes.
-    local decoded, raw, code, where = lowered(dir, PINNED .. "--check --json bytes.nupp")
+    -- One pinned command for both artifacts; the exit status is the one that
+    -- says the loop got its lanes.
+    local decoded, raw, code, where = lowered(dir, PINNED .. "--json bytes.nupp")
     test.equal(code, 0, raw)
 
     local ir = decoded.ir
@@ -3652,7 +3617,7 @@ local function u32(value: integer): uint32
     return nupp.math.u32.wrap(value)
 end
 
-@aot(vectorize = false)
+@aot
 local function once(source: string, nullValue: any): any
     local builder = valuebuilder.newSized(nullValue, u32(2), u32(16))
     local scratch = valuebuilder.newByteScratch(u32(16))
@@ -3661,7 +3626,7 @@ local function once(source: string, nullValue: any): any
     return valuebuilder.finish(builder)
 end
 
-@aot(vectorize = false)
+@aot
 local function twice(source: string, nullValue: any): any
     local builder = valuebuilder.newSized(nullValue, u32(4), u32(16))
     local scratch = valuebuilder.newByteScratch(u32(16))
@@ -3774,7 +3739,7 @@ function M.anUnestablishedOperandIsStillRefused()
         ] = [[
 local span = require("nupp.mem.span")
 
-@aot(vectorize = false)
+@aot
 local function scale(borrows input: span.Span<float>, exclusive out: span.WriteSpan<float>, k: number): nil
     for i = 1, #input do
         out[i] = nupp.math.f32.mul(input[i], k)
@@ -3832,7 +3797,7 @@ function M.rootedStringSimdLoadsRequireAnEntryParameter()
         ] = [[
 local simd = require("nupp.simd")
 
-@aot(vectorize = false)
+@aot
 local function quotes(source: string): uint32
     local rooted = "not the parameter"
     local species = simd.preferredU8()
@@ -3955,7 +3920,7 @@ return {classify = classify, Value = Value}
     assert(out:find("if (", 1, true), out)
 end
 
-function M.jsonCarriesTheOutcomeAndTheEstimate()
+function M.jsonCarriesTheRegionAndItsGang()
     local dir = project{["compute.nupp"] = COMPUTE}
     local out, code = run(dir, PINNED .. "--json compute.nupp")
     test.equal(code, 0, out)
@@ -3967,33 +3932,15 @@ function M.jsonCarriesTheOutcomeAndTheEstimate()
     local only = decoded.functions[1]
     test.equal(only.name, "escapes")
     test.equal(only.symbol, "ks_escapes")
-    test.equal(only.outcome, "lowered")
-    test.equal(only.lanes.shape, "mixed4")
-    test.equal(only.lanes.lanes, 4)
+    test.equal(#only.regions, 1, "the map loop is the one @simd region")
+    test.equal(only.regions[1].gang.shape, "mixed4")
+    test.equal(only.regions[1].gang.lanes, 4)
     test.equal(#only.loops, 1)
     test.equal(only.loops[1].kind, "map")
     test.equal(only.loops[1].outcome, "lowered")
+    test.equal(only.loops[1].line, only.regions[1].line, "the loop and the region are the same source line")
     assert(only.loops[1].nodes > 0)
-    assert(only.intensity.perByte > 1.0, "the estimate is above the threshold it was judged by")
-    test.equal(#only.refusals, 0, "a lowered loop has nothing to explain")
     assert(decoded.ir and decoded.c and decoded.binding, "all three artifacts are carried")
-end
-
-function M.jsonNamesWhatRefusedTheLoop()
-    local dir = project{["refused.nupp"] = REFUSED}
-    local out, code = run(dir, "--json --check refused.nupp")
-    test.equal(code, 1, out)
-    local decoded = require("testjson").decode(out:match("^(%b{})"))
-    local only = decoded.functions[#decoded.functions]
-    test.equal(only.outcome, "refused")
-    test.equal(only.loops[1].outcome, "refused")
-    test.equal(only.lanes, nil, "there is no gang to report")
-    assert(#only.refusals >= 1, "the refusal is data, not only a message")
-    assert(
-        only.refusals[1].message:find("cannot call a compiled entry", 1, true),
-        "and it names the construct: " .. only.refusals[1].message
-    )
-    assert(only.refusals[1].line > 0, "at a position")
 end
 
 -- Two functions over one struct, landing on different gangs: `scale` is
@@ -4008,7 +3955,7 @@ local struct Sample
     weight: float
 end
 
-@aot(vectorize = true)
+@aot
 local function scale(
     exclusive samples: span.WriteSpan<Sample>,
     borrows source: span.Span<Sample>,
@@ -4023,6 +3970,7 @@ local function scale(
         error("range out of bounds", 2)
     end
 
+    @simd
     for i = first, last do
         local sample = samples[i]
         local input = source[i]
@@ -4031,7 +3979,7 @@ local function scale(
     end
 end
 
-@aot(vectorize = true)
+@aot
 local function brighten(
     exclusive samples: span.WriteSpan<Sample>,
     borrows source: span.Span<Sample>,
@@ -4046,6 +3994,7 @@ local function brighten(
         error("range out of bounds", 2)
     end
 
+    @simd
     for i = first, last do
         local sample = samples[i]
         local input = source[i]
@@ -4066,8 +4015,8 @@ function M.everyAotFunctionInAFileIsCompiled()
     test.equal(#decoded.functions, 2, "both functions are reported")
     test.equal(decoded.functions[1].name, "scale", "in source order")
     test.equal(decoded.functions[2].name, "brighten")
-    test.equal(decoded.functions[1].lanes.shape, "mixed4", "ordinary arithmetic takes four lanes")
-    test.equal(decoded.functions[2].lanes.shape, "f32x8", "explicit binary32 takes eight")
+    test.equal(decoded.functions[1].regions[1].gang.shape, "mixed4", "ordinary arithmetic takes four lanes")
+    test.equal(decoded.functions[2].regions[1].gang.shape, "f32x8", "explicit binary32 takes eight")
 
     -- One struct declared once, both gangs in use, and each function bringing
     -- its own pair of bodies.
@@ -4099,14 +4048,12 @@ end
 -- only runs there.
 function M.theBaselineX86TierGetsTheNarrowGang()
     local dir = project{["compute.nupp"] = COMPUTE}
-    -- `--check` in the same command, so the exit status that says it lowered is
-    -- the status of the run whose report is being read.
-    local decoded, out, code, where = lowered(dir, "--check --json --target x86_64-unknown-linux-gnu compute.nupp")
-    test.equal(code, 0, "plain x86-64 vectorises rather than refusing, and --check agrees\n" .. out)
+    local decoded, out, code, where = lowered(dir, "--json --target x86_64-unknown-linux-gnu compute.nupp")
+    test.equal(code, 0, "plain x86-64 vectorises rather than refusing\n" .. out)
     test.equal(decoded.target.tier, "baseline", where .. ": and did not quietly promise instructions nobody asked for")
-    test.equal(decoded.functions[1].lanes.shape, "mixed2", where)
+    test.equal(decoded.functions[1].regions[1].gang.shape, "mixed2", where)
     test.equal(
-        decoded.functions[1].lanes.lanes,
+        decoded.functions[1].regions[1].gang.lanes,
         2,
         where .. ": half the lanes of AVX, which is the point: a smaller win, not no win"
     )
@@ -4119,8 +4066,8 @@ function M.aWiderTierGetsTheWiderGang()
     local decoded = require("testjson").decode(out)
     test.equal(decoded.target.triple, "x86_64-unknown-linux-gnu")
     test.equal(decoded.target.tier, "avx2", "the tier is reported, because it changed the answer")
-    test.equal(decoded.functions[1].lanes.shape, "mixed4")
-    test.equal(decoded.functions[1].lanes.lanes, 4)
+    test.equal(decoded.functions[1].regions[1].gang.shape, "mixed4")
+    test.equal(decoded.functions[1].regions[1].gang.lanes, 4)
 end
 
 function M.theAvx512TierGetsEightMixedLanes()
@@ -4129,8 +4076,8 @@ function M.theAvx512TierGetsEightMixedLanes()
     test.equal(code, 0, out)
     local decoded = require("testjson").decode(out)
     test.equal(decoded.target.tier, "avx512f")
-    test.equal(decoded.functions[1].lanes.shape, "mixed8")
-    test.equal(decoded.functions[1].lanes.lanes, 8)
+    test.equal(decoded.functions[1].regions[1].gang.shape, "mixed8")
+    test.equal(decoded.functions[1].regions[1].gang.lanes, 8)
     assert(
         decoded.c:find("ks_f64x8", 1, true) and decoded.c:find("ks_m64x8", 1, true),
         "the eight-lane gang carries binary64 values and masks at 64 bytes"
@@ -4143,7 +4090,7 @@ function M.anAll32BitLoopDoesNotTakeTheWiderTie()
     test.equal(code, 0, out)
     local decoded = require("testjson").decode(out)
     test.equal(
-        decoded.functions[1].lanes.shape,
+        decoded.functions[1].regions[1].gang.shape,
         "f32x8",
         "eight lanes in 32 bytes win over mixed8 when no binary64 value needs it"
     )
@@ -4157,7 +4104,7 @@ function M.theWidestGangThatFitsWins()
     local dir = project{["compute.nupp"] = COMPUTE}
     local out = select(1, run(dir, "--json --target x86_64-unknown-linux-gnu --features avx2 compute.nupp"))
     local decoded = require("testjson").decode(out)
-    test.equal(decoded.functions[1].lanes.shape, "mixed4", "not mixed2, which also fits and holds half as much")
+    test.equal(decoded.functions[1].regions[1].gang.shape, "mixed4", "not mixed2, which also fits and holds half as much")
 end
 
 function M.armHasOneTierAndNeedsNoSelection()
@@ -4166,7 +4113,7 @@ function M.armHasOneTierAndNeedsNoSelection()
     test.equal(code, 0, out)
     local decoded = require("testjson").decode(out)
     test.equal(decoded.target.tier, "neon", "its 16-byte registers are mandatory, so there is nothing to opt into")
-    test.equal(decoded.functions[1].lanes.shape, "mixed4")
+    test.equal(decoded.functions[1].regions[1].gang.shape, "mixed4")
 end
 
 function M.anUnknownTargetOrTierIsRejected()
@@ -4250,7 +4197,7 @@ function M.ordinaryLuaConstructionLowersThroughVmAwareIr()
         [
             "ordinary.nupp"
         ] = [[
-@aot(vectorize = false)
+@aot
 local function label(text: string): string
     local offsets: {integer} = {}
     offsets[1] = #text
@@ -4285,7 +4232,7 @@ function M.aStringAccumulatorKeepsTheVmStackAboveItsChunksTemporary()
         [
             "unsafe.nupp"
         ] = [[
-@aot(vectorize = false)
+@aot
 local function unsafe(text: string): string
     local answer = ""
     answer = answer .. text
@@ -4352,7 +4299,7 @@ local simd = require("nupp.simd")
 local function drain(bits: simd.MaskBits64): (uint32, uint32)
     return bits:firstSet(), bits:clearFirst():count()
 end
-@aot(vectorize = false)
+@aot
 local function decode(source: string, tape: string, nullValue: any): (any, uint32, uint32)
     local count = builder.length(source)
     local cursor: uint32 = 0
@@ -4539,7 +4486,7 @@ return builder
             "read.g.nupp"
         ] = [[
 local builder = require("nupp.codec.valuebuilder")
-@aot(vectorize = false)
+@aot
 local function read(source: string, offset: uint32): uint32
     return builder.byteAt(source, offset)
 end
@@ -4569,7 +4516,7 @@ local valueBuilder = require("nupp.codec.valuebuilder")
 const CLASSES = "\1\2\34\92"
 const QUOTED = 'a"b'
 
-@aot(vectorize = false)
+@aot
 local function entry(index: uint32, nullValue: any): any
     local state = valueBuilder.newSized(nullValue, nupp.math.u32.wrap(2), nupp.math.u32.wrap(8))
     valueBuilder.openArray(state, nupp.math.u32.wrap(2))
@@ -4640,7 +4587,7 @@ function M.aLengthAliasDoesNotOutliveItsScope()
             "stale.g.nupp"
         ] = [[
 local builder = require("nupp.codec.valuebuilder")
-@aot(vectorize = false)
+@aot
 local function decode(source: string): uint32
     do
         local n = builder.length(source)
@@ -4748,7 +4695,7 @@ function M.aShadowedStringIsNotThePreludes()
             "shadow.g.nupp"
         ] = [[
 local string = {byte = function(text: string, index: number): number return 7 end}
-@aot(vectorize = false)
+@aot
 local function first(source: string): number
     return string.byte(source, 1)
 end
@@ -4771,7 +4718,7 @@ function M.aLoopBodyReassigningACursorRetiresTheEnclosingProof()
     local body = [[
 local span = require("nupp.mem.span")
 
-@aot(vectorize = false)
+@aot
 local function decode(borrows source: span.Span<uint8>): uint32
     local cursor: uint32 = 0
     local total: uint32 = 0

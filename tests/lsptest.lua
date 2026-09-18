@@ -1801,12 +1801,12 @@ function M.builtinAnnotationHoverLinksToDocsWithNoFabricatedDefinition()
 end
 
 -- Same stand-in, one level down: a built-in annotation's own member
--- (`vectorize` on `@aot`) has no field declaration either.
+-- (`target` on `@aot`) has no field declaration either.
 function M.builtinAnnotationMemberHoverLinksToDocsWithNoFabricatedDefinition()
-    local uri = "file://" .. scratchRoot() .. "/aot-vectorize-demo.nupp"
+    local uri = "file://" .. scratchRoot() .. "/aot-target-demo.nupp"
     local source = table.concat(
         {
-            "@aot(vectorize = true)",
+            '@aot(target = "cpu")',
             "local function double(x: integer): integer",
             "    return x * 2",
             "end",
@@ -1839,8 +1839,8 @@ function M.builtinAnnotationMemberHoverLinksToDocsWithNoFabricatedDefinition()
 
     local hover = responseWithId(out, 10).result
     assert(hover and hover.contents, "builtin annotation member hover missing")
-    assertContains(hover.contents.value, "vectorize: boolean", "member hover shows its type")
-    assertContains(hover.contents.value, "vectorization estimate", "member hover blurb")
+    assertContains(hover.contents.value, "target:", "member hover shows its type")
+    assertContains(hover.contents.value, "execution family", "member hover blurb")
     assertContains(hover.contents.value, "https://nupp.org/guides/ahead-of-time", "member hover links to nupp.org")
 
     local definition = responseWithId(out, 11).result

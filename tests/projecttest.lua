@@ -2479,7 +2479,7 @@ function M.standaloneBinaryLinksAotIntoItsOwnHost()
         [
             "src/main.nupp"
         ] = [[
-@aot(vectorize = false)
+@aot
 local function triangular(count: integer): number
    local result = 0.0
    for index = 1, count do
@@ -2517,7 +2517,7 @@ function M.staticAotComponentProducesAnArchiveAndDefaultNamespaceBinding()
         [
             "src/main.nupp"
         ] = [[
-@aot(vectorize = false)
+@aot
 local function triangular(count: integer): number
    local result = 0.0
    for index = 1, count do result = result + index end
@@ -2549,7 +2549,7 @@ function M.staticAotComponentRegistersLuaBuildersThroughTheHost()
         [
             "src/main.nupp"
         ] = [[
-@aot(vectorize = false)
+@aot
 local function make(): {string: any} return {ready = true} end
 return {make = make}
 ]]
@@ -2590,7 +2590,7 @@ function M.staticAotComponentCarriesAProbeAndALinkManifest()
         [
             "src/main.nupp"
         ] = [[
-@aot(vectorize = false)
+@aot
 local function triangular(count: integer): number
    local result = 0.0
    for index = 1, count do result = result + index end
@@ -2649,7 +2649,7 @@ function M.staticAotIsRefusedForATargetThatHasNoArchiveToLink()
         [
             "src/main.nupp"
         ] = [[
-@aot(vectorize = false)
+@aot
 local function double(value: number): number return value * 2.0 end
 return {double = double}
 ]],

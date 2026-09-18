@@ -13,7 +13,7 @@ local SOURCE = [[
 module expressions
 local span = require("nupp.mem.span")
 const STRING_COMMAND = "ready\0go"
-@aot(vectorize = false)
+@aot
 local function choose(value: number): number
     local seen = 1.0
     local result = seen + do
@@ -30,7 +30,7 @@ local function choose(value: number): number
     return result + seen
 end
 
-@aot(vectorize = false)
+@aot
 local function lazy(flag: boolean): number
     local count = 0.0
     local a = flag and do count = count + 1.0 yield true end
@@ -40,7 +40,7 @@ local function lazy(flag: boolean): number
     return count + c
 end
 
-@aot(vectorize = false)
+@aot
 local function nested(value: number): number
     return do
         if value < 0 then return 19.0 end
@@ -56,7 +56,7 @@ local function nested(value: number): number
     end
 end
 
-@aot(vectorize = false)
+@aot
 local function whileHeader(): number
     local count = 0.0
     local total = 0.0
@@ -70,7 +70,7 @@ local function whileHeader(): number
     return total * 10.0 + count
 end
 
-@aot(vectorize = false)
+@aot
 local function repeatHeader(): number
     local count = 0.0
     local total = 0.0
@@ -84,7 +84,7 @@ local function repeatHeader(): number
     return total * 10.0 + count
 end
 
-@aot(vectorize = false)
+@aot
 local function headerExits(): number
     local total = 0.0
     local budget = 0.0
@@ -104,7 +104,7 @@ local function headerExits(): number
     return total
 end
 
-@aot(vectorize = false)
+@aot
 local function switchExits(): number
     local total = 0.0
     for i = 1, 5 do
@@ -118,7 +118,7 @@ local function switchExits(): number
     return total
 end
 
-@aot(vectorize = false)
+@aot
 local function elseifSetup(value: number): number
     local count = 0.0
     if value < 0 then return count
@@ -127,7 +127,7 @@ local function elseifSetup(value: number): number
     else return count + 100.0 end
 end
 
-@aot(vectorize = false)
+@aot
 local function order(): number
     local x = 1.0
     local first, second = x, do x = 5.0 yield 7.0 end
@@ -135,7 +135,7 @@ local function order(): number
     return first * 100.0 + second * 10.0 + x
 end
 
-@aot(vectorize = false)
+@aot
 local function booleanResult(value: number): boolean
     return switch value do
         case 1 -> do yield false end
@@ -143,7 +143,7 @@ local function booleanResult(value: number): boolean
     end
 end
 
-@aot(vectorize = false)
+@aot
 local function fixed(value: int32): int32
     return nupp.math.i32.wrap(switch value do
         case 1 -> do yield 31 end
@@ -156,12 +156,12 @@ end
 local function pair(): (number, number)
     return 7.0, 99.0
 end
-@aot(vectorize = false)
+@aot
 local function arguments(): number
     local x = 1.0
     return combine(x, do x = 2.0 yield 3.0 end, x)
 end
-@aot(vectorize = false)
+@aot
 local function mixed(flag: boolean): number
     return do
         if flag then
@@ -171,7 +171,7 @@ local function mixed(flag: boolean): number
         yield 1.5
     end
 end
-@aot(vectorize = false)
+@aot
 local function neverArm(value: number): number
     local result = switch value do
         case 0 -> do return 37 end
@@ -180,11 +180,11 @@ local function neverArm(value: number): number
     if result then return 41 end
     return 43
 end
-@aot(vectorize = false)
+@aot
 local function packed(): number
     return do yield pair() end
 end
-@aot(vectorize = false)
+@aot
 local function yieldFromHeader(): number
     return do
         local count = 0.0
@@ -198,7 +198,7 @@ local function yieldFromHeader(): number
         yield 31
     end
 end
-@aot(vectorize = false)
+@aot
 local function repeatedOuterExits(): number
     local total = 0.0
     local budget = 0.0
@@ -216,37 +216,37 @@ local function repeatedOuterExits(): number
     end
     return total
 end
-@aot(vectorize = false)
+@aot
 local function booleanSelector(flag: boolean): number
     return switch flag do case true -> do yield 3 end case false -> 5 end
 end
-@aot(vectorize = false)
+@aot
 local function fractionalSelector(value: number): number
     return switch value do case 1.5 -> 7 case -2.25 -> 11 else -> 13 end
 end
-@aot(vectorize = false)
+@aot
 local function nilSelector(): number
     return switch nil do case nil -> do yield 17 end end
 end
-@aot(vectorize = false)
+@aot
 local function lazyReturns(flag: boolean): number
     local a = flag and do return 51 end
     local b = flag ? do return 53 end : do yield false end
     if a or b then return 57 end
     return 59
 end
-@aot(vectorize = false)
+@aot
 local function returningCondition(): number
     while do return 61 end do
     end
     return 63
 end
-@aot(vectorize = false)
+@aot
 local function nilBlock(): number
     local value = do yield nil end
     return switch value do case nil -> 67 end
 end
-@aot(vectorize = false)
+@aot
 local function textBlock(flag: boolean): string
     return do
         if flag then
@@ -272,7 +272,7 @@ local function stringSelector(command: string): number
         else -> -1
     end
 end
-@aot(vectorize = false)
+@aot
 local function computedStringSelector(command: string): number
     local visits = 0.0
     local current = command
@@ -283,7 +283,7 @@ local function computedStringSelector(command: string): number
     end
     return result + visits * 10
 end
-@aot(vectorize = false)
+@aot
 local function staticStringSelector(): number
     return switch "a\0b" do case "a\0b" -> do local result = 23 yield result end end
 end
@@ -291,7 +291,7 @@ end
 local function capturedStringSelector(): number
     return switch (STRING_COMMAND) do case "ready\0go" -> 29 end
 end
-@aot(vectorize = false)
+@aot
 local function stringBlockSelector(flag: boolean): string
     return switch do
         local start = "start"
@@ -303,7 +303,7 @@ local function stringBlockSelector(flag: boolean): string
         else -> do local result = "halt" yield result end
     end
 end
-@aot(vectorize = false)
+@aot
 local function repeatedStringSelector(command: string, count: integer): number
     local total = 0.0
     for i = 1, count do
@@ -312,7 +312,7 @@ local function repeatedStringSelector(command: string, count: integer): number
     end
     return total
 end
-@aot(vectorize = false)
+@aot
 local function countedHeaders(): number
     local first = 1.0
     local total = 0.0
@@ -321,7 +321,7 @@ local function countedHeaders(): number
     end
     return total * 10.0 + first
 end
-@aot(vectorize = false)
+@aot
 local function countedHeaderExits(): number
     local total = 0.0
     for i = 1, 5 do
@@ -336,7 +336,7 @@ local function countedHeaderExits(): number
     end
     return total
 end
-@aot(vectorize = false)
+@aot
 local function returningSwitchCondition(value: number): boolean
     while switch value do
         case 1 -> do return true end
@@ -378,7 +378,7 @@ local function mappedHeaders(exclusive output: span.WriteSpan<number>, borrows i
         output[i] = input[i]
     end
 end
-@aot(vectorize = false)
+@aot
 local function repeatedStrings(count: integer): string
     local result = ""
     for i = 1, count do

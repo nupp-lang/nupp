@@ -55,11 +55,12 @@ module k%d
 
 local span = require("nupp.mem.span")
 
-@aot(vectorize = true)
+@aot
 local function scale%d(exclusive out: span.WriteSpan<float>, borrows input: span.Span<float>, factor: number): nil
     if #out ~= #input then
         error("length mismatch", 2)
     end
+    @simd
     for i = 1, #out do
         out[i] = input[i] * factor + %d.0
     end
