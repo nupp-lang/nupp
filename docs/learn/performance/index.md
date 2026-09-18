@@ -4,9 +4,7 @@ order: 600
 
 # Performance
 
-Nupp rewrites the Lua it generates wherever the checker knows something LuaJIT
-cannot, or wherever a shape decides whether a trace forms at all. Every rewrite
-preserves answers:
+Nupp uses type and effect information to simplify generated Lua:
 
 ::: code-group
 ```nupp [Nupp]
@@ -20,27 +18,23 @@ local point = {x = 1, y = 2}
 ```
 :::
 
-Two groups follow. **Always-on lowerings** need no flag and are part of what the
-language means. **Optimization passes** are the `-O1` catalog:
+**Always-on lowerings** implement language features. **Optimization passes**
+require `-O1`:
 
 ```bash
 nupp build -O1
 nupp run -O1 --remarks app.nupp
 ```
 
-Every generated tab below is the compiler's real output with whitespace
-normalized and the module prelude elided. Temporary names are stable but not a
-promise.
+Generated examples normalize whitespace and omit the module prelude. Temporary
+names may change.
 
 ## Always-on lowerings
 
 ### Typed call projection
 
-`{name} = path` fills a parameter from the field of `path` that the parameter
-names, and `{a, b} = path` fills several from one operand. Because the operand
-is confined to a name or dotted path, the reads are unordered and the shared
-prefix is bound once. There is no argument table, reflection, varargs pack,
-runtime arity choice, generated function, closure, or upvalue.
+`{a, b} = path` passes fields as positional arguments. Shared paths are read
+once, without argument tables or closures.
 
 ::: code-group
 ```nupp [Nupp]
@@ -75,16 +69,11 @@ end
 ```
 :::
 
-`entity.body` is read once and shared by both operands. A plucked name is read
-as that field of the operand, so the operand must actually have a field of that
-name, and `(dx, dy)` requires a `dx` and a `dy`. See
-[calls.md](../language/named-arguments.md) for the syntax.
+Both operands share the `entity.body` read. See [named and plucked
+arguments](../language/named-arguments.md) for syntax and field requirements.
 
-Only reusable path nodes receive locals; one-use leaves stay in the call. Safe
-calls keep the same flat signature, using staged nil guards in statement
-position and early returns in returned position, so plucked paths are not
-evaluated when the call is suppressed. Nested calls lift their bindings into
-the surrounding statement, inside any short-circuit guard:
+Safe calls and short-circuit expressions evaluate plucked paths only when the
+call runs:
 
 ::: code-group
 ```nupp [Nupp]
@@ -106,8 +95,8 @@ local moved = __nuppT3
 
 ### Table intrinsics
 
-`table.new` and `table.clear` lower to private module bindings, because LuaJIT
-does not expose them until their builtin modules are loaded.
+`table.new` and `table.clear` get private module bindings so their LuaJIT
+builtins are available:
 
 ::: code-group
 ```nupp [Nupp]
@@ -132,22 +121,15 @@ end
 ```
 :::
 
-Each used builtin is bound once per generated module and omitted when unused;
-`OPT-1` shares the `table.new` binding. Recognition follows the stable prelude
-definition, so a shadowed `table` is untouched and generated modules stay
-standalone under external LuaJIT.
+Bindings are emitted once per module, only when used. `OPT-1` shares
+`table.new`; a shadowed `table` is left alone.
 
-Under `@aot` the same `table.new` identity becomes `lua_createtable`, and the
-writes that fill the fresh table become public raw-set calls, so the whole
-construction is one native call. See [building ordinary Lua
-values](ahead-of-time/lua-values.md) for more information. The
-allocation itself costs the same either way, so `@aot` pays where a profile puts
-the time in the construction loop, not wherever a table is allocated.
+Under `@aot`, table construction and initialization can run in one native call.
+See [building ordinary Lua values](ahead-of-time/lua-values.md).
 
 ### `string.buffer`
 
-`string.buffer` is reachable through the builtin `string` namespace with no
-source-level `require`.
+`string.buffer` needs no source-level `require`:
 
 ::: code-group
 ```nupp [Nupp]
@@ -169,22 +151,16 @@ end
 ```
 :::
 
-LuaJIT keeps the module in `package.loaded` and puts nothing on the runtime
-`string` table, so the whole expression lowers to a private binding rather than
-modifying that table. Writing the `require` yourself still works, and `OPT-5`
-shares the binding. A shadowed `string` is ordinary table access.
+The private binding leaves the runtime `string` table untouched. An explicit
+`require` also works; a shadowed `string` remains ordinary table access.
 
 ### Switch dispatch
 
-A [switch expression](../language/switch-expressions.md) lowers to an ordered
-`if`/`elseif` chain, writing directly to its destination local when scope permits.
-A scalar local selector can be compared directly; computed selectors are saved
-once. The examples below use local scalar selectors. A switch is never
-wrapped in an immediately invoked function, so one in a hot loop adds no
-function-construction bytecode that would abort and blacklist a trace. Type-case
-bindings reuse the one selector local, so a computed selector is never repeated.
+A [switch](../language/switch-expressions.md) writes directly to its destination
+when scope permits, without a closure. Computed selectors are saved once; these
+examples use local scalar selectors.
 
-An arm whose result must be computed keeps those branches:
+Computed results keep an `if`/`elseif` chain:
 
 ::: code-group
 ```nupp [Nupp]
@@ -206,10 +182,8 @@ end
 
 #### Static result maps
 
-When every case and result, `else` included, is a compiler-known inert scalar,
-and there are enough of them, the decision finishes in one table read instead.
-Integer cases packed into a narrow span become a dense array indexed through an
-offset:
+Enough static scalar cases and results, including `else`, become one table read.
+Closely spaced integers use an offset into a dense array:
 
 ::: code-group
 ```nupp [Nupp]
@@ -231,8 +205,7 @@ if label == nil then label = "other" end
 ```
 :::
 
-Integers spread over a wide span become a hash-keyed map instead of a dense
-array with holes:
+Widely spaced integers use a hash-keyed map:
 
 ::: code-group
 ```nupp [Nupp]
@@ -270,11 +243,8 @@ if again == nil then again = false end
 ```
 :::
 
-A missing key is already `nil`, so neither integer form needs a range guard and
-holes need no placeholder. String cases use the same shape. An arm which itself
-produces `nil` is the exceptional case: a private sentinel distinguishes that
-hit from a miss, and the sentinel is omitted from every map without a nil
-result.
+String cases use the same lookup. A private sentinel distinguishes a `nil`
+result from a missing key:
 
 ::: code-group
 ```nupp [Nupp]
@@ -305,48 +275,30 @@ elseif kind == __nuppSwitchNil2 then kind = nil end
 ```
 :::
 
-Every map is allocated once in generated module setup, never at the switch site.
+Maps are allocated once per module. Missing keys need no range guard.
 
 #### Ordered branches
 
-Ordered branches come back for coverage builds, which need one instrumentable
-condition per authored case, and for small maps, block arms, destructuring,
-contextual `yield`, early `return`, refinements, any result whose evaluation can
-be observed, and a nested switch in an arm. Exact thresholds are measured
-implementation details rather than language promises.
+Coverage builds, small maps, block arms, destructuring, refinements, nested
+switches, and effectful results keep ordered branches.
 
-Record cases use nominal metatable identity. When checking proves the remaining
-selector is entirely records, lowering reads `__index` without a safe-navigation
-guard and may share that read across a leading run of record cases. An optional,
-gradual, primitive, refined, or otherwise open selector keeps the guarded or
-authored-order predicate.
+Record cases compare nominal metatable identities. Proven record-only selectors
+can share an unguarded identity read; open or optional selectors keep guards.
 
 #### Rejected and deferred plans
 
-There is no per-dispatch C helper, function table, BDD, MTBDD, or LuaJIT VM
-extension. Stock LuaJIT cannot jump from a computed case ordinal to an arbitrary
-lexical arm, so a lookup is used only when it is the end of the decision rather
-than the start of a second dispatch.
+Lookup maps return final values. LuaJIT has no computed jump into a lexical arm,
+so other cases retain branches.
 
-Perfect hashing was implemented and measured rather than assumed, and ships in
-neither form. A string perfect hash lost outright to LuaJIT's own table, because
-verifying a hit needs the original string comparison back. A collision-free
-32-bit hash into a fixed-width array is a different case: at sixteen to
-sixty-four sparse integer cases it is the largest compiled win measured anywhere
-in this work, twelve to twenty-one times the ordered chain, and the largest
-interpreted regression, 1.7 to 2.7 times worse. Backing it with a Lua array
-instead of an FFI one halves the interpreted penalty and gives up most of the
-compiled margin without removing the cliff.
+String perfect hashing lost to LuaJIT tables. Sparse integer perfect hashes
+improved traced execution but slowed interpretation, so they remain deferred.
 
-Choosing correctly needs a hotness input the cost model does not have, so it is
-deferred rather than rejected, and `bench/switch-dispatch.lua` keeps both
-`ph-ffi` and `ph-lua` baselines. See
-[switch expressions](../language/switch-expressions.md) for more information.
+`bench/switch-dispatch.lua` retains the `ph-ffi` and `ph-lua` experiments.
+Choosing between them needs hotness information the compiler does not have.
 
-The AOT scalar subset admits switch expressions and do blocks, and can emit a
-native C `switch` for an exact-width selector. See [scalar switch expressions
-and do blocks](ahead-of-time/numeric-semantics.md#scalar-switch-expressions-and-do-blocks)
-for more information.
+AOT can emit a native C `switch` for exact-width selectors. See [scalar switches
+and do
+blocks](ahead-of-time/numeric-semantics.md#scalar-switch-expressions-and-do-blocks).
 
 ## Optimization passes
 
@@ -355,12 +307,10 @@ nupp build -O1
 nupp run -O1 app.nupp
 ```
 
-`-O0`, the default, rewrites nothing: its generated Lua is the language
-semantics with types erased. `-O1` enables every current pass; `-O2` means the
-same today and reserves room for a stronger tier later. The level is part of the
-build key, so changing it triggers a cold build.
+`-O0`, the default, disables optimization passes. `-O1` enables all current
+passes; `-O2` is equivalent today. Changing levels triggers a cold build.
 
-Each pass below is named by a stable `OPT-n` code.
+Each pass has a stable `OPT-n` code:
 
 | Code | Name | Level | Rewrite |
 | --- | --- | --- | --- |
@@ -373,18 +323,13 @@ Each pass below is named by a stable `OPT-n` code.
 | `OPT-7` | inline-return-helper | -O1 | Inline a module's own single-return local helpers where they are called |
 | `OPT-8` | const-monomorphize | -O1 | Emit bounded private bodies for closed scalar const applications |
 
-::: deepdive
-A pass lands only with a LuaJIT-enabled benchmark and a static proof that it
-preserves behavior, and the proof has to be static. Generated Lua source cannot
-revoke an optimization at run time, so there is no deoptimization to fall back
-on, and sound-in-the-common-case is not available here. Thresholds are measured
-implementation details rather than promises about timing.
-:::
+Passes require static proofs and benchmark evidence. Generated Lua cannot
+undo an optimization at runtime; thresholds are implementation details.
 
 ### `OPT-1`, presizing
 
-Consecutive named writes that reveal an empty table's contents move into the
-constructor, which LuaJIT sizes directly with no `table.new` call.
+Consecutive named writes into an empty table become a constructor, which LuaJIT
+sizes directly:
 
 ::: code-group
 ```nupp [Nupp]
@@ -419,17 +364,14 @@ end
 ```
 :::
 
-Computed keys, repeated fields, multiple assignment, or an unrelated statement
-between writes retain the assignments and use `table.new` with the capacity the
-scan discovered. The scan steps over unrelated statements but stops when the
-table is read, escapes, is reassigned, or reaches a conditional write. Capacity
-is not observable, so the win is avoided growth allocations and copying, not a
-smaller surviving table.
+Other write patterns retain their assignments and use `table.new` to reserve
+capacity. Scanning stops when the table is read, escapes, is reassigned, or
+reaches a conditional write. Presizing avoids growth and copying.
 
 ### `OPT-2`, numeric `ipairs`
 
-A dense literal supplies a static boundary. When effect and alias analysis also
-prove the binding and shape cannot change, the loop becomes numeric.
+A loop over a dense literal becomes numeric when effect and alias analysis
+prove its binding and shape stay fixed:
 
 ::: code-group
 ```nupp [Nupp]
@@ -467,27 +409,17 @@ end
 ```
 :::
 
-An array type alone is insufficient. A shape-changing write through any alias,
-an unknown call, yield, metatable effect, or shadowed `ipairs` keeps the generic
-loop, including an ordinary call to a function parameter, whose effects cannot
-be resolved. See [effects.md](../language/effects.md) for the summaries the pass
-reads. The static bound is intentional; a dynamic raw length was flat or slower
-after tracing.
+An array type alone is insufficient. Shape-changing writes, unknown calls,
+yields, metatable effects, or a shadowed `ipairs` keep the generic loop. See
+[effects](../language/effects.md).
 
-A static bound is not itself an unrolling request. This proof establishes the
-literal's dense shape, not compile-time element values, so unrolling here would
-still allocate `xs` and duplicate three indexed loads and three copies of the
-body. Doing that automatically is a separate code-growth decision. `OPT-8`
-gets a bounded private body and scalar const substitution from an explicit
-`const` binder; use `comptime do` when the whole calculation is intentionally a
-compile-time value.
+A static bound does not request unrolling. Use `OPT-8` for specialization
+through explicit `const` binders, or `comptime do` for compile-time evaluation.
 
 ### `OPT-3`, constant folding
 
-Exact integer arithmetic, strings, comparisons, and boolean selection fold, and
-primitive `const` values propagate through later expressions. Ordinary scalar
-locals propagate too when no assignment anywhere in the file, including a
-nested function, writes that binding. Shadowing names remain separate bindings.
+Exact integer arithmetic, strings, comparisons, boolean selection, and primitive
+`const` values fold:
 
 ::: code-group
 ```nupp [Nupp]
@@ -518,13 +450,12 @@ end
 ```
 :::
 
-Floating-point arithmetic, cdata, calls, allocation, and reassigned bindings stay
-at runtime so LuaJIT retains their rounding, identity, errors, and lifetimes.
+Floating-point arithmetic, cdata, calls, allocation, and reassigned bindings
+stay at runtime.
 
 #### Unchanged locals
 
-An ordinary scalar local needs no `const` annotation for its value to propagate
-when the compiler can prove its binding is never reassigned.
+Ordinary scalar locals also propagate when their bindings are never reassigned:
 
 ::: code-group
 ```nupp [Nupp]
@@ -548,16 +479,14 @@ end
 ```
 :::
 
-A write in a nested function also prevents propagation, even if that function
-is never called. A separate local with the same name does not. Once folding
-removes every use of an inert scalar local, its declaration disappears too.
+Writes in nested functions prevent propagation; separately shadowed bindings do
+not. Unused inert scalar declarations disappear after folding.
 
 #### Short-circuit expressions
 
-A known left operand also simplifies `and`, `or`, and `??` without requiring
-the right operand to be constant. A selected call still runs once and produces
-one value; an unselected operand does not run. An unknown left operand keeps
-its evaluation even when the right operand is constant.
+A known left operand simplifies `and`, `or`, and `??`. Selected calls run once
+and produce one value; unselected operands do no work. Unknown left operands
+still run.
 
 ::: code-group
 ```nupp [Nupp]
@@ -581,13 +510,8 @@ end
 
 #### Integer division and the bit operators
 
-`//` folds as the expression it lowers to, `math.floor((a) / (b))`, rather than
-as an integer division that would disagree with it about a quotient no double
-holds exactly. Folding one usually collapses what surrounds it, which is what
-makes aligning a constant up a single literal. `&`, `|`, `~`, `<<`, `>>` and
-`~>>` fold through BitOp, which is their declared meaning rather than an
-approximation of it: operands normalize to 32 bits and results come back signed,
-so the folded answers are the surprising ones.
+`//` folds using `math.floor((a) / (b))`. Bit operators use BitOp semantics:
+operands normalize to 32 bits and results are signed.
 
 ::: code-group
 ```nupp [Nupp]
@@ -634,14 +558,12 @@ end
 ```
 :::
 
-A zero divisor keeps the division: its answer is an infinity, not an integer.
-Folding runs the same primitive the emitted operator would have, so the two
-cannot disagree by construction; the test sweeps one against the other anyway.
+Division by zero stays at runtime.
 
 #### Loops that cannot run
 
-A loop whose constant bounds admit no first iteration is not emitted. The empty
-`do` left behind compiles to nothing.
+Loops with no possible first iteration disappear. The remaining empty `do`
+compiles to nothing:
 
 ::: code-group
 ```nupp [Nupp]
@@ -676,15 +598,12 @@ end
 ```
 :::
 
-A step of zero is left alone: `for i = 1, 10, 0` does not terminate, and
-removing it would remove the hang rather than the cost of it.
+A zero step remains unchanged because the loop does not terminate.
 
 #### Constant branches
 
-Constant false arms disappear even among dynamic conditions. A constant true
-arm becomes the final fallback, removing every later arm. The remaining
-conditions keep their evaluation order. When no dynamic conditions remain,
-only the selected arm is emitted; a `do` preserves its original scope.
+False arms disappear; a true arm becomes the final fallback. Remaining
+conditions preserve evaluation order, and `do` preserves scope:
 
 ::: code-group
 ```nupp [Nupp]
@@ -730,10 +649,9 @@ end
 
 #### Nested immutable paths
 
-`const M = {}` fixes the module-table binding, not the table. `const M.field`
-fixes one named slot, leaving ordinary fields mutable; `const... M.field` is the
-auto-deep form for every named field in a fresh table graph. A read whose every
-edge is immutable becomes its value.
+`const M` fixes the binding, `const M.field` fixes one field, and `const...
+M.field` recursively fixes fresh named fields. Reads through fully immutable
+paths fold:
 
 ::: code-group
 ```nupp [Nupp]
@@ -777,18 +695,15 @@ end
 ```
 :::
 
-`mixed.count` is an ordinary mutable field, so it survives. One mutable parent
-anywhere on the path keeps the whole read intact. `require` is never removed or
-moved, because loading a [module](../language/modules.md) may have effects. No
-runtime freezing is involved: `const` records the checked, shallow guarantee and
-`const...` applies it recursively to fresh named fields. See
-[type-level-computation.md](../language/types/comptime-types.md) for the
-binder.
+A mutable field or parent keeps the read intact. `require` stays in place
+because [module loading](../language/modules.md) may have effects. These are
+checked guarantees, not runtime freezing; see [const
+binders](../language/types/comptime-types.md).
 
 ### `OPT-4`, static callable binding
 
-Repeated statement-position calls through one immutable path share a local
-bound at the first call.
+Repeated statement-position calls through an immutable path share a local bound
+at first use:
 
 ::: code-group
 ```nupp [Nupp]
@@ -834,17 +749,14 @@ end
 ```
 :::
 
-The root and every field must be `const`, which is why `service.nupp` above
-declares the callee with `const...` rather than an ordinary `function S.x.y()`,
-whose `y` slot would stay mutable and decline the rewrite. One call is left
-alone. First-use binding preserves lookup order and the error line, and reuse
-stays within one lexical block. Labels, `goto`, and calls with specialized FFI,
-ownership, construction, or output-parameter lowering are not rewritten.
+The root and every field must be `const`. Reuse stays within one lexical block
+and preserves lookup order and error locations. Single calls, labels, `goto`,
+and specialized FFI, ownership, constructor, or output-parameter calls are
+excluded.
 
 ### `OPT-5`, concat buffer
 
-A string appended to round a loop is built in a `nupp.text` buffer and read
-back once, instead of being rebuilt on every pass.
+A loop that appends to a string can use a `nupp.text` buffer:
 
 ::: code-group
 ```nupp [Nupp]
@@ -880,33 +792,24 @@ end
 ```
 :::
 
-`out = out .. piece` is O(n²), because every pass allocates and interns a string
-holding everything so far, so this is the one win here the trace compiler could
-not have folded itself. `bench/concat.lua` measures 1.8x over eight pieces
-rising to 3.6x over sixty-four, still climbing.
+Repeated concatenation copies the growing string and costs O(n²).
+`bench/concat.lua` measured 1.8x faster for eight pieces and 3.6x for
+sixty-four.
 
-An immediate return of the accumulator returns the buffer's string directly,
-omitting the accumulator local when it has no other uses. Otherwise the
-accumulator keeps its declaration and is assigned back where the loop closes,
-so everything after it reads an ordinary string. The rewrite requires
-the initializer to be `""`, every mention inside the loop to be the one
-`out = out .. ...`, and nothing to touch the binding between declaration and
-loop. A read of the half-built string, a capture by a function written in the
-loop, a prepend (`out = item .. out`), or a second accumulation keeps the
-concatenation, as does a `..` the checker did not prove primitive: an `any`
-operand may carry a `__concat`, which `put` would not run.
+A sole immediate return reads the buffer directly. Other later uses keep the
+string local and materialize it after the loop.
 
-Straight-line concatenation is untouched. Lua concatenates multiple operands in
-one operation, and a buffer costs about what two concatenations cost.
+The initializer must be `""`, with one primitive `out = out .. ...` accumulation
+and no intervening uses. Reads or captures inside the loop, prepends, multiple
+accumulations, and possible `__concat` effects prevent rewriting.
+
+Straight-line concatenation is unchanged.
 
 ### `OPT-6`, indexed views
 
-[](nupp.mem.indexed.range) checks one inclusive range against every
-participating trusted Span or SoA view. The successful check proves matching
-indexed reads and writes non-raising inside the dominated numeric loop, and that
-proof is part of checking at every level, which is what permits those calls
-inside `noraise` code. At `-O1` the backend also spends the proof, replacing
-each checked access with direct FFI element access:
+[](nupp.mem.indexed.range) validates an inclusive range for trusted Span or SoA
+views. Matching accesses in the numeric loop become non-raising at every level,
+including in `noraise` code. At `-O1`, they also become direct FFI accesses:
 
 ::: code-group
 ```nupp [Nupp]
@@ -951,24 +854,19 @@ end
 ```
 :::
 
-Every view handed to `indexed.range` must be a `const` name, which is why the
-parameters are rebound above. The range call still validates every span once,
-and the generated access still includes the span's physical offset. `-O0`, held
-frames, a computed index, a different span, or an access outside the witnessed
-loop retains one checked helper operation. The proof is local to the function
-containing `indexed.range`; passing its bounds or result elsewhere does not
-transport it.
+Views must be bound to `const` names. Validation runs once and physical offsets
+are preserved. `-O0`, held frames, computed indices, other spans, and accesses
+outside the witnessed loop keep checked helpers. The proof stays within its
+function.
 
-The same pass scalar-replaces the view itself. Above, `left` and `right` become
-bare counts rather than span objects. The checked finish, root, offset, count,
-and access capability are kept as compiler facts instead of allocating a
-wrapper.
+The pass also removes view wrappers: `left` and `right` above become counts,
+while the compiler tracks their roots, offsets, and access capabilities.
 
 #### SoA columns
 
-A [SoA](../runtime/data/structure-of-arrays.md) view is the other admitted shape.
-The canonical `for index = 1, #rows` loop proves every row access in bounds, and
-a const-bound view lets each field become a direct typed-column load or store:
+For a const-bound [SoA view](../runtime/data/structure-of-arrays.md), `for index
+= 1, #rows` proves row accesses in bounds and enables direct column loads and
+stores:
 
 ::: code-group
 ```nupp [Nupp]
@@ -1011,49 +909,37 @@ end
 ```
 :::
 
-`--remarks` reports both halves of that:
+`--remarks` reports both rewrites:
 
 ```text
 OPT-6: indexed-range: lowers 4 soa accesses
 OPT-6: view-scalar-replacement: virtualizes one alias
 ```
 
-The selected column pointers and physical base are loop invariants. `-O1` binds
-each once for the interpreter and computes one physical index per iteration;
-the source owner remains live for the whole loop. LuaJIT's recorder can discover
-the same invariants, so the explicit bindings primarily remove interpreter
-table loads without asking traced code to recover the representation.
+Column pointers and the physical base are bound once; each iteration computes
+one physical index. The source owner stays live. These bindings primarily help
+interpreted execution; LuaJIT can discover the same invariants.
 
 #### Admitted roots
 
-An arbitrary index keeps its runtime bounds check. Admitted roots come from
-`span.fromString`, the shared and writable C-array constructors,
-`heap.Array:read()`/`write()`, and `soa.Array:read()`/`write()`. Slices retain
-one checked finish scalar, shared downgrades their count, resolved SoA field
-projections select the column directly, and nested combinations compose offsets
-without wrapper tables.
+Supported roots include `span.fromString`, shared and writable C arrays,
+`heap.Array:read()`/`write()`, and `soa.Array:read()`/`write()`. Slices, shared
+downgrades, and SoA field projections compose offsets without wrappers.
+Arbitrary indices keep bounds checks.
 
-Dynamic base, offset, count, and column expressions are captured once in source
-order, and constructor validation, exclusive acquisition, dirty marking, and
-other producer effects still execute once. Access stays rooted through the
-source owner, so scalar replacement cannot detach a pointer or column from its
-anchor.
+Dynamic expressions and producer effects run once in source order. Direct
+accesses retain their source owner.
 
-Directly called, nonrecursive local functions in the same module may transport
-an admitted view through parameters or one return value as flattened runtime
-state. Recursive, exported, dynamic, foreign, cross-module, `any`, and otherwise
-opaque boundaries retain the materialized ABI, as does returning, capturing, or
-storing the view.
+Direct, nonrecursive local calls may pass or return views as flattened state.
+Recursive, exported, dynamic, foreign, cross-module, and `any` boundaries keep
+view objects, as do other returns, captures, and stores.
 
-An `@aot` function retains the same resolved field identities and
-single-map-loop fact, and its backend keeps unit strides in IR for direct scalar
-or lane lowering. See [automatic
-vectorization](ahead-of-time/vectorization.md) for more information.
+AOT retains these field identities and unit strides for scalar or [SIMD
+lowering](ahead-of-time/vectorization.md).
 
 ### `OPT-7`, single-return helpers
 
-A `local function` whose body is one `return` of one expression becomes that
-expression where it is called:
+A local helper with one return expression can be inlined at its call sites:
 
 ::: code-group
 ```nupp [Nupp]
@@ -1077,12 +963,9 @@ end
 ```
 :::
 
-The declaration stays, because something else may still call it, and a call this
-pass declines is an ordinary call.
+The declaration remains for other callers.
 
-When `OPT-3` is enabled, folding runs again after inlining. Constants exposed
-by a helper's arguments can then propagate to later expressions and select
-branches in the caller.
+`OPT-3` runs again after inlining, folding exposed constants and branches:
 
 ::: code-group
 ```nupp [Nupp]
@@ -1102,7 +985,6 @@ local function add(left, right)
 end
 
 function m.answer()
-    local size = 5
     return 20
 end
 ```
@@ -1119,57 +1001,29 @@ end
 ```
 :::
 
-`@aot` already inlines exactly these into a compiled body, so without this pass
-the two routes did not see the same source: the annotated body got the helper's
-expression and the ordinary one got a call. The condition `@aot` proves is the
-condition this needs, which is what makes it one rule rather than two. See
-[ahead-of-time.md](ahead-of-time/index.md) for the compiled route.
+[AOT](ahead-of-time/index.md) applies the same helper eligibility rules.
 
-The call is replaced by the helper's expression as a tree, so `gen` lowers what
-it now holds exactly as it would have at the helper's own site. That matters
-more than it sounds: a cast erases, `new T(...)` is not a call, and
-`nupp.math.u32.wrap(v)` is not a call in the generated line either. Substituting
-the helper's *text* would write none of those correctly.
+Inlining requires:
 
-A call is left alone unless all of this holds:
+- A nonrecursive, nongeneric local helper with one return expression.
+- Stable bindings: no reassignment, duplicate module declarations, or shadowed free names.
+- Exactly one argument per parameter, using names, literals, or non-allocating operators whose evaluation can safely repeat or disappear.
+- Name arguments for parameters used as field, index, method, or call receivers.
+- A call in expression position.
 
-- The helper's body is one return of one expression, it is not recursive, and it
-  declares no generic parameters.
-- Nothing assigns to the binding, and neither its name nor any name its body
-  reads is declared twice at module level.
-- No name its body reads means something else where the call stands.
-- The call passes exactly one argument per parameter. Each is a name, literal,
-  or a non-allocating operator expression made only from those. A parameter read
-  twice is written twice and one read zero times is dropped, so calls, indexing,
-  concatenation, length, and anything else with observable evaluation keep the
-  helper call.
-- A parameter read as the object of `x.f`, `x[k]`, `x:m()` or `x(...)` takes a
-  name and nothing else. Lua's grammar admits only a name or a parenthesized
-  expression there, so a literal spliced into one would carry the right value on
-  a line that does not load.
-- The call is in expression position. A call standing alone is a statement, and
-  a parenthesized expression is not one.
+Growth limits bound expansion and repeated argument computation per call and
+enclosing function. They add no temporary locals or fixed helper-chain depth
+limit.
 
-An eligible call also has to fit the inliner's internal growth limits. The pass
-estimates the replacement before copying it, limits expansion at each call and
-across its enclosing function, and bounds repeated argument computation. Tiny
-arithmetic arguments may still be duplicated; compound expressions keep their
-call. Names and literals are cheap to repeat, as is an expression constant
-folding already reduced to a literal.
-These limits introduce no temporary locals and place no fixed limit on helper
-chain depth. Grouping and erased casts do not consume the growth allowance.
-
-`--remarks` reports when duplication or growth keeps an otherwise eligible call.
-The retained call remains available for LuaJIT or the native compiler to inline.
-The thresholds are internal compiler constants, shared by `-O1` and `-O2`.
+`--remarks` explains declined inlining. Retained calls remain available for
+LuaJIT or the native compiler to inline.
 
 ### `OPT-8`, const monomorphization
 
-A runtime function with scalar `const` binders may receive a private body for a
-closed checked application. The private ABI omits const carrier parameters,
-substitutes their values into the checked body, and applies constant folding and
-bounded loop unrolling before Lua is emitted. The public function remains the
-only source-visible function value, and `-O0` emits only that generic body.
+Closed applications of scalar `const` binders can get private specialized
+bodies. Their parameters omit const carriers, and their bodies fold constants
+and unroll bounded loops. The public generic function remains available; `-O0`
+emits only that body.
 
 ::: code-group
 ```nupp [Nupp]
@@ -1226,34 +1080,24 @@ end
 ```
 :::
 
-The private name contains a longer key digest in generated output, and its
-compiler-private cross-module registration is omitted from the excerpt. The
-important parts are that the carrier `count` disappears from the private ABI,
-the four-iteration loop becomes straight-line code, and the public generic body
-remains available.
+The excerpt shortens the private key digest and omits cross-module registration.
 
-Demands are collected across the built module graph. A direct cross-module call
-uses compiler-private linkage to the body owned by the declaring module, and a
-changed incoming tuple invalidates that module's emitted artifact without
-turning it into a new checked module. Repeated keys emit once. Keys proven to
-produce the same private ABI and body share a physical body class, and each
-source module is limited to eight such classes; optional keys beyond the limit
-keep the generic route and appear in `--remarks`.
+Specializations are selected across the module graph and emitted by the
+declaring module. Equivalent keys share bodies. Each source module permits eight
+body classes; excess optional keys stay generic and appear in `--remarks`.
 
-Only `const` binders in the `integer`, `boolean`, and `string` domains with a
-direct carrier parameter are eligible. Calls through `any`, unresolved function
-values, and dependencies without the checked body stay generic. Build JSON
-reports `timing.specializedBodies` separately from `compiledModules`.
+Eligible binders are `integer`, `boolean`, or `string` constants with direct
+carrier parameters. Opaque calls and unavailable checked bodies stay generic.
+Build JSON reports `timing.specializedBodies` separately from `compiledModules`.
 
-An `@aot` const-generic function uses the same checked key and body-class budget.
-See [const-specialized AOT families](ahead-of-time/index.md#const-specialized-families).
+AOT uses the same keys and budget; see [const-specialized
+families](ahead-of-time/index.md#const-specialized-families).
 
 ### Rewrites deliberately not made
 
-Nupp does not cache a closure created inside a loop, because that changes
-function identity. The
-[`loop-invariant-closure`](../../reference/lints.md#loop-invariant-closure) lint
-instead suggests lifting a closure that does not depend on the iteration.
+Caching loop-created closures would change their identity.
+[`loop-invariant-closure`](../../reference/lints.md#loop-invariant-closure)
+suggests lifting eligible closures instead:
 
 ```nupp
 local isClick = |event| -> event.kind == "click"
@@ -1262,24 +1106,19 @@ for _, item in ipairs(items) do
 end
 ```
 
-Suppress an intentional case with `@allow("loop-invariant-closure")`. See
-[lints.md](../../reference/lints.md#local-suppressions) for the suppression form. A
-closure that does depend on the iteration cannot be lifted, and costs the loop
-its trace all the same;
-[`jit-loop-closure`](jit-trace-checking.md#configurable-source-lint) says so
-where a project asks for it, and anyway inside a function annotated `@jit`.
+Suppress intentional cases with `@allow("loop-invariant-closure")`. Closures
+that depend on the iteration still block tracing;
+[`jit-loop-closure`](jit-trace-checking.md#configurable-source-lint) reports
+them when enabled or inside `@jit` functions.
 
-Two benchmarks argued against passes that were therefore never written.
-`bench/ffi-hoisting.lua` finds that caching a ctype is the interpreter's win
-alone, though the clib symbol binding it also measures is real and already
-emitted. `bench/scratch-reuse.lua` finds that hoisting a loop-local table or
-`ffi.new` out of its loop is slower than letting allocation sinking handle it.
-Both exit non-zero if their finding stops holding.
+`bench/ffi-hoisting.lua` found ctype caching helped only the interpreter.
+`bench/scratch-reuse.lua` found hoisted tables and `ffi.new` slower than
+allocation sinking. Both guard against those findings changing.
 
 ## Benchmark details
 
-Fresh local medians with LuaJIT enabled, measuring the generated-Lua shapes each
-pass produces rather than checker time.
+Recorded local medians with LuaJIT enabled, measuring generated code rather than
+checker time:
 
 | Pass and scenario | Before | After | Change |
 | --- | --- | --- | --- |
@@ -1298,10 +1137,9 @@ pass produces rather than checker time.
 | OPT-6, SoA projected update vs handwritten columns | 0.00296s | 0.00307s | 1.037x of direct |
 | OPT-6, 500,000 slice constructions | 0.12183s | 0.00425s | 28.7x faster |
 
-Primitive folding reduced its generated input by 32.1%, nested propagation by
-60.8%, static callable binding by 63.6%; warmed results were 0.99x, 2.01x, and
-1.06x. Hot results are workload- and trace-dependent, so the reliable constant
-and callable wins are smaller source and cold startup.
+Primitive folding, nested propagation, and static callable binding reduced
+source size by 32.1%, 60.8%, and 63.6%. Warmed speedups were 0.99x, 2.01x, and
+1.06x: hot-loop gains depend on workload and trace shape.
 
 ```bash
 luajit bench/presize.lua
@@ -1312,10 +1150,8 @@ luajit bench/static-callable.lua
 bench/span-range-lowering/run.sh
 ```
 
-Three more decide whether a pass is worth writing at all. `concat` argued for
-`OPT-5` and now guards it; the other two argued against passes that are
-therefore not here, as [Rewrites deliberately not
-made](#rewrites-deliberately-not-made) records.
+These benchmarks cover concat buffering and the [rewrites deliberately
+omitted](#rewrites-deliberately-not-made):
 
 ```bash
 luajit bench/ffi-hoisting.lua
@@ -1323,15 +1159,10 @@ luajit bench/concat.lua
 luajit bench/scratch-reuse.lua
 ```
 
-The `OPT-6` rows compare the pass disabled against enabled on an arm64 Apple
-host after warmup, where the optimized trace matched handwritten direct FFI in
-counted IR shape and timing. The benchmark adapts the position and velocity
-kernel, the repository having no production hot loop written with a
-same-function witness. The slice figures are evidence for narrow derived-view
-scalar replacement, not general table escape analysis. The committed
-`bench/span-range-lowering/README.md` carries the full Span, heap, SoA,
-dirty-acquisition, and trace matrix, and `bench/span-range-lowering/trace.sh`
-prints the opcode-category comparison.
+The `OPT-6` measurements used an arm64 Apple host after warmup, comparing
+disabled and enabled passes. Slice results cover derived-view replacement, not
+general escape analysis. See `bench/span-range-lowering/README.md` for the full
+matrix and `trace.sh` for IR comparisons.
 
 ## Inspecting, controlling, and measuring
 
@@ -1340,49 +1171,38 @@ nupp build -O1 --remarks
 nupp build -O1 -Zno-opt=OPT-2
 ```
 
-`--remarks` reports both successful rewrites and declined proofs, including the
-source location that stopped an analysis. Remarks never fail a build; they come
-from `build` and `run`, and `check` does not optimize. `-Zno-opt=CODE` disables
-one pass for miscompile bisection, where the codes are stable and the `-Z`
-form is an unstable debugging interface, and `-O0` disables every rewrite.
+`build --remarks` and `run --remarks` report successful and declined rewrites
+with source locations. Remarks never fail a build; `check` does not optimize. Use
+`-Zno-opt=CODE` to disable one pass or `-O0` to disable all passes. `OPT-n`
+codes are stable; `-Z` flags are debugging interfaces.
 
 ::: seealso
-- [benchmarks.md](benchmarks.md) for measuring a change, and for gating a
-  counter that moved
-- [profiling.md](profiling.md) for where the time actually goes
-- [jit-trace-checking.md](jit-trace-checking.md) for finding recorder blockers
-  in the exact generated bytecode, without a quiet machine and without
-  executing anything
-- [ahead-of-time.md](ahead-of-time/index.md) for taking a numeric loop off LuaJIT
-  entirely
+- [Benchmarks](benchmarks.md): measure changes and set regression gates.
+- [Profiling](profiling.md): find where time goes.
+- [Trace checking](jit-trace-checking.md): identify recorder blockers in bytecode.
+- [Ahead-of-time compilation](ahead-of-time/index.md): compile numeric loops to native code.
 :::
 
 ## Observable behavior
 
-Passes preserve answers. One that trades a non-answer guarantee for speed must
-explicitly check a named
+Passes preserve results. Relaxing another observable guarantee requires an
+explicit
 [`@relax`](../../reference/annotations.md#relaxing-observable-guarantees)
-permission. The compiler fixpoint verifies that
-compiling the compiler at `-O1` produces output byte-identical to compiling it
-at `-O0` while its guarantees are held.
+permission.
 
 ## FAQ
 
 ### Does `-O1` change what a program answers?
 
-No. Every pass preserves answers, and a pass that would trade a non-answer
-guarantee has to find a named `@relax` permission first. The
-compiler fixpoint checks that by compiling itself at both levels.
+No. Optimization preserves results; other observable guarantees require explicit
+`@relax` permission to change.
 
 ### Which level should a project ship?
 
-`-O1`. `-O0` is the default because it is the fastest build and the clearest
-generated Lua to read, and `-O2` means `-O1` today. The level is part of the
-build key, so switching costs one cold build.
+`-O1`. Use `-O0` for faster builds and simpler generated Lua. `-O2` currently
+matches `-O1`.
 
 ### Why did a pass not fire on code that looks eligible?
 
-Run the build with `--remarks`, which names the declined proof and the source
-location that stopped the analysis. The usual answers are a mutable binding
-where the pass needs `const`, or an unknown call whose effects cannot be
-resolved; see [effects.md](../language/effects.md).
+Use `--remarks` to find the failed proof. Common blockers are mutable bindings
+and unresolved call effects; see [effects](../language/effects.md).
