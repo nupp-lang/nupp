@@ -1,5 +1,0 @@
-{
-  "revision": "a991b4dc467a6d3c192d4d6fa55570c24640cc73",
-  "source": "bench/qemu-wasm-spike/project/src/nupp/qemu/game.g.nupp",
-  "wasmSha256": "dc43b74d103348a4ab3f5ff218dbb6b53066c084395b31acff7d4d5a9294a5d4"
-}
