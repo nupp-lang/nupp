@@ -273,12 +273,7 @@ local function stream(source: string, tape: string, nullValue: any): (any, uint3
 end
 
 @aot
-local function primitives(source: string, nullValue: any): (any, uint32, uint32, uint32)
-    local view = simd.paddedStringU8(source)
-    local bytes = view:loadFull(nupp.math.u32.wrap(0))
-    local aligned = simd.alignBytes(view:loadTail(), bytes, nupp.math.u32.wrap(1))
-    local table = simd.tableU8x16(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15)
-    local classes = aligned:lookup16(table):equal(7):count()
+local function primitives(source: string, nullValue: any): (any, uint32)
     local scratch = valueBuilder.newWordScratch(nupp.math.u32.wrap(3))
     local bits = simd.maskBits64(nupp.math.u32.wrap(5), nupp.math.u32.wrap(4))
     local next = valueBuilder.appendSetBits(scratch, nupp.math.u32.wrap(0), nupp.math.u32.wrap(10), bits)
@@ -303,7 +298,7 @@ local function primitives(source: string, nullValue: any): (any, uint32, uint32,
     valueBuilder.number(state, valueBuilder.scratchWord(stringScratch, nupp.math.u32.wrap(2)) * 1.0)
     valueBuilder.number(state, stringNext * 1.0)
     valueBuilder.close(state)
-    return valueBuilder.finish(state), view.fullLength, view.tailLength, classes
+    return valueBuilder.finish(state), next
 end
 
 --- Both wraps over a value the destination may not be able to hold, which is
@@ -2727,10 +2722,10 @@ function M.luaBuilderRegistrationReturnsOrdinaryTables()
     )
     local primitiveText = builderAnswer(
         "require",
-        'local b=require("builder");local values,full,tail,classes=b.primitives(string.rep(string.char(7),40),{});print(table.concat(values,","),full+tail,classes)'
+        'local b=require("builder");local values,next=b.primitives(string.rep(string.char(7),40),{});print(table.concat(values,","),next)'
     )
     assert(
-        primitiveText:find("10,12,44,100,2147483755,110,3\t40", 1, true),
+        primitiveText:find("10,12,44,100,2147483755,110,3\t", 1, true),
         builderReport("primitive values", "require", dir, primitiveText)
     )
     local generated = assert(read(dir .. "/build/native/builder.lua"))

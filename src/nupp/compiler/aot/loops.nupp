@@ -50,7 +50,6 @@ local STATEMENTS: {
     lua_scratch_u32_set = true,
     lua_scratch_u8_set = true,
     lua_scratch_u8_set4 = true,
-    simd_store4_u8 = true,
     lua_scratch_u8_reset = true,
     lua_builder_open_array = true,
     lua_builder_open_object = true,

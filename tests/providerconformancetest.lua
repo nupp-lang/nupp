@@ -48,7 +48,7 @@ end
 function M.simdExportsTheScalarFunctionsDirectly()
     local simd = require("nupp.simd")
     local scalar = require("nupp.runtime.provider.scalarsimd")
-    for _, name in ipairs({"preferredU8", "maskBits64", "tableU8x16", "alignBytes", "paddedStringU8"}) do
+    for _, name in ipairs({"preferredU8", "maskBits64", "tableU8x16", "alignBytes"}) do
         assert(simd[name] == scalar[name], name .. " must retain the implementation function")
     end
     verify("simd", "nupp.runtime.provider.scalarsimd")

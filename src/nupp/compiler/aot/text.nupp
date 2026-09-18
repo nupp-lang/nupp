@@ -422,13 +422,6 @@ function text.block(statements: {any}, depth: integer): {string}
             lines[#lines + 1] = prefix .. scratchWrite("lua.scratch_u32_set", statement)
         elseif op == "lua_scratch_u8_set" then
             lines[#lines + 1] = prefix .. scratchWrite("lua.scratch_u8_set", statement)
-        elseif op == "simd_store4_u8" then
-            local store = statement as scalarIR.Simd
-            local rendered: {string} = {}
-            for _, argument in ipairs(store.args) do
-                rendered[#rendered + 1] = text.expression(argument)
-            end
-            lines[#lines + 1] = prefix .. "simd.store4 " .. table.concat(rendered, ", ")
         elseif op == "lua_scratch_u8_set4" then
             lines[#lines + 1] = prefix .. scratchWrite("lua.scratch_u8_set4", statement)
         elseif op == "lua_scratch_u8_reset" then

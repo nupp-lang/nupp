@@ -180,18 +180,7 @@ local PURE_OPS: {
     simd_shl_u8 = true,
     simd_table_u8x16 = true,
     simd_lookup16_u8 = true,
-    simd_lookup64_u8 = true,
     simd_align_bytes_u8 = true,
-    simd_block64_and_byte_u8 = true,
-    simd_block64_and_u8 = true,
-    simd_block64_shr_u8 = true,
-    simd_block64_lookup16_u8 = true,
-    simd_block64_any_bits_u8 = true,
-    simd_block64_last_u8 = true,
-    simd_block64_utf8_errors_u8 = true,
-    simd_block64_eq_u8 = true,
-    simd_block64_range_u8 = true,
-    simd_block64_outside_range_u8 = true,
     simd_tail_u8 = true,
     simd_eq_u8 = true,
     simd_range_u8 = true,
@@ -257,14 +246,6 @@ local LUA_READ_OPS: {
     lua_builder_count = true,
     lua_builder_state = true,
     simd_load_string_u8 = true,
-    simd_load_stride3_u8 = true,
-    simd_padded_string_u8 = true,
-    simd_padded_length = true,
-    simd_padded_full_length = true,
-    simd_padded_tail_length = true,
-    simd_padded_load_full_u8 = true,
-    simd_padded_load_tail_u8 = true,
-    simd_block64_load_u8 = true,
 }
 
 local LUA_ALLOCATE_OPS: {
@@ -307,7 +288,6 @@ local LUA_MUTATE_OPS: {
     lua_scratch_u32_set = true,
     lua_scratch_u8_set = true,
     lua_scratch_u8_set4 = true,
-    simd_store4_u8 = true,
     lua_scratch_u8_reset = true,
 }
 
@@ -355,7 +335,6 @@ local STATEMENT_LUA_MUTATE_OPS: {
     lua_scratch_u8_set = true,
     lua_scratch_u8_set4 = true,
     lua_scratch_u8_reset = true,
-    simd_store4_u8 = true,
 }
 
 local CONTROL_OPS: {

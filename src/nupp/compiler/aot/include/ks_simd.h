@@ -115,96 +115,6 @@ KS_SCALAR_REGION_END
 #define KS_LOOKUP16_BODY_32 KS_LOOKUP16_PORTABLE(32)
 #endif
 
-/* A stride-3 gather has a NEON instruction; everywhere else is the
- * lane loop that also serves a partial vector on NEON. */
-#if defined(__aarch64__)
-#define KS_LOAD_STRIDE3_FAST_16 \
-    if ((size_t)offset + 48u <= count) { \
-        uint8x16x3_t in = vld3q_u8(source + offset); uint8x16_t picked = lane == 0u ? in.val[0] : (lane == 1u ? in.val[1] : in.val[2]); memcpy(&out, &picked, 16u); return out; \
-    }
-#define KS_LOAD_STRIDE3_FAST_32 \
-    if ((size_t)offset + 96u <= count) { \
-        uint8x16x3_t lo = vld3q_u8(source + offset); uint8x16x3_t hi = vld3q_u8(source + offset + 48u); uint8x16_t a = lane == 0u ? lo.val[0] : (lane == 1u ? lo.val[1] : lo.val[2]); uint8x16_t b = lane == 0u ? hi.val[0] : (lane == 1u ? hi.val[1] : hi.val[2]); memcpy(&out, &a, 16u); memcpy(((uint8_t *)&out) + 16u, &b, 16u); return out; \
-    }
-#else
-#define KS_LOAD_STRIDE3_FAST_16
-#define KS_LOAD_STRIDE3_FAST_32
-#endif
-
-/* A 64-entry lookup from four 16-entry tables. */
-#define KS_LOOKUP64_PORTABLE(W) \
-    const uint8_t *lanes[4]; lanes[0] = t0.lane; lanes[1] = t1.lane; lanes[2] = t2.lane; lanes[3] = t3.lane; \
-    for (uint32_t i = 0; i < W##u; ++i) { uint8_t index = ((const uint8_t *)&indexes)[i]; ((uint8_t *)&out)[i] = index < 64u ? lanes[index >> 4][index & 15u] : 0u; }
-/* One `pshufb` per quarter. It reads only the low four bits of an
- * index, so each quarter answers everywhere and a comparison on
- * bits four and five says which answer to keep. An index of 64 or
- * more matches no quarter and keeps none, which is the contract. */
-#define KS_LOOKUP64_SSSE3 \
-    __m128i input, quarter, chosen, combined, selector; memcpy(&input, &indexes, 16u); \
-    selector = _mm_and_si128(input, _mm_set1_epi8(0x30)); \
-    combined = _mm_setzero_si128(); \
-    memcpy(&quarter, t0.lane, 16u); chosen = _mm_shuffle_epi8(quarter, input); \
-    combined = _mm_or_si128(combined, _mm_and_si128(chosen, _mm_cmpeq_epi8(selector, _mm_set1_epi8(0x00)))); \
-    memcpy(&quarter, t1.lane, 16u); chosen = _mm_shuffle_epi8(quarter, input); \
-    combined = _mm_or_si128(combined, _mm_and_si128(chosen, _mm_cmpeq_epi8(selector, _mm_set1_epi8(0x10)))); \
-    memcpy(&quarter, t2.lane, 16u); chosen = _mm_shuffle_epi8(quarter, input); \
-    combined = _mm_or_si128(combined, _mm_and_si128(chosen, _mm_cmpeq_epi8(selector, _mm_set1_epi8(0x20)))); \
-    memcpy(&quarter, t3.lane, 16u); chosen = _mm_shuffle_epi8(quarter, input); \
-    combined = _mm_or_si128(combined, _mm_and_si128(chosen, _mm_cmpeq_epi8(selector, _mm_set1_epi8(0x30)))); \
-    combined = _mm_and_si128(combined, _mm_cmpeq_epi8(_mm_and_si128(input, _mm_set1_epi8((char)0xc0)), _mm_setzero_si128())); \
-    memcpy(&out, &combined, 16u);
-#if defined(__aarch64__)
-#define KS_LOOKUP64_BODY_16 \
-    uint8x16x4_t lookup; lookup.val[0] = vld1q_u8(t0.lane); lookup.val[1] = vld1q_u8(t1.lane); lookup.val[2] = vld1q_u8(t2.lane); lookup.val[3] = vld1q_u8(t3.lane); \
-    uint8x16_t input; memcpy(&input, &indexes, 16u); input = vqtbl4q_u8(lookup, input); memcpy(&out, &input, 16u);
-#define KS_LOOKUP64_BODY_32 \
-    uint8x16x4_t lookup; lookup.val[0] = vld1q_u8(t0.lane); lookup.val[1] = vld1q_u8(t1.lane); lookup.val[2] = vld1q_u8(t2.lane); lookup.val[3] = vld1q_u8(t3.lane); \
-    uint8x16_t lo, hi; memcpy(&lo, &indexes, 16u); memcpy(&hi, ((const uint8_t *)&indexes) + 16u, 16u); lo = vqtbl4q_u8(lookup, lo); hi = vqtbl4q_u8(lookup, hi); memcpy(&out, &lo, 16u); memcpy(((uint8_t *)&out) + 16u, &hi, 16u);
-#elif defined(__AVX2__)
-#define KS_LOOKUP64_BODY_16 KS_LOOKUP64_SSSE3
-/* The same construction as the 16-byte one, with each quarter
- * broadcast to both 128-bit halves because `pshufb` shuffles within
- * a half rather than across the register. */
-#define KS_LOOKUP64_BODY_32 \
-    __m256i winput, wquarter, wchosen, wcombined, wselector; __m128i whalf; \
-    memcpy(&winput, &indexes, 32u); \
-    wselector = _mm256_and_si256(winput, _mm256_set1_epi8(0x30)); \
-    wcombined = _mm256_setzero_si256(); \
-    memcpy(&whalf, t0.lane, 16u); wquarter = _mm256_broadcastsi128_si256(whalf); wchosen = _mm256_shuffle_epi8(wquarter, winput); \
-    wcombined = _mm256_or_si256(wcombined, _mm256_and_si256(wchosen, _mm256_cmpeq_epi8(wselector, _mm256_set1_epi8(0x00)))); \
-    memcpy(&whalf, t1.lane, 16u); wquarter = _mm256_broadcastsi128_si256(whalf); wchosen = _mm256_shuffle_epi8(wquarter, winput); \
-    wcombined = _mm256_or_si256(wcombined, _mm256_and_si256(wchosen, _mm256_cmpeq_epi8(wselector, _mm256_set1_epi8(0x10)))); \
-    memcpy(&whalf, t2.lane, 16u); wquarter = _mm256_broadcastsi128_si256(whalf); wchosen = _mm256_shuffle_epi8(wquarter, winput); \
-    wcombined = _mm256_or_si256(wcombined, _mm256_and_si256(wchosen, _mm256_cmpeq_epi8(wselector, _mm256_set1_epi8(0x20)))); \
-    memcpy(&whalf, t3.lane, 16u); wquarter = _mm256_broadcastsi128_si256(whalf); wchosen = _mm256_shuffle_epi8(wquarter, winput); \
-    wcombined = _mm256_or_si256(wcombined, _mm256_and_si256(wchosen, _mm256_cmpeq_epi8(wselector, _mm256_set1_epi8(0x30)))); \
-    wcombined = _mm256_and_si256(wcombined, _mm256_cmpeq_epi8(_mm256_and_si256(winput, _mm256_set1_epi8((char)0xc0)), _mm256_setzero_si256())); \
-    memcpy(&out, &wcombined, 32u);
-#elif defined(__SSSE3__)
-#define KS_LOOKUP64_BODY_16 KS_LOOKUP64_SSSE3
-#define KS_LOOKUP64_BODY_32 KS_LOOKUP64_PORTABLE(32)
-#elif defined(__wasm_simd128__)
-/* One swizzle per quarter. An index outside a swizzle's own table
- * gives zero, and subtracting the quarter's base puts exactly one
- * of the four in range, so the four results combine by or. */
-#define KS_LOOKUP64_BODY_16 \
-    typedef signed char KsSwizzle __attribute__((vector_size(16))); \
-    KsSwizzle input, q0, q1, q2, q3, bias, combined; \
-    memcpy(&input, &indexes, 16u); \
-    memcpy(&q0, t0.lane, 16u); memcpy(&q1, t1.lane, 16u); \
-    memcpy(&q2, t2.lane, 16u); memcpy(&q3, t3.lane, 16u); \
-    bias = (KsSwizzle){16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16}; \
-    combined = __builtin_wasm_swizzle_i8x16(q0, input); \
-    input -= bias; combined |= __builtin_wasm_swizzle_i8x16(q1, input); \
-    input -= bias; combined |= __builtin_wasm_swizzle_i8x16(q2, input); \
-    input -= bias; combined |= __builtin_wasm_swizzle_i8x16(q3, input); \
-    memcpy(&out, &combined, 16u);
-#define KS_LOOKUP64_BODY_32 KS_LOOKUP64_PORTABLE(32)
-#else
-#define KS_LOOKUP64_BODY_16 KS_LOOKUP64_PORTABLE(16)
-#define KS_LOOKUP64_BODY_32 KS_LOOKUP64_PORTABLE(32)
-#endif
-
 /* Shifting the previous vector's last bytes in front of the current one. */
 #define KS_ALIGN_PORTABLE(W) \
     memcpy(&out, ((const uint8_t *)&previous) + W##u - offset, offset); memcpy(((uint8_t *)&out) + offset, &current, W##u - offset);
@@ -282,12 +192,8 @@ KS_SCALAR_REGION_END
 #define KS_ANY_BODY_32 return (uint32_t)(ks_bits_u8x32(mask) != 0u);
 #endif
 
-/* A 64-byte block is PARTS vectors of width W, the last at index LAST. */
-#define KS_BLOCK_BITS(W) if (i * W##u < 32u) { out.low |= bits << (i * W##u); } else { out.high |= bits << (i * W##u - 32u); }
-#define KS_U8_PACKED(W, PARTS, LAST) \
+#define KS_U8_PACKED(W) \
 typedef uint8_t ks_u8x##W __attribute__((vector_size(W) KS_VECTOR_ABI_ALIGN)); \
-typedef struct { const uint8_t *source; size_t source_length; uint32_t length, full_length, tail_length; ks_u8x##W tail; } KsPaddedStringU8x##W; \
-typedef struct { ks_u8x##W part[PARTS]; } KsBlockU8x64x##W; \
 static inline __attribute__((unused)) ks_u8x##W ks_splat_u8x##W(uint8_t value) { \
     return (ks_u8x##W){ KS_REP_##W(value) }; \
 } \
@@ -308,39 +214,9 @@ static inline __attribute__((unused)) ks_u8x##W ks_load_u8x##W(const uint8_t *so
     } \
     return out; \
 } \
-static inline __attribute__((unused)) KsPaddedStringU8x##W ks_padded_string_u8x##W(const uint8_t *source, size_t count) { \
-    KsPaddedStringU8x##W out; memset(&out, 0, sizeof(out)); \
-    if (count > (size_t)UINT32_MAX) { return out; } \
-    out.source = source; out.source_length = count; out.length = (uint32_t)count; \
-    out.tail_length = (uint32_t)(count % W##u); \
-    out.full_length = (uint32_t)(count - out.tail_length); \
-    if (out.tail_length != 0u) { memcpy(&out.tail, source + out.full_length, out.tail_length); } \
-    return out; \
-} \
-static inline __attribute__((unused)) ks_u8x##W ks_padded_load_full_u8x##W(const KsPaddedStringU8x##W *view, uint32_t offset) { \
-    ks_u8x##W out = (ks_u8x##W){ KS_REP_##W(0) }; \
-    if (offset >= view->full_length || offset % W##u != 0u) { return out; } \
-    memcpy(&out, view->source + offset, W##u); return out; \
-} \
-static inline __attribute__((unused)) ks_u8x##W ks_padded_load_tail_u8x##W(const KsPaddedStringU8x##W *view) { return view->tail; } \
 static inline __attribute__((unused)) ks_u8x##W ks_lookup16_u8x##W(ks_u8x##W indexes, KsTableU8x16 table) { \
     ks_u8x##W out = (ks_u8x##W){ KS_REP_##W(0) }; \
     KS_LOOKUP16_BODY_##W \
-    return out; \
-} \
-static inline __attribute__((unused)) ks_u8x##W ks_load_stride3_u8x##W(const uint8_t *source, size_t count, uint32_t offset, uint32_t lane) { \
-    ks_u8x##W out = (ks_u8x##W){ KS_REP_##W(0) }; \
-    if (lane > 2u) { return out; } \
-    KS_LOAD_STRIDE3_FAST_##W \
-    for (uint32_t i = 0; i < W##u; ++i) { \
-        size_t at = (size_t)offset + (size_t)i * 3u + (size_t)lane; \
-        if (at < count) { ((uint8_t *)&out)[i] = source[at]; } \
-    } \
-    return out; \
-} \
-static inline __attribute__((unused)) ks_u8x##W ks_lookup64_u8x##W(ks_u8x##W indexes, KsTableU8x16 t0, KsTableU8x16 t1, KsTableU8x16 t2, KsTableU8x16 t3) { \
-    ks_u8x##W out; \
-    KS_LOOKUP64_BODY_##W \
     return out; \
 } \
 static inline __attribute__((unused)) ks_u8x##W ks_align_u8x##W(ks_u8x##W previous, ks_u8x##W current, uint32_t offset) { \
@@ -361,53 +237,6 @@ static inline __attribute__((unused)) ks_u8x##W ks_tail_u8x##W(uint32_t active) 
 static inline __attribute__((unused)) uint32_t ks_bits_u8x##W(ks_u8x##W mask) { \
     KS_BITS_BODY_##W \
 } \
-static inline __attribute__((unused)) KsBlockU8x64x##W ks_block64_load_u8x##W(const KsPaddedStringU8x##W *view, uint32_t offset) { \
-    KsBlockU8x64x##W out = {{{0}}}; \
-    if ((size_t)offset > view->source_length || view->source_length - (size_t)offset < 64u || offset % W##u != 0u) { return out; } \
-    memcpy(&out, view->source + offset, 64u); return out; \
-} \
-static inline __attribute__((unused)) KsBlockU8x64x##W ks_block64_and_byte_u8x##W(KsBlockU8x64x##W block, uint8_t value) { \
-    KsBlockU8x64x##W out; ks_u8x##W mask = ks_splat_u8x##W(value); \
-    for (uint32_t i = 0u; i < PARTS##u; ++i) { out.part[i] = block.part[i] & mask; } return out; \
-} \
-static inline __attribute__((unused)) KsBlockU8x64x##W ks_block64_and_u8x##W(KsBlockU8x64x##W left, KsBlockU8x64x##W right) { \
-    KsBlockU8x64x##W out; \
-    for (uint32_t i = 0u; i < PARTS##u; ++i) { out.part[i] = left.part[i] & right.part[i]; } return out; \
-} \
-static inline __attribute__((unused)) KsBlockU8x64x##W ks_block64_shr_u8x##W(KsBlockU8x64x##W block, uint32_t count) { \
-    KsBlockU8x64x##W out; \
-    for (uint32_t i = 0u; i < PARTS##u; ++i) { out.part[i] = ks_shr_u8x##W(block.part[i], count); } return out; \
-} \
-static inline __attribute__((unused)) KsBlockU8x64x##W ks_block64_lookup16_u8x##W(KsBlockU8x64x##W block, KsTableU8x16 table) { \
-    KsBlockU8x64x##W out; \
-    for (uint32_t i = 0u; i < PARTS##u; ++i) { out.part[i] = ks_lookup16_u8x##W(block.part[i], table); } return out; \
-} \
-static inline __attribute__((unused)) KsMaskBits64 ks_block64_any_bits_u8x##W(KsBlockU8x64x##W block, uint8_t value) { \
-    KsMaskBits64 out = {0u, 0u}; ks_u8x##W mask = ks_splat_u8x##W(value); ks_u8x##W zero = ks_splat_u8x##W(0u); \
-    for (uint32_t i = 0u; i < PARTS##u; ++i) { uint32_t bits = ks_bits_u8x##W(~((block.part[i] & mask) == zero)); KS_BLOCK_BITS(W) } return out; \
-} \
-static inline __attribute__((unused)) ks_u8x##W ks_block64_last_u8x##W(KsBlockU8x64x##W block) { return block.part[LAST]; } \
-static inline __attribute__((unused)) KsMaskBits64 ks_block64_utf8_errors_u8x##W(KsBlockU8x64x##W block, ks_u8x##W previous, KsTableU8x16 byte1_high, KsTableU8x16 byte1_low, KsTableU8x16 byte2_high) { \
-    KsMaskBits64 out = {0u, 0u}; ks_u8x##W nibble = ks_splat_u8x##W(15u), continuation = ks_splat_u8x##W(128u), zero = ks_splat_u8x##W(0u); \
-    for (uint32_t i = 0u; i < PARTS##u; ++i) { \
-        ks_u8x##W current = block.part[i], previous1 = ks_align_u8x##W(previous, current, 1u), previous2 = ks_align_u8x##W(previous, current, 2u), previous3 = ks_align_u8x##W(previous, current, 3u); \
-        ks_u8x##W special = ks_lookup16_u8x##W(ks_shr_u8x##W(previous1, 4u), byte1_high) & ks_lookup16_u8x##W(previous1 & nibble, byte1_low) & ks_lookup16_u8x##W(ks_shr_u8x##W(current, 4u), byte2_high); \
-        ks_u8x##W must = (previous2 >= ks_splat_u8x##W(224u)) | (previous3 >= ks_splat_u8x##W(240u)); uint32_t bits = ks_bits_u8x##W(~(((must & continuation) ^ special) == zero)); \
-        KS_BLOCK_BITS(W) previous = current; \
-    } return out; \
-} \
-static inline __attribute__((unused)) KsMaskBits64 ks_block64_eq_u8x##W(KsBlockU8x64x##W block, uint8_t value) { \
-    KsMaskBits64 out = {0u, 0u}; \
-    for (uint32_t i = 0u; i < PARTS##u; ++i) { uint32_t bits = ks_bits_u8x##W(block.part[i] == ks_splat_u8x##W(value)); KS_BLOCK_BITS(W) } return out; \
-} \
-static inline __attribute__((unused)) KsMaskBits64 ks_block64_range_u8x##W(KsBlockU8x64x##W block, uint8_t low, uint8_t high) { \
-    KsMaskBits64 out = {0u, 0u}; \
-    for (uint32_t i = 0u; i < PARTS##u; ++i) { uint32_t bits = ks_bits_u8x##W((block.part[i] >= ks_splat_u8x##W(low)) & (block.part[i] <= ks_splat_u8x##W(high))); KS_BLOCK_BITS(W) } return out; \
-} \
-static inline __attribute__((unused)) KsMaskBits64 ks_block64_outside_range_u8x##W(KsBlockU8x64x##W block, uint8_t low, uint8_t high) { \
-    KsMaskBits64 out = {0u, 0u}; \
-    for (uint32_t i = 0u; i < PARTS##u; ++i) { uint32_t bits = ks_bits_u8x##W((block.part[i] < ks_splat_u8x##W(low)) | (block.part[i] > ks_splat_u8x##W(high))); KS_BLOCK_BITS(W) } return out; \
-} \
 static inline __attribute__((unused)) uint32_t ks_any_u8x##W(ks_u8x##W mask) { \
     KS_ANY_BODY_##W \
 }
@@ -427,7 +256,6 @@ static inline __attribute__((unused)) uint32_t ks_any_u8x##W(ks_u8x##W mask) { \
  * that find it only sixteen-byte aligned fault on it. */
 #define KS_U8_SCALAR(W) \
 typedef struct { uint8_t lane[W]; } ks_scalar_u8x##W; \
-typedef struct { uint8_t bytes[64]; } KsScalarBlockU8x64x##W; \
 static inline __attribute__((unused)) ks_scalar_u8x##W ks_scalar_load_u8x##W(const uint8_t *source, size_t count, uint32_t offset) { \
     ks_scalar_u8x##W out = {{0}}; \
     if ((size_t)offset < count) { \
@@ -439,24 +267,7 @@ static inline __attribute__((unused)) ks_scalar_u8x##W ks_scalar_load_u8x##W(con
 } \
 static inline __attribute__((unused)) ks_scalar_u8x##W ks_scalar_splat_u8x##W(uint8_t value) { ks_scalar_u8x##W out; for (uint32_t i = 0; i < W##u; ++i) out.lane[i] = value; return out; } \
 static inline __attribute__((unused)) ks_scalar_u8x##W ks_scalar_shl_u8x##W(ks_scalar_u8x##W value, uint32_t count) { if (count >= 8u) return ks_scalar_splat_u8x##W(0u); for (uint32_t i = 0; i < W##u; ++i) value.lane[i] = (uint8_t)(value.lane[i] << count); return value; } \
-static inline __attribute__((unused)) ks_scalar_u8x##W ks_scalar_lookup64_u8x##W(ks_scalar_u8x##W indexes, KsTableU8x16 t0, KsTableU8x16 t1, KsTableU8x16 t2, KsTableU8x16 t3) { const uint8_t *lanes[4]; lanes[0] = t0.lane; lanes[1] = t1.lane; lanes[2] = t2.lane; lanes[3] = t3.lane; ks_scalar_u8x##W out; for (uint32_t i = 0; i < W##u; ++i) { uint8_t index = indexes.lane[i]; out.lane[i] = index < 64u ? lanes[index >> 4][index & 15u] : 0u; } return out; } \
-static inline __attribute__((unused)) ks_scalar_u8x##W ks_scalar_load_stride3_u8x##W(const uint8_t *source, size_t count, uint32_t offset, uint32_t lane) { ks_scalar_u8x##W out; for (uint32_t i = 0; i < W##u; ++i) out.lane[i] = 0u; if (lane > 2u) { return out; } for (uint32_t i = 0; i < W##u; ++i) { size_t at = (size_t)offset + (size_t)i * 3u + (size_t)lane; if (at < count) { out.lane[i] = source[at]; } } return out; } \
 static inline __attribute__((unused)) ks_scalar_u8x##W ks_scalar_shr_u8x##W(ks_scalar_u8x##W value, uint32_t count) { if (count >= 8u) return ks_scalar_splat_u8x##W(0u); for (uint32_t i = 0; i < W##u; ++i) value.lane[i] = (uint8_t)(value.lane[i] >> count); return value; } \
-static inline __attribute__((unused)) ks_scalar_u8x##W ks_scalar_padded_load_full_u8x##W(const KsPaddedStringU8x##W *view, uint32_t offset) { \
-    ks_scalar_u8x##W out = {{0}}; if (offset >= view->full_length || offset % W##u != 0u) return out; ks_scalar_copy_bytes(out.lane, view->source + offset, W##u); return out; \
-} \
-static inline __attribute__((unused)) ks_scalar_u8x##W ks_scalar_padded_load_tail_u8x##W(const KsPaddedStringU8x##W *view) { ks_scalar_u8x##W out = {{0}}; ks_scalar_copy_bytes(out.lane, &view->tail, W##u); return out; } \
-static inline __attribute__((unused)) KsScalarBlockU8x64x##W ks_scalar_block64_load_u8x##W(const KsPaddedStringU8x##W *view, uint32_t offset) { KsScalarBlockU8x64x##W out = {{0}}; if ((size_t)offset > view->source_length || view->source_length - (size_t)offset < 64u || offset % W##u != 0u) return out; ks_scalar_copy_bytes(out.bytes, view->source + offset, 64u); return out; } \
-static inline __attribute__((unused)) KsMaskBits64 ks_scalar_block64_eq_u8x##W(KsScalarBlockU8x64x##W block, uint8_t value) { KsMaskBits64 out = {0u, 0u}; for (uint32_t i = 0u; i < 32u; ++i) { out.low |= (uint32_t)(block.bytes[i] == value) << i; out.high |= (uint32_t)(block.bytes[i + 32u] == value) << i; } return out; } \
-static inline __attribute__((unused)) KsScalarBlockU8x64x##W ks_scalar_block64_and_byte_u8x##W(KsScalarBlockU8x64x##W block, uint8_t value) { for (uint32_t i = 0u; i < 64u; ++i) { block.bytes[i] &= value; } return block; } \
-static inline __attribute__((unused)) KsScalarBlockU8x64x##W ks_scalar_block64_and_u8x##W(KsScalarBlockU8x64x##W left, KsScalarBlockU8x64x##W right) { for (uint32_t i = 0u; i < 64u; ++i) { left.bytes[i] &= right.bytes[i]; } return left; } \
-static inline __attribute__((unused)) KsScalarBlockU8x64x##W ks_scalar_block64_shr_u8x##W(KsScalarBlockU8x64x##W block, uint32_t count) { for (uint32_t i = 0u; i < 64u; ++i) { block.bytes[i] = count < 8u ? (uint8_t)(block.bytes[i] >> count) : 0u; } return block; } \
-static inline __attribute__((unused)) KsScalarBlockU8x64x##W ks_scalar_block64_lookup16_u8x##W(KsScalarBlockU8x64x##W block, KsTableU8x16 table) { for (uint32_t i = 0u; i < 64u; ++i) { uint8_t index = block.bytes[i]; block.bytes[i] = index < 16u ? table.lane[index] : 0u; } return block; } \
-static inline __attribute__((unused)) KsMaskBits64 ks_scalar_block64_any_bits_u8x##W(KsScalarBlockU8x64x##W block, uint8_t value) { KsMaskBits64 out = {0u, 0u}; for (uint32_t i = 0u; i < 32u; ++i) { out.low |= (uint32_t)((block.bytes[i] & value) != 0u) << i; out.high |= (uint32_t)((block.bytes[i + 32u] & value) != 0u) << i; } return out; } \
-static inline __attribute__((unused)) ks_scalar_u8x##W ks_scalar_block64_last_u8x##W(KsScalarBlockU8x64x##W block) { ks_scalar_u8x##W out = {{0}}; for (uint32_t i = 0u; i < W##u; ++i) out.lane[i] = block.bytes[64u - W##u + i]; return out; } \
-static inline __attribute__((unused)) KsMaskBits64 ks_scalar_block64_utf8_errors_u8x##W(KsScalarBlockU8x64x##W block, ks_scalar_u8x##W previous, KsTableU8x16 byte1_high, KsTableU8x16 byte1_low, KsTableU8x16 byte2_high) { KsMaskBits64 out = {0u, 0u}; for (uint32_t i = 0u; i < 64u; ++i) { uint8_t p1 = i >= 1u ? block.bytes[i - 1u] : previous.lane[W##u - 1u], p2 = i >= 2u ? block.bytes[i - 2u] : previous.lane[W##u - 2u + i], p3 = i >= 3u ? block.bytes[i - 3u] : previous.lane[W##u - 3u + i]; uint8_t special = byte1_high.lane[p1 >> 4u] & byte1_low.lane[p1 & 15u] & byte2_high.lane[block.bytes[i] >> 4u], required = (p2 >= 224u || p3 >= 240u) ? 128u : 0u; if (required != special) { if (i < 32u) { out.low |= UINT32_C(1) << i; } else { out.high |= UINT32_C(1) << (i - 32u); } } } return out; } \
-static inline __attribute__((unused)) KsMaskBits64 ks_scalar_block64_range_u8x##W(KsScalarBlockU8x64x##W block, uint8_t low, uint8_t high) { KsMaskBits64 out = {0u, 0u}; for (uint32_t i = 0u; i < 32u; ++i) { out.low |= (uint32_t)(block.bytes[i] >= low && block.bytes[i] <= high) << i; out.high |= (uint32_t)(block.bytes[i + 32u] >= low && block.bytes[i + 32u] <= high) << i; } return out; } \
-static inline __attribute__((unused)) KsMaskBits64 ks_scalar_block64_outside_range_u8x##W(KsScalarBlockU8x64x##W block, uint8_t low, uint8_t high) { KsMaskBits64 out = {0u, 0u}; for (uint32_t i = 0u; i < 32u; ++i) { out.low |= (uint32_t)(block.bytes[i] < low || block.bytes[i] > high) << i; out.high |= (uint32_t)(block.bytes[i + 32u] < low || block.bytes[i + 32u] > high) << i; } return out; } \
 static inline __attribute__((unused)) ks_scalar_u8x##W ks_scalar_lookup16_u8x##W(ks_scalar_u8x##W indexes, KsTableU8x16 table) { ks_scalar_u8x##W out = {{0}}; for (uint32_t i = 0; i < W##u; ++i) out.lane[i] = indexes.lane[i] < 16u ? table.lane[indexes.lane[i]] : 0u; return out; } \
 static inline __attribute__((unused)) ks_scalar_u8x##W ks_scalar_align_u8x##W(ks_scalar_u8x##W previous, ks_scalar_u8x##W current, uint32_t offset) { ks_scalar_u8x##W out = {{0}}; if (offset < 1u || offset > 3u) { return out; } ks_scalar_copy_bytes(out.lane, previous.lane + W##u - offset, offset); ks_scalar_copy_bytes(out.lane + offset, current.lane, W##u - offset); return out; } \
 static inline __attribute__((unused)) ks_scalar_u8x##W ks_scalar_tail_u8x##W(uint32_t active) { \
@@ -499,35 +310,6 @@ static inline __attribute__((unused)) uint32_t ks_scalar_bits_u8x##W(ks_scalar_u
     return bits; \
 } \
 static inline __attribute__((unused)) uint32_t ks_scalar_any_u8x##W(ks_scalar_u8x##W mask) { return (uint32_t)(ks_scalar_bits_u8x##W(mask) != 0u); } \
-
-/* ---- Interleaved stores into the Lua builder's byte scratch -------- */
-
-/* Four vectors interleaved byte by byte, TOTAL bytes in all. NEON has
- * the store; everywhere else writes a byte at a time. */
-#if defined(__aarch64__)
-#define KS_STORE4_FAST_16 \
-    uint8x16x4_t packed; memcpy(&packed.val[0], &v0, 16u); memcpy(&packed.val[1], &v1, 16u); memcpy(&packed.val[2], &v2, 16u); memcpy(&packed.val[3], &v3, 16u); vst4q_u8(scratch->bytes + offset, packed); return;
-#define KS_STORE4_FAST_32 \
-    uint8x16x4_t lo, hi; memcpy(&lo.val[0], &v0, 16u); memcpy(&lo.val[1], &v1, 16u); memcpy(&lo.val[2], &v2, 16u); memcpy(&lo.val[3], &v3, 16u); memcpy(&hi.val[0], ((const uint8_t *)&v0) + 16u, 16u); memcpy(&hi.val[1], ((const uint8_t *)&v1) + 16u, 16u); memcpy(&hi.val[2], ((const uint8_t *)&v2) + 16u, 16u); memcpy(&hi.val[3], ((const uint8_t *)&v3) + 16u, 16u); vst4q_u8(scratch->bytes + offset, lo); vst4q_u8(scratch->bytes + offset + 64u, hi); return;
-#define KS_STORE4_BODY(W) KS_STORE4_FAST_##W
-#else
-#define KS_STORE4_BODY(W) \
-    for (uint32_t i = 0; i < W##u; ++i) { \
-        scratch->bytes[offset + i * 4u] = ((const uint8_t *)&v0)[i]; \
-        scratch->bytes[offset + i * 4u + 1u] = ((const uint8_t *)&v1)[i]; \
-        scratch->bytes[offset + i * 4u + 2u] = ((const uint8_t *)&v2)[i]; \
-        scratch->bytes[offset + i * 4u + 3u] = ((const uint8_t *)&v3)[i]; \
-    }
-#endif
-#define KS_U8_STORE4(W, TOTAL) \
-static inline __attribute__((unused)) void ks_store4_u8x##W(lua_State *L, KsLuaScratchU8 *scratch, uint32_t offset, ks_u8x##W v0, ks_u8x##W v1, ks_u8x##W v2, ks_u8x##W v3) { \
-    const uint32_t total = TOTAL##u; \
-    if (KS_UNLIKELY(offset > scratch->length || offset > scratch->capacity || scratch->capacity - offset < total)) { ks_scratch_raise(L, "AOT byte scratch write is out of bounds"); return; } \
-    if (KS_UNLIKELY(offset < scratch->length && scratch->length - offset < total)) { ks_scratch_raise(L, "AOT byte scratch write straddles the length"); return; } \
-    if (offset == scratch->length) { scratch->length += total; } \
-    KS_STORE4_BODY(W) \
-} \
-static inline __attribute__((unused)) void ks_scalar_store4_u8x##W(lua_State *L, KsLuaScratchU8 *scratch, uint32_t offset, ks_scalar_u8x##W v0, ks_scalar_u8x##W v1, ks_scalar_u8x##W v2, ks_scalar_u8x##W v3) { const uint32_t total = TOTAL##u; if (KS_UNLIKELY(offset > scratch->length || offset > scratch->capacity || scratch->capacity - offset < total)) { ks_scratch_raise(L, "AOT byte scratch write is out of bounds"); return; } if (KS_UNLIKELY(offset < scratch->length && scratch->length - offset < total)) { ks_scratch_raise(L, "AOT byte scratch write straddles the length"); return; } if (offset == scratch->length) { scratch->length += total; } for (uint32_t i = 0; i < W##u; ++i) { scratch->bytes[offset + i * 4u] = v0.lane[i]; scratch->bytes[offset + i * 4u + 1u] = v1.lane[i]; scratch->bytes[offset + i * 4u + 2u] = v2.lane[i]; scratch->bytes[offset + i * 4u + 3u] = v3.lane[i]; } } \
 
 /* ---- Explicit vectors: nupp.simd elements ------------------------- */
 
@@ -1049,10 +831,9 @@ KS_EXP_EXTREMES_##KIND(scalar_exp, ELEM, CTYPE, LANES, LANE)
 /* ---- This width --------------------------------------------------- */
 
 #if KS_SIMD_WIDTH == 16
-KS_U8_PACKED(16, 4, 3)
+KS_U8_PACKED(16)
 KS_U8_SCALAR(16)
 #if KS_LUA_BUILDER
-KS_U8_STORE4(16, 64)
 #endif
 KS_EXP_ELEMENT(16, f64x2, double, int64_t, 2, 8, FLOAT)
 KS_EXP_ELEMENT(16, f32x4, float, int32_t, 4, 4, FLOAT)
@@ -1067,10 +848,9 @@ KS_EXP_ELEMENT(16, u64x2, uint64_t, int64_t, 2, 8, INT)
 #elif KS_SIMD_WIDTH == 32
 #ifndef KS_U8_PACKED_32
 #define KS_U8_PACKED_32 1
-KS_U8_PACKED(32, 2, 1)
+KS_U8_PACKED(32)
 KS_U8_SCALAR(32)
 #if KS_LUA_BUILDER
-KS_U8_STORE4(32, 128)
 #endif
 #endif
 KS_EXP_ELEMENT(32, f64x4, double, int64_t, 4, 8, FLOAT)
@@ -1091,10 +871,9 @@ KS_EXP_ELEMENT(32, u64x4, uint64_t, int64_t, 4, 8, INT)
  * does not promise, and 32 is already one register here. */
 #ifndef KS_U8_PACKED_32
 #define KS_U8_PACKED_32 1
-KS_U8_PACKED(32, 2, 1)
+KS_U8_PACKED(32)
 KS_U8_SCALAR(32)
 #if KS_LUA_BUILDER
-KS_U8_STORE4(32, 128)
 #endif
 #endif
 KS_EXP_ELEMENT(64, f64x8, double, int64_t, 8, 8, FLOAT)

@@ -635,9 +635,9 @@ instead, since it is written to be tested.
 
 `simd.tableU8x16` embeds one immutable 16-byte lookup table in the generated
 code, and `lookup16` reads every lane through it, producing zero for indexes
-outside 0 to 15 as the native table instructions do. `simd.paddedStringU8` views
-a rooted string as complete blocks plus one zero-padded final block, which
-`loadFull` and `loadTail` read.
+outside 0 to 15 as the native table instructions do. `loadString` is the
+VM-aware counterpart of `load`, reading bytes a Lua-builder entry already roots
+rather than a span.
 
 ### Mask aggregates
 

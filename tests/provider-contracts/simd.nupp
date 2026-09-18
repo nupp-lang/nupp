@@ -1,5 +1,6 @@
 @!internal
 module nupp.tests.providers.simd
+
 local suite = {}
 function suite.test(provider: any): (boolean, string?)
     local ok, problem = pcall(function()
@@ -15,9 +16,7 @@ function suite.test(provider: any): (boolean, string?)
         local mask64 = provider.maskBits64(3, 0)
         assert(mask64:count() == 2 and mask64:firstSet() == 0, "64-bit masks must preserve both halves")
         assert(mask64:clearFirst():lowBits() == 2, "clearFirst must remove the least set bit")
-        local padded = provider.paddedStringU8("abc")
-        assert(padded.length == 3 and padded.tailLength == 3, "padded strings must report their partition")
-        assert(padded:loadTail():equal(0):count() == 13, "inactive padded lanes must be zero")
+        assert(species:loadString("abc", 0):equal(0):count() == 13, "a short load must zero its inactive lanes")
     end)
     if not ok then
         return false, tostring(problem)

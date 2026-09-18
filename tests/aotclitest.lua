@@ -4392,17 +4392,10 @@ local function decode(source: string, tape: string, nullValue: any): (any, uint3
     local packedState = builder.state(state)
     local scratch = builder.newWordScratch(count)
     local byteScratch = builder.newByteScratch(count)
-    local view = simd.paddedStringU8(source)
+    local species = simd.preferredU8()
     local lookup = simd.tableU8x16(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15)
-    local block = view:loadBlock64(nupp.math.u32.wrap(0))
-    local blockQuotes = block:equal(34):count()
-    local blockLow = block:andByte(nupp.math.u32.wrap(15)):lookup16(lookup)
-    local blockHigh = block:shiftRight(nupp.math.u32.wrap(4)):lookup16(lookup)
-    local blockClasses = blockLow:andBits(blockHigh):anyBitsSet(nupp.math.u32.wrap(7)):count()
-    local bytes = view:loadFull(nupp.math.u32.wrap(0))
-    local previous = view:loadTail()
-    local blockLast = block:lastVector():equal(0):count()
-    local blockUtf8 = block:utf8Errors(previous, lookup, lookup, lookup):count()
+    local bytes = species:loadString(source, nupp.math.u32.wrap(0))
+    local previous = species:splat(nupp.math.u32.wrap(0))
     local aligned = simd.alignBytes(previous, bytes, nupp.math.u32.wrap(1))
     local classified = aligned:lookup16(lookup)
     local quotes = bytes:equal(34):count()
@@ -4411,11 +4404,11 @@ local function decode(source: string, tape: string, nullValue: any): (any, uint3
     local rawWide = simd.maskBits64(shifted, nupp.math.u32.wrap(1))
     local wide = rawWide:prefixXor(false)
     local first, left = drain(wide)
-    local next = builder.appendSetBits(scratch, nupp.math.u32.wrap(0), view.fullLength, wide)
+    local next = builder.appendSetBits(scratch, nupp.math.u32.wrap(0), count, wide)
     local stringNext = builder.appendStringBits(
         scratch,
         nupp.math.u32.wrap(0),
-        view.fullLength,
+        count,
         rawWide,
         rawWide,
         rawWide,
@@ -4438,7 +4431,7 @@ local function decode(source: string, tape: string, nullValue: any): (any, uint3
     builder.close(state)
     return builder.finish(state), builder.byte(source, nupp.math.u32.wrap(0)), nupp.math.u32.add(
         builder.scratchWord(scratch, nupp.math.u32.wrap(0)),
-        nupp.math.u32.add(blockUtf8, nupp.math.u32.add(blockLast, nupp.math.u32.add(blockClasses, nupp.math.u32.add(blockQuotes, nupp.math.u32.add(direct, nupp.math.u32.add(packedState, nupp.math.u32.add(quotes, nupp.math.u32.add(classes, nupp.math.u32.add(first, nupp.math.u32.add(left, nupp.math.u32.add(next, nupp.math.u32.add(stringNext, view.tailLength))))))))))))
+        nupp.math.u32.add(direct, nupp.math.u32.add(packedState, nupp.math.u32.add(quotes, nupp.math.u32.add(classes, nupp.math.u32.add(first, nupp.math.u32.add(left, nupp.math.u32.add(next, stringNext)))))))
     )
 end
 return {decode = decode}
@@ -4452,13 +4445,8 @@ return {decode = decode}
     assert(decoded.ir:find("lua.builder_finish", 1, true), decoded.ir)
     assert(decoded.ir:find("lua_builder_state", 1, true), decoded.ir)
     assert(decoded.ir:find("lua_string_byte_at", 1, true), decoded.ir)
-    assert(decoded.ir:find("simd_block64_load_u8", 1, true), decoded.ir)
-    assert(decoded.ir:find("simd_block64_lookup16_u8", 1, true), decoded.ir)
-    assert(decoded.ir:find("simd_block64_any_bits_u8", 1, true), decoded.ir)
-    assert(decoded.ir:find("simd_block64_last_u8", 1, true), decoded.ir)
-    assert(decoded.ir:find("simd_block64_utf8_errors_u8", 1, true), decoded.ir)
     assert(decoded.ir:find("lua.scratch_u32", 1, true), decoded.ir)
-    assert(decoded.ir:find("simd_padded_load_full_u8", 1, true), decoded.ir)
+    assert(decoded.ir:find("simd_load_string_u8", 1, true), decoded.ir)
     assert(decoded.ir:find("simd_lookup16_u8", 1, true), decoded.ir)
     assert(decoded.ir:find("simd_align_bytes_u8", 1, true), decoded.ir)
     assert(decoded.ir:find("lua.scratch_u32_append_bits", 1, true), decoded.ir)
@@ -4478,9 +4466,6 @@ return {decode = decode}
     assert(decoded.c:find("KsLuaScratchU32", 1, true), decoded.c)
     assert(decoded.c:find("KsLuaScratchU8", 1, true), decoded.c)
     assert(decoded.c:find("KsMaskBits64", 1, true), decoded.c)
-    assert(decoded.c:find("ks_block64_eq_u8x", 1, true), decoded.c)
-    assert(decoded.c:find("ks_block64_lookup16_u8x", 1, true), decoded.c)
-    assert(decoded.c:find("ks_block64_utf8_errors_u8x", 1, true), decoded.c)
     assert(decoded.c:find("_helper_drain_result", 1, true), decoded.c)
     assert(decoded.c:find("ks_bytes_1", 1, true), decoded.c)
     assert(decoded.c:find("ks_lua_builder_number_slice", 1, true), decoded.c)
@@ -5148,7 +5133,6 @@ return {add = add}
     )
     assert(
         header:find("typedef struct { uint8_t lane[W]; } ks_scalar_u8x##W;", 1, true)
-            and header:find("typedef struct { uint8_t bytes[64]; } KsScalarBlockU8x64x##W;", 1, true)
             and not header:find("aligned(", 1, true),
         "and no type in the prelude asks for an alignment a caller does not give it"
     )

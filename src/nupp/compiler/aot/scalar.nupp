@@ -746,32 +746,12 @@ record scalarIR.Simd
         | 'simd_lanes'
         | 'simd_load_u8'
         | 'simd_load_string_u8'
-        | 'simd_load_stride3_u8'
         | 'simd_splat_u8'
         | 'simd_shr_u8'
         | 'simd_shl_u8'
         | 'simd_table_u8x16'
         | 'simd_lookup16_u8'
-        | 'simd_lookup64_u8'
-        | 'simd_store4_u8'
         | 'simd_align_bytes_u8'
-        | 'simd_padded_string_u8'
-        | 'simd_padded_length'
-        | 'simd_padded_full_length'
-        | 'simd_padded_tail_length'
-        | 'simd_padded_load_full_u8'
-        | 'simd_padded_load_tail_u8'
-        | 'simd_block64_load_u8'
-        | 'simd_block64_and_byte_u8'
-        | 'simd_block64_and_u8'
-        | 'simd_block64_shr_u8'
-        | 'simd_block64_lookup16_u8'
-        | 'simd_block64_any_bits_u8'
-        | 'simd_block64_last_u8'
-        | 'simd_block64_utf8_errors_u8'
-        | 'simd_block64_eq_u8'
-        | 'simd_block64_range_u8'
-        | 'simd_block64_outside_range_u8'
         | 'simd_tail_u8'
         | 'simd_eq_u8'
         | 'simd_range_u8'
@@ -1381,8 +1361,8 @@ end
 
 --- Every scalar statement.
 ---
---- `Simd` is here because one SIMD operation writes rather than produces:
---- `simd_store4_u8` carries `lua_effect` and stands where a statement stands.
+--- `Simd` is here because some SIMD operations write rather than produce:
+--- `simd_store` carries `lua_effect` and stands where a statement stands.
 --- Admitting it makes that sayable rather than merely emitted.
 type scalarIR.Statement = scalarIR.Simd
     | scalarIR.ReducerAdd

@@ -278,8 +278,8 @@ was introduced.
 
 Two plausible follow-ups lost decisively. The earlier attempt to aggregate
 preferred registers through generic mask operations slowed whole decodes by
-roughly 10 to 25 percent; the retained `BlockU8x64` instead keeps four native
-vectors intact through nibble lookup and mask extraction. Replacing the
+roughly 10 to 25 percent; the `BlockU8x64` block type kept then instead held
+four native vectors intact through nibble lookup and mask extraction. Replacing the
 builder's byte loop with `memchr`/`memcpy` runs also erased the one-pass gain on
 these short strings. Neither losing implementation remains in the decoder.
 

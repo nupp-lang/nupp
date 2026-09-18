@@ -1722,21 +1722,6 @@ sealed interface simd.VectorU8
     --- Looks up every lane in one immutable 16-byte table. Indexes outside
     --- 0..15 produce zero, matching the native table instructions.
     lookup16: function(borrows self: VectorU8, table: simd.TableU8x16): simd.VectorU8
-
-    --- Looks up every lane in four immutable 16-byte tables read as one
-    --- 64-entry table. Indexes outside 0..63 produce zero.
-    ---
-    --- Four tables rather than a 64-entry type because that is the shape the
-    --- instruction takes: aarch64 spends one `tbl` on it, and it is the lookup
-    --- a six-bit alphabet wants. On x86 it is built from the nibble lookup and
-    --- a blend, which is what AVX-512 VBMI's `vpermb` exists to replace.
-    lookup64: function(
-        borrows self: VectorU8,
-        low: simd.TableU8x16,
-        lowMid: simd.TableU8x16,
-        highMid: simd.TableU8x16,
-        high: simd.TableU8x16
-    ): simd.VectorU8
 end
 
 --- One immutable 16-byte lookup table embedded in generated native code.
@@ -1789,47 +1774,6 @@ sealed interface simd.MaskBits64
     clearFirst: function(borrows self: MaskBits64): simd.MaskBits64
 end
 
---- Four adjacent preferred-width registers covering exactly 64 bytes.
----
---- Block comparisons return one target-independent bitmap, so scanners can
---- classify a cache-line-sized unit without publishing intermediate register
---- masks through scalar Nupp values.
---- @export
-sealed interface simd.BlockU8x64
-    --- Applies one byte mask to every lane in all four registers.
-    andByte: function(borrows self: BlockU8x64, value: uint32): simd.BlockU8x64
-
-    andBits: function(borrows self: BlockU8x64, other: BlockU8x64): simd.BlockU8x64
-    shiftRight: function(borrows self: BlockU8x64, count: uint32): simd.BlockU8x64
-
-    --- Looks up every lane in the same immutable 16-byte table.
-    lookup16: function(borrows self: BlockU8x64, table: simd.TableU8x16): simd.BlockU8x64
-
-    --- Returns one bit for each lane having any bit in `value` set.
-    anyBitsSet: function(borrows self: BlockU8x64, value: uint32): simd.MaskBits64
-
-    --- Returns the final preferred-width register for cross-block carry.
-    lastVector: function(borrows self: BlockU8x64): simd.VectorU8
-
-    --- Applies the lookup4 UTF-8 validator across the whole block.
-    ---
-    --- `previous` is the final preferred-width register before this block. The
-    --- three tables are the high and low nibble classes for byte one and the
-    --- high nibble classes for byte two. Set result bits identify invalid byte
-    --- positions in this block.
-    utf8Errors: function(
-        borrows self: BlockU8x64,
-        previous: simd.VectorU8,
-        byte1High: simd.TableU8x16,
-        byte1Low: simd.TableU8x16,
-        byte2High: simd.TableU8x16
-    ): simd.MaskBits64
-
-    equal: function(borrows self: BlockU8x64, value: uint32): simd.MaskBits64
-    inRange: function(borrows self: BlockU8x64, low: uint32, high: uint32): simd.MaskBits64
-    outsideRange: function(borrows self: BlockU8x64, low: uint32, high: uint32): simd.MaskBits64
-end
-
 --- The preferred register-sized operation set for one element type.
 --- @export
 sealed interface simd.SpeciesU8
@@ -1846,45 +1790,11 @@ sealed interface simd.SpeciesU8
     --- the VM-aware counterpart of `load`: storage remains owned and pinned by
     --- Lua for the duration of the native call, so the entry needs no `Span`
     --- and no copy. The source is a Lua string or a borrowed string buffer,
-    --- spelled `any` for the same reason `paddedBytesU8`'s is: that union
-    --- exists only at this boundary.
+    --- spelled `any` because that union exists only at this boundary.
     loadString: function(borrows self: SpeciesU8, borrows source: any, offset: integer): simd.VectorU8
-
-    --- Loads one lane of a three-byte interleaved group from a rooted string.
-    ---
-    --- `lane` selects which byte of each group is collected: 0 gathers bytes
-    --- 0, 3, 6 and so on, 1 gathers 1, 4, 7, and 2 gathers 2, 5, 8. Three
-    --- calls at the same offset therefore de-interleave `3 * lanes` bytes into
-    --- three registers, which is the shape a codec over three-byte groups
-    --- wants and the shape aarch64's `ld3` already produces.
-    ---
-    --- A group that would read past the string contributes zero, on the same
-    --- defensive terms as the other loads here.
-    loadStrided3: function(borrows self: SpeciesU8, source: string, offset: uint32, lane: uint32): simd.VectorU8
 
     --- A mask with the first `active` lanes set, clamped to this species.
     tail: function(borrows self: SpeciesU8, active: integer): simd.MaskU8
-end
-
---- A rooted string split into complete blocks and one zero-padded
---- final block. The view exists only for the duration of its AOT entry.
---- @export
-sealed interface simd.PaddedStringU8
-    readonly length: uint32
-    readonly fullLength: uint32
-    readonly tailLength: uint32
-
-    --- Loads a complete block. The offset must be below `fullLength` and
-    --- aligned to the preferred species width.
-    loadFull: function(borrows self: PaddedStringU8, offset: uint32): simd.VectorU8
-
-    --- Loads the sole incomplete block, already copied and zero padded.
-    loadTail: function(borrows self: PaddedStringU8): simd.VectorU8
-
-    --- Loads 64 complete bytes at an aligned offset. An unavailable block is
-    --- zero, on the same defensive terms as `loadFull`; scanners normally call
-    --- this only after proving `offset + 64 <= length`.
-    loadBlock64: function(borrows self: PaddedStringU8, offset: uint32): simd.BlockU8x64
 end
 
 --- Selects the artifact tier's preferred packed byte species.
@@ -1922,27 +1832,6 @@ local tableU8x16: function(
 
 const simd.tableU8x16 = tableU8x16
 
---- Writes four registers interleaved into a byte scratch.
----
---- Lane `i` of each register lands at `offset + 4i` through `offset + 4i + 3`,
---- which is the inverse of the three-lane strided load and the shape a codec
---- emitting four-byte groups produces. aarch64 spends one `st4` on it.
----
---- Appends when `offset` is the scratch's current length and overwrites below
---- it, on the same terms as `nupp.codec.valuebuilder.setScratchBytes4`.
---- @raises outside an AOT-compiled function
---- @export
-function simd.storeInterleaved4(
-    scratch: any,
-    offset: uint32,
-    first: simd.VectorU8,
-    second: simd.VectorU8,
-    third: simd.VectorU8,
-    fourth: simd.VectorU8
-): nil
-    error("nupp.simd values exist only inside an @aot function", 2)
-end
-
 --- Aligns `previous .. current`, bringing the last `offset` bytes of the
 --- previous vector into the beginning of the result. Offsets 1..3 are
 --- admitted because they are the cross-block lookback needed by UTF-8 scans.
@@ -1954,18 +1843,5 @@ local alignBytes: function(
 ): simd.VectorU8 = provider.alignBytes
 
 const simd.alignBytes = alignBytes
-
---- Roots a Lua string and prepares its one incomplete preferred-width block.
---- @export
-local paddedStringU8: function(source: string): simd.PaddedStringU8 = provider.paddedStringU8
-
-const simd.paddedStringU8 = paddedStringU8
-
---- Roots either a Lua string or a borrowed string buffer for a padded read.
---- This union exists only at a Lua-builder AOT boundary.
---- @raises outside an AOT-compiled function
-function simd.paddedBytesU8(borrows source: any): simd.PaddedStringU8
-    error("nupp.simd values exist only inside an @aot function", 2)
-end
 
 export = simd

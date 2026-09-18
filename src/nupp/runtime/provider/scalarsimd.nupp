@@ -341,18 +341,4 @@ function provider.alignBytes(previous: any, current: any, offset: number): any
     return vector(out)
 end
 
-function provider.paddedStringU8(source: string): any
-    local full = math.floor(#source / 16) * 16
-    local padded: any = {length = #source, fullLength = full, tailLength = #source - full,}
-    function padded:loadFull(offset: number): any
-        return species:loadString(source, offset)
-    end
-
-    function padded:loadTail(): any
-        return species:loadString(source, full)
-    end
-
-    return padded
-end
-
 export = provider

@@ -422,8 +422,6 @@ local function semanticValueType(t: any?, helper: boolean?): scalarIR.Type?
         MaskBits64 = "simd_mask_bits64",
         SpeciesU8 = "simd_species_u8",
         TableU8x16 = "simd_table_u8x16",
-        PaddedStringU8 = "simd_padded_string_u8",
-        BlockU8x64 = "simd_block_u8x64",
         OrderedSum = "simd_reducer_ordered_sum",
         PairwiseSum = "simd_reducer_pairwise_sum",
         CompensatedSum = "simd_reducer_compensated_sum",
@@ -2226,21 +2224,6 @@ local function call(
             type = "simd_table_u8x16",
             source = lower.site(node)
         )
-    elseif identity == "nupp.simd.storeInterleaved4" then
-        if #args ~= 6 or args[1].type ~= "lua_scratch_u8" or args[1].op ~= "local" or args[2].type ~= "u32" then
-            context.reject(
-                lower.site(node),
-                "simd.storeInterleaved4 takes a local byte scratch, offset and four vectors"
-            )
-        end
-        for index = 3, 6 do
-            if args[index].type ~= "simd_vector_u8" then
-                context.reject(lower.site(node), "simd.storeInterleaved4 takes four VectorU8 values")
-            end
-        end
-        kernel.usesSimd = true
-        markLua(kernel, lower.site(node))
-        return new scalarIR.Simd(op = "simd_store4_u8", args = args, type = "lua_effect", source = lower.site(node))
     elseif identity == "nupp.simd.alignBytes" then
         if #args ~= 3 or args[1].type ~= "simd_vector_u8" or args[2].type ~= "simd_vector_u8" then
             context.reject(lower.site(node), "simd.alignBytes takes two byte vectors and a uint32 offset")
@@ -2251,20 +2234,6 @@ local function call(
             op = "simd_align_bytes_u8",
             args = args,
             type = "simd_vector_u8",
-            source = lower.site(node)
-        )
-    elseif identity == "nupp.simd.paddedStringU8" or identity == "nupp.simd.paddedBytesU8" then
-        local bytes = args[1]
-        local wanted = identity == "nupp.simd.paddedStringU8" and "lua_string" or "lua_bytes"
-        if #args ~= 1 or bytes == nil or bytes.type ~= wanted or not rootedBytesParam(bytes, kernel) then
-            context.reject(lower.site(node), "simd.paddedStringU8 requires a rooted string parameter")
-        end
-        kernel.usesSimd = true
-        markLua(kernel, lower.site(node))
-        return new scalarIR.Simd(
-            op = "simd_padded_string_u8",
-            args = args,
-            type = "simd_padded_string_u8",
             source = lower.site(node)
         )
     elseif identity == "nupp.codec.valuebuilder.new"
@@ -3764,118 +3733,6 @@ local function simdMethod(
                 #raw
             ) .. " arguments is not admitted for " .. receiverType
         )
-    elseif receiverType == "simd_padded_string_u8" then
-        if method == "loadFull" and #raw == 1 then
-            args[2] = u32Arg(1)
-            return new scalarIR.Simd(
-                op = "simd_padded_load_full_u8",
-                args = args,
-                type = "simd_vector_u8",
-                source = source
-            )
-        elseif method == "loadTail" and #raw == 0 then
-            return new scalarIR.Simd(
-                op = "simd_padded_load_tail_u8",
-                args = args,
-                type = "simd_vector_u8",
-                source = source
-            )
-        elseif method == "loadBlock64" and #raw == 1 then
-            args[2] = u32Arg(1)
-            return new scalarIR.Simd(
-                op = "simd_block64_load_u8",
-                args = args,
-                type = "simd_block_u8x64",
-                source = source
-            )
-        end
-        kernel.context.reject(
-            source,
-            "SIMD operation " .. method .. " with " .. tostring(
-                #raw
-            ) .. " arguments is not admitted for " .. receiverType
-        )
-    elseif receiverType == "simd_block_u8x64" and method == "lastVector" and #raw == 0 then
-        return new scalarIR.Simd(op = "simd_block64_last_u8", args = args, type = "simd_vector_u8", source = source)
-    elseif receiverType == "simd_block_u8x64" and method == "utf8Errors" and #raw == 4 then
-        local previous = lower.expression(raw[1], environment, activeIndex, kernel)
-        if previous.type ~= "simd_vector_u8" then
-            kernel.context.reject(source, "SIMD block utf8Errors takes one previous VectorU8")
-        end
-        args[2] = previous
-        for index = 2, 4 do
-            local table16 = lower.expression(raw[index], environment, activeIndex, kernel)
-            if table16.type ~= "simd_table_u8x16" then
-                kernel.context.reject(source, "SIMD block utf8Errors takes three TableU8x16 values")
-            end
-            args[#args + 1] = table16
-        end
-        return new scalarIR.Simd(
-            op = "simd_block64_utf8_errors_u8",
-            args = args,
-            type = "simd_mask_bits64",
-            source = source
-        )
-    elseif receiverType == "simd_block_u8x64" and method == "andBits" and #raw == 1 then
-        local other = lower.expression(raw[1], environment, activeIndex, kernel)
-        if other.type ~= "simd_block_u8x64" then
-            kernel.context.reject(source, "SIMD block andBits takes another BlockU8x64")
-        end
-        args[2] = other
-        return new scalarIR.Simd(op = "simd_block64_and_u8", args = args, type = "simd_block_u8x64", source = source)
-    elseif receiverType == "simd_block_u8x64" and method == "lookup16" and #raw == 1 then
-        local table16 = lower.expression(raw[1], environment, activeIndex, kernel)
-        if table16.type ~= "simd_table_u8x16" then
-            kernel.context.reject(source, "SIMD block lookup16 takes one TableU8x16")
-        end
-        args[2] = table16
-        return new scalarIR.Simd(
-            op = "simd_block64_lookup16_u8",
-            args = args,
-            type = "simd_block_u8x64",
-            source = source
-        )
-    elseif receiverType == "simd_block_u8x64" and (
-        method == "andByte" or method == "shiftRight" or method == "anyBitsSet"
-    ) and #raw == 1 then
-        args[2] = u32Arg(1)
-        return new scalarIR.Simd(
-            op = method == "andByte"
-            and "simd_block64_and_byte_u8"
-            or method == "shiftRight"
-            and "simd_block64_shr_u8"
-            or "simd_block64_any_bits_u8",
-            args = args,
-            type = method == "anyBitsSet" and "simd_mask_bits64" or "simd_block_u8x64",
-            source = source
-        )
-    elseif receiverType == "simd_block_u8x64" and (
-        method == "equal" or method == "inRange" or method == "outsideRange"
-    ) then
-        local expected = method == "equal" and 1 or 2
-        if #raw ~= expected then
-            kernel.context.reject(source, "SIMD block " .. method .. " has an unsupported argument count")
-        end
-        for _, argument in ipairs(raw) do
-            args[
-                #args + 1
-            ] = lower.convert(
-                lower.expression(argument, environment, activeIndex, kernel),
-                "u32",
-                source,
-                kernel.context
-            )
-        end
-        return new scalarIR.Simd(
-            op = method == "equal"
-            and "simd_block64_eq_u8"
-            or method == "inRange"
-            and "simd_block64_range_u8"
-            or "simd_block64_outside_range_u8",
-            args = args,
-            type = "simd_mask_bits64",
-            source = source
-        )
     elseif receiverType == "simd_species_u8" and method == "splat" and #raw == 1 then
         args[2] = u32Arg(1)
         return new scalarIR.Simd(op = "simd_splat_u8", args = args, type = "simd_vector_u8", source = source)
@@ -3897,19 +3754,6 @@ local function simdMethod(
             type = "simd_vector_u8",
             source = source
         )
-    elseif receiverType == "simd_species_u8" and method == "loadStrided3" then
-        if #raw ~= 3 then
-            kernel.context.reject(source, "SIMD strided loads take a source, offset and lane")
-        end
-        local strideBytes = lower.expression(raw[1], environment, activeIndex, kernel)
-        if not rootedBytesParam(strideBytes, kernel) then
-            kernel.context.reject(source, "SIMD rooted-string loads require a rooted string parameter")
-        end
-        args[2] = strideBytes
-        args[3] = u32Arg(2)
-        args[4] = u32Arg(3)
-        markLua(kernel, source)
-        return new scalarIR.Simd(op = "simd_load_stride3_u8", args = args, type = "simd_vector_u8", source = source)
     elseif receiverType == "simd_species_u8" and method == "loadString" then
         if #raw ~= 2 then
             kernel.context.reject(source, "SIMD rooted-string loads take a source and offset")
@@ -3952,15 +3796,6 @@ local function simdMethod(
     elseif receiverType == "simd_vector_u8" and method == "shiftLeft" and #raw == 1 then
         args[2] = u32Arg(1)
         return new scalarIR.Simd(op = "simd_shl_u8", args = args, type = "simd_vector_u8", source = source)
-    elseif receiverType == "simd_vector_u8" and method == "lookup64" and #raw == 4 then
-        for index = 1, 4 do
-            local tableValue = lower.expression(raw[index], environment, activeIndex, kernel)
-            if tableValue.type ~= "simd_table_u8x16" then
-                kernel.context.reject(source, "SIMD lookup64 takes four TableU8x16 values")
-            end
-            args[index + 1] = tableValue
-        end
-        return new scalarIR.Simd(op = "simd_lookup64_u8", args = args, type = "simd_vector_u8", source = source)
     elseif receiverType == "simd_vector_u8" and method == "lookup16" and #raw == 1 then
         local tableValue = lower.expression(raw[1], environment, activeIndex, kernel)
         if tableValue.type ~= "simd_table_u8x16" then
@@ -4707,23 +4542,6 @@ local function expressionRaw(
                 type = "u32",
                 source = lower.site(node)
             )
-        elseif object ~= nil and object.type == "simd_padded_string_u8" then
-            local property = (indexed.name as lexer.Token).text
-            local operations = {
-                length = "simd_padded_length",
-                fullLength = "simd_padded_full_length",
-                tailLength = "simd_padded_tail_length",
-            }
-            local operation = operations[property]
-            if operation ~= nil then
-                kernel.usesSimd = true
-                return new scalarIR.Simd(
-                    op = operation as any,
-                    args = {lower.expression(indexed.obj as cst.Node, environment, activeIndex, kernel)},
-                    type = "u32",
-                    source = lower.site(node)
-                )
-            end
         end
 
         return fieldRead(indexed, lower.expression(indexed.obj as cst.Node, environment, activeIndex, kernel), kernel)
@@ -4871,8 +4689,6 @@ function lower.helperValueType(spelling: string): scalarIR.Type?
         return "simd_species_u8"
     elseif spelling:match("%.TableU8x16$") ~= nil then
         return "simd_table_u8x16"
-    elseif spelling:match("%.PaddedStringU8$") ~= nil then
-        return "simd_padded_string_u8"
     end
 
     return nil
@@ -6773,7 +6589,6 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
                     and effect.op ~= "lua_scratch_u32_set"
                     and effect.op ~= "lua_scratch_u8_set"
                     and effect.op ~= "lua_scratch_u8_set4"
-                    and effect.op ~= "simd_store4_u8"
                     and effect.op ~= "simd_store"
                     and effect.op ~= "simd_field_store"
                     and effect.op ~= "reducer_add"

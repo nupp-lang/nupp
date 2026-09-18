@@ -17,8 +17,7 @@ target=src/nupp/codec/json/internal/decoder/fusedbench.nupp
 
 mkdir -p "$(dirname "$target")"
 perl -0pe 's/^module nupp\.codec\.json\.internal\.decoder\.fused$/module nupp.codec.json.internal.decoder.fusedbench/m;
-           s/\n    borrows source: string \| Buffer,/\n    source: string,/g;
-           s/_simd\.paddedBytesU8\(/_simd.paddedStringU8(/g' \
+           s/\n    borrows source: string \| Buffer,/\n    source: string,/g' \
    "$source" > "$target"
 
 if grep -q 'borrows source' "$target"; then

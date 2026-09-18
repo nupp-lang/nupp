@@ -1336,10 +1336,6 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
             simd_lanes = {result = "u32", operands = {"simd_species_u8"}},
             simd_load_u8 = {result = "simd_vector_u8", operands = {"simd_species_u8", "u32"}},
             simd_load_string_u8 = {result = "simd_vector_u8", operands = {"simd_species_u8", "lua_string", "u32"},},
-            simd_load_stride3_u8 = {
-                result = "simd_vector_u8",
-                operands = {"simd_species_u8", "lua_string", "u32", "u32"},
-            },
             simd_splat_u8 = {result = "simd_vector_u8", operands = {"simd_species_u8", "u32"}},
             simd_shr_u8 = {result = "simd_vector_u8", operands = {"simd_vector_u8", "u32"}},
             simd_shl_u8 = {result = "simd_vector_u8", operands = {"simd_vector_u8", "u32"}},
@@ -1365,49 +1361,7 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
                 },
             },
             simd_lookup16_u8 = {result = "simd_vector_u8", operands = {"simd_vector_u8", "simd_table_u8x16"}},
-            simd_lookup64_u8 = {
-                result = "simd_vector_u8",
-                operands = {
-                    "simd_vector_u8",
-                    "simd_table_u8x16",
-                    "simd_table_u8x16",
-                    "simd_table_u8x16",
-                    "simd_table_u8x16"
-                }
-            },
             simd_align_bytes_u8 = {result = "simd_vector_u8", operands = {"simd_vector_u8", "simd_vector_u8", "u32"}},
-            simd_padded_string_u8 = {result = "simd_padded_string_u8", operands = {"lua_string"}},
-            simd_padded_length = {result = "u32", operands = {"simd_padded_string_u8"}},
-            simd_padded_full_length = {result = "u32", operands = {"simd_padded_string_u8"}},
-            simd_padded_tail_length = {result = "u32", operands = {"simd_padded_string_u8"}},
-            simd_padded_load_full_u8 = {result = "simd_vector_u8", operands = {"simd_padded_string_u8", "u32"}},
-            simd_padded_load_tail_u8 = {result = "simd_vector_u8", operands = {"simd_padded_string_u8"}},
-            simd_block64_load_u8 = {result = "simd_block_u8x64", operands = {"simd_padded_string_u8", "u32"}},
-            simd_block64_and_byte_u8 = {result = "simd_block_u8x64", operands = {"simd_block_u8x64", "u32"}},
-            simd_block64_and_u8 = {result = "simd_block_u8x64", operands = {"simd_block_u8x64", "simd_block_u8x64"},},
-            simd_block64_shr_u8 = {result = "simd_block_u8x64", operands = {"simd_block_u8x64", "u32"}},
-            simd_block64_lookup16_u8 = {
-                result = "simd_block_u8x64",
-                operands = {"simd_block_u8x64", "simd_table_u8x16"},
-            },
-            simd_block64_any_bits_u8 = {result = "simd_mask_bits64", operands = {"simd_block_u8x64", "u32"}},
-            simd_block64_last_u8 = {result = "simd_vector_u8", operands = {"simd_block_u8x64"}},
-            simd_block64_utf8_errors_u8 = {
-                result = "simd_mask_bits64",
-                operands = {
-                    "simd_block_u8x64",
-                    "simd_vector_u8",
-                    "simd_table_u8x16",
-                    "simd_table_u8x16",
-                    "simd_table_u8x16",
-                },
-            },
-            simd_block64_eq_u8 = {result = "simd_mask_bits64", operands = {"simd_block_u8x64", "u32"}},
-            simd_block64_range_u8 = {result = "simd_mask_bits64", operands = {"simd_block_u8x64", "u32", "u32"},},
-            simd_block64_outside_range_u8 = {
-                result = "simd_mask_bits64",
-                operands = {"simd_block_u8x64", "u32", "u32"},
-            },
             simd_tail_u8 = {result = "simd_mask_u8", operands = {"simd_species_u8", "u32"}},
             simd_eq_u8 = {result = "simd_mask_u8", operands = {"simd_vector_u8", "u32"}},
             simd_range_u8 = {result = "simd_mask_u8", operands = {"simd_vector_u8", "u32", "u32"}},
@@ -1452,9 +1406,7 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
             holds(
                 argument.type == signature.operands[
                     position
-                ] or (
-                    op == "simd_padded_string_u8" and position == 1 or op == "simd_load_string_u8" and position == 2
-                ) and argument.type == "lua_bytes",
+                ] or op == "simd_load_string_u8" and position == 2 and argument.type == "lua_bytes",
                 "invalid SIMD operand"
             )
             scalarWalk(argument, values, scope)
@@ -1467,8 +1419,8 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
                 ).kind == "read_span" and (span as scalarIR.Param).sourceType == "uint8",
                 "invalid SIMD load root"
             )
-        elseif op == "simd_load_string_u8" or op == "simd_padded_string_u8" then
-            local rootIndex = op == "simd_load_string_u8" and 2 or 1
+        elseif op == "simd_load_string_u8" then
+            local rootIndex: integer = 2
             local rooted = args[rootIndex] as scalarIR.Name
             local param = scope.spans[rooted.name]
             holds(
@@ -2587,24 +2539,6 @@ local function block(
                 named[name] = true
             end
             contributions(region.body, named)
-        elseif statement.op == "simd_store4_u8" then
-            local store = statement as scalarIR.Simd
-            holds(
-                scope.entryMode == "lua-builder" and store.type == "lua_effect",
-                "SIMD interleaved store outside a builder"
-            )
-            holds(#store.args == 6, "invalid SIMD interleaved store")
-            holds(
-                store.args[1].type == "lua_scratch_u8" and store.args[1].op == "local",
-                "SIMD interleaved store has no local buffer"
-            )
-            holds(store.args[2].type == "u32", "invalid SIMD interleaved store offset")
-            for index = 3, 6 do
-                holds(store.args[index].type == "simd_vector_u8", "invalid SIMD interleaved store operand")
-            end
-            for _, argument in ipairs(store.args) do
-                scalarWalk(argument, values, scope)
-            end
         elseif statement.op == "lua_scratch_u32_set" then
             local write = statement as scalarIR.LuaScratchU32Set
             holds(scope.entryMode == "lua-builder" and write.type == "lua_effect", "scratch write outside a builder")

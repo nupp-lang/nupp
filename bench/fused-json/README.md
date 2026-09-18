@@ -16,9 +16,8 @@ from. A branch that rewrites the decoder needs no change here, which is what
 makes two checkouts comparable.
 
 It makes two mechanical signature edits, both explained in `prepare.sh`: the
-module name, and `borrows source: string | Buffer` becomes `source: string`
-(with the matching `paddedBytesU8` call becoming `paddedStringU8`). The second
-is a workaround, not a preference -- the generated ahead-of-time wrapper for a
+module name, and `borrows source: string | Buffer` becomes `source: string`.
+The second is a workaround, not a preference -- the generated ahead-of-time wrapper for a
 string-or-buffer parameter does not check today. `results/` says why.
 
 ## Proving what runs
