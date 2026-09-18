@@ -1871,7 +1871,38 @@ function M.wasmReplacementRecordsItsCompiledClosure()
         "unit"
     )
     assert(source:find('rawget(_G, "__nuppAotCompiled")', 1, true), source)
-    assert(source:find("ks_copy_compiledEntries[copy] = true", 1, true), source)
+    assert(source:find("entries[copy] = true", 1, true), source)
+end
+
+-- A replacement is emitted once per `@aot` declaration, and LuaJIT allows a
+-- chunk two hundred locals at once, so what one leaves in the module scope is
+-- what bounds the declarations a module may hold. Three -- the lowest tier's
+-- declaration, the selection and the wrapper -- however many tiers the
+-- target has: a three-tier x86 target used to spend six, and a module of
+-- forty-seven reducers refused to load there while loading everywhere else.
+function M.aReplacementLeavesThreeModuleLocalsWhateverTheTierCount()
+    local binding = require("nupp.compiler.aot.binding")
+    local program = {
+        entryMode = "kernel",
+        name = "copy",
+        symbol = "ks_copy",
+        params = {{name = "input", kind = "read_span", type = "f64", element = "f64"}},
+        guards = {},
+        relations = {},
+        layouts = {},
+        resultTypes = {"f64"},
+        resultSourceTypes = {"number"},
+    }
+    for _, tiers in ipairs({{"neon"}, {"baseline", "avx2", "avx512f"}}) do
+        local source = binding.replacement(program, "@lib/libnative_aot.so", tiers, true)
+        local count = 0
+        for line in (source .. "\n"):gmatch("([^\n]*)\n") do
+            if line:find("^local ") or line:find("^cdef ") then
+                count = count + 1
+            end
+        end
+        test.equal(count, 3, source)
+    end
 end
 
 function M.wasmHostExportsEveryLuaBuilderImport()
@@ -2832,10 +2863,13 @@ function M.scopedPackedBytesHandleEveryTailWithoutOverreading()
     local out, code = build(dir)
     test.equal(code, 0, out)
 
-    -- The scalar oracle helpers are authored in ks_simd.h inside
-    -- KS_SCALAR_REGION_BEGIN/END, which on GCC x86 is the O0 no-avx target, so
-    -- the regions are read from the header and the tiers are checked to carry
-    -- it.
+    -- The unvectorized byte copy is authored in ks_simd.h inside
+    -- KS_SCALAR_REGION_BEGIN/END, which on GCC x86 is the O0 no-avx target.
+    -- The region is opened at file scope and nowhere else: GCC drops the
+    -- definitions that follow a push_options _Pragma inside a macro body, so
+    -- a byte oracle helper defined by KS_U8_SCALAR under a region was simply
+    -- absent, and the oracle calling it failed to compile on Linux and
+    -- Windows CI while Clang, which honours the pragma, saw nothing.
     local header = assert(io.open(HERE .. "/../src/nupp/compiler/aot/include/ks_simd.h", "rb")):read("*a")
     assert(
         header:find(
@@ -2846,22 +2880,21 @@ function M.scopedPackedBytesHandleEveryTailWithoutOverreading()
         "the scalar region holds its helpers to the oracle target"
     )
     local regions, inRegion = 0, false
-    local sawLoad, sawCopy = false, false
+    local sawCopy = false
     for line in header:gmatch("[^\n]*") do
+        assert(not line:find("^KS_SCALAR_REGION_[A-Z]+ \\$"), "a scalar region is never opened inside a macro: " .. line)
         if line:find("^KS_SCALAR_REGION_BEGIN") then
             regions, inRegion = regions + 1, true
         elseif line:find("^KS_SCALAR_REGION_END") then
             inRegion = false
         elseif inRegion then
-            sawLoad = sawLoad or line:find("ks_scalar_load_", 1, true) ~= nil
             sawCopy = sawCopy or line:find("void ks_scalar_copy_bytes(", 1, true) ~= nil
             assert(not line:find("memcpy(", 1, true), "fortified copies stay out of the scalar target: " .. line)
             assert(not line:find("ks_store4_", 1, true), "packed helpers stay at the tier target: " .. line)
         end
     end
-    assert(regions >= 2 and not inRegion, "every scalar region is closed")
-    assert(sawLoad, "the scalar helpers sit inside a region")
-    assert(sawCopy, "and so does the unvectorized scalar copy")
+    assert(regions >= 1 and not inRegion, "every scalar region is closed")
+    assert(sawCopy, "the unvectorized scalar copy sits inside a region")
     for _, tier in ipairs(buildTiers(nil, nil)) do
         local c = assert(read(tieredC(dir, tier.tier)), tier.tier)
         assert(c:find("\nKS_SCALAR_REGION_BEGIN\n", 1, true), tier.tier .. " carries the scalar regions")

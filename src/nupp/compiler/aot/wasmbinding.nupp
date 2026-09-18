@@ -201,12 +201,9 @@ function wasmbinding.replacement(program: scalarIR.Program, unit: string): strin
         lines[#lines + 1] = "    return " .. table.concat(values, ", ")
     end
     lines[#lines + 1] = "end"
-    lines[#lines + 1] = "local " .. program.symbol .. "_compiledEntries: any = rawget(_G, \"__nuppAotCompiled\")"
-    lines[#lines + 1] = "if " .. program.symbol .. "_compiledEntries == nil then"
-    lines[#lines + 1] = "    " .. program.symbol .. "_compiledEntries = setmetatable({}, {__mode = \"k\"})"
-    lines[#lines + 1] = "    rawset(_G, \"__nuppAotCompiled\", " .. program.symbol .. "_compiledEntries)"
-    lines[#lines + 1] = "end"
-    lines[#lines + 1] = program.symbol .. "_compiledEntries[" .. program.name .. "] = true"
+    for _, line in ipairs(binding.compiledMarker(program)) do
+        lines[#lines + 1] = line
+    end
 
     return table.concat(lines, "\n")
 end

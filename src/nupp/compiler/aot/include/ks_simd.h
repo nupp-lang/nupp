@@ -33,7 +33,12 @@
 
 /* The scalar oracle is compiled without vector instructions where the
  * compiler can be told so, which keeps it an oracle rather than a
- * second copy of the same code. */
+ * second copy of the same code. The region is opened at file scope only:
+ * GCC does not apply a push_options pragma reached through _Pragma inside
+ * a macro body to the definitions that follow it in the same expansion,
+ * and quietly drops them instead. The helpers a macro defines are static
+ * inline, so an oracle compiled at O0 calls them out of line and they
+ * need no options of their own. */
 #if defined(__GNUC__) && !defined(__clang__) && (defined(__x86_64__) || defined(__i386__))
 #define KS_SCALAR_REGION_BEGIN _Pragma("GCC push_options") _Pragma("GCC optimize (\"O0\")") _Pragma("GCC target (\"no-avx\")")
 #define KS_SCALAR_REGION_END _Pragma("GCC pop_options")
@@ -386,7 +391,6 @@ static inline __attribute__((unused)) uint32_t ks_any_u8x##W(ks_u8x##W mask) { \
 #define KS_U8_SCALAR(W) \
 typedef struct { uint8_t lane[W]; } __attribute__((aligned(W))) ks_scalar_u8x##W; \
 typedef struct { uint8_t bytes[64]; } __attribute__((aligned(64))) KsScalarBlockU8x64x##W; \
-KS_SCALAR_REGION_BEGIN \
 static inline __attribute__((unused)) ks_scalar_u8x##W ks_scalar_load_u8x##W(const uint8_t *source, size_t count, uint32_t offset) { \
     ks_scalar_u8x##W out = {{0}}; \
     if ((size_t)offset < count) { \
@@ -458,7 +462,6 @@ static inline __attribute__((unused)) uint32_t ks_scalar_bits_u8x##W(ks_scalar_u
     return bits; \
 } \
 static inline __attribute__((unused)) uint32_t ks_scalar_any_u8x##W(ks_scalar_u8x##W mask) { return (uint32_t)(ks_scalar_bits_u8x##W(mask) != 0u); } \
-KS_SCALAR_REGION_END
 
 /* ---- Interleaved stores into the Lua builder's byte scratch -------- */
 
@@ -487,9 +490,7 @@ static inline __attribute__((unused)) void ks_store4_u8x##W(lua_State *L, KsLuaS
     if (offset == scratch->length) { scratch->length += total; } \
     KS_STORE4_BODY(W) \
 } \
-KS_SCALAR_REGION_BEGIN \
 static inline __attribute__((unused)) void ks_scalar_store4_u8x##W(lua_State *L, KsLuaScratchU8 *scratch, uint32_t offset, ks_scalar_u8x##W v0, ks_scalar_u8x##W v1, ks_scalar_u8x##W v2, ks_scalar_u8x##W v3) { const uint32_t total = TOTAL##u; if (KS_UNLIKELY(offset > scratch->length || offset > scratch->capacity || scratch->capacity - offset < total)) { ks_scratch_raise(L, "AOT byte scratch write is out of bounds"); return; } if (KS_UNLIKELY(offset < scratch->length && scratch->length - offset < total)) { ks_scratch_raise(L, "AOT byte scratch write straddles the length"); return; } if (offset == scratch->length) { scratch->length += total; } for (uint32_t i = 0; i < W##u; ++i) { scratch->bytes[offset + i * 4u] = v0.lane[i]; scratch->bytes[offset + i * 4u + 1u] = v1.lane[i]; scratch->bytes[offset + i * 4u + 2u] = v2.lane[i]; scratch->bytes[offset + i * 4u + 3u] = v3.lane[i]; } } \
-KS_SCALAR_REGION_END
 
 /* ---- Explicit vectors: nupp.simd elements ------------------------- */
 

@@ -400,22 +400,25 @@ function binding.builderLoader(
         -- registers its returned table before this component is loaded.
         local key = tostring(program.registrar)
         return {
-            "local function " .. prefix .. "Load()",
+            "local " .. prefix .. ": any",
+            "do",
             "    local modules: any = rawget(_G, \"__nuppAotBuilderModules\")",
             "    local registered: any = modules and modules[" .. string.format("%q", key) .. "]",
             "    if type(registered) ~= \"table\" then error(\"AOT builder archive is not registered: "
             .. key
             .. "\", 0) end",
-            "    local builder: any = registered[" .. string.format("%q", program.name) .. "]",
-            "    if type(builder) ~= \"function\" then error(\"AOT builder registration is malformed\", 0) end",
-            "    return builder",
+            "    " .. prefix .. " = registered[" .. string.format("%q", program.name) .. "]",
+            "    if type("
+            .. prefix
+            .. ") ~= \"function\" then error(\"AOT builder registration is malformed\", 0) end",
             "end",
-            "local " .. prefix .. " = " .. prefix .. "Load()",
         }
     end
     local relative = library:match("^@(.+)$") or library
     local registrar = tostring(program.registrar)
-    local lines: {string} = {}
+    -- Everything but the loaded builder is scoped away, for the reason
+    -- `binding.compiledMarker` gives.
+    local lines: {string} = {"local " .. prefix .. ": any", "do"}
     if tiers ~= nil and #tiers > 0 then
         registrar = target.symbol(registrar, tiers[1])
         lines[#lines + 1] = "local " .. prefix .. "Registrar = \"" .. registrar .. "\""
@@ -470,11 +473,12 @@ function binding.builderLoader(
         .. " at or above \" .. started"
         .. " .. \"; the compiled library has to travel with the module that calls it\", 0)",
         "end",
-        "local " .. prefix .. " = " .. prefix .. "Load()",
+        prefix .. " = " .. prefix .. "Load()",
     }
     for _, line in ipairs(loader) do
         lines[#lines + 1] = line
     end
+    lines[#lines + 1] = "end"
 
     return lines
 end
@@ -545,14 +549,21 @@ end
 --- is off. Keying the registry by the replacement closure avoids publishing
 --- compiler symbols or requiring native and Wasm loaders to expose the same
 --- implementation details.
+---
+--- Scoped in a `do` block so the registry lookup is not a local of the module
+--- chunk: LuaJIT allows two hundred of those at once, and a replacement is
+--- emitted once per `@aot` declaration, so every local it leaves behind is
+--- multiplied by the number of declarations in the module.
 function binding.compiledMarker(program: scalarIR.Program): {string}
     return {
-        "local " .. program.symbol .. "_compiledEntries: any = rawget(_G, \"__nuppAotCompiled\")",
-        "if " .. program.symbol .. "_compiledEntries == nil then",
-        "    " .. program.symbol .. "_compiledEntries = setmetatable({}, {__mode = \"k\"})",
-        "    rawset(_G, \"__nuppAotCompiled\", " .. program.symbol .. "_compiledEntries)",
+        "do",
+        "    local entries: any = rawget(_G, \"__nuppAotCompiled\")",
+        "    if entries == nil then",
+        "        entries = setmetatable({}, {__mode = \"k\"})",
+        "        rawset(_G, \"__nuppAotCompiled\", entries)",
+        "    end",
+        "    entries[" .. program.name .. "] = true",
         "end",
-        program.symbol .. "_compiledEntries[" .. program.name .. "] = true",
     }
 end
 
@@ -633,25 +644,36 @@ function binding.multiversion(
 ): ({string}, string)
     local lines: {string} = {}
     local native = program.symbol .. "_native"
-    for _, tier in ipairs(tiers) do
-        local symbol = target.symbol(program.symbol, tier)
-        for _, line in ipairs(binding.foreign(program, library, symbol)) do
-            lines[#lines + 1] = line
-        end
-    end
-    if detector == true then
-        for _, line in ipairs(binding.featureDetector(library)) do
-            lines[#lines + 1] = line
-        end
+    -- The lowest tier declares the selection's type and stays a module local;
+    -- the higher tiers are read once to choose and then go out of scope, so a
+    -- module with many declarations spends the same number of chunk locals on
+    -- each whatever the target's tier count -- see `binding.compiledMarker`.
+    for _, line in ipairs(binding.foreign(program, library, target.symbol(program.symbol, tiers[1]))) do
+        lines[#lines + 1] = line
     end
     lines[#lines + 1] = "local " .. native .. " = " .. target.symbol(program.symbol, tiers[1])
-    for position = 2, #tiers do
-        local tier = tiers[position]
-        lines[
-            #lines + 1
-        ] = "if ks_aot_feature_tier() >= " .. tostring(
-            target.rank(tier)
-        ) .. " then " .. native .. " = " .. target.symbol(program.symbol, tier) .. " end"
+    if #tiers > 1 then
+        lines[#lines + 1] = "do"
+        for position = 2, #tiers do
+            local symbol = target.symbol(program.symbol, tiers[position])
+            for _, line in ipairs(binding.foreign(program, library, symbol)) do
+                lines[#lines + 1] = "    " .. line
+            end
+        end
+        if detector == true then
+            for _, line in ipairs(binding.featureDetector(library)) do
+                lines[#lines + 1] = "    " .. line
+            end
+        end
+        for position = 2, #tiers do
+            local tier = tiers[position]
+            lines[
+                #lines + 1
+            ] = "    if ks_aot_feature_tier() >= " .. tostring(
+                target.rank(tier)
+            ) .. " then " .. native .. " = " .. target.symbol(program.symbol, tier) .. " end"
+        end
+        lines[#lines + 1] = "end"
     end
 
     return lines, native
