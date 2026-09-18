@@ -301,7 +301,12 @@ local function loadAverages()
    local text = handle:read("*a") or ""
    handle:close()
 
-   return (text:match("load averages?: *(.+)$") or text:gsub("%s+$", ""))
+   -- `.` matches a newline in a Lua pattern, so the capture takes `uptime`'s
+   -- trailing one with it and `%q` writes it as an escaped line break, which
+   -- is not JSON.
+   local averages = text:match("load averages?: *([^\n]+)") or text
+
+   return (averages:gsub("%s+$", ""))
 end
 
 ----------------------------------------------------------------------------
