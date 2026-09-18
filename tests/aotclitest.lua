@@ -2488,11 +2488,12 @@ end
 return {nibbles = nibbles}
 ]]
     local dir = project{["nibbles.nupp"] = source}
-    local asm, code = run(dir, "--target aarch64-apple-darwin --features neon --emit asm nibbles.nupp")
-    test.equal(code, 0, asm)
-    assert(asm:find("ushr.16b", 1, true), "the shift stays a byte vector operation: " .. asm)
-    assert(asm:find("and.16b", 1, true), "the and stays a byte vector operation: " .. asm)
-    assert(asm:find("tbl.16b", 1, true), "and the nibble indexes a table: " .. asm)
+    local asm = neonAsm(dir, "nibbles.nupp")
+    if asm ~= nil then
+        assert(asm:find("ushr.16b", 1, true), "the shift stays a byte vector operation: " .. asm)
+        assert(asm:find("and.16b", 1, true), "the and stays a byte vector operation: " .. asm)
+        assert(asm:find("tbl.16b", 1, true), "and the nibble indexes a table: " .. asm)
+    end
 
     local mismatched = source:gsub("local low = entries:swizzle%(%(bytes & 15%) %+ 1%)", [[
     local words = assert(simd.species(array.uint32))
@@ -5071,6 +5072,26 @@ return {add = add}
             and not header:find("aligned(", 1, true),
         "and no type in the prelude asks for an alignment a caller does not give it"
     )
+
+    -- Pointers close the boundaries this header writes. The one it does not
+    -- write is the hidden pointer a by-value vector is returned through, which
+    -- appears whenever the compiler splits a cold path out of an inline helper
+    -- into a real call -- its own choice, made again on every version. On
+    -- Windows the slot that pointer names is the caller's frame, sixteen-byte
+    -- aligned, and GCC stores a vector into it with `vmovdqa`. Every vector
+    -- here says its alignment is one there, which is what leaves the compiler
+    -- no aligned move to reach for; every other target keeps the natural one.
+    assert(
+        header:find("#if defined(_WIN32) || defined(_WIN64)\n#define KS_VECTOR_ABI_ALIGN , __aligned__(1)\n#else\n#define KS_VECTOR_ABI_ALIGN\n#endif", 1, true),
+        "the Windows calling convention caps what a vector claims about its address"
+    )
+    for _, vector in ipairs({
+        "typedef uint8_t ks_u8x##W __attribute__((vector_size(W) KS_VECTOR_ABI_ALIGN));",
+        "typedef CTYPE ks_exp_##ELEM __attribute__((vector_size(W) KS_VECTOR_ABI_ALIGN));",
+        "typedef MASK ks_exp_mask_##ELEM __attribute__((vector_size(W) KS_VECTOR_ABI_ALIGN));",
+    }) do
+        assert(header:find(vector, 1, true), "and every vector carries that cap: " .. vector)
+    end
 end
 
 function M.aProofNeedsTheGuardAndTheCursorItLeft()

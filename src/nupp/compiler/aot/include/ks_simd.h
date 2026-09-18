@@ -54,6 +54,30 @@ static __attribute__((unused)) void ks_scalar_copy_bytes(void *destination, cons
 }
 KS_SCALAR_REGION_END
 
+/* What a vector may claim about where it sits.
+ *
+ * Nothing, on Windows. Its x64 convention hands an aggregate wider than
+ * eight bytes to a call by reference, and returns one through a pointer the
+ * caller supplies; both of those live in the caller's frame, and a frame is
+ * only ever sixteen-byte aligned there. GCC rounds a pointer into the frame
+ * for a declared local that needs more and does not for either of those two,
+ * yet still moves them with `vmovdqa` -- so half of all calls that are not
+ * inlined away fault on a thirty-two byte vector. Which calls survive
+ * inlining is the compiler's choice and changes with its version: a cold
+ * path it splits out of an inline helper is a real call returning a real
+ * vector, and no spelling of these helpers can prevent that.
+ *
+ * Saying the alignment is one is what takes the assumption away, and it
+ * costs nothing that can be measured: an unaligned move to an address that
+ * happens to be aligned runs at the same rate on every x86 that has AVX.
+ * Every other target keeps the natural alignment, where the same by-value
+ * vector is passed in registers or on a stack slot the ABI aligns. */
+#if defined(_WIN32) || defined(_WIN64)
+#define KS_VECTOR_ABI_ALIGN , __aligned__(1)
+#else
+#define KS_VECTOR_ABI_ALIGN
+#endif
+
 /* ---- The packed u8 vector ------------------------------------------ */
 
 /* A 16-lane table lookup: NEON and x86 have the byte shuffle, wasm has
@@ -259,7 +283,7 @@ KS_SCALAR_REGION_END
 /* A 64-byte block is PARTS vectors of width W, the last at index LAST. */
 #define KS_BLOCK_BITS(W) if (i * W##u < 32u) { out.low |= bits << (i * W##u); } else { out.high |= bits << (i * W##u - 32u); }
 #define KS_U8_PACKED(W, PARTS, LAST) \
-typedef uint8_t ks_u8x##W __attribute__((vector_size(W))); \
+typedef uint8_t ks_u8x##W __attribute__((vector_size(W) KS_VECTOR_ABI_ALIGN)); \
 typedef struct { const uint8_t *source; size_t source_length; uint32_t length, full_length, tail_length; ks_u8x##W tail; } KsPaddedStringU8x##W; \
 typedef struct { ks_u8x##W part[PARTS]; } KsBlockU8x64x##W; \
 static inline __attribute__((unused)) ks_u8x##W ks_splat_u8x##W(uint8_t value) { \
@@ -701,8 +725,8 @@ static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_swizzle_pair_##ELEM(k
  * name. ELEM is the full type suffix (f64x4), so it can be pasted
  * straight into names; W, LANES and BYTES arrive as literal tokens. */
 #define KS_EXP_VECTOR(W, ELEM, CTYPE, MASK, LANES, BYTES) \
-typedef CTYPE ks_exp_##ELEM __attribute__((vector_size(W))); \
-typedef MASK ks_exp_mask_##ELEM __attribute__((vector_size(W))); \
+typedef CTYPE ks_exp_##ELEM __attribute__((vector_size(W) KS_VECTOR_ABI_ALIGN)); \
+typedef MASK ks_exp_mask_##ELEM __attribute__((vector_size(W) KS_VECTOR_ABI_ALIGN)); \
 typedef struct { CTYPE lane[LANES]; } ks_scalar_exp_##ELEM; \
 typedef struct { MASK lane[LANES]; } ks_scalar_exp_mask_##ELEM; \
 static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_splat_##ELEM(CTYPE value) { return (ks_exp_##ELEM){ KS_REP_##LANES(value) }; } \

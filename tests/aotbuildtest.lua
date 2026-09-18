@@ -1950,9 +1950,60 @@ local function hasToolchain()
     return (aot.toolchain()) ~= nil
 end
 
+--- Which case is running, read back from the table the runner calls it out of.
+local caseNames = nil
+local function runningCase()
+    if caseNames == nil then
+        caseNames = {}
+        for name, body in pairs(M) do
+            if type(body) == "function" then
+                caseNames[body] = name
+            end
+        end
+    end
+    for level = 2, 16 do
+        local frame = debug.getinfo(level, "f")
+        if frame == nil then
+            break
+        end
+        local named = caseNames[frame.func]
+        if named ~= nil then
+            return named
+        end
+    end
+
+    return "unknown"
+end
+
 --- Where `require` puts the library for the `native` target.
+---
+--- Every library a case is about to call is kept when the run asks for
+--- artifacts, under the name of the case that built it. A worker killed by a
+--- signal writes no report and, on Windows, no dump either -- the faulting
+--- library disassembled beside a line saying which case held it is the whole
+--- of the evidence, and which case that is is not known until it dies. The
+--- copy costs a file per case and only when the run asks for one.
 local function libraryPath(dir)
-    return dir .. "/" .. aot.libraryPath("build/native", "native", librarySuffix())
+    local path = dir .. "/" .. aot.libraryPath("build/native", "native", librarySuffix())
+    local artifacts = os.getenv("NUPP_TEST_AOT_ARTIFACTS")
+    if artifacts ~= nil then
+        local bytes = read(path)
+        if bytes ~= nil then
+            local case = runningCase()
+            local saved = io.open(artifacts .. "/" .. case .. "-" .. path:match("[^/\\]+$"), "wb")
+            if saved ~= nil then
+                saved:write(bytes)
+                saved:close()
+            end
+            local loaded = io.open(artifacts .. "/aot-libraries.txt", "ab")
+            if loaded ~= nil then
+                loaded:write(case, " ", path, " ", tostring(#bytes), "\n")
+                loaded:close()
+            end
+        end
+    end
+
+    return path
 end
 
 local function libraryTier(lib)
