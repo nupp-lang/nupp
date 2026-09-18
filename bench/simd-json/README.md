@@ -114,6 +114,67 @@ materializer remain as explicit differential and benchmark controls.
 `simd_json.scanner` and `json.decodeLegacy` remain as the frozen J0 oracle and
 benchmark baseline; they are no longer the large-document decode path.
 
+## The structural indexer
+
+`simd_json.indexer` is the one piece written on the general `nupp.simd`
+algebra, and the one piece that builds on its own. It finds every byte the
+index has to look at -- quotes, backslashes, control bytes, the six
+structural characters and anything non-ASCII -- with vector comparisons
+whose masks are or'd together and read out as one `uint64` through
+`Mask.bits`, then drains the bits in position order through the same state
+machine a byte-at-a-time indexer runs. Bytes that are not events are never
+touched by the drain. Whatever the vectors do not cover, the same loop
+finishes one byte at a time, so the drain is written once and the entry is
+plain `@aot`.
+
+Events are processed in byte order across the whole input, so the status it
+reports is the first error in the input. The byte-vocabulary version it
+replaced drained a block's structural events before its UTF-8 events, and
+could write a tape offset past an invalid byte earlier in the same block.
+
+`simd_json.indexer_reference` is the byte-at-a-time indexer it is tested
+against: `string.byte`, one byte after another, sharing nothing with the
+vector path. `tests/index.lua` holds the two to each other on 223,585
+inputs -- every byte value at every offset across two vector widths, inside
+a string and outside one; backslash runs of every parity before a quote at
+those offsets; every UTF-8 lead followed by valid, out-of-range, ASCII,
+missing and cut-off continuations at every offset near a boundary; every
+tape one slot short; and random documents over an alphabet heavy in event
+bytes.
+
+```sh
+./run-index.sh          # build the index-only target and run the differential
+./run-index.sh --time   # and time the indexer against the reference
+```
+
+Same machine, both indexers built by the same compiler and timed back to
+back on the records payload (aarch64-apple-darwin, NEON, `optimize = 1`,
+ns per byte):
+
+| bytes | byte vocabulary | general algebra |
+| --- | --- | --- |
+| 64 | 8.314 | 7.885 |
+| 1,024 | 1.127 | 1.015 |
+| 65,536 | 0.673 | 0.578 |
+| 1,048,576 | 0.664 | 0.580 |
+
+The indexer is drain-bound on this payload -- about one byte in six is an
+event -- and the general form drains one merged mask where the old one
+drained two, which is the whole of the difference. The reference runs at
+8 to 18 ns per byte.
+
+## The rest of the experiment
+
+The full `simd-json` target no longer checks against the current tree:
+`production_json_test` builds its buffers from a type the current `nupp.io`
+Buffer does not unify with and reaches an internal `nupp.codec.json`
+module, `arena.nupp` and `fused.nupp` have the same two kinds of rot, and
+`scanner` and `parser` still carry the retired `@aot(vectorize = ...)`
+form. `run.sh`, `benchmark.lua` and `tests/run.lua` therefore cannot run
+until that is resolved; it is tracked at
+https://github.com/nupp-lang/nupp/issues/51. What follows describes the
+experiment as it last ran.
+
 Run the differential and public-runtime tests:
 
 ```sh

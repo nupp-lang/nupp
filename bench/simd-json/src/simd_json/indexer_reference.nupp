@@ -1,0 +1,120 @@
+--[[
+The byte-at-a-time indexer the vector indexer is tested against.
+
+It reads the input with `string.byte`, one byte after another, and keeps the
+state a JSON structural index needs: whether it is inside a string, the
+parity of the backslash run before the current byte, and for UTF-8 how many
+continuation bytes the last lead still owes and what range the first of them
+must fall in. It shares nothing with `simd_json.indexer` -- no masks, no
+event bits, no span -- so where the two agree on a corpus they agree because
+both index JSON the same way, not because one was derived from the other.
+
+The contract both meet: the tape holds the zero-based offset of every
+unescaped quote and of every `{ } [ ] : ,` outside a string, in order; the
+status is the first error in byte order, and its position is the one-based
+offset of the byte that raised it. A truncated UTF-8 scalar is raised at the
+byte after its last continuation, which for one cut off by the end of the
+input is one past the last byte.
+]]
+
+local reference = {}
+
+const reference.OK = 0
+const reference.TAPE_CAPACITY = 1
+const reference.INVALID_UTF8 = 2
+const reference.INVALID_CONTROL = 3
+const reference.INVALID_BACKSLASH = 4
+
+--- Indexes `source` into a tape of at most `capacity` offsets.
+--- @param source the JSON text
+--- @param capacity how many offsets the tape may hold
+--- @return the offsets written, the status, and the position of an error
+--- @export
+function reference.index(source: string, capacity: integer): ({integer}, integer, integer)
+    local tape: {integer} = {}
+    local inString = false
+    local slashRun = 0
+    local expected = 0
+    local constraint = 0
+    local lastNonAscii: integer = -1
+
+    for offset = 0, #source - 1 do
+        local byte = source:byte(offset + 1) as integer
+        if expected > 0 then
+            -- A continuation is owed. Whatever else this byte is, it must be
+            -- one, in the range the lead allowed for the first of them.
+            local continuation = byte >= 128 and byte <= 191
+            local outside = constraint == 1
+                and byte < 160
+                or constraint == 2
+                and byte > 159
+                or constraint == 3
+                and byte < 144
+                or constraint == 4
+                and byte > 143
+            if not continuation or outside then
+                return tape, 2, offset + 1
+            end
+            expected = expected - 1
+            constraint = 0
+            lastNonAscii = offset
+            slashRun = 0
+        elseif byte >= 128 then
+            if byte < 194 or byte > 244 then
+                return tape, 2, offset + 1
+            elseif byte <= 223 then
+                expected = 1
+            elseif byte <= 239 then
+                expected = 2
+                if byte == 224 then
+                    constraint = 1
+                elseif byte == 237 then
+                    constraint = 2
+                end
+            else
+                expected = 3
+                if byte == 240 then
+                    constraint = 3
+                elseif byte == 244 then
+                    constraint = 4
+                end
+            end
+            lastNonAscii = offset
+            slashRun = 0
+        elseif byte == 92 then
+            if not inString then
+                return tape, 4, offset + 1
+            end
+            slashRun = slashRun + 1
+        else
+            local escaped = slashRun % 2 == 1
+            slashRun = 0
+            if byte == 34 and not escaped then
+                inString = not inString
+                if #tape >= capacity then
+                    return tape, 1, offset + 1
+                end
+                tape[#tape + 1] = offset
+            elseif byte < 32 then
+                if inString or not (byte == 9 or byte == 10 or byte == 13) then
+                    return tape, 3, offset + 1
+                end
+            elseif not inString and (
+                byte == 123 or byte == 125 or byte == 91 or byte == 93 or byte == 58 or byte == 44
+            ) then
+                if #tape >= capacity then
+                    return tape, 1, offset + 1
+                end
+                tape[#tape + 1] = offset
+            end
+        end
+    end
+
+    if expected > 0 then
+        return tape, 2, lastNonAscii + 2
+    end
+
+    return tape, 0, 0
+end
+
+return reference

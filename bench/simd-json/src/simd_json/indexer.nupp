@@ -1,6 +1,27 @@
+--[[
+Structural indexing on the general `nupp.simd` algebra.
+
+One vector of bytes at a time, every byte the indexer has to look at --
+a quote, a backslash, a control byte, one of the six structural characters
+or anything non-ASCII -- is found by comparisons whose masks are or'd
+together and read out as one `uint64` through `Mask.bits`. The bits are then
+drained in position order, lowest first, and each event byte is read back
+from the source and fed to the same state machine a byte-at-a-time indexer
+runs: string state and backslash parity for quotes, an expected-continuation
+count and a first-continuation constraint for UTF-8. Bytes that are not
+events -- ASCII inside or outside a string that nothing needs to know about
+-- are never touched by the drain, which is where the vectors earn their
+place.
+
+Whatever the vectors do not cover, the same loop finishes one byte at a
+time, so the drain is written once. Events are processed in byte order
+across both, and the first error in the input is the one reported, which is
+the contract `indexer_reference` states in the plain form.
+]]
+
+local array = require("nupp.mem.array")
 local simd = require("nupp.simd")
 local span = require("nupp.mem.span")
-local _preferredU8 = simd.preferredU8
 
 local indexer = {}
 
@@ -11,61 +32,124 @@ const indexer.INVALID_CONTROL = 3
 const indexer.INVALID_BACKSLASH = 4
 
 --- Builds a compact zero-based tape of string boundaries and JSON structural
---- characters while validating every input byte as UTF-8. No operation reads
---- beyond `source`, including the final packed load.
-@aot(vectorize = false)
+--- characters while validating every input byte as UTF-8.
+---
+--- Answers the count written, a status from the constants above, and for a
+--- status other than `OK` the one-based position of the byte that raised
+--- it. A tape shorter than the structure needs reports `TAPE_CAPACITY` at
+--- the byte that did not fit, with everything before it written.
+@aot
 local function index(borrows source: span.Span<uint8>, exclusive tape: span.WriteSpan<uint32>): (uint32, uint32, uint32)
-    local species = _preferredU8()
-    local cursor: integer = 0
+    local at: uint32 = 0
     local written: uint32 = 0
     local inString = false
     local slashOdd = false
     local haveSlash = false
-    local lastSlash = 0.0
+    local lastSlash: uint32 = 0
 
-    -- UTF-8 carry. Constraint is 1=A0..BF, 2=80..9F,
-    -- 3=90..BF, 4=80..8F for the next continuation byte.
+    -- UTF-8 carry. Constraint on the next continuation byte: 1 is A0..BF,
+    -- 2 is 80..9F, 3 is 90..BF, 4 is 80..8F.
     local expected: uint32 = 0
     local constraint: uint32 = 0
     local haveNonAscii = false
-    local lastNonAscii = 0.0
+    local lastNonAscii: uint32 = 0
 
-    while cursor < #source do
-        local bytes = species:load(source, cursor)
-        local tail = species:tail(#source - cursor)
+    local one: uint64 = 1
 
-        local quoteMask = bytes:equal(34)
-        local slashMask = bytes:equal(92)
-        local openObjectMask = bytes:equal(123)
-        local closeObjectMask = bytes:equal(125)
-        local openArrayMask = bytes:equal(91)
-        local closeArrayMask = bytes:equal(93)
-        local colonMask = bytes:equal(58)
-        local commaMask = bytes:equal(44)
-        local controlMask = bytes:inRange(0, 31)
-
-        local syntax1 = openObjectMask:orBits(closeObjectMask)
-        local syntax2 = openArrayMask:orBits(closeArrayMask)
-        local syntax3 = colonMask:orBits(commaMask)
-        local syntax4 = syntax1:orBits(syntax2)
-        local syntaxMask = syntax4:orBits(syntax3)
-        local event1 = quoteMask:orBits(slashMask)
-        local event2 = event1:orBits(syntaxMask)
-        local event3 = event2:orBits(controlMask)
-        local validEvents = event3:andBits(tail)
-
-        local events: uint32 = validEvents:bits()
+    while at < #source do
+        local events: uint64 = 0
+        local width: uint32 = 0
+        if species = simd.species(array.uint8) then
+            if at + species.lanes <= #source then
+                local bytes = species:load(source, at + 1)
+                local structural = (bytes == 123) | (bytes == 125) | (bytes == 91) | (bytes == 93)
+                local separators = (bytes == 58) | (bytes == 44)
+                local strings = (bytes == 34) | (bytes == 92)
+                local interesting = structural | separators | strings | (bytes < 32) | (bytes >= 128)
+                events = interesting:bits()
+                width = species.lanes
+            end
+        end
+        if width == 0 then
+            -- A byte at a time past the last whole vector, and everywhere
+            -- on a target without vectors.
+            local byte: uint32 = source[at + 1]
+            if byte == 34
+                or byte == 92
+                or byte < 32
+                or byte == 123
+                or byte == 125
+                or byte == 91
+                or byte == 93
+                or byte == 58
+                or byte == 44
+                or byte >= 128
+            then
+                events = one
+            end
+            width = 1
+        end
 
         while events ~= 0 do
-            local remaining: uint32 = nupp.math.u32.andBits(events, nupp.math.u32.sub(events, 1))
-            local lane: uint32 = nupp.math.u32.trailingZeros(events)
-            local position = cursor + lane
-            local positionIndex: uint32 = nupp.math.u32.wrap(position as integer)
-            if positionIndex < #source then
-                local byte = source[(positionIndex + 1) as integer]
-                if byte == 92 then
+            local lane: uint32 = nupp.math.u64.trailingZeros(events)
+            events = events & (events - 1)
+            local position: uint32 = at + lane
+            if position < #source then
+                local byte: uint32 = source[position + 1]
+                -- A scalar left unfinished by the last non-ASCII byte must be
+                -- continued by the very next byte; an event anywhere later
+                -- means that byte was not a continuation.
+                if expected ~= 0 and (not haveNonAscii or position ~= lastNonAscii + 1) then
+                    return written, 2, lastNonAscii + 2
+                end
+                if byte >= 128 then
+                    local isContinuation = byte <= 191
+                    if expected ~= 0 then
+                        if not isContinuation then
+                            return written, 2, position + 1
+                        end
+                        local constrained = constraint == 1
+                            and byte < 160
+                            or constraint == 2
+                            and byte > 159
+                            or constraint == 3
+                            and byte < 144
+                            or constraint == 4
+                            and byte > 143
+                        if constrained then
+                            return written, 2, position + 1
+                        end
+                        expected = expected - 1
+                        constraint = 0
+                    elseif isContinuation or byte < 194 or byte > 244 then
+                        return written, 2, position + 1
+                    elseif byte <= 223 then
+                        expected = 1
+                    elseif byte <= 239 then
+                        expected = 2
+                        if byte == 224 then
+                            constraint = 1
+                        elseif byte == 237 then
+                            constraint = 2
+                        end
+                    else
+                        expected = 3
+                        if byte == 240 then
+                            constraint = 3
+                        elseif byte == 244 then
+                            constraint = 4
+                        end
+                    end
+                    haveNonAscii = true
+                    lastNonAscii = position
+                    haveSlash = false
+                    slashOdd = false
+                elseif expected ~= 0 then
+                    -- The continuation this byte had to be is ASCII.
+                    return written, 2, position + 1
+                elseif byte == 92 then
                     if not inString then
-                        return written, 4, nupp.math.u32.add(positionIndex, 1)
+                        return written, 4, position + 1
                     end
                     if haveSlash and position == lastSlash + 1 then
                         slashOdd = not slashOdd
@@ -79,92 +163,35 @@ local function index(borrows source: span.Span<uint8>, exclusive tape: span.Writ
                     if byte == 34 and not escaped then
                         inString = not inString
                         if written < #tape then
-                            tape[(written + 1) as integer] = positionIndex
-                            written = nupp.math.u32.add(written, 1)
+                            tape[written + 1] = position
+                            written = written + 1
                         else
-                            return written, 1, nupp.math.u32.add(positionIndex, 1)
+                            return written, 1, position + 1
                         end
                     elseif byte < 32 then
                         local whitespace = byte == 9 or byte == 10 or byte == 13
                         if inString or not whitespace then
-                            return written, 3, nupp.math.u32.add(positionIndex, 1)
+                            return written, 3, position + 1
                         end
                     elseif not inString then
                         if written < #tape then
-                            tape[(written + 1) as integer] = positionIndex
-                            written = nupp.math.u32.add(written, 1)
+                            tape[written + 1] = position
+                            written = written + 1
                         else
-                            return written, 1, nupp.math.u32.add(positionIndex, 1)
+                            return written, 1, position + 1
                         end
                     end
                     haveSlash = false
                     slashOdd = false
                 end
             end
-            events = remaining
         end
 
-        local nonAsciiMask = bytes:inRange(128, 255)
-        local utfEvents: uint32 = nonAsciiMask:andBits(tail):bits()
-
-        while utfEvents ~= 0 do
-            local remaining: uint32 = nupp.math.u32.andBits(utfEvents, nupp.math.u32.sub(utfEvents, 1))
-            local lane: uint32 = nupp.math.u32.trailingZeros(utfEvents)
-            local position = cursor + lane
-            local positionIndex: uint32 = nupp.math.u32.wrap(position as integer)
-            if haveNonAscii and expected ~= 0 and position ~= lastNonAscii + 1 then
-                return written, 2, nupp.math.u32.wrap((lastNonAscii + 2) as integer)
-            end
-            if positionIndex < #source then
-                local byte = source[(positionIndex + 1) as integer]
-                local isContinuation = byte >= 128 and byte <= 191
-                if expected ~= 0 then
-                    if not isContinuation then
-                        return written, 2, nupp.math.u32.add(positionIndex, 1)
-                    end
-                    local constrained = constraint == 1
-                        and byte < 160
-                        or constraint == 2
-                        and byte > 159
-                        or constraint == 3
-                        and byte < 144
-                        or constraint == 4
-                        and byte > 143
-                    if constrained then
-                        return written, 2, nupp.math.u32.add(positionIndex, 1)
-                    end
-                    expected = nupp.math.u32.sub(expected, 1)
-                    constraint = 0
-                elseif isContinuation or byte < 194 or byte > 244 then
-                    return written, 2, nupp.math.u32.add(positionIndex, 1)
-                elseif byte <= 223 then
-                    expected = 1
-                elseif byte <= 239 then
-                    expected = 2
-                    if byte == 224 then
-                        constraint = 1
-                    elseif byte == 237 then
-                        constraint = 2
-                    end
-                else
-                    expected = 3
-                    if byte == 240 then
-                        constraint = 3
-                    elseif byte == 244 then
-                        constraint = 4
-                    end
-                end
-            end
-            haveNonAscii = true
-            lastNonAscii = position
-            utfEvents = remaining
-        end
-
-        cursor = cursor + species.lanes
+        at = at + width
     end
 
     if expected ~= 0 then
-        return written, 2, nupp.math.u32.wrap((lastNonAscii + 2) as integer)
+        return written, 2, lastNonAscii + 2
     end
 
     return written, 0, 0

@@ -29,6 +29,16 @@ return {
             aot = "require",
             dependencies = { "simdjson_bench_native" },
          },
+         -- The structural indexer alone, with the byte-at-a-time reference
+         -- it is tested against. It needs no simdjson and builds while the
+         -- full experiment does not.
+         ["simd-json-index"] = {
+            kind = "modules",
+            description = "Build the structural indexer and its scalar reference",
+            sources = { "src/simd_json/indexer.nupp", "src/simd_json/indexer_reference.nupp" },
+            optimize = 1,
+            aot = "require",
+         },
       },
    },
 }
