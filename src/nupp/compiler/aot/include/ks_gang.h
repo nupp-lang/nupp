@@ -7,8 +7,11 @@
  * file picked: a typedef costs nothing and a static inline helper nobody calls is
  * never compiled, so a vector wider than this target's register class raises no
  * -Wpsabi -- that warning is about a call, and no body calls into a gang it did
- * not choose. Defining them all once is also what keeps two gangs that share a
- * vector, as the eight-lane pair does, from each defining it.
+ * not choose. That holds the helpers to one rule: none of them may call another,
+ * because GCC weighs a call for inlining before it drops the caller as unused,
+ * and weighing it computes the callee's vector ABI. Defining them all once is
+ * also what keeps two gangs that share a vector, as the eight-lane pair does,
+ * from each defining it.
  *
  * A mask is one all-ones or all-zeros integer per lane, as wide as the values it
  * selects between, so a gang carrying elements at two widths has a mask at each
@@ -46,7 +49,7 @@
  * whether any lane is set. */
 #define KS_GANG_MASK(bits, bytes, lanes) \
     static inline __attribute__((unused)) ks_m##bits##x##lanes ks_mask_all_m##bits##x##lanes(void) { return (ks_m##bits##x##lanes){KS_GANG_REP(lanes, -1)}; } \
-    static inline __attribute__((unused)) ks_m##bits##x##lanes ks_bool_mask_m##bits##x##lanes(bool v) { return v ? ks_mask_all_m##bits##x##lanes() : (ks_m##bits##x##lanes){KS_GANG_REP(lanes, 0)}; } \
+    static inline __attribute__((unused)) ks_m##bits##x##lanes ks_bool_mask_m##bits##x##lanes(bool v) { return v ? (ks_m##bits##x##lanes){KS_GANG_REP(lanes, -1)} : (ks_m##bits##x##lanes){KS_GANG_REP(lanes, 0)}; } \
     KS_GANG_ANY(m##bits##x##lanes, bytes, lanes)
 
 /* A splat and a select for one value-carrying vector.
