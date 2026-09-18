@@ -733,8 +733,11 @@ static inline __attribute__((unused)) void ks_scalar_store4_u8x##W(lua_State *L,
 #define KS_EXP_BYTE_SWIZZLE_PAIR_BODY_32(CTYPE, LANES) KS_EXP_SWIZZLE_PAIR_LOOP(CTYPE, LANES)
 #endif
 /* A 64-byte vector exists only under AVX-512F, whose byte shuffle needs
- * the BW extension that tier does not promise; the lanes are walked. */
+ * the BW extension that tier does not promise; the lanes are walked. Both
+ * forms, for the one reason: a table instruction the tier does not have is
+ * missing from the paired swizzle exactly as it is from the single one. */
 #define KS_EXP_BYTE_SWIZZLE_BODY_64(CTYPE, LANES) KS_EXP_SWIZZLE_LOOP(CTYPE, LANES)
+#define KS_EXP_BYTE_SWIZZLE_PAIR_BODY_64(CTYPE, LANES) KS_EXP_SWIZZLE_PAIR_LOOP(CTYPE, LANES)
 #define KS_EXP_SWIZZLE_1(W, ELEM, CTYPE, LANES) \
 static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_swizzle_##ELEM(ks_exp_##ELEM value, ks_exp_##ELEM indices) { \
     ks_exp_##ELEM out; ks_exp_##ELEM zeroBased KS_UNUSED = indices - 1; \

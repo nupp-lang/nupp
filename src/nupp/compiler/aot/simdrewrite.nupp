@@ -1,0 +1,2047 @@
+module nupp.compiler.aot.simdrewrite
+
+--[[
+Rewriting a `@simd` loop into the explicit SIMD vocabulary.
+
+The lane pass in `rewrite.nupp` answers the same question with its own
+vocabulary -- `vindex`, `vspan_load`, `vwhile` -- and leaves the emitter to
+decide how the groups and the tail are divided. This pass writes the loop the
+way a programmer would write it by hand with species, masks and reducers: a
+whole-group `while` that advances a cursor a vector at a time, and one masked
+tail for what is left. Nothing downstream has to know it was a `@simd` loop
+once this has run, which is the point: the same IR, the same verifier rules and
+the same emitter serve both the authored and the rewritten forms.
+
+What varies is decided exactly as the lane pass decides it, by
+`rewrite.markVarying` over the scalar body, and the same helpers say which
+name is bound to a span element and which reads follow a statement. Only the
+form each construct takes is new here.
+]]
+
+local aotLane = require("nupp.compiler.aot.lane")
+local reducers = require("nupp.compiler.aot.reducers")
+local rewrite = require("nupp.compiler.aot.rewrite")
+local scalarIR = require("nupp.compiler.aot.scalar")
+
+local simdrewrite = {}
+
+----------------------------------------------------------------------------
+-- Elements
+----------------------------------------------------------------------------
+
+--- The packed element a physical storage spelling keeps, matching what the
+--- verifier derives for a span or a struct field.
+const PHYSICAL = {
+    ["int8"] = "i8",
+    ["uint8"] = "u8",
+    ["int16"] = "i16",
+    ["uint16"] = "u16",
+    ["float"] = "f32",
+    ["int32"] = "i32",
+    ["uint32"] = "u32",
+    ["int64"] = "i64",
+    ["uint64"] = "u64",
+    ["number"] = "f64",
+}
+
+--- The scalar carrier of one packed element.
+local function carrierOf(element: string): string
+    if element == "u8" or element == "u16" then
+        return "u32"
+    elseif element == "i8" or element == "i16" then
+        return "i32"
+    end
+
+    return element
+end
+
+--- The element a vector, mask or species type names, or nil for a scalar.
+local function elementOf(typeName: string): string?
+    local _, element = typeName:match("^simd_(%a+)_([fiu]%d+)_fixed%d+$")
+
+    return element
+end
+
+local function familyOf(typeName: string): string?
+    return typeName:match("^simd_(%a+)_[fiu]%d+_fixed%d+$")
+end
+
+--- The reducer operations a vector may contribute to.
+const VECTOR_CONTRIBUTIONS = {
+    ["sum"] = true,
+    ["product"] = true,
+    ["dot"] = true,
+    ["and"] = true,
+    ["or"] = true,
+    ["xor"] = true,
+    ["min"] = true,
+    ["max"] = true,
+}
+
+----------------------------------------------------------------------------
+-- What a rewrite carries
+----------------------------------------------------------------------------
+
+--- The masks a masked loop's body runs under.
+record simdrewrite.Loop
+    live: scalarIR.Name
+    executing: scalarIR.Name
+    speculate: boolean
+    observable: {[string]: boolean}
+end
+
+record simdrewrite.State
+    --- The lane pass's own state, for what varies and what a name is bound to.
+    inner: rewrite.State
+
+    --- Lanes in every species this rewrite mentions.
+    lanes: integer
+
+    --- The element whose mask carries control: branch masks, loop masks and
+    --- the tail. Every comparison lands in it and every masked access
+    --- converts out of it.
+    control: string
+
+    --- Layouts by name, for the element a struct field stores.
+    layouts: {[string]: scalarIR.Layout}
+
+    --- The vector or mask type each varying local holds, once its declaration
+    --- has been rewritten; and the scalar type of every other local declared
+    --- in the body, for the carried lists.
+    types: {[string]: string}
+
+    --- The species local for each element, declared on first use.
+    species: {[string]: scalarIR.Name}
+
+    speciesLets: {scalarIR.Statement}
+
+    --- Lets an expression had to introduce, emitted before the statement that
+    --- reads them.
+    pending: {scalarIR.Statement}
+
+    --- Fresh names, and which region of the program they belong to.
+    serial: integer
+
+    ordinal: integer
+
+    --- The whole-group cursor when unmasked accesses may go through it.
+    cursor: scalarIR.Name?
+
+    --- The span accesses through the loop index reach, in first-use order.
+    accessed: {[string]: boolean}
+
+    accessedOrder: {string}
+
+    --- The reducers the region accumulates, in first-contribution order.
+    reducerEntries: {[string]: scalarIR.SimdRegionReducer}
+
+    reducerOrder: {string}
+
+    --- How many loops the statement being rewritten is inside.
+    loopDepth: integer
+
+    --- The element the loop index takes: binary64 for a map loop's
+    --- `loop_index`, int32 for a counted region's induction variable.
+    indexElement: string
+
+    reject: function(string): nil
+end
+
+local function fixedType(family: string, element: string, state: simdrewrite.State): string
+    return "simd_" .. family .. "_" .. element .. "_fixed" .. tostring(state.lanes)
+end
+
+local function vectorType(element: string, state: simdrewrite.State): string
+    return fixedType("vector", element, state)
+end
+
+local function maskType(element: string, state: simdrewrite.State): string
+    return fixedType("mask", element, state)
+end
+
+--- A fresh local, named so no two collide in one function.
+local function fresh(label: string, typeName: string, state: simdrewrite.State, source: scalarIR.Source?): scalarIR.Name
+    state.serial = state.serial + 1
+
+    return new scalarIR.Name(
+        op = "local",
+        name = "$" .. label .. tostring(state.serial),
+        cName = "sr" .. tostring(state.ordinal) .. "_" .. label .. tostring(state.serial),
+        type = typeName,
+        source = source
+    )
+end
+
+local function letOf(name: scalarIR.Name, value: scalarIR.Expr, assigned: boolean?): scalarIR.Let
+    return new scalarIR.Let(
+        op = "let",
+        name = name.name,
+        cName = name.cName as string,
+        value = value,
+        type = name.type,
+        assigned = assigned,
+        source = name.source
+    )
+end
+
+--- The species local for one element, declared the first time it is asked for.
+local function species(element: string, state: simdrewrite.State): scalarIR.Name
+    local found = state.species[element]
+    if found ~= nil then
+        return found as scalarIR.Name
+    end
+    local name = new scalarIR.Name(
+        op = "local",
+        name = "$s_" .. element,
+        cName = "sr" .. tostring(state.ordinal) .. "_s_" .. element,
+        type = fixedType("species", element, state)
+    )
+    state.species[element] = name
+    state.speciesLets[
+        #state.speciesLets + 1
+    ] = letOf(name, new scalarIR.Simd(op = "simd_species", intrinsic = "species", args = {}, type = name.type))
+
+    return name
+end
+
+local function assignTo(name: scalarIR.Name, value: scalarIR.Expr, source: scalarIR.Source?): scalarIR.Assign
+    return new scalarIR.Assign(
+        op = "assign",
+        values = {
+            new scalarIR.Assignment(
+                target = new scalarIR.Target(kind = "local", name = name.name, cName = name.cName, type = name.type),
+                value = value
+            ),
+        },
+        source = source
+    )
+end
+
+----------------------------------------------------------------------------
+-- Scalar constructors
+----------------------------------------------------------------------------
+
+local function constant(value: string, source: scalarIR.Source?): scalarIR.Constant
+    return new scalarIR.Constant(op = "constant", value = value, type = "f64", source = source)
+end
+
+local function intConstant(value: string, typeName: string, source: scalarIR.Source?): scalarIR.IntConstant
+    return new scalarIR.IntConstant(op = "constant_i32", value = value, type = typeName, source = source)
+end
+
+local function boolConstant(value: boolean, source: scalarIR.Source?): scalarIR.Bool
+    return new scalarIR.Bool(op = "bool", value = value, type = "bool", source = source)
+end
+
+local function convert(op: scalarIR.ConvertOp, value: scalarIR.Expr, typeName: string): scalarIR.Convert
+    return new scalarIR.Convert(op = op, value = value, type = typeName, source = value.source)
+end
+
+--- A uniform scalar as the carrier one species takes.
+---
+--- Widening is exact and taken. Narrowing a binary64 to binary32 is taken only
+--- for a literal the narrower element holds exactly, because anything else
+--- would round where the source did not.
+local function scalarAs(node: scalarIR.Expr, element: string, state: simdrewrite.State): scalarIR.Expr
+    local from = tostring(node.type)
+    if from == element then
+        return node
+    end
+    if element == "f64" then
+        if from == "f32" then
+            return convert("widen_f32_f64", node, "f64")
+        elseif from == "i32" or from == "u32" or from == "i64" or from == "u64" then
+            return convert("int_to_f64", node, "f64")
+        end
+    elseif element == "f32" then
+        if rewrite.constantFits(node, "f32") then
+            return convert("narrow_f64_f32", node, "f32")
+        end
+    elseif element == "i32" or element == "u32" then
+        if rewrite.constantFits(node, element as aotLane.Element) then
+            return intConstant((node as scalarIR.Constant).value, element, node.source)
+        end
+        if node.op == "constant_i32" then
+            local held = tonumber((node as scalarIR.IntConstant).value) or -1
+            if held >= 0 and held <= 0x7fffffff then
+                return intConstant((node as scalarIR.IntConstant).value, element, node.source)
+            end
+        end
+        if from == "f64" or from == "i32" or from == "u32" or from == "i64" or from == "u64" then
+            return convert("numeric_cast", node, element)
+        end
+    elseif element == "i64" or element == "u64" then
+        if from == "f64" or from == "i32" or from == "u32" or from == "i64" or from == "u64" then
+            return convert("numeric_cast", node, element)
+        end
+    end
+    state.reject("a uniform " .. from .. " cannot enter " .. element .. " lanes")
+
+    return node
+end
+
+----------------------------------------------------------------------------
+-- Vector constructors
+----------------------------------------------------------------------------
+
+local function simd(
+    op: string,
+    intrinsic: string,
+    args: {scalarIR.Expr},
+    typeName: string,
+    source: scalarIR.Source?
+): scalarIR.Simd
+    return new scalarIR.Simd(op = op as any, intrinsic = intrinsic, args = args, type = typeName, source = source)
+end
+
+local function splat(node: scalarIR.Expr, element: string, state: simdrewrite.State): scalarIR.Expr
+    return simd("simd_splat", "splat", {scalarAs(node, element, state)}, vectorType(element, state), node.source)
+end
+
+local function maskSplat(node: scalarIR.Expr, element: string, state: simdrewrite.State): scalarIR.Expr
+    return simd("simd_mask_splat", "mask", {node}, maskType(element, state), node.source)
+end
+
+--- A vector converted to another element's species.
+local function convertTo(value: scalarIR.Expr, element: string, state: simdrewrite.State): scalarIR.Expr
+    if elementOf(tostring(value.type)) == element then
+        return value
+    end
+
+    return simd("simd_convert", "convert", {value}, vectorType(element, state), value.source)
+end
+
+--- A mask converted to another element's mask, which changes no lane.
+local function maskAs(mask: scalarIR.Expr, element: string, state: simdrewrite.State): scalarIR.Expr
+    if elementOf(tostring(mask.type)) == element then
+        return mask
+    end
+
+    return simd("simd_mask_convert", "mask", {mask}, maskType(element, state), mask.source)
+end
+
+local function maskAnd(left: scalarIR.Expr, right: scalarIR.Expr, source: scalarIR.Source?): scalarIR.Expr
+    return simd("simd_binary", "and", {left, right}, tostring(left.type), source)
+end
+
+local function maskOr(left: scalarIR.Expr, right: scalarIR.Expr, source: scalarIR.Source?): scalarIR.Expr
+    return simd("simd_binary", "or", {left, right}, tostring(left.type), source)
+end
+
+local function maskNot(mask: scalarIR.Expr, source: scalarIR.Source?): scalarIR.Expr
+    return simd("simd_unary", "not", {mask}, tostring(mask.type), source)
+end
+
+local function lanesOf(element: string, state: simdrewrite.State): scalarIR.Expr
+    return simd("simd_lanes_generic", "lanes", {species(element, state)}, "u32", nil)
+end
+
+--- A value as a local of its own species, which is what a lane-wise call
+--- takes: the emitter names every operand once per lane, and only a local
+--- reads the same both times.
+local function asLocal(value: scalarIR.Expr, state: simdrewrite.State): scalarIR.Expr
+    if value.op == "local" then
+        return value
+    end
+    local name = fresh("t", tostring(value.type), state, value.source)
+    state.pending[#state.pending + 1] = letOf(name, value)
+
+    return name
+end
+
+----------------------------------------------------------------------------
+-- Expressions
+----------------------------------------------------------------------------
+
+local expression: function(scalarIR.Expr, simdrewrite.State): scalarIR.Expr
+
+const CONVERSIONS = {
+    ["widen_f32_f64"] = true,
+    ["narrow_f64_f32"] = true,
+    ["int_to_f64"] = true,
+    ["numeric_cast"] = true,
+}
+
+--- The value under a conversion that only undoes an exact one: a binary32
+--- widened to binary64 and narrowed back, or an int32 taken through binary64
+--- and back. The scalar lowering writes these around every binary32 and
+--- int32 operation, and taking them literally would spend binary64 lanes on
+--- a value that never needed them.
+local function roundTrip(node: scalarIR.Expr): scalarIR.Expr?
+    if CONVERSIONS[tostring(node.op)] ~= true then
+        return nil
+    end
+    local middle = (node as scalarIR.Convert).value
+    if CONVERSIONS[tostring(middle.op)] ~= true then
+        return nil
+    end
+    local inner = (middle as scalarIR.Convert).value
+    local from = tostring(inner.type)
+    if from ~= tostring(node.type) then
+        return nil
+    end
+    local exact = middle.op == "widen_f32_f64" and from == "f32" or middle.op == "int_to_f64" and (
+        from == "i32" or from == "u32"
+    )
+    if not exact then
+        return nil
+    end
+
+    return inner
+end
+
+--- `node` as a vector of `element`: broadcast when uniform, converted when it
+--- varies in another element.
+local function vec(node: scalarIR.Expr, element: string, state: simdrewrite.State): scalarIR.Expr
+    local inner = roundTrip(node)
+    if inner ~= nil then
+        return vec(inner as scalarIR.Expr, element, state)
+    end
+    if not rewrite.varying(node, state.inner) then
+        if node.type == "bool" then
+            state.reject("a boolean has no numeric lanes")
+        end
+
+        return splat(node, element, state)
+    end
+    local value = expression(node, state)
+    if familyOf(tostring(value.type)) ~= "vector" then
+        state.reject("a varying " .. tostring(node.type) .. " has no numeric lanes")
+    end
+
+    return convertTo(value, element, state)
+end
+
+--- One condition, as the mask of lanes that satisfy it, in the control element.
+local function conditionMask(node: scalarIR.Expr, state: simdrewrite.State): scalarIR.Expr
+    if not rewrite.varying(node, state.inner) then
+        return maskSplat(node, state.control, state)
+    end
+    local value = expression(node, state)
+    if familyOf(tostring(value.type)) ~= "mask" then
+        state.reject("a varying condition did not produce a mask")
+    end
+
+    return maskAs(value, state.control, state)
+end
+
+--- The offset a load or store at the loop index takes: `cursor + 1`, spelled
+--- as the promoted wrapping sum the verifier recognises as a cursor claim.
+local function indexOffset(base: scalarIR.Name, source: scalarIR.Source?): scalarIR.Expr
+    return convert(
+        "int_to_f64",
+        new scalarIR.Fixed(
+            op = "u32_add",
+            left = base,
+            right = intConstant("1", "u32", source),
+            type = "u32",
+            source = source
+        ),
+        "f64"
+    )
+end
+
+--- The lane vector of the loop index itself.
+local function indexVector(source: scalarIR.Source?, state: simdrewrite.State): scalarIR.Expr
+    local base = state.inner.refBindings["$base"] as scalarIR.Name
+    local element = state.indexElement
+    local start: scalarIR.Expr
+    local step: scalarIR.Expr
+    if element == "f64" then
+        start = new scalarIR.Binary(
+            op = "add",
+            left = convert("int_to_f64", base, "f64"),
+            right = constant("1.0", source),
+            type = "f64",
+            source = source
+        )
+        step = constant("1.0", source)
+    else
+        start = new scalarIR.Fixed(
+            op = "i32_add",
+            left = convert("numeric_cast", base, "i32"),
+            right = intConstant("1", "i32", source),
+            type = "i32",
+            source = source
+        )
+        step = intConstant("1", "i32", source)
+    end
+
+    return simd("simd_iota", "iota", {start, step}, vectorType(element, state), source)
+end
+
+local function noteAccess(spanName: string, state: simdrewrite.State): nil
+    if state.accessed[spanName] == nil then
+        state.accessed[spanName] = true
+        state.accessedOrder[#state.accessedOrder + 1] = spanName
+    end
+end
+
+--- The physical element a struct field stores.
+local function fieldElement(layoutName: string, field: string, state: simdrewrite.State): string
+    local layout = state.layouts[layoutName]
+    if layout == nil then
+        state.reject("a field access names no layout")
+    end
+    local stored = ((layout as scalarIR.Layout).fieldTypes or {})[field]
+    local source = ((layout as scalarIR.Layout).fieldSourceTypes or {})[field]
+    if stored == nil then
+        state.reject("a field access names no field")
+    end
+
+    return PHYSICAL[source or ""] or tostring(stored)
+end
+
+--- One access at the loop index: through the whole-group cursor when the
+--- statement runs unmasked in the whole-group body, masked otherwise.
+local function access(
+    op: string,
+    intrinsic: string,
+    element: string,
+    spanName: string,
+    mask: scalarIR.Expr?,
+    value: scalarIR.Expr?,
+    layout: string?,
+    field: string?,
+    typeName: string,
+    source: scalarIR.Source?,
+    state: simdrewrite.State
+): scalarIR.Simd
+    noteAccess(spanName, state)
+    local base = state.inner.refBindings["$base"] as scalarIR.Name
+    local args: {scalarIR.Expr} = {species(element, state), indexOffset(base, source)}
+    if value ~= nil then
+        args[#args + 1] = value as scalarIR.Expr
+    end
+    local node = simd(op, intrinsic, args, typeName, source)
+    node.span = spanName
+    node.layout = layout
+    node.field = field
+    if mask ~= nil then
+        args[#args + 1] = maskAs(mask as scalarIR.Expr, element, state)
+    elseif state.cursor ~= nil then
+        node.cursor = base.name
+        node.cursorCName = base.cName
+    else
+        state.reject("an unmasked access outside the whole-group body")
+    end
+
+    return node
+end
+
+--- The mask a load takes: none in the whole-group body, where every lane of
+--- the group is in bounds whatever the branch mask says and an inactive lane's
+--- value is selected away; the statement's mask in the tail.
+local function loadMask(state: simdrewrite.State): scalarIR.Expr?
+    if state.cursor ~= nil then
+        return nil
+    end
+
+    return state.inner.refBindings["$mask"] as scalarIR.Expr?
+end
+
+const BINARY_VERBS = {
+    ["add"] = "add",
+    ["sub"] = "sub",
+    ["mul"] = "mul",
+    ["div"] = "div",
+    ["and"] = "and",
+    ["or"] = "or",
+    ["xor"] = "xor",
+    ["shl"] = "shl",
+    ["shr"] = "shr",
+}
+
+const COMPARISONS = {["lt"] = true, ["le"] = true, ["gt"] = true, ["ge"] = true, ["eq"] = true, ["ne"] = true,}
+
+--- Inlines a pure helper call, each parameter bound to a local holding its
+--- argument's lanes.
+local function inlineHelper(node: scalarIR.HelperCall, state: simdrewrite.State): {scalarIR.Expr}
+    local helper = state.inner.helpers[node.helper]
+    if helper == nil then
+        state.reject("a lane-parallel call has no visible helper")
+    end
+    if helper.native == true then
+        state.reject("a lane-parallel body cannot call a compiled entry")
+    end
+    if #node.args ~= #helper.params then
+        state.reject("a lane-parallel helper call has the wrong argument count")
+    end
+    local bound: {[string]: scalarIR.Expr} = {}
+    local saved: {[string]: any} = {}
+    for position, param in ipairs(helper.params as {scalarIR.Name}) do
+        local element = rewrite.asElement(param.type)
+        if element == nil or element == "bool" then
+            state.reject("a lane-parallel helper takes numbers only")
+        end
+        bound[param.name] = asLocal(vec(node.args[position], element as string, state), state)
+    end
+    local bindings = state.inner.helperBindings as any
+    for name, value in pairs(bound) do
+        saved[name] = bindings[name]
+        bindings[name] = value
+    end
+    local values: {scalarIR.Expr} = {}
+    for position, value in ipairs(helper.values as {scalarIR.Expr}) do
+        values[position] = expression(value, state)
+    end
+    for name in pairs(bound) do
+        bindings[name] = saved[name]
+    end
+
+    return values
+end
+
+expression = function(node: scalarIR.Expr, state: simdrewrite.State): scalarIR.Expr
+    local op = tostring(node.op)
+    local source = node.source
+    if op == "loop_index" then
+        return indexVector(source, state)
+    elseif op == "local" then
+        local name = node as scalarIR.Name
+        if name.name == state.inner.index then
+            return indexVector(source, state)
+        end
+        if state.inner.refBindings[name.name] ~= nil then
+            state.reject("a span element reference is read only through its fields")
+        end
+        local held = state.types[name.name]
+        if held == nil or familyOf(held as string) == nil then
+            state.reject("a varying local " .. name.name .. " read before its lanes were declared")
+        end
+
+        return new scalarIR.Name(
+            op = "local",
+            name = name.name,
+            cName = name.cName,
+            type = held as string,
+            source = source
+        )
+    elseif op == "helper_param" then
+        local bound = state.inner.helperBindings[(node as scalarIR.Name).name]
+        if bound == nil then
+            state.reject("a helper parameter escaped its call")
+        end
+
+        return bound as scalarIR.Expr
+    elseif op == "load" then
+        local load = node as scalarIR.Load
+        local root = state.inner.spans[load.span]
+        if root == nil or load.cursor ~= nil or load.index ~= state.inner.index then
+            state.reject("a lane-parallel span load reads consecutive elements only")
+        end
+        local param = root as scalarIR.Param
+        local element = PHYSICAL[param.sourceType or ""] or tostring(param.type)
+        local carrier = rewrite.asElement(node.type)
+        if carrier == nil or carrier == "bool" or carrierOf(element) ~= carrier then
+            state.reject("a lane-parallel span load reads admitted scalar elements only")
+        end
+        local loaded = access(
+            "simd_load",
+            "load",
+            element,
+            load.span,
+            loadMask(state),
+            nil,
+            nil,
+            nil,
+            vectorType(element, state),
+            source,
+            state
+        )
+
+        return convertTo(loaded, carrier as string, state)
+    elseif op == "element_ref" then
+        state.reject("a span element reference is read only through its fields")
+    elseif op == "field_load" then
+        local field = node as scalarIR.FieldLoad
+        local object = rewrite.resolveRef(field.object, state.inner)
+        if object == nil or (object as scalarIR.ElementRef).index ~= state.inner.index then
+            state.reject("a lane-parallel field load reads consecutive elements only")
+        end
+        local ref = object as scalarIR.ElementRef
+        local element = fieldElement(ref.layout, field.field, state)
+        local carrier = rewrite.asElement(node.type)
+        if carrier == nil or carrier == "bool" or carrierOf(element) ~= carrier then
+            state.reject("a lane-parallel field load reads admitted scalar elements only")
+        end
+        local loaded = access(
+            "simd_field_load",
+            "field",
+            element,
+            ref.span,
+            loadMask(state),
+            nil,
+            ref.layout,
+            field.field,
+            vectorType(element, state),
+            source,
+            state
+        )
+
+        return convertTo(loaded, carrier as string, state)
+    elseif op == "widen_f32_f64" or op == "int_to_f64" or op == "narrow_f64_f32" or op == "numeric_cast" then
+        local element = rewrite.asElement(node.type)
+        if element == nil then
+            state.reject("a conversion to a type no lane carries")
+        end
+
+        return vec((node as scalarIR.Convert).value, element as string, state)
+    elseif op == "helper_call" then
+        local inlined = inlineHelper(node as scalarIR.HelperCall, state)
+        if #inlined ~= 1 then
+            state.reject("a multiple-result helper is not one value")
+        end
+
+        return inlined[1]
+    elseif op == "and" or op == "or" then
+        local binary = node as scalarIR.Binary
+        local left = conditionMask(binary.left, state)
+        local right = conditionMask(binary.right, state)
+
+        return op == "and" and maskAnd(left, right, source) or maskOr(left, right, source)
+    elseif op == "not" then
+        return maskNot(conditionMask((node as scalarIR.Unary).value, state), source)
+    elseif op == "neg" then
+        local element = rewrite.asElement(node.type) or "f64"
+        local value = vec((node as scalarIR.Unary).value, element, state)
+
+        return simd("simd_unary", "neg", {value}, tostring(value.type), source)
+    elseif op == "bnot" then
+        local value = vec((node as scalarIR.Unary).value, "i32", state)
+
+        return simd("simd_unary", "not", {value}, tostring(value.type), source)
+    elseif op == "math" then
+        local math_ = node as scalarIR.Math
+        local args: {scalarIR.Expr} = {}
+        for position, argument in ipairs(math_.args) do
+            args[position] = asLocal(vec(argument, "f64", state), state)
+        end
+
+        return simd("simd_math", math_.intrinsic, args, vectorType("f64", state), source)
+    elseif op == "f32_sqrt" then
+        local value = asLocal(vec((node as scalarIR.FixedUnary).value, "f32", state), state)
+
+        return simd("simd_math", "sqrt", {value}, vectorType("f32", state), source)
+    elseif op == "f32_min" or op == "f32_max" then
+        local binary = node as scalarIR.Binary
+
+        return simd(
+            "simd_binary",
+            op == "f32_min" and "propagating_min" or "propagating_max",
+            {vec(binary.left, "f32", state), vec(binary.right, "f32", state)},
+            vectorType("f32", state),
+            source
+        )
+    elseif COMPARISONS[op] == true then
+        local binary = node as scalarIR.Binary
+        local element = rewrite.comparisonElement(binary.left, binary.right)
+        local compared = simd(
+            "simd_compare",
+            op,
+            {vec(binary.left, element, state), vec(binary.right, element, state)},
+            maskType(element, state),
+            source
+        )
+
+        return maskAs(compared, state.control, state)
+    elseif op == "band" or op == "bor" or op == "bxor" then
+        local binary = node as scalarIR.Binary
+        local verb = op == "band" and "and" or op == "bor" and "or" or "xor"
+
+        return simd(
+            "simd_binary",
+            verb,
+            {vec(binary.left, "i32", state), vec(binary.right, "i32", state)},
+            vectorType("i32", state),
+            source
+        )
+    elseif op == "lshift" or op == "arshift" then
+        local binary = node as scalarIR.Binary
+
+        return simd(
+            "simd_binary",
+            op == "lshift" and "shl" or "shr",
+            {vec(binary.left, "i32", state), vec(binary.right, "i32", state)},
+            vectorType("i32", state),
+            source
+        )
+    elseif op == "rshift" then
+        local binary = node as scalarIR.Binary
+        local shifted = simd(
+            "simd_binary",
+            "shr",
+            {vec(binary.left, "u32", state), vec(binary.right, "u32", state)},
+            vectorType("u32", state),
+            source
+        )
+
+        return convertTo(shifted, "i32", state)
+    end
+
+    local element, verb = op:match("^([fiu]%d+)_(%a+)$")
+    if element ~= nil and BINARY_VERBS[verb] ~= nil then
+        local binary = node as scalarIR.Fixed
+
+        return simd(
+            "simd_binary",
+            BINARY_VERBS[verb],
+            {vec(binary.left, element, state), vec(binary.right, element, state)},
+            vectorType(element, state),
+            source
+        )
+    end
+    if BINARY_VERBS[op] ~= nil and rewrite.ARITHMETIC[op] ~= nil then
+        local binary = node as scalarIR.Binary
+        local element_ = rewrite.asElement(node.type) or "f64"
+
+        return simd(
+            "simd_binary",
+            BINARY_VERBS[op],
+            {vec(binary.left, element_, state), vec(binary.right, element_, state)},
+            vectorType(element_, state),
+            source
+        )
+    end
+    state.reject("operation " .. op .. " has no lane-parallel form")
+
+    return node
+end
+
+----------------------------------------------------------------------------
+-- Statements
+----------------------------------------------------------------------------
+
+local block: function(
+    {scalarIR.Statement},
+    scalarIR.Expr?,
+    simdrewrite.Loop?,
+    {[string]: boolean}?,
+    simdrewrite.State
+): {scalarIR.Statement}
+
+--- The mask a statement runs under: the branch mask, narrowed inside a loop to
+--- the lanes still executing this iteration.
+local function activeMask(mask: scalarIR.Expr?, loop: simdrewrite.Loop?): scalarIR.Expr?
+    if loop == nil then
+        return mask
+    end
+    local executing = (loop as simdrewrite.Loop).executing
+    if mask == nil then
+        return executing
+    end
+    local given = mask as scalarIR.Expr
+    if given.op == "local" and (given as scalarIR.Name).name == executing.name then
+        return given
+    end
+
+    return maskAnd(given, executing, given.source)
+end
+
+--- The lane-wise value an assignment leaves in its target under a mask: the
+--- new value where the mask holds and the old one elsewhere.
+local function selected(
+    mask: scalarIR.Expr?,
+    value: scalarIR.Expr,
+    old: scalarIR.Expr,
+    state: simdrewrite.State
+): scalarIR.Expr
+    if mask == nil then
+        return value
+    end
+    local given = mask as scalarIR.Expr
+    local typeName = tostring(value.type)
+    if familyOf(typeName) == "mask" then
+        local aligned = maskAs(given, elementOf(typeName) as string, state)
+
+        return maskOr(
+            maskAnd(aligned, value, value.source),
+            maskAnd(maskNot(aligned, value.source), old, value.source),
+            value.source
+        )
+    end
+
+    return simd(
+        "simd_select",
+        "select",
+        {maskAs(given, elementOf(typeName) as string, state), value, old},
+        typeName,
+        value.source
+    )
+end
+
+--- Whether a local's masked assignment may skip its select, exactly as the
+--- lane pass decides it.
+local function maySpeculate(name: string, mask: scalarIR.Expr?, loop: simdrewrite.Loop?): boolean
+    if loop == nil or mask == nil then
+        return false
+    end
+    local context = loop as simdrewrite.Loop
+    local given = mask as scalarIR.Expr
+
+    return given.op == "local" and (
+        given as scalarIR.Name
+    ).name == context.executing.name and context.speculate and context.observable[name] ~= true
+end
+
+--- Names a produced block assigns that it did not declare: what a loop around
+--- it has to carry.
+local function carriedOf(statements: {scalarIR.Statement}, state: simdrewrite.State): {scalarIR.Carried}
+    local declared: {[string]: boolean} = {}
+    local assigned: {string} = {}
+    local seen: {[string]: boolean} = {}
+
+    local walk: function({scalarIR.Statement}): nil
+    walk = function(body: {scalarIR.Statement}): nil
+        for _, statement in ipairs(body) do
+            local op = statement.op
+            if op == "let" then
+                declared[(statement as scalarIR.Let).name] = true
+            elseif op == "assign" then
+                for _, entry in ipairs((statement as scalarIR.Assign).values) do
+                    local target = entry.target
+                    if target.kind == "local" and seen[target.name as string] == nil then
+                        seen[target.name as string] = true
+                        assigned[#assigned + 1] = target.name as string
+                    end
+                end
+            elseif op == "if" then
+                for _, clause in ipairs((statement as scalarIR.If).clauses) do
+                    walk(clause.body)
+                end
+                walk((statement as scalarIR.If).elseBody or {})
+            elseif op == "fornum" then
+                declared[(statement as scalarIR.Fornum).binding.name] = true
+                walk((statement as scalarIR.Fornum).body)
+            elseif op == "while" or op == "repeat" or op == "block" or op == "simd_region" then
+                walk((statement as any).body as {scalarIR.Statement})
+            end
+        end
+    end
+
+    walk(statements)
+    local carried: {scalarIR.Carried} = {}
+    for _, name in ipairs(assigned) do
+        if declared[name] == nil then
+            local held = state.types[name]
+            if held == nil then
+                state.reject("a loop assigns " .. name .. ", which was declared outside the region")
+            end
+            carried[
+                #carried + 1
+            ] = new scalarIR.Carried(
+                name = name,
+                cName = state.inner.varyingLocals[
+                    name
+                ] ~= nil and (state.inner.helpers["$cname " .. name] as string) or name,
+                type = held as string
+            )
+        end
+    end
+
+    return carried
+end
+
+--- Rewrites one assignment entry.
+local function assignment(
+    entry: scalarIR.Assignment,
+    statementMask: scalarIR.Expr?,
+    loop: simdrewrite.Loop?,
+    state: simdrewrite.State
+): scalarIR.Assignment
+    local target = entry.target
+    if (target.kind as string) == "field" then
+        local object = rewrite.resolveRef(target.object, state.inner)
+        if object == nil or (object as scalarIR.ElementRef).index ~= state.inner.index then
+            state.reject("a lane-parallel field store writes consecutive elements only")
+        end
+        local ref = object as scalarIR.ElementRef
+        local element = fieldElement(ref.layout, target.field as string, state)
+        local carrier = carrierOf(element)
+        local value = convertTo(vec(entry.value, carrier, state), element, state)
+        local store = access(
+            "simd_field_store",
+            "field",
+            element,
+            ref.span,
+            statementMask,
+            value,
+            ref.layout,
+            target.field,
+            "lua_effect",
+            entry.value.source,
+            state
+        )
+
+        return new scalarIR.Assignment(
+            target = new scalarIR.Target(
+                kind = "field",
+                object = store as any,
+                layout = ref.layout,
+                field = target.field,
+                type = target.type,
+                sourceType = target.sourceType
+            ),
+            value = store as any
+        )
+    end
+    local name = target.name as string
+    if state.inner.varyingLocals[name] ~= true then
+        if rewrite.varying(entry.value, state.inner) then
+            state.reject("a varying value is assigned to a uniform local")
+        end
+
+        return entry
+    end
+    local held = state.types[name]
+    if held == nil then
+        state.reject("a varying local " .. name .. " is assigned before its lanes were declared")
+    end
+    local typeName = held as string
+    local value: scalarIR.Expr
+    if familyOf(typeName) == "mask" then
+        value = conditionMask(entry.value, state)
+    else
+        value = vec(entry.value, elementOf(typeName) as string, state)
+    end
+    local mask = statementMask
+    if maySpeculate(name, statementMask, loop) then
+        mask = nil
+    end
+    local old = new scalarIR.Name(
+        op = "local",
+        name = name,
+        cName = target.cName,
+        type = typeName,
+        source = entry.value.source
+    )
+
+    return new scalarIR.Assignment(
+        target = new scalarIR.Target(kind = "local", name = name, cName = target.cName, type = typeName),
+        value = selected(mask, value, old, state)
+    )
+end
+
+--- Rewrites one reducer contribution.
+local function contribution(
+    statement: scalarIR.ReducerAdd,
+    statementMask: scalarIR.Expr?,
+    state: simdrewrite.State
+): scalarIR.Statement
+    if statement.reducer.op ~= "local" then
+        state.reject("a reducer contribution must name its scoped reducer binding")
+    end
+    if state.loopDepth > 0 then
+        state.reject("a reducer contribution inside an inner loop has no lane-parallel form")
+    end
+    if VECTOR_CONTRIBUTIONS[statement.operation] ~= true then
+        state.reject("a " .. statement.operation .. " reducer takes no vector contribution")
+    end
+    local named = statement.reducer as scalarIR.Name
+    local reducerType = tostring(named.type)
+    local input = reducers.input(reducerType, statement.order, statement.operation)
+    if input == nil then
+        state.reject("a reducer contribution does not match its binding")
+    end
+    local element = input as string
+    local _, _, parsed = reducers.parse(reducerType)
+    local entry = state.reducerEntries[named.name]
+    if entry == nil then
+        entry = new scalarIR.SimdRegionReducer(
+            name = named.name,
+            cName = named.cName as string,
+            order = statement.order,
+            operation = statement.operation,
+            element = parsed,
+            vectorType = vectorType(element, state)
+        )
+        state.reducerEntries[named.name] = entry
+        state.reducerOrder[#state.reducerOrder + 1] = named.name
+    end
+    local mask: scalarIR.Expr
+    if statementMask ~= nil then
+        mask = maskAs(statementMask as scalarIR.Expr, element, state)
+    else
+        mask = maskSplat(boolConstant(true, statement.source), element, state)
+    end
+    local right: scalarIR.Expr? = nil
+    if statement.right ~= nil then
+        right = vec(statement.right as scalarIR.Expr, element, state)
+    end
+
+    return new scalarIR.SimdReducerAdd(
+        op = "simd_reducer_add",
+        reducer = new scalarIR.Name(
+            op = "local",
+            name = named.name,
+            cName = named.cName,
+            type = named.type,
+            source = named.source
+        ),
+        value = vec(statement.value, element, state),
+        mask = mask,
+        right = right,
+        order = statement.order,
+        operation = statement.operation,
+        element = parsed,
+        type = "lua_effect",
+        source = statement.source
+    )
+end
+
+--- A masked loop's body: the executing mask, the body, and whatever the caller
+--- appends at the bottom.
+local function maskedLoop(
+    live: scalarIR.Name,
+    body: {scalarIR.Statement},
+    observable: {[string]: boolean},
+    speculate: boolean,
+    initial: scalarIR.Expr,
+    bottom: function(simdrewrite.Loop): {scalarIR.Statement},
+    source: scalarIR.Source?,
+    state: simdrewrite.State
+): {scalarIR.Statement}
+    local out: {scalarIR.Statement} = {}
+    out[#out + 1] = letOf(live, initial, true)
+    state.types[live.name] = live.type
+    local executing = fresh("exec", live.type, state, source)
+    local loop = new simdrewrite.Loop(
+        live = live,
+        executing = executing,
+        speculate = speculate,
+        observable = observable
+    )
+    local inner: {scalarIR.Statement} = {}
+    inner[#inner + 1] = letOf(executing, live, true)
+    state.types[executing.name] = executing.type
+    state.loopDepth = state.loopDepth + 1
+    local previousCursor = state.cursor
+    for _, statement in ipairs(block(body, executing, loop, nil, state)) do
+        inner[#inner + 1] = statement
+    end
+    for _, statement in ipairs(bottom(loop)) do
+        inner[#inner + 1] = statement
+    end
+    state.cursor = previousCursor
+    state.loopDepth = state.loopDepth - 1
+    out[
+        #out + 1
+    ] = new scalarIR.While(
+        op = "while",
+        condition = simd("simd_mask_any", "any", {live}, "bool", source),
+        body = inner,
+        carried = carriedOf(inner, state),
+        source = source
+    )
+
+    return out
+end
+
+block = function(
+    statements: {scalarIR.Statement},
+    mask: scalarIR.Expr?,
+    loop: simdrewrite.Loop?,
+    following: {[string]: boolean}?,
+    state: simdrewrite.State
+): {scalarIR.Statement}
+    local out: {scalarIR.Statement} = {}
+    local readsAfter = rewrite.readsAfter(statements as {any}, following or {})
+
+    --- Appends one statement, after the lets its expressions introduced.
+    local function emit(statement: scalarIR.Statement): nil
+        for _, pending in ipairs(state.pending) do
+            out[#out + 1] = pending
+        end
+        state.pending = {}
+        out[#out + 1] = statement
+    end
+
+    local function append(produced: {scalarIR.Statement}): nil
+        for _, statement in ipairs(produced) do
+            emit(statement)
+        end
+    end
+
+    for position, statement in ipairs(statements) do
+        local statementMask = activeMask(mask, loop)
+        local bindings = state.inner.refBindings as any
+        bindings["$mask"] = statementMask
+        local op = statement.op
+        local source = statement.source
+        if op == "let" then
+            local let = statement as scalarIR.Let
+            local value = let.value
+            if value.op == "element_ref" then
+                if (value as scalarIR.ElementRef).index ~= state.inner.index then
+                    state.reject("a lane-parallel element reference is at the loop index only")
+                end
+                state.inner.refBindings[let.name] = value
+            elseif state.inner.varyingLocals[let.name] == true or rewrite.varying(value, state.inner) then
+                local element = rewrite.asElement(let.type)
+                if element == nil then
+                    state.reject("a varying local of a type no lane carries")
+                end
+                local lanes: scalarIR.Expr
+                if element == "bool" then
+                    lanes = conditionMask(value, state)
+                else
+                    lanes = vec(value, element as string, state)
+                end
+                state.types[let.name] = tostring(lanes.type)
+                emit(
+                    new scalarIR.Let(
+                        op = "let",
+                        name = let.name,
+                        cName = let.cName,
+                        value = lanes,
+                        type = lanes.type,
+                        assigned = let.assigned,
+                        source = source
+                    )
+                )
+            else
+                if tostring(let.type):match("^simd_") ~= nil then
+                    state.reject("an explicit SIMD value inside a @simd loop")
+                end
+                state.types[let.name] = tostring(let.type)
+                emit(statement)
+            end
+        elseif op == "multi_let" then
+            local multi = statement as any
+            if not rewrite.varying(multi.call, state.inner) then
+                for _, bound in ipairs(multi.bindings as {scalarIR.Binding}) do
+                    state.types[bound.name] = tostring(bound.type)
+                end
+                emit(statement)
+            else
+                local values = inlineHelper(multi.call as scalarIR.HelperCall, state)
+                for index, bound in ipairs(multi.bindings as {scalarIR.Binding}) do
+                    local value = values[index]
+                    state.types[bound.name] = tostring(value.type)
+                    emit(
+                        new scalarIR.Let(
+                            op = "let",
+                            name = bound.name,
+                            cName = bound.cName,
+                            value = value,
+                            type = value.type,
+                            assigned = bound.assigned,
+                            source = source
+                        )
+                    )
+                end
+            end
+        elseif op == "assign" then
+            local assign = statement as scalarIR.Assign
+            local values: {scalarIR.Assignment} = {}
+            local stores: {scalarIR.Statement} = {}
+            for _, entry in ipairs(assign.values) do
+                local produced = assignment(entry, statementMask, loop, state)
+                if produced.target.kind == "field" then
+                    stores[#stores + 1] = produced.value as any
+                else
+                    values[#values + 1] = produced
+                end
+            end
+            if #values > 0 then
+                emit(new scalarIR.Assign(op = "assign", values = values, source = source))
+            end
+            append(stores)
+        elseif op == "store" then
+            local store = statement as scalarIR.Store
+            local root = state.inner.spans[store.span]
+            if root == nil or root.kind ~= "write_span" or store.cursor ~= nil or store.index ~= state.inner.index then
+                state.reject("a lane-parallel scalar store writes consecutive admitted elements only")
+            end
+            local param = root as scalarIR.Param
+            local element = PHYSICAL[param.sourceType or ""] or tostring(param.type)
+            local carrier = rewrite.asElement(param.type)
+            if carrier == nil or carrier == "bool" or carrierOf(element) ~= carrier then
+                state.reject("a lane-parallel scalar store writes admitted scalar elements only")
+            end
+            local value = convertTo(vec(store.value, carrier as string, state), element, state)
+            emit(
+                access(
+                    "simd_store",
+                    "store",
+                    element,
+                    store.span,
+                    statementMask,
+                    value,
+                    nil,
+                    nil,
+                    "lua_effect",
+                    source,
+                    state
+                )
+            )
+        elseif op == "reducer_add" then
+            emit(contribution(statement as scalarIR.ReducerAdd, statementMask, state))
+        elseif op == "if" then
+            local branch = statement as scalarIR.If
+            local remaining = statementMask
+            for _, clause in ipairs(branch.clauses) do
+                local condition = conditionMask(clause.condition, state)
+                local entry = remaining ~= nil and maskAnd(
+                    remaining as scalarIR.Expr,
+                    condition,
+                    clause.source
+                ) or condition
+                local arm = fresh("if", maskType(state.control, state), state, clause.source)
+                state.types[arm.name] = arm.type
+                emit(letOf(arm, entry))
+                append(block(clause.body, arm, loop, readsAfter[position], state))
+                local excluded = maskNot(arm, clause.source)
+                remaining = remaining ~= nil and maskAnd(
+                    remaining as scalarIR.Expr,
+                    excluded,
+                    clause.source
+                ) or excluded
+            end
+            if branch.elseBody ~= nil then
+                local rest = fresh("else", maskType(state.control, state), state, source)
+                state.types[rest.name] = rest.type
+                emit(letOf(rest, remaining as scalarIR.Expr))
+                append(block(branch.elseBody as {scalarIR.Statement}, rest, loop, readsAfter[position], state))
+            end
+        elseif op == "block" then
+            emit(
+                new scalarIR.Block(
+                    op = "block",
+                    body = block((statement as scalarIR.Block).body, statementMask, loop, readsAfter[position], state),
+                    source = source
+                )
+            )
+        elseif op == "while" then
+            local loop_ = statement as scalarIR.While
+            if not rewrite.varying(loop_.condition, state.inner) and not rewrite.containsExit(loop_.body as {any}) then
+                state.loopDepth = state.loopDepth + 1
+                local body = block(loop_.body, mask, loop, readsAfter[position], state)
+                state.loopDepth = state.loopDepth - 1
+                emit(
+                    new scalarIR.While(
+                        op = "while",
+                        condition = loop_.condition,
+                        body = body,
+                        carried = carriedOf(body, state),
+                        cursorBounds = loop_.cursorBounds,
+                        source = source
+                    )
+                )
+            else
+                local live = fresh("live", maskType(state.control, state), state, source)
+                local condition = conditionMask(loop_.condition, state)
+                local initial = statementMask ~= nil and maskAnd(
+                    statementMask as scalarIR.Expr,
+                    condition,
+                    source
+                ) or condition
+                append(
+                    maskedLoop(
+                        live,
+                        loop_.body,
+                        readsAfter[position] or {},
+                        not rewrite.containsContinue(loop_.body as {any}),
+                        initial,
+                        function(_: simdrewrite.Loop): {scalarIR.Statement}
+                            local again = conditionMask(loop_.condition, state)
+                            local bottom: {scalarIR.Statement} = {}
+                            for _, pending in ipairs(state.pending) do
+                                bottom[#bottom + 1] = pending
+                            end
+                            state.pending = {}
+                            bottom[#bottom + 1] = assignTo(live, maskAnd(live, again, source), source)
+
+                            return bottom
+                        end,
+                        source,
+                        state
+                    )
+                )
+            end
+        elseif op == "repeat" then
+            local repeated = statement as scalarIR.Repeat
+            local live = fresh("live", maskType(state.control, state), state, source)
+            local initial = statementMask ~= nil and statementMask as scalarIR.Expr or maskSplat(
+                boolConstant(true, source),
+                state.control,
+                state
+            )
+            append(
+                maskedLoop(
+                    live,
+                    repeated.body,
+                    readsAfter[position] or {},
+                    not rewrite.containsContinue(repeated.body as {any}),
+                    initial,
+                    function(_: simdrewrite.Loop): {scalarIR.Statement}
+                        local until_ = conditionMask(repeated.condition, state)
+                        local bottom: {scalarIR.Statement} = {}
+                        for _, pending in ipairs(state.pending) do
+                            bottom[#bottom + 1] = pending
+                        end
+                        state.pending = {}
+                        bottom[#bottom + 1] = assignTo(live, maskAnd(live, maskNot(until_, source), source), source)
+
+                        return bottom
+                    end,
+                    source,
+                    state
+                )
+            )
+        elseif op == "fornum" then
+            local counted = statement as scalarIR.Fornum
+            local varyingBounds = rewrite.varying(counted.from, state.inner) or rewrite.varying(counted.to, state.inner)
+            if not varyingBounds and not rewrite.containsExit(counted.body as {any}) then
+                state.types[counted.binding.name] = "i32"
+                state.loopDepth = state.loopDepth + 1
+                local body = block(counted.body, statementMask, loop, readsAfter[position], state)
+                state.loopDepth = state.loopDepth - 1
+                emit(
+                    new scalarIR.Fornum(
+                        op = "fornum",
+                        binding = counted.binding,
+                        from = counted.from,
+                        to = counted.to,
+                        body = body,
+                        boundSpan = counted.boundSpan,
+                        carried = carriedOf(body, state),
+                        source = source
+                    )
+                )
+            else
+                local binding = counted.binding
+                local varying = state.inner.varyingLocals as any
+                local previous = varying[binding.name]
+                varying[binding.name] = true
+                local counter = new scalarIR.Name(
+                    op = "local",
+                    name = binding.name,
+                    cName = binding.cName,
+                    type = vectorType("i32", state),
+                    source = source
+                )
+                state.types[binding.name] = counter.type
+                emit(letOf(counter, vec(counted.from, "i32", state), true))
+
+                local function inRange(): scalarIR.Expr
+                    return maskAs(
+                        simd(
+                            "simd_compare",
+                            "le",
+                            {counter, vec(counted.to, "i32", state)},
+                            maskType("i32", state),
+                            source
+                        ),
+                        state.control,
+                        state
+                    )
+                end
+
+                local live = fresh("live", maskType(state.control, state), state, source)
+                local condition = inRange()
+                local initial = statementMask ~= nil and maskAnd(
+                    statementMask as scalarIR.Expr,
+                    condition,
+                    source
+                ) or condition
+                append(
+                    maskedLoop(
+                        live,
+                        counted.body,
+                        readsAfter[position] or {},
+                        not rewrite.containsContinue(counted.body as {any}),
+                        initial,
+                        function(_: simdrewrite.Loop): {scalarIR.Statement}
+                            local bottom: {scalarIR.Statement} = {}
+                            local stepped = simd(
+                                "simd_binary",
+                                "add",
+                                {counter, splat(intConstant("1", "i32", source), "i32", state)},
+                                counter.type,
+                                source
+                            )
+                            bottom[#bottom + 1] = assignTo(counter, selected(live, stepped, counter, state), source)
+                            local again = inRange()
+                            for _, pending in ipairs(state.pending) do
+                                bottom[#bottom + 1] = pending
+                            end
+                            state.pending = {}
+                            bottom[#bottom + 1] = assignTo(live, maskAnd(live, again, source), source)
+
+                            return bottom
+                        end,
+                        source,
+                        state
+                    )
+                )
+                varying[binding.name] = previous
+            end
+        elseif op == "break" or op == "continue" then
+            if loop == nil then
+                state.reject(tostring(op) .. " applies to the outer map loop and is not admitted")
+            end
+            local context = loop as simdrewrite.Loop
+            local retired = maskNot(statementMask as scalarIR.Expr, source)
+            if op == "break" then
+                emit(assignTo(context.live, maskAnd(context.live, retired, source), source))
+            end
+            emit(assignTo(context.executing, maskAnd(context.executing, retired, source), source))
+        else
+            state.reject("statement " .. tostring(op) .. " has no lane-parallel form")
+        end
+    end
+    for _, pending in ipairs(state.pending) do
+        out[#out + 1] = pending
+    end
+    state.pending = {}
+
+    return out
+end
+
+----------------------------------------------------------------------------
+-- The loop
+----------------------------------------------------------------------------
+
+--- What the whole loop is bounded by: the uniform `last` of a guarded map loop,
+--- or the count of the span the loop runs over.
+record simdrewrite.Stop
+    --- The bound as a binary64 scalar, for the tail's own test.
+    scalar: scalarIR.Expr
+
+    --- The uniform, when the bound is one, for the cursor guard against every
+    --- span the guard relations hold it below.
+    uniform: string?
+
+    --- The span whose count bounds the loop when no uniform does.
+    span: string
+end
+
+--- How many contributions one block makes to a reducer, counted the way the
+--- verifier counts them: a loop body on its own, branches by their maximum.
+local contributions: function({scalarIR.Statement}, string): integer
+
+contributions = function(statements: {scalarIR.Statement}, name: string): integer
+    local total: integer = 0
+    for _, statement in ipairs(statements) do
+        local op = statement.op
+        if op == "reducer_add" then
+            local reducer = (statement as scalarIR.ReducerAdd).reducer
+            if reducer.op == "local" and (reducer as scalarIR.Name).name == name then
+                total = total + 1
+            end
+        elseif op == "if" then
+            local most: integer = 0
+            for _, clause in ipairs((statement as scalarIR.If).clauses) do
+                most = math.max(most, contributions(clause.body, name)) as integer
+            end
+            most = math.max(most, contributions((statement as scalarIR.If).elseBody or {}, name)) as integer
+            total = total + most
+        elseif op == "block" then
+            total = total + contributions((statement as scalarIR.Block).body, name)
+        elseif op == "while" or op == "repeat" or op == "fornum" then
+            total = total + contributions((statement as any).body as {scalarIR.Statement}, name)
+        end
+    end
+
+    return total
+end
+
+--- Every reducer the body contributes to, refused when any path contributes
+--- twice: the verifier holds a region to one contribution per reducer per
+--- outer iteration, and a body that breaks that is a source error rather than
+--- a width that does not fit.
+local function checkContributions(statements: {scalarIR.Statement}, state: simdrewrite.State): nil
+    local names: {[string]: boolean} = {}
+    local collect: function({scalarIR.Statement}): nil
+    collect = function(body: {scalarIR.Statement}): nil
+        for _, statement in ipairs(body) do
+            local op = statement.op
+            if op == "reducer_add" then
+                local reducer = (statement as scalarIR.ReducerAdd).reducer
+                if reducer.op == "local" then
+                    names[(reducer as scalarIR.Name).name] = true
+                end
+            elseif op == "if" then
+                for _, clause in ipairs((statement as scalarIR.If).clauses) do
+                    collect(clause.body)
+                end
+                collect((statement as scalarIR.If).elseBody or {})
+            elseif op == "block" or op == "while" or op == "repeat" or op == "fornum" then
+                collect((statement as any).body as {scalarIR.Statement})
+            end
+        end
+    end
+    collect(statements)
+    for name in pairs(names) do
+        if contributions(statements, name) > 1 then
+            state.reject("a reducer receives exactly one contribution per logical outer iteration")
+        end
+    end
+end
+
+--- Whether the body carries any value in 64-bit lanes, which halves the lane
+--- count so that a species of them fits the target's vector.
+local function wide(statements: {scalarIR.Statement}, state: simdrewrite.State): (boolean, {[string]: boolean})
+    local seen: {[string]: boolean} = {}
+
+    local function note(element: string?): nil
+        if element ~= nil then
+            seen[element as string] = true
+        end
+    end
+
+    local walkExpr: function(scalarIR.Expr?): nil
+    walkExpr = function(node: scalarIR.Expr?): nil
+        if node == nil then
+            return
+        end
+        local expr = node as scalarIR.Expr
+        local inner = roundTrip(expr)
+        if inner ~= nil then
+            walkExpr(inner)
+
+            return
+        end
+        if rewrite.varying(expr, state.inner) then
+            local element = rewrite.asElement(expr.type)
+            if element ~= nil and element ~= "bool" then
+                note(element)
+            end
+            local op = expr.op
+            if op == "load" then
+                local root = state.inner.spans[(expr as scalarIR.Load).span]
+                if root ~= nil then
+                    note(PHYSICAL[(root as scalarIR.Param).sourceType or ""] or tostring((root as scalarIR.Param).type))
+                end
+            elseif op == "field_load" then
+                local field = expr as scalarIR.FieldLoad
+                local layout = state.layouts[field.layout]
+                if layout ~= nil then
+                    local sources = (layout as scalarIR.Layout).fieldSourceTypes or {}
+                    note(PHYSICAL[sources[field.field] or ""] or tostring(field.type))
+                end
+            elseif op == "loop_index" then
+                note(state.indexElement)
+            elseif op == "local" and (expr as scalarIR.Name).name == state.inner.index then
+                note(state.indexElement)
+            end
+        end
+        local unary = expr as scalarIR.Unary
+        walkExpr(unary.value)
+        local binary = expr as scalarIR.Binary
+        walkExpr(binary.left)
+        walkExpr(binary.right)
+        for _, argument in ipairs((expr as scalarIR.Math).args or {}) do
+            walkExpr(argument)
+        end
+        walkExpr((expr as scalarIR.FieldLoad).object)
+    end
+
+    local walk: function({scalarIR.Statement}): nil
+    walk = function(body: {scalarIR.Statement}): nil
+        for _, statement in ipairs(body) do
+            local op = statement.op
+            if op == "let" then
+                walkExpr((statement as scalarIR.Let).value)
+            elseif op == "multi_let" then
+                walkExpr((statement as any).call)
+            elseif op == "assign" then
+                for _, entry in ipairs((statement as scalarIR.Assign).values) do
+                    walkExpr(entry.value)
+                    walkExpr(entry.target.object)
+                    if entry.target.kind == "field" then
+                        local ref = rewrite.resolveRef(entry.target.object, state.inner)
+                        if ref ~= nil then
+                            local layout = state.layouts[(ref as scalarIR.ElementRef).layout]
+                            if layout ~= nil then
+                                local sources = (layout as scalarIR.Layout).fieldSourceTypes or {}
+                                note(
+                                    PHYSICAL[sources[entry.target.field as string] or ""] or tostring(entry.target.type)
+                                )
+                            end
+                        end
+                    end
+                end
+            elseif op == "store" then
+                local store = statement as scalarIR.Store
+                walkExpr(store.value)
+                local root = state.inner.spans[store.span]
+                if root ~= nil then
+                    note(PHYSICAL[(root as scalarIR.Param).sourceType or ""] or tostring((root as scalarIR.Param).type))
+                end
+            elseif op == "reducer_add" then
+                local contribution_ = statement as scalarIR.ReducerAdd
+                walkExpr(contribution_.value)
+                walkExpr(contribution_.right)
+                note(reducers.input(tostring(contribution_.reducer.type), contribution_.order, contribution_.operation))
+            elseif op == "if" then
+                for _, clause in ipairs((statement as scalarIR.If).clauses) do
+                    walkExpr(clause.condition)
+                    walk(clause.body)
+                end
+                walk((statement as scalarIR.If).elseBody or {})
+            elseif op == "while" or op == "repeat" then
+                walkExpr((statement as scalarIR.While).condition)
+                walk((statement as scalarIR.While).body)
+            elseif op == "fornum" then
+                walkExpr((statement as scalarIR.Fornum).from)
+                walkExpr((statement as scalarIR.Fornum).to)
+                walk((statement as scalarIR.Fornum).body)
+            elseif op == "block" then
+                walk((statement as scalarIR.Block).body)
+            end
+        end
+    end
+    walk(statements)
+
+    return seen["f64"] == true or seen["i64"] == true or seen["u64"] == true, seen
+end
+
+--- The element whose mask carries control, from what the body holds.
+local function controlElement(seen: {[string]: boolean}): string
+    for _, element in ipairs({"f64", "i64", "u64", "f32", "i32"}) do
+        if seen[element] == true then
+            return element
+        end
+    end
+
+    return "i32"
+end
+
+--- The exact 64-bit sum `base + lanes(species)` the verifier reads as a
+--- whole-vector cursor guard.
+local function laneSum(base: scalarIR.Name, state: simdrewrite.State): scalarIR.Expr
+    return new scalarIR.Fixed(
+        op = "u64_add",
+        left = convert("numeric_cast", base, "u64"),
+        right = convert("numeric_cast", lanesOf(state.control, state), "u64"),
+        type = "u64"
+    )
+end
+
+local function le(left: scalarIR.Expr, right: scalarIR.Expr): scalarIR.Expr
+    return new scalarIR.Binary(op = "le", left = left, right = right, type = "bool")
+end
+
+local function spanCount(spanName: string): scalarIR.Expr
+    return new scalarIR.SpanCount(op = "span_count", span = spanName, type = "f64")
+end
+
+--- Rewrites one loop body into the explicit vocabulary: the species, the
+--- whole-group loop and the masked tail, inside one region.
+---
+--- @param first the loop's first index: a constant, or the uniform holding it
+--- @param stop what bounds the loop
+local function loopBody(
+    statements: {scalarIR.Statement},
+    first: scalarIR.Expr,
+    stop: simdrewrite.Stop,
+    width: integer,
+    state: simdrewrite.State,
+    source: scalarIR.Source?
+): {scalarIR.Statement}
+    rewrite.markVarying(statements as {any}, state.inner)
+    checkContributions(statements, state)
+    local wide_, seen = wide(statements, state)
+    state.lanes = (wide_ and width / 8 or width / 4) as integer
+    state.control = controlElement(seen)
+
+    local base = fresh("base", "u32", state, source)
+    local bindings = state.inner.refBindings as any
+    bindings["$base"] = base
+    state.types[base.name] = "u32"
+    local start: scalarIR.Expr
+    if first.op == "constant" or first.op == "constant_i32" then
+        local held = tonumber((first as scalarIR.Constant).value) or 1
+        start = intConstant(tostring((held - 1) as integer), "u32", source)
+    else
+        -- `first - 1` in uint32, spelled as the source lowering spells a
+        -- wrapping subtraction of one.
+        start = new scalarIR.Fixed(
+            op = "u32_add",
+            left = convert("numeric_cast", first, "u32"),
+            right = intConstant("4294967295", "u32", source),
+            type = "u32",
+            source = source
+        )
+    end
+
+    -- The whole-group body first, so the spans it reaches are known before the
+    -- guard that bounds the cursor against each of them is written.
+    state.cursor = base
+    state.loopDepth = 0
+    local whole = block(statements, nil, nil, {}, state)
+    whole[
+        #whole + 1
+    ] = assignTo(
+        base,
+        new scalarIR.Fixed(
+            op = "u32_add",
+            left = base,
+            right = lanesOf(state.control, state),
+            type = "u32",
+            source = source
+        ),
+        source
+    )
+    local guard: scalarIR.Expr? = nil
+    local baseBounds: {[string]: string} = {}
+    local bounds: scalarIR.CursorBounds = {[base.name] = baseBounds}
+    local room = fixedType("species", state.control, state)
+    for _, spanName in ipairs(state.accessedOrder) do
+        local term = le(laneSum(base, state), spanCount(spanName))
+        guard = guard ~= nil and new scalarIR.Binary(
+            op = "and",
+            left = guard as scalarIR.Expr,
+            right = term,
+            type = "bool"
+        ) or term
+        baseBounds[spanName] = room
+    end
+    if stop.uniform ~= nil then
+        -- The span terms are what bound the cursor; this one only stops the
+        -- loop at `last`, so it takes the plain comparison the source
+        -- lowering writes for `base + lanes <= last`.
+        local term = le(
+            new scalarIR.Fixed(
+                op = "u32_add",
+                left = base,
+                right = lanesOf(state.control, state),
+                type = "u32",
+                source = source
+            ),
+            stop.scalar
+        )
+        guard = guard ~= nil and new scalarIR.Binary(
+            op = "and",
+            left = guard as scalarIR.Expr,
+            right = term,
+            type = "bool"
+        ) or term
+    end
+    if guard == nil then
+        guard = le(laneSum(base, state), spanCount(stop.span))
+    end
+    local wholeLoop = new scalarIR.While(
+        op = "while",
+        condition = guard as scalarIR.Expr,
+        body = whole,
+        carried = {new scalarIR.Carried(name = base.name, cName = base.cName as string, type = "u32")},
+        cursorBounds = bounds,
+        source = source
+    )
+
+    -- Then the tail, masked to what is left.
+    state.cursor = nil
+    local remaining = new scalarIR.Binary(
+        op = "sub",
+        left = stop.scalar,
+        right = convert("int_to_f64", base, "f64"),
+        type = "f64",
+        source = source
+    )
+    local active = fresh("active", maskType(state.control, state), state, source)
+    state.types[active.name] = active.type
+    local tail: {
+        scalarIR.Statement
+    } = {letOf(active, simd("simd_tail", "tail", {convert("numeric_cast", remaining, "u32")}, active.type, source)),}
+    for _, statement in ipairs(block(statements, active, nil, {}, state)) do
+        tail[#tail + 1] = statement
+    end
+    local tailBranch = new scalarIR.If(
+        op = "if",
+        clauses = {
+            new scalarIR.Clause(
+                condition = new scalarIR.Binary(
+                    op = "lt",
+                    left = base,
+                    right = stop.scalar,
+                    type = "bool",
+                    source = source
+                ),
+                body = tail,
+                source = source
+            ),
+        },
+        source = source
+    )
+
+    local reducerList: {scalarIR.SimdRegionReducer} = {}
+    for _, name in ipairs(state.reducerOrder) do
+        reducerList[#reducerList + 1] = state.reducerEntries[name] as scalarIR.SimdRegionReducer
+    end
+    local out: {scalarIR.Statement} = {}
+    for _, let in ipairs(state.speciesLets) do
+        out[#out + 1] = let
+    end
+    out[#out + 1] = letOf(base, start, true)
+    out[
+        #out + 1
+    ] = new scalarIR.SimdRegion(
+        op = "simd_region",
+        body = {wholeLoop, tailBranch},
+        reducers = reducerList,
+        source = source
+    )
+
+    return out
+end
+
+local function newState(
+    program: scalarIR.Program,
+    index: string,
+    indexElement: string,
+    ordinal: integer,
+    reject: function(string): nil
+): simdrewrite.State
+    local helpers: {[string]: any} = {}
+    for _, helper in ipairs(program.helpers or {}) do
+        helpers[helper.name] = helper
+    end
+    local spans: {[string]: scalarIR.Param} = {}
+    for _, param in ipairs(program.params) do
+        if param.kind == "read_span" or param.kind == "write_span" then
+            spans[param.name] = param
+        end
+    end
+    local layouts: {[string]: scalarIR.Layout} = {}
+    for _, layout in ipairs(program.layouts or {}) do
+        layouts[layout.name] = layout
+    end
+    local inner = new rewrite.State(
+        shape = aotLane.SHAPE_BY_NAME["mixed4"] as aotLane.Shape,
+        index = index,
+        varyingLocals = {},
+        refBindings = {},
+        helperBindings = {},
+        helpers = helpers,
+        spans = spans,
+        reducerContributions = {},
+        reject = reject
+    )
+
+    return new simdrewrite.State(
+        inner = inner,
+        lanes = 2,
+        control = "f64",
+        layouts = layouts,
+        types = {},
+        species = {},
+        speciesLets = {},
+        pending = {},
+        serial = 0,
+        ordinal = ordinal,
+        cursor = nil,
+        accessed = {},
+        accessedOrder = {},
+        reducerEntries = {},
+        reducerOrder = {},
+        loopDepth = 0,
+        indexElement = indexElement,
+        reject = reject
+    )
+end
+
+--- The sentinel a refusal unwinds with, so a refused loop is told apart from a
+--- compiler bug.
+local REFUSED = {}
+
+local function attempt(lower: function(function(string): nil): {scalarIR.Statement}): ({scalarIR.Statement}?, {string})
+    local refusals: {string} = {}
+    local lowered: {scalarIR.Statement}? = nil
+    local ok, problem = pcall(function(): nil
+        lowered = lower(function(why: string): nil
+            refusals[#refusals + 1] = why
+            error(REFUSED, 0)
+        end)
+    end)
+    if ok then
+        return lowered, {}
+    end
+    if problem ~= REFUSED then
+        error(problem, 0)
+    end
+
+    return nil, refusals
+end
+
+--- Rewrites a map program's loop, filling `program.vector`.
+--- @param width the target's vector width in bytes
+--- @return why the loop was refused, empty when it was taken
+function simdrewrite.program(program: scalarIR.Program, width: integer): {string}
+    local loop = program.loop as scalarIR.Loop
+    local byName: {[string]: scalarIR.Param} = {}
+    for _, param in ipairs(program.params) do
+        byName[param.name] = param
+    end
+    local lowered, refusals = attempt(function(reject: function(string): nil): {scalarIR.Statement}
+        local state = newState(program, loop.index, "f64", 0, reject)
+        local first: scalarIR.Expr
+        local stop: simdrewrite.Stop
+        local guard = program.rangeGuard
+        if guard ~= nil then
+            local range = guard as scalarIR.RangeGuard
+            first = new scalarIR.Name(
+                op = "uniform",
+                name = range.first,
+                type = (byName[range.first] as scalarIR.Param).type
+            )
+            stop = new simdrewrite.Stop(
+                scalar = new scalarIR.Name(
+                    op = "uniform",
+                    name = range.last,
+                    type = (byName[range.last] as scalarIR.Param).type
+                ),
+                uniform = range.last,
+                span = loop.count
+            )
+        else
+            first = constant("1", loop.source)
+            stop = new simdrewrite.Stop(scalar = spanCount(loop.count), uniform = nil, span = loop.count)
+        end
+
+        return loopBody(loop.statements, first, stop, width, state, loop.source)
+    end)
+    program.vector = lowered
+
+    return refusals
+end
+
+--- Rewrites one authored counted-loop region, filling `region.vector`.
+--- @param ordinal which region of the program this is, for its fresh names
+--- @return why the region was refused, empty when it was taken
+function simdrewrite.region(
+    program: scalarIR.Program,
+    region: scalarIR.Fornum,
+    width: integer,
+    ordinal: integer
+): {string}
+    local lowered, refusals = attempt(function(reject: function(string): nil): {scalarIR.Statement}
+        if region.boundSpan == nil then
+            reject("@simd currently requires bounds of the form 1, #span")
+        end
+        if #region.carried > 0 then
+            reject("a @simd region assigns a local declared outside it")
+        end
+        local state = newState(program, region.binding.name, "i32", ordinal, reject)
+
+        return loopBody(
+            region.body,
+            region.from,
+            new simdrewrite.Stop(
+                scalar = spanCount(region.boundSpan as string),
+                uniform = nil,
+                span = region.boundSpan as string
+            ),
+            width,
+            state,
+            region.source
+        )
+    end)
+    region.vector = lowered
+
+    return refusals
+end
+
+export = simdrewrite

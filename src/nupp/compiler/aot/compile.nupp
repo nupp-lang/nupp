@@ -31,6 +31,7 @@ local loopAnalysis = require("nupp.compiler.aot.loops")
 local aotOptimize = require("nupp.compiler.aot.optimize")
 local parser = require("nupp.compiler.parser")
 local rewrite = require("nupp.compiler.aot.rewrite")
+local simdrewrite = require("nupp.compiler.aot.simdrewrite")
 local scalarIR = require("nupp.compiler.aot.scalar")
 local targets = require("nupp.compiler.aot.target")
 local text = require("nupp.compiler.aot.text")
@@ -721,6 +722,9 @@ function compile.lanes(program: scalarIR.Program, filename: string, selected: ta
     if program.simdRequired ~= true then
         return nil
     end
+    if os.getenv("NUPP_SIMD_EXPLICIT") == "1" then
+        return compile.explicitLanes(program, filename, selected)
+    end
 
     -- A target with no gang is not a loop that refused: nothing was tried,
     -- because a 32-byte value has nowhere to live. Saying which tier would give
@@ -770,6 +774,59 @@ function compile.lanes(program: scalarIR.Program, filename: string, selected: ta
             return out
         end
     end
+    verify.program(program)
+
+    return nil
+end
+
+--- Runs the loops the source marked `@simd` through the explicit SIMD
+--- vocabulary instead of the lane pass: the same species, masks and reducers
+--- a programmer writes by hand, at the target's own vector width.
+---
+--- Selected by `NUPP_SIMD_EXPLICIT=1` while the two paths are compared; the
+--- lane pass stays the default.
+function compile.explicitLanes(
+    program: scalarIR.Program,
+    filename: string,
+    selected: targets.Target
+): {compile.Diagnostic}?
+    local width = targets.simdWidth(selected)
+    if program.loop ~= nil then
+        local refusals = simdrewrite.program(program, width)
+        if program.vector == nil then
+            local out: {compile.Diagnostic} = {}
+            for _, why in ipairs(refusals) do
+                out[#out + 1] = loopDiagnostic(program, filename, why)
+            end
+            if #out == 0 then
+                out[1] = loopDiagnostic(program, filename, NO_LANE_CODE)
+            end
+            return out
+        end
+        program.simdWidth = width
+        verify.program(program)
+        return nil
+    end
+
+    local regions: {scalarIR.Fornum} = {}
+    requiredRegions(program.body or {}, regions)
+    if #regions == 0 then
+        return {loopDiagnostic(program, filename, NO_LANE_CODE)}
+    end
+    for ordinal, region in ipairs(regions) do
+        local refusals = simdrewrite.region(program, region, width, ordinal)
+        if region.vector == nil then
+            local out: {compile.Diagnostic} = {}
+            for _, why in ipairs(refusals) do
+                out[#out + 1] = regionDiagnostic(region, filename, why)
+            end
+            if #out == 0 then
+                out[1] = regionDiagnostic(region, filename, NO_LANE_CODE)
+            end
+            return out
+        end
+    end
+    program.simdWidth = width
     verify.program(program)
 
     return nil

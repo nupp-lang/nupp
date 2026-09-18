@@ -698,7 +698,17 @@ end
 --- Whether a vector access's cursor claim holds: the access is at `cursor +
 --- 1`, spelled as the promoted wrapping sum the lowerer writes for it, and a
 --- dominating guard bounded that cursor a whole vector of the access's own
---- species below the span's count.
+--- species below the span's count, or of another species with the same lane
+--- count, since the count is what the guard compared.
+local function sameRoom(room: string?, speciesType: string): boolean
+    if room == speciesType then
+        return true
+    end
+    local lanes = room ~= nil and (room as string):match("_fixed(%d+)$") or nil
+
+    return lanes ~= nil and speciesType:match("_fixed(%d+)$") == lanes
+end
+
 local function vectorCursor(access: scalarIR.Simd, values: {[string]: string}, scope: verify.Scope): boolean
     local cursor = access.cursor as string
     local offset = access.args[2]
@@ -721,7 +731,7 @@ local function vectorCursor(access: scalarIR.Simd, values: {[string]: string}, s
         named as scalarIR.Name
     ).cName == access.cursorCName and access.cursorCName ~= nil and values[
         cursor
-    ] == "u32" and boundRoom(scope.cursorBounds, cursor, access.span) == tostring(access.args[1].type)
+    ] == "u32" and sameRoom(boundRoom(scope.cursorBounds, cursor, access.span), tostring(access.args[1].type))
 end
 
 --- Checks one binary64 operation, comparison, or bitwise operation.
@@ -924,8 +934,10 @@ local function genericFieldAccess(
     local span = access.span ~= nil and scope.spans[access.span as string] or nil
     holds(
         span ~= nil and (
-            span as scalarIR.Param
-        ).kind == rootKind and (
+            (span as scalarIR.Param).kind == rootKind or rootKind == "read_span" and (
+                span as scalarIR.Param
+            ).kind == "write_span"
+        ) and (
             span as scalarIR.Param
         ).type == "struct:" .. tostring(
             access.layout
@@ -1170,8 +1182,8 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
             local span = simd.span ~= nil and scope.spans[simd.span as string] or nil
             holds(
                 span ~= nil and (
-                    span as scalarIR.Param
-                ).kind == "read_span" and genericSimdSpanElement(span as scalarIR.Param) == element,
+                    (span as scalarIR.Param).kind == "read_span" or (span as scalarIR.Param).kind == "write_span"
+                ) and genericSimdSpanElement(span as scalarIR.Param) == element,
                 "invalid generic SIMD load root"
             )
             if simd.cursor ~= nil then
@@ -3481,6 +3493,36 @@ local function laneBlock(
     return values
 end
 
+--- Whether any authored region of a block kernel was rewritten into the
+--- explicit vocabulary.
+local vectorRegions: function({scalarIR.Statement}): boolean
+vectorRegions = function(statements: {scalarIR.Statement}): boolean
+    for _, statement in ipairs(statements) do
+        local op = statement.op
+        if op == "fornum" then
+            local region = statement as scalarIR.Fornum
+            if region.vector ~= nil or vectorRegions(region.body) then
+                return true
+            end
+        elseif op == "if" then
+            for _, clause in ipairs((statement as scalarIR.If).clauses) do
+                if vectorRegions(clause.body) then
+                    return true
+                end
+            end
+            if vectorRegions((statement as scalarIR.If).elseBody or {}) then
+                return true
+            end
+        elseif op == "while" or op == "repeat" or op == "block" then
+            if vectorRegions((statement as any).body as {scalarIR.Statement}) then
+                return true
+            end
+        end
+    end
+
+    return false
+end
+
 local function regionLaneBlocks(
     program: scalarIR.Program,
     statements: {scalarIR.Statement},
@@ -3528,6 +3570,29 @@ local function regionLaneBlocks(
                 local inner = inherit(values)
                 inner[region.binding.name] = region.binding.type
                 regionLaneBlocks(program, region.body, inner, scope)
+            end
+            if region.vector ~= nil then
+                laneHolds(
+                    region.simdRequired == true and program.simdRequired == true and region.lanes == nil,
+                    "an explicit SIMD region without the required contract"
+                )
+                local nested = new verify.Scope(
+                    spans = scope.spans,
+                    layouts = scope.layouts,
+                    helpers = scope.helpers,
+                    writes = scope.writes,
+                    mapIndex = false,
+                    cursorBounds = {},
+                    resultTypes = scope.resultTypes,
+                    entryMode = scope.entryMode,
+                    builderMode = scope.builderMode,
+                    workgroup = scope.workgroup,
+                    inPhase = scope.inPhase,
+                    shared = scope.shared,
+                    sharedCounts = scope.sharedCounts,
+                    countBounds = scope.countBounds
+                )
+                block(region.vector as {scalarIR.Statement}, values, nested, {})
             end
         elseif statement.op == "if" then
             for _, clause in ipairs((statement as scalarIR.If).clauses) do
@@ -4160,6 +4225,11 @@ function verify.program(program: scalarIR.Program): scalarIR.Program
     end
     if program.usesSimd == true then
         holds(body ~= nil and loop == nil and workgroup == nil, "explicit SIMD requires a block kernel")
+    end
+    if program.vector ~= nil then
+        holds(loop ~= nil and program.simdRequired == true and program.lanes == nil, "an explicit SIMD map loop without a map program")
+    end
+    if program.usesSimd == true or program.vector ~= nil or vectorRegions(body or {}) then
         holds(
             program.simdWidth == nil or program.simdWidth == 16 or program.simdWidth == 32 or program.simdWidth == 64,
             "invalid SIMD width"
@@ -4236,6 +4306,29 @@ function verify.program(program: scalarIR.Program): scalarIR.Program
         block(phased.statements, uniforms, scope, stored, true)
     else
         block(loop ~= nil and (loop as scalarIR.Loop).statements or body or {}, uniforms, scope, stored)
+    end
+    if program.vector ~= nil then
+        block(
+            program.vector as {scalarIR.Statement},
+            uniforms,
+            new verify.Scope(
+                spans = byName,
+                layouts = layouts,
+                helpers = helpers,
+                writes = writes,
+                mapIndex = false,
+                cursorBounds = {},
+                resultTypes = resultTypes,
+                entryMode = program.entryMode,
+                builderMode = program.builderMode,
+                workgroup = false,
+                inPhase = false,
+                shared = sharedTypes,
+                sharedCounts = sharedCounts,
+                countBounds = countBounds
+            ),
+            {}
+        )
     end
     if body ~= nil then
         regionLaneBlocks(program, body as {scalarIR.Statement}, uniforms, scope)

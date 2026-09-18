@@ -4312,6 +4312,18 @@ function emit.block(
                     end
                     lines[#lines + 1] = prefix .. "    }"
                     lines[#lines + 1] = prefix .. "}"
+                elseif statement.vector ~= nil and body.forceScalar ~= true then
+                    -- The region in the explicit vocabulary stands in for the
+                    -- counted loop whole: it reads the span count and the
+                    -- species width itself, so the whole groups and the tail
+                    -- are its own two statements.
+                    lines[#lines + 1] = prefix .. "{"
+                    for _, line in ipairs(
+                        emit.block(context, statement.vector as {scalarIR.Statement}, depth + 1, body)
+                    ) do
+                        lines[#lines + 1] = line
+                    end
+                    lines[#lines + 1] = prefix .. "}"
                 else
                     append(controlFlow(node as emit.Flow, depth, body, repeatContinue, expression, recursive, true))
                 end
@@ -4614,8 +4626,18 @@ function emit.program(programs: {scalarIR.Program}, tier: string?): string
                         lines[#lines + 1] = line
                     end
                 end
+                local vector = program.vector
                 if general then
                     for _, line in ipairs(emit.block(context, program.body or {}, 1, body)) do
+                        lines[#lines + 1] = line
+                    end
+                elseif vector ~= nil and not forced then
+                    -- The map loop in the explicit vocabulary: its region
+                    -- reads the bounds itself, so the scalar `i` and `end` are
+                    -- declared for the guard's sake and not otherwise read.
+                    lines[#lines + 1] = "    (void)i;"
+                    lines[#lines + 1] = "    (void)end;"
+                    for _, line in ipairs(emit.block(context, vector as {scalarIR.Statement}, 1, body)) do
                         lines[#lines + 1] = line
                     end
                 elseif lanes ~= nil and not forced then
@@ -4627,7 +4649,7 @@ function emit.program(programs: {scalarIR.Program}, tier: string?): string
                     end
                     lines[#lines + 1] = "    }"
                 end
-                if not general then
+                if not general and (vector == nil or forced) then
                     lines[#lines + 1] = "    for (; i < end; ++i) {"
                     for _, line in ipairs(emit.block(context, (program.loop as scalarIR.Loop).statements, 2, body)) do
                         lines[#lines + 1] = line

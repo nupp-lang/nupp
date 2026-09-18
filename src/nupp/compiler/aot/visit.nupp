@@ -463,6 +463,9 @@ scalarStatement = function(node: scalarIR.Statement, visitor: visit.Visitor): ni
         or node.op == "phase"
     then
         scalarBlock((node as any).body as {scalarIR.Statement}, visitor)
+        if node.op == "fornum" and (node as scalarIR.Fornum).vector ~= nil then
+            scalarBlock((node as scalarIR.Fornum).vector as {scalarIR.Statement}, visitor)
+        end
     end
 end
 
@@ -575,6 +578,9 @@ end
 function visit.program(program: scalarIR.Program, visitor: visit.Visitor): nil
     if program.loop ~= nil then
         scalarBlock((program.loop as scalarIR.Loop).statements, visitor)
+    end
+    if program.vector ~= nil then
+        scalarBlock(program.vector as {scalarIR.Statement}, visitor)
     end
     if program.body ~= nil then
         scalarBlock(program.body as {scalarIR.Statement}, visitor)
