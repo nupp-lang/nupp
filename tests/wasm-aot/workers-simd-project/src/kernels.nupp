@@ -3,6 +3,11 @@ module kernels
 -- An ahead-of-time compiled kernel and the ordinary exported function that runs it.
 -- A lane is a fresh Lua state in a fresh Wasm instance, so the packaged side module
 -- has to register there as well as on the page: the kernel is what proves it did.
+--
+-- The loop is deliberately unmarked. This project is packaged at both the
+-- scalar and the simd128 feature tiers to prove registration happens at each,
+-- and `@simd` is a requirement rather than a preference: it would refuse the
+-- scalar tier outright. Wasm lane coverage is `simd-project` next door.
 
 const span = require("nupp.mem.span")
 const array = require("nupp.mem.array")
@@ -18,7 +23,6 @@ local function scale(exclusive output: span.WriteSpan<Sample>, borrows input: sp
     if #output ~= #input then
         error("length mismatch", 2)
     end
-    @simd
     for index = 1, #output do
         output[index].value = input[index].value * factor
         output[index].bias = input[index].bias + factor
