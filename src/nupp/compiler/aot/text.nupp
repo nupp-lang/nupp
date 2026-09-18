@@ -7,7 +7,7 @@ Not a serialisation format and not something the compiler reads back: this is
 what a person opens when they want to know what the front end actually admitted,
 and what a test asserts against when the claim is about the IR rather than about
 the machine code under it. It is the one place the whole program appears at once
--- the signature, what ownership proved, the loop, and the lane rewrite beside
+-- the signature, what ownership proved, the loop, and the vector rewrite beside
 the scalar body it came from.
 
 It keeps the spellings the vocabulary used before its families were given one tag
@@ -15,7 +15,6 @@ each. `vand` rather than `vmask`, `vtobits` rather than `vbits`, because the
 reader wants the operation and not the record it happens to share.
 ]]
 
-local lane = require("nupp.compiler.aot.lane")
 local relations = require("nupp.compiler.aot.relations")
 local scalarIR = require("nupp.compiler.aot.scalar")
 
@@ -51,22 +50,7 @@ end
 --- Everything else with operands has two, in `left` and `right`. `f32_fma` is
 --- the one corrected operation with three, which is why it appears here and its
 --- two-operand siblings do not.
-const text.LIST_OPERANDS = {
-    ["vsplat"] = true,
-    ["vbool_splat"] = true,
-    ["vselect"] = true,
-    ["vmask"] = true,
-    ["vshort"] = true,
-    ["vbinary"] = true,
-    ["vunary"] = true,
-    ["vbitwise"] = true,
-    ["vbits"] = true,
-    ["vcorrected"] = true,
-    ["vround"] = true,
-    ["vmask_cast"] = true,
-    ["vconvert"] = true,
-    ["f32_fma"] = true,
-}
+const text.LIST_OPERANDS = {["f32_fma"] = true,}
 
 --- The opcodes that wrap one operand, held in `value`.
 const text.ONE_OPERAND = {
@@ -106,34 +90,13 @@ end
 
 --- What one operation is called in the IR text.
 function text.displayOp(node: text.Operands): string
-    local op = node.op
-    if op == "vmask" then
-        return "vm" .. tostring(node.verb)
-    elseif op == "vshort" then
-        return "vshort_" .. tostring(node.verb)
-    elseif op == "vbits" then
-        return node.direction == "to" and "vtobits" or "vfrombits"
-    elseif op == "vmask_cast" then
-        return "vmask." .. tostring(node.type)
-    elseif op == "vconvert" then
-        return "vconv." .. tostring(node.type)
-    elseif op == "vbinary" or op == "vunary" then
-        return "v" .. tostring(node.verb)
-    elseif op == "vbitwise" then
-        return "vbit." .. tostring(node.verb)
-    elseif op == "vround" then
-        return "vround." .. tostring(node.element)
-    end
-
-    return op
+    return node.op
 end
 
 --- One expression, and everything under it.
-function text.expression(node: scalarIR.Expr | lane.Expr): string
+function text.expression(node: scalarIR.Expr): string
     local op = node.op
-    if op == "vindex" then
-        return "vindex:" .. node.type
-    elseif op == "load" then
+    if op == "load" then
         local index = node.cursor ~= nil and node.cursor .. "+1" or node.index
         return "load:" .. node.type .. " " .. node.span .. "[" .. index .. "]"
     elseif op == "span_count" then
@@ -150,10 +113,6 @@ function text.expression(node: scalarIR.Expr | lane.Expr): string
         return "element_ref:" .. node.layout .. " " .. node.span .. "[" .. index .. "]"
     elseif op == "field_load" then
         return "field:" .. node.type .. " " .. text.expression(node.object) .. "." .. node.field
-    elseif op == "vfield_load" then
-        return "vfield:" .. node.type .. " " .. node.span .. "[i..i+" .. tostring(node.lanes - 1) .. "]." .. node.field
-    elseif op == "vspan_load" then
-        return "vspan:" .. node.type .. " " .. node.span .. "[i..i+" .. tostring(node.lanes - 1) .. "]"
     elseif op == "uniform" or op == "local" or op == "helper_param" then
         return op .. ":" .. node.type .. " " .. (node as scalarIR.Name).name
     elseif op == "constant_i32" or op == "constant_i64" then
@@ -320,7 +279,7 @@ function text.expression(node: scalarIR.Expr | lane.Expr): string
         return "reducer.value " .. text.expression(reducer.reducer)
     elseif op == "simd_reducer_add" then
         local reducer = node as scalarIR.SimdReducerAdd
-        return "simd.reducer.add " .. text.expression(
+        return "simd.reducer." .. reducer.order .. "." .. reducer.operation .. " " .. text.expression(
             reducer.reducer
         ) .. " <- " .. text.expression(
             reducer.value
@@ -360,8 +319,6 @@ function text.expression(node: scalarIR.Expr | lane.Expr): string
 
     if op == "math" then
         return "math." .. node.intrinsic .. "(" .. operands(node.args) .. ")"
-    elseif op == "vmath" then
-        return "vmath." .. node.intrinsic .. ":" .. node.type .. "(" .. operands(node.args) .. ")"
     elseif op == "helper_call" then
         return "call " .. node.helper .. "(" .. operands(node.args) .. ")"
     elseif text.LIST_OPERANDS[tostring(op)] == true then
@@ -375,14 +332,10 @@ function text.expression(node: scalarIR.Expr | lane.Expr): string
     return op .. "(" .. text.expression(pair.left) .. ", " .. text.expression(pair.right) .. ")"
 end
 
---- One assignment target, scalar or lane.
-local function target(assignment: any, lanes: integer): string
+--- One assignment target.
+local function target(assignment: any): string
     if assignment.target.kind == "local" then
         return assignment.target.name
-    elseif assignment.target.kind == "vfield" then
-        return assignment.target.span .. "[i..i+" .. tostring(lanes - 1) .. "]." .. assignment.target.field
-    elseif assignment.target.kind == "vspan" then
-        return assignment.target.span .. "[i..i+" .. tostring(lanes - 1) .. "]"
     end
 
     return text.expression(assignment.target.object) .. "." .. assignment.target.field
@@ -411,16 +364,14 @@ local function carrying(carried: {scalarIR.Carried}?): string
     return " carrying " .. table.concat(names, ", ")
 end
 
---- One block of statements, scalar or lane, indented by `depth`.
----
---- @param lanes how wide a lane store is, for a body that was rewritten
-function text.block(statements: {any}, depth: integer, lanes: integer): {string}
+--- One block of statements, indented by `depth`.
+function text.block(statements: {any}, depth: integer): {string}
     local lines: {string} = {}
     local prefix = string.rep("  ", depth)
 
     --- Appends the rendering of a nested block.
     local function nested(body: {any}): nil
-        for _, line in ipairs(text.block(body, depth + 1, lanes)) do
+        for _, line in ipairs(text.block(body, depth + 1)) do
             lines[#lines + 1] = line
         end
     end
@@ -505,46 +456,10 @@ function text.block(statements: {any}, depth: integer, lanes: integer): {string}
                 end
             end
             lines[#lines + 1] = prefix .. op .. "(" .. table.concat(values, ", ") .. ")"
-        elseif op == "assign" or op == "vassign" then
-            local verb = op == "assign" and "set " or "vset "
+        elseif op == "assign" then
             for _, assignment in ipairs(statement.values) do
-                lines[
-                    #lines + 1
-                ] = prefix .. verb .. target(assignment, lanes) .. " = " .. text.expression(assignment.value)
+                lines[#lines + 1] = prefix .. "set " .. target(assignment) .. " = " .. text.expression(assignment.value)
             end
-        elseif op == "vwhile" then
-            lines[
-                #lines + 1
-            ] = prefix .. "vwhile any " .. statement.live.name .. " = " .. text.expression(statement.initial)
-            lines[#lines + 1] = prefix .. "  executing " .. statement.executing.name
-            nested(statement.body)
-            lines[#lines + 1] = prefix .. "  retest " .. text.expression(statement.condition)
-            lines[#lines + 1] = prefix .. "end"
-        elseif op == "vwhile_uniform" then
-            lines[#lines + 1] = prefix .. "vwhile all " .. text.expression(statement.condition)
-            nested(statement.body)
-            lines[#lines + 1] = prefix .. "end"
-        elseif op == "vbreak" or op == "vcontinue" then
-            lines[
-                #lines + 1
-            ] = prefix .. op .. (
-                statement.exitWhenEmpty == true and " exit-if-empty " or " "
-            ) .. text.expression(statement.mask)
-        elseif op == "vreducer_add" then
-            local reducer = statement as lane.ReducerAdd
-            lines[
-                #lines + 1
-            ] = prefix
-                .. "vreducer."
-                .. reducer.order
-                .. "."
-                .. reducer.operation
-                .. " "
-                .. reducer.reducer
-                .. " <- "
-                .. text.expression(
-                    reducer.value
-                ) .. (reducer.right ~= nil and ", " .. text.expression(reducer.right as lane.Expr) or "")
         elseif op == "reducer_add" then
             lines[#lines + 1] = prefix .. text.expression(statement as scalarIR.ReducerAdd)
         elseif op == "simd_store" or op == "simd_field_store" then
@@ -584,13 +499,6 @@ function text.block(statements: {any}, depth: integer, lanes: integer): {string}
                 statement.from
             ) .. " .. " .. text.expression(statement.to) .. carrying(region.carried)
             nested(statement.body)
-            if region.lanes ~= nil then
-                local body = region.lanes as scalarIR.LaneBody
-                lines[#lines + 1] = prefix .. "simd lanes(" .. tostring(body.lanes) .. ") shape(" .. body.shape .. ")"
-                for _, line in ipairs(text.block(body.statements, depth + 1, body.lanes)) do
-                    lines[#lines + 1] = line
-                end
-            end
             if region.vector ~= nil then
                 lines[#lines + 1] = prefix .. "simd vector"
                 nested(region.vector as {scalarIR.Statement})
@@ -770,36 +678,27 @@ end
 
 --- One whole program, as text.
 ---
---- The lane body appears after the scalar one it was rewritten from, rather
+--- The vector body appears after the scalar one it was rewritten from, rather
 --- than in place of it, because the two being readable side by side is what
---- makes a lane rewrite reviewable at all.
+--- makes a `@simd` rewrite reviewable at all.
 function text.program(program: scalarIR.Program): string
     local lines = preamble(program)
-    local lanes = program.lanes
-    local width = lanes ~= nil and (lanes as scalarIR.LaneBody).lanes or 0
     local loop = program.loop
     local workgroup = program.workgroup
     local statements = loop ~= nil and (
         loop as scalarIR.Loop
     ).statements or workgroup ~= nil and (workgroup as scalarIR.Workgroup).statements or program.body or {}
     if workgroup ~= nil then
-        for _, line in ipairs(text.block((workgroup as scalarIR.Workgroup).prelude, 1, width)) do
+        for _, line in ipairs(text.block((workgroup as scalarIR.Workgroup).prelude, 1)) do
             lines[#lines + 1] = line
         end
     end
-    for _, line in ipairs(text.block(statements, 1, width)) do
+    for _, line in ipairs(text.block(statements, 1)) do
         lines[#lines + 1] = line
-    end
-    if lanes ~= nil then
-        local body = lanes as scalarIR.LaneBody
-        lines[#lines + 1] = "simd lanes(" .. tostring(body.lanes) .. ")"
-        for _, line in ipairs(text.block(body.statements, 1, body.lanes)) do
-            lines[#lines + 1] = line
-        end
     end
     if program.vector ~= nil then
         lines[#lines + 1] = "simd vector"
-        for _, line in ipairs(text.block(program.vector as {scalarIR.Statement}, 1, width)) do
+        for _, line in ipairs(text.block(program.vector as {scalarIR.Statement}, 1)) do
             lines[#lines + 1] = line
         end
     end

@@ -19,9 +19,9 @@ answer that could not be compared with last week's. It takes `--function` and
 `--features`, so what is asked for is one body at one tier, and it counts the
 listing by kind so that two runs of the same kernel can be put side by side.
 
-With no `--emit`, one line per function says what it lowered to: the gang each
-`@simd` loop runs in, or that it runs scalar. Whether a loop runs in lanes is
-the source's to say, so there is nothing here to check for -- a `@simd` loop
+With no `--emit`, one line per function says what it lowered to: the species
+each `@simd` loop runs in, or that it runs scalar. Whether a loop runs in lanes
+is the source's to say, so there is nothing here to check for -- a `@simd` loop
 that cannot run in lanes already fails the build, with the construct that
 refused it.
 ]]
@@ -41,7 +41,7 @@ local REPORT_SCHEMA = {
         file = {type = "string"},
         target = {
             type = "object",
-            description = "What the gangs were chosen for.",
+            description = "What the species were chosen for.",
             properties = {triple = {type = "string"}, architecture = {type = "string"}, tier = {type = "string"},},
         },
         functions = {
@@ -122,9 +122,13 @@ local REPORT_SCHEMA = {
                                 gang = {
                                     type = "object",
                                     properties = {
-                                        shape = {type = "string"},
                                         lanes = {type = "integer"},
-                                        rounded = {type = "boolean"},
+                                        species = {
+                                            type = "object",
+                                            description = "The vector type each element of the region is "
+                                            .. "carried in, by element.",
+                                            additionalProperties = {type = "string"},
+                                        },
                                     },
                                 },
                                 tail = {type = "string", enum = {"masked"}},
@@ -229,9 +233,9 @@ local REPORT_SCHEMA = {
 
 --- Every `@simd` loop in source order.
 ---
---- A map-shaped program carries the mark on its one loop and its gang on the
---- program; a structured body carries both on each marked region. Reported
---- alike, so a reader asks one question of either.
+--- A map-shaped program carries the mark on its one loop and its rewritten body
+--- on the program; a structured body carries both on each marked region.
+--- Reported alike, so a reader asks one question of either.
 local function simdRegions(program: any): {any}
     local answer: {any} = {}
 
@@ -239,18 +243,22 @@ local function simdRegions(program: any): {any}
         if type(value) ~= "table" then
             return
         end
-        if value.op == "vreducer_add" then
-            local key = tostring(value.reducer) .. ":" .. tostring(value.order) .. ":" .. tostring(value.operation)
-            if not seen[key] then
-                seen[key] = true
-                found[
-                    #found + 1
-                ] = {
-                    binding = value.reducer,
-                    order = value.order,
-                    operation = value.operation,
-                    serialized = value.order ~= "algebraic" and value.order ~= "exact",
-                }
+        if value.op == "simd_region" then
+            for _, reducer in ipairs(value.reducers or {}) do
+                local key = tostring(
+                    reducer.name
+                ) .. ":" .. tostring(reducer.order) .. ":" .. tostring(reducer.operation)
+                if not seen[key] then
+                    seen[key] = true
+                    found[
+                        #found + 1
+                    ] = {
+                        binding = reducer.name,
+                        order = reducer.order,
+                        operation = reducer.operation,
+                        serialized = reducer.order ~= "algebraic" and reducer.order ~= "exact",
+                    }
+                end
             end
         end
         for key, child in pairs(value) do
@@ -260,12 +268,50 @@ local function simdRegions(program: any): {any}
         end
     end
 
+    --- The species the rewrite chose, read back off the types it wrote.
+    ---
+    --- The lane count is the same in every one of them by construction -- a
+    --- lane is a logical iteration, so a region carries one species per element
+    --- at one width -- and the elements are whatever the body touched.
+    local function gangOf(statements: any): any
+        local species: {[string]: string} = {}
+        local lanes: integer? = nil
+
+        local function walk(value: any): nil
+            if type(value) ~= "table" then
+                return
+            end
+            local named = value.type
+            if type(named) == "string" then
+                local family, element, width = (named as string):match("^simd_(%a+)_([fiu]%d+)_fixed(%d+)$")
+                if width ~= nil then
+                    lanes = lanes or tonumber(width) as integer
+                    if family == "vector" then
+                        species[element as string] = named as string
+                    end
+                end
+            end
+            for key, child in pairs(value) do
+                if key ~= "source" then
+                    walk(child)
+                end
+            end
+        end
+
+        walk(statements)
+        if lanes == nil then
+            return nil
+        end
+
+        return {lanes = lanes, species = species}
+    end
+
     local function visit(statements: {any}): nil
         for _, statement in ipairs(statements) do
             if statement.op == "fornum" then
                 if statement.simdRequired == true then
                     local reduced: {any} = {}
-                    reducers(statement.lanes and statement.lanes.statements or {}, reduced, {})
+                    reducers(statement.vector or {}, reduced, {})
                     answer[
                         #answer + 1
                     ] = {
@@ -277,11 +323,7 @@ local function simdRegions(program: any): {any}
                             last = statement.to and statement.to.op or "unknown",
                             step = "positive-unit",
                         },
-                        gang = statement.lanes and {
-                            shape = statement.lanes.shape,
-                            lanes = statement.lanes.lanes,
-                            rounded = statement.lanes.rounded == true,
-                        } or nil,
+                        gang = statement.vector and gangOf(statement.vector) or nil,
                         tail = "masked",
                         reducers = reduced,
                     }
@@ -302,7 +344,7 @@ local function simdRegions(program: any): {any}
     if program.loop ~= nil and program.simdRequired == true then
         local loop = program.loop
         local reduced: {any} = {}
-        reducers(program.lanes and program.lanes.statements or {}, reduced, {})
+        reducers(program.vector or {}, reduced, {})
         answer[
             1
         ] = {
@@ -310,11 +352,7 @@ local function simdRegions(program: any): {any}
             line = loop.source and loop.source.line or 1,
             column = loop.source and loop.source.column or 1,
             bounds = {first = tostring(loop.first), last = tostring(loop.last), step = "positive-unit"},
-            gang = program.lanes and {
-                shape = program.lanes.shape,
-                lanes = program.lanes.lanes,
-                rounded = program.lanes.rounded == true,
-            } or nil,
+            gang = program.vector and gangOf(program.vector) or nil,
             tail = "masked",
             reducers = reduced,
         }
@@ -335,11 +373,7 @@ local function summarise(path: string, program: any, artifacts: any): string
         local gangs: {string} = {}
         for index, region in ipairs(regions) do
             local gang = region.gang
-            gangs[
-                index
-            ] = gang.shape .. ", " .. tostring(
-                gang.lanes
-            ) .. " lanes" .. (gang.rounded == true and ", rounding explicit fixed-width work" or "")
+            gangs[index] = "Fixed<" .. tostring(gang.lanes) .. ">, " .. tostring(gang.lanes) .. " lanes"
         end
         if #regions == 1 then
             what = gangs[1]
@@ -625,7 +659,7 @@ end
 
 --- Show what the @aot functions in a file compile to.
 ---
---- With no artifact, reports what each function lowered to: the gang every
+--- With no artifact, reports what each function lowered to: the species every
 --- `@simd` loop runs in, or that it runs scalar. Select verified IR, generated
 --- C, native GPU SPIR-V, browser GPU WGSL, native assembly, or the generated
 --- Nupp binding with `--emit`.

@@ -375,21 +375,18 @@ function M.pointerSpansSeeUniformReadsAndLoopBounds()
     assert(used.rounds == nil, "a uniform only a guard mentioned is not")
 end
 
-function M.laneWalkReachesAUniformMultipleBinding()
-    -- A uniform multiple-result call stays a scalar `multi_let` inside a lane
-    -- body. The rewrite emits one, the verifier admits one and the emitter
-    -- renders one; the walk used to fall through it without visiting the call.
+function M.theWalkReachesAUniformMultipleBinding()
+    -- A uniform multiple-result call stays a scalar `multi_let` inside a
+    -- rewritten body. The rewrite emits one, the verifier admits one and the
+    -- emitter renders one; the walk used to fall through it without visiting
+    -- the call.
     local program = {
-        lanes = {
-            shape = "mixed4",
-            lanes = 4,
-            statements = {
-                {
-                    op = "multi_let",
-                    call = {op = "helper_call", helper = "pair", args = {localValue("argument")}, type = "multi"},
-                    bindings = {{name = "first", cName = "first", type = "u32"}},
-                }
-            },
+        vector = {
+            {
+                op = "multi_let",
+                call = {op = "helper_call", helper = "pair", args = {localValue("argument")}, type = "multi"},
+                bindings = {{name = "first", cName = "first", type = "u32"}},
+            }
         },
     }
     local seen = {}
@@ -400,7 +397,7 @@ function M.laneWalkReachesAUniformMultipleBinding()
             end
         end
     })
-    assert(seen.argument, "the lane walk reaches the call's arguments")
+    assert(seen.argument, "the walk reaches the call's arguments")
 end
 
 -- C rendering owns its contexts and selections, never fields on semantic IR.
@@ -464,7 +461,7 @@ function M.cControlFlowKeepsRepeatContinuationsInsideTheirOwnLoop()
     }
 
     local function render(renderer)
-        return table.concat(renderer(emit.context(), statements, 0, {helpers = {}, lanes = 0, layouts = {}}), "\n")
+        return table.concat(renderer(emit.context(), statements, 0, {helpers = {}, layouts = {}}), "\n")
     end
 
     local kernel, builder = render(emit.block), render(emit.luaBlock)
@@ -494,45 +491,11 @@ function M.cSelectionsPreserveIntegerCountBoundsAndStoreOffsets()
     assert(emit.scalar(common, comparison) == "ks_gt_i64_u64((int64_t)cursor, (uint64_t)count)")
 end
 
-function M.cFieldPairsAreDisjointAndRequireMatchingPhysicalLayouts()
-    local cplan = require("nupp.compiler.aot.cplan")
-
-    local function load(name, field)
-        return {
-            op = "let",
-            name = name,
-            cName = name,
-            type = "f32x4",
-            value = {
-                op = "vfield_load",
-                span = "input",
-                layout = "Pair",
-                field = field,
-                lanes = 4,
-                scalarType = "f32",
-                sourceType = "float",
-                type = "f32x4",
-            }
-        }
-    end
-
-    local layout = {
-        name = "Pair",
-        fields = {{name = "x", type = "f32", sourceType = "float"}, {name = "y", type = "f32", sourceType = "float"}}
-    }
-    local first, second, third = load("a", "y"), load("b", "x"), load("c", "y")
-    local selected = cplan.fieldPairs({first, second, third}, {Pair = layout})
-    assert(selected[1] and not selected[2] and not selected[3], "adjacent triples must not overlap")
-    assert(selected[1].leftIndex == 1 and selected[1].rightIndex == 0, "field order was lost")
-    layout.fields[2].sourceType = "int32"
-    assert(next(cplan.fieldPairs({first, second}, {Pair = layout})) == nil, "mixed storage was paired")
-end
-
 function M.cStatementsRejectUnsupportedAndUnknownOperations()
     local emit = require("nupp.compiler.aot.emit")
     for _, renderer in ipairs({emit.block, emit.luaBlock}) do
         for _, op in ipairs({"phase", "simd_splat", "future_statement"}) do
-            local ok = pcall(renderer, emit.context(), {{op = op}}, 0, {helpers = {}, layouts = {}, lanes = 0})
+            local ok = pcall(renderer, emit.context(), {{op = op}}, 0, {helpers = {}, layouts = {}})
             assert(not ok, "C renderer silently accepted " .. op)
         end
     end

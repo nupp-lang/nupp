@@ -19,7 +19,6 @@ programs different.
 
 local bundled = require("nupp.compiler.bundled")
 local reducers = require("nupp.compiler.aot.reducers")
-local lane = require("nupp.compiler.aot.lane")
 local scalarIR = require("nupp.compiler.aot.scalar")
 local target = require("nupp.compiler.aot.target")
 local verify = require("nupp.compiler.aot.verify")
@@ -350,25 +349,7 @@ const emit.BINARY = {
     ["or"] = "||",
 }
 
---- The C spelling of each elementwise lane verb.
----
---- Vector extensions give these their elementwise meaning, so a lane operation
---- is written as though it were scalar and the width comes from the operand
---- types rather than from the operator.
-const emit.LANE_VERB = {
-    ["add"] = " + ",
-    ["sub"] = " - ",
-    ["mul"] = " * ",
-    ["div"] = " / ",
-    ["lt"] = " < ",
-    ["le"] = " <= ",
-    ["gt"] = " > ",
-    ["ge"] = " >= ",
-    ["eq"] = " == ",
-    ["ne"] = " != ",
-}
-
---- The C spelling of each bitwise verb, on the gang's bit vector.
+--- The C spelling of each bitwise verb, on a vector of bits.
 ---
 --- `sar` is absent: an arithmetic shift needs the operand reinterpreted as
 --- signed first, so it is not one operator.
@@ -1902,7 +1883,7 @@ function emit.mathFrom(context: emit.Context, intrinsic: string, parts: {string}
 end
 
 ----------------------------------------------------------------------------
--- Lane expressions
+-- The explicit SIMD inventory
 ----------------------------------------------------------------------------
 
 --- Records the fixed logical SIMD shapes used by one emitted unit.
@@ -1943,235 +1924,6 @@ local function collectExplicitFixed(context: emit.Context, programs: {scalarIR.P
         end
         visit.program(program, visitor)
     end
-end
-
---- Expands a vector operation one lane at a time.
----
---- Every operand is a lane local by now -- the lane rewrite bound anything
---- else to one before the statement -- so each lane takes one element of a
---- name rather than of an expression rendered once per lane.
----
---- @param build the scalar expression for one lane, given the names holding
----   the operand vectors and which lane this is
---- @raises when an operand is not a lane local, which is a body the rewrite
----   did not finish rather than anything the source did
-function emit.perLane(
-    context: emit.Context,
-    vector: string,
-    args: {any},
-    build: function({string}, integer): string
-): string
-    local names: {string} = {}
-    for position, argument in ipairs(args) do
-        if argument.op ~= "local" then
-            error("a per-lane operand the lane rewrite did not bind: " .. tostring(argument.op))
-        end
-        names[position] = argument.cName as string
-    end
-
-    local _, lanes = emit.vectorParts(vector)
-    local parts: {string} = {}
-    for index = 0, lanes - 1 do
-        parts[index + 1] = build(names, index)
-    end
-
-    return "(ks_" .. vector .. "){" .. table.concat(parts, ", ") .. "}"
-end
-
---- Every operand of one lane operation, each taken from the same lane.
-local function atLane(names: {string}, index: integer): {string}
-    local parts: {string} = {}
-    for position, name in ipairs(names) do
-        parts[position] = name .. "[" .. tostring(index) .. "]"
-    end
-
-    return parts
-end
-
---- One lane expression, as a C expression.
----
---- Anything that is not a lane form falls through to `emit.scalar`: a uniform
---- inside a lane expression is the same value it would be in a scalar body, and
---- rendering it twice would be two chances for the two to differ.
-function emit.lane(context: emit.Context, node: lane.Expr | scalarIR.Expr): string
-    local operation = node.op
-    local vector = tostring(node.type)
-
-    if operation == "reducer_init" then
-        local reducer = node as scalarIR.ReducerInit
-        local _, _, element = reducers.parse(reducer.type)
-        local helper = reducerHelper(reducer.order, reducer.operation, element)
-        if helper ~= nil then
-            return helper .. "init(" .. emit.lane(context, reducer.initial) .. ")"
-        end
-
-        return emit.lane(context, reducer.initial)
-    elseif operation == "reducer_value" then
-        local reducer = node as scalarIR.ReducerValue
-        local name = emit.lane(context, reducer.reducer)
-        local _, _, element = reducers.parse(reducer.reducer.type)
-        local helper = reducerHelper(reducer.order, reducer.operation, element)
-        if helper ~= nil then
-            return helper .. "value(" .. name .. ")"
-        end
-
-        return name
-    elseif operation == "vindex" then
-        local index = node as lane.Index
-        local parts: {string} = {}
-        local element = emit.vectorParts(vector)
-        local cType = tostring(emit.VECTOR_ELEMENT_C[element])
-        for position = 0, index.lanes - 1 do
-            parts[position + 1] = "(" .. cType .. ")(i + " .. tostring(position + 1) .. ")"
-        end
-
-        return "((ks_" .. vector .. "){" .. table.concat(parts, ", ") .. "})"
-    elseif operation == "vmask" then
-        local mask = node as lane.MaskOp
-        if mask.verb == "not" then
-            return "(~" .. emit.lane(context, mask.args[1]) .. ")"
-        else
-            return "(" .. emit.lane(
-                context,
-                mask.args[1]
-            ) .. (mask.verb == "and" and " & " or " | ") .. emit.lane(context, mask.args[2]) .. ")"
-        end
-    elseif operation == "vshort" then
-        -- Both sides already ran: the rewrite proved them total before it turned
-        -- the short circuit into a mask, so this is the bitwise combination and
-        -- not a branch.
-        local short = node as lane.ShortCircuit
-
-        return "(" .. emit.lane(
-            context,
-            short.args[1]
-        ) .. (short.verb == "and" and " & " or " | ") .. emit.lane(context, short.args[2]) .. ")"
-    elseif operation == "vbinary" then
-        local operator = node as lane.Binary
-
-        return "(" .. emit.lane(
-            context,
-            operator.args[1]
-        ) .. tostring(emit.LANE_VERB[operator.verb]) .. emit.lane(context, operator.args[2]) .. ")"
-    elseif operation == "vunary" then
-        local operator = node as lane.Unary
-        if operator.verb == "neg" then
-            return "(-" .. emit.lane(context, operator.args[1]) .. ")"
-        else
-            -- Elementwise, through the width's own library call, so the lane
-            -- form is the same operation the scalar one performs.
-            local element = emit.vectorParts(vector)
-            local call = element == "f32" and "sqrtf(" or "sqrt("
-
-            return emit.perLane(context, vector, operator.args, function(names: {string}, index: integer): string
-                return call .. names[1] .. "[" .. tostring(index) .. "])"
-            end)
-        end
-    elseif operation == "vsplat" then
-        return "ks_splat_" .. vector .. "(" .. emit.lane(context, (node as lane.Splat).args[1]) .. ")"
-    elseif operation == "vbool_splat" then
-        -- Suffixed by the mask it produces, so two gangs can share one file.
-        return "ks_bool_mask_" .. vector .. "(" .. emit.lane(context, (node as lane.BoolSplat).args[1]) .. ")"
-    elseif operation == "vselect" then
-        local args = (node as lane.Select).args
-
-        return "ks_sel_" .. vector .. "(" .. emit.lane(
-            context,
-            args[1]
-        ) .. ", " .. emit.lane(context, args[2]) .. ", " .. emit.lane(context, args[3]) .. ")"
-    elseif operation == "vfield_load" then
-        local load = node as lane.FieldLoad
-        local parts: {string} = {}
-        for index = 0, load.lanes - 1 do
-            parts[index + 1] = "p_" .. load.span .. "[i + " .. tostring(index) .. "]." .. load.field
-        end
-
-        return "((ks_" .. vector .. "){" .. table.concat(parts, ", ") .. "})"
-    elseif operation == "vspan_load" then
-        local load = node as lane.SpanLoad
-        local parts: {string} = {}
-        for index = 0, load.lanes - 1 do
-            parts[index + 1] = "p_" .. load.span .. "[i + " .. tostring(index) .. "]"
-        end
-
-        return "((ks_" .. vector .. "){" .. table.concat(parts, ", ") .. "})"
-    elseif operation == "vbitwise" then
-        return emit.laneBits(context, node as lane.Bitwise)
-    elseif operation == "vround" then
-        -- Out to the narrow element and straight back. One rounding, which is
-        -- what makes this the same answer as the native narrow instruction.
-        local rounded = node as lane.Round
-
-        return "__builtin_convertvector(__builtin_convertvector(" .. emit.lane(
-            context,
-            rounded.args[1]
-        ) .. ", ks_" .. rounded.narrow .. "), ks_" .. vector .. ")"
-    elseif operation == "vconvert" then
-        -- The arithmetic conversion, not a reinterpretation: widening is exact
-        -- and narrowing rounds once, which is what the source asked for at the
-        -- point it changed width.
-        return "__builtin_convertvector(" .. emit.lane(
-            context,
-            (node as lane.Convert).args[1]
-        ) .. ", ks_" .. vector .. ")"
-    elseif operation == "vmask_cast" then
-        -- A mask lane is all ones or all zeros, so widening sign-extends -1 to
-        -- -1 and narrowing truncates it to -1. Both preserve exactly the two
-        -- values a mask has, which is what makes this a conversion.
-        return "__builtin_convertvector(" .. emit.lane(
-            context,
-            (node as lane.MaskCast).args[1]
-        ) .. ", ks_" .. vector .. ")"
-    elseif operation == "vbits" then
-        return "__builtin_convertvector(" .. emit.lane(
-            context,
-            (node as lane.BitConvert).args[1]
-        ) .. ", ks_" .. vector .. ")"
-    elseif operation == "vcorrected" then
-        -- One scalar helper call per lane, the same helper the scalar body
-        -- calls, so the correction cannot be right in one form and wrong in the
-        -- other.
-        local call = node as lane.Corrected
-
-        return emit.perLane(context, vector, call.args, function(names: {string}, index: integer): string
-            return call.helper .. "(" .. table.concat(atLane(names, index), ", ") .. ")"
-        end)
-    elseif operation == "vmath" then
-        -- One scalar call per lane, rendered through the ordinary math path so
-        -- the lane-parallel form cannot drift from the scalar one. Clang
-        -- recognises the shape and uses a vector library call where it has one.
-        local call = node as lane.Math
-
-        return emit.perLane(context, vector, call.args, function(names: {string}, index: integer): string
-            return emit.mathFrom(context, call.intrinsic, atLane(names, index))
-        end)
-    end
-
-    return emit.scalar(context, node as scalarIR.Expr)
-end
-
---- The bitwise family, on the gang's bit vector.
----
---- A shift count is masked to 31 the way `nupp.math.i32` masks it. An arithmetic
---- shift reinterprets the operand as signed first, because the bit vector is
---- unsigned and C's `>>` would otherwise fill with zeros.
-function emit.laneBits(context: emit.Context, node: lane.Bitwise): string
-    local verb = node.verb
-    local vector = tostring(node.type)
-    if verb == "not" then
-        return "(~" .. emit.lane(context, node.args[1]) .. ")"
-    elseif verb == "sar" then
-        return "((ks_" .. vector .. ")(((ks_i" .. vector:sub(
-            2
-        ) .. ")" .. emit.lane(context, node.args[1]) .. ") >> (" .. emit.lane(context, node.args[2]) .. " & 31)))"
-    end
-
-    local right = emit.lane(context, node.args[2])
-    if verb == "shl" or verb == "shr" then
-        right = "(" .. right .. " & 31)"
-    end
-
-    return "(" .. emit.lane(context, node.args[1]) .. tostring(emit.BITWISE[verb]) .. right .. ")"
 end
 
 ----------------------------------------------------------------------------
@@ -2236,16 +1988,6 @@ function emit.pointerSpans(program: scalarIR.Program): {[string]: boolean}
             end,
             scalarStatement = function(node: scalarIR.Statement): nil
                 if node.op == "store" then
-                    found[node.span] = true
-                end
-            end,
-            laneExpression = function(node: lane.Expr): nil
-                if node.op == "vfield_load" or node.op == "vspan_load" then
-                    found[node.span] = true
-                end
-            end,
-            laneTarget = function(node: lane.Target): nil
-                if node.kind == "vfield" or node.kind == "vspan" then
                     found[node.span] = true
                 end
             end
@@ -2323,20 +2065,6 @@ function emit.bounds(rangeGuard: scalarIR.RangeGuard?): {string}
     }
 end
 
---- The group loop's bounds, for a body that lowered lane-parallel.
----
---- Whole groups only. The remainder runs the same body one iteration at a time,
---- because a masked final group would still read the addresses it masked off and
---- the last element of a span may be the last byte of a page.
-function emit.groupBound(lanes: integer): {string}
-    local width = tostring(lanes)
-
-    return {
-        "    size_t groups = (end > i) ? ((end - i) / " .. width .. ") * " .. width .. " + i : i;",
-        "    for (; i < groups; i += " .. width .. ") {",
-    }
-end
-
 --- Asking one function for a relaxation the source named.
 ---
 --- Scoped to the function rather than set as a build flag, so a relaxation one
@@ -2347,7 +2075,7 @@ end
 
 --- Holding the oracle scalar.
 ---
---- The forced-scalar body is what the lane-parallel one is compared against, so
+--- The forced-scalar body is what the vector one is compared against, so
 --- it must not share its lowering -- including whatever the C compiler would
 --- have done on its own.
 function emit.forcedScalarPragma(): {string}
@@ -2478,16 +2206,6 @@ end
 ----------------------------------------------------------------------------
 -- The SIMD prelude
 ----------------------------------------------------------------------------
-
---- One value of the given lane, repeated across the gang.
-local function repeated(value: string, lanes: integer): string
-    local parts: {string} = {}
-    for position = 1, lanes do
-        parts[position] = value
-    end
-
-    return table.concat(parts, ", ")
-end
 
 --- Fixed logical species whose size differs from one native register.
 ---
@@ -2677,12 +2395,12 @@ function emit.helpers(context: emit.Context, helpers: {scalarIR.Helper}): {strin
             if variant.resultName ~= nil then
                 local values: {string} = {}
                 for position, value in ipairs(helper.values) do
-                    values[position] = emit.lane(variant.context, value)
+                    values[position] = emit.scalar(variant.context, value)
                 end
                 lines[#lines + 1] = "    " .. variant.resultName .. " result = {" .. table.concat(values, ", ") .. "};"
                 lines[#lines + 1] = "    return result;"
             else
-                lines[#lines + 1] = "    return " .. emit.lane(variant.context, helper.values[1]) .. ";"
+                lines[#lines + 1] = "    return " .. emit.scalar(variant.context, helper.values[1]) .. ";"
             end
             lines[#lines + 1] = "}"
             lines[#lines + 1] = ""
@@ -2709,9 +2427,6 @@ record emit.Body
     controlBreak: string?
     controlContinue: string?
     headerControl: boolean?
-
-    --- How wide a lane store is, for a body that was rewritten.
-    lanes: integer
 
     --- Reified layouts by IR name, for legal target-specific load fusion.
     layouts: {[string]: scalarIR.Layout}
@@ -2879,7 +2594,7 @@ type emit.Flow = scalarIR.If
     | scalarIR.Continue
 
 type emit.BlockRenderer = function(cplan.Block, integer, emit.Body, string?): {string}
-type emit.ExpressionRenderer = function(scalarIR.Expr | lane.Expr): string
+type emit.ExpressionRenderer = function(scalarIR.Expr): string
 
 local function hasConditionBody(statements: cplan.Block): boolean
     for _, statement in ipairs(statements) do
@@ -3094,7 +2809,9 @@ local function multiLet(context: emit.Context, statement: scalarIR.MultiLet, pre
         error("no result struct for helper " .. tostring(statement.call.helper), 0)
     end
 
-    lines[#lines + 1] = prefix .. tostring(result) .. " " .. temp .. " = " .. emit.lane(context, statement.call) .. ";"
+    lines[
+        #lines + 1
+    ] = prefix .. tostring(result) .. " " .. temp .. " = " .. emit.scalar(context, statement.call) .. ";"
     for position, bound in ipairs(statement.bindings) do
         lines[
             #lines + 1
@@ -3134,8 +2851,8 @@ function emit.luaBlock(
         return emit.luaBlock(context, inner as {scalarIR.Statement}, at, parent, continuation)
     end
 
-    local function expression(value: scalarIR.Expr | lane.Expr): string
-        return emit.scalar(context, value as scalarIR.Expr)
+    local function expression(value: scalarIR.Expr): string
+        return emit.scalar(context, value)
     end
 
     local function render(node: scalarIR.Statement, position: integer): boolean
@@ -3602,52 +3319,6 @@ local function localCType(context: emit.Context, typeName: string, mutable: bool
     return emit.cType(context, typeName) .. " "
 end
 
---- Whether a rewritten loop moved its recurring liveness test behind lane
---- retirement. The rewrite keeps the marked retirement at this block's top
---- level; nested loops own their own tests.
-local function exitsWhenEmpty(statements: cplan.Block): boolean
-    for _, statement in ipairs(statements) do
-        if statement.op == "vbreak" and statement.exitWhenEmpty == true then
-            return true
-        end
-    end
-
-    return false
-end
-
---- Renders one member of a deinterleaved load, joining two physical Neon
---- registers when the selected gang is wider than one register.
-local function neonPairValue(
-    temps: {string},
-    member: integer,
-    vector: string,
-    lanes: integer,
-    sourceElement: string,
-    resultElement: string
-): string
-    local loaded
-    if #temps == 1 then
-        loaded = temps[1] .. ".val[" .. tostring(member) .. "]"
-    else
-        local indices: {string} = {}
-        for index = 0, lanes - 1 do
-            indices[#indices + 1] = tostring(index)
-        end
-
-        loaded = "__builtin_shufflevector(" .. temps[
-            1
-        ] .. ".val[" .. tostring(
-            member
-        ) .. "], " .. temps[2] .. ".val[" .. tostring(member) .. "], " .. table.concat(indices, ", ") .. ")"
-    end
-
-    if sourceElement ~= resultElement then
-        return "__builtin_convertvector(" .. loaded .. ", ks_" .. vector .. ")"
-    end
-
-    return "(ks_" .. vector .. ")" .. loaded
-end
-
 --- One block of statements, scalar or lane, indented by `depth`.
 --- @raises when a multiple-result binding calls a helper the body does not
 ---   declare, which is malformed IR rather than anything about the source
@@ -3662,21 +3333,13 @@ function emit.block(
     local lines: {string} = {}
     local prefix = string.rep("    ", depth)
     local temporary = 0
-    local pairs = cplan.fieldPairs(statements, body.layouts)
-
-    --- Appends the rendering of a nested block.
-    local function nested(inner: cplan.Block): nil
-        for _, line in ipairs(emit.block(context, inner, depth + 1, body, repeatContinue)) do
-            lines[#lines + 1] = line
-        end
-    end
 
     local function recursive(inner: cplan.Block, at: integer, parent: emit.Body, continuation: string?): {string}
         return emit.block(context, inner, at, parent, continuation)
     end
 
-    local function expression(value: scalarIR.Expr | lane.Expr): string
-        return emit.lane(context, value)
+    local function expression(value: scalarIR.Expr): string
+        return emit.scalar(context, value)
     end
 
     local function append(more: {string}): nil
@@ -3688,91 +3351,15 @@ function emit.block(
     local function render(node: cplan.Statement, position: integer): boolean
         return switch node.op do
             case "let" -> do
-                local statement = node as lane.Let
-                local pair = pairs[position]
-                if pair ~= nil then
-                    temporary = temporary + 1
-                    local info = pair as cplan.FieldPair
-                    local neon = info.neon
-                    local chunks = info.left.lanes / (neon.lanes as integer)
-                    local temps: {string} = {}
-                    lines[
-                        #lines + 1
-                    ] = prefix .. "#if defined(__aarch64__) && (defined(__clang__) || defined(__GNUC__))"
-                    for chunk = 0, chunks - 1 do
-                        local temp = "aos" .. tostring(temporary) .. "_" .. tostring(chunk)
-                        temps[#temps + 1] = temp
-                        lines[
-                            #lines + 1
-                        ] = prefix
-                            .. neon.tuple
-                            .. " "
-                            .. temp
-                            .. " = "
-                            .. neon.load
-                            .. "((const "
-                            .. neon.alias
-                            .. " *)&p_"
-                            .. info.left.span
-                            .. "[i + "
-                            .. tostring(
-                                chunk * (neon.lanes as integer)
-                            ) .. "]);"
-                    end
-                    local previous = info.first
-                    local statement = info.second
-                    lines[
-                        #lines + 1
-                    ] = prefix .. emit.cType(
-                        context,
-                        previous.type
-                    ) .. " " .. previous.cName .. " = " .. neonPairValue(
-                        temps,
-                        info.leftIndex,
-                        info.resultType,
-                        info.left.lanes,
-                        neon.element,
-                        info.resultElement
-                    ) .. ";"
-                    lines[
-                        #lines + 1
-                    ] = prefix .. emit.cType(
-                        context,
-                        statement.type
-                    ) .. " " .. statement.cName .. " = " .. neonPairValue(
-                        temps,
-                        info.rightIndex,
-                        info.resultType,
-                        info.right.lanes,
-                        neon.element,
-                        info.resultElement
-                    ) .. ";"
-                    lines[#lines + 1] = prefix .. "#else"
-                    lines[
-                        #lines + 1
-                    ] = prefix .. localCType(
-                        context,
-                        previous.type,
-                        (previous.value as scalarIR.ElementRef).mutable == true
-                    ) .. previous.cName .. " = " .. emit.lane(context, previous.value) .. ";"
+                local statement = node as scalarIR.Let
+                if statement.type ~= "simd_species_u8" and statement.type:match("^simd_species_") == nil then
                     lines[
                         #lines + 1
                     ] = prefix .. localCType(
                         context,
                         statement.type,
                         (statement.value as scalarIR.ElementRef).mutable == true
-                    ) .. statement.cName .. " = " .. emit.lane(context, statement.value) .. ";"
-                    lines[#lines + 1] = prefix .. "#endif"
-                elseif pairs[
-                    position - 1
-                ] == nil and statement.type ~= "simd_species_u8" and statement.type:match("^simd_species_") == nil then
-                    lines[
-                        #lines + 1
-                    ] = prefix .. localCType(
-                        context,
-                        statement.type,
-                        (statement.value as scalarIR.ElementRef).mutable == true
-                    ) .. statement.cName .. " = " .. emit.lane(context, statement.value) .. ";"
+                    ) .. statement.cName .. " = " .. emit.scalar(context, statement.value) .. ";"
                 end
                 yield true
             end
@@ -3795,7 +3382,7 @@ function emit.block(
                 ] = prefix .. scalarIR.cIdentifier(
                     "p",
                     statement.span
-                ) .. "[" .. index .. "] = " .. emit.lane(context, statement.value) .. ";"
+                ) .. "[" .. index .. "] = " .. emit.scalar(context, statement.value) .. ";"
                 yield true
             end
             case "assign" -> do
@@ -3811,132 +3398,17 @@ function emit.block(
                     ] = prefix .. emit.cType(
                         context,
                         entry.target.type as string
-                    ) .. " " .. temps[position] .. " = " .. emit.lane(context, entry.value) .. ";"
+                    ) .. " " .. temps[position] .. " = " .. emit.scalar(context, entry.value) .. ";"
                 end
                 for position, entry in ipairs(statement.values) do
                     local target = entry.target.kind == "local" and (
                         entry.target.cName as string
-                    ) or "(" .. emit.lane(
+                    ) or "(" .. emit.scalar(
                         context,
                         entry.target.object as scalarIR.Expr
                     ) .. "->" .. (entry.target.field as string) .. ")"
                     lines[#lines + 1] = prefix .. target .. " = " .. temps[position] .. ";"
                 end
-                yield true
-            end
-            case "vassign" -> do
-                local statement = node as lane.Assign
-                for _, entry in ipairs(statement.values) do
-                    local target = entry.target
-                    if target.kind == "vfield" or target.kind == "vspan" then
-                        -- Consecutive elements, one lane each. Clang turns the group
-                        -- into an interleaving store where the target has one.
-                        lines[#lines + 1] = prefix .. "{"
-                        lines[
-                            #lines + 1
-                        ] = prefix .. "    " .. emit.cType(
-                            context,
-                            entry.value.type
-                        ) .. " lanes = " .. emit.lane(context, entry.value) .. ";"
-                        for index = 0, body.lanes - 1 do
-                            local address = "p_" .. target.span .. "[i + " .. tostring(index) .. "]"
-                            if target.kind == "vfield" then
-                                address = address .. "." .. target.field
-                            end
-                            lines[
-                                #lines + 1
-                            ] = prefix .. "    " .. address .. " = (" .. emit.storageC(
-                                context,
-                                target.scalarType,
-                                target.sourceType
-                            ) .. ")lanes[" .. tostring(index) .. "];"
-                        end
-                        lines[#lines + 1] = prefix .. "}"
-                    else
-                        lines[#lines + 1] = prefix .. target.cName .. " = " .. emit.lane(context, entry.value) .. ";"
-                    end
-                end
-                yield true
-            end
-            case "vwhile" -> do
-                local statement = node as lane.While
-                -- The loop runs while any lane is live, and a lane that retired
-                -- stops contributing without stopping the others.
-                local immediateExit = exitsWhenEmpty(statement.body)
-                lines[
-                    #lines + 1
-                ] = prefix .. emit.cType(
-                    context,
-                    statement.live.type
-                ) .. " " .. statement.live.cName .. " = " .. emit.lane(context, statement.initial) .. ";"
-                if immediateExit then
-                    lines[
-                        #lines + 1
-                    ] = prefix .. "if (ks_any_" .. tostring(
-                        statement.live.type
-                    ) .. "(" .. statement.live.cName .. ")) {"
-                    lines[#lines + 1] = prefix .. "    while (true) {"
-                else
-                    lines[
-                        #lines + 1
-                    ] = prefix .. "while (ks_any_" .. tostring(
-                        statement.live.type
-                    ) .. "(" .. statement.live.cName .. ")) {"
-                end
-                lines[
-                    #lines + 1
-                ] = prefix .. (
-                    immediateExit and "        " or "    "
-                ) .. emit.cType(
-                    context,
-                    statement.executing.type
-                ) .. " " .. statement.executing.cName .. " = " .. statement.live.cName .. ";"
-                if immediateExit then
-                    for _, line in ipairs(emit.block(context, statement.body, depth + 2, body)) do
-                        lines[#lines + 1] = line
-                    end
-                else
-                    nested(statement.body)
-                end
-                lines[
-                    #lines + 1
-                ] = prefix .. (
-                    immediateExit and "        " or "    "
-                ) .. statement.live.cName .. " &= " .. emit.lane(context, statement.condition) .. ";"
-                if immediateExit then
-                    lines[#lines + 1] = prefix .. "    }"
-                end
-                lines[#lines + 1] = prefix .. "}"
-                yield true
-            end
-            case "vwhile_uniform" -> do
-                local statement = node as lane.UniformWhile
-                -- An ordinary loop over lane-parallel statements. The condition is
-                -- scalar, so this is the same `while` the scalar body emits.
-                lines[#lines + 1] = prefix .. "while (" .. emit.lane(context, statement.condition) .. ") {"
-                nested(statement.body)
-                lines[#lines + 1] = prefix .. "}"
-                yield true
-            end
-            case "vbreak" -> do
-                local statement = node as lane.Break
-                local mask = emit.lane(context, statement.mask)
-                lines[#lines + 1] = prefix .. statement.live.cName .. " &= ~(" .. mask .. ");"
-                lines[#lines + 1] = prefix .. statement.executing.cName .. " &= ~(" .. mask .. ");"
-                if statement.exitWhenEmpty == true then
-                    lines[
-                        #lines + 1
-                    ] = prefix .. "if (!ks_any_" .. tostring(
-                        statement.live.type
-                    ) .. "(" .. statement.live.cName .. ")) break;"
-                end
-                yield true
-            end
-            case "vcontinue" -> do
-                local statement = node as lane.Continue
-                lines[
-                    #lines + 1
-                ] = prefix .. statement.executing.cName .. " &= ~(" .. emit.lane(context, statement.mask) .. ");"
                 yield true
             end
             case "simd_store" -> do
@@ -3954,12 +3426,12 @@ function emit.block(
                 local named = contribution.reducer as scalarIR.Name
                 local species = genericSpecies(context, contribution.value.type)
                 local accumulator = body.simdAccumulators ~= nil and body.simdAccumulators[named.name] or nil
-                local value = emit.lane(context, contribution.value)
-                local right = contribution.right ~= nil and emit.lane(
+                local value = emit.scalar(context, contribution.value)
+                local right = contribution.right ~= nil and emit.scalar(
                     context,
                     contribution.right as scalarIR.Expr
                 ) or nil
-                local mask = emit.lane(context, contribution.mask)
+                local mask = emit.scalar(context, contribution.mask)
                 if accumulator ~= nil then
                     -- The region keeps one lane-wise accumulator: the active
                     -- lanes take the combined value and the rest keep theirs.
@@ -4089,7 +3561,6 @@ function emit.block(
                     end
                 end
                 local inner = new emit.Body(
-                    lanes = body.lanes,
                     layouts = body.layouts,
                     resultStruct = body.resultStruct,
                     forceScalar = body.forceScalar,
@@ -4123,77 +3594,17 @@ function emit.block(
                 lines[#lines + 1] = prefix .. "}"
                 yield true
             end
-            case "vreducer_add" -> do
-                local statement = node as lane.ReducerAdd
-                local contribution = statement as lane.ReducerAdd
-                temporary = temporary + 1
-                local vectorType = tostring(contribution.value.type)
-                local temp = "reduce" .. tostring(temporary)
-                local contributed = contribution.right ~= nil and "(" .. emit.lane(
-                    context,
-                    contribution.value
-                ) .. " * " .. emit.lane(
-                    context,
-                    contribution.right as lane.Expr
-                ) .. ")" or emit.lane(context, contribution.value)
-                lines[
-                    #lines + 1
-                ] = prefix .. emit.cType(context, vectorType) .. " " .. temp .. " = " .. contributed .. ";"
-                local _, width = emit.vectorParts(vectorType)
-                local algebraic = body.algebraicReducers ~= nil and body.algebraicReducers[contribution.reducer] or nil
-                if contribution.order == "exact" and algebraic ~= nil then
-                    lines[
-                        #lines + 1
-                    ] = prefix .. reducers.accumulate(
-                        contribution.operation,
-                        contribution.element as string,
-                        vectorType,
-                        algebraic,
-                        temp
-                    )
-                elseif contribution.order == "algebraic" and algebraic ~= nil then
-                    lines[
-                        #lines + 1
-                    ] = prefix .. algebraic .. (contribution.operation == "product" and " *= " or " += ") .. temp .. ";"
-                else
-                    local stateful = reducerHelper(contribution.order, contribution.operation, contribution.element)
-                    for laneIndex = 0, width - 1 do
-                        if stateful ~= nil then
-                            lines[
-                                #lines + 1
-                            ] = prefix .. stateful .. "add(&" .. contribution.reducerCName .. ", (" .. emit.cType(
-                                context,
-                                contribution.element or "f64"
-                            ) .. ")" .. temp .. "[" .. tostring(laneIndex) .. "]);"
-                        else
-                            local operator = contribution.operation == "product" and " *= " or " += "
-                            lines[
-                                #lines + 1
-                            ] = prefix
-                                .. contribution.reducerCName
-                                .. operator
-                                .. "(double)"
-                                .. temp
-                                .. "["
-                                .. tostring(
-                                    laneIndex
-                                ) .. "];"
-                        end
-                    end
-                end
-                yield true
-            end
             case "reducer_add" -> do
                 local statement = node as scalarIR.ReducerAdd
                 local contribution = statement as scalarIR.ReducerAdd
                 local named = contribution.reducer as scalarIR.Name
-                local contributed = contribution.right ~= nil and "(" .. emit.lane(
+                local contributed = contribution.right ~= nil and "(" .. emit.scalar(
                     context,
                     contribution.value
-                ) .. " * " .. emit.lane(
+                ) .. " * " .. emit.scalar(
                     context,
                     contribution.right as scalarIR.Expr
-                ) .. ")" or emit.lane(context, contribution.value)
+                ) .. ")" or emit.scalar(context, contribution.value)
                 local stateful = reducerHelper(contribution.order, contribution.operation, contribution.value.type)
                 if stateful ~= nil then
                     lines[
@@ -4226,111 +3637,7 @@ function emit.block(
             end
             case "fornum" -> do
                 local statement = node as scalarIR.Fornum
-                if statement.lanes ~= nil and body.forceScalar ~= true then
-                    local region = statement as scalarIR.Fornum
-                    local lanes = region.lanes as scalarIR.LaneBody
-                    local width = tostring(lanes.lanes)
-                    local algebraicReducers: {[string]: string} = {}
-                    local algebraicOrder: {lane.ReducerAdd} = {}
-                    for _, laneStatement in ipairs(lanes.statements) do
-                        if laneStatement.op == "vreducer_add" and reducers.parallel(laneStatement.order) then
-                            local contribution = laneStatement as lane.ReducerAdd
-                            algebraicOrder[#algebraicOrder + 1] = contribution
-                            algebraicReducers[
-                                contribution.reducer
-                            ] = "reduce_acc_" .. tostring(temporary + #algebraicOrder)
-                        end
-                    end
-                    local laneBody = new emit.Body(
-                        lanes = lanes.lanes,
-                        layouts = body.layouts,
-                        resultStruct = body.resultStruct,
-                        forceScalar = false,
-                        algebraicReducers = algebraicReducers
-                    )
-                    lines[#lines + 1] = prefix .. "{"
-                    for _, contribution in ipairs(algebraicOrder) do
-                        local accumulator = algebraicReducers[contribution.reducer] as string
-                        local vector = reducers.accumulatorType(
-                            contribution.order,
-                            contribution.element or "f64",
-                            contribution.value.type
-                        )
-                        lines[
-                            #lines + 1
-                        ] = prefix .. "    " .. emit.cType(
-                            context,
-                            vector
-                        ) .. " " .. accumulator .. " = (" .. emit.cType(
-                            context,
-                            vector
-                        ) .. "){" .. repeated(reducers.identity(contribution.operation), lanes.lanes) .. "};"
-                    end
-                    lines[
-                        #lines + 1
-                    ] = prefix .. "    size_t i = (size_t)((int32_t)(" .. emit.lane(context, region.from) .. ") - 1);"
-                    lines[
-                        #lines + 1
-                    ] = prefix .. "    size_t end = (size_t)(int32_t)(" .. emit.lane(context, region.to) .. ");"
-                    lines[
-                        #lines + 1
-                    ] = prefix
-                        .. "    size_t groups = (end > i) ? ((end - i) / "
-                        .. width
-                        .. ") * "
-                        .. width
-                        .. " + i : i;"
-                    lines[#lines + 1] = prefix .. "    for (; i < groups; i += " .. width .. ") {"
-                    for _, line in ipairs(emit.block(context, lanes.statements, depth + 2, laneBody)) do
-                        lines[#lines + 1] = line
-                    end
-                    lines[#lines + 1] = prefix .. "    }"
-                    for _, contribution in ipairs(algebraicOrder) do
-                        local accumulator = algebraicReducers[contribution.reducer] as string
-                        for laneIndex = 0, lanes.lanes - 1 do
-                            if contribution.order == "exact" then
-                                lines[
-                                    #lines + 1
-                                ] = prefix .. "    " .. reducers.finish(
-                                    contribution.operation,
-                                    contribution.element as string,
-                                    contribution.reducerCName,
-                                    accumulator .. "[" .. tostring(laneIndex) .. "]"
-                                )
-                            else
-                                local operator = contribution.operation == "product" and " *= " or " += "
-                                lines[
-                                    #lines + 1
-                                ] = prefix
-                                    .. "    "
-                                    .. contribution.reducerCName
-                                    .. operator
-                                    .. "(double)"
-                                    .. accumulator
-                                    .. "["
-                                    .. tostring(
-                                        laneIndex
-                                    ) .. "];"
-                            end
-                        end
-                    end
-                    lines[
-                        #lines + 1
-                    ] = prefix
-                        .. "    for (int32_t "
-                        .. region.binding.cName
-                        .. " = (int32_t)i + 1; "
-                        .. region.binding.cName
-                        .. " <= (int32_t)"
-                        .. "end; ++"
-                        .. region.binding.cName
-                        .. ") {"
-                    for _, line in ipairs(emit.block(context, region.body, depth + 2, body)) do
-                        lines[#lines + 1] = line
-                    end
-                    lines[#lines + 1] = prefix .. "    }"
-                    lines[#lines + 1] = prefix .. "}"
-                elseif statement.vector ~= nil and body.forceScalar ~= true then
+                if statement.vector ~= nil and body.forceScalar ~= true then
                     -- The region in the explicit vocabulary stands in for the
                     -- counted loop whole: it reads the span count and the
                     -- species width itself, so the whole groups and the tail
@@ -4374,14 +3681,14 @@ end
 --- One or more programs, as one C file.
 ---
 --- Everything shared is emitted once and everything per function once each: the
---- includes, a struct typedef, and a gang's prelude are shared, while the layout
+--- includes, a struct typedef, and the SIMD prelude are shared, while the layout
 --- reporters, the helpers and the two function bodies belong to the function
 --- that needed them. Two functions reifying one struct get one typedef and two
 --- sets of reporters, because a reporter is named after the symbol whose wrapper
 --- checks it.
 ---
 --- Two definitions of the same function come out per program: the real one, and
---- a forced-scalar one that is the oracle the lane-parallel body is diffed
+--- a forced-scalar one that is the oracle the vector body is diffed
 --- against. The oracle must not share the real body's lowering, which is why it
 --- keeps the scalar statements and carries a pragma refusing vectorisation --
 --- including whatever the C compiler would have done on its own.
@@ -4436,48 +3743,6 @@ function emit.program(programs: {scalarIR.Program}, tier: string?): string
         end
     end
 
-    -- The gang types and helpers, once, when any function chose a gang. A
-    -- program without a lane body contributes none. It used to fall back to the
-    -- widest shape, which put that shape's typedefs and helpers in files no gang
-    -- was chosen for -- and on a target whose register class is narrower than
-    -- the widest shape, a 32-byte vector returned by value is exactly the
-    -- `-Wpsabi` the target model exists to avoid.
-    local function hasLanes(statements: {scalarIR.Statement}): boolean
-        for _, statement in ipairs(statements) do
-            if hasLanes((statement as any).conditionBody or {}) then
-                return true
-            end
-            if statement.op == "fornum" then
-                local loop = statement as scalarIR.Fornum
-                if loop.lanes ~= nil or hasLanes(loop.body) then
-                    return true
-                end
-            elseif statement.op == "if" then
-                for _, clause in ipairs((statement as scalarIR.If).clauses) do
-                    if hasLanes(clause.body) then
-                        return true
-                    end
-                end
-                if hasLanes((statement as scalarIR.If).elseBody or {}) then
-                    return true
-                end
-            elseif statement.op == "while" or statement.op == "repeat" or statement.op == "block" then
-                if hasLanes((statement as any).body as {scalarIR.Statement}) then
-                    return true
-                end
-            end
-        end
-
-        return false
-    end
-
-    for _, program in ipairs(programs) do
-        if program.lanes ~= nil or hasLanes(program.body or {}) then
-            lines[#lines + 1] = emit.carried("ks_gang.h")
-            break
-        end
-    end
-
     lines[#lines + 1] = emit.carried("ks_scalar.h")
 
     local simdWidths: {[integer]: boolean} = {}
@@ -4517,15 +3782,13 @@ function emit.program(programs: {scalarIR.Program}, tier: string?): string
             lines[#lines + 1] = line
         end
 
-        local lanes = program.lanes
-        local width = lanes ~= nil and (lanes as scalarIR.LaneBody).lanes or 0
         local resultTypes = program.resultTypes or {}
         local resultStruct = #resultTypes > 1 and scalarIR.cIdentifier("KsResult", program.symbol) or nil
         local layouts: {[string]: scalarIR.Layout} = {}
         for _, layout in ipairs(program.layouts or {}) do
             layouts[layout.name] = layout
         end
-        local body = new emit.Body(lanes = width, layouts = layouts, resultStruct = resultStruct)
+        local body = new emit.Body(layouts = layouts, resultStruct = resultStruct)
         local general = program.body ~= nil
         if program.entryMode == "lua-builder" then
             local byteRoots = 0
@@ -4658,14 +3921,6 @@ function emit.program(programs: {scalarIR.Program}, tier: string?): string
                     for _, line in ipairs(emit.block(context, vector as {scalarIR.Statement}, 1, body)) do
                         lines[#lines + 1] = line
                     end
-                elseif lanes ~= nil and not forced then
-                    for _, line in ipairs(emit.groupBound(width)) do
-                        lines[#lines + 1] = line
-                    end
-                    for _, line in ipairs(emit.block(context, (lanes as scalarIR.LaneBody).statements, 2, body)) do
-                        lines[#lines + 1] = line
-                    end
-                    lines[#lines + 1] = "    }"
                 end
                 if not general and (vector == nil or forced) then
                     lines[#lines + 1] = "    for (; i < end; ++i) {"

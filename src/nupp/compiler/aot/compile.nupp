@@ -7,7 +7,7 @@ Parse, lower, verify, run the loops the source marked `@simd` in lanes, verify
 again, emit. Everything it does is a step some other module owns; what it owns
 is the order, and the two places that order matters.
 
-The lane rewrite runs on verified scalar IR. What it rewrites has already been
+The `@simd` rewrite runs on verified scalar IR. What it rewrites has already been
 proved to mean something, so a refusal from it is only ever about running the
 loop several iterations at a time -- never about whether the loop meant anything
 in the first place. And the rewritten IR is verified again before it is emitted,
@@ -30,7 +30,6 @@ local lower = require("nupp.compiler.aot.lower")
 local loopAnalysis = require("nupp.compiler.aot.loops")
 local aotOptimize = require("nupp.compiler.aot.optimize")
 local parser = require("nupp.compiler.parser")
-local rewrite = require("nupp.compiler.aot.rewrite")
 local simdrewrite = require("nupp.compiler.aot.simdrewrite")
 local scalarIR = require("nupp.compiler.aot.scalar")
 local targets = require("nupp.compiler.aot.target")
@@ -708,12 +707,13 @@ end
 ---
 --- A map-shaped program carries the mark on its one loop and is rewritten
 --- whole; a block-shaped body carries it on regions, each rewritten in place.
---- Either way the widest gang that admits the loop is taken. A program with no
---- mark is left as it lowered.
+--- Either way the rewrite is onto the explicit SIMD vocabulary -- the same
+--- species, masks and reducers a programmer writes by hand, at the target's own
+--- vector width. A program with no mark is left as it lowered.
 ---
 --- @param filename what a refusal names
---- @param selected the target, which decides whether a gang exists at all
---- @return the refusals when a required loop produced no lane code, which
+--- @param selected the target, which decides the vector width
+--- @return the refusals when a required loop produced no vector code, which
 ---   fails the build; nothing when every required loop did
 function compile.lanes(program: scalarIR.Program, filename: string, selected: targets.Target): {compile.Diagnostic}?
     if program.usesSimd == true then
@@ -722,74 +722,6 @@ function compile.lanes(program: scalarIR.Program, filename: string, selected: ta
     if program.simdRequired ~= true then
         return nil
     end
-    if os.getenv("NUPP_SIMD_EXPLICIT") == "1" then
-        return compile.explicitLanes(program, filename, selected)
-    end
-
-    -- A target with no gang is not a loop that refused: nothing was tried,
-    -- because a 32-byte value has nowhere to live. Saying which tier would give
-    -- it one is the whole of what a reader can act on.
-    local shapes = targets.gangs(selected)
-
-    if program.loop ~= nil then
-        if #shapes == 0 then
-            return {loopDiagnostic(program, filename, targets.noGangReason(selected))}
-        end
-        local refusals = rewrite.select(program, shapes)
-        if program.lanes == nil then
-            local out: {compile.Diagnostic} = {}
-            for _, why in ipairs(refusals) do
-                out[#out + 1] = loopDiagnostic(program, filename, why)
-            end
-            if #out == 0 then
-                out[1] = loopDiagnostic(program, filename, NO_LANE_CODE)
-            end
-            return out
-        end
-        verify.program(program)
-        return nil
-    end
-
-    local regions: {scalarIR.Fornum} = {}
-    requiredRegions(program.body or {}, regions)
-    if #regions == 0 then
-        return {loopDiagnostic(program, filename, NO_LANE_CODE)}
-    end
-    if #shapes == 0 then
-        return {regionDiagnostic(regions[1], filename, targets.noGangReason(selected))}
-    end
-    for _, region in ipairs(regions) do
-        if region.boundSpan == nil then
-            return {regionDiagnostic(region, filename, "@simd currently requires bounds of the form 1, #span")}
-        end
-        local refusals = rewrite.selectRegion(program, region, shapes)
-        if region.lanes == nil then
-            local out: {compile.Diagnostic} = {}
-            for _, why in ipairs(refusals) do
-                out[#out + 1] = regionDiagnostic(region, filename, why)
-            end
-            if #out == 0 then
-                out[1] = regionDiagnostic(region, filename, NO_LANE_CODE)
-            end
-            return out
-        end
-    end
-    verify.program(program)
-
-    return nil
-end
-
---- Runs the loops the source marked `@simd` through the explicit SIMD
---- vocabulary instead of the lane pass: the same species, masks and reducers
---- a programmer writes by hand, at the target's own vector width.
----
---- Selected by `NUPP_SIMD_EXPLICIT=1` while the two paths are compared; the
---- lane pass stays the default.
-function compile.explicitLanes(
-    program: scalarIR.Program,
-    filename: string,
-    selected: targets.Target
-): {compile.Diagnostic}?
     local width = targets.simdWidth(selected)
     if program.loop ~= nil then
         local refusals = simdrewrite.program(program, width)
@@ -836,7 +768,7 @@ end
 ---
 --- @param library where the compiled object will be found, which the generated
 ---   module loads
---- @param selected the target, which decides which gangs exist
+--- @param selected the target, which decides how wide a vector may be
 --- @param at named with each step this takes as it reaches it, for a build
 ---   accounting for where its time went. A plain function rather than the
 ---   build's reporter, because what compiles one `@aot` body should not have to

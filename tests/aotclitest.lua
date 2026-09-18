@@ -2045,7 +2045,7 @@ function M.aRegisterResidentLoopReportsItsGangAndWidth()
     local dir = project{["compute.nupp"] = COMPUTE}
     local out, code = run(dir, PINNED .. "compute.nupp")
     test.equal(code, 0, out)
-    assert(out:find("mixed4", 1, true), "the gang is named: " .. out)
+    assert(out:find("Fixed<4>", 1, true), "the species is named: " .. out)
     assert(out:find("4 lanes", 1, true), "the width is named: " .. out)
 end
 
@@ -2072,7 +2072,7 @@ function M.aRequiredSimdLoopLowersAContiguousCopy()
     local dir = project{["required.nupp"] = REQUIRED_CONTIGUOUS}
     local out, code = run(dir, PINNED .. "required.nupp")
     test.equal(code, 0, out)
-    assert(out:find("f32x8", 1, true), "the required gang is named: " .. out)
+    assert(out:find("Fixed<8>", 1, true), "the required species is named: " .. out)
     assert(out:find("8 lanes", 1, true), "the required width is named: " .. out)
 end
 
@@ -2092,8 +2092,8 @@ function M.requiredSimdRegionsKeepScalarSetupTeardownAndOrder()
     local decoded, raw, code, where = lowered(dir, PINNED .. "--json required.nupp")
     test.equal(code, 0, raw)
     local ir = decoded.ir
-    local _, regions = ir:gsub("simd lanes%(", "")
-    test.equal(regions, 2, where .. ": both authored regions have lane bodies\n" .. ir)
+    local _, regions = ir:gsub("simd vector", "")
+    test.equal(regions, 2, where .. ": both authored regions have vector bodies\n" .. ir)
     assert(
         ir:find(
             "let adjusted",
@@ -2107,16 +2107,16 @@ function M.requiredSimdRegionsKeepScalarSetupTeardownAndOrder()
             "let result",
             1,
             true
-        ) > ir:find("simd lanes", 1, true) and ir:find("return local:f64 result", 1, true) > ir:match(".*()simd lanes"),
+        ) > ir:find("simd vector", 1, true) and ir:find("return local:f64 result", 1, true) > ir:match(".*()simd vector"),
         where .. ": scalar setup, between-region work, and teardown remain ordered\n" .. ir
     )
-    local _, loops = decoded.c:gsub("for %(%s*; i < groups;", "")
-    test.equal(loops, 2, where .. ": each region emits its own required gang loop")
+    local _, loops = decoded.c:gsub("_base1 = UINT32_C%(0%);", "")
+    test.equal(loops, 2, where .. ": each region emits its own whole-group loop")
     local scalarOracle = decoded.c:match("ks_process_forced_scalar.-\n}\n")
     assert(scalarOracle ~= nil, where .. ": required regions retain a scalar-source C oracle")
     assert(
-        not scalarOracle:find("groups", 1, true),
-        where .. ": the scalar-source oracle erases lane regions instead of sharing their lowering"
+        not scalarOracle:find("ks_exp_", 1, true),
+        where .. ": the scalar-source oracle erases vector regions instead of sharing their lowering"
     )
 end
 
@@ -2125,16 +2125,16 @@ function M.requiredSimdKeepsUniformNestedLoopsInsideLaneBranches()
     local decoded, raw, code, where = lowered(dir, PINNED .. "--json required.nupp")
     test.equal(code, 0, raw)
     assert(decoded.ir:find("for sample", 1, true), where .. ": the uniform inner loop remains structured")
-    assert(decoded.ir:find("vselect", 1, true), where .. ": its assignment is masked by the outer condition")
+    assert(decoded.ir:find("simd_select", 1, true), where .. ": its assignment is masked by the outer condition")
 end
 
 function M.requiredSimdControlsVaryingNestedForAndBreakPerLane()
     local dir = project{["required.nupp"] = REQUIRED_VARYING_FOR}
     local decoded, raw, code, where = lowered(dir, PINNED .. "--json required.nupp")
     test.equal(code, 0, raw)
-    assert(decoded.ir:find("vwhile any", 1, true), where .. ": varying bounds become a live-mask loop")
-    assert(decoded.ir:find("vbreak", 1, true), where .. ": break retires only participating lanes")
-    assert(decoded.ir:find("vindex", 1, true), where .. ": the authored outer index is a lane value")
+    assert(decoded.ir:find("simd_mask_any", 1, true), where .. ": varying bounds become a live-mask loop")
+    assert(decoded.ir:find("simd_unary.not", 1, true), where .. ": break retires only participating lanes")
+    assert(decoded.ir:find("simd_iota", 1, true), where .. ": the authored outer index is a vector value")
 end
 
 function M.mandelbrotUsesRequiredSimdWithLaneLocalEarlyExit()
@@ -2145,8 +2145,8 @@ function M.mandelbrotUsesRequiredSimdWithLaneLocalEarlyExit()
     local dir = project{["mandelbrot.nupp"] = source}
     local decoded, raw, code, where = lowered(dir, PINNED .. "--json mandelbrot.nupp")
     test.equal(code, 0, raw)
-    assert(decoded.ir:find("vwhile any", 1, true), where .. ": Mandelbrot retains its varying loop")
-    assert(decoded.ir:find("vbreak", 1, true), where .. ": each escaped point retires independently")
+    assert(decoded.ir:find("simd_mask_any", 1, true), where .. ": Mandelbrot retains its varying loop")
+    assert(decoded.ir:find("simd_unary.not", 1, true), where .. ": each escaped point retires independently")
 end
 
 function M.requiredSimdRepeatTestsEachLaneAfterItsBody()
@@ -2181,9 +2181,9 @@ return {refine = refine}
     local dir = project{["repeat.nupp"] = source}
     local decoded, raw, code, where = lowered(dir, PINNED .. "--json repeat.nupp")
     test.equal(code, 0, raw)
-    assert(decoded.ir:find("vwhile any", 1, true), where .. ": repeat becomes one lane-live loop")
-    assert(decoded.ir:find("vcontinue", 1, true), where .. ": continue reaches the trailing lane test")
-    assert(decoded.ir:find("vbreak", 1, true), where .. ": break retires only its lane")
+    assert(decoded.ir:find("simd_mask_any", 1, true), where .. ": repeat becomes one lane-live loop")
+    assert(decoded.ir:find("$exec", 1, true), where .. ": continue reaches the trailing lane test")
+    assert(decoded.ir:find("$live", 1, true), where .. ": break retires only its lane")
     local scalarOracle = decoded.c:match("ks_refine_forced_scalar.-\n}\n")
     assert(scalarOracle ~= nil, where .. ": repeat retains an independent scalar oracle")
     assert(
@@ -2227,9 +2227,9 @@ return {folds = folds}
     }) do
         local decoded, raw, code = lowered(dir, tier .. "--json folds.nupp")
         test.equal(code, 0, raw)
-        assert(decoded.ir:find("vreducer.exact.sum", 1, true), tier .. decoded.ir)
-        assert(decoded.ir:find("vspan:u64x", 1, true), tier .. decoded.ir)
-        assert(decoded.c:find("reduce_acc_", 1, true), tier .. ": missing lane accumulator")
+        assert(decoded.ir:find("simd.reducer.exact.sum", 1, true), tier .. decoded.ir)
+        assert(decoded.ir:find("simd_load.load:simd_vector_u64_fixed", 1, true), tier .. decoded.ir)
+        assert(decoded.c:find("simd_acc_", 1, true), tier .. ": missing lane accumulator")
         assert(decoded.c:find("ks_reduce_integer_argmax_u64_add", 1, true), tier .. ": missing indexed extremum")
     end
 end
@@ -2274,12 +2274,12 @@ return {totals = totals}
         where .. ": algebraic contract is explicit\n" .. decoded.ir
     )
     assert(
-        decoded.ir:find("vreducer.pairwise.sum", 1, true),
-        where .. ": pairwise contribution is lane IR\n" .. decoded.ir
+        decoded.ir:find("simd.reducer.pairwise.sum", 1, true),
+        where .. ": the pairwise contribution carries its order\n" .. decoded.ir
     )
     assert(decoded.c:find("ks_pairwise_f64_add", 1, true), where .. ": pairwise tree has its own native state")
     assert(
-        decoded.c:find("reduce_acc_", 1, true),
+        decoded.c:find("simd_acc_", 1, true),
         where .. ": algebraic sum uses lane accumulators rather than an ordered chain"
     )
     assert(decoded.c:find("ks_totals_forced_scalar", 1, true), where .. ": reducers retain the scalar-source C oracle")
@@ -3097,8 +3097,8 @@ return {total = total}
         where .. ": the exact contract is explicit\n" .. decoded.ir
     )
     assert(
-        decoded.ir:find("vreducer.compensated.sum", 1, true),
-        where .. ": the contribution is lane IR\n" .. decoded.ir
+        decoded.ir:find("simd.reducer.compensated.sum", 1, true),
+        where .. ": the contribution carries its order\n" .. decoded.ir
     )
     assert(
         decoded.c:find("ks_compensated_f64_add", 1, true),
@@ -3283,10 +3283,13 @@ return {reductions = reductions}
     local dir = project{["reducers.nupp"] = source}
     local decoded, raw, code, where = lowered(dir, PINNED .. "--json reducers.nupp")
     test.equal(code, 0, raw)
-    assert(decoded.ir:find("vreducer.pairwise.product", 1, true), where .. ": product order and operation are explicit")
-    assert(decoded.ir:find("vreducer.algebraic.dot", 1, true), where .. ": dot contraction permission is distinct")
+    assert(
+        decoded.ir:find("simd.reducer.pairwise.product", 1, true),
+        where .. ": product order and operation are explicit"
+    )
+    assert(decoded.ir:find("simd.reducer.algebraic.dot", 1, true), where .. ": dot contraction permission is distinct")
     assert(decoded.c:find("ks_pairwise_f64_product_add", 1, true), where .. ": product uses a multiplication tree")
-    assert(decoded.c:find("reduce_acc_", 1, true), where .. ": algebraic dot uses lane accumulators")
+    assert(decoded.c:find("simd_acc_", 1, true), where .. ": algebraic dot uses lane accumulators")
 end
 
 -- The lane body out of `--emit ir`, which is what a helper call and the same source
@@ -3294,25 +3297,38 @@ end
 -- spelling carries a `helper_call` and the other carries the expression, which is the
 -- difference the inline is supposed to erase by the time lanes are chosen.
 
---- The lane body inside one pinned report's IR, and the report it came out of.
+--- The vector body inside one pinned report's IR, and the report it came out of.
 ---
 --- `--json` carries the IR beside everything else the run measured, so a case
---- that wants both the lane body and what the optimizer did to it asks once.
-local function laneReport(dir, file, label)
+--- that wants both the vector body and what the optimizer did to it asks once.
+local function vectorReport(dir, file, label)
     local decoded, out, code, where = lowered(dir, PINNED .. "--json " .. file)
     test.equal(code, 0, label .. " (" .. where .. "): " .. out)
     local ir = decoded.ir
-    local lanes = ir:match("\nsimd lanes%(.-\n(.*)$") and ir:match("(\nsimd lanes.*)$")
+    local vector = ir:match("(\nsimd vector\n.*)$")
     assert(
-        lanes,
-        label .. " ran one iteration at a time, so there is no lane body to compare (" .. where .. "):\n" .. out
+        vector,
+        label .. " ran one iteration at a time, so there is no vector body to compare (" .. where .. "):\n" .. out
     )
 
-    return lanes, decoded
+    -- Unrolling a counted loop wraps each copy in a `block`, which the rewrite
+    -- carries through to the vector body as an ordinary scope. It is the one
+    -- difference between a loop and the same work written out, and it is not a
+    -- difference in the vectorized work, so it is normalized away here rather
+    -- than asserted about.
+    local lines = {}
+    for line in (vector .. "\n"):gmatch("([^\n]*)\n") do
+        local bare = line:match("^%s*(.-)%s*$")
+        if bare ~= "block" then
+            lines[#lines + 1] = bare
+        end
+    end
+
+    return table.concat(lines, "\n"), decoded
 end
 
-local function laneIr(dir, file, label)
-    return (laneReport(dir, file, label))
+local function vectorIr(dir, file, label)
+    return (vectorReport(dir, file, label))
 end
 
 -- Both spellings of one kernel: the predicate behind a helper, and the same predicate
@@ -3324,7 +3340,7 @@ local function bothSpellings(inlined, predicate, call, helper)
     return withHelper, inlined
 end
 
-function M.aHelperCallLowersToTheSameLaneIrAsWritingItInline()
+function M.aHelperCallLowersToTheSameVectorIrAsWritingItInline()
     -- The property the inline exists to have, and the one that regressed silently:
     -- a helper's parameters lowered as ordinary locals, the lane rewriter read the
     -- inlined body as uniform, and the loop ran scalar. Comparing the gang and the
@@ -3336,10 +3352,10 @@ function M.aHelperCallLowersToTheSameLaneIrAsWritingItInline()
         "local function hasEscaped(a: number, b: number): boolean\n    return a + b > 4.0\nend"
     )
     local dir = project{["helper.nupp"] = withHelper, ["inline.nupp"] = inlined}
-    test.equal(laneIr(dir, "helper.nupp", "the helper spelling"), laneIr(dir, "inline.nupp", "the inline spelling"))
+    test.equal(vectorIr(dir, "helper.nupp", "the helper spelling"), vectorIr(dir, "inline.nupp", "the inline spelling"))
 end
 
-function M.aNumericHelperCallLowersToTheSameLaneIrAsWritingItInline()
+function M.aNumericHelperCallLowersToTheSameVectorIrAsWritingItInline()
     -- The condition path and the value path reach the rewriter differently -- one
     -- through a mask, one through a vector of the wanted element -- so one case
     -- passing says nothing about the other.
@@ -3350,10 +3366,10 @@ function M.aNumericHelperCallLowersToTheSameLaneIrAsWritingItInline()
         "local function twiceProduct(a: number, b: number): number\n    return 2.0 * a * b\nend"
     )
     local dir = project{["helper.nupp"] = withHelper, ["inline.nupp"] = inlined}
-    test.equal(laneIr(dir, "helper.nupp", "the helper spelling"), laneIr(dir, "inline.nupp", "the inline spelling"))
+    test.equal(vectorIr(dir, "helper.nupp", "the helper spelling"), vectorIr(dir, "inline.nupp", "the inline spelling"))
 end
 
-function M.aFourTripLoopLowersToTheSameLaneIrAsWritingItOut()
+function M.aFourTripLoopLowersToTheSameVectorIrAsWritingItOut()
     local written = FIXED_MIX:gsub(
         "        for round = 1, 4 do\n            value = value %* 1%.0009765625 %+ round %* 0%.125\n        end",
         table.concat(
@@ -3368,8 +3384,8 @@ function M.aFourTripLoopLowersToTheSameLaneIrAsWritingItOut()
     )
     assert(written ~= FIXED_MIX, "the fixed loop was replaced by its control")
     local dir = project{["loop.nupp"] = FIXED_MIX, ["written.nupp"] = written}
-    local fixed, report = laneReport(dir, "loop.nupp", "the fixed loop")
-    test.equal(fixed, laneIr(dir, "written.nupp", "the written body"))
+    local fixed, report = vectorReport(dir, "loop.nupp", "the fixed loop")
+    test.equal(fixed, vectorIr(dir, "written.nupp", "the written body"))
 
     -- The same report the lane body came out of also says what unrolled it.
     local optimization = report.functions[1].optimization
@@ -3469,7 +3485,7 @@ function M.emitPrintsTheGeneratedC()
         where .. ": the writable span carries the disjointness ownership proved: " .. out
     )
     assert(
-        out:find("ks_sel_f64x4", 1, true),
+        out:find("ks_exp_select_f64x4", 1, true),
         where .. ": the conditional became a select rather than a branch: " .. out
     )
 end
@@ -3618,7 +3634,7 @@ function M.emitPrintsTheIrAndTheBinding()
     test.equal(code, 0, raw)
 
     local ir = decoded.ir
-    assert(ir:find("simd lanes(4)", 1, true), where .. ": the lane body is in the IR beside the scalar one: " .. ir)
+    assert(ir:find("simd vector", 1, true), where .. ": the vector body is in the IR beside the scalar one: " .. ir)
     assert(ir:find("disjoint r0 r1", 1, true), where .. ": the alias matrix is in the IR: " .. ir)
 
     local binding = decoded.binding
@@ -3642,14 +3658,20 @@ function M.narrowScalarSpansKeepTheirStorageAndUseLanes()
         ir:find("flags:u32 source(uint8)", 1, true),
         where .. ": the IR distinguishes storage from its established value: " .. ir
     )
-    assert(ir:find("vspan:i32x8 bytes[i..i+7]", 1, true), where .. ": a byte load is widened into the gang: " .. ir)
-    assert(ir:find("vset flags[i..i+7]", 1, true), where .. ": a scalar span store is scattered from the gang: " .. ir)
+    assert(
+        ir:find("simd_load.load:simd_vector_u8_fixed8", 1, true),
+        where .. ": a byte load keeps its own species and is converted from it: " .. ir
+    )
+    assert(
+        ir:find("simd_store.store:lua_effect", 1, true),
+        where .. ": a scalar span store is written from the vector: " .. ir
+    )
 
     local c = decoded.c
     assert(c:find("uint8_t *restrict p_flags", 1, true), where .. ": the output pointer retains byte storage: " .. c)
     assert(c:find("const uint8_t *p_bytes", 1, true), where .. ": the input pointer retains const byte storage: " .. c)
     assert(
-        c:find("p_flags[i + 7] = (uint8_t)lanes[7]", 1, true),
+        c:find("ks_exp_store_full_u8x8(p_flags", 1, true),
         where .. ": lane values narrow only when stored: " .. c
     )
 
@@ -3987,8 +4009,8 @@ function M.jsonCarriesTheRegionAndItsGang()
     test.equal(only.name, "escapes")
     test.equal(only.symbol, "ks_escapes")
     test.equal(#only.regions, 1, "the map loop is the one @simd region")
-    test.equal(only.regions[1].gang.shape, "mixed4")
     test.equal(only.regions[1].gang.lanes, 4)
+    test.equal(only.regions[1].gang.species.f64, "simd_vector_f64_fixed4")
     test.equal(#only.loops, 1)
     test.equal(only.loops[1].kind, "map")
     test.equal(only.loops[1].outcome, "lowered")
@@ -4069,16 +4091,21 @@ function M.everyAotFunctionInAFileIsCompiled()
     test.equal(#decoded.functions, 2, "both functions are reported")
     test.equal(decoded.functions[1].name, "scale", "in source order")
     test.equal(decoded.functions[2].name, "brighten")
-    test.equal(decoded.functions[1].regions[1].gang.shape, "mixed4", "ordinary arithmetic takes four lanes")
-    test.equal(decoded.functions[2].regions[1].gang.shape, "f32x8", "explicit binary32 takes eight")
+    test.equal(decoded.functions[1].regions[1].gang.lanes, 4, "a binary64 value takes four lanes of 32 bytes")
+    test.equal(
+        decoded.functions[1].regions[1].gang.species.f64,
+        "simd_vector_f64_fixed4",
+        "and the species each element is carried in is reported"
+    )
+    test.equal(decoded.functions[2].regions[1].gang.lanes, 8, "explicit binary32 takes eight")
 
     -- One struct declared once, both gangs in use, and each function bringing
     -- its own pair of bodies.
     local c = decoded.c
     test.equal(select(2, c:gsub("} KsSample;", "")), 1, "the shared struct is declared once")
     assert(
-        c:find("ks_splat_f64x4(p_factor)", 1, true) and c:find("ks_splat_f32x8(p_lift)", 1, true),
-        "each function's body runs on the gang it chose"
+        c:find("ks_exp_splat_f64x4(p_factor)", 1, true) and c:find("ks_exp_splat_f32x8(p_lift)", 1, true),
+        "each function's body runs on the species it chose"
     )
     test.equal(
         select(2, c:gsub("float nupp_f32_nan", "")),
@@ -4105,7 +4132,6 @@ function M.theBaselineX86TierGetsTheNarrowGang()
     local decoded, out, code, where = lowered(dir, "--json --target x86_64-unknown-linux-gnu compute.nupp")
     test.equal(code, 0, "plain x86-64 vectorises rather than refusing\n" .. out)
     test.equal(decoded.target.tier, "baseline", where .. ": and did not quietly promise instructions nobody asked for")
-    test.equal(decoded.functions[1].regions[1].gang.shape, "mixed2", where)
     test.equal(
         decoded.functions[1].regions[1].gang.lanes,
         2,
@@ -4120,7 +4146,6 @@ function M.aWiderTierGetsTheWiderGang()
     local decoded = require("testjson").decode(out)
     test.equal(decoded.target.triple, "x86_64-unknown-linux-gnu")
     test.equal(decoded.target.tier, "avx2", "the tier is reported, because it changed the answer")
-    test.equal(decoded.functions[1].regions[1].gang.shape, "mixed4")
     test.equal(decoded.functions[1].regions[1].gang.lanes, 4)
 end
 
@@ -4130,25 +4155,23 @@ function M.theAvx512TierGetsEightMixedLanes()
     test.equal(code, 0, out)
     local decoded = require("testjson").decode(out)
     test.equal(decoded.target.tier, "avx512f")
-    test.equal(decoded.functions[1].regions[1].gang.shape, "mixed8")
     test.equal(decoded.functions[1].regions[1].gang.lanes, 8)
     assert(
-        decoded.c:find("ks_f64x8", 1, true) and decoded.c:find("ks_m64x8", 1, true),
-        "the eight-lane gang carries binary64 values and masks at 64 bytes"
+        decoded.c:find("ks_exp_f64x8", 1, true) and decoded.c:find("ks_exp_mask_f64x8", 1, true),
+        "the eight-lane species carries binary64 values and masks at 64 bytes"
     )
 end
 
-function M.anAll32BitLoopDoesNotTakeTheWiderTie()
+function M.anAll32BitLoopFillsTheTierWithNarrowLanes()
+    -- A lane is one logical iteration, so the lane count is the tier divided by
+    -- the widest element the region touches. Nothing here is wider than 32 bits,
+    -- so sixteen iterations fit a 64-byte register rather than eight.
     local dir = project{["classify.nupp"] = BYTE_CLASSIFIER}
     local out, code = run(dir, "--json --target x86_64-unknown-linux-gnu --features avx512f classify.nupp")
     test.equal(code, 0, out)
-    local decoded = require("testjson").decode(out)
-    test.equal(
-        decoded.functions[1].regions[1].gang.shape,
-        "f32x8",
-        "eight lanes in 32 bytes win over mixed8 when no binary64 value needs it"
-    )
-    test.equal(decoded.c:find("ks_f64x8", 1, true), nil, "the narrower tie does not emit an unused 64-byte vector")
+    local gang = require("testjson").decode(out).functions[1].regions[1].gang
+    test.equal(gang.lanes, 16, "sixteen 32-bit lanes fill the tier")
+    test.equal(gang.species.f64, nil, "and no binary64 species is chosen for a region with no binary64 value")
 end
 
 function M.theWidestGangThatFitsWins()
@@ -4158,7 +4181,7 @@ function M.theWidestGangThatFitsWins()
     local dir = project{["compute.nupp"] = COMPUTE}
     local out = select(1, run(dir, "--json --target x86_64-unknown-linux-gnu --features avx2 compute.nupp"))
     local decoded = require("testjson").decode(out)
-    test.equal(decoded.functions[1].regions[1].gang.shape, "mixed4", "not mixed2, which also fits and holds half as much")
+    test.equal(decoded.functions[1].regions[1].gang.lanes, 4, "not two, which also fits and holds half as much")
 end
 
 function M.armHasOneTierAndNeedsNoSelection()
@@ -4167,7 +4190,7 @@ function M.armHasOneTierAndNeedsNoSelection()
     test.equal(code, 0, out)
     local decoded = require("testjson").decode(out)
     test.equal(decoded.target.tier, "neon", "its 16-byte registers are mandatory, so there is nothing to opt into")
-    test.equal(decoded.functions[1].regions[1].gang.shape, "mixed4")
+    test.equal(decoded.functions[1].regions[1].gang.lanes, 2, "one 16-byte register holds two binary64 lanes")
 end
 
 function M.anUnknownTargetOrTierIsRejected()

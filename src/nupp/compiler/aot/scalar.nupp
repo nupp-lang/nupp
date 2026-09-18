@@ -1320,17 +1320,15 @@ record scalarIR.Fornum
     --- that accesses through this induction variable are in bounds.
     boundSpan: string?
 
-    --- This counted loop is an authored SIMD region. `lanes` is filled only
+    --- This counted loop is an authored SIMD region. `vector` is filled only
     --- after target legalization succeeds; absence after an attempted required
     --- lowering is a compilation failure, never a scalar fallback.
     simdRequired: boolean?
 
-    lanes: scalarIR.LaneBody?
-
     --- The same region written in the explicit SIMD vocabulary: a `simd_region`
     --- whose statements read the span count and the species width themselves,
-    --- so it stands where `lanes` stands and nothing after it has to know how
-    --- the groups and the tail were divided.
+    --- so nothing after it has to know how the groups and the tail were
+    --- divided.
     vector: {scalarIR.Statement}?
 
     source: scalarIR.Source?
@@ -1622,19 +1620,6 @@ record scalarIR.Workgroup
     source: scalarIR.Source?
 end
 
---- The lane-parallel rewrite of the loop body, when one was made and kept.
-record scalarIR.LaneBody
-    lanes: integer
-    shape: string
-    statements: {any}
-
-    --- Whether any explicit fixed-width operation was performed wider and
-    --- rounded, because this gang does not carry that element exactly. Three
-    --- instructions where an exact one is a single instruction, so a body full
-    --- of them gains far less from lanes than its operation count suggests.
-    rounded: boolean?
-end
-
 ----------------------------------------------------------------------------
 -- A whole program
 ----------------------------------------------------------------------------
@@ -1717,14 +1702,13 @@ record scalarIR.Program
     usesNumberToken: boolean?
     simdWidth: integer?
     rangeGuard: scalarIR.RangeGuard?
-    lanes: scalarIR.LaneBody?
 
-    --- The map loop written in the explicit SIMD vocabulary, standing where
-    --- `lanes` stands; see `Fornum.vector`.
+    --- The map loop written in the explicit SIMD vocabulary; see
+    --- `Fornum.vector`.
     vector: {scalarIR.Statement}?
 
     --- Whether the source marked this program's loop with `@simd`. A required
-    --- source contract: failure to produce lanes fails compilation.
+    --- source contract: failure to produce vector code fails compilation.
     simdRequired: boolean?
 
     --- Whether the source asked for fused multiply-add. Part of what the

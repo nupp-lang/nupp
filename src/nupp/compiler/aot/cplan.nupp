@@ -1,16 +1,14 @@
 module nupp.compiler.aot.cplan
 
 -- C-specific selections, made without printing text or changing semantic IR.
-local admit = require("nupp.compiler.aot.admit")
 local scalarIR = require("nupp.compiler.aot.scalar")
-local lane = require("nupp.compiler.aot.lane")
 local visit = require("nupp.compiler.aot.visit")
 local cplan = {}
 
-type cplan.Statement = scalarIR.Statement | lane.Statement
+type cplan.Statement = scalarIR.Statement
 
 --- Blocks are read-only here; preserve each producer's typed array.
-type cplan.Block = {scalarIR.Statement} | {lane.Statement} | {cplan.Statement}
+type cplan.Block = {scalarIR.Statement}
 
 record cplan.Operand
     value: scalarIR.Expr?
@@ -181,163 +179,6 @@ function cplan.expressions(programs: {scalarIR.Program}): cplan.Expressions
     end
 
     return plans
-end
-
-record cplan.Neon
-    lanes: integer
-    element: string
-    tuple: string
-    load: string
-    alias: string
-end
-
-record cplan.FieldPair
-    first: lane.Let
-    second: lane.Let
-    left: lane.FieldLoad
-    right: lane.FieldLoad
-    resultType: string
-    resultElement: string
-    leftIndex: integer
-    rightIndex: integer
-    neon: cplan.Neon
-end
-
---- Neon spellings for naturally interleaved pairs of scalar fields.
-local NEON_PAIR: {
-    [string]: cplan.Neon
-} = {
-    [
-        "float"
-    ] = new cplan.Neon(
-        lanes = 4,
-        element = "f32",
-        tuple = "float32x4x2_t",
-        load = "vld2q_f32",
-        alias = "ks_alias_float"
-    ),
-    [
-        "number"
-    ] = new cplan.Neon(
-        lanes = 2,
-        element = "f64",
-        tuple = "float64x2x2_t",
-        load = "vld2q_f64",
-        alias = "ks_alias_double"
-    ),
-    [
-        "int32"
-    ] = new cplan.Neon(lanes = 4, element = "i32", tuple = "int32x4x2_t", load = "vld2q_s32", alias = "ks_alias_i32"),
-    [
-        "uint32"
-    ] = new cplan.Neon(lanes = 4, element = "u32", tuple = "uint32x4x2_t", load = "vld2q_u32", alias = "ks_alias_u32"),
-}
-
-local function physicalSource(load: lane.FieldLoad): string
-    return load.sourceType or tostring(admit.CANONICAL_SOURCE[load.scalarType])
-end
-
---- Peels the one exact arithmetic conversion a physical field load may carry.
-local function fieldLoad(value: scalarIR.Expr | lane.Expr): lane.FieldLoad?
-    if value.op == "vfield_load" then
-        return value as lane.FieldLoad
-    elseif value.op == "vconvert" and #(
-        value as lane.Convert
-    ).args == 1 and (value as lane.Convert).args[1].op == "vfield_load" then
-        return (value as lane.Convert).args[1] as lane.FieldLoad
-    end
-
-    return nil
-end
-
---- Describes two adjacent field loads that are one complete, padding-free AoS
---- pair. Anything less exact keeps the ordinary gather spelling.
-function cplan.neonFieldPair(
-    first: cplan.Statement,
-    second: cplan.Statement,
-    layouts: {[string]: scalarIR.Layout}
-): cplan.FieldPair?
-    if first.op ~= "let" or second.op ~= "let" then
-        return nil
-    end
-
-    local first = first as lane.Let
-    local second = second as lane.Let
-    local left = fieldLoad(first.value)
-    local right = fieldLoad(second.value)
-    if left == nil or right == nil then
-        return nil
-    end
-    if left.span ~= right.span
-        or left.layout ~= right.layout
-        or left.lanes ~= right.lanes
-        or left.field == right.field
-        or left.scalarType ~= right.scalarType
-        or left.type ~= right.type
-        or first.type ~= second.type
-    then
-        return nil
-    end
-
-    local layout = layouts[left.layout]
-    local source = physicalSource(left)
-    local neon = NEON_PAIR[source]
-    if layout == nil or #layout.fields ~= 2 or neon == nil or physicalSource(right) ~= source then
-        return nil
-    end
-    local fields = (layout as scalarIR.Layout).fields
-    local firstSource = fields[1].sourceType or tostring(admit.CANONICAL_SOURCE[fields[1].type])
-    local secondSource = fields[2].sourceType or tostring(admit.CANONICAL_SOURCE[fields[2].type])
-    if firstSource ~= source or secondSource ~= source then
-        return nil
-    end
-
-    local leftIndex = fields[1].name == left.field and 0 or fields[2].name == left.field and 1 or nil
-    local rightIndex = fields[1].name == right.field and 0 or fields[2].name == right.field and 1 or nil
-    local nativeLanes = neon.lanes as integer
-    if leftIndex == nil
-        or rightIndex == nil
-        or leftIndex == rightIndex
-        or left.lanes % nativeLanes ~= 0
-        or left.lanes
-        / nativeLanes > 2
-    then
-        return nil
-    end
-
-    local resultElement = tostring(first.type):match("^([fiu]%d+)x")
-    if resultElement == nil then
-        return nil
-    end
-
-    return new cplan.FieldPair(
-        first = first,
-        second = second,
-        left = left,
-        right = right,
-        resultType = first.type,
-        resultElement = resultElement,
-        leftIndex = leftIndex,
-        rightIndex = rightIndex,
-        neon = neon
-    )
-end
-
---- Pair disjoint adjacent loads before the renderer emits either binding.
-function cplan.fieldPairs(statements: cplan.Block, layouts: {[string]: scalarIR.Layout}): {[integer]: cplan.FieldPair}
-    local selected: {[integer]: cplan.FieldPair} = {}
-    local position: integer = 1
-    while position < #statements do
-        local pair = cplan.neonFieldPair(statements[position], statements[position + 1], layouts)
-        if pair ~= nil then
-            selected[position] = pair
-            position = position + 2
-        else
-            position = position + 1
-        end
-    end
-
-    return selected
 end
 
 export = cplan

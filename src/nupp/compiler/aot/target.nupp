@@ -1,23 +1,16 @@
 module nupp.compiler.aot.target
 
 --[[
-What a target can hold, which decides what a gang can be.
+What a target can hold, which decides how wide a vector may be.
 
-A gang is 16, 32 or 64 bytes. 16 is one SSE2 register, which every x86-64 has;
-32 is one AVX register; and 64 is one AVX-512 register. A target takes the
-widest shapes that fit its register class and no wider: a vector wider than the
-selected x86-64 tier still compiles, because the compiler splits it, but it has
-no stable ABI at a function boundary. Clang says so through `-Wpsabi`, and it is
-right to.
+A vector register is 16, 32 or 64 bytes. 16 is one SSE2 register, which every
+x86-64 has; 32 is one AVX register; and 64 is one AVX-512 register. A target
+takes the widest that fits its register class and no wider: a vector wider than
+the selected x86-64 tier still compiles, because the compiler splits it, but it
+has no stable ABI at a function boundary. Clang says so through `-Wpsabi`, and
+it is right to.
 
-So this is where lane lowering finds out how wide it may be. The answer used to
-be all or nothing -- a tier without a 32-byte register class got no lanes, which
-made plain x86-64 the target the whole lowering did nothing for. Now it gets half
-as many lanes, and only a target too narrow for even the 16-byte pair gets none.
-
-A target with no gang is still not an error and not a silent scalar body: it is a
-refusal that names the tier, because the fix is either selecting a wider one or
-accepting that this target runs the loop one iteration at a time.
+So this is where a `@simd` rewrite finds out how wide it may be.
 
 Nothing here probes the machine by running anything. A tier is selected, not
 discovered, because a build that measured the machine in front of it would
@@ -27,17 +20,9 @@ The triples are `nupp.compiler.targetlayout`'s. This does not invent a second
 vocabulary for the same thing.
 ]]
 
-local lane = require("nupp.compiler.aot.lane")
 local targetLayout = require("nupp.compiler.targetlayout")
 
 local target = {}
-
---- The narrowest gang there is, in bytes.
----
---- A target whose widest register class is under this has no gang at all. There
---- is no 8-byte shape, and one would be a single binary64 lane, which is a
---- scalar loop with more machinery around it.
-const target.NARROWEST_GANG = 16
 
 --- The widest vector each CPU feature tier has a register class for.
 ---
@@ -61,7 +46,7 @@ const target.TIERS = {
     --- WebAssembly SIMD has one portable 128-bit vector register shape.
     ["simd128"] = 16,
 
-    --- Scalar WebAssembly deliberately admits no lane rewrite.
+    --- Scalar WebAssembly deliberately admits no vector rewrite.
     ["scalar"] = 0,
 }
 
@@ -70,7 +55,7 @@ const target.TIERS = {
 --- Conservative on x86-64 on purpose: a binary built for AVX2 does not run on a
 --- machine without it, and a default that assumed otherwise would produce
 --- artifacts that fail on hardware the triple says they support. Asking for
---- lanes there is asking for a tier.
+--- vectors there is asking for a tier.
 const target.DEFAULT_TIERS = {
     ["x86_64"] = "baseline",
     ["i686"] = "baseline",
@@ -250,55 +235,13 @@ function target.select(triple: string?, tier: string?): (target.Target?, string?
     return new target.Target(triple = named as string, architecture = architecture, tier = selected as string), nil
 end
 
---- The gangs this target can hold.
----
---- Every shape that fits in its widest register class. A tier with 16 bytes gets
---- the 16-byte pair rather than nothing: half the lanes is a smaller win than
---- the full width and a far larger one than compiling the loop an iteration at a
---- time.
----
---- A shape that does not fit is left out rather than split. A vector wider than
---- the register class still compiles, because the compiler splits it, but it has
---- no stable ABI at a function boundary -- and taking it anyway is how a gang
---- becomes a `-Wpsabi` warning in generated code.
-function target.gangs(selected: target.Target): {lane.Shape}
-    local widest = target.TIERS[selected.tier] or 0
-    local held: {lane.Shape} = {}
-    for _, shape in ipairs(lane.SHAPES) do
-        if shape.bytes <= widest then
-            held[#held + 1] = shape
-        end
-    end
-
-    return held
-end
-
---- Why this target has no gang, for a refusal that has to explain itself.
-function target.noGangReason(selected: target.Target): string
-    local wider: {string} = {}
-    for _, one in ipairs(target.tiers(selected.architecture)) do
-        if (target.TIERS[one] or 0) >= target.NARROWEST_GANG then
-            wider[#wider + 1] = one
-        end
-    end
-    if #wider == 0 then
-        return (
-            "%s has no %d-byte vector at any known feature tier"
-        ):format(selected.architecture, target.NARROWEST_GANG)
-    end
-
-    return (
-        "the %s feature tier has no %d-byte vector; select %s to run several iterations at once"
-    ):format(selected.tier, target.NARROWEST_GANG, table.concat(wider, " or "))
-end
-
 --- The vector width, in bytes, an explicit SIMD program takes on this target.
 ---
---- This is the width of one native register the tier's flags cover, which is
---- narrower than the gang shapes above where those pair registers: NEON pairs
---- two 16-byte registers for a 32-byte gang, but a `preferred` species there
---- is one register wide. A 64-byte value only exists under AVX-512F, so only
---- that tier answers 64 and no wider block is ever instantiated for the others.
+--- This is the width of one native register the tier's flags cover: NEON is
+--- 16 bytes even though two of its registers pair without an ABI question, so a
+--- `preferred` species there is one register wide. A 64-byte value only exists
+--- under AVX-512F, so only that tier answers 64 and no wider block is ever
+--- instantiated for the others.
 function target.simdWidth(selected: target.Target): integer
     if selected.tier == "avx512f" then
         return 64
