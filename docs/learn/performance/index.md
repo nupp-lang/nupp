@@ -1150,7 +1150,7 @@ permission to change.
 
 <a id="why-did-a-pass-not-fire-on-code-that-looks-eligible"></a>
 
-### Why didn't an optimization apply?
+### How do I debug why an optimization didn't fire?
 
 Use `--remarks` to see why the compiler left the code unchanged. Common blockers
 are mutable bindings and calls whose [effects](../language/effects.md) are
