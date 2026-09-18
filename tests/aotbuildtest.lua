@@ -2644,7 +2644,7 @@ end
 function M.luaBuilderChoosesATieredRegistrarAtLoad()
     local binding = require("nupp.compiler.aot.binding")
     local lines = binding.builderLoader(
-        {symbol = "ks_rows", registrar = "ks_register_rows", name = "rows",},
+        {symbol = "ks_rows", registrar = "ks_register_rows", name = "rows", params = {}, resultSourceTypes = {"uint32"},},
         "@lib/librows.so",
         {"baseline", "avx2", "avx512f"}
     )
@@ -2808,6 +2808,89 @@ function M.constGenericDispatcherCallsTheBuiltBodyAndRejectsAnOpenTuple()
     local report = pipe:read("*a")
     pipe:close()
     assert(report:find("CONST-AOT-OK", 1, true), "the dispatcher reaches only emitted tuples: " .. report)
+end
+
+-- A `borrows source: string | Buffer` entry is the one shape the generated
+-- binding could not express, and nothing in this tree built one ahead of time.
+-- The dispatcher kept the authored contract while the private wrappers it
+-- forwarded to declared none (NUPP2603), and the wrapper then handed its own
+-- borrow to a builder held in an `any` local (NUPP2611). Both ends are checked
+-- here by building one and running it over each side of the union.
+function M.aBorrowedStringOrBufferEntryCompilesAndRuns()
+    if not hasToolchain() then
+        return
+    end
+
+    local dir = os.tmpname()
+    os.remove(dir)
+    assert(os.execute("mkdir -p '" .. dir .. "/src'") == 0)
+    local manifest = assert(io.open(dir .. "/nupp.lua", "wb"))
+    manifest:write(
+        [[
+return {
+   include = {"src"},
+   build = {targets = {native = {
+      kind = "modules", entries = {"bytes"}, outDir = "build/native",
+      aot = "require",
+   }}},
+}
+]]
+    )
+    manifest:close()
+    local source = assert(io.open(dir .. "/src/bytes.nupp", "wb"))
+    source:write(
+        [[
+module bytes
+
+local text = require("nupp.text")
+local valueBuilder = require("nupp.codec.valuebuilder")
+local {type Buffer} = require("nupp.text")
+
+--- Counts the bytes of a string or a buffer, plus a const bump.
+@aot
+local function measure<const Bump: integer>(borrows source: string | Buffer, bump: Bump): uint32
+    return nupp.math.u32.add(valueBuilder.length(source), nupp.math.u32.wrap(bump as integer))
+end
+
+--- The byte count of a string.
+local function measureString(borrows source: string | Buffer): uint32
+    return measure(source, 0)
+end
+
+--- The byte count of a freshly filled buffer, plus one.
+local function measureBuffer(contents: string): uint32
+    local buffer = text.newBuffer()
+    buffer:put(contents)
+    return measure(buffer, 1)
+end
+
+export = {measureString = measureString, measureBuffer = measureBuffer}
+]]
+    )
+    source:close()
+
+    local out, code = build(dir)
+    test.equal(code, 0, out)
+    local generated = assert(read(dir .. "/build/native/bytes.lua"))
+    assert(
+        generated:find("local function __nuppConst_measure_", 1, true),
+        "the dispatcher forwards to private native wrappers"
+    )
+
+    local script = searchPathPrelude()
+        .. [[
+      local mod = require("bytes")
+      assert(mod.measureString("hello") == 5, "string side")
+      assert(mod.measureBuffer("hello") == 6, "buffer side")
+      local compiled = 0
+      for _ in pairs(rawget(_G, "__nuppAotCompiled") or {}) do compiled = compiled + 1 end
+      assert(compiled == 3, "two specializations and the family are compiled, not " .. compiled)
+      print("BYTES-AOT-OK")
+   ]]
+    local pipe = assert(io.popen(("cd %q && luajit -e %q 2>&1"):format(dir, script)))
+    local report = pipe:read("*a")
+    pipe:close()
+    assert(report:find("BYTES-AOT-OK", 1, true), "both sides of the union reach the compiled body: " .. report)
 end
 
 function M.crossModuleConstDemandBuildsTheDeclaringAotFamily()

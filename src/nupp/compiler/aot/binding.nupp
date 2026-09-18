@@ -196,6 +196,12 @@ local function logical(param: scalarIR.Param): string
         return "exclusive " .. param.name .. ": " .. spanName .. ".WriteSpan<" .. tostring(element) .. ">"
     elseif param.kind == "read_span" then
         return "borrows " .. param.name .. ": " .. spanName .. ".Span<" .. tostring(element) .. ">"
+    elseif param.type == "lua_bytes" then
+        -- Lowering admits a string-or-buffer parameter only when the source
+        -- declared it `borrows`, so the contract is known here and has to be
+        -- restated: a dispatcher forwarding its own borrow into a wrapper that
+        -- declares none is NUPP2603.
+        return "borrows " .. param.name .. ": " .. tostring(param.sourceType)
     else
         return param.name .. ": " .. tostring(param.sourceType)
     end
@@ -381,6 +387,35 @@ function binding.wrapper(program: scalarIR.Program, nativeSymbol: string?): {str
     return lines
 end
 
+--- How the module local holding one loaded builder is declared.
+---
+--- Not `any`. The builder is the compiled body of the very function whose
+--- wrapper calls it, so the wrapper is handing its own parameters to itself,
+--- and an ownership-bearing parameter cannot cross a call whose callee is
+--- untyped -- NUPP2611, which is the rule that keeps a capability from
+--- disappearing into `any`. Restating the wrapper's own parameter list here
+--- makes the call typed enough to satisfy it, and the contract restated is the
+--- one the authored declaration wrote and lowering verified the compiled body
+--- against: a borrow the native body reads for the duration of the call and
+--- does not retain.
+---
+--- The results stay `any`, because that is what the loaded symbol answers and
+--- `established` is what turns each one into the wrapper's declared type.
+local function builderType(program: scalarIR.Program): string
+    local params: {string} = {}
+    for position, param in ipairs(program.params) do
+        params[position] = logical(param)
+    end
+    local count = #(program.resultSourceTypes or {})
+    local results: {string} = {}
+    for position = 1, count do
+        results[position] = "any"
+    end
+    local result = count == 0 and "nil" or count == 1 and "any" or "(" .. table.concat(results, ", ") .. ")"
+
+    return "function(" .. table.concat(params, ", ") .. "): " .. result
+end
+
 --- Loads one VM-aware entry through the platform's supported Lua module path.
 ---
 --- `@lib/` has the same relocatable meaning as it does for generated FFI
@@ -400,7 +435,7 @@ function binding.builderLoader(
         -- registers its returned table before this component is loaded.
         local key = tostring(program.registrar)
         return {
-            "local " .. prefix .. ": any",
+            "local " .. prefix .. ": " .. builderType(program),
             "do",
             "    local modules: any = rawget(_G, \"__nuppAotBuilderModules\")",
             "    local registered: any = modules and modules[" .. string.format("%q", key) .. "]",
@@ -418,7 +453,7 @@ function binding.builderLoader(
     local registrar = tostring(program.registrar)
     -- Everything but the loaded builder is scoped away, for the reason
     -- `binding.compiledMarker` gives.
-    local lines: {string} = {"local " .. prefix .. ": any"}
+    local lines: {string} = {"local " .. prefix .. ": " .. builderType(program)}
     -- After the local above rather than before it, for the reason
     -- `binding.multiversion` gives: the first thing a replacement emits
     -- inherits the doc comment of the declaration it stands in for. Outside

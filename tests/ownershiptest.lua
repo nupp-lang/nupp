@@ -6746,6 +6746,55 @@ function M.aBorrowCannotCrossAnAnyParameter()
         "NUPP2611",
         "a coroutine body"
     )
+    assertEq(
+        codes(crossing("local sink: any", "sink(resource)")),
+        "NUPP2611",
+        "a callable held in an any local"
+    )
+end
+
+-- The way out of the refusal above is a declaration, not an escape hatch. A
+-- local holding a callable may spell the same parameter modes a function
+-- declaration spells, and once it does the call is no longer untyped: the
+-- contract on the slot is what the callee is held to. This is how an
+-- ahead-of-time wrapper hands its own borrowed parameter to the compiled body
+-- of the same function, which `binding.builderLoader` emits, and it is only
+-- sound because the slot says `borrows` -- an any-typed slot stays refused.
+function M.aBorrowCrossesACallableSlotThatDeclaresBorrows()
+    assertClean(
+        CLOSURE_RESOURCE .. table.concat(
+            {
+                "",
+                "local native: function(borrows value: ClosureResource): integer",
+                "local function via(borrows resource: ClosureResource): integer",
+                "   return native(resource)",
+                "end",
+                "local resource = openClosureResource(7)",
+                "print(via(resource))",
+                "drop(resource)",
+            },
+            "\n"
+        )
+    )
+    assertEq(
+        codes(
+            CLOSURE_RESOURCE .. table.concat(
+                {
+                    "",
+                    "local native: function(value: ClosureResource): integer",
+                    "local function via(borrows resource: ClosureResource): integer",
+                    "   return native(resource)",
+                    "end",
+                    "local resource = openClosureResource(7)",
+                    "print(via(resource))",
+                    "drop(resource)",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2603",
+        "a callable slot that declares no contract"
+    )
 end
 
 -- Every other route into any reports NUPP2611. A record field typed any was

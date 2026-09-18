@@ -126,6 +126,14 @@ fail it identically:
 has presumably never worked. Tracked at
 https://github.com/nupp-lang/nupp/issues/55.
 
+Fixed since this run. `binding.logical` restates `borrows` on a
+string-or-buffer wrapper parameter, and the loaded builder is now declared
+with a contract-carrying function type instead of `any`. A function type can
+carry `borrows` after all; only the unnamed spelling is a parse error, and
+`function(borrows source: string | Buffer): any` is not. `prepare.sh` keeps the
+narrowing regardless, so the numbers above and the numbers a later tree
+measures compare against the same rewrite.
+
 `prepare.sh` therefore narrows the copied entry to `source: string` and swaps
 `paddedBytesU8` for `paddedStringU8`, which is the same native input. Both
 trees get the identical edit, so the comparison is unaffected; what is not
