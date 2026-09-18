@@ -1094,12 +1094,12 @@ that depend on the iteration still block tracing;
 [`jit-loop-closure`](jit-trace-checking.md#configurable-source-lint) reports
 them when enabled or inside `@jit` functions.
 
-## Benchmark details
+<a id="benchmark-details"></a>
 
+::: deepdive Benchmark details
 Measure your own workload with [benchmarks](benchmarks.md) before choosing an
 optimization level or disabling a pass.
 
-::: deepdive
 Recorded local medians with LuaJIT enabled, measuring generated code rather than
 checker time:
 
