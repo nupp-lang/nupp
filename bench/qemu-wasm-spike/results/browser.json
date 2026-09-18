@@ -1,0 +1,254 @@
+{
+  "ok": true,
+  "exitCode": 0,
+  "guestReadyMs": 9303.545000076294,
+  "testsStartedMs": 9422.965000033379,
+  "totalMs": 80114.45500004292,
+  "configuredWasmMemoryBytes": 2411724800,
+  "guestMemoryMiB": 256,
+  "events": [
+    {
+      "kind": "INFO",
+      "name": "runtime",
+      "detail": "LuaJIT 2.1.1785763465 Linux x64"
+    },
+    {
+      "kind": "PASS",
+      "name": "bit",
+      "detail": "band, rol, bxor"
+    },
+    {
+      "kind": "PASS",
+      "name": "ffi-array-pointer",
+      "detail": "64-bit pointers and mutable cdata"
+    },
+    {
+      "kind": "PASS",
+      "name": "ffi-int64",
+      "detail": "9007199254740993LL"
+    },
+    {
+      "kind": "PASS",
+      "name": "ffi-libc",
+      "detail": "default namespace and C varargs"
+    },
+    {
+      "kind": "PASS",
+      "name": "ffi-load",
+      "detail": "Linux x64 shared library"
+    },
+    {
+      "kind": "PASS",
+      "name": "ffi-callback",
+      "detail": "Lua to C to Lua to C to Lua"
+    },
+    {
+      "kind": "PASS",
+      "name": "string-buffer",
+      "detail": "put/get and reserve/commit"
+    },
+    {
+      "kind": "PASS",
+      "name": "buffer-serialization",
+      "detail": "encode/decode"
+    },
+    {
+      "kind": "PASS",
+      "name": "jit-trace",
+      "detail": "instructions=14 machineBytes=82"
+    },
+    {
+      "kind": "PASS",
+      "name": "nupp-struct",
+      "detail": "Nupp luajit lowering, FFI-backed struct"
+    },
+    {
+      "kind": "BENCH",
+      "name": "off",
+      "detail": "7957.393271,1,1000000"
+    },
+    {
+      "kind": "BENCH",
+      "name": "off",
+      "detail": "6984.747254,2,1000000"
+    },
+    {
+      "kind": "BENCH",
+      "name": "off",
+      "detail": "7357.705724,3,1000000"
+    },
+    {
+      "kind": "BENCH",
+      "name": "off",
+      "detail": "7945.788336,4,1000000"
+    },
+    {
+      "kind": "BENCH",
+      "name": "off",
+      "detail": "8586.055799,5,1000000"
+    },
+    {
+      "kind": "BENCH",
+      "name": "on",
+      "detail": "14.604923,1,1000000"
+    },
+    {
+      "kind": "BENCH",
+      "name": "on",
+      "detail": "14.609805,2,1000000"
+    },
+    {
+      "kind": "BENCH",
+      "name": "on",
+      "detail": "14.799990,3,1000000"
+    },
+    {
+      "kind": "BENCH",
+      "name": "on",
+      "detail": "16.604914,4,1000000"
+    },
+    {
+      "kind": "BENCH",
+      "name": "on",
+      "detail": "25.559956,5,1000000"
+    },
+    {
+      "kind": "PASS",
+      "name": "jit-on-off-correctness",
+      "detail": "identical result in both modes; timings are exploratory"
+    },
+    {
+      "kind": "DONE",
+      "name": "failures",
+      "detail": "0"
+    }
+  ],
+  "measured": [
+    {
+      "jit": "off",
+      "elapsedMs": 7957.393271,
+      "sample": 1,
+      "steps": 1000000
+    },
+    {
+      "jit": "off",
+      "elapsedMs": 6984.747254,
+      "sample": 2,
+      "steps": 1000000
+    },
+    {
+      "jit": "off",
+      "elapsedMs": 7357.705724,
+      "sample": 3,
+      "steps": 1000000
+    },
+    {
+      "jit": "off",
+      "elapsedMs": 7945.788336,
+      "sample": 4,
+      "steps": 1000000
+    },
+    {
+      "jit": "off",
+      "elapsedMs": 8586.055799,
+      "sample": 5,
+      "steps": 1000000
+    },
+    {
+      "jit": "on",
+      "elapsedMs": 14.604923,
+      "sample": 1,
+      "steps": 1000000
+    },
+    {
+      "jit": "on",
+      "elapsedMs": 14.609805,
+      "sample": 2,
+      "steps": 1000000
+    },
+    {
+      "jit": "on",
+      "elapsedMs": 14.79999,
+      "sample": 3,
+      "steps": 1000000
+    },
+    {
+      "jit": "on",
+      "elapsedMs": 16.604914,
+      "sample": 4,
+      "steps": 1000000
+    },
+    {
+      "jit": "on",
+      "elapsedMs": 25.559956,
+      "sample": 5,
+      "steps": 1000000
+    }
+  ],
+  "resources": [
+    {
+      "file": "/assets/load-rom.js",
+      "transferBytes": 7607,
+      "decodedBytes": 7307
+    },
+    {
+      "file": "/browser.mjs",
+      "transferBytes": 5356,
+      "decodedBytes": 5056
+    },
+    {
+      "file": "/assets/load-rom.data",
+      "transferBytes": 473388,
+      "decodedBytes": 473088
+    },
+    {
+      "file": "/assets/xterm-pty.mjs",
+      "transferBytes": 12163,
+      "decodedBytes": 11863
+    },
+    {
+      "file": "/assets/out.js",
+      "transferBytes": 241115,
+      "decodedBytes": 240815
+    },
+    {
+      "file": "/assets/load-kernel.data",
+      "transferBytes": 11666732,
+      "decodedBytes": 11666432
+    },
+    {
+      "file": "/initramfs.gz",
+      "transferBytes": 1309536,
+      "decodedBytes": 1309236
+    },
+    {
+      "file": "/assets/qemu-system-x86_64.wasm",
+      "transferBytes": 40799780,
+      "decodedBytes": 40799480
+    },
+    {
+      "file": "/assets/qemu-system-x86_64.worker.js",
+      "transferBytes": 6300,
+      "decodedBytes": 6000
+    },
+    {
+      "file": "/assets/qemu-system-x86_64.worker.js",
+      "transferBytes": 6300,
+      "decodedBytes": 6000
+    },
+    {
+      "file": "/assets/qemu-system-x86_64.worker.js",
+      "transferBytes": 6300,
+      "decodedBytes": 6000
+    },
+    {
+      "file": "/assets/qemu-system-x86_64.worker.js",
+      "transferBytes": 6300,
+      "decodedBytes": 6000
+    }
+  ],
+  "output": "\u001bc\u001b[?7l\u001b[2J\u001b[0mSeaBIOS (version rel-1.16.3-0-ga6ed6b701f0a-prebuilt.qemu.org)\r\r\nBooting from ROM..\u001bc\u001b[?7l\u001b[2J\u001b[0m.\r\r\r\n@@NUPP_QEMU_READY@@\r\r\n@@NUPP_QEMU@@\tINFO\truntime\tLuaJIT 2.1.1785763465 Linux x64\r\r\n@@NUPP_QEMU@@\tPASS\tbit\tband, rol, bxor\r\r\n@@NUPP_QEMU@@\tPASS\tffi-array-pointer\t64-bit pointers and mutable cdata\r\r\n@@NUPP_QEMU@@\tPASS\tffi-int64\t9007199254740993LL\r\r\n@@NUPP_QEMU@@\tPASS\tffi-libc\tdefault namespace and C varargs\r\r\n@@NUPP_QEMU@@\tPASS\tffi-load\tLinux x64 shared library\r\r\n@@NUPP_QEMU@@\tPASS\tffi-callback\tLua to C to Lua to C to Lua\r\r\n@@NUPP_QEMU@@\tPASS\tstring-buffer\tput/get and reserve/commit\r\r\n@@NUPP_QEMU@@\tPASS\tbuffer-serialization\tencode/decode\r\r\n@@NUPP_QEMU@@\tPASS\tjit-trace\tinstructions=14 machineBytes=82\r\r\nNUPP_STRUCT_OK\t500000\r\r\n@@NUPP_QEMU@@\tPASS\tnupp-struct\tNupp luajit lowering, FFI-backed struct\r\r\n@@NUPP_QEMU@@\tBENCH\toff\t7957.393271,1,1000000\r\r\n@@NUPP_QEMU@@\tBENCH\toff\t6984.747254,2,1000000\r\r\n@@NUPP_QEMU@@\tBENCH\toff\t7357.705724,3,1000000\r\r\n@@NUPP_QEMU@@\tBENCH\toff\t7945.788336,4,1000000\r\r\n@@NUPP_QEMU@@\tBENCH\toff\t8586.055799,5,1000000\r\r\n@@NUPP_QEMU@@\tBENCH\ton\t14.604923,1,1000000\r\r\n@@NUPP_QEMU@@\tBENCH\ton\t14.609805,2,1000000\r\r\n@@NUPP_QEMU@@\tBENCH\ton\t14.799990,3,1000000\r\r\n@@NUPP_QEMU@@\tBENCH\ton\t16.604914,4,1000000\r\r\n@@NUPP_QEMU@@\tBENCH\ton\t25.559956,5,1000000\r\r\n@@NUPP_QEMU@@\tPASS\tjit-on-off-correctness\tidentical result in both modes; timings are exploratory\r\r\n@@NUPP_QEMU@@\tDONE\tfailures\t0\r\r\n\r\r\n@@NUPP_QEMU_EXIT@@ 0\r\r\n",
+  "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+  "isolated": true,
+  "browserErrors": []
+}

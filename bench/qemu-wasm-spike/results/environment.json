@@ -1,0 +1,19 @@
+{
+  "date": "2026-09-18",
+  "nuppBaseRevision": "65ee000cc45da4f7bb7b9f944df0b9506f6b1c12",
+  "cpu": "Apple M5 Pro",
+  "hostOS": "macOS 26.6 (25G72)",
+  "hostArchitecture": "arm64",
+  "browser": "HeadlessChrome/152.0.0.0",
+  "guestArchitecture": "x86_64",
+  "luajitRevision": "1edc3e52b67eaf6ce5f809be8e17d6862594b8bc",
+  "wasmMemoryImport": {
+    "module": "env",
+    "name": "memory",
+    "shared": true,
+    "minimumPages": 36800,
+    "maximumPages": 36800,
+    "pageBytes": 65536
+  },
+  "method": "Each run: one process per environment, five warmups then five samples per JIT mode, off before on. Localhost; no claim of machine isolation or a statistical duration verdict."
+}
