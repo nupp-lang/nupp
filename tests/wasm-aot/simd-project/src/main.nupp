@@ -88,3 +88,110 @@ for row = 1, 3 do
         assert(columns[(column - 1) * 3 + row] == original[(row - 1) * 3 + column])
     end
 end
+
+-- The exact reducer contracts, at simd128.
+--
+-- An ordered reducer is the erased Lua loop's own chain and a pairwise one is
+-- the logical-index tree; neither is allowed to depend on how many lanes the
+-- target chose. The native differential in `aotbuildtest` holds them to the
+-- ordinary Lua reducers on NEON, and this holds the same reducers to the same
+-- Lua on the one other tier that can execute them -- which is what makes the
+-- claim cross-tier rather than a property of one backend. Both are compared
+-- against the library's own Lua bodies, running here in the same program.
+@aot
+local function orderedSum(borrows input: span.Span<number>, seed: number): number
+    local fold = simd.reducer.orderedSum(seed)
+    @simd
+    for i = 1, #input do
+        fold:add(input[i])
+    end
+
+    return fold:value()
+end
+
+@aot
+local function pairwiseSum(borrows input: span.Span<number>, seed: number): number
+    local fold = simd.reducer.pairwiseSum(seed)
+    @simd
+    for i = 1, #input do
+        fold:add(input[i])
+    end
+
+    return fold:value()
+end
+
+@aot
+local function orderedDot(borrows input: span.Span<number>, seed: number): number
+    local fold = simd.reducer.orderedDot(seed)
+    @simd
+    for i = 1, #input do
+        fold:add(input[i], input[i])
+    end
+
+    return fold:value()
+end
+
+@aot
+local function wrappingSum(borrows input: span.Span<int32>, seed: int32): int32
+    local fold = simd.reducer.i32.wrappingSum(seed)
+    @simd
+    for i = 1, #input do
+        fold:add(input[i])
+    end
+
+    return fold:value()
+end
+
+-- Magnitudes that cancel, so a reassociated sum would answer different low
+-- bits, and the exceptional values a lane-parallel tree can reorder without
+-- noticing: both zeros, both infinities and a NaN.
+local reducerSamples = {1.0, 1e16, -1e16, 0.5, -2.25, 1e-3, 3.0, -0.0, 7.0, -7.0, 1.5, 0.125, -4.0, 2.0,}
+local reducerWords = {5, -7, 2147483647, -2147483648, 3, 12, -1, 0, 99, -99, 41, 7, 2, -3}
+
+--- Two binary64 values, including their NaN and their signed zero.
+local function same(actual: number, expected: number): boolean
+    if actual ~= actual or expected ~= expected then
+        return actual ~= actual and expected ~= expected
+    end
+    if actual == 0 and expected == 0 then
+        return 1 / actual == 1 / expected
+    end
+
+    return actual == expected
+end
+
+-- Every tail from empty through two whole vectors and a remainder, at every
+-- rotation of the corpus, so each value passes through every lane.
+for offset = 0, #reducerSamples - 1 do
+    local seed = reducerSamples[offset + 1]
+    local word = nupp.math.i32.wrap(reducerWords[offset + 1])
+    for count = 0, 21 do
+        local values = array.scalar(array.number, count)
+        local words = array.scalar(array.int32, count)
+        local ordered = simd.reducer.orderedSum(seed)
+        local pairwise = simd.reducer.pairwiseSum(seed)
+        local dot = simd.reducer.orderedDot(seed)
+        local wrapping = simd.reducer.i32.wrappingSum(word)
+        do
+            local writableValues = values:write()
+            local writableWords = words:write()
+            for i = 1, count do
+                local value = reducerSamples[(i + offset - 1) % #reducerSamples + 1]
+                writableValues[i] = value
+                ordered:add(value)
+                pairwise:add(value)
+                dot:add(value, value)
+                local digit = reducerWords[(i + offset - 1) % #reducerWords + 1]
+                writableWords[i] = nupp.math.i32.wrap(digit)
+                wrapping:add(nupp.math.i32.wrap(digit))
+            end
+            drop writableWords
+            drop writableValues
+        end
+        local where = " at offset " .. tostring(offset) .. " count " .. tostring(count)
+        assert(same(orderedSum(values:read(), seed), ordered:value()), "orderedSum" .. where)
+        assert(same(pairwiseSum(values:read(), seed), pairwise:value()), "pairwiseSum" .. where)
+        assert(same(orderedDot(values:read(), seed), dot:value()), "orderedDot" .. where)
+        assert(wrappingSum(words:read(), word) == wrapping:value(), "i32 wrappingSum" .. where)
+    end
+end

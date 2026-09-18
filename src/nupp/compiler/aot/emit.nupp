@@ -2040,6 +2040,18 @@ function emit.forcedScalarPragma(): {string}
     return {"#if defined(__clang__)", "#pragma clang loop vectorize(disable) interleave(disable)", "#endif",}
 end
 
+--- Restating `-ffp-contract=off` inside the oracle.
+---
+--- `KS_SCALAR_ORACLE` is `optnone` on Clang, and an `optnone` function is
+--- compiled with contraction enabled whatever the command line said: a
+--- `total += a * b` the source did not write as a fused operation becomes one,
+--- and the oracle answers a different last bit from both the lane body and
+--- ordinary Lua. The pragma is scoped to the body, so it must be the first
+--- thing inside the braces.
+function emit.noContractPragma(): {string}
+    return {"#if defined(__clang__)", "#pragma clang fp contract(off)", "#endif",}
+end
+
 ----------------------------------------------------------------------------
 -- Includes and feature detection
 ----------------------------------------------------------------------------
@@ -3833,6 +3845,11 @@ function emit.program(programs: {scalarIR.Program}, tier: string?): string
                 end
                 lines[#lines + 1] = "__attribute__((noinline))"
                 lines[#lines + 1] = "KS_API " .. cResult .. " " .. symbol .. "(" .. params .. ") {"
+                if forced and program.fpContract ~= true then
+                    for _, line in ipairs(emit.noContractPragma()) do
+                        lines[#lines + 1] = line
+                    end
+                end
                 if not general and independentCounts then
                     lines[#lines + 1] = "    size_t count = count_" .. (program.loop as scalarIR.Loop).count .. ";"
                 end

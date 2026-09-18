@@ -989,4 +989,135 @@ function M.aWholeVectorGuardAgainstAProvedLastBoundsEverySpanItIsProvedAgainst()
     refuses(program, "invalid loop cursor bounds proof for cursor against")
 end
 
+-- The cross-lane half of the vocabulary: the operations that read lanes other
+-- than their own. What the verifier holds for them is the species agreement
+-- between a vector and the mask selecting its lanes, and the closed set of
+-- intrinsics each op may name. Both are things a rewrite can get wrong
+-- silently, because a packing operation against the wrong mask still emits.
+local CROSS_LANE = [[
+local span = require("nupp.mem.span")
+local array = require("nupp.mem.array")
+local simd = require("nupp.simd")
+@aot
+local function crossLane(borrows input: span.Span<number>): number
+    local s = assert(simd.species(array.number, 4))
+    local si = assert(simd.species(array.int32, 4))
+    local active = s:tail(#input)
+    local v = s:load(input, 1, active)
+    local packed = v:compress(active)
+    local spread = packed:expand(active)
+    local scanned = spread:prefixSumOrdered()
+    local bits = si:iota(1, 1):prefixXor()
+    local total: number = simd.horizontal.orderedSum(scanned)
+    return total + (bits:extract(1) as number) + (active:count() as number)
+end
+return {crossLane = crossLane}
+]]
+
+--- A fresh lowering of `CROSS_LANE` with the first node `op` names in hand.
+local function crossLaneNode(op)
+    local program = lowered(CROSS_LANE, "crosslane.nupp")
+    verify.program(program)
+    local node = assert(
+        findExpr(program.body, function(candidate)
+            return candidate.op == op
+        end),
+        "missing " .. op
+    )
+
+    return program, node
+end
+
+function M.packingOperationsRecheckTheMaskSelectingTheirLanes()
+    for _, op in ipairs({"simd_compress", "simd_expand"}) do
+        -- A mask of the right element and the wrong width.
+        local program, node = crossLaneNode(op)
+        node.args[2].type = "simd_mask_f64_fixed8"
+        refuses(program, "invalid generic SIMD packing operation")
+
+        -- A mask of the right width over another element.
+        program, node = crossLaneNode(op)
+        node.args[2].type = "simd_mask_i32_fixed4"
+        refuses(program, "invalid generic SIMD packing operation")
+
+        -- A vector where a mask belongs.
+        program, node = crossLaneNode(op)
+        node.args[2].type = "simd_vector_f64_fixed4"
+        refuses(program, "invalid generic SIMD packing operation")
+
+        -- The selection dropped: packing every lane is not this operation.
+        program, node = crossLaneNode(op)
+        node.args[2] = nil
+        refuses(program, "invalid generic SIMD packing operation")
+    end
+end
+
+function M.aPrefixScanNamesOneOfTheTwoScansItHas()
+    -- An intrinsic outside the closed set, however reasonable it reads.
+    local program, node = crossLaneNode("simd_prefix")
+    node.intrinsic = "prefix_product"
+    refuses(program, "invalid generic SIMD prefix operation")
+
+    -- A prefix takes one operand and answers its own species.
+    program, node = crossLaneNode("simd_prefix")
+    node.args[2] = {op = "constant", value = "1", type = "f64"}
+    refuses(program, "invalid generic SIMD prefix operation")
+
+    -- A scan answers the species it scanned, so a wider operand is not one.
+    program, node = crossLaneNode("simd_prefix")
+    node.args[1].type = "simd_vector_f64_fixed8"
+    refuses(program, "invalid generic SIMD prefix operation")
+
+    -- `prefixXor` is an integer scan. The first prefix in this program is the
+    -- ordered sum over f64, so renaming its intrinsic asks for a xor there.
+    program, node = crossLaneNode("simd_prefix")
+    node.intrinsic = "prefix_xor"
+    refuses(program, "invalid generic SIMD prefix operation")
+end
+
+function M.aHorizontalOperationNamesItsOrderItsArityAndItsResult()
+    -- No unqualified reduction: the association has to be in the name.
+    local program, node = crossLaneNode("simd_horizontal")
+    node.intrinsic = "sum"
+    refuses(program, "invalid generic SIMD horizontal operation")
+
+    -- A dot takes two vectors of one species; a sum takes one.
+    program, node = crossLaneNode("simd_horizontal")
+    node.intrinsic = "ordered_dot"
+    refuses(program, "invalid generic SIMD horizontal operation")
+
+    program, node = crossLaneNode("simd_horizontal")
+    node.args[2] = node.args[1]
+    refuses(program, "invalid generic SIMD horizontal operation")
+
+    -- The result is the vector's own scalar, so an operand of another element
+    -- is refused rather than converted. An integer one is refused twice over:
+    -- only an extremum, which selects a lane rather than combining lanes, is
+    -- admitted outside the two floating elements.
+    program, node = crossLaneNode("simd_horizontal")
+    node.args[1].type = "simd_vector_i32_fixed4"
+    refuses(program, "invalid generic SIMD horizontal operation")
+
+    -- A horizontal operation reduces a vector, never a mask.
+    program, node = crossLaneNode("simd_horizontal")
+    node.args[1].type = "simd_mask_f64_fixed4"
+    refuses(program, "invalid generic SIMD horizontal operation")
+end
+
+function M.aMaskQueryAnswersTheWidthItsQuestionHas()
+    -- `count` answers a lane count in the width the family gives it. Only
+    -- `bits` answers sixty-four, and it is a different question.
+    local program, node = crossLaneNode("simd_mask_count")
+    node.type = "u64"
+    refuses(program, "invalid generic SIMD mask query")
+
+    program, node = crossLaneNode("simd_mask_count")
+    node.args[1].type = "simd_vector_f64_fixed4"
+    refuses(program, "invalid generic SIMD mask query")
+
+    program, node = crossLaneNode("simd_mask_count")
+    node.args[2] = {op = "constant", value = "1", type = "f64"}
+    refuses(program, "invalid generic SIMD mask query")
+end
+
 return M

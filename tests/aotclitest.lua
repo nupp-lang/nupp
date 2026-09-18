@@ -2815,6 +2815,70 @@ return {horizontal = horizontal}
     assert(decoded.c:find("fmaf", 1, true), where .. ": only the named algebraic dot helper requests contraction")
 end
 
+-- Contraction is a separate choice from reassociation, and only `algebraicDot`
+-- makes it. Reading it out of the C is not enough on its own: every horizontal
+-- helper is a prelude macro, so `fmaf` is in the text of every artifact whether
+-- or not the program reached it. The instructions are where the claim is
+-- decided, and they are decidable here because the build pins
+-- `-ffp-contract=off`, so an `a * b + c` the source did not write as a
+-- contraction cannot become one behind it.
+function M.onlyTheAlgebraicDotContractsItsMultiplyAndAdd()
+    local source = [[
+local array = require("nupp.mem.array")
+local simd = require("nupp.simd")
+
+@aot
+local function ordered(left: float, right: float): float
+    local species = assert(simd.species(array.float, 8))
+    return simd.horizontal.orderedDot(species:splat(left), species:splat(right))
+end
+
+@aot
+local function pairwise(left: float, right: float): float
+    local species = assert(simd.species(array.float, 8))
+    return simd.horizontal.pairwiseDot(species:splat(left), species:splat(right))
+end
+
+@aot
+local function algebraic(left: float, right: float): float
+    local species = assert(simd.species(array.float, 8))
+    return simd.horizontal.algebraicDot(species:splat(left), species:splat(right))
+end
+
+return {ordered = ordered, pairwise = pairwise, algebraic = algebraic}
+]]
+    local dir = project{["dots.nupp"] = source}
+    local chain = require("nupp.compiler.build.aot").toolchain()
+    local host = require("nupp.compiler.aot.target").hostTriple()
+    if chain == nil or (chain.dialect ~= "clang" and host ~= "aarch64-apple-darwin") then
+        test.skip("reading NEON instructions needs Clang or an aarch64 host")
+
+        return
+    end
+    local function fusedIn(name)
+        local asm, code = run(
+            dir,
+            "--target aarch64-apple-darwin --features neon --emit asm --function " .. name .. " dots.nupp"
+        )
+        test.equal(code, 0, asm)
+        local fused = 0
+        for instruction in asm:gmatch("[%a][%w%.]*") do
+            if instruction:find("^fmla") or instruction:find("^fmadd") or instruction:find("^fmsub") then
+                fused = fused + 1
+            end
+        end
+
+        return fused, asm
+    end
+
+    for _, name in ipairs({"ordered", "pairwise"}) do
+        local fused, asm = fusedIn(name)
+        test.equal(fused, 0, name .. "Dot contracted a multiply and an add:\n" .. asm)
+    end
+    local fused, asm = fusedIn("algebraic")
+    assert(fused > 0, "algebraicDot did not contract, which is the one place it may:\n" .. asm)
+end
+
 function M.bitwiseOperatorsKeepASixtyFourBitOperandAtItsWidth()
     local source = [[
 @aot
@@ -3599,6 +3663,12 @@ function M.asmJsonCountsWhatItLists()
     assert(asm.toolchain.version ~= "" and asm.toolchain.command ~= "", "the compiler that answered is named: " .. out)
     local flags = table.concat(asm.flags, " ")
     assert(flags:find("-O3", 1, true), "the flags are the ones an artifact is built with: " .. flags)
+    -- The two that make every exact floating differential mean anything. Losing
+    -- either one is visible as a low bit that moved in some other suite, a long
+    -- way from the line that caused it, so it is named here as well.
+    for _, flag in ipairs({"-ffp-contract=off", "-fno-fast-math"}) do
+        assert(flags:find(flag, 1, true), "the numeric contract is on the command line: " .. flags)
+    end
 
     local kernel = nil
     for _, listing in ipairs(asm.functions) do

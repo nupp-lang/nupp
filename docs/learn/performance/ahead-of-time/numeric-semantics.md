@@ -184,6 +184,28 @@ luajit bench/kernel-subset-spike/mandelbrot_main.lua  # every pixel, three ways
 Tails are exercised at every remainder for both region widths, so a four-lane
 and an eight-lane tail are both covered.
 
+The forced-scalar twin of a body containing a `@simd` region is compiled with
+the optimizer off, which is what makes it an independent answer rather than a
+second copy of the same lowering. On Clang that is `__attribute__((optnone))`,
+and an `optnone` function is compiled as though `-ffp-contract=off` had not been
+given: a `total += a * b` the source did not write as a fused operation becomes
+one, and the oracle answers a different last bit from both the lane body and
+ordinary Lua. The generated oracle therefore restates the contract inside its
+own braces, and `exactLoopReducersAgreeAcrossLuaScalarAndVectorExecution` holds
+it there by reducing a dot product over magnitudes that make the difference
+visible.
+
+Two things follow from the same attribute. An `-O0` oracle is not a speed
+baseline, so a benchmark quoting one is quoting the optimizer rather than the
+lanes; and a map program's oracle is not one, because it carries a loop pragma
+at the same `-O3` instead. `bench/simd-mandelbrot` records which of the two it
+is measuring.
+
+The exact reducer contracts are also executed at the one other tier that can
+run them. `tests/wasm-aot/simd-project` reduces the same corpus at Wasm
+`simd128` against the same Lua reducers, so bit identity for an ordered chain or
+a logical-index tree is a claim about the contract rather than about NEON.
+
 `bench/kernel-subset-spike/crosscheck.sh` runs the same agreement in C with no
 LuaJIT in the process, over every committed kernel, at both region widths and at
 whatever feature tier is asked for. CI runs it on Linux and macOS at three tiers

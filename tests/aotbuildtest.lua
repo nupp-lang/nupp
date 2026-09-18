@@ -3379,7 +3379,7 @@ function M.exactLoopReducersAgreeAcrossLuaScalarAndVectorExecution()
     local cases, exports = {}, {}
     local source = {'local span = require("nupp.mem.span")', 'local simd = require("nupp.simd")'}
 
-    local function add(name, element, ctype, construction, method, result, resultC, predicate, first)
+    local function add(name, element, ctype, construction, method, result, resultC, predicate, first, corpora)
         local constructor = construction:gsub("TYPE", element)
         source[
             #source + 1
@@ -3397,7 +3397,7 @@ end
 ]]
         ):format(name, element, element, result, constructor, first or 1, method, predicate or "input[i]")
         exports[#exports + 1] = name .. " = " .. name
-        cases[#cases + 1] = {name = name, element = element, ctype = ctype, resultC = resultC}
+        cases[#cases + 1] = {name = name, element = element, ctype = ctype, resultC = resultC, corpora = corpora}
     end
 
     for _, ty in ipairs({
@@ -3475,6 +3475,41 @@ end
             "input[i] > seed"
         )
     end
+
+    -- The named floating orders. These are exact contracts like the integer
+    -- ones above -- an ordered reducer is the erased Lua loop's own chain and a
+    -- pairwise one is the logical-index tree, neither of which the lane count
+    -- is allowed to change -- so they are held to the same bit-for-bit
+    -- agreement rather than to a tolerance. Two corpora, because the two things
+    -- that can go wrong are different: one where reassociation would be visible
+    -- (magnitudes that cancel, and a product that underflows), and one of the
+    -- exceptional values a lane-parallel tree can reorder without noticing
+    -- (both zeros, both infinities, a NaN, and the two subnormal extremes).
+    local cancelling = {1.0, 1e16, -1e16, 0.5, -2.25, 1e-3, 3.0, 7.0, -7.0, 1.5, 0.125, -4.0, 1e-300, 2.0}
+    local exceptional = {0.0, -0.0, 1.0, math.huge, -math.huge, 0 / 0, -1.0, 5e-324, -5e-324, 1.5e308, 2.0, -0.0}
+    for _, order in ipairs({
+        {"ordered_sum", "orderedSum", "add"},
+        {"pairwise_sum", "pairwiseSum", "add"},
+        {"compensated_sum", "compensatedSum", "add"},
+        {"ordered_product", "orderedProduct", "multiply"},
+        {"pairwise_product", "pairwiseProduct", "multiply"},
+        {"ordered_dot", "orderedDot", "add", "input[i], input[i]"},
+        {"pairwise_dot", "pairwiseDot", "add", "input[i], input[i]"},
+    }) do
+        add(
+            order[1],
+            "number",
+            "double",
+            "local fold = simd.reducer." .. order[2] .. "(seed)",
+            order[3],
+            "number",
+            "double",
+            order[4],
+            nil,
+            {cancelling, exceptional}
+        )
+    end
+
     source[#source + 1] = "return {" .. table.concat(exports, ", ") .. "}"
     source = table.concat(source, "\n")
     local ordinary, native
@@ -3536,27 +3571,32 @@ end
         for _, name in ipairs({actualName, scalarName}) do
             ffi.cdef(("%s %s(const %s *, %s, size_t);"):format(case.resultC, name, case.ctype, case.ctype))
         end
-        local values = case.element == "number" and floatValues or integerValues
+        local corpora = case.corpora or {case.element == "number" and floatValues or integerValues}
         local input = ffi.new(case.ctype .. "[40]")
-        for offset = 0, #values - 1 do
-            for i = 0, 39 do
-                input[i] = values[(i + offset) % #values + 1]
-            end
-            local seed = ffi.cast(case.ctype, values[offset + 1])
-            if case.ctype == "double" or case.ctype:find("32", 1, true) then
-                seed = tonumber(seed)
-            end
-            for count = 0, 39 do
-                local expected = reference[case.name](spans.fromCarray(input, count), seed)
-                for _, name in ipairs({actualName, scalarName}) do
-                    local actual = lib[name](input, seed, count)
-                    local label = case.name .. " offset=" .. offset .. " count=" .. count .. " " .. name
-                    if case.resultC == "double" and expected ~= expected then
-                        assert(actual ~= actual, label .. " expected NaN")
-                    else
-                        assert(actual == expected, label .. ": " .. tostring(actual) .. " ~= " .. tostring(expected))
-                        if case.resultC == "double" and actual == 0 then
-                            test.equal(1 / actual, 1 / expected, label .. " signed zero")
+        for _, values in ipairs(corpora) do
+            for offset = 0, #values - 1 do
+                for i = 0, 39 do
+                    input[i] = values[(i + offset) % #values + 1]
+                end
+                local seed = ffi.cast(case.ctype, values[offset + 1])
+                if case.ctype == "double" or case.ctype:find("32", 1, true) then
+                    seed = tonumber(seed)
+                end
+                for count = 0, 39 do
+                    local expected = reference[case.name](spans.fromCarray(input, count), seed)
+                    for _, name in ipairs({actualName, scalarName}) do
+                        local actual = lib[name](input, seed, count)
+                        local label = case.name .. " offset=" .. offset .. " count=" .. count .. " " .. name
+                        if case.resultC == "double" and expected ~= expected then
+                            assert(actual ~= actual, label .. " expected NaN")
+                        else
+                            assert(
+                                actual == expected,
+                                label .. ": " .. tostring(actual) .. " ~= " .. tostring(expected)
+                            )
+                            if case.resultC == "double" and actual == 0 then
+                                test.equal(1 / actual, 1 / expected, label .. " signed zero")
+                            end
                         end
                     end
                 end
@@ -5032,5 +5072,208 @@ function M.genericVocabularyOperationsAgreeAcrossLuaScalarAndLaneExecution()
 end
 
 require("jit").off(M.genericVocabularyOperationsAgreeAcrossLuaScalarAndLaneExecution, true)
+
+-- The cross-lane operations, run rather than read.
+--
+-- Everything above this covers the lane-local half of the vocabulary, where a
+-- lane's answer depends on its own inputs. These are the other half: packing
+-- moves a lane's value to a position the data decides, a scan makes lane n
+-- depend on every lane before it, and a horizontal operation collapses all of
+-- them. Each has scalar executable semantics the compiler emits beside the
+-- production form -- `ks_scalar_exp_compress_*`, `ks_scalar_exp_prefix_*`,
+-- `ks_scalar_exp_horizontal_*` -- and the existing coverage of them asserts
+-- that text appears in the C. That is not the same as running it: a scalar
+-- reference nothing executes is a comment. The `_forced_scalar` twin here is
+-- built out of exactly those helpers, so calling both symbols over one corpus
+-- is what holds the vector forms to their references and both to Lua.
+local CROSS_LANE_KERNEL = [[
+local span = require("nupp.mem.span")
+local array = require("nupp.mem.array")
+local simd = require("nupp.simd")
+
+@aot
+local function crossLane(exclusive out: span.WriteSpan<int32>, borrows input: span.Span<int32>): nil
+    local s = assert(simd.species(array.int32, 8))
+    local v = s:load(input, 1)
+    local positive = v > s:splat(0)
+    s:store(out, 1, v:compress(positive))
+    s:store(out, 9, v:compress(positive):expand(positive))
+    s:store(out, 17, v:prefixSumOrdered())
+    s:store(out, 25, v:prefixXor())
+    s:store(out, 33, s:splat(nupp.math.i32.wrap(positive:count() as integer)))
+    s:store(out, 41, s:splat(nupp.math.i32.wrap(positive:first() as integer)))
+end
+
+-- Two entries because a general AOT entry returns at most four scalars.
+@aot
+local function horizontals(borrows input: span.Span<number>): (number, number, number, number)
+    local s = assert(simd.species(array.number, 4))
+    local v = s:load(input, 1)
+    return simd.horizontal.orderedSum(v),
+        simd.horizontal.pairwiseSum(v),
+        simd.horizontal.orderedProduct(v),
+        simd.horizontal.orderedDot(v, v)
+end
+
+@aot
+local function extrema(borrows input: span.Span<number>): (number, number)
+    local s = assert(simd.species(array.number, 4))
+    local v = s:load(input, 1)
+
+    return simd.horizontal.propagatingMin(v), simd.horizontal.numberMax(v)
+end
+
+return {crossLane = crossLane, horizontals = horizontals, extrema = extrema}
+]]
+
+function M.crossLaneOperationsAgreeWithTheirScalarExecutableSemantics()
+    if not hasToolchain() then
+        return
+    end
+    local ffi = require("ffi")
+    local dir = project("require")
+    local handle = assert(io.open(dir .. "/src/kernel.nupp", "wb"))
+    handle:write(CROSS_LANE_KERNEL)
+    handle:close()
+    local out, code = build(dir)
+    test.equal(code, 0, out)
+    local lib = ffi.load(libraryPath(dir))
+    ffi.cdef("typedef struct { double v1, v2, v3, v4; } NuppAotHorizontals;")
+    ffi.cdef("typedef struct { double v1, v2; } NuppAotExtrema;")
+    local crossLane, horizontals, extrema = {}, {}, {}
+    for _, suffix in ipairs({"", "_forced_scalar"}) do
+        local packing = librarySymbol(lib, "ks_cross_lane" .. suffix)
+        local reducing = librarySymbol(lib, "ks_horizontals" .. suffix)
+        local extreme = librarySymbol(lib, "ks_extrema" .. suffix)
+        ffi.cdef(("void %s(int32_t *, const int32_t *, size_t, size_t);"):format(packing))
+        ffi.cdef(("NuppAotHorizontals %s(const double *, size_t);"):format(reducing))
+        ffi.cdef(("NuppAotExtrema %s(const double *, size_t);"):format(extreme))
+        crossLane[#crossLane + 1] = packing
+        horizontals[#horizontals + 1] = reducing
+        extrema[#extrema + 1] = extreme
+    end
+
+    -- Every arrangement of set and clear lanes the mask can take, which is what
+    -- decides where compress moves a lane and where expand puts it back, and a
+    -- value in each lane that distinguishes position from content.
+    local input = ffi.new("int32_t[8]")
+    local actual = ffi.new("int32_t[48]")
+    for pattern = 0, 255 do
+        local values = {}
+        for lane = 1, 8 do
+            local set = bit.band(bit.rshift(pattern, lane - 1), 1) == 1
+            values[lane] = set and (lane * 7 - 3) or -(lane * 5)
+            input[lane - 1] = values[lane]
+        end
+        local compressed, expanded, sums, xors = {}, {}, {}, {}
+        local held, running, rolling = 0, 0, 0
+        for lane = 1, 8 do
+            compressed[lane], expanded[lane] = 0, 0
+            running = running + values[lane]
+            rolling = bit.bxor(rolling, values[lane])
+            sums[lane], xors[lane] = running, rolling
+        end
+        local first = 0
+        for lane = 1, 8 do
+            if values[lane] > 0 then
+                held = held + 1
+                compressed[held] = values[lane]
+                expanded[lane] = values[lane]
+                if first == 0 then
+                    first = lane
+                end
+            end
+        end
+        for _, symbol in ipairs(crossLane) do
+            for slot = 0, 47 do
+                actual[slot] = -99
+            end
+            lib[symbol](actual, input, 48, 8)
+            local label = symbol .. " pattern " .. pattern
+            for lane = 1, 8 do
+                test.equal(actual[lane - 1], compressed[lane], label .. " compress lane " .. lane)
+                test.equal(actual[lane + 7], expanded[lane], label .. " expand lane " .. lane)
+                test.equal(actual[lane + 15], sums[lane], label .. " prefix sum lane " .. lane)
+                test.equal(actual[lane + 23], xors[lane], label .. " prefix xor lane " .. lane)
+                test.equal(actual[lane + 31], held, label .. " count")
+                test.equal(actual[lane + 39], first, label .. " first")
+            end
+        end
+    end
+
+    -- Magnitudes that cancel, so a reassociated sum answers different low bits,
+    -- and the exceptional values the two extremum contracts disagree about:
+    -- `propagatingMin` answers NaN whenever any lane is NaN, `numberMax`
+    -- answers the largest lane that is not one.
+    local samples = {
+        1.0,
+        1e16,
+        -1e16,
+        0.5,
+        0 / 0,
+        math.huge,
+        -math.huge,
+        -0.0,
+        0.0,
+        -2.25,
+        1e-3,
+        3.0,
+    }
+    local lanes = ffi.new("double[4]")
+    for offset = 0, #samples - 1 do
+        local values = {}
+        for lane = 1, 4 do
+            values[lane] = samples[(lane + offset - 1) % #samples + 1]
+            lanes[lane - 1] = values[lane]
+        end
+        local ordered, product, dot = 0.0, 1.0, 0.0
+        for lane = 1, 4 do
+            ordered = ordered + values[lane]
+            product = product * values[lane]
+            dot = dot + values[lane] * values[lane]
+        end
+        local pairwise = (values[1] + values[2]) + (values[3] + values[4])
+        local least, greatest = values[1], nil
+        for lane = 2, 4 do
+            if least ~= least or values[lane] ~= values[lane] then
+                least = 0 / 0
+            elseif values[lane] < least or (values[lane] == least and 1 / values[lane] < 1 / least) then
+                least = values[lane]
+            end
+        end
+        for lane = 1, 4 do
+            local value = values[lane]
+            if value == value then
+                if greatest == nil or value > greatest or (value == greatest and 1 / value > 1 / greatest) then
+                    greatest = value
+                end
+            end
+        end
+        greatest = greatest or 0 / 0
+        local expected = {ordered, pairwise, product, dot, least, greatest}
+        local answers = {}
+        for index, symbol in ipairs(horizontals) do
+            local sums = lib[symbol](lanes, 4)
+            local ends = lib[extrema[index]](lanes, 4)
+            answers[#answers + 1] = {symbol, {sums.v1, sums.v2, sums.v3, sums.v4, ends.v1, ends.v2}}
+        end
+        for _, answer in ipairs(answers) do
+            local symbol, got = answer[1], answer[2]
+            for index, want in ipairs(expected) do
+                local label = symbol .. " offset " .. offset .. " result " .. index
+                if want ~= want then
+                    assert(got[index] ~= got[index], label .. " expected NaN, got " .. tostring(got[index]))
+                else
+                    assert(got[index] == want, label .. ": " .. tostring(got[index]) .. " ~= " .. tostring(want))
+                    if want == 0 then
+                        test.equal(1 / got[index], 1 / want, label .. " signed zero")
+                    end
+                end
+            end
+        end
+    end
+end
+
+require("jit").off(M.crossLaneOperationsAgreeWithTheirScalarExecutableSemantics, true)
 
 return M

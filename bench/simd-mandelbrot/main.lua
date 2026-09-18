@@ -1,6 +1,25 @@
 -- Measure a point-input/result-output Mandelbrot kernel. Point generation,
 -- allocation, correctness checks, and checksum reduction are deliberately
--- outside the timed native calls.
+-- outside the timed native calls; everything the compiled function itself does
+-- -- the whole-vector loop, the masked tail, the per-lane retirement and the
+-- horizontal any-live test -- is inside them.
+--
+-- Three bodies are timed:
+--
+--   preferred    the gang the NEON tier picks, two registers of binary32
+--   equal width  the same source pinned to one 16-byte register
+--   scalar       the `_forced_scalar` twin, which is both the oracle every
+--                pixel is checked against and the baseline the speedups are
+--                over
+--
+-- Those two roles coincide here and do not in general. A body with a `@simd`
+-- region inside it gets an oracle carrying `KS_SCALAR_ORACLE`, which is
+-- `optnone` on Clang and `optimize("O0")` on GCC, and a -O0 function is not a
+-- baseline anything can be said to be faster than. This kernel is a map
+-- program, so its oracle carries the loop pragma instead and is compiled -O3
+-- with the toolchain's vectorizers turned off for that loop -- which is the
+-- separately identified no-vector artifact the plan asks for, already built.
+-- Checked: the two spellings emit the same 66 instructions here.
 local ffi = require("ffi")
 
 local here = assert(debug.getinfo(1, "S").source:match("^@(.*[/\\])"))
@@ -22,6 +41,7 @@ local equalWidth = ffi.load(out .. "../equal-width/libmandelbrot_x4" .. suffix)
 local width = tonumber(os.getenv("MANDELBROT_WIDTH") or 1024)
 local height = tonumber(os.getenv("MANDELBROT_HEIGHT") or 768)
 local maxIterations = tonumber(os.getenv("MANDELBROT_ITERATIONS") or 256)
+local samples = tonumber(os.getenv("MANDELBROT_SAMPLES") or 9)
 local count = width * height
 
 local cell = ffi.new("float[1]")
@@ -53,20 +73,21 @@ local function run(entry, output)
     entry(output, points, 1, count, maxIterations, count)
 end
 
+-- Correctness first, and against the oracle rather than against each other.
 run(preferred.ks_mandelbrot, optimized)
 run(equalWidth.ks_mandelbrot, x4)
 run(preferred.ks_mandelbrot_forced_scalar, scalar)
 
+local checked = {preferred = optimized, ["equal width"] = x4}
 local checksum = 0
 for i = 0, count - 1 do
     local want = scalar[i]
-    local got = optimized[i]
-    local gotX4 = x4[i]
-    assert(got.iterations == want.iterations and got.escaped == want.escaped,
-        ("preferred lane mismatch at pixel %d"):format(i))
-    assert(gotX4.iterations == want.iterations and gotX4.escaped == want.escaped,
-        ("equal-width lane mismatch at pixel %d"):format(i))
-    checksum = checksum + got.iterations
+    for name, output in pairs(checked) do
+        local got = output[i]
+        assert(got.iterations == want.iterations and got.escaped == want.escaped,
+            ("%s mismatch at pixel %d"):format(name, i))
+    end
+    checksum = checksum + optimized[i].iterations
 end
 
 local resultPath = os.getenv("MANDELBROT_RESULTS")
@@ -78,23 +99,61 @@ end
 
 io.write(("Mandelbrot: %dx%d, %d max iterations, checksum %d\n"):format(
     width, height, maxIterations, checksum))
+io.write("Every pixel of both vector bodies agrees with the scalar one.\n")
 
-local function benchmark(name, entry, output)
+-- One frame each, in turn, repeated: drift on a machine that is not quiet is
+-- then shared between the implementations rather than landing on whichever one
+-- happened to run while something else was compiling.
+local bodies = {
+    {name = "Nupp f32x8", entry = preferred.ks_mandelbrot, output = optimized},
+    {name = "Nupp f32x4", entry = equalWidth.ks_mandelbrot, output = x4},
+    {name = "Nupp scalar", entry = preferred.ks_mandelbrot_forced_scalar, output = scalar},
+}
+
+for _, body in ipairs(bodies) do
+    body.times = {}
     for _ = 1, 3 do
-        run(entry, output)
+        run(body.entry, body.output)
     end
-    local started = now()
-    local passes = 0
-    repeat
-        run(entry, output)
-        passes = passes + 1
-    until now() - started >= 1.0
-    local elapsed = (now() - started) / passes
-    io.write(("%-14s %10.0f ns/frame  %8.2f MPix/s\n"):format(
-        name, elapsed * 1e9, count / elapsed / 1e6))
+end
+for sample = 1, samples do
+    -- Rotate which body leads, so a first-in-the-round cost is not one body's.
+    for index = 1, #bodies do
+        local body = bodies[(index + sample - 2) % #bodies + 1]
+        local started = now()
+        run(body.entry, body.output)
+        body.times[#body.times + 1] = now() - started
+    end
 end
 
-benchmark("Nupp f32x8", preferred.ks_mandelbrot, optimized)
-benchmark("Nupp f32x4", equalWidth.ks_mandelbrot, x4)
-benchmark("Nupp scalar", preferred.ks_mandelbrot_forced_scalar, scalar)
+local function median(values)
+    local sorted = {}
+    for index, value in ipairs(values) do
+        sorted[index] = value
+    end
+    table.sort(sorted)
+    local middle = math.floor(#sorted / 2)
+    if #sorted % 2 == 1 then
+        return sorted[middle + 1], sorted[1], sorted[#sorted]
+    end
+
+    return (sorted[middle] + sorted[middle + 1]) / 2, sorted[1], sorted[#sorted]
+end
+
+local baseline = nil
+for _, body in ipairs(bodies) do
+    local middle, lowest, highest = median(body.times)
+    body.median = middle
+    if body.name == "Nupp scalar" then
+        baseline = middle
+    end
+    io.write(("%-15s %10.0f ns/frame  %8.2f MPix/s  (%.2f-%.2f)\n"):format(
+        body.name, middle * 1e9, count / middle / 1e6,
+        count / highest / 1e6, count / lowest / 1e6))
+end
+for _, body in ipairs(bodies) do
+    io.write(("%-15s %6.2fx the scalar baseline\n"):format(body.name, baseline / body.median))
+end
+io.write(("%d samples each, alternating inside every sample.\n"):format(samples))
+
 assert(optimized[count - 1].iterations == scalar[count - 1].iterations)
