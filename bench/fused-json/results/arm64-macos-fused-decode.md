@@ -1,10 +1,102 @@
 # Fused JSON decode, arm64 macOS
 
+Two measurements, newest first. The second exists because of the first: the
+unicode row below is what sent the rewrite back to put UTF-8 validation into
+the vectors, and the round after it is what says that worked.
+
+# Second measurement: vector UTF-8 validation restored
+
 ## What stands
 
-The vector-algebra rewrite of the fused scan (`simd-fused-json`) is slower
-than `main` on every input class, and on multi-byte UTF-8 it is slower by
-almost seven times.
+The rewrite (`simd-fused-json` at `da158a72`) is slower than `main` on every
+input class, by between a tenth and a third. The unicode row, which was the
+finding of the first measurement, is fixed: it moved from 0.14x to 0.86x.
+
+Normalized to the colocated Lunajson control, rewrite over main:
+
+| payload | main | rewrite | ratio | first measurement |
+| --- | ---: | ---: | ---: | ---: |
+| records | 4.93 | 4.08 | 0.83x | 0.84x |
+| ascii | 16.62 | 10.99 | **0.66x** | 0.75x |
+| unicode | 12.68 | 10.92 | **0.86x** | 0.14x |
+| nested | 4.92 | 4.43 | 0.90x | 0.87x |
+| small | 3.85 | 3.45 | 0.90x | 0.95x |
+
+Geometric mean over the four large payloads: 0.81x, against 0.53x before.
+
+Raw medians, each the median of two rounds of fifteen samples:
+
+| payload | main MB/s | rewrite MB/s | lunajson main | lunajson rewrite |
+| --- | ---: | ---: | ---: | ---: |
+| records | 337.7 | 279.5 | 68.5 | 68.5 |
+| ascii | 2857 | 2010 | 171.9 | 182.9 |
+| unicode | 2306 | 2073 | 181.9 | 190.0 |
+| nested | 118.4 | 107.1 | 24.0 | 24.2 |
+| small | 214.2 | 192.2 | 55.7 | 55.8 |
+
+## What fixed the unicode row
+
+Two changes, and the second is the larger one.
+
+The lookup4 validator went back in, on the same three nibble tables the block
+scan used and `bench/utf8simd` spells with `swizzle`. And a non-ASCII byte
+stopped being a structural event at all. It had been one only so the drain
+could validate it, so a corpus that is forty percent non-ASCII drained forty
+percent of its bytes through a per-byte state machine; nothing above the
+validator needs to see one, because outside a string the tape walk refuses it
+as the syntax error it is and inside a string it is only bytes.
+
+## The ascii row, which got worse
+
+It is the one row that moved the wrong way, 0.75x to 0.66x, and it is now the
+weakest. The cause is not that the rewrite classifies UTF-8 on vectors that do
+not need it: a vector with no non-ASCII byte, following another such vector,
+already skips the lookups entirely. The cost is the *test* that decides that --
+one `Mask.any` horizontal reduce per sixteen bytes, which the previous revision
+did not pay because non-ASCII was folded into the event mask and read out by
+the `bits` call the scan makes anyway.
+
+Measured directly. Rebuilding the branch with that one test stubbed to `false`
+and nothing else changed moves ascii from 10.99 to 13.07 normalized, which is
+0.79x of main and slightly better than the 0.75x the first measurement had.
+The reduce is therefore the whole of the regression. (The same probe's other
+rows say nothing: with the test false the validator never runs. Only ascii is
+readable from it, because on an all-ASCII payload that test answers false
+anyway and the missing reduce is the only difference.)
+
+No cheap recovery exists. Folding non-ASCII back into the event word removes
+the reduce, because the scan already reads that word out -- and reinstates the
+per-byte drain on every non-ASCII byte, which is exactly the unicode
+regression. Detecting non-ASCII once per thirty-two bytes instead of sixteen
+would halve the cost, but it means unrolling the loop to two loads and two
+bitmask readouts, which is not a cheap change and was not made. The row is
+recorded rather than optimized.
+
+## Conditions
+
+Load averages ran 2.8 to 4.1 (one minute) across the four rounds, higher than
+the 2.07 to 2.25 of the first measurement, and both trees moved down with it:
+`main`'s own ascii median fell from 3015 to 2857 MB/s between the two. That is
+why every ratio here is against the Lunajson control measured in the same
+process on the same bytes, and why the raw columns are reported beside it
+rather than instead of it.
+
+Rounds ran main / rewrite / rewrite / main, fifteen samples each, one after
+another on an otherwise unchanged machine. The two rounds per tree agree
+within 2.5 percent on every payload except the rewrite's `small` (3.56 and
+3.33), which is the row where a decode is mostly call overhead.
+
+| | main | simd-fused-json |
+| --- | --- | --- |
+| source | `c4a0a94d` | `da158a72` |
+| decoder source sha256 | `dd790b7b…` | `ed079dc1…` |
+
+The first measurement's baseline worktree had never had the repository built
+into it, so the vendored Lunajson control was missing and all four of its
+`main` rounds died in `require`; the rounds above were taken after a full
+`./bin/nupp build` there and a standalone `run.sh` check.
+
+# First measurement: the scalar-validation rewrite
 
 | payload | main MB/s | rewrite MB/s | rewrite / main |
 | --- | ---: | ---: | ---: |

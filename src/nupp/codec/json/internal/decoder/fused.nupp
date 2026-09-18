@@ -190,7 +190,7 @@ local function decodeFused<const Variant: integer>(
             local back: uint32 = 1
             local walking = true
             while walking and back <= 3 and back <= scanCursor do
-                local earlier: uint32 = _valueBuilder.byteAt(source, nupp.math.u32.sub(scanCursor, back))
+                local earlier: uint32 = _valueBuilder.byte(source, nupp.math.u32.sub(scanCursor, back))
                 if earlier < 128 then
                     walking = false
                 elseif earlier >= 192 then
@@ -233,19 +233,21 @@ local function decodeFused<const Variant: integer>(
             -- A byte at a time past the last whole vector, and everywhere on
             -- a target without vectors. Here a non-ASCII byte is an event,
             -- because here the drain is what validates it.
-            local byte: uint32 = _valueBuilder.byteAt(source, scanCursor)
-            if byte == 34
-                or byte == 92
-                or byte < 32
-                or byte == 123
-                or byte == 125
-                or byte == 91
-                or byte == 93
-                or byte == 58
-                or byte == 44
-                or byte >= 128
-            then
-                events = 1
+            if scanCursor < sourceCount then
+                local byte: uint32 = _valueBuilder.byteAt(source, scanCursor)
+                if byte == 34
+                    or byte == 92
+                    or byte < 32
+                    or byte == 123
+                    or byte == 125
+                    or byte == 91
+                    or byte == 93
+                    or byte == 58
+                    or byte == 44
+                    or byte >= 128
+                then
+                    events = 1
+                end
             end
             width = 1
         end
