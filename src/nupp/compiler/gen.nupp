@@ -2069,8 +2069,9 @@ function gen.generate(
 
     -- Plucking promises that a dotted operand is evaluated once. Calls in
     -- statement-root position receive reusable path bindings as ordinary generated
-    -- locals; calls nested in another expression use a local wrapper at their exact
-    -- evaluation point. Projected leaves remain in the call because each is read once.
+    -- locals; calls nested in another expression use the block-expression lowering
+    -- to place those bindings at their exact evaluation point without a wrapper.
+    -- Projected leaves remain in the call because each is read once.
     -- Keep the emitter's plucking dependencies behind one upvalue. LuaJIT caps a
     -- function at 60 upvalues, and this generator deliberately sits close to that
     -- boundary because emit handles every syntax kind.
@@ -2084,6 +2085,7 @@ function gen.generate(
     local pluck = {
         portable = dialects.lowersSyntax(result.dialect or "luajit"),
         plans = {},
+        loweredPlans = {},
         statementActive = {},
         helpers = helpers,
         declareHelper = declareHelper,
@@ -2241,18 +2243,21 @@ function gen.generate(
         return false
     end
 
-    function pluck.callPlan(call): any
+    function pluck.needsBindings(call): boolean
         if not pluckableCall(call) or not call.obj or not call.args or not call.args.loweredArgs then
-            return nil
+            return false
         end
-        local hasDotted = false
         for _, argument in ipairs(call.args.loweredArgs) do
             if argument.generatedKind == "field" and argument.source and argument.source.kind == "dotIndex" then
-                hasDotted = true
-                break
+                return true
             end
         end
-        if not hasDotted then
+
+        return false
+    end
+
+    function pluck.callPlan(call): any
+        if not pluck.needsBindings(call) then
             return nil
         end
 
@@ -2357,8 +2362,11 @@ function gen.generate(
         return plan
     end
 
-    function pluck.emitSteps(steps)
+    function pluck.emitSteps(steps, lower: boolean?)
         for _, step in ipairs(steps) do
+            if lower and step.kind == "expr" then
+                emitDepth.lowerSwitches(step.expr)
+            end
             e("const " .. step.name .. "=", sourceLine(step.at))
             if step.kind == "field" then
                 e(step.base .. "." .. step.field)
@@ -2387,6 +2395,19 @@ function gen.generate(
         end
 
         return direct
+    end
+
+    function pluck.statementCall(statement)
+        local call = pluck.directCall(statement)
+        if call and (
+            statement.kind == "callStmt" or statement.kind == "returnStmt" or (
+                call.kind ~= "safeCall" and not call.safeObj and not call.safeMethod
+            )
+        ) then
+            return call
+        end
+
+        return nil
     end
 
     function pluck.emitArgument(argument, owner)
@@ -2860,21 +2881,26 @@ function gen.generate(
     -- Switches
     ---------------------------------------------------------------------
 
-    local function switchContains(node): boolean
+    -- Block expressions and nested plucks both need statements at their evaluation
+    -- point. A direct pluck can retain its existing statement-level emission.
+    local function switchContains(node, direct: any?): boolean
         if not node or cst.isToken(node) or node.folded then
             return false
         end
         if node.foldedExpression then
-            return switchContains(node.foldedExpression)
+            return switchContains(node.foldedExpression, direct)
         end
         if node.kind == "switchExpr" or node.kind == "doExpr" then
+            return true
+        end
+        if node ~= direct and pluck.needsBindings(node) then
             return true
         end
         if node.kind == "funcExpr" or node.kind == "shortfn" or node.kind == "funcbody" then
             return false
         end
         for _, child in ipairs(node) do
-            if switchContains(child) then
+            if switchContains(child, direct) then
                 return true
             end
         end
@@ -3015,7 +3041,9 @@ function gen.generate(
     local function lowerSwitches(node, lazy: boolean?)
         if not node or cst.isToken(
             node
-        ) or node.folded or emitDepth.switchValueTemps[node] or emitDepth.switchTemps[node] then
+        ) or node.folded or emitDepth.switchValueTemps[
+            node
+        ] or emitDepth.switchTemps[node] or pluck.loweredPlans[node] then
             return
         end
         if node.foldedExpression then
@@ -3036,7 +3064,12 @@ function gen.generate(
         if not switchContains(node) then
             return
         end
-        if kind == "binop" and node.op and (node.op.kind == "and" or node.op.kind == "or" or node.op.kind == "??") then
+        if pluck.needsBindings(node) then
+            pluck.lowerCall(node)
+            return
+        elseif kind == "binop" and node.op and (
+            node.op.kind == "and" or node.op.kind == "or" or node.op.kind == "??"
+        ) then
             lowerSwitches(node.lhs)
             local result = nextTemp()
             e("local " .. result .. "=", sourceLine(node))
@@ -3129,6 +3162,7 @@ function gen.generate(
                     end
                     pending = {}
                     lowerSwitches(value)
+                    pending[#pending + 1] = value
                 else
                     pending[#pending + 1] = value
                 end
@@ -3210,9 +3244,86 @@ function gen.generate(
                 end
                 pending = {}
                 lowerSwitches(operand, lazy)
+                pending[#pending + 1] = operand
             elseif operand then
                 pending[#pending + 1] = operand
             end
+        end
+    end
+
+    -- Keep an ordinary call as an expression after lifting its bindings: a final
+    -- call must still expand its result pack. Only a safe call needs to carry its
+    -- results out of a guard, using the existing block-call pack machinery.
+    function pluck.lowerCall(call)
+        local plan = pluck.callPlan(call)
+        if not plan.calleeAlias and call.kind == "call" and not plan.delegate then
+            plan.calleeAlias = nextTemp()
+            plan.setupSteps[
+                #plan.setupSteps + 1
+            ] = {kind = "expr", name = plan.calleeAlias, expr = call.obj, at = call.obj,}
+        elseif call.kind == "methodCall" and not plan.methodAlias then
+            plan.methodAlias = nextTemp()
+            plan.afterReceiverSteps[
+                #plan.afterReceiverSteps + 1
+            ] = {
+                kind = "field",
+                name = plan.methodAlias,
+                base = plan.receiverAlias,
+                field = plan.methodName,
+                at = call,
+            }
+        end
+        pluck.emitSteps(plan.setupSteps, true)
+        local result = plan.isSafe and nextTemp() or nil
+        if result then
+            e("local " .. result .. ";")
+        end
+        local guards = 0
+        if plan.safeReceiver or plan.safeCallee then
+            e("if " .. (plan.receiverAlias or plan.calleeAlias) .. "~=nil then ")
+            guards = guards + 1
+        end
+        pluck.emitSteps(plan.afterReceiverSteps, true)
+        if plan.safeMethod then
+            e("if " .. plan.methodAlias .. "~=nil then ")
+            guards = guards + 1
+        end
+        pluck.emitSteps(plan.steps, true)
+        local prior = pluck.activate(plan)
+        local lastLowered = 0
+        for index, argument in ipairs(call.args.loweredArgs) do
+            if argument.generatedKind == "expr" and not plan.argAliases[argument] and switchContains(argument.expr) then
+                lastLowered = index
+            end
+        end
+        for index, argument in ipairs(call.args.loweredArgs) do
+            if index > lastLowered then
+                break
+            end
+            if not plan.argAliases[argument] then
+                if argument.generatedKind == "expr" then
+                    lowerSwitches(argument.expr)
+                end
+                if index < lastLowered then
+                    local alias = nextTemp()
+                    e("local " .. alias .. "=", sourceLine(argument.expr or argument.source or call))
+                    pluck.emitArgument(argument, call.args)
+                    e(";")
+                    plan.argAliases[argument] = alias
+                end
+            end
+        end
+        pluck.restore(plan, prior)
+        pluck.loweredPlans[call] = plan
+        if result then
+            local packName, unpackName = emitDepth.blockCallPack(call)
+            e(result .. "=" .. (packName and packName .. "(" or ""))
+            emit(call)
+            e((packName and ")" or "") .. ";")
+            emitDepth.switchValueTemps[call] = unpackName and unpackName .. "(" .. result .. ")" or result
+        end
+        for _ = 1, guards do
+            e("end;")
         end
     end
 
@@ -3414,6 +3525,7 @@ function gen.generate(
                 end
                 pending = {}
                 lowerSwitches(expr)
+                pending[#pending + 1] = expr
             else
                 pending[#pending + 1] = expr
             end
@@ -3452,6 +3564,7 @@ function gen.generate(
                 end
                 pending = {}
                 lowerSwitches(value)
+                pending[#pending + 1] = value
             else
                 pending[#pending + 1] = value
             end
@@ -4495,6 +4608,13 @@ function gen.generate(
             e(switchValueTemporary, sourceLine(x))
             return
         end
+        local loweredPluck = pluck.loweredPlans[x]
+        if loweredPluck and not pluck.plans[x] then
+            local prior = pluck.activate(loweredPluck)
+            emit(x)
+            pluck.restore(loweredPluck, prior)
+            return
+        end
         if kind == "methodCall" and emitDepth.blockMethods and emitDepth.blockMethods[x] then
             local method = emitDepth.blockMethods[x]
             e(method.method .. "(" .. method.receiver, sourceLine(x))
@@ -4523,7 +4643,7 @@ function gen.generate(
         end
         if emitDepth.switchStatementRoot[
             kind
-        ] and emitDepth.switchStatementActive ~= x and emitDepth.switchContains(x) then
+        ] and emitDepth.switchStatementActive ~= x and emitDepth.switchContains(x, pluck.statementCall(x)) then
             local priorSwitchStatement = emitDepth.switchStatementActive
             emitDepth.switchStatementActive = true
             local target = kind == "assignStmt" and #(x.targets or {}) == 1 and x.targets[1] or nil
@@ -5020,7 +5140,7 @@ function gen.generate(
         end
         if not pluck.statementActive[x] then
             local direct = pluck.directCall(x)
-            local plan = direct and pluck.callPlan(direct) or nil
+            local plan = direct and not pluck.loweredPlans[direct] and pluck.callPlan(direct) or nil
             if plan and (not plan.isSafe or kind == "callStmt" or kind == "returnStmt") then
                 pluck.statementActive[x] = true
                 if plan.isSafe and kind == "returnStmt" then

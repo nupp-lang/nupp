@@ -29,9 +29,9 @@ local function clean(source)
     assertEq(diagnostics(source), "", "expected clean check for:\n" .. source)
 end
 
-local function run(source)
+local function run(source, dialect)
     local result = parsed(source)
-    local checked = check.check(result, "test.g.nupp")
+    local checked = check.check(result, "test.g.nupp", nil, {dialect = dialect})
     assertEq(#checked, 0, checked[1] and checked[1].msg or "unexpected check diagnostic")
     local code, problems = gen.generate(result, "test.g.nupp")
     assertEq(#problems, 0, problems[1] and problems[1].msg or "unexpected generation diagnostic")
@@ -225,7 +225,7 @@ function M.sharedPrefixesAreBoundWithoutOneUseLeafTemporaries()
     )
 end
 
-function M.nestedPluckUsesDirectProjectionsWithoutAWrapper()
+function M.nestedPluckBindsThePathInsideTheGuardWithoutAWrapper()
     local answer, code = run(
         vector .. "\n" .. table.concat(
             {
@@ -248,11 +248,11 @@ function M.nestedPluckUsesDirectProjectionsWithoutAWrapper()
             "\n"
         )
     )
-    assertEq(answer, 2)
+    assertEq(answer, 1)
     assert(not code:find("(function()", 1, true), "a nested pluck must not allocate a wrapper:\n" .. code)
 end
 
-function M.nestedSafePluckUsesTheNativeSafeCallWithoutAWrapper()
+function M.nestedSafePluckBindsThePathInsideTheGuardWithoutAWrapper()
     local answer, code = run(
         vector .. "\n" .. table.concat(
             {
@@ -275,9 +275,189 @@ function M.nestedSafePluckUsesTheNativeSafeCallWithoutAWrapper()
             "\n"
         )
     )
-    assertEq(answer, "2nil3")
-    assert(code:find("?.", 1, true), code)
+    assertEq(answer, "1nil3")
+    assert(code:find("~=nil then", 1, true), code)
     assert(not code:find("(function()", 1, true), code)
+end
+
+local nestedFixture = vector
+    .. [[
+
+local record Body position: Vec3 end
+local record Entity body: Body end
+local reads = 0
+local position = new Vec3(x = 2, y = 3, z = 4)
+local body = setmetatable({}, {__index = function(_, _)
+    reads = reads + 1
+    return position
+end}) as Body
+local entity = new Entity(body = body)
+local function draw(x: number, y: number): number return x + y end
+]]
+
+local function nestedBoth(source, expected)
+    for _, dialect in ipairs({"luajit", "lua51"}) do
+        local answer, code = run(nestedFixture .. source, dialect)
+        assertEq(answer, expected, dialect .. " nested pluck")
+        assert(not code:find("(function()", 1, true), code)
+    end
+end
+
+function M.lazyPlucksPreserveFalseNilAndSelectedBranches()
+    nestedBoth(
+        [[
+local function apply(enabled: boolean?): string
+    local a = enabled and draw({x, y} = entity.body.position)
+    local b = enabled or draw({x, y} = entity.body.position)
+    local c = enabled ?? draw({x, y} = entity.body.position)
+    local d = enabled ? draw({x, y} = entity.body.position) : 0
+    return tostring(a) .. ':' .. tostring(b) .. ':' .. tostring(c) .. ':' .. tostring(d)
+end
+local a, b, c = apply(false), apply(nil), apply(true)
+return a .. '/' .. b .. '/' .. c .. '/' .. tostring(reads)
+]],
+        "false:5:false:0/nil:5:5:0/5:true:true:5/5"
+    )
+end
+
+function M.nestedPlucksPreserveCalleeArgumentsAndInitializerScope()
+    nestedBoth(
+        [[
+local moved = 7
+local delta = 11
+local function update(first: number, delta: number, x: number, y: number): number
+    return first + delta + x + y
+end
+body = setmetatable({}, {__index = function(_, _)
+    delta = 100
+    update = function(first: number, delta: number, x: number, y: number): number return 999 end
+    reads = reads + 1
+    return position
+end}) as Body
+entity.body = body
+local moved = true and update(moved, delta, {x, y} = entity.body.position)
+return tostring(moved) .. ':' .. tostring(reads) .. ':' .. tostring(delta)
+]],
+        "23:1:100"
+    )
+end
+
+function M.nestedPlucksKeepEagerPrefixesAndTrailingResults()
+    nestedBoth(
+        [[
+local events = ''
+local function head(): number events = events .. 'H' return 1 end
+local function pair(x: number, y: number): number, nil, number
+    events = events .. 'P'
+    return x, nil, y
+end
+local function take(a: number, x: number, empty: nil, y: number): number
+    return a + x + y
+end
+local total = take(head(), pair({x, y} = entity.body.position))
+local function values(): number, number, nil, number
+    return head(), pair({x, y} = entity.body.position)
+end
+local a, x, empty, y = values()
+return tostring(total) .. ':' .. events .. ':' .. tostring(a + x + y) .. ':' .. tostring(reads)
+]],
+        "6:HPHP:6:2"
+    )
+end
+
+function M.nestedPlucksCaptureFieldsBeforeABlockArgument()
+    nestedBoth(
+        [[
+local function take(x: number, y: number, tail: number): number
+    return x + y + tail
+end
+local value = true and take({x, y} = entity.body.position, tail = do
+    position.x = 50
+    yield draw({x, y} = entity.body.position)
+end)
+return tostring(value) .. ':' .. tostring(reads)
+]],
+        "58:2"
+    )
+end
+
+function M.siblingPlucksFinishEarlierCallsBeforeReadingLaterPaths()
+    nestedBoth(
+        [[
+local function first(x: number, y: number): number
+    position.x = 20
+    return x + y
+end
+local function add(a: number, b: number): number return a + b end
+local value = add(first({x, y} = entity.body.position), draw({x, y} = entity.body.position))
+return tostring(value) .. ':' .. tostring(reads)
+]],
+        "28:2"
+    )
+end
+
+function M.nestedPlucksReevaluateLoopConditionsAndStayInsideFunctions()
+    nestedBoth(
+        [[
+local function step(x: number, y: number): boolean return reads < 3 end
+while step({x, y} = entity.body.position) do end
+local callback = || -> draw({x, y} = entity.body.position)
+local before = reads
+local value = callback()
+repeat value = value - 1 until value == 3 and draw({x, y} = entity.body.position) == 5
+return tostring(before) .. ':' .. tostring(reads) .. ':' .. tostring(value)
+]],
+        "3:5:3"
+    )
+end
+
+function M.nestedSafePlucksKeepSkippedArgumentsAndMultipleResults()
+    nestedBoth(
+        [[
+local function pair(x: number, y: number): number, nil, number return x, nil, y end
+local maybe: function(x: number, y: number): (number, nil, number) | nil = nil
+local skipped = maybe?.({x, y} = entity.body.position)
+maybe = pair
+local a, empty, b = maybe?.({x, y} = entity.body.position)
+return tostring(skipped) .. ':' .. tostring(a) .. ':' .. tostring(empty) .. ':' .. tostring(b) .. ':' .. tostring(reads)
+]],
+        "nil:2:nil:3:1"
+    )
+end
+
+function M.nestedMethodsGuardArgumentsAndSharePluckPrefixes()
+    nestedBoth(
+        [[
+local record Drawer
+    draw: function(self: Drawer, x: number, y: number) | nil
+end
+local drawer: Drawer | nil = nil
+local missingReceiver = drawer?.:draw?.({x, y} = entity.body.position)
+drawer = new Drawer(draw = nil)
+local missingMethod = drawer?.:draw?.({x, y} = entity.body.position)
+drawer.draw = function(_, x: number, y: number): number return x + y end
+local value = true and drawer:draw?.({x} = entity.body.position, {y} = entity.body.position)
+return tostring(missingReceiver) .. ':' .. tostring(missingMethod) .. ':' .. tostring(value) .. ':' .. tostring(reads)
+]],
+        "nil:nil:5:1"
+    )
+end
+
+function M.nestedPlucksPreserveAssignmentTargetsAndTableFields()
+    nestedBoth(
+        [[
+local target: {number} = {0}
+local original = target
+local function replace(x: number, y: number): number
+    target = {99}
+    return x + y
+end
+target[1] = true and replace({x, y} = entity.body.position)
+local values = {draw({x, y} = entity.body.position), draw({x, y} = entity.body.position)}
+return tostring(original[1]) .. ':' .. tostring(target[1]) .. ':' .. tostring(values[1] + values[2]) .. ':' .. tostring(reads)
+]],
+        "5:99:10:3"
+    )
 end
 
 function M.safeCallStatementUsesGuardsWithoutAnExpressionWrapper()

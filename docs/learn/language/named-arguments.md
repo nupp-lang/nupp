@@ -142,9 +142,11 @@ end
 
 A plucked operand is a name or a dotted field path, such as `entity.position`.
 Bind a call, a computed index, or any other producing expression to a local
-first. A statement-level call evaluates each dotted path and common prefix a
-single time, while the projected fields stay direct positional arguments, and
-plucking never introduces a closure or an upvalue.
+first. Each call evaluates its dotted paths and common prefixes a single time,
+while the projected fields stay direct positional arguments. In a conditional
+expression such as `enabled and draw({x, y} = entity.position)`, the path is
+evaluated only when the call is reached. Plucking never introduces a closure or
+an upvalue.
 
 ```nupp
 local record Vec3
