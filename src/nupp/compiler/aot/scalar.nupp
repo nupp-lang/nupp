@@ -4,8 +4,8 @@ module nupp.compiler.aot.scalar
 The scalar half of the AOT IR.
 
 One `@aot` body lowers to this: an admitted signature, the layouts its spans hold,
-and one loop over them. It is what the lane rewrite reads and what a body that
-declined lane lowering is emitted from directly.
+and one loop over them. It is what the lane rewrite reads and what a body with
+no `@simd` loop is emitted from directly.
 
 There is one record per operation and `Expr` is their union, discriminated by
 `op`, the way the concrete syntax tree is discriminated by `kind`. A pass that
@@ -1629,45 +1629,9 @@ record scalarIR.Program
     rangeGuard: scalarIR.RangeGuard?
     lanes: scalarIR.LaneBody?
 
-    --- What the source asked for: `"prefer"`, `"decline"`, or nothing at all.
-    --- The request the body arrived with, which the estimate below may narrow
-    --- but never widens.
-    vectorizeRequest: string?
-
-    --- Whether the source marked this program's loop with `@simd`. Unlike the
-    --- temporary vectorize request above, this is a required source contract:
-    --- failure to produce lanes fails compilation.
+    --- Whether the source marked this program's loop with `@simd`. A required
+    --- source contract: failure to produce lanes fails compilation.
     simdRequired: boolean?
-
-    --- Whether lane lowering was attempted, which the request and the estimate
-    --- together decide. Separate from whether one was produced.
-    vectorizeAttempted: boolean?
-
-    --- Arithmetic operations per byte the loop body touches, and the two counts
-    --- it came from. What decides whether running several iterations at once is
-    --- worth assembling and taking apart the vectors.
-    intensity: number?
-
-    operations: number?
-    touchedBytes: number?
-
-    --- Whether the estimate saw field traffic across consecutive AoS elements.
-    --- A declined streaming loop can act on this by projecting SoA columns.
-    stridedFields: boolean?
-
-    --- Whether lane lowering was declined rather than attempted and refused.
-    --- The two are different: a declined loop is one nobody expected to
-    --- vectorise, and a refused one is a loop that wanted to and could not.
-    ---
-    --- The outcome, decided here, as against `vectorizeRequest` above, which is
-    --- what the source asked for before anything was tried.
-    vectorizeDeclined: boolean?
-
-    --- Whether it was declined by the intensity estimate specifically.
-    thin: boolean?
-
-    --- Why the loop ran one iteration at a time, when it wanted not to.
-    laneRefusals: {any}?
 
     --- Whether the source asked for fused multiply-add. Part of what the
     --- function answers rather than only how fast it gets there, which is why

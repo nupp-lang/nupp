@@ -491,29 +491,6 @@ const aotLane.SHAPE_BY_NAME = (function(): {[string]: aotLane.Shape}
     return byName
 end)()
 
---- Below this many arithmetic operations per byte a loop body touches, lane
---- lowering is declined.
----
---- Lane lowering is a large win where a loop stays in registers and a large loss
---- where it streams memory: measured against their own scalar bodies, Mandelbrot
---- runs about twice its scalar speed with four lanes while a component update
---- runs between a tenth and four fifths of its. Neither layout nor element width
---- moves that, so what separates them is how much arithmetic there is to
---- amortize assembling and taking apart the vectors.
----
---- The kernels this was calibrated against sit either side of a gap of more than
---- ten times, so the number is round rather than tuned. It is an estimate
---- standing in for a measurement, which is why the source overrides it in either
---- direction.
-const aotLane.INTENSITY_THRESHOLD = 1.0
-
---- What operations inside a data-dependent inner loop count for.
----
---- They run many times per iteration of the loop being lowered and the trip
---- count is not a static fact, so this stands in for that count rather than
---- claiming it.
-const aotLane.INNER_LOOP_WEIGHT = 8
-
 --- Every lane-typed expression.
 ---
 --- A scalar expression may appear where a uniform value is wanted; it is not in

@@ -7936,10 +7936,6 @@ record lower.Contract
     --- Whether fixed-width transcendentals may select a native implementation.
     fpTranscendentals: boolean
 
-    --- What the source asked for: `"prefer"`, `"decline"`, or nothing at all
-    --- to leave the arithmetic-intensity estimate to decide.
-    vectorizeRequest: string?
-
     --- Whether the source requires lane lowering for an authored loop.
     simdRequired: boolean
 end
@@ -7960,7 +7956,6 @@ function lower.contract(
         target = body.aotTarget == "gpu" and "gpu" or "cpu",
         fpContract = relaxed ~= nil and relaxed["fp-contract"] == true,
         fpTranscendentals = relaxed ~= nil and relaxed["fp-transcendentals"] == true,
-        vectorizeRequest = body.vectorizeRequest,
         simdRequired = body.simdRequired == true
     )
     if checked then
@@ -7972,11 +7967,8 @@ function lower.contract(
         if written == "aot" then
             for _, argument in ipairs(link.annotationArgs or {}) do
                 local name = argument.name ~= nil and (argument.name as lexer.Token).text or nil
-                if name ~= "vectorize" and name ~= "lanes" and name ~= "target" then
-                    context.reject(
-                        lower.site(link),
-                        "@aot takes target = \"cpu\", target = \"gpu\", a vectorize override, or nothing"
-                    )
+                if name ~= "target" then
+                    context.reject(lower.site(link), "@aot takes target = \"cpu\", target = \"gpu\", or nothing")
                 end
 
                 local value = argument.expr
@@ -7985,15 +7977,9 @@ function lower.contract(
                     local requested = token ~= nil and (token as lexer.Token).text or ""
                     if requested == "\"gpu\"" or requested == "'gpu'" then
                         contract.target = "gpu"
-                        contract.vectorizeRequest = "decline"
                     elseif requested ~= "\"cpu\"" and requested ~= "'cpu'" then
                         context.reject(lower.site(argument), "@aot target must be \"cpu\" or \"gpu\"")
                     end
-                elseif value ~= nil and value.kind == "falseExpr" then
-                    contract.vectorizeRequest = "decline"
-                end
-                if (name == "vectorize" or name == "lanes") and value ~= nil and value.kind == "trueExpr" then
-                    contract.vectorizeRequest = "prefer"
                 end
             end
         elseif written == "relax" then
@@ -8380,7 +8366,6 @@ function lower.program(
                 executionTarget = "gpu",
                 fpContract = contract.fpContract,
                 fpTranscendentals = contract.fpTranscendentals,
-                vectorizeAttempted = false,
                 params = signature.params,
                 layouts = layouts.ordered,
                 regions = regions,
@@ -8453,13 +8438,6 @@ function lower.program(
     local mapShape = admission.shape ~= nil
 
     if not mapShape then
-        if contract.vectorizeRequest == "prefer" and not contract.simdRequired then
-            context.reject(
-                admission.declinedAt or lower.site(body),
-                "required scalar-source lanes need the admitted map-loop shape: " .. tostring(admission.declined)
-            )
-        end
-
         local kernel = newKernel(signature, declarations, layouts, symbol, context, {
             stringAccumulators = lower.stringAccumulators(statements),
             loopSource = lower.site(body.body or body),
@@ -8498,7 +8476,6 @@ function lower.program(
             fpContract = contract.fpContract,
             fpTranscendentals = contract.fpTranscendentals,
             simdRequired = contract.simdRequired,
-            vectorizeAttempted = contract.simdRequired,
             params = signature.params,
             layouts = layouts.ordered,
             regions = regions,
@@ -8573,9 +8550,7 @@ function lower.program(
             executionTarget = contract.target,
             fpContract = contract.fpContract,
             fpTranscendentals = contract.fpTranscendentals,
-            vectorizeRequest = contract.vectorizeRequest,
             simdRequired = contract.simdRequired,
-            vectorizeAttempted = contract.simdRequired or contract.vectorizeRequest ~= "decline",
             params = signature.params,
             layouts = layouts.ordered,
             regions = regions,

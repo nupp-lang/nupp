@@ -495,12 +495,8 @@ function annotations.hydrateBuiltins(registry: annotations.Registry, typesApi: a
     json.memberOrder = {"unknown", "name", "omit", "omitEmpty"}
 
     local aot = registry:get("aot")
-    -- Absent, the compiler decides from how much arithmetic the loop does per
-    -- byte it touches: vectorizing wins on a register-resident loop and loses
-    -- on one that streams memory. `vectorize = true` and `vectorize = false`
-    -- override that in either direction. Neither requires the lowering to
-    -- succeed -- that was `simd = true`, withdrawn because it turned a
-    -- performance property into a build error.
+    -- Lane lowering is not a member here. A loop that must run in lanes says
+    -- so itself with `@simd`, and a loop without it compiles scalar.
     aot.members = {
         target = member(
             "target",
@@ -514,19 +510,8 @@ function annotations.hydrateBuiltins(registry: annotations.Registry, typesApi: a
             "Selects the execution family: `\"cpu\"` (the default) or `\"gpu\"`.",
             "guides/ahead-of-time"
         ),
-        vectorize = member(
-            "vectorize",
-            optional(typesApi.boolean),
-            true,
-            "Overrides the compiler's vectorization estimate: `true` takes it whatever the estimate says, `false` declines it. Neither requires the lowering to succeed.",
-            "guides/ahead-of-time"
-        ),
-        -- The withdrawn spelling of `vectorize`, kept so source written against
-        -- it still compiles. Absent from `memberOrder`, so validation accepts it
-        -- while reflection, hover and generated documentation never offer it.
-        lanes = member("lanes", optional(typesApi.boolean), true, nil, nil),
     }
-    aot.memberOrder = {"target", "vectorize"}
+    aot.memberOrder = {"target"}
 
     local event = registry:get("event")
     event.members = {

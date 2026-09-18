@@ -11,7 +11,7 @@ sixteen bytes on the x86-64 baseline and on NEON, thirty-two on AVX2 -- and
 local span = nupp.mem.span
 local simd = nupp.simd
 
-@aot(vectorize = false)
+@aot
 local function countQuotes(borrows source: span.Span<uint8>): uint32
     local species = simd.preferredU8()
     local cursor: integer = 0

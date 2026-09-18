@@ -1,8 +1,10 @@
 module nupp.compiler.aot.loops
 
--- Per-loop AOT facts. The established map-loop rewrite still owns its gang;
--- structured bodies are inventoried independently so diagnostics and future
--- transforms no longer collapse every loop into one function-level answer.
+-- Per-loop AOT facts. A map-shaped program's one loop and the loops of a
+-- structured body are inventoried alike, so diagnostics and reports never
+-- collapse every loop into one function-level answer. A loop is `lowered` when
+-- it said `@simd` and ran in lanes, `explicit-simd` when its body uses the
+-- fixed-width vector API, and `scalar` otherwise.
 
 local effects = require("nupp.compiler.aot.effects")
 local scalarIR = require("nupp.compiler.aot.scalar")
@@ -20,7 +22,7 @@ record loops.Report
     nativeReads: integer
     nativeWrites: integer
     mayRaise: boolean
-    outcome: 'lowered' | 'declined' | 'refused' | 'explicit-simd' | 'scalar'
+    outcome: 'lowered' | 'explicit-simd' | 'scalar'
     reason: string?
 end
 
@@ -125,7 +127,7 @@ local function append(
     kind: 'map' | 'fornum' | 'while' | 'repeat',
     source: scalarIR.Source?,
     value: any,
-    outcome: 'lowered' | 'declined' | 'refused' | 'explicit-simd' | 'scalar',
+    outcome: 'lowered' | 'explicit-simd' | 'scalar',
     reason: string?
 ): nil
     local counts = measurements(value)
@@ -156,7 +158,7 @@ local function structured(statements: {scalarIR.Statement}, reports: {loops.Repo
             local required = statement.op == "fornum" and (statement as scalarIR.Fornum).simdRequired == true
             local lowered = required and (statement as scalarIR.Fornum).lanes ~= nil
             if not explicit and not lowered then
-                reason = "structured loop has no automatic lane rewrite"
+                reason = "loop runs one iteration at a time; mark it @simd to run in lanes"
             end
             append(
                 reports,
@@ -185,20 +187,20 @@ end
 function loops.program(program: scalarIR.Program): {loops.Report}
     local reports: {loops.Report} = {}
     if program.loop ~= nil then
-        local outcome: 'lowered'
-            | 'declined'
-            | 'refused' = program.lanes ~= nil
-            and "lowered"
-            or program.vectorizeDeclined == true
-            and "declined"
-            or "refused"
+        local statements = (program.loop as scalarIR.Loop).statements
+        local lowered = program.lanes ~= nil
+        local explicit = not lowered and measurements(statements).simdOperations > 0
+        local reason: string? = nil
+        if not lowered and not explicit then
+            reason = "loop runs one iteration at a time; mark it @simd to run in lanes"
+        end
         append(
             reports,
             "map",
             (program.loop as scalarIR.Loop).source,
-            (program.loop as scalarIR.Loop).statements,
-            outcome,
-            outcome == "refused" and "map loop wanted lanes but its body was not lowerable" or nil
+            statements,
+            lowered and "lowered" or explicit and "explicit-simd" or "scalar",
+            reason
         )
     elseif program.workgroup ~= nil then
         local workgroup = program.workgroup as scalarIR.Workgroup

@@ -1,17 +1,15 @@
 module nupp.compiler.cli.aot
 
 --[[
-`nupp aot`: what an `@aot` function compiles to, and whether it vectorised.
+`nupp aot`: what an `@aot` function compiles to.
 
-Two questions, and they are asked for different reasons.
-
-The first is what the backend actually did. An `@aot` body is compiled somewhere
-a reader cannot see, so `--emit ir` shows the verified IR, `--emit c` shows the
-generated C, `--emit spirv` writes the native WGPU module, `--emit wgsl` shows
-the browser WebGPU integer artifact, `--emit asm` shows the instructions that C became, and
-`--emit binding` shows the module that stands in front of it. Reading the C is
-how you tell a mask stack from a branch, and how you check that the loop you
-thought was register-resident is.
+An `@aot` body is compiled somewhere a reader cannot see, so `--emit ir` shows
+the verified IR, `--emit c` shows the generated C, `--emit spirv` writes the
+native WGPU module, `--emit wgsl` shows the browser WebGPU integer artifact,
+`--emit asm` shows the instructions that C became, and `--emit binding` shows
+the module that stands in front of it. Reading the C is how you tell a mask
+stack from a branch, and how you check that the loop you thought was
+register-resident is.
 
 `--emit asm` is where that stops being a guess. The C compiler is the last thing
 between a lowering decision and the machine, and until it was readable from here
@@ -21,19 +19,11 @@ answer that could not be compared with last week's. It takes `--function` and
 `--features`, so what is asked for is one body at one tier, and it counts the
 listing by kind so that two runs of the same kernel can be put side by side.
 
-The second is `--check`, and it exists for the same reason `nupp bc --check`
-does. Whether a loop ran several iterations at once is a performance property:
-no answer depends on it, no test fails when it stops happening, and an ordinary
-edit can quietly take it away. So it gets the same treatment -- a check that
-names the construct that stopped it and exits 1, rather than an annotation that
-turns a performance property into a build error for everyone.
-
-`--check` distinguishes three outcomes, and only one of them is a failure. A body
-that lowered is fine. A body that declined -- because the arithmetic per byte says
-lanes will not pay, or because the source wrote `@aot(vectorize = false)` -- is fine,
-and saying so is the point of being able to decline. A body that wanted lanes and
-did not get them is the failure, and it is reported with the construct that
-refused.
+With no `--emit`, one line per function says what it lowered to: the gang each
+`@simd` loop runs in, or that it runs scalar. Whether a loop runs in lanes is
+the source's to say, so there is nothing here to check for -- a `@simd` loop
+that cannot run in lanes already fails the build, with the construct that
+refused it.
 ]]
 const {type Target} = require("nupp.compiler.aot.target")
 const {type Toolchain} = require("nupp.compiler.build.aot")
@@ -106,17 +96,15 @@ local REPORT_SCHEMA = {
                                 nativeReads = {type = "integer"},
                                 nativeWrites = {type = "integer"},
                                 mayRaise = {type = "boolean"},
-                                outcome = {
-                                    type = "string",
-                                    enum = {"lowered", "declined", "refused", "explicit-simd", "scalar"},
-                                },
+                                outcome = {type = "string", enum = {"lowered", "explicit-simd", "scalar"},},
                                 reason = {type = "string"},
                             },
                         },
                     },
                     regions = {
                         type = "array",
-                        description = "Authored required SIMD regions in source order.",
+                        description = "Every @simd loop in source order: a map-shaped function's one loop, "
+                        .. "or the marked regions of a structured body.",
                         items = {
                             type = "object",
                             properties = {
@@ -152,45 +140,6 @@ local REPORT_SCHEMA = {
                                         },
                                     },
                                 },
-                            },
-                        },
-                    },
-                    intensity = {
-                        type = "object",
-                        description = "Arithmetic per byte the loop body touches, and the two counts behind it.",
-                        properties = {
-                            perByte = {type = "number"},
-                            operations = {type = "number"},
-                            bytes = {type = "number"},
-                        },
-                    },
-                    lanes = {
-                        type = "object",
-                        description = "The gang the loop was lowered to, absent when it was not.",
-                        properties = {
-                            shape = {type = "string"},
-                            lanes = {type = "integer"},
-                            rounded = {
-                                type = "boolean",
-                                description = "Whether explicit fixed-width work was performed wider and rounded.",
-                            },
-                        },
-                    },
-                    outcome = {
-                        type = "string",
-                        enum = {"lowered", "declined", "refused"},
-                        description = "Whether the loop vectorised, was not expected to, or wanted to and could not.",
-                    },
-                    refusals = {
-                        type = "array",
-                        description = "Why it ran one iteration at a time, when it wanted not to.",
-                        items = {
-                            type = "object",
-                            properties = {
-                                file = {type = "string"},
-                                line = {type = "integer"},
-                                column = {type = "integer"},
-                                message = {type = "string"},
                             },
                         },
                     },
@@ -278,7 +227,11 @@ local REPORT_SCHEMA = {
     },
 }
 
---- Authored SIMD regions in source order.
+--- Every `@simd` loop in source order.
+---
+--- A map-shaped program carries the mark on its one loop and its gang on the
+--- program; a structured body carries both on each marked region. Reported
+--- alike, so a reader asks one question of either.
 local function simdRegions(program: any): {any}
     local answer: {any} = {}
 
@@ -346,91 +299,62 @@ local function simdRegions(program: any): {any}
         end
     end
 
+    if program.loop ~= nil and program.simdRequired == true then
+        local loop = program.loop
+        local reduced: {any} = {}
+        reducers(program.lanes and program.lanes.statements or {}, reduced, {})
+        answer[
+            1
+        ] = {
+            ordinal = 1,
+            line = loop.source and loop.source.line or 1,
+            column = loop.source and loop.source.column or 1,
+            bounds = {first = tostring(loop.first), last = tostring(loop.last), step = "positive-unit"},
+            gang = program.lanes and {
+                shape = program.lanes.shape,
+                lanes = program.lanes.lanes,
+                rounded = program.lanes.rounded == true,
+            } or nil,
+            tail = "masked",
+            reducers = reduced,
+        }
+    end
     visit(program.body or {})
 
     return answer
-end
-
---- Which of the three outcomes this body had.
----
---- `declined` and `refused` are deliberately not one answer. A loop nobody
---- expected to vectorise and a loop that tried and could not are different
---- facts, and a check that conflated them would either fail on the first or stay
---- quiet about the second.
-local function outcome(program: any, artifacts: any): string
-    local regions = simdRegions(program)
-    if #regions > 0 then
-        for _, region in ipairs(regions) do
-            if region.gang == nil then
-                return "refused"
-            end
-        end
-
-        return "lowered"
-    end
-    if program.lanes ~= nil then
-        return "lowered"
-    end
-    -- A GPU kernel never passes through lane selection, so `lanes` and
-    -- `vectorizeDeclined` stay unset; its compiled artifact is the evidence it
-    -- lowered rather than refusing.
-    if artifacts and artifacts.gpu and artifacts.gpu[program.symbol] ~= nil then
-        return "lowered"
-    end
-    if program.usesSimd == true then
-        return "lowered"
-    end
-    if program.vectorizeDeclined == true then
-        return "declined"
-    end
-
-    return "refused"
 end
 
 --- One line saying what happened, for a person.
 local function summarise(path: string, program: any, artifacts: any): string
     local gpu = artifacts and artifacts.gpu and artifacts.gpu[program.symbol] ~= nil
     local regions = simdRegions(program)
-    local shape = program.lanes ~= nil and program.lanes.shape or (
-        #regions > 0 and tostring(
-            #regions
-        ) .. " @simd region" .. (#regions == 1 and "" or "s") or gpu and "gpu" or "none"
-    )
-    local how = outcome(program, artifacts)
-    local why = ""
+    local what: string
     if gpu then
-        why = ", one iteration per GPU invocation"
-    elseif how == "declined" and program.thin == true then
-        why = ", too little arithmetic per byte for lanes to pay"
-        if program.stridedFields == true then
-            why = why .. "; project hot fields from `nupp.mem.soa` column storage to make them contiguous"
+        what = "gpu, one iteration per GPU invocation"
+    elseif #regions > 0 then
+        local gangs: {string} = {}
+        for index, region in ipairs(regions) do
+            local gang = region.gang
+            gangs[
+                index
+            ] = gang.shape .. ", " .. tostring(
+                gang.lanes
+            ) .. " lanes" .. (gang.rounded == true and ", rounding explicit fixed-width work" or "")
         end
-    elseif how == "declined" and program.loop == nil then
-        why = ", no map loop to run in lanes"
-    elseif how == "declined" and program.entryMode == "lua-builder" then
-        why = ", lanes do not apply to a lua-builder entry"
-    elseif how == "declined" then
-        why = ", declined by `@aot(vectorize = false)`"
-    elseif how == "refused" then
-        why = ", ran one iteration at a time"
+        if #regions == 1 then
+            what = gangs[1]
+        else
+            what = tostring(#regions) .. " @simd regions: " .. table.concat(gangs, "; ")
+        end
+    elseif program.usesSimd == true then
+        what = "explicit simd"
+    elseif program.entryMode == "lua-builder" then
+        what = "scalar, lanes do not apply to a lua-builder entry"
+    else
+        what = "scalar"
     end
 
-    return (
-        "%s: %s, %s, %.2f operations per byte (%d over %d), %s%s"
-    ):format(
-        path,
-        program.name,
-        program.entryMode,
-        program.intensity or 0,
-        program.operations or 0,
-        program.touchedBytes or 0,
-        how == "lowered" and program.lanes ~= nil and (
-            shape .. ", " .. tostring(
-                program.lanes.lanes
-            ) .. " lanes" .. (program.lanes.rounded == true and ", rounding explicit fixed-width work" or "")
-        ) or shape,
-        why
-    )
+    return ("%s: %s, %s, %s"):format(path, program.name, program.entryMode, what)
 end
 
 --- What every symbol in the generated C compiled to.
@@ -617,7 +541,6 @@ local function run(options: any): integer
         )
         return 1
     end
-    local refused = false
     -- Compiled once, before either branch prints: producing it runs a C
     -- compiler, so it happens when it was asked for and never as a side effect
     -- of choosing an output format.
@@ -632,17 +555,10 @@ local function run(options: any): integer
         instructionReport = built
     end
     if options.format == "json" then
-        -- An absent list is an empty array rather than an empty object, so a
-        -- consumer reading `refusals` never has to handle two shapes.
-        -- Lane counts and widths are integers the backend settled on, so a NaN here
-        -- would be a fault rather than a measurement.
-
+        -- Lane counts and widths are integers the backend settled on, so a NaN
+        -- here would be a fault rather than a measurement.
         local functions: {any} = {}
         for position, program in ipairs(artifacts.programs) do
-            local refusals: {any} = {}
-            for index, problem in ipairs(program.laneRefusals or {}) do
-                refusals[index] = problem
-            end
             functions[
                 position
             ] = {
@@ -655,18 +571,6 @@ local function run(options: any): integer
                 optimization = artifacts.optimizations[position],
                 loops = artifacts.loops[position],
                 regions = simdRegions(program),
-                intensity = {
-                    perByte = program.intensity,
-                    operations = program.operations,
-                    bytes = program.touchedBytes,
-                },
-                lanes = program.lanes ~= nil and {
-                    shape = program.lanes.shape,
-                    lanes = program.lanes.lanes,
-                    rounded = program.lanes.rounded == true,
-                } or nil,
-                outcome = outcome(program, artifacts),
-                refusals = refusals,
             }
         end
         io.write(
@@ -716,35 +620,15 @@ local function run(options: any): integer
         end
     end
 
-    for _, program in ipairs(artifacts.programs) do
-        if outcome(program, artifacts) == "refused" then
-            refused = true
-        end
-    end
-    if options.check and refused then
-        -- stdout is buffered and stderr is not, so the summary would otherwise
-        -- arrive after the failure it summarises.
-        io.stdout:flush()
-        for _, program in ipairs(artifacts.programs) do
-            if outcome(program, artifacts) == "refused" then
-                io.stderr:write(("nupp: %s ran one iteration at a time\n"):format(program.name))
-                for _, problem in ipairs(program.laneRefusals or {}) do
-                    io.stderr:write("  " .. aot.renderDiagnostic(problem) .. "\n")
-                end
-            end
-        end
-
-        return 1
-    end
-
     return 0
 end
 
 --- Show what the @aot functions in a file compile to.
 ---
---- With no artifact, reports the lowering decision for each function. Select
---- verified IR, generated C, native GPU SPIR-V, browser GPU WGSL, native
---- assembly, or the generated Nupp binding with `--emit`.
+--- With no artifact, reports what each function lowered to: the gang every
+--- `@simd` loop runs in, or that it runs scalar. Select verified IR, generated
+--- C, native GPU SPIR-V, browser GPU WGSL, native assembly, or the generated
+--- Nupp binding with `--emit`.
 ---
 --- Examples:
 ---
@@ -753,7 +637,7 @@ end
 ---     nupp aot --emit c src/kernel.nupp
 ---     nupp aot --emit asm --function scale src/kernel.nupp
 ---     nupp aot --emit wgsl --function transform src/gpu.nupp
----     nupp aot --check src/kernel.nupp
+---     nupp aot --format json src/kernel.nupp
 @cli("aot")
 @derive(cliModule.Command)
 local record Aot
@@ -764,9 +648,6 @@ local record Aot
     --- Show only this function.
     @cli(name = "function", value = "NAME")
     functionName: string?
-
-    --- Exit non-zero when a loop wanted lanes and remained scalar.
-    check: boolean = false
 
     --- Target triple to compile for.
     @cli(value = "TRIPLE")

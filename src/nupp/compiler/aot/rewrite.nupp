@@ -65,9 +65,8 @@ record rewrite.State
     --- gang carries the element wider than it is.
     ---
     --- Worth knowing downstream: a rounded operation is three instructions where
-    --- an exact one is a single instruction, so the arithmetic-intensity
-    --- estimate -- which counts operations, not instructions -- overstates what
-    --- lanes will be worth for a body full of them.
+    --- an exact one is a single instruction, so a body full of them gains less
+    --- from lanes than its operation count suggests.
     rounded: boolean?
 
     --- Reducers already contributed to by this outer iteration. A second
