@@ -421,6 +421,12 @@ lightbulb. The request:
 - puts findings in the temporary **Nupp JIT Check** diagnostic collection; and
 - clears those diagnostics on edit or on the next manual check.
 
+<img src="/images/vscode-jit-trace-check.jpg" width="1224" height="768" style="max-width: 100%; height: auto" alt="VS Code showing Nupp syntax highlighting, a function created inside a loop underlined in red, and Nupp JIT Check findings in the Problems panel">
+
+Here, the manual check flags a function created on every iteration. Open the
+**Problems** panel to see the findings; hover over an underline for the full
+explanation.
+
 It does not add an annotation, run another process, execute the program, or
 attach a trace hook. A clean answer says:
 
