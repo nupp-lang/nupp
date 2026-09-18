@@ -334,14 +334,71 @@ end
 --- byte loops. The low 31 bits are the stopping position; bit 31 says whether
 --- the token was valid. This is an AOT lowering boundary, not a portable
 --- parser API.
+---
+--- The ordinary body below is the executable semantics of that boundary, not
+--- an API anything outside a codec should reach for. It exists because an
+--- `@aot` function must answer the same values when its artifact is absent,
+--- and without it the one decoder that calls this could not run under
+--- `aot = "off"` at all -- which is also how it is differentially tested.
 --- @param builder a direct value stream
 --- @param source the rooted source bytes
 --- @param start the number's zero-based first byte
 --- @param limit the exclusive source byte limit
 --- @return packed success and stopping position
---- @raises outside an `@aot` function
 function valuebuilder.numberToken(builder: any, borrows source: any, start: uint32, limit: uint32): uint32
-    error("numberToken exists only inside an @aot function", 2)
+    local text = source as string
+    local at = start as integer
+
+    -- JSON's grammar, in the order it is written: an optional minus, an
+    -- integer part that is either one zero or a digit run not starting with
+    -- one, an optional fraction of at least one digit, and an optional
+    -- exponent of at least one digit after its optional sign.
+    local function digits(): integer
+        local first = at
+        while at < limit and text:byte(at + 1) >= 48 and text:byte(at + 1) <= 57 do
+            at = at + 1
+        end
+
+        return at - first
+    end
+
+    if at < limit and text:byte(at + 1) == 45 then
+        at = at + 1
+    end
+    if at >= limit then
+        return nupp.math.u32.wrap(at + 1)
+    end
+    local lead = text:byte(at + 1)
+    if lead == 48 then
+        at = at + 1
+    elseif lead >= 49 and lead <= 57 then
+        digits()
+    else
+        return nupp.math.u32.wrap(at + 1)
+    end
+    if at < limit and text:byte(at + 1) == 46 then
+        at = at + 1
+        if digits() == 0 then
+            return nupp.math.u32.wrap(at + 1)
+        end
+    end
+    if at < limit and (text:byte(at + 1) == 101 or text:byte(at + 1) == 69) then
+        at = at + 1
+        if at < limit and (text:byte(at + 1) == 43 or text:byte(at + 1) == 45) then
+            at = at + 1
+        end
+        if digits() == 0 then
+            return nupp.math.u32.wrap(at + 1)
+        end
+    end
+
+    local value = tonumber(text:sub(start + 1, at))
+    if value == nil then
+        return nupp.math.u32.wrap(at + 1)
+    end
+    valuebuilder.number(builder, value)
+
+    return nupp.math.u32.wrap(at + 2147483648)
 end
 
 --- Places one finished value wherever the stream currently is: into the open
