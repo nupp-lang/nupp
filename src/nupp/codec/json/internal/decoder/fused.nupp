@@ -11,29 +11,45 @@ with the untaken variants' constructs pruned before lowering classifies the
 entry.
 
 The scan is the vector/bitmask algebra `bench/simd-json/src/simd_json/indexer.nupp`
-is written in. One vector of bytes at a time, every byte the scan has to look
-at -- a quote, a backslash, a control byte, one of the six structural
-characters, or anything non-ASCII -- is found by comparisons whose masks are
-or'd together and read out as one word of lane bits. The bits are drained in
-position order, lowest first, and each event byte is fed to a byte-at-a-time
-state machine: string state and backslash parity for quotes, an owed
-continuation count and a first-continuation constraint for UTF-8. Bytes that
-are not events are never touched by the drain, which is where the vectors
-earn their place. Whatever the vectors do not cover -- the partial vector
-past the last whole one, and every byte on a target without vectors -- the
-same loop finishes one at a time, so the drain is written once, events are
-processed in byte order across both, and the first error in the input is the
-one reported.
+is written in. One vector of bytes at a time, every byte the scan has to act
+on -- a quote, a backslash, a control byte or one of the six structural
+characters -- is found by comparisons whose masks are or'd together and read
+out as one word of lane bits. The bits are drained in position order, lowest
+first, and each event byte is fed to a byte-at-a-time state machine that
+keeps string state and backslash parity. Bytes that are not events are never
+touched by the drain, which is where the vectors earn their place.
 
-Nothing above the load is JSON-shaped: comparison, disjunction, lane bits and
-a scalar drain say the whole scan, where the block-at-a-time form it replaces
-needed nibble tables, a lookup4 UTF-8 validator, carry-propagating run parity
-and five tape-append intrinsics to say the same thing. The load itself is the
-one byte-specialized operation left, and it is left because the general
-`Species.load` reads a `nupp.mem.span.Span`, which a value-building AOT entry
-can neither take as a parameter nor make from the string it already roots.
-`loadString` is the VM-aware counterpart that can, and it serves a `Buffer`
-source on the same terms.
+UTF-8 is validated in the same vectors rather than in the drain, by the
+lookup4 validator `bench/utf8simd/src/utf8simd.nupp` spells on the general
+algebra and simdjson runs: every byte's verdict depends on itself and the
+three before it, so the two nibbles of the previous byte and the high nibble
+of this one index three tables of error-class bit sets, and the pair is
+malformed exactly when the three sets share a class. The third and fourth
+bytes of a scalar are the one case a pair cannot see, so those are checked
+against the bytes two and three back and folded in with an xor. A vector with
+no non-ASCII byte, after another such vector, skips the lookup entirely.
+
+That is why a non-ASCII byte is not an event. It was one only so the drain
+could validate it, and a document that is forty percent non-ASCII therefore
+drained forty percent of its bytes; nothing above the validator needs to see
+it, because a non-ASCII byte outside a string is refused by the tape walk
+below as the syntax error it is, and one inside a string is only bytes.
+
+Whatever the vectors do not cover -- the partial vector past the last whole
+one, and every byte on a target without vectors -- the same loop finishes one
+at a time, so the drain is written once and events are processed in byte
+order across both. There the drain does validate UTF-8, from an owed
+continuation count and a first-continuation constraint seeded at the hand-off
+by looking back over the at most three bytes of a scalar the last whole
+vector could not finish. Either way the first error in the input is the one
+reported, at the one-based position of the byte that raised it.
+
+The loads and the nibble lookups are the byte-specialized operations left,
+and they are left because the general `Species.load` reads a
+`nupp.mem.span.Span` and `Vector.swizzle` reads a `Vector`, neither of which
+a value-building AOT entry can take as a parameter or make from the string it
+already roots. `loadString` and `lookup16` are the VM-aware counterparts that
+can, and they serve a `Buffer` source on the same terms.
 ]]
 
 local _valueBuilder = require("nupp.codec.valuebuilder")
@@ -84,34 +100,139 @@ local function decodeFused<const Variant: integer>(
     local haveSlash = false
     local lastSlash: uint32 = 0
 
-    -- UTF-8 carry. Constraint on the next continuation byte: 1 is A0..BF,
-    -- 2 is 80..9F, 3 is 90..BF, 4 is 80..8F.
+    -- UTF-8 carry for the tail. Constraint on the next continuation byte:
+    -- 1 is A0..BF, 2 is 80..9F, 3 is 90..BF, 4 is 80..8F. The vectors do not
+    -- use it; `seeded` marks the hand-off that gives it to the tail.
     local owed: uint32 = 0
     local constraint: uint32 = 0
     local haveNonAscii = false
     local lastNonAscii: uint32 = 0
+    local seeded = false
 
     local species = _preferredU8()
     local lanes: uint32 = nupp.math.u32.wrap(species.lanes)
 
-    while scanCursor < sourceCount do
+    -- The lookup4 error classes, from simdjson's `utf8_lookup4`. `byte1High`
+    -- is indexed by the previous byte's high nibble, `byte1Low` by its low
+    -- nibble and `byte2High` by this byte's high nibble; each entry is the set
+    -- of error classes that nibble is compatible with.
+    local byte1High = _simd.tableU8x16(2, 2, 2, 2, 2, 2, 2, 2, 128, 128, 128, 128, 33, 1, 21, 73)
+    local byte1Low = _simd.tableU8x16(231, 163, 131, 131, 139, 203, 203, 203, 203, 203, 203, 203, 203, 219, 203, 203)
+    local byte2High = _simd.tableU8x16(1, 1, 1, 1, 1, 1, 1, 1, 230, 174, 186, 186, 1, 1, 1, 1)
+    local zeroBytes = species:splat(0)
+    local nibbleMask = species:splat(15)
+    local continuationFlag = species:splat(128)
+    local previous = zeroBytes
+    local previousNonAscii = false
+
+    -- Set when the lookup has seen a malformed pair. The scan then finishes a
+    -- byte at a time so the drain can name the first bad byte exactly.
+    local vectorsOff = false
+
+    -- One turn of this loop is a whole vector while one fits, then the
+    -- hand-off that seeds the tail's UTF-8 state, then one byte at a time.
+    -- The loop is entered once more than the source is long so a source
+    -- ending exactly on a vector boundary still reaches the hand-off, which
+    -- is what tells it about a scalar the last vector left unfinished.
+    while scanCursor < sourceCount or not seeded do
         local events: uint32 = 0
         local width: uint32 = 0
-        if nupp.math.u32.add(scanCursor, lanes) <= sourceCount then
+        if not vectorsOff and nupp.math.u32.add(scanCursor, lanes) <= sourceCount then
             local block = species:loadString(source, scanCursor)
             local structural = block:equal(123):orBits(block:equal(125)):orBits(block:equal(91)):orBits(block:equal(93))
             local separators = block:equal(58):orBits(block:equal(44))
             local strings = block:equal(34):orBits(block:equal(92))
-            local interesting = structural:orBits(separators)
-                :orBits(strings)
-                :orBits(block:inRange(0, 31))
-                :orBits(block:inRange(128, 255))
-            events = interesting:bits()
-            width = lanes
-        end
-        if width == 0 then
+            events = structural:orBits(separators):orBits(strings):orBits(block:inRange(0, 31)):bits()
+
+            -- The lookup only has to run where a non-ASCII byte is in reach of
+            -- it. A vector of ASCII after a vector of ASCII cannot be
+            -- malformed, and one after a non-ASCII vector is classified so the
+            -- pairs straddling the boundary are seen.
+            local currentNonAscii = block:inRange(128, 255):any()
+            if currentNonAscii or previousNonAscii then
+                local previous1 = _simd.alignBytes(previous, block, 1)
+                local previous2 = _simd.alignBytes(previous, block, 2)
+                local previous3 = _simd.alignBytes(previous, block, 3)
+                local special = previous1:shiftRight(4)
+                    :lookup16(byte1High)
+                    :andBits(previous1:andBits(nibbleMask):lookup16(byte1Low))
+                    :andBits(block:shiftRight(4):lookup16(byte2High))
+                -- A byte two back at or above E0, or three back at or above
+                -- F0, says this byte must be a third or fourth continuation.
+                -- The tables answer the carry class 0x80 for a continuation
+                -- after a continuation, so the xor is zero when both agree.
+                local mustContinue = previous2:inRange(224, 255):orBits(previous3:inRange(240, 255))
+                local required = mustContinue:select(continuationFlag, zeroBytes)
+                if required:xorBits(special):equal(0):notBits():any() then
+                    -- The lookup names the pair that is malformed, which for
+                    -- an overlong or out-of-range form is its continuation
+                    -- rather than its lead. Which byte is the first bad one is
+                    -- the drain's answer, and the drain is what runs from here
+                    -- on: this is the path that is about to return an error,
+                    -- so it can afford to be told a byte at a time.
+                    vectorsOff = true
+                end
+            end
+            if not vectorsOff then
+                previous = block
+                previousNonAscii = currentNonAscii
+                width = lanes
+            else
+                events = 0
+            end
+        elseif not seeded then
+            -- The hand-off. Everything before here is validated, so the only
+            -- thing the tail has to be told is how many continuations a
+            -- scalar begun in the last vector still owes. A scalar is at most
+            -- four bytes, so that is answered by walking back over at most
+            -- three continuation bytes to the lead that started them.
+            seeded = true
+            local back: uint32 = 1
+            local walking = true
+            while walking and back <= 3 and back <= scanCursor do
+                local earlier: uint32 = _valueBuilder.byteAt(source, nupp.math.u32.sub(scanCursor, back))
+                if earlier < 128 then
+                    walking = false
+                elseif earlier >= 192 then
+                    -- A lead the lookup could not judge, because what makes
+                    -- C0, C1 and F5..FF wrong is the byte after them and that
+                    -- byte is past the last whole vector.
+                    if earlier < 194 or earlier > 244 then
+                        return nullValue, 2, nupp.math.u32.add(nupp.math.u32.sub(scanCursor, back), 1)
+                    end
+                    local need: uint32 = 3
+                    if earlier <= 223 then
+                        need = 1
+                    elseif earlier <= 239 then
+                        need = 2
+                    end
+                    if need >= back then
+                        owed = nupp.math.u32.add(nupp.math.u32.sub(need, back), 1)
+                        haveNonAscii = true
+                        lastNonAscii = nupp.math.u32.sub(scanCursor, 1)
+                        -- The constraint binds the first continuation, which
+                        -- is already behind us unless the lead is.
+                        if back == 1 then
+                            if earlier == 224 then
+                                constraint = 1
+                            elseif earlier == 237 then
+                                constraint = 2
+                            elseif earlier == 240 then
+                                constraint = 3
+                            elseif earlier == 244 then
+                                constraint = 4
+                            end
+                        end
+                    end
+                    walking = false
+                else
+                    back = nupp.math.u32.add(back, 1)
+                end
+            end
+        else
             -- A byte at a time past the last whole vector, and everywhere on
-            -- a target without vectors.
+            -- a target without vectors. Here a non-ASCII byte is an event,
+            -- because here the drain is what validates it.
             local byte: uint32 = _valueBuilder.byteAt(source, scanCursor)
             if byte == 34
                 or byte == 92

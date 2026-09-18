@@ -339,6 +339,55 @@ function M.theFusedScanReportsTheSameFirstErrorAsTheScalarReference()
     assert(checked > 20, "the reference agreed on only " .. checked .. " inputs")
 end
 
+-- Malformed byte sequences on their own, to be placed at a chosen offset.
+local BAD_UTF8 = {
+    "\128", "\191", "\192\128", "\193\191", "\194", "\194\065", "\224\128\128",
+    "\224\159\191", "\237\160\128", "\237\191\191", "\240\128\128\128",
+    "\240\143\191\191", "\244\144\128\128", "\245\128\128\128", "\255",
+    "\226\130\065", "\240\159\152\065", "\226\130", "\240\159\152",
+}
+
+function M.theFusedScanFindsTheSameBadByteAtEveryVectorOffset()
+    -- The checks above are all short enough to take the byte-at-a-time tail.
+    -- These push the same sequences past whole vectors, so the lookup4
+    -- validator is what finds them and its lane is what names the byte. The
+    -- padding is ASCII inside a string, and a trailing quote is omitted on
+    -- purpose: the UTF-8 error comes first in byte order either way.
+    local checked = 0
+    for _, bad in ipairs(BAD_UTF8) do
+        for pad = 0, 72 do
+            local text = '"' .. string.rep("a", pad) .. bad .. '"'
+            local code, position = referenceScan(text)
+            assert(code == INVALID_UTF8, string.format("the reference missed %s at pad %d", show(text), pad))
+            local _, message = decodedBy(fused, text)
+            assert(message ~= nil, string.format("%s decoded but holds bad UTF-8", show(text)))
+            local reported = tonumber(message:match("at byte (%d+)"))
+            assert(
+                reported == position,
+                string.format("%s raises at byte %s but the reference says %d", show(text), tostring(reported), position)
+            )
+            checked = checked + 1
+        end
+    end
+    assert(checked > 1000, "only " .. checked .. " offsets were checked")
+end
+
+function M.wellFormedUnicodeSurvivesEveryVectorOffset()
+    -- The same sweep for text that is valid, so a validator that is merely
+    -- eager cannot pass the check above.
+    local scalars = {"\194\128", "\223\191", "\224\160\128", "\239\191\191",
+        "\240\144\128\128", "\244\143\191\191", "\226\130\172"}
+    for _, scalar in ipairs(scalars) do
+        for pad = 0, 72 do
+            local text = '"' .. string.rep("a", pad) .. scalar .. string.rep("b", 3) .. '"'
+            local mine, myError = decodedBy(fused, text)
+            local theirs = decodedBy(lunajson, text)
+            assert(myError == nil, string.format("%s was refused: %s", show(text), tostring(myError)))
+            assert(mine == theirs, string.format("%s decoded differently from lunajson", show(text)))
+        end
+    end
+end
+
 function M.theScalarReferenceAcceptsEveryWellFormedCorpusDocument()
     for _, text in ipairs(corpus()) do
         local code, position = referenceScan(text)
