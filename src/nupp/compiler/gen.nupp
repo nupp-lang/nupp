@@ -1562,7 +1562,7 @@ function gen.generate(
     -- it somewhere else entirely. Forgetting it in one branch does not fail to
     -- optimize, it leaves the accumulator empty.
     local function finishConcatBuffer(x, line)
-        if x.concatBuffer then
+        if x.concatBuffer and not x.concatBuffer.directReturn then
             e(("%s = %s:tostring()"):format(x.concatBuffer.target, x.concatBuffer.name), line)
         end
     end
@@ -3334,7 +3334,7 @@ function gen.generate(
         return literal.renderData(value.value)
     end
 
-    local function switchMap(node, plan, selectorName, resultName): nil
+    local function switchMap(node, plan, resultName): nil
         local facts = plan.facts
         local sentinel = facts.nilResult and declareConstant("__nuppSwitchNil", "{}") or nil
 
@@ -3346,7 +3346,7 @@ function gen.generate(
         end
 
         local entries = {}
-        local selector = selectorName
+        local offset = ""
         if plan.tag == "DenseIntegerMap" then
             local byIndex = {}
             for _, entry in ipairs(facts.entries) do
@@ -3356,17 +3356,24 @@ function gen.generate(
             for index = 1, facts.span do
                 entries[index] = byIndex[index] or "nil"
             end
-            local offset = facts.minimum == 0 and "+1" or (
+            offset = facts.minimum == 0 and "+1" or (
                 "-(%s)+1"
             ):format(renderSwitchScalar(new switchplan.Scalar(kind = "number", value = facts.minimum)))
-            selector = selectorName .. offset
         else
             for _, entry in ipairs(facts.entries) do
                 entries[#entries + 1] = "[" .. renderSwitchScalar(entry.key) .. "]=" .. renderedResult(entry.value)
             end
         end
         local map = declareConstant("__nuppSwitchMap", "{" .. table.concat(entries, ",") .. "}")
-        e(resultName .. "=" .. map .. "[" .. selector .. "];", sourceLine(node))
+        e("local " .. resultName .. "=" .. map .. "[", sourceLine(node))
+        if node.selector.kind == "name" then
+            emit(node.selector)
+        else
+            e("(");
+            emit(node.selector);
+            e(")")
+        end
+        e(offset .. "];")
         local fallback = renderSwitchScalar(facts.fallback)
         if sentinel then
             e("if " .. resultName .. "==nil then " .. resultName .. "=" .. fallback)
@@ -3376,17 +3383,114 @@ function gen.generate(
         end
     end
 
-    lowerSwitch = function(node)
+    function emitDepth.switchScalar(t): boolean
+        if not t then
+            return false
+        end
+        if t.tag == "literal" then
+            return emitDepth.switchScalar(t.base)
+        end
+        if t.tag == "union" then
+            for _, member in ipairs(t.members) do
+                if not emitDepth.switchScalar(member) then
+                    return false
+                end
+            end
+            return true
+        end
+
+        return t.tag == "number" or t.tag == "integer" or t.tag == "string" or t.tag == "boolean" or t.tag == "nil"
+    end
+
+    function emitDepth.switchMentions(node, name): boolean
+        if not node then
+            return false
+        end
+        if cst.isToken(node) then
+            return node.kind == "name" and node.text == name
+        end
+        for _, child in ipairs(node) do
+            if emitDepth.switchMentions(child, name) then
+                return true
+            end
+        end
+
+        return false
+    end
+
+    function emitDepth.switchLocalSelector(node): string?
+        local selector = node.selector
+        if selector.kind ~= "name"
+            or not selector.token.definition
+            or not selector.token.definition.lexical
+            or not emitDepth.switchScalar(
+                selector.inferredType
+            ) or emitDepth.captureFrames[selector.token.definition] then
+            return nil
+        end
+        for _, arm in ipairs(node.cases or {}) do
+            if arm.patternKind ~= "static" then
+                return nil
+            end
+            for _, value in ipairs(arm.values or {}) do
+                local kind = value.kind
+                if not value.folded
+                    and kind ~= "number"
+                    and kind ~= "string"
+                    and kind ~= "nilExpr"
+                    and kind ~= "trueExpr"
+                    and kind ~= "falseExpr"
+                then
+                    return nil
+                end
+            end
+        end
+
+        return selector.folded or selector.token.text
+    end
+
+    -- Lowering may introduce builtin reads which have no name token in the CST.
+    -- Extending or removing a binding with one of these names changes their scope.
+    function emitDepth.implicitGlobal(name: string): boolean
+        return (
+            " _G assert collectgarbage coroutine debug dofile error getfenv getmetatable io ipairs load loadfile loadstring math module newproxy next os package pairs pcall print rawequal rawget rawset require select setfenv setmetatable string table tonumber tostring type unpack xpcall "
+        ):find(" " .. name .. " ", 1, true) ~= nil
+    end
+
+    function emitDepth.switchDestination(statement): string?
+        if statement.kind ~= "localStmt" or statement.isConst or statement.pattern or #(
+            statement.names or {}
+        ) ~= 1 or #(statement.exprs or {}) ~= 1 then
+            return nil
+        end
+        local node, name = statement.exprs[1], statement.names[1]
+        if node.kind ~= "switchExpr" or not emitDepth.switchScalar(name.inferredType) then
+            return nil
+        end
+        local dispatch = switchplan.regular(node, coverageOn)
+        if dispatch.tag == "OrderedBranches" then
+            if emitDepth.implicitGlobal(name.text) then
+                return nil
+            end
+            for _, arm in ipairs(node.cases or {}) do
+                if arm.patternKind ~= "static" then
+                    return nil
+                end
+            end
+        end
+        if dispatch.tag ~= "OrderedBranches" or not emitDepth.switchMentions(node, name.text) then
+            return name.text
+        end
+
+        return nil
+    end
+
+    lowerSwitch = function(node, destination: string?)
         if emitDepth.switchTemps[node] then
             return
         end
         lowerSwitches(node.selector)
-        local selectorName, resultName = nextTemp(), nextTemp()
-        emitDepth.switchTemps[node] = resultName
         local line = sourceLine(node)
-        e(("local %s="):format(selectorName), line)
-        emit(node.selector)
-        e((";local %s;"):format(resultName))
 
         local dispatch = switchplan.regular(node, coverageOn)
         node.switchPlanTag = dispatch.tag
@@ -3395,9 +3499,22 @@ function gen.generate(
             or dispatch.tag == "SparseIntegerMap"
             or dispatch.tag == "StringMap"
         if mapped then
-            switchMap(node, dispatch, selectorName, resultName)
+            local resultName = destination or nextTemp()
+            emitDepth.switchTemps[node] = resultName
+            switchMap(node, dispatch, resultName)
             return
         end
+
+        local selectorName = emitDepth.switchLocalSelector(node)
+        if not selectorName then
+            selectorName = nextTemp()
+            e(("local %s="):format(selectorName), line)
+            emit(node.selector)
+            e(";")
+        end
+        local resultName = destination or nextTemp()
+        emitDepth.switchTemps[node] = resultName
+        e(("local %s;"):format(resultName), line)
 
         -- A leading run of record cases over a checker-proved record-only residue may
         -- share the identity read. The proof is stronger than non-nil: a primitive can
@@ -3487,6 +3604,8 @@ function gen.generate(
     ---------------------------------------------------------------------
     -- Ownership and captures
     ---------------------------------------------------------------------
+
+    emitDepth.lowerSwitch = lowerSwitch
 
     local function preserveAssignmentTarget(target)
         if not target then
@@ -4566,6 +4685,13 @@ function gen.generate(
         end
 
         local kind = x.kind
+        if x.deadScalarLocal and not emitDepth.implicitGlobal(x.names[1].text) then
+            return
+        end
+        if x.concatBufferResult then
+            e(x.concatBufferResult .. ":tostring()", sourceLine(x))
+            return
+        end
         if x.statementCleanupOwners and not x.statementCleanupActive then
             pluck.emitStatementCleanup(x)
             return
@@ -4639,6 +4765,11 @@ function gen.generate(
                 end
             end
             e(")")
+            return
+        end
+        local switchDestination = emitDepth.switchDestination(x)
+        if switchDestination then
+            emitDepth.lowerSwitch(x.exprs[1], switchDestination)
             return
         end
         if emitDepth.switchStatementRoot[
@@ -8759,10 +8890,11 @@ function gen.generate(
             emitChildren(x)
 
         elseif kind == "localStmt" and x.concatBuffer then
-            -- The accumulator keeps its declaration, so anything reading it after the
-            -- loop reads a string and needs no rewriting. The buffer is opened beside
-            -- it, on the same line.
-            emitChildren(x)
+            -- Keep the string binding for general later uses. An immediate sole
+            -- return instead reads the buffer directly and needs no accumulator.
+            if not x.concatBuffer.elide then
+                emitChildren(x)
+            end
             e(("local %s = %s.newBuffer()"):format(x.concatBuffer.name, concatBufferName()), sourceLine(x))
 
         elseif kind == "assignStmt" and x.concatBuffer then

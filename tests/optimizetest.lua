@@ -939,6 +939,7 @@ function M.propagatesProvablyUnchangedLocals()
     local code = compile("local size = 6\nreturn size * 7")
     assertTrue(code:find("return 42", 1, true) ~= nil, "an unchanged scalar local propagates: " .. code)
     assertEq(run("local size = 6\nreturn size * 7"), 42)
+    assertEq(code:find("local size", 1, true), nil, "folding removes the unused scalar declaration")
 end
 
 function M.foldsFloorDivisionAsItIsLowered()
@@ -1878,6 +1879,76 @@ function M.levelZeroKeepsTheCall()
         0
     )
     assertTrue(code:find("twice ( x )", 1, true) ~= nil, "-O0 keeps the call: " .. code)
+end
+
+function M.deadScalarCleanupPreservesEffectsAndRemainingUses()
+    local source = [[
+local effects = 0
+local function effect(): number effects = effects + 1 return 7 end
+local discarded = effect()
+local value = 6
+local function change(): nil value = 8 end
+change()
+return effects * 10 + value
+]]
+    assertEq(run(source), 18)
+    local code = compile(source, 1)
+    assert(code:find("local value", 1, true), code)
+    assertEq(run("local size = 6\nlocal other = size * 2\nreturn other * 3"), 36)
+    local reduced = compile("local size = 6\nlocal other = size * 2\nreturn other * 3", 1)
+    assert(not reduced:find("local size", 1, true), reduced)
+    assert(not reduced:find("local other", 1, true), reduced)
+end
+
+function M.deadScalarCleanupKeepsValueAdjustmentAndLevelZero()
+    local source = [[
+local calls = 0
+local function values(): number, number calls = calls + 1 return 4, 5 end
+local unused, kept = values()
+return kept * 10 + calls
+]]
+    assertEq(run(source), 51)
+    local plain = compile("local size = 6\nreturn size * 7", 0)
+    assert(plain:find("local size", 1, true), plain)
+end
+
+function M.deadScalarCleanupKeepsPartiallyFoldedUsesAndShadowing()
+    local source = [[
+local size = 6
+local function read(): number return size end
+local function scope(): number
+    local size = 9
+    size = 10
+    return size
+end
+return read() + scope()
+]]
+    assertEq(run(source), 16)
+    assert(compile(source, 1):find("local size", 1, true), "captured bindings remain available to capture plans")
+end
+
+function M.deadScalarCleanupPreservesImplicitBuiltinReads()
+    local source = [[
+local function render(value: number): string
+    local tostring = 0
+    return `value ${value}`
+end
+local ok = pcall(render, 6)
+return ok
+]]
+    local plain = assert(loadstring((compile(source, 0))))()
+    assertEq(plain, false, "the generated conversion reads the shadowed builtin")
+    assertEq(run(source), plain, "cleanup must preserve the scope of implicit reads")
+end
+
+function M.deadScalarCleanupKeepsDependencyMetadata()
+    local code = compile([[
+const _DYNAMIC_REQUIRES = "@requires-dynamically nothing"
+local size = 6
+return size * 7
+]], 1)
+    assert(code:find("@requires-dynamically nothing", 1, true), code)
+    assert(not code:find("local size", 1, true), code)
 end
 
 return M

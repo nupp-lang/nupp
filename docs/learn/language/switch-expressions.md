@@ -5,9 +5,11 @@ order: 80
 # Switch expressions
 
 A switch selects one value from ordered cases, evaluating its selector once and
-running only the arm that matches. It lowers to two generated locals and an
-ordered `if`/`elseif` chain, or to one table read when the cases allow it.
-Nothing is wrapped in a function.
+running only the arm that matches. It lowers to an ordered `if`/`elseif` chain,
+or to one table read when the cases allow it. A scalar result can go directly
+into its destination local when that preserves scope. Local scalar selectors
+can be compared directly; computed selectors are saved once. Nothing is wrapped
+in a function. The examples below use local selectors.
 
 ::: code-group
 ```nupp [Nupp]
@@ -20,14 +22,12 @@ end
 ```
 
 ```lua [Generated Lua]
-local __nuppT1 = status
-local __nuppT2
-if __nuppT1 == 200 then __nuppT2 = "ok"
-elseif __nuppT1 == 301 or __nuppT1 == 302 or __nuppT1 == 307 or __nuppT1 == 308 then __nuppT2 = "redirect"
-elseif __nuppT1 == 400 or __nuppT1 == 404 then __nuppT2 = "client error"
-else __nuppT2 = "other"
+local label
+if status == 200 then label = "ok"
+elseif status == 301 or status == 302 or status == 307 or status == 308 then label = "redirect"
+elseif status == 400 or status == 404 then label = "client error"
+else label = "other"
 end
-local label = __nuppT2
 ```
 :::
 
@@ -51,11 +51,8 @@ end
 ```lua [Generated Lua]
 const __nuppSwitchMap1 = {"trace", "debug", "info", "warn", "error"}
 
-local __nuppT1 = level
-local __nuppT2
-__nuppT2 = __nuppSwitchMap1[__nuppT1 - (1) + 1]
-if __nuppT2 == nil then __nuppT2 = "unknown" end
-local name = __nuppT2
+local name = __nuppSwitchMap1[level - (1) + 1]
+if name == nil then name = "unknown" end
 ```
 :::
 
@@ -87,18 +84,16 @@ end
 ```
 
 ```lua [Generated Lua]
-local __nuppT3 = byte
-local __nuppT4
-if __nuppT3 == 9 or __nuppT3 == 10 or __nuppT3 == 13 or __nuppT3 == 32 then __nuppT4 = "space"
-elseif __nuppT3 == 48 or __nuppT3 == 49 or __nuppT3 == 50 or __nuppT3 == 51 or __nuppT3 == 52
-    or __nuppT3 == 53 or __nuppT3 == 54 or __nuppT3 == 55 or __nuppT3 == 56 or __nuppT3 == 57 then __nuppT4 = "digit"
-else __nuppT4 = "other"
+local kind
+if byte == 9 or byte == 10 or byte == 13 or byte == 32 then kind = "space"
+elseif byte == 48 or byte == 49 or byte == 50 or byte == 51 or byte == 52
+    or byte == 53 or byte == 54 or byte == 55 or byte == 56 or byte == 57 then kind = "digit"
+else kind = "other"
 end
-local kind = __nuppT4
 ```
 :::
 
-Values sharing an arm become an `or` chain against the one selector local.
+Values sharing an arm become an `or` chain against the selector.
 
 Cases are values rather than source forms. `1`, `1.0`, and `1e0` are the same
 case, and `0` and `-0` are the same case, because a case denotes the finite
@@ -125,12 +120,11 @@ end
 const READ = "read"
 const WRITE = "write"
 
-local __nuppT5 = mode
-local __nuppT6
-if __nuppT5 == (READ) then __nuppT6 = "reader"
-elseif __nuppT5 == (WRITE) then __nuppT6 = "writer"
+local __nuppT1 = mode
+local access
+if __nuppT1 == (READ) then access = "reader"
+elseif __nuppT1 == (WRITE) then access = "writer"
 end
-local access = __nuppT6
 ```
 :::
 
@@ -210,13 +204,11 @@ end
 ```
 
 ```lua [Generated Lua]
-local __nuppT1 = mode
-local __nuppT2
-if __nuppT1 == "read" then __nuppT2 = inputPath
-elseif __nuppT1 == "write" then __nuppT2 = outputPath
-else __nuppT2 = defaultPath
+local path
+if mode == "read" then path = inputPath
+elseif mode == "write" then path = outputPath
+else path = defaultPath
 end
-local path = __nuppT2
 ```
 :::
 
@@ -302,12 +294,10 @@ end
 ```
 
 ```lua [Generated Lua]
-local __nuppT5 = mode
-local __nuppT6
-if __nuppT5 == "read" then __nuppT6 = "reader"
-elseif __nuppT5 == "write" then __nuppT6 = "writer"
+local access
+if mode == "read" then access = "reader"
+elseif mode == "write" then access = "writer"
 end
-local access = __nuppT6
 ```
 :::
 

@@ -161,6 +161,9 @@ interface cst.Hints
     --- Lua source replacing a primitive expression the optimizer proved constant.
     folded: string?
 
+    --- A scalar local left without emitted uses after constant folding.
+    deadScalarLocal: boolean?
+
     --- The selected operand of a constant short-circuit expression. It still
     --- produces exactly one value and may have runtime effects.
     foldedExpression: cst.Node?
@@ -202,6 +205,9 @@ interface cst.Hints
 
     --- A string accumulator lowered to a `nupp.text` buffer by `OPT-5`.
     concatBuffer: any
+
+    --- An immediate return of a completed concatenation buffer.
+    concatBufferResult: string?
 
     --- A builtin namespace path the checker resolved to a module, which codegen emits
     --- as a private require binding once per generated module.

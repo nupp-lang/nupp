@@ -697,4 +697,209 @@ local value = switch selector do case "\x61", "a" -> 1 else -> 0 end]]
     assertEq(never, "")
 end
 
+local function leanSwitch(source, expected, inspect)
+    for _, dialect in ipairs({"luajit", "lua51"}) do
+        local result = parser.parse(source, "lean-switch.g.nupp")
+        assertEq(#result.errors, 0, "lean switch parses")
+        local diagnostics = check.check(result, "lean-switch.g.nupp", nil, {dialect = dialect})
+        assertEq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+        local code, problems = gen.generate(result, "lean-switch.g.nupp")
+        assertEq(#problems, 0, problems[1] and problems[1].msg)
+        local chunk, problem = loadstring(code)
+        assert(chunk, tostring(problem) .. "\n" .. code)
+        assertEq(chunk(), expected, dialect)
+        if inspect then
+            inspect(code)
+        end
+    end
+end
+
+function M.directLocalSwitchUsesItsDestinationAndLocalSelector()
+    leanSwitch(
+        [[
+local function formatStatus(status: number): string return tostring(status) end
+local function choose(status: number): string
+    local text = switch status do
+        case 200 -> formatStatus(status)
+        case 301 -> 'redirect'
+        else -> 'other'
+    end
+    return text
+end
+return choose(200) .. ':' .. choose(301) .. ':' .. choose(500)
+]],
+        "200:redirect:other",
+        function(code)
+            assert(not code:find("__nuppT", 1, true), code)
+            assert(code:match("local text%s*;"), code)
+        end
+    )
+end
+
+function M.directSwitchKeepsOuterNamesInScope()
+    leanSwitch(
+        [[
+local text = 'outer'
+local status: number = 200
+local text = switch status do
+    case 200 -> text
+    else -> 'other'
+end
+return text
+]],
+        "outer",
+        function(code)
+            assert(code:find("__nuppT", 1, true), code)
+        end
+    )
+end
+
+function M.computedSwitchSelectorStillRunsOnce()
+    leanSwitch(
+        [[
+local reads = 0
+local source = setmetatable({}, {__index = function(_, _)
+    reads = reads + 1
+    return 301
+end}) as {status: number}
+local text = switch source.status do
+    case 200 -> 'ok'
+    case 301 -> 'redirect'
+    else -> 'other'
+end
+return text .. ':' .. tostring(reads)
+]],
+        "redirect:1"
+    )
+end
+
+function M.mapInitializesItsDestinationBeforeItEntersScope()
+    leanSwitch(
+        [[
+local label: number = 10
+local label = switch label do
+    case 9 -> 'tab'
+    case 10 -> 'newline'
+    case 11 -> 'vertical tab'
+    case 12 -> 'form feed'
+    case 13 -> 'return'
+    else -> 'other'
+end
+return label
+]],
+        "newline",
+        function(code)
+            assert(not code:find("__nuppT", 1, true), code)
+            assert(code:match("local label%s*=%s*__nuppSwitchMap%d+%["), code)
+        end
+    )
+end
+
+function M.directMapPreservesNilFalseAndMissingKeys()
+    leanSwitch(
+        [[
+local function lookup(key: number): string
+    local value = switch key do
+        case 1 -> nil
+        case 2 -> false
+        case 3 -> 'three'
+        case 4 -> 'four'
+        else -> 'other'
+    end
+    return tostring(value)
+end
+return lookup(1) .. ':' .. lookup(2) .. ':' .. lookup(3) .. ':' .. lookup(9)
+]],
+        "nil:false:three:other"
+    )
+end
+
+function M.earlyDestinationDoesNotShadowAnArmLocalOrClosure()
+    leanSwitch(
+        [[
+local text = 'outer'
+local status: number = 200
+local text = switch status do
+    case 200 -> (function(): string return text end)()
+    else -> 'other'
+end
+return text
+]],
+        "outer"
+    )
+end
+
+function M.destinationDoesNotShadowCompilerIntroducedBuiltins()
+    leanSwitch(
+        [[
+local function choose(status: number): string
+    local tostring = switch status do
+        case 200 -> `status ${status}`
+        else -> 'other'
+    end
+    return tostring
+end
+return choose(200)
+]],
+        "status 200"
+    )
+end
+
+function M.blockArmLocalsKeepTheirOwnScope()
+    leanSwitch(
+        [[
+local function choose(status: number): string
+    local text = switch status do
+        case 200 -> do
+            local text = 'ok'
+            yield text
+        end
+        else -> 'other'
+    end
+    return text
+end
+return choose(200)
+]],
+        "ok"
+    )
+end
+
+function M.constSwitchResultsKeepASingleInitialization()
+    leanSwitch(
+        [[
+local function choose(status: number): string
+    const text = switch status do
+        case 200 -> 'ok'
+        else -> 'other'
+    end
+    return text
+end
+return choose(200)
+]],
+        "ok",
+        function(code)
+            assert(code:find("__nuppT", 1, true), code)
+        end
+    )
+end
+
+function M.mappedComputedSelectorStillRunsOnce()
+    leanSwitch(
+        [[
+local calls = 0
+local function read(): number calls = calls + 1 return 10 end
+local label = switch read() do
+    case 9 -> 'tab'
+    case 10 -> 'newline'
+    case 11 -> 'vertical tab'
+    case 12 -> 'form feed'
+    case 13 -> 'return'
+    else -> 'other'
+end
+return label .. ':' .. tostring(calls)
+]],
+        "newline:1"
+    )
+end
+
 return M

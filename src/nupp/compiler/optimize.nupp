@@ -592,11 +592,12 @@ local function concatBufferBlocks(node, asked, remarks, counter: integer): integ
             -- The loop this accumulator is built by, if the statements in
             -- between leave it alone. One that is read or reassigned before the
             -- loop is not an accumulator being started here.
-            local loop, untouched = nil, true
+            local loop, loopIndex, untouched = nil, nil, true
             for j = i + 1, #stats do
                 local next = stats[j]
                 if LOOPS[next.kind] then
                     loop = next
+                    loopIndex = j
                     break
                 end
                 if asked.uses(definition, next) > 0 then
@@ -608,9 +609,22 @@ local function concatBufferBlocks(node, asked, remarks, counter: integer): integ
             if accumulation then
                 counter = counter + 1
                 local name = ("__nuppBuf_%d"):format(counter)
-                stat.concatBuffer = {name = name}
+                stat.concatBuffer = {name = name, elide = false}
                 accumulation.stat.concatBuffer = {name = name, pieces = accumulation.pieces}
-                loop.concatBuffer = {name = name, target = stat.names[1].text}
+                loop.concatBuffer = {name = name, target = stat.names[1].text, directReturn = false}
+                local following = stats[(loopIndex or 0) + 1]
+                local returned = following and following.kind == "returnStmt" and #(
+                    following.exprs or {}
+                ) == 1 and following.exprs[1] or nil
+                -- Declaration, the loop's read and write, and this return must
+                -- account for every mention of the accumulator in its body.
+                if returned and returned.kind == "name" and returned.token.definition == definition and asked.uses(
+                    definition
+                ) == 4 then
+                    stat.concatBuffer.elide = true
+                    loop.concatBuffer.directReturn = true
+                    returned.concatBufferResult = name
+                end
                 remark(
                     remarks,
                     stat,
@@ -1416,6 +1430,89 @@ local function constantFoldWalk(node, writes)
     end
     for _, child in ipairs(node) do
         constantFoldWalk(child, writes)
+    end
+end
+
+-- Count the tree generation will emit, rather than uses which disappeared in a
+-- folded expression. Only a single primitive scalar initializer can disappear;
+-- calls, ownership, allocation and multi-value adjustment remain untouched.
+local function deadScalarLocals(root)
+    local candidates, declarations, uses = {}, {}, {}
+
+    local function collect(node, depth: integer)
+        if not node then
+            return
+        end
+        if isToken(node) then
+            local definition = node.definition
+            -- Capture and cleanup plans may still use the original binding even
+            -- after expressions in a nested function have folded away its reads.
+            if definition and definition.functionDepth and definition.functionDepth < depth then
+                uses[definition] = true
+            end
+            return
+        end
+        if NESTED_FUNCTION[node.kind] then
+            depth = depth + 1
+        end
+        node.deadScalarLocal = nil
+        if node.kind == "localStmt" and not node.pattern and not node.concatBuffer and not node.exported and #(
+            node.names or {}
+        ) == 1 and #(node.exprs or {}) == 1 then
+            local name, value = node.names[1], node.exprs[1]
+            -- The module graph reads these emitted strings as dependency
+            -- metadata, even when the program never reads their bindings.
+            if value.folded and not value.folded:find(
+                "@requires-dynamically",
+                1,
+                true
+            ) and unchangedScalar(name, {code = value.folded}, {writes = {}}) then
+                candidates[#candidates + 1] = node
+                declarations[name] = true
+            end
+        end
+        for _, child in ipairs(node) do
+            collect(child, depth)
+        end
+    end
+
+    local function visit(node)
+        if not node then
+            return
+        end
+        if isToken(node) then
+            if node.definition and not declarations[node] then
+                uses[node.definition] = true
+            end
+            return
+        end
+        if node.folded or node.constantLoopNone then
+            return
+        end
+        if node.foldedExpression then
+            visit(node.foldedExpression)
+            return
+        end
+        if node.kind == "ifStmt" and (node.constantBranch or node.constantBranchNone) then
+            visit(node.constantBranch)
+            return
+        end
+        if node.constantClauses then
+            for _, clause in ipairs(node.constantClauses) do
+                visit(clause)
+            end
+            visit(node.constantElse)
+            return
+        end
+        for _, child in ipairs(node) do
+            visit(child)
+        end
+    end
+
+    collect(root, 0)
+    visit(root)
+    for _, stat in ipairs(candidates) do
+        stat.deadScalarLocal = not uses[stat.names[1].definition]
     end
 end
 
@@ -3003,6 +3100,9 @@ function optimize.run(result: optimize.Checked, opts: optimize.Options?): ({any}
     local specializedBodies: integer = 0
     if level >= optimize.passes["OPT-8"].level and not disabled["OPT-8"] then
         specializedBodies = constMonomorphizeWalk(result, remarks, opts.constSelection, opts.filename)
+    end
+    if level >= optimize.passes["OPT-3"].level and not disabled["OPT-3"] then
+        deadScalarLocals(result.root)
     end
     for _, entry in ipairs(remarks) do
         entry.filename = opts.filename

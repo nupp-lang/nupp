@@ -83,9 +83,8 @@ name, and `(dx, dy)` requires a `dx` and a `dy`. See
 Only reusable path nodes receive locals; one-use leaves stay in the call. Safe
 calls keep the same flat signature, using staged nil guards in statement
 position and early returns in returned position, so plucked paths are not
-evaluated when the call is suppressed. Nested where Lua cannot host local
-bindings, the projection repeats rather than allocate an immediately invoked
-closure:
+evaluated when the call is suppressed. Nested calls lift their bindings into
+the surrounding statement, inside any short-circuit guard:
 
 ::: code-group
 ```nupp [Nupp]
@@ -93,11 +92,15 @@ local moved = enabled and update(delta, {x, y} = entity.body.position)
 ```
 
 ```lua [Generated Lua]
-local moved = enabled and update(
-    delta,
-    entity.body.position.x,
-    entity.body.position.y
-)
+local __nuppT3 = enabled
+if __nuppT3 then
+    const __nuppT7 = update
+    const __nuppT4 = delta
+    const __nuppT5 = entity.body
+    const __nuppT6 = __nuppT5.position
+    __nuppT3 = __nuppT7(__nuppT4, __nuppT6.x, __nuppT6.y)
+end
+local moved = __nuppT3
 ```
 :::
 
@@ -173,8 +176,10 @@ shares the binding. A shadowed `string` is ordinary table access.
 
 ### Switch dispatch
 
-A [switch expression](../language/switch-expressions.md) lowers to lexical
-selector and result locals and an ordered `if`/`elseif` chain. It is never
+A [switch expression](../language/switch-expressions.md) lowers to an ordered
+`if`/`elseif` chain, writing directly to its destination local when scope permits.
+A scalar local selector can be compared directly; computed selectors are saved
+once. The examples below use local scalar selectors. A switch is never
 wrapped in an immediately invoked function, so one in a hot loop adds no
 function-construction bytecode that would abort and blacklist a trace. Type-case
 bindings reuse the one selector local, so a computed selector is never repeated.
@@ -191,13 +196,11 @@ end
 ```
 
 ```lua [Generated Lua]
-local __nuppT5 = status
-local __nuppT6
-if __nuppT5 == 200 then __nuppT6 = formatStatus(status)
-elseif __nuppT5 == 301 then __nuppT6 = "redirect"
-else __nuppT6 = "other"
+local text
+if status == 200 then text = formatStatus(status)
+elseif status == 301 then text = "redirect"
+else text = "other"
 end
-local text = __nuppT6
 ```
 :::
 
@@ -223,11 +226,8 @@ end
 ```lua [Generated Lua]
 const __nuppSwitchMap1 = {"tab", "newline", "vertical tab", "form feed", "return"}
 
-local __nuppT1 = byte
-local __nuppT2
-__nuppT2 = __nuppSwitchMap1[__nuppT1 - (9) + 1]
-if __nuppT2 == nil then __nuppT2 = "other" end
-local label = __nuppT2
+local label = __nuppSwitchMap1[byte - (9) + 1]
+if label == nil then label = "other" end
 ```
 :::
 
@@ -265,11 +265,8 @@ const __nuppSwitchMap1 = {
     [504] = true, [505] = true, [506] = true, [507] = true,
 }
 
-local __nuppT1 = status
-local __nuppT2
-__nuppT2 = __nuppSwitchMap1[__nuppT1]
-if __nuppT2 == nil then __nuppT2 = false end
-local again = __nuppT2
+local again = __nuppSwitchMap1[status]
+if again == nil then again = false end
 ```
 :::
 
@@ -302,12 +299,9 @@ const __nuppSwitchMap3 = {
     ["for"] = "loop", ["function"] = "declaration",
 }
 
-local __nuppT3 = word
-local __nuppT4
-__nuppT4 = __nuppSwitchMap3[__nuppT3]
-if __nuppT4 == nil then __nuppT4 = "name"
-elseif __nuppT4 == __nuppSwitchNil2 then __nuppT4 = nil end
-local kind = __nuppT4
+local kind = __nuppSwitchMap3[word]
+if kind == nil then kind = "name"
+elseif kind == __nuppSwitchNil2 then kind = nil end
 ```
 :::
 
@@ -542,7 +536,6 @@ end
 
 ```lua [-O1]
 function m.answer()
-    local size = 6
     return 42
 end
 ```
@@ -556,7 +549,8 @@ end
 :::
 
 A write in a nested function also prevents propagation, even if that function
-is never called. A separate local with the same name does not.
+is never called. A separate local with the same name does not. Once folding
+removes every use of an inert scalar local, its declaration disappears too.
 
 #### Short-circuit expressions
 
@@ -612,8 +606,6 @@ end
 ```
 
 ```lua [-O1]
-const CACHE = 64
-const RAW = 40
 const STRIDE = 64
 
 const FLAGS = 9
@@ -869,13 +861,11 @@ end
 const __nuppBuffer = require("nupp.text")
 
 function m.join(items)
-    local out = ""
     local __nuppBuf_1 = __nuppBuffer.newBuffer()
     for _, item in ipairs(items) do
         __nuppBuf_1:put(item, ",")
     end
-    out = __nuppBuf_1:tostring()
-    return out
+    return __nuppBuf_1:tostring()
 end
 ```
 
@@ -895,8 +885,10 @@ holding everything so far, so this is the one win here the trace compiler could
 not have folded itself. `bench/concat.lua` measures 1.8x over eight pieces
 rising to 3.6x over sixty-four, still climbing.
 
-The accumulator keeps its declaration and is assigned back where the loop
-closes, so everything after it reads an ordinary string. The rewrite requires
+An immediate return of the accumulator returns the buffer's string directly,
+omitting the accumulator local when it has no other uses. Otherwise the
+accumulator keeps its declaration and is assigned back where the loop closes,
+so everything after it reads an ordinary string. The rewrite requires
 the initializer to be `""`, every mention inside the loop to be the one
 `out = out .. ...`, and nothing to touch the binding between declaration and
 loop. A read of the half-built string, a capture by a function written in the
