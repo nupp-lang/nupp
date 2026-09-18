@@ -2149,6 +2149,85 @@ function M.wideBitwiseAnswersAgreeWithAndWithoutAot()
     )
 end
 
+--- A paired swizzle numbers both vectors in one run and answers zero past
+--- them, on the target's table instruction and not only in the lane loop.
+---
+--- The NEON, SSSE3 and wasm bodies each combine two table lookups their own
+--- way, so this runs the compiled entry rather than reading the C: the answer
+--- for a lane in the first vector, the first and last of the second, one past
+--- both and index zero is what every body has to agree on.
+function M.aPairedSwizzleAnswersBothVectorsAndZeroPastThem()
+    if not hasToolchain() then
+        return
+    end
+
+    local dir = os.tmpname()
+    os.remove(dir)
+    assert(os.execute("mkdir -p '" .. dir .. "/src'") == 0)
+    local manifest = assert(io.open(dir .. "/nupp.lua", "wb"))
+    manifest:write(
+        [[
+return {
+   include = {"src"},
+   build = {targets = {native = {
+      kind = "modules", entries = {"pair"}, outDir = "build/native",
+      aot = "require",
+   }}},
+}
+]]
+    )
+    manifest:close()
+    local source = assert(io.open(dir .. "/src/pair.nupp", "wb"))
+    source:write(
+        [[
+module pair
+
+local array = require("nupp.mem.array")
+local simd = require("nupp.simd")
+
+@aot
+local function joined(): (uint32, uint32, uint32, uint32)
+    local species = assert(simd.species(array.uint8))
+    local first = species:iota(1, 1)
+    local second = species:iota(101, 1)
+    local pick = species:iota(1, 1):insert(2, species.lanes + 1):insert(3, 2 * species.lanes):insert(
+        4,
+        2 * species.lanes + 1
+    ):insert(5, 0)
+    local out = first:swizzle(pick, second)
+    -- Lanes 1 to 5 of the answer, packed one per byte, plus the lane count
+    -- so the answer can be checked against it.
+    return species.lanes, out:extract(1) + 256 * out:extract(2), out:extract(3), out:extract(4) + 256 * out:extract(5)
+end
+
+export const joined = joined
+]]
+    )
+    source:close()
+    local out, code = build(dir)
+    test.equal(code, 0, ("the paired swizzle fixture at %s builds: %s"):format(dir, out))
+    local pipe = assert(
+        io.popen(
+            (
+                "cd %q && luajit -e %q 2>&1"
+            ):format(
+                dir,
+                searchPathPrelude()
+                .. 'local lanes, a, b, c = require("pair").joined(); print(tonumber(lanes), tonumber(a), tonumber(b), tonumber(c))'
+            )
+        )
+    )
+    local answered = (pipe:read("*a"):gsub("%s+$", ""))
+    pipe:close()
+    local lanes = tonumber(answered:match("^(%d+)"))
+    assert(lanes and lanes >= 16, "the entry answers the lane count: " .. answered)
+    test.equal(
+        answered,
+        ("%d\t%d\t%d\t0"):format(lanes, 1 + 256 * 101, 100 + lanes),
+        "lane one reads the first vector, lanes past it the second, and past both or zero answers zero"
+    )
+end
+
 function M.aWrapIsModularOnBothRoutes()
     if not hasToolchain() then
         return

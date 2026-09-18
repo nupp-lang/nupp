@@ -2887,6 +2887,10 @@ return {joined = joined}
         ) and decoded.c:find("ks_scalar_exp_swizzle_pair_u8x16", 1, true),
         where .. ": production and oracle bodies are both emitted"
     )
+    assert(
+        decoded.c:find("vqtbl2q_u8", 1, true),
+        where .. ": two byte tables reach the two-register table instruction rather than a lane loop"
+    )
 end
 
 function M.aSwizzleNeedsLaneNumbersRatherThanAFloatingElement()
