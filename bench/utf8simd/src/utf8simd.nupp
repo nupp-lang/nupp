@@ -1,150 +1,267 @@
 module utf8simd
 
 --[[
-The same validation sixty-four bytes at a time, in its own module because it can
-only ever be compiled.
+UTF-8 validation a vector at a time, written on the general `nupp.simd`
+algebra: a byte species, three sixteen-entry nibble tables that are ordinary
+vectors looked up with `swizzle`, and `align` to bring the previous vector's
+last bytes in front of the current one.
 
-`simd.preferredU8` creates an AOT-only value, so a target with `aot = "off"`
-refuses this file outright -- NUPP2903, at the call rather than at run time.
-That is the whole reason a SIMD `nupp.text.utf8` could not simply replace the
-scalar one: there is no source here to fall back to, the way `nupp.codec.json`
-keeps lunajson behind its provider seam.
+The algorithm is Keiser and Lemire's lookup validator, the one simdjson runs.
+Every byte's verdict depends on itself and the three bytes before it: the two
+nibbles of the previous byte and the high nibble of this one index three
+tables whose entries are error-class bit sets, and the intersection of the
+three is nonzero exactly when the pair is malformed -- an overlong form, a
+surrogate half, a value past U+10FFFF, a lead followed by anything but a
+continuation, or a continuation following anything but a lead. The third and
+fourth bytes of a scalar are the one case a pair cannot see, so those are
+checked against the bytes two and three back and folded into the same vector
+with a single xor.
+
+What the vector loop answers is which vector holds the first error. The
+maximal valid prefix -- the number the differential test compares -- is then
+found by an ordinary ladder from the last scalar start at or before that
+vector, which is also how the tail after the last whole vector is finished.
 ]]
 
-local valuebuilder = require("nupp.codec.valuebuilder")
+local array = require("nupp.mem.array")
 local simd = require("nupp.simd")
-
-local function u32(value: integer): uint32
-    return nupp.math.u32.wrap(value)
-end
-
-local function add(a: uint32, b: uint32): uint32
-    return nupp.math.u32.add(a, b)
-end
+local span = require("nupp.mem.span")
 
 local utf8simd = {}
 
---- Whether `source` is well-formed UTF-8, checked sixty-four bytes at a time.
+--- The error classes of the lookup validator, from simdjson's `utf8_lookup4`.
 ---
---- The lookup4 validator `nupp.simd` already carries, which is what the JSON
---- decoder's classify stage runs. It answers validity and not a maximal prefix:
---- a block reports that something in it is wrong, and the position it reports
---- is where the error was detected rather than where the scalar began.
+--- `byte1High` is indexed by the previous byte's high nibble, `byte1Low` by
+--- its low nibble and `byte2High` by the current byte's high nibble. Each
+--- entry is the set of error classes that nibble is compatible with, and a
+--- pair is malformed when the three sets share a class.
 ---
---- Whole blocks only. A lead byte in the last three positions of the final
---- block has its continuations outside it, and there is no following block to
---- carry them, so the tail is rewound to the last byte that could begin a
---- scalar and finished by the same ladder `scanAot` uses.
-@aot(vectorize = false)
-local function validSimd(source: string): uint32
-    local count: uint32 = valuebuilder.length(source)
-    local species = simd.preferredU8()
-    local input = simd.paddedStringU8(source)
-    local previous = species:splat(0)
-    -- The three nibble tables the lookup4 classifier reads. They are the
-    -- algorithm's constants, and the same ones `nupp.codec.json.internal.decode` names.
-    local byte1High = simd.tableU8x16(2, 2, 2, 2, 2, 2, 2, 2, 128, 128, 128, 128, 33, 1, 21, 73)
-    local byte1Low = simd.tableU8x16(231, 163, 131, 131, 139, 203, 203, 203, 203, 203, 203, 203, 203, 219, 203, 203)
-    local byte2High = simd.tableU8x16(1, 1, 1, 1, 1, 1, 1, 1, 230, 174, 186, 186, 1, 1, 1, 1)
-    local blocks: uint32 = nupp.math.u32.sub(count, nupp.math.u32.andBits(count, 63))
-    local at: uint32 = u32(0)
-    while at < blocks do
-        local block = input:loadBlock64(at)
-        local bad = block:utf8Errors(previous, byte1High, byte1Low, byte2High)
-        if bad:any() then
-            return at
+--- A table is a vector whose first sixteen lanes carry the entries, inserted
+--- into `zero`, a zero vector of the species: a preferred species has at
+--- least sixteen byte lanes, and a nibble only ever reads the first sixteen.
+local function nibbleTable(
+    zero: simd.Vector<uint8, simd.Preferred>,
+    e0: uint32,
+    e1: uint32,
+    e2: uint32,
+    e3: uint32,
+    e4: uint32,
+    e5: uint32,
+    e6: uint32,
+    e7: uint32,
+    e8: uint32,
+    e9: uint32,
+    e10: uint32,
+    e11: uint32,
+    e12: uint32,
+    e13: uint32,
+    e14: uint32,
+    e15: uint32
+): simd.Vector<uint8, simd.Preferred>
+    return zero:insert(1, e0)
+        :insert(2, e1)
+        :insert(3, e2)
+        :insert(4, e3)
+        :insert(5, e4)
+        :insert(6, e5)
+        :insert(7, e6)
+        :insert(8, e7)
+        :insert(9, e8)
+        :insert(10, e9)
+        :insert(11, e10)
+        :insert(12, e11)
+        :insert(13, e12)
+        :insert(14, e13)
+        :insert(15, e14)
+        :insert(16, e15)
+end
+
+--- How many bytes at the front of `source` spell whole, well-formed scalars.
+---
+--- The vector loop runs while a whole vector remains. A vector with no byte
+--- at or above 0x80 is ASCII and needs no lookup, only the knowledge that the
+--- vector before it did not end mid-scalar; any other vector is classified in
+--- full. The first vector holding an error stops the loop, and the ladder
+--- below finds the exact byte from the last scalar start at or before it.
+@aot
+local function validPrefix(borrows source: span.Span<uint8>): uint32
+    local at: uint32 = 0
+    if species = simd.species(array.uint8) then
+        local zero = species:splat(0)
+        local byte1High = nibbleTable(zero, 2, 2, 2, 2, 2, 2, 2, 2, 128, 128, 128, 128, 33, 1, 21, 73)
+        local byte1Low = nibbleTable(
+            zero,
+            231,
+            163,
+            131,
+            131,
+            139,
+            203,
+            203,
+            203,
+            203,
+            203,
+            203,
+            203,
+            203,
+            219,
+            203,
+            203
+        )
+        local byte2High = nibbleTable(zero, 1, 1, 1, 1, 1, 1, 1, 1, 230, 174, 186, 186, 1, 1, 1, 1)
+        -- A vector ends mid-scalar when its last byte is a lead, its second
+        -- last leads a three-byte scalar or its third last a four-byte one:
+        -- the largest byte each of those three lanes may hold, and 0xFF
+        -- everywhere else.
+        local incompleteLimit = species:tail(species.lanes - 3)
+            :select(
+                0xFF,
+                species:tail(species.lanes - 2):select(0xEF, species:tail(species.lanes - 1):select(0xDF, 0xBF))
+            )
+        local previous = zero
+        local previousAscii = true
+        while at + species.lanes <= #source do
+            local input = species:load(source, at + 1)
+            if (input >= 0x80):any() then
+                -- The two nibbles of the byte before and the high nibble of
+                -- this one each pick an error-class set; the sets share a
+                -- class exactly when the pair is malformed. Swizzle numbers
+                -- lanes from one, so a nibble indexes lane nibble + 1.
+                local prev1 = input:align(previous, 1)
+                local special = byte1High:swizzle(
+                    (prev1 >> 4) + 1
+                ) & byte1Low:swizzle((prev1 & 15) + 1) & byte2High:swizzle((input >> 4) + 1)
+                -- A byte two back at or above 0xE0, or three back at or above
+                -- 0xF0, says this byte must be a third or fourth
+                -- continuation. The tables answer the carry class 0x80 for a
+                -- continuation after a continuation, so the xor is zero
+                -- exactly when both agree.
+                local prev2 = input:align(previous, 2)
+                local prev3 = input:align(previous, 3)
+                local mustContinue = ((prev2 >= 0xE0) | (prev3 >= 0xF0)):select(0x80, 0)
+                if ((special ~ mustContinue) ~= 0):any() then
+                    break
+                end
+                previousAscii = false
+            elseif previousAscii then
+                -- ASCII after ASCII: nothing to carry.
+            elseif (previous > incompleteLimit):any() then
+                -- The vector before ended mid-scalar and this one does not
+                -- continue it. Asked only here, because a vector the lookup
+                -- classifies checks its own first bytes against the bytes
+                -- before them.
+                break
+            else
+                previousAscii = true
+            end
+            previous = input
+            at = at + species.lanes
         end
-        previous = block:lastVector()
-        at = add(at, u32(64))
-    end
-    -- Back up to the last byte that could begin a scalar, at most three, so a
-    -- sequence straddling the boundary is finished rather than cut.
-    local steps: uint32 = u32(0)
-    while at > 0 and steps < 3 do
-        local back: uint32 = nupp.math.u32.sub(at, u32(1))
-        local byte: uint32 = valuebuilder.byte(source, back)
-        if byte < 128 or byte > 191 then
-            steps = u32(3)
-        else
-            at = back
-            steps = add(steps, u32(1))
-        end
-    end
-    if at > 0 then
-        at = nupp.math.u32.sub(at, u32(1))
     end
 
-    -- The tail, by the same ladder `scanAot` uses. Written out rather than
-    -- shared: an `@aot` body inlines a single-return helper, and this one
-    -- returns from wherever it finds out.
-    while at < count do
-        local lead: uint32 = valuebuilder.byte(source, at)
-        if lead < 128 then
-            at = add(at, u32(1))
+    -- Back up to the last byte that could begin a scalar. The vectors before
+    -- `stop` are well-formed except possibly for a scalar the last of them did
+    -- not finish, and that scalar starts within three bytes of `stop`: go
+    -- there and step over the continuations of whatever scalar ended before
+    -- it. Only bytes before `stop` are stepped over, because only those have
+    -- been checked.
+    local stop: uint32 = at
+    if at >= 3 then
+        at = at - 3
+    else
+        at = 0
+    end
+    local rewinding = true
+    while rewinding and at < stop and at < #source do
+        local byte: uint32 = source[at + 1]
+        if byte >= 128 and byte <= 191 then
+            at = at + 1
         else
-            local low: uint32 = u32(128)
-            local high: uint32 = u32(191)
-            local need: uint32 = u32(0)
+            rewinding = false
+        end
+    end
+
+    -- The ladder: the lead names how many continuations follow and, for the
+    -- four leads that can, what the second byte is allowed to be. Each byte is
+    -- read at its own cursor under its own bound, which is the shape a span
+    -- read in a compiled body takes.
+    while at < #source do
+        local lead: uint32 = source[at + 1]
+        if lead < 128 then
+            at = at + 1
+        else
+            local low: uint32 = 128
+            local high: uint32 = 191
+            local need: uint32 = 0
             if lead < 194 then
                 return at
             elseif lead < 224 then
-                need = u32(1)
+                need = 1
             elseif lead < 240 then
-                need = u32(2)
+                need = 2
                 if lead == 224 then
-                    low = u32(160)
+                    low = 160
                 elseif lead == 237 then
-                    high = u32(159)
+                    high = 159
                 end
             elseif lead < 245 then
-                need = u32(3)
+                need = 3
                 if lead == 240 then
-                    low = u32(144)
+                    low = 144
                 elseif lead == 244 then
-                    high = u32(143)
+                    high = 143
                 end
             else
                 return at
             end
-            local secondAt: uint32 = add(at, u32(1))
-            if secondAt >= count then
-                return at
-            end
-            local second: uint32 = valuebuilder.byte(source, secondAt)
-            if second < low or second > high then
+            local secondAt: uint32 = at + 1
+            if secondAt < #source then
+                local second: uint32 = source[secondAt + 1]
+                if second < low or second > high then
+                    return at
+                end
+            else
                 return at
             end
             if need > 1 then
-                local thirdAt: uint32 = add(at, u32(2))
-                if thirdAt >= count then
-                    return at
-                end
-                local third: uint32 = valuebuilder.byte(source, thirdAt)
-                if third < 128 or third > 191 then
-                    return at
-                end
-                if need > 2 then
-                    local fourthAt: uint32 = add(at, u32(3))
-                    if fourthAt >= count then
+                local thirdAt: uint32 = at + 2
+                if thirdAt < #source then
+                    local third: uint32 = source[thirdAt + 1]
+                    if third < 128 or third > 191 then
                         return at
                     end
-                    local fourth: uint32 = valuebuilder.byte(source, fourthAt)
+                else
+                    return at
+                end
+            end
+            if need > 2 then
+                local fourthAt: uint32 = at + 3
+                if fourthAt < #source then
+                    local fourth: uint32 = source[fourthAt + 1]
                     if fourth < 128 or fourth > 191 then
                         return at
                     end
+                else
+                    return at
                 end
             end
-            at = add(at, add(need, u32(1)))
+            at = at + need + 1
         end
     end
 
-    return count
+    return nupp.math.u32.wrap(#source)
+end
+
+--- How many bytes at the front of `source` spell whole, well-formed scalars.
+--- @export
+function utf8simd.validPrefix(source: string): number
+    return tonumber(validPrefix(span.fromString(source))) or 0
 end
 
 --- Whether the whole value is well-formed UTF-8.
 --- @export
 function utf8simd.isValid(source: string): boolean
-    return tonumber(validSimd(source)) == #source
+    return tonumber(validPrefix(span.fromString(source))) == #source
 end
 
 export = utf8simd

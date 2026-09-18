@@ -1,0 +1,195 @@
+module utf8reference
+
+--[[
+The independent scalar reference the vector validator is tested against.
+
+This is Höhrmann's table-driven decoder: every byte maps to one of twelve
+classes, and a transition table takes the current state and the class to the
+next state, with one accepting state and one rejecting one. It shares nothing
+with the lookup validator -- no nibble tables, no ladder of lead-byte ranges,
+no vector operations -- so where the two agree on a corpus they agree because
+both are UTF-8, not because one was derived from the other.
+
+It runs as ordinary Nupp on `string.byte`, which is all it needs to be: the
+reference is the oracle, not a contender.
+]]
+
+local utf8reference = {}
+
+-- Byte classes. The lead ranges are the ones that change what the following
+-- byte may be: 0xE0 and 0xF0 forbid an overlong second byte, 0xED forbids a
+-- surrogate half and 0xF4 a value past U+10FFFF.
+local CLASS: {integer} = {}
+
+local function classify(first: integer, last: integer, class: integer): nil
+    for byte = first, last do
+        CLASS[byte + 1] = class
+    end
+end
+
+classify(0x00, 0x7F, 0)
+classify(0x80, 0x8F, 1)
+classify(0x90, 0x9F, 9)
+classify(0xA0, 0xBF, 7)
+classify(0xC0, 0xC1, 8)
+classify(0xC2, 0xDF, 2)
+classify(0xE0, 0xE0, 10)
+classify(0xE1, 0xEC, 3)
+classify(0xED, 0xED, 4)
+classify(0xEE, 0xEF, 3)
+classify(0xF0, 0xF0, 11)
+classify(0xF1, 0xF3, 6)
+classify(0xF4, 0xF4, 5)
+classify(0xF5, 0xFF, 8)
+
+local ACCEPT: integer = 0
+local REJECT: integer = 12
+
+-- Rows are states in steps of twelve, columns are classes; the entry is the
+-- next state. State 0 accepts, 12 rejects, and every other state is waiting
+-- for a particular kind of continuation byte.
+local TRANSITION: {
+    integer
+} = {
+    0,
+    12,
+    24,
+    36,
+    60,
+    96,
+    84,
+    12,
+    12,
+    12,
+    48,
+    72,
+    12,
+    12,
+    12,
+    12,
+    12,
+    12,
+    12,
+    12,
+    12,
+    12,
+    12,
+    12,
+    12,
+    0,
+    12,
+    12,
+    12,
+    12,
+    12,
+    0,
+    12,
+    0,
+    12,
+    12,
+    12,
+    24,
+    12,
+    12,
+    12,
+    12,
+    12,
+    24,
+    12,
+    24,
+    12,
+    12,
+    12,
+    12,
+    12,
+    12,
+    12,
+    12,
+    12,
+    24,
+    12,
+    12,
+    12,
+    12,
+    12,
+    24,
+    12,
+    12,
+    12,
+    12,
+    12,
+    12,
+    12,
+    24,
+    12,
+    12,
+    12,
+    12,
+    12,
+    12,
+    12,
+    12,
+    12,
+    36,
+    12,
+    36,
+    12,
+    12,
+    12,
+    36,
+    12,
+    12,
+    12,
+    12,
+    12,
+    36,
+    12,
+    36,
+    12,
+    12,
+    12,
+    36,
+    12,
+    12,
+    12,
+    12,
+    12,
+    12,
+    12,
+    12,
+    12,
+    12,
+}
+
+--- How many bytes at the front of `source` spell whole, well-formed scalars.
+---
+--- A scalar cut short by the end of the input is not part of the prefix, and
+--- neither is one the automaton rejects partway through.
+--- @export
+function utf8reference.validPrefix(source: string): integer
+    local state: integer = ACCEPT
+    local start: integer = 0
+    for at = 1, #source do
+        if state == ACCEPT then
+            start = at - 1
+        end
+        local class: integer = CLASS[string.byte(source, at) + 1]
+        state = TRANSITION[state + class + 1]
+        if state == REJECT then
+            return start
+        end
+    end
+    if state ~= ACCEPT then
+        return start
+    end
+
+    return #source
+end
+
+--- Whether the whole value is well-formed UTF-8.
+--- @export
+function utf8reference.isValid(source: string): boolean
+    return utf8reference.validPrefix(source) == #source
+end
+
+export = utf8reference

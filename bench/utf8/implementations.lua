@@ -15,9 +15,10 @@ implementations.scalar = assert(loadfile("build/scalar/utf8bench.lua"), "build t
 --- `nupp.text.utf8` as it ships: ordinary Nupp, `string.byte`, binary64 cursor.
 implementations.shipped = assert(loadfile("build/aot/nupp/text/utf8.lua"), "build the utf8 target first")().isValid
 
---- The lookup4 validator, sixty-four bytes a block. Built by the project in
---- `simd/`, because a target with `aot = "off"` cannot even check that source:
---- there is no uncompiled form of a `nupp.simd` value.
+--- The lookup validator on the general `nupp.simd` algebra, a vector at a
+--- time. Built by the project in `../utf8simd`, which is separate because a
+--- project reaching the compiler's `src` from one level deeper writes its
+--- generated C into its own source tree.
 implementations.simd = assert(loadfile("../utf8simd/build/utf8simd.lua"), "build the utf8simd project first")().isValid
 
 implementations.order = {"simd", "aot", "scalar", "shipped"}
