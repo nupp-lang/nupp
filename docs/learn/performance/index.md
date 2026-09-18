@@ -1058,20 +1058,19 @@ end
 :::
 
 The constant must be an `integer`, `boolean`, or `string` and be passed directly
-as an argument, as `count` is above. `--remarks` reports calls that stay generic.
+as an argument, as `count` is above.
 
 See [const-specialized
 families](ahead-of-time/index.md#const-specialized-families).
 
-::: deepdive
-Specialized versions are emitted in the function's declaring module and shared
-by calls with equivalent constant arguments. The compiler limits specialization
-per module to control code growth; additional optional specializations stay
-generic. AOT uses the same limit. Calls whose checked bodies are unavailable
-also stay generic.
+::: deepdive Cost heuristics
+The compiler limits specialization per module to control code growth;
+additional optional specializations stay generic. Calls with equivalent constant
+arguments share a specialized version in the function's declaring module. AOT
+uses the same limit.
 
-The generated excerpt abbreviates the private function name and omits the
-registration used by calls from other modules.
+`--remarks` reports calls that stay generic, including those whose checked
+bodies are unavailable.
 :::
 
 <a id="rewrites-deliberately-not-made"></a>
