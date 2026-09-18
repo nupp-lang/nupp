@@ -2469,6 +2469,54 @@ return {increment = increment}
     end
 end
 
+--- A byte vector is an integer vector for the bitwise operators, and a scalar
+--- beside it splats as it does for `+`.
+---
+--- `uint8` is a storage width the scalar language widens to `integer`, but a
+--- vector of it keeps its physical lanes, so `bytes >> 4` and `bytes & 15` are
+--- the nibble split of a lookup validator rather than a type error. The
+--- operands still have to agree: a byte vector against a word vector is refused
+--- as it always was.
+function M.byteVectorsTakeBitwiseOperatorsWithScalarOperands()
+    local source = [[
+local span = require("nupp.mem.span")
+local array = require("nupp.mem.array")
+local simd = require("nupp.simd")
+
+@aot
+local function nibbles(
+    exclusive output: span.WriteSpan<uint8>,
+    borrows input: span.Span<uint8>,
+    borrows table: span.Span<uint8>
+): nil
+    local species = assert(simd.species(array.uint8))
+    local active = species:tail(#input)
+    local bytes = species:load(input, 1, active)
+    local entries = species:load(table, 1, species:tail(#table))
+    local high = entries:swizzle((bytes >> 4) + 1)
+    local low = entries:swizzle((bytes & 15) + 1)
+    local flagged = ((bytes >= 0x80) | (bytes < 0x20)):select(0x80, 0)
+    species:store(output, 1, (high & low) ~ flagged, active)
+end
+
+return {nibbles = nibbles}
+]]
+    local dir = project{["nibbles.nupp"] = source}
+    local asm, code = run(dir, "--target aarch64-apple-darwin --features neon --emit asm nibbles.nupp")
+    test.equal(code, 0, asm)
+    assert(asm:find("ushr.16b", 1, true), "the shift stays a byte vector operation: " .. asm)
+    assert(asm:find("and.16b", 1, true), "the and stays a byte vector operation: " .. asm)
+    assert(asm:find("tbl.16b", 1, true), "and the nibble indexes a table: " .. asm)
+
+    local mismatched = source:gsub("local low = entries:swizzle%(%(bytes & 15%) %+ 1%)", [[
+    local words = assert(simd.species(array.uint32))
+    local low = entries:swizzle((bytes & words:splat(15)) + 1)]])
+    local refused = project{["mismatched.nupp"] = mismatched}
+    local out, refusedCode = run(refused, "--target aarch64-apple-darwin --features neon --check mismatched.nupp")
+    assert(refusedCode ~= 0, "a byte vector against a word vector is refused: " .. out)
+    assert(out:find("NUPP2003", 1, true), "as an operand type error: " .. out)
+end
+
 function M.structuralVectorOperationsHaveScalarReferenceSemantics()
     local source = [[
 local span = require("nupp.mem.span")

@@ -177,6 +177,10 @@ local function simdElement(t: Type): Type?
 end
 
 --- Whether a SIMD element has a closed fixed-width bit representation.
+---
+--- The storage-only widths count: a vector of `uint8` keeps its physical lane
+--- width, so a byte table lookup or a nibble split is a bitwise operation on it
+--- the same way it is on a `uint32` vector.
 local function simdIntegerElement(t: Type): boolean
     local element = simdElement(t)
     if element == nil then
@@ -186,7 +190,9 @@ local function simdIntegerElement(t: Type): boolean
 
     return fixedWidth.isValue(
         element
-    ) and fixedWidth.widenedName(element) == "integer" or element.tag == "int64" or element.tag == "uint64"
+    ) and fixedWidth.widenedName(
+        element
+    ) == "integer" or fixedWidth.isStorageOnly(element) or element.tag == "int64" or element.tag == "uint64"
 end
 
 --- Reports `customary-operator` when an operator was written in its C spelling. The two
@@ -674,7 +680,13 @@ function operators.install(c: state.Checker): state.ExprHandlers
         elseif operators.bitops[op] then
             local leftFamily, rightFamily = simdFamily(lt), simdFamily(rt)
             if leftFamily == "Vector" or leftFamily == "Mask" then
-                if leftFamily ~= rightFamily or not isA(lt, rt) or not isA(rt, lt) then
+                if leftFamily == "Vector" and rightFamily == nil then
+                    -- A scalar beside a vector splats, as it does for `+`: `bytes & 15`
+                    -- and `bytes >> 4` are the nibble split, not a type error.
+                    if not (isA(rt, T.number) or rt.tag == "int64" or rt.tag == "uint64") then
+                        c.diag("NUPP2003", node, "explicit SIMD bitwise operands need a vector or a numeric scalar")
+                    end
+                elseif leftFamily ~= rightFamily or not isA(lt, rt) or not isA(rt, lt) then
                     c.diag("NUPP2003", node, "explicit SIMD bitwise operands need the same vector or mask type")
                 end
                 if leftFamily == "Vector" and not simdIntegerElement(lt) then
