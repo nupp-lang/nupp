@@ -12,6 +12,18 @@ http.createServer(async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   try {
     const url = new URL(req.url, 'http://localhost');
+    if (url.pathname === '/echo') {
+      const chunks = []; let bytes = 0;
+      for await (const chunk of req) {
+        bytes += chunk.length;
+        if (bytes > 16 * 1024 * 1024) { res.writeHead(413); res.end(); return; }
+        chunks.push(chunk);
+      }
+      res.setHeader('Content-Type', 'application/octet-stream');
+      res.end(Buffer.concat(chunks)); return;
+    }
+    if (url.pathname === '/bytes') { res.end(Buffer.alloc(4096, 42)); return; }
+    if (url.pathname === '/slow') { setTimeout(() => res.end('delayed'), 200); return; }
     const name = decodeURIComponent(url.pathname === '/' ? '/index.html' : url.pathname);
     const file = path.resolve(root, '.' + name);
     if (!file.startsWith(root + path.sep)) throw new Error('invalid path');

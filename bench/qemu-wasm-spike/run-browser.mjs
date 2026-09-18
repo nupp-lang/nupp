@@ -9,7 +9,7 @@ const chrome = process.env.CHROME || (process.platform === 'darwin'
   ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' : 'google-chrome');
 const profile = await mkdtemp(path.join(os.tmpdir(), 'nupp-qemu-chrome-'));
 const child = spawn(chrome, [
-  '--headless=new', '--no-sandbox', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
+  '--headless=new', '--no-sandbox', ...(process.env.SPIKE_GPU === '1' ? ['--enable-unsafe-webgpu'] : ['--disable-gpu']), '--no-first-run', '--no-default-browser-check',
   '--disable-background-networking', `--user-data-dir=${profile}`, '--remote-debugging-port=0', url,
 ], { detached: process.platform !== 'win32', stdio: ['ignore', 'ignore', 'pipe'] });
 const deadline = Date.now() + Number(process.env.SPIKE_TIMEOUT_MS || 240000);
@@ -77,12 +77,21 @@ try {
   await rpc('Runtime.enable');
   let lastProgress = 0;
   let lastOutput = '';
+  let clicked = false;
   const state = await until(async () => {
     const evaluated = await rpc('Runtime.evaluate', {
-      expression: `({status:document.querySelector('#result')?.dataset.status, result:document.querySelector('#result')?.textContent, output:document.querySelector('#terminal')?.textContent, userAgent:navigator.userAgent, isolated:crossOriginIsolated})`,
+      expression: `({status:document.querySelector('#result')?.dataset.status, result:document.querySelector('#result')?.textContent, output:document.querySelector('#terminal')?.textContent, userAgent:navigator.userAgent, isolated:crossOriginIsolated, frame:window.spikeFrame})`,
       returnByValue: true,
     });
     lastState = evaluated.result.value;
+    if (!clicked && lastState?.frame >= 5 && new URL(url).searchParams.get('mode') === 'game') {
+      const button = await rpc('Runtime.evaluate', {expression: 'JSON.stringify(document.querySelector("#input").getBoundingClientRect().toJSON())', returnByValue: true});
+      const rect = JSON.parse(button.result.value);
+      await rpc('Input.dispatchMouseEvent', {type: 'mousePressed', x: rect.x + 15, y: rect.y + 15, button: 'left', clickCount: 1});
+      await rpc('Input.dispatchMouseEvent', {type: 'mouseReleased', x: rect.x + 15, y: rect.y + 15, button: 'left', clickCount: 1});
+      await rpc('Input.dispatchKeyEvent', {type: 'keyDown', key: 'ArrowRight', code: 'ArrowRight', windowsVirtualKeyCode: 39});
+      clicked = true;
+    }
     if (Date.now() - lastProgress > 15000 && lastOutput !== (lastState?.output || lastState?.result)) {
       lastProgress = Date.now();
       lastOutput = lastState?.output || lastState?.result;
@@ -92,6 +101,10 @@ try {
     return null;
   });
   const result = { ...JSON.parse(state.result), userAgent: state.userAgent, isolated: state.isolated, browserErrors: errors };
+  if (process.env.SPIKE_SCREENSHOT) {
+    const screenshot = await rpc('Page.captureScreenshot', {format: 'png'});
+    await writeFile(process.env.SPIKE_SCREENSHOT, Buffer.from(screenshot.data, 'base64'));
+  }
   if (resultFile) await writeFile(resultFile, JSON.stringify(result, null, 2) + '\n');
   if (state.status !== 'passed' || !result.ok || errors.length) throw new Error(JSON.stringify(result));
   const {output, resources, ...summary} = result;

@@ -5,6 +5,11 @@
 library, and passes the FFI, `bit`, and `string.buffer` checks. This experiment
 adds no production backend or playground changes.
 
+The extended [browser integration spike](INTEGRATION.md) now adds a shared-memory
+host bridge, existing browser services, WebGPU, worker lanes, and an interactive
+simulation compared against the current Lua 5.1 Wasm backend. The measurements
+below describe the original CPU-only experiment; see that report for the broader verdict.
+
 The execution path is:
 
 ```text
@@ -18,10 +23,10 @@ not rebuild QEMU or compile LuaJIT directly to Wasm.
 
 ## Run it
 
-The tested build host is macOS arm64, with Apple clang, Python 3.9+, Node 22+,
+The tested build host is macOS arm64, with Apple clang, Python 3.10+, Node 22+,
 Google Chrome, and Emscripten's LLVM tools installed through Homebrew. The build
 uses Apple clang for its Linux x86-64 target and LLVM's `lld` and `llvm-ar`;
-it does not invoke `emcc`. Set `LLVM_TOOLS` to override
+the optional portable comparison invokes `emcc`. Set `LLVM_TOOLS` to override
 `/opt/homebrew/opt/emscripten/libexec/llvm/bin`.
 
 From the repository root:
@@ -43,7 +48,10 @@ Preparation downloads checksum-pinned dependencies into the ignored
 `build/qemu-wasm-spike` directory, builds Linux LuaJIT and the FFI test library,
 compiles the Nupp workload, and packs a minimal initramfs. Subsequent preparation
 reuses verified downloads. No Linux VM, Docker, npm install, or root filesystem
-disk image is required. Paths containing spaces are not supported by this
+disk image is booted. Preparation downloads a pinned Alpine disk image only to
+extract four matching 9p kernel modules; the browser does not download that disk.
+Build-only extraction packages are installed in the ignored build directory.
+Set `BUILD_PYTHON` to override `/opt/homebrew/bin/python3`. Paths containing spaces are not supported by this
 experimental cross-build wrapper.
 
 The local server supplies the COOP/COEP headers required for shared Wasm memory.
@@ -66,8 +74,10 @@ same LuaJIT revision as the guest.
 
 This covers selected operations, not every FFI ABI or LuaJIT feature. FFI calls
 guest libraries; it does not directly call host macOS libraries, JavaScript, or
-arbitrary Wasm exports. Rendering, audio, input, a host bridge, the complete Nupp
-stdlib, and running the Nupp compiler inside the browser were not tested.
+arbitrary Wasm exports. The original CPU-only experiment did not test browser
+integration. The extended report covers rendering, audio, input, and browser
+services. Neither experiment certifies the complete Nupp stdlib or runs the
+Nupp compiler inside the browser.
 
 ## Recorded measurements
 
@@ -119,8 +129,9 @@ entropy pool before LuaJIT starts. Without this, LuaJIT can wait for Linux's
 random generator to initialize. LuaJIT itself is not patched.
 
 The default QEMU CPU works. `-cpu max` caused this prebuilt kernel to panic;
-the experiment retains the default. An early 9p filesystem route also rejected
-`chmod`; the final experiment uses the initramfs for its guest files.
+the experiment retains the default. The integration extension uses 9p only for
+initial application/configuration reads. Its effect transport uses reserved
+guest RAM because writes through the prebuilt 9p server stalled.
 
 All downloaded assets are pinned by URL and SHA-256 in `assets.lock.json`.
 The QEMU binary comes from
@@ -136,5 +147,6 @@ xterm-pty notices. No third-party binaries are committed in this directory.
 
 The result supports preserving existing LuaJIT functionality through emulation.
 The current memory requirement, payload, startup, and measured execution cost
-make this build a poor default for browser games; a smaller QEMU build and a
-representative game with a browser bridge would be the next separate experiment.
+make this build expensive as a browser default. The extended report measures a
+representative interactive loop including the browser bridge; a smaller QEMU
+build remains separate work.

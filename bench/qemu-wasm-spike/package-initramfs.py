@@ -45,14 +45,24 @@ files = [
     ('lib/libc.musl-x86_64.so.1', 0o120777, b'ld-musl-x86_64.so.1'),
     ('init', 0o100755, (source / 'guest-run.sh').read_bytes()),
 ]
+for module in sorted((build / 'guest-modules').glob('*.ko')):
+    files.append(('nupp/modules/' + module.name, 0o100644, module.read_bytes()))
 lock = json.loads((source / 'assets.lock.json').read_text())
 luajit_source = build / 'upstream' / ('LuaJIT-' + lock['luajitRevision'])
+for module in sorted((luajit_source / 'src/jit').glob('*.lua')):
+    files.append(('nupp/jit/' + module.name, 0o100644, module.read_bytes()))
 for name, path in {
     'nupp/luajit': luajit_source / 'src/luajit',
     'nupp/seed-entropy': build / 'seed-entropy',
     'lib/libgcc_s.so.1': build / 'sysroot/usr/lib/libgcc_s.so.1',
     'nupp/libspike.so': build / 'libspike.so',
+    'nupp/lpeg.so': build / 'lpeg.so',
+    'nupp/libnuppaot.so': build / 'libnuppaot.so',
     'nupp/features.lua': source / 'features.lua',
+    'nupp/bridge.lua': source / 'bridge.lua',
+    'nupp/guest-memory.lua': source / 'guest-memory.lua',
+    'nupp/json-encoder.lua': root / 'src/nupp/runtime/vendor/lunajson/encoder.lua',
+    'nupp/json-decoder.lua': root / 'src/nupp/runtime/vendor/lunajson/decoder.lua',
     'nupp/workload.lua': build / 'generated/bench/qemu-wasm-spike/workload.lua',
     'nupp/nupp/runtime/managed.lua': build / 'generated/src/nupp/runtime/managed.lua',
 }.items():

@@ -1,0 +1,207 @@
+module nupp.qemu.checks
+
+export function platform(): any
+    local time = require("nupp.time")
+    local storage = require("nupp.io.storage")
+    local random = require("nupp.random")
+    local crypto = require("nupp.qemu.browser.crypto")
+    local system = require("nupp.system")
+    local tasks = require("nupp.tasks")
+    local before = time.now()
+    time.sleep(10)
+    assert(time.now() - before >= 9)
+    assert(time.wallTime() > 1700000000000)
+    assert(system.platform == "browser" and system.pointerBits == 64)
+    assert(system.availableParallelism() >= 1)
+    local binary = "hello\0browseré"
+    storage.set("qemu-spike-persistent", binary)
+    assert(storage.get("qemu-spike-persistent") == binary)
+    assert(#random.randomBytes(32) == 32)
+    assert(crypto.sha256("abc") == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+    assert(crypto.hex("key", "abc") == "9c196e32dc0175f86f4b1cb89289d6619de6bee699e4c378e68309ed97a1a6ab")
+    local total = 0
+    with scope = tasks.open() do
+        local first = scope:spawn(function(): integer
+            time.sleep(2)
+            return 20
+        end)
+        local second = scope:spawn(function(): integer
+            tasks.checkpoint()
+            return 22
+        end)
+        total = first:await() + second:await()
+    end
+    assert(total == 42)
+
+    return {timers = true, storage = true, random = true, webCrypto = true, coroutines = true, system = true}
+end
+
+export function persistence(): any
+    local storage = require("nupp.io.storage")
+    assert(storage.get("qemu-spike-persistent") == "hello\0browseré")
+    storage.remove("qemu-spike-persistent")
+    assert(storage.get("qemu-spike-persistent") == nil)
+
+    return {restartPersistence = true}
+end
+
+export function http(base: string): any
+    local http = require("nupp.io.http")
+    local uri = require("nupp.io.uri")
+    local io = require("nupp.io")
+    local payload = ("binary\0\255\1"):rep(32768)
+    local client = http.client()
+    local request = new http.Request(
+        url = assert(uri.newURI(base .. "/echo")),
+        method = "POST",
+        body = payload,
+        maxBytes = 1048576
+    )
+    local response, problem = client:send(request)
+    assert(response ~= nil, problem)
+    assert(response.status == 200)
+    local received = io.newBuffer()
+    assert(response.body:readInto(received, 0, 7) == 7)
+    local remainder = io.newBuffer()
+    local tail = remainder:newWriter()
+    assert(response.body:transferTo(tail) ~= nil)
+    tail:close()
+    assert(
+        received:getString() .. remainder:getString() == payload,
+        "HTTP binary mismatch: " .. #received:getString() .. "+" .. #remainder:getString() .. " expected " .. #payload
+    )
+    response:close()
+    request:close()
+    for _, test in ipairs({
+        {path = "/bytes", maxBytes = 8, timeoutMs = 1000},
+        {path = "/slow", maxBytes = 4096, timeoutMs = 5}
+    }) do
+        local rejected = new http.Request(
+            url = assert(uri.newURI(base .. test.path)),
+            maxBytes = test.maxBytes,
+            timeoutMs = test.timeoutMs
+        )
+        local value, errorText = client:send(rejected)
+        assert(value == nil and type(errorText) == "string")
+        rejected:close()
+    end
+    client:close()
+    local runtime: any = _G
+    assert(runtime.__qemuMemory.stats().leases == 0)
+
+    return {binaryHttpBytes = #payload, timeout = true, responseLimit = true, noLeakedLeases = true}
+end
+
+export function transfers(): any
+    local ffi = require("ffi")
+    local response = require("nupp.qemu.browser.response")
+    local runtime: any = _G
+    local memory: any = runtime.__qemuMemory
+    local bytes = ffi.new("uint8_t[?]", 65536)
+    for index = 0, 65535 do
+        bytes[index] = index % 251
+    end
+    local read = memory.lease(bytes, 65536, false)
+    assert(response.await("transfer-test", {lease = read, operation = "read"}).sum == 8189175)
+    memory.releaseLease(read)
+    local write = memory.lease(bytes, 65536, true)
+    response.await("transfer-test", {lease = write, operation = "write"})
+    for index = 0, 65535 do
+        assert(bytes[index] == (index * 7) % 256)
+    end
+    memory.releaseLease(write)
+    assert(memory.stats().leases == 0)
+
+    return {nativeFfiTransfers = true, byteCount = 65536}
+end
+
+export function gpu(): any
+    local gpu = require("nupp.gpu")
+    local api = require("nupp.gpu.internal")
+    local array = require("nupp.mem.array")
+    local ffi = require("ffi")
+    local response = require("nupp.qemu.browser.response")
+    local shader = response.await("asset", {path = "kernel.wgsl"}) as string
+    local source = array.scalar(array.uint32, 1024)
+    local destination = array.scalar(array.uint32, 1024)
+    do
+        local values = source:write()
+        for index = 1, #values do
+            values[index] = nupp.math.u32.wrap(index * 3)
+        end
+        drop values
+    end
+    with context = gpu.open() do
+        local input = context:buffer(ffi.typeof<uint32>(), 1024)
+        local output = context:buffer(ffi.typeof<uint32>(), 1024)
+        local kernel = api.compileGenerated(
+            context,
+            new api.ArtifactSet(wgsl = shader, entrypoint = "ks_add_mask_gpu"),
+            1,
+            1,
+            24,
+            256
+        )
+        local binding = api.bindKernel(context, kernel, 1024)
+        binding:setRead(0, input, true)
+        binding:setWrite(0, output, true)
+        context:upload(input, source:read())
+        binding:dispatchWords({nupp.math.u32.wrap(17)})
+        context:download(output, destination:write())
+        do
+            local values = destination:read()
+            for index = 1, #values do
+                assert(values[index] == index * 3 + 17)
+            end
+        end
+    end
+    -- Exercise another suspension after the context has closed.
+    response.await("time", {operation = "now"})
+    local runtime: any = _G
+    assert(runtime.__qemuMemory.stats().leases == 0)
+
+    return {generatedWgsl = true, residentCompute = true, elements = 1024, noLeakedLeases = true}
+end
+
+export function game(): any
+    local game = require("nupp.qemu.game")
+    local response = require("nupp.qemu.browser.response")
+    local result = game.run(function(frame: number, x: number, checksum: number): any
+        return response.await("frame", {frame = frame, x = x, checksum = checksum})
+    end)
+    result.jit = jit.status()
+
+    return result
+end
+
+export function busy(): nil
+    local response = require("nupp.qemu.browser.response")
+    response.await("busy-ready", {})
+    local counter = 0
+    while true do
+        counter = (counter + 1) % 1000000
+    end
+end
+
+export function deadline(): any
+    local tasks = require("nupp.tasks")
+    local time = require("nupp.time")
+    local workers = require("nupp.workers")
+    local jobs = require("jobs")
+    with scope = workers.scope() do
+        scope:spawn("warm", 1, jobs.checksum):await()
+    end
+    local started = time.now()
+    print("DEADLINE_BEGIN", started)
+    local ok, problem = pcall(function(): nil
+        with scope = tasks.open(deadline = 250) do
+            scope:fork(400, 25, jobs.cooperative):await()
+        end
+    end)
+    local elapsed = time.now() - started
+    print("DEADLINE_END", elapsed, tostring(problem))
+    assert(not ok and tasks.isCancelled(problem), tostring(problem))
+    assert(elapsed < 2000)
+
+    return {cancelled = true, elapsedMs = elapsed}
+end

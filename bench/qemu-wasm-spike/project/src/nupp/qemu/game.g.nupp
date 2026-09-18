@@ -1,0 +1,26 @@
+module nupp.qemu.game
+
+local struct Particle
+    x: number
+    velocity: number
+end
+
+-- Identical source is built for LuaJIT and for the existing Lua 5.1 Wasm host.
+export function run(frameCallback: any): any
+    local particle = new Particle(0, 0.5)
+    local x, inputs = 0, 0
+    for frame = 1, 120 do
+        for _ = 1, 32768 do
+            particle.x = particle.x + particle.velocity
+        end
+        local answer = frameCallback(frame, x, particle.x)
+        if answer.move then
+            x = x + 8;
+            inputs = inputs + 1
+        end
+    end
+    assert(particle.x == 1966080)
+    assert(inputs > 0)
+
+    return {frames = 120, updates = 3932160, checksum = particle.x, inputs = inputs, x = x}
+end

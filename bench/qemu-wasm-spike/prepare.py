@@ -94,15 +94,44 @@ run('make', '-C', luajit_source, '-j4', f'HOST_CC={host_cc}',
     f'TARGET_LDFLAGS=-nostdlib {sysroot}/usr/lib/crt1.o {sysroot}/usr/lib/crti.o -Wl,--dynamic-linker=/lib/ld-musl-x86_64.so.1',
     f'TARGET_LIBS=-lc {sysroot}/usr/lib/crtn.o {sysroot}/usr/lib/libgcc_s.so.1')
 run(cc, *target_flags, '-shared', '-nostdlib', '-fPIC', '-O2', source / 'guest-library.c', '-o', build / 'libspike.so')
+with (build / 'aot-kernel.c').open('w') as generated:
+    run(root / 'bin/nupp', 'aot', '--emit', 'c', '--function', 'sumSquares', source / 'aot-kernel.nupp', stdout=generated)
+run(cc, *target_flags, '-shared', '-nostdlib', '-fPIC', '-O3', build / 'aot-kernel.c', '-o', build / 'libnuppaot.so')
+unpack('lpeg.tar.gz', build / 'upstream')
+lpeg = build / 'upstream/lpeg-1.1.0'
+run(cc, *target_flags, '-shared', '-nostdlib', '-fPIC', '-O2', '-I' + str(luajit_source / 'src'),
+    *[lpeg / (unit + '.c') for unit in ['lpvm', 'lpcap', 'lptree', 'lpcode', 'lpprint', 'lpcset']],
+    '-o', build / 'lpeg.so')
 run(cc, *target_flags, '-nostdlib', '-O2', source / 'seed-entropy.c', sysroot / 'usr/lib/crt1.o',
     sysroot / 'usr/lib/crti.o', '-lc', sysroot / 'usr/lib/crtn.o', '-o', build / 'seed-entropy')
 run(root / 'bin/nupp', 'build', '--dialect', 'luajit', '-o', build / 'generated', 'bench/qemu-wasm-spike/workload.nupp')
+extract_python = os.environ.get('BUILD_PYTHON', '/opt/homebrew/bin/python3')
+dependencies = build / 'extract-deps'
+if not (dependencies / 'dissect/extfs').is_dir():
+    run(extract_python, '-m', 'pip', 'install', '--target', dependencies,
+        'dissect.extfs==3.15', 'dissect.cstruct==4.7', 'dissect.util==3.24')
+run(extract_python, source / 'extract-modules.py', env={**os.environ, 'PYTHONPATH': str(dependencies)})
+run(sys.executable, source / 'stage-providers.py')
+with (build / 'web/kernel.wgsl').open('w') as shader:
+    run(root / 'bin/nupp', 'aot', '--emit', 'wgsl', '--function', 'addMask',
+        'tests/wasm-aot/gpu-project/src/main.nupp', stdout=shader)
+subprocess.run([str(root / 'bin/nupp'), 'build', '--target', 'app'], check=True, cwd=source / 'project')
+host_luajit = pathlib.Path(subprocess.check_output([str(root / 'scripts/toolchain'), 'luajit'], cwd=root, text=True).strip()) / 'bin/luajit'
+run(host_luajit, '-e', 'local f=assert(loadfile("build/qemu-wasm-spike/web/app.lua"));'
+    'local out=assert(io.open("build/qemu-wasm-spike/web/app.ljbc","wb"));out:write(string.dump(f));out:close()')
 run(sys.executable, source / 'package-initramfs.py')
-for name in ['index.html', 'browser.mjs', 'licenses.html']:
+for name in ['index.html', 'browser.mjs', 'licenses.html', 'integration.html', 'integration.mjs',
+             'guest-runtime.mjs', 'vm-worker.mjs', 'worker-lane.mjs', 'native-modules.lua']:
     shutil.copyfile(source / name, build / 'web' / name)
+(build / 'web/runtime').mkdir(exist_ok=True)
+for path in (root / 'runtime/wasm').glob('*.mjs'):
+    shutil.copyfile(path, build / 'web/runtime' / path.name)
+(build / 'web/assets/rom-loader.mjs').write_text('export default function loadRoms(Module) {\n' +
+    (build / 'web/assets/load-rom.js').read_text() + '\n}\n')
 shutil.copyfile(build / 'upstream/xterm-pty/package/index.mjs', build / 'web/assets/xterm-pty.mjs')
 notices = build / 'web/notices'
 notices.mkdir(exist_ok=True)
 shutil.copyfile(luajit_source / 'COPYRIGHT', notices / 'LuaJIT.txt')
 shutil.copyfile(build / 'upstream/xterm-pty/package/LICENSE.txt', notices / 'xterm-pty.txt')
+shutil.copyfile(lpeg / 'lpeg.html', notices / 'LPeg.html')
 print('Prepared local spike. Run: node bench/qemu-wasm-spike/serve.mjs', flush=True)

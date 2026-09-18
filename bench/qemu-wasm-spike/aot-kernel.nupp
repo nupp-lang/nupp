@@ -1,0 +1,11 @@
+@aot
+local function sumSquares(count: integer): number
+    local total: number = 0
+    for index = 1, count do
+        total = total + index * index
+    end
+
+    return total
+end
+
+return sumSquares

@@ -1,0 +1,12 @@
+module nupp.qemu.portable
+
+local game = require("nupp.qemu.game")
+local response: any = require("nupp.runtime.browser.response")
+local json = require("nupp.codec.json")
+export function run(): string
+    return json.encode(
+        game.run(function(frame: number, x: number, checksum: number): any
+            return response.await("frame", {frame = frame, x = x, checksum = checksum})
+        end)
+    )
+end
