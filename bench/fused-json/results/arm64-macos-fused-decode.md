@@ -96,6 +96,20 @@ into it, so the vendored Lunajson control was missing and all four of its
 `main` rounds died in `require`; the rounds above were taken after a full
 `./bin/nupp build` there and a standalone `run.sh` check.
 
+## The signature workaround is no longer needed
+
+Both measurements were taken through `prepare.sh`'s narrowing of the entry to
+`source: string`, because a `borrows source: string | Buffer` parameter did
+not survive the generated ahead-of-time wrapper. `Carry ownership contracts
+onto generated AOT wrappers` fixed that after these rounds were taken: the
+decoder's entry now compiles unmodified, emitting the same vector scan from a
+signature that still says `borrows`.
+
+Nothing above changes -- both trees got the identical edit, so the comparison
+stands -- but the next measurement can drop the workaround, and doing so would
+cover the two things this one does not: the `Buffer` input path and the public
+`nupp.codec.json.decode` dispatch in front of the entry.
+
 # First measurement: the scalar-validation rewrite
 
 | payload | main MB/s | rewrite MB/s | rewrite / main |
