@@ -412,7 +412,7 @@ annotating the `If` that lowering already emits with the normalized integer
 labels, rather than by adding a scalar-IR switch op. Lowering already produces
 exactly the shape a native switch needs, so the emitter reads a fact instead of
 reconstructing one, and a new op would have needed cases at seven `op == "if"`
-sites plus verification, text, emission, and intensity analysis. Dropping the
+sites plus verification, text, and emission. Dropping the
 annotation is always safe, which is what makes the lane path desugar before
 rewriting.
 :::

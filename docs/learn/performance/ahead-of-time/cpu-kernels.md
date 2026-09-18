@@ -183,7 +183,7 @@ nupp aot bench/kernel-subset-spike/mandelbrot.nupp
 ```
 
 ```text
-bench/kernel-subset-spike/mandelbrot.nupp: mandelbrot, kernel, 5.19 operations per byte (83 over 16), mixed4, 4 lanes
+bench/kernel-subset-spike/mandelbrot.nupp: mandelbrot, kernel, mixed4, 4 lanes
 ```
 
 `nupp aot` names each function's `kernel` or `lua-builder` entry mode, and JSON
@@ -266,8 +266,8 @@ and this is where the claim is tested rather than assumed. See
 
 ### Scalar body
 
-The tail loop is a direct transcription, and so is the whole body when lane
-lowering declines:
+The tail loop is a direct transcription, and so is the whole body of a loop
+with no `@simd` mark:
 
 ```c
     for (; i < end; ++i) {
@@ -429,17 +429,17 @@ boundary this way: the callee would need the caller's bounds proof, which is the
 caller's and not transportable.
 
 ::: deepdive
-A loop that calls an entry does not lower lane-parallel, and says so:
+A `@simd` loop that calls an entry cannot lower lane-parallel, and the build
+fails saying so:
 
 ```text
 aot: a lane-parallel body cannot call a compiled entry
 ```
 
 An entry takes one set of scalars and answers once. There is no per-lane form of
-that, so the loop keeps its scalar shape rather than being given a meaning the
-callee never agreed to. Declining is [not a
-failure](vectorization.md#vectorization-decisions), but it is a decision worth seeing, which is
-what `nupp aot --check` is for.
+that, so the loop is refused rather than given a meaning the callee never agreed
+to; without the mark it keeps its scalar shape and calls the entry once per
+iteration, which is [not a failure](vectorization.md#required-loops).
 
 That is the cost of the call being real. An ordinary `local function` containing
 one return expression is inlined instead and keeps the lanes. Choosing between
@@ -523,7 +523,7 @@ iteration = nupp.math.i32.add(iteration, 1)
 :::
 
 ```text
-bench/kernel-subset-spike/mandelbrot_f32.nupp: mandelbrot, kernel, 5.12 operations per byte (82 over 16), f32x8, 8 lanes
+bench/kernel-subset-spike/mandelbrot_f32.nupp: mandelbrot, kernel, f32x8, 8 lanes
 ```
 
 The LuaJIT row collapses because explicit binary32 in ordinary Nupp performs

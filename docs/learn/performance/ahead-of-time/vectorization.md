@@ -4,69 +4,82 @@ order: 633
 
 # AOT vectorization
 
-A complete map loop over checked spans can lower to scalar or lane-parallel
-code without changing its source-level result. The backend reports its decision
-and the feature tier required to load the artifact.
+A numeric loop over checked spans inside an `@aot` body runs one iteration at a
+time unless it is marked `@simd`, in which case it runs several at once without
+changing its source-level result. The backend reports the gang each marked loop
+runs in and the feature tier required to load the artifact.
 
 ```nupp
 local span = nupp.mem.span
 
 @aot
 local function double(exclusive values: span.WriteSpan<float>): nil
+    @simd
     for index = 1, #values do
         values[index] = values[index] * 2.0
     end
 end
 ```
 
-## Vectorization decisions
+## Required loops
 
-Lane lowering is attempted for every `@aot` body whose shape admits it. Two
-decisions follow, both made from the loop itself.
+`@simd` is a requirement, not a hint. A marked loop either runs in lanes or
+fails the build at the construct that stopped it; an unmarked loop runs scalar,
+and nothing has to decide that. There is no estimate of whether lanes would pay,
+because the answer is the source's to give and it is easy to give by hand. Lane
+lowering wins where a loop stays in registers and loses where it streams memory:
+Mandelbrot runs about twice its scalar speed, while a component update over
+fields in consecutive structs runs between a tenth and four fifths of its.
+Shrinking the struct or the physical width does not move that result;
+projecting the hot fields from `nupp.mem.soa` column storage recovers parity
+with scalar, although a streaming body still has too little work to gain from
+lanes. The committed kernels in `bench/kernel-subset-spike` sit either side of
+that line:
 
-**Whether it pays.** Lane lowering wins where a loop stays in registers and
-loses where it streams memory: Mandelbrot runs about twice its scalar speed,
-while a component update over fields in consecutive structs runs between a
-tenth and four fifths of its. Shrinking the struct or the physical width does
-not move that result. Projecting the hot fields from `nupp.mem.soa` column
-storage does: contiguous loads recover parity with scalar, although a streaming
-body still has too little work to gain from lanes. The estimate is arithmetic
-operations per byte the body touches, with a threshold of 1.0.
+| Kernel | Ops/byte | Mark |
+| --- | --- | --- |
+| `mandelbrot.nupp` | 5.19 | `@simd`, 4 lanes |
+| `mandelbrot_f32.nupp` | 5.12 | `@simd`, 8 lanes |
+| `tecsbits.nupp` | 0.43 | scalar |
+| `kernels.nupp` | 0.39 | scalar |
+| `columns.nupp` | 0.17 | scalar |
+| `corrected.nupp` | 0.12 | `@simd`, 8 lanes |
 
-**How wide.** Gangs come in 16-, 32-, and 64-byte shapes. Ordinary Nupp
+`corrected` is below the line and marked anyway, because a differential test of
+the lane form needs a lane form whatever it would cost in production.
+
+A marked loop that cannot run in lanes is a build error, naming the construct:
+
+```text
+src/particles.nupp:27:5: aot: a lane-parallel body cannot call a compiled entry
+```
+
+That is the whole of the check, and it is why the mark is worth writing even on
+a loop that lowers today: nothing else notices when an ordinary edit stops it
+from happening. `nupp aot FILE` reports every `@aot` function, with the gang of
+each marked loop or `scalar` for a body with none:
+
+```bash
+nupp aot bench/kernel-subset-spike/mandelbrot.nupp
+```
+
+```text
+bench/kernel-subset-spike/mandelbrot.nupp: mandelbrot, kernel, mixed4, 4 lanes
+```
+
+**How wide** is the backend's decision. Gangs come in 16-, 32-, and 64-byte shapes. Ordinary Nupp
 arithmetic is binary64, so a loop written with operators gets two lanes at the
 x86-64 baseline, four at AVX2, and eight at AVX-512. A loop whose varying values
 are all 32-bit gets four lanes at baseline and eight at every wider tier. At
 equal lane counts the narrower shape is tried first, so an all-32-bit loop does
 not pay for 64-byte values it does not use.
 
-`nupp aot` reports both answers per kernel:
-
-```bash
-nupp aot bench/kernel-subset-spike/mandelbrot.nupp
-```
-
-Over the committed kernels the answers are:
-
-| Kernel | Ops/byte | Outcome |
-| --- | --- | --- |
-| `mandelbrot.nupp` | 5.19 | lowered to 4 lanes |
-| `mandelbrot_f32.nupp` | 5.12 | lowered to 8 lanes |
-| `kernels.nupp` | 0.39 | declined, too little arithmetic |
-| `columns.nupp` | 0.17 | declined, too little arithmetic |
-| `tecsbits.nupp` | 0.43 | lowered to 4 lanes, by request |
-| `corrected.nupp` | 0.12 | lowered to 8 lanes, by request |
-
-The last two are below the threshold and lowered anyway, because their source
-says so.
-
 ## Admitted loop shape
 
-Lane lowering needs a whole-function shape it can reason about: one top-level
-numeric `for` loop over spans, indexed by the loop counter exactly. Inside the
-body it handles rather more than that: nested conditionals as mask stacks,
-short-circuit `and` and `or` where both sides are pure and total, a
-data-dependent inner `while`, and per-lane `break` and `continue`. This
+A `@simd` loop is a numeric `for` loop over spans, indexed by the loop counter
+exactly. Inside the body it handles rather more than that: nested conditionals
+as mask stacks, short-circuit `and` and `or` where both sides are pure and
+total, a data-dependent inner `while`, and per-lane `break` and `continue`. This
 `normalize` uses three of those and is admitted whole:
 
 ```nupp
@@ -80,6 +93,7 @@ local function normalize(
     assert(#outputs == #inputs, "length mismatch")
     assert(first >= 1 and last <= #outputs and first <= last + 1, "range out of bounds")
 
+    @simd
     for i = first, last do
         local value = inputs[i].value   -- the counter, and nothing else
         if value < 0.0 then             -- a mask, not a branch
@@ -94,7 +108,7 @@ end
 ```
 
 ```text
-src/normalize.nupp: normalize, kernel, 1.12 operations per byte (9 over 8), mixed4, 4 lanes
+src/normalize.nupp: normalize, kernel, mixed4, 4 lanes
 ```
 
 A nested numeric loop whose ascending bounds are integer literals is expanded
@@ -116,25 +130,9 @@ them: `propagatedConstants` and `specializedHelperCalls` repeat the two
 pseudo-rule counts, and `folds` adds statement-level branch selection to the
 remaining entries.
 
-Where it cannot, the body still compiles: it keeps its scalar loop, and the
-refusal names the construct that stopped it. A loop that does not vectorize is a
-performance property rather than a wrong answer, so it is not a build error.
-
-It is worth checking, though, for the same reason `nupp bc --check` is worth
-running: nothing else notices when it stops happening. `nupp aot --check` exits
-1 for a loop that wanted lanes and ran one iteration at a time, and names what
-refused it:
-
-```text
-nupp: advance ran one iteration at a time
-  src/particles.nupp:39:5: aot: a nested numeric loop is not lane-controlled yet
-```
-
-A loop that declined is not a failure, since being able to decline is the point,
-so `@aot(vectorize = false)` and a body below the intensity threshold both pass.
-For a low-intensity loop that reads or writes fields across consecutive
-structs, the report also suggests projecting the hot fields from
-`nupp.mem.soa` column storage so those accesses become contiguous.
+A body the backend cannot run in lanes fails the build with the construct that
+stopped it, as [Required loops](#required-loops) shows; the scalar loop is never
+quietly substituted for the one the source asked for.
 
 ## Targets and feature tiers
 
@@ -191,9 +189,7 @@ A target too narrow for even the 16-byte pair refuses rather than going quietly
 scalar, and says what would give it a gang:
 
 ```text
-nupp: mandelbrot ran one iteration at a time
-  src/kernel.nupp:50:5: aot: the baseline feature tier has no 16-byte vector;
-  select avx2 to run several iterations at once
+src/kernel.nupp:50:5: aot: the baseline feature tier has no 16-byte vector; select avx2 to run several iterations at once
 ```
 
 ::: deepdive
@@ -208,46 +204,32 @@ there.
 
 ## Influencing vectorization
 
-There are three levers, and none of them lets you name a lane.
+There are two levers, and neither lets you name a lane.
 
-**`@aot(vectorize = true)`** takes lane lowering whatever the intensity estimate
-says. Use it when you have measured the loop and the estimate disagrees with the
-measurement. It does not require the lowering to succeed.
-`bench/kernel-subset-spike/lanedemo.nupp` is a component update at 0.29
-operations per byte, well under the threshold, lowered because its source asks:
+**`@simd`** on the loop is the first, and [Required loops](#required-loops)
+is about it. `bench/kernel-subset-spike/lanedemo.nupp` is a component update
+at 0.29 operations per byte, well below where lanes pay, lowered because its
+source asks:
 
 ```nupp
-@aot(vectorize = true)
+@aot
 local function advance(
     exclusive particles: span.WriteSpan<Particle>,
     borrows source: span.Span<Particle>,
     dt: float
 ): nil
+    -- ...
+    @simd
+    for i = first, last do
 ```
 
 ```text
-bench/kernel-subset-spike/lanedemo.nupp: advance, kernel, 0.29 operations per byte (7 over 24), mixed4, 4 lanes
+bench/kernel-subset-spike/lanedemo.nupp: advance, kernel, mixed4, 4 lanes
 ```
 
-**`@aot(vectorize = false)`** declines lane lowering for a body that would
-otherwise be lowered. Use it for a loop that is deliberately scalar, so a
-vectorization check does not report it. The `normalize` from
-[Admitted loop shape](#admitted-loop-shape) took four lanes on its own; with the
-line below it declines them, and `nupp aot --check` stays quiet about it:
-
-```nupp
-@aot(vectorize = false)
-local function normalize(
-    exclusive outputs: span.WriteSpan<Sample>,
-    borrows inputs: span.Span<Sample>,
-    first: integer,
-    last: integer
-): nil
-```
-
-```text
-src/normalize.nupp: normalize, kernel, 1.12 operations per byte (9 over 8), none, declined by `@aot(vectorize = false)`
-```
+Leaving the mark off a loop that is deliberately scalar is the other direction,
+and needs no annotation: the report says `scalar` for it and the build has
+nothing to fail.
 
 **`@relax("fp-contract")`** permits a multiply and an add to fuse into one
 rounding. It is per function and travels with the IR rather than being a
@@ -282,8 +264,8 @@ KS_API void ks_mandelbrot(KsEscape *restrict p_escapes, /* ... */) {
 emitted body. On this kernel it is worth about 6 percent: 75.8 against 71.1
 MPix/s lane-parallel, 36.9 against 35.0 forced scalar.
 
-Removing `vectorize = true` or `vectorize = false` changes the compilation
-strategy and never the answer. Removing `@relax` changes the answer.
+Removing `@simd` changes the compilation strategy and never the answer.
+Removing `@relax` changes the answer.
 
 ## Mixing widths
 
@@ -301,14 +283,14 @@ nupp aot --target x86_64-unknown-linux-gnu --features avx512f \
 ```
 
 ```text
-bench/kernel-subset-spike/mixedwidth.nupp: integrate, kernel, 5.67 operations per byte (136 over 24), mixed8, 8 lanes
+bench/kernel-subset-spike/mixedwidth.nupp: integrate, kernel, mixed8, 8 lanes
 ```
 
 The 64-byte shape is AVX-512-only. Compiling the same source for AVX2 reports
 `mixed4`, and the x86-64 baseline reports `mixed2`; selecting a tier never
 promises instructions the target did not name.
 
-The fourth lever is the source itself, and it is the strongest one. On the
+The third lever is the source itself, and it is the strongest one. On the
 baseline and AVX2 tiers, writing the arithmetic through [](nupp.math.f32)
 doubles the lane count, because it tells the backend the values are genuinely
 32-bit rather than binary64 values that happen to be small. AVX-512 carries
@@ -339,11 +321,11 @@ step = nupp.math.i32.add(step, 1)
 :::
 
 At AVX2 the first reports `mixed4` and the second `f32x8`, from the same
-arithmetic count over the same bytes:
+arithmetic over the same bytes:
 
 ```text
-bench/kernel-subset-spike/mixedwidth.nupp: integrate, kernel, 5.67 operations per byte (136 over 24), mixed4, 4 lanes
-bench/kernel-subset-spike/mixedwidth_f32.nupp: integrate, kernel, 5.67 operations per byte (136 over 24), f32x8, 8 lanes
+bench/kernel-subset-spike/mixedwidth.nupp: integrate, kernel, mixed4, 4 lanes
+bench/kernel-subset-spike/mixedwidth_f32.nupp: integrate, kernel, f32x8, 8 lanes
 ```
 
 ## Vectorization limits
@@ -546,7 +528,7 @@ species, 16 bytes for the x86-64 baseline and AArch64 NEON and 32 for AVX2:
 local span = nupp.mem.span
 local simd = nupp.simd
 
-@aot(vectorize = false)
+@aot
 local function countQuotes(borrows source: span.Span<uint8>): uint32
     local species = simd.preferredU8()
     local cursor: integer = 0

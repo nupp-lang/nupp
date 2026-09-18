@@ -30,7 +30,8 @@ Lua-building entries.
 Pure numeric and span bodies keep the small `kernel` ABI, and a body that
 constructs fresh Lua values uses the separate `lua-builder` ABI. GPU entries
 replace the function with a checked `compile`, `bind`, and `dispatch` surface.
-Nothing in the source names an ABI, a lane, a mask, or a vector width.
+Nothing in the source names an ABI, a mask, or a vector width; a loop that is
+to run in lanes says so with one mark, `@simd`, and that is the whole of it.
 
 ## Const-specialized families
 
@@ -38,7 +39,7 @@ An `@aot` function may use scalar `const` binders when checked direct calls
 close their carrier parameters:
 
 ```nupp
-@aot(vectorize = false)
+@aot
 local function doubled<const N: integer>(value: number, count: N): number
     local answer = value
     for _ = 1, count as integer do answer = answer * 2.0 end
@@ -79,9 +80,10 @@ Explicit wrapping integer operations may be reassociated because their modular
 answer does not depend on grouping. Ask for a relaxation per function with
 [`@relax`](../../../reference/annotations.md#relaxing-observable-guarantees).
 
-And a body that is one map loop over spans may be lowered lane-parallel. That is
-the largest single win where it applies, and the compiler decides whether it
-applies.
+And a numeric loop over spans marked `@simd` runs several iterations at once.
+That is the largest single win where it applies, and the source decides where
+it applies: the mark is a requirement, so a marked loop that cannot run in lanes
+fails the build rather than quietly running one iteration at a time.
 
 ::: deepdive
 The annotation is a contract over ordinary Nupp rather than a restricted
@@ -100,7 +102,7 @@ Each page owns one part of the AOT pipeline.
   representative measurement.
 - [Lua values](lua-values.md) covers table and string construction through the
   VM-rooted builder ABI.
-- [Vectorization](vectorization.md) covers automatic lanes, explicit SIMD, and
+- [Vectorization](vectorization.md) covers `@simd` loops, explicit SIMD, and
   target feature tiers.
 - [Numeric semantics](numeric-semantics.md) covers arithmetic guarantees and
   verification.
@@ -122,10 +124,9 @@ annotation that changes the answer, and it says so per function.
 
 ### Why did my loop compile but run one iteration at a time?
 
-Either the shape is outside what lane lowering admits, or the loop does too
-little arithmetic per byte it touches to pay for assembling the vectors.
-`nupp aot --check` exits 1 for the first case and names the construct; see
-[Admitted loop shape](vectorization.md#admitted-loop-shape).
+It is not marked `@simd`. An unmarked loop runs scalar and `nupp aot FILE`
+reports it so; a marked loop either runs in lanes or fails the build at the
+construct that stopped it. See [Required loops](vectorization.md#required-loops).
 
 ### Does a project need a C compiler?
 

@@ -168,9 +168,8 @@ drained two, which is the whole of the difference. The reference runs at
 The full `simd-json` target no longer checks against the current tree:
 `production_json_test` builds its buffers from a type the current `nupp.io`
 Buffer does not unify with and reaches an internal `nupp.codec.json`
-module, `arena.nupp` and `fused.nupp` have the same two kinds of rot, and
-`scanner` and `parser` still carry the retired `@aot(vectorize = ...)`
-form. `run.sh`, `benchmark.lua` and `tests/run.lua` therefore cannot run
+module, and `arena.nupp` and `fused.nupp` have the same two kinds of rot.
+`run.sh`, `benchmark.lua` and `tests/run.lua` therefore cannot run
 until that is resolved; it is tracked at
 https://github.com/nupp-lang/nupp/issues/51. What follows describes the
 experiment as it last ran.

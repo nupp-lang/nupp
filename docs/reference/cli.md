@@ -427,9 +427,10 @@ That is the whole of `return 1`, down to the newline the file ends with.
 ```text [nupp aot --help]
 Show what the @aot functions in a file compile to.
 
-With no artifact, reports the lowering decision for each function. Select
-verified IR, generated C, native GPU SPIR-V, browser GPU WGSL, native
-assembly, or the generated Nupp binding with `--emit`.
+With no artifact, reports what each function lowered to: the gang every
+`@simd` loop runs in, or that it runs scalar. Select verified IR, generated
+C, native GPU SPIR-V, browser GPU WGSL, native assembly, or the generated
+Nupp binding with `--emit`.
 
 Examples:
 
@@ -438,7 +439,7 @@ Examples:
     nupp aot --emit c src/kernel.nupp
     nupp aot --emit asm --function scale src/kernel.nupp
     nupp aot --emit wgsl --function transform src/gpu.nupp
-    nupp aot --check src/kernel.nupp
+    nupp aot --format json src/kernel.nupp
 
 Usage:
   nupp aot [options] FILE
@@ -449,7 +450,6 @@ Arguments:
 Options:
   --emit ARTIFACT  Artifact to print: ir, c, spirv, wgsl, asm, or binding.
   --function NAME  Show only this function.
-  --check          Exit non-zero when a loop wanted lanes and remained scalar.
   --target TRIPLE  Target triple to compile for.
   --features TIER  CPU feature tier to promise.
   --library PATH   Compiled object path used by a generated binding.
@@ -461,12 +461,12 @@ Options:
   --no-color       Never color output
 ```
 
-The bare command says what the backend decided for every `@aot` function in the
-file: how much arithmetic each loop does per byte it touches, and which
-[gang](../learn/performance/ahead-of-time/index.md) it was lowered to, if any.
+The bare command says what every `@aot` function in the file lowered to: its
+entry mode, and the [gang](../learn/performance/ahead-of-time/vectorization.md)
+each `@simd` loop in it runs in, or `scalar` for a body with none.
 
 ```text [nupp aot bench/kernel-subset-spike/mandelbrot.nupp]
-bench/kernel-subset-spike/mandelbrot.nupp: mandelbrot, 5.19 operations per byte (83 over 16), f64x4, 4 lanes
+bench/kernel-subset-spike/mandelbrot.nupp: mandelbrot, kernel, mixed4, 4 lanes
 ```
 
 `--emit` prints one artifact. `ir` is the verified IR with the lane body beside
@@ -513,23 +513,17 @@ is: `--json` reports it, alongside the flags it was given and the per-symbol
 counts. There are instruction rules for aarch64 and x86-64; another
 architecture is refused rather than reported with empty counts.
 
-`--check` covers the same category [`bc --check`](#bc) does: a performance
-property no answer depends on, which an ordinary edit can quietly take away. It
-distinguishes three outcomes and fails on one. A loop that lowered is fine, and
-so is a loop that declined, whether because the arithmetic per byte says lanes
-will not pay or because the source wrote `@aot(vectorize = false)`. A loop that
-wanted lanes and ran one iteration at a time exits 1, naming the construct that
-stopped it:
+The exit status is the one a build would give. `@simd` is a requirement, so a
+marked loop that cannot run in lanes exits 1 and names the construct that
+stopped it, whichever artifact was asked for:
 
-```text [nupp aot --check src/particles.nupp]
-nupp: advance ran one iteration at a time
-  src/particles.nupp:39:5: aot: a nested numeric loop is not lane-controlled yet
+```text [nupp aot src/particles.nupp]
+src/particles.nupp:27:5: aot: a lane-parallel body cannot call a compiled entry
 ```
 
-When a loop declines because it does too little arithmetic and its traffic is
-through fields of consecutive structs, the text report also suggests projecting
-the hot fields from `nupp.mem.soa` column storage. This is guidance rather than
-a failed check: the scalar body remains the selected implementation.
+A loop without the mark runs one iteration at a time and is reported as
+`scalar`; that is not a failure, and nothing here estimates whether lanes would
+have paid.
 
 See [vectorization.md](../learn/performance/ahead-of-time/vectorization.md#targets-and-feature-tiers)
 for how a gang is chosen and for the tiers `--features` names.

@@ -258,7 +258,8 @@ any of their names.
 | `@deprecated` | optional reason and replacement | declaration, field, c-declaration |
 | `@syntax` | one syntax name | local binding |
 | `@jit` | none | function |
-| `@aot` | `target = "cpu"` or `target = "gpu"`; `vectorize = true` or `vectorize = false` | function |
+| `@aot` | `target = "cpu"` or `target = "gpu"` | function |
+| `@simd` | none | numeric `for` loop inside an `@aot` body |
 
 ### `@allow`
 
@@ -445,17 +446,18 @@ operation inside the body reports `NUPP2903` at the construct. Stacking it with
 `@jit` reports `NUPP2901`, and annotating a constructor or inline requirement
 reports `NUPP2902`, since neither is a whole function to compile.
 
-A body of one top-level numeric map loop over spans may also be lowered
-lane-parallel, at a width the compiler decides from the arithmetic the loop does
-per byte it touches. `vectorize = true` and `vectorize = false` override that
-estimate, and neither requires the lowering to succeed. See
+A numeric `for` loop inside the body marked `@simd` runs several iterations at
+once, in the widest lane gang the target offers for the widths the body mixes.
+The mark is a requirement, not a hint: a loop that cannot run in lanes fails the
+build at the construct that stopped it, and an unmarked loop runs one iteration
+at a time without anything having to decide that. See
+[vectorization.md](../learn/performance/ahead-of-time/vectorization.md) for
+what a `@simd` loop may contain, and
 [build-and-artifacts.md](../learn/performance/ahead-of-time/build-and-artifacts.md)
-for a full kernel,
-the build policy, and what the backend does not do yet.
+for a full kernel, the build policy, and what the backend does not do yet.
 
 `target = "gpu"` records a GPU execution family in the verified IR and maps one
-whole-span loop iteration to one GPU invocation. It therefore does not take a
-CPU `vectorize` override. With the native `aot = "require"` policy, the compiler
+whole-span loop iteration to one GPU invocation. With the native `aot = "require"` policy, the compiler
 emits canonical SPIR-V for the Rust WGPU provider and replaces the declaration
 with a typed kernel specification. Its
 `compile(context)` method owns the shader and entrypoint, `bind(...)` accepts
@@ -525,6 +527,38 @@ kernel can define its own dequantization while accumulation uses explicit
 binary32. These portable paths require no optional device feature. Native half
 arithmetic and cooperative matrix instructions are separate capability-selected
 optimizations rather than silent changes to these operations.
+
+### `@simd`
+
+`@simd` marks one numeric `for` loop inside an `@aot` body and requires it to
+run in lanes. It takes no members.
+
+```nupp
+local span = require("nupp.mem.span")
+
+@aot
+local function scale(
+    exclusive out: span.WriteSpan<float>,
+    borrows input: span.Span<float>,
+    factor: float
+): nil
+    if #out ~= #input then error("length mismatch", 2) end
+    @simd
+    for i = 1, #out do
+        out[i] = nupp.math.f32.mul(input[i], factor)
+    end
+end
+```
+
+The gang is chosen from the widths the body mixes and the tier the build
+compiles for; `nupp aot FILE` names it. A body the backend cannot run in lanes
+-- a call to a compiled entry, a statement with no lane-parallel form, a bound
+that is not the span's extent -- fails the build at that construct rather than
+running scalar, because the mark is a statement about the program and not a
+preference. A loop without the mark runs one iteration at a time, and the
+report says `scalar` for it. `@simd` on anything but a numeric `for` loop
+inside an `@aot` body, or on a loop inside a `target = "gpu"` body, is refused
+where it is written.
 
 ## Contracts in type position
 
