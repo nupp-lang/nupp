@@ -5,6 +5,49 @@ It reuses the existing browser effect handlers and worker pool. LuaJIT itself
 is unmodified. This is an experimental alternative runtime, not a shipped
 replacement for the current Wasm backend.
 
+## Result
+
+All enumerated compatibility checks passed on an Apple M5 Pro running macOS
+26.6 and Chrome 152. The route works for this browser application, including
+native LuaJIT features and existing Nupp browser services. Its startup and
+memory costs make this an expensive experimental backend.
+
+Three alternating pairs of fresh Chrome launches ran the same 120-frame Nupp
+simulation, with 32,768 struct updates per frame, the same Canvas handler,
+mouse/keyboard input, and audio activation. Medians across the three runs:
+
+| Measurement | QEMU / LuaJIT | Existing Lua 5.1 / Wasm |
+| --- | ---: | ---: |
+| First rendered frame | 7,710 ms | 37.7 ms |
+| Average frame rate | 51.9 FPS | 45.7 FPS |
+| Warm frame rate, discard first 30 intervals | 60.0 FPS | 48.0 FPS |
+| Median frame interval | 16.67 ms | 20.85 ms |
+| 95th percentile frame interval | 35.32 ms | 21.47 ms |
+
+That is about 14% higher overall frame rate and 25% higher warm frame rate for
+this workload, with worse startup and early frame stalls. The CPU-only loop's
+43–67× speedup does not become a corresponding game-frame-rate improvement.
+The warm QEMU result reaches the fixture's approximately 60 Hz animation cadence.
+These are exploratory localhost measurements, not remote download timings or
+a statistically established speedup across applications.
+
+The audited root application assets total approximately **53 MiB uncompressed**;
+the configured shared Wasm memory is **2,300 MiB per VM**. The Lua 5.1 host Wasm
+alone is 322,280 bytes; that is not its entire application download. Asset counts,
+hashes, exact samples, and a rendered screenshot are retained in
+[results/integration](results/integration/):
+
+- [Paired frame measurements](results/integration/comparison/summary.json)
+  and [rendered game](results/integration/comparison/game.png).
+- [LuaJIT/FFI features](results/integration/features.json),
+  [C modules and CPU AOT](results/integration/native.json),
+  [browser services and persistence](results/integration/services.json),
+  [WebGPU](results/integration/gpu.json),
+  [worker conformance](results/integration/workers.json), and
+  [failure/cancellation](results/integration/lifecycle.json).
+- [Build/run provenance](results/integration/provenance.json) and
+  [asset sizes](results/integration/size-inventory.json).
+
 ## Tested boundary
 
 | Capability | Exercise |
@@ -97,11 +140,15 @@ using Lua 5.1.5 and LPeg 1.1.0 source directories:
 ```sh
 python3 bench/qemu-wasm-spike/prepare-portable.py /path/to/lua-5.1.5/src /path/to/lpeg-1.1.0
 node bench/qemu-wasm-spike/run-browser.mjs 'http://127.0.0.1:8097/integration.html?mode=game&portable'
+node bench/qemu-wasm-spike/compare.mjs http://127.0.0.1:8097/ build/qemu-wasm-spike/comparison
 ```
 
 Both routes compile `project/src/nupp/qemu/game.g.nupp`: 120 simulation frames,
 32,768 struct updates per frame, identical numerical checks and browser frame
 handler. This is a small interactive workload, not a complete commercial game.
+The automated runner sets a 1000×900 viewport so the actual input button stays
+visible. Both comparison routes use headless Chrome with GPU disabled; the
+separate WebGPU fixture enables and checks the real adapter.
 
 ## Scope and costs
 

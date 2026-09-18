@@ -1,0 +1,96 @@
+{
+  "ok": true,
+  "mode": "services",
+  "services": {
+    "value": {
+      "transfers": {
+        "byteCount": 65536,
+        "nativeFfiTransfers": true
+      },
+      "http": {
+        "binaryHttpBytes": 294912,
+        "noLeakedLeases": true,
+        "responseLimit": true,
+        "timeout": true
+      },
+      "platform": {
+        "system": true,
+        "webCrypto": true,
+        "timers": true,
+        "random": true,
+        "coroutines": true,
+        "storage": true
+      }
+    },
+    "metrics": {
+      "frames": 15,
+      "effects": 15,
+      "effectBytes": 1596,
+      "responseBytes": 1414,
+      "copiedIn": 720896,
+      "copiedOut": 360448,
+      "hostEffectMs": [
+        11.56000006198883,
+        0.06499993801116943,
+        0.039999961853027344,
+        50.12000000476837,
+        0.440000057220459,
+        0.1549999713897705,
+        0.24500000476837158,
+        0.18499994277954102,
+        3.0049999952316284,
+        0.46000003814697266,
+        0.49000000953674316,
+        2.584999918937683,
+        0.10000002384185791,
+        1.1299999952316284,
+        5.605000019073486
+      ],
+      "guestIntervalsMs": [
+        31.259999990463257,
+        25.425000071525574,
+        23.100000023841858,
+        27.81499993801117,
+        28.5349999666214,
+        36.11500000953674,
+        55.5900000333786,
+        49.0200001001358,
+        46.9449999332428,
+        31.90499997138977,
+        111.58000004291534,
+        80.61500000953674,
+        55.580000042915344,
+        26.7849999666214
+      ],
+      "bootMs": 7383.8099999427795,
+      "totalMs": 8691.024999976158
+    }
+  },
+  "persistence": {
+    "value": {
+      "restartPersistence": true
+    },
+    "metrics": {
+      "frames": 3,
+      "effects": 3,
+      "effectBytes": 318,
+      "responseBytes": 193,
+      "copiedIn": 0,
+      "copiedOut": 0,
+      "hostEffectMs": [
+        0.8650000095367432,
+        0.6050000190734863,
+        0.2950000762939453
+      ],
+      "guestIntervalsMs": [
+        37.5349999666214,
+        36.75
+      ],
+      "bootMs": 7606.104999899864,
+      "totalMs": 8408.524999976158
+    }
+  },
+  "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+  "isolated": true,
+  "browserErrors": []
+}

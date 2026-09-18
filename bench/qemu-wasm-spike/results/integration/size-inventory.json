@@ -1,0 +1,25 @@
+{
+  "qemuRootFiles": {
+    "assets/out.js": 240815,
+    "assets/qemu-system-x86_64.wasm": 40799480,
+    "assets/qemu-system-x86_64.worker.js": 6000,
+    "assets/xterm-pty.mjs": 11863,
+    "assets/rom-loader.mjs": 7353,
+    "assets/load-rom.data": 473088,
+    "assets/load-kernel.data": 11666432,
+    "initramfs.gz": 1651833,
+    "app.ljbc": 616372,
+    "vm-worker.mjs": 9257,
+    "guest-runtime.mjs": 7057,
+    "integration.html": 1299,
+    "integration.mjs": 8008,
+    "runtime/app-runtime.mjs": 39300,
+    "runtime/worker-pool.mjs": 8274
+  },
+  "qemuRootRawBytes": 55546431,
+  "configuredWasmMemoryBytesPerVm": 2411724800,
+  "guestRamBytes": 268435456,
+  "reservedMailboxBytes": 67108864,
+  "guestLinuxRamBytes": 201326592,
+  "lua51HostWasmBytes": 322280
+}

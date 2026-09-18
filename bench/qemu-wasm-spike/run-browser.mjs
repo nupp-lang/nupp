@@ -75,6 +75,7 @@ try {
     else item.resolve(message.result);
   });
   await rpc('Runtime.enable');
+  await rpc('Emulation.setDeviceMetricsOverride', {width: 1000, height: 900, deviceScaleFactor: 1, mobile: false});
   let lastProgress = 0;
   let lastOutput = '';
   let clicked = false;

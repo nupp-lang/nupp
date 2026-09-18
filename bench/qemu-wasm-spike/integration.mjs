@@ -125,6 +125,7 @@ try {
     const tone = offline.createOscillator(); tone.connect(offline.destination); tone.start();
     const sound = await offline.startRendering();
     const peak = Math.max(...sound.getChannelData(0).map(Math.abs));
+    report.interaction = {clicks, keyEvents, audioState, offlineAudioPeak: peak};
     if (!clicks || !keyEvents || audioState !== 'running' || peak < 0.5) throw new Error('Input or audio integration failed');
     const pixel = drawing.getImageData(40 + (report.game.value.x % 520) + 2, 100, 1, 1).data;
     if (pixel[1] < 150) throw new Error('Canvas did not render the guest state');

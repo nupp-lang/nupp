@@ -1,0 +1,203 @@
+{
+  "recordedUtc": "2026-09-18",
+  "runtimeSourceRevision": "e1ddf7f89c5cbafda4866ce3b02d18cc11d4ffd1",
+  "productionBaseRevision": "9265f22aa23380452d40e7a798b5a331ff237f7f",
+  "testedUncommittedChanges": [
+    "bench/qemu-wasm-spike/integration.mjs: interaction diagnostics",
+    "bench/qemu-wasm-spike/run-browser.mjs: explicit 1000x900 viewport"
+  ],
+  "environment": {
+    "cpu": "Apple M5 Pro",
+    "macOS": "26.6",
+    "browser": "Chrome 152 headless; actual user agent in each record",
+    "viewport": {
+      "width": 1000,
+      "height": 900,
+      "deviceScaleFactor": 1
+    },
+    "comparisonBrowserGpu": "disabled, same Canvas path for both backends",
+    "webgpu": "enabled separately with SPIKE_GPU=1, Apple Metal adapter",
+    "emscripten": "6.0.8",
+    "luajit": "2.1.1785763465"
+  },
+  "method": "Compatibility fixtures fail rather than skip unsupported features. Comparison uses three alternating pairs of fresh Chrome launches, identical Nupp simulation source and browser handlers. Warm frame rate discards first 30 of 119 measured intervals. No other spike tests ran during the comparison. Localhost delivery; no remote download-time, confidence interval, or isolated-machine claim.",
+  "featureSuiteScope": "features.json ran before additive LPeg/AOT packaging in the final initramfs, with unchanged LuaJIT. native.json tests those additions. Feature-suite timings overlapped another compatibility test and are not a controlled performance comparison. Final image hashes below apply to the five integration fixtures and paired comparison.",
+  "sourceSha256": {
+    "bench/qemu-wasm-spike/aot-kernel.nupp": "17d997d2cb7a850004fcc0cc26ba0b618d172528f8bf596580dd603f4d81d038",
+    "bench/qemu-wasm-spike/assets.lock.json": "85cf73551381eda3aaa33d20865c8c6c7d3f42b829c032c6acbdeeb10bcfd031",
+    "bench/qemu-wasm-spike/bridge.lua": "dae8b69d6763a6b0793b3910e6caae897398aeb71fd30a535ea5c18891e4afd2",
+    "bench/qemu-wasm-spike/browser.mjs": "382caebd4f68fbe7ec436956cc80b3eab3d5835baaabe6e870133ec532d96ce5",
+    "bench/qemu-wasm-spike/compare.mjs": "366f917f6034e8125348e4b8b17e881a16c2b81ea6c949567907dd481855a09d",
+    "bench/qemu-wasm-spike/extract-modules.py": "f3a6ee5b0fdb6c54e60ee8582755b12c14bc322ac8916013c657cb80bc2fb243",
+    "bench/qemu-wasm-spike/features.lua": "6e3055d99d604517be169325d415af1b2c04db51dffee041a6a964763aaab111",
+    "bench/qemu-wasm-spike/guest-library.c": "e31519902f2282ade71832489c470cdc04dc4fec7e8061663046e15e1922d677",
+    "bench/qemu-wasm-spike/guest-memory.lua": "a6704dd70d01c4c07c454183f5f9b20f6bb7024a26c8edff8bec7870293c6df2",
+    "bench/qemu-wasm-spike/guest-run.sh": "b32e8f876af7f7e520fda0ce15982dec48a47da48c8b179a1a2f1fa5f84f9c03",
+    "bench/qemu-wasm-spike/guest-runtime.mjs": "84727b515a5daf79a288c96e7d82a9f447666838272d9b25b5961abe04eb9924",
+    "bench/qemu-wasm-spike/index.html": "3f9c5b4d7e1cf771f87a38ebed6187fc2f7a7b52d60b91167d19d16227715ca3",
+    "bench/qemu-wasm-spike/integration.html": "ca8bf24e076bbdb0c640443f146098e7d527c4326c60202d65ef8c4efe4b0374",
+    "bench/qemu-wasm-spike/integration.mjs": "3df751f97220280a95e6e08bd762b21ab00ab0cd8aa9083c8c2f12b39f28547c",
+    "bench/qemu-wasm-spike/licenses.html": "bd723b645bc05e94ddb592ba741ac9a7db42d588a5a404d7706abadcf1698565",
+    "bench/qemu-wasm-spike/native-baseline.py": "e4b2d54d19b638ecdce3e81b300dd9ffc6137d47dcee5c3d6af43cc3e374db01",
+    "bench/qemu-wasm-spike/native-modules.lua": "bf7385d24d43f115fdf39bb06f084219c6f19426132cc63d8ed338c0b375aa5b",
+    "bench/qemu-wasm-spike/package-initramfs.py": "6e01e666b8bae9e81f33a0dc83301402fdcbe8bf38a94a05a296530695f9b459",
+    "bench/qemu-wasm-spike/portable/nupp.lua": "fbad2ff529e60c22f8ebdc56f513fa3eb1567b849026d54c2407fe53f13736c2",
+    "bench/qemu-wasm-spike/portable/src/main.g.nupp": "b04b4ee5be0f54cdb232f28387591a13501da4523a2c596c97681f794c505223",
+    "bench/qemu-wasm-spike/portable/src/nupp/qemu/portable.g.nupp": "6c0b7fe9ec72adfc5d1e4e08e3e9b69ff1a92a50af23f1431af9ee730391bdeb",
+    "bench/qemu-wasm-spike/prepare-portable.py": "531adba45be7d1c82bcd9926344b9d905c2761a887eb6bfe75290db7daab895e",
+    "bench/qemu-wasm-spike/prepare.py": "a680b3b0799afd6f338f6c312e7a3178340a5304b703aa95769b7060fa2a0b4b",
+    "bench/qemu-wasm-spike/project/nupp.lua": "8b359af72a0d734dd439f529c8e083f174565e6c1bdf1654709348256ddf75b4",
+    "bench/qemu-wasm-spike/project/src/jobs.nupp": "006aa1c2a8a9d009fb1079bcbde5430e0e82350f70ffeaef8a45528628724931",
+    "bench/qemu-wasm-spike/project/src/main.g.nupp": "72b941124ded123e249a8acbef68c2c79d321749ca41cd28802127f292a3fb5b",
+    "bench/qemu-wasm-spike/project/src/nupp/qemu/checks.g.nupp": "201689a4c873942ecbcc6eac2417c7be87ff56bd1ce6d6702fc745868689e823",
+    "bench/qemu-wasm-spike/project/src/nupp/qemu/game.g.nupp": "a6716fc29cf6d42bb90c248123ab633b83d9693abc51af021886dec99cd2ea33",
+    "bench/qemu-wasm-spike/project/src/nupp/qemu/setup.g.nupp": "c9c3c53e5ce6971cb41e73efc74a339873ac4825089245478dba071d6be7c74a",
+    "bench/qemu-wasm-spike/project/src/workerchecks.nupp": "601ce8ee7c79f4f8b63fe8dc64026dbee3117e6a0325532e70ea938cc4e228c3",
+    "bench/qemu-wasm-spike/run-browser.mjs": "92b6bbe0cfa2c93aff8297544e6237caed8c6a244ba1fa641b636884fa796add",
+    "bench/qemu-wasm-spike/seed-entropy.c": "50536c2d26850995fc3e9e4ec43011c187b70328c6b67f77730c3bcea54c6229",
+    "bench/qemu-wasm-spike/serve.mjs": "80345d201bd26f167c817a5c6672fa4a53f153e5e371240aac0a0c8e3622ab78",
+    "bench/qemu-wasm-spike/stage-providers.py": "20fac956d230002ee587d6dbe2000d702de873e2f3b528139b9da043b46dd499",
+    "bench/qemu-wasm-spike/transport-tests.mjs": "56adfcc4427484aa2bdbc1094f4bac3b1f0c934782a929583e6168c6f8d7d4fb",
+    "bench/qemu-wasm-spike/vm-worker.mjs": "bb6aa0143c1267ba41a00783f96ef902f868026fdb1343bd1e5d759761a1df32",
+    "bench/qemu-wasm-spike/worker-lane.mjs": "fa764b972a5dcf24c741e3b752ce69600ffc8578e3214edec3899d0501a6f3a7",
+    "bench/qemu-wasm-spike/workload.nupp": "7807a09b6457705d47fc0830074f56a53233e37917a400f30ef50318dbf8d75f"
+  },
+  "webArtifacts": {
+    "app.ljbc": {
+      "bytes": 616372,
+      "sha256": "71cb31ce3573dd65214df25620421749c965759acca7f2cac9845f95d3a216f2"
+    },
+    "app.lua": {
+      "bytes": 679040,
+      "sha256": "3ba3e21385a2fe0525ff130828819e4fe295e482c69c17f4893ba9ce6dee7664"
+    },
+    "assets/load-kernel.data": {
+      "bytes": 11666432,
+      "sha256": "dd239e40daf62dfb34e1bedb281ee66a98ae9664935d0471c026726629a52c25"
+    },
+    "assets/load-rom.data": {
+      "bytes": 473088,
+      "sha256": "15de099e1363ceb13a31b9d11836337bab974f9460836449330b20c0534d06c9"
+    },
+    "assets/load-rom.js": {
+      "bytes": 7307,
+      "sha256": "617e4dc685cb2cedada4844f097eb18a56cf0f8bbd4c4e2e9231b4f07d0d8a88"
+    },
+    "assets/out.js": {
+      "bytes": 240815,
+      "sha256": "dab94140dc2ea847181ba47ae4cbd759728e551d8fd9ba9de409711ed25eddcc"
+    },
+    "assets/qemu-system-x86_64.wasm": {
+      "bytes": 40799480,
+      "sha256": "f53107a35029d676aa551cd00d042f4f65af39a89bf72464494321fafdf54191"
+    },
+    "assets/qemu-system-x86_64.worker.js": {
+      "bytes": 6000,
+      "sha256": "8efab02a9cb5ee63ced22e9853bce74cbb895d15a5fb3d5139fef855c50f62ea"
+    },
+    "assets/rom-loader.mjs": {
+      "bytes": 7353,
+      "sha256": "671c120205de30a393a090f369c129861bf7782139dca2064f2b4862bf203a62"
+    },
+    "assets/xterm-pty.mjs": {
+      "bytes": 11863,
+      "sha256": "9d1ab8c5f3af23ddc835f9cf61f3db7097ad338e4655ae20a7dc263adee552e2"
+    },
+    "browser.mjs": {
+      "bytes": 5056,
+      "sha256": "382caebd4f68fbe7ec436956cc80b3eab3d5835baaabe6e870133ec532d96ce5"
+    },
+    "guest-runtime.mjs": {
+      "bytes": 7057,
+      "sha256": "84727b515a5daf79a288c96e7d82a9f447666838272d9b25b5961abe04eb9924"
+    },
+    "index.html": {
+      "bytes": 1143,
+      "sha256": "3f9c5b4d7e1cf771f87a38ebed6187fc2f7a7b52d60b91167d19d16227715ca3"
+    },
+    "initramfs.gz": {
+      "bytes": 1651833,
+      "sha256": "9b3771dd5ea4857c18fb3906c2235a93eed4fd94a48571e3b618d362ff09bd32"
+    },
+    "integration.html": {
+      "bytes": 1299,
+      "sha256": "ca8bf24e076bbdb0c640443f146098e7d527c4326c60202d65ef8c4efe4b0374"
+    },
+    "integration.mjs": {
+      "bytes": 8008,
+      "sha256": "3df751f97220280a95e6e08bd762b21ab00ab0cd8aa9083c8c2f12b39f28547c"
+    },
+    "kernel.wgsl": {
+      "bytes": 663,
+      "sha256": "53b2eee55101607d881845ded478e3149835817a79928e2c41bd30d3c9b229e7"
+    },
+    "licenses.html": {
+      "bytes": 1762,
+      "sha256": "bd723b645bc05e94ddb592ba741ac9a7db42d588a5a404d7706abadcf1698565"
+    },
+    "native-modules.lua": {
+      "bytes": 1734,
+      "sha256": "bf7385d24d43f115fdf39bb06f084219c6f19426132cc63d8ed338c0b375aa5b"
+    },
+    "notices/LPeg.html": {
+      "bytes": 43617,
+      "sha256": "3f4f8a7997d9e0d9d0fca6d2b9877a5714251fff056783dd71288413b0abcf36"
+    },
+    "notices/LuaJIT.txt": {
+      "bytes": 2935,
+      "sha256": "6cda3076a8c09b31bb1f90da614ea89e7ee194589626eeac613e522849604e47"
+    },
+    "notices/xterm-pty.txt": {
+      "bytes": 1052,
+      "sha256": "45c32f09070ea64647927a671b0c150467e25319d31b9d38fb68e0b149d82268"
+    },
+    "nupp-runner.mjs": {
+      "bytes": 33225,
+      "sha256": "e64e7325443d4aff81e298e2093519ef26987b610581d1b0ff89afad8331ca28"
+    },
+    "nupp-runner.wasm": {
+      "bytes": 322280,
+      "sha256": "dc43b74d103348a4ab3f5ff218dbb6b53066c084395b31acff7d4d5a9294a5d4"
+    },
+    "portable-app.lua": {
+      "bytes": 205801,
+      "sha256": "0c3b03e8751261fa6d30cd8d29849628300fb369a9637f283b7f01b60dffa0a6"
+    },
+    "runtime/app-runtime.mjs": {
+      "bytes": 39300,
+      "sha256": "3f55db3a0ce45f46664b7ad180afcceffc3d3f56ea3d4de203278c1a3dc2ce62"
+    },
+    "runtime/browser-entry.mjs": {
+      "bytes": 2314,
+      "sha256": "5da722b5bfc6f0f0826c732f587b14baa7e1217411b4e07db344ccfd008f86ce"
+    },
+    "runtime/browser-worker.mjs": {
+      "bytes": 1071,
+      "sha256": "e9b111b03bf63ee470631a4efd6e6729bd2d4fed491e08239efc58d305eac0f6"
+    },
+    "runtime/build-runtime-package.mjs": {
+      "bytes": 5327,
+      "sha256": "1d33cf2b3ec58492b60b636bc5de0fda86fa86285ef518be776420c6787cd345"
+    },
+    "runtime/package-browser-app.mjs": {
+      "bytes": 10017,
+      "sha256": "9351d30a345f8a944fe75759d692f640d0039c3da3ed964145f56f7a23119145"
+    },
+    "runtime/worker-lane.mjs": {
+      "bytes": 4402,
+      "sha256": "e9276b35c8d9c850fb7029988563e4bac9c6462ab634335630245474891d3f74"
+    },
+    "runtime/worker-pool.mjs": {
+      "bytes": 8274,
+      "sha256": "8e5e0b821ad662fdac346e874f09a18c272dad4940def550483d24cc8bc03e32"
+    },
+    "vm-worker.mjs": {
+      "bytes": 9257,
+      "sha256": "bb6aa0143c1267ba41a00783f96ef902f868026fdb1343bd1e5d759761a1df32"
+    },
+    "worker-lane.mjs": {
+      "bytes": 4008,
+      "sha256": "fa764b972a5dcf24c741e3b752ce69600ffc8578e3214edec3899d0501a6f3a7"
+    }
+  }
+}
