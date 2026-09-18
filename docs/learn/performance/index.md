@@ -1074,8 +1074,9 @@ bodies are unavailable.
 :::
 
 <a id="rewrites-deliberately-not-made"></a>
+<a id="loop-closures"></a>
 
-### Loop closures
+### Rejected rewrites
 
 Define a function outside the loop when every iteration can reuse it.
 [`loop-invariant-closure`](../../reference/lints.md#loop-invariant-closure)
