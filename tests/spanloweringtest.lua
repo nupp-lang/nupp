@@ -323,6 +323,56 @@ return work
     assert(bytes:find(")[0+index-1]", 1, true), bytes)
 end
 
+-- A module-level root is an upvalue of every function below it, so a use in
+-- one of them escapes exactly as a use in the module body does. The callee
+-- here keeps its safe parameter -- `ref` is not a view operation -- so the
+-- call must pass the real span, not its count.
+function M.aRootEscapingFromANestedFunctionKeepsItsSafeWrapper()
+    local escaping, remarks = compile(
+        [[
+local span = require("nupp.mem.span")
+local probe = {}
+const TEXT = "abc"
+const BYTES = span.fromString(TEXT)
+local function first(borrows bytes: span.Span<uint8>): integer
+    local held = bytes
+    return held[1]
+end
+function probe.first(): integer
+    return first(BYTES)
+end
+return probe
+]]
+    )
+    assert(escaping:find("constBYTES=span.fromString(", 1, true), escaping)
+    assert(escaping:find("returnfirst(BYTES)", 1, true), escaping)
+    local declined = false
+    for _, entry in ipairs(remarks) do
+        if entry.msg:find("declines root (unsupported-view-operation: args)", 1, true) then
+            declined = true
+        end
+    end
+    assert(declined, "expected the root to be declined for escaping through the call")
+
+    local transported = compile(
+        [[
+local span = require("nupp.mem.span")
+local probe = {}
+const TEXT = "abc"
+const BYTES = span.fromString(TEXT)
+local function first(borrows bytes: span.Span<uint8>): integer
+    return bytes[1]
+end
+function probe.first(): integer
+    return first(BYTES)
+end
+return probe
+]]
+    )
+    assert(transported:find("constBYTES=#__nuppT", 1, true), transported)
+    assert(transported:find("returnfirst(__nuppT1,0,BYTES)", 1, true), transported)
+end
+
 function M.heapRootsStayRootedThroughTheirOwners()
     local shared = compile(
         HEADER

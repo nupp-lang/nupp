@@ -1811,8 +1811,13 @@ local function indexedRangeWalk(result, remarks)
 
         findCandidates(body)
 
+        -- Nested functions are walked too: a candidate declared at module
+        -- level is an upvalue of every function below it, and a use there
+        -- escapes exactly as one in the declaring body does. Their own
+        -- candidates are not in this table, so they are classified when their
+        -- body is.
         local function classify(node, parent, ancestors)
-            if not node or isToken(node) or NESTED_FUNCTION[node.kind] then
+            if not node or isToken(node) then
                 return
             end
             if node.kind == "name" and node.token and candidates[node.token.definition] then
