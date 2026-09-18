@@ -58,6 +58,12 @@ about 10 the timer begins taking real time from the thread it is measuring, so
 spend a fine interval on a short window. `--profile-out` puts the text
 somewhere other than `profile.out`.
 
+<a href="/images/speedscope-profile.jpg"><img src="/images/speedscope-profile.jpg" width="1280" height="720" style="max-width: 100%; height: auto" alt="A captured Nupp documentation-build profile rendered as a flame graph in speedscope's Left Heavy view"></a>
+
+A documentation build captured with `nupp.profile.sample`, shown in speedscope's
+**Left Heavy** view. Wider blocks account for more samples. Click the screenshot
+to enlarge it.
+
 ### Stack lines
 
 Each line is one stack: frames separated by semicolons, then the sample count.
