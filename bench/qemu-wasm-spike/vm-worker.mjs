@@ -19,6 +19,7 @@ function mailboxWrite(offset, lengthIndex, capacity, bytes) {
   new DataView(module.HEAPU8.buffer, mailbox + 128, 16).setUint32(lengthIndex * 4, bytes.length, true);
 }
 const decoder = new TextDecoder();
+const jsonDecoder = new TextDecoder('utf-8', {fatal: true});
 let partial = '';
 let log = '';
 
@@ -66,7 +67,7 @@ function lineReceived(line) {
   const request = line.match(/^@@NUPP_BRIDGE_REQUEST@@ (\d+)$/);
   if (request) {
     if (pending) throw new Error('Guest sent concurrent transport frames');
-    const frame = JSON.parse(decoder.decode(mailboxRead(4096, 0, 8 * 1024 * 1024)));
+    const frame = JSON.parse(jsonDecoder.decode(mailboxRead(4096, 0, 8 * 1024 * 1024)));
     if (frame.sequence !== Number(request[1])) throw new Error('Guest frame sequence mismatch');
     frame.leases = Object.values(frame.leases || {});
     const seen = new Set();
@@ -89,7 +90,7 @@ function lineReceived(line) {
     self.postMessage({type: 'effect', ...frame}, frame.leases.map(lease => lease.data));
   }
   if (line === '@@NUPP_BRIDGE_DONE@@') {
-    self.postMessage({type: 'done', result: JSON.parse(decoder.decode(mailboxRead(4096, 0, 8 * 1024 * 1024))), log});
+    self.postMessage({type: 'done', result: JSON.parse(jsonDecoder.decode(mailboxRead(4096, 0, 8 * 1024 * 1024))), log});
   }
 }
 
