@@ -1337,6 +1337,21 @@ function M.inlinesASingleReturnHelper()
     assertTrue(code:find("return ( x * 2 )", 1, true) ~= nil, "the call became the helper's expression: " .. code)
 end
 
+--- A require spelled through a parameter stays computed after the helper is
+--- inlined: closure discovery follows a literal name as a static edge, so folding
+--- the prefix onto the constant would pull a host-only module into a bundle that
+--- never reaches it, which is how the portable compiler acquired the FFI arena.
+function M.inliningKeepsAComputedRequireComputed()
+    local code = compile(
+        "local function private(name: string): any return require(\"nupp.compiler.build.\" .. name) end\n"
+        .. "local function packs(): any return private(\"compilerpacks\") end\nreturn packs"
+    )
+    assertTrue(
+        code:find("\"nupp.compiler.build.compilerpacks\"", 1, true) == nil,
+        "the require's argument stays computed: " .. code
+    )
+end
+
 --- A helper whose body constructs a record substitutes into every field.
 ---
 --- The named fields of `new T(...)` hold their value expressions where the copy's

@@ -1880,6 +1880,10 @@ end
 -- declaration, the selection and the wrapper -- however many tiers the
 -- target has: a three-tier x86 target used to spend six, and a module of
 -- forty-seven reducers refused to load there while loading everywhere else.
+-- The feature detector is one more, once per module rather than per
+-- replacement, and it has to be in module scope because every replacement
+-- after the first calls it: scoped into the first one's block, the second
+-- declaration in a module called a nil global on every multi-tier target.
 function M.aReplacementLeavesThreeModuleLocalsWhateverTheTierCount()
     local binding = require("nupp.compiler.aot.binding")
     local program = {
@@ -1894,14 +1898,24 @@ function M.aReplacementLeavesThreeModuleLocalsWhateverTheTierCount()
         resultSourceTypes = {"number"},
     }
     for _, tiers in ipairs({{"neon"}, {"baseline", "avx2", "avx512f"}}) do
-        local source = binding.replacement(program, "@lib/libnative_aot.so", tiers, true)
-        local count = 0
-        for line in (source .. "\n"):gmatch("([^\n]*)\n") do
-            if line:find("^local ") or line:find("^cdef ") then
-                count = count + 1
+        for _, detector in ipairs({true, false}) do
+            local source = binding.replacement(program, "@lib/libnative_aot.so", tiers, detector)
+            local count, detectorLine = 0, nil
+            for line in (source .. "\n"):gmatch("([^\n]*)\n") do
+                if line:find("^local ") or line:find("^cdef ") then
+                    count = count + 1
+                end
+                if line:find("ks_aot_feature_tier(): int32", 1, true) then
+                    detectorLine = line
+                end
+            end
+            local declares = detector and #tiers > 1
+            test.equal(count, declares and 4 or 3, source)
+            test.equal(detectorLine ~= nil, declares, source)
+            if detectorLine ~= nil then
+                assert(detectorLine:find("^cdef "), "the detector is a module local, not scoped away: " .. source)
             end
         end
-        test.equal(count, 3, source)
     end
 end
 

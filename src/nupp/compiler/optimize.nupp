@@ -1104,6 +1104,15 @@ local function foldExpr(node, current)
     elseif kind == "call" or kind == "safeCall" then
         foldExpr(node.obj, current)
         parenthesizeFoldedPrefix(node.obj)
+        -- A require's argument is read by closure discovery, which follows a
+        -- literal as a static edge and leaves anything else as computed. A
+        -- module that spells its host-only requires through a parameter is
+        -- relying on that, and inlining the helper then folding the prefix
+        -- onto the constant would hand discovery a literal and pull the
+        -- module into a bundle that never reaches it.
+        if nameText(node.obj) == "require" then
+            return nil
+        end
         local arguments, allNumbers = {}, true
         for _, arg in ipairs(node.args and node.args.exprs or {}) do
             local value = foldExpr(arg, current)

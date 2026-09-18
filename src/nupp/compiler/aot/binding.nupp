@@ -418,18 +418,20 @@ function binding.builderLoader(
     local registrar = tostring(program.registrar)
     -- Everything but the loaded builder is scoped away, for the reason
     -- `binding.compiledMarker` gives.
-    local lines: {string} = {"local " .. prefix .. ": any", "do"}
+    local lines: {string} = {"local " .. prefix .. ": any"}
+    -- After the local above rather than before it, for the reason
+    -- `binding.multiversion` gives: the first thing a replacement emits
+    -- inherits the doc comment of the declaration it stands in for. Outside
+    -- the block because every later replacement in the module calls it.
+    if tiers ~= nil and #tiers > 0 and detector == true then
+        for _, line in ipairs(binding.featureDetector(library)) do
+            lines[#lines + 1] = line
+        end
+    end
+    lines[#lines + 1] = "do"
     if tiers ~= nil and #tiers > 0 then
         registrar = target.symbol(registrar, tiers[1])
         lines[#lines + 1] = "local " .. prefix .. "Registrar = \"" .. registrar .. "\""
-        -- After the local above rather than before it, for the reason
-        -- `binding.multiversion` gives: the first thing a replacement emits
-        -- inherits the doc comment of the declaration it stands in for.
-        if detector == true then
-            for _, line in ipairs(binding.featureDetector(library)) do
-                lines[#lines + 1] = line
-            end
-        end
         for position = 2, #tiers do
             local tier = tiers[position]
             lines[
@@ -653,15 +655,17 @@ function binding.multiversion(
     end
     lines[#lines + 1] = "local " .. native .. " = " .. target.symbol(program.symbol, tiers[1])
     if #tiers > 1 then
+        -- The detector is one more module local, once per module rather than
+        -- per replacement: every replacement after this one calls it.
+        if detector == true then
+            for _, line in ipairs(binding.featureDetector(library)) do
+                lines[#lines + 1] = line
+            end
+        end
         lines[#lines + 1] = "do"
         for position = 2, #tiers do
             local symbol = target.symbol(program.symbol, tiers[position])
             for _, line in ipairs(binding.foreign(program, library, symbol)) do
-                lines[#lines + 1] = "    " .. line
-            end
-        end
-        if detector == true then
-            for _, line in ipairs(binding.featureDetector(library)) do
                 lines[#lines + 1] = "    " .. line
             end
         end

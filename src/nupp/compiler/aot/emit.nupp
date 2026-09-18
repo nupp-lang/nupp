@@ -745,9 +745,11 @@ function emit.indexedSimd(context: emit.Context, node: scalarIR.Simd): string
         ) .. " ks_values = " .. (reading and "{0}" or emit.scalar(context, node.args[3])) .. ";",
         tostring(
             emit.SCALAR_C[indexElement]
-        ) .. " ks_index[" .. tostring(lanes) .. "]; memcpy(ks_index, &ks_indices, sizeof(ks_index));",
-        maskC .. " ks_mask[" .. tostring(lanes) .. "]; memcpy(ks_mask, &ks_active, sizeof(ks_mask));",
-        tostring(elementC) .. " ks_value[" .. tostring(lanes) .. "]; memcpy(ks_value, &ks_values, sizeof(ks_value));",
+        ) .. " ks_index[" .. tostring(lanes) .. "]; __builtin_memcpy(ks_index, &ks_indices, sizeof(ks_index));",
+        maskC .. " ks_mask[" .. tostring(lanes) .. "]; __builtin_memcpy(ks_mask, &ks_active, sizeof(ks_mask));",
+        tostring(
+            elementC
+        ) .. " ks_value[" .. tostring(lanes) .. "]; __builtin_memcpy(ks_value, &ks_values, sizeof(ks_value));",
     }
     local native = not context.explicitScalar and (element:sub(2) == "32" or element:sub(2) == "64")
     if native then
@@ -847,7 +849,9 @@ function emit.indexedSimd(context: emit.Context, node: scalarIR.Simd): string
     if native then
         parts[#parts + 1] = "\n#endif\n"
     end
-    parts[#parts + 1] = reading and "memcpy(&ks_values, ks_value, sizeof(ks_value)); ks_values; })" or "(void)0; })"
+    parts[
+        #parts + 1
+    ] = reading and "__builtin_memcpy(&ks_values, ks_value, sizeof(ks_value)); ks_values; })" or "(void)0; })"
 
     return table.concat(parts, " ")
 end
