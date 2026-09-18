@@ -5048,6 +5048,29 @@ return {add = add}
             and header:find("return (ks_exp_mask_##ELEM)(lane < limit); }", 1, true),
         "and so is a tail mask"
     )
+
+    -- Nothing wider than a vector may cross a call boundary by value, and no
+    -- type may ask for more alignment than the narrowest calling convention
+    -- gives a by-reference argument temporary. Windows x64 allocates that
+    -- temporary in the caller's frame with sixteen bytes of alignment, and GCC
+    -- neither rounds it up for an over-aligned type nor declines to move it
+    -- with an instruction that requires the wider alignment -- so a
+    -- thirty-two byte vector handed to a function it did not inline faults on
+    -- whichever half of the calls find the frame sixteen-byte aligned. The
+    -- cold lane loop is the one helper here that is never inlined, so it takes
+    -- what it reads by pointer; a declared object is aligned correctly where
+    -- an argument temporary is not.
+    assert(
+        header:find("void ks_exp_store_masked_part_##ELEM(CTYPE *destination, size_t room, const ks_exp_##ELEM *value, const ks_exp_mask_##ELEM *active)", 1, true)
+            and header:find("ks_exp_store_masked_part_##ELEM(destination, room, &value, &active);", 1, true),
+        "the cold lane loop takes its vector and its mask by pointer"
+    )
+    assert(
+        header:find("typedef struct { uint8_t lane[W]; } ks_scalar_u8x##W;", 1, true)
+            and header:find("typedef struct { uint8_t bytes[64]; } KsScalarBlockU8x64x##W;", 1, true)
+            and not header:find("aligned(", 1, true),
+        "and no type in the prelude asks for an alignment a caller does not give it"
+    )
 end
 
 function M.aProofNeedsTheGuardAndTheCursorItLeft()

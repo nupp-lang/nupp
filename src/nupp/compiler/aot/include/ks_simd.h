@@ -388,9 +388,20 @@ static inline __attribute__((unused)) uint32_t ks_any_u8x##W(ks_u8x##W mask) { \
 
 /* ---- The scalar oracle beside it ----------------------------------- */
 
+/* The oracle's lanes are plain byte arrays and are aligned like one. An
+ * alignment wider than that would be a claim the Windows x64 calling
+ * convention cannot keep: an aggregate larger than eight bytes is passed
+ * there by reference to a temporary the caller allocates, and a caller
+ * guarantees that temporary sixteen bytes of alignment and no more. GCC
+ * honours a wider request for a declared local -- it rounds a pointer into
+ * the frame -- and does not for the argument temporary it materialises for
+ * a call it did not inline, which is every call the O0 oracle makes to
+ * these helpers. The wider alignment on the type is what then licenses the
+ * helper to move that temporary with `vmovdqa`, and the half of all calls
+ * that find it only sixteen-byte aligned fault on it. */
 #define KS_U8_SCALAR(W) \
-typedef struct { uint8_t lane[W]; } __attribute__((aligned(W))) ks_scalar_u8x##W; \
-typedef struct { uint8_t bytes[64]; } __attribute__((aligned(64))) KsScalarBlockU8x64x##W; \
+typedef struct { uint8_t lane[W]; } ks_scalar_u8x##W; \
+typedef struct { uint8_t bytes[64]; } KsScalarBlockU8x64x##W; \
 static inline __attribute__((unused)) ks_scalar_u8x##W ks_scalar_load_u8x##W(const uint8_t *source, size_t count, uint32_t offset) { \
     ks_scalar_u8x##W out = {{0}}; \
     if ((size_t)offset < count) { \
@@ -701,9 +712,9 @@ static inline __attribute__((unused)) bool ks_exp_full_##ELEM(ks_exp_mask_##ELEM
 static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_load_part_##ELEM(const CTYPE *source, size_t room) { \
     KS_EXP_LOAD_PART_BODY(W, ELEM, CTYPE, LANES, BYTES) \
 } \
-static __attribute__((noinline, cold, unused)) void ks_exp_store_masked_part_##ELEM(CTYPE *destination, size_t room, ks_exp_##ELEM value, ks_exp_mask_##ELEM active) { CTYPE lanes[LANES##u]; memcpy(lanes, &value, sizeof lanes); MASK keep[LANES##u]; memcpy(keep, &active, sizeof keep); for (size_t i = 0u; i < room; ++i) if (keep[i]) destination[i] = lanes[i]; } \
+static __attribute__((noinline, cold, unused)) void ks_exp_store_masked_part_##ELEM(CTYPE *destination, size_t room, const ks_exp_##ELEM *value, const ks_exp_mask_##ELEM *active) { CTYPE lanes[LANES##u]; memcpy(lanes, value, sizeof lanes); MASK keep[LANES##u]; memcpy(keep, active, sizeof keep); for (size_t i = 0u; i < room; ++i) if (keep[i]) destination[i] = lanes[i]; } \
 static inline __attribute__((unused)) void ks_exp_store_part_##ELEM(CTYPE *destination, size_t room, ks_exp_##ELEM value, ks_exp_mask_##ELEM active) { \
-    if (!ks_exp_full_##ELEM(active | ~ks_exp_tail_##ELEM((uint32_t)room))) { ks_exp_store_masked_part_##ELEM(destination, room, value, active); return; } \
+    if (!ks_exp_full_##ELEM(active | ~ks_exp_tail_##ELEM((uint32_t)room))) { ks_exp_store_masked_part_##ELEM(destination, room, &value, &active); return; } \
     KS_EXP_STORE_PART_BODY(W, ELEM, CTYPE, LANES, BYTES) \
 } \
 static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_load_full_##ELEM(const CTYPE *source, size_t count, size_t first) { ks_exp_##ELEM out = (ks_exp_##ELEM){0}; if (first >= count) return out; size_t room = count - first; if (room >= LANES##u) { memcpy(&out, source + first, sizeof out); return out; } return ks_exp_load_part_##ELEM(source + first, room); } \
