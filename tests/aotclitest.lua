@@ -2546,18 +2546,16 @@ function M.numericSimdConversionsRetainVectorLoweringAcrossCpuTiers()
     assert(decoded.c:find("__builtin_convertvector(ks_cast_d, ks_cast_int64)", 1, true), decoded.c)
     assert(decoded.c:find("ks_cast_result.lane[ks_cast_i]", 1, true), "independent scalar conversion")
     local host = assert(require("nupp.compiler.aot.target").hostTriple())
-    for _, target in ipairs({
-        "--target aarch64-apple-darwin --features neon",
-        "--target " .. host:gsub("^[^-]+", "x86_64") .. " --features baseline",
-        "--target " .. host:gsub("^[^-]+", "x86_64") .. " --features avx2",
-        "--target " .. host:gsub("^[^-]+", "x86_64") .. " --features avx512f",
-    }) do
+    local neon = neonAsm(dir, "convert.nupp")
+    if neon ~= nil then
+        assert(neon:match("kernel: [^\n]* [1-9]%d* vector"), neon)
+        assert(neon:match("fcvtzs[^\n]*%.2d"), "conversion itself uses packed double lanes: " .. neon)
+    end
+    for _, tier in ipairs({"baseline", "avx2", "avx512f"}) do
+        local target = "--target " .. host:gsub("^[^-]+", "x86_64") .. " --features " .. tier
         local asm, asmCode = run(dir, target .. " --emit asm convert.nupp")
         test.equal(asmCode, 0, asm)
         assert(asm:match("kernel: [^\n]* [1-9]%d* vector"), asm)
-        if target:find("neon", 1, true) then
-            assert(asm:match("fcvtzs[^\n]*%.2d"), "conversion itself uses packed double lanes: " .. asm)
-        end
     end
 end
 

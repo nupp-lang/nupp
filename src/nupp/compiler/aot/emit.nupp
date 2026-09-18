@@ -775,7 +775,15 @@ function emit.indexedSimd(context: emit.Context, node: scalarIR.Simd): string
             #parts + 1
         ] = "ks_enabled |= (__mmask8)(1u << ks_part); ks_offsets[ks_part] = (int64_t)((uint64_t)ks_index[ks_lane] - 1u); } }"
         parts[#parts + 1] = "__m512i ks_addresses; memcpy(&ks_addresses, ks_offsets, sizeof(ks_addresses));"
+        -- GCC's intrinsic is an always-inline function whose scale argument
+        -- has to have become a constant by the time the builtin expands, and
+        -- MinGW GCC 14 reports it has not. Its own header spells the builtin
+        -- with the literal when not optimising, so GCC gets that spelling
+        -- always; Clang gets the intrinsic.
+        local vectorOf = "__v8" .. (bits == "32" and "si" or "di")
+        local builtinSuffix = bits == "32" and "16si" or "8di"
         if reading then
+            parts[#parts + 1] = "\n#if defined(__clang__)\n"
             parts[
                 #parts + 1
             ] = register
@@ -787,6 +795,23 @@ function emit.indexedSimd(context: emit.Context, node: scalarIR.Simd): string
                 .. tostring(
                     node.span
                 ) .. ", " .. scale .. ");"
+            parts[#parts + 1] = "\n#else\n"
+            parts[
+                #parts + 1
+            ] = register
+                .. " ks_loaded = ("
+                .. register
+                .. ")__builtin_ia32_gatherdiv"
+                .. builtinSuffix
+                .. "(("
+                .. vectorOf
+                .. ")"
+                .. zero
+                .. ", p_"
+                .. tostring(
+                    node.span
+                ) .. ", (__v8di)ks_addresses, ks_enabled, " .. scale .. ");"
+            parts[#parts + 1] = "\n#endif\n"
             parts[
                 #parts + 1
             ] = "memcpy(ks_batch, &ks_loaded, sizeof(ks_batch)); memcpy(ks_value + ks_base, ks_batch, ks_width * sizeof(ks_batch[0]));"
@@ -796,11 +821,19 @@ function emit.indexedSimd(context: emit.Context, node: scalarIR.Simd): string
             ] = "memcpy(ks_batch, ks_value + ks_base, ks_width * sizeof(ks_batch[0])); "
                 .. register
                 .. " ks_written; memcpy(&ks_written, ks_batch, sizeof(ks_written));"
+            parts[#parts + 1] = "\n#if defined(__clang__)\n"
             parts[
                 #parts + 1
             ] = "_mm512_mask_i64scatter_epi" .. bits .. "(p_" .. tostring(
                 node.span
             ) .. ", ks_enabled, ks_addresses, ks_written, " .. scale .. ");"
+            parts[#parts + 1] = "\n#else\n"
+            parts[
+                #parts + 1
+            ] = "__builtin_ia32_scatterdiv" .. builtinSuffix .. "(p_" .. tostring(
+                node.span
+            ) .. ", ks_enabled, (__v8di)ks_addresses, (" .. vectorOf .. ")ks_written, " .. scale .. ");"
+            parts[#parts + 1] = "\n#endif\n"
         end
         parts[#parts + 1] = "}\n#else\n"
     end
