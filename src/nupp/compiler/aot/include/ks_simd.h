@@ -577,9 +577,9 @@ static inline __attribute__((unused)) void ks_scalar_store4_u8x##W(lua_State *L,
     KS_SCATTER_TAIL_##BYTES(W)
 #else
 #define KS_EXP_LOAD_PART_BODY(W, ELEM, CTYPE, LANES, BYTES) \
-    CTYPE lanes[LANES##u] = {0}; memcpy(lanes, source, room * sizeof lanes[0]); ks_exp_##ELEM out; memcpy(&out, lanes, sizeof out); return out;
+    CTYPE lanes[LANES##u] KS_LANE_ARRAY_ALIGN(CTYPE) = {0}; memcpy(lanes, source, room * sizeof lanes[0]); ks_exp_##ELEM out; memcpy(&out, lanes, sizeof out); return out;
 #define KS_EXP_STORE_PART_BODY(W, ELEM, CTYPE, LANES, BYTES) \
-    CTYPE lanes[LANES##u]; memcpy(lanes, &value, sizeof lanes); memcpy(destination, lanes, room * sizeof lanes[0]);
+    CTYPE lanes[LANES##u] KS_LANE_ARRAY_ALIGN(CTYPE); memcpy(lanes, &value, sizeof lanes); memcpy(destination, lanes, room * sizeof lanes[0]);
 #endif
 
 /* The mask bitmap, one bit per lane of BYTES bytes. NEON sums a
@@ -736,7 +736,7 @@ static inline __attribute__((unused)) bool ks_exp_full_##ELEM(ks_exp_mask_##ELEM
 static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_load_part_##ELEM(const CTYPE *source, size_t room) { \
     KS_EXP_LOAD_PART_BODY(W, ELEM, CTYPE, LANES, BYTES) \
 } \
-static __attribute__((noinline, cold, unused)) void ks_exp_store_masked_part_##ELEM(CTYPE *destination, size_t room, const ks_exp_##ELEM *value, const ks_exp_mask_##ELEM *active) { CTYPE lanes[LANES##u]; memcpy(lanes, value, sizeof lanes); MASK keep[LANES##u]; memcpy(keep, active, sizeof keep); for (size_t i = 0u; i < room; ++i) if (keep[i]) destination[i] = lanes[i]; } \
+static __attribute__((noinline, cold, unused)) void ks_exp_store_masked_part_##ELEM(CTYPE *destination, size_t room, const ks_exp_##ELEM *value, const ks_exp_mask_##ELEM *active) { CTYPE lanes[LANES##u] KS_LANE_ARRAY_ALIGN(CTYPE); memcpy(lanes, value, sizeof lanes); MASK keep[LANES##u] KS_LANE_ARRAY_ALIGN(MASK); memcpy(keep, active, sizeof keep); for (size_t i = 0u; i < room; ++i) if (keep[i]) destination[i] = lanes[i]; } \
 static inline __attribute__((unused)) void ks_exp_store_part_##ELEM(CTYPE *destination, size_t room, ks_exp_##ELEM value, ks_exp_mask_##ELEM active) { \
     if (!ks_exp_full_##ELEM(active | ~ks_exp_tail_##ELEM((uint32_t)room))) { ks_exp_store_masked_part_##ELEM(destination, room, &value, &active); return; } \
     KS_EXP_STORE_PART_BODY(W, ELEM, CTYPE, LANES, BYTES) \

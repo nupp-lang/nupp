@@ -39,6 +39,21 @@ typedef uint32_t ks_alias_u32 __attribute__((may_alias));
 #define KS_COLD
 #define KS_UNLIKELY(cond) (cond)
 #endif
+/* What a local array of lanes may be assumed to sit on.
+ *
+ * Its element's own alignment, on Windows, said out loud. GCC widens a local
+ * array to the vector register it means to move it with, which is a fair
+ * trade everywhere the frame can be widened to match -- and the Windows x64
+ * frame cannot: sixteen bytes is all a caller leaves, and GCC neither rounds
+ * a pointer for these nor realigns, yet still reaches for `vmovaps` at a
+ * thirty-two byte offset into one. Saying the alignment explicitly is what
+ * holds it to the element, because an alignment the source asked for is one
+ * the backend stops widening. Every other target leaves the choice alone. */
+#if (defined(_WIN32) || defined(_WIN64)) && (defined(__GNUC__) || defined(__clang__))
+#define KS_LANE_ARRAY_ALIGN(type) __attribute__((aligned(__alignof__(type))))
+#else
+#define KS_LANE_ARRAY_ALIGN(type)
+#endif
 /* A partial vector moves through general registers rather than a stack
  * array: fewer than eight bytes are gathered by their bits of width,
  * so a tail is a few loads and no call. The layout is little-endian's,

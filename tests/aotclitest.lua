@@ -2666,6 +2666,17 @@ function M.indexedSimdUsesNativeAvx512MemoryInstructions()
         test.equal(code, 0, asm)
         assert(asm:find("vpgather", 1, true), asm)
         assert(asm:find("vpscatter", 1, true), asm)
+
+        -- The lanes these walk are ordinary arrays, and a Windows worker died
+        -- on one: GCC widened it to the register it moved it with, and the
+        -- frame it sat in was sixteen-byte aligned, which is all the calling
+        -- convention leaves and all the prologue makes. Each one says what it
+        -- is aligned to, so there is nothing left to widen.
+        local c = run(dir, "--target " .. triple .. " --features avx512f --emit c indexed.nupp")
+        for _, staged in ipairs({"ks_index", "ks_mask", "ks_value", "ks_offsets", "ks_batch"}) do
+            local declaration = c:match(staged .. "%[%d+%] ([%w_]+)%(")
+            test.equal(declaration, "KS_LANE_ARRAY_ALIGN", staged .. " is held to its element's alignment:\n" .. c)
+        end
     end
 end
 

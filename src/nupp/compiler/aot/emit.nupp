@@ -707,6 +707,21 @@ function emit.genericStore(context: emit.Context, store: scalarIR.Simd): string
     return helper .. "store_" .. suffix .. "(" .. at .. ", " .. emit.scalar(context, store.args[4]) .. ")"
 end
 
+--- What a staging array of lanes says about its own alignment.
+---
+--- The lanes a gather and a scatter walk arrive in ordinary C arrays, and one
+--- of those is the only thing in a compiled library that a Windows worker has
+--- been seen to die on: at thirty-two bytes and wider, GCC decides such an
+--- array deserves the vector register it means to move it with, and then moves
+--- half of it with an instruction that faults unless the frame is aligned to
+--- the same width -- which the Windows x64 frame is not, and which nothing in
+--- the prologue makes it. The element's own alignment, asked for explicitly,
+--- is what holds the array where the frame can carry it. `KS_LANE_ARRAY_ALIGN`
+--- is empty everywhere else.
+function emit.laneArrayAlign(element: string): string
+    return "KS_LANE_ARRAY_ALIGN(" .. element .. ")"
+end
+
 --- Indexed memory over logical lanes, including composite representations.
 --- @raises when the value and index representations have different lane counts
 function emit.indexedSimd(context: emit.Context, node: scalarIR.Simd): string
@@ -745,11 +760,19 @@ function emit.indexedSimd(context: emit.Context, node: scalarIR.Simd): string
         ) .. " ks_values = " .. (reading and "{0}" or emit.scalar(context, node.args[3])) .. ";",
         tostring(
             emit.SCALAR_C[indexElement]
-        ) .. " ks_index[" .. tostring(lanes) .. "]; __builtin_memcpy(ks_index, &ks_indices, sizeof(ks_index));",
-        maskC .. " ks_mask[" .. tostring(lanes) .. "]; __builtin_memcpy(ks_mask, &ks_active, sizeof(ks_mask));",
+        ) .. " ks_index[" .. tostring(
+            lanes
+        ) .. "] " .. emit.laneArrayAlign(
+            emit.SCALAR_C[indexElement]
+        ) .. "; __builtin_memcpy(ks_index, &ks_indices, sizeof(ks_index));",
+        maskC .. " ks_mask[" .. tostring(
+            lanes
+        ) .. "] " .. emit.laneArrayAlign(maskC) .. "; __builtin_memcpy(ks_mask, &ks_active, sizeof(ks_mask));",
         tostring(
             elementC
-        ) .. " ks_value[" .. tostring(lanes) .. "]; __builtin_memcpy(ks_value, &ks_values, sizeof(ks_value));",
+        ) .. " ks_value[" .. tostring(
+            lanes
+        ) .. "] " .. emit.laneArrayAlign(elementC) .. "; __builtin_memcpy(ks_value, &ks_values, sizeof(ks_value));",
     }
     local native = not context.explicitScalar and (element:sub(2) == "32" or element:sub(2) == "64")
     if native then
@@ -761,7 +784,11 @@ function emit.indexedSimd(context: emit.Context, node: scalarIR.Simd): string
         parts[#parts + 1] = "for (uint32_t ks_base = 0u; ks_base < " .. tostring(lanes) .. "u; ks_base += 8u) {"
         parts[
             #parts + 1
-        ] = "int64_t ks_offsets[8] = {0}; " .. tostring(elementC) .. " ks_batch[8] = {0}; __mmask8 ks_enabled = 0;"
+        ] = "int64_t ks_offsets[8] " .. emit.laneArrayAlign(
+            "int64_t"
+        ) .. " = {0}; " .. tostring(
+            elementC
+        ) .. " ks_batch[8] " .. emit.laneArrayAlign(elementC) .. " = {0}; __mmask8 ks_enabled = 0;"
         parts[
             #parts + 1
         ] = "uint32_t ks_width = " .. tostring(lanes) .. "u - ks_base; if (ks_width > 8u) ks_width = 8u;"
