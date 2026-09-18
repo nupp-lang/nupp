@@ -121,9 +121,6 @@ end
 ```
 :::
 
-Bindings are emitted once per module, only when used. `OPT-1` shares
-`table.new`; a shadowed `table` is left alone.
-
 Under `@aot`, table construction and initialization can run in one native call.
 See [building ordinary Lua values](ahead-of-time/lua-values.md).
 
@@ -243,8 +240,7 @@ if again == nil then again = false end
 ```
 :::
 
-String cases use the same lookup. A private sentinel distinguishes a `nil`
-result from a missing key:
+String cases use the same lookup, including cases that return `nil`:
 
 ::: code-group
 ```nupp [Nupp]
@@ -275,7 +271,7 @@ elseif kind == __nuppSwitchNil2 then kind = nil end
 ```
 :::
 
-Maps are allocated once per module. Missing keys need no range guard.
+Maps are allocated once per module.
 
 AOT can emit a native C `switch` for exact-width selectors. See [scalar switches
 and do
@@ -300,12 +296,9 @@ Each pass has a stable `OPT-n` code:
 | `OPT-3` | constant-fold | -O1 | Fold exact primitives, branches, dead loops, and immutable paths |
 | `OPT-4` | static-callable | -O1 | Bind repeated immutable dotted callees at first use |
 | `OPT-5` | concat-buffer | -O1 | Append to a string.buffer instead of rebuilding a string each pass |
-| `OPT-6` | indexed-range | -O1 | Select proved direct access and scalar-replace indexed views |
+| `OPT-6` | indexed-range | -O1 | Remove repeated bounds checks and temporary view objects |
 | `OPT-7` | inline-return-helper | -O1 | Inline a module's own single-return local helpers where they are called |
-| `OPT-8` | const-monomorphize | -O1 | Emit bounded private bodies for closed scalar const applications |
-
-Passes require static proofs and benchmark evidence. Generated Lua cannot
-undo an optimization at runtime; thresholds are implementation details.
+| `OPT-8` | const-monomorphize | -O1 | Specialize functions for known constant arguments |
 
 ### `OPT-1`, presizing
 
@@ -345,14 +338,14 @@ end
 ```
 :::
 
-Other write patterns retain their assignments and use `table.new` to reserve
-capacity. Scanning stops when the table is read, escapes, is reassigned, or
-reaches a conditional write. Presizing avoids growth and copying.
+Other write patterns use `table.new` to reserve capacity and avoid growth and
+copying. Reads, reassignment, conditional writes, or passing the table elsewhere
+limit how much capacity can be reserved in advance.
 
 ### `OPT-2`, numeric `ipairs`
 
-A loop over a dense literal becomes numeric when effect and alias analysis
-prove its binding and shape stay fixed:
+A loop over a dense literal becomes numeric when the compiler can prove the
+array and its length stay fixed:
 
 ::: code-group
 ```nupp [Nupp]
@@ -730,10 +723,15 @@ end
 ```
 :::
 
-The root and every field must be `const`. Reuse stays within one lexical block
-and preserves lookup order and error locations. Single calls, labels, `goto`,
-and specialized FFI, ownership, constructor, or output-parameter calls are
-excluded.
+The root and every field must be `const`. Calls share the binding within the
+same block.
+
+::: deepdive
+The binding is created at first use to preserve lookup order and error
+locations. Labels and `goto` prevent reuse, as do calls with special handling
+for FFI, ownership, constructors, or output parameters. A single call needs no
+shared binding.
+:::
 
 ### `OPT-5`, concat buffer
 
@@ -774,11 +772,6 @@ end
 :::
 
 Repeated concatenation copies the growing string and costs O(n²).
-`bench/concat.lua` measured 1.8x faster for eight pieces and 3.6x for
-sixty-four.
-
-A sole immediate return reads the buffer directly. Other later uses keep the
-string local and materialize it after the loop.
 
 The initializer must be `""`, with one primitive `out = out .. ...` accumulation
 and no intervening uses. Reads or captures inside the loop, prepends, multiple
@@ -840,9 +833,6 @@ are preserved. `-O0`, held frames, computed indices, other spans, and accesses
 outside the witnessed loop keep checked helpers. The proof stays within its
 function.
 
-The pass also removes view wrappers: `left` and `right` above become counts,
-while the compiler tracks their roots, offsets, and access capabilities.
-
 #### SoA columns
 
 For a const-bound [SoA view](../runtime/data/structure-of-arrays.md), `for index
@@ -903,22 +893,26 @@ one physical index. The source owner stays live. These bindings primarily help
 interpreted execution; LuaJIT can discover the same invariants.
 :::
 
-#### Admitted roots
+<a id="admitted-roots"></a>
 
-Supported roots include `span.fromString`, shared and writable C arrays,
-`heap.Array:read()`/`write()`, and `soa.Array:read()`/`write()`. Slices, shared
-downgrades, and SoA field projections compose offsets without wrappers.
-Arbitrary indices keep bounds checks.
+#### Supported views
 
-Dynamic expressions and producer effects run once in source order. Direct
-accesses retain their source owner.
+Supported views come from `span.fromString`, shared and writable C arrays,
+`heap.Array:read()`/`write()`, and `soa.Array:read()`/`write()`. Slices and SoA
+field projections are supported too. Arbitrary indices keep bounds checks.
+
+See [SIMD lowering](ahead-of-time/vectorization.md) for AOT vectorization.
+
+::: deepdive
+The pass can remove temporary view objects: `left` and `right` in the earlier
+example become counts, while accesses use the original views. Slices, shared
+downgrades, and SoA field projections combine their offsets without creating
+wrapper objects. The source owner stays alive for the accesses.
 
 Direct, nonrecursive local calls may pass or return views as flattened state.
 Recursive, exported, dynamic, foreign, cross-module, and `any` boundaries keep
 view objects, as do other returns, captures, and stores.
-
-AOT retains these field identities and unit strides for scalar or [SIMD
-lowering](ahead-of-time/vectorization.md).
+:::
 
 ### `OPT-7`, single-return helpers
 
@@ -948,7 +942,7 @@ end
 
 The declaration remains for other callers.
 
-`OPT-3` runs again after inlining, folding exposed constants and branches:
+Inlining also lets constants and branches simplify:
 
 ::: code-group
 ```nupp [Nupp]
@@ -986,6 +980,10 @@ end
 
 [AOT](ahead-of-time/index.md) applies the same helper eligibility rules.
 
+`--remarks` explains why a call was not inlined. LuaJIT or the native compiler
+may still inline it.
+
+::: deepdive
 Inlining requires:
 
 - A nonrecursive, nongeneric local helper with one return expression.
@@ -994,19 +992,15 @@ Inlining requires:
 - Name arguments for parameters used as field, index, method, or call receivers.
 - A call in expression position.
 
-Growth limits bound expansion and repeated argument computation per call and
-enclosing function. They add no temporary locals or fixed helper-chain depth
-limit.
-
-`--remarks` explains declined inlining. Retained calls remain available for
-LuaJIT or the native compiler to inline.
+The compiler limits code growth and repeated argument computation so inlining
+does not make the caller excessively large.
+:::
 
 ### `OPT-8`, const monomorphization
 
-Closed applications of scalar `const` binders can get private specialized
-bodies. Their parameters omit const carriers, and their bodies fold constants
-and unroll bounded loops. The public generic function remains available; `-O0`
-emits only that body.
+Calls with known scalar `const` arguments can get specialized versions that
+fold constants and unroll bounded loops. The original function remains
+available; `-O0` uses only that version.
 
 ::: code-group
 ```nupp [Nupp]
@@ -1063,24 +1057,30 @@ end
 ```
 :::
 
-The excerpt shortens the private key digest and omits cross-module registration.
+The constant must be an `integer`, `boolean`, or `string` and be passed directly
+as an argument, as `count` is above. `--remarks` reports calls that stay generic.
 
-Specializations are selected across the module graph and emitted by the
-declaring module. Equivalent keys share bodies. Each source module permits eight
-body classes; excess optional keys stay generic and appear in `--remarks`.
-
-Eligible binders are `integer`, `boolean`, or `string` constants with direct
-carrier parameters. Opaque calls and unavailable checked bodies stay generic.
-Build JSON reports `timing.specializedBodies` separately from `compiledModules`.
-
-AOT uses the same keys and budget; see [const-specialized
+See [const-specialized
 families](ahead-of-time/index.md#const-specialized-families).
 
-### Rewrites deliberately not made
+::: deepdive
+Specialized versions are emitted in the function's declaring module and shared
+by calls with equivalent constant arguments. The compiler limits specialization
+per module to control code growth; additional optional specializations stay
+generic. AOT uses the same limit. Calls whose checked bodies are unavailable
+also stay generic.
 
-Caching loop-created closures would change their identity.
+The generated excerpt abbreviates the private function name and omits the
+registration used by calls from other modules.
+:::
+
+<a id="rewrites-deliberately-not-made"></a>
+
+### Loop closures
+
+Define a function outside the loop when every iteration can reuse it.
 [`loop-invariant-closure`](../../reference/lints.md#loop-invariant-closure)
-suggests lifting eligible closures instead:
+suggests eligible cases:
 
 ```nupp
 local isClick = |event| -> event.kind == "click"
@@ -1094,12 +1094,12 @@ that depend on the iteration still block tracing;
 [`jit-loop-closure`](jit-trace-checking.md#configurable-source-lint) reports
 them when enabled or inside `@jit` functions.
 
-`bench/ffi-hoisting.lua` found ctype caching helped only the interpreter.
-`bench/scratch-reuse.lua` found hoisted tables and `ffi.new` slower than
-allocation sinking. Both guard against those findings changing.
-
 ## Benchmark details
 
+Measure your own workload with [benchmarks](benchmarks.md) before choosing an
+optimization level or disabling a pass.
+
+::: deepdive
 Recorded local medians with LuaJIT enabled, measuring generated code rather than
 checker time:
 
@@ -1130,22 +1130,15 @@ luajit bench/numeric-ipairs.lua
 luajit bench/constant-folding.lua
 luajit bench/constant-propagation.lua
 luajit bench/static-callable.lua
-bench/span-range-lowering/run.sh
-```
-
-These benchmarks cover concat buffering and the [rewrites deliberately
-omitted](#rewrites-deliberately-not-made):
-
-```bash
-luajit bench/ffi-hoisting.lua
 luajit bench/concat.lua
-luajit bench/scratch-reuse.lua
+bench/span-range-lowering/run.sh
 ```
 
 The `OPT-6` measurements used an arm64 Apple host after warmup, comparing
 disabled and enabled passes. Slice results cover derived-view replacement, not
 general escape analysis. See `bench/span-range-lowering/README.md` for the full
 matrix and `trace.sh` for IR comparisons.
+:::
 
 ## Inspecting, controlling, and measuring
 
