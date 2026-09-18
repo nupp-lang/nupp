@@ -1168,7 +1168,9 @@ permission.
 
 ## FAQ
 
-### Does `-O1` change what a program answers?
+<a id="does-o1-change-what-a-program-answers"></a>
+
+### Does `-O1` change how a program works?
 
 No. Optimization preserves results; other observable guarantees require explicit
 `@relax` permission to change.
