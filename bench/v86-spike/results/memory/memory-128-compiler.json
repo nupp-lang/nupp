@@ -1,0 +1,29 @@
+{
+  "ok": true,
+  "mode": "compiler",
+  "compiler": {
+    "value": {
+      "guestMemoryAfter": "MemTotal:         104952 kB\nMemFree:           46672 kB\nMemAvailable:      44748 kB\nBuffers:               0 kB\nCached:            24360 kB\nSwapCached:            0 kB\nActive:                8 kB\nInactive:          29416 kB\nActive(anon):          8 kB\nInactive(anon):    29416 kB\nActive(file):          0 kB\nInactive(file):        0 kB\nUnevictable:       24360 kB\nMlocked:               0 kB\nHighTotal:             0 kB\nHighFree:              0 kB\nLowTotal:         104952 kB\nLowFree:           46672 kB\nSwapTotal:             0 kB\nSwapFree:              0 kB\nDirty:                 0 kB\nWriteback:             0 kB\nAnonPages:         29428 kB\nMapped:             1856 kB\nShmem:                 0 kB\nKReclaimable:        444 kB\nSlab:               2504 kB\nSReclaimable:        444 kB\nSUnreclaim:         2060 kB\nKernelStack:         224 kB\nPageTables:           64 kB\nSecPageTables:         0 kB\nNFS_Unstable:          0 kB\nBounce:                0 kB\nWritebackTmp:          0 kB\nCommitLimit:       52476 kB\nCommitted_AS:      29820 kB\nVmallocTotal:     913400 kB\nVmallocUsed:          12 kB\nVmallocChunk:          0 kB\nPercpu:               32 kB\nDirectMap4k:       12288 kB\nDirectMap4M:      102400 kB\n",
+      "compilerSmokePasses": 3,
+      "luaHeapKiB": 16652.560546875,
+      "guestProcess": "Name:\tluajit\nUmask:\t0022\nState:\tR (running)\nTgid:\t37\nNgid:\t0\nPid:\t37\nPPid:\t1\nTracerPid:\t0\nUid:\t0\t0\t0\t0\nGid:\t0\t0\t0\t0\nFDSize:\t32\nGroups:\t \nNStgid:\t37\nNSpid:\t37\nNSpgid:\t0\nNSsid:\t0\nKthread:\t0\nVmPeak:\t   40076 kB\nVmSize:\t   39308 kB\nVmLck:\t       0 kB\nVmPin:\t       0 kB\nVmHWM:\t   31416 kB\nVmRSS:\t   30648 kB\nRssAnon:\t   29376 kB\nRssFile:\t    1272 kB\nRssShmem:\t       0 kB\nVmData:\t   29108 kB\nVmStk:\t     132 kB\nVmExe:\t     476 kB\nVmLib:\t     880 kB\nVmPTE:\t      48 kB\nVmSwap:\t       0 kB\nCoreDumping:\t0\nTHP_enabled:\t0\nuntag_mask:\t0xffffffff\nThreads:\t1\nSigQ:\t0/745\nSigPnd:\t0000000000000000\nShdPnd:\t0000000000000000\nSigBlk:\t0000000000000000\nSigIgn:\t0000000000000000\nSigCgt:\t0000000000000002\nCapInh:\t0000000000000000\nCapPrm:\t000001ffffffffff\nCapEff:\t000001ffffffffff\nCapBnd:\t000001ffffffffff\nCapAmb:\t0000000000000000\nNoNewPrivs:\t0\nSpeculation_Store_Bypass:\tvulnerable\nSpeculationIndirectBranch:\talways enabled\nCpus_allowed:\t1\nCpus_allowed_list:\t0\nvoluntary_ctxt_switches:\t1\nnonvoluntary_ctxt_switches:\t531\n",
+      "guestMemoryBefore": "MemTotal:         104952 kB\nMemFree:           68104 kB\nMemAvailable:      66180 kB\nBuffers:               0 kB\nCached:            24360 kB\nSwapCached:            0 kB\nActive:                8 kB\nInactive:            232 kB\nActive(anon):          8 kB\nInactive(anon):      232 kB\nActive(file):          0 kB\nInactive(file):        0 kB\nUnevictable:       24360 kB\nMlocked:               0 kB\nHighTotal:             0 kB\nHighFree:              0 kB\nLowTotal:         104952 kB\nLowFree:           68104 kB\nSwapTotal:             0 kB\nSwapFree:              0 kB\nDirty:                 0 kB\nWriteback:             0 kB\nAnonPages:           248 kB\nMapped:             1628 kB\nShmem:                 0 kB\nKReclaimable:        444 kB\nSlab:               2492 kB\nSReclaimable:        444 kB\nSUnreclaim:         2048 kB\nKernelStack:         224 kB\nPageTables:           36 kB\nSecPageTables:         0 kB\nNFS_Unstable:          0 kB\nBounce:                0 kB\nWritebackTmp:          0 kB\nCommitLimit:       52476 kB\nCommitted_AS:        488 kB\nVmallocTotal:     913400 kB\nVmallocUsed:          12 kB\nVmallocChunk:          0 kB\nPercpu:               32 kB\nDirectMap4k:       12288 kB\nDirectMap4M:      102400 kB\n"
+    },
+    "metrics": {
+      "frames": 0,
+      "effects": 0,
+      "effectBytes": 0,
+      "responseBytes": 0,
+      "copiedIn": 0,
+      "copiedOut": 0,
+      "hostEffectMs": [],
+      "guestIntervalsMs": [],
+      "bootMs": 1649.125,
+      "wasmMemoryBytes": 148570112,
+      "totalMs": 9294.80999994278
+    }
+  },
+  "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+  "isolated": true,
+  "browserErrors": []
+}

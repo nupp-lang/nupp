@@ -138,6 +138,68 @@ stay under ignored `build/v86-spike`; the portable builder uses its original
 ignored `build/qemu-wasm-spike` output and copies the three required files.
 `boot-node.mjs` is a verbose guest diagnostic, not the browser proof.
 
+## Smaller guest follow-up
+
+The original 256 MiB setting was a configuration choice. A separate memory
+probe now tests smaller guests without changing that baseline:
+
+| Workload | Configured guest RAM | Observed Wasm memory | Outcome |
+| --- | ---: | ---: | --- |
+| Native libraries and interactive game | 64 MiB | about 77 MiB | Passed |
+| Load the current playground compiler | 64 MiB | — | Linux killed LuaJIT for running out of memory |
+| Basic playground compiler requests, three rounds | 128 MiB | about 142 MiB | Passed |
+
+Raw results and exact artifact hashes are in [results/memory](results/memory).
+The compiler case uses the actual 7.37 MB portable playground compiler bundle,
+cross-compiled to 6.40 MB of non-GC64 LuaJIT bytecode. It checks typed source,
+hover, optimized Lua 5.1 output, and LuaJIT literal output using cases from
+`tests/portable-compiler/smoke.lua`. It executes in the same pinned LuaJIT as
+the runtime. This does not implement the playground UI on v86 or establish a
+memory bound for arbitrary programs. The optional full corpus, including
+larger standard-library imports, exceeded the exploratory time limit at
+128 MiB; the passing result is explicitly the basic request subset.
+
+The small profiles reserve an 8 MiB mailbox, with 1 MiB JSON slots and 2 MiB
+binary-transfer slots. Linux gets 48 MiB in the 64 MiB guest and 112 MiB in the
+128 MiB guest. The pinned v86 JavaScript loader is patched at one checked
+location to place the initrd at 32 MiB, below its original 64 MiB address.
+LuaJIT and the emulator Wasm core remain unchanged. Linux uses `rootfstype=ramfs`
+to avoid the default tmpfs limit preventing image unpacking at 64 MiB; this
+does not increase the guest's RAM budget. The 64 MiB compiler OOM occurs after
+that boot issue is resolved.
+
+Thus **64 MiB runner / 128 MiB compiler** is a tested starting configuration,
+not a proven minimum or an arbitrary-source guarantee. Separate compiler and
+runner VMs would allocate roughly 219 MiB of Wasm memory together, plus other
+browser overhead. A smaller kernel/root filesystem and compiler packaging
+could change those budgets; those optimizations remain unmeasured.
+
+Reproduce after the ordinary spike preparation:
+
+```sh
+./scripts/prelude-image
+/opt/homebrew/bin/python3 bench/v86-spike/prepare-memory.py 64
+/opt/homebrew/bin/python3 bench/v86-spike/prepare-memory.py 128
+/opt/homebrew/bin/python3 bench/v86-spike/prepare-memory.py 64 --runtime-only
+```
+
+Serve the three generated directories in separate terminals:
+
+```sh
+node bench/qemu-wasm-spike/serve.mjs build/v86-spike/memory-64/web 8099
+node bench/qemu-wasm-spike/serve.mjs build/v86-spike/memory-128/web 8100
+node bench/qemu-wasm-spike/serve.mjs build/v86-spike/memory-64-runtime/web 8101
+```
+
+Then run `node bench/v86-spike/probe-memory.mjs`. It requires both application
+tests and the 128 MiB compiler test to pass, and the 64 MiB compiler case to
+fail specifically with a guest OOM. It writes its evidence under ignored
+`build/v86-spike/memory-results`. Add `--full-corpus` to the preparation command
+to reproduce the larger compiler workload separately.
+
+The kernel documents the root filesystem choice in
+[ramfs/rootfs/initramfs](https://docs.kernel.org/filesystems/ramfs-rootfs-initramfs.html).
+
 ## Remaining limits
 
 Chrome/macOS is the tested browser/host combination. Safari, Firefox, mobile

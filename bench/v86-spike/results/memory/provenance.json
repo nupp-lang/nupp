@@ -1,0 +1,10 @@
+{
+  "parentRevision": "228ca9333e1950665b5dfad6c9c58fb50c70b465",
+  "method": "Sequential fresh Chrome runs; expected guest OOM retained as a negative result. No compiler or production runtime changes. Basic compiler request subset only. Existing portable compiler bundle runs on pinned LuaJIT.",
+  "sourceSha256": {
+    "bench/v86-spike/compiler-memory.lua": "25fe4370290f19f9e9d701b3428d4a925f3f3bf2eaacbaf93667bb1f477214d9",
+    "bench/v86-spike/prepare-memory.py": "b08724ad85c44aaef283f3929d7a36609dd637d78fe4939c014870c8d114ac94",
+    "bench/v86-spike/probe-memory.mjs": "cc6aace249572dbd33e54471946f5a1fb38aa8f887af6c1812146efec32c2470"
+  },
+  "fullCorpusExploration": "128 MiB full stdlib-import corpus timed out after 120 seconds without per-import tracing; no full-corpus pass is claimed."
+}

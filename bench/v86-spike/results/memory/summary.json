@@ -1,0 +1,145 @@
+[
+  {
+    "name": "memory-64-runtime-native",
+    "outcome": "passed",
+    "wasmMemoryBytes": 80543744,
+    "profile": {
+      "guestRamMiB": 64,
+      "linuxLimitMiB": 48,
+      "mailboxMiB": 8,
+      "jsonCapacityMiB": 1,
+      "binaryCapacityMiB": 2,
+      "initrdAddressMiB": 32,
+      "compilerSourceDialect": "lua51",
+      "compilerExecutionRuntime": "pinned LuaJIT i386",
+      "compilerBytecodeBytes": 0,
+      "runtimeOnly": true,
+      "fullCompilerCorpus": false,
+      "artifacts": {
+        "assets/libv86.mjs": {
+          "bytes": 359552,
+          "sha256": "a07d5f6d3276fabde989194a84be5f4266cb65a0e7000c84c2ff69c09fb5a4c2"
+        },
+        "initramfs.gz": {
+          "bytes": 1419995,
+          "sha256": "0cc320c9c3b46a6bd978a2303c3eb06eb6e43cf2bd9490b9505aa02e389ad866"
+        },
+        "vm-worker.mjs": {
+          "bytes": 8915,
+          "sha256": "2433f160ce3645a8bf9a1ab1494a240b649620e4b7ed6121128852c2e97beb2f"
+        },
+        "compiler-memory.lua": {
+          "bytes": 884,
+          "sha256": "25fe4370290f19f9e9d701b3428d4a925f3f3bf2eaacbaf93667bb1f477214d9"
+        }
+      }
+    }
+  },
+  {
+    "name": "memory-64-runtime-game",
+    "outcome": "passed",
+    "wasmMemoryBytes": 80674816,
+    "profile": {
+      "guestRamMiB": 64,
+      "linuxLimitMiB": 48,
+      "mailboxMiB": 8,
+      "jsonCapacityMiB": 1,
+      "binaryCapacityMiB": 2,
+      "initrdAddressMiB": 32,
+      "compilerSourceDialect": "lua51",
+      "compilerExecutionRuntime": "pinned LuaJIT i386",
+      "compilerBytecodeBytes": 0,
+      "runtimeOnly": true,
+      "fullCompilerCorpus": false,
+      "artifacts": {
+        "assets/libv86.mjs": {
+          "bytes": 359552,
+          "sha256": "a07d5f6d3276fabde989194a84be5f4266cb65a0e7000c84c2ff69c09fb5a4c2"
+        },
+        "initramfs.gz": {
+          "bytes": 1419995,
+          "sha256": "0cc320c9c3b46a6bd978a2303c3eb06eb6e43cf2bd9490b9505aa02e389ad866"
+        },
+        "vm-worker.mjs": {
+          "bytes": 8915,
+          "sha256": "2433f160ce3645a8bf9a1ab1494a240b649620e4b7ed6121128852c2e97beb2f"
+        },
+        "compiler-memory.lua": {
+          "bytes": 884,
+          "sha256": "25fe4370290f19f9e9d701b3428d4a925f3f3bf2eaacbaf93667bb1f477214d9"
+        }
+      }
+    }
+  },
+  {
+    "name": "memory-64-compiler",
+    "outcome": "guest-out-of-memory",
+    "profile": {
+      "guestRamMiB": 64,
+      "linuxLimitMiB": 48,
+      "mailboxMiB": 8,
+      "jsonCapacityMiB": 1,
+      "binaryCapacityMiB": 2,
+      "initrdAddressMiB": 32,
+      "compilerSourceDialect": "lua51",
+      "compilerExecutionRuntime": "pinned LuaJIT i386",
+      "compilerBytecodeBytes": 6399407,
+      "runtimeOnly": false,
+      "fullCompilerCorpus": false,
+      "artifacts": {
+        "assets/libv86.mjs": {
+          "bytes": 359552,
+          "sha256": "a07d5f6d3276fabde989194a84be5f4266cb65a0e7000c84c2ff69c09fb5a4c2"
+        },
+        "initramfs.gz": {
+          "bytes": 3021176,
+          "sha256": "aaf4f57504119211b6ac8a8717a2cba389d4f971ec70dc2db2d31341f8c08373"
+        },
+        "vm-worker.mjs": {
+          "bytes": 8915,
+          "sha256": "2433f160ce3645a8bf9a1ab1494a240b649620e4b7ed6121128852c2e97beb2f"
+        },
+        "compiler-memory.lua": {
+          "bytes": 884,
+          "sha256": "25fe4370290f19f9e9d701b3428d4a925f3f3bf2eaacbaf93667bb1f477214d9"
+        }
+      }
+    }
+  },
+  {
+    "name": "memory-128-compiler",
+    "outcome": "passed",
+    "wasmMemoryBytes": 148570112,
+    "profile": {
+      "guestRamMiB": 128,
+      "linuxLimitMiB": 112,
+      "mailboxMiB": 8,
+      "jsonCapacityMiB": 1,
+      "binaryCapacityMiB": 2,
+      "initrdAddressMiB": 32,
+      "compilerSourceDialect": "lua51",
+      "compilerExecutionRuntime": "pinned LuaJIT i386",
+      "compilerBytecodeBytes": 6399407,
+      "runtimeOnly": false,
+      "fullCompilerCorpus": false,
+      "artifacts": {
+        "assets/libv86.mjs": {
+          "bytes": 359552,
+          "sha256": "a07d5f6d3276fabde989194a84be5f4266cb65a0e7000c84c2ff69c09fb5a4c2"
+        },
+        "initramfs.gz": {
+          "bytes": 3021176,
+          "sha256": "6f17e16bb053c8ce56be2a967d1faf69d24a55b92848c1e157e104cb5f117d90"
+        },
+        "vm-worker.mjs": {
+          "bytes": 8918,
+          "sha256": "e90d622214911b0d09a743cc9cbcb680d604fed2ff469bf88dbc7c79465583b4"
+        },
+        "compiler-memory.lua": {
+          "bytes": 884,
+          "sha256": "25fe4370290f19f9e9d701b3428d4a925f3f3bf2eaacbaf93667bb1f477214d9"
+        }
+      }
+    }
+  }
+]
