@@ -527,10 +527,63 @@ end
 Floating-point arithmetic, cdata, calls, allocation, and reassigned bindings stay
 at runtime so LuaJIT retains their rounding, identity, errors, and lifetimes.
 
+#### Unchanged locals
+
+An ordinary scalar local needs no `const` annotation for its value to propagate
+when the compiler can prove its binding is never reassigned.
+
+::: code-group
+```nupp [Nupp]
+function m.answer(): number
+    local size = 6
+    return size * 7
+end
+```
+
+```lua [-O1]
+function m.answer()
+    local size = 6
+    return 42
+end
+```
+
+```lua [-O0]
+function m.answer()
+    local size = 6
+    return size * 7
+end
+```
+:::
+
+A write in a nested function also prevents propagation, even if that function
+is never called. A separate local with the same name does not.
+
+#### Short-circuit expressions
+
 A known left operand also simplifies `and`, `or`, and `??` without requiring
 the right operand to be constant. A selected call still runs once and produces
 one value; an unselected operand does not run. An unknown left operand keeps
 its evaluation even when the right operand is constant.
+
+::: code-group
+```nupp [Nupp]
+function m.choose(read: function(): boolean): (boolean, boolean, boolean)
+    return false and read(), true or read(), true and read()
+end
+```
+
+```lua [-O1]
+function m.choose(read)
+    return false, true, (read())
+end
+```
+
+```lua [-O0]
+function m.choose(read)
+    return false and read(), true or read(), true and read()
+end
+```
+:::
 
 #### Integer division and the bit operators
 
@@ -643,9 +696,11 @@ only the selected arm is emitted; a `do` preserves its original scope.
 
 ::: code-group
 ```nupp [Nupp]
-function m.pick(): nil
+function m.pick(active: boolean): nil
     if false then
         error("unreachable")
+    elseif active then
+        print("active")
     elseif 2 < 3 then
         print("reachable")
     else
@@ -655,17 +710,23 @@ end
 ```
 
 ```lua [-O1]
-function m.pick()
+function m.pick(active)
     do
-        print("reachable")
+        if active then
+            print("active")
+        else
+            print("reachable")
+        end
     end
 end
 ```
 
 ```lua [-O0]
-function m.pick()
+function m.pick(active)
     if false then
         error("unreachable")
+    elseif active then
+        print("active")
     elseif 2 < 3 then
         print("reachable")
     else
@@ -1030,6 +1091,41 @@ pass declines is an ordinary call.
 When `OPT-3` is enabled, folding runs again after inlining. Constants exposed
 by a helper's arguments can then propagate to later expressions and select
 branches in the caller.
+
+::: code-group
+```nupp [Nupp]
+local function add(left: number, right: number): number
+    return left + right
+end
+
+function m.answer(): number
+    local size = add(2, 3)
+    return size * 4
+end
+```
+
+```lua [-O1]
+local function add(left, right)
+    return left + right
+end
+
+function m.answer()
+    local size = 5
+    return 20
+end
+```
+
+```lua [-O0]
+local function add(left, right)
+    return left + right
+end
+
+function m.answer()
+    local size = add(2, 3)
+    return size * 4
+end
+```
+:::
 
 `@aot` already inlines exactly these into a compiled body, so without this pass
 the two routes did not see the same source: the annotated body got the helper's
