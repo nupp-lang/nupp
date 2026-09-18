@@ -54,7 +54,15 @@ local rules = {
     {"^evals/", {"evals"}},
 
     {"^tests/benchrunnertest%.lua$", {"tests", "measurement"}},
+    -- The fixtures below are run by nothing but the Wasm job, so classifying
+    -- them as ordinary tests means a change to one is never compiled: the
+    -- queue in `portable-storage` kept calling a `nupp.text` constructor that
+    -- had been renamed, and stayed broken until an unrelated change to
+    -- `scripts/` selected every job.
     {"^tests/browser%-templates/", {"tests", "browser"}},
+    {"^tests/portable%-storage/", {"tests", "browser"}},
+    {"^tests/wasm%-aot/", {"tests", "browser"}},
+    {"^tests/wasm%-memory/", {"tests", "browser"}},
     {"^tests/acceptance/", {"tests"}},
     {"^tests/", {"tests"}},
 

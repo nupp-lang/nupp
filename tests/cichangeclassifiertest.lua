@@ -65,6 +65,14 @@ function M.browserChangeSelectsThePortableCompilerAndTheWasmJob()
     selects("templates/browser/nupp.lua", {"browser-wasm"})
 end
 
+-- Nothing but the Wasm job runs these fixtures, so classifying them as ordinary
+-- tests left a change to one uncompiled until something else selected the job.
+function M.wasmOnlyFixturesSelectTheJobThatRunsThem()
+    selects("tests/portable-storage/project/src/main.nupp", {"browser-wasm"})
+    selects("tests/wasm-aot/run.sh", {"browser-wasm"})
+    selects("tests/wasm-memory/run.sh", {"browser-wasm"})
+end
+
 -- The one job narrow enough to be worth narrowing, so the boundary is worth an
 -- assertion: a compiler change is covered by `portable-compiler` compiling every
 -- homepage example under the Worker's settings, and by the nightly backstop.
