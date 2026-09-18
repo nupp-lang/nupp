@@ -123,7 +123,8 @@ fail it identically:
    keeps the tracking, and a function type cannot carry `borrows`.
 
 `fused.nupp` is the only `string | Buffer` `@aot` entry in the tree, so this
-has presumably never worked.
+has presumably never worked. Tracked at
+https://github.com/nupp-lang/nupp/issues/55.
 
 `prepare.sh` therefore narrows the copied entry to `source: string` and swaps
 `paddedBytesU8` for `paddedStringU8`, which is the same native input. Both
