@@ -1673,10 +1673,12 @@ function M.theFeatureTierReachesTheBackend()
     -- what says which: its binary64 lanes are named by the species' lane count,
     -- which is the tier's bytes divided by the widest element the region holds.
     local after = assert(read(tieredC(dir, tier)))
-    assert(
-        after:find(widens and "ks_exp_f64x8" or "ks_exp_f64x2", 1, true),
-        "the widest tier gets the widest species: " .. after:sub(1, 200)
-    )
+    -- Named from the tier's own width rather than a constant, because NEON's is
+    -- not its register width: it pairs two registers for a region, so binary64
+    -- gets four lanes there where one 16-byte register would hold two.
+    local tierBytes = require("nupp.compiler.aot.target").TIERS[tier]
+    local expected = ("ks_exp_f64x%d"):format(tierBytes / 8)
+    assert(after:find(expected, 1, true), ("the tier gets %s: %s"):format(expected, after:sub(1, 200)))
 
     if widens then
         assert(baseline:find("ks_exp_f64x2", 1, true), "the same build carries its baseline fallback")

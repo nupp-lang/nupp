@@ -4190,7 +4190,11 @@ function M.armHasOneTierAndNeedsNoSelection()
     test.equal(code, 0, out)
     local decoded = require("testjson").decode(out)
     test.equal(decoded.target.tier, "neon", "its 16-byte registers are mandatory, so there is nothing to opt into")
-    test.equal(decoded.functions[1].regions[1].gang.lanes, 2, "one 16-byte register holds two binary64 lanes")
+    test.equal(
+        decoded.functions[1].regions[1].gang.lanes,
+        4,
+        "and a region pairs two of them, which holds four binary64 lanes"
+    )
 end
 
 function M.anUnknownTargetOrTierIsRejected()

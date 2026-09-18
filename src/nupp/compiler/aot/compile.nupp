@@ -722,7 +722,7 @@ function compile.lanes(program: scalarIR.Program, filename: string, selected: ta
     if program.simdRequired ~= true then
         return nil
     end
-    local width = targets.simdWidth(selected)
+    local width = targets.simdRegionWidth(selected)
     if program.loop ~= nil then
         local refusals = simdrewrite.program(program, width)
         if program.vector == nil then
