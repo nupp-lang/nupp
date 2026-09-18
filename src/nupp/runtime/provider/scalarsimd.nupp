@@ -292,10 +292,16 @@ function species:load(source: any, offset: number): any
     return vector(out)
 end
 
-function species:loadString(source: string, offset: number): any
+function species:loadString(source: any, offset: number): any
+    -- A Lua-builder entry may root a string buffer rather than a string. The
+    -- emulation has no pointer to read, so it reads the buffer's unread bytes.
+    local text: any = source
+    if type(text) ~= "string" then
+        text = text:peek()
+    end
     local out = {};
     for i = 1, 16 do
-        out[i] = source:byte(offset + i) or 0
+        out[i] = text:byte(offset + i) or 0
     end;
 
     return vector(out)

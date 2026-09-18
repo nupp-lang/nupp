@@ -1608,10 +1608,13 @@ sealed interface simd.SpeciesU8
     --- excluded by `tail`; the implementation never reads beyond the span.
     load: function(borrows self: SpeciesU8, borrows source: Span<uint8>, offset: integer): simd.VectorU8
 
-    --- Loads directly from a string rooted by a Lua-builder AOT entry. This is
+    --- Loads directly from bytes rooted by a Lua-builder AOT entry. This is
     --- the VM-aware counterpart of `load`: storage remains owned and pinned by
-    --- Lua for the duration of the native call.
-    loadString: function(borrows self: SpeciesU8, source: string, offset: integer): simd.VectorU8
+    --- Lua for the duration of the native call, so the entry needs no `Span`
+    --- and no copy. The source is a Lua string or a borrowed string buffer,
+    --- spelled `any` for the same reason `paddedBytesU8`'s is: that union
+    --- exists only at this boundary.
+    loadString: function(borrows self: SpeciesU8, borrows source: any, offset: integer): simd.VectorU8
 
     --- Loads one lane of a three-byte interleaved group from a rooted string.
     ---

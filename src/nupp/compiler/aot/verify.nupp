@@ -1296,7 +1296,9 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
             holds(
                 argument.type == signature.operands[
                     position
-                ] or op == "simd_padded_string_u8" and position == 1 and argument.type == "lua_bytes",
+                ] or (
+                    op == "simd_padded_string_u8" and position == 1 or op == "simd_load_string_u8" and position == 2
+                ) and argument.type == "lua_bytes",
                 "invalid SIMD operand"
             )
             scalarWalk(argument, values, scope)
