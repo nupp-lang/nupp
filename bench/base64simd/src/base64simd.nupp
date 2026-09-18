@@ -1,202 +1,254 @@
 module base64simd
 
 --[[
-Base64 encoding through the SIMD vocabulary, as the vectorized half of the
-spike. Forty-eight input bytes become sixty-four output bytes per iteration.
+Base64 encoding a vector at a time, written on the general `nupp.simd`
+algebra: a byte species, `swizzle` over a pair of vectors for the byte
+shuffles, and `interleave` for the output layout. Three vectors of input become
+four of output per iteration -- forty-eight bytes to sixty-four on a
+sixteen-lane species.
 
-`simd.preferredU8` makes this compile-only, so it is its own module and its own
-target: a file reaching the explicit vocabulary cannot sit in a target built
-with `aot = "off"`, which is the same reason `bench/utf8simd` is separate from
-`bench/utf8`.
+The shape is the one the literature describes. Three vectors `a`, `b`, `c`
+hold `3 * lanes` consecutive bytes; the three bytes of every triple are
+gathered into `b0`, `b1`, `b2` by a paired swizzle whose index vector is an
+arithmetic sequence with stride three, and which reads `c` in a second swizzle
+for the triples that begin past the pair. Four six-bit indexes come out of
+shifts and masks. The alphabet is four sixteen-entry tables, again ordinary
+vectors, read by two paired swizzles whose out-of-range lanes are zero, so the
+two halves combine with an or. Two rounds of `interleave` put the four symbol
+vectors back into byte order, and four stores write them.
 
-The shape is the one the literature describes for aarch64. A three-lane strided
-load de-interleaves the byte groups, which is where the byte shuffle the x86
-codecs spend an instruction on goes; four six-bit indexes come out of shifts and
-masks; one sixty-four entry lookup maps them to the alphabet, which on aarch64
-is a single `tbl` and is the instruction AVX-512 VBMI's `vpermb` exists to give
-x86; and an interleaving store writes the quantum back.
+Every vector load and store is proved in range by the loop condition, which
+names each cursor against the span it indexes. What the vector loop does not
+cover, the byte loop below it finishes, and the last one or two bytes get their
+padding after that.
 ]]
 
+const io = require("nupp.io")
+local array = require("nupp.mem.array")
 local simd = require("nupp.simd")
-local valuebuilder = require("nupp.codec.valuebuilder")
+local span = require("nupp.mem.span")
 
 local base64simd = {}
 
 const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
 
-local function u32(value: integer): uint32
-    return nupp.math.u32.wrap(value)
+const ALPHABET_BYTES = span.fromString(ALPHABET)
+
+--- Sixteen alphabet entries, inserted into `zero`, a zero vector of the
+--- species: the swizzles below read only the first sixteen lanes of a table
+--- and the first sixteen of its pair, so a wider species carries zeros past
+--- them.
+local function table16(
+    zero: simd.Vector<uint8, simd.Preferred>,
+    e0: uint32,
+    e1: uint32,
+    e2: uint32,
+    e3: uint32,
+    e4: uint32,
+    e5: uint32,
+    e6: uint32,
+    e7: uint32,
+    e8: uint32,
+    e9: uint32,
+    e10: uint32,
+    e11: uint32,
+    e12: uint32,
+    e13: uint32,
+    e14: uint32,
+    e15: uint32
+): simd.Vector<uint8, simd.Preferred>
+    return zero:insert(1, e0)
+        :insert(2, e1)
+        :insert(3, e2)
+        :insert(4, e3)
+        :insert(5, e4)
+        :insert(6, e5)
+        :insert(7, e6)
+        :insert(8, e7)
+        :insert(9, e8)
+        :insert(10, e9)
+        :insert(11, e10)
+        :insert(12, e11)
+        :insert(13, e12)
+        :insert(14, e13)
+        :insert(15, e14)
+        :insert(16, e15)
 end
 
-local function add(a: uint32, b: uint32): uint32
-    return nupp.math.u32.add(a, b)
-end
-
---- Encodes `source` as standard base64 with padding.
---- @raises when the builder cannot allocate or publish
-@aot(vectorize = false)
-local function encodeSimdAot(source: string, nullValue: any): any
-    local length = valuebuilder.length(source)
-    -- Three input bytes are four output bytes, so the exact size is
-    -- `4 * ceil(n / 3)`, about `1.34n`. There is no division in the admitted
-    -- intrinsics, and `1.5n + 4` covers it for every `n` while allocating a
-    -- quarter less than the `2n + 4` this used to ask for. The buffer is
-    -- allocated and first touched on every call, which `bench/base64`'s
-    -- results measured as the dominant remaining cost, so the slack is not
-    -- free.
-    local bound = add(add(length, nupp.math.u32.shiftRightLogical(length, u32(1))), u32(4))
-    local builder = valuebuilder.newSized(nullValue, u32(2), bound)
-    local scratch = valuebuilder.newByteScratch(bound)
-
-    const species = simd.preferredU8()
-    const low = simd.tableU8x16(65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80)
-    const lowMid = simd.tableU8x16(81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 97, 98, 99, 100, 101, 102)
-    const highMid = simd.tableU8x16(103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118)
-    const high = simd.tableU8x16(119, 120, 121, 122, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 43, 47)
-    const twoBits = species:splat(u32(3))
-    const fourBits = species:splat(u32(15))
-    const sixBits = species:splat(u32(63))
-
-    local step: uint32 = u32(48)
-    local at: uint32 = u32(0)
-    local out: uint32 = u32(0)
-    while add(at, step) <= length do
-        const b0 = species:loadStrided3(source, at, u32(0))
-        const b1 = species:loadStrided3(source, at, u32(1))
-        const b2 = species:loadStrided3(source, at, u32(2))
-
-        const d0 = b0:shiftRight(u32(2))
-        const d1 = b0:andBits(twoBits):shiftLeft(u32(4)):orBits(b1:shiftRight(u32(4)))
-        const d2 = b1:andBits(fourBits):shiftLeft(u32(2)):orBits(b2:shiftRight(u32(6)))
-        const d3 = b2:andBits(sixBits)
-
-        simd.storeInterleaved4(
-            scratch,
-            out,
-            d0:lookup64(low, lowMid, highMid, high),
-            d1:lookup64(low, lowMid, highMid, high),
-            d2:lookup64(low, lowMid, highMid, high),
-            d3:lookup64(low, lowMid, highMid, high)
-        )
-
-        at = add(at, step)
-        out = add(out, u32(64))
-    end
-
-    -- Whatever the blocks did not cover, by the byte.
-    while add(at, u32(3)) <= length do
-        local c0 = valuebuilder.byte(source, at)
-        local c1 = valuebuilder.byte(source, add(at, u32(1)))
-        local c2 = valuebuilder.byte(source, add(at, u32(2)))
-        valuebuilder.setScratchByte(
-            scratch,
-            out,
-            valuebuilder.byte(ALPHABET, nupp.math.u32.shiftRightLogical(c0, u32(2)))
-        )
-        valuebuilder.setScratchByte(
-            scratch,
-            add(out, u32(1)),
-            valuebuilder.byte(
-                ALPHABET,
-                nupp.math.u32.orBits(
-                    nupp.math.u32.shiftLeft(nupp.math.u32.andBits(c0, u32(3)), u32(4)),
-                    nupp.math.u32.shiftRightLogical(c1, u32(4))
-                )
-            )
-        )
-        valuebuilder.setScratchByte(
-            scratch,
-            add(out, u32(2)),
-            valuebuilder.byte(
-                ALPHABET,
-                nupp.math.u32.orBits(
-                    nupp.math.u32.shiftLeft(nupp.math.u32.andBits(c1, u32(15)), u32(2)),
-                    nupp.math.u32.shiftRightLogical(c2, u32(6))
-                )
-            )
-        )
-        valuebuilder.setScratchByte(
-            scratch,
-            add(out, u32(3)),
-            valuebuilder.byte(ALPHABET, nupp.math.u32.andBits(c2, u32(63)))
-        )
-        at = add(at, u32(3))
-        out = add(out, u32(4))
-    end
-
-    local rest = nupp.math.u32.sub(length, at)
-    if rest == 1 then
-        local e0 = valuebuilder.byte(source, at)
-        valuebuilder.setScratchByte(
-            scratch,
-            out,
-            valuebuilder.byte(ALPHABET, nupp.math.u32.shiftRightLogical(e0, u32(2)))
-        )
-        valuebuilder.setScratchByte(
-            scratch,
-            add(out, u32(1)),
-            valuebuilder.byte(ALPHABET, nupp.math.u32.shiftLeft(nupp.math.u32.andBits(e0, u32(3)), u32(4)))
-        )
-        valuebuilder.setScratchByte(scratch, add(out, u32(2)), u32(61))
-        valuebuilder.setScratchByte(scratch, add(out, u32(3)), u32(61))
-        out = add(out, u32(4))
-    elseif rest == 2 then
-        local f0 = valuebuilder.byte(source, at)
-        local f1 = valuebuilder.byte(source, add(at, u32(1)))
-        valuebuilder.setScratchByte(
-            scratch,
-            out,
-            valuebuilder.byte(ALPHABET, nupp.math.u32.shiftRightLogical(f0, u32(2)))
-        )
-        valuebuilder.setScratchByte(
-            scratch,
-            add(out, u32(1)),
-            valuebuilder.byte(
-                ALPHABET,
-                nupp.math.u32.orBits(
-                    nupp.math.u32.shiftLeft(nupp.math.u32.andBits(f0, u32(3)), u32(4)),
-                    nupp.math.u32.shiftRightLogical(f1, u32(4))
-                )
-            )
-        )
-        valuebuilder.setScratchByte(
-            scratch,
-            add(out, u32(2)),
-            valuebuilder.byte(ALPHABET, nupp.math.u32.shiftLeft(nupp.math.u32.andBits(f1, u32(15)), u32(2)))
-        )
-        valuebuilder.setScratchByte(scratch, add(out, u32(3)), u32(61))
-        out = add(out, u32(4))
-    end
-
-    valuebuilder.stringScratch(builder, scratch, u32(0), out)
-
-    return valuebuilder.finish(builder)
-end
-
---- Allocates the same output buffer and writes one byte.
+--- Encodes `source` into `output`, which must hold `4 * ceil(#source / 3)`
+--- bytes, and answers how many bytes it wrote. `alphabet` is the sixty-four
+--- symbols, which the byte tail reads by index.
 ---
---- The ablation that isolates what the encoder pays before it encodes
---- anything: `newByteScratch` is sized from the input, so its cost is a
---- function of length rather than a constant per call, and the colocated C
---- control reuses one buffer where this allocates every time.
-@aot(vectorize = false)
-local function allocOnlyAot(source: string, nullValue: any): any
-    local length = valuebuilder.length(source)
-    local bound = add(nupp.math.u32.shiftLeft(length, u32(1)), u32(4))
-    local builder = valuebuilder.newSized(nullValue, u32(2), bound)
-    local scratch = valuebuilder.newByteScratch(bound)
-    valuebuilder.setScratchByte(scratch, u32(0), nupp.math.u32.andBits(length, u32(255)))
-    valuebuilder.stringScratch(builder, scratch, u32(0), u32(1))
+--- Three input cursors and four output cursors advance together, one per
+--- vector, because the loop condition proves each load and store from the
+--- cursor it names and a `+ lanes` offset is not a cursor.
+@aot
+local function encode(
+    exclusive output: span.WriteSpan<uint8>,
+    borrows source: span.Span<uint8>,
+    borrows alphabet: span.Span<uint8>
+): uint32
+    local at: uint32 = 0
+    local out: uint32 = 0
+    if species = simd.species(array.uint8) then
+        local lanes: uint32 = species.lanes
+        local zero = species:splat(0)
+        -- Sixty-four symbols as four tables. Index one is the first lane, so
+        -- a value `d` reads lane `d + 1` of the first pair and `d - 31` of
+        -- the second; out-of-range lanes are zero and an or joins the halves.
+        local t0 = table16(zero, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80)
+        local t1 = table16(zero, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 97, 98, 99, 100, 101, 102)
+        local t2 = table16(zero, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118)
+        local t3 = table16(zero, 119, 120, 121, 122, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 43, 47)
+        -- Lane `i` of `b_k` is byte `3i + k` of the group. Within the first
+        -- two vectors that is index `3i + k + 1` of the pair; past them it is
+        -- the same index less two vectors, read from the third. Each index
+        -- vector is zero, and reads zero, where the other one applies.
+        local gather0 = species:iota(1, 3)
+        local gather1 = species:iota(2, 3)
+        local gather2 = species:iota(3, 3)
+        local gather0c = gather0 - 2 * lanes
+        local gather1c = gather1 - 2 * lanes
+        local gather2c = gather2 - 2 * lanes
+        local at1: uint32 = lanes
+        local at2: uint32 = 2 * lanes
+        local out1: uint32 = lanes
+        local out2: uint32 = 2 * lanes
+        local out3: uint32 = 3 * lanes
+        while at
+            + species.lanes <= #source
+            and at1
+            + species.lanes <= #source
+            and at2
+            + species.lanes <= #source
+            and out
+            + species.lanes <= #output
+            and out1
+            + species.lanes <= #output
+            and out2
+            + species.lanes <= #output
+            and out3
+            + species.lanes <= #output do
+            local a = species:load(source, at + 1)
+            local b = species:load(source, at1 + 1)
+            local c = species:load(source, at2 + 1)
 
-    return valuebuilder.finish(builder)
+            local b0 = a:swizzle(gather0, b) | c:swizzle(gather0c)
+            local b1 = a:swizzle(gather1, b) | c:swizzle(gather1c)
+            local b2 = a:swizzle(gather2, b) | c:swizzle(gather2c)
+
+            local d0 = b0 >> 2
+            local d1 = ((b0 & 3) << 4) | (b1 >> 4)
+            local d2 = ((b1 & 15) << 2) | (b2 >> 6)
+            local d3 = b2 & 63
+
+            local e0 = t0:swizzle(d0 + 1, t1) | t2:swizzle(d0 - 31, t3)
+            local e1 = t0:swizzle(d1 + 1, t1) | t2:swizzle(d1 - 31, t3)
+            local e2 = t0:swizzle(d2 + 1, t1) | t2:swizzle(d2 - 31, t3)
+            local e3 = t0:swizzle(d3 + 1, t1) | t2:swizzle(d3 - 31, t3)
+
+            -- Symbols of one quantum are consecutive in the output: first
+            -- the even and odd symbols pair up, then the pairs do.
+            local p, q = e0:interleave(e2)
+            local r, s = e1:interleave(e3)
+            local w0, w1 = p:interleave(r)
+            local w2, w3 = q:interleave(s)
+            species:store(output, out + 1, w0)
+            species:store(output, out1 + 1, w1)
+            species:store(output, out2 + 1, w2)
+            species:store(output, out3 + 1, w3)
+
+            at = at + 3 * lanes
+            at1 = at1 + 3 * lanes
+            at2 = at2 + 3 * lanes
+            out = out + 4 * lanes
+            out1 = out1 + 4 * lanes
+            out2 = out2 + 4 * lanes
+            out3 = out3 + 4 * lanes
+        end
+    end
+
+    -- Whatever the vectors did not cover, by the triple. Each byte is read
+    -- at its own cursor under its own bound, which is the shape a span read
+    -- in a compiled body takes, and so is each symbol of the alphabet.
+    local in1: uint32 = at + 1
+    local in2: uint32 = at + 2
+    local to1: uint32 = out + 1
+    local to2: uint32 = out + 2
+    local to3: uint32 = out + 3
+    while at < #source
+        and in1 < #source
+        and in2 < #source
+        and out < #output
+        and to1 < #output
+        and to2 < #output
+        and to3 < #output do
+        local c0: uint32 = source[at + 1]
+        local c1: uint32 = source[in1 + 1]
+        local c2: uint32 = source[in2 + 1]
+        local d0 = nupp.math.u32.shiftRightLogical(c0, 2)
+        local d1 = nupp.math.u32.orBits(
+            nupp.math.u32.shiftLeft(nupp.math.u32.andBits(c0, 3), 4),
+            nupp.math.u32.shiftRightLogical(c1, 4)
+        )
+        local d2 = nupp.math.u32.orBits(
+            nupp.math.u32.shiftLeft(nupp.math.u32.andBits(c1, 15), 2),
+            nupp.math.u32.shiftRightLogical(c2, 6)
+        )
+        local d3 = nupp.math.u32.andBits(c2, 63)
+        if d0 < #alphabet and d1 < #alphabet and d2 < #alphabet and d3 < #alphabet then
+            output[out + 1] = alphabet[d0 + 1]
+            output[to1 + 1] = alphabet[d1 + 1]
+            output[to2 + 1] = alphabet[d2 + 1]
+            output[to3 + 1] = alphabet[d3 + 1]
+        end
+        at = at + 3
+        in1 = in1 + 3
+        in2 = in2 + 3
+        out = out + 4
+        to1 = to1 + 4
+        to2 = to2 + 4
+        to3 = to3 + 4
+    end
+
+    -- The last one or two bytes, padded.
+    if at < #source and out < #output and to1 < #output and to2 < #output and to3 < #output then
+        local c0: uint32 = source[at + 1]
+        local c1: uint32 = 0
+        local c2: uint32 = 0
+        local tailPadding: uint32 = 2
+        if in1 < #source then
+            c1 = source[in1 + 1]
+            tailPadding = 1
+        end
+        local d0 = nupp.math.u32.shiftRightLogical(c0, 2)
+        local d1 = nupp.math.u32.orBits(
+            nupp.math.u32.shiftLeft(nupp.math.u32.andBits(c0, 3), 4),
+            nupp.math.u32.shiftRightLogical(c1, 4)
+        )
+        local d2 = nupp.math.u32.orBits(
+            nupp.math.u32.shiftLeft(nupp.math.u32.andBits(c1, 15), 2),
+            nupp.math.u32.shiftRightLogical(c2, 6)
+        )
+        if d0 < #alphabet and d1 < #alphabet and d2 < #alphabet then
+            output[out + 1] = alphabet[d0 + 1]
+            output[to1 + 1] = alphabet[d1 + 1]
+            if tailPadding == 1 then
+                output[to2 + 1] = alphabet[d2 + 1]
+            else
+                output[to2 + 1] = 61
+            end
+            output[to3 + 1] = 61
+        end
+        out = out + 4
+    end
+
+    return out
 end
 
---- The allocation ablation, as a callable entry.
---- @param value the bytes whose length sizes the buffer
---- @return one byte
---- @export
-function base64simd.allocOnly(value: string): string
-    return allocOnlyAot(value, false) as string
+--- How many bytes `value` encodes to: four for every three, rounded up.
+local function encodedLength(value: string): integer
+    return 4 * math.floor((#value + 2) / 3)
 end
 
 --- Encodes bytes as standard base64 with padding.
@@ -204,7 +256,36 @@ end
 --- @return the encoded text
 --- @export
 function base64simd.encode(value: string): string
-    return encodeSimdAot(value, false) as string
+    local bound = encodedLength(value)
+    local buffer = io.newBuffer(bound)
+    local lease = buffer:reserveWrite(0, bound)
+    local target = lease:span()
+    local written = encode(target, span.fromString(value), ALPHABET_BYTES)
+    drop target
+    lease:commit(written)
+
+    return buffer:getString(0, written)
+end
+
+--- Allocates the same output buffer and writes one byte.
+---
+--- The ablation that isolates what the encoder pays before it encodes
+--- anything: the buffer is sized from the input, so its cost is a function of
+--- length rather than a constant per call, and the colocated C control reuses
+--- one buffer where this allocates every time.
+--- @param value the bytes whose length sizes the buffer
+--- @return one byte
+--- @export
+function base64simd.allocOnly(value: string): string
+    local bound = encodedLength(value)
+    local buffer = io.newBuffer(bound)
+    local lease = buffer:reserveWrite(0, math.max(bound, 1))
+    local target = lease:span()
+    target[1] = #value % 256
+    drop target
+    lease:commit(1)
+
+    return buffer:getString(0, 1)
 end
 
 export = base64simd

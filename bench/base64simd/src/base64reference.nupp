@@ -1,0 +1,46 @@
+module base64reference
+
+--[[
+The independent scalar reference the vector encoder is tested against.
+
+It is the obvious encoder: three bytes make a twenty-four bit number, four
+six-bit slices of it index the alphabet, and a short final group is padded
+with `=`. It shares nothing with the vector encoder -- no index vectors, no
+split tables, no interleave -- so where the two agree on a corpus they agree
+because both are base64, not because one was derived from the other.
+
+It runs as ordinary Nupp on `string.byte`, which is all it needs to be: the
+reference is the oracle, not a contender.
+]]
+
+local base64reference = {}
+
+const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+
+local function symbol(index: integer): string
+    return ALPHABET:sub(index + 1, index + 1)
+end
+
+--- Encodes bytes as standard base64 with padding.
+--- @param value the bytes to encode
+--- @return the encoded text
+--- @export
+function base64reference.encode(value: string): string
+    local out: {string} = {}
+    local at = 1
+    while at <= #value do
+        local first = value:byte(at) as integer
+        local second = at + 1 <= #value and value:byte(at + 1) as integer or 0
+        local third = at + 2 <= #value and value:byte(at + 2) as integer or 0
+        local group = first * 65536 + second * 256 + third
+        out[#out + 1] = symbol(math.floor(group / 262144) % 64)
+        out[#out + 1] = symbol(math.floor(group / 4096) % 64)
+        out[#out + 1] = at + 1 <= #value and symbol(math.floor(group / 64) % 64) or "="
+        out[#out + 1] = at + 2 <= #value and symbol(group % 64) or "="
+        at = at + 3
+    end
+
+    return table.concat(out)
+end
+
+export = base64reference

@@ -37,11 +37,15 @@ already used it. A word-wide store, a fixed `const`-string defect, and
 reusing the output buffer instead of allocating it per call took most of the
 rest. Only the last factor, about 5.7x, was ever about instructions.
 
-The vectorized kernel exists now, in [`../base64simd`](../base64simd), and the
-operations it needed landed with it: the vocabulary had no store of any kind
-before this spike. What it is worth against hand-written C, and what remains,
-is in [the results](results/arm64-macos-encode.md) -- read that rather than
-this paragraph, because the comparison moved several times and the document
+The vectorized kernel exists now, in [`../base64simd`](../base64simd). It was
+first written on a byte-specific vocabulary -- strided loads, a sixty-four
+entry table, an interleaving store -- that landed with it; it is now written
+on the general `nupp.simd` algebra instead, with `swizzle` over a pair of
+vectors and `interleave` doing that work, and it is held to an independent
+scalar reference by `../base64simd/run.sh`. What it is worth against
+hand-written C, and what the move to the general algebra cost, is in [the
+results](results/arm64-macos-encode.md) -- read that rather than this
+paragraph, because the comparison moved several times and the document
 records which readings survived.
 
 ## Two defects found while writing it

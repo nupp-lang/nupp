@@ -362,3 +362,58 @@ That is the whole remaining distance to the C control, and it closes it: the
 entry and the control now measure the same at both sizes. The lesson is that
 an ablation prices the work a guard does, and misses the work a guard makes
 the register allocator do.
+
+## Moving to the general algebra
+
+The kernel above was written on a byte-specific vocabulary: a three-lane
+strided load, a sixty-four entry `TableU8x64` lookup, an interleaving store,
+and a `valuebuilder` byte scratch it published from. It is now written on the
+general `nupp.simd` algebra, and the byte vocabulary is no longer what it
+measures. The de-interleave is a paired `swizzle` with a stride-three index
+vector and a second swizzle into the third vector; the alphabet is four
+sixteen-lane vectors read by two paired swizzles whose out-of-range lanes are
+zero, joined by `|`; the output order is two rounds of `interleave` and four
+proven stores into a `span.WriteSpan<uint8>` leased from an `io.Buffer`. The
+entry is plain `@aot`, and `../base64simd/run.sh` holds it to an independent
+per-triple scalar reference on 80,744 inputs.
+
+Same machine, same harness, both encoders built by the same compiler and run
+back to back (aarch64-apple-darwin, NEON, `optimize = 1`, random bytes, ns per
+byte, results consumed):
+
+| bytes | byte vocabulary | general algebra | ratio |
+| --- | --- | --- | --- |
+| 64 | 6.695 | 18.970 | 2.8x |
+| 1,024 | 0.445 | 1.355 | 3.0x |
+| 65,536 | 0.073 | 0.142 | 1.9x |
+| 1,048,576 | 0.066 | 0.159 | 2.4x |
+
+The scalar columns did not move between the two runs (`const` 0.337 against
+0.354 at 64 KiB), so the gap is the encoder's. It has two parts, and the
+smaller one is the algebra.
+
+**The loop is about twice the work.** Disassembled, the general form is
+fourteen `tbl.16b` per forty-eight bytes where the byte form had four: six
+for the gather that `ld3` did in one instruction, and eight two-register
+table lookups where the four-register `tbl` did each six-bit index in one.
+Six `zip` and four stores replace one `st4`. And the loop condition names
+seven cursors, because the proof that admits an unchecked load or store
+wants each vector's own cursor compared against its span, so a `+ lanes`
+offset cannot be proved and each vector carries a counter of its own. That
+is 6.5 against 3.3 nanoseconds per iteration, and it is the whole of the gap
+at 64 KiB.
+
+**The wrapper is a microsecond.** The byte form published from a one-slot
+scratch that the emitter proved could be reused; the general form leases a
+`WriteSpan` from an `io.Buffer`, calls the entry, drops the span, commits and
+reads the string back. Measured on the allocation-only ablation that is 1.23
+microseconds per call against 0.42, and the encode of 64 bytes is 1.5
+against 0.47. Most of it is the affine-scope machinery -- the closures and
+cleanup tables a `drop` costs at run time -- rather than the buffer, and it
+is why the 64-byte row is the worst one: at that size the wrapper is the
+encoder.
+
+Neither is a reason to keep the byte vocabulary. The loop is a `swizzle`
+over four vectors and a proof that accepts `cursor + k * lanes`, both
+general; the wrapper is the runtime cost of a scope, which every span-taking
+entry pays.
