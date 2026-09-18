@@ -1158,6 +1158,19 @@ A call is left alone unless all of this holds:
 - The call is in expression position. A call standing alone is a statement, and
   a parenthesized expression is not one.
 
+An eligible call also has to fit the inliner's internal growth limits. The pass
+estimates the replacement before copying it, limits expansion at each call and
+across its enclosing function, and bounds repeated argument computation. Tiny
+arithmetic arguments may still be duplicated; compound expressions keep their
+call. Names and literals are cheap to repeat, as is an expression constant
+folding already reduced to a literal.
+These limits introduce no temporary locals and place no fixed limit on helper
+chain depth. Grouping and erased casts do not consume the growth allowance.
+
+`--remarks` reports when duplication or growth keeps an otherwise eligible call.
+The retained call remains available for LuaJIT or the native compiler to inline.
+The thresholds are internal compiler constants, shared by `-O1` and `-O2`.
+
 ### `OPT-8`, const monomorphization
 
 A runtime function with scalar `const` binders may receive a private body for a

@@ -1447,17 +1447,215 @@ function M.keepsACallPassingALiteralToAReceiver()
 end
 
 function M.inlinesAPureComputedArgument()
-    -- An operator tree over names and literals has no observable evaluation. It
-    -- can be duplicated when the parameter is read twice without duplicating an
-    -- effect, which is the common arithmetic-helper shape this pass exists for.
+    local code = compile(
+        "local function twice(v: number): number return v * 2.0 end\n"
+        .. "local function m(x: number): number return twice(x * 3.0) end\nreturn m"
+    )
+    assertTrue(
+        code:find("return twice (", 1, true) == nil and code:find("x * 3", 1, true) ~= nil,
+        "a computed argument used once was spliced: " .. code
+    )
+    assertEq(assert(loadstring(code))()(7), 42)
+end
+
+local function inlineRemarks(remarks, message)
+    local count = 0
+    for _, entry in ipairs(remarks) do
+        if entry.code == "OPT-7" and entry.msg:find(message, 1, true) then
+            count = count + 1
+        end
+    end
+
+    return count
+end
+
+function M.keepsACallThatWouldDuplicateComputation()
+    local code, remarks = compile(
+        "local function twice(v: number): number return v + v end\n"
+        .. "local function m(x: number): number return twice(x * 3.0 + 1) end\nreturn m"
+    )
+    assertTrue(code:find("return twice (", 1, true) ~= nil, code)
+    assertEq(inlineRemarks(remarks, "duplicates argument computation"), 1)
+    assertEq(assert(loadstring(code))()(7), 44)
+end
+
+function M.inlinesOneRepeatedPrimitiveButBoundsFurtherDuplication()
     local code = compile(
         "local function twice(v: number): number return v + v end\n"
         .. "local function m(x: number): number return twice(x * 3.0) end\nreturn m"
     )
-    assertTrue(
-        code:find("return twice (", 1, true) == nil and code:find("x * 3 + x * 3", 1, true) ~= nil,
-        "a pure computed argument was spliced: " .. code
+    assertTrue(code:find("return twice (", 1, true) == nil, code)
+    assertEq(assert(loadstring(code))()(7), 42)
+    local triple, remarks = compile(
+        "local function triple(v: number): number return v + v + v end\n"
+        .. "local function m(x: number): number return triple(x * 3.0) end\nreturn m"
     )
+    assertEq(inlineRemarks(remarks, "duplicates argument computation"), 1)
+    assertEq(assert(loadstring(triple))()(7), 63)
+end
+
+function M.totalsDuplicatedWorkAcrossArguments()
+    local code, remarks = compile(
+        "local function mix(a: number, b: number): number return a + a + b + b end\n"
+        .. "local function m(x: number): number return mix(x * 3.0, x * 4.0) end\nreturn m"
+    )
+    assertEq(inlineRemarks(remarks, "duplicates argument computation"), 1)
+    assertEq(assert(loadstring(code))()(7), 98)
+end
+
+function M.inlinesAFoldedComputedArgumentUsedTwice()
+    local code, remarks = compile(
+        "local function twice(v: number): number return v + v end\n"
+        .. "local function m(): number return twice(2 * 3) end\nreturn m"
+    )
+    assertTrue(code:find("return 12", 1, true) ~= nil, code)
+    assertEq(inlineRemarks(remarks, "duplicates argument computation"), 0)
+    assertEq(assert(loadstring(code))()(), 12)
+end
+
+function M.boundsNestedArgumentExpansionWithoutAddingLocals()
+    local expression = "x"
+    for _ = 1, 12 do
+        expression = "twice(" .. expression .. ")"
+    end
+    local source = "local function twice(v: number): number return v + v end\n"
+        .. "local function m(x: number): number return "
+        .. expression
+        .. " end\nreturn m"
+    local code, remarks = compile(source)
+    local plain = compile(source, 0)
+    local _, additions = code:gsub("%+", "")
+    local _, locals = code:gsub("%f[%a]local%f[%A]", "")
+    local _, plainLocals = plain:gsub("%f[%a]local%f[%A]", "")
+    assertEq(additions, 4, "the helper and two innermost calls have bounded addition")
+    assertEq(locals, plainLocals, "no temporary locals were introduced")
+    assertTrue(inlineRemarks(remarks, "duplicates argument computation") > 0)
+    local optimized, baseline = assert(loadstring(code))(), assert(loadstring(plain))()
+    for _, input in ipairs({-3.5, 0, 1, 17.25}) do
+        assertEq(optimized(input), baseline(input), "nested helpers retain their result")
+    end
+end
+
+function M.inlinesDeepForwardingChains()
+    local lines = {"local function h0(x: number): number return x + 1 end"}
+    for index = 1, 63 do
+        lines[#lines + 1] = ("local function h%d(x: number): number return h%d(x) end"):format(index, index - 1)
+    end
+    lines[#lines + 1] = "local function m(x: number): number return h63(x) end"
+    lines[#lines + 1] = "return m"
+    local code, remarks = compile(table.concat(lines, "\n"))
+    assertTrue(code:find("return h63 (", 1, true) == nil, "the deepest call disappeared")
+    assertEq(inlineRemarks(remarks, "inlines h"), 64)
+    assertEq(assert(loadstring(code))()(7), 8)
+end
+
+function M.measuresHelpersAfterTheirBodiesWereInlined()
+    local code, remarks = compile(
+        "local function twice(v: number): number return v + v end\n"
+        .. "local function forwarded(v: number): number return twice(v) end\n"
+        .. "local function m(x: number): number return forwarded(x * 3.0 + 1) end\nreturn m"
+    )
+    assertTrue(code:find("return forwarded (", 1, true) ~= nil, code)
+    assertEq(inlineRemarks(remarks, "keeps forwarded: duplicates argument computation"), 1)
+    assertEq(assert(loadstring(code))()(7), 44)
+end
+
+function M.countsParameterUsesInNamedConstructorArguments()
+    local code, remarks = compile(
+        "record Pair first: number second: number end\n"
+        .. "local function pair(value: number): Pair return new Pair(first = value, second = value) end\n"
+        .. "local function m(x: number): Pair return pair(x * 3.0 + 1) end\nreturn m"
+    )
+    assertTrue(code:find("return pair (", 1, true) ~= nil, code)
+    assertEq(inlineRemarks(remarks, "duplicates argument computation"), 1)
+    local answer = assert(loadstring(code))()(7)
+    assertEq(answer.first, 22)
+    assertEq(answer.second, 22)
+end
+
+function M.doesNotCountFieldNamesAsParameterUses()
+    local code, remarks = compile(
+        "local function box(v: number): any return {v = 1, payload = v} end\n"
+        .. "local function m(x: number): any return box(x * 3.0 + 1) end\nreturn m"
+    )
+    assertTrue(code:find("return box (", 1, true) == nil, code)
+    assertEq(inlineRemarks(remarks, "duplicates argument computation"), 0)
+    assertEq(assert(loadstring(code))()(7).payload, 22)
+end
+
+local function sumHelper(terms)
+    local parts = {}
+    for _ = 1, terms do
+        parts[#parts + 1] = "v"
+    end
+
+    return "local function sum(v: number): number return " .. table.concat(parts, " + ") .. " end\n"
+end
+
+function M.boundsGrowthAtEachCall()
+    for _, terms in ipairs({34, 35}) do
+        local source = sumHelper(terms) .. "local function m(x: number): number return sum(x) end\nreturn m"
+        local code, remarks = compile(source)
+        local refused = inlineRemarks(remarks, "call growth would exceed 64 nodes")
+        assertEq(refused, terms == 35 and 1 or 0, "growth of 63 fits and growth of 65 does not")
+        assertEq(assert(loadstring(code))()(2), terms * 2)
+    end
+end
+
+function M.boundsCumulativeGrowthPerCallerAcrossBlocks()
+    local lines = {sumHelper(8), "local m = {}", "function m.first(x: number): number", "local total = 0"}
+    for _ = 1, 50 do
+        lines[#lines + 1] = "do total = total + sum(x) end"
+    end
+    lines[#lines + 1] = "return total end"
+    lines[#lines + 1] = "function m.second(x: number): number return sum(x) end"
+    lines[#lines + 1] = "return m"
+    local code, remarks = compile(table.concat(lines, "\n"))
+    assertTrue(inlineRemarks(remarks, "caller growth would exceed 512 nodes") > 0)
+    assertEq(inlineRemarks(remarks, "inlines sum"), 47, "46 calls fit in the first function; the second starts fresh")
+    local result = assert(loadstring(code))()
+    assertEq(result.first(2), 800)
+    assertEq(result.second(2), 16)
+end
+
+function M.boundsTopLevelGrowthAndRestoresEnclosingFunctionBudgets()
+    local lines = {sumHelper(8), "local total = 0", "local x = ..."}
+    for _ = 1, 50 do
+        lines[#lines + 1] = "do total = total + sum(x) end"
+    end
+    lines[#lines + 1] = "local function outer(x: number): (number, function(number): number) local value = 0"
+    for _ = 1, 46 do
+        lines[#lines + 1] = "value = value + sum(x)"
+    end
+    lines[#lines + 1] = "local function inner(y: number): number return sum(y) end"
+    lines[#lines + 1] = "return value + sum(x), inner end"
+    lines[#lines + 1] = "return total, outer"
+    local code, remarks = compile(table.concat(lines, "\n"))
+    assertEq(
+        inlineRemarks(remarks, "inlines sum"),
+        93,
+        "the module, outer function, and inner function have separate budgets"
+    )
+    assertTrue(inlineRemarks(remarks, "caller growth would exceed 512 nodes") > 0)
+    local total, outer = assert(loadstring(code))(2)
+    assertEq(total, 800)
+    local answer, inner = outer(2)
+    assertEq(answer, 752)
+    assertEq(inner(2), 16)
+end
+
+function M.givesShortFunctionsTheirOwnGrowthBudget()
+    local lines = {sumHelper(8), "local total = 0", "local x = ..."}
+    for _ = 1, 50 do
+        lines[#lines + 1] = "total = total + sum(x)"
+    end
+    lines[#lines + 1] = "local inner = |y: number| -> sum(y)"
+    lines[#lines + 1] = "return total, inner"
+    local code, remarks = compile(table.concat(lines, "\n"))
+    assertEq(inlineRemarks(remarks, "inlines sum"), 47)
+    local total, inner = assert(loadstring(code))(2)
+    assertEq(total, 800)
+    assertEq(inner(2), 16)
 end
 
 function M.keepsACallWhoseComputedArgumentHasAnEffect()

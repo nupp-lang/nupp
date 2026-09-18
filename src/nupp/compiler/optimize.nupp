@@ -2251,6 +2251,16 @@ end
 -- OPT-7 inline-return-helper
 ----------------------------------------------------------------------------
 
+-- Internal policy, in expression nodes rather than estimated CPU cycles. Grouping
+-- and erased casts cost nothing. Charge only positive growth, so a shrinking call
+-- cannot buy unlimited expansion elsewhere. Each function and the module chunk
+-- have their own cumulative allowance. No rewrite introduces temporary locals.
+local INLINE_MAX_CALL_GROWTH = 64
+local INLINE_MAX_CALLER_GROWTH = 512
+-- One repeated primitive keeps tiny arithmetic adapters cheap in the interpreter;
+-- a compound argument or repeated duplication still keeps its call.
+local INLINE_MAX_DUPLICATED_OPS = 1
+
 -- OPT-7: a module's own single-return local helpers, inlined where they are called.
 --
 -- `@aot` already inlines exactly these into a compiled body, so before this the two
@@ -2441,6 +2451,107 @@ local function callParens(args)
     return open, close
 end
 
+-- Work an already-admitted argument would repeat if substituted more than once.
+-- Constant folding has already run when enabled; a folded argument emits a literal.
+local function inlineArgumentWork(node)
+    if not node or isToken(node) or node.folded then
+        return 0
+    end
+    if node.kind == "paren" or node.kind == "castExpr" then
+        return inlineArgumentWork(node.expr)
+    elseif node.kind == "unop" then
+        return 1 + inlineArgumentWork(node.operand)
+    elseif node.kind == "binop" then
+        return 1 + inlineArgumentWork(node.lhs) + inlineArgumentWork(node.rhs)
+    end
+
+    return 0
+end
+
+-- Count the prospective expression without constructing it. Follow the semantic
+-- argument list: named arguments and record fields can live outside the ordered
+-- children after checking. Never count those aliases twice, or field-name tokens
+-- as parameter reads. Other productions retain their ordered syntax children.
+--
+-- The helper is measured afresh at each call: earlier calls in its own body may
+-- have been rewritten by this same walk. Stop as soon as either limit is exceeded.
+local function measureInline(node, measured)
+    if not node or isToken(
+        node
+    ) or measured.size > measured.limit or measured.duplicated > INLINE_MAX_DUPLICATED_OPS then
+        return
+    end
+    local kind = node.kind
+    if kind == "paren" or kind == "castExpr" then
+        measureInline(node.expr, measured)
+        return
+    end
+    local argument = kind == "name" and node.token and measured.arguments[node.token.text] or nil
+    if argument then
+        local uses = measured.uses[node.token.text] or 0
+        measured.uses[node.token.text] = uses + 1
+        measured.size = measured.size + argument.size
+        if uses > 0 then
+            measured.duplicated = measured.duplicated + argument.work
+        end
+        return
+    end
+    measured.size = measured.size + 1
+    if kind == "args" and node.exprs then
+        for _, child in ipairs(node.exprs) do
+            measureInline(child, measured)
+        end
+    elseif kind == "newExpr" then
+        measureInline(node.call, measured)
+    elseif kind == "call" or kind == "methodCall" then
+        measureInline(node.obj, measured)
+        measureInline(node.args, measured)
+    elseif kind == "namedArg" or kind == "fieldNamed" or kind == "fieldItem" then
+        measureInline(node.value, measured)
+    elseif kind == "fieldBracket" then
+        measureInline(node.key, measured)
+        measureInline(node.value, measured)
+    else
+        for _, child in ipairs(node) do
+            measureInline(child, measured)
+        end
+    end
+end
+
+local function inlineMeasure(node, arguments, limit)
+    local measured = {size = 0, duplicated = 0, uses = {}, arguments = arguments or {}, limit = limit}
+    measureInline(node, measured)
+    return measured
+end
+
+-- Safety has already been established by helperFor. This decision is only about
+-- growth; retaining a call leaves it available to the downstream compiler.
+local function inlineDecision(node, helper, subs, callerGrowth)
+    local arguments = {}
+    for _, param in ipairs(helper.params) do
+        local argument = subs[param]
+        arguments[param] = {size = inlineMeasure(argument, nil, math.huge).size, work = inlineArgumentWork(argument),}
+    end
+    local before = inlineMeasure(node, nil, math.huge).size
+    local remaining = INLINE_MAX_CALLER_GROWTH - callerGrowth
+    local allowance = math.min(INLINE_MAX_CALL_GROWTH, remaining)
+    local measured = inlineMeasure(helper.expr, arguments, before + allowance)
+    if measured.duplicated > INLINE_MAX_DUPLICATED_OPS then
+        return nil, ("duplicates argument computation; allowance %d operations"):format(INLINE_MAX_DUPLICATED_OPS)
+    end
+    local growth = math.max(0, measured.size - before)
+    if growth > allowance then
+        if remaining < INLINE_MAX_CALL_GROWTH then
+            return nil, (
+                "caller growth would exceed %d nodes (%d already used)"
+            ):format(INLINE_MAX_CALLER_GROWTH, callerGrowth)
+        end
+        return nil, ("call growth would exceed %d nodes"):format(INLINE_MAX_CALL_GROWTH)
+    end
+
+    return growth
+end
+
 -- The helpers a chunk declares that this pass may inline, by name.
 local function inlinableHelpers(root)
     local found = {}
@@ -2554,6 +2665,7 @@ local function inlineReturnHelperWalk(result, remarks)
 
     local changed = false
     local shadowed = {}
+    local callerGrowth = 0
     -- A call in statement position is a statement, and a parenthesized expression is
     -- not one. `f(x)` alone on a line has nowhere to become `(body)`, so it stays a
     -- call however inlinable the helper is.
@@ -2664,13 +2776,21 @@ local function inlineReturnHelperWalk(result, remarks)
                 walkNode(child)
             end
             local helper, subs, name = helperFor(node)
-            if helper and inlineInto(node, helper, subs) then
-                changed = true
-                remark(remarks, node, "OPT-7", ("inline-return-helper: inlines %s"):format(name))
+            if helper then
+                local growth, reason = inlineDecision(node, helper, subs, callerGrowth)
+                if growth == nil then
+                    remark(remarks, node, "OPT-7", ("inline-return-helper: keeps %s: %s"):format(name, reason))
+                elseif inlineInto(node, helper, subs) then
+                    callerGrowth = callerGrowth + growth
+                    changed = true
+                    remark(remarks, node, "OPT-7", ("inline-return-helper: inlines %s"):format(name))
+                end
             end
 
             return
-        elseif kind == "funcbody" then
+        elseif kind == "funcbody" or kind == "shortfn" then
+            local enclosingGrowth = callerGrowth
+            callerGrowth = 0
             local names = {}
             for _, param in ipairs(node.params or {}) do
                 local text = param.name and param.name.text or nil
@@ -2683,6 +2803,7 @@ local function inlineReturnHelperWalk(result, remarks)
             for _, text in ipairs(names) do
                 unshadow(text)
             end
+            callerGrowth = enclosingGrowth
 
             return
         elseif kind == "block" then
