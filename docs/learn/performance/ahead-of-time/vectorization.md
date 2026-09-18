@@ -489,6 +489,47 @@ widths. Both preserve logical lane count; width-changing conversion uses
 `Fixed<N>`. See [numeric conversion contracts](numeric-semantics.md#explicit-simd-conversions)
 for narrowing, double rounding, exceptional inputs, and target costs.
 
+### Masks, fields, lane-wise calls and masked reductions
+
+`species:mask(true)` and `species:mask(false)` are the all-lanes and no-lanes
+masks, and `other:mask(m)` carries a mask to another species of the same lane
+count, so a comparison over doubles can select or store `int32` lanes.
+
+A span of structs is loaded one field at a time: `species:load(points,
+cursor + 1, "x")` reads the `x` of each of the next lanes, and
+`species:store(out, cursor + 1, "x", xs)` writes them back, strided by the
+struct. Both take the trailing mask a scalar span load does, and both drop
+their checks under the same `cursor + species.lanes <= #span` guard.
+
+`species:map(f, v, ...)` applies a scalar function lane by lane: a `math`
+function such as `math.sqrt`, or a pure helper the kernel can call, over
+locals of the species. A `float` species calls the helper in binary64 and
+narrows the result.
+
+A reducer takes a masked vector contribution inside a `do ... end` block,
+which is its region: `fold:add(v, active)` contributes the active lanes in
+lane order, once per iteration, and masked-off lanes contribute nothing, so
+the vector loop and its masked tail answer bit for bit what the scalar loop
+and the ordinary Lua reducer answer. `fold:value()` is read outside the block.
+
+```nupp
+@aot
+local function total(borrows input: span.Span<number>, seed: number): number
+    local s = assert(simd.species(array.number, 4))
+    local fold = simd.reducer.orderedSum(seed)
+    do
+        local cursor: uint32 = 0
+        while cursor + s.lanes <= #input do
+            fold:add(s:load(input, cursor + 1), s:mask(true))
+            cursor = cursor + s.lanes
+        end
+        local rest = s:tail(#input - cursor)
+        fold:add(s:load(input, cursor + 1, rest), rest)
+    end
+    return fold:value()
+end
+```
+
 ### Indexed memory and conflicts
 
 Generic `simd.Species<T, S>` provides `gather`, `scatter`, and

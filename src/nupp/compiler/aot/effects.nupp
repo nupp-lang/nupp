@@ -92,6 +92,7 @@ local PURE_OPS: {
     bnot = true,
     reducer_init = true,
     reducer_add = true,
+    simd_reducer_add = true,
     reducer_value = true,
     math = true,
     f32_add = true,
@@ -168,6 +169,10 @@ local PURE_OPS: {
     simd_expand = true,
     simd_prefix = true,
     simd_horizontal = true,
+    simd_mask_splat = true,
+    simd_mask_convert = true,
+    simd_call = true,
+    simd_math = true,
     simd_species_u8 = true,
     simd_lanes = true,
     simd_splat_u8 = true,
@@ -222,7 +227,15 @@ local PURE_OPS: {
 
 local NATIVE_READ_OPS: {
     [string]: boolean
-} = {load = true, element_ref = true, field_load = true, shared_load = true, simd_load_u8 = true, simd_load = true,}
+} = {
+    load = true,
+    element_ref = true,
+    field_load = true,
+    shared_load = true,
+    simd_load_u8 = true,
+    simd_load = true,
+    simd_field_load = true,
+}
 
 local LUA_READ_OPS: {
     [string]: boolean
@@ -300,13 +313,21 @@ local LUA_MUTATE_OPS: {
 
 local NATIVE_WRITE_OPS: {
     [string]: boolean
-} = {store = true, assign = true, shared_store = true, reducer_add = true, simd_store = true,}
+} = {
+    store = true,
+    assign = true,
+    shared_store = true,
+    reducer_add = true,
+    simd_reducer_add = true,
+    simd_store = true,
+    simd_field_store = true,
+}
 
 --- Expression-shaped operations whose only valid use is as an effectful call
 --- statement. They belong to both vocabularies because `scalarIR.Simd` is an
 --- expression variant while the structured body executes the store as a
 --- statement.
-local NATIVE_WRITE_EXPRESSION_OPS: {[string]: boolean} = {simd_store = true,}
+local NATIVE_WRITE_EXPRESSION_OPS: {[string]: boolean} = {simd_store = true, simd_field_store = true,}
 
 local STATEMENT_LUA_MUTATE_OPS: {
     [string]: boolean
@@ -351,6 +372,7 @@ local CONTROL_OPS: {
     ["continue"] = true,
     ["return"] = true,
     phase = true,
+    simd_region = true,
 }
 
 --- Classifies one expression opcode. Unknown means compiler bug, never pure.

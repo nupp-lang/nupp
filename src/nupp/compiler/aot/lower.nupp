@@ -822,6 +822,14 @@ record lower.ReducerState
     source: scalarIR.Source
 end
 
+--- One `do` block that masked reducer contributions may turn into an
+--- explicit SIMD region: its identity, and the reducers contributed so far.
+record lower.SimdDo
+    region: integer
+    reducers: {scalarIR.SimdRegionReducer}
+    byName: {[string]: boolean}
+end
+
 --- What lowering one kernel's body needs to know.
 record lower.ExpressionFrame
     output: {scalarIR.Statement}
@@ -891,6 +899,10 @@ record lower.Kernel
     simdRegion: integer?
 
     nextSimdRegion: integer
+
+    --- The innermost `do` block being lowered, which becomes an explicit
+    --- SIMD region when a masked reducer contribution lands inside it.
+    simdDo: lower.SimdDo?
 
     --- Reducer lifecycle state, keyed by the compiler-owned local identity.
     reducers: {[string]: lower.ReducerState}
@@ -2889,6 +2901,256 @@ local function call(
     )
 end
 
+--- The packed element identity of one struct field, as `genericSimdSpanElement`
+--- gives it for a span: narrow storage keeps its physical width.
+local function genericSimdFieldElement(field: scalarIR.Field): string
+    local physical: {
+        [string]: string
+    } = {
+        int8 = "i8",
+        uint8 = "u8",
+        int16 = "i16",
+        uint16 = "u16",
+        float = "f32",
+        int32 = "i32",
+        uint32 = "u32",
+        int64 = "i64",
+        uint64 = "u64",
+        number = "f64",
+    }
+
+    return physical[field.sourceType or ""] or field.type
+end
+
+--- A masked reducer contribution: `fold:add(v, m)` inside a `do` block,
+--- which becomes the region accumulating the reducer. Every active lane of
+--- `v` contributes in ascending lane order.
+local function maskedContribution(
+    node: cst.MethodCall,
+    receiver: scalarIR.Expr,
+    reducerState: lower.ReducerState,
+    reducerOrder: string,
+    reducerOperation: string,
+    reducerElement: string?,
+    raw: {cst.Node},
+    environment: {[string]: any},
+    activeIndex: string?,
+    kernel: lower.Kernel
+): scalarIR.Expr
+    local context = kernel.context
+    local source = lower.site(node)
+    local scope = kernel.simdDo
+    if scope == nil or kernel.simdSource == true then
+        context.reject(source, "a masked reducer contribution belongs inside a do block, which is its region")
+    end
+    local region = (scope as lower.SimdDo).region
+    if reducerState.finalized then
+        context.reject(source, "a finalized reducer cannot receive another contribution")
+    end
+    if reducerState.region ~= nil and reducerState.region ~= region then
+        context.reject(source, "a reducer is scoped to exactly one region")
+    end
+    local value = lower.expression(raw[1], environment, activeIndex, kernel)
+    local family, element, shape = genericSimdParts(value.type)
+    local scalar = reducerElement or "f64"
+    if family ~= "vector" or genericSimdScalar(element) ~= scalar then
+        context.reject(source, "a masked reducer contribution takes a vector whose element the reducer accumulates")
+    end
+    local maskType = "simd_mask_" .. tostring(element) .. "_" .. tostring(shape)
+    local right: scalarIR.Expr? = nil
+    if reducerOperation == "dot" then
+        right = lower.expression(raw[2], environment, activeIndex, kernel)
+        if (right as scalarIR.Expr).type ~= value.type then
+            context.reject(source, "a masked dot contribution takes two vectors of one species")
+        end
+    end
+    local mask = lower.expression(raw[#raw], environment, activeIndex, kernel)
+    if mask.type ~= maskType then
+        context.reject(source, "a masked reducer contribution takes the mask of its vector's species")
+    end
+    reducerState.region = region
+    local byName = (scope as lower.SimdDo).byName
+    if byName[reducerState.name] ~= true then
+        byName[reducerState.name] = true
+        local reducers = (scope as lower.SimdDo).reducers
+        reducers[
+            #reducers + 1
+        ] = new scalarIR.SimdRegionReducer(
+            name = reducerState.name,
+            cName = reducerState.cName,
+            order = reducerOrder as any,
+            operation = reducerOperation as any,
+            element = reducerElement,
+            vectorType = value.type
+        )
+    end
+
+    return new scalarIR.SimdReducerAdd(
+        op = "simd_reducer_add",
+        reducer = receiver,
+        value = value,
+        mask = mask,
+        right = right,
+        order = reducerOrder as any,
+        operation = reducerOperation as any,
+        element = reducerElement,
+        type = "lua_effect",
+        source = source
+    )
+end
+
+--- `s:map(f, v...)`: one scalar call per lane over vector locals, either a
+--- closed-set math operation or a pure helper of the element's scalar type.
+local function laneWiseMap(
+    node: cst.MethodCall,
+    raw: {cst.Node},
+    vectorType: string,
+    element: scalarIR.Type,
+    environment: {[string]: any},
+    activeIndex: string?,
+    kernel: lower.Kernel
+): scalarIR.Expr
+    local context = kernel.context
+    local source = lower.site(node)
+    local scalar = genericSimdScalar(element)
+    local args: {scalarIR.Expr} = {}
+    for position = 2, #raw do
+        local operand = lower.expression(raw[position], environment, activeIndex, kernel)
+        if operand.op ~= "local" or operand.type ~= vectorType then
+            context.reject(source, "SIMD map operands must be locals of the species")
+        end
+        args[#args + 1] = operand
+    end
+    local path = lower.dottedName(raw[1])
+    local intrinsic = path ~= nil and admit.math(path as string) or nil
+    if intrinsic ~= nil then
+        local math = intrinsic as admit.Math
+        if element ~= "f32" and element ~= "f64" then
+            context.reject(source, "SIMD map applies a math operation to a floating species")
+        end
+        if #args < math.min or math.max ~= nil and #args > (math.max as integer) then
+            context.reject(source, tostring(path) .. " has an unsupported argument count")
+        end
+        return new scalarIR.Simd(
+            op = "simd_math",
+            args = args,
+            intrinsic = math.name,
+            type = vectorType,
+            source = source
+        )
+    end
+    local helperName = lower.nameOf(raw[1])
+    if helperName == nil then
+        context.reject(source, "SIMD map applies a math operation or a visible pure helper")
+    end
+    local helper = lower.helper(helperName as string, node, kernel)
+    -- A helper takes and returns ordinary Nupp values, so a float species
+    -- calls one over binary64 and narrows what comes back.
+    local carrier = scalar == "f32" and "f64" or scalar
+    if #helper.params ~= #args or #helper.resultTypes ~= 1 or helper.resultType ~= carrier then
+        context.reject(source, "SIMD map needs a helper over the species' scalar taking one argument per vector")
+    end
+    for _, param in ipairs(helper.params) do
+        if param.type ~= carrier then
+            context.reject(source, "SIMD map needs a helper over the species' scalar taking one argument per vector")
+        end
+    end
+
+    return new scalarIR.Simd(
+        op = "simd_call",
+        args = args,
+        intrinsic = "map",
+        helper = helper.name,
+        type = vectorType,
+        source = source
+    )
+end
+
+--- `s:load(span, i, "field"[, m])` and `s:store(span, i, "field", v[, m])`:
+--- one field of every struct in a run of the span, strided by the struct.
+local function fieldAccess(
+    node: cst.MethodCall,
+    receiver: scalarIR.Expr,
+    reading: boolean,
+    spanName: string?,
+    span: scalarIR.Param?,
+    raw: {cst.Node},
+    vectorType: string,
+    maskType: string,
+    element: scalarIR.Type,
+    environment: {[string]: any},
+    activeIndex: string?,
+    kernel: lower.Kernel
+): scalarIR.Expr
+    local context = kernel.context
+    local source = lower.site(node)
+    local method = reading and "load" or "store"
+    local wantedKind = reading and "read_span" or "write_span"
+    local layoutName = span ~= nil and span.type:match("^struct:(.+)$") or nil
+    local layout = layoutName ~= nil and kernel.layouts.byName[layoutName as string] or nil
+    if span == nil or span.kind ~= wantedKind or layout == nil then
+        context.reject(
+            source,
+            "SIMD field " .. method .. " needs a matching " .. (
+                reading and "borrowed Span" or "exclusive WriteSpan"
+            ) .. " of a reified struct"
+        )
+    end
+    local expected = reading and (#raw == 3 or #raw == 4) or not reading and (#raw == 4 or #raw == 5)
+    if not expected then
+        context.reject(source, "SIMD field " .. method .. " has an unsupported argument count")
+    end
+    local token = (raw[3] as cst.StringLit).token
+    local written = token ~= nil and (token as lexer.Token).text or ""
+    local fieldName = written:match('^"(.*)"$') or written:match("^'(.*)'$") or ""
+    local field: scalarIR.Field? = nil
+    for _, candidate in ipairs((layout as scalarIR.Layout).fields) do
+        if candidate.name == fieldName then
+            field = candidate
+        end
+    end
+    if field == nil then
+        context.reject(source, "struct " .. tostring(layoutName) .. " has no field " .. fieldName)
+    end
+    if genericSimdFieldElement(field as scalarIR.Field) ~= element then
+        context.reject(source, "SIMD field " .. method .. " needs a field of the species' element")
+    end
+    local offset = lower.convert(lower.expression(raw[2], environment, activeIndex, kernel), "f64", source, context)
+    local maskPosition = reading and 4 or 5
+    local masked = raw[maskPosition] ~= nil
+    local cursor = not masked and provedCursor(lower.unwrapped(raw[2]), spanName, kernel, receiver.type) or nil
+    local cursorBinding = cursor ~= nil and environment[cursor as string] or nil
+    local cursorCName = cursorBinding ~= nil and cursorBinding.cName or nil
+    local args: {scalarIR.Expr} = {receiver, offset}
+    if not reading then
+        local stored = lower.expression(raw[4], environment, activeIndex, kernel)
+        if stored.type ~= vectorType then
+            context.reject(source, "SIMD store value has a different element or species type")
+        end
+        args[#args + 1] = stored
+    end
+    if masked then
+        local active = lower.expression(raw[maskPosition], environment, activeIndex, kernel)
+        if active.type ~= maskType then
+            context.reject(source, "SIMD " .. method .. " mask has a different species")
+        end
+        args[#args + 1] = active
+    end
+
+    return new scalarIR.Simd(
+        op = reading and "simd_field_load" or "simd_field_store",
+        args = args,
+        span = spanName,
+        layout = layoutName as string,
+        field = fieldName,
+        intrinsic = "field",
+        cursor = cursor,
+        cursorCName = cursorCName,
+        type = reading and vectorType or "lua_effect",
+        source = source
+    )
+end
+
 --- One operation on a source-visible AOT-only SIMD value.
 local function simdMethod(
     node: cst.MethodCall,
@@ -2936,7 +3198,20 @@ local function simdMethod(
         end
         local contributionMethod = reducers.method(reducerOperation as string)
         local argumentCount = reducerOperation == "dot" and 2 or 1
-        if method == contributionMethod and #raw == argumentCount then
+        if method == contributionMethod and #raw == argumentCount + 1 then
+            return maskedContribution(
+                node,
+                receiver as scalarIR.Expr,
+                reducerState as lower.ReducerState,
+                reducerOrder as string,
+                reducerOperation as string,
+                reducerElement,
+                raw,
+                environment,
+                activeIndex,
+                kernel
+            )
+        elseif method == contributionMethod and #raw == argumentCount then
             if kernel.simdSource ~= true or kernel.simdRegion == nil then
                 kernel.context.reject(source, "a reducer contribution belongs directly inside one @simd loop")
             end
@@ -2999,7 +3274,38 @@ local function simdMethod(
     if genericFamily ~= nil then
         local vectorType = "simd_vector_" .. tostring(genericElement) .. "_" .. tostring(genericShape)
         local maskType = "simd_mask_" .. tostring(genericElement) .. "_" .. tostring(genericShape)
-        if genericFamily == "species" and method == "splat" and #raw == 1 then
+        if genericFamily == "species" and method == "mask" and #raw == 1 then
+            -- A boolean broadcasts to every lane; another species' mask
+            -- converts lane for lane, which needs the same lane count.
+            local value = lower.expression(raw[1], environment, activeIndex, kernel)
+            if value.type == "bool" then
+                return new scalarIR.Simd(
+                    op = "simd_mask_splat",
+                    args = {value},
+                    intrinsic = "mask",
+                    type = maskType,
+                    source = source
+                )
+            end
+            local fromFamily, fromElement, fromShape = genericSimdParts(value.type)
+            if fromFamily ~= "mask" then
+                kernel.context.reject(source, "SIMD mask takes a boolean or a mask of another species")
+            end
+            if fromShape ~= genericShape
+                or fromShape == "preferred"
+                and tostring(fromElement):match("%d+") ~= tostring(genericElement):match("%d+") then
+                kernel.context.reject(source, "SIMD mask conversion requires matching logical lane counts")
+            end
+            return new scalarIR.Simd(
+                op = "simd_mask_convert",
+                args = {value},
+                intrinsic = "mask",
+                type = maskType,
+                source = source
+            )
+        elseif genericFamily == "species" and method == "map" and #raw >= 2 then
+            return laneWiseMap(node, raw, vectorType, genericElement as scalarIR.Type, environment, activeIndex, kernel)
+        elseif genericFamily == "species" and method == "splat" and #raw == 1 then
             local value = lower.convert(
                 lower.expression(raw[1], environment, activeIndex, kernel),
                 genericSimdScalar(genericElement) as scalarIR.Type,
@@ -3073,13 +3379,33 @@ local function simdMethod(
         ) then
             local reading = method == "load" or method == "gather"
             local indexed = method == "gather" or method == "scatter" or method == "scatterUnchecked"
+            local named = not indexed and raw[3] ~= nil and raw[3].kind == "string"
             local expected = reading and (#raw == 2 or #raw == 3) or not reading and (#raw == 3 or #raw == 4)
+            if named then
+                expected = reading and (#raw == 3 or #raw == 4) or not reading and (#raw == 4 or #raw == 5)
+            end
             if not expected then
                 kernel.context.reject(source, "SIMD " .. method .. " has an unsupported argument count")
             end
             local spanName = lower.nameOf(raw[1])
             local span = spanName ~= nil and kernel.params[spanName as string] or nil
             local wantedKind = reading and "read_span" or "write_span"
+            if named then
+                return fieldAccess(
+                    node,
+                    receiver as scalarIR.Expr,
+                    reading,
+                    spanName,
+                    span as scalarIR.Param?,
+                    raw,
+                    vectorType,
+                    maskType,
+                    genericElement as scalarIR.Type,
+                    environment,
+                    activeIndex,
+                    kernel
+                )
+            end
             if span == nil or span.kind ~= wantedKind or genericSimdSpanElement(
                 span as scalarIR.Param
             ) ~= genericElement then
@@ -6449,7 +6775,9 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
                     and effect.op ~= "lua_scratch_u8_set4"
                     and effect.op ~= "simd_store4_u8"
                     and effect.op ~= "simd_store"
+                    and effect.op ~= "simd_field_store"
                     and effect.op ~= "reducer_add"
+                    and effect.op ~= "simd_reducer_add"
                     and effect.op ~= "lua_scratch_u8_reset" then
                     context.reject(lower.site(stat), "native element stores use output[index] = value")
                 end
@@ -6718,9 +7046,27 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
                 source = lower.site(stat)
             )
         elseif kind == "doStmt" then
-            out[
-                #out + 1
-            ] = new scalarIR.Block(op = "block", body = nested((stat as cst.DoStmt).body), source = lower.site(stat))
+            -- A `do` block is the scope of an explicit SIMD region: masked
+            -- reducer contributions inside it accumulate from its entry and
+            -- fold into their reducers at its exit.
+            local previousDo = kernel.simdDo
+            kernel.nextSimdRegion = kernel.nextSimdRegion + 1
+            local scope = new lower.SimdDo(region = kernel.nextSimdRegion, reducers = {}, byName = {})
+            kernel.simdDo = scope
+            local body = nested((stat as cst.DoStmt).body)
+            kernel.simdDo = previousDo
+            if #scope.reducers > 0 then
+                out[
+                    #out + 1
+                ] = new scalarIR.SimdRegion(
+                    op = "simd_region",
+                    body = body,
+                    reducers = scope.reducers,
+                    source = lower.site(stat)
+                )
+            else
+                out[#out + 1] = new scalarIR.Block(op = "block", body = body, source = lower.site(stat))
+            end
         elseif kind == "breakStmt" then
             out[#out + 1] = new scalarIR.Break(op = "break", source = lower.site(stat))
         elseif kind == "continueStmt" then

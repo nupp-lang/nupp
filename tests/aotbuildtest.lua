@@ -4595,4 +4595,346 @@ function M.aTargetLowersWhatItBundlesAndNothingElse()
     )
 end
 
+local GENERIC_VOCABULARY_KERNEL = [[
+local span = require("nupp.mem.span")
+local array = require("nupp.mem.array")
+local simd = require("nupp.simd")
+
+local struct Point
+    x: float
+    y: float
+end
+
+local function bump(value: number): number
+    return value * 2.0 + 1.0
+end
+
+@aot
+local function masks(exclusive out: span.WriteSpan<int32>, borrows input: span.Span<number>): nil
+    local s = assert(simd.species(array.number, 4))
+    local si = assert(simd.species(array.int32, 4))
+    local active = s:tail(#input)
+    local v = s:load(input, 1, active)
+    local chosen = (v > 0.0):select(v, s:splat(-1.0))
+    local everything = s:mask(true)
+    local nothing = s:mask(false)
+    local kept = everything:select(chosen, s:splat(0.0))
+    local same = nothing:select(v, kept)
+    si:store(out, 1, si:convert(same), si:mask(active))
+end
+
+@aot
+local function preferredMasks(borrows input: span.Span<float>): uint64
+    local s = assert(simd.species(array.float))
+    local si = assert(simd.species(array.int32))
+    local active = s:tail(#input)
+    local v = s:load(input, 1, active)
+    local counted = si:mask((v > 0.0) == s:mask(true))
+    return counted:bits()
+end
+
+@aot
+local function swapFields(exclusive out: span.WriteSpan<Point>, borrows src: span.Span<Point>): nil
+    local s = assert(simd.species(array.float, 4))
+    local cursor: uint32 = 0
+    while cursor + s.lanes <= #src and cursor + s.lanes <= #out do
+        local xs = s:load(src, cursor + 1, "x")
+        local ys = s:load(src, cursor + 1, "y")
+        s:store(out, cursor + 1, "x", ys)
+        s:store(out, cursor + 1, "y", xs)
+        cursor = cursor + s.lanes
+    end
+    local rest = s:tail(#src - cursor)
+    local xs = s:load(src, cursor + 1, "x", rest)
+    local ys = s:load(src, cursor + 1, "y", rest)
+    s:store(out, cursor + 1, "x", ys, rest)
+    s:store(out, cursor + 1, "y", xs, rest)
+end
+
+@aot
+local function mapped(exclusive out: span.WriteSpan<float>, borrows input: span.Span<float>): nil
+    local s = assert(simd.species(array.float, 8))
+    local active = s:tail(#input)
+    local v = s:load(input, 1, active)
+    local roots = s:map(math.sqrt, v)
+    local bumped = s:map(bump, roots)
+    s:store(out, 1, bumped, active)
+end
+
+@aot
+local function sums(borrows input: span.Span<number>, seed: number): (number, number, number, number)
+    local s = assert(simd.species(array.number, 4))
+    local ordered = simd.reducer.orderedSum(seed)
+    local pairwise = simd.reducer.pairwiseSum(seed)
+    local compensated = simd.reducer.compensatedSum(seed)
+    local algebraic = simd.reducer.algebraicSum(seed)
+    do
+        local cursor: uint32 = 0
+        while cursor + s.lanes <= #input do
+            local v = s:load(input, cursor + 1)
+            local all = s:mask(true)
+            ordered:add(v, all)
+            pairwise:add(v, all)
+            compensated:add(v, all)
+            algebraic:add(v, all)
+            cursor = cursor + s.lanes
+        end
+        local rest = s:tail(#input - cursor)
+        local v = s:load(input, cursor + 1, rest)
+        ordered:add(v, rest)
+        pairwise:add(v, rest)
+        compensated:add(v, rest)
+        algebraic:add(v, rest)
+    end
+    return ordered:value(), pairwise:value(), compensated:value(), algebraic:value()
+end
+
+@aot
+local function dot(borrows input: span.Span<number>, seed: number): number
+    local s = assert(simd.species(array.number, 4))
+    local fold = simd.reducer.orderedDot(seed)
+    do
+        local cursor: uint32 = 0
+        while cursor + s.lanes <= #input do
+            local v = s:load(input, cursor + 1)
+            fold:add(v, v, s:mask(true))
+            cursor = cursor + s.lanes
+        end
+        local rest = s:tail(#input - cursor)
+        local v = s:load(input, cursor + 1, rest)
+        fold:add(v, v, rest)
+    end
+    return fold:value()
+end
+
+@aot
+local function exact(borrows input: span.Span<int32>, seed: int32): (int32, int32, int32)
+    local s = assert(simd.species(array.int32, 4))
+    local sum = simd.reducer.i32.wrappingSum(seed)
+    local bits = simd.reducer.i32.xorBits(seed)
+    local least = simd.reducer.integerMin(seed)
+    do
+        local cursor: uint32 = 0
+        while cursor + s.lanes <= #input do
+            local v = s:load(input, cursor + 1)
+            local all = s:mask(true)
+            sum:add(v, all)
+            bits:combine(v, all)
+            least:add(v, all)
+            cursor = cursor + s.lanes
+        end
+        local rest = s:tail(#input - cursor)
+        local v = s:load(input, cursor + 1, rest)
+        sum:add(v, rest)
+        bits:combine(v, rest)
+        least:add(v, rest)
+    end
+    return sum:value(), bits:value(), least:value()
+end
+
+return {
+    masks = masks,
+    preferredMasks = preferredMasks,
+    swapFields = swapFields,
+    mapped = mapped,
+    sums = sums,
+    dot = dot,
+    exact = exact,
+}
+]]
+
+function M.genericVocabularyOperationsAgreeAcrossLuaScalarAndLaneExecution()
+    if not hasToolchain() then
+        return
+    end
+    local ffi = require("ffi")
+    local dir = project("require")
+    local handle = assert(io.open(dir .. "/src/kernel.nupp", "wb"))
+    handle:write(GENERIC_VOCABULARY_KERNEL)
+    handle:close()
+    local out, code = build(dir)
+    test.equal(code, 0, out)
+    local lib = ffi.load(libraryPath(dir))
+    local symbols = {}
+    for _, name in ipairs({"masks", "preferred_masks", "swap_fields", "mapped", "sums", "dot", "exact"}) do
+        symbols[name] = {librarySymbol(lib, "ks_" .. name), librarySymbol(lib, "ks_" .. name .. "_forced_scalar")}
+    end
+    ffi.cdef("typedef struct { float x; float y; } NuppAotPoint;")
+    ffi.cdef("typedef struct { double v1, v2, v3, v4; } NuppAotSums;")
+    ffi.cdef("typedef struct { int32_t v1, v2, v3; } NuppAotExact;")
+    for _, symbol in ipairs(symbols.masks) do
+        ffi.cdef(("void %s(int32_t *, const double *, size_t, size_t);"):format(symbol))
+    end
+    for _, symbol in ipairs(symbols.preferred_masks) do
+        ffi.cdef(("uint64_t %s(const float *, size_t);"):format(symbol))
+    end
+    for _, symbol in ipairs(symbols.swap_fields) do
+        ffi.cdef(("void %s(NuppAotPoint *, const NuppAotPoint *, size_t, size_t);"):format(symbol))
+    end
+    for _, symbol in ipairs(symbols.mapped) do
+        ffi.cdef(("void %s(float *, const float *, size_t, size_t);"):format(symbol))
+    end
+    for _, symbol in ipairs(symbols.sums) do
+        ffi.cdef(("NuppAotSums %s(const double *, double, size_t);"):format(symbol))
+    end
+    for _, symbol in ipairs(symbols.dot) do
+        ffi.cdef(("double %s(const double *, double, size_t);"):format(symbol))
+    end
+    for _, symbol in ipairs(symbols.exact) do
+        ffi.cdef(("NuppAotExact %s(const int32_t *, int32_t, size_t);"):format(symbol))
+    end
+
+    -- Mask splat, select, mask conversion and a widening numeric conversion.
+    local doubles = ffi.new("double[4]", {2.5, -3.5, 0.0, 7.25})
+    for count = 0, 4 do
+        for _, symbol in ipairs(symbols.masks) do
+            local actual = ffi.new("int32_t[4]", {-9, -9, -9, -9})
+            lib[symbol](actual, doubles, 4, count)
+            for lane = 0, 3 do
+                local expected = -9
+                if lane < count then
+                    local value = doubles[lane]
+                    expected = value > 0 and math.floor(value) or -1
+                end
+                test.equal(actual[lane], expected, symbol .. " count " .. count .. " lane " .. lane)
+            end
+        end
+    end
+
+    -- Preferred-shape mask conversion between element types of one bit width.
+    local floats = ffi.new("float[64]")
+    for i = 0, 63 do
+        floats[i] = (i % 3 == 0) and -1 or 1
+    end
+    for count = 0, 64 do
+        local expected = 0ULL
+        for i = 0, count - 1 do
+            if floats[i] > 0 then
+                expected = expected + bit.lshift(1ULL, i)
+            end
+        end
+        local native = lib[symbols.preferred_masks[1]](floats, count)
+        local scalar = lib[symbols.preferred_masks[2]](floats, count)
+        assert(native == scalar, "preferred masks agree at count " .. count)
+        -- Both kernels hold one preferred vector, at least four lanes wide, and
+        -- the tail leaves every lane past the count clear.
+        for i = 0, 63 do
+            local want = i < math.min(count, 4) and bit.band(expected, bit.lshift(1ULL, i)) or nil
+            local held = bit.band(native, bit.lshift(1ULL, i))
+            if want ~= nil then
+                assert(held == want, "preferred mask lane " .. i .. " at count " .. count)
+            elseif i >= count then
+                assert(held == 0ULL, "preferred mask clears lane " .. i .. " at count " .. count)
+            end
+        end
+    end
+
+    -- Strided field access, cursor-proven in the loop and masked in the tail.
+    local points = ffi.new("NuppAotPoint[11]")
+    for i = 0, 10 do
+        points[i].x = i * 1.5
+        points[i].y = -i
+    end
+    for count = 0, 11 do
+        for _, symbol in ipairs(symbols.swap_fields) do
+            local actual = ffi.new("NuppAotPoint[11]")
+            for i = 0, 10 do
+                actual[i].x, actual[i].y = -99, -99
+            end
+            lib[symbol](actual, points, count, count)
+            for i = 0, 10 do
+                local wantX, wantY = -99, -99
+                if i < count then
+                    wantX, wantY = tonumber(points[i].y), tonumber(points[i].x)
+                end
+                test.equal(tonumber(actual[i].x), wantX, symbol .. " count " .. count .. " x " .. i)
+                test.equal(tonumber(actual[i].y), wantY, symbol .. " count " .. count .. " y " .. i)
+            end
+        end
+    end
+
+    -- Lane-wise math and a helper call.
+    local squares = ffi.new("float[8]", {0, 1, 4, 9, 16, 25, 36, 49})
+    for count = 0, 8 do
+        for _, symbol in ipairs(symbols.mapped) do
+            local actual = ffi.new("float[8]")
+            for i = 0, 7 do
+                actual[i] = -99
+            end
+            lib[symbol](actual, squares, 8, count)
+            for i = 0, 7 do
+                local expected = i < count and (math.sqrt(squares[i]) * 2 + 1) or -99
+                test.equal(tonumber(actual[i]), expected, symbol .. " count " .. count .. " lane " .. i)
+            end
+        end
+    end
+
+    -- Masked reducer contributions in every floating order, against the Lua
+    -- reducers fed one element at a time in ascending position.
+    local simd = require("nupp.simd")
+    local samples = ffi.new("double[13]", {1, 1e16, -1e16, 3, 0.5, -2.25, 1e-3, 7, 1e16, -1e16, 11, 0.125, -4})
+    for count = 0, 13 do
+        for _, seed in ipairs({0, 1.5}) do
+            local ordered = simd.reducer.orderedSum(seed)
+            local pairwise = simd.reducer.pairwiseSum(seed)
+            local compensated = simd.reducer.compensatedSum(seed)
+            local dot = simd.reducer.orderedDot(seed)
+            for i = 0, count - 1 do
+                ordered:add(samples[i])
+                pairwise:add(samples[i])
+                compensated:add(samples[i])
+                dot:add(samples[i], samples[i])
+            end
+            for _, symbol in ipairs(symbols.sums) do
+                local actual = lib[symbol](samples, seed, count)
+                local label = symbol .. " seed " .. seed .. " count " .. count
+                test.equal(actual.v1, ordered:value(), label .. " ordered")
+                test.equal(actual.v2, pairwise:value(), label .. " pairwise")
+                test.equal(actual.v3, compensated:value(), label .. " compensated")
+            end
+            for _, symbol in ipairs(symbols.dot) do
+                test.equal(lib[symbol](samples, seed, count), dot:value(), symbol .. " seed " .. seed .. " count " .. count)
+            end
+        end
+    end
+    -- The algebraic order commits to no association, so it is held only where
+    -- every association agrees: integer-valued data.
+    local whole = ffi.new("double[13]", {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13})
+    for count = 0, 13 do
+        local expected = 2
+        for i = 0, count - 1 do
+            expected = expected + whole[i]
+        end
+        for _, symbol in ipairs(symbols.sums) do
+            local actual = lib[symbol](whole, 2, count)
+            test.equal(actual.v4, expected, symbol .. " algebraic count " .. count)
+            test.equal(actual.v1, expected, symbol .. " ordered whole count " .. count)
+        end
+    end
+
+    -- Exact integer reducers with masked contributions.
+    local integers = ffi.new("int32_t[13]", {5, -7, 2147483647, -2147483648, 3, 3, 12, -1, 0, 99, -99, 41, 7})
+    for count = 0, 13 do
+        for _, seed in ipairs({0, -3, 2147483647}) do
+            local sum = simd.reducer.i32.wrappingSum(seed)
+            local bits = simd.reducer.i32.xorBits(seed)
+            local least = simd.reducer.integerMin(seed)
+            for i = 0, count - 1 do
+                sum:add(integers[i])
+                bits:combine(integers[i])
+                least:add(integers[i])
+            end
+            for _, symbol in ipairs(symbols.exact) do
+                local actual = lib[symbol](integers, seed, count)
+                local label = symbol .. " seed " .. seed .. " count " .. count
+                test.equal(actual.v1, sum:value(), label .. " wrapping sum")
+                test.equal(actual.v2, bits:value(), label .. " xor")
+                test.equal(actual.v3, least:value(), label .. " min")
+            end
+        end
+    end
+end
+
+require("jit").off(M.genericVocabularyOperationsAgreeAcrossLuaScalarAndLaneExecution, true)
+
 return M

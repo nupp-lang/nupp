@@ -318,6 +318,15 @@ function text.expression(node: scalarIR.Expr | lane.Expr): string
     elseif op == "reducer_value" then
         local reducer = node as scalarIR.ReducerValue
         return "reducer.value " .. text.expression(reducer.reducer)
+    elseif op == "simd_reducer_add" then
+        local reducer = node as scalarIR.SimdReducerAdd
+        return "simd.reducer.add " .. text.expression(
+            reducer.reducer
+        ) .. " <- " .. text.expression(
+            reducer.value
+        ) .. (
+            reducer.right ~= nil and ", " .. text.expression(reducer.right as scalarIR.Expr) or ""
+        ) .. " if " .. text.expression(reducer.mask)
     elseif tostring(op):match("^simd_") ~= nil then
         local simd = node as scalarIR.Simd
         local values: {string} = {}
@@ -326,6 +335,12 @@ function text.expression(node: scalarIR.Expr | lane.Expr): string
         end
         if simd.span ~= nil then
             values[#values + 1] = "span:" .. (simd.span as string)
+        end
+        if simd.field ~= nil then
+            values[#values + 1] = "field:" .. tostring(simd.layout) .. "." .. (simd.field as string)
+        end
+        if simd.helper ~= nil then
+            values[#values + 1] = "helper:" .. (simd.helper as string)
         end
         local name = tostring(op) .. (simd.intrinsic ~= nil and "." .. (simd.intrinsic as string) or "")
         return name .. ":" .. simd.type .. "(" .. table.concat(values, ", ") .. ")"
@@ -532,8 +547,19 @@ function text.block(statements: {any}, depth: integer, lanes: integer): {string}
                 ) .. (reducer.right ~= nil and ", " .. text.expression(reducer.right as lane.Expr) or "")
         elseif op == "reducer_add" then
             lines[#lines + 1] = prefix .. text.expression(statement as scalarIR.ReducerAdd)
-        elseif op == "simd_store" then
+        elseif op == "simd_store" or op == "simd_field_store" then
             lines[#lines + 1] = prefix .. text.expression(statement as scalarIR.Simd)
+        elseif op == "simd_reducer_add" then
+            lines[#lines + 1] = prefix .. text.expression(statement as scalarIR.SimdReducerAdd)
+        elseif op == "simd_region" then
+            local region = statement as scalarIR.SimdRegion
+            local names: {string} = {}
+            for position, reducer in ipairs(region.reducers) do
+                names[position] = reducer.name
+            end
+            lines[#lines + 1] = prefix .. "simd.region " .. table.concat(names, ", ")
+            nested(region.body)
+            lines[#lines + 1] = prefix .. "end"
         elseif op == "if" then
             for position, clause in ipairs(statement.clauses) do
                 lines[

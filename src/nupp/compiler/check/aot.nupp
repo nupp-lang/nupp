@@ -158,9 +158,13 @@ function aot.install(c: state.Checker): aot.Ops
             local ordered: {any} = {}
             local nextRegion: integer = 0
 
-            local function constructor(current: any): (string?, string?)
+            --- The regions opened by `do` blocks, where masked contributions
+            --- belong, as opposed to those opened by `@simd` loops.
+            local doRegions: {[integer]: boolean} = {}
+
+            local function constructor(current: any): (string?, string?, integer?)
                 if current == nil or current.kind ~= "call" then
-                    return nil, nil
+                    return nil, nil, nil
                 end
                 local exact = exactCall(current as cst.Call)
                 local identity = exact ~= nil and exact.identity or nil
@@ -169,18 +173,18 @@ function aot.install(c: state.Checker): aot.Ops
                 if identity ~= nil then
                     local contract = reducerContracts.CONSTRUCTORS[identity]
                     if contract ~= nil then
-                        return contract.order, contract.method
+                        return contract.order, contract.method, contract.operation == "dot" and 2 or 1
                     end
                     order, operation = identity:match("^nupp%.simd%.reducer%.(%a+)(%u%l+)$")
                 end
                 if order ~= "ordered" and order ~= "pairwise" and order ~= "algebraic" and order ~= "compensated" then
-                    return nil, nil
+                    return nil, nil, nil
                 end
                 if operation ~= "Sum" and operation ~= "Product" and operation ~= "Dot" then
-                    return nil, nil
+                    return nil, nil, nil
                 end
 
-                return order, operation == "Product" and "multiply" or "add"
+                return order, operation == "Product" and "multiply" or "add", operation == "Dot" and 2 or 1
             end
 
             local function diagnose(current: any, message: string): nil
@@ -194,8 +198,22 @@ function aot.install(c: state.Checker): aot.Ops
                     return
                 end
                 local method = call.name.text
-                if method == state_.contribution then
-                    if region == nil then
+                local arguments = call.args ~= nil and ((call.args as cst.Args).exprs or {}) or {}
+                if method == state_.contribution and #arguments == state_.arity + 1 then
+                    -- A masked contribution: the region is the `do` block
+                    -- around it, and the verifier holds each sequence in it
+                    -- to one contribution per reducer.
+                    if region == nil or not doRegions[region] then
+                        diagnose(call, "a masked reducer contribution belongs inside a do block, which is its region")
+                        return
+                    end
+                    if state_.region ~= nil and state_.region ~= region then
+                        diagnose(call, "a reducer is scoped to exactly one region")
+                    else
+                        state_.region = region
+                    end
+                elseif method == state_.contribution then
+                    if region == nil or doRegions[region] then
                         diagnose(call, "a reducer contribution belongs directly inside one @simd loop")
                         return
                     elseif not direct then
@@ -279,13 +297,14 @@ function aot.install(c: state.Checker): aot.Ops
                     local local_ = actual as cst.LocalStmt
                     local names, expressions = local_.names or {}, local_.exprs or {}
                     if #names == 1 and #expressions == 1 then
-                        local order, contribution = constructor(expressions[1])
+                        local order, contribution, arity = constructor(expressions[1])
                         if order ~= nil then
                             local identity = (names[1] as any).definition or names[1]
                             local state_ = {
                                 identity = identity,
                                 source = names[1],
                                 contribution = contribution,
+                                arity = arity,
                                 contributions = 0,
                                 finalized = false,
                             }
@@ -301,6 +320,10 @@ function aot.install(c: state.Checker): aot.Ops
                     scan(actual, nil, false)
                 elseif actual ~= nil and actual.kind == "fornumStmt" and actual.simdRequired == true then
                     simdLoop(actual, false)
+                elseif actual ~= nil and actual.kind == "doStmt" then
+                    nextRegion = nextRegion + 1
+                    doRegions[nextRegion] = true
+                    scan(actual, nextRegion, false)
                 else
                     scan(actual, nil, false)
                 end

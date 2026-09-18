@@ -803,9 +803,24 @@ record scalarIR.Simd
         | 'simd_mask64_count'
         | 'simd_mask64_first'
         | 'simd_mask64_clear_first'
+        | 'simd_mask_splat'
+        | 'simd_mask_convert'
+        | 'simd_field_load'
+        | 'simd_field_store'
+        | 'simd_call'
+        | 'simd_math'
     args: {scalarIR.Expr}
     span: string?
     intrinsic: string?
+
+    --- On `simd_field_load` and `simd_field_store`, the reified layout of the
+    --- span's element and the field each lane reaches within it.
+    layout: string?
+
+    field: string?
+
+    --- On `simd_call`, the C name of the pure helper applied per lane.
+    helper: string?
 
     --- On a `simd_load` or `simd_store` at `cursor + 1`, the cursor a
     --- dominating `cursor + species.lanes <= #span` bounded, so the whole
@@ -864,6 +879,72 @@ record scalarIR.ReducerAdd
         | 'argmin'
         | 'argmax'
     type: 'lua_effect'
+    source: scalarIR.Source?
+end
+
+--- One masked vector contribution to a reducer, inside a `simd_region`.
+---
+--- Active lanes contribute in ascending lane order; inactive lanes contribute
+--- nothing. A reducer takes at most one contribution per region iteration.
+record scalarIR.SimdReducerAdd
+    op: 'simd_reducer_add'
+    reducer: scalarIR.Expr
+    value: scalarIR.Expr
+    mask: scalarIR.Expr
+    right: scalarIR.Expr?
+    order: 'ordered' | 'pairwise' | 'algebraic' | 'compensated' | 'exact' | 'integer' | 'propagating' | 'number'
+    operation: 'sum'
+        | 'product'
+        | 'dot'
+        | 'and'
+        | 'or'
+        | 'xor'
+        | 'any'
+        | 'all'
+        | 'count'
+        | 'min'
+        | 'max'
+        | 'argmin'
+        | 'argmax'
+    element: string?
+    type: 'lua_effect'
+    source: scalarIR.Source?
+end
+
+--- One reducer a `simd_region` accumulates.
+record scalarIR.SimdRegionReducer
+    name: string
+    cName: string
+    order: 'ordered' | 'pairwise' | 'algebraic' | 'compensated' | 'exact' | 'integer' | 'propagating' | 'number'
+    operation: 'sum'
+        | 'product'
+        | 'dot'
+        | 'and'
+        | 'or'
+        | 'xor'
+        | 'any'
+        | 'all'
+        | 'count'
+        | 'min'
+        | 'max'
+        | 'argmin'
+        | 'argmax'
+    element: string?
+
+    --- The vector type of every contribution the region makes to it.
+    vectorType: scalarIR.Type
+end
+
+--- The scope of a reducer's vector contributions.
+---
+--- A parallel order may hold a vector accumulator across the region and fold
+--- it into the scalar state once the region ends; every other order folds
+--- each contribution lane by lane where it is made. Either way the scalar
+--- state is current when the region ends.
+record scalarIR.SimdRegion
+    op: 'simd_region'
+    body: {scalarIR.Statement}
+    reducers: {scalarIR.SimdRegionReducer}
     source: scalarIR.Source?
 end
 
@@ -942,6 +1023,7 @@ type scalarIR.Expr = scalarIR.Constant
     | scalarIR.Simd
     | scalarIR.ReducerInit
     | scalarIR.ReducerAdd
+    | scalarIR.SimdReducerAdd
     | scalarIR.ReducerValue
 
 ----------------------------------------------------------------------------
@@ -1300,6 +1382,8 @@ end
 --- Admitting it makes that sayable rather than merely emitted.
 type scalarIR.Statement = scalarIR.Simd
     | scalarIR.ReducerAdd
+    | scalarIR.SimdReducerAdd
+    | scalarIR.SimdRegion
     | scalarIR.Let
     | scalarIR.MultiLet
     | scalarIR.Assign

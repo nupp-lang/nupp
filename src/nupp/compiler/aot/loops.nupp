@@ -74,6 +74,7 @@ local STATEMENTS: {
     ["repeat"] = true,
     fornum = true,
     block = true,
+    simd_region = true,
     ["break"] = true,
     ["continue"] = true,
     ["return"] = true,

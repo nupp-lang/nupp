@@ -199,6 +199,11 @@ const GENERIC_SPECIES = {
     ["simd_expand"] = 0,
     ["simd_prefix"] = 0,
     ["simd_horizontal"] = 1,
+    ["simd_mask_splat"] = 0,
+    ["simd_mask_convert"] = 0,
+    ["simd_field_load"] = 0,
+    ["simd_call"] = 0,
+    ["simd_math"] = 0,
 }
 
 --- The generic SIMD operations that render as one helper call over their
@@ -214,6 +219,7 @@ const GENERIC_CALLS = {
     ["simd_mask_any"] = "any",
     ["simd_mask_first"] = "first",
     ["simd_mask_bits"] = "bits",
+    ["simd_mask_splat"] = "mask_splat",
 }
 
 --- The C operator a packed generic binary or comparison intrinsic is.
@@ -599,6 +605,28 @@ local function reducerHelper(order: string, operation: string, element: string?)
     return nil
 end
 
+--- The C operator one lane-wise explicit SIMD accumulator combines by.
+const SIMD_ACCUMULATE_OPERATORS = {
+    ["sum"] = "+",
+    ["dot"] = "+",
+    ["product"] = "*",
+    ["and"] = "&",
+    ["or"] = "|",
+    ["xor"] = "^",
+}
+
+--- The vector an explicit SIMD region accumulates one reducer in: the
+--- contributed species for an algebraic order, its unsigned counterpart for an
+--- exact one so wrapping is defined until the fold recovers the signed value.
+local function simdAccumulatorType(order: string, element: string?, vectorType: string): string
+    if order == "exact" and element ~= nil then
+        local shape = vectorType:match("^simd_vector_[fiu]%d+_(.+)$")
+        return "simd_vector_u" .. element:sub(2) .. "_" .. tostring(shape)
+    end
+
+    return vectorType
+end
+
 --- bare operator answers a different question than the source wrote and the
 --- constant folder answers. Pairings whose implicit conversion preserves the
 --- value keep the bare operator; the rest compare by value here.
@@ -734,6 +762,115 @@ end
 --- is empty everywhere else.
 function emit.laneArrayAlign(element: string): string
     return "KS_LANE_ARRAY_ALIGN(" .. element .. ")"
+end
+
+--- How one explicit SIMD species is represented in the C being emitted.
+record emit.Species
+    element: string
+    lanes: integer
+    shape: string
+
+    --- `<element>x<lanes>`, the suffix of every helper for the species.
+    suffix: string
+
+    --- `ks_exp_` or the oracle's `ks_scalar_exp_`.
+    helper: string
+
+    --- The lanes one native register holds at the selected width.
+    nativeLanes: integer
+
+    --- Whether the value is an aggregate of native chunks.
+    composite: boolean
+end
+
+--- Resolves the representation of one explicit SIMD type.
+--- @raises when the type is not an explicit SIMD species
+local function genericSpecies(context: emit.Context, typeName: string): emit.Species
+    local _, element, lanes, shape = explicitType(context, typeName)
+    if element == nil or lanes == nil or shape == nil then
+        error("generic SIMD operation has no resolved species", 0)
+    end
+    local elementBits = tonumber(element:match("%d+")) or 0
+    local nativeLanes = elementBits > 0 and math.floor(context.explicitWidth * 8 / elementBits) or 0
+
+    return new emit.Species(
+        element = element,
+        lanes = lanes,
+        shape = shape,
+        suffix = element .. "x" .. tostring(lanes),
+        helper = context.explicitScalar and "ks_scalar_exp_" or "ks_exp_",
+        nativeLanes = nativeLanes as integer,
+        composite = shape ~= "preferred" and lanes ~= nativeLanes
+    )
+end
+
+--- Lane `index` of one rendered value, in whichever of the three
+--- representations the species has: a native vector indexes directly, the
+--- oracle's struct through `lane`, and a composite through its chunk.
+local function genericLane(context: emit.Context, species: emit.Species, rendered: string, index: integer): string
+    if context.explicitScalar then
+        return rendered .. ".lane[" .. tostring(index) .. "]"
+    elseif species.composite then
+        return rendered .. ".chunk[" .. tostring(
+            math.floor(index / species.nativeLanes)
+        ) .. "][" .. tostring(index % species.nativeLanes) .. "]"
+    end
+
+    return rendered .. "[" .. tostring(index) .. "]"
+end
+
+--- One vector of the species built from a C expression per lane.
+local function genericAggregate(context: emit.Context, species: emit.Species, lanes: {string}): string
+    local cType = species.helper .. species.suffix
+    if context.explicitScalar then
+        return "(" .. cType .. "){{" .. table.concat(lanes, ", ") .. "}}"
+    elseif not species.composite then
+        return "(" .. cType .. "){" .. table.concat(lanes, ", ") .. "}"
+    end
+    local chunkType = "ks_exp_" .. species.element .. "x" .. tostring(species.nativeLanes)
+    local chunks: {string} = {}
+    local chunkCount = math.ceil(species.lanes / species.nativeLanes) as integer
+    for chunk = 0, chunkCount - 1 do
+        local members: {string} = {}
+        for offset = 0, species.nativeLanes - 1 do
+            local index = chunk * species.nativeLanes + offset
+            members[#members + 1] = index < species.lanes and lanes[index + 1] or "0"
+        end
+        chunks[#chunks + 1] = "(" .. chunkType .. "){" .. table.concat(members, ", ") .. "}"
+    end
+
+    return "(" .. cType .. "){{" .. table.concat(chunks, ", ") .. "}}"
+end
+
+--- A strided field access: one helper over the span, the struct's size and
+--- the field's offset. A verified cursor access reads or writes whole lanes at
+--- the cursor; anything else passes the count and a mask, an all-true one when
+--- the access gave none.
+--- @raises when the accessed value has no resolved species
+function emit.genericFieldAccess(context: emit.Context, access: scalarIR.Simd, storing: boolean): string
+    local species = genericSpecies(context, storing and access.args[3].type or access.type)
+    local layoutC = "Ks" .. tostring(access.layout)
+    local place = "sizeof(" .. layoutC .. "), offsetof(" .. layoutC .. ", " .. tostring(access.field) .. ")"
+    local verb = storing and "field_store" or "field_load"
+    local value = storing and ", " .. emit.scalar(context, access.args[3]) or ""
+    if access.cursor ~= nil then
+        return species.helper .. verb .. "_at_" .. species.suffix .. "(p_" .. tostring(
+            access.span
+        ) .. " + (size_t)" .. tostring(access.cursorCName) .. ", " .. place .. value .. ")"
+    end
+    local count = context.independentSpanCounts and "count_" .. tostring(access.span) or "count"
+    local active = access.args[storing and 4 or 3]
+    local mask = active ~= nil and emit.scalar(
+        context,
+        active
+    ) or species.helper .. "mask_splat_" .. species.suffix .. "(true)"
+
+    return species.helper .. verb .. "_" .. species.suffix .. "(p_" .. tostring(
+        access.span
+    ) .. ", " .. count .. ", " .. emit.spanFirst(
+        context,
+        access.args[2]
+    ) .. ", " .. place .. value .. ", " .. mask .. ")"
 end
 
 --- Indexed memory over logical lanes, including composite representations.
@@ -1167,6 +1304,68 @@ function emit.scalar(context: emit.Context, node: scalarIR.Expr): string
                     context.explicitScalar,
                     operation == "simd_reinterpret"
                 )
+            elseif operation == "simd_mask_convert" then
+                -- Equal lane counts by contract, so a native mask converts
+                -- lane-wise; the oracle and a composite go through the bits.
+                local source = genericSpecies(context, args[1].type)
+                local target = genericSpecies(context, simd.type)
+                local rendered = emit.scalar(context, args[1])
+                if not context.explicitScalar and not source.composite and not target.composite then
+                    return "__builtin_convertvector(" .. rendered .. ", " .. emit.cType(context, simd.type) .. ")"
+                end
+                return genericHelper
+                    .. "mask_from_bits_"
+                    .. target.suffix
+                    .. "("
+                    .. genericHelper
+                    .. "bits_"
+                    .. source.suffix
+                    .. "("
+                    .. rendered
+                    .. "))"
+            elseif operation == "simd_field_load" then
+                return emit.genericFieldAccess(context, simd, false)
+            elseif operation == "simd_call" or operation == "simd_math" then
+                -- One scalar call per lane over the operand locals, gathered
+                -- into a vector of the species by a brace initializer.
+                local species = genericSpecies(context, simd.type)
+                local operands: {string} = {}
+                for position, argument in ipairs(args) do
+                    operands[position] = emit.scalar(context, argument)
+                end
+                local elementC = emit.cType(context, element)
+                local perLane: {string} = {}
+                for index = 0, lanes - 1 do
+                    local parts: {string} = {}
+                    for position, operand in ipairs(operands) do
+                        parts[position] = genericLane(context, species, operand, index)
+                    end
+                    if operation == "simd_math" then
+                        for position, part in ipairs(parts) do
+                            parts[position] = "(double)" .. part
+                        end
+                        perLane[
+                            #perLane + 1
+                        ] = "(" .. elementC .. ")" .. emit.mathFrom(context, tostring(simd.intrinsic), parts)
+                    else
+                        local names = context.explicitScalar and context.scalarHelperNames or context.helperNames
+                        local selected = names[tostring(simd.helper)]
+                        if selected == nil then
+                            error("no C helper for " .. tostring(simd.helper), 0)
+                        end
+                        -- A helper takes and returns binary64, so a float
+                        -- species widens each lane in and narrows the result.
+                        if element == "f32" then
+                            for position, part in ipairs(parts) do
+                                parts[position] = "(double)" .. part
+                            end
+                        end
+                        perLane[
+                            #perLane + 1
+                        ] = "(" .. elementC .. ")" .. selected.name .. "(" .. table.concat(parts, ", ") .. ")"
+                    end
+                end
+                return genericAggregate(context, species, perLane)
             elseif operation == "simd_load" then
                 if simd.intrinsic == "gather" then
                     return emit.indexedSimd(context, simd)
@@ -2516,6 +2715,10 @@ record emit.Body
 
     --- Fresh function-local labels for scalar `repeat` continuations.
     repeatSerial: integer?
+
+    --- The lane-wise accumulators of the enclosing explicit SIMD region, by
+    --- reducer name, for the contributions that have one.
+    simdAccumulators: {[string]: string}?
 end
 
 --- Pushes one verified construction value on the Lua stack.
@@ -3353,7 +3556,7 @@ function emit.luaBlock(
                 append(controlFlow(node as emit.Flow, depth, body, repeatContinue, expression, recursive, false))
                 yield true
             end
-            case "shared_store", "phase", "simd_species_u8", "simd_species", "simd_lanes_generic", "simd_splat", "simd_iota", "simd_tail", "simd_load", "simd_binary", "simd_unary", "simd_compare", "simd_select", "simd_mask_any", "simd_mask_all", "simd_mask_count", "simd_mask_first", "simd_mask_bits", "simd_extract", "simd_insert", "simd_permute", "simd_convert", "simd_reinterpret", "simd_compress", "simd_expand", "simd_prefix", "simd_horizontal", "simd_lanes", "simd_load_u8", "simd_load_string_u8", "simd_load_stride3_u8", "simd_splat_u8", "simd_shr_u8", "simd_shl_u8", "simd_table_u8x16", "simd_lookup16_u8", "simd_lookup64_u8", "simd_align_bytes_u8", "simd_padded_string_u8", "simd_padded_length", "simd_padded_full_length", "simd_padded_tail_length", "simd_padded_load_full_u8", "simd_padded_load_tail_u8", "simd_block64_load_u8", "simd_block64_and_byte_u8", "simd_block64_and_u8", "simd_block64_shr_u8", "simd_block64_lookup16_u8", "simd_block64_any_bits_u8", "simd_block64_last_u8", "simd_block64_utf8_errors_u8", "simd_block64_eq_u8", "simd_block64_range_u8", "simd_block64_outside_range_u8", "simd_tail_u8", "simd_eq_u8", "simd_range_u8", "simd_vec_and", "simd_vec_or", "simd_vec_xor", "simd_vec_not", "simd_mask_and", "simd_mask_or", "simd_mask_xor", "simd_mask_not", "simd_select_u8", "simd_any", "simd_all", "simd_count", "simd_bits", "simd_mask64", "simd_mask64_add", "simd_mask64_and", "simd_mask64_or", "simd_mask64_xor", "simd_mask64_not", "simd_mask64_shl", "simd_mask64_shr", "simd_mask64_prefix_xor", "simd_mask64_low", "simd_mask64_high", "simd_mask64_any", "simd_mask64_count", "simd_mask64_first", "simd_mask64_clear_first", "store", "reducer_add" -> error(
+            case "shared_store", "phase", "simd_species_u8", "simd_species", "simd_lanes_generic", "simd_splat", "simd_iota", "simd_tail", "simd_load", "simd_binary", "simd_unary", "simd_compare", "simd_select", "simd_mask_any", "simd_mask_all", "simd_mask_count", "simd_mask_first", "simd_mask_bits", "simd_extract", "simd_insert", "simd_permute", "simd_convert", "simd_reinterpret", "simd_compress", "simd_expand", "simd_prefix", "simd_horizontal", "simd_mask_splat", "simd_mask_convert", "simd_field_load", "simd_call", "simd_math", "simd_lanes", "simd_load_u8", "simd_load_string_u8", "simd_load_stride3_u8", "simd_splat_u8", "simd_shr_u8", "simd_shl_u8", "simd_table_u8x16", "simd_lookup16_u8", "simd_lookup64_u8", "simd_align_bytes_u8", "simd_padded_string_u8", "simd_padded_length", "simd_padded_full_length", "simd_padded_tail_length", "simd_padded_load_full_u8", "simd_padded_load_tail_u8", "simd_block64_load_u8", "simd_block64_and_byte_u8", "simd_block64_and_u8", "simd_block64_shr_u8", "simd_block64_lookup16_u8", "simd_block64_any_bits_u8", "simd_block64_last_u8", "simd_block64_utf8_errors_u8", "simd_block64_eq_u8", "simd_block64_range_u8", "simd_block64_outside_range_u8", "simd_tail_u8", "simd_eq_u8", "simd_range_u8", "simd_vec_and", "simd_vec_or", "simd_vec_xor", "simd_vec_not", "simd_mask_and", "simd_mask_or", "simd_mask_xor", "simd_mask_not", "simd_select_u8", "simd_any", "simd_all", "simd_count", "simd_bits", "simd_mask64", "simd_mask64_add", "simd_mask64_and", "simd_mask64_or", "simd_mask64_xor", "simd_mask64_not", "simd_mask64_shl", "simd_mask64_shr", "simd_mask64_prefix_xor", "simd_mask64_low", "simd_mask64_high", "simd_mask64_any", "simd_mask64_count", "simd_mask64_first", "simd_mask64_clear_first", "store", "reducer_add", "simd_field_store", "simd_reducer_add", "simd_region" -> error(
                 "unsupported Lua construction statement " .. node.op,
                 0
             )
@@ -3728,6 +3931,180 @@ function emit.block(
                 lines[#lines + 1] = prefix .. emit.genericStore(context, statement as scalarIR.Simd) .. ";"
                 yield true
             end
+            case "simd_field_store" -> do
+                local statement = node as scalarIR.Simd
+                lines[#lines + 1] = prefix .. emit.genericFieldAccess(context, statement, true) .. ";"
+                yield true
+            end
+            case "simd_reducer_add" -> do
+                local contribution = node as scalarIR.SimdReducerAdd
+                local named = contribution.reducer as scalarIR.Name
+                local species = genericSpecies(context, contribution.value.type)
+                local accumulator = body.simdAccumulators ~= nil and body.simdAccumulators[named.name] or nil
+                local value = emit.lane(context, contribution.value)
+                local right = contribution.right ~= nil and emit.lane(
+                    context,
+                    contribution.right as scalarIR.Expr
+                ) or nil
+                local mask = emit.lane(context, contribution.mask)
+                if accumulator ~= nil then
+                    -- The region keeps one lane-wise accumulator: the active
+                    -- lanes take the combined value and the rest keep theirs.
+                    local accType = simdAccumulatorType(
+                        contribution.order,
+                        contribution.element,
+                        contribution.value.type
+                    )
+                    local combined = right ~= nil and "(" .. value .. " * " .. right .. ")" or value
+                    if contribution.order == "exact" then
+                        combined = "__builtin_convertvector(" .. combined .. ", " .. emit.cType(context, accType) .. ")"
+                    end
+                    local operator = SIMD_ACCUMULATE_OPERATORS[contribution.operation] or "+"
+                    local accSpecies = genericSpecies(context, accType)
+                    local maskType = emit.cType(context, "simd_mask_" .. accType:sub(#"simd_vector_" + 1))
+                    lines[
+                        #lines + 1
+                    ] = prefix
+                        .. accumulator
+                        .. " = "
+                        .. species.helper
+                        .. "select_"
+                        .. accSpecies.suffix
+                        .. "(("
+                        .. maskType
+                        .. ")"
+                        .. mask
+                        .. ", "
+                        .. accumulator
+                        .. " "
+                        .. tostring(
+                            operator
+                        ) .. " " .. combined .. ", " .. accumulator .. ");"
+                    yield true
+                end
+                -- Everything else folds the active lanes into the scalar
+                -- reducer in ascending lane order, which is the order the
+                -- source would have contributed them one at a time.
+                temporary = temporary + 1
+                local serial = tostring(temporary)
+                local vectorC = emit.cType(context, contribution.value.type)
+                lines[#lines + 1] = prefix .. "{"
+                lines[#lines + 1] = prefix .. "    " .. vectorC .. " simd_value_" .. serial .. " = " .. value .. ";"
+                if right ~= nil then
+                    lines[#lines + 1] = prefix .. "    " .. vectorC .. " simd_right_" .. serial .. " = " .. right .. ";"
+                end
+                lines[
+                    #lines + 1
+                ] = prefix
+                    .. "    uint64_t simd_bits_"
+                    .. serial
+                    .. " = "
+                    .. species.helper
+                    .. "bits_"
+                    .. species.suffix
+                    .. "("
+                    .. mask
+                    .. ");"
+                local stateful = reducerHelper(contribution.order, contribution.operation, contribution.element)
+                for index = 0, species.lanes - 1 do
+                    local laneValue = genericLane(context, species, "simd_value_" .. serial, index)
+                    if right ~= nil then
+                        laneValue = "(" .. laneValue .. " * " .. genericLane(
+                            context,
+                            species,
+                            "simd_right_" .. serial,
+                            index
+                        ) .. ")"
+                    end
+                    local contributed: string
+                    if stateful ~= nil then
+                        contributed = stateful .. "add(&" .. tostring(named.cName) .. ", " .. laneValue .. ");"
+                    else
+                        local operator = contribution.operation == "product" and " *= " or " += "
+                        contributed = tostring(named.cName) .. operator .. laneValue .. ";"
+                    end
+                    lines[
+                        #lines + 1
+                    ] = prefix .. "    if ((simd_bits_" .. serial .. " >> " .. tostring(
+                        index
+                    ) .. ") & UINT64_C(1)) " .. contributed
+                end
+                lines[#lines + 1] = prefix .. "}"
+                yield true
+            end
+            case "simd_region" -> do
+                local region = node as scalarIR.SimdRegion
+                local accumulators: {[string]: string} = {}
+                local parallel: {scalarIR.SimdRegionReducer} = {}
+                lines[#lines + 1] = prefix .. "{"
+                -- A parallel order over a native species accumulates lane-wise
+                -- and folds once at the end; the oracle, a composite and every
+                -- other order contribute lane by lane as they go.
+                if body.forceScalar ~= true and not context.explicitScalar then
+                    for _, reducer in ipairs(region.reducers) do
+                        local species = genericSpecies(context, reducer.vectorType)
+                        if reducers.parallel(reducer.order) and not species.composite then
+                            temporary = temporary + 1
+                            local name = "simd_acc_" .. tostring(temporary)
+                            accumulators[reducer.name] = name
+                            parallel[#parallel + 1] = reducer
+                            local accType = simdAccumulatorType(reducer.order, reducer.element, reducer.vectorType)
+                            local accSpecies = genericSpecies(context, accType)
+                            lines[
+                                #lines + 1
+                            ] = prefix .. "    " .. emit.cType(
+                                context,
+                                accType
+                            )
+                                .. " "
+                                .. name
+                                .. " = "
+                                .. accSpecies.helper
+                                .. "splat_"
+                                .. accSpecies.suffix
+                                .. "(("
+                                .. emit.cType(
+                                    context,
+                                    accSpecies.element
+                                ) .. ")" .. reducers.identity(reducer.operation) .. ");"
+                        end
+                    end
+                end
+                local inner = new emit.Body(
+                    lanes = body.lanes,
+                    layouts = body.layouts,
+                    resultStruct = body.resultStruct,
+                    forceScalar = body.forceScalar,
+                    algebraicReducers = body.algebraicReducers,
+                    repeatSerial = body.repeatSerial,
+                    simdAccumulators = accumulators
+                )
+                append(emit.block(context, region.body, depth + 1, inner, repeatContinue))
+                for _, reducer in ipairs(parallel) do
+                    local accumulator = accumulators[reducer.name] as string
+                    local species = genericSpecies(context, reducer.vectorType)
+                    for index = 0, species.lanes - 1 do
+                        local laneValue = accumulator .. "[" .. tostring(index) .. "]"
+                        if reducer.order == "exact" then
+                            lines[
+                                #lines + 1
+                            ] = prefix .. "    " .. reducers.finish(
+                                reducer.operation,
+                                reducer.element as string,
+                                reducer.cName,
+                                laneValue
+                            )
+                        else
+                            local operator = reducer.operation == "product" and " *= " or " += "
+                            lines[
+                                #lines + 1
+                            ] = prefix .. "    " .. reducer.cName .. operator .. "(double)" .. laneValue .. ";"
+                        end
+                    end
+                end
+                lines[#lines + 1] = prefix .. "}"
+                yield true
+            end
             case "vreducer_add" -> do
                 local statement = node as lane.ReducerAdd
                 local contribution = statement as lane.ReducerAdd
@@ -3944,7 +4321,7 @@ function emit.block(
                 append(controlFlow(node as emit.Flow, depth, body, repeatContinue, expression, recursive, true))
                 yield true
             end
-            case "shared_store", "phase", "simd_species_u8", "simd_species", "simd_lanes_generic", "simd_splat", "simd_iota", "simd_tail", "simd_load", "simd_binary", "simd_unary", "simd_compare", "simd_select", "simd_mask_any", "simd_mask_all", "simd_mask_count", "simd_mask_first", "simd_mask_bits", "simd_extract", "simd_insert", "simd_permute", "simd_convert", "simd_reinterpret", "simd_compress", "simd_expand", "simd_prefix", "simd_horizontal", "simd_lanes", "simd_load_u8", "simd_load_string_u8", "simd_load_stride3_u8", "simd_splat_u8", "simd_shr_u8", "simd_shl_u8", "simd_table_u8x16", "simd_lookup16_u8", "simd_lookup64_u8", "simd_store4_u8", "simd_align_bytes_u8", "simd_padded_string_u8", "simd_padded_length", "simd_padded_full_length", "simd_padded_tail_length", "simd_padded_load_full_u8", "simd_padded_load_tail_u8", "simd_block64_load_u8", "simd_block64_and_byte_u8", "simd_block64_and_u8", "simd_block64_shr_u8", "simd_block64_lookup16_u8", "simd_block64_any_bits_u8", "simd_block64_last_u8", "simd_block64_utf8_errors_u8", "simd_block64_eq_u8", "simd_block64_range_u8", "simd_block64_outside_range_u8", "simd_tail_u8", "simd_eq_u8", "simd_range_u8", "simd_vec_and", "simd_vec_or", "simd_vec_xor", "simd_vec_not", "simd_mask_and", "simd_mask_or", "simd_mask_xor", "simd_mask_not", "simd_select_u8", "simd_any", "simd_all", "simd_count", "simd_bits", "simd_mask64", "simd_mask64_add", "simd_mask64_and", "simd_mask64_or", "simd_mask64_xor", "simd_mask64_not", "simd_mask64_shl", "simd_mask64_shr", "simd_mask64_prefix_xor", "simd_mask64_low", "simd_mask64_high", "simd_mask64_any", "simd_mask64_count", "simd_mask64_first", "simd_mask64_clear_first", "lua_builder_open_array", "lua_builder_open_object", "lua_builder_key", "lua_builder_string", "lua_builder_number", "lua_builder_number_slice", "lua_builder_integer_slice", "lua_builder_integer64", "lua_builder_decimal64", "lua_builder_boolean", "lua_builder_null", "lua_builder_close", "lua_builder_key_scratch", "lua_builder_string_scratch", "lua_builder_key_escapes", "lua_builder_string_escapes", "lua_set_index", "lua_set_key", "lua_string_buffer_append", "lua_scratch_u32_set", "lua_scratch_u8_set", "lua_scratch_u8_set4", "lua_scratch_u8_reset" -> error(
+            case "shared_store", "phase", "simd_species_u8", "simd_species", "simd_lanes_generic", "simd_splat", "simd_iota", "simd_tail", "simd_load", "simd_binary", "simd_unary", "simd_compare", "simd_select", "simd_mask_any", "simd_mask_all", "simd_mask_count", "simd_mask_first", "simd_mask_bits", "simd_extract", "simd_insert", "simd_permute", "simd_convert", "simd_reinterpret", "simd_compress", "simd_expand", "simd_prefix", "simd_horizontal", "simd_mask_splat", "simd_mask_convert", "simd_field_load", "simd_call", "simd_math", "simd_lanes", "simd_load_u8", "simd_load_string_u8", "simd_load_stride3_u8", "simd_splat_u8", "simd_shr_u8", "simd_shl_u8", "simd_table_u8x16", "simd_lookup16_u8", "simd_lookup64_u8", "simd_store4_u8", "simd_align_bytes_u8", "simd_padded_string_u8", "simd_padded_length", "simd_padded_full_length", "simd_padded_tail_length", "simd_padded_load_full_u8", "simd_padded_load_tail_u8", "simd_block64_load_u8", "simd_block64_and_byte_u8", "simd_block64_and_u8", "simd_block64_shr_u8", "simd_block64_lookup16_u8", "simd_block64_any_bits_u8", "simd_block64_last_u8", "simd_block64_utf8_errors_u8", "simd_block64_eq_u8", "simd_block64_range_u8", "simd_block64_outside_range_u8", "simd_tail_u8", "simd_eq_u8", "simd_range_u8", "simd_vec_and", "simd_vec_or", "simd_vec_xor", "simd_vec_not", "simd_mask_and", "simd_mask_or", "simd_mask_xor", "simd_mask_not", "simd_select_u8", "simd_any", "simd_all", "simd_count", "simd_bits", "simd_mask64", "simd_mask64_add", "simd_mask64_and", "simd_mask64_or", "simd_mask64_xor", "simd_mask64_not", "simd_mask64_shl", "simd_mask64_shr", "simd_mask64_prefix_xor", "simd_mask64_low", "simd_mask64_high", "simd_mask64_any", "simd_mask64_count", "simd_mask64_first", "simd_mask64_clear_first", "lua_builder_open_array", "lua_builder_open_object", "lua_builder_key", "lua_builder_string", "lua_builder_number", "lua_builder_number_slice", "lua_builder_integer_slice", "lua_builder_integer64", "lua_builder_decimal64", "lua_builder_boolean", "lua_builder_null", "lua_builder_close", "lua_builder_key_scratch", "lua_builder_string_scratch", "lua_builder_key_escapes", "lua_builder_string_escapes", "lua_set_index", "lua_set_key", "lua_string_buffer_append", "lua_scratch_u32_set", "lua_scratch_u8_set", "lua_scratch_u8_set4", "lua_scratch_u8_reset" -> error(
                 "unsupported C kernel statement " .. node.op,
                 0
             )

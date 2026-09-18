@@ -94,6 +94,19 @@ record verify.Scope
     sharedCounts: {[string]: integer}?
     localReadLimit: integer?
     localReadMinimum: integer?
+
+    --- Integer uniforms the guard relations prove non-negative and at most a
+    --- span's count, by uniform and then by span. A whole-vector guard may
+    --- compare against such a uniform instead of the span count itself.
+    countBounds: {[string]: {[string]: boolean}}?
+
+    --- The `simd_region` this block runs inside, if any.
+    region: verify.Region?
+end
+
+--- One `simd_region` as its body sees it: the reducers it accumulates.
+record verify.Region
+    reducers: {[string]: scalarIR.SimdRegionReducer}
 end
 
 --- What the lane rules need beyond the scope.
@@ -138,7 +151,9 @@ local function derive(scope: verify.Scope, overrides: {[string]: any}): verify.S
         shared = scope.shared,
         sharedCounts = scope.sharedCounts,
         localReadLimit = scope.localReadLimit,
-        localReadMinimum = scope.localReadMinimum
+        localReadMinimum = scope.localReadMinimum,
+        countBounds = scope.countBounds,
+        region = scope.region
     )
     for field, value in pairs(overrides) do
         (nested as any)[field] = value
@@ -631,8 +646,8 @@ local function laneBound(
     comparison: scalarIR.Binary,
     values: {[string]: string},
     scope: verify.Scope
-): (string?, string?, string?)
-    if comparison.op ~= "le" or comparison.left.op ~= "u64_add" or comparison.right.op ~= "span_count" then
+): (string?, {string}?, string?)
+    if comparison.op ~= "le" or comparison.left.op ~= "u64_add" then
         return nil, nil, nil
     end
     local sum = comparison.left as scalarIR.Fixed
@@ -646,13 +661,38 @@ local function laneBound(
     end
     local cursor = (cursorNode as scalarIR.Name).name
     local species = (lanesNode as scalarIR.Simd).args[1]
-    local spanName = (comparison.right as scalarIR.SpanCount).span
-    local root = scope.spans[spanName]
-    if values[cursor] ~= "u32" or species == nil or root == nil or (root as scalarIR.Param).region == nil then
+    if values[cursor] ~= "u32" or species == nil then
         return nil, nil, nil
     end
 
-    return cursor, spanName, tostring(species.type)
+    -- The right-hand side is a span's count, or an integer uniform the guard
+    -- relations hold at or below the counts of some spans: a map loop's
+    -- `last`, which bounds the cursor against every span `last` is proved
+    -- against.
+    local spans: {string} = {}
+    local right = comparison.right
+    if right.op == "span_count" then
+        local spanName = (right as scalarIR.SpanCount).span
+        local root = scope.spans[spanName]
+        if root == nil or (root as scalarIR.Param).region == nil then
+            return nil, nil, nil
+        end
+        spans[1] = spanName
+    elseif right.op == "numeric_cast" and right.type == "u64" and (right as scalarIR.Convert).value.op == "uniform" then
+        local uniform = (right as scalarIR.Convert).value as scalarIR.Name
+        local proved = (scope.countBounds or {})[uniform.name]
+        if proved == nil then
+            return nil, nil, nil
+        end
+        for spanName in pairs(proved as {[string]: boolean}) do
+            spans[#spans + 1] = spanName
+        end
+        table.sort(spans)
+    else
+        return nil, nil, nil
+    end
+
+    return cursor, spans, tostring(species.type)
 end
 
 --- Whether a vector access's cursor claim holds: the access is at `cursor +
@@ -730,10 +770,12 @@ local function binary(node: scalarIR.Binary, values: {[string]: string}, scope: 
     elseif op == "and" and node.left.op == "le" then
         -- The same for a whole vector: `cursor + s.lanes <= #span and
         -- s:load(span, cursor + 1)`.
-        local cursor, spanName, speciesType = laneBound(node.left as scalarIR.Binary, values, scope)
+        local cursor, spans, speciesType = laneBound(node.left as scalarIR.Binary, values, scope)
         if cursor ~= nil then
             local cursorBounds = inheritBounds(scope.cursorBounds)
-            withBound(cursorBounds, cursor as string, spanName as string, speciesType as string)
+            for _, spanName in ipairs(spans as {string}) do
+                withBound(cursorBounds, cursor as string, spanName, speciesType as string)
+            end
             rightScope = derive(scope, {cursorBounds = cursorBounds})
         end
     end
@@ -767,6 +809,11 @@ local GENERIC_SIMD: {
     simd_expand = true,
     simd_prefix = true,
     simd_horizontal = true,
+    simd_mask_splat = true,
+    simd_mask_convert = true,
+    simd_field_load = true,
+    simd_call = true,
+    simd_math = true,
 }
 
 local function genericSimdType(typeName: string): (string?, string?, string?)
@@ -802,6 +849,95 @@ local function genericSimdSpanElement(param: scalarIR.Param): string
     }
 
     return physical[param.sourceType or ""] or param.type
+end
+
+--- The packed element identity a reified struct field stores, or nil when the
+--- layout or the field is not there.
+local function genericSimdFieldElement(scope: verify.Scope, layoutName: string?, field: string?): string?
+    local layout = layoutName ~= nil and scope.layouts[layoutName as string] or nil
+    if layout == nil or field == nil then
+        return nil
+    end
+    local stored = (layout as scalarIR.Layout).fieldTypes or {}
+    local sources = (layout as scalarIR.Layout).fieldSourceTypes or {}
+    local storedType = stored[field as string]
+    if storedType == nil then
+        return nil
+    end
+
+    return genericSimdSpanElement(
+        new scalarIR.Param(
+            kind = "read_span",
+            name = field as string,
+            type = storedType as string,
+            sourceType = sources[field as string]
+        )
+    )
+end
+
+--- Whether two mask types have the same lane count: the same fixed shape, or
+--- the preferred shape over elements of one bit width.
+local function sameLaneCount(left: string, right: string): boolean
+    local leftFamily, leftElement, leftShape = genericSimdType(left)
+    local rightFamily, rightElement, rightShape = genericSimdType(right)
+    if leftFamily ~= "mask" or rightFamily ~= "mask" or leftShape ~= rightShape then
+        return false
+    elseif leftShape ~= "preferred" then
+        return true
+    end
+
+    return tostring(leftElement):match("%d+") == tostring(rightElement):match("%d+")
+end
+
+--- Checks the strided field access shared by `simd_field_load` and
+--- `simd_field_store`: the species, index and mask operands, the struct span
+--- root, the field it names, and the cursor claim when the access makes one.
+local function genericFieldAccess(
+    access: scalarIR.Simd,
+    vectorType: string,
+    valueCount: integer,
+    rootKind: string,
+    values: {[string]: string},
+    scope: verify.Scope
+): nil
+    local args = access.args
+    local family, element, shape = genericSimdType(vectorType)
+    local maskPosition = 3 + valueCount
+    holds(
+        family == "vector" and (
+            #args == maskPosition - 1 or #args == maskPosition
+        ) and access.intrinsic == "field" and args[
+            1
+        ].type == "simd_species_" .. tostring(
+            element
+        ) .. "_" .. tostring(
+            shape
+        ) and args[
+            2
+        ].type == "f64" and (
+            args[
+                maskPosition
+            ] == nil or args[maskPosition].type == "simd_mask_" .. tostring(element) .. "_" .. tostring(shape)
+        ),
+        "generic SIMD field access operands do not match"
+    )
+    local span = access.span ~= nil and scope.spans[access.span as string] or nil
+    holds(
+        span ~= nil and (
+            span as scalarIR.Param
+        ).kind == rootKind and (
+            span as scalarIR.Param
+        ).type == "struct:" .. tostring(
+            access.layout
+        ) and genericSimdFieldElement(scope, access.layout, access.field) == element,
+        "invalid generic SIMD field access root"
+    )
+    if access.cursor ~= nil then
+        holds(args[maskPosition] == nil and vectorCursor(access, values, scope), "unbounded SIMD cursor field access")
+    end
+    for _, argument in ipairs(args) do
+        scalarWalk(argument, values, scope)
+    end
 end
 
 scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: verify.Scope): nil
@@ -969,6 +1105,50 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
             )
         elseif op == "simd_tail" then
             holds(family == "mask" and #args == 1 and args[1].type == "u32", "invalid generic SIMD tail")
+        elseif op == "simd_mask_splat" then
+            holds(family == "mask" and #args == 1 and args[1].type == "bool", "invalid generic SIMD mask splat")
+        elseif op == "simd_mask_convert" then
+            holds(
+                family == "mask" and #args == 1 and sameLaneCount(args[1].type, node.type),
+                "generic SIMD mask conversion changes the lane count"
+            )
+        elseif op == "simd_field_load" then
+            genericFieldAccess(simd, node.type, 0, "read_span", values, scope)
+
+            return
+        elseif op == "simd_call" or op == "simd_math" then
+            holds(family == "vector" and #args >= 1, "invalid generic SIMD lane-wise call")
+            local scalar = genericSimdScalar(element)
+            if op == "simd_call" then
+                local found = simd.helper ~= nil and scope.helpers[simd.helper as string] or nil
+                holds(found ~= nil, "invalid generic SIMD lane-wise helper")
+                local helper = found as scalarIR.Helper
+                -- A helper takes and returns ordinary Nupp values, so a float
+                -- species calls one over binary64.
+                local carrier = scalar == "f32" and "f64" or scalar
+                holds(
+                    #helper.params == #args and helper.resultType == carrier and (
+                        helper.resultTypes == nil or #(helper.resultTypes as {scalarIR.Type}) == 1
+                    ),
+                    "generic SIMD lane-wise helper does not take the element"
+                )
+                for _, param in ipairs(helper.params) do
+                    holds(param.type == carrier, "generic SIMD lane-wise helper does not take the element")
+                end
+            else
+                holds(
+                    (element == "f32" or element == "f64") and MATH[tostring(simd.intrinsic)] == true,
+                    "invalid generic SIMD lane-wise math"
+                )
+            end
+            -- Each operand is a local: the per-lane expansion names every
+            -- operand once per lane, and only a local reads the same both times.
+            for _, argument in ipairs(args) do
+                holds(
+                    argument.op == "local" and argument.type == node.type,
+                    "generic SIMD lane-wise operand is not a local of the result's species"
+                )
+            end
         elseif op == "simd_load" then
             holds(family == "vector" and (#args == 2 or #args == 3), "invalid generic SIMD load")
             holds(simd.intrinsic == "load" or simd.intrinsic == "gather", "invalid SIMD load addressing")
@@ -1779,6 +1959,10 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
         )
         local named = reducer.reducer as scalarIR.Name
         holds(values[named.name] == reducer.reducer.type, "reducer finalization does not match its scoped binding")
+        holds(
+            scope.region == nil or (scope.region as verify.Region).reducers[named.name] == nil,
+            "reducer finalized inside the region accumulating it"
+        )
         scalarWalk(reducer.reducer, values, scope)
     elseif verify.BINARY_OPCODES[tostring(op)] == true then
         binary(node as scalarIR.Binary, values, scope)
@@ -2159,9 +2343,17 @@ local function provesCursorBound(
             scope
         ) or provesCursorBound(binary.right, cursor, spanName, room, values, scope)
     elseif condition.op == "le" then
-        local boundCursor, boundSpan, speciesType = laneBound(condition as scalarIR.Binary, values, scope)
+        local boundCursor, boundSpans, speciesType = laneBound(condition as scalarIR.Binary, values, scope)
+        if boundCursor ~= cursor or speciesType ~= room then
+            return false
+        end
+        for _, boundSpan in ipairs(boundSpans as {string}) do
+            if boundSpan == spanName then
+                return true
+            end
+        end
 
-        return boundCursor == cursor and boundSpan == spanName and speciesType == room
+        return false
     elseif room ~= scalarIR.ONE_ELEMENT then
         return false
     elseif condition.op == "lt" then
@@ -2304,6 +2496,54 @@ end
 ---
 --- `stored` accumulates which outputs were written, because a kernel whose
 --- output is never assigned is a kernel that silently did nothing.
+--- The reducer operations a masked vector contribution can make. The rest
+--- take a lane index or a boolean the vector vocabulary has no carrier for.
+local VECTOR_CONTRIBUTIONS: {
+    [string]: boolean
+} = {sum = true, product = true, dot = true, ["and"] = true, ["or"] = true, xor = true, min = true, max = true,}
+
+--- How many times one pass over a statement sequence contributes to each
+--- reducer: statements in sequence add and the arms of a branch take the
+--- largest. A nested loop's body is its own sequence -- each of its passes
+--- is one iteration of the region -- so it is held to the rule on its own and
+--- adds nothing to the sequence around it, which is how a vector loop and its
+--- masked tail both contribute once.
+--- @raises when any sequence contributes twice to one reducer
+local function contributions(statements: {scalarIR.Statement}, region: {[string]: boolean}): {[string]: integer}
+    local counts: {[string]: integer} = {}
+
+    local function merge(into: {[string]: integer}, from: {[string]: integer}, largest: boolean): nil
+        for name, count in pairs(from) do
+            local current = into[name] or 0
+            into[name] = largest and math.max(current, count) or current + count
+        end
+    end
+
+    for _, statement in ipairs(statements) do
+        if statement.op == "simd_reducer_add" then
+            local named = (statement as scalarIR.SimdReducerAdd).reducer as scalarIR.Name
+            holds(region[named.name] == true, "a SIMD region contribution names a reducer outside it")
+            counts[named.name] = (counts[named.name] or 0) + 1
+        elseif statement.op == "if" then
+            local arms: {[string]: integer} = {}
+            for _, clause in ipairs((statement as scalarIR.If).clauses) do
+                merge(arms, contributions(clause.body, region), true)
+            end
+            merge(arms, contributions((statement as scalarIR.If).elseBody or {}, region), true)
+            merge(counts, arms, false)
+        elseif statement.op == "block" then
+            merge(counts, contributions((statement as scalarIR.Block).body, region), false)
+        elseif statement.op == "while" or statement.op == "repeat" or statement.op == "fornum" then
+            contributions((statement as any).body as {scalarIR.Statement}, region)
+        end
+    end
+    for _, count in pairs(counts) do
+        holds(count <= 1, "a reducer contributed twice in one region iteration")
+    end
+
+    return counts
+end
+
 local function block(
     statements: {scalarIR.Statement},
     inherited: {[string]: string},
@@ -2573,6 +2813,80 @@ local function block(
             for _, argument in ipairs(store.args) do
                 scalarWalk(argument, values, scope)
             end
+        elseif statement.op == "simd_field_store" then
+            local store = statement as scalarIR.Simd
+            holds(store.type == "lua_effect" and store.args[3] ~= nil, "invalid generic SIMD field store")
+            genericFieldAccess(store, store.args[3].type, 1, "write_span", values, scope)
+        elseif statement.op == "simd_reducer_add" then
+            local contribution = statement as scalarIR.SimdReducerAdd
+            holds(contribution.reducer.op == "local", "invalid SIMD reducer contribution")
+            local named = contribution.reducer as scalarIR.Name
+            local region = scope.region
+            local accumulated = region ~= nil and (region as verify.Region).reducers[named.name] or nil
+            holds(accumulated ~= nil, "a SIMD reducer contribution outside a region accumulating its reducer")
+            local entry = accumulated as scalarIR.SimdRegionReducer
+            holds(
+                values[
+                    named.name
+                ] == contribution.reducer.type
+                and entry.order == contribution.order
+                and entry.operation == contribution.operation
+                and entry.element == contribution.element,
+                "SIMD reducer contribution does not match its region's reducer"
+            )
+            local family, element, shape = genericSimdType(entry.vectorType)
+            holds(
+                family == "vector"
+                and contribution.value.type == entry.vectorType
+                and contribution.mask.type == "simd_mask_"
+                .. tostring(
+                    element
+                ) .. "_" .. tostring(
+                    shape
+                ) and (
+                    contribution.operation == "dot"
+                ) == (
+                    contribution.right ~= nil
+                ) and (contribution.right == nil or (contribution.right as scalarIR.Expr).type == entry.vectorType),
+                "SIMD reducer contribution operands do not match"
+            )
+            scalarWalk(contribution.reducer, values, scope)
+            scalarWalk(contribution.value, values, scope)
+            scalarWalk(contribution.mask, values, scope)
+            if contribution.right ~= nil then
+                scalarWalk(contribution.right as scalarIR.Expr, values, scope)
+            end
+        elseif statement.op == "simd_region" then
+            local region = statement as scalarIR.SimdRegion
+            holds(scope.region == nil, "a SIMD region inside another")
+            local accumulated: {[string]: scalarIR.SimdRegionReducer} = {}
+            for _, entry in ipairs(region.reducers) do
+                local reducerType = values[entry.name]
+                holds(
+                    reducerType ~= nil and accumulated[entry.name] == nil,
+                    "a SIMD region names a reducer twice or not in scope"
+                )
+                local _, _, parsedElement = reducers.parse(reducerType as string)
+                local input = reducers.input(reducerType as string, entry.order, entry.operation)
+                holds(
+                    input ~= nil and parsedElement == entry.element,
+                    "a SIMD region's reducer does not match its binding"
+                )
+                local family, element = genericSimdType(entry.vectorType)
+                holds(
+                    family == "vector" and genericSimdScalar(
+                        element
+                    ) == input and VECTOR_CONTRIBUTIONS[entry.operation] == true,
+                    "a SIMD region's reducer takes no vector contribution"
+                )
+                accumulated[entry.name] = entry
+            end
+            block(region.body, values, derive(scope, {region = new verify.Region(reducers = accumulated)}), stored)
+            local named: {[string]: boolean} = {}
+            for name in pairs(accumulated) do
+                named[name] = true
+            end
+            contributions(region.body, named)
         elseif statement.op == "simd_store4_u8" then
             local store = statement as scalarIR.Simd
             holds(
@@ -3404,13 +3718,17 @@ end
 --- that does not follow from it is a claim nothing checks -- and this is where
 --- a fabricated one, or a relation quietly dropped from the list it was proved
 --- against, stops being an artifact and becomes a build failure.
-local function bounds(program: scalarIR.Program, byName: {[string]: scalarIR.Param}, primary: scalarIR.Param?): nil
+local function bounds(
+    program: scalarIR.Program,
+    byName: {[string]: scalarIR.Param},
+    primary: scalarIR.Param?
+): {[string]: {[string]: boolean}}?
     local pool = program.relations or {}
     if program.loop == nil then
         holds(program.rangeGuard == nil and #program.guards == 0, "a block kernel carried map-loop bounds")
         holds(#pool == 0, "a block kernel carried guard relations")
 
-        return
+        return nil
     end
     local loop = program.loop as scalarIR.Loop
     holds(primary ~= nil, "a map loop has no primary output")
@@ -3473,6 +3791,29 @@ local function bounds(program: scalarIR.Program, byName: {[string]: scalarIR.Par
     -- unguarded. What keeps that sound is the access rule: the body walk accepts
     -- the loop index only against `indexSpans`, so an unguarded span is
     -- reachable through proved cursors alone.
+
+    -- Every integer uniform the relations hold between zero and a span's
+    -- count, so a whole-vector guard written against the uniform bounds a
+    -- cursor against that span.
+    local countBounds: {[string]: {[string]: boolean}} = {}
+    for _, param in ipairs(program.params) do
+        if param.kind == "uniform" and param.sourceType == "integer" then
+            local uniform = relations.uniform(param.name)
+            if relations.proves(closure, relations.zero(), uniform, 0) ~= nil then
+                local proved: {[string]: boolean} = {}
+                for _, spanName in ipairs(spans) do
+                    if relations.proves(closure, uniform, relations.count(spanName), 0) ~= nil then
+                        proved[spanName] = true
+                    end
+                end
+                if next(proved) ~= nil then
+                    countBounds[param.name] = proved
+                end
+            end
+        end
+    end
+
+    return countBounds
 end
 
 --- The helper bodies, each of which is one return list and nothing else.
@@ -3748,7 +4089,7 @@ function verify.program(program: scalarIR.Program): scalarIR.Program
 
     local layouts = layoutsByName(program)
     local byName, byRegion, writes, primary = signature(program, layouts)
-    bounds(program, byName, primary)
+    local countBounds = bounds(program, byName, primary)
     regions(program, byRegion)
 
     local helpers: {[string]: scalarIR.Helper} = {}
@@ -3852,7 +4193,8 @@ function verify.program(program: scalarIR.Program): scalarIR.Program
         workgroup = workgroup ~= nil,
         inPhase = false,
         shared = sharedTypes,
-        sharedCounts = sharedCounts
+        sharedCounts = sharedCounts,
+        countBounds = countBounds
     )
     helperBodies(program, scope)
 

@@ -895,4 +895,265 @@ return {command = command}
     refuses(program, "string match input is not rooted")
 end
 
+--- The first expression under `node` satisfying `predicate`, depth first.
+local function findExpr(node, predicate)
+    if type(node) ~= "table" then
+        return nil
+    end
+    if node.op ~= nil and predicate(node) then
+        return node
+    end
+    for _, child in pairs(node) do
+        local found = findExpr(child, predicate)
+        if found then
+            return found
+        end
+    end
+
+    return nil
+end
+
+function M.aLaneWiseCallTakesOnlyLocalsOfItsSpecies()
+    -- The per-lane expansion names each operand once per lane, so only a
+    -- local reads the same every time.
+    local program = lowered(
+        [[
+local span = require("nupp.mem.span")
+local array = require("nupp.mem.array")
+local simd = require("nupp.simd")
+local function bump(value: number): number
+    return value * 2.0 + 1.0
+end
+@aot
+local function mapped(exclusive out: span.WriteSpan<number>, borrows input: span.Span<number>): nil
+    local s = assert(simd.species(array.number, 4))
+    local active = s:tail(#input)
+    local v = s:load(input, 1, active)
+    local roots = s:map(math.sqrt, v)
+    s:store(out, 1, s:map(bump, roots), active)
+end
+return {mapped = mapped}
+]],
+        "mapped.nupp"
+    )
+    verify.program(program)
+    local call = assert(findExpr(program.body, function(node)
+        return node.op == "simd_call"
+    end))
+    local operand = call.args[1]
+    assert(operand.op == "local", "the lowerer binds the operand")
+    call.args[1] = {op = "simd_splat", args = {{op = "local", name = "s", type = "simd_species_f64_fixed4"}, {op = "constant", value = "1", type = "f64"}}, type = operand.type}
+    refuses(program, "generic SIMD lane-wise operand is not a local of the result's species")
+    call.args[1] = operand
+    verify.program(program)
+    local helper = call.helper
+    call.helper = "missing"
+    refuses(program, "invalid generic SIMD lane-wise helper")
+    call.helper = helper
+    local math_ = assert(findExpr(program.body, function(node)
+        return node.op == "simd_math"
+    end))
+    math_.intrinsic = "select"
+    refuses(program, "invalid generic SIMD lane-wise math")
+end
+
+function M.aMaskConversionKeepsTheLaneCount()
+    local program = lowered(
+        [[
+local span = require("nupp.mem.span")
+local array = require("nupp.mem.array")
+local simd = require("nupp.simd")
+@aot
+local function masks(exclusive out: span.WriteSpan<int32>, borrows input: span.Span<number>): nil
+    local s = assert(simd.species(array.number, 4))
+    local si = assert(simd.species(array.int32, 4))
+    local active = s:tail(#input)
+    local v = s:load(input, 1, active)
+    local kept = s:mask(true):select(v, s:splat(0.0))
+    si:store(out, 1, si:convert(kept), si:mask(active))
+end
+return {masks = masks}
+]],
+        "masks.nupp"
+    )
+    verify.program(program)
+    local convert = assert(findExpr(program.body, function(node)
+        return node.op == "simd_mask_convert"
+    end))
+    assert(convert.args[1].type == "simd_mask_f64_fixed4", "the mask converted")
+    convert.args[1].type = "simd_mask_f64_fixed8"
+    refuses(program, "generic SIMD mask conversion changes the lane count")
+    convert.args[1].type = "simd_mask_f64_fixed4"
+    verify.program(program)
+    local splat = assert(findExpr(program.body, function(node)
+        return node.op == "simd_mask_splat"
+    end))
+    splat.args[1] = {op = "constant", value = "1", type = "f64"}
+    refuses(program, "invalid generic SIMD mask splat")
+end
+
+function M.aFieldAccessNamesAFieldOfItsElement()
+    local program = lowered(
+        [[
+local span = require("nupp.mem.span")
+local array = require("nupp.mem.array")
+local simd = require("nupp.simd")
+local struct Pair
+    x: float
+    n: int32
+end
+@aot
+local function copy(exclusive out: span.WriteSpan<Pair>, borrows src: span.Span<Pair>): nil
+    local s = assert(simd.species(array.float, 4))
+    local rest = s:tail(#src)
+    s:store(out, 1, "x", s:load(src, 1, "x", rest), rest)
+end
+return {copy = copy}
+]],
+        "fields.nupp"
+    )
+    verify.program(program)
+    local load = assert(findExpr(program.body, function(node)
+        return node.op == "simd_field_load"
+    end))
+    assert(load.field == "x", "the field loaded")
+    load.field = "n"
+    refuses(program, "invalid generic SIMD field access root")
+    load.field = "missing"
+    refuses(program, "invalid generic SIMD field access root")
+    load.field = "x"
+    verify.program(program)
+    local store = assert(find(program.body, function(statement)
+        return statement.op == "simd_field_store"
+    end))
+    store.field = "n"
+    refuses(program, "invalid generic SIMD field access root")
+    store.field = "x"
+    store.span = "src"
+    refuses(program, "invalid generic SIMD field access root")
+end
+
+local REGION = [[
+local span = require("nupp.mem.span")
+local array = require("nupp.mem.array")
+local simd = require("nupp.simd")
+@aot
+local function total(borrows input: span.Span<number>, seed: number): number
+    local s = assert(simd.species(array.number, 4))
+    local fold = simd.reducer.orderedSum(seed)
+    do
+        local cursor: uint32 = 0
+        while cursor + s.lanes <= #input do
+            fold:add(s:load(input, cursor + 1), s:mask(true))
+            cursor = cursor + s.lanes
+        end
+        local rest = s:tail(#input - cursor)
+        fold:add(s:load(input, cursor + 1, rest), rest)
+    end
+    return fold:value()
+end
+return {total = total}
+]]
+
+function M.aMaskedContributionBelongsToTheRegionAccumulatingItsReducer()
+    local program = lowered(REGION, "region.nupp")
+    verify.program(program)
+    local region = assert(find(program.body, function(statement)
+        return statement.op == "simd_region"
+    end))
+    local loop = assert(find(region.body, function(statement)
+        return statement.op == "while"
+    end))
+    local contribution = assert(find(loop.body, function(statement)
+        return statement.op == "simd_reducer_add"
+    end))
+
+    -- A contribution outside the region has no accumulator to contribute to.
+    local at = nil
+    for index, statement in ipairs(program.body) do
+        if statement == region then
+            at = index
+        end
+    end
+    assert(at, "the region is a top-level statement")
+    table.insert(program.body, at, contribution)
+    refuses(program, "a SIMD reducer contribution outside a region accumulating its reducer")
+    table.remove(program.body, at)
+    verify.program(program)
+
+    -- One contribution per reducer per iteration is the contract the scalar
+    -- oracle and the Lua reference hold; a second in the same sequence is
+    -- two iterations' worth.
+    table.insert(loop.body, 1, contribution)
+    refuses(program, "a reducer contributed twice in one region iteration")
+    table.remove(loop.body, 1)
+    verify.program(program)
+
+    -- The region names the reducers it accumulates; a contribution to one it
+    -- does not name is outside it however it is nested.
+    local named = region.reducers[1].name
+    region.reducers[1].name = "seed"
+    refuses(program, "a SIMD region")
+    region.reducers[1].name = named
+    verify.program(program)
+
+    -- The contribution is held to the region's contract, not its own claim.
+    local order = contribution.order
+    contribution.order = "pairwise"
+    refuses(program, "SIMD reducer contribution does not match its region's reducer")
+    contribution.order = order
+    verify.program(program)
+end
+
+local LAST_MAP = [[
+local span = require("nupp.mem.span")
+@aot
+local function add(exclusive output: span.WriteSpan<uint8>, borrows input: span.Span<uint8>, first: integer, last: integer): nil
+    assert(#output == #input, "length mismatch")
+    assert(first >= 1 and last <= #output and first <= last + 1, "range")
+    for i = first, last do
+        output[i] = input[i]
+    end
+end
+return {add = add}
+]]
+
+function M.aWholeVectorGuardAgainstAProvedLastBoundsEverySpanItIsProvedAgainst()
+    -- A map loop's `last` is proved at or below the counts of the spans its
+    -- guards relate it to, so `cursor + s.lanes <= last` bounds the cursor
+    -- against each of them. Nothing lowers this shape yet; the rewrite that
+    -- will is what the accepted proof form exists for, so it is built by hand
+    -- from a block kernel's proven loop grafted into a map kernel's body.
+    local program = lowered(LAST_MAP, "last-map.nupp")
+    verify.program(program)
+    local vector = lowered(VECTOR_MAP, "map.g.nupp")
+    local loop = assert(find(vector.body, function(statement)
+        return statement.op == "while"
+    end))
+    local condition = loop.condition
+    assert(condition.op == "and" and condition.left.op == "le" and condition.right.op == "le", "the two guards")
+    local last = {op = "numeric_cast", value = {op = "uniform", name = "last", type = "f64"}, type = "u64"}
+    loop.condition = {op = "and", left = {op = "le", left = condition.left.left, right = last, type = "bool"}, right = {op = "le", left = condition.right.left, right = last, type = "bool"}, type = "bool"}
+    local grafted = {}
+    for _, statement in ipairs(vector.body) do
+        grafted[#grafted + 1] = statement
+    end
+    for _, statement in ipairs(program.loop.statements) do
+        grafted[#grafted + 1] = statement
+    end
+    program.loop.statements = grafted
+    verify.program(program)
+
+    -- Only a uniform the guards prove at or below the span's count carries
+    -- the bound: `first` is proved positive, and nothing more.
+    last.value.name = "first"
+    refuses(program, "invalid loop cursor bounds proof for cursor against")
+    last.value.name = "last"
+    verify.program(program)
+
+    -- A guard against a scalar that is not a uniform proves nothing at all.
+    last.value = {op = "constant", value = "4", type = "f64"}
+    refuses(program, "invalid loop cursor bounds proof for cursor against")
+end
+
 return M

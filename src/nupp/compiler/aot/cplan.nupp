@@ -160,13 +160,17 @@ function cplan.expressions(programs: {scalarIR.Program}): cplan.Expressions
                 if selected ~= nil then
                     plans.comparisons[node] = selected
                 end
-            elseif node.op == "simd_load" or node.op == "simd_store" then
+            elseif node.op == "simd_load"
+            or node.op == "simd_store"
+            or node.op == "simd_field_load"
+            or node.op == "simd_field_store"
+            then
                 local offset = (node as scalarIR.Simd).args[2]
                 plans.starts[offset] = cplan.spanStart(offset)
             end
         end,
         scalarStatement = function(node: scalarIR.Statement): nil
-            if node.op == "simd_store" then
+            if node.op == "simd_store" or node.op == "simd_field_store" then
                 local offset = (node as scalarIR.Simd).args[2]
                 plans.starts[offset] = cplan.spanStart(offset)
             end
