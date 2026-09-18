@@ -431,7 +431,7 @@ function M.wrappedRepeatLoopKeepsItsConditionInTheBodyScope()
         "the authored condition is read outside the body's scope:\n" .. code
     )
     assert(
-        select(2, code:gsub("=done;", "")) == 2,
+        select(2, code:gsub("=%s*done%s*;", "")) == 2,
         "the condition is evaluated at the body's end and at the continue:\n" .. code
     )
     local body = code:sub(assert(code:find("local i = 0", 1, true)), assert(code:find("return i ,", 1, true)))

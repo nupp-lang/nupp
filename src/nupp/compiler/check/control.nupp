@@ -534,22 +534,46 @@ function control.install(c: state.Checker): state.StatHandlers
     -- Statements that leave a block
     ---------------------------------------------------------------------
 
-    handlers.switchYieldStmt = function(stat: cst.SwitchYieldStmt)
-        local collector = c.switchYieldStack[#c.switchYieldStack]
+    handlers.yieldStmt = function(stat: cst.YieldStmt)
+        local collector = c.blockYieldStack[#c.blockYieldStack]
         local valueT = stat.value and c.infer(stat.value) or T.any
         if not collector then
-            c.diag("NUPP2141", stat, "'yield' is only a switch result inside a block arm")
+            c.diag("NUPP2141", stat, "'yield' requires an enclosing do expression")
             return
         end
         collector[#collector + 1] = valueT
         stat.switchResultType = valueT
-        -- The value leaves with the switch, whose own statement accounts for it; a
-        -- named owner moves out here.
+        if collector.roots then
+            collector.expressions[#collector.expressions + 1] = stat.value
+            local roots = ownershipKind(
+                valueT
+            ) == "borrowed" and provenanceOwners(stat.value) or own.capabilityFacts(stat.value, nil, false).roots or {}
+            for _, root in ipairs(roots) do
+                if not collector.visible[root] then
+                    c.diag(
+                        "NUPP2608",
+                        stat.value,
+                        "a yielded borrow cannot outlive its source inside the do expression"
+                    )
+                end
+                if not collector.seenRoots[root] then
+                    collector.seenRoots[root] = true
+                    collector.roots[#collector.roots + 1] = root
+                end
+            end
+        end
+        -- A named owner leaves with the expression's result.
         if ownershipKind(valueT) == "affine" then
             c.markTemporaryConsumed(stat.value)
             if c.ownershipEntry(stat.value) then
-                moveExpression(stat.value, valueT, "switch result", "affine")
+                moveExpression(stat.value, valueT, "do expression result", "affine")
             end
+        end
+        if collector.before then
+            local current = ownershipSnapshot()
+            noteArmEnd(collector.join)
+            ownershipRewind(collector.before, collector.moved, true, collector.join)
+            ownershipRewind(current, {}, false)
         end
     end
 

@@ -536,7 +536,7 @@ function expr.install(c: state.Checker): nil
 
     local function statCompletesSwitch(stat: Node): boolean
         local kind = stat.kind
-        if kind == "switchYieldStmt" or kind == "returnStmt" or kind == "breakStmt" or kind == "continueStmt" then
+        if kind == "yieldStmt" or kind == "returnStmt" or kind == "breakStmt" or kind == "continueStmt" then
             return true
         elseif kind == "ifStmt" then
             if stat.elseClause == nil then
@@ -572,7 +572,7 @@ function expr.install(c: state.Checker): nil
                     c.diag(
                         "NUPP2141",
                         stats[index + 1],
-                        "statements after a completing switch-arm path are unreachable"
+                        "statements after a completing expression-block path are unreachable"
                     )
                 end
                 return true
@@ -580,6 +580,54 @@ function expr.install(c: state.Checker): nil
         end
 
         return c.alwaysExits(block)
+    end
+
+    --- Shares the block-result contract with switch arms.
+    local function inferDo(node: cst.DoExpr): Type
+        local yielded: any = {
+            roots = {},
+            seenRoots = {},
+            visible = {},
+            expressions = {},
+            before = c.ownershipSnapshot(),
+            moved = {},
+            join = c.ownershipJoin()
+        }
+        local scope = c.scope
+        while scope do
+            for _, entry in pairs(scope.vars or {}) do
+                local root = c.own.borrowRoot(c.ownershipState(entry))
+                if root then
+                    yielded.visible[root] = true
+                end
+            end
+            scope = scope.parent
+        end
+        c.blockYieldStack[#c.blockYieldStack + 1] = yielded
+        c.checkBlock(node.body)
+        c.blockYieldStack[#c.blockYieldStack] = nil
+        local completes = blockCompletesSwitch(node.body)
+        if not completes then
+            c.diag("NUPP2141", node, "this do expression can finish without yielding a value", nil, {
+                help = "end every completing path with `yield value`, or return from the enclosing function"
+            })
+        end
+        c.auditOwnershipJoin(yielded.moved, yielded.join, node)
+        c.own.capabilityFacts(node).roots = #yielded.roots > 0 and yielded.roots or nil
+        for index, expression in ipairs(yielded.expressions) do
+            if index == 1 then
+                c.fixedWidth.copy(node, expression)
+            else
+                c.fixedWidth.intersect(node, node, expression)
+            end
+        end
+        local result = #yielded > 0 and T.union(yielded) or (completes and T.never or T.any)
+        node.switchResultType = result
+        if c.ownershipKind(result) == "affine" then
+            c.own.temporaryProduced(node)
+        end
+
+        return result
     end
 
     ---------------------------------------------------------------------
@@ -596,6 +644,7 @@ function expr.install(c: state.Checker): nil
         local results: {Type} = {}
         local resultExpressions: {cst.Node} = {}
         local resultExpressionTypes: {Type} = {}
+        local resultRoots, seenRoots = {}, {}
         local expressionResultsOnly = true
         local ownershipBefore = c.ownershipSnapshot()
         local branchMoved: {[any]: boolean} = {}
@@ -604,10 +653,21 @@ function expr.install(c: state.Checker): nil
         local function checkResult(arm: cst.SwitchCase | cst.SwitchElse)
             if arm.expr then
                 local resultType = c.infer(arm.expr)
+                arm.switchResultType = resultType
+                if c.ownershipKind(resultType) == "borrowed" then
+                    c.own.provenanceOwners(arm.expr, resultRoots, seenRoots)
+                else
+                    for _, root in ipairs(c.own.capabilityFacts(arm.expr, nil, false).roots or {}) do
+                        if not seenRoots[root] then
+                            seenRoots[root] = true
+                            resultRoots[#resultRoots + 1] = root
+                        end
+                    end
+                end
                 results[#results + 1] = resultType
                 resultExpressions[#resultExpressions + 1] = arm.expr
                 resultExpressionTypes[#resultExpressionTypes + 1] = resultType
-                local exact = exactScalar(arm.expr)
+                local exact = staticCaseShape(arm.expr) and exactScalar(arm.expr) or nil
                 if exact then
                     arm.switchStaticResult = exact
                 end
@@ -620,9 +680,9 @@ function expr.install(c: state.Checker): nil
             elseif arm.body then
                 expressionResultsOnly = false
                 local yielded: {Type} = {}
-                c.switchYieldStack[#c.switchYieldStack + 1] = yielded
+                c.blockYieldStack[#c.blockYieldStack + 1] = yielded
                 c.checkBlock(arm.body, true)
-                c.switchYieldStack[#c.switchYieldStack] = nil
+                c.blockYieldStack[#c.blockYieldStack] = nil
                 for _, valueT in ipairs(yielded) do
                     results[#results + 1] = valueT
                 end
@@ -725,11 +785,16 @@ function expr.install(c: state.Checker): nil
                 c.diag("NUPP2139", arm, "this switch case is unreachable")
             end
             checkResult(arm)
-            if not (arm.body and c.alwaysExits(arm.body)) then
+            if not (arm.expr and arm.switchResultType == T.never or arm.body and c.alwaysExits(arm.body)) then
                 c.noteArmEnd(join)
             end
             c.popScope()
-            c.ownershipRewind(ownershipBefore, branchMoved, not (arm.body and c.alwaysExits(arm.body)), join)
+            c.ownershipRewind(
+                ownershipBefore,
+                branchMoved,
+                not (arm.expr and arm.switchResultType == T.never or arm.body and c.alwaysExits(arm.body)),
+                join
+            )
         end
         if node.elseCase then
             c.pushScope()
@@ -740,14 +805,28 @@ function expr.install(c: state.Checker): nil
                 c.diag("NUPP2139", node.elseCase, "this switch else arm is unreachable")
             end
             checkResult(node.elseCase)
-            if not (node.elseCase.body and c.alwaysExits(node.elseCase.body)) then
+            if not (
+                node.elseCase.expr
+                and node.elseCase.switchResultType == T.never
+                or node.elseCase.body
+                and c.alwaysExits(
+                    node.elseCase.body
+                )
+            ) then
                 c.noteArmEnd(join)
             end
             c.popScope()
             c.ownershipRewind(
                 ownershipBefore,
                 branchMoved,
-                not (node.elseCase.body and c.alwaysExits(node.elseCase.body)),
+                not (
+                    node.elseCase.expr
+                    and node.elseCase.switchResultType == T.never
+                    or node.elseCase.body
+                    and c.alwaysExits(
+                        node.elseCase.body
+                    )
+                ),
                 join
             )
         elseif openMember(residue) then
@@ -776,6 +855,7 @@ function expr.install(c: state.Checker): nil
         c.auditOwnershipJoin(branchMoved, join, node)
         local result = #results > 0 and T.union(results) or T.any
         node.switchResultType = result
+        c.own.capabilityFacts(node).roots = #resultRoots > 0 and resultRoots or nil
         -- An owner an arm produced is carried by the switch, so the switch is the
         -- temporary to account for and the arm's own value is spoken for.
         if c.ownershipKind(result) == "affine" then
@@ -1249,6 +1329,8 @@ function expr.install(c: state.Checker): nil
                 )
             end
             return T.boolean
+        elseif kind == "doExpr" then
+            return inferDo(node as cst.DoExpr)
         elseif kind == "switchExpr" then
             return inferSwitch(node as cst.SwitchExpr)
         elseif kind == "funcExpr" then
@@ -1340,8 +1422,24 @@ function expr.install(c: state.Checker): nil
                 local loopClosure = c.loops.begin(c.functionDepth)
                 local wasReturning = c.loops.setReturning(false)
                 if node.expr then
+                    local savedYields = c.blockYieldStack
+                    c.blockYieldStack = {}
+                    local observed: {T.Pack} = {}
+                    c.retStack[#c.retStack + 1] = false
+                    c.retPackStack[#c.retPackStack + 1] = false
+                    c.observedReturnStack[#c.observedReturnStack + 1] = observed
                     local first = c.infer(node.expr)
+                    c.observedReturnStack[#c.observedReturnStack] = nil
+                    c.retPackStack[#c.retPackStack] = nil
+                    c.retStack[#c.retStack] = nil
+                    c.blockYieldStack = savedYields
                     retPack = node.expr.valuePack or T.pack({first})
+                    if #observed > 0 then
+                        if first ~= T.never then
+                            observed[#observed + 1] = retPack
+                        end
+                        retPack = T.packUnion(observed)
+                    end
                     rets = retPack.head
                     for index, result in ipairs(rets) do
                         node.expr.fixedWidthResultIndex = index

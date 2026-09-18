@@ -208,7 +208,7 @@ function semantic.syntaxKinds(result: semantic.Parse): {[lexer.Token]: string}
                     mark(child, "operator")
                 end
             end
-        elseif kind == "switchExpr" or kind == "switchCase" or kind == "switchField" or kind == "switchYieldStmt" then
+        elseif kind == "switchExpr" or kind == "switchCase" or kind == "switchField" or kind == "yieldStmt" then
             for _, child in ipairs(node) do
                 if cst.isToken(
                     child

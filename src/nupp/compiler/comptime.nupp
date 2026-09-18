@@ -1049,6 +1049,17 @@ evalExpr = function(state, node)
         else
             answer = evalExpr(state, node.ifFalse)
         end
+    elseif kind == "doExpr" then
+        local ok, completion = pcall(execBlock, state, node.body)
+        if not ok then
+            if type(completion) == "table" and completion.doYield then
+                answer = completion.value
+            else
+                error(completion, 0)
+            end
+        else
+            fail("NUPP2412", node, "a do expression finished without yielding")
+        end
     elseif kind == "switchExpr" then
         local selector = evalExpr(state, node.selector)
         local selected = nil
@@ -1433,6 +1444,8 @@ execStatement = function(state, stat)
             end
         end
         assign(state, stat.target, answer)
+    elseif kind == "yieldStmt" then
+        error({doYield = true, value = evalExpr(state, stat.value)}, 0)
     elseif kind == "returnStmt" then
         local exprs = stat.exprs or {}
         if #exprs > 1 then

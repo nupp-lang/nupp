@@ -5569,6 +5569,7 @@ function M.aCleanupKeyDoesNotMoveWithTextAboveIt()
         },
         "\n"
     )
+
     local function keysOf(source)
         local result, diags = checked(source)
         assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
@@ -7109,6 +7110,44 @@ function M.anExclusivePathArgumentIsCheckedAgainstLiveBorrowsOfItsRoot()
     )
     assertClean(ROOTED .. "\nlocal b = viewSlot(root.one)\nexcl(root.items[1])\nprint(b.n)")
     assertClean(ROOTED .. "\ndo\n   local a = view(root)\n   print(a.one.n)\nend\nexcl(root.one)")
+end
+
+function M.doExpressionCarriesBorrowProvenance()
+    assertClean(
+        RESOURCE .. "\n" .. [[
+local owner = resource_new()
+local view = do yield borrow(owner) end
+print(view.value)
+]]
+    )
+    local escaped = codes(
+        RESOURCE
+        .. "\n"
+        .. [[
+local view = do
+    local owner = resource_new()
+    yield borrow(owner)
+end
+print(view.value)
+]]
+    )
+    assert(escaped:find("NUPP2608", 1, true), escaped)
+    local moved = codes(
+        RESOURCE
+        .. "\n"
+        .. [[
+local function transfer(flag: boolean): nil
+    local owner = resource_new()
+    local result = do
+        if flag then yield owner end
+        yield owner
+    end
+    print(owner.value)
+    drop(result)
+end
+]]
+    )
+    assert(moved:find("NUPP2601", 1, true), moved)
 end
 
 return M

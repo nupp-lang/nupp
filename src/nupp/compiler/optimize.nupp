@@ -1089,6 +1089,8 @@ local function foldExpr(node, current)
         for _, part in ipairs(node.parts or {}) do
             foldExpr(part, current)
         end
+    elseif kind == "doExpr" then
+        foldBlock(node.body, scope(current))
     elseif kind == "switchExpr" then
         foldExpr(node.selector, current)
         for _, arm in ipairs(node.cases or {}) do
@@ -1193,7 +1195,7 @@ local function foldStatement(stat, current)
         if stat.target and stat.target.kind == "name" and stat.target.token then
             current.constants[stat.target.token.text] = false
         end
-    elseif kind == "switchYieldStmt" then
+    elseif kind == "yieldStmt" then
         foldExpr(stat.value, current)
     elseif kind == "ifStmt" then
         local selected, allConstant = nil, true

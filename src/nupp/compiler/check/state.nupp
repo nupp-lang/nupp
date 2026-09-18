@@ -692,9 +692,8 @@ record state.Checker
     --- Nonzero while checking the body of a `comptime` expression.
     comptimeDepth: integer
 
-    --- Result collectors for nested block switch arms. A contextual switch yield
-    --- appends to the collector at the top.
-    switchYieldStack: {{Type}}
+    --- Result types, provenance and ownership exits for nested do expressions.
+    blockYieldStack: {any}
 
     --- Nonzero while checking a `comptime function` declaration.
     comptimeFunctionDepth: integer

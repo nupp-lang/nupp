@@ -103,6 +103,7 @@ local EXPR_START = {
     ["false"] = true,
     ["..."] = true,
     ["function"] = true,
+    ["do"] = true,
     ["{"] = true,
     ["name"] = true,
     ["("] = true,
@@ -130,9 +131,9 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     -- loop. Function bodies reset this depth because a loop outside a closure cannot be
     -- continued from inside it.
     local loopDepth = 0
-    -- A contextual `yield value` belongs only to the directly enclosing switch arm.
+    -- A contextual `yield value` belongs to the nearest enclosing do expression.
     -- Function bodies reset this depth, just as they reset loop depth.
-    local switchArmDepth = 0
+    local valueBlockDepth = 0
 
     ---------------------------------------------------------------------
     -- The cursor
@@ -658,13 +659,14 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         return nil
     end
 
-    --- A function's block: `break` and switch yields inside it belong to it, not to a
-    --- loop or arm enclosing the function, so both depths start over and come back.
+    --- A function's block: `break` and expression yields inside it belong to it, not to
+    --- a loop or expression block enclosing the function, so both depths start over and
+    --- come back.
     local function parseFunctionBlock(): Node
-        local savedLoopDepth, savedSwitchArmDepth = loopDepth, switchArmDepth
-        loopDepth, switchArmDepth = 0, 0
+        local savedLoopDepth, savedValueBlockDepth = loopDepth, valueBlockDepth
+        loopDepth, valueBlockDepth = 0, 0
         local body = parseBlock()
-        loopDepth, switchArmDepth = savedLoopDepth, savedSwitchArmDepth
+        loopDepth, valueBlockDepth = savedLoopDepth, savedValueBlockDepth
 
         return body
     end
@@ -1694,7 +1696,10 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             n.body = add(n, parseFunctionBlock())
             add(n, expect("end", "to close short function"))
         else
+            local savedLoopDepth, savedValueBlockDepth = loopDepth, valueBlockDepth
+            loopDepth, valueBlockDepth = 0, 0
             n.expr = add(n, parseExp())
+            loopDepth, valueBlockDepth = savedLoopDepth, savedValueBlockDepth
         end
 
         return n
@@ -1780,17 +1785,23 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         return yes
     end
 
+    local function parseDoexp(): Node
+        local n = new cst.DoExpr(kind = "doExpr")
+        n.doTok = add(n, advance())
+        local savedNoMethod = noMethod
+        noMethod = 0
+        valueBlockDepth = valueBlockDepth + 1
+        n.body = add(n, parseBlock())
+        valueBlockDepth = valueBlockDepth - 1
+        noMethod = savedNoMethod
+        n.endTok = add(n, expect("end", "to close do expression"))
+
+        return n
+    end
+
     local function parseSwitchResult(n: cst.SwitchCase | cst.SwitchElse)
         add(n, expect("->", "in switch arm"))
-        if cur().kind == "do" then
-            add(n, advance())
-            switchArmDepth = switchArmDepth + 1
-            n.body = add(n, parseBlock())
-            switchArmDepth = switchArmDepth - 1
-            add(n, expect("end", "to close switch arm"))
-        else
-            n.expr = add(n, parseExp())
-        end
+        n.expr = add(n, parseExp())
     end
 
     --- `switch selector do ... end`.
@@ -1892,7 +1903,9 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     --- A literal, constructor, function, or suffixed expression.
     local function parseSimpleexp(): Node
         local kind = cur().kind
-        if atSwitchexp() then
+        if kind == "do" then
+            return parseDoexp()
+        elseif atSwitchexp() then
             return parseSwitchexp()
         elseif kind == "name" and cur().text == "unsafe" and tokens[
             i + 1
@@ -3126,7 +3139,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             return n
         end
 
-        if kind == "name" and cur().text == "yield" and switchArmDepth > 0 then
+        if kind == "name" and cur().text == "yield" and valueBlockDepth > 0 then
             local value = tokens[i + 1]
             local contextual = value
                 and value.line == cur().line
@@ -3139,7 +3152,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                     ] or UNOPS[value.kind] or value.kind == "error" or (value.kind == "or" and value.text == "||")
                 )
             if contextual then
-                local n = new cst.SwitchYieldStmt(kind = "switchYieldStmt")
+                local n = new cst.YieldStmt(kind = "yieldStmt")
                 add(n, advance()).contextualOp = true
                 n.value = add(n, parseExp())
                 return n

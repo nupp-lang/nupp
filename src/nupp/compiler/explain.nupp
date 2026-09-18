@@ -710,27 +710,25 @@ local ENTRIES: {any} = {
     },
     {
         code = "NUPP2141",
-        summary = "A block switch arm does not yield on every completing path",
-        rule = "A block arm produces the switch value with contextual `yield value`. "
-        .. "Every path that does not return from the enclosing function must reach one, "
-        .. "and no statement may follow it in the same path.",
-        wrong = "local value = switch 1 do\n    else -> do\n"
-        .. "        local answer = 1\n    end\nend\nreturn value\n",
-        right = "local value = switch 1 do\n    else -> do\n"
-        .. "        local answer = 1\n        yield answer\n    end\nend\nreturn value\n",
+        summary = "A do expression does not yield on every completing path",
+        rule = "A do expression produces one value with contextual `yield value`. "
+        .. "Every path reaching its end must yield, and no statement may follow "
+        .. "an unconditional yield in the same path. Return, break and continue "
+        .. "retain their enclosing function or loop targets.",
+        wrong = "local value = do local answer = 1 end\nreturn value\n",
+        right = "local value = do local answer = 1; yield answer end\nreturn value\n",
         related = {"NUPP2140", "NUPP2142"},
-        docs = "docs/learn/language/switch-expressions.md#switch-expressions",
+        docs = "docs/learn/language/do-expressions.md#do-expressions",
     },
     {
         code = "NUPP2142",
-        summary = "A switch is in a conditionally evaluated expression position",
-        rule = "The first lexical lowering lifts switches from statement-root eager "
-        .. "expressions. Lifting one out of `and`, `or`, `??`, a ternary arm, or guarded "
-        .. "safe-navigation work would run it when the source does not, so that placement "
-        .. "waits for general expression normalization. Bind the switch in a preceding "
-        .. "statement instead.",
-        related = {"NUPP2140"},
-        docs = "docs/learn/language/switch-expressions.md#switch-expressions",
+        summary = "A block expression is in an unsupported lowering position",
+        rule = "Do and switch expressions need a lexical statement context for "
+        .. "their setup. The compiler reports positions its lowering cannot yet "
+        .. "preserve. Bind the expression to a preceding local in the same "
+        .. "conditional region when that preserves the intended evaluation order.",
+        related = {"NUPP2141"},
+        docs = "docs/learn/language/do-expressions.md#do-expressions",
     },
     {
         code = "NUPP2143",

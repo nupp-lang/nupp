@@ -4676,7 +4676,7 @@ local function switchLocal(
     for _, arm in ipairs(node.cases or {}) do
         if arm.patternKind ~= "static" then
             context.reject(lower.site(arm), "native switches do not admit type cases")
-        elseif arm.body ~= nil or arm.expr == nil then
+        elseif arm.body ~= nil or arm.expr == nil or arm.expr.kind == "doExpr" then
             context.reject(lower.site(arm), "native switches require expression arms")
         end
         for _, caseValue in ipairs(arm.values or {}) do
@@ -4687,7 +4687,7 @@ local function switchLocal(
         end
     end
     local otherwise = node.elseCase
-    if otherwise and (otherwise.body ~= nil or otherwise.expr == nil) then
+    if otherwise and (otherwise.body ~= nil or otherwise.expr == nil or otherwise.expr.kind == "doExpr") then
         context.reject(lower.site(otherwise), "native switches require expression arms")
     end
 

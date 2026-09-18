@@ -142,7 +142,7 @@ simpleexp      = Numeral
 
 ; A switch is contextual: the Name `switch` is only committed when parsing the
 ; following expression leaves the required `do` at the cursor. [CS-25]
-simpleexp      =/ switchexp
+simpleexp      =/ switchexp / doexp
 switchexp      = %s"switch" exp "do" *switchcase [switchelse] "end"
 switchcase     = %s"case" (staticpattern / typepattern) "->" switchresult
 switchelse     = "else" "->" switchresult
@@ -151,10 +151,10 @@ staticvalue    = ["-"] Numeral / LiteralString / "nil" / "true" / "false"
                / Name / "(" staticvalue ")"
 typepattern    = %s"is" type [%s"as" Name] ["{" switchfield *("," switchfield) "}"]
 switchfield    = Name [%s"as" Name]
-switchresult   = exp / "do" switchblock "end"
-switchblock    = *switchstat [retstat]
-switchstat     = stat / switchyield
-switchyield    = %s"yield" exp                ; same line, contextual [CS-25]
+switchresult   = exp
+doexp          = "do" block "end"
+stat           =/ valueyield                  ; only within a do expression [CS-25]
+valueyield     = %s"yield" exp                 ; same line, contextual [CS-25]
 
 functiondef    = "function" funcbody
 
@@ -711,7 +711,8 @@ packunion      = typepack 1*("|" typepack)
 ;   finite scalar literals, parentheses, optional numeric minus, or a Name whose
 ;   checked type is one exact scalar. Type cases use the same runtime-testable
 ;   types as `is`; `as` binds the narrowed whole value and braces bind direct
-;   fields. `yield exp` supplies a block arm's result only inside that arm, only
+;   fields. `yield exp` supplies the nearest do expression's result, including
+;   inside its nested statement blocks but never across a function boundary, only
 ;   when the operand starts on the same line, and not when it starts with `(`,
 ;   `{`, or LiteralString. Those three forms remain ordinary Lua call sugar.
 ;

@@ -220,12 +220,11 @@ local path = __nuppT2
 ```
 :::
 
-Use `-> do` when an arm needs statements. `yield value` supplies the switch
-result. It is not coroutine suspension. `return` still exits the enclosing
+Use a [do expression](do-expressions.md) after `->` when an arm needs statements.
+`yield value` supplies the switch result. It is not coroutine suspension. `return` still exits the enclosing
 function immediately:
 
-::: code-group
-```nupp [Nupp]
+```nupp
 local value = switch token do
     case is NumberToken {text} -> do
         local parsed = tonumber(text)
@@ -239,35 +238,19 @@ local value = switch token do
 end
 ```
 
-```lua [Generated Lua]
-local __nuppT3 = token
-local __nuppT4
-if (getmetatable(__nuppT3)?.__index == NumberToken) then
-    local text = __nuppT3.text
-    local parsed = tonumber(text)
-    if parsed == nil then
-        return nil, "invalid number"
-    end
-    __nuppT4 = parsed
-else __nuppT4 = 0
-end
-local value = __nuppT4
-```
-:::
-
-`yield` is an assignment to the result local, not a call and not a coroutine
-suspension. See [suspension.md](../runtime/concurrency/suspension.md) for the construct that does park
+`yield` stores the result and exits the do expression. It does not suspend. See
+[suspension.md](../runtime/concurrency/suspension.md) for the construct that parks
 a coroutine.
 
 Every completing path through a block arm must reach one `yield`; a path may
 instead `return` from the enclosing function. Falling through, or placing a
-statement after a switch yield on the same path, is reported.
+statement after a yield on the same path, is reported.
 
 ::: deepdive
 Giving `return` the switch-result meaning would have been the smaller grammar,
 and it was rejected. An arm is ordinary code, and code that reads as an early
 exit has to be one. `yield` carries the result instead, targeting the nearest
-enclosing arm and never crossing a function boundary.
+enclosing do expression and never crossing a function boundary.
 :::
 
 ### Contextual `yield`
@@ -396,64 +379,23 @@ evaluate unless the arm is selected.
 
 ### Conditionally evaluated positions
 
-The initial placement model accepts switches lifted from local declarations,
-assignments, returns, and call statements when eager left-to-right evaluation
-can be preserved. It rejects a switch in conditionally evaluated work:
+Switches preserve conditional evaluation in `and`, `or`, `??`, ternary arms,
+and safe-navigation work. Only the selected branch runs:
 
-::: code-group
-```nupp [Nupp]
+```nupp
 local selected = ready and switch code do
     case 200 -> "ok"
     else -> "other"
 end
 ```
 
-```text [Diagnostic]
-error: NUPP2142: a switch in this conditionally evaluated position is not
-supported yet
- 3 |     local selected = ready and switch code do
-   |                                ^~~~~~
-help: move the switch to a local before this expression
-```
-:::
-
-Write the switch as a preceding local when eager evaluation is intended.
-
-::: deepdive
-Lowering a conditionally evaluated position through an immediately invoked
-function would lift the restriction today. It breaks the no-closure invariant
-exactly where it matters, because a switch inside `and` or `or` is usually
-inside an expression inside a loop, and it makes the construct's cost depend on
-where it was written.
-
-The general answer is one normalization layer that turns a checked expression
-and its continuation into lexical control flow while preserving evaluation
-order, conditional evaluation, multi-result rules, scopes, ownership, and
-cleanup. Conditional evaluation is the hard part: a naive statement prefix runs
-the setup unconditionally, so normalization has to put the setup inside the
-branch that reaches it.
-
-```lua
-local value = cached
-if value == nil then
-    local __subject = source
-    if getmetatable(__subject).__index == File then
-        value = readFile(__subject.path)
-    else
-        value = nil
-    end
-end
-```
-
-Solving that once serves every statement-shaped construct that wants an
-expression position, rather than one set of ordering rules, each with its own
-bugs, per construct.
-:::
+The compiler places each expression's setup inside the branch that reaches it,
+using the same lowering as [do expressions](do-expressions.md).
 
 ### Comptime and ahead-of-time subsets
 
-Static cases with expression arms are supported by `comptime`. Comptime type
-cases and block arms receive the targeted unsupported-construct diagnostic.
+Static cases with expression arms, including do expressions, are supported by
+`comptime`. Comptime type cases receive the unsupported-construct diagnostic.
 String cases, type cases, block arms, and early arm returns remain explicit
 ahead-of-time subset boundaries. Ordinary Lua lowering supports the complete
 switch described above. See

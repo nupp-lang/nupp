@@ -130,7 +130,7 @@ local COVERAGE_STATEMENTS = {
     unsafeStmt = true,
     noSuspendStmt = true,
     effectRegionStmt = true,
-    switchYieldStmt = true,
+    yieldStmt = true,
 }
 
 -- Node kinds that exist only in the type layer: emitted as nothing.
@@ -2852,6 +2852,7 @@ function gen.generate(
     emitDepth.switchTemps = setmetatable({}, {__mode = "k"})
     emitDepth.switchValueTemps = setmetatable({}, {__mode = "k"})
     emitDepth.switchResult = nil
+    emitDepth.valueBlocks = {}
     emitDepth.switchStatementActive = nil
     emitDepth.diag = diag
 
@@ -2863,7 +2864,7 @@ function gen.generate(
         if not node or cst.isToken(node) then
             return false
         end
-        if node.kind == "switchExpr" then
+        if node.kind == "switchExpr" or node.kind == "doExpr" then
             return true
         end
         if node.kind == "funcExpr" or node.kind == "shortfn" or node.kind == "funcbody" then
@@ -2993,45 +2994,158 @@ function gen.generate(
         emitDepth.switchValueTemps[node] = temporary
     end
 
+    function emitDepth.blockCallPack(node)
+        local pack = node.valuePack
+        if pack and not pack.tail and not pack.alternatives and #pack.head <= 1 then
+            return nil, nil
+        end
+        local packName = pluck.declareHelper("__nuppBlockPack", "...", 'return {n=select("#",...),...}')
+        local unpackName = pluck.declareHelper(
+            "__nuppBlockUnpack",
+            "value",
+            "if value==nil then return nil end;return (unpack or table.unpack)(value,1,value.n)"
+        )
+
+        return packName, unpackName
+    end
+
     local function lowerSwitches(node, lazy: boolean?)
-        if not node or cst.isToken(node) then
+        if not node or cst.isToken(node) or emitDepth.switchValueTemps[node] or emitDepth.switchTemps[node] then
             return
         end
         local kind = node.kind
         if kind == "funcExpr" or kind == "shortfn" or kind == "funcbody" then
             return
         end
-        if kind == "switchExpr" then
-            if lazy then
-                emitDepth.diag(
-                    cst.firstToken(node),
-                    "NUPP2142",
-                    "a switch in this conditionally evaluated position is not supported yet",
-                    "move the switch to a local before this expression"
-                )
-            end
+        if kind == "doExpr" then
+            emitDepth.lowerDo(node)
+            return
+        elseif kind == "switchExpr" then
             lowerSwitch(node)
             return
         end
+        if not switchContains(node) then
+            return
+        end
         if kind == "binop" and node.op and (node.op.kind == "and" or node.op.kind == "or" or node.op.kind == "??") then
-            lowerSwitches(node.lhs, lazy)
-            lowerSwitches(node.rhs, true)
+            lowerSwitches(node.lhs)
+            local result = nextTemp()
+            e("local " .. result .. "=", sourceLine(node))
+            emit(node.lhs)
+            e(
+                ";if " .. (
+                    node.op.kind == "and" and result or node.op.kind == "or" and "not " .. result or result .. "==nil"
+                ) .. " then "
+            )
+            lowerSwitches(node.rhs)
+            emitDepth.emitArmResult(result, node.rhs)
+            e(";end;")
+            emitDepth.switchValueTemps[node] = result
             return
         elseif kind == "ternary" then
-            lowerSwitches(node.cond, lazy)
-            lowerSwitches(node.ifTrue, true)
-            lowerSwitches(node.ifFalse, true)
+            lowerSwitches(node.cond)
+            local result = nextTemp()
+            e("local " .. result .. ";if ", sourceLine(node))
+            emit(node.cond)
+            e(" then ")
+            lowerSwitches(node.ifTrue)
+            emitDepth.emitArmResult(result, node.ifTrue)
+            e(";else ")
+            lowerSwitches(node.ifFalse)
+            emitDepth.emitArmResult(result, node.ifFalse)
+            e(";end;")
+            emitDepth.switchValueTemps[node] = result
+            return
+        elseif kind == "methodCall" and not node.automaticOwnerMoves and not node.trailingCallableCall then
+            lowerSwitches(node.obj)
+            captureSwitchPrefix(node.obj)
+            local receiver = emitDepth.switchValueTemps[node.obj]
+            local method, result = nextTemp(), nextTemp()
+            local safe = node.safeObj or node.safeMethod
+            if safe then
+                e("local " .. result .. ";")
+            end
+            if node.safeObj then
+                e("if " .. receiver .. "~=nil then ")
+            end
+            e("local " .. method .. "=" .. receiver .. "." .. (node.overloadMember or node.name.text) .. ";")
+            if node.safeMethod then
+                e("if " .. method .. "~=nil then ")
+            end
+            local values = {}
+            for _, arg in ipairs(node.args and node.args.exprs or {}) do
+                values[#values + 1] = (arg.kind == "namedArg" or arg.kind == "pluckArg") and arg.value or arg
+            end
+            if node.args and node.args.table then
+                values[#values + 1] = node.args.table
+            end
+            emitDepth.lowerValues(values)
+            emitDepth.blockMethods = emitDepth.blockMethods or {}
+            emitDepth.blockMethods[node] = {receiver = receiver, method = method}
+            if safe then
+                local packName, unpackName = emitDepth.blockCallPack(node)
+                e(result .. "=")
+                if packName then
+                    e(packName .. "(")
+                end
+                emit(node)
+                if packName then
+                    e(")")
+                end
+                e(";")
+                if node.safeMethod then
+                    e("end;")
+                end
+                if node.safeObj then
+                    e("end;")
+                end
+                emitDepth.switchValueTemps[node] = unpackName and unpackName .. "(" .. result .. ")" or result
+            end
             return
         elseif kind == "safeCall" or kind == "safeIndex" or kind == "safeBracket" then
-            -- Work after the safe receiver is conditional.
-            if node.obj then
-                lowerSwitches(node.obj, lazy)
+            lowerSwitches(node.obj)
+            captureSwitchPrefix(node.obj)
+            local receiver = emitDepth.switchValueTemps[node.obj]
+            local result = nextTemp()
+            e("local " .. result .. ";if " .. receiver .. "~=nil then ")
+            if node.expr then
+                lowerSwitches(node.expr)
             end
-            for _, child in ipairs(node) do
-                if child ~= node.obj then
-                    lowerSwitches(child, true)
+            local pending = {}
+            for _, arg in ipairs(node.args and node.args.exprs or {}) do
+                local value = (arg.kind == "namedArg" or arg.kind == "pluckArg") and arg.value or arg
+                if switchContains(value) then
+                    for _, prefix in ipairs(pending) do
+                        captureSwitchPrefix(prefix)
+                    end
+                    pending = {}
+                    lowerSwitches(value)
+                else
+                    pending[#pending + 1] = value
                 end
             end
+            if node.args and node.args.table then
+                lowerSwitches(node.args.table)
+            end
+            local packName, unpackName = nil, nil
+            if kind == "safeCall" then
+                packName, unpackName = emitDepth.blockCallPack(node)
+            end
+            e(result .. "=" .. (packName and packName .. "(" or "") .. receiver)
+            if kind == "safeIndex" then
+                e("." .. node.name.text)
+            elseif kind == "safeBracket" then
+                e("[");
+                emit(node.expr);
+                e("]")
+            else
+                emit(node.args)
+            end
+            if packName then
+                e(")")
+            end
+            e(";end;")
+            emitDepth.switchValueTemps[node] = unpackName and unpackName .. "(" .. result .. ")" or result
             return
         end
 
@@ -3067,7 +3181,11 @@ function gen.generate(
                 end
             end
             if not descended and switchContains(node) then
-                diag(cst.firstToken(node), "NUPP2142", "this switch expression cannot be lifted from its placement")
+                diag(
+                    cst.firstToken(node),
+                    "NUPP2142",
+                    "this block or switch expression cannot be lifted from its placement"
+                )
             end
             return
         end
@@ -3267,41 +3385,200 @@ function gen.generate(
             lowerSwitches(stat.expr)
             return
         end
-        local exprs = stat.exprs or {}
-        if #exprs ~= 1 then
-            diag(
-                cst.firstToken(stat),
-                "NUPP2142",
-                "a switch statement root must contain exactly one value expression",
-                "assign the switch to a local before this statement"
-            )
-            return
-        end
-        if stat.kind == "assignStmt" then
-            local targets = stat.targets or {}
-            if #targets ~= 1 then
-                diag(
-                    cst.firstToken(stat),
-                    "NUPP2142",
-                    "an assignment containing a switch must have exactly one target",
-                    "assign the switch to a local before this assignment"
-                )
-                return
-            end
-            local target = targets[1]
-            lowerSwitches(target)
-            if switchContains(exprs[1]) then
+        local exprs = stat.exprs or (
+            stat.kind == "compoundAssign" and {stat.value}
+        ) or (stat.kind == "exportStmt" and {stat.value}) or {}
+        if stat.kind == "assignStmt" or stat.kind == "compoundAssign" then
+            for _, target in ipairs(stat.targets or {stat.target}) do
+                lowerSwitches(target)
                 preserveAssignmentTarget(target)
             end
+            if stat.kind == "compoundAssign" then
+                captureSwitchPrefix(stat.target)
+            end
         end
-        lowerSwitches(exprs[1])
+        local pending = {}
+        for _, expr in ipairs(exprs) do
+            if switchContains(expr) then
+                for _, prefix in ipairs(pending) do
+                    captureSwitchPrefix(prefix)
+                end
+                pending = {}
+                lowerSwitches(expr)
+            else
+                pending[#pending + 1] = expr
+            end
+        end
     end
 
-    local SWITCH_STATEMENT_ROOT = {localStmt = true, assignStmt = true, returnStmt = true, callStmt = true}
+    local SWITCH_STATEMENT_ROOT = {
+        localStmt = true,
+        assignStmt = true,
+        returnStmt = true,
+        callStmt = true,
+        exportStmt = true
+    }
     emitDepth.switchStatementRoot = SWITCH_STATEMENT_ROOT
     emitDepth.switchContains = switchContains
+    emitDepth.capturePrefix = captureSwitchPrefix
     emitDepth.lowerSwitches = lowerSwitches
     emitDepth.planSwitchStatement = planSwitchStatement
+
+    function emitDepth.hasBlockCondition(node): boolean
+        for _, clause in ipairs(node.clauses or {}) do
+            if switchContains(clause.cond) then
+                return true
+            end
+        end
+
+        return false
+    end
+
+    function emitDepth.lowerValues(values)
+        local pending = {}
+        for _, value in ipairs(values) do
+            if switchContains(value) then
+                for _, prefix in ipairs(pending) do
+                    captureSwitchPrefix(prefix)
+                end
+                pending = {}
+                lowerSwitches(value)
+            else
+                pending[#pending + 1] = value
+            end
+        end
+    end
+
+    function emitDepth.valueFrame()
+        local frame = emitDepth.valueBlocks[#emitDepth.valueBlocks]
+        return frame and frame.functionDepth == emitDepth.fn and frame or nil
+    end
+
+    -- A one-iteration loop gives block results an exit on both LuaJIT and Lua 5.1.
+    -- Nested authored loops propagate completion before any subsequent statement.
+    function emitDepth.valueExit(frame, value, rendered)
+        local region = pluck.currentRegion()
+        if region and #cleanupStack > frame.cleanupDepth then
+            local tag = "yield:" .. frame.result
+            region.valueExits = region.valueExits or {}
+            region.valueExits[tag] = frame
+            local temporary = nextTemp()
+            e("do local " .. temporary .. "=")
+            if rendered then
+                e(rendered)
+            else
+                emit(value)
+            end
+            local move = value and ownershipMoveOf(value)
+            local flag = move and activeFlag(move)
+            if flag then
+                e(";" .. flag .. "=false")
+            end
+            e((";return %q,%s end"):format(tag, temporary))
+        else
+            e("do ")
+            if rendered then
+                e(frame.result .. "=" .. rendered)
+            else
+                emitDepth.emitArmResult(frame.result, value)
+            end
+            e(";" .. frame.done .. "=true;break end")
+        end
+    end
+
+    -- A condition is lexically outside its loop, even when normalization emits
+    -- its statements inside that loop. Relay outward control past the generated
+    -- loop before selecting its authored target.
+    function emitDepth.beginCondition(header)
+        if header then
+            header.savedLoop = emitDepth.loop
+            header.parent = emitDepth.conditionHeader
+            emitDepth.conditionHeader = header
+            emitDepth.loop = header.loopDepth
+        end
+    end
+
+    function emitDepth.endCondition(header)
+        if header then
+            emitDepth.loop = header.savedLoop
+            emitDepth.conditionHeader = header.parent
+        end
+    end
+
+    function emitDepth.conditionControl(header, kind, line)
+        header.controls[kind] = true
+        local region = pluck.currentRegion()
+        if region and #cleanupStack > header.cleanupDepth then
+            local tag = "condition:" .. header.action .. ":" .. kind
+            region.conditionExits = region.conditionExits or {}
+            region.conditionExits[tag] = {header = header, kind = kind}
+            e(("do return %q end"):format(tag), line)
+        else
+            e(("do %s=%q;break end"):format(header.action, kind), line)
+        end
+    end
+
+    function emitDepth.valueControl(kind, line)
+        local frame = emitDepth.valueFrame()
+        local region = pluck.currentRegion()
+        local header = emitDepth.conditionHeader
+        if header
+            and header.functionDepth == emitDepth.fn
+            and #emitDepth.valueBlocks <= header.frames
+            and emitDepth.loop <= header.loopDepth
+        then
+            emitDepth.conditionControl(header, kind, line)
+        elseif frame and emitDepth.loop <= frame.loopDepth and (not region or #cleanupStack <= frame.cleanupDepth) then
+            frame.controls[kind] = true
+            e(("do %s=%q;break end"):format(frame.action, kind), line)
+        elseif region and emitDepth.loop <= region.entryLoopDepth then
+            region[kind .. "Exit"] = true
+            e(("do return %q end"):format(kind), line)
+        else
+            local loop = emitDepth.portableLoops[#emitDepth.portableLoops]
+            if loop and loop.action then
+                e("do ", line)
+                pluck.portableExit(loop, kind)
+                e(" end")
+            else
+                e("do " .. kind .. " end", line)
+            end
+        end
+    end
+
+    function emitDepth.lowerDo(node)
+        local result, done, action = nextTemp(), nextTemp(), nextTemp()
+        emitDepth.switchTemps[node] = result
+        local frame = {
+            result = result,
+            done = done,
+            action = action,
+            controls = {},
+            functionDepth = emitDepth.fn,
+            loopDepth = emitDepth.loop,
+            cleanupDepth = #cleanupStack
+        }
+        e("local " .. result .. ";do local " .. done .. "," .. action .. ";repeat ", sourceLine(node))
+        emitDepth.valueBlocks[#emitDepth.valueBlocks + 1] = frame
+        emit(node.body)
+        emitDepth.valueBlocks[#emitDepth.valueBlocks] = nil
+        e(" until true;", node.endTok and node.endTok.line)
+        for _, kind in ipairs({"break", "continue"}) do
+            if frame.controls[kind] then
+                e(("if %s==%q then "):format(action, kind))
+                emitDepth.valueControl(kind)
+                e(" end;")
+            end
+        end
+        e("end;")
+    end
+
+    function emitDepth.propagateValueLoop()
+        local frame = emitDepth.valueFrame()
+        if frame and #cleanupStack == frame.cleanupDepth then
+            e(" if " .. frame.done .. " then break end;")
+        end
+    end
 
     --- Points a declaration's table at the default bodies it takes.
     ---
@@ -3356,7 +3633,7 @@ function gen.generate(
     -- `continue`. Nested loops and functions own their control statements, so they do
     -- not force a wrapper around this loop.
     function pluck.portableLoopNeedsWrapper(loop): boolean
-        if not pluck.portable then
+        if not pluck.portable and not (loop.kind == "repeatStmt" and emitDepth.switchContains(loop.cond)) then
             return false
         end
         local found = false
@@ -3376,6 +3653,11 @@ function gen.generate(
             if node ~= loop.body and (
                 kind == "whileStmt" or kind == "fornumStmt" or kind == "forinStmt" or kind == "repeatStmt"
             ) then
+                for _, child in ipairs(node) do
+                    if child ~= node.body then
+                        walk(child)
+                    end
+                end
                 return
             end
             for _, child in ipairs(node) do
@@ -3398,12 +3680,17 @@ function gen.generate(
         if not portableLoop.untilTest then
             local savedOut, savedLine, savedLineStart = out, curLine, atLineStart
             out, curLine, atLineStart = {}, 0x7fffffff, true
+            emitDepth.beginCondition(portableLoop.blockCondition)
+            lowerSwitches(portableLoop.untilCond)
+            e(portableLoop.untilFlag .. "=")
             emit(portableLoop.untilCond)
+            e(";")
+            emitDepth.endCondition(portableLoop.blockCondition)
             portableLoop.untilTest = table.concat(out)
             out, curLine, atLineStart = savedOut, savedLine, savedLineStart
         end
 
-        return ("%s=%s;"):format(portableLoop.untilFlag, portableLoop.untilTest)
+        return portableLoop.untilTest
     end
 
     -- Leaves the wrapper with the completion the authored statement asked for; the
@@ -3746,13 +4033,16 @@ function gen.generate(
             or nil
         local function emitRepeatCondition()
             if repeatCondition then
+                emitDepth.beginCondition(loop.blockCondition)
+                emitDepth.lowerSwitches(repeatCondition)
                 e(("%s="):format(loop.cleanupConditionTemp), sourceLine(repeatCondition))
                 emit(repeatCondition)
+                emitDepth.endCondition(loop.blockCondition)
                 e(";")
             end
         end
 
-        if block.automaticDirect then
+        if block.automaticDirect and not (repeatCondition and emitDepth.switchContains(repeatCondition)) then
             for _, stat in ipairs(stats) do
                 emit(stat)
             end
@@ -3847,6 +4137,7 @@ function gen.generate(
             automaticSequence = sequence,
             repeatCondition = repeatCondition,
             repeatConditionTemp = loop and loop.cleanupConditionTemp or nil,
+            repeatConditionHeader = loop and loop.blockCondition or nil,
         }
         if repeatCondition then
             region.analysisBody = {kind = "block", body, repeatCondition}
@@ -4195,17 +4486,59 @@ function gen.generate(
             e(switchValueTemporary, sourceLine(x))
             return
         end
+        if kind == "methodCall" and emitDepth.blockMethods and emitDepth.blockMethods[x] then
+            local method = emitDepth.blockMethods[x]
+            e(method.method .. "(" .. method.receiver, sourceLine(x))
+            local args = x.args
+            if args and args.loweredArgs then
+                if #args.loweredArgs > 0 then
+                    e(",");
+                    pluck.emitArgs(args)
+                end
+            elseif args then
+                for _, arg in ipairs(args.exprs or {}) do
+                    e(",");
+                    emit(arg)
+                end
+                if args.table then
+                    e(",");
+                    emit(args.table)
+                end
+                if args.str then
+                    e(",");
+                    emit(args.str)
+                end
+            end
+            e(")")
+            return
+        end
         if emitDepth.switchStatementRoot[
             kind
         ] and emitDepth.switchStatementActive ~= x and emitDepth.switchContains(x) then
             local priorSwitchStatement = emitDepth.switchStatementActive
             emitDepth.switchStatementActive = true
-            emitDepth.planSwitchStatement(x)
+            local target = kind == "assignStmt" and #(x.targets or {}) == 1 and x.targets[1] or nil
+            local guarded = target and (target.kind == "safeIndex" or target.kind == "safeBracket")
+            if guarded then
+                emitDepth.lowerSwitches(target.obj)
+                emitDepth.capturePrefix(target.obj)
+                e("if " .. emitDepth.switchValueTemps[target.obj] .. "~=nil then ")
+                emitDepth.lowerSwitches(target.expr)
+                emitDepth.capturePrefix(target.expr)
+                emitDepth.lowerValues(x.exprs or {})
+            else
+                emitDepth.planSwitchStatement(x)
+            end
             emitDepth.switchStatementActive = x
             emit(x)
+            if guarded then
+                e(" end;")
+            end
             emitDepth.switchStatementActive = priorSwitchStatement
             return
-        elseif kind == "switchExpr" then
+        elseif kind == "callStmt" and emitDepth.switchValueTemps[x.expr] then
+            return
+        elseif kind == "switchExpr" or kind == "doExpr" then
             local temporary = emitDepth.switchTemps[x]
             if temporary then
                 e(temporary, sourceLine(x))
@@ -4213,21 +4546,24 @@ function gen.generate(
                 emitDepth.diag(
                     cst.firstToken(x),
                     "NUPP2142",
-                    "this switch expression cannot be lifted from its placement",
+                    "this block or switch expression cannot be lifted from its placement",
                     "assign it to a local in a statement before using it here"
                 )
                 e("nil", sourceLine(x))
             end
             return
-        elseif kind == "switchYieldStmt" then
-            local resultName = emitDepth.switchResult
-            if resultName and x.value then
+        elseif kind == "yieldStmt" then
+            local frame = emitDepth.valueFrame()
+            if frame and x.value then
                 emitDepth.lowerSwitches(x.value)
                 e("", sourceLine(x))
-                emitDepth.emitArmResult(resultName, x.value)
+                emitDepth.valueExit(frame, x.value)
             else
-                e("nil", sourceLine(x))
+                emitDepth.diag(cst.firstToken(x), "NUPP2141", "yield requires an enclosing do expression")
             end
+            return
+        elseif kind == "breakStmt" or kind == "continueStmt" then
+            emitDepth.valueControl(kind == "breakStmt" and "break" or "continue", sourceLine(x))
             return
         elseif kind == "statementCleanupStateExpr" then
             e("{}", sourceLine(x))
@@ -5201,6 +5537,46 @@ function gen.generate(
             e("end", endTok and endTok.line or nil)
             return
         end
+        if kind == "ifStmt" and emitDepth.hasBlockCondition(x) then
+            e("do ", sourceLine(x))
+            for index, clause in ipairs(x.clauses) do
+                if index > 1 then
+                    e("else ", sourceLine(clause))
+                end
+                emitDepth.lowerSwitches(clause.cond)
+                local binding = clause.binding and nextTemp() or nil
+                if binding then
+                    e("local " .. binding .. "=")
+                    emit(clause.cond)
+                    e(";")
+                end
+                e("if ")
+                if coverageOn then
+                    e(("%s.branch(%q,%d,"):format(coverageRuntime(), coveragePath, coverageSite("branch", clause.cond)))
+                end
+                if binding then
+                    e(binding .. "~=nil")
+                else
+                    emit(clause.cond)
+                end
+                if coverageOn then
+                    e(")")
+                end
+                e(" then ")
+                if binding then
+                    e("local " .. clause.binding.text .. "=" .. binding .. ";")
+                end
+                emit(clause.body)
+            end
+            if x.elseClause then
+                emit(x.elseClause)
+            end
+            local endTok = pluck.endToken(x)
+            for _ = 1, #x.clauses + 1 do
+                e("end ", endTok and endTok.line)
+            end
+            return
+        end
         if kind == "ifStmt" and pluck.hasBindingClause(x) then
             -- `if NAME = EXPR then` has no Lua spelling. The value is held in a
             -- temporary tested against nil and NAME is a local of the arm, so a
@@ -5840,7 +6216,7 @@ function gen.generate(
             -- for.
             local first = x[1]
             local line = first and (cst.isToken(first) and first.line or (first[1] and first[1].line))
-            if not x.varargParam and not pluck.portable then
+            if not x.varargParam and not pluck.portable and not emitDepth.switchContains(x.expr) then
                 local names = {}
                 for _, p in ipairs(x.params) do
                     names[#names + 1] = p.name.text
@@ -5877,6 +6253,7 @@ function gen.generate(
             if x.expr then
                 -- Parentheses force the expression form to return exactly one result,
                 -- even when its body is a multi-return call.
+                emitDepth.lowerSwitches(x.expr)
                 e("return (")
                 emit(x.expr)
                 e(")")
@@ -5932,9 +6309,9 @@ function gen.generate(
             e("))")
 
         elseif kind == "compoundAssign" and (
-            pluck.portable or LOWERED_COMPOUND[
-                x.op.kind
-            ] or (pluck.bitops.portable and pluck.bitops.methods[x.op.kind:sub(1, -2)])
+            pluck.portable or emitDepth.switchContains(
+                x
+            ) or LOWERED_COMPOUND[x.op.kind] or (pluck.bitops.portable and pluck.bitops.methods[x.op.kind:sub(1, -2)])
         ) then
             -- Portable Lua has no compound syntax. Every form reads the target and then
             -- writes it, so an indexed target's prefix and key are bound to temporaries
@@ -5957,23 +6334,31 @@ function gen.generate(
             -- read and the write on a nil receiver, which is what the operator
             -- promises.
             local function assignTo(slot, at)
+                local read = slot
+                if base ~= "??" and emitDepth.switchContains(x.value) then
+                    read = nextTemp()
+                    e("local " .. read .. "=" .. slot .. ";", at)
+                    emitDepth.lowerSwitches(x.value)
+                end
                 if base == "??" then
-                    e(("if %s == nil then %s = "):format(slot, slot), at)
+                    e(("if %s == nil then "):format(slot), at)
+                    emitDepth.lowerSwitches(x.value)
+                    e(slot .. "=")
                     emit(x.value)
                     e(" end")
                 elseif base == "//" then
-                    e(("%s = math.floor((%s) / ("):format(slot, slot), at)
+                    e(("%s = math.floor((%s) / ("):format(slot, read), at)
                     emit(x.value)
                     e("))")
                 elseif wideMethod then
-                    e(("%s=%s.%s(%s,"):format(slot, pluck.int64.name, wideMethod, slot), at)
+                    e(("%s=%s.%s(%s,"):format(slot, pluck.int64.name, wideMethod, read), at)
                     emit(x.value)
                     e(")")
                 else
                     pluck.emitCompoundValue(
                         x,
                         function()
-                            e(slot)
+                            e(read)
                         end,
                         bitMethod,
                         slot .. "=",
@@ -5989,6 +6374,7 @@ function gen.generate(
             end
             local safe = tkind == "safeIndex" or tkind == "safeBracket"
             local dotted = tkind == "dotIndex" or tkind == "safeIndex"
+            emitDepth.lowerSwitches(target.obj)
             local prefix = nextTemp()
             e(("do const %s = "):format(prefix), line)
             emit(target.obj)
@@ -5999,6 +6385,7 @@ function gen.generate(
             if dotted then
                 assignTo(("%s.%s"):format(prefix, target.name.text))
             else
+                emitDepth.lowerSwitches(target.expr)
                 local key = nextTemp()
                 e(("const %s = "):format(key))
                 emit(target.expr)
@@ -7166,8 +7553,12 @@ function gen.generate(
                     emit(x.body)
                 end
                 if x.repeatCondition then
-                    e((";%s="):format(x.repeatConditionTemp), sourceLine(x.repeatCondition))
+                    e(";")
+                    emitDepth.beginCondition(x.repeatConditionHeader)
+                    emitDepth.lowerSwitches(x.repeatCondition)
+                    e(("%s="):format(x.repeatConditionTemp), sourceLine(x.repeatCondition))
                     emit(x.repeatCondition)
+                    emitDepth.endCondition(x.repeatConditionHeader)
                 end
                 e(("end; return \"normal\" end; %s[%d]=%s end;"):format(cacheName, slot, region))
                 if frame then
@@ -7403,8 +7794,12 @@ function gen.generate(
                     end
                 end
                 if x.repeatCondition then
-                    e((";%s="):format(x.repeatConditionTemp), sourceLine(x.repeatCondition))
+                    e(";")
+                    emitDepth.beginCondition(x.repeatConditionHeader)
+                    emitDepth.lowerSwitches(x.repeatCondition)
+                    e(("%s="):format(x.repeatConditionTemp), sourceLine(x.repeatCondition))
                     emit(x.repeatCondition)
+                    emitDepth.endCondition(x.repeatConditionHeader)
                 end
                 e(("end; return \"normal\" end,%s%s);"):format(cleanupIdName, variadic and ",..." or ""))
                 cleanupStack[#cleanupStack] = nil
@@ -7517,12 +7912,7 @@ function gen.generate(
                     parent.breakExit = true
                     e("return \"break\"")
                 else
-                    local portableLoop = emitDepth.portableLoops[#emitDepth.portableLoops]
-                    if pluck.portable and portableLoop and portableLoop.action then
-                        pluck.portableExit(portableLoop, "break")
-                    else
-                        e("break")
-                    end
+                    emitDepth.valueControl("break")
                 end
                 e(" end;")
             end
@@ -7532,13 +7922,29 @@ function gen.generate(
                     parent.continueExit = true
                     e("return \"continue\"")
                 else
-                    local portableLoop = emitDepth.portableLoops[#emitDepth.portableLoops]
-                    if pluck.portable and portableLoop and portableLoop.action then
-                        pluck.portableExit(portableLoop, "continue")
-                    else
-                        e("continue")
-                    end
+                    emitDepth.valueControl("continue")
                 end
+                e(" end;")
+            end
+            local conditionTags = {}
+            for conditionTag in pairs(ctx.conditionExits or {}) do
+                conditionTags[#conditionTags + 1] = conditionTag
+            end
+            table.sort(conditionTags)
+            for _, conditionTag in ipairs(conditionTags) do
+                local completion = ctx.conditionExits[conditionTag]
+                e(("if %s==%q then "):format(tag, conditionTag))
+                emitDepth.conditionControl(completion.header, completion.kind)
+                e(" end;")
+            end
+            local valueTags = {}
+            for valueTag in pairs(ctx.valueExits or {}) do
+                valueTags[#valueTags + 1] = valueTag
+            end
+            table.sort(valueTags)
+            for _, valueTag in ipairs(valueTags) do
+                e(("if %s==%q then "):format(tag, valueTag))
+                emitDepth.valueExit(ctx.valueExits[valueTag], nil, payload)
                 e(" end;")
             end
             local gotoTargets = {}
@@ -7651,14 +8057,36 @@ function gen.generate(
             emitDepth.portableLoops[#emitDepth.portableLoops] = nil
             if portableLoop.action then
                 e(("until true;if %s==\"break\" then break end;"):format(portableLoop.action))
+                emitDepth.propagateValueLoop()
             end
             local endTok = pluck.endToken(x)
             e("end", endTok and endTok.line or nil)
             finishConcatBuffer(x, endTok and endTok.line or nil)
+            emitDepth.propagateValueLoop()
 
         elseif kind == "whileStmt" or kind == "fornumStmt" or kind == "forinStmt" or kind == "repeatStmt" then
+            if kind == "fornumStmt" then
+                emitDepth.lowerValues({x.start, x.stop, x.step})
+            elseif kind == "forinStmt" then
+                emitDepth.lowerValues(x.exprs or {})
+            end
             emitDepth.soa.openLoop(x)
             local portableLoop = {}
+            local blockWhile = kind == "whileStmt" and emitDepth.switchContains(x.cond)
+            local header = nil
+            if (kind == "whileStmt" or kind == "repeatStmt") and emitDepth.switchContains(x.cond) then
+                header = {
+                    action = nextTemp(),
+                    controls = {},
+                    loopDepth = emitDepth.loop,
+                    functionDepth = emitDepth.fn,
+                    frames = #emitDepth.valueBlocks,
+                    cleanupDepth = #cleanupStack
+                }
+                x.blockCondition = header
+                portableLoop.blockCondition = header
+                e("local " .. header.action .. ";", sourceLine(x))
+            end
             if kind == "repeatStmt" then
                 local body = x.body
                 local hasAutomaticCleanup = body and body.automaticDirect ~= nil
@@ -7683,6 +8111,14 @@ function gen.generate(
             local lastLine = nil
             for _, child in ipairs(x) do
                 if child == x.body then
+                    if blockWhile then
+                        emitDepth.beginCondition(header)
+                        emitDepth.lowerSwitches(x.cond)
+                        e("if not (")
+                        emit(x.cond)
+                        e(") then break end;")
+                        emitDepth.endCondition(header)
+                    end
                     if portableLoop.untilFlag then
                         e(("local %s,%s;repeat"):format(portableLoop.action, portableLoop.untilFlag), sourceLine(child))
                     elseif portableLoop.action then
@@ -7693,6 +8129,11 @@ function gen.generate(
                     emitDepth.loop = emitDepth.loop + 1
                     emitDepth.loopNodes[#emitDepth.loopNodes + 1] = x
                     emit(child)
+                    if kind == "repeatStmt" and not portableLoop.untilFlag and not x.cleanupConditionTemp then
+                        emitDepth.beginCondition(header)
+                        emitDepth.lowerSwitches(x.cond)
+                        emitDepth.endCondition(header)
+                    end
                     if portableLoop.untilFlag then
                         e(pluck.portableUntilTest(portableLoop))
                     end
@@ -7702,7 +8143,13 @@ function gen.generate(
                     emitDepth.soa.endIteration(x)
                     if portableLoop.action then
                         e(("until true;if %s==\"break\" then break end;"):format(portableLoop.action))
+                        emitDepth.propagateValueLoop()
+                        if header then
+                            e("if " .. header.action .. " then break end;")
+                        end
                     end
+                elseif child == x.cond and blockWhile then
+                    e("true", sourceLine(child))
                 elseif child == x.cond and x.cleanupConditionTemp then
                     e(x.cleanupConditionTemp, sourceLine(child))
                 elseif child == x.cond and portableLoop.untilFlag then
@@ -7718,6 +8165,16 @@ function gen.generate(
             -- statement, so nothing moves and the line count is unchanged.
             finishConcatBuffer(x, lastLine)
             emitDepth.soa.closeLoop(x, lastLine)
+            if header then
+                for _, completion in ipairs({"break", "continue"}) do
+                    if header.controls[completion] then
+                        e(("if %s==%q then "):format(header.action, completion))
+                        emitDepth.valueControl(completion)
+                        e(" end;")
+                    end
+                end
+            end
+            emitDepth.propagateValueLoop()
 
         elseif kind == "funcbody" then
             emitDepth.fn = emitDepth.fn + 1

@@ -179,6 +179,7 @@ that page:
 | Refinements | [refinements.md](../learn/language/types/refinements.md) | `NUPP2122` |
 | Structure-of-arrays storage | [structure-of-arrays.md](../learn/runtime/data/structure-of-arrays.md) | `NUPP2009`, `NUPP2403` |
 | Suspension | [suspension.md](../learn/runtime/concurrency/suspension.md) | `NUPP2603`, `NUPP2701`, `NUPP2702`, `NUPP2706` |
+| Do expressions | [do-expressions.md](../learn/language/do-expressions.md) | `NUPP2141`, `NUPP2142` |
 | Switch expressions | [switch-expressions.md](../learn/language/switch-expressions.md) | `NUPP2137` through `NUPP2142`, `NUPP3001` |
 | Target capability profiles | [build.md](../learn/projects/build.md) | `NUPP2904` |
 | Type packs | [packs.md](../learn/language/types/packs.md) | `NUPP2007`, `NUPP2010`, `NUPP2121`, `NUPP2605` |

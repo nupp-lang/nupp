@@ -85,7 +85,7 @@ function switchplan.facts(node: cst.SwitchExpr): switchplan.Facts
         local result = scalar(arm.switchStaticResult)
         if arm.patternKind ~= "static" then
             eligible, reason = false, "a type case needs lexical branches"
-        elseif arm.body ~= nil or arm.expr == nil then
+        elseif arm.body ~= nil or arm.expr == nil or arm.expr.kind == "doExpr" then
             eligible, reason = false, "a block arm needs lexical branches"
         elseif not result then
             eligible, reason = false, "an arm result is not one inert scalar"

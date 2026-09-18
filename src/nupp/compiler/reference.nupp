@@ -1013,6 +1013,53 @@ return m
     ),
 
     new reference.Section(
+        title = "Do expressions",
+        codes = {"NUPP2141", "NUPP2142"},
+        body = [=[
+A `do ... end` expression runs statements and produces one value with
+`yield value`. Locals belong to the expression's scope. Each path reaching
+its end must yield; falling through is `NUPP2141`. Result types combine the
+types of the yields.
+
+```nupp
+local value = cached ?? do
+    local computed = calculate()
+    yield computed
+end
+```
+
+`yield` exits the nearest do expression, even through nested loops or ordinary
+do statements. Nested do expressions have separate results. `return` exits the
+enclosing function; `break` and `continue` retain their enclosing loop targets.
+Cleanup runs when an exit leaves its region. A function boundary stops yield.
+
+Lazy operands and branches evaluate a block only when selected. Eager operands
+keep their order. Each do expression produces exactly one value. Lua lowering
+uses locals, branches and loop exits without introducing a closure. Comptime
+supports do expressions; the native AOT numeric subset does not yet.
+
+`yield` is contextual. Its operand must begin on the same line, and
+`yield(...)`, `yield {...}`, and `yield "text"` remain calls. Bind such an
+operand to a local first, then yield the name. A switch arm `-> do ... end`
+uses this same do expression.
+]=],
+        example = [=[
+local m = {}
+function m.choose(cached: number?): number
+    local value = do
+        if found = cached then
+            yield found
+        end
+        local computed = 40 + 2
+        yield computed
+    end
+    return value
+end
+return m
+]=]
+    ),
+
+    new reference.Section(
         title = "Switch expressions",
         codes = {"NUPP2137", "NUPP2138", "NUPP2139", "NUPP2140", "NUPP2141", "NUPP2142", "NUPP3001"},
         body = [=[
@@ -1100,11 +1147,10 @@ a broad type first makes a later narrow case `NUPP2139`.
 
 ### Expression and block arms
 
-`-> expression` is the compact form. `-> do ... end` is an ordinary lexical
-block whose completing paths end in `yield value`. The yielded value becomes
+`-> expression` is the compact form. `-> do ... end` is a do expression whose completing paths end in `yield value`. The yielded value becomes
 the value of the switch and suspends no coroutine. `return` keeps its normal
 meaning and immediately exits the enclosing function. A block path that falls
-through, or a statement after a switch yield, is `NUPP2141`.
+through, or a statement after a yield, is `NUPP2141`.
 
 ```nupp
 local value = switch token do
@@ -1119,8 +1165,8 @@ local value = switch token do
 end
 ```
 
-`yield` remains a contextual name. The switch-result reading requires an operand
-on the same line and is available only in a block arm, and Lua's call sugar is
+`yield` remains a contextual name. The block-result reading requires an operand
+on the same line and is available only in a do expression, and Lua's call sugar is
 preserved: `yield(...)`, `yield {...}`, and `yield "text"` are calls. Bind a
 value to a local first to yield an expression that would otherwise start with
 one of those forms.
@@ -1136,12 +1182,10 @@ produce one inert scalar may instead finish with one compiler-owned table read,
 allocated once in module setup. That is an optimizer choice rather than part of
 switch semantics.
 
-A switch is lifted from local declarations, assignments, returns, and call
-statements, preserving eager left-to-right evaluation. A switch in a lazy
-operand (`and`, `or`, `??`, a ternary arm, or work guarded by safe navigation)
-is `NUPP2142`; assign it to a preceding local. Static expression arms work in
-`comptime`, while type cases and block arms do not. Switches nest, and each
-level is planned independently.
+A switch preserves eager left-to-right evaluation and conditional execution in
+`and`, `or`, `??`, ternary arms, and work guarded by safe navigation. Static
+cases, including do expression arms, work in `comptime`; type cases do not.
+Switches nest, and each level is planned independently.
 ]=],
         example = [=[
 local m = {}

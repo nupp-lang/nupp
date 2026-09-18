@@ -706,6 +706,8 @@ function functions.install(c: state.Checker): state.StatHandlers
     end
 
     c.checkFuncbody = function(body, selfType)
+        local savedBlockYields = c.blockYieldStack
+        c.blockYieldStack = {}
         local params, rets, paramModes, paramNames = {}, {}, {}, {}
         disambiguateBorrowCapture(body)
         local captures = takenCaptures(body)
@@ -1216,6 +1218,7 @@ function functions.install(c: state.Checker): state.StatHandlers
         c.observedReturnStack[#c.observedReturnStack] = nil
         c.popScope()
         c.functionBodies[#c.functionBodies] = nil
+        c.blockYieldStack = savedBlockYields
         c.functionDepth = c.functionDepth - 1
         if observedReturns and #observedReturns > 0 then
             local inferred = observedResultTypes(observedReturns)

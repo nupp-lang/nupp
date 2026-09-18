@@ -250,6 +250,7 @@ local TYPED_LAYER: {
     tpredicate = "a type annotation",
     ternary = "a type annotation",
     switchExpr = "a switch expression",
+    doExpr = "a do expression",
 }
 
 --- Reports the typed layer wherever it appears in a plain Lua file.
@@ -963,7 +964,7 @@ function checkMod.check(
             borrowReturnStack = {},
             varargPackStack = {},
             yieldPackStack = {},
-            switchYieldStack = {},
+            blockYieldStack = {},
             resumePackStack = {},
             protocolStack = {},
             consumingFieldStack = {},
@@ -2068,7 +2069,12 @@ function checkMod.check(
             return false
         end
         local kind = last.kind
-        if kind == "returnStmt" or kind == "breakStmt" or kind == "continueStmt" or kind == "gotoStmt" then
+        if kind == "returnStmt"
+            or kind == "yieldStmt"
+            or kind == "breakStmt"
+            or kind == "continueStmt"
+            or kind == "gotoStmt"
+        then
             return true
         end
         if kind == "callStmt" then
@@ -2138,7 +2144,12 @@ function checkMod.check(
     completesNormally = function(node: Node): boolean
         local stat = node as any
         local kind = stat.kind
-        if kind == "returnStmt" or kind == "breakStmt" or kind == "continueStmt" or kind == "gotoStmt" then
+        if kind == "returnStmt"
+            or kind == "yieldStmt"
+            or kind == "breakStmt"
+            or kind == "continueStmt"
+            or kind == "gotoStmt"
+        then
             return false
         elseif kind == "callStmt" then
             return not neverReturns(stat.expr)
@@ -3162,6 +3173,7 @@ function checkMod.check(
             end
             local owners = node.automaticOwners or {}
             if kind == "returnStmt"
+                or kind == "yieldStmt"
                 or kind == "breakStmt"
                 or kind == "continueStmt"
                 or kind == "gotoStmt"

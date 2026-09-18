@@ -319,6 +319,20 @@ local function widen(v: any): number
 end
 ```
 
+### Do expressions
+
+`do ... yield value ... end` evaluates statements and produces one value.
+Locals stay in the block, and `yield` exits the nearest do expression.
+
+```nupp
+local value = do
+    local computed = calculate()
+    yield computed
+end
+```
+
+See [do-expressions.md](do-expressions.md) for conditional evaluation and exits.
+
 ### Switch expressions
 
 `switch selector do` dispatches in order and produces a value.

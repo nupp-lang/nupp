@@ -1150,12 +1150,11 @@ record cst.ReturnStmt is cst.Hints
     constructorReturn: boolean?
 end
 
---- `yield value` inside a block switch arm. This is distinct from
---- `coroutine.yield(...)`: it supplies the value of the enclosing switch.
-record cst.SwitchYieldStmt is cst.Hints
+--- `yield value` completes the nearest do expression, without suspending.
+record cst.YieldStmt is cst.Hints
     {cst.Node | lexer.Token}
 
-    kind: 'switchYieldStmt'
+    kind: 'yieldStmt'
     value: cst.Node?
 end
 
@@ -2305,6 +2304,16 @@ record cst.SwitchExpr is cst.Hints
     endTok: lexer.Token?
 end
 
+--- A lexical block that produces one value through `yield`.
+record cst.DoExpr is cst.Hints
+    {cst.Node | lexer.Token}
+
+    kind: 'doExpr'
+    doTok: lexer.Token?
+    body: cst.Node?
+    endTok: lexer.Token?
+end
+
 --- `cond ? a : b`.
 record cst.Ternary is cst.Hints
     {cst.Node | lexer.Token}
@@ -2755,7 +2764,7 @@ type cst.Node = cst.Chunk
     | cst.BreakStmt
     | cst.ContinueStmt
     | cst.ReturnStmt
-    | cst.SwitchYieldStmt
+    | cst.YieldStmt
     | cst.CompoundAssign
     | cst.AssignStmt
     | cst.CallStmt
@@ -2818,6 +2827,7 @@ type cst.Node = cst.Chunk
     | cst.SwitchCase
     | cst.SwitchElse
     | cst.SwitchExpr
+    | cst.DoExpr
     | cst.Ternary
     | cst.Tconst
     | cst.Tkeyof
