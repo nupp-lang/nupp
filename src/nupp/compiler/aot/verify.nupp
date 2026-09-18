@@ -934,9 +934,9 @@ local function genericFieldAccess(
     local span = access.span ~= nil and scope.spans[access.span as string] or nil
     holds(
         span ~= nil and (
-            (span as scalarIR.Param).kind == rootKind or rootKind == "read_span" and (
+            (
                 span as scalarIR.Param
-            ).kind == "write_span"
+            ).kind == rootKind or rootKind == "read_span" and (span as scalarIR.Param).kind == "write_span"
         ) and (
             span as scalarIR.Param
         ).type == "struct:" .. tostring(
@@ -3496,6 +3496,7 @@ end
 --- Whether any authored region of a block kernel was rewritten into the
 --- explicit vocabulary.
 local vectorRegions: function({scalarIR.Statement}): boolean
+
 vectorRegions = function(statements: {scalarIR.Statement}): boolean
     for _, statement in ipairs(statements) do
         local op = statement.op
@@ -4227,7 +4228,10 @@ function verify.program(program: scalarIR.Program): scalarIR.Program
         holds(body ~= nil and loop == nil and workgroup == nil, "explicit SIMD requires a block kernel")
     end
     if program.vector ~= nil then
-        holds(loop ~= nil and program.simdRequired == true and program.lanes == nil, "an explicit SIMD map loop without a map program")
+        holds(
+            loop ~= nil and program.simdRequired == true and program.lanes == nil,
+            "an explicit SIMD map loop without a map program"
+        )
     end
     if program.usesSimd == true or program.vector ~= nil or vectorRegions(body or {}) then
         holds(
