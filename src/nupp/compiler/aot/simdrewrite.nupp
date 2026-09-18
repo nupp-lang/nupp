@@ -1629,6 +1629,14 @@ block = function(
     end
 
     for position, statement in ipairs(statements) do
+        -- A loop whose condition is a block binds locals the condition reads,
+        -- and those bindings have to be evaluated once per lane per trip like
+        -- any other body. Nothing here does that yet, and carrying the
+        -- condition without its block would emit a read of a local nobody
+        -- bound, so the region is refused while the control flow stays scalar.
+        if (statement as any).conditionBody ~= nil then
+            state.reject("statementful loop conditions currently require scalar control flow")
+        end
         local statementMask = activeMask(mask, loop)
         local bindings = state.inner.refBindings as any
         bindings["$mask"] = statementMask
