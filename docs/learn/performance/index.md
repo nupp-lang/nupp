@@ -383,13 +383,6 @@ end
 ```
 :::
 
-An array type alone is insufficient. Shape-changing writes, unknown calls,
-yields, metatable effects, or a shadowed `ipairs` keep the generic loop. See
-[effects](../language/effects.md).
-
-A static bound does not request unrolling. Use `OPT-8` for specialization
-through explicit `const` binders, or `comptime do` for compile-time evaluation.
-
 ### `OPT-3`, constant folding
 
 Exact integer arithmetic, strings, comparisons, boolean selection, and primitive
@@ -424,9 +417,6 @@ end
 ```
 :::
 
-Floating-point arithmetic, cdata, calls, allocation, and reassigned bindings
-stay at runtime.
-
 #### Unchanged locals
 
 Ordinary scalar locals also propagate when their bindings are never reassigned:
@@ -453,8 +443,7 @@ end
 ```
 :::
 
-Writes in nested functions prevent propagation; separately shadowed bindings do
-not. Unused inert scalar declarations disappear after folding.
+Unused inert scalar declarations disappear after folding.
 
 #### Short-circuit expressions
 
@@ -773,12 +762,6 @@ end
 
 Repeated concatenation copies the growing string and costs O(n²).
 
-The initializer must be `""`, with one primitive `out = out .. ...` accumulation
-and no intervening uses. Reads or captures inside the loop, prepends, multiple
-accumulations, and possible `__concat` effects prevent rewriting.
-
-Straight-line concatenation is unchanged.
-
 ### `OPT-6`, indexed views
 
 [](nupp.mem.indexed.range) validates an inclusive range for trusted Span or SoA
@@ -829,9 +812,7 @@ end
 :::
 
 Views must be bound to `const` names. Validation runs once and physical offsets
-are preserved. `-O0`, held frames, computed indices, other spans, and accesses
-outside the witnessed loop keep checked helpers. The proof stays within its
-function.
+are preserved.
 
 #### SoA columns
 
@@ -979,9 +960,6 @@ end
 :::
 
 [AOT](ahead-of-time/index.md) applies the same helper eligibility rules.
-
-`--remarks` explains why a call was not inlined. LuaJIT or the native compiler
-may still inline it.
 
 ::: deepdive
 Inlining requires:
@@ -1159,23 +1137,58 @@ codes are stable; `-Z` flags are debugging interfaces.
 - [Ahead-of-time compilation](ahead-of-time/index.md): compile numeric loops to native code.
 :::
 
-## Observable behavior
-
-Passes preserve results. Relaxing another observable guarantee requires an
-explicit
-[`@relax`](../../reference/annotations.md#relaxing-observable-guarantees)
-permission.
-
 ## FAQ
 
+<a id="observable-behavior"></a>
 <a id="does-o1-change-what-a-program-answers"></a>
 
 ### Does `-O1` change how a program works?
 
 No. Optimization preserves results; other observable guarantees require explicit
-`@relax` permission to change.
+[`@relax`](../../reference/annotations.md#relaxing-observable-guarantees)
+permission to change.
 
-### Why did a pass not fire on code that looks eligible?
+<a id="why-did-a-pass-not-fire-on-code-that-looks-eligible"></a>
 
-Use `--remarks` to find the failed proof. Common blockers are mutable bindings
-and unresolved call effects; see [effects](../language/effects.md).
+### Why didn't an optimization apply?
+
+Use `--remarks` to see why the compiler left the code unchanged. Common blockers
+are mutable bindings and calls whose [effects](../language/effects.md) are
+unknown. A helper call that Nupp leaves unchanged may still be inlined by LuaJIT
+or the native compiler.
+
+### Why does my `ipairs` loop still use an iterator?
+
+An array type alone does not prove that the loop can safely use numeric
+indexing. Writes that change the array's shape, calls with unknown effects,
+yields, metatable effects, or a shadowed `ipairs` keep the iterator. See [numeric
+`ipairs`](#opt-2-numeric-ipairs) for an eligible loop.
+
+### Why wasn't my loop unrolled?
+
+A known loop bound alone does not request unrolling. Use [const
+monomorphization](#opt-8-const-monomorphization) for specialization through
+explicit `const` arguments, or [comptime blocks](../language/comptime.md) for
+compile-time evaluation.
+
+### Why is this expression still evaluated at runtime?
+
+[Constant folding](#opt-3-constant-folding) leaves floating-point arithmetic,
+cdata, calls, and allocations at runtime. Reassigned bindings also stay at
+runtime, including those written by nested functions; a separate binding with
+the same name does not prevent folding.
+
+### Why wasn't my concatenation loop converted to a buffer?
+
+The string must start as `""`, with one primitive `out = out .. ...` accumulation
+and no intervening uses. Reads or captures inside the loop, prepends, multiple
+accumulations, and possible `__concat` effects prevent the rewrite.
+[Concat buffering](#opt-5-concat-buffer) applies to loops; straight-line
+concatenation is unchanged.
+
+### Why do my indexed accesses still have bounds checks?
+
+At `-O0`, accesses keep checked helpers. At `-O1`, held frames, computed indices,
+other spans, and accesses outside the validated loop still use those helpers;
+the range proof applies only within its function. See [indexed
+views](#opt-6-indexed-views) for the supported loop pattern.
