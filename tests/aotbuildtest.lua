@@ -4349,4 +4349,116 @@ end
     end
 end
 
+-- Two `@aot` modules under one include root, and a target that bundles one of
+-- them. `@simd` is a requirement rather than an inference, so lowering the one
+-- the target never reaches fails the build at a tier that has no vector -- and
+-- the browser template's scalar package is exactly that shape.
+local SCOPED_ENTRY = [[
+local reached = require("reached")
+
+return {total = reached.total}
+]]
+
+local SCOPED_REACHED = [[
+local span = require("nupp.mem.span")
+
+@aot
+local function total(borrows values: span.Span<uint8>): number
+    local sum = 0.0
+    for index = 1, #values do
+        sum = sum + values[index]
+    end
+
+    return sum
+end
+
+return {total = total}
+]]
+
+local SCOPED_UNREACHED = [[
+local span = require("nupp.mem.span")
+
+local struct Sample
+    value: float
+    weight: float
+end
+
+@aot
+local function scale(exclusive output: span.WriteSpan<Sample>, borrows input: span.Span<Sample>, factor: number): nil
+    if #output ~= #input then
+        error("length mismatch", 2)
+    end
+    @simd
+    for index = 1, #output do
+        output[index].value = input[index].value * factor
+        output[index].weight = input[index].weight * factor
+    end
+end
+
+return {scale = scale}
+]]
+
+local function scopedProject()
+    local dir = os.tmpname()
+    os.remove(dir)
+    assert(os.execute("mkdir -p '" .. dir .. "/src'") == 0)
+    local manifest = assert(io.open(dir .. "/nupp.lua", "wb"))
+    manifest:write([[
+return {
+   include = {"src"},
+   build = {targets = {native = {
+      kind = "bundle",
+      entries = {"entry"},
+      sources = {"src/entry.nupp"},
+      output = "dist/entry.lua",
+      outDir = "build/native",
+      dialect = "lua51",
+      aot = "require-wasm",
+      aotFeatures = "scalar",
+   }}},
+}
+]])
+    manifest:close()
+    for name, source in pairs({
+        ["src/entry.nupp"] = SCOPED_ENTRY,
+        ["src/reached.nupp"] = SCOPED_REACHED,
+        ["src/unreached.nupp"] = SCOPED_UNREACHED,
+    }) do
+        local handle = assert(io.open(dir .. "/" .. name, "wb"))
+        handle:write(source)
+        handle:close()
+    end
+
+    return isolateCache(dir)
+end
+
+function M.aTargetLowersWhatItBundlesAndNothingElse()
+    local dir = scopedProject()
+    local out = build(dir)
+
+    -- Emscripten is what a Wasm build needs after the C is written, and a host
+    -- without it stops there. The C is the question here, so the assertions are
+    -- about what got lowered rather than about the exit status.
+    assert(
+        not out:find("unreached.nupp", 1, true),
+        ("a module the target does not bundle is not this target's to compile (fixture at %s): %s"):format(dir, out)
+    )
+    assert(
+        not out:find("has no 16-byte vector", 1, true),
+        ("and so cannot refuse its tier (fixture at %s): %s"):format(dir, out)
+    )
+    assert(
+        read(dir .. "/build/native/aot/src/reached.scalar.c"),
+        (
+            "a module reached through require is still compiled: narrowing to the entry file would lose it "
+            .. "(fixture at %s): %s"
+        ):format(dir, out)
+    )
+    test.equal(
+        read(dir .. "/build/native/aot/src/unreached.scalar.c"),
+        nil,
+        ("and nothing is written for the module outside the deliverable (fixture at %s)"):format(dir)
+    )
+end
+
 return M

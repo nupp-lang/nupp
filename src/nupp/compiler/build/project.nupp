@@ -479,6 +479,18 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
             ) and "compiling ahead-of-time code" or "emitting ahead-of-time code"
         )
 
+        -- Bounded by what this target bundles rather than by the include roots.
+        -- The roots are where `@aot` code is found; the deliverable decides
+        -- which of it is this target's to compile. A project whose targets sit
+        -- at different CPU feature tiers -- the browser template builds one
+        -- scalar and one SIMD128 package out of one source tree -- otherwise
+        -- fails the scalar build over the SIMD module it never bundles.
+        local aotScope, scopeErr = modules.targetScope(root, target, session)
+        if scopeErr then
+            io.stderr:write("nupp: " .. tostring(scopeErr) .. "\n")
+
+            return 1
+        end
         local produced, aotErr = aotPolicy.apply(
             target.aot as string,
             root,
@@ -497,7 +509,8 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
                 modules = oldState.aotModules,
                 toolchain = oldState.aotToolchain
             ),
-            report
+            report,
+            aotScope
         )
         report:clear()
         if produced == nil then

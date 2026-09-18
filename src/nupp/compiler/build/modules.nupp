@@ -2059,6 +2059,71 @@ local function buildModules(root: string, outDir: string, config: Config, target
     }
 end
 
+--- The source files one target reaches, or nothing when it reaches the project.
+---
+--- A target that names `sources` owns that selection plus whatever its entries
+--- and those sources require; a target that names none retains the
+--- whole-project contract and is answered with `nil` so a caller keeps whatever
+--- it does for a project-wide scope. The closure is the same one the module
+--- build seeds with, walked through the same query graph, so a phase that runs
+--- before the build cannot decide a different set of modules is in the
+--- deliverable than the build then compiles.
+---
+--- @param session the graph the closure is walked through, shared with the
+---   build that follows so each import is answered once
+--- @return the reached files as a set of normalized paths, or nothing and why
+--- @raises never; an entry that resolves to nothing is reported, not thrown
+local function targetScope(root: string, target: Target, session: modules.Session): ({[string]: boolean}?, string?)
+    if target.sources == nil then
+        return nil, nil
+    end
+    local inc = session.inc
+    local reached: {[string]: boolean} = {}
+    local queue: {string} = {}
+
+    local function seed(path: string): nil
+        local file = normalize(path)
+        if not reached[file] then
+            reached[file] = true
+            queue[#queue + 1] = file
+        end
+    end
+
+    for _, entry in ipairs(target.entries or {}) do
+        local path: string? = nil
+        if entry:match("%.nupp$") or entry:find("[/\\]") then
+            path = join(root, entry)
+        else
+            path = inc.modulePath(entry)
+        end
+        if path == nil then
+            return nil, "entry not found: " .. entry
+        end
+        seed(path as string)
+    end
+    local selected, selectedErr = selectedSourceFiles(root, target)
+    if selectedErr then
+        return nil, selectedErr
+    end
+    for _, path in ipairs(selected or {}) do
+        seed(path)
+    end
+    local cursor: integer = 1
+    while cursor <= #queue do
+        local path = queue[cursor] as string
+        cursor = cursor + 1
+        for _, dependency in ipairs(inc.moduleDependencies(path)) do
+            local dependencyPath = inc.modulePath(dependency)
+            if dependencyPath ~= nil then
+                seed(dependencyPath as string)
+            end
+        end
+    end
+
+    return reached, nil
+end
+
+modules.targetScope = targetScope
 modules.typeFingerprint = typeFingerprint
 modules.resourceOutput = resourceOutput
 modules.build = buildModules

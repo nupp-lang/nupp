@@ -1346,11 +1346,16 @@ end
 
 --- Writes the C for every `@aot` function the project builds.
 ---
---- Scoped by the project's module roots rather than by the target's entries,
---- because an entry is a module name and an `@aot` function is in a file. Every
---- module the project could build is a module the policy applies to.
+--- Found by reading the project's module roots, because an entry is a module
+--- name and an `@aot` function is in a file. What is lowered out of that is the
+--- target's own deliverable: `scope` is the set of files it reaches, and a
+--- target that reaches the whole project passes nothing and gets every module
+--- under the roots. A module the target never bundles is not its to compile --
+--- and since `@simd` is a requirement rather than an inference, lowering one
+--- would fail a build over code the artifact does not contain.
 ---
 --- @param roots the project's include directories
+--- @param scope the files the target reaches, or nothing for the whole project
 --- @param outDir where the build is writing, which the C goes beside
 --- @param session the graph the sources are checked through, shared with the
 ---   module build that follows so each import is answered once
@@ -1365,7 +1370,8 @@ function aot.emitC(
     features: any,
     triple: string?,
     staticLinkage: boolean?,
-    reporter: Reporter?
+    reporter: Reporter?,
+    scope: {[string]: boolean}?
 ): ({aot.Emitted}?, string?, {[string]: compile.Artifacts}, {[string]: {any}}, any?, {string})
     local report = reporter or progress.new("never")
 
@@ -1395,7 +1401,11 @@ function aot.emitC(
     local checkedModules: {any} = {}
     for _, directory in ipairs(roots) do
         for _, source in ipairs(fs.listFiles(fs.join(root, directory))) do
-            if not seen[source] and source:match("%.nupp$") ~= nil then
+            if not seen[
+                source
+            ] and source:match(
+                "%.nupp$"
+            ) ~= nil and (scope == nil or (scope as {[string]: boolean})[fs.normalize(source)] == true) then
                 seen[source] = true
                 local text = fs.readFile(source)
                 if text ~= nil then
@@ -1909,7 +1919,8 @@ function aot.apply(
     cflags: {string}?,
     linkage: string?,
     carried: aot.Carried?,
-    reporter: Reporter?
+    reporter: Reporter?,
+    scope: {[string]: boolean}?
 ): (aot.Result?, string?)
     local report = reporter or progress.new("never")
     local held = carried or new aot.Carried()
@@ -1928,7 +1939,8 @@ function aot.apply(
         features,
         triple,
         linkage == "static",
-        report
+        report,
+        scope
     )
     if emitted == nil then
         return nil, emitErr
