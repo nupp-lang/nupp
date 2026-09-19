@@ -1393,7 +1393,7 @@ function aot.emitC(
     staticLinkage: boolean?,
     reporter: Reporter?,
     scope: {[string]: boolean}?
-): ({aot.Emitted}?, string?, {[string]: compile.Artifacts}, {[string]: {any}}, any?, {string})
+): ({aot.Emitted}?, string?, {[string]: compile.Artifacts}, {[string]: {any}}, any?, {string}, compile.Diagnostic?)
     local report = reporter or progress.new("never")
 
     -- Named for the timeline rather than for the function, so `build --json`
@@ -1544,7 +1544,7 @@ function aot.emitC(
                                 end
                             end
                         end
-                        return nil, rendered, produced, authoredUnused, constSelection, gpuSources
+                        return nil, rendered, produced, authoredUnused, constSelection, gpuSources, first
                     end
                     break
                 else
@@ -1957,7 +1957,7 @@ function aot.apply(
     carried: aot.Carried?,
     reporter: Reporter?,
     scope: {[string]: boolean}?
-): (aot.Result?, string?)
+): (aot.Result?, string?, compile.Diagnostic?)
     local report = reporter or progress.new("never")
     local held = carried or new aot.Carried()
     toolruns.reset()
@@ -1966,7 +1966,7 @@ function aot.apply(
         triple = "wasm32-unknown-emscripten"
         features = features or "scalar"
     end
-    local emitted, emitErr, produced, authoredUnused, constSelection, gpuSources = aot.emitC(
+    local emitted, emitErr, produced, authoredUnused, constSelection, gpuSources, refusal = aot.emitC(
         root,
         outDir,
         roots,
@@ -1979,7 +1979,7 @@ function aot.apply(
         scope
     )
     if emitted == nil then
-        return nil, emitErr
+        return nil, emitErr, refusal
     end
     report:at("aot")
     local remarks: {any} = {}

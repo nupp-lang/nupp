@@ -75,6 +75,15 @@ The declaration may take multiple read and write spans plus at most 128 bytes
 of fixed-width scalar uniforms. Host transfers stay explicit, and generated
 bindings preserve the declared element types and parameter order.
 
+Inside a map, numeric loops such as `for round = 1, 64 do` support an implicit
+step of one. Bounds must be `int32` values or exact signed 32-bit literals.
+They are evaluated once, left to right, before the loop; assignments in the
+body do not change the bound or the loop's internal counter. Empty ranges,
+`break`, `continue`, and a last iteration at `2147483647` preserve ordinary
+numeric-loop behavior in both SPIR-V and WGSL. Explicit steps, fractional or
+`uint32` bounds, and nested span-length bounds are refused at their source
+position.
+
 ## Structured workgroups
 
 `gpu.workgroups(groups, size, controller)` describes a fixed-size workgroup.

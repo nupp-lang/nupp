@@ -1,0 +1,12 @@
+literal spirv valid
+valid WGSL: /private/tmp/issue62-artifacts-v4/literal.wgsl
+literal wgsl valid
+boundaries spirv valid
+valid WGSL: /private/tmp/issue62-artifacts-v4/boundaries.wgsl
+boundaries wgsl valid
+snapshots spirv valid
+valid WGSL: /private/tmp/issue62-artifacts-v4/snapshots.wgsl
+snapshots wgsl valid
+control spirv valid
+valid WGSL: /private/tmp/issue62-artifacts-v4/control.wgsl
+control wgsl valid

@@ -1,0 +1,7 @@
+adapter=AdapterInfo { name: "Apple M5 Pro", vendor: 0, device: 0, device_type: IntegratedGpu, device_pci_bus_id: "", driver: "", driver_info: "", backend: Metal, subgroup_min_size: 4, subgroup_max_size: 64, transient_saves_memory: Some(true), limit_bucket: None }
+
+thread 'main' (128550776) panicked at main.rs:43:118:
+assertion `left == right` failed: literal 0..0 index0
+  left: 70
+ right: 71
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace

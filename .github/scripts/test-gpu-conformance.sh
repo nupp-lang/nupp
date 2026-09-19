@@ -31,4 +31,13 @@ export LUA_CPATH="$root/.rocks/lib/lua/5.1/?.so;;"
 export NUPP_NATIVE_LIBRARY="$typed/lib/nupp_native"
 export GEMM_M=64 GEMM_N=64 GEMM_K=64
 
+"$luajit" "$bench/counted-api.lua"
+# Validate and execute the peer WGSL route with the same independent oracle.
+wgsl=$typed/counted-wgsl
+mkdir -p "$wgsl"
+for kernel in literal boundaries snapshots control; do
+    "$root/bin/nupp" aot --emit wgsl --target wasm32-unknown-emscripten \
+        --function "$kernel" "$bench/typed/counted.nupp" > "$wgsl/$kernel.wgsl"
+done
+cargo run --locked -p nupp-native-gpu --example counted_wgsl -- "$wgsl"
 "$luajit" "$bench/gemm-api.lua"

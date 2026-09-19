@@ -809,6 +809,8 @@ function spirv.program(
     instruction(functions, OP.Label, {mainLabel})
 
     local localPointers: {[string]: integer} = {}
+    local forCounters: {[string]: integer} = {}
+    local forDone: {[string]: integer} = {}
     local references: {[string]: integer} = {}
 
     --- Immutable span-element references may be loaded as a whole struct, then
@@ -836,9 +838,24 @@ function spirv.program(
                     STORAGE.Function
                 })
                 name(pointer, statement.cName)
+            elseif statement.op == "fornum" then
+                local binding, counter = id(), id()
+                localPointers[statement.binding.cName] = binding
+                forCounters[statement.binding.cName] = counter
+                local done = id()
+                forDone[statement.binding.cName] = done
+                instruction(functions, OP.Variable, {pointerType(STORAGE.Function, boolType), done, STORAGE.Function})
+                for _, pointer in ipairs({binding, counter}) do
+                    instruction(functions, OP.Variable, {
+                        pointerType(STORAGE.Function, i32Type),
+                        pointer,
+                        STORAGE.Function
+                    })
+                end
+                name(binding, statement.binding.cName)
+                collect(statement.body)
             elseif statement.op == "while"
                 or statement.op == "repeat"
-                or statement.op == "fornum"
                 or statement.op == "block"
                 or statement.op == "phase"
             then
@@ -1353,6 +1370,53 @@ function spirv.program(
                         end
                     end
                 end
+                instruction(functions, OP.Label, {merge})
+                terminated = false
+                readonlyReferenceValues = {}
+            elseif op == "fornum" then
+                readonlyReferenceValues = {}
+                local binding = assert(localPointers[statement.binding.cName])
+                local counter = assert(forCounters[statement.binding.cName])
+                local completion = assert(forDone[statement.binding.cName])
+                local first, firstType = expression(statement.from)
+                local last, lastType = expression(statement.to)
+                assert(firstType == i32Type and lastType == i32Type, "GPU counted loop bounds must be int32")
+                instruction(functions, OP.Store, {counter, first})
+                local header, body, continuing, merge = id(), id(), id(), id()
+                instruction(functions, OP.Branch, {header})
+                instruction(functions, OP.Label, {header})
+                local current, inside = id(), id()
+                instruction(functions, OP.Load, {i32Type, current, counter})
+                instruction(functions, OP.SLessThanEqual, {boolType, inside, current, last})
+                instruction(functions, OP.LoopMerge, {merge, continuing, 0})
+                instruction(functions, OP.BranchConditional, {inside, body, merge})
+                instruction(functions, OP.Label, {body})
+                instruction(functions, OP.Store, {binding, current})
+                currentBreak[#currentBreak + 1] = merge
+                currentContinue[#currentContinue + 1] = continuing
+                terminated = false
+                statements(statement.body)
+                currentBreak[#currentBreak] = nil
+                currentContinue[#currentContinue] = nil
+                if not terminated then
+                    instruction(functions, OP.Branch, {continuing})
+                end
+                instruction(functions, OP.Label, {continuing})
+                local done, step, next = id(), id(), id()
+                instruction(functions, OP.IEqual, {boolType, done, current, last})
+                instruction(functions, OP.Store, {completion, done})
+                -- The continue block is also the back edge. A conditional exit
+                -- before a separate increment block would break structured
+                -- post-dominance. Add zero on the last iteration so INT32_MAX
+                -- exits without overflowing.
+                instruction(functions, OP.Select, {i32Type, step, done, constant(i32Type, 0), constant(i32Type, 1)})
+                instruction(functions, OP.IAdd, {i32Type, next, current, step})
+                instruction(functions, OP.Store, {counter, next})
+                -- Keep the exit decision as stored state: downstream shader
+                -- translation must not recompute it from the updated counter.
+                local completed = id()
+                instruction(functions, OP.Load, {boolType, completed, completion})
+                instruction(functions, OP.BranchConditional, {completed, merge, header})
                 instruction(functions, OP.Label, {merge})
                 terminated = false
                 readonlyReferenceValues = {}

@@ -886,6 +886,9 @@ record lower.ValueFrame
 end
 
 record lower.Kernel
+    --- GPU counted loops retain exact signed-int32 source control semantics.
+    gpuTarget: boolean?
+
     reassignedNames: {[string]: boolean} = {}
     pending: {scalarIR.Statement} = {}
     expressionFrame: lower.ExpressionFrame?
@@ -6302,8 +6305,17 @@ end
 --- An integer literal stays an integer rather than being written as a double
 --- for the emitter to cast back.
 local function forBound(bound: scalarIR.Expr, at: cst.Node?, kernel: lower.Kernel): scalarIR.Expr
-    if bound.op == "constant" then
-        local number = tonumber((bound as scalarIR.Constant).value)
+    local literal = bound
+    local sign = 1
+    if kernel.gpuTarget and literal.op == "neg" then
+        literal = (literal as scalarIR.Unary).value
+        sign = -1
+    end
+    if literal.op == "constant" then
+        local number = tonumber((literal as scalarIR.Constant).value)
+        if number ~= nil then
+            number = number * sign
+        end
         if number ~= nil and number == math.floor(number as number) then
             -- The C loop counts in int32, so a literal the counter cannot reach
             -- is refused here rather than narrowed into a bound that means
@@ -6315,6 +6327,9 @@ local function forBound(bound: scalarIR.Expr, at: cst.Node?, kernel: lower.Kerne
             end
             return new scalarIR.IntConstant(op = "constant_i32", value = spelling, type = "i32", source = bound.source)
         end
+    end
+    if kernel.gpuTarget and bound.type ~= "i32" then
+        kernel.context.reject(lower.site(at), "GPU counted loop bounds must be int32 or exact int32 literals")
     end
     if bound.type ~= "i32" and bound.type ~= "u32" and bound.type ~= "f64" then
         kernel.context.reject(lower.site(at), "native for bounds must be numeric")
@@ -6990,16 +7005,23 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
                 context.reject(lower.site(stat), "a native nested for loop takes no explicit step")
             end
 
-            local from = forBound(
-                lower.expression(loop.start as cst.Node, environment, kernel.index, kernel),
-                stat,
-                kernel
-            )
-            local to = forBound(
-                lower.expression(loop.stop as cst.Node, environment, kernel.index, kernel),
-                stat,
-                kernel
-            )
+            local function bound(node: cst.Node): scalarIR.Expr
+                if not kernel.gpuTarget then
+                    return forBound(lower.expression(node, environment, kernel.index, kernel), stat, kernel)
+                end
+                -- Each bound is a complete evaluation. Isolate its expression
+                -- frame so later setup cannot rewrite this snapshot to a
+                -- capture declared after it.
+                local value, setup = lower.capture(node, environment, kernel.index, kernel)
+                for _, statement in ipairs(setup) do
+                    out[#out + 1] = statement
+                end
+
+                return temporary(forBound(value, node, kernel), kernel, out)
+            end
+
+            local from = bound(loop.start as cst.Node)
+            local to = bound(loop.stop as cst.Node)
             if loop.var == nil then
                 context.reject(lower.site(stat), "a native for loop needs an induction variable")
             end
@@ -8749,6 +8771,7 @@ function lower.program(
         local groupName = ((controllerParams[1] as cst.Param).name as lexer.Token).text
         local phasesName = ((controllerParams[2] as cst.Param).name as lexer.Token).text
         local kernel = newKernel(signature, declarations, layouts, symbol, context, {
+            gpuTarget = contract.target == "gpu",
             reassignedNames = assignedNames(body.body, {}),
             loopSource = lower.site(workgroupCall),
             phasesName = phasesName,
@@ -8940,6 +8963,7 @@ function lower.program(
 
     if not mapShape then
         local kernel = newKernel(signature, declarations, layouts, symbol, context, {
+            gpuTarget = contract.target == "gpu",
             reassignedNames = assignedNames(body.body, {}),
             stringAccumulators = lower.stringAccumulators(statements),
             loopSource = lower.site(body.body or body),
@@ -9011,6 +9035,7 @@ function lower.program(
     local loop = annotatedStatement(statements[#statements]) as cst.Node
     local index = (admission.shape as lower.LoopShape).index
     local kernel = newKernel(signature, declarations, layouts, symbol, context, {
+        gpuTarget = contract.target == "gpu",
         reassignedNames = assignedNames(body.body, {}),
         loopSource = lower.site(loop),
         index = index,

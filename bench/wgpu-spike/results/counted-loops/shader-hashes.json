@@ -1,0 +1,10 @@
+{
+  "literal.spirv": "ec43183acf1bb9c9f90719b72b0a4700852c326732f9bc6a5094ad14a3b36e8e",
+  "snapshots.wgsl": "edaa0f11e3ab14efbe7fe1c47c18b5f7f139c003009208bd87cbcd1d7e876cd4",
+  "boundaries.spirv": "71d7fe3cbff1f12d88c3b183adf59e179b683dc79aba0964a5addd76ee6ccad8",
+  "literal.wgsl": "31e88deeebe07be48bd3042114eff24a21b41655ec62ed9a6f812444cbed2c37",
+  "snapshots.spirv": "c26c6171ec7fe72c4c6a05bc309c50ed7f179e9cdad55e7eecbfce0959994208",
+  "boundaries.wgsl": "e1c0fcb4f7afe5dbed48d6cfe8cbbe96501b2a1abc94f93baddff59318a25977",
+  "control.wgsl": "bd44115510593de6cf24c50bc4e2731c798b7891e43619c5b48ccfb0d76cd2cf",
+  "control.spirv": "aea7e2fb190689aa47fc5bbb00461394810cdcab3e128ad739af4c684c407dc6"
+}

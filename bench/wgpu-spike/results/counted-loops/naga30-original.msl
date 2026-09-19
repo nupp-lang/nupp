@@ -1,0 +1,89 @@
+// language: metal1.0
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using metal::uint;
+
+struct _mslBufferSizes {
+    uint size0;
+    uint size1;
+};
+
+struct NuppUniforms {
+    uint count;
+    uint input_count;
+    uint output_count;
+    uint input_offset;
+    uint output_offset;
+};
+typedef uint type_1[1];
+
+struct ks_literal_gpuInput {
+};
+kernel void ks_literal_gpu(
+  metal::uint3 global_id [[thread_position_in_grid]]
+, device type_1 const& input [[user(fake0)]]
+, device type_1& output [[user(fake0)]]
+, constant NuppUniforms& uniforms [[user(fake0)]]
+, constant _mslBufferSizes& _buffer_sizes [[user(fake0)]]
+) {
+    uint v1_value = {};
+    int nupp_for_counter_1_ = 1;
+    int v4_ = {};
+    uint dispatch_index = global_id.x;
+    uint _e4 = uniforms.count;
+    if (dispatch_index >= _e4) {
+        return;
+    }
+    uint _e9 = uniforms.input_offset;
+    uint _e12 = input[_e9 + dispatch_index];
+    v1_value = _e12;
+    {
+        uint2 loop_bound = uint2(4294967295u);
+        bool loop_init = true;
+        while(true) {
+            if (metal::all(loop_bound == uint2(0u))) { break; }
+            loop_bound -= uint2(loop_bound.y == 0u, 1u);
+            if (!loop_init) {
+                int _e24 = nupp_for_counter_1_;
+                bool nupp_for_done_1_ = _e24 == 64;
+                if (!(nupp_for_done_1_)) {
+                    int _e27 = nupp_for_counter_1_;
+                    nupp_for_counter_1_ = as_type<int>(as_type<uint>(_e27) + as_type<uint>(1));
+                }
+                if (nupp_for_counter_1_ == 64) {
+                    break;
+                }
+            }
+            loop_init = false;
+            int _e17 = nupp_for_counter_1_;
+            if (_e17 > 64) {
+                break;
+            }
+            int _e19 = nupp_for_counter_1_;
+            v4_ = _e19;
+            uint _e21 = v1_value;
+            v1_value = _e21 + 1u;
+        }
+    }
+    {
+        uint _e30 = v1_value;
+        v1_value = _e30 + 1u;
+    }
+    {
+        uint _e33 = v1_value;
+        v1_value = _e33 + 1u;
+    }
+    {
+        uint _e36 = v1_value;
+        v1_value = _e36 + 1u;
+    }
+    {
+        uint _e39 = v1_value;
+        v1_value = _e39 + 1u;
+    }
+    uint _e45 = uniforms.output_offset;
+    uint _e48 = v1_value;
+    output[_e45 + dispatch_index] = _e48;
+    return;
+}

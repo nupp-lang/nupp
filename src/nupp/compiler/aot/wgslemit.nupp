@@ -51,7 +51,15 @@ const BINARY: {
 }
 
 local function identifier(value: string): string
-    return (value:gsub("[^%w_]", "_"))
+    local name = (value:gsub("[^%w_]", "_"))
+    -- Compiler temporaries use C's reserved namespace. WGSL forbids it;
+    -- escape our escape prefix too so an authored identifier cannot collide
+    -- merely by already using the escaped form.
+    if name:sub(1, 2) == "__" or name:sub(1, 9) == "nupp_tmp_" then
+        return "nupp_tmp_" .. name
+    end
+
+    return name
 end
 
 --- What a profile refusal unwinds with, so `program` can tell it from a bug.
@@ -198,7 +206,11 @@ local function emitProgram(
                 if statement.elseBody ~= nil then
                     findAssignments(statement.elseBody)
                 end
-            elseif statement.op == "while" or statement.op == "repeat" or statement.op == "block" then
+            elseif statement.op == "while"
+                or statement.op == "repeat"
+                or statement.op == "fornum"
+                or statement.op == "block"
+            then
                 findAssignments(statement.body)
             end
         end
@@ -206,6 +218,7 @@ local function emitProgram(
 
     findAssignments((loop as scalarIR.Loop).statements)
 
+    local forSerial = 0
     local statements: function({any}, integer): nil
     statements = function(values: {any}, depth: integer): nil
         for _, statement in ipairs(values) do
@@ -249,6 +262,31 @@ local function emitProgram(
                     statements(statement.elseBody, depth + 1)
                     line(depth, "}")
                 end
+            elseif op == "fornum" then
+                if statement.from.type ~= "i32" or statement.to.type ~= "i32" then
+                    refuse("GPU counted loop bounds must be int32")
+                end
+                forSerial = forSerial + 1
+                local counter = "nupp_for_counter_" .. tostring(forSerial)
+                local last = "nupp_for_last_" .. tostring(forSerial)
+                local done = "nupp_for_done_" .. tostring(forSerial)
+                line(depth, "{")
+                line(depth + 1, "var " .. counter .. ": i32 = " .. expression(statement.from) .. ";")
+                line(depth + 1, "let " .. last .. ": i32 = " .. expression(statement.to) .. ";")
+                line(depth + 1, "var " .. done .. ": bool = false;")
+                line(depth + 1, "loop {")
+                line(depth + 2, "if (" .. counter .. " > " .. last .. ") { break; }")
+                line(depth + 2, "var " .. identifier(statement.binding.cName) .. ": i32 = " .. counter .. ";")
+                statements(statement.body, depth + 2)
+                line(depth + 2, "continuing {")
+                -- Explicit state preserves the pre-increment decision even
+                -- through a backend that re-materializes break-if expressions.
+                line(depth + 3, done .. " = " .. counter .. " == " .. last .. ";")
+                line(depth + 3, "if (!" .. done .. ") { " .. counter .. " = " .. counter .. " + 1; }")
+                line(depth + 3, "break if " .. done .. ";")
+                line(depth + 2, "}")
+                line(depth + 1, "}")
+                line(depth, "}")
             elseif op == "while" then
                 if statement.conditionBody ~= nil then
                     refuse("statementful loop conditions are not admitted by this GPU profile")

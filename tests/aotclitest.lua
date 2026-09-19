@@ -463,6 +463,24 @@ return {shrink = shrink}
     assert(shader:find("break if ", 1, true), "WGSL repeat evaluates its trailing condition\n" .. shader)
 end
 
+function M.gpuCountedLoopsEmitNativeAndBrowserControlFlow()
+    local source = assert(io.open(HERE .. "/../bench/wgpu-spike/typed/counted.nupp", "rb"))
+    local dir = project({["counted.nupp"] = source:read("*a")})
+    source:close()
+    for _, name in ipairs({"literal", "boundaries", "snapshots", "control"}) do
+        local module, moduleCode = run(dir, "--emit spirv --function " .. name .. " counted.nupp")
+        test.equal(moduleCode, 0, module)
+        assertSpirvStructure(module)
+        assert(spirvOpcodeCount(module, 246) > 0, "counted loops require structured loop control")
+        local shader, shaderCode = run(dir, "--emit wgsl --target wasm32-unknown-emscripten --function " .. name .. " counted.nupp")
+        test.equal(shaderCode, 0, shader)
+        assert(shader:find("continuing {", 1, true), shader)
+        assert(shader:find("break if ", 1, true), shader)
+        assert(not shader:find("let __", 1, true) and not shader:find("var __", 1, true),
+            "WGSL forbids the C temporary identifier prefix\n" .. shader)
+    end
+end
+
 function M.gpuTargetEmitsWebGpuIntegerArtifact()
     local dir = project({
         [

@@ -90,3 +90,16 @@ using them as current WGPU performance claims.
 Likewise, earlier 512-cubed GEMM measurements were 0.467 ms tiled versus 0.809
 ms naive, and the fixed-tree reduction produced exactly `4317.14941`. They
 remain regression shapes, not portable speed promises.
+
+### Counted-loop conformance
+
+`counted-api.lua` runs untimed GPU/CPU semantic differentials after the `typed`
+build. It checks implicit `+1` loops with signed-int32 bounds, including empty
+ranges, both int32 endpoints, one-time bound evaluation, assignments to the
+visible induction variable, and nested `break`/`continue`. Both shader backends
+support that subset. Explicit steps, fractional bounds and span-count or
+unrestricted uint32 bounds are refused at the authored source position; a wider
+induction and host range contract is outside this subset.
+
+The [counted-loop conformance evidence](results/counted-loops/README.md) records
+both shader routes and a downstream continuation-translation regression.

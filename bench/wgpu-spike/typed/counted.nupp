@@ -1,0 +1,121 @@
+module counted
+
+local span = require("nupp.mem.span")
+
+@aot(target = "gpu")
+local function literal(exclusive output: span.WriteSpan<uint32>, borrows input: span.Span<uint32>): nil
+    assert(#output == #input)
+    for index = 1, #output do
+        local value = input[index]
+        for _ = 1, 64 do
+            value = nupp.math.u32.add(value, 1)
+        end
+        for _ = -2, -1 do
+            value = nupp.math.u32.add(value, 1)
+        end
+        for _ = -2147483648, -2147483648 do
+            value = nupp.math.u32.add(value, 1)
+        end
+        for _ = 2147483647, 2147483647 do
+            value = nupp.math.u32.add(value, 1)
+        end
+        output[index] = value
+    end
+end
+
+@aot(target = "gpu")
+local function boundaries(
+    exclusive output: span.WriteSpan<uint32>,
+    borrows input: span.Span<uint32>,
+    first: int32,
+    last: int32
+): nil
+    assert(#output == #input)
+    for index = 1, #output do
+        local value = input[index]
+        for cursor = first, last do
+            value = nupp.math.u32.add(value, 1)
+            if cursor < 0 then
+                value = nupp.math.u32.add(value, 100)
+            end
+            if cursor == 2147483647 then
+                value = nupp.math.u32.add(value, 1000)
+            end
+            -- The authored variable is independent of the hidden control.
+            cursor = 99
+        end
+        output[index] = value
+    end
+end
+
+@aot(target = "gpu")
+local function snapshots(
+    exclusive output: span.WriteSpan<uint32>,
+    borrows input: span.Span<uint32>,
+    first: int32,
+    last: int32
+): nil
+    assert(#output == #input)
+    for index = 1, #output do
+        local value = input[index]
+        local low = first
+        local high = last
+        local evaluated: int32 = 0
+        for cursor = do
+            evaluated = nupp.math.i32.add(evaluated, 1)
+            yield low
+        end, do
+            low = 1000
+            evaluated = nupp.math.i32.add(evaluated, 10)
+            yield high
+        end do
+            value = nupp.math.u32.add(value, 1)
+            high = 0
+        end
+        if evaluated == 11 and low == 1000 then
+            value = nupp.math.u32.add(value, 1000)
+        end
+        output[index] = value
+    end
+end
+
+@aot(target = "gpu")
+local function control(
+    exclusive output: span.WriteSpan<uint32>,
+    borrows input: span.Span<uint32>,
+    first: int32,
+    last: int32
+): nil
+    assert(#output == #input)
+    for index = 1, #output do
+        local value = input[index]
+        for cursor = first, last do
+            if cursor == first then
+                continue
+            end
+            local inner: int32 = 0
+            while inner < 3 do
+                inner = nupp.math.i32.add(inner, 1)
+                if inner == 2 then
+                    break
+                end
+                value = nupp.math.u32.add(value, 1)
+            end
+            for innerCursor = 1, 3 do
+                if innerCursor == 2 then
+                    break
+                end
+                value = nupp.math.u32.add(value, 10)
+            end
+            if cursor == 3 then
+                break
+            end
+        end
+        output[index] = value
+    end
+end
+
+export const literal = literal
+export const boundaries = boundaries
+export const snapshots = snapshots
+export const control = control

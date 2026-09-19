@@ -1,0 +1,6 @@
+/Users/dowling/projects/nupp/.nupp-cache/toolchain/ac70d5877dffb628/luajit/bin/luajit: bench/wgpu-spike/counted-api.lua:30: counted shader differs at 0: 70 versus 71
+stack traceback:
+	[C]: in function 'assert'
+	bench/wgpu-spike/counted-api.lua:30: in function 'check'
+	bench/wgpu-spike/counted-api.lua:38: in main chunk
+	[C]: at 0x0102f3c8fc

@@ -520,7 +520,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
 
             return 1
         end
-        local produced, aotErr = aotPolicy.apply(
+        local produced, aotErr, aotDiagnostic = aotPolicy.apply(
             target.aot as string,
             root,
             outDir,
@@ -543,6 +543,29 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         )
         report:clear()
         if produced == nil then
+            if aotDiagnostic ~= nil and opts.diagnostics ~= nil then
+                -- Keep the authored location before rendering it into the
+                -- human-readable tier failure. A manifest-level file failure
+                -- has no position and loses this information in build JSON.
+                local source = fs.readFile(aotDiagnostic.file) or ""
+                local offset = 1
+                for _ = 2, aotDiagnostic.line do
+                    offset = (source:find("\n", offset, true) or (#source + 1)) + 1
+                end
+                opts.diagnostics[
+                    #opts.diagnostics + 1
+                ] = {
+                    filename = aotDiagnostic.file,
+                    line = aotDiagnostic.line,
+                    col = aotDiagnostic.column,
+                    offset = offset + aotDiagnostic.column - 1,
+                    length = 1,
+                    code = "NUPP0001",
+                    msg = tostring(aotErr),
+                    help = "Adjust the source to the selected AOT target's supported subset.",
+                }
+                return 1
+            end
             require(
                 "nupp.compiler.cli.report"
             ).fileFailure(

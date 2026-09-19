@@ -1205,6 +1205,66 @@ function M.gpuRemarksNameTheAuthoredDeclarationAndArtifact()
     end
 end
 
+function M.gpuCountedLoopUnsupportedBoundsAndStepsHaveJsonPositions()
+    for _, bounds in ipairs({"1, #input", "0.5, 2.5", "1, limit", "1, 2147483648", "-2147483649, 0", "3, 1, -1", "1, 3, 1", "1, 3, 0"}) do
+        for _, browser in ipairs({false, true}) do
+            local dir = gpuProject()
+            local manifest = assert(read(dir .. "/nupp.lua"))
+            if browser then
+                manifest = manifest:gsub('aot = "require"', 'dialect = "lua51", aot = "require-wasm"')
+            end
+            local file = assert(io.open(dir .. "/nupp.lua", "wb"))
+            file:write(manifest)
+            file:close()
+            file = assert(io.open(dir .. "/src/gpucheck.nupp", "wb"))
+            file:write([[
+module gpucheck
+local span = require("nupp.mem.span")
+@aot(target = "gpu")
+local function kernel(exclusive output: span.WriteSpan<uint32>, borrows input: span.Span<uint32>, limit: uint32): nil
+    assert(#output == #input)
+    for index = 1, #output do
+        local value = input[index] -- π before the diagnostic tests byte offsets
+        for cursor = ]] .. bounds .. [[ do
+            value = nupp.math.u32.add(value, 1)
+        end
+        output[index] = value
+    end
+end
+export const kernel = kernel
+]])
+            file:close()
+            local pipe = assert(io.popen((
+                "cd %q && NUPP_CACHE_DIR=%q '%s' build --target native --json 2> .counted-stderr"
+            ):format(dir, cacheFor(dir), NUPP)))
+            local output = pipe:read("*a")
+            pipe:close()
+            local report = require("testjson").decode(output)
+            assert(report.ok == false, bounds .. " must be refused")
+            assert(not (read(dir .. "/.counted-stderr") or ""):find("stack traceback", 1, true), output)
+            local found = false
+            for _, diagnostic in ipairs(report.diagnostics or {}) do
+                local message = diagnostic.message or ""
+                if message:find("counted loop bounds", 1, true) or message:find("no explicit step", 1, true)
+                    or message:find("outside int32", 1, true) then
+                    test.equal(diagnostic.file, "src/gpucheck.nupp", output)
+                    test.equal(diagnostic.range.start.line, 8, output)
+                    local token = bounds:find("#input", 1, true) and "#input"
+                        or bounds:find("0.5", 1, true) and "0.5"
+                        or bounds:find("limit", 1, true) and "limit"
+                        or bounds:find("2147483648", 1, true) and "2147483648"
+                        or bounds:find("-2147483649", 1, true) and "-2147483649"
+                        or "for"
+                    local offset = diagnostic.range.start.offset
+                    test.equal(assert(read(dir .. "/" .. diagnostic.file)):sub(offset, offset + #token - 1), token, output)
+                    found = true
+                end
+            end
+            assert(found, output)
+        end
+    end
+end
+
 function M.portableGpuChecksShareTheGeneratedInterface()
     local dir = gpuProject()
     local path = dir .. "/nupp.lua"
