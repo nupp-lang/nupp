@@ -99,7 +99,7 @@ def inputs(cache):
     values = pins()
     result = {}
     for name, prefix in [('linux', 'BROWSER_LINUX'), ('musl', 'BROWSER_MUSL'), ('seabios', 'BROWSER_SEABIOS'),
-                         ('v86', 'BROWSER_V86'), ('luajit', 'LUAJIT'), ('lpeg', 'LPEG')]:
+                         ('v86', 'BROWSER_V86'), ('libunwind', 'BROWSER_LIBUNWIND'), ('luajit', 'LUAJIT'), ('lpeg', 'LPEG')]:
         record = {key.lower(): values[prefix + '_' + key] for key in ['URL', 'SHA256', 'DIRECTORY', 'MARKER']}
         record['archive'] = values.get(prefix + '_ARCHIVE', record['directory'] + '.tar.gz')
         record['version'] = values.get(prefix + '_VERSION', values.get(prefix + '_REV'))
@@ -112,6 +112,7 @@ def inputs(cache):
         'linux': [('COPYING', 'Linux-COPYING.txt'), ('LICENSES/preferred/GPL-2.0', 'Linux-GPL-2.0.txt'),
                   ('LICENSES/exceptions/Linux-syscall-note', 'Linux-syscall-note.txt')],
         'musl': [('COPYRIGHT', 'musl-COPYRIGHT.txt')],
+        'libunwind': [('LICENSE.TXT', 'LLVM-libunwind-LICENSE.txt')],
         'seabios': [('COPYING', 'SeaBIOS-COPYING.txt'), ('COPYING.LESSER', 'SeaBIOS-COPYING.LESSER.txt')],
         'v86': [('LICENSE', 'v86-LICENSE.txt')],
         'luajit': [('COPYRIGHT', 'LuaJIT-COPYRIGHT.txt')],

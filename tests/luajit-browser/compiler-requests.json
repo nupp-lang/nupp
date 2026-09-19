@@ -1,0 +1,12 @@
+[
+  {"kind":"check","source":"local answer: integer = 42\nreturn answer","filename":"sample.nupp","options":{"strict":true}},
+  {"kind":"hover","offset":7},
+  {"kind":"compile","source":"local answer: integer = 42\nreturn answer","filename":"sample.nupp","options":{"strict":true,"optimize":true}},
+  {"kind":"compile","source":"const value = 2ULL\nreturn value","filename":"sample.g.nupp"},
+  {"kind":"check","source":"const value = 2ULL\nreturn value","filename":"sample.g.nupp","options":{"compat":"lua51"}},
+  {"kind":"compile","source":"local count: number = 2\nreturn count","filename":"sample.nupp","options":{"compat":"lua51"}},
+  {"kind":"check","source":"local count: number = 'wrong'\nreturn count","filename":"sample.nupp","options":{"strict":true}},
+  {"kind":"check","source":"local count: number = 3\nreturn count","filename":"sample.nupp","options":{"strict":true}},
+  {"kind":"hover","offset":7},
+  {"kind":"check","source":"const value = 2ULL\nreturn value","filename":"sample.g.nupp"}
+]
