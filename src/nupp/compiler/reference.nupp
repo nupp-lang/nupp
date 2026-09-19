@@ -1846,8 +1846,8 @@ construct that refused it, and a loop without the mark compiles scalar. Removing
 the mark changes the compilation strategy, never the answer. An algorithm whose
 register is itself a data structure imports
 `nupp.simd` inside a block kernel. Its values and masks cannot escape the kernel
-and have no boxed Lua representation, so using `preferredU8` with `aot = "off"`
-is a named checking error.
+and have no boxed Lua representation. `simd.species` answers `nil` with
+`aot = "off"`, so callers can supply an ordinary scalar path.
 
 `@aot(target = "gpu")` records a GPU execution family in the verified IR and
 maps one whole-span loop iteration to one GPU invocation. With the native `aot = "require"` policy, the compiler emits

@@ -77,6 +77,22 @@ function M.valueBuildingWithoutByteViewsDoesNotLoadStorage()
     assert(output:find("done", 1, true), output)
 end
 
+function M.scalarFusedDecodingAndSpeciesWitnessesDoNotLoadStorage()
+    local output = runScript([[
+        package.preload["nupp.mem.span"] = function() error("unexpected span import") end
+        package.preload["nupp.runtime.storage"] = function() error("unexpected storage import") end
+        local array, simd = require("nupp.mem.array"), require("nupp.simd")
+        for _, name in ipairs({"uint8", "int8", "uint16", "int16", "uint32", "int32", "uint64", "int64", "float", "number"}) do
+            assert(simd.species(array[name]) == nil)
+        end
+        local fused = require("nupp.codec.json.internal.decoder.fused")
+        local value, status = fused.decodeEager('[1,"hello",true]', nil, {}, {})
+        assert(status == 0 and value[1] == 1 and value[2] == "hello" and value[3] == true)
+        print("done")
+    ]])
+    assert(output:find("done", 1, true), output)
+end
+
 function M.theJsonProviderModuleIsLunajson()
     -- The same claim from inside this process, without moving anything: the
     -- module the facade holds is the Lunajson provider itself.

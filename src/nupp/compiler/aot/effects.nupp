@@ -173,58 +173,11 @@ local PURE_OPS: {
     simd_mask_convert = true,
     simd_call = true,
     simd_math = true,
-    simd_species_u8 = true,
-    simd_lanes = true,
-    simd_splat_u8 = true,
-    simd_shr_u8 = true,
-    simd_shl_u8 = true,
-    simd_table_u8x16 = true,
-    simd_lookup16_u8 = true,
-    simd_align_bytes_u8 = true,
-    simd_tail_u8 = true,
-    simd_eq_u8 = true,
-    simd_range_u8 = true,
-    simd_vec_and = true,
-    simd_vec_or = true,
-    simd_vec_xor = true,
-    simd_vec_not = true,
-    simd_mask_and = true,
-    simd_mask_or = true,
-    simd_mask_xor = true,
-    simd_mask_not = true,
-    simd_select_u8 = true,
-    simd_any = true,
-    simd_all = true,
-    simd_count = true,
-    simd_bits = true,
-    simd_mask64 = true,
-    simd_mask64_add = true,
-    simd_mask64_and = true,
-    simd_mask64_or = true,
-    simd_mask64_xor = true,
-    simd_mask64_not = true,
-    simd_mask64_shl = true,
-    simd_mask64_shr = true,
-    simd_mask64_prefix_xor = true,
-    simd_mask64_low = true,
-    simd_mask64_high = true,
-    simd_mask64_any = true,
-    simd_mask64_count = true,
-    simd_mask64_first = true,
-    simd_mask64_clear_first = true,
 }
 
 local NATIVE_READ_OPS: {
     [string]: boolean
-} = {
-    load = true,
-    element_ref = true,
-    field_load = true,
-    shared_load = true,
-    simd_load_u8 = true,
-    simd_load = true,
-    simd_field_load = true,
-}
+} = {load = true, element_ref = true, field_load = true, shared_load = true, simd_load = true, simd_field_load = true,}
 
 local LUA_READ_OPS: {
     [string]: boolean
@@ -245,7 +198,6 @@ local LUA_READ_OPS: {
     lua_builder_kind = true,
     lua_builder_count = true,
     lua_builder_state = true,
-    simd_load_string_u8 = true,
 }
 
 local LUA_ALLOCATE_OPS: {
@@ -265,9 +217,6 @@ local LUA_MUTATE_OPS: {
 } = {
     lua_builder_finish = true,
     lua_builder_number_token = true,
-    lua_scratch_u32_append_bits = true,
-    lua_scratch_u32_append_bits_eager = true,
-    lua_scratch_u32_append_string_bits = true,
     lua_string_buffer_finish = true,
     lua_builder_open_array = true,
     lua_builder_open_object = true,

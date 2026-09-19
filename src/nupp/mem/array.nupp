@@ -21,12 +21,13 @@ The array owns its storage and releases it at the end of the scope that holds
 it. Reading and writing it are the [](nupp.mem.span) operations, so every index
 is checked against the count the array carries.
 ]]
-local span = require("nupp.mem.span")
-local storage = require("nupp.runtime.storage")
+const {type Span, type Writable, type ByteSpan} = require("nupp.mem.span")
 local array = {}
 
+-- Element witnesses name a representation without loading its allocator.
+-- Species queries remain ordinary values even on hosts without native storage.
 record array.Scalar<T>
-    private readonly physical: any
+    private readonly physical: string
 end
 
 --- A witness for an element the checker admits only in storage positions.
@@ -35,38 +36,39 @@ end
 --- witness's own argument: a span element is one of the places a narrow
 --- width is meaningful, and the compiler this library is first built with
 --- knows no other.
-local function narrow<T>(kind: string, _shape: span.Span<T>): array.Scalar<T>
-    return new array.Scalar(physical = storage.scalar(kind)) as array.Scalar<T>
+local function narrow<T>(kind: string, _shape: Span<T>): array.Scalar<T>
+    return new array.Scalar(physical = kind) as array.Scalar<T>
 end
 
-const array.uint8 = narrow("uint8", (nil as any) as span.Span<uint8>)
-const array.int8 = narrow("int8", (nil as any) as span.Span<int8>)
-const array.uint16 = narrow("uint16", (nil as any) as span.Span<uint16>)
-const array.int16 = narrow("int16", (nil as any) as span.Span<int16>)
-const array.uint32 = new array.Scalar(physical = storage.scalar("uint32")) as array.Scalar<uint32>
-const array.int32 = new array.Scalar(physical = storage.scalar("int32")) as array.Scalar<int32>
-const array.uint64 = new array.Scalar(physical = storage.scalar("uint64")) as array.Scalar<uint64>
-const array.int64 = new array.Scalar(physical = storage.scalar("int64")) as array.Scalar<int64>
-const array.float = new array.Scalar(physical = storage.scalar("float")) as array.Scalar<float>
-const array.number = new array.Scalar(physical = storage.scalar("number")) as array.Scalar<number>
+const array.uint8 = narrow("uint8", (nil as any) as Span<uint8>)
+const array.int8 = narrow("int8", (nil as any) as Span<int8>)
+const array.uint16 = narrow("uint16", (nil as any) as Span<uint16>)
+const array.int16 = narrow("int16", (nil as any) as Span<int16>)
+const array.uint32 = new array.Scalar(physical = "uint32") as array.Scalar<uint32>
+const array.int32 = new array.Scalar(physical = "int32") as array.Scalar<int32>
+const array.uint64 = new array.Scalar(physical = "uint64") as array.Scalar<uint64>
+const array.int64 = new array.Scalar(physical = "int64") as array.Scalar<int64>
+const array.float = new array.Scalar(physical = "float") as array.Scalar<float>
+const array.number = new array.Scalar(physical = "number") as array.Scalar<number>
 
 record array.Array<T>
     private readonly pointer: T[?]
     readonly count: integer
-    read: function(borrows self: Array<T>): span.Span<T> borrows (self)
-    write: function(exclusive self: Array<T>): span.Writable<T> borrows (self)
+    read: function(borrows self: Array<T>): Span<T> borrows (self)
+    write: function(exclusive self: Array<T>): Writable<T> borrows (self)
 end
 
-function array.Array.read<T>(borrows self: array.Array<T>): span.Span<T> borrows (self)
-    return span.fromCarray(self.pointer, self.count)
+function array.Array.read<T>(borrows self: array.Array<T>): Span<T> borrows (self)
+    return require("nupp.mem.span").fromCarray(self.pointer, self.count)
 end
 
-function array.Array.write<T>(exclusive self: array.Array<T>): span.Writable<T> borrows (self)
-    return span.writeCarray(self.pointer, self.count)
+function array.Array.write<T>(exclusive self: array.Array<T>): Writable<T> borrows (self)
+    return require("nupp.mem.span").writeCarray(self.pointer, self.count)
 end
 
 --- Allocates zeroed storage with the struct witness's physical layout.
 function array.new<T>(takes witness: T, count: integer): array.Array<T>
+    local storage = require("nupp.runtime.storage")
     local raw = unsafe release witness
     local element = storage.descriptor(raw)
     return new array.Array(pointer = storage.allocateArray(element, count) as T[?], count = count) as array.Array<T>
@@ -74,8 +76,9 @@ end
 
 --- Allocates zeroed storage for the selected scalar element type.
 function array.scalar<T>(borrows witness: array.Scalar<T>, count: integer): array.Array<T>
+    local storage = require("nupp.runtime.storage")
     return new array.Array(
-        pointer = storage.allocateArray(witness.physical, count) as T[?],
+        pointer = storage.allocateArray(storage.scalar(witness.physical), count) as T[?],
         count = count
     ) as array.Array<T>
 end
@@ -85,12 +88,12 @@ record array.Bytes
     private readonly pointer: uint8[?]
     readonly count: integer
 
-    function read(borrows self): span.ByteSpan borrows (self)
-        return span.fromCarray(self.pointer, self.count)
+    function read(borrows self): ByteSpan borrows (self)
+        return require("nupp.mem.span").fromCarray(self.pointer, self.count)
     end
 
-    function write(exclusive self): span.Writable<uint8> borrows (self)
-        return span.writeCarray(self.pointer, self.count)
+    function write(exclusive self): Writable<uint8> borrows (self)
+        return require("nupp.mem.span").writeCarray(self.pointer, self.count)
     end
 end
 
@@ -100,7 +103,7 @@ function array.bytes(count: integer): array.Bytes
     if count < 0 or count ~= math.floor(count) then
         error("byte array count must be a non-negative integer", 2)
     end
-    return new array.Bytes(pointer = storage.allocateBytes(count), count = count)
+    return new array.Bytes(pointer = require("nupp.runtime.storage").allocateBytes(count), count = count)
 end
 
 export = array

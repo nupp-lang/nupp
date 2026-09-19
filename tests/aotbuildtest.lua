@@ -152,38 +152,42 @@ return {corrected = corrected, Sample = Sample, Result = Result}
 local SIMD_KERNEL = [[
 local span = require("nupp.mem.span")
 local simd = require("nupp.simd")
-local preferredBytes = simd.preferredU8
+local array = require("nupp.mem.array")
 
-local function drain(bits: simd.MaskBits64): (uint32, uint32)
-    return bits:firstSet(), bits:clearFirst():count()
+local function drain(bits: uint64): (uint32, uint32)
+    return nupp.math.u32.wrap(nupp.math.u64.trailingZeros(bits)), nupp.math.u32.wrap(nupp.math.u64.popcount(bits & (bits - 1ULL)))
 end
 
 @aot
-local function maskOps(low: uint32, high: uint32): (uint32, uint32, uint32, uint32)
-    local raw = simd.maskBits64(low, high)
-    local prefixed = raw:prefixXor(false)
+local function maskOps(low: uint32, high: uint32): (uint64, uint64, uint32, uint32)
+    local lowWord: uint64 = low as uint64
+    local highWord: uint64 = high as uint64
+    local raw = (highWord << 32ULL) | lowWord
+    local prefixed = nupp.math.u64.prefixXor(raw)
     local first, left = drain(prefixed)
-    return prefixed:lowBits(), prefixed:highBits(), first, left
+    return prefixed & 0xffffffffULL, prefixed >> 32ULL, first, left
 end
 
 @aot
-local function maskAdd(low: uint32, high: uint32, addend: uint32): (uint32, uint32)
-    local base = simd.maskBits64(low, high)
-    local other = simd.maskBits64(addend, nupp.math.u32.wrap(0))
-    local sum = base:add(other)
-    return sum:lowBits(), sum:highBits()
+local function maskAdd(low: uint32, high: uint32, addend: uint32): (uint64, uint64)
+    local lowWord: uint64 = low as uint64
+    local highWord: uint64 = high as uint64
+    local base = (highWord << 32ULL) | lowWord
+    local other: uint64 = addend as uint64
+    local sum = base + other
+    return sum & 0xffffffffULL, sum >> 32ULL
 end
 
 @aot
 local function countQuotes(borrows source: span.Span<uint8>): uint32
-    local species = preferredBytes()
+    local species = assert(simd.species(array.uint8))
     local cursor: integer = 0
     local found: uint32 = 0
     while cursor < #source do
-        local bytes = species:load(source, cursor)
+        local bytes = species:load(source, cursor + 1)
         local tail = species:tail(#source - cursor)
-        local matches = bytes:equal(34)
-        local valid = matches:andBits(tail)
+        local matches = bytes == 34
+        local valid = matches & tail
         found = nupp.math.u32.add(found, valid:count())
         cursor = cursor + species.lanes
     end
@@ -192,22 +196,22 @@ end
 
 @aot
 local function lookupAligned(borrows source: span.Span<uint8>): uint32
-    local species = preferredBytes()
-    local previous = species:load(source, nupp.math.u32.wrap(0))
-    local current = species:load(source, species.lanes)
-    local aligned = simd.alignBytes(previous, current, nupp.math.u32.wrap(3))
-    local table = simd.tableU8x16(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0)
-    local lookedUp = aligned:shiftRight(nupp.math.u32.wrap(4)):lookup16(table)
-    local matches = lookedUp:xorBits(species:splat(nupp.math.u32.wrap(15))):equal(0)
+    local species = assert(simd.species(array.uint8))
+    local previous = species:load(source, 1)
+    local current = species:load(source, species.lanes + 1)
+    local aligned = current:align(previous, 3)
+    local table = species:iota(15, 255)
+    local lookedUp = table:swizzle((aligned >> 4) + 1)
+    local matches = (lookedUp ~ 15) == 0
     return matches:count()
 end
 
 @aot
-local function maskShapes(borrows source: span.Span<uint8>): (uint32, uint32, uint32, uint32)
-    local species = preferredBytes()
-    local bytes = species:load(source, nupp.math.u32.wrap(0))
+local function maskShapes(borrows source: span.Span<uint8>): (uint64, uint64, uint32, uint32)
+    local species = assert(simd.species(array.uint8))
+    local bytes = species:load(source, 1)
     local tail = species:tail(#source)
-    local matches = bytes:equal(34):andBits(tail)
+    local matches = (bytes == 34) & tail
     local anyQuote: uint32 = 0
     if matches:any() then
         anyQuote = 1
@@ -275,19 +279,18 @@ end
 @aot
 local function primitives(source: string, nullValue: any): (any, uint32)
     local scratch = valueBuilder.newWordScratch(nupp.math.u32.wrap(3))
-    local bits = simd.maskBits64(nupp.math.u32.wrap(5), nupp.math.u32.wrap(4))
-    local next = valueBuilder.appendSetBits(scratch, nupp.math.u32.wrap(0), nupp.math.u32.wrap(10), bits)
+    local bits: uint64 = 0x400000005ULL
+    local next: uint32 = 0
+    while bits ~= 0ULL do
+        valueBuilder.setScratchWord(scratch, next, nupp.math.u32.add(nupp.math.u32.wrap(10), nupp.math.u32.wrap(nupp.math.u64.trailingZeros(bits))))
+        next = next + 1
+        bits = bits & (bits - 1ULL)
+    end
     local stringScratch = valueBuilder.newWordScratch(nupp.math.u32.wrap(3))
-    local stringNext = valueBuilder.appendStringBits(
-        stringScratch,
-        nupp.math.u32.wrap(0),
-        nupp.math.u32.wrap(100),
-        simd.maskBits64(nupp.math.u32.wrap(1153), nupp.math.u32.wrap(0)),
-        simd.maskBits64(nupp.math.u32.wrap(129), nupp.math.u32.wrap(0)),
-        simd.maskBits64(nupp.math.u32.wrap(8), nupp.math.u32.wrap(0)),
-        false,
-        false
-    )
+    valueBuilder.setScratchWord(stringScratch, nupp.math.u32.wrap(0), nupp.math.u32.wrap(100))
+    valueBuilder.setScratchWord(stringScratch, nupp.math.u32.wrap(1), nupp.math.u32.wrap(2147483755))
+    valueBuilder.setScratchWord(stringScratch, nupp.math.u32.wrap(2), nupp.math.u32.wrap(110))
+    local stringNext: uint32 = 3
     local state = valueBuilder.new(nullValue)
     valueBuilder.openArray(state, nupp.math.u32.add(next, nupp.math.u32.wrap(4)))
     valueBuilder.number(state, valueBuilder.scratchWord(scratch, nupp.math.u32.wrap(0)) * 1.0)
@@ -3445,7 +3448,7 @@ function M.scopedPackedBytesHandleEveryTailWithoutOverreading()
     -- KS_SCALAR_REGION_BEGIN/END, which on GCC x86 is the O0 no-avx target.
     -- The region is opened at file scope and nowhere else: GCC drops the
     -- definitions that follow a push_options _Pragma inside a macro body, so
-    -- a byte oracle helper defined by KS_U8_SCALAR under a region was simply
+    -- a byte oracle helper defined under a region was simply
     -- absent, and the oracle calling it failed to compile on Linux and
     -- Windows CI while Clang, which honours the pragma, saw nothing.
     local header = assert(io.open(HERE .. "/../src/nupp/compiler/aot/include/ks_simd.h", "rb")):read("*a")
@@ -3511,14 +3514,14 @@ function M.scopedPackedBytesHandleEveryTailWithoutOverreading()
             [=[
       uint32_t %s(const uint8_t *source, size_t count_source);
       uint32_t %s(const uint8_t *source, size_t count_source);
-      typedef struct { uint32_t v1, v2, v3, v4; } KsMaskOpsResult;
+      typedef struct { uint64_t v1, v2; uint32_t v3, v4; } KsMaskOpsResult;
       KsMaskOpsResult %s(uint32_t low, uint32_t high);
       uint32_t %s(const uint8_t *source, size_t count_source);
       uint32_t %s(const uint8_t *source, size_t count_source);
-      typedef struct { uint32_t v1, v2, v3, v4; } KsMaskShapesResult;
+      typedef struct { uint64_t v1, v2; uint32_t v3, v4; } KsMaskShapesResult;
       KsMaskShapesResult %s(const uint8_t *source, size_t count_source);
       KsMaskShapesResult %s(const uint8_t *source, size_t count_source);
-      typedef struct { uint32_t v1, v2; } KsMaskAddResult;
+      typedef struct { uint64_t v1, v2; } KsMaskAddResult;
       KsMaskAddResult %s(uint32_t low, uint32_t high, uint32_t addend);
    ]=]
         ):format(
@@ -3533,7 +3536,7 @@ function M.scopedPackedBytesHandleEveryTailWithoutOverreading()
         )
     )
     trace("tail comparisons")
-    for count = 0, 40 do
+    for count = 0, 80 do
         local source = ffi.new("uint8_t[?]", math.max(count, 1))
         local expected = 0
         for i = 0, count - 1 do
@@ -3560,13 +3563,13 @@ function M.scopedPackedBytesHandleEveryTailWithoutOverreading()
         trace("tail length " .. count .. " scalar shapes")
         local oracle = lib[shapesScalar](source, count)
         test.equal(
-            tonumber(packed.v1),
-            tonumber(oracle.v1),
+            packed.v1,
+            oracle.v1,
             "packed bits agree with the scalar oracle at length " .. count
         )
         test.equal(
-            tonumber(packed.v2),
-            tonumber(oracle.v2),
+            packed.v2,
+            oracle.v2,
             "packed tail agrees with the scalar oracle at length " .. count
         )
         test.equal(
@@ -4085,17 +4088,6 @@ return {indexed = indexed, gather = gather}
     local actual = ffi.new("float[16]")
     lib[names.ks_indexed](actual, input, map, 16, 10, 1)
     test.equal(tonumber(actual[1]), 4, "inactive duplicates do not write")
-end
-
-function M.explicitSimdNamesWhyAotOffCannotRunIt()
-    local dir = project("off")
-    local handle = assert(io.open(dir .. "/src/kernel.nupp", "wb"))
-    handle:write(SIMD_KERNEL)
-    handle:close()
-    local out, code = build(dir)
-    test.equal(code, 1, out)
-    assert(out:find("simd.preferredU8", 1, true), out)
-    assert(out:find("cannot run with aot=off", 1, true), out)
 end
 
 function M.speciesIsNilUnderAotOffSoATestTakesTheScalarPathAndAnAssertRaises()

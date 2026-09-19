@@ -90,7 +90,7 @@ local MODULES = {
     -- is.
     ["nupp.bench"] = {kind = "unavailable", capability = "cinterop"},
     ["nupp.random"] = facility("host", "runtime.crypto"),
-    ["nupp.simd"] = facility("compile", "runtime.simd"),
+    ["nupp.simd"] = {kind = "common"},
     ["nupp.suspension"] = {kind = "common"},
     ["nupp.tasks"] = {kind = "common"},
     ["nupp.time"] = facility("host", "runtime.time"),

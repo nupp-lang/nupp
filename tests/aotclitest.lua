@@ -1586,20 +1586,20 @@ return {afterIncrement = afterIncrement}
 local SCOPED_SIMD = [[
 local span = require("nupp.mem.span")
 local simd = require("nupp.simd")
-local preferredBytes = simd.preferredU8
+local array = require("nupp.mem.array")
 
 @aot
 local function quotes(borrows source: span.Span<uint8>): uint32
-    local species = preferredBytes()
+    local species = assert(simd.species(array.uint8))
     local cursor: integer = 0
     local found: uint32 = 0
     while cursor < #source do
-        local bytes = species:load(source, cursor)
+        local bytes = species:load(source, cursor + 1)
         local tail = species:tail(#source - cursor)
-        local quote = bytes:equal(34)
-        local slash = bytes:equal(92)
-        local either = quote:orBits(slash)
-        local syntax = either:andBits(tail)
+        local quote = bytes == 34
+        local slash = bytes == 92
+        local either = quote | slash
+        local syntax = either & tail
         found = nupp.math.u32.add(found, syntax:count())
         cursor = cursor + species.lanes
     end
@@ -2447,10 +2447,9 @@ function M.genericExplicitSimdPrefersSixteenLanesAtAvx512f()
     test.equal(asmCode, 0, asm)
     local register = width == 64 and "zmm" or width == 32 and "ymm" or "xmm"
     assert(asm:find(register, 1, true), ("the multiply lives in a %d-byte register: "):format(width) .. asm)
-    -- The packed byte scanner stays at 32 bytes there: AVX-512F alone has no
-    -- byte compare or shuffle, so a program carrying both keeps compiling.
+    -- Byte and float vectors share the tier width even when byte operations
+    -- need decomposition into instructions supported by AVX-512F.
     local both = project{["mixed.nupp"] = SCOPED_SIMD:gsub("return {quotes = quotes}", "") .. [[
-local array = require("nupp.mem.array")
 
 @aot
 local function twice(exclusive output: span.WriteSpan<float>, borrows input: span.Span<float>): nil
@@ -2463,9 +2462,8 @@ return {quotes = quotes, twice = twice}
 ]]}
     local mixed, mixedCode = run(both, "--target " .. triple .. " --features avx512f --emit c mixed.nupp")
     test.equal(mixedCode, 0, mixed)
-    local scanner = ("ks_u8x%d"):format(math.min(32, width))
+    local scanner = ("ks_exp_u8x%d"):format(width)
     assert(mixed:find(scanner, 1, true), "byte vectors keep the " .. scanner .. " scanner: " .. mixed)
-    assert(not mixed:find("ks_u8x64", 1, true), "no 64-byte byte scanner exists: " .. mixed)
 end
 
 function M.genericExplicitSimdEmitsRealTargetVectorArithmetic()
@@ -4174,39 +4172,17 @@ function M.scopedSimdSelectsOnePackedRegisterForTheTargetTier()
     local baseline, baselineCode = run(dir, "--target x86_64-unknown-linux-gnu --emit c simd.nupp")
     test.equal(baselineCode, 0, baseline)
     assert(baseline:find("#define KS_SIMD_WIDTH 16", 1, true), baseline)
-    assert(baseline:find("ks_load_u8x16", 1, true), baseline)
+    assert(baseline:find("ks_exp_load_full_u8x16", 1, true), baseline)
 
     local avx, avxCode = run(dir, "--target x86_64-unknown-linux-gnu --features avx2 --emit c simd.nupp")
     test.equal(avxCode, 0, avx)
     assert(avx:find("#define KS_SIMD_WIDTH 32", 1, true), avx)
-    assert(avx:find("ks_bits_u8x32", 1, true), avx)
+    assert(avx:find("ks_exp_bits_u8x32", 1, true), avx)
 
     local neon, neonCode = run(dir, "--target aarch64-unknown-linux-gnu --emit ir simd.nupp")
     test.equal(neonCode, 0, neon)
     assert(neon:find("simd species(uint8,16)", 1, true), neon)
-    assert(neon:find("simd_load_u8", 1, true) and neon:find("simd_count", 1, true), neon)
-end
-
-function M.rootedStringSimdLoadsRequireAnEntryParameter()
-    local dir = project{
-        [
-            "local-string.g.nupp"
-        ] = [[
-local simd = require("nupp.simd")
-
-@aot
-local function quotes(source: string): uint32
-    local rooted = "not the parameter"
-    local species = simd.preferredU8()
-    return species:loadString(rooted, nupp.math.u32.wrap(0)):equal(34):count()
-end
-
-return {quotes = quotes}
-]]
-    }
-    local out, code = run(dir, "local-string.g.nupp")
-    test.equal(code, 1, out)
-    assert(out:find("rooted string parameter", 1, true), out)
+    assert(neon:find("simd_load", 1, true) and neon:find("simd_mask_count", 1, true), neon)
 end
 
 -- A rooted byte view names an entry's own parameter, and only a parameter: a
@@ -4775,8 +4751,6 @@ function builder.word(bytes: string, index: uint32): uint32 return index end
 function builder.newWordScratch(capacity: uint32): any return {} end
 function builder.scratchWord(scratch: any, index: uint32): uint32 return index end
 function builder.setScratchWord(scratch: any, index: uint32, value: uint32): nil end
-function builder.appendSetBits(scratch: any, index: uint32, base: uint32, bits: any): uint32 return index end
-function builder.appendStringBits(scratch: any, index: uint32, base: uint32, events: any, quotes: any, slashes: any, inString: boolean, stringEscaped: boolean): uint32 return index end
 function builder.newByteScratch(capacity: uint32): any return {} end
 function builder.scratchByte(scratch: any, index: uint32): uint32 return index end
 function builder.setScratchByte(scratch: any, index: uint32, value: uint32): nil end
@@ -4807,10 +4781,6 @@ return builder
             "stream.g.nupp"
         ] = [[
 local builder = require("nupp.codec.valuebuilder")
-local simd = require("nupp.simd")
-local function drain(bits: simd.MaskBits64): (uint32, uint32)
-    return bits:firstSet(), bits:clearFirst():count()
-end
 @aot
 local function decode(source: string, tape: string, nullValue: any): (any, uint32, uint32)
     local count = builder.length(source)
@@ -4823,29 +4793,7 @@ local function decode(source: string, tape: string, nullValue: any): (any, uint3
     local packedState = builder.state(state)
     local scratch = builder.newWordScratch(count)
     local byteScratch = builder.newByteScratch(count)
-    local species = simd.preferredU8()
-    local lookup = simd.tableU8x16(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15)
-    local bytes = species:loadString(source, nupp.math.u32.wrap(0))
-    local previous = species:splat(nupp.math.u32.wrap(0))
-    local aligned = simd.alignBytes(previous, bytes, nupp.math.u32.wrap(1))
-    local classified = aligned:lookup16(lookup)
-    local quotes = bytes:equal(34):count()
-    local classes = classified:equal(1):count()
-    local shifted = nupp.math.u32.shiftLeft(nupp.math.u32.wrap(1), nupp.math.u32.wrap(3))
-    local rawWide = simd.maskBits64(shifted, nupp.math.u32.wrap(1))
-    local wide = rawWide:prefixXor(false)
-    local first, left = drain(wide)
-    local next = builder.appendSetBits(scratch, nupp.math.u32.wrap(0), count, wide)
-    local stringNext = builder.appendStringBits(
-        scratch,
-        nupp.math.u32.wrap(0),
-        count,
-        rawWide,
-        rawWide,
-        rawWide,
-        false,
-        false
-    )
+    builder.setScratchWord(scratch, nupp.math.u32.wrap(0), count)
     builder.setScratchByte(byteScratch, nupp.math.u32.wrap(0), nupp.math.u32.wrap(65))
     builder.openObject(state, nupp.math.u32.wrap(1))
     builder.key(state, source, nupp.math.u32.wrap(0), count, false)
@@ -4862,7 +4810,7 @@ local function decode(source: string, tape: string, nullValue: any): (any, uint3
     builder.close(state)
     return builder.finish(state), builder.byte(source, nupp.math.u32.wrap(0)), nupp.math.u32.add(
         builder.scratchWord(scratch, nupp.math.u32.wrap(0)),
-        nupp.math.u32.add(direct, nupp.math.u32.add(packedState, nupp.math.u32.add(quotes, nupp.math.u32.add(classes, nupp.math.u32.add(first, nupp.math.u32.add(left, nupp.math.u32.add(next, stringNext)))))))
+        nupp.math.u32.add(direct, packedState)
     )
 end
 return {decode = decode}
@@ -4877,27 +4825,15 @@ return {decode = decode}
     assert(decoded.ir:find("lua_builder_state", 1, true), decoded.ir)
     assert(decoded.ir:find("lua_string_byte_at", 1, true), decoded.ir)
     assert(decoded.ir:find("lua.scratch_u32", 1, true), decoded.ir)
-    assert(decoded.ir:find("simd_load_string_u8", 1, true), decoded.ir)
-    assert(decoded.ir:find("simd_lookup16_u8", 1, true), decoded.ir)
-    assert(decoded.ir:find("simd_align_bytes_u8", 1, true), decoded.ir)
-    assert(decoded.ir:find("lua.scratch_u32_append_bits", 1, true), decoded.ir)
-    assert(decoded.ir:find("lua.scratch_u32_append_string_bits", 1, true), decoded.ir)
     assert(decoded.ir:find("u64_mul", 1, true), decoded.ir)
     assert(decoded.ir:find("lua_builder_integer64", 1, true), decoded.ir)
     assert(decoded.ir:find("lua_builder_decimal64", 1, true), decoded.ir)
-    assert(decoded.ir:find("simd_mask64:simd_mask_bits64(constant:u32 8", 1, true), decoded.ir)
-    test.equal(decoded.ir:find("u32_shl", 1, true), nil, "constant shifts fold before emission")
     assert(decoded.c:find("KsLuaBuilder", 1, true), decoded.c)
-    assert(decoded.c:find("ks_lookup16_u8x", 1, true), decoded.c)
-    assert(decoded.c:find("ks_lua_scratch_u32_append_bits", 1, true), decoded.c)
-    assert(decoded.c:find("ks_lua_scratch_u32_append_string_bits", 1, true), decoded.c)
     assert(decoded.c:find("uint32_t inline_words[32]", 1, true), decoded.c)
     assert(decoded.c:find("lua_rawget(L, -10000)", 1, true), decoded.c)
     assert(decoded.c:find("static const char", 1, true), decoded.c)
     assert(decoded.c:find("KsLuaScratchU32", 1, true), decoded.c)
     assert(decoded.c:find("KsLuaScratchU8", 1, true), decoded.c)
-    assert(decoded.c:find("KsMaskBits64", 1, true), decoded.c)
-    assert(decoded.c:find("_helper_drain_result", 1, true), decoded.c)
     assert(decoded.c:find("ks_bytes_1", 1, true), decoded.c)
     assert(decoded.c:find("ks_lua_builder_number_slice", 1, true), decoded.c)
     assert(decoded.c:find("ks_lua_builder_integer64", 1, true), decoded.c)
@@ -5563,7 +5499,7 @@ return {add = add}
         "the cold lane loop takes its vector and its mask by pointer"
     )
     assert(
-        header:find("typedef struct { uint8_t lane[W]; } ks_scalar_u8x##W;", 1, true)
+        header:find("typedef struct { CTYPE lane[LANES]; } ks_scalar_exp_##ELEM;", 1, true)
             and not header:find("aligned(", 1, true),
         "and no type in the prelude asks for an alignment a caller does not give it"
     )
@@ -5581,7 +5517,6 @@ return {add = add}
         "the Windows calling convention caps what a vector claims about its address"
     )
     for _, vector in ipairs({
-        "typedef uint8_t ks_u8x##W __attribute__((vector_size(W) KS_VECTOR_ABI_ALIGN));",
         "typedef CTYPE ks_exp_##ELEM __attribute__((vector_size(W) KS_VECTOR_ABI_ALIGN));",
         "typedef MASK ks_exp_mask_##ELEM __attribute__((vector_size(W) KS_VECTOR_ABI_ALIGN));",
     }) do

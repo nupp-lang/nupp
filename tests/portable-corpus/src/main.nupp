@@ -70,8 +70,7 @@ local function main(): string
     local point = new Point(2, -2)
     local scaled = new Scaled(3)
     local shifted = (0x55 | 0xaa) << 1
-    local species = simd.preferredU8()
-    local digits = species:loadString("aZ09............", 0):inRange(48, 57):count()
+    local digits = nupp.math.u64.popcount(3ULL)
     local wideValue: int64 = 9223372036854775807LL
     local wideWrapped = wideValue + 1LL
 

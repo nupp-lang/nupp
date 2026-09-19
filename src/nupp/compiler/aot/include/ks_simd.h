@@ -1,6 +1,5 @@
-/* The SIMD prelude of an AOT program: the packed u8 vector its string
- * scanners run on, the scalar oracle beside it, and the explicit vector
- * elements of `nupp.simd`. Appended verbatim after the scalar prelude,
+/* The SIMD prelude of an AOT program: the explicit vector elements of
+ * `nupp.simd` and their scalar oracle. Appended verbatim after the scalar prelude,
  * once per vector width the program uses, with `KS_SIMD_WIDTH` set to
  * 16, 32 or 64 around each copy and `KS_LUA_BUILDER` defined to 1 when the
  * Lua builder prelude is present. The reusable part sits under the
@@ -79,237 +78,6 @@ KS_SCALAR_REGION_END
 #else
 #define KS_VECTOR_ABI_ALIGN
 #endif
-
-/* ---- The packed u8 vector ------------------------------------------ */
-
-/* A 16-lane table lookup: NEON and x86 have the byte shuffle, wasm has
- * a swizzle, and a 32-byte vector without AVX2 walks its lanes. */
-#define KS_LOOKUP16_PORTABLE(W) \
-    for (uint32_t i = 0; i < W##u; ++i) { uint8_t index = ((const uint8_t *)&indexes)[i]; ((uint8_t *)&out)[i] = index < 16u ? table.lane[index] : 0u; }
-#define KS_LOOKUP16_SSSE3 \
-    __m128i input, lookup, high, shuffled; memcpy(&input, &indexes, 16u); memcpy(&lookup, table.lane, 16u); high = _mm_and_si128(input, _mm_set1_epi8((char)0xf0)); shuffled = _mm_shuffle_epi8(lookup, input); shuffled = _mm_and_si128(shuffled, _mm_cmpeq_epi8(high, _mm_setzero_si128())); memcpy(&out, &shuffled, 16u);
-#if defined(__aarch64__)
-#define KS_LOOKUP16_BODY_16 \
-    uint8x16_t lookup = vld1q_u8(table.lane); \
-    uint8x16_t input; memcpy(&input, &indexes, 16u); input = vqtbl1q_u8(lookup, input); memcpy(&out, &input, 16u);
-#define KS_LOOKUP16_BODY_32 \
-    uint8x16_t lookup = vld1q_u8(table.lane); \
-    uint8x16_t lo, hi; memcpy(&lo, &indexes, 16u); memcpy(&hi, ((const uint8_t *)&indexes) + 16u, 16u); lo = vqtbl1q_u8(lookup, lo); hi = vqtbl1q_u8(lookup, hi); memcpy(&out, &lo, 16u); memcpy(((uint8_t *)&out) + 16u, &hi, 16u);
-#elif defined(__AVX2__)
-#define KS_LOOKUP16_BODY_16 KS_LOOKUP16_SSSE3
-#define KS_LOOKUP16_BODY_32 \
-    __m256i input, lookup, high, shuffled; __m128i table128; memcpy(&input, &indexes, 32u); memcpy(&table128, table.lane, 16u); lookup = _mm256_broadcastsi128_si256(table128); high = _mm256_and_si256(input, _mm256_set1_epi8((char)0xf0)); shuffled = _mm256_shuffle_epi8(lookup, input); shuffled = _mm256_and_si256(shuffled, _mm256_cmpeq_epi8(high, _mm256_setzero_si256())); memcpy(&out, &shuffled, 32u);
-#elif defined(__SSSE3__)
-#define KS_LOOKUP16_BODY_16 KS_LOOKUP16_SSSE3
-#define KS_LOOKUP16_BODY_32 KS_LOOKUP16_PORTABLE(32)
-#elif defined(__wasm_simd128__)
-/* `i8x16.swizzle` is this operation, zero for an out-of-range
- * index included, so the mask the x86 paths need is not wanted. */
-#define KS_LOOKUP16_BODY_16 \
-    typedef signed char KsSwizzle __attribute__((vector_size(16))); \
-    KsSwizzle lookup, input, shuffled; memcpy(&lookup, table.lane, 16u); memcpy(&input, &indexes, 16u); \
-    shuffled = __builtin_wasm_swizzle_i8x16(lookup, input); memcpy(&out, &shuffled, 16u);
-#define KS_LOOKUP16_BODY_32 KS_LOOKUP16_PORTABLE(32)
-#else
-#define KS_LOOKUP16_BODY_16 KS_LOOKUP16_PORTABLE(16)
-#define KS_LOOKUP16_BODY_32 KS_LOOKUP16_PORTABLE(32)
-#endif
-
-/* Shifting the previous vector's last bytes in front of the current one. */
-#define KS_ALIGN_PORTABLE(W) \
-    memcpy(&out, ((const uint8_t *)&previous) + W##u - offset, offset); memcpy(((uint8_t *)&out) + offset, &current, W##u - offset);
-#define KS_ALIGN_SSSE3 \
-    __m128i a, b, r; memcpy(&a, &previous, 16u); memcpy(&b, &current, 16u); if (offset == 1u) { r = _mm_alignr_epi8(b, a, 15); } else if (offset == 2u) { r = _mm_alignr_epi8(b, a, 14); } else { r = _mm_alignr_epi8(b, a, 13); } memcpy(&out, &r, 16u);
-#if defined(__aarch64__)
-#define KS_ALIGN_BODY_16 \
-    uint8x16_t a, b, r; memcpy(&a, &previous, 16u); memcpy(&b, &current, 16u); if (offset == 1u) r = vextq_u8(a, b, 15); else if (offset == 2u) r = vextq_u8(a, b, 14); else r = vextq_u8(a, b, 13); memcpy(&out, &r, 16u);
-#define KS_ALIGN_BODY_32 \
-    uint8x16_t p1, c0, c1, r0, r1; memcpy(&p1, ((const uint8_t *)&previous) + 16u, 16u); memcpy(&c0, &current, 16u); memcpy(&c1, ((const uint8_t *)&current) + 16u, 16u); if (offset == 1u) { r0 = vextq_u8(p1, c0, 15); r1 = vextq_u8(c0, c1, 15); } else if (offset == 2u) { r0 = vextq_u8(p1, c0, 14); r1 = vextq_u8(c0, c1, 14); } else { r0 = vextq_u8(p1, c0, 13); r1 = vextq_u8(c0, c1, 13); } memcpy(&out, &r0, 16u); memcpy(((uint8_t *)&out) + 16u, &r1, 16u);
-#elif defined(__AVX2__)
-#define KS_ALIGN_BODY_16 KS_ALIGN_SSSE3
-#define KS_ALIGN_BODY_32 \
-    __m256i a, b, bridge, r; memcpy(&a, &previous, 32u); memcpy(&b, &current, 32u); bridge = _mm256_permute2x128_si256(a, b, 0x21); if (offset == 1u) { r = _mm256_alignr_epi8(b, bridge, 15); } else if (offset == 2u) { r = _mm256_alignr_epi8(b, bridge, 14); } else { r = _mm256_alignr_epi8(b, bridge, 13); } memcpy(&out, &r, 32u);
-#elif defined(__SSSE3__)
-#define KS_ALIGN_BODY_16 KS_ALIGN_SSSE3
-#define KS_ALIGN_BODY_32 KS_ALIGN_PORTABLE(32)
-#else
-#define KS_ALIGN_BODY_16 KS_ALIGN_PORTABLE(16)
-#define KS_ALIGN_BODY_32 KS_ALIGN_PORTABLE(32)
-#endif
-
-/* The lane mask as a bitmap. A lane's high bit is what decides, which
- * every branch here honours and the portable one states outright. */
-#define KS_BITS_PORTABLE(WORDS) \
-    uint32_t bits = 0u; \
-    const uint64_t high_bits = UINT64_C(0x8080808080808080); \
-    const uint64_t pack_bits = UINT64_C(0x0002040810204081); \
-    for (uint32_t i = 0; i < WORDS##u; ++i) { \
-        uint64_t word; \
-        memcpy(&word, ((const uint8_t *)&mask) + i * 8u, 8u); \
-        bits |= (uint32_t)(((word & high_bits) * pack_bits) >> 56u) << (i * 8u); \
-    } \
-    return bits;
-#if defined(__aarch64__)
-#define KS_BITS_NEON_HEAD \
-    static const uint8_t ks_lane_powers[16] = { 1, 2, 4, 8, 16, 32, 64, 128, 1, 2, 4, 8, 16, 32, 64, 128 }; \
-    const uint8x16_t selectors = vld1q_u8(ks_lane_powers); \
-    const uint8x16_t highBits = vdupq_n_u8(0x80u); \
-    uint32_t bits;
-#define KS_BITS_BODY_16 \
-    KS_BITS_NEON_HEAD \
-    uint8x16_t v0; memcpy(&v0, &mask, 16u); v0 = vandq_u8(vtstq_u8(v0, highBits), selectors); bits = (uint32_t)vaddv_u8(vget_low_u8(v0)) << 0u | (uint32_t)vaddv_u8(vget_high_u8(v0)) << 8u; \
-    return bits;
-#define KS_BITS_BODY_32 \
-    KS_BITS_NEON_HEAD \
-    uint8x16_t v0, v1; memcpy(&v0, &mask, 16u); memcpy(&v1, ((const uint8_t *)&mask) + 16u, 16u); v0 = vandq_u8(vtstq_u8(v0, highBits), selectors); v1 = vandq_u8(vtstq_u8(v1, highBits), selectors); bits = ((uint32_t)vaddv_u8(vget_low_u8(v0)) << 0u | (uint32_t)vaddv_u8(vget_high_u8(v0)) << 8u) | ((uint32_t)vaddv_u8(vget_low_u8(v1)) << 16u | (uint32_t)vaddv_u8(vget_high_u8(v1)) << 24u); \
-    return bits;
-#elif defined(__AVX2__)
-#define KS_BITS_BODY_16 \
-    __m128i v0; memcpy(&v0, &mask, 16u); return (uint32_t)(uint16_t)_mm_movemask_epi8(v0);
-#define KS_BITS_BODY_32 \
-    __m256i v0; memcpy(&v0, &mask, 32u); return (uint32_t)_mm256_movemask_epi8(v0);
-#elif defined(__SSE2__)
-#define KS_BITS_BODY_16 \
-    __m128i v0; memcpy(&v0, &mask, 16u); return (uint32_t)(uint16_t)_mm_movemask_epi8(v0);
-#define KS_BITS_BODY_32 \
-    __m128i v0, v1; memcpy(&v0, &mask, 16u); memcpy(&v1, ((const uint8_t *)&mask) + 16u, 16u); return (uint32_t)(uint16_t)_mm_movemask_epi8(v0) | ((uint32_t)(uint16_t)_mm_movemask_epi8(v1) << 16u);
-#else
-#define KS_BITS_BODY_16 KS_BITS_PORTABLE(2)
-#define KS_BITS_BODY_32 KS_BITS_PORTABLE(4)
-#endif
-
-/* Whether any lane is set does not need the bitmap that finding
- * which one would. A horizontal maximum keeps a high bit if any
- * lane has one, and that is the whole question. Everywhere else the
- * bitmap is already one instruction. */
-#if defined(__aarch64__)
-#define KS_ANY_BODY_16 \
-    uint8x16_t v0; memcpy(&v0, &mask, 16u); return (uint32_t)((vmaxvq_u8(v0) & 0x80u) != 0u);
-#define KS_ANY_BODY_32 \
-    uint8x16_t v0, v1; memcpy(&v0, &mask, 16u); memcpy(&v1, ((const uint8_t *)&mask) + 16u, 16u); return (uint32_t)((vmaxvq_u8(vorrq_u8(v0, v1)) & 0x80u) != 0u);
-#else
-#define KS_ANY_BODY_16 return (uint32_t)(ks_bits_u8x16(mask) != 0u);
-#define KS_ANY_BODY_32 return (uint32_t)(ks_bits_u8x32(mask) != 0u);
-#endif
-
-#define KS_U8_PACKED(W) \
-typedef uint8_t ks_u8x##W __attribute__((vector_size(W) KS_VECTOR_ABI_ALIGN)); \
-static inline __attribute__((unused)) ks_u8x##W ks_splat_u8x##W(uint8_t value) { \
-    return (ks_u8x##W){ KS_REP_##W(value) }; \
-} \
-static inline __attribute__((unused)) ks_u8x##W ks_shr_u8x##W(ks_u8x##W value, uint32_t count) { \
-    if (count >= 8u) return ks_splat_u8x##W(0u); \
-    return value >> ks_splat_u8x##W((uint8_t)count); \
-} \
-static inline __attribute__((unused)) ks_u8x##W ks_shl_u8x##W(ks_u8x##W value, uint32_t count) { \
-    if (count >= 8u) return ks_splat_u8x##W(0u); \
-    return value << ks_splat_u8x##W((uint8_t)count); \
-} \
-static inline __attribute__((unused)) ks_u8x##W ks_load_u8x##W(const uint8_t *source, size_t count, uint32_t offset) { \
-    ks_u8x##W out = (ks_u8x##W){ KS_REP_##W(0) }; \
-    if ((size_t)offset < count) { \
-        size_t active = count - (size_t)offset; \
-        if (active > W##u) active = W##u; \
-        memcpy(&out, source + offset, active); \
-    } \
-    return out; \
-} \
-static inline __attribute__((unused)) ks_u8x##W ks_lookup16_u8x##W(ks_u8x##W indexes, KsTableU8x16 table) { \
-    ks_u8x##W out = (ks_u8x##W){ KS_REP_##W(0) }; \
-    KS_LOOKUP16_BODY_##W \
-    return out; \
-} \
-static inline __attribute__((unused)) ks_u8x##W ks_align_u8x##W(ks_u8x##W previous, ks_u8x##W current, uint32_t offset) { \
-    ks_u8x##W out = (ks_u8x##W){ KS_REP_##W(0) }; \
-    if (offset < 1u || offset > 3u) { return out; } \
-    KS_ALIGN_BODY_##W \
-    return out; \
-} \
-static inline __attribute__((unused)) ks_u8x##W ks_tail_u8x##W(uint32_t active) { \
-    /* An ordinary vector comparison against the lane indexes. Every \
-     * target has a byte compare, and saying it this way lets each one \
-     * choose its own rather than leaving a per-lane loop for the \
-     * backend to rediscover on every block. */ \
-    const ks_u8x##W indexes = { KS_LANES_##W(KS_INDEX_LANE, _) }; \
-    if (active > W##u) active = W##u; \
-    return (ks_u8x##W)(indexes < ks_splat_u8x##W((uint8_t)active)); \
-} \
-static inline __attribute__((unused)) uint32_t ks_bits_u8x##W(ks_u8x##W mask) { \
-    KS_BITS_BODY_##W \
-} \
-static inline __attribute__((unused)) uint32_t ks_any_u8x##W(ks_u8x##W mask) { \
-    KS_ANY_BODY_##W \
-}
-
-/* ---- The scalar oracle beside it ----------------------------------- */
-
-/* The oracle's lanes are plain byte arrays and are aligned like one. An
- * alignment wider than that would be a claim the Windows x64 calling
- * convention cannot keep: an aggregate larger than eight bytes is passed
- * there by reference to a temporary the caller allocates, and a caller
- * guarantees that temporary sixteen bytes of alignment and no more. GCC
- * honours a wider request for a declared local -- it rounds a pointer into
- * the frame -- and does not for the argument temporary it materialises for
- * a call it did not inline, which is every call the O0 oracle makes to
- * these helpers. The wider alignment on the type is what then licenses the
- * helper to move that temporary with `vmovdqa`, and the half of all calls
- * that find it only sixteen-byte aligned fault on it. */
-#define KS_U8_SCALAR(W) \
-typedef struct { uint8_t lane[W]; } ks_scalar_u8x##W; \
-static inline __attribute__((unused)) ks_scalar_u8x##W ks_scalar_load_u8x##W(const uint8_t *source, size_t count, uint32_t offset) { \
-    ks_scalar_u8x##W out = {{0}}; \
-    if ((size_t)offset < count) { \
-        size_t active = count - (size_t)offset; \
-        if (active > W##u) active = W##u; \
-        ks_scalar_copy_bytes(out.lane, source + offset, active); \
-    } \
-    return out; \
-} \
-static inline __attribute__((unused)) ks_scalar_u8x##W ks_scalar_splat_u8x##W(uint8_t value) { ks_scalar_u8x##W out; for (uint32_t i = 0; i < W##u; ++i) out.lane[i] = value; return out; } \
-static inline __attribute__((unused)) ks_scalar_u8x##W ks_scalar_shl_u8x##W(ks_scalar_u8x##W value, uint32_t count) { if (count >= 8u) return ks_scalar_splat_u8x##W(0u); for (uint32_t i = 0; i < W##u; ++i) value.lane[i] = (uint8_t)(value.lane[i] << count); return value; } \
-static inline __attribute__((unused)) ks_scalar_u8x##W ks_scalar_shr_u8x##W(ks_scalar_u8x##W value, uint32_t count) { if (count >= 8u) return ks_scalar_splat_u8x##W(0u); for (uint32_t i = 0; i < W##u; ++i) value.lane[i] = (uint8_t)(value.lane[i] >> count); return value; } \
-static inline __attribute__((unused)) ks_scalar_u8x##W ks_scalar_lookup16_u8x##W(ks_scalar_u8x##W indexes, KsTableU8x16 table) { ks_scalar_u8x##W out = {{0}}; for (uint32_t i = 0; i < W##u; ++i) out.lane[i] = indexes.lane[i] < 16u ? table.lane[indexes.lane[i]] : 0u; return out; } \
-static inline __attribute__((unused)) ks_scalar_u8x##W ks_scalar_align_u8x##W(ks_scalar_u8x##W previous, ks_scalar_u8x##W current, uint32_t offset) { ks_scalar_u8x##W out = {{0}}; if (offset < 1u || offset > 3u) { return out; } ks_scalar_copy_bytes(out.lane, previous.lane + W##u - offset, offset); ks_scalar_copy_bytes(out.lane + offset, current.lane, W##u - offset); return out; } \
-static inline __attribute__((unused)) ks_scalar_u8x##W ks_scalar_tail_u8x##W(uint32_t active) { \
-    ks_scalar_u8x##W out; \
-    if (active > W##u) active = W##u; \
-    for (uint32_t i = 0; i < W##u; ++i) { out.lane[i] = i < active ? UINT8_MAX : 0u; } \
-    return out; \
-} \
-static inline __attribute__((unused)) ks_scalar_u8x##W ks_scalar_and_u8x##W(ks_scalar_u8x##W a, ks_scalar_u8x##W b) { \
-    for (uint32_t i = 0; i < W##u; ++i) { a.lane[i] &= b.lane[i]; } \
-    return a; \
-} \
-static inline __attribute__((unused)) ks_scalar_u8x##W ks_scalar_or_u8x##W(ks_scalar_u8x##W a, ks_scalar_u8x##W b) { \
-    for (uint32_t i = 0; i < W##u; ++i) { a.lane[i] |= b.lane[i]; } \
-    return a; \
-} \
-static inline __attribute__((unused)) ks_scalar_u8x##W ks_scalar_xor_u8x##W(ks_scalar_u8x##W a, ks_scalar_u8x##W b) { \
-    for (uint32_t i = 0; i < W##u; ++i) { a.lane[i] ^= b.lane[i]; } \
-    return a; \
-} \
-static inline __attribute__((unused)) ks_scalar_u8x##W ks_scalar_not_u8x##W(ks_scalar_u8x##W a) { \
-    for (uint32_t i = 0; i < W##u; ++i) { a.lane[i] = (uint8_t)~a.lane[i]; } \
-    return a; \
-} \
-static inline __attribute__((unused)) ks_scalar_u8x##W ks_scalar_eq_u8x##W(ks_scalar_u8x##W a, uint8_t value) { \
-    for (uint32_t i = 0; i < W##u; ++i) a.lane[i] = a.lane[i] == value ? UINT8_MAX : 0u; \
-    return a; \
-} \
-static inline __attribute__((unused)) ks_scalar_u8x##W ks_scalar_range_u8x##W(ks_scalar_u8x##W a, uint8_t low, uint8_t high) { \
-    for (uint32_t i = 0; i < W##u; ++i) a.lane[i] = a.lane[i] >= low && a.lane[i] <= high ? UINT8_MAX : 0u; \
-    return a; \
-} \
-static inline __attribute__((unused)) ks_scalar_u8x##W ks_scalar_select_u8x##W(ks_scalar_u8x##W mask, ks_scalar_u8x##W yes, ks_scalar_u8x##W no) { \
-    for (uint32_t i = 0; i < W##u; ++i) yes.lane[i] = mask.lane[i] ? yes.lane[i] : no.lane[i]; \
-    return yes; \
-} \
-static inline __attribute__((unused)) uint32_t ks_scalar_bits_u8x##W(ks_scalar_u8x##W mask) { \
-    uint32_t bits = 0u; \
-    for (uint32_t i = 0; i < W##u; ++i) { bits |= (uint32_t)(mask.lane[i] != 0u) << i; } \
-    return bits; \
-} \
-static inline __attribute__((unused)) uint32_t ks_scalar_any_u8x##W(ks_scalar_u8x##W mask) { return (uint32_t)(ks_scalar_bits_u8x##W(mask) != 0u); } \
 
 /* ---- Explicit vectors: nupp.simd elements ------------------------- */
 
@@ -831,10 +599,6 @@ KS_EXP_EXTREMES_##KIND(scalar_exp, ELEM, CTYPE, LANES, LANE)
 /* ---- This width --------------------------------------------------- */
 
 #if KS_SIMD_WIDTH == 16
-KS_U8_PACKED(16)
-KS_U8_SCALAR(16)
-#if KS_LUA_BUILDER
-#endif
 KS_EXP_ELEMENT(16, f64x2, double, int64_t, 2, 8, FLOAT)
 KS_EXP_ELEMENT(16, f32x4, float, int32_t, 4, 4, FLOAT)
 KS_EXP_ELEMENT(16, i8x16, int8_t, int8_t, 16, 1, INT)
@@ -846,13 +610,6 @@ KS_EXP_ELEMENT(16, u32x4, uint32_t, int32_t, 4, 4, INT)
 KS_EXP_ELEMENT(16, i64x2, int64_t, int64_t, 2, 8, INT)
 KS_EXP_ELEMENT(16, u64x2, uint64_t, int64_t, 2, 8, INT)
 #elif KS_SIMD_WIDTH == 32
-#ifndef KS_U8_PACKED_32
-#define KS_U8_PACKED_32 1
-KS_U8_PACKED(32)
-KS_U8_SCALAR(32)
-#if KS_LUA_BUILDER
-#endif
-#endif
 KS_EXP_ELEMENT(32, f64x4, double, int64_t, 4, 8, FLOAT)
 KS_EXP_ELEMENT(32, f32x8, float, int32_t, 8, 4, FLOAT)
 KS_EXP_ELEMENT(32, i8x32, int8_t, int8_t, 32, 1, INT)
@@ -866,16 +623,7 @@ KS_EXP_ELEMENT(32, u64x4, uint64_t, int64_t, 4, 8, INT)
 #elif KS_SIMD_WIDTH == 64
 /* The 64-byte width is only ever selected for the AVX-512F tier and the
  * copy is compiled with that tier's flags, so a `zmm` register class is
- * always there for these. The packed byte scanner keeps the 32-byte
- * vector: its byte compares and shuffles need AVX-512BW, which the tier
- * does not promise, and 32 is already one register here. */
-#ifndef KS_U8_PACKED_32
-#define KS_U8_PACKED_32 1
-KS_U8_PACKED(32)
-KS_U8_SCALAR(32)
-#if KS_LUA_BUILDER
-#endif
-#endif
+ * always there for these. */
 KS_EXP_ELEMENT(64, f64x8, double, int64_t, 8, 8, FLOAT)
 KS_EXP_ELEMENT(64, f32x16, float, int32_t, 16, 4, FLOAT)
 KS_EXP_ELEMENT(64, i8x64, int8_t, int8_t, 64, 1, INT)

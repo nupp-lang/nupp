@@ -527,7 +527,7 @@ local function run(options: any): integer
     local environment = envMod.new(".")
     -- The command is an inspection of AOT output even when the manifest's
     -- build policy is off. Keep every other project setting and make only that
-    -- question explicit while checking AOT-only values such as preferredU8.
+    -- question explicit while checking target-specific operations.
     environment.config._target = environment.config._target or {}
     environment.config._target.aot = "emit-c"
     local tree, source = require("nupp.compiler.cli.compile").check(path, environment as {[string]: any})

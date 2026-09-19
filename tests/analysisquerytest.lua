@@ -87,6 +87,24 @@ end
 
 local test = {}
 
+function test.nativeAllocationFactsPreserveOrdinaryWideBoxing()
+   for _, case in ipairs({
+      {"local function value(a: uint64): uint64 return a + 1ULL end", false},
+      {"local function value(a: uint64): any return {a + 1ULL} end", true},
+      {"local function value(a: uint64): any return function() return a end end", true},
+   }) do
+      local _, result = analysed(case[1] .. "\nlocal function forward(a: uint64): any return value(a) end")
+      local first = result.root.blocks[1].stats[1].body.effectSummary
+      local forwarded = result.root.blocks[1].stats[2].body.effectSummary
+      assertEq(first.allocates, true, "ordinary execution still allocates")
+      assertEq(first.allocatesBeyondWideArithmetic, case[2], "only boxed arithmetic disappears natively")
+      assertEq(forwarded.allocates, true, "ordinary allocation crosses calls")
+      assertEq(forwarded.allocatesBeyondWideArithmetic, case[2], "native allocation crosses calls")
+   end
+   assertEq(analysis.fromContract({allocates = true}).allocatesBeyondWideArithmetic, true,
+      "an opaque allocation contract has no native exemption")
+end
+
 function test.visibleSeparatesUnknownFromForeign()
    local queries = analysed("local x = 1\n")
    local ok, why = queries.visible(nil)

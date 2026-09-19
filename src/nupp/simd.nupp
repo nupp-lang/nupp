@@ -3,38 +3,40 @@ module nupp.simd
 --[[
 Explicit SIMD support.
 
-Nothing here names a width. A species is whatever the artifact tier chose --
-sixteen bytes on the x86-64 baseline and on NEON, thirty-two on AVX2 -- and
-`species.lanes` is what you loop by.
+A preferred species uses the artifact tier's vector width.
+`species.lanes` is what you loop by; a fixed species names its lane count.
 
 ```nupp
+local array = nupp.mem.array
 local span = nupp.mem.span
 local simd = nupp.simd
 
 @aot
 local function countQuotes(borrows source: span.Span<uint8>): uint32
-    local species = simd.preferredU8()
     local cursor: integer = 0
     local found: uint32 = 0
-
-    while cursor < #source do
-        local bytes = species:load(source, cursor)
-        local tail = species:tail(#source - cursor)
-        local matches = bytes:equal(34)
-
-        found = nupp.math.u32.add(found, matches:andBits(tail):count())
-        cursor = cursor + species.lanes
+    if species = simd.species(array.uint8) then
+        while cursor < #source do
+            local bytes = species:load(source, cursor + 1)
+            local tail = species:tail(#source - cursor)
+            found = found + ((bytes == 34) & tail):count()
+            cursor = cursor + species.lanes
+        end
     end
-
+    while cursor < #source do
+        if source[cursor + 1] == 34 then
+            found = found + 1
+        end
+        cursor = cursor + 1
+    end
     return found
 end
 ```
 
 Loads are span-checked, inactive tail lanes read as zero, and `bits()` maps the
 first logical lane to bit zero. A vector and a mask have no boxed Lua
-representation, so neither can leave the kernel and calling `preferredU8` under
-`aot = "off"` is a named checking error. Importing the module without
-constructing a species is ordinary Lua.
+representation, so neither can leave the kernel. `simd.species` answers `nil`
+under `aot = "off"`; the scalar continuation above handles that case.
 
 Reach for this only where a scalar loop cannot say what you mean -- shuffles,
 transposes, prefix scans, fixed-tree reductions, gathers, compress and expand.
@@ -51,11 +53,7 @@ the whole of it.
 const {type Span, type WriteSpan} = require("nupp.mem.span")
 const {type Scalar as StorageWitness} = require("nupp.mem.array")
 
--- Packed operations use the target's AOT instructions inside compiled entries.
--- Ordinary calls use the scalar implementation.
-
 local simd = {}
-local provider = require("nupp.runtime.provider.scalarsimd")
 
 --- Closed reduction values used to carry one contribution from each logical
 --- iteration of an `@simd` loop back into scalar code.
@@ -1708,142 +1706,5 @@ function horizontal.numberArgMax<T, S>(value: simd.Vector<T, S>): integer
 end
 
 simd.horizontal = horizontal
-
---- One immutable packed value for the preferred target species.
---- @export
-sealed interface simd.VectorU8
-    equal: function(borrows self: VectorU8, value: uint32): simd.MaskU8
-    inRange: function(borrows self: VectorU8, low: uint32, high: uint32): simd.MaskU8
-    andBits: function(borrows self: VectorU8, other: VectorU8): simd.VectorU8
-    orBits: function(borrows self: VectorU8, other: VectorU8): simd.VectorU8
-    xorBits: function(borrows self: VectorU8, other: VectorU8): simd.VectorU8
-    notBits: function(borrows self: VectorU8): simd.VectorU8
-    shiftRight: function(borrows self: VectorU8, count: uint32): simd.VectorU8
-    shiftLeft: function(borrows self: VectorU8, count: uint32): simd.VectorU8
-
-    --- Looks up every lane in one immutable 16-byte table. Indexes outside
-    --- 0..15 produce zero, matching the native table instructions.
-    lookup16: function(borrows self: VectorU8, table: simd.TableU8x16): simd.VectorU8
-end
-
---- One immutable 16-byte lookup table embedded in generated native code.
---- @export
-sealed interface simd.TableU8x16
-end
-
---- One predicate bit per logical vector lane.
---- @export
-sealed interface simd.MaskU8
-    andBits: function(borrows self: MaskU8, other: MaskU8): simd.MaskU8
-    orBits: function(borrows self: MaskU8, other: MaskU8): simd.MaskU8
-    xorBits: function(borrows self: MaskU8, other: MaskU8): simd.MaskU8
-    notBits: function(borrows self: MaskU8): simd.MaskU8
-    select: function(borrows self: MaskU8, whenTrue: simd.VectorU8, whenFalse: simd.VectorU8): simd.VectorU8
-    any: function(borrows self: MaskU8): boolean
-    all: function(borrows self: MaskU8): boolean
-    count: function(borrows self: MaskU8): uint32
-    bits: function(borrows self: MaskU8): uint32
-end
-
---- A target-independent 64-bit predicate bitmap.
----
---- This is deliberately not a general `uint64`: ordinary Nupp numbers retain
---- their LuaJIT representation and exactness rules. The two uint32 halves let
---- scanners combine register masks, carry prefix state across them, and drain
---- events without boxing cdata.
---- @export
-sealed interface simd.MaskBits64
-    --- Adds with carry across the word boundary.
-    ---
-    --- Present because run-parity over a block is stated as an addition: adding
-    --- a run's start bit to the run propagates a carry to the first bit past
-    --- its end, which is how a scanner tells an odd run of escapes from an even
-    --- one without walking the runs. Nothing else here carries between words.
-    add: function(borrows self: MaskBits64, other: MaskBits64): simd.MaskBits64
-
-    andBits: function(borrows self: MaskBits64, other: MaskBits64): simd.MaskBits64
-    orBits: function(borrows self: MaskBits64, other: MaskBits64): simd.MaskBits64
-    xorBits: function(borrows self: MaskBits64, other: MaskBits64): simd.MaskBits64
-    notBits: function(borrows self: MaskBits64): simd.MaskBits64
-    shiftLeft: function(borrows self: MaskBits64, count: uint32): simd.MaskBits64
-    shiftRight: function(borrows self: MaskBits64, count: uint32): simd.MaskBits64
-    prefixXor: function(borrows self: MaskBits64, carry: boolean): simd.MaskBits64
-    lowBits: function(borrows self: MaskBits64): uint32
-    highBits: function(borrows self: MaskBits64): uint32
-    any: function(borrows self: MaskBits64): boolean
-    count: function(borrows self: MaskBits64): uint32
-    firstSet: function(borrows self: MaskBits64): uint32
-    clearFirst: function(borrows self: MaskBits64): simd.MaskBits64
-end
-
---- The preferred register-sized operation set for one element type.
---- @export
-sealed interface simd.SpeciesU8
-    readonly lanes: integer
-
-    --- Broadcasts the low byte of `value` to every lane.
-    splat: function(borrows self: SpeciesU8, value: uint32): simd.VectorU8
-
-    --- Loads at a zero-based offset. Inactive final lanes are zero and are
-    --- excluded by `tail`; the implementation never reads beyond the span.
-    load: function(borrows self: SpeciesU8, borrows source: Span<uint8>, offset: integer): simd.VectorU8
-
-    --- Loads directly from bytes rooted by a Lua-builder AOT entry. This is
-    --- the VM-aware counterpart of `load`: storage remains owned and pinned by
-    --- Lua for the duration of the native call, so the entry needs no `Span`
-    --- and no copy. The source is a Lua string or a borrowed string buffer,
-    --- spelled `any` because that union exists only at this boundary.
-    loadString: function(borrows self: SpeciesU8, borrows source: any, offset: integer): simd.VectorU8
-
-    --- A mask with the first `active` lanes set, clamped to this species.
-    tail: function(borrows self: SpeciesU8, active: integer): simd.MaskU8
-end
-
---- Selects the artifact tier's preferred packed byte species.
---- @export
-local preferredU8: function(): simd.SpeciesU8 = provider.preferredU8
-
-const simd.preferredU8 = preferredU8
-
---- Combines low and high uint32 words into an 64-bit mask.
---- @export
-local maskBits64: function(low: uint32, high: uint32): simd.MaskBits64 = provider.maskBits64
-
-const simd.maskBits64 = maskBits64
-
---- Embeds one immutable 16-byte lookup table in an AOT entry.
---- @export
-local tableU8x16: function(
-    b0: uint32,
-    b1: uint32,
-    b2: uint32,
-    b3: uint32,
-    b4: uint32,
-    b5: uint32,
-    b6: uint32,
-    b7: uint32,
-    b8: uint32,
-    b9: uint32,
-    b10: uint32,
-    b11: uint32,
-    b12: uint32,
-    b13: uint32,
-    b14: uint32,
-    b15: uint32
-): simd.TableU8x16 = provider.tableU8x16
-
-const simd.tableU8x16 = tableU8x16
-
---- Aligns `previous .. current`, bringing the last `offset` bytes of the
---- previous vector into the beginning of the result. Offsets 1..3 are
---- admitted because they are the cross-block lookback needed by UTF-8 scans.
---- @export
-local alignBytes: function(
-    previous: simd.VectorU8,
-    current: simd.VectorU8,
-    offset: uint32
-): simd.VectorU8 = provider.alignBytes
-
-const simd.alignBytes = alignBytes
 
 export = simd

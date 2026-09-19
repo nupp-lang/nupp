@@ -7,6 +7,7 @@ cd "$(dirname "$0")"
 ./prepare.sh
 ../../bin/nupp build --target fused-json --out-dir build
 
-LUA_PATH='build/?.lua;build/?/init.lua;../../build/?.lua;../../.rocks/share/lua/5.1/?.lua;../../.rocks/share/lua/5.1/?/init.lua;;' \
-LUA_CPATH='../../.rocks/lib/lua/5.1/?.so;;' \
+export LUA_PATH='build/?.lua;build/?/init.lua;../../build/?.lua;../../.rocks/share/lua/5.1/?.lua;../../.rocks/share/lua/5.1/?/init.lua;;'
+export LUA_CPATH='../../.rocks/lib/lua/5.1/?.so;;'
+luajit tests/differential.lua
 luajit tests/bench.lua "$@"

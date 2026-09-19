@@ -906,65 +906,6 @@ static KS_UNUSED uint32_t ks_reverse_u32(uint32_t value) {
     value = ((value >> 8u) & UINT32_C(0x00ff00ff)) | ((value & UINT32_C(0x00ff00ff)) << 8u);
     return (value >> 16u) | (value << 16u);
 }
-static KS_UNUSED uint32_t ks_lua_scratch_u32_append_bits(lua_State *L, KsLuaScratchU32 *scratch, uint32_t index, uint32_t base, KsMaskBits64 bits) {
-    uint32_t needed = (uint32_t)(__builtin_popcount(bits.low) + __builtin_popcount(bits.high));
-    if (index != scratch->length || needed > scratch->capacity - scratch->escape_length - index) { luaL_error(L, "AOT scratch bit append is out of bounds"); return index; }
-#if defined(__aarch64__)
-    uint32_t low = ks_reverse_u32(bits.low), high = ks_reverse_u32(bits.high);
-    while (low != 0u) { uint32_t bit = (uint32_t)__builtin_clz(low); scratch->words[index++] = base + bit; low &= ~(UINT32_C(0x80000000) >> bit); }
-    while (high != 0u) { uint32_t bit = (uint32_t)__builtin_clz(high); scratch->words[index++] = base + UINT32_C(32) + bit; high &= ~(UINT32_C(0x80000000) >> bit); }
-#else
-    while (bits.low != 0u) { uint32_t bit = (uint32_t)__builtin_ctz(bits.low); scratch->words[index++] = base + bit; bits.low &= bits.low - 1u; }
-    while (bits.high != 0u) { uint32_t bit = (uint32_t)__builtin_ctz(bits.high); scratch->words[index++] = base + UINT32_C(32) + bit; bits.high &= bits.high - 1u; }
-#endif
-    scratch->length = index; return index;
-}
-static KS_UNUSED uint32_t ks_lua_scratch_u32_append_bits_eager(lua_State *L, KsLuaScratchU32 *scratch, uint32_t index, uint32_t base, KsMaskBits64 bits) {
-    uint32_t needed = (uint32_t)(__builtin_popcount(bits.low) + __builtin_popcount(bits.high));
-    if (index != scratch->length || needed > scratch->capacity - index) { luaL_error(L, "AOT scratch bit append is out of bounds"); return index; }
-#if defined(__aarch64__)
-    uint32_t low = ks_reverse_u32(bits.low), high = ks_reverse_u32(bits.high);
-    while (low != 0u) { uint32_t bit = (uint32_t)__builtin_clz(low); scratch->words[index++] = base + bit; low &= ~(UINT32_C(0x80000000) >> bit); }
-    while (high != 0u) { uint32_t bit = (uint32_t)__builtin_clz(high); scratch->words[index++] = base + 32u + bit; high &= ~(UINT32_C(0x80000000) >> bit); }
-#else
-    while (bits.low != 0u) { uint32_t bit = (uint32_t)__builtin_ctz(bits.low); scratch->words[index++] = base + bit; bits.low &= bits.low - 1u; }
-    while (bits.high != 0u) { uint32_t bit = (uint32_t)__builtin_ctz(bits.high); scratch->words[index++] = base + 32u + bit; bits.high &= bits.high - 1u; }
-#endif
-    scratch->length = index; return index;
-}
-static KS_UNUSED uint32_t ks_lua_scratch_u32_append_string_bits(lua_State *L, KsLuaScratchU32 *scratch, uint32_t index, uint32_t base, KsMaskBits64 events, KsMaskBits64 quotes, KsMaskBits64 slashes, int in_string, int string_escaped) {
-    uint32_t needed = (uint32_t)(__builtin_popcount(events.low) + __builtin_popcount(events.high));
-    if (index != scratch->length || needed > scratch->capacity - index) { luaL_error(L, "AOT scratch string bit append is out of bounds"); return index; }
-    uint64_t event_bits = (uint64_t)events.low | ((uint64_t)events.high << 32u);
-    uint64_t quote_bits = (uint64_t)quotes.low | ((uint64_t)quotes.high << 32u);
-    uint64_t slash_bits = (uint64_t)slashes.low | ((uint64_t)slashes.high << 32u);
-    while (event_bits != 0u) {
-        uint32_t bit = (uint32_t)__builtin_ctzll(event_bits); uint64_t before = (UINT64_C(1) << bit) - UINT64_C(1);
-        if (in_string && (slash_bits & before) != 0u) { string_escaped = 1; } slash_bits &= ~before;
-        uint32_t word = base + bit; if ((quote_bits & (UINT64_C(1) << bit)) != 0u) { if (in_string && string_escaped) { word |= UINT32_C(0x80000000); } in_string = !in_string; string_escaped = 0; }
-        scratch->words[index++] = word; event_bits &= event_bits - UINT64_C(1);
-    }
-    if (in_string && slash_bits != 0u) { string_escaped = 1; } scratch->length = index; return index | (string_escaped ? UINT32_C(0x80000000) : 0u);
-}
-static KS_UNUSED uint32_t ks_lua_scratch_u32_append_string_shared_bits(lua_State *L, KsLuaScratchU32 *scratch, uint32_t index, uint32_t base, KsMaskBits64 events, KsMaskBits64 quotes, KsMaskBits64 slashes, int in_string, int string_escaped) { uint32_t needed = (uint32_t)(__builtin_popcount(events.low) + __builtin_popcount(events.high)); if (index != scratch->length || needed > scratch->capacity - scratch->escape_length - index) { luaL_error(L, "AOT scratch string bit append is out of bounds"); return index; } return ks_lua_scratch_u32_append_string_bits(L, scratch, index, base, events, quotes, slashes, in_string, string_escaped); }
-static KS_UNUSED uint32_t ks_lua_scratch_u32_append_string_escape_bits(lua_State *L, KsLuaScratchU32 *scratch, KsLuaScratchU32 *escapes, uint32_t index, uint32_t base, KsMaskBits64 events, KsMaskBits64 quotes, KsMaskBits64 slashes, int slash_carry, int slash_odd, int in_string, int string_escaped) {
-    uint32_t needed = (uint32_t)(__builtin_popcount(events.low) + __builtin_popcount(events.high));
-    if (index != scratch->length || needed > scratch->capacity - scratch->escape_length - index) { luaL_error(L, "AOT scratch string bit append is out of bounds"); return index; }
-    uint64_t event_bits = (uint64_t)events.low | ((uint64_t)events.high << 32u);
-    uint64_t quote_bits = (uint64_t)quotes.low | ((uint64_t)quotes.high << 32u);
-    uint64_t slash_bits = (uint64_t)slashes.low | ((uint64_t)slashes.high << 32u);
-    uint64_t spanning = 0u; if (in_string) { uint32_t close = quote_bits == 0u ? 64u : (uint32_t)__builtin_ctzll(quote_bits); spanning |= close == 64u ? ~UINT64_C(0) : (UINT64_C(1) << close) - UINT64_C(1); } int ends_in_string = in_string ^ ((__builtin_popcountll(quote_bits) & 1) != 0); if (ends_in_string) { uint32_t open = quote_bits == 0u ? 0u : 63u - (uint32_t)__builtin_clzll(quote_bits); spanning |= quote_bits == 0u ? ~UINT64_C(0) : open == 63u ? 0u : ~((UINT64_C(1) << (open + 1u)) - UINT64_C(1)); }
-    uint64_t retained_slashes = 0u, remaining_slashes = slash_bits & spanning; while (remaining_slashes != 0u) { uint32_t run_start = (uint32_t)__builtin_ctzll(remaining_slashes), run_end = run_start; while (run_end < 64u && (slash_bits & (UINT64_C(1) << run_end)) != 0u) { run_end += 1u; } uint32_t first = run_start + ((run_start == 0u && slash_carry && slash_odd) ? 1u : 0u); for (uint32_t lane = first; lane < run_end; lane += 2u) { retained_slashes |= UINT64_C(1) << lane; } uint64_t run_mask = run_end == 64u ? (~UINT64_C(0) << run_start) : ((UINT64_C(1) << run_end) - (UINT64_C(1) << run_start)); remaining_slashes &= ~run_mask; } uint32_t escape_needed = (uint32_t)__builtin_popcountll(retained_slashes); if (escape_needed > escapes->capacity - escapes->length - escapes->escape_length) { luaL_error(L, "AOT escape scratch append is out of bounds"); return index; }
-    while (retained_slashes != 0u) { uint32_t bit = (uint32_t)__builtin_ctzll(retained_slashes); escapes->words[escapes->capacity - 1u - escapes->escape_length++] = base + bit; retained_slashes &= retained_slashes - UINT64_C(1); }
-    while (event_bits != 0u) {
-        uint32_t bit = (uint32_t)__builtin_ctzll(event_bits); uint64_t before = (UINT64_C(1) << bit) - UINT64_C(1);
-        if (in_string && (slash_bits & before) != 0u) { string_escaped = 1; } slash_bits &= ~before;
-        uint32_t word = base + bit; if ((quote_bits & (UINT64_C(1) << bit)) != 0u) { if (in_string && string_escaped) { word |= UINT32_C(0x80000000); } in_string = !in_string; string_escaped = 0; }
-        scratch->words[index++] = word; event_bits &= event_bits - UINT64_C(1);
-    }
-    if (in_string && slash_bits != 0u) { string_escaped = 1; } scratch->length = index;
-    return index | (string_escaped ? UINT32_C(0x80000000) : 0u);
-}
 static KS_UNUSED KsLuaScratchU8 ks_lua_scratch_u8(lua_State *L, uint32_t capacity) {
     unsigned char *bytes = (unsigned char *)lua_newuserdata(L, capacity == 0u ? 1u : (size_t)capacity);
     KsLuaScratchU8 scratch = {bytes, capacity, 0u, lua_gettop(L), 0}; return scratch;

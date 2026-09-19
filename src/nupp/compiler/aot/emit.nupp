@@ -158,26 +158,6 @@ const MATH_C = {
     ["fmod"] = "fmod",
 }
 
---- The 64-bit mask operations that render as one `ks_mask64_*` helper call,
---- by the verb the helper is named for.
-const MASK64_BINARY = {
-    ["simd_mask64_add"] = "add",
-    ["simd_mask64_and"] = "and",
-    ["simd_mask64_or"] = "or",
-    ["simd_mask64_xor"] = "xor",
-    ["simd_mask64_shl"] = "shl",
-    ["simd_mask64_shr"] = "shr",
-    ["simd_mask64_prefix_xor"] = "prefix_xor",
-}
-
-const MASK64_UNARY = {
-    ["simd_mask64_not"] = "not",
-    ["simd_mask64_any"] = "any",
-    ["simd_mask64_count"] = "count",
-    ["simd_mask64_first"] = "first",
-    ["simd_mask64_clear_first"] = "clear_first",
-}
-
 --- The generic SIMD operations, each with the type that names its species:
 --- the node's own (0) or that of one argument.
 const GENERIC_SPECIES = {
@@ -252,29 +232,6 @@ const GENERIC_OPERATORS = {
     ["ge"] = ">=",
     ["eq"] = "==",
     ["ne"] = "!=",
-}
-
---- The byte-vector logic operations, by helper verb and C operator: the
---- vector and mask forms are the same C, the scalar tier calls the helper and
---- the packed one writes the operator.
-const U8_LOGIC = {
-    ["simd_vec_and"] = {"and", "&"},
-    ["simd_mask_and"] = {"and", "&"},
-    ["simd_vec_or"] = {"or", "|"},
-    ["simd_mask_or"] = {"or", "|"},
-    ["simd_vec_xor"] = {"xor", "^"},
-    ["simd_mask_xor"] = {"xor", "^"},
-}
-
---- The byte-vector SIMD operations that render as one helper call over their
---- arguments in order: the helper's name, then the C prefix each argument
---- takes -- an address, a byte narrowing, or nothing.
-const U8_CALLS = {
-    ["simd_shr_u8"] = {"shr_", "", ""},
-    ["simd_shl_u8"] = {"shl_", "", ""},
-    ["simd_lookup16_u8"] = {"lookup16_", "", ""},
-    ["simd_align_bytes_u8"] = {"align_", "", "", ""},
-    ["simd_bits"] = {"bits_", ""},
 }
 
 --- One scratch write as a C statement: `helper` or its `_fixed` form, which
@@ -392,15 +349,6 @@ local function explicitWidthSelected(context: emit.Context): boolean
     return context.explicitWidth == 16 or context.explicitWidth == 32 or context.explicitWidth == 64
 end
 
---- The vector width of the packed byte scanner under the selected width.
----
---- The scanner's byte compares and shuffles stop at 32 bytes: AVX-512F alone
---- carries no byte-lane instructions, so a 64-byte program scans strings with
---- the 32-byte vector the tier's flags always cover.
-local function byteWidth(context: emit.Context): integer
-    return math.min(context.explicitWidth, 32) as integer
-end
-
 --- Resolves one target-neutral explicit SIMD type for the selected tier.
 local function explicitType(context: emit.Context, typeName: string): (string?, string?, integer?, string?)
     local family, element, shape = typeName:match("^simd_(%a+)_([fiu]%d+)_(.+)$")
@@ -452,18 +400,7 @@ local function resolveCType(context: emit.Context, typeName: string): string
             return "uint64_t"
         end
     end
-    if typeName == "simd_species_u8" then
-        return "uint32_t"
-    elseif typeName == "simd_vector_u8" or typeName == "simd_mask_u8" then
-        if not explicitWidthSelected(context) then
-            error("explicit SIMD width was not selected", 0)
-        end
-        return (context.explicitScalar and "ks_scalar_u8x" or "ks_u8x") .. tostring(byteWidth(context))
-    elseif typeName == "simd_mask_bits64" then
-        return "KsMaskBits64"
-    elseif typeName == "simd_table_u8x16" then
-        return "KsTableU8x16"
-    elseif typeName == "simd_reducer_pairwise_sum"
+    if typeName == "simd_reducer_pairwise_sum"
         or typeName == "simd_reducer_pairwise_product"
         or typeName == "simd_reducer_pairwise_dot"
     then
@@ -1160,53 +1097,6 @@ function emit.scalar(context: emit.Context, node: scalarIR.Expr): string
         return tostring(
             ((node as scalarIR.LuaScratchU32Length).scratch as scalarIR.Name).cName
         ) .. (operation == "lua_scratch_u32_escape_length" and ".escape_length" or ".length")
-    elseif operation == "lua_scratch_u32_append_bits" or operation == "lua_scratch_u32_append_bits_eager" then
-        local appended = node as scalarIR.LuaScratchU32AppendBits
-        return (
-            operation == "lua_scratch_u32_append_bits_eager"
-            and "ks_lua_scratch_u32_append_bits_eager(L, &"
-            or "ks_lua_scratch_u32_append_bits(L, &"
-        ) .. tostring(
-            (appended.scratch as scalarIR.Name).cName
-        ) .. ", " .. emit.scalar(
-            context,
-            appended.index
-        ) .. ", " .. emit.scalar(context, appended.base) .. ", " .. emit.scalar(context, appended.bits) .. ")"
-    elseif operation == "lua_scratch_u32_append_string_bits" then
-        local appended = node as scalarIR.LuaScratchU32AppendStringBits
-        -- One render: the three helpers share every argument except the escape
-        -- scratch and its two carries, so only the name and those extras vary.
-        local escaped = appended.escapeScratch ~= nil
-        local call = (
-            escaped
-            and "ks_lua_scratch_u32_append_string_escape_bits(L, &"
-            or appended.sharedEscapes
-            and "ks_lua_scratch_u32_append_string_shared_bits(L, &"
-            or "ks_lua_scratch_u32_append_string_bits(L, &"
-        ) .. tostring((appended.scratch as scalarIR.Name).cName)
-        if escaped then
-            call = call .. ", &" .. tostring((appended.escapeScratch as scalarIR.Name).cName)
-        end
-        call = call .. ", " .. emit.scalar(
-            context,
-            appended.index
-        ) .. ", " .. emit.scalar(
-            context,
-            appended.base
-        ) .. ", " .. emit.scalar(
-            context,
-            appended.events
-        ) .. ", " .. emit.scalar(context, appended.quotes) .. ", " .. emit.scalar(context, appended.slashes)
-        if escaped then
-            call = call .. ", " .. emit.scalar(
-                context,
-                appended.slashCarry as scalarIR.Expr
-            ) .. ", " .. emit.scalar(context, appended.slashOdd as scalarIR.Expr)
-        end
-        return call .. ", " .. emit.scalar(
-            context,
-            appended.inString
-        ) .. ", " .. emit.scalar(context, appended.stringEscaped) .. ")"
     elseif operation == "lua_scratch_u8_get" then
         local loaded = node as scalarIR.LuaScratchU8Get
         if loaded.fixedBound ~= nil then
@@ -1243,8 +1133,6 @@ function emit.scalar(context: emit.Context, node: scalarIR.Expr): string
     elseif tostring(operation):match("^simd_") ~= nil then
         local simd = node as scalarIR.Simd
         local args = simd.args
-        local suffix = "u8x" .. tostring(byteWidth(context))
-        local helper = context.explicitScalar and "ks_scalar_" or "ks_"
         local speciesArg = GENERIC_SPECIES[tostring(operation)]
         if speciesArg ~= nil then
             local shapedType = speciesArg == 0 and simd.type or args[speciesArg as integer].type
@@ -1431,121 +1319,6 @@ function emit.scalar(context: emit.Context, node: scalarIR.Expr): string
                 rendered[#rendered + 1] = emit.scalar(context, argument)
             end
             return genericHelper .. tostring(verb) .. "_" .. genericSuffix .. "(" .. table.concat(rendered, ", ") .. ")"
-        elseif operation == "simd_species_u8" or operation == "simd_lanes" then
-            return "UINT32_C(" .. tostring(byteWidth(context)) .. ")"
-        elseif operation == "simd_load_u8" then
-            local count = context.independentSpanCounts and "count_" .. tostring(simd.span) or "count"
-            return helper .. "load_" .. suffix .. "(p_" .. tostring(
-                simd.span
-            ) .. ", " .. count .. ", " .. emit.scalar(context, args[2]) .. ")"
-        elseif operation == "simd_load_string_u8" then
-            local bytes = args[2] as scalarIR.Name
-            return helper .. "load_" .. suffix .. "(ks_bytes_" .. tostring(
-                bytes.cName
-            ) .. ", ks_length_" .. tostring(bytes.cName) .. ", " .. emit.scalar(context, args[3]) .. ")"
-        elseif operation == "simd_splat_u8" then
-            return helper .. "splat_" .. suffix .. "((uint8_t)" .. emit.scalar(context, args[2]) .. ")"
-        elseif operation == "simd_table_u8x16" then
-            local values: {string} = {}
-            for index, argument in ipairs(args) do
-                values[index] = "(uint8_t)" .. emit.scalar(context, argument)
-            end
-            return "((KsTableU8x16){{" .. table.concat(values, ", ") .. "}})"
-        elseif U8_CALLS[tostring(operation)] ~= nil then
-            local call = U8_CALLS[tostring(operation)] as {string}
-            local rendered: {string} = {}
-            for position = 2, #call do
-                rendered[#rendered + 1] = call[position] .. emit.scalar(context, args[position - 1])
-            end
-            return helper .. call[1] .. suffix .. "(" .. table.concat(rendered, ", ") .. ")"
-        elseif operation == "simd_tail_u8" then
-            return helper .. "tail_" .. suffix .. "(" .. emit.scalar(context, args[2]) .. ")"
-        elseif operation == "simd_eq_u8" then
-            if context.explicitScalar then
-                return helper .. "eq_" .. suffix .. "(" .. emit.scalar(
-                    context,
-                    args[1]
-                ) .. ", (uint8_t)" .. emit.scalar(context, args[2]) .. ")"
-            end
-            return "(" .. emit.scalar(
-                context,
-                args[1]
-            ) .. " == ks_splat_" .. suffix .. "((uint8_t)" .. emit.scalar(context, args[2]) .. "))"
-        elseif operation == "simd_range_u8" then
-            if context.explicitScalar then
-                return helper .. "range_" .. suffix .. "(" .. emit.scalar(
-                    context,
-                    args[1]
-                ) .. ", (uint8_t)" .. emit.scalar(
-                    context,
-                    args[2]
-                ) .. ", (uint8_t)" .. emit.scalar(context, args[3]) .. ")"
-            end
-            local value = emit.scalar(context, args[1])
-            return "((" .. value .. " >= ks_splat_" .. suffix .. "((uint8_t)" .. emit.scalar(
-                context,
-                args[2]
-            ) .. ")) & (" .. value .. " <= ks_splat_" .. suffix .. "((uint8_t)" .. emit.scalar(
-                context,
-                args[3]
-            ) .. ")))"
-        elseif U8_LOGIC[tostring(operation)] ~= nil then
-            local logic = U8_LOGIC[tostring(operation)] as {string}
-            if context.explicitScalar then
-                return helper .. logic[
-                    1
-                ] .. "_" .. suffix .. "(" .. emit.scalar(
-                    context,
-                    args[1]
-                ) .. ", " .. emit.scalar(context, args[2]) .. ")"
-            end
-            return "(" .. emit.scalar(
-                context,
-                args[1]
-            ) .. " " .. logic[2] .. " " .. emit.scalar(context, args[2]) .. ")"
-        elseif operation == "simd_vec_not" or operation == "simd_mask_not" then
-            if context.explicitScalar then
-                return helper .. "not_" .. suffix .. "(" .. emit.scalar(context, args[1]) .. ")"
-            end
-            return "(~" .. emit.scalar(context, args[1]) .. ")"
-        elseif operation == "simd_select_u8" then
-            if context.explicitScalar then
-                return helper .. "select_" .. suffix .. "(" .. emit.scalar(
-                    context,
-                    args[1]
-                ) .. ", " .. emit.scalar(context, args[2]) .. ", " .. emit.scalar(context, args[3]) .. ")"
-            end
-            return "((" .. emit.scalar(
-                context,
-                args[1]
-            ) .. " & " .. emit.scalar(
-                context,
-                args[2]
-            ) .. ") | (~" .. emit.scalar(context, args[1]) .. " & " .. emit.scalar(context, args[3]) .. "))"
-        elseif operation == "simd_any" then
-            return "(" .. helper .. "any_" .. suffix .. "(" .. emit.scalar(context, args[1]) .. ") != 0u)"
-        elseif operation == "simd_all" then
-            local all = byteWidth(context) == 32 and "UINT32_MAX" or "UINT32_C(65535)"
-            return "(" .. helper .. "bits_" .. suffix .. "(" .. emit.scalar(context, args[1]) .. ") == " .. all .. ")"
-        elseif operation == "simd_count" then
-            return "((uint32_t)__builtin_popcount(" .. helper .. "bits_" .. suffix .. "(" .. emit.scalar(
-                context,
-                args[1]
-            ) .. ")))"
-        elseif operation == "simd_mask64" then
-            return "ks_mask64(" .. emit.scalar(context, args[1]) .. ", " .. emit.scalar(context, args[2]) .. ")"
-        elseif MASK64_BINARY[tostring(operation)] ~= nil then
-            return "ks_mask64_" .. tostring(
-                MASK64_BINARY[tostring(operation)]
-            ) .. "(" .. emit.scalar(context, args[1]) .. ", " .. emit.scalar(context, args[2]) .. ")"
-        elseif MASK64_UNARY[tostring(operation)] ~= nil then
-            return "ks_mask64_" .. tostring(
-                MASK64_UNARY[tostring(operation)]
-            ) .. "(" .. emit.scalar(context, args[1]) .. ")"
-        elseif operation == "simd_mask64_low" then
-            return "(" .. emit.scalar(context, args[1]) .. ").low"
-        elseif operation == "simd_mask64_high" then
-            return "(" .. emit.scalar(context, args[1]) .. ").high"
         end
         error("no C form for SIMD operation " .. tostring(operation), 0)
     elseif operation == "field_load" then
@@ -1959,11 +1732,6 @@ function emit.pointerSpans(program: scalarIR.Program): {[string]: boolean}
                     found[(node as scalarIR.Name).name] = true
                 elseif node.op == "load" or node.op == "element_ref" then
                     found[node.span] = true
-                elseif node.op == "simd_load_u8" then
-                    local span = (node as scalarIR.Simd).span
-                    if span ~= nil then
-                        found[span as string] = true
-                    end
                 end
             end,
             scalarStatement = function(node: scalarIR.Statement): nil
@@ -3021,7 +2789,7 @@ function emit.luaBlock(
                         context,
                         statement.type
                     ) .. " " .. statement.cName .. " = " .. emit.scalar(context, statement.value) .. ";"
-                    if statement.type == "simd_species_u8" or statement.type:match("^simd_species_") ~= nil then
+                    if statement.type:match("^simd_species_") ~= nil then
                         lines[#lines + 1] = prefix .. "(void)" .. statement.cName .. ";"
                     end
                 end
@@ -3276,7 +3044,7 @@ function emit.luaBlock(
                 append(controlFlow(node as emit.Flow, depth, body, repeatContinue, expression, recursive, false))
                 yield true
             end
-            case "shared_store", "phase", "simd_species_u8", "simd_species", "simd_lanes_generic", "simd_splat", "simd_iota", "simd_tail", "simd_load", "simd_binary", "simd_unary", "simd_compare", "simd_select", "simd_mask_any", "simd_mask_all", "simd_mask_count", "simd_mask_first", "simd_mask_bits", "simd_extract", "simd_insert", "simd_permute", "simd_convert", "simd_reinterpret", "simd_compress", "simd_expand", "simd_prefix", "simd_horizontal", "simd_mask_splat", "simd_mask_convert", "simd_field_load", "simd_call", "simd_math", "simd_lanes", "simd_load_u8", "simd_load_string_u8", "simd_splat_u8", "simd_shr_u8", "simd_shl_u8", "simd_table_u8x16", "simd_lookup16_u8", "simd_align_bytes_u8", "simd_tail_u8", "simd_eq_u8", "simd_range_u8", "simd_vec_and", "simd_vec_or", "simd_vec_xor", "simd_vec_not", "simd_mask_and", "simd_mask_or", "simd_mask_xor", "simd_mask_not", "simd_select_u8", "simd_any", "simd_all", "simd_count", "simd_bits", "simd_mask64", "simd_mask64_add", "simd_mask64_and", "simd_mask64_or", "simd_mask64_xor", "simd_mask64_not", "simd_mask64_shl", "simd_mask64_shr", "simd_mask64_prefix_xor", "simd_mask64_low", "simd_mask64_high", "simd_mask64_any", "simd_mask64_count", "simd_mask64_first", "simd_mask64_clear_first", "store", "reducer_add", "simd_field_store", "simd_reducer_add", "simd_region" -> error(
+            case "shared_store", "phase", "simd_species", "simd_lanes_generic", "simd_splat", "simd_iota", "simd_tail", "simd_load", "simd_binary", "simd_unary", "simd_compare", "simd_select", "simd_mask_any", "simd_mask_all", "simd_mask_count", "simd_mask_first", "simd_mask_bits", "simd_extract", "simd_insert", "simd_permute", "simd_convert", "simd_reinterpret", "simd_compress", "simd_expand", "simd_prefix", "simd_horizontal", "simd_mask_splat", "simd_mask_convert", "simd_field_load", "simd_call", "simd_math", "store", "reducer_add", "simd_field_store", "simd_reducer_add", "simd_region" -> error(
                 "unsupported Lua construction statement " .. node.op,
                 0
             )
@@ -3342,7 +3110,7 @@ function emit.block(
         return switch node.op do
             case "let" -> do
                 local statement = node as scalarIR.Let
-                if statement.type ~= "simd_species_u8" and statement.type:match("^simd_species_") == nil then
+                if statement.type:match("^simd_species_") == nil then
                     lines[
                         #lines + 1
                     ] = prefix .. localCType(
@@ -3648,7 +3416,7 @@ function emit.block(
                 append(controlFlow(node as emit.Flow, depth, body, repeatContinue, expression, recursive, true))
                 yield true
             end
-            case "shared_store", "phase", "simd_species_u8", "simd_species", "simd_lanes_generic", "simd_splat", "simd_iota", "simd_tail", "simd_load", "simd_binary", "simd_unary", "simd_compare", "simd_select", "simd_mask_any", "simd_mask_all", "simd_mask_count", "simd_mask_first", "simd_mask_bits", "simd_extract", "simd_insert", "simd_permute", "simd_convert", "simd_reinterpret", "simd_compress", "simd_expand", "simd_prefix", "simd_horizontal", "simd_mask_splat", "simd_mask_convert", "simd_field_load", "simd_call", "simd_math", "simd_lanes", "simd_load_u8", "simd_load_string_u8", "simd_splat_u8", "simd_shr_u8", "simd_shl_u8", "simd_table_u8x16", "simd_lookup16_u8", "simd_align_bytes_u8", "simd_tail_u8", "simd_eq_u8", "simd_range_u8", "simd_vec_and", "simd_vec_or", "simd_vec_xor", "simd_vec_not", "simd_mask_and", "simd_mask_or", "simd_mask_xor", "simd_mask_not", "simd_select_u8", "simd_any", "simd_all", "simd_count", "simd_bits", "simd_mask64", "simd_mask64_add", "simd_mask64_and", "simd_mask64_or", "simd_mask64_xor", "simd_mask64_not", "simd_mask64_shl", "simd_mask64_shr", "simd_mask64_prefix_xor", "simd_mask64_low", "simd_mask64_high", "simd_mask64_any", "simd_mask64_count", "simd_mask64_first", "simd_mask64_clear_first", "lua_builder_open_array", "lua_builder_open_object", "lua_builder_key", "lua_builder_string", "lua_builder_number", "lua_builder_number_slice", "lua_builder_integer_slice", "lua_builder_integer64", "lua_builder_decimal64", "lua_builder_boolean", "lua_builder_null", "lua_builder_close", "lua_builder_key_scratch", "lua_builder_string_scratch", "lua_builder_key_escapes", "lua_builder_string_escapes", "lua_set_index", "lua_set_key", "lua_string_buffer_append", "lua_scratch_u32_set", "lua_scratch_u8_set", "lua_scratch_u8_set4", "lua_scratch_u8_reset" -> error(
+            case "shared_store", "phase", "simd_species", "simd_lanes_generic", "simd_splat", "simd_iota", "simd_tail", "simd_load", "simd_binary", "simd_unary", "simd_compare", "simd_select", "simd_mask_any", "simd_mask_all", "simd_mask_count", "simd_mask_first", "simd_mask_bits", "simd_extract", "simd_insert", "simd_permute", "simd_convert", "simd_reinterpret", "simd_compress", "simd_expand", "simd_prefix", "simd_horizontal", "simd_mask_splat", "simd_mask_convert", "simd_field_load", "simd_call", "simd_math", "lua_builder_open_array", "lua_builder_open_object", "lua_builder_key", "lua_builder_string", "lua_builder_number", "lua_builder_number_slice", "lua_builder_integer_slice", "lua_builder_integer64", "lua_builder_decimal64", "lua_builder_boolean", "lua_builder_null", "lua_builder_close", "lua_builder_key_scratch", "lua_builder_string_scratch", "lua_builder_key_escapes", "lua_builder_string_escapes", "lua_set_index", "lua_set_key", "lua_string_buffer_append", "lua_scratch_u32_set", "lua_scratch_u8_set", "lua_scratch_u8_set4", "lua_scratch_u8_reset" -> error(
                 "unsupported C kernel statement " .. node.op,
                 0
             )

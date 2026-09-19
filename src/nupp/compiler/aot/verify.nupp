@@ -434,11 +434,6 @@ end
 local function scratchLengthSource(value: scalarIR.Expr, values: {[string]: string}): string?
     if value.op == "lua_scratch_u32_length" or value.op == "lua_scratch_u32_escape_length" then
         return ((value as scalarIR.LuaScratchU32Length).scratch as scalarIR.Name).name
-    elseif value.op == "lua_scratch_u32_append_bits"
-        or value.op == "lua_scratch_u32_append_bits_eager"
-        or value.op == "lua_scratch_u32_append_string_bits"
-    then
-        return ((value as any).scratch as scalarIR.Name).name
     elseif value.op == "local" then
         return values[SCRATCH_LENGTH .. (value as scalarIR.Name).name]
     elseif value.op == "u32_and" then
@@ -1362,120 +1357,6 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
         for _, argument in ipairs(args) do
             scalarWalk(argument, values, scope)
         end
-    elseif tostring(op):match("^simd_") ~= nil then
-        local simd = node as scalarIR.Simd
-        local args = simd.args
-        local signatures = {
-            simd_species_u8 = {result = "simd_species_u8", operands = {}},
-            simd_lanes = {result = "u32", operands = {"simd_species_u8"}},
-            simd_load_u8 = {result = "simd_vector_u8", operands = {"simd_species_u8", "u32"}},
-            simd_load_string_u8 = {result = "simd_vector_u8", operands = {"simd_species_u8", "lua_string", "u32"},},
-            simd_splat_u8 = {result = "simd_vector_u8", operands = {"simd_species_u8", "u32"}},
-            simd_shr_u8 = {result = "simd_vector_u8", operands = {"simd_vector_u8", "u32"}},
-            simd_shl_u8 = {result = "simd_vector_u8", operands = {"simd_vector_u8", "u32"}},
-            simd_table_u8x16 = {
-                result = "simd_table_u8x16",
-                operands = {
-                    "u32",
-                    "u32",
-                    "u32",
-                    "u32",
-                    "u32",
-                    "u32",
-                    "u32",
-                    "u32",
-                    "u32",
-                    "u32",
-                    "u32",
-                    "u32",
-                    "u32",
-                    "u32",
-                    "u32",
-                    "u32"
-                },
-            },
-            simd_lookup16_u8 = {result = "simd_vector_u8", operands = {"simd_vector_u8", "simd_table_u8x16"}},
-            simd_align_bytes_u8 = {result = "simd_vector_u8", operands = {"simd_vector_u8", "simd_vector_u8", "u32"}},
-            simd_tail_u8 = {result = "simd_mask_u8", operands = {"simd_species_u8", "u32"}},
-            simd_eq_u8 = {result = "simd_mask_u8", operands = {"simd_vector_u8", "u32"}},
-            simd_range_u8 = {result = "simd_mask_u8", operands = {"simd_vector_u8", "u32", "u32"}},
-            simd_vec_and = {result = "simd_vector_u8", operands = {"simd_vector_u8", "simd_vector_u8"}},
-            simd_vec_or = {result = "simd_vector_u8", operands = {"simd_vector_u8", "simd_vector_u8"}},
-            simd_vec_xor = {result = "simd_vector_u8", operands = {"simd_vector_u8", "simd_vector_u8"}},
-            simd_vec_not = {result = "simd_vector_u8", operands = {"simd_vector_u8"}},
-            simd_mask_and = {result = "simd_mask_u8", operands = {"simd_mask_u8", "simd_mask_u8"}},
-            simd_mask_or = {result = "simd_mask_u8", operands = {"simd_mask_u8", "simd_mask_u8"}},
-            simd_mask_xor = {result = "simd_mask_u8", operands = {"simd_mask_u8", "simd_mask_u8"}},
-            simd_mask_not = {result = "simd_mask_u8", operands = {"simd_mask_u8"}},
-            simd_select_u8 = {
-                result = "simd_vector_u8",
-                operands = {"simd_mask_u8", "simd_vector_u8", "simd_vector_u8"},
-            },
-            simd_any = {result = "bool", operands = {"simd_mask_u8"}},
-            simd_all = {result = "bool", operands = {"simd_mask_u8"}},
-            simd_count = {result = "u32", operands = {"simd_mask_u8"}},
-            simd_bits = {result = "u32", operands = {"simd_mask_u8"}},
-            simd_mask64 = {result = "simd_mask_bits64", operands = {"u32", "u32"}},
-            simd_mask64_and = {result = "simd_mask_bits64", operands = {"simd_mask_bits64", "simd_mask_bits64"}},
-            simd_mask64_or = {result = "simd_mask_bits64", operands = {"simd_mask_bits64", "simd_mask_bits64"}},
-            simd_mask64_xor = {result = "simd_mask_bits64", operands = {"simd_mask_bits64", "simd_mask_bits64"}},
-            simd_mask64_add = {result = "simd_mask_bits64", operands = {"simd_mask_bits64", "simd_mask_bits64"}},
-            simd_mask64_not = {result = "simd_mask_bits64", operands = {"simd_mask_bits64"}},
-            simd_mask64_shl = {result = "simd_mask_bits64", operands = {"simd_mask_bits64", "u32"}},
-            simd_mask64_shr = {result = "simd_mask_bits64", operands = {"simd_mask_bits64", "u32"}},
-            simd_mask64_prefix_xor = {result = "simd_mask_bits64", operands = {"simd_mask_bits64", "bool"}},
-            simd_mask64_low = {result = "u32", operands = {"simd_mask_bits64"}},
-            simd_mask64_high = {result = "u32", operands = {"simd_mask_bits64"}},
-            simd_mask64_any = {result = "bool", operands = {"simd_mask_bits64"}},
-            simd_mask64_count = {result = "u32", operands = {"simd_mask_bits64"}},
-            simd_mask64_first = {result = "u32", operands = {"simd_mask_bits64"}},
-            simd_mask64_clear_first = {result = "simd_mask_bits64", operands = {"simd_mask_bits64"}},
-        }
-        local signature = signatures[tostring(op)]
-        holds(
-            signature ~= nil and node.type == signature.result and #args == #signature.operands,
-            "invalid SIMD operation"
-        )
-        for position, argument in ipairs(args) do
-            holds(
-                argument.type == signature.operands[
-                    position
-                ] or op == "simd_load_string_u8" and position == 2 and argument.type == "lua_bytes",
-                "invalid SIMD operand"
-            )
-            scalarWalk(argument, values, scope)
-        end
-        holds(simd.rooted == nil, "unexpected rooted SIMD root")
-        if op == "simd_load_u8" then
-            local span = simd.span ~= nil and scope.spans[simd.span as string] or nil
-            holds(
-                span ~= nil and (
-                    span as scalarIR.Param
-                ).kind == "read_span" and (span as scalarIR.Param).sourceType == "uint8",
-                "invalid SIMD load root"
-            )
-        elseif op == "simd_load_string_u8" then
-            local rootIndex: integer = 2
-            local rooted = args[rootIndex] as scalarIR.Name
-            local param = scope.spans[rooted.name]
-            holds(
-                scope.entryMode == "lua-builder" and args[
-                    rootIndex
-                ].op == "local" and rooted.cName ~= nil and param ~= nil and (
-                    param as scalarIR.Param
-                ).kind == "scalar" and (
-                    param as scalarIR.Param
-                ).type == args[
-                    rootIndex
-                ].type and (
-                    args[rootIndex].type == "lua_string" or args[rootIndex].type == "lua_bytes"
-                ) and rooted.cName == (param as scalarIR.Param).cName,
-                "invalid SIMD rooted-string operation"
-            )
-            holds(simd.span == nil, "unexpected SIMD rooted-string span")
-        else
-            holds(simd.span == nil, "unexpected SIMD span root")
-        end
     elseif verify.FIXED_BINARY[tostring(op)] ~= nil then
         local element = verify.FIXED_BINARY[tostring(op)]
         local pair = node as scalarIR.Fixed
@@ -1694,64 +1575,6 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
             "scratch length has no local buffer"
         )
         scalarWalk(loaded.scratch, values, scope)
-    elseif op == "lua_scratch_u32_append_bits" or op == "lua_scratch_u32_append_bits_eager" then
-        local appended = node as scalarIR.LuaScratchU32AppendBits
-        holds(scope.entryMode == "lua-builder" and node.type == "u32", "scratch bit append outside a builder")
-        holds(
-            appended.scratch.type == "lua_scratch_u32" and appended.scratch.op == "local",
-            "scratch bit append has no local buffer"
-        )
-        holds(
-            appended.index.type == "u32" and appended.base.type == "u32" and appended.bits.type == "simd_mask_bits64",
-            "invalid scratch bit append"
-        )
-        scalarWalk(appended.scratch, values, scope)
-        scalarWalk(appended.index, values, scope)
-        scalarWalk(appended.base, values, scope)
-        scalarWalk(appended.bits, values, scope)
-    elseif op == "lua_scratch_u32_append_string_bits" then
-        local appended = node as scalarIR.LuaScratchU32AppendStringBits
-        holds(scope.entryMode == "lua-builder" and node.type == "u32", "scratch string bit append outside a builder")
-        holds(
-            appended.scratch.type == "lua_scratch_u32" and appended.scratch.op == "local",
-            "scratch string bit append has no local buffer"
-        )
-        if appended.escapeScratch ~= nil then
-            holds(
-                (
-                    appended.escapeScratch as scalarIR.Expr
-                ).type == "lua_scratch_u32" and (appended.escapeScratch as scalarIR.Expr).op == "local",
-                "scratch string bit append has no escape buffer"
-            )
-        end
-        holds(
-            appended.index.type == "u32"
-            and appended.base.type == "u32"
-            and appended.events.type == "simd_mask_bits64"
-            and appended.quotes.type == "simd_mask_bits64"
-            and appended.slashes.type == "simd_mask_bits64"
-            and (
-                appended.escapeScratch == nil or appended.slashCarry ~= nil and (
-                    appended.slashCarry as scalarIR.Expr
-                ).type == "bool" and appended.slashOdd ~= nil and (appended.slashOdd as scalarIR.Expr).type == "bool"
-            ) and appended.inString.type == "bool" and appended.stringEscaped.type == "bool",
-            "invalid scratch string bit append"
-        )
-        scalarWalk(appended.scratch, values, scope)
-        if appended.escapeScratch ~= nil then
-            scalarWalk(appended.escapeScratch as scalarIR.Expr, values, scope)
-        end
-        scalarWalk(appended.index, values, scope)
-        scalarWalk(appended.base, values, scope)
-        scalarWalk(appended.events, values, scope)
-        scalarWalk(appended.quotes, values, scope)
-        scalarWalk(appended.slashes, values, scope)
-        if appended.slashCarry ~= nil then
-            scalarWalk(appended.slashCarry as scalarIR.Expr, values, scope)
-            scalarWalk(appended.slashOdd as scalarIR.Expr, values, scope)
-        end
-        scalarWalk(appended.inString, values, scope)
-        scalarWalk(appended.stringEscaped, values, scope)
     elseif op == "lua_scratch_u8" then
         local scratch = node as scalarIR.LuaScratchU8
         holds(scope.entryMode == "lua-builder" and node.type == "lua_scratch_u8", "byte scratch outside a builder")

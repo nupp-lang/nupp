@@ -107,21 +107,6 @@ static inline KS_UNUSED void ks_scatter_word(uint8_t *destination, size_t n, uin
 #ifndef M_PI
 #define M_PI 3.14159265358979323846264338327950288
 #endif
-typedef struct { uint32_t low, high; } KsMaskBits64;
-typedef struct { uint8_t lane[16]; } KsTableU8x16;
-static KS_UNUSED KsMaskBits64 ks_mask64(uint32_t low, uint32_t high) { KsMaskBits64 out = {low, high}; return out; }
-static KS_UNUSED KsMaskBits64 ks_mask64_add(KsMaskBits64 a, KsMaskBits64 b) { uint32_t low = a.low + b.low; return ks_mask64(low, a.high + b.high + (low < a.low ? 1u : 0u)); }
-static KS_UNUSED KsMaskBits64 ks_mask64_and(KsMaskBits64 a, KsMaskBits64 b) { return ks_mask64(a.low & b.low, a.high & b.high); }
-static KS_UNUSED KsMaskBits64 ks_mask64_or(KsMaskBits64 a, KsMaskBits64 b) { return ks_mask64(a.low | b.low, a.high | b.high); }
-static KS_UNUSED KsMaskBits64 ks_mask64_xor(KsMaskBits64 a, KsMaskBits64 b) { return ks_mask64(a.low ^ b.low, a.high ^ b.high); }
-static KS_UNUSED KsMaskBits64 ks_mask64_not(KsMaskBits64 a) { return ks_mask64(~a.low, ~a.high); }
-static KS_UNUSED bool ks_mask64_any(KsMaskBits64 a) { return a.low != 0u || a.high != 0u; }
-static KS_UNUSED uint32_t ks_mask64_count(KsMaskBits64 a) { return (uint32_t)(__builtin_popcount(a.low) + __builtin_popcount(a.high)); }
-static KS_UNUSED uint32_t ks_mask64_first(KsMaskBits64 a) { return a.low != 0u ? (uint32_t)__builtin_ctz(a.low) : (a.high != 0u ? UINT32_C(32) + (uint32_t)__builtin_ctz(a.high) : UINT32_C(64)); }
-static KS_UNUSED KsMaskBits64 ks_mask64_clear_first(KsMaskBits64 a) { return a.low != 0u ? ks_mask64(a.low & (a.low - 1u), a.high) : ks_mask64(0u, a.high & (a.high - 1u)); }
-static KS_UNUSED KsMaskBits64 ks_mask64_shl(KsMaskBits64 a, uint32_t n) { if (n >= 64u) { return ks_mask64(0u, 0u); } if (n == 0u) { return a; } if (n >= 32u) { return ks_mask64(0u, a.low << (n - 32u)); } return ks_mask64(a.low << n, (a.high << n) | (a.low >> (32u - n))); }
-static KS_UNUSED KsMaskBits64 ks_mask64_shr(KsMaskBits64 a, uint32_t n) { if (n >= 64u) { return ks_mask64(0u, 0u); } if (n == 0u) { return a; } if (n >= 32u) { return ks_mask64(a.high >> (n - 32u), 0u); } return ks_mask64((a.low >> n) | (a.high << (32u - n)), a.high >> n); }
-static KS_UNUSED KsMaskBits64 ks_mask64_prefix_xor(KsMaskBits64 a, bool carry) { uint32_t lo = a.low, hi = a.high; lo ^= lo << 1; lo ^= lo << 2; lo ^= lo << 4; lo ^= lo << 8; lo ^= lo << 16; hi ^= hi << 1; hi ^= hi << 2; hi ^= hi << 4; hi ^= hi << 8; hi ^= hi << 16; if ((lo & UINT32_C(0x80000000)) != 0u) { hi = ~hi; } if (carry) { lo = ~lo; hi = ~hi; } return ks_mask64(lo, hi); }
 /* C's usual arithmetic conversions decide a mixed signed/unsigned
  * comparison in unsigned arithmetic. These compare by mathematical
  * value, which is what the source wrote and the folder answers. */

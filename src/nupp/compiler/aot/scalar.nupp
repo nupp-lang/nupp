@@ -28,7 +28,7 @@ local scalarIR = {}
 ---
 --- Carried in the IR and checked when it is read back, so an IR written by an
 --- older compiler is refused rather than half-understood.
-const scalarIR.VERSION = 39
+const scalarIR.VERSION = 40
 
 --- The calling convention selected for one complete AOT entry.
 ---
@@ -314,36 +314,6 @@ end
 record scalarIR.LuaScratchU32Length
     op: 'lua_scratch_u32_length' | 'lua_scratch_u32_escape_length'
     scratch: scalarIR.Expr
-    type: 'u32'
-    source: scalarIR.Source?
-end
-
---- Appends every set-bit position from a 64-bit mask to one word scratch.
-record scalarIR.LuaScratchU32AppendBits
-    op: 'lua_scratch_u32_append_bits' | 'lua_scratch_u32_append_bits_eager'
-    scratch: scalarIR.Expr
-    index: scalarIR.Expr
-    base: scalarIR.Expr
-    bits: scalarIR.Expr
-    type: 'u32'
-    source: scalarIR.Source?
-end
-
---- Appends JSON events and packs carried string-escape state into bit 31.
-record scalarIR.LuaScratchU32AppendStringBits
-    op: 'lua_scratch_u32_append_string_bits'
-    scratch: scalarIR.Expr
-    escapeScratch: scalarIR.Expr?
-    index: scalarIR.Expr
-    base: scalarIR.Expr
-    events: scalarIR.Expr
-    quotes: scalarIR.Expr
-    slashes: scalarIR.Expr
-    slashCarry: scalarIR.Expr?
-    slashOdd: scalarIR.Expr?
-    sharedEscapes: boolean?
-    inString: scalarIR.Expr
-    stringEscaped: scalarIR.Expr
     type: 'u32'
     source: scalarIR.Source?
 end
@@ -717,8 +687,7 @@ end
 --- One source-visible SIMD operation. Its abstract vector and mask types are
 --- specialized to the selected artifact tier only when C is emitted.
 record scalarIR.Simd
-    op: 'simd_species_u8'
-        | 'simd_species'
+    op: 'simd_species'
         | 'simd_lanes_generic'
         | 'simd_splat'
         | 'simd_iota'
@@ -743,46 +712,6 @@ record scalarIR.Simd
         | 'simd_expand'
         | 'simd_prefix'
         | 'simd_horizontal'
-        | 'simd_lanes'
-        | 'simd_load_u8'
-        | 'simd_load_string_u8'
-        | 'simd_splat_u8'
-        | 'simd_shr_u8'
-        | 'simd_shl_u8'
-        | 'simd_table_u8x16'
-        | 'simd_lookup16_u8'
-        | 'simd_align_bytes_u8'
-        | 'simd_tail_u8'
-        | 'simd_eq_u8'
-        | 'simd_range_u8'
-        | 'simd_vec_and'
-        | 'simd_vec_or'
-        | 'simd_vec_xor'
-        | 'simd_vec_not'
-        | 'simd_mask_and'
-        | 'simd_mask_or'
-        | 'simd_mask_xor'
-        | 'simd_mask_not'
-        | 'simd_select_u8'
-        | 'simd_any'
-        | 'simd_all'
-        | 'simd_count'
-        | 'simd_bits'
-        | 'simd_mask64'
-        | 'simd_mask64_add'
-        | 'simd_mask64_and'
-        | 'simd_mask64_or'
-        | 'simd_mask64_xor'
-        | 'simd_mask64_not'
-        | 'simd_mask64_shl'
-        | 'simd_mask64_shr'
-        | 'simd_mask64_prefix_xor'
-        | 'simd_mask64_low'
-        | 'simd_mask64_high'
-        | 'simd_mask64_any'
-        | 'simd_mask64_count'
-        | 'simd_mask64_first'
-        | 'simd_mask64_clear_first'
         | 'simd_mask_splat'
         | 'simd_mask_convert'
         | 'simd_field_load'
@@ -980,8 +909,6 @@ type scalarIR.Expr = scalarIR.Constant
     | scalarIR.LuaScratchU32
     | scalarIR.LuaScratchU32Get
     | scalarIR.LuaScratchU32Length
-    | scalarIR.LuaScratchU32AppendBits
-    | scalarIR.LuaScratchU32AppendStringBits
     | scalarIR.LuaScratchU8
     | scalarIR.LuaScratchU8Get
     | scalarIR.LuaBytes

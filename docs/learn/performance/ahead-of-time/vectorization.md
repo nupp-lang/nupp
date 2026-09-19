@@ -680,46 +680,39 @@ memory instructions for 32-bit and 64-bit elements; other cases currently use
 individual masked accesses. Absence of collision checks does not imply that
 scatter costs the same as a contiguous store.
 
-### Byte operations during the bootstrap transition
+### Counting bytes
 
-An algorithm whose register is itself a data structure imports `nupp.simd`
-inside an `@aot` body. `preferredU8()` selects the artifact tier's packed byte
-species, 16 bytes for the x86-64 baseline and AArch64 NEON and 32 for AVX2:
+The general vector and mask operators work on byte lanes too:
 
 ```nupp
+local array = nupp.mem.array
 local span = nupp.mem.span
 local simd = nupp.simd
 
 @aot
 local function countQuotes(borrows source: span.Span<uint8>): uint32
-    local species = simd.preferredU8()
     local cursor: integer = 0
     local found: uint32 = 0
+    if species = simd.species(array.uint8) then
+        while cursor < #source do
+            local bytes = species:load(source, cursor + 1)
+            local tail = species:tail(#source - cursor)
+            found = found + ((bytes == 34) & tail):count()
+            cursor = cursor + species.lanes
+        end
+    end
     while cursor < #source do
-        local bytes = species:load(source, cursor)
-        local tail = species:tail(#source - cursor)
-        local matches = bytes:equal(34)
-        local valid = matches:andBits(tail)
-        found = nupp.math.u32.add(found, valid:count())
-        cursor = cursor + species.lanes
+        if source[cursor + 1] == 34 then
+            found = found + 1
+        end
+        cursor = cursor + 1
     end
     return found
 end
 ```
 
-Nothing in that source names a width. `species.lanes` is what the tier chose,
-loads are span-checked, inactive tail lanes are zero, and `bits()` maps the
-first logical lane to bit zero. The values and masks cannot leave the kernel:
-they have no boxed Lua representation, so calling `preferredU8` under
-`aot = "off"` is a named checking error, while importing the module without
-constructing a species stays ordinary Lua. `simd.species` answers `nil` there
-instead, since it is written to be tested.
-
-`simd.tableU8x16` embeds one immutable 16-byte lookup table in the generated
-code, and `lookup16` reads every lane through it, producing zero for indexes
-outside 0 to 15 as the native table instructions do. `loadString` is the
-VM-aware counterpart of `load`, reading bytes a Lua-builder entry already roots
-rather than a span.
+Loads and lane positions are one-based. Inactive tail lanes read as zero;
+`Mask.bits()` maps lane one to bit zero of a `uint64`.
 
 ### Loading a value-building entry's own bytes
 
@@ -767,35 +760,9 @@ Without a guard it keeps the parameter's length and clamps, as an ordinary span
 load without a cursor does. A `string | Buffer` parameter is viewed on the same
 terms, because both arrive as a pointer and a length.
 
-### Mask aggregates
+### Mask bitmaps
 
-`simd.maskBits64` builds a `MaskBits64` from two uint32 words. It supplies
-cross-word shifts, prefix XOR, bitwise combines, a carrying add, population
-count, first-set and clear-first operations, without introducing a general
-boxed `uint64` into ordinary Nupp:
-
-```nupp
-local function drain(bits: simd.MaskBits64): (uint32, uint32)
-    return bits:firstSet(), bits:clearFirst():count()
-end
-```
-
-SIMD vectors, masks, and these 64-bit mask aggregates may pass through
-statically resolved pure AOT helpers, and multiple helper results use a private
-native C result struct.
-
-`add` is the one operation here that is arithmetic rather than bitwise, and it
-is present for one reason: run parity over a block is stated as an addition.
-Adding a run's start bit to the run propagates a carry to the first bit past its
-end, which is how a scanner separates an odd run of escapes from an even one
-without walking the runs. It carries between the two words, as the shifts do.
-
-::: deepdive Predicate bitmaps
-The two `uint32` halves are deliberate. A general 64-bit integer would have to
-answer for its LuaJIT representation and its exactness rules everywhere in
-ordinary Nupp, where all this needs is a predicate bitmap that scanners can
-combine, carry prefix state across, and drain without boxing cdata.
-
-A receiver has to be a bound local or another method call in the same chain,
-which is why the examples name their aggregates before operating on them.
-:::
+`Mask.bits()` returns a `uint64`. Use its ordinary bitwise and arithmetic
+operators, `nupp.math.u64.prefixXor`, `popcount`, and `trailingZeros` to combine
+or drain lane bits. Clearing the first set bit is `bits & (bits - 1ULL)`.
+A zero bitmap has no selected lane; `trailingZeros(0ULL)` returns 64.

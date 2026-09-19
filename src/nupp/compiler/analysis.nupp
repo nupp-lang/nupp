@@ -47,7 +47,9 @@ local FLAGS = {"allocates", "yields", "raises", "external"}
 -- handled suspension is a yield too, but one a handler is responsible for, and the
 -- raw-yield check while an obligation is live is about the other kind. It is
 -- inferred and never declared, so a contract neither states nor is held to it.
-local INFERRED_FLAGS = {"rawYields"}
+-- Wide arithmetic allocates a box in ordinary execution but has no allocation
+-- after native scalar lowering. Other allocation sites must remain refusals.
+local INFERRED_FLAGS = {"rawYields", "allocatesBeyondWideArithmetic"}
 
 local function setOf(values)
     local out = {}
@@ -68,6 +70,7 @@ local function summary(): analysis.Summary
         calls = {},
         returns = {},
         allocates = false,
+        allocatesBeyondWideArithmetic = false,
         yields = false,
         raises = false,
         external = false,
@@ -93,6 +96,9 @@ local function fromContract(contract: {[string]: any}): analysis.Summary
     for _, name in ipairs(FLAGS) do
         out[name] = contract[name] == true
     end
+
+    -- An external contract names allocation without proving its origin.
+    out.allocatesBeyondWideArithmetic = out.allocates
 
     return out
 end
@@ -528,6 +534,7 @@ local function inferFunction(info, byDefinition)
             -- arguments and runs nothing else: an allocation, and the arguments are
             -- walked as the expressions they are.
             out.allocates = true
+            out.allocatesBeyondWideArithmetic = true
             return
         end
         if known then
@@ -614,19 +621,24 @@ local function inferFunction(info, byDefinition)
         local kind = node.kind
         if NESTED_FUNCTION[kind] then
             out.allocates = true
+            out.allocatesBeyondWideArithmetic = true
             return
         elseif kind == "tableExpr" then
             out.allocates = true
+            out.allocatesBeyondWideArithmetic = true
         elseif kind == "newExpr" then
             out.allocates = true
+            out.allocatesBeyondWideArithmetic = true
         elseif kind == "istring" then
             out.allocates = true
+            out.allocatesBeyondWideArithmetic = true
             if #(node.parts or {}) > 0 then
                 -- Each interpolation invokes a conversion that may be user code.
                 out.top = true
             end
         elseif kind == "binop" and node.op and node.op.kind == ".." then
             out.allocates = true
+            out.allocatesBeyondWideArithmetic = true
             if not node.plainConcat then
                 out.top = true
             end
@@ -757,6 +769,9 @@ local function inferFunction(info, byDefinition)
                 else
                     if known.summary.allocates then
                         out.allocates = true
+                    end
+                    if known.summary.allocatesBeyondWideArithmetic then
+                        out.allocatesBeyondWideArithmetic = true
                     end
                     if known.summary.raises then
                         out.raises = true

@@ -44,20 +44,69 @@ by looking back over the at most three bytes of a scalar the last whole
 vector could not finish. Either way the first error in the input is the one
 reported, at the one-based position of the byte that raised it.
 
-The loads and the nibble lookups are the byte-specialized operations left,
-and they are left because the general `Species.load` reads a
-`nupp.mem.span.Span` and `Vector.swizzle` reads a `Vector`, neither of which
-a value-building AOT entry can take as a parameter or make from the string it
-already roots. `loadString` and `lookup16` are the VM-aware counterparts that
-can, and they serve a `Buffer` source on the same terms.
+Every operation here is the general algebra's. The loads read a `Span<uint8>`
+over the entry's own rooted bytes, which `valuebuilder.bytes` answers: a
+value-building entry's parameters cross the Lua stack, where a pointer and a
+count are not values, so the span is made from the parameter rather than
+handed in. A whole vector is loaded unchecked under the same
+`cursor + species.lanes <= length` guard the loop already runs on.
+
+A vector therefore cannot cross an iteration of the scan loop, because the
+species only exists inside the branch that found one. The previous vector,
+which the lookup needs for the three bytes before each byte it judges, is read
+again instead of carried; before the first vector that load is out of range
+and answers zeros, which is what a scan that has seen nothing needs.
 ]]
 
 local _valueBuilder = require("nupp.codec.valuebuilder")
-local _simd = require("nupp.simd")
-local _preferredU8 = _simd.preferredU8
+local array = require("nupp.mem.array")
+local simd = require("nupp.simd")
 local {type Buffer} = require("nupp.text")
 
 local fused = {}
+
+--- One sixteen-entry nibble table, as the vector `swizzle` looks up in.
+---
+--- A table is a vector whose first sixteen lanes carry the entries: a
+--- preferred species has at least sixteen byte lanes, and a nibble only ever
+--- reads the first sixteen. Every argument is a literal at every call, so the
+--- chain folds to one constant vector rather than running.
+local function nibbleTable(
+    zero: simd.Vector<uint8, simd.Preferred>,
+    e0: uint32,
+    e1: uint32,
+    e2: uint32,
+    e3: uint32,
+    e4: uint32,
+    e5: uint32,
+    e6: uint32,
+    e7: uint32,
+    e8: uint32,
+    e9: uint32,
+    e10: uint32,
+    e11: uint32,
+    e12: uint32,
+    e13: uint32,
+    e14: uint32,
+    e15: uint32
+): simd.Vector<uint8, simd.Preferred>
+    return zero:insert(1, e0)
+        :insert(2, e1)
+        :insert(3, e2)
+        :insert(4, e3)
+        :insert(5, e4)
+        :insert(6, e5)
+        :insert(7, e6)
+        :insert(8, e7)
+        :insert(9, e8)
+        :insert(10, e9)
+        :insert(11, e10)
+        :insert(12, e11)
+        :insert(13, e12)
+        :insert(14, e13)
+        :insert(15, e14)
+        :insert(16, e15)
+end
 
 -- Variant 0 selects [](nupp.codec.valuebuilder.newPull): every token
 -- observed, values allocated only where the pull shape selects them.
@@ -109,21 +158,8 @@ local function decodeFused<const Variant: integer>(
     local lastNonAscii: uint32 = 0
     local seeded = false
 
-    local species = _preferredU8()
-    local lanes: uint32 = nupp.math.u32.wrap(species.lanes)
-
-    -- The lookup4 error classes, from simdjson's `utf8_lookup4`. `byte1High`
-    -- is indexed by the previous byte's high nibble, `byte1Low` by its low
-    -- nibble and `byte2High` by this byte's high nibble; each entry is the set
-    -- of error classes that nibble is compatible with.
-    local byte1High = _simd.tableU8x16(2, 2, 2, 2, 2, 2, 2, 2, 128, 128, 128, 128, 33, 1, 21, 73)
-    local byte1Low = _simd.tableU8x16(231, 163, 131, 131, 139, 203, 203, 203, 203, 203, 203, 203, 203, 219, 203, 203)
-    local byte2High = _simd.tableU8x16(1, 1, 1, 1, 1, 1, 1, 1, 230, 174, 186, 186, 1, 1, 1, 1)
-    local zeroBytes = species:splat(0)
-    local nibbleMask = species:splat(15)
-    local continuationFlag = species:splat(128)
-    local previous = zeroBytes
     local previousNonAscii = false
+    local one: uint64 = 1
 
     -- Set when the lookup has seen a malformed pair. The scan then finishes a
     -- byte at a time so the drain can name the first bad byte exactly.
@@ -135,52 +171,92 @@ local function decodeFused<const Variant: integer>(
     -- ending exactly on a vector boundary still reaches the hand-off, which
     -- is what tells it about a scalar the last vector left unfinished.
     while scanCursor < sourceCount or not seeded do
-        local events: uint32 = 0
+        local events: uint64 = 0
         local width: uint32 = 0
-        if not vectorsOff and nupp.math.u32.add(scanCursor, lanes) <= sourceCount then
-            local block = species:loadString(source, scanCursor)
-            local structural = block:equal(123):orBits(block:equal(125)):orBits(block:equal(91)):orBits(block:equal(93))
-            local separators = block:equal(58):orBits(block:equal(44))
-            local strings = block:equal(34):orBits(block:equal(92))
-            events = structural:orBits(separators):orBits(strings):orBits(block:inRange(0, 31)):bits()
+        if species = simd.species(array.uint8) then
+            if not vectorsOff and scanCursor + species.lanes <= sourceCount then
+                local bytes = _valueBuilder.bytes(source)
+                local block = species:load(bytes, scanCursor + 1)
+                local structural = (block == 123) | (block == 125) | (block == 91) | (block == 93)
+                local separators = (block == 58) | (block == 44)
+                local strings = (block == 34) | (block == 92)
+                events = (structural | separators | strings | (block < 32)):bits()
 
-            -- The lookup only has to run where a non-ASCII byte is in reach of
-            -- it. A vector of ASCII after a vector of ASCII cannot be
-            -- malformed, and one after a non-ASCII vector is classified so the
-            -- pairs straddling the boundary are seen.
-            local currentNonAscii = block:inRange(128, 255):any()
-            if currentNonAscii or previousNonAscii then
-                local previous1 = _simd.alignBytes(previous, block, 1)
-                local previous2 = _simd.alignBytes(previous, block, 2)
-                local previous3 = _simd.alignBytes(previous, block, 3)
-                local special = previous1:shiftRight(4)
-                    :lookup16(byte1High)
-                    :andBits(previous1:andBits(nibbleMask):lookup16(byte1Low))
-                    :andBits(block:shiftRight(4):lookup16(byte2High))
-                -- A byte two back at or above E0, or three back at or above
-                -- F0, says this byte must be a third or fourth continuation.
-                -- The tables answer the carry class 0x80 for a continuation
-                -- after a continuation, so the xor is zero when both agree.
-                local mustContinue = previous2:inRange(224, 255):orBits(previous3:inRange(240, 255))
-                local required = mustContinue:select(continuationFlag, zeroBytes)
-                if required:xorBits(special):equal(0):notBits():any() then
-                    -- The lookup names the pair that is malformed, which for
-                    -- an overlong or out-of-range form is its continuation
-                    -- rather than its lead. Which byte is the first bad one is
-                    -- the drain's answer, and the drain is what runs from here
-                    -- on: this is the path that is about to return an error,
-                    -- so it can afford to be told a byte at a time.
-                    vectorsOff = true
+                -- The lookup only has to run where a non-ASCII byte is in
+                -- reach of it. A vector of ASCII after a vector of ASCII
+                -- cannot be malformed, and one after a non-ASCII vector is
+                -- classified so the pairs straddling the boundary are seen.
+                local currentNonAscii = (block >= 128):any()
+                if currentNonAscii or previousNonAscii then
+                    -- The vector before this one, read again rather than
+                    -- carried: a vector cannot cross an iteration of this
+                    -- loop, because the loop is only inside the species where
+                    -- there is one. Before the first vector the load is out of
+                    -- range and answers zeros, which is what a scan that has
+                    -- seen nothing yet needs it to be.
+                    local previous = species:load(bytes, scanCursor - species.lanes + 1)
+                    local previous1 = block:align(previous, 1)
+                    local previous2 = block:align(previous, 2)
+                    local previous3 = block:align(previous, 3)
+                    -- The lookup4 error classes, from simdjson's
+                    -- `utf8_lookup4`. `byte1High` is indexed by the previous
+                    -- byte's high nibble, `byte1Low` by its low nibble and
+                    -- `byte2High` by this byte's high nibble; each entry is the
+                    -- set of error classes that nibble is compatible with, and
+                    -- a pair is malformed when the three sets share a class.
+                    -- Swizzle numbers lanes from one, so a nibble indexes lane
+                    -- nibble + 1.
+                    local zero = species:splat(0)
+                    local byte1High = nibbleTable(zero, 2, 2, 2, 2, 2, 2, 2, 2, 128, 128, 128, 128, 33, 1, 21, 73)
+                    local byte1Low = nibbleTable(
+                        zero,
+                        231,
+                        163,
+                        131,
+                        131,
+                        139,
+                        203,
+                        203,
+                        203,
+                        203,
+                        203,
+                        203,
+                        203,
+                        203,
+                        219,
+                        203,
+                        203
+                    )
+                    local byte2High = nibbleTable(zero, 1, 1, 1, 1, 1, 1, 1, 1, 230, 174, 186, 186, 1, 1, 1, 1)
+                    local special = byte1High:swizzle(
+                        (previous1 >> 4) + 1
+                    ) & byte1Low:swizzle((previous1 & 15) + 1) & byte2High:swizzle((block >> 4) + 1)
+                    -- A byte two back at or above E0, or three back at or
+                    -- above F0, says this byte must be a third or fourth
+                    -- continuation. The tables answer the carry class 0x80 for
+                    -- a continuation after a continuation, so the xor is zero
+                    -- when both agree.
+                    local required = ((previous2 >= 224) | (previous3 >= 240)):select(128, 0)
+                    if ((special ~ required) ~= 0):any() then
+                        -- The lookup names the pair that is malformed, which
+                        -- for an overlong or out-of-range form is its
+                        -- continuation rather than its lead. Which byte is the
+                        -- first bad one is the drain's answer, and the drain is
+                        -- what runs from here on: this is the path that is
+                        -- about to return an error, so it can afford to be told
+                        -- a byte at a time.
+                        vectorsOff = true
+                    end
+                end
+                if not vectorsOff then
+                    previousNonAscii = currentNonAscii
+                    width = species.lanes
+                else
+                    events = 0
                 end
             end
-            if not vectorsOff then
-                previous = block
-                previousNonAscii = currentNonAscii
-                width = lanes
-            else
-                events = 0
-            end
-        elseif not seeded then
+        end
+        if width == 0 and not seeded then
             -- The hand-off. Everything before here is validated, so the only
             -- thing the tail has to be told is how many continuations a
             -- scalar begun in the last vector still owes. A scalar is at most
@@ -229,7 +305,7 @@ local function decodeFused<const Variant: integer>(
                     back = nupp.math.u32.add(back, 1)
                 end
             end
-        else
+        elseif width == 0 then
             -- A byte at a time past the last whole vector, and everywhere on
             -- a target without vectors. Here a non-ASCII byte is an event,
             -- because here the drain is what validates it.
@@ -246,15 +322,15 @@ local function decodeFused<const Variant: integer>(
                     or byte == 44
                     or byte >= 128
                 then
-                    events = 1
+                    events = one
                 end
             end
             width = 1
         end
 
         while events ~= 0 do
-            local lane: uint32 = nupp.math.u32.trailingZeros(events)
-            events = nupp.math.u32.andBits(events, nupp.math.u32.sub(events, 1))
+            local lane: uint32 = nupp.math.u64.trailingZeros(events)
+            events = events & (events - 1)
             local position: uint32 = nupp.math.u32.add(scanCursor, lane)
             if position < sourceCount then
                 local byte: uint32 = _valueBuilder.byteAt(source, position)

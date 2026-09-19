@@ -8,7 +8,7 @@ local CONTRACTS = {
     int64 = {service = "numeric.int64", effect = "runtime.int64"},
     structvalue = {service = "representation.structvalue", effect = "runtime.structvalue"},
     cstorage = {service = "representation.cstorage", effect = "runtime.cstorage"},
-    simd = {service = "numeric.simd", effect = "runtime.simd"},
+    simd = {compiler = true},
     cinterop = {},
     presize = {compiler = true},
 }

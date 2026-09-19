@@ -165,7 +165,6 @@ local FEATURES: {[string]: native.Feature} = {
         portableRuntime = true,
         requires = {"runtime.service_contracts"}
     },
-    ["runtime.simd"] = {name = "simd", runtimeModule = "nupp.runtime.provider.scalarsimd", portableRuntime = true},
     [
         "runtime.uuid"
     ] = {

@@ -20,6 +20,14 @@ module name, and `borrows source: string | Buffer` becomes `source: string`.
 The second is a workaround, not a preference -- the generated ahead-of-time wrapper for a
 string-or-buffer parameter does not check today. `results/` says why.
 
+For a decoder-source comparison, first build the baseline checkout, then point
+at its build directory. Both compiled variants and Lunajson run in the same
+process with a rotating order:
+
+```sh
+NUPP_FUSED_BASELINE=/absolute/baseline/bench/fused-json/build ./run.sh 25
+```
+
 ## Proving what runs
 
 A `kind = "modules"` project gives a *dependency* module no ahead-of-time
@@ -29,7 +37,13 @@ measure until three things hold: the artifact `require` loaded carries the
 generated binding and no longer carries the authored scan, the
 `__nuppAotCompiled` registry holds replacements, and the registered builders
 are C functions out of the compiled object. It prints all three before the
-first timing.
+first timing. It also follows the measured export's function upvalues to a
+registered native builder, so another module's registration cannot satisfy the
+proof. The same checks apply to the optional baseline.
+
+The runner also executes the repository's JSON differential corpus against
+the compiled decoder before timing it, including malformed UTF-8 and exact
+first-error positions across vector boundaries.
 
 ## Protocol
 
