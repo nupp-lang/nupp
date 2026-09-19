@@ -6,6 +6,7 @@ import { nuppLanguage } from "./nupp-lang.js";
 import { nuppEditorTheme, updateLineNumberVisibility } from "./cm-theme.js";
 import { EXAMPLES } from "./examples.js";
 import { renderLuaOutput } from "./lua-output.js";
+import { sourceFragment } from "./options.js";
 
 const FILENAME = "playground.nupp";
 const OPTIONS = { strict: true, optimize: true, dialect: "luajit" };
@@ -549,7 +550,7 @@ class NuppDocPlayground extends HTMLElement {
     this.tabButtons.lua.addEventListener("click", () => this.showLua());
     this.runButton?.addEventListener("click", () => this.run());
     this.openButton.addEventListener("click", () => {
-      this.openButton.href = "/playground/#source=" + encodeURIComponent(this.view.state.doc.toString());
+      this.openButton.href = "/playground/" + sourceFragment(this.view.state.doc.toString(), OPTIONS);
     });
     root.querySelector(".output-close").addEventListener("click", () => {
       this.output.hidden = true;

@@ -50,6 +50,10 @@ claim that a stock interpreter must still run Nupp's own compiler.
    external downloads/toolchains, then build compiler, bootstrap target, docs,
    playground and application packages. Do not use `scripts/worktree` seeding
    for this particular gate.
+   `.github/scripts/test-cold-browser-checkout.py` now automates this export,
+   builds, fixpoint and packaged playground UI check. The release workflow's
+   `cold-browser-checkout` job consumes its freshly built runtime archive and
+   must pass before publication. Keep this gate when removing the old targets.
 4. Run fixpoint and a non-publishing `release.yml` workflow dispatch on that
    exact branch head. Inspect archives and execute packaged programs. This
    cold-build check catches stage-zero file-by-name accesses that fixpoint alone
@@ -58,3 +62,20 @@ claim that a stock interpreter must still run Nupp's own compiler.
 
 Rollback during the first release is explicit legacy selection. After deletion,
 rollback is a known prior release. No failure silently selects another VM.
+
+To rehearse the cold gate locally, extract the candidate runtime archive and run:
+
+```sh
+python3 .github/scripts/test-cold-browser-checkout.py \
+  --guest /path/to/extracted-runtime \
+  --toolchain-dir /path/to/verified-toolchain-cache \
+  /tmp/new-cold-browser-check
+```
+
+The script exports committed `HEAD`, so commit the candidate first. It rejects
+an existing output directory and inherited compiler/cache and Lua/Node startup
+overrides. It retains command logs, asset identities, UI results and screenshots;
+failed source trees remain available for diagnosis. Application builds here
+check cold packaging. The separate archive-consumer browser matrix executes
+the packaged programs on Chromium, Firefox and WebKit. Neither gate substitutes
+for installed Safari UI, physical-device or performance acceptance.

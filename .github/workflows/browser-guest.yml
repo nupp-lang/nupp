@@ -43,8 +43,9 @@ jobs:
           npx --prefix editors/playground playwright install --with-deps firefox webkit
       - name: Test transport boundaries
         run: |
-          node --test tests/luajit-browser/transport.test.mjs tests/luajit-browser/native.test.mjs
+          node --test tests/luajit-browser/transport.test.mjs tests/luajit-browser/native.test.mjs tests/luajit-browser/package-assets.test.mjs
           python3 tests/luajit-browser/toolchain_test.py
+          python3 tests/luajit-browser/cold_checkout_test.py
       - name: Install the guest build tools
         run: sudo apt-get update && sudo apt-get install -y gcc-multilib g++-multilib flex bison libelf-dev libssl-dev
       - uses: actions/cache@v4
@@ -83,14 +84,33 @@ jobs:
           node bench/luajit-browser/run-browser.mjs http://127.0.0.1:8113/compiler.html build/browser-guest/compiler-conformance.json
           node tests/luajit-browser/prepare-recovery.mjs build/browser-guest
           node bench/luajit-browser/run-browser.mjs http://127.0.0.1:8113/recovery.html build/browser-guest/recovery-conformance.json
-          NUPP_BROWSER_NATIVE_CC=$(python3 tests/luajit-browser/prepare-native.py build/browser-guest build/browser-native-toolchain)
-          export NUPP_BROWSER_NATIVE_CC
-          node tests/luajit-browser/prepare-packaged.mjs build/browser-guest
-          node editors/playground/test/browser-matrix.mjs http://127.0.0.1:8113/ build/browser-guest/browser-matrix.json
       - name: Package the verified LuaJIT runtime and matching sources
         run: |
           node runtime/luajit/build-runtime-package.mjs release/browser-luajit build/browser-guest
           tar -czf release/nupp-luajit-browser-runtime.tar.gz -C release/browser-luajit .
+      - name: Verify consumers of the extracted release archive
+        env:
+          NUPP_BENCH_ISOLATED: '0'
+          NUPP_BENCH_CSP: "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:8791"
+        run: |
+          consumer="$RUNNER_TEMP/luajit-runtime-consumer"
+          node tests/luajit-browser/prepare-archive.mjs release/nupp-luajit-browser-runtime.tar.gz "$consumer" build/browser-guest
+          node tests/luajit-browser/prepare-recovery.mjs "$consumer/site"
+          NUPP_BROWSER_NATIVE_CC=$(python3 tests/luajit-browser/prepare-native.py "$consumer/guest" build/browser-native-toolchain)
+          export NUPP_BROWSER_NATIVE_CC
+          node tests/luajit-browser/prepare-packaged.mjs "$consumer/site" "$consumer/guest"
+          node bench/luajit-browser/serve.mjs "$consumer/site" 8113 &
+          server=$!
+          trap 'kill "$server"' EXIT
+          node editors/playground/test/browser-matrix.mjs http://127.0.0.1:8113/ "$consumer/browser-matrix.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: luajit-browser-archive-conformance
+          path: |
+            ${{ runner.temp }}/luajit-runtime-consumer/archive-verification.json
+            ${{ runner.temp }}/luajit-runtime-consumer/browser-matrix.json
+          if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:
           name: nupp-luajit-browser-runtime
