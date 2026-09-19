@@ -336,6 +336,60 @@ compiler protocol, not complete UI startup or a large multi-module project.
 Bundle `compiler-modes.mjs` with esbuild into the staged guest fixture directory
 and use `run-browser.mjs` to reproduce it.
 
+`results/imported-performance.json` adds a changing scoreboard application that
+imports JSON, hexadecimal encoding, text buffers, UTF-8, paths and URI handling.
+`imported-scoreboard.nupp` is the exact source. The browser's `memoryOnly`
+environment lazily checks bundled modules, but has no project-file import API;
+this measures a realistic imported-library closure, not editing several project
+files. Untimed inspection in `results/imported-scope.json` records the modules
+actually loaded: both dialects add the same 22 modules, totaling 260,453 source
+bytes, after environment initialization. Dumping the LuaJIT source bundle
+with the pinned toolchain reproduces the production bytecode byte for byte.
+The prelude image hydrates common type roots; it does not contain checked
+interfaces for the imported-library closure. `Session:environment` in
+`src/nupp/compiler/browser.nupp` selects `cache=false, memoryOnly=true`, while
+`loadBundled` and the bundled-module metatable in `src/nupp/compiler/env.nupp`
+parse, check and memoize each first dependency use. The first measured check
+therefore includes environment initialization and this lazy dependency work;
+the warmed edits reuse its results.
+
+The harness retains one production worker per backend, alternates backend order
+across three fresh browser runs, and measures 30 changing checks and compilations
+after three warmups, with hover after every check. Every compiled result must
+contain the current edit. Six deliberately invalid imported calls must produce
+identical argument diagnostics on both backends; every hover must identify the
+same string type. Timing runs used a shared host with unrelated compiler builds
+and tests, so these are diagnostic measurements, not accepted latency budgets.
+Run `editors/playground/test/imported-performance.mjs URL RESULT.json` against a
+built playground to reproduce them.
+
+Medians across the three per-run observations follow; first-check values are
+seconds and warm p50/p95 values are milliseconds. Worker boot is separate.
+
+| Engine | Backend | First imported check | Warm check p50 / p95 | Warm compile p50 / p95 |
+| --- | --- | --- | --- | --- |
+| Chromium 152 | LuaJIT | 20.0 s | 107.8 / 239.9 | 172.0 / 316.1 |
+| Chromium 152 | Legacy Lua 5.1 | 45.0 s | 16.2 / 26.4 | 26.2 / 39.3 |
+| Firefox 155 | LuaJIT | 12.6 s | 98 / 218 | 157 / 265 |
+| Firefox 155 | Legacy Lua 5.1 | 40.2 s | 12 / 21 | 21 / 34 |
+| Playwright WebKit 26.6 | LuaJIT | 12.5 s | 82 / 180 | 128 / 240 |
+| Playwright WebKit 26.6 | Legacy Lua 5.1 | 22.8 s | 9 / 15 | 14 / 22 |
+
+LuaJIT hover p50 is 2 ms in each engine; legacy is below 1 ms. The first import
+is expensive on both backends, and warmed imported edits remain slower in the
+guest. These results add a real dependency workload to the responsiveness gate;
+they do not establish an accepted budget or a speed improvement. No production
+compiler/runtime changes were made for this measurement.
+
+The initial harness intercepted the empty page with Playwright routing, which
+prevents the emulator's blob workers from booting in WebKit. Removing that route
+fixed startup without changing worker, compiler or guest bytes. Final WebKit
+timings use real HTTP navigation; the successful Chromium/Firefox pairs retain
+their initial navigation setup, with both backends treated equally. All 18 final
+sessions pass the response checks. `results/imported-harness-probe.json` retains
+the discarded boot-timeout attempt and confirming pilot instead of counting a
+harness limitation as a production import failure.
+
 `results/snapshot-allocation-experiment.json` records a rejected direct-buffer
 inflation experiment. Three fresh-process runs per variant showed no lower
 whole-browser memory: baseline peak above blank was 604–632 MiB, candidate
@@ -351,6 +405,12 @@ workflow also calls it and adds
 matching sources and notices. The old runtime archive remains for the rollback
 release. A workflow-dispatch rehearsal publishes no release.
 
+`results/release-consumer.json` verifies the archive downloaded from release
+rehearsal [35453482994](https://github.com/nupp-lang/nupp/actions/runs/35453482994)
+as a consumer input: it packages the guest-native AOT fixture, whose checks pass
+in Chromium, Firefox and Playwright WebKit. This is a distribution smoke test,
+not a startup-performance measurement.
+
 Fresh Linux CI exposed a host/target compiler collision hidden by this Mac's
 installed LuaJIT: `NUPP_NATIVE_CC` also controls host toolchain provisioning.
 Application cross-compilation now uses `NUPP_AOT_CC`, leaving host `NUPP_CC`
@@ -361,3 +421,9 @@ remains accepted for existing direct builds.
 See [legacy-removal.md](legacy-removal.md) for the deletion units, live provider
 consumers, preserved shared semantic fixtures and the required cold-build gate.
 Nothing here authorizes deleting the old backend or merging this branch.
+
+`results/acceptance-checkpoint.json` records the passing compiler matrix at
+`873b6002`, release rehearsal at `ce7f6f65`, cold-build evidence and subsequent
+checks. The shared compiler-worker error formatter also preserves messages when
+WebKit stacks omit them; 34 playground tests and a real missing-asset boot check
+in all three engines pass. Timeout limits are unchanged.

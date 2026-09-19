@@ -1,0 +1,337 @@
+{
+  "revision": "ce7f6f65cc6d012fdf19935c7410dad858fea115",
+  "branch": "codex/luajit-everywhere",
+  "coldCheckout": {
+    "source": "git archive into a new empty directory",
+    "noSeededBuildArtifacts": true,
+    "stageZero": "v0.0.9",
+    "toolchainCache": "Verified pinned external toolchain cache",
+    "guestBuildKey": "140b5611ba31dfb101c21341deee8f10f0725632dda20f5404ff7815d8dc5fa5",
+    "commands": [
+      "build --target bootstrapCompiler",
+      "build",
+      "build --target docs",
+      "npm ci --prefix editors/playground --offline",
+      "node editors/playground/build.mjs",
+      "package-browser-app.mjs --project tests/luajit-browser/native-project --target app"
+    ],
+    "environment": "Compiler, bootstrap, docs and native packaging used PATH without system LuaJIT. Cargo remained available. Browser build selected installed Python 3.14 for Emscripten. External source/toolchain/npm caches were reused; declared rocks were fetched.",
+    "nativeAssetsByteIdenticalToTestedPackage": true,
+    "logs": [
+      {
+        "file": "/private/tmp/nupp-luajit-cold-ce7-bootstrap.log",
+        "bytes": 4543,
+        "sha256": "dbdd8bc7ee595370e9c423926d2077963895ff9b91691b11465c06a42f1e9b6d"
+      },
+      {
+        "file": "/private/tmp/nupp-luajit-cold-ce7-current.log",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "file": "/private/tmp/nupp-luajit-cold-ce7-docs.log",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "file": "/private/tmp/nupp-luajit-cold-ce7-npm.log",
+        "bytes": 378,
+        "sha256": "ac6b2bd25530e1afdc37454c2e221879cd771258fa38e3d7c5d0bfac94b9522c"
+      },
+      {
+        "file": "/private/tmp/nupp-luajit-cold-ce7-playground.log",
+        "bytes": 5870,
+        "sha256": "df258a14fb99590afe92b5dfa12cc39cfa49d5230e36ebccebfc5debcabe4172"
+      },
+      {
+        "file": "/private/tmp/nupp-luajit-cold-ce7-native.json",
+        "bytes": 1618,
+        "sha256": "7395d3db02c188b5930a51c348a22330318b0298352704d8a1e4eb90d2067f5b"
+      }
+    ],
+    "ui": {
+      "scope": "Desktop engines, including narrow viewport; not physical mobile-device acceptance",
+      "results": [
+        {
+          "engine": "chromium",
+          "version": "152.0.7977.77",
+          "cancelMs": 35.938166999999794,
+          "checks": [
+            "tour",
+            "stop infinite loop",
+            "run after stop",
+            "compat rejection",
+            "stored settings",
+            "legacy and LuaJIT switch",
+            "narrow iframe",
+            "documentation run and disconnect/reconnect"
+          ],
+          "errors": []
+        },
+        {
+          "engine": "firefox",
+          "version": "155.0",
+          "cancelMs": 33.56962500000009,
+          "checks": [
+            "tour",
+            "stop infinite loop",
+            "run after stop",
+            "compat rejection",
+            "stored settings",
+            "legacy and LuaJIT switch",
+            "narrow iframe",
+            "documentation run and disconnect/reconnect"
+          ],
+          "errors": []
+        },
+        {
+          "engine": "webkit",
+          "version": "26.6",
+          "cancelMs": 23.920750000001135,
+          "checks": [
+            "tour",
+            "stop infinite loop",
+            "run after stop",
+            "compat rejection",
+            "stored settings",
+            "legacy and LuaJIT switch",
+            "narrow iframe",
+            "documentation run and disconnect/reconnect"
+          ],
+          "errors": []
+        }
+      ]
+    }
+  },
+  "safariNative": {
+    "revision": "ce7f6f65cc6d012fdf19935c7410dad858fea115",
+    "scope": "Installed desktop Safari, guest-native AOT only; not UI or mobile validation",
+    "capabilities": {
+      "safari:platformVersion": "26.6",
+      "safari:automaticInspection": false,
+      "webkit:WebRTC": {
+        "DisableICECandidateFiltering": false,
+        "DisableInsecureMediaCapture": false
+      },
+      "webkit:alwaysAllowAutoplay": false,
+      "browserVersion": "26.6",
+      "strictFileInteractability": false,
+      "browserName": "Safari",
+      "safari:useSimulator": false,
+      "safari:automaticProfiling": false,
+      "setWindowRect": true,
+      "acceptInsecureCerts": false,
+      "safari:platformBuildVersion": "25G72",
+      "safari:experimentalWebSocketUrl": false,
+      "platformName": "macOS",
+      "safari:diagnose": false
+    },
+    "result": {
+      "result": {
+        "bytes": 4,
+        "iterations": 100,
+        "ok": true
+      },
+      "elapsedMs": 369.36000000000007,
+      "ok": true,
+      "name": "native"
+    }
+  },
+  "validation": {
+    "aotAndDocsTests": 179,
+    "toolchainTests": 26,
+    "nodeTransportAndNativeTests": 12,
+    "fixpoint": "byte-identical"
+  },
+  "ci": {
+    "status": "success",
+    "compiler": 35454811936,
+    "guest": "success",
+    "releaseRehearsal": 35453482994,
+    "releaseGuest": "success",
+    "guestRun": 35453468481,
+    "previousCompilerRun": 35453468545,
+    "releaseRehearsalStatus": "success",
+    "browserJobAtFinalHead": "success",
+    "supersededCompilerRunDisposition": "Cancelled after its browser job passed; the final test-fix head supersedes its known jit.bc test failure.",
+    "compilerStatus": "success",
+    "compilerHead": "873b600247c48404d6413c433dc21771dd9162f9",
+    "requiredCi": "success"
+  },
+  "releaseArchive": {
+    "revision": "ce7f6f65cc6d012fdf19935c7410dad858fea115",
+    "run": 35453482994,
+    "archiveBytes": 165497404,
+    "archiveSha256": "7088f48c462e824e5579ce5de122a3cdc9eeb2890cf299b464c4f186a474ffde",
+    "guestBuildKey": "25ac4dcdb02ba761641be35ce90b9c40f8bd1dc6d4c61f0b3e65aed1f073be87",
+    "verifiedAssetCount": 38,
+    "verifiedAssets": [
+      "aot.mjs",
+      "app-runtime.mjs",
+      "assets/bios.bin",
+      "assets/bzimage.bin",
+      "assets/initramfs.gz",
+      "assets/libv86.mjs",
+      "assets/v86-fallback.wasm",
+      "assets/v86.wasm",
+      "assets/vgabios.bin",
+      "assets.mjs",
+      "browser-worker.mjs",
+      "build-runtime-package.mjs",
+      "host.mjs",
+      "matching-source.tar.gz",
+      "native-unwind-probes.json",
+      "native.mjs",
+      "notices/LLVM-libunwind-LICENSE.txt",
+      "notices/LPeg-LICENSE.txt",
+      "notices/Linux-COPYING.txt",
+      "notices/Linux-GPL-2.0.txt",
+      "notices/Linux-syscall-note.txt",
+      "notices/LuaJIT-COPYRIGHT.txt",
+      "notices/Rust-dependencies.html",
+      "notices/SeaBIOS-COPYING.LESSER.txt",
+      "notices/SeaBIOS-COPYING.txt",
+      "notices/lunajson-LICENSE.txt",
+      "notices/musl-COPYRIGHT.txt",
+      "notices/v86-LICENSE.txt",
+      "package-assets.mjs",
+      "package-browser-app.mjs",
+      "prepare-guest.mjs",
+      "transfers.mjs",
+      "vm-worker.mjs",
+      "worker-lane.mjs",
+      "assets/snapshot-runner.bin.gz",
+      "assets/snapshot-compiler.bin.gz",
+      "assets/v86.wasm.gz",
+      "assets/v86-fallback.wasm.gz"
+    ],
+    "sourceBytes": 155637015,
+    "snapshots": [
+      "runner",
+      "compiler"
+    ]
+  },
+  "head": "873b600247c48404d6413c433dc21771dd9162f9",
+  "testOnlyFollowup": {
+    "revision": "873b600247c48404d6413c433dc21771dd9162f9",
+    "file": "tests/gentest.lua",
+    "reason": "Windows packaged test runner includes jit.util and jit.vmdef but not the optional jit.bc disassembler",
+    "testsPassed": 36,
+    "jitBcDeliberatelyUnavailable": "passed",
+    "runtimeAndPackagingUnchanged": true
+  },
+  "releaseConsumer": {
+    "revision": "873b600247c48404d6413c433dc21771dd9162f9",
+    "runtimeRevision": "ce7f6f65cc6d012fdf19935c7410dad858fea115",
+    "source": "Downloaded non-publishing release rehearsal archive",
+    "run": 35453482994,
+    "archiveSha256": "7088f48c462e824e5579ce5de122a3cdc9eeb2890cf299b464c4f186a474ffde",
+    "guestBuildKey": "25ac4dcdb02ba761641be35ce90b9c40f8bd1dc6d4c61f0b3e65aed1f073be87",
+    "scope": "Native AOT application rebuilt using extracted release runtime package; desktop engine conformance, not startup performance or physical mobile acceptance",
+    "crossOriginIsolated": false,
+    "ok": true,
+    "results": [
+      {
+        "engine": "chromium",
+        "version": "152.0.7977.77",
+        "ok": true,
+        "name": "native",
+        "elapsedMs": 1299,
+        "result": {
+          "bytes": 4,
+          "ok": true,
+          "iterations": 100
+        },
+        "errors": []
+      },
+      {
+        "engine": "firefox",
+        "version": "155.0",
+        "ok": true,
+        "name": "native",
+        "elapsedMs": 2738,
+        "result": {
+          "ok": true,
+          "bytes": 4,
+          "iterations": 100
+        },
+        "errors": []
+      },
+      {
+        "engine": "webkit",
+        "version": "26.6",
+        "ok": true,
+        "name": "native",
+        "elapsedMs": 1440,
+        "result": {
+          "ok": true,
+          "iterations": 100,
+          "bytes": 4
+        },
+        "errors": []
+      }
+    ]
+  },
+  "importedCompilerMeasurement": {
+    "result": "bench/luajit-browser/results/imported-performance.json",
+    "scope": "Shared-host diagnostic; one editable file with six bundled-library imports, not arbitrary multi-file project editing or accepted device budgets",
+    "sessionsPassed": 18,
+    "timingSamples": 1620,
+    "importedArgumentChecks": 108,
+    "moduleCount": 22,
+    "moduleSourceBytes": 260453,
+    "coldCheckSeconds": {
+      "luajit": [
+        12.5,
+        20.0
+      ],
+      "legacy": [
+        22.8,
+        45.0
+      ]
+    },
+    "warmCheckP50Ms": {
+      "luajit": [
+        82,
+        108
+      ],
+      "legacy": [
+        9,
+        16
+      ]
+    },
+    "webKitHarnessFailure": "Request interception prevented blob-worker boot; real HTTP navigation passed. Failure and confirming pilot preserved separately."
+  },
+  "errorReportingFollowup": {
+    "reason": "WebKit stacks can omit the Error.message; both compiler workers now share the formatter that preserves it",
+    "playgroundTestsPassed": 34,
+    "browserProbe": {
+      "scope": "Production LuaJIT compiler worker bundled from changed source; real HTTP 404 before guest boot, no Playwright request interception. Boot error message must survive WebKit stack formatting.",
+      "ok": true,
+      "results": [
+        {
+          "engine": "chromium",
+          "version": "152.0.7977.77",
+          "ok": true,
+          "type": "boot-error",
+          "message": "Error: Cannot fetch missing-compiler.ljbc.gz: 404\n    at http://127.0.0.1:49983/worker.js:196:31\n    at async loadPackedAsset (http://127.0.0.1:49983/worker.js:228:17)\n    at async boot (http://127.0.0.1:49983/worker.js:247:15)"
+        },
+        {
+          "engine": "firefox",
+          "version": "155.0",
+          "ok": true,
+          "type": "boot-error",
+          "message": "Cannot fetch missing-compiler.ljbc.gz: 404\nverified/result<@http://127.0.0.1:49983/worker.js:196:31\nasync*verified@http://127.0.0.1:49983/worker.js:220:7\nloadPackedAsset@http://127.0.0.1:49983/worker.js:228:113\nboot@http://127.0.0.1:49983/worker.js:247:21\n@http://127.0.0.1:49983/worker.js:291:1\n"
+        },
+        {
+          "engine": "webkit",
+          "version": "26.6",
+          "ok": true,
+          "type": "boot-error",
+          "message": "Cannot fetch missing-compiler.ljbc.gz: 404\n@http://127.0.0.1:49983/worker.js:196:40"
+        }
+      ]
+    },
+    "timeoutPolicyChanged": false
+  }
+}

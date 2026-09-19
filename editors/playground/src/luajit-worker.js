@@ -1,5 +1,6 @@
 import {createCompiler} from '../../../runtime/luajit/host.mjs';
 import {loadPackedAsset} from '../../../runtime/luajit/assets.mjs';
+import {describeError} from './describe-error.js';
 let compiler;
 const queue = [];
 let running = false;
@@ -43,4 +44,4 @@ self.onmessage = ({data}) => {
   queue.push(data);
   drain();
 };
-boot().catch(error => postMessage({type: 'boot-error', message: String(error.stack || error)}));
+boot().catch(error => postMessage({type: 'boot-error', message: describeError(error)}));

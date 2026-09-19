@@ -1,0 +1,52 @@
+{
+  "revision": "873b600247c48404d6413c433dc21771dd9162f9",
+  "runtimeRevision": "ce7f6f65cc6d012fdf19935c7410dad858fea115",
+  "source": "Downloaded non-publishing release rehearsal archive",
+  "run": 35453482994,
+  "archiveSha256": "7088f48c462e824e5579ce5de122a3cdc9eeb2890cf299b464c4f186a474ffde",
+  "guestBuildKey": "25ac4dcdb02ba761641be35ce90b9c40f8bd1dc6d4c61f0b3e65aed1f073be87",
+  "scope": "Native AOT application rebuilt using extracted release runtime package; desktop engine conformance, not startup performance or physical mobile acceptance",
+  "crossOriginIsolated": false,
+  "ok": true,
+  "results": [
+    {
+      "engine": "chromium",
+      "version": "152.0.7977.77",
+      "ok": true,
+      "name": "native",
+      "elapsedMs": 1299,
+      "result": {
+        "bytes": 4,
+        "ok": true,
+        "iterations": 100
+      },
+      "errors": []
+    },
+    {
+      "engine": "firefox",
+      "version": "155.0",
+      "ok": true,
+      "name": "native",
+      "elapsedMs": 2738,
+      "result": {
+        "ok": true,
+        "bytes": 4,
+        "iterations": 100
+      },
+      "errors": []
+    },
+    {
+      "engine": "webkit",
+      "version": "26.6",
+      "ok": true,
+      "name": "native",
+      "elapsedMs": 1440,
+      "result": {
+        "ok": true,
+        "iterations": 100,
+        "bytes": 4
+      },
+      "errors": []
+    }
+  ]
+}
