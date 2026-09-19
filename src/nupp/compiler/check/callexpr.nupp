@@ -366,11 +366,11 @@ local function soaLayoutSpec(c: state.Checker, subject: Type, at: Node): any?
         end
         local spelling = fieldType and T.cName(fieldType) or nil
         local elementOf = fieldType and fieldType.tag == "carray" and fieldType.count and fieldType.elem or nil
-        local byValue = fieldType and (
-            (
-                fieldType.tag == "nominal" and fieldType.declKind == "struct"
-            ) or (elementOf and elementOf.tag == "nominal" and elementOf.declKind == "struct")
-        )
+        local byValue = fieldType
+            and (
+                (fieldType.tag == "nominal" and fieldType.declKind == "struct")
+                or (elementOf and elementOf.tag == "nominal" and elementOf.declKind == "struct")
+            )
         if not spelling then
             c.diag(
                 "NUPP2403",
@@ -510,9 +510,10 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             local callback = T.packAt(argumentPack, 1)
             if callback and callback.tag == "func" then
                 return lpegPattern(origin, lpegCapturesFromPack(callback.retPack, 1))
-            elseif callback and callback.tag == "nominal" and (
-                (callback.origin or callback) as T.Nominal
-            ).lpegPattern then
+            elseif callback
+                and callback.tag == "nominal"
+                and ((callback.origin or callback) as T.Nominal).lpegPattern
+            then
                 return callback
             elseif callback and (isA(callback, T.string) or isA(callback, T.number) or isA(callback, T.boolean)) then
                 return lpegPattern(origin, lpegEmpty)
@@ -906,9 +907,11 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             if layoutIntrinsic == "offsetof" then
                 local fieldType = argExprs[2] and c.infer(argExprs[2]) or nil
                 local fieldName = literalString(argExprs[2])
-                if not fieldName and fieldType and fieldType.tag == "literal" and type(
-                    fieldType.constant
-                ) == "string" then
+                if not fieldName
+                    and fieldType
+                    and fieldType.tag == "literal"
+                    and type(fieldType.constant) == "string"
+                then
                     fieldName = fieldType.constant
                 end
                 if not fieldName then
@@ -992,13 +995,14 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 c.markTemporaryConsumed(args[1])
                 local entry = args[1] and c.ownershipEntry(args[1]) or nil
                 local capability = c.capabilityOf(valueT, entry)
-                local selfContained = #args == 1 and capability and T.capabilityHasMovable(
-                    capability
-                ) and not T.capabilityTransferOnly(
-                    capability
-                ) and #T.capabilityCleanups(
-                    capability
-                ) > 0 and #capability.loans == 0 and #capability.anchors == 0 and #capability.retentions == 0
+                local selfContained = #args == 1
+                    and capability
+                    and T.capabilityHasMovable(capability)
+                    and not T.capabilityTransferOnly(capability)
+                    and #T.capabilityCleanups(capability) > 0
+                    and #capability.loans == 0
+                    and #capability.anchors == 0
+                    and #capability.retentions == 0
                 if not selfContained then
                     c.diag(
                         "NUPP2612",
@@ -1100,12 +1104,18 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 parentPath = root and parentPath or ""
                 local firstT = args[3] and c.infer(args[3]) or nil
                 local lastT = args[4] and c.infer(args[4]) or nil
-                local first = firstT and firstT.tag == "literal" and type(
-                    firstT.constant
-                ) == "number" and firstT.constant % 1 == 0 and firstT.constant or nil
-                local last = lastT and lastT.tag == "literal" and type(
-                    lastT.constant
-                ) == "number" and lastT.constant % 1 == 0 and lastT.constant or nil
+                local first = firstT
+                    and firstT.tag == "literal"
+                    and type(firstT.constant) == "number"
+                    and firstT.constant % 1 == 0
+                    and firstT.constant
+                    or nil
+                local last = lastT
+                    and lastT.tag == "literal"
+                    and type(lastT.constant) == "number"
+                    and lastT.constant % 1 == 0
+                    and lastT.constant
+                    or nil
                 if #args ~= 4 or not parent then
                     c.diag("NUPP2602", node, "region expects a named parent, child, first index, and last index")
                 elseif c.ownershipKind(childT) then
@@ -1170,11 +1180,13 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                     else
                         cleanups[#cleanups + 1] = operationTok.text
                     end
-                    if operationT ~= T.any and (
-                        operationT.tag ~= "func" or not operationT.params[
-                            1
-                        ] or not isA(rawType(valueT), operationT.params[1])
-                    ) then
+                    if operationT ~= T.any
+                        and (
+                            operationT.tag ~= "func"
+                            or not operationT.params[1]
+                            or not isA(rawType(valueT), operationT.params[1])
+                        )
+                    then
                         c.diag("NUPP2602", args[j], "an attemptAll operation must accept the value")
                     end
                     -- Only the last step may consume it. An earlier one that takes the
@@ -1182,9 +1194,9 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                     if operationT ~= T.any
                         and operationT.tag == "func"
                         and operationT.paramModes
-                        and operationT.paramModes[
-                            1
-                        ] == "takes" and j < #args then
+                        and operationT.paramModes[1] == "takes"
+                        and j < #args
+                    then
                         c.diag("NUPP2615", args[j], "only the final attemptAll operation may take the value")
                     end
                 end
@@ -1217,18 +1229,19 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 node.ownerCleanupGuards = nil
                 local state = args[1] and c.ownershipState((c.ownershipEntry(args[1]))) or nil
                 for _, cleanup in ipairs(dropped.cleanups or {}) do
-                    local movedField = cleanup.kind == "field" and state and state.movedFields and state.movedFields[
-                        cleanup.field
-                    ] or false
+                    local movedField = cleanup.kind == "field"
+                        and state
+                        and state.movedFields
+                        and state.movedFields[cleanup.field]
+                        or false
                     -- A field moved on only some paths is still held on the others.
                     -- The automatic owner keeps a run-time record per field, so the
                     -- drop runs that cleanup under it rather than leaving it out.
                     local conditional = movedField
                         and state.automaticOwner
                         and state.conditionalMovedFields
-                        and state.conditionalMovedFields[
-                            cleanup.field
-                        ] or false
+                        and state.conditionalMovedFields[cleanup.field]
+                        or false
                     if conditional then
                         node.ownerCleanups[#node.ownerCleanups + 1] = cleanup
                         node.ownerCleanupGuards = node.ownerCleanupGuards or {}
@@ -1295,20 +1308,18 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                     ).requireModule(c, rewritten or modname, tok)
                     node.requiredModule = rewritten or modname
                     local modulePath = c.env.findModulePath and c.env.findModulePath(c.env, modname) or nil
-                    local canonical = modulePath and c.env.moduleNameForPath and c.env.moduleNameForPath(
-                        c.env,
-                        modulePath
-                    ) or nil
-                    local projectIndex = canonical and c.env.ensureProjectIndex and c.env.ensureProjectIndex(
-                        c.env
-                    ) or nil
+                    local canonical = modulePath
+                        and c.env.moduleNameForPath
+                        and c.env.moduleNameForPath(c.env, modulePath)
+                        or nil
+                    local projectIndex = canonical and c.env.ensureProjectIndex and c.env.ensureProjectIndex(c.env)
+                        or nil
                     if canonical
                         and canonical ~= modname
                         and projectIndex
                         and projectIndex.declaredModules
-                        and projectIndex.declaredModules[
-                            canonical
-                        ] then
+                        and projectIndex.declaredModules[canonical]
+                    then
                         c.diag(
                             "NUPP1002",
                             tok,
@@ -1370,9 +1381,9 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         end
         local calleeT = callee and c.infer(callee) or T.any
         local calleeDefinition = callee and callee.kind == "name" and callee.token and callee.token.definition or nil
-        local selectedExport = callee and (
-            callee.exactCallExport or calleeDefinition and calleeDefinition.exactCallExport
-        ) or nil
+        local selectedExport = callee
+            and (callee.exactCallExport or calleeDefinition and calleeDefinition.exactCallExport)
+            or nil
         if selectedExport and selectedExport.module == "nupp.spi" and selectedExport.member == "load" then
             local _, subject = concreteTypePath(argExprs[1])
             local declared = subject and rawType(subject) or nil
@@ -1384,13 +1395,23 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 or origin.tag ~= "nominal"
                 or origin.declKind ~= "interface"
                 or not origin.moduleName
-                or #(
-                    origin.typeParams or {}
-                ) > 0 or origin.deriveDeclaration and c.visibilityOf(origin.deriveDeclaration) ~= "module" then
+                or #(origin.typeParams or {}) > 0
+            then
                 c.diag("NUPP2006", node, "spi.load expects one concrete exported interface")
                 return T.any
             end
-            local name = origin.moduleName .. "." .. (origin.name:match("[^.]+$") or origin.name)
+            local typeName = origin.name:match("[^.]+$") or origin.name
+            local exported = origin.deriveDeclaration == nil or c.visibilityOf(origin.deriveDeclaration) == "module"
+            if origin.moduleName ~= c.result.moduleName then
+                local exports = c.env.resolveModuleExports(c.env, origin.moduleName)
+                local member = exports and exports.types[typeName]
+                exported = member ~= nil and (member.origin or member) == origin
+            end
+            if not exported then
+                c.diag("NUPP2006", node, "spi.load expects one concrete exported interface")
+                return T.any
+            end
+            local name = origin.moduleName .. "." .. typeName
             node.spiInterface = name
             return T.func({}, {T.optional(declared as Type)}, false)
         end
@@ -1398,10 +1419,8 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             and #c.functionBodies == 0
             and c.env
             and c.env.moduleInitializing
-            and c.env.moduleInitializing(
-                c.env,
-                selectedExport.module
-            ) then
+            and c.env.moduleInitializing(c.env, selectedExport.module)
+        then
             c.diag(
                 "NUPP1002",
                 callee,
@@ -1451,9 +1470,11 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             -- Only a takes capture, which binds the closure as the body's own, may.
             local captured = callee and c.ownershipEntry(callee) or nil
             captured = c.ownershipState(captured)
-            if captured and c.ownershipKind(
-                captured.t
-            ) == "affine" and rawType(captured.t).tag == "func" and (captured.functionDepth or 0) < c.functionDepth then
+            if captured
+                and c.ownershipKind(captured.t) == "affine"
+                and rawType(captured.t).tag == "func"
+                and (captured.functionDepth or 0) < c.functionDepth
+            then
                 c.diag("NUPP2602", callee, "a captured affine closure cannot be invoked through a borrow", nil, {
                     help = "name it in takes (...) so the invocation moves it into this closure",
                 })
@@ -1467,8 +1488,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             calleeT = withoutNil(calleeT)
         end
         node.calleeType = rawType(calleeT)
-        node.scalarIntrinsic = callee
-            and callee.scalarIntrinsic
+        node.scalarIntrinsic = callee and callee.scalarIntrinsic
             or callee
             and callee.kind == "name"
             and callee.token
@@ -1509,9 +1529,8 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 isCoroutine = true
             elseif baseTok and coroutineGlobal then
                 if resolved ~= nil then
-                    isCoroutine = resolved == coroutineGlobal or (
-                        resolved.definition ~= nil and resolved.definition == coroutineGlobal.definition
-                    )
+                    isCoroutine = resolved == coroutineGlobal
+                        or (resolved.definition ~= nil and resolved.definition == coroutineGlobal.definition)
                 else
                     isCoroutine = baseTok.text == "coroutine"
                 end
@@ -1614,9 +1633,8 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             and tableToken
             and tableGlobal
             and tableToken.definition == tableGlobal.definition
-            and (
-                memberName == "new" or memberName == "clear" or memberName == "clone"
-            ) then
+            and (memberName == "new" or memberName == "clear" or memberName == "clone")
+        then
             node.tableIntrinsic = memberName
         end
         local knownAts = nil
@@ -1630,9 +1648,8 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             and #pairParams == 2
             and pairMap
             and pairMap.tag == "map"
-            and pairMap.key == pairParams[
-                1
-            ] and pairMap.value == pairParams[2]
+            and pairMap.key == pairParams[1]
+            and pairMap.value == pairParams[2]
         if isPairsContract then
             local args = argExprs
             if #args == 1 then
@@ -1645,9 +1662,11 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 knownAts = {at}
             end
         end
-        local collectionGlobal = (
-            calleeName == "pairs" or calleeName == "ipairs"
-        ) and c.env and c.env.globals and c.env.globals[calleeName] or nil
+        local collectionGlobal = (calleeName == "pairs" or calleeName == "ipairs")
+            and c.env
+            and c.env.globals
+            and c.env.globals[calleeName]
+            or nil
         if collectionGlobal and c.lookupEntry(calleeName) == collectionGlobal and #argExprs == 1 then
             local at = knownAts and knownAts[1] or c.infer(argExprs[1])
             local raw = rawType(at)
@@ -1665,9 +1684,10 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         end
         local first, rets, pack = c.inferCall(node, calleeT, node.args, knownAts)
         forwardProtocol(node)
-        if selectedExport and selectedExport.module == "nupp.simd" and selectedExport.member:match(
-            "^horizontal%."
-        ) ~= nil then
+        if selectedExport
+            and selectedExport.module == "nupp.simd"
+            and selectedExport.member:match("^horizontal%.") ~= nil
+        then
             local vector = argExprs[1] and rawType(c.infer(argExprs[1])) or nil
             local nominal: T.Nominal? = nil
             if vector and vector.tag == "nominal" then
@@ -1677,9 +1697,13 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             if nominal then
                 origin = (nominal.origin or nominal) as T.Nominal
             end
-            local element = origin and origin.name == "Vector" and (
-                origin.moduleName == "nupp.simd" or origin.sealedModule == "nupp.simd"
-            ) and nominal and nominal.typeArgs and nominal.typeArgs[1] or nil
+            local element = origin
+                and origin.name == "Vector"
+                and (origin.moduleName == "nupp.simd" or origin.sealedModule == "nupp.simd")
+                and nominal
+                and nominal.typeArgs
+                and nominal.typeArgs[1]
+                or nil
             local operation = selectedExport.member:match("^horizontal%.(.+)$")
             -- An extremum selects a lane rather than combining lanes, so it
             -- rounds nothing and is defined at every element. The two that
@@ -1701,9 +1725,9 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             end
         end
         local globalsForAssert = c.env and c.env.globals
-        local stableAssert = calleeName == "assert" and globalsForAssert and c.lookupEntry(
-            "assert"
-        ) == globalsForAssert.assert
+        local stableAssert = calleeName == "assert"
+            and globalsForAssert
+            and c.lookupEntry("assert") == globalsForAssert.assert
         if stableAssert then
             local input = node.argumentPack and T.packAt(node.argumentPack, 1) or T.any
             local truthy = narrowing.truthiness(input)
@@ -1750,9 +1774,10 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         if stableGlobal and calleeName == "select" and node.argumentPack then
             local source = node.argumentPack
             local selector = argExprs[1]
-            local selectorToken = selector and (
-                selector.kind == "string" or selector.kind == "number"
-            ) and selector.token or nil
+            local selectorToken = selector
+                and (selector.kind == "string" or selector.kind == "number")
+                and selector.token
+                or nil
             local selectorText = selectorToken and selectorToken.text or ""
             if selector and selector.kind == "string" and (selectorText == '"#"' or selectorText == "'#'") then
                 pack = T.pack({T.integer})
@@ -1835,9 +1860,10 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
 
                 local from = integerLiteral(argExprs[2]) or 1
                 local through = integerLiteral(argExprs[3])
-                if #elements > 0 and (
-                    not argExprs[2] or integerLiteral(argExprs[2])
-                ) and (not argExprs[3] or through) then
+                if #elements > 0
+                    and (not argExprs[2] or integerLiteral(argExprs[2]))
+                    and (not argExprs[3] or through)
+                then
                     through = through or #elements
                     local sliced = {}
                     for j = from, through do
@@ -1873,8 +1899,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 local ok, why = packIsA(supplied, expected)
                 local exact = expected.alternatives
                     or expected.tail
-                    or not supplied.tail
-                    and #supplied.head == #expected.head
+                    or not supplied.tail and #supplied.head == #expected.head
                 if not ok or not exact then
                     c.diag(
                         "NUPP2010",
@@ -1899,9 +1924,11 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 local threadType = T.packAt(actual, 1)
                 if threadType and threadType.tag == "protocolThread" then
                     local threadArg = argExprs[1]
-                    local threadEntry = threadArg and threadArg.kind == "name" and threadArg.token and c.lookupEntry(
-                        threadArg.token.text
-                    ) or nil
+                    local threadEntry = threadArg
+                        and threadArg.kind == "name"
+                        and threadArg.token
+                        and c.lookupEntry(threadArg.token.text)
+                        or nil
                     -- A local handle starts with the callback's Start pack. After the
                     -- first transfer it can no longer be new, even when control later
                     -- joins and its suspended/dead phase is unknown, so subsequent
@@ -1910,18 +1937,10 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                     if phase == "dead" then
                         c.diag("NUPP2010", threadArg or node, "a coroutine narrowed to dead cannot be resumed")
                     end
-                    local accepted = phase == "new"
-                        and threadType.startPack
-                        or phase == "started"
-                        and threadType.resumePack
-                        or phase == "dead"
-                        and threadType.resumePack
-                        or T.packUnion(
-                            {
-                                threadType.startPack,
-                                threadType.resumePack
-                            }
-                        )
+                    local accepted = phase == "new" and threadType.startPack
+                        or phase == "started" and threadType.resumePack
+                        or phase == "dead" and threadType.resumePack
+                        or T.packUnion({threadType.startPack, threadType.resumePack})
                     if accepted.alternatives then
                         local fits = false
                         local suppliedHead = {}
@@ -1930,10 +1949,8 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                         end
                         local supplied = T.pack(suppliedHead, actual.tail)
                         for _, arm in ipairs(accepted.alternatives) do
-                            local armFits = packIsA(
-                                supplied,
-                                arm
-                            ) and (arm.tail ~= nil or not supplied.tail and #supplied.head == #arm.head)
+                            local armFits = packIsA(supplied, arm)
+                                and (arm.tail ~= nil or not supplied.tail and #supplied.head == #arm.head)
                             fits = fits or armFits
                         end
                         if not fits then
@@ -1981,9 +1998,11 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 end
             elseif intrinsic == "status" then
                 local threadArg = argExprs[1]
-                local threadEntry = threadArg and threadArg.kind == "name" and threadArg.token and c.lookupEntry(
-                    threadArg.token.text
-                ) or nil
+                local threadEntry = threadArg
+                    and threadArg.kind == "name"
+                    and threadArg.token
+                    and c.lookupEntry(threadArg.token.text)
+                    or nil
                 if threadArg and threadArg.kind == "name" and threadArg.token then
                     node.coroutineStatusName = threadArg.token.text
                 end
@@ -2070,9 +2089,10 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             end
         end
         local soaExport = node.kind == "call" and callee and callee.exactCallExport or nil
-        if soaExport and soaExport.module == "nupp.mem.soa" and (
-            soaExport.member == "allocate" or soaExport.member == "layoutof"
-        ) then
+        if soaExport
+            and soaExport.module == "nupp.mem.soa"
+            and (soaExport.member == "allocate" or soaExport.member == "layoutof")
+        then
             local witness = argExprs[1] and rawType(c.infer(argExprs[1])) or nil
             local subject = witness and witness.tag == "ctype" and witness.of or nil
             if not subject then
@@ -2091,10 +2111,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             for position = 3, #argExprs do
                 local argument = argExprs[position]
                 local descriptor = argument and indexedViews.describe(c.infer(argument)) or nil
-                local definition = argument
-                    and argument.kind == "name"
-                    and argument.token
-                    and argument.token.definition
+                local definition = argument and argument.kind == "name" and argument.token and argument.token.definition
                     or nil
                 if not descriptor then
                     valid = false
@@ -2118,11 +2135,8 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         local indexedProducer = node.kind == "call"
             and callee
             and callee.exactCallExport
-            and indexedViews.exportProducer(
-                callee.exactCallExport.module,
-                callee.exactCallExport.member,
-                first
-            ) or nil
+            and indexedViews.exportProducer(callee.exactCallExport.module, callee.exactCallExport.member, first)
+            or nil
         if indexedProducer then
             node.indexedViewProducer = {producer = indexedProducer, source = argExprs[1], count = argExprs[2],}
         end
@@ -2175,10 +2189,8 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             node.indexedViewOperation = {kind = "shared", descriptor = indexedView,}
         end
         if indexedView and (member.text == "get" or member.text == "getMut" or member.text == "set") then
-            local replacement = member.text == "set"
-                and "use view[index] = value"
-                or member.text == "getMut"
-                and "use view[index].field as the writable place"
+            local replacement = member.text == "set" and "use view[index] = value"
+                or member.text == "getMut" and "use view[index].field as the writable place"
                 or "use view[index]"
             c.diag(
                 "NUPP2004",
@@ -2194,15 +2206,13 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             node.valuePack = T.pack({T.any})
             return T.any
         end
-        local staticOwner = (
-            rawReceiver.tag == "metatable" or rawReceiver.tag == "typeobject"
-        ) and rawType(rawReceiver.of) or nil
+        local staticOwner = (rawReceiver.tag == "metatable" or rawReceiver.tag == "typeobject")
+            and rawType(rawReceiver.of)
+            or nil
         local static = staticOwner
             and staticOwner.tag == "nominal"
             and staticOwner.staticByname
-            and staticOwner.staticByname[
-                member.text
-            ]
+            and staticOwner.staticByname[member.text]
         if static then
             local owner = staticOwner as T.Nominal
             c.diag(
@@ -2245,9 +2255,11 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 local accepts = false
                 for _, signature in ipairs(signatures) do
                     local selfParam = signature.tag == "func" and signature.params[1] or nil
-                    if not selfParam or selfParam == T.any or selfParam == T.unknown or rawType(
-                        selfParam
-                    ).tag == "const" then
+                    if not selfParam
+                        or selfParam == T.any
+                        or selfParam == T.unknown
+                        or rawType(selfParam).tag == "const"
+                    then
                         accepts = true
                         break
                     end
@@ -2274,7 +2286,9 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                         local candidateOrigin = (candidateNominal.origin or candidateNominal) as T.Nominal
                         if (
                             candidateOrigin.moduleName or candidateNominal.moduleName or candidateOrigin.sealedModule
-                        ) == "nupp.mem.soa" and candidateOrigin.name == "WriteSpan" then
+                        ) == "nupp.mem.soa"
+                            and candidateOrigin.name == "WriteSpan"
+                        then
                             nominal = candidateNominal
                             break
                         end
@@ -2299,9 +2313,9 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             -- view, then restore the tree so lowering can retain source evaluation
             -- order. Canonical worker interfaces identify the calls that require
             -- this argument ordering.
-            local originModule = origin and (
-                origin.moduleName or (nominal and nominal.moduleName) or origin.sealedModule
-            ) or nil
+            local originModule = origin
+                and (origin.moduleName or (nominal and nominal.moduleName) or origin.sealedModule)
+                or nil
             local publicName = originModule and (originModule) or nil
             local surfaceModule = publicName and COMPILER_SURFACES[publicName] or nil
             local surfaceNominal = surfaceModule and origin and surfaceModule[origin.name] or nil
@@ -2314,9 +2328,9 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             local rotated = surface ~= nil and surface.rotate == true and originalExprs ~= nil and #originalExprs > 0
             if rotated and surface and originalExprs then
                 local callableArgument = originalExprs[#originalExprs]
-                if surface.sendableLast and (
-                    callableArgument.kind == "funcExpr" or callableArgument.kind == "shortfn"
-                ) then
+                if surface.sendableLast
+                    and (callableArgument.kind == "funcExpr" or callableArgument.kind == "shortfn")
+                then
                     local sendableArgument: any = callableArgument
                     sendableArgument.sendableContext = true
                 end
@@ -2347,16 +2361,18 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                     end
                 end
             end
-            if nominal ~= nil and origin ~= nil and (
-                origin.moduleName or (nominal as T.Nominal).moduleName or origin.sealedModule
-            ) == "nupp.simd" and origin.name == "Vector" and member.text == "extract" and (
-                nominal as T.Nominal
-            ).typeArgs then
+            if nominal ~= nil
+                and origin ~= nil
+                and (origin.moduleName or (nominal as T.Nominal).moduleName or origin.sealedModule) == "nupp.simd"
+                and origin.name == "Vector"
+                and member.text == "extract"
+                and (nominal as T.Nominal).typeArgs
+            then
                 local concrete = nominal as T.Nominal
                 local element = T.unwrapOwnership((concrete.typeArgs as {Type})[1])
-                local widened = (
-                    element.tag == "uint8" or element.tag == "uint16"
-                ) and T.uint32 or (element.tag == "int8" or element.tag == "int16") and T.int32 or nil
+                local widened = (element.tag == "uint8" or element.tag == "uint16") and T.uint32
+                    or (element.tag == "int8" or element.tag == "int16") and T.int32
+                    or nil
                 if widened then
                     first, rets, pack = widened, {widened}, T.pack({widened})
                     c.fixedWidth.mark(node, widened)
@@ -2372,11 +2388,11 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             end
             local methodArgs = node.args and node.args.kind == "args" and (node.args as cst.Args).exprs or {}
             local positional = positionalOnly(methodArgs)
-            if origin and (
-                origin.moduleName or (nominal and nominal.moduleName) or origin.sealedModule
-            ) == "nupp.mem.soa" and (
-                origin.name == "Span" or origin.name == "WriteSpan"
-            ) and member.text == "field" then
+            if origin
+                and (origin.moduleName or (nominal and nominal.moduleName) or origin.sealedModule) == "nupp.mem.soa"
+                and (origin.name == "Span" or origin.name == "WriteSpan")
+                and member.text == "field"
+            then
                 local fieldArgument = methodArgs[1]
                 local fieldName = literalString(fieldArgument)
                 local element = nominal and nominal.typeArgs and nominal.typeArgs[1] or nil
@@ -2409,9 +2425,11 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                         ordinal = ordinal,
                         writable = origin.name == "WriteSpan",
                     }
-                    local definition = element and element.tag == "nominal" and element.fieldDefs and element.fieldDefs[
-                        resolvedName
-                    ] or nil
+                    local definition = element
+                        and element.tag == "nominal"
+                        and element.fieldDefs
+                        and element.fieldDefs[resolvedName]
+                        or nil
                     local token = fieldArgument and fieldArgument.kind == "string" and fieldArgument.token or nil
                     if token then
                         c.markToken(token, definition, fieldType, "property")
@@ -2421,19 +2439,22 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                             access = origin.name == "WriteSpan" and "read-write" or "read-only",
                         }
                     end
-                    local exports = c.env and c.env.resolveModuleExports and c.env.resolveModuleExports(
-                        c.env,
-                        "nupp.mem.span"
-                    ) or nil
-                    local exported = exports and exports.types and exports.types[
-                        origin.name == "WriteSpan" and "Writable" or "Span"
-                    ] or nil
+                    local exports = c.env
+                        and c.env.resolveModuleExports
+                        and c.env.resolveModuleExports(c.env, "nupp.mem.span")
+                        or nil
+                    local exported = exports
+                        and exports.types
+                        and exports.types[origin.name == "WriteSpan" and "Writable" or "Span"]
+                        or nil
                     local projected = nil
                     if exported and exported.tag == "genericAlias" and exported.typeParams[1] then
                         projected = generics.materialize(exported.body, {[exported.typeParams[1]] = fieldType})
-                    elseif exported and exported.tag == "nominal" and exported.typeParams and exported.typeParams[
-                        1
-                    ] then
+                    elseif exported
+                        and exported.tag == "nominal"
+                        and exported.typeParams
+                        and exported.typeParams[1]
+                    then
                         projected = generics.instantiate(exported, {[exported.typeParams[1]] = fieldType})
                     end
                     if projected then
@@ -2464,9 +2485,10 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 node.argumentPack and T.packAt(node.argumentPack, 2) or nil
             )
             local aliasDeclaration = c.lookupType("nupp.Alias")
-            local aliasOrigin = aliasDeclaration and aliasDeclaration.tag == "nominal" and (
-                (aliasDeclaration.origin or aliasDeclaration) as T.Nominal
-            ) or nil
+            local aliasOrigin = aliasDeclaration
+                and aliasDeclaration.tag == "nominal"
+                and ((aliasDeclaration.origin or aliasDeclaration) as T.Nominal)
+                or nil
             if origin and aliasOrigin and origin == aliasOrigin and member.text == "take" then
                 local capability = nominal and nominal.typeArgs and nominal.typeArgs[1] or nil
                 if capability and c.ownershipKind(capability) == "affine" then
@@ -2494,13 +2516,15 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                     end
                 end
             end
-            if owner.tag == "nominal" and owner.overloadedMethods and owner.overloadedMethods[
-                member.text
-            ] and node.overloadWinner then
+            if owner.tag == "nominal"
+                and owner.overloadedMethods
+                and owner.overloadedMethods[member.text]
+                and node.overloadWinner
+            then
                 local selectedMember = methodslots.member(member.text, node.overloadWinner)
-                local dispatch = owner.methodDispatchEntries and owner.methodDispatchEntries[
-                    member.text
-                ] or (owner.methodEntries and owner.methodEntries[member.text]) or {}
+                local dispatch = owner.methodDispatchEntries and owner.methodDispatchEntries[member.text]
+                    or (owner.methodEntries and owner.methodEntries[member.text])
+                    or {}
                 for _, entry in ipairs(dispatch) do
                     local candidate = dropSelf(specializeSelf(owner, entry.signature, owner))
                     if candidate.id == node.overloadWinner.id or entry.member == selectedMember then
@@ -2657,15 +2681,15 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             while receiverDetails.kind == "paren" and receiverDetails.expr do
                 receiverDetails = receiverDetails.expr
             end
-            if not receiverDetails.primitiveUntrusted and rawType(
-                named
-            ) ~= T.string and (named.tag == "shape" or named.tag == "nominal" or cannotHaveMethods(named)) then
-                local fixes = (
-                    named.tag == "shape" or named.tag == "nominal"
-                ) and c.edits.nameSpellingFix(member, c.fieldNames(named)) or nil
+            if not receiverDetails.primitiveUntrusted
+                and rawType(named) ~= T.string
+                and (named.tag == "shape" or named.tag == "nominal" or cannotHaveMethods(named))
+            then
+                local fixes = (named.tag == "shape" or named.tag == "nominal")
+                    and c.edits.nameSpellingFix(member, c.fieldNames(named))
+                    or nil
                 c.diag("NUPP2004", member, ("no method %q in %s"):format(member.text, T.tostring(named)), fixes, {
-                    help = fixes
-                    and "use the suggested method spelling"
+                    help = fixes and "use the suggested method spelling"
                     or "check the receiver type and available methods"
                 })
             end

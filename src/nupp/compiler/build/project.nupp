@@ -468,9 +468,10 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         end
         session.inc.diskChanged(join(root, join(outDir, "generated/nupp/runtime/services/artifact.g.nupp")), 2)
     end
-    if opts.checkOnly and (
-        target.aot == "require" or target.aot == "require-wasm"
-    ) and checkedTargetNeedsGpu(root, config, opts.paths) then
+    if opts.checkOnly
+        and (target.aot == "require" or target.aot == "require-wasm")
+        and checkedTargetNeedsGpu(root, config, opts.paths)
+    then
         session.stageGpuRuntime()
     end
     -- The AOT policy runs before the modules it affects. `off` is the default
@@ -498,9 +499,8 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     if not opts.checkOnly and aotPolicy.POLICIES[target.aot or "off"] and target.aot ~= nil and target.aot ~= "off" then
         report:at("aot")
         report:step(
-            (
-                target.aot == "require" or target.aot == "require-wasm"
-            ) and "compiling ahead-of-time code" or "emitting ahead-of-time code"
+            (target.aot == "require" or target.aot == "require-wasm") and "compiling ahead-of-time code"
+            or "emitting ahead-of-time code"
         )
 
         -- Bounded by what this target bundles rather than by the include roots.
@@ -722,9 +722,8 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
             newState.modules,
             reachedWorkers or resolvedEffects["native.workers"] == true,
             runtimeModules,
-            (
-                (target.kind == "binary" and target.stub == "nupp") or target.kind == "component"
-            ) and requiredHostFeatures or nil,
+            ((target.kind == "binary" and target.stub == "nupp") or target.kind == "component") and requiredHostFeatures
+            or nil,
             target.kind == "component"
         )
         if not text then
@@ -821,11 +820,8 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
                 newState.outputs[archive] = true
             end
         else
-            output = target.kind == "component" and componentOutput(
-                root,
-                target,
-                name
-            ) or bundleOutput(root, target, name)
+            output = target.kind == "component" and componentOutput(root, target, name)
+                or bundleOutput(root, target, name)
             local written, writeErr = writeFile(output, text)
             if not written then
                 io.stderr:write("nupp: " .. tostring(writeErr) .. "\n")
@@ -894,12 +890,13 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         -- named for the platform loader instead carries no `@` and stays where
         -- it is, since nothing is looking for it beside anything.
         for _, dep in pairs(dependencies) do
-            local relative = dep.usage == "target" and dep.reference ~= nil and (
-                dep.reference as string
-            ):match("^@(.+)$") or nil
-            local runtimeOutput = dep.usage == "target" and (
-                dep.runtimeOutput or (dep.staticOutput == nil and dep.output)
-            ) or nil
+            local relative = dep.usage == "target"
+                and dep.reference ~= nil
+                and (dep.reference as string):match("^@(.+)$")
+                or nil
+            local runtimeOutput = dep.usage == "target"
+                and (dep.runtimeOutput or (dep.staticOutput == nil and dep.output))
+                or nil
             if relative ~= nil and runtimeOutput ~= nil then
                 local beside = join(dirname(output), relative as string)
                 local copied, copyErr = copyFile(runtimeOutput as string, beside)
@@ -1232,9 +1229,11 @@ local function treeDigest(path)
         -- stages that produced identical Lua still disagree there, because they are
         -- two directories.
         local derived = relative:match("^cache/") or relative:match("^%.bytecode/")
-        if relative ~= ".nupp-state.json" and not relative:match(
-            "^%.nupp%-complete"
-        ) and not native and not derived then
+        if relative ~= ".nupp-state.json"
+            and not relative:match("^%.nupp%-complete")
+            and not native
+            and not derived
+        then
             parts[#parts + 1] = relative .. "\0" .. (hashFile(file) or "")
         end
     end
@@ -1255,12 +1254,16 @@ end
 
 local function safeCleanPath(path)
     path = normalize(path or "")
-    if path == "" or path == "." or path:sub(
-        1,
-        1
-    ) == "/" or path:match(
-        "^%a:"
-    ) or path:find("%z") or path == ".." or path:match("^%.%./") or path:match("/%.%./") or path:match("/%.%.$") then
+    if path == ""
+        or path == "."
+        or path:sub(1, 1) == "/"
+        or path:match("^%a:")
+        or path:find("%z")
+        or path == ".."
+        or path:match("^%.%./")
+        or path:match("/%.%./")
+        or path:match("/%.%.$")
+    then
         return nil, "unsafe build output path " .. tostring(path)
     end
 
@@ -1417,9 +1420,10 @@ end
 local function copyTree(source, destination)
     for _, path in ipairs(listFiles(source)) do
         local relative = path:sub(#normalize(source) + 2)
-        if relative ~= ".nupp-state.json" and not relative:match(
-            "^%.nupp%-complete"
-        ) and not relative:match("^native/") then
+        if relative ~= ".nupp-state.json"
+            and not relative:match("^%.nupp%-complete")
+            and not relative:match("^native/")
+        then
             local ok, err = copyFile(path, join(destination, relative))
             if not ok then
                 return nil, err

@@ -593,11 +593,14 @@ do
         -- host that cannot redirect descriptors cannot hide child-process output.
         local forced = os.getenv("CLICOLOR_FORCE")
         local refused = os.getenv("NO_COLOR")
-        useColor = colorMode == "always" or (
-            colorMode == "auto" and (
-                refused == nil or refused == "" or refused == "0"
-            ) and forced ~= nil and forced ~= "" and forced ~= "0"
-        )
+        useColor = colorMode == "always"
+            or (
+                colorMode == "auto"
+                and (refused == nil or refused == "" or refused == "0")
+                and forced ~= nil
+                and forced ~= ""
+                and forced ~= "0"
+            )
         progressWrite = function(text)
             local stream = asJson and io.stderr or io.stdout
             stream:write(text);
@@ -812,9 +815,11 @@ do
 
     for _, info in ipairs(discovered) do
         local name = info.name
-        if not removed[
-            name
-        ] and (not chosenSet or chosenSet[name]) and (not wanted or wanted[name]) and not queueDir then
+        if not removed[name]
+            and (not chosenSet or chosenSet[name])
+            and (not wanted or wanted[name])
+            and not queueDir
+        then
             suites[#suites + 1] = info
         end
     end
@@ -904,10 +909,9 @@ local progressWidth = 0
 local ownsProgressStream = not sharedProgressStream
 
 local function mark(symbol)
-    local styled = symbol == "." and paint(
-        "32",
-        symbol
-    ) or symbol == "S" and paint("1;33", symbol) or paint("1;31", symbol)
+    local styled = symbol == "." and paint("32", symbol)
+        or symbol == "S" and paint("1;33", symbol)
+        or paint("1;31", symbol)
     progressWrite(styled)
     if not ownsProgressStream then
         return
@@ -1489,9 +1493,11 @@ end
 -- and a run that is slow are different problems with different fixes.
 local predictions = {}
 local sharded = nil
-if #shard == 0 and #suites > 0 and (
-    (workerHost and not processIsolated(only and byName[only])) or (#chosen ~= 1 and #suites > 1 and jobs ~= 1)
-) and not os.getenv("NUPP_COVERAGE_FILE") then
+if #shard == 0
+    and #suites > 0
+    and ((workerHost and not processIsolated(only and byName[only])) or (#chosen ~= 1 and #suites > 1 and jobs ~= 1))
+    and not os.getenv("NUPP_COVERAGE_FILE")
+then
     do
         local json = testJson
         local shareable, alone, shelling = {}, {}, {}
@@ -1577,9 +1583,8 @@ if #shard == 0 and #suites > 0 and (
                             if ok and type(report) == "table" then
                                 report.shard = {
                                     index = child.index,
-                                    names = (
-                                        report.claimed and #report.claimed > 0
-                                    ) and report.claimed or {child.label},
+                                    names = (report.claimed and #report.claimed > 0) and report.claimed
+                                    or {child.label},
                                     executionLane = executionLane,
                                     startedAt = child.startedAt,
                                     collectedAt = now() - started
@@ -1640,9 +1645,8 @@ if #shard == 0 and #suites > 0 and (
                     -- stdout intact. Windows process-worker marks are consequently
                     -- collected rather than live. Without any descriptor, the worker
                     -- also marks into that file.
-                    local processProgressFd = progressFd and (
-                        package.config:sub(1, 1) == "\\" and 2 or progressFd
-                    ) or nil
+                    local processProgressFd = progressFd and (package.config:sub(1, 1) == "\\" and 2 or progressFd)
+                        or nil
                     local progress = processProgressFd and ("NUPP_TEST_PROGRESS_FD=%d "):format(processProgressFd) or ""
                     local invocation = rawget(_G, "__NUPP_TEST_RUNNER_COMMAND") or ("luajit '%s'"):format(arg[0])
                     local command = (
@@ -1715,11 +1719,8 @@ if #shard == 0 and #suites > 0 and (
                                 local status = said:match("__status__:(%d+)")
                                 if status then
                                     local code = tonumber(status) or 0
-                                    why[
-                                        #why + 1
-                                    ] = code > 128 and (
-                                        "killed by signal %d"
-                                    ):format(code - 128) or ("exit %d"):format(code)
+                                    why[#why + 1] = code > 128 and ("killed by signal %d"):format(code - 128)
+                                        or ("exit %d"):format(code)
                                     said = said:gsub("__status__:%d+%s*$", "")
                                 end
                                 -- The last suite the worker said it was starting. An
@@ -2522,13 +2523,9 @@ elseif asJson then
             -- what it did. A phase far above its prediction was packed from
             -- stale timings or starved a lane; one at its prediction is as
             -- short as that much work gets, and only less work shortens it.
-            prediction = (
-                predictions.isolated or predictions.shared or predictions.shell
-            ) and {
-                processIsolated = predictions.isolated,
-                shared = predictions.shared,
-                shell = predictions.shell,
-            } or nil,
+            prediction = (predictions.isolated or predictions.shared or predictions.shell)
+            and {processIsolated = predictions.isolated, shared = predictions.shared, shell = predictions.shell,}
+            or nil,
             -- What this process took off a queue, which is how the parent tells work
             -- that ran from work whose worker died holding it. A run that was not
             -- handed a queue took nothing, and says nothing.

@@ -7,11 +7,10 @@ local deps = require("nupp.compiler.build.deps")
 local spi = {}
 
 local function qualified(name: any): boolean
-    return type(
-        name
-    ) == "string" and name:match(
-        "^[A-Za-z_][A-Za-z0-9_.]*$"
-    ) ~= nil and not name:find("..", 1, true) and name:sub(-1) ~= "."
+    return type(name) == "string"
+        and name:match("^[A-Za-z_][A-Za-z0-9_.]*$") ~= nil
+        and not name:find("..", 1, true)
+        and name:sub(-1) ~= "."
 end
 
 --- Reads application and dependency declarations without executing implementations.
@@ -111,15 +110,16 @@ function spi.check(session: any, entries: {any}, root: string, outDir: string): 
         local declaration = session.inc.checkFile(path)
         local interface = declaration.exports and declaration.exports.types[typeName]
         local origin = interface and (interface.origin or interface)
-        if not origin or origin.tag ~= "nominal" or origin.declKind ~= "interface" or #(
-            origin.typeParams or {}
-        ) > 0 then
+        if not origin
+            or origin.tag ~= "nominal"
+            or origin.declKind ~= "interface"
+            or #(origin.typeParams or {}) > 0
+        then
             return nil, "SPI declaration must name a concrete exported interface: " .. entry.interface
         end
         entry.interface = origin.moduleName .. "." .. (origin.name:match("[^.]+$") or origin.name)
-        local implementation = session.inc.modulePath(
-            entry.implementation
-        ) or session.stageBundled(entry.implementation)
+        local implementation = session.inc.modulePath(entry.implementation)
+            or session.stageBundled(entry.implementation)
         if implementation == nil or implementation:match("%.lua$") then
             return nil, "SPI implementation needs typed Nupp or a declaration: " .. entry.implementation
         end

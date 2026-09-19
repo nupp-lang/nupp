@@ -416,10 +416,8 @@ local function dedentLongString(text)
                 else
                     local length = math.min(#margin, #indent)
                     local shared = 0
-                    while shared < length and margin:sub(
-                        shared + 1,
-                        shared + 1
-                    ) == indent:sub(shared + 1, shared + 1) do
+                    while shared < length
+                        and margin:sub(shared + 1, shared + 1) == indent:sub(shared + 1, shared + 1) do
                         shared = shared + 1
                     end
                     margin = margin:sub(1, shared)
@@ -872,9 +870,9 @@ function gen.generate(
         constructorReturnName = nil as string?,
     }
     local coverageOn = coverage == true or type(coverage) == "table"
-    local coveragePath = coverageOn and (
-        type(coverage) == "table" and (coverage as gen.CoverageRequest).path or filename
-    ) or nil
+    local coveragePath = coverageOn
+        and (type(coverage) == "table" and (coverage as gen.CoverageRequest).path or filename)
+        or nil
     local coverageSites: {any}? = nil
     local coverageSiteCount = 0
     local coverageName
@@ -903,19 +901,21 @@ function gen.generate(
     end
     -- One table behind one upvalue: the main emitter is already close to LuaJIT's
     -- 60-upvalue ceiling when coverage is present.
-    local hotState: any = hot and {
-        mode = hot.mode,
-        module = hot.module or result.moduleName or filename or "<chunk>",
-        baseGeneration = hot.baseGeneration,
-        functions = {},
-        byNode = setmetatable({}, {__mode = "k"}),
-        allByNode = setmetatable({}, {__mode = "k"}),
-        captures = {},
-        only = hot.only,
-        structure = {},
-        policies = {},
-        libraries = hot.libraries or {},
-    } or nil
+    local hotState: any = hot
+        and {
+            mode = hot.mode,
+            module = hot.module or result.moduleName or filename or "<chunk>",
+            baseGeneration = hot.baseGeneration,
+            functions = {},
+            byNode = setmetatable({}, {__mode = "k"}),
+            allByNode = setmetatable({}, {__mode = "k"}),
+            captures = {},
+            only = hot.only,
+            structure = {},
+            policies = {},
+            libraries = hot.libraries or {},
+        }
+        or nil
 
     ---------------------------------------------------------------------
     -- Reserved names
@@ -1034,9 +1034,11 @@ function gen.generate(
             if child.kind == "name" and child.token and child.token.definition then
                 local definition = child.token.definition
                 local token = definition.token
-                if definition ~= own and token and token.line ~= 0 and (
-                    token.offset < firstOffset or token.offset > lastOffset
-                ) then
+                if definition ~= own
+                    and token
+                    and token.line ~= 0
+                    and (token.offset < firstOffset or token.offset > lastOffset)
+                then
                     captures[token.text] = true
                 end
             end
@@ -1102,19 +1104,19 @@ function gen.generate(
         if not name then
             return
         end
-        local implicitSelf = node.kind == "funcStmt"
-            and node.name
-            and node.name.method ~= nil
-            or node.kind == "inlineMethod"
-            and not node.inlineStatic
+        local implicitSelf = node.kind == "funcStmt" and node.name and node.name.method ~= nil
+            or node.kind == "inlineMethod" and not node.inlineStatic
         local slot = #hotState.functions + 1
         local kind = node.kind == "localFuncStmt" and "local" or node.kind == "inlineMethod" and "inline" or "field"
         local id = table.concat({hotState.module, owner or "module", kind, name}, "/")
         local captures = hotOuterCaptures(node)
         local affine = node.affineInitializer ~= nil or node.body and #(node.body.takenCaptures or {}) > 0
-        local affineCapture = affine and node.body and node.body.takenCaptures and node.body.takenCaptures[
-            1
-        ] and node.body.takenCaptures[1].name or nil
+        local affineCapture = affine
+            and node.body
+            and node.body.takenCaptures
+            and node.body.takenCaptures[1]
+            and node.body.takenCaptures[1].name
+            or nil
         local cUses, cUnknown = hotCUses(node)
         local planned = {
             node = node,
@@ -1581,9 +1583,9 @@ function gen.generate(
             diag(
                 x.name,
                 "NUPP2808",
-                renderError == "limit" and (
-                    "derive output exceeds %d rendered bytes"
-                ):format(recipeCodec.MAX_OUTPUT_BYTES) or "derive output recipe is invalid",
+                renderError == "limit"
+                and ("derive output exceeds %d rendered bytes"):format(recipeCodec.MAX_OUTPUT_BYTES)
+                or "derive output recipe is invalid",
                 "split the record or write the generated behavior explicitly"
             )
             return
@@ -1606,17 +1608,18 @@ function gen.generate(
             local position = 0
             for _, field in ipairs(nominal.fieldOrder or {}) do
                 local fieldType = nominal.byname and nominal.byname[field] or nil
-                local stored = fieldType ~= nil and fieldType.tag ~= "func" and fieldType.tag ~= "typeobject" and not (
-                    nominal.nestedTypes and nominal.nestedTypes[field]
-                ) and not (nominal.privateFields and nominal.privateFields[field])
+                local stored = fieldType ~= nil
+                    and fieldType.tag ~= "func"
+                    and fieldType.tag ~= "typeobject"
+                    and not (nominal.nestedTypes and nominal.nestedTypes[field])
+                    and not (nominal.privateFields and nominal.privateFields[field])
                 if stored then
                     position = position + 1
                     local parameter = reservedName("a" .. tostring(position))
                     parameters[position] = parameter
                     local default = nominal.fieldDefaults and nominal.fieldDefaults[field] or nil
-                    local target = cst.identifier(
-                        field
-                    ) and (receiverName .. "." .. field) or ("%s[%q]"):format(receiverName, field)
+                    local target = cst.identifier(field) and (receiverName .. "." .. field)
+                        or ("%s[%q]"):format(receiverName, field)
                     if default then
                         local rendered, why = recipeCodec.render(default.value, {limit = recipeCodec.MAX_OUTPUT_BYTES,})
                         if not rendered then
@@ -1698,12 +1701,13 @@ function gen.generate(
                 for index, argument in ipairs(member.arguments or {}) do
                     arguments[index] = forwardingArgument(argument, parameters)
                 end
-                local helper = member.helper.localPath or (
-                    "_G.require(" .. string.format(
-                        "%q",
-                        member.helper.module
-                    ) .. ")[" .. string.format("%q", member.helper.member) .. "]"
-                )
+                local helper = member.helper.localPath
+                    or (
+                        "_G.require(" .. string.format(
+                            "%q",
+                            member.helper.module
+                        ) .. ")[" .. string.format("%q", member.helper.member) .. "]"
+                    )
                 e(
                     (
                         ";%s[%q]=function(%s)return %s(%s)end"
@@ -1881,10 +1885,8 @@ function gen.generate(
 
     local function emitCheckedViewIndex(view, index)
         local descriptor = virtualView(view).descriptor
-        local message = descriptor.adapter == "soa"
-            and "SoA row index out of bounds"
-            or descriptor.writable
-            and "write span index out of bounds"
+        local message = descriptor.adapter == "soa" and "SoA row index out of bounds"
+            or descriptor.writable and "write span index out of bounds"
             or "span index out of bounds"
         e(compilerModuleName("nupp.mem.indexed") .. "._checkedIndex(")
         emitViewCount(view)
@@ -1952,9 +1954,8 @@ function gen.generate(
             if plan.viewDefinition == viewDefinition
                 and plan.indexDefinition == indexDefinition
                 and plan.columnNames
-                and plan.columnNames[
-                    ordinal
-                ] then
+                and plan.columnNames[ordinal]
+            then
                 return plan
             end
         end
@@ -2394,9 +2395,10 @@ function gen.generate(
         local direct
         if kind == "callStmt" then
             direct = statement.expr
-        elseif (
-            kind == "returnStmt" or kind == "localStmt" or kind == "assignStmt"
-        ) and statement.exprs and #statement.exprs == 1 then
+        elseif (kind == "returnStmt" or kind == "localStmt" or kind == "assignStmt")
+            and statement.exprs
+            and #statement.exprs == 1
+        then
             direct = statement.exprs[1]
         end
 
@@ -2411,11 +2413,13 @@ function gen.generate(
 
     function pluck.statementCall(statement)
         local call = pluck.directCall(statement)
-        if call and (
-            statement.kind == "callStmt" or statement.kind == "returnStmt" or (
-                call.kind ~= "safeCall" and not call.safeObj and not call.safeMethod
+        if call
+            and (
+                statement.kind == "callStmt"
+                or statement.kind == "returnStmt"
+                or (call.kind ~= "safeCall" and not call.safeObj and not call.safeMethod)
             )
-        ) then
+        then
             return call
         end
 
@@ -3098,11 +3102,13 @@ function gen.generate(
     end
 
     local function lowerSwitches(node, lazy: boolean?)
-        if not node or cst.isToken(
-            node
-        ) or node.folded or emitDepth.switchValueTemps[
-            node
-        ] or emitDepth.switchTemps[node] or pluck.loweredPlans[node] then
+        if not node
+            or cst.isToken(node)
+            or node.folded
+            or emitDepth.switchValueTemps[node]
+            or emitDepth.switchTemps[node]
+            or pluck.loweredPlans[node]
+        then
             return
         end
         if node.foldedExpression then
@@ -3126,9 +3132,10 @@ function gen.generate(
         if pluck.needsBindings(node) then
             pluck.lowerCall(node)
             return
-        elseif kind == "binop" and node.op and (
-            node.op.kind == "and" or node.op.kind == "or" or node.op.kind == "??"
-        ) then
+        elseif kind == "binop"
+            and node.op
+            and (node.op.kind == "and" or node.op.kind == "or" or node.op.kind == "??")
+        then
             lowerSwitches(node.lhs)
             local result = nextTemp()
             e("local " .. result .. "=", sourceLine(node))
@@ -3415,9 +3422,8 @@ function gen.generate(
             for index = 1, facts.span do
                 entries[index] = byIndex[index] or "nil"
             end
-            offset = facts.minimum == 0 and "+1" or (
-                "-(%s)+1"
-            ):format(renderSwitchScalar(new switchplan.Scalar(kind = "number", value = facts.minimum)))
+            offset = facts.minimum == 0 and "+1"
+                or ("-(%s)+1"):format(renderSwitchScalar(new switchplan.Scalar(kind = "number", value = facts.minimum)))
         else
             for _, entry in ipairs(facts.entries) do
                 entries[#entries + 1] = "[" .. renderSwitchScalar(entry.key) .. "]=" .. renderedResult(entry.value)
@@ -3482,9 +3488,9 @@ function gen.generate(
         if selector.kind ~= "name"
             or not selector.token.definition
             or not selector.token.definition.lexical
-            or not emitDepth.switchScalar(
-                selector.inferredType
-            ) or emitDepth.captureFrames[selector.token.definition] then
+            or not emitDepth.switchScalar(selector.inferredType)
+            or emitDepth.captureFrames[selector.token.definition]
+        then
             return nil
         end
         for _, arm in ipairs(node.cases or {}) do
@@ -3517,9 +3523,12 @@ function gen.generate(
     end
 
     function emitDepth.switchDestination(statement): string?
-        if statement.kind ~= "localStmt" or statement.isConst or statement.pattern or #(
-            statement.names or {}
-        ) ~= 1 or #(statement.exprs or {}) ~= 1 then
+        if statement.kind ~= "localStmt"
+            or statement.isConst
+            or statement.pattern
+            or #(statement.names or {}) ~= 1
+            or #(statement.exprs or {}) ~= 1
+        then
             return nil
         end
         local node, name = statement.exprs[1], statement.names[1]
@@ -3729,9 +3738,10 @@ function gen.generate(
             lowerSwitches(stat.expr)
             return
         end
-        local exprs = stat.exprs or (
-            stat.kind == "compoundAssign" and {stat.value}
-        ) or (stat.kind == "exportStmt" and {stat.value}) or {}
+        local exprs = stat.exprs
+            or (stat.kind == "compoundAssign" and {stat.value})
+            or (stat.kind == "exportStmt" and {stat.value})
+            or {}
         if stat.kind == "assignStmt" or stat.kind == "compoundAssign" then
             for _, target in ipairs(stat.targets or {stat.target}) do
                 lowerSwitches(target)
@@ -3996,9 +4006,9 @@ function gen.generate(
             if kind == "funcbody" or kind == "funcExpr" or kind == "shortfn" then
                 return
             end
-            if node ~= loop.body and (
-                kind == "whileStmt" or kind == "fornumStmt" or kind == "forinStmt" or kind == "repeatStmt"
-            ) then
+            if node ~= loop.body
+                and (kind == "whileStmt" or kind == "fornumStmt" or kind == "forinStmt" or kind == "repeatStmt")
+            then
                 for _, child in ipairs(node) do
                     if child ~= node.body then
                         walk(child)
@@ -4221,11 +4231,13 @@ function gen.generate(
                 local definition = node.token.definition
                 if definition then
                     local token = definition.token
-                    if not localBindings[
-                        definition
-                    ] and token and firstOffset and token.offset < firstOffset and token.line ~= 0 and not isChunkLocal(
-                        definition
-                    ) then
+                    if not localBindings[definition]
+                        and token
+                        and firstOffset
+                        and token.offset < firstOffset
+                        and token.line ~= 0
+                        and not isChunkLocal(definition)
+                    then
                         captured[definition] = true
                     end
                 elseif node.token.text == "self" then
@@ -4326,11 +4338,11 @@ function gen.generate(
             -- A capture with no source token -- the implicit receiver -- has no
             -- name nodes carrying its definition, so its reads cannot be
             -- redirected through a frame slot.
-            if not definition.token or nested[
-                definition
-            ] or definition.virtualIndexedView or t and (
-                t.tag == "affine" or t.tag == "borrowed" or t.tag == "pinned" or t.tag == "func"
-            ) then
+            if not definition.token
+                or nested[definition]
+                or definition.virtualIndexedView
+                or t and (t.tag == "affine" or t.tag == "borrowed" or t.tag == "pinned" or t.tag == "func")
+            then
                 return false
             end
         end
@@ -4429,9 +4441,9 @@ function gen.generate(
                     ownerCount = ownerCount + 1
                 end
             end
-            if (
-                stat.kind == "localStmt" or stat.kind == "localFuncStmt" and stat.affineInitializer
-            ) and ownerCount > 0 then
+            if (stat.kind == "localStmt" or stat.kind == "localFuncStmt" and stat.affineInitializer)
+                and ownerCount > 0
+            then
                 local group = {}
                 local names = stat.names or (stat.name and {stat.name}) or {}
                 local exprs = stat.exprs or (stat.affineInitializer and {stat.affineInitializer}) or {}
@@ -4646,9 +4658,9 @@ function gen.generate(
                 for index = #cleanupStack, 1, -1 do
                     local ctx = cleanupStack[index]
                     for _, state in pairs(ctx.automaticMap or {}) do
-                        if state.definition == (
-                            capture.token and capture.token.definition
-                        ) or state.definition == (capture.outer and capture.outer.definition) then
+                        if state.definition == (capture.token and capture.token.definition)
+                            or state.definition == (capture.outer and capture.outer.definition)
+                        then
                             outerActive = state.whole
                             break
                         end
@@ -4877,9 +4889,10 @@ function gen.generate(
             emitDepth.lowerSwitch(x.exprs[1], switchDestination)
             return
         end
-        if emitDepth.switchStatementRoot[
-            kind
-        ] and emitDepth.switchStatementActive ~= x and emitDepth.switchContains(x, pluck.statementCall(x)) then
+        if emitDepth.switchStatementRoot[kind]
+            and emitDepth.switchStatementActive ~= x
+            and emitDepth.switchContains(x, pluck.statementCall(x))
+        then
             local priorSwitchStatement = emitDepth.switchStatementActive
             emitDepth.switchStatementActive = true
             local target = kind == "assignStmt" and #(x.targets or {}) == 1 and x.targets[1] or nil
@@ -4934,11 +4947,12 @@ function gen.generate(
             e("{}", sourceLine(x))
             return
         end
-        if pluck.portable and kind == "assignStmt" and #(
-            x.targets or {}
-        ) == 1 and #(
-            x.exprs or {}
-        ) == 1 and (x.targets[1].kind == "safeIndex" or x.targets[1].kind == "safeBracket") then
+        if pluck.portable
+            and kind == "assignStmt"
+            and #(x.targets or {}) == 1
+            and #(x.exprs or {}) == 1
+            and (x.targets[1].kind == "safeIndex" or x.targets[1].kind == "safeBracket")
+        then
             local target, object = x.targets[1], nextTemp()
             e(("do local %s="):format(object), sourceLine(x))
             emit(target.obj)
@@ -5534,9 +5548,9 @@ function gen.generate(
             return
         end
         if pluck.int64.enabled and kind == "binop" and x.op and x.lhs and x.rhs then
-            local wide = pluck.int64.isWide(
-                x.inferredType
-            ) or pluck.int64.isWide(x.lhs.inferredType) or pluck.int64.isWide(x.rhs.inferredType)
+            local wide = pluck.int64.isWide(x.inferredType)
+                or pluck.int64.isWide(x.lhs.inferredType)
+                or pluck.int64.isWide(x.rhs.inferredType)
             local method = wide and pluck.int64.methods[x.op.kind] or nil
             if method then
                 pluck.needRuntimeEffect(pluck.int64.effect)
@@ -5546,14 +5560,16 @@ function gen.generate(
                 emit(x.rhs);
                 e(")")
                 return
-            elseif wide and (
-                x.op.kind == "=="
-                or x.op.kind == "~="
-                or x.op.kind == "<"
-                or x.op.kind == "<="
-                or x.op.kind == ">"
-                or x.op.kind == ">="
-            ) then
+            elseif wide
+                and (
+                    x.op.kind == "=="
+                    or x.op.kind == "~="
+                    or x.op.kind == "<"
+                    or x.op.kind == "<="
+                    or x.op.kind == ">"
+                    or x.op.kind == ">="
+                )
+            then
                 pluck.needRuntimeEffect(pluck.int64.effect)
                 e(("(%s.compare("):format(pluck.int64.name), x.op.line)
                 emit(x.lhs);
@@ -5611,9 +5627,13 @@ function gen.generate(
             e(")")
             return
         end
-        if pluck.bitops.portable and kind == "binop" and x.op and pluck.bitops.methods[
-            x.op.kind
-        ] and x.lhs and x.rhs then
+        if pluck.bitops.portable
+            and kind == "binop"
+            and x.op
+            and pluck.bitops.methods[x.op.kind]
+            and x.lhs
+            and x.rhs
+        then
             if pluck.bitops.compatibility then
                 needsCompatibilityBitops = true
             else
@@ -5879,12 +5899,15 @@ function gen.generate(
             local first = pluck.constSpecialize.integer(x.start)
             local last = pluck.constSpecialize.integer(x.stop)
             local step = x.step ~= nil and pluck.constSpecialize.integer(x.step) or 1
-            if first ~= nil and last ~= nil and step ~= nil and step ~= 0 and pluck.constSpecialize.unrollableBody(
-                x.body
-            ) then
-                local count = step > 0 and first <= last and math.floor(
-                    (last - first) / step
-                ) + 1 or step < 0 and first >= last and math.floor((first - last) / -step) + 1 or 0
+            if first ~= nil
+                and last ~= nil
+                and step ~= nil
+                and step ~= 0
+                and pluck.constSpecialize.unrollableBody(x.body)
+            then
+                local count = step > 0 and first <= last and math.floor((last - first) / step) + 1
+                    or step < 0 and first >= last and math.floor((first - last) / -step) + 1
+                    or 0
                 if count <= 8 then
                     local definition = x.var.definition
                     local emission = pluck.constSpecialize.emission as any
@@ -5917,9 +5940,10 @@ function gen.generate(
             e("end", endTok and endTok.line or nil)
             return
         end
-        if kind == "ifStmt" and not (
-            x.constantBranch or x.constantBranchNone
-        ) and (x.constantClauses or emitDepth.hasBlockCondition(x)) then
+        if kind == "ifStmt"
+            and not (x.constantBranch or x.constantBranchNone)
+            and (x.constantClauses or emitDepth.hasBlockCondition(x))
+        then
             local clauses = x.constantClauses or x.clauses
             e("do ", sourceLine(x))
             for index, clause in ipairs(clauses) do
@@ -6335,9 +6359,8 @@ function gen.generate(
                     -- A field name is part of a C declarator, not always a suffix.
                     -- Function pointers and arrays put it inside `(*name)(...)` or
                     -- before `[N]` respectively.
-                    local ct = entry.type.resolvedType and require(
-                        "nupp.compiler.cabi"
-                    ).declaration(entry.type.resolvedType, entry.name.text, "ffi")
+                    local ct = entry.type.resolvedType
+                        and require("nupp.compiler.cabi").declaration(entry.type.resolvedType, entry.name.text, "ffi")
                     if not ct then
                         local bare = cdefCType(entry.type)
                         ct = bare and (bare .. " " .. entry.name.text) or nil
@@ -6702,19 +6725,23 @@ function gen.generate(
             emit(x.rhs)
             e("))")
 
-        elseif kind == "compoundAssign" and (
-            pluck.portable or emitDepth.switchContains(
-                x
-            ) or LOWERED_COMPOUND[x.op.kind] or (pluck.bitops.portable and pluck.bitops.methods[x.op.kind:sub(1, -2)])
-        ) then
+        elseif kind == "compoundAssign"
+            and (
+                pluck.portable
+                or emitDepth.switchContains(x)
+                or LOWERED_COMPOUND[x.op.kind]
+                or (pluck.bitops.portable and pluck.bitops.methods[x.op.kind:sub(1, -2)])
+            )
+        then
             -- Portable Lua has no compound syntax. Every form reads the target and then
             -- writes it, so an indexed target's prefix and key are bound to temporaries
             -- first: `obj.f += v` must not re-run whatever produced obj.
             local base = x.op.kind:sub(1, -2)
             local bitMethod = pluck.bitops.portable and pluck.bitops.methods[base] or nil
-            local wideMethod = pluck.int64.enabled and pluck.int64.isWide(
-                x.target.inferredType
-            ) and pluck.int64.methods[base] or nil
+            local wideMethod = pluck.int64.enabled
+                and pluck.int64.isWide(x.target.inferredType)
+                and pluck.int64.methods[base]
+                or nil
             if wideMethod then
                 pluck.needRuntimeEffect(pluck.int64.effect)
             elseif bitMethod then
@@ -7587,9 +7614,8 @@ function gen.generate(
             emitDepth.constructorReturnName = priorConstructorReturnName
             local endTok = pluck.endToken(body)
             if split then
-                local allocation = x.structAllocator and (
-                    x.structAllocator .. "()"
-                ) or ("setmetatable({}, " .. owner .. ")")
+                local allocation = x.structAllocator and (x.structAllocator .. "()")
+                    or ("setmetatable({}, " .. owner .. ")")
                 e(
                     (
                         "return %s end function %s.%s(%s) return %s.%s(%s%s) end"
@@ -7747,9 +7773,11 @@ function gen.generate(
                 x.enclosingCaptures = automaticCaptures(x.body, x.bindings)
                 x.capturesEnclosing = #x.enclosingCaptures > 0
             end
-            local virtualBinding = kind == "withStmt" and x.bindings and x.bindings[
-                1
-            ] and x.bindings[1].virtualIndexedView or nil
+            local virtualBinding = kind == "withStmt"
+                and x.bindings
+                and x.bindings[1]
+                and x.bindings[1].virtualIndexedView
+                or nil
             if virtualBinding then
                 local binding = x.bindings[1]
                 virtualBinding.anchorName = virtualBinding.anchorName or nextTemp()
@@ -7839,11 +7867,15 @@ function gen.generate(
                     statementOwnerMap[owner] = {name = binding.name.text, index = ownerIndex,}
                 end
                 local automatic = binding.automaticOwner
-                if automatic and (
-                    automatic.conditional or automatic.moved or automatic.movedFields or captureMoves[
-                        binding.name and binding.name.definition
-                    ] or captureMoves[automatic]
-                ) then
+                if automatic
+                    and (
+                        automatic.conditional
+                        or automatic.moved
+                        or automatic.movedFields
+                        or captureMoves[binding.name and binding.name.definition]
+                        or captureMoves[automatic]
+                    )
+                then
                     active[j] = nextTemp()
                     fieldActive[j] = {}
                     fieldActiveOrder[j] = {}
@@ -7883,12 +7915,9 @@ function gen.generate(
             local stable = #captures > 0 and activation and emitDepth.activationStable(captures) or false
             local captureWrites, nestedCaptures = emitDepth.captureUsage(analysisBody, captures)
             local framed = #captures > 0 and not stable and emitDepth.frameEligible(captures, nestedCaptures)
-            local cacheName = #captures == 0
-                and cleanupCacheName
-                or stable
-                and activation.name
-                or framed
-                and cleanupCacheName
+            local cacheName = #captures == 0 and cleanupCacheName
+                or stable and activation.name
+                or framed and cleanupCacheName
                 or nil
             local shared = cacheName ~= nil and #(x.bindings or {}) == 1 and not active[1] and not x.automaticComplex
             if shared then
@@ -8049,9 +8078,9 @@ function gen.generate(
                         for _, test in ipairs(tests) do
                             local name = binding.automaticOwner.correlation.names[test.index]
                             local constant = test.constant
-                            local literal = type(
-                                constant
-                            ) == "string" and ("%q"):format(constant) or constant == nil and "nil" or tostring(constant)
+                            local literal = type(constant) == "string" and ("%q"):format(constant)
+                                or constant == nil and "nil"
+                                or tostring(constant)
                             parts[#parts + 1] = ("%s==%s"):format(name, literal)
                         end
                         clauses[#clauses + 1] = "(" .. table.concat(parts, " and ") .. ")"
@@ -8207,9 +8236,8 @@ function gen.generate(
                 local binding = x.bindings[j]
 
                 local function emitProtected(cleanup, value, fieldName): nil
-                    local resolvedField = cleanup.kind == "field" and fieldActive[
-                        j
-                    ] and fieldActive[j][cleanup.field] or fieldName
+                    local resolvedField = cleanup.kind == "field" and fieldActive[j] and fieldActive[j][cleanup.field]
+                        or fieldName
                     if resolvedField then
                         e(("if %s then "):format(resolvedField))
                     end
@@ -8386,9 +8414,7 @@ function gen.generate(
                 end
                 e(compilerModuleName("nupp.mem.indexed") .. "._rootCount(")
                 emit(producer.count)
-                local message = root.descriptor
-                    and root.descriptor.writable
-                    and "write span count cannot be negative"
+                local message = root.descriptor and root.descriptor.writable and "write span count cannot be negative"
                     or "span count cannot be negative"
                 e((",%q)"):format(message))
                 if pluck.storage.enabled then
@@ -8412,9 +8438,10 @@ function gen.generate(
             emit(x.exprs[1])
             e(")")
 
-        elseif (
-            kind == "breakStmt" or kind == "continueStmt"
-        ) and pluck.currentRegion() and emitDepth.loop <= pluck.currentRegion().entryLoopDepth then
+        elseif (kind == "breakStmt" or kind == "continueStmt")
+            and pluck.currentRegion()
+            and emitDepth.loop <= pluck.currentRegion().entryLoopDepth
+        then
             local completion = kind == "breakStmt" and "break" or "continue"
             pluck.currentRegion()[completion .. "Exit"] = true
             e(("return %q"):format(completion), sourceLine(x))
@@ -8848,9 +8875,7 @@ function gen.generate(
                 end
                 e(moduleName .. "._rootCount(", sourceLine(x))
                 emit(view.count)
-                local message = view.descriptor
-                    and view.descriptor.writable
-                    and "write span count cannot be negative"
+                local message = view.descriptor and view.descriptor.writable and "write span count cannot be negative"
                     or "span count cannot be negative"
                 e((",%q)"):format(message))
                 if pluck.storage.enabled then
@@ -8882,10 +8907,8 @@ function gen.generate(
                 end
                 local adapter = view.descriptor and view.descriptor.adapter or "span"
                 local writable = view.descriptor and view.descriptor.writable
-                local message = adapter == "soa"
-                    and "SoA slice out of bounds"
-                    or writable
-                    and "write span slice out of bounds"
+                local message = adapter == "soa" and "SoA slice out of bounds"
+                    or writable and "write span slice out of bounds"
                     or "span slice out of bounds"
                 e((",%q)"):format(message))
             else
@@ -8982,24 +9005,23 @@ function gen.generate(
             -- shares this binding when the module is nupp.text.
             e(compilerModuleName(x.compilerModule), sourceLine(x))
 
-        elseif kind == "localStmt" and #(
-            x.names or {}
-        ) == 1 and #(
-            x.exprs or {}
-        ) == 1 and x.names[
-            1
-        ].definition and x.names[
-            1
-        ].definition.virtualIndexedView and x.names[1].definition.virtualIndexedView.kind == "alias" then
+        elseif kind == "localStmt"
+            and #(x.names or {}) == 1
+            and #(x.exprs or {}) == 1
+            and x.names[1].definition
+            and x.names[1].definition.virtualIndexedView
+            and x.names[1].definition.virtualIndexedView.kind == "alias"
+        then
             local view = x.names[1].definition.virtualIndexedView
             e((x.isConst and "const " or "local ") .. x.names[1].text .. "=", sourceLine(x))
             emitDepth.view.count(view.source)
 
-        elseif kind == "localStmt" and #(
-            x.names or {}
-        ) == 1 and #(
-            x.exprs or {}
-        ) == 1 and x.exprs[1].virtualIndexedView and x.exprs[1].virtualIndexedView.kind == "root" then
+        elseif kind == "localStmt"
+            and #(x.names or {}) == 1
+            and #(x.exprs or {}) == 1
+            and x.exprs[1].virtualIndexedView
+            and x.exprs[1].virtualIndexedView.kind == "root"
+        then
             local view = x.exprs[1].virtualIndexedView
             view.anchorName = view.anchorName or nextTemp()
             if view.transport then
@@ -9015,11 +9037,12 @@ function gen.generate(
                 emitChildren(x)
             end
 
-        elseif kind == "localStmt" and #(
-            x.names or {}
-        ) == 1 and #(
-            x.exprs or {}
-        ) == 1 and x.exprs[1].virtualIndexedView and x.exprs[1].virtualIndexedView.kind == "slice" then
+        elseif kind == "localStmt"
+            and #(x.names or {}) == 1
+            and #(x.exprs or {}) == 1
+            and x.exprs[1].virtualIndexedView
+            and x.exprs[1].virtualIndexedView.kind == "slice"
+        then
             local view = x.exprs[1].virtualIndexedView
             view.firstName = view.firstName or nextTemp()
             e("const " .. view.firstName .. "=", sourceLine(x))
@@ -9114,9 +9137,8 @@ function gen.generate(
                         if fn.name and not fn.comptimeTok and not fn.comptimeFunction then
                             local nameToken = fn.name as any
                             exportedFunctions[#exportedFunctions + 1] = fn.name.text
-                            exportedFunctionTypes[
-                                fn.name.text
-                            ] = nameToken.definition and nameToken.definition.type or nameToken.inferredType
+                            exportedFunctionTypes[fn.name.text] = nameToken.definition and nameToken.definition.type
+                                or nameToken.inferredType
                         end
                     elseif actual.kind == "funcStmt" then
                         local fn = actual as cst.FuncStmt
@@ -9129,9 +9151,8 @@ function gen.generate(
                         then
                             local nameToken = fname.base as any
                             exportedFunctions[#exportedFunctions + 1] = fname.base.text
-                            exportedFunctionTypes[
-                                fname.base.text
-                            ] = nameToken.definition and nameToken.definition.type or nameToken.inferredType
+                            exportedFunctionTypes[fname.base.text] = nameToken.definition and nameToken.definition.type
+                                or nameToken.inferredType
                         end
                     end
                 end
@@ -9149,9 +9170,8 @@ function gen.generate(
                 #exportedRecords + 1
             ] = {
                 path = path,
-                type = record.hoistedType or (
-                    nameToken.definition and nameToken.definition.type or nameToken.inferredType
-                ),
+                type = record.hoistedType
+                or (nameToken.definition and nameToken.definition.type or nameToken.inferredType),
             }
             for _, entry in ipairs(record.entries or {}) do
                 if entry.kind == "recordDecl" and entry.declKind == "record" then
@@ -9403,18 +9423,19 @@ function gen.generate(
             end
             visitedServices[node] = true
             consumesService = consumesService or node.spiInterface ~= nil
-            if node.kind == "methodCall" and node.name and (
-                node.name.text == "assemble"
-                or node.name.text == "assembleOptional"
-                or node.name.text == "require"
-                or node.name.text == "lookup"
-            ) then
+            if node.kind == "methodCall"
+                and node.name
+                and (
+                    node.name.text == "assemble"
+                    or node.name.text == "assembleOptional"
+                    or node.name.text == "require"
+                    or node.name.text == "lookup"
+                )
+            then
                 local receiver = node.obj and node.obj.inferredType
                 local origin = receiver and receiver.origin
                 consumesService = consumesService
-                    or origin ~= nil
-                    and origin.moduleName == "nupp.services"
-                    and origin.name == "Service"
+                    or origin ~= nil and origin.moduleName == "nupp.services" and origin.name == "Service"
             end
             for _, child in ipairs(node) do
                 inspectServices(child)
@@ -9563,13 +9584,8 @@ function gen.generate(
         local names, values = {}, {}
         for _, name in ipairs({"pcall", "xpcall", "error", "unpack", "select", "setmetatable", "tostring", "ipairs"}) do
             names[#names + 1] = cleanupGlobals[name]
-            values[
-                #values + 1
-            ] = name == "xpcall"
-                and yieldableXpcallName
-                or name == "pcall"
-                and yieldableCleanupPcall
-                and yieldablePcallName
+            values[#values + 1] = name == "xpcall" and yieldableXpcallName
+                or name == "pcall" and yieldableCleanupPcall and yieldablePcallName
                 or name
         end
         code = (
@@ -9585,7 +9601,8 @@ function gen.generate(
         ):format(
             "select"
         ) .. (
-            useYieldableCleanupCalls and (
+            useYieldableCleanupCalls
+            and (
                 "const function %s(body,handler,...) local thread=%s(body);"
                 .. "local input=%s(...);while true do local resumed=%s(coroutine.resume(thread,"
                 .. "%s(input,1,input.n)));if not resumed[1] then return false,handler(resumed[2]) end;"
@@ -9600,14 +9617,19 @@ function gen.generate(
                 "unpack",
                 cleanupPackName,
                 "unpack"
-            ) or yieldableXpcallName and (
+            )
+            or yieldableXpcallName
+            and (
                 "const function %s(body,handler,...) local args=%s(...);"
                 .. "return xpcall(function() return body(unpack(args,1,args.n)) end,handler) end; "
-            ):format(yieldableXpcallName, cleanupPackName) or ""
+            ):format(yieldableXpcallName, cleanupPackName)
+            or ""
         ) .. (
-            yieldableCleanupPcall and (
+            yieldableCleanupPcall
+            and (
                 "const function %s(body,...) return %s(body,function(problem) return problem end,...) end; "
-            ):format(yieldablePcallName, yieldableXpcallName) or ""
+            ):format(yieldablePcallName, yieldableXpcallName)
+            or ""
         ) .. (
             "const %s=%s; "
         ):format(

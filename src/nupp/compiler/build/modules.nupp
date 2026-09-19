@@ -63,10 +63,11 @@ local function selectedSourceFiles(root: string, target: Target): ({string}?, st
     local selected, seen = {}, {}
     for _, source in ipairs(target.sources) do
         local normalized = normalize(source)
-        if normalized == "" or normalized:sub(
-            1,
-            1
-        ) == "/" or normalized:match("^[A-Za-z]:/") or ("/" .. normalized .. "/"):find("/../", 1, true) then
+        if normalized == ""
+            or normalized:sub(1, 1) == "/"
+            or normalized:match("^[A-Za-z]:/")
+            or ("/" .. normalized .. "/"):find("/../", 1, true)
+        then
             return nil, "build.sources must stay inside the project: " .. source
         end
         local matches = expandGlob(root, normalized)
@@ -444,11 +445,8 @@ typeFingerprint = function(t: Type?, active: {[Type]: boolean}?, binders: Binder
     elseif tag == "neutral" then
         local templates, comptimeArguments = {}, {}
         for _, part in ipairs(t.templateParts or {}) do
-            templates[
-                #templates + 1
-            ] = type(
-                part
-            ) == "string" and "text(" .. stable(part) .. ")" or typeFingerprint(part as Type, active, binders)
+            templates[#templates + 1] = type(part) == "string" and "text(" .. stable(part) .. ")"
+                or typeFingerprint(part as Type, active, binders)
         end
         for _, argument in ipairs(t.comptimeArguments or {}) do
             if argument.kind == "type" then
@@ -745,13 +743,12 @@ local function openSession(
             inc.env.roots[#inc.env.roots + 1] = stagedRoot
             stagedReady = true
         end
-        local suffix = resource:match(
-            "/init%.g%.nupp$"
-        ) and "/init.g.nupp" or resource:match(
-            "/init%.nupp$"
-        ) and "/init.nupp" or resource:match(
-            "%.g%.nupp$"
-        ) and ".g.nupp" or resource:match("%.d%.nupp$") and ".d.nupp" or resource:match("%.lua$") and ".lua" or ".nupp"
+        local suffix = resource:match("/init%.g%.nupp$") and "/init.g.nupp"
+            or resource:match("/init%.nupp$") and "/init.nupp"
+            or resource:match("%.g%.nupp$") and ".g.nupp"
+            or resource:match("%.d%.nupp$") and ".d.nupp"
+            or resource:match("%.lua$") and ".lua"
+            or ".nupp"
         local path = join(stagedRoot, name:gsub("%.", "/") .. suffix)
         local wrote, problem = writeFile(path, source)
         assert(wrote, problem)
@@ -928,9 +925,12 @@ local function buildModules(root: string, outDir: string, config: Config, target
     -- cache entry that is about to be reused.
     local function moduleDependencies(name: string, path: string): {string}
         local previous = oldState.modules[name]
-        if cacheCompatible and previous and previous.sourcePath == path and previous.sourceHash == sourceContentHash(
-            path
-        ) and type(previous.dependencies) == "table" then
+        if cacheCompatible
+            and previous
+            and previous.sourcePath == path
+            and previous.sourceHash == sourceContentHash(path)
+            and type(previous.dependencies) == "table"
+        then
             return previous.dependencies as {string}
         end
 
@@ -1059,9 +1059,13 @@ local function buildModules(root: string, outDir: string, config: Config, target
     -- would make those imports executable by accident.
     local function linkPackagedRuntime(name: string): nil
         local existing = inc.modulePath(name)
-        if not selfContainedTarget or (
-            existing ~= nil and not envMod.isDependencyTypePath(inc.env, existing) and not packagedCheckSources[name]
-        ) then
+        if not selfContainedTarget
+            or (
+                existing ~= nil
+                and not envMod.isDependencyTypePath(inc.env, existing)
+                and not packagedCheckSources[name]
+            )
+        then
             return
         end
         local path = packagedCheckSources[name] and existing or stagePackagedChecks(name)
@@ -1112,9 +1116,9 @@ local function buildModules(root: string, outDir: string, config: Config, target
             linkRuntimeSource(name)
         end
         linkFeatureRuntime(effects)
-        local selected = name == "nupp.services" or serviceCatalog.facades[
-            name
-        ] ~= nil or (linkedModules[name] == true and not packagedRuntimeModules[name])
+        local selected = name == "nupp.services"
+            or serviceCatalog.facades[name] ~= nil
+            or (linkedModules[name] == true and not packagedRuntimeModules[name])
         if not selected then
             return
         end
@@ -1264,15 +1268,14 @@ local function buildModules(root: string, outDir: string, config: Config, target
     -- rather than "nobody looked" -- the two are the same silence at the call site
     -- but not the same answer, and OPT-8's own level and `-Zno-opt` gates already
     -- decide whether it runs.
-    local constSelection: any? = constEnabled and {
-        accepted = acceptedSpecializations,
-        declined = declinedSpecializations,
-    } or nil
+    local constSelection: any? = constEnabled
+        and {accepted = acceptedSpecializations, declined = declinedSpecializations,}
+        or nil
     local acceptedBodies = 0
     for _, specialization in ipairs(acceptedSpecializations) do
-        if specialization.physical == specialization and not (
-            suppliedConstSelection ~= nil and specialization.requiredAot
-        ) then
+        if specialization.physical == specialization
+            and not (suppliedConstSelection ~= nil and specialization.requiredAot)
+        then
             acceptedBodies = acceptedBodies + 1
         end
     end
@@ -1338,17 +1341,16 @@ local function buildModules(root: string, outDir: string, config: Config, target
             return records[name].compilerRuntime == true
         end
         local existing = inc.modulePath(name)
-        if existing ~= nil and not envMod.isDependencyTypePath(
-            inc.env,
-            existing
-        ) and existing:sub(1, #runtimeSourceRoot + 1) ~= runtimeSourceRoot .. "/" then
+        if existing ~= nil
+            and not envMod.isDependencyTypePath(inc.env, existing)
+            and existing:sub(1, #runtimeSourceRoot + 1) ~= runtimeSourceRoot .. "/"
+        then
             return false
         end
         local bundled = require("nupp.compiler.bundled")
         local modulePath = name:gsub("^nupp%.", ""):gsub("%.", "/") .. ".lua"
-        local text = readFile(
-            join(bundled.moduleDir(), "../" .. modulePath)
-        ) or bundled.source("/" .. name:gsub("%.", "/") .. ".lua")
+        local text = readFile(join(bundled.moduleDir(), "../" .. modulePath))
+            or bundled.source("/" .. name:gsub("%.", "/") .. ".lua")
         local carried = rawget(_G, "__nuppCompilerModuleArtifacts")
         local carriedRecord = carried and carried[name]
         if text == nil and carriedRecord and type(carriedRecord.source) == "string" then
@@ -1404,9 +1406,12 @@ local function buildModules(root: string, outDir: string, config: Config, target
         carriedRuntime[name] = true
         paths[name] = output
         local previous = oldState.modules[name]
-        if cacheCompatible and previous and previous.compilerRuntime and previous.artifactHash == artifactHash and (
-            checkOnly or hashFile(output) == artifactHash
-        ) then
+        if cacheCompatible
+            and previous
+            and previous.compilerRuntime
+            and previous.artifactHash == artifactHash
+            and (checkOnly or hashFile(output) == artifactHash)
+        then
             reused[name] = true
         end
         order[#order + 1] = name
@@ -1472,9 +1477,8 @@ local function buildModules(root: string, outDir: string, config: Config, target
     end
 
     local function compile(name, path, sourceHash)
-        local external = path:match(
-            "%.d%.nupp$"
-        ) ~= nil or envMod.isDependencyTypePath(inc.env, path) and not linkedModules[name]
+        local external = path:match("%.d%.nupp$") ~= nil
+            or envMod.isDependencyTypePath(inc.env, path) and not linkedModules[name]
         local result = inc.checkFile(path)
         stats.checkedModules = stats.checkedModules + 1
         -- What checking found, once the substitution below is accounted for. The
@@ -1657,9 +1661,8 @@ local function buildModules(root: string, outDir: string, config: Config, target
                 report:step(item.name)
                 local sourceHash = sourceContentHash(path)
                 local previous = oldState.modules[item.name]
-                local external = path:match(
-                    "%.d%.nupp$"
-                ) ~= nil or envMod.isDependencyTypePath(inc.env, path) and not linkedModules[item.name]
+                local external = path:match("%.d%.nupp$") ~= nil
+                    or envMod.isDependencyTypePath(inc.env, path) and not linkedModules[item.name]
                 local output: string? = nil
                 if not external then
                     output = join(root, join(outDir, item.name:gsub("%.", "/") .. ".lua"))
@@ -1673,25 +1676,18 @@ local function buildModules(root: string, outDir: string, config: Config, target
                     and previous.sourceHash == sourceHash
                     and previous.specializationHash == (
                         specializationHashes[normalize(path)] or emptySpecializationHash
-                    ) and previous.interfaceHash and type(
-                        previous.dependencies
-                    ) == "table" and type(
-                        previous.projectDependencies
-                    ) == "table" and type(
-                        previous.effects
-                    ) == "table" and type(
-                        previous.runtimeModules
-                    ) == "table" and type(
-                        previous.diags
-                    ) == "table" and type(
-                        previous.materializations
-                    ) == "table" and type(
-                        previous.derives
-                    ) == "table" and type(
-                        previous.optimizationRemarks
-                    ) == "table" and type(
-                        previous.allocationSites
-                    ) == "table" and type(previous.optimizationAccounted) == "boolean"
+                    )
+                    and previous.interfaceHash
+                    and type(previous.dependencies) == "table"
+                    and type(previous.projectDependencies) == "table"
+                    and type(previous.effects) == "table"
+                    and type(previous.runtimeModules) == "table"
+                    and type(previous.diags) == "table"
+                    and type(previous.materializations) == "table"
+                    and type(previous.derives) == "table"
+                    and type(previous.optimizationRemarks) == "table"
+                    and type(previous.allocationSites) == "table"
+                    and type(previous.optimizationAccounted) == "boolean"
                 if usable and previous then
                     for _, dependency in ipairs(previous.projectDependencies or {}) do
                         if type(dependency) ~= "table" then
@@ -1701,18 +1697,19 @@ local function buildModules(root: string, outDir: string, config: Config, target
                         local dependencyName = dependency.name
                         local dependencyKey = dependency.key
                         local dependencyFingerprint = dependency.fingerprint
-                        if type(
-                            dependencyName
-                        ) ~= "string" or type(dependencyKey) ~= "string" or type(dependencyFingerprint) ~= "string" then
+                        if type(dependencyName) ~= "string"
+                            or type(dependencyKey) ~= "string"
+                            or type(dependencyFingerprint) ~= "string"
+                        then
                             usable = false
                             break
                         end
-                        if not GUARANTEE_QUERY[
-                            dependencyName
-                        ] and inc.projectDependencyFingerprint(
-                            dependencyName as string,
-                            dependencyKey as string
-                        ) ~= dependencyFingerprint then
+                        if not GUARANTEE_QUERY[dependencyName]
+                            and inc.projectDependencyFingerprint(
+                                dependencyName as string,
+                                dependencyKey as string
+                            ) ~= dependencyFingerprint
+                        then
                             usable = false
                             break
                         end
@@ -1807,10 +1804,9 @@ local function buildModules(root: string, outDir: string, config: Config, target
         artifactProviders[#artifactProviders + 1] = provider
     end
     for _, provider in ipairs(serviceCatalog.entries) do
-        if serviceCatalog.supports(
-            provider,
-            target.dialect or "luajit"
-        ) and (records[provider.entry] ~= nil or linkedRuntimeSource[provider.entry]) then
+        if serviceCatalog.supports(provider, target.dialect or "luajit")
+            and (records[provider.entry] ~= nil or linkedRuntimeSource[provider.entry])
+        then
             artifactProviders[#artifactProviders + 1] = provider
         end
     end
@@ -1849,10 +1845,12 @@ local function buildModules(root: string, outDir: string, config: Config, target
                 and previous.sourcePath == catalogPath
                 and previous.sourceHash == catalogHash
                 and (
-                    checkOnly or previous.output == catalogOutput and previous.artifactHash ~= nil and hashFile(
-                        catalogOutput
-                    ) == previous.artifactHash
-                ) then
+                    checkOnly
+                    or previous.output == catalogOutput
+                    and previous.artifactHash ~= nil
+                    and hashFile(catalogOutput) == previous.artifactHash
+                )
+            then
                 records[name] = copyModuleRecord(previous)
                 reused[name] = true
                 codeFor[name] = nil

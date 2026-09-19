@@ -186,6 +186,28 @@ export type PublicCodec = Codec]]
     end)
 end
 
+function M.returnedModuleTablesExportTheirInterfaces()
+    local sources = files(
+        [[module main
+local spi = require("nupp.spi")
+local api = require("example.api")
+assert(assert(spi.load(api.Codec)()).encode("x") == "first:x")
+print("ok")]]
+    )
+    sources[
+        "src/example/api.nupp"
+    ] = [[module example.api
+local api = {}
+interface api.Codec
+    readonly encode: function(value: string): string
+end
+export = api]]
+    fixture(sources, function(dir)
+        local _, output = run(dir)
+        assert(output == "ok\n", output)
+    end)
+end
+
 function M.invalidProvidersFailBuildWithoutExecutingThem()
     local sources = files(
         [[module main
