@@ -1379,6 +1379,7 @@ local PROCESS_ISOLATED = {
     hotreloadguaranteetest = true,
     projectlinktest = true,
     servicepackagetest = true,
+    spitest = true,
     profiletest = true,
     runnertest = true,
     -- These execute generated ownership cleanups. Their providers are registered

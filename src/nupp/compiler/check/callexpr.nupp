@@ -1373,6 +1373,27 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         local selectedExport = callee and (
             callee.exactCallExport or calleeDefinition and calleeDefinition.exactCallExport
         ) or nil
+        if selectedExport and selectedExport.module == "nupp.spi" and selectedExport.member == "load" then
+            local _, subject = concreteTypePath(argExprs[1])
+            local declared = subject and rawType(subject) or nil
+            local origin = declared and declared.tag == "nominal" and (declared.origin or declared) or nil
+            if #argExprs ~= 1
+                or argStr
+                or argTable
+                or not origin
+                or origin.tag ~= "nominal"
+                or origin.declKind ~= "interface"
+                or not origin.moduleName
+                or #(
+                    origin.typeParams or {}
+                ) > 0 or origin.deriveDeclaration and c.visibilityOf(origin.deriveDeclaration) ~= "module" then
+                c.diag("NUPP2006", node, "spi.load expects one concrete exported interface")
+                return T.any
+            end
+            local name = origin.moduleName .. "." .. (origin.name:match("[^.]+$") or origin.name)
+            node.spiInterface = name
+            return T.func({}, {T.optional(declared as Type)}, false)
+        end
         if selectedExport
             and #c.functionBodies == 0
             and c.env

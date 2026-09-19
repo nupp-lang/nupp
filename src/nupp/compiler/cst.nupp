@@ -318,6 +318,9 @@ interface cst.Hints
 
     reflectedTypeKey: string?
 
+    --- Canonical interface identity of a checked nupp.spi.load call.
+    spiInterface: string?
+
     --- Compiler-owned target layout attached to a checked layout intrinsic call.
     targetLayout: any
 

@@ -5388,6 +5388,11 @@ function gen.generate(
                 return
             end
         end
+        if kind == "call" and x.spiInterface then
+            emit(x.obj)
+            e("(" .. string.format("%q", x.spiInterface) .. ")", sourceLine(x))
+            return
+        end
         if kind == "call" or kind == "safeCall" or kind == "methodCall" then
             local activePlan = pluck.plans[x]
             if activePlan and not activePlan.delegate then
@@ -9397,6 +9402,7 @@ function gen.generate(
                 return
             end
             visitedServices[node] = true
+            consumesService = consumesService or node.spiInterface ~= nil
             if node.kind == "methodCall" and node.name and (
                 node.name.text == "assemble"
                 or node.name.text == "assembleOptional"

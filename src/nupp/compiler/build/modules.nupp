@@ -968,6 +968,13 @@ local function buildModules(root: string, outDir: string, config: Config, target
 
     local function runtimeImports(name: string, code: string): any
         local required = gen.runtimeModules(code)
+        if name == "nupp.spi" then
+            required[#required + 1] = "nupp.spi.index"
+        elseif name == "nupp.spi.index" then
+            for _, provider in ipairs(config._spiEntries or {}) do
+                required[#required + 1] = provider.implementation
+            end
+        end
         local service = serviceCatalog.facades[name]
         if service ~= nil then
             for _, provider in ipairs(serviceCatalog.entries) do
@@ -1442,6 +1449,13 @@ local function buildModules(root: string, outDir: string, config: Config, target
     for _, provider in ipairs(config._serviceEntries or {}) do
         linkRuntimeSource(provider.contract)
         linkRuntimeSource(provider.entry)
+    end
+    if #(config._spiEntries or {}) > 0 then
+        linkRuntimeSource("nupp.spi")
+        linkRuntimeSource("nupp.spi.index")
+        for _, provider in ipairs(config._spiEntries) do
+            linkRuntimeSource(provider.implementation)
+        end
     end
 
     -- A note or a warning is said and stepped over. Only an error stops the build, and

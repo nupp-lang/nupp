@@ -1,0 +1,41 @@
+module nupp.spi
+
+--[[
+Discover implementations, then choose with ordinary module initialization code.
+
+`load(Interface)` returns a lazy iterator in dependency order. Iteration order
+does not choose a winner: the caller may compare priorities, check capabilities,
+or combine implementations. Keep the selected functions when the module loads.
+Packages advertise their implementation modules in `nupp/spi.json`.
+]]
+
+local found, loaded = pcall(require, "nupp.spi.index")
+if not found and not tostring(loaded):find("module 'nupp.spi.index' not found", 1, true) then
+    error("nupp.spi: cannot read provider index: " .. tostring(loaded), 0)
+end
+local index: {[string]: {string}} = found and loaded or {}
+
+--- Iterates implementations of an exported interface without choosing one.
+--- The compiler replaces the interface argument with its qualified name.
+--- Each iteration loads one module; ordinary require caching retains its identity.
+--- @raises when an implementation cannot load or does not export a table
+export function load<I>(interface: string): function(): I?
+    local modules = index[interface] or {}
+    local position: integer = 0
+    return function(): I?
+        position = position + 1
+        local name = modules[position]
+        if name == nil then
+            return nil
+        end
+        local ok, value = pcall(require, name)
+        if not ok then
+            error("nupp.spi: cannot load " .. interface .. " from " .. name .. ": " .. tostring(value), 2)
+        end
+        if type(value) ~= "table" then
+            error("nupp.spi: " .. name .. " must export an implementation of " .. interface, 2)
+        end
+
+        return value as I
+    end
+end

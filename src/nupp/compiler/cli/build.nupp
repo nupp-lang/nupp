@@ -63,6 +63,19 @@ local REPORT_SCHEMA = {
             type = "string",
             description = "The packaged Wasm AOT manifest beside the transportable artifact."
         },
+        spi = {
+            type = "array",
+            description = "Discovered SPI implementations in dependency order; selection belongs to the use site.",
+            items = {
+                type = "object",
+                properties = {
+                    interface = {type = "string"},
+                    implementation = {type = "string"},
+                    dependency = {type = "string"},
+                },
+                required = {"interface", "implementation", "dependency"},
+            },
+        },
         services = {
             type = "array",
             description = "Checked service providers carried by the artifact, in service/name order.",
@@ -310,6 +323,7 @@ local function run(options: any): integer
                 materializations = produced.materializations or materializations,
                 derives = produced.derives or derives,
                 services = produced.services or {},
+                spi = produced.spi or {},
                 timing = code == 0 and produced.timing or nil,
             })
         end

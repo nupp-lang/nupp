@@ -129,6 +129,7 @@ local TEMPLATE_FILES = {
 -- want in full. One list because they have never differed and a second copy is
 -- how they would start to.
 local RESOURCES = {
+    {source = "src/nupp/spi/init.nupp", output = "nupp/compiler/nupp/spi/init.nupp"},
     {source = "src/re.g.nupp", output = "nupp/compiler/re.g.nupp"},
     {source = "src/nupp/text/internal/buffer.d.nupp", output = "nupp/compiler/nupp/text/internal/buffer.d.nupp"},
     {source = "src/nupp/text/init.nupp", output = "nupp/compiler/nupp/text/init.nupp"},

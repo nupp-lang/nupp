@@ -20,6 +20,7 @@ local tasks = require("nupp.compiler.build.tasks")
 local deps = require("nupp.compiler.build.deps")
 local generators = require("nupp.compiler.build.generators")
 local services = require("nupp.compiler.build.services")
+local spi = require("nupp.compiler.build.spi")
 local modules = require("nupp.compiler.build.modules")
 local packaging = require("nupp.compiler.build.package")
 local buildPlatform = require("nupp.compiler.build.platform")
@@ -415,6 +416,17 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         return 1
     end
     newState.generators = generated
+    local spiEntries, spiError = spi.read(root, config, target, dependencies)
+    if spiEntries == nil then
+        io.stderr:write("nupp: " .. tostring(spiError) .. "\n")
+        return 1
+    end
+    local wroteSpi, writeSpiError = spi.write(root, outDir, spiEntries)
+    if not wroteSpi then
+        io.stderr:write("nupp: " .. tostring(writeSpiError) .. "\n")
+        return 1
+    end
+    config._spiEntries = spiEntries
     local wroteServices, serviceErr, hasServices, serviceEntries = services.write(
         root,
         outDir,
@@ -431,6 +443,17 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     -- dependencies just resolved, which is why it cannot be opened any earlier.
     config._serviceEntries = serviceEntries or {}
     local session = modules.session(root, outDir, config, target, dependencies, strict, report)
+    local validSpi, invalidSpi = spi.check(session, spiEntries, root, outDir)
+    if not validSpi then
+        io.stderr:write("nupp: " .. tostring(invalidSpi) .. "\n")
+        return 1
+    end
+    local writtenSpi, publishSpiError = spi.write(root, outDir, spiEntries)
+    if not writtenSpi then
+        io.stderr:write("nupp: " .. tostring(publishSpiError) .. "\n")
+        return 1
+    end
+    session.inc.diskChanged(join(root, join(outDir, "generated/nupp/spi/index.g.nupp")), 2)
     if hasServices then
         session.stageBundled("nupp.services")
         local valid, why = services.check(session, serviceEntries or {}, root, outDir)
@@ -967,6 +990,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         opts.produced.materializations = materializeObserve.public(result.materializations)
         opts.produced.derives = result.derives
         opts.produced.services = result.services
+        opts.produced.spi = spiEntries
         opts.produced.optLevel = config._optLevel
         opts.produced.optimizationRemarks = result.optimizationRemarks
         opts.produced.allocationSites = result.allocationSites
