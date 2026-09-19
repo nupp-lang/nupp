@@ -1357,16 +1357,19 @@ end
 --- parenthesized expression yields one, so the helper is inlined only when its
 --- signature says one value.
 function M.leavesAMultipleValueHelperCallAlone()
-   local code = compile(
-      "local function parts(v: string): (string?, string?) return v:match(\"(%a+)_(%a+)\") end\n"
-      .. "local function m(x: string): (string?, string?) return parts(x) end\nreturn m")
-   assertTrue(code:find("return parts ( x )", 1, true) ~= nil,
-      "the call stays a call: " .. code)
-   local single = compile(
-      "local function head(v: string): string? return v:match(\"(%a+)\") end\n"
-      .. "local function m(x: string): string? return head(x) end\nreturn m")
-   assertTrue(single:find("return ( x : match (", 1, true) ~= nil,
-      "a single declared value is still inlined: " .. single)
+    local code = compile(
+        "local function parts(v: string): (string?, string?) return v:match(\"(%a+)_(%a+)\") end\n"
+        .. "local function m(x: string): (string?, string?) return parts(x) end\nreturn m"
+    )
+    assertTrue(code:find("return parts ( x )", 1, true) ~= nil, "the call stays a call: " .. code)
+    local single = compile(
+        "local function head(v: string): string? return v:match(\"(%a+)\") end\n"
+        .. "local function m(x: string): string? return head(x) end\nreturn m"
+    )
+    assertTrue(
+        single:find("return ( x : match (", 1, true) ~= nil,
+        "a single declared value is still inlined: " .. single
+    )
 end
 
 --- A helper whose body constructs a record substitutes into every field.
@@ -1759,6 +1762,37 @@ function M.constSpecializationDoesNotChangeTheAnswerOrFunctionIdentity()
     local genericSame, genericAnswer = run(source, 0)
     assertEq(genericSame, same, "-O0 preserves the same public identity")
     assertEq(genericAnswer, answer, "-O0 and OPT-8 agree")
+end
+
+function M.constSpecializationBindsEachBodyBlockExpression()
+    local source = [[
+local calls = 0
+local function make(value: number): {number}
+    calls = calls + 1
+    return {value}
+end
+local function pick<const N: integer>(value: number, choice: N): number
+    local selected = switch choice as integer do
+        case 1 -> make(value + 10)
+        else -> make(value + 20)
+    end
+    local result = do
+        local extra = value > 0 and do yield 1 end or do yield 2 end
+        yield selected[1] + extra
+    end
+    return result
+end
+local held = pick
+return pick(1, 1), pick(2, 2), held(3, 1), calls
+]]
+    for _, level in ipairs({0, 2}) do
+        local code = compile(source, level)
+        local a, b, c, calls = assert(loadstring(code))()
+        assertEq(a, 12)
+        assertEq(b, 23)
+        assertEq(c, 14)
+        assertEq(calls, 3, "each selected branch executes once")
+    end
 end
 
 function M.levelZeroDoesNotMonomorphizeConstApplications()

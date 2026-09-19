@@ -2833,6 +2833,15 @@ function gen.generate(
 
     pluck.constSpecialize.emitSpecialization = function(declaration, specialization): nil
         local prior = pluck.constSpecialize.emission
+        -- Each emitted body needs its own bindings, even though it shares the CST.
+        local priorSwitchTemps = emitDepth.switchTemps
+        local priorValueTemps = emitDepth.switchValueTemps
+        local priorMethods = emitDepth.blockMethods
+        local priorPlucks = pluck.loweredPlans
+        emitDepth.switchTemps = {}
+        emitDepth.switchValueTemps = {}
+        emitDepth.blockMethods = {}
+        pluck.loweredPlans = {}
         pluck.constSpecialize.emission = {substitutions = {}, specialization = specialization,}
         for definition, value in pairs(specialization.substitutions) do
             pluck.constSpecialize.emission.substitutions[definition] = value
@@ -2865,6 +2874,10 @@ function gen.generate(
         emitDepth.fn = emitDepth.fn - 1
         e("end")
         pluck.constSpecialize.emission = prior
+        emitDepth.switchTemps = priorSwitchTemps
+        emitDepth.switchValueTemps = priorValueTemps
+        emitDepth.blockMethods = priorMethods
+        pluck.loweredPlans = priorPlucks
     end
 
     pluck.constSpecialize.emitRegistrations = function(declaration): nil
