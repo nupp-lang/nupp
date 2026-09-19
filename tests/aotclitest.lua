@@ -2417,17 +2417,36 @@ end
 -- 64-byte block is instantiated for this tier alone, so no wider vector ever
 -- meets a `-mavx2` compilation and the ABI warning that follows.
 function M.genericExplicitSimdPrefersSixteenLanesAtAvx512f()
-    local host = assert(require("nupp.compiler.aot.target").hostTriple())
+    local targets = require("nupp.compiler.aot.target")
+    local host = assert(targets.hostTriple())
     local triple = host:gsub("^[^-]+", "x86_64")
+    -- The triple follows the host, so on Windows this targets Windows, whose
+    -- frame carries no more than sixteen bytes however wide the tier's
+    -- registers are. The tier still selects its instructions; what it gives up
+    -- is the register width, so the species and the assertions follow the
+    -- ceiling rather than the tier.
+    local ceiling = targets.vectorCeiling({triple = triple, architecture = "x86_64", tier = "avx512f"})
+    local width = ceiling or 64
+    local lanes = width / 4
     local dir = project{["vectors.nupp"] = GENERIC_EXPLICIT_SIMD}
     local decoded, raw, code, where = lowered(dir, "--target " .. triple .. " --features avx512f --json vectors.nupp")
     test.equal(code, 0, raw)
-    assert(decoded.c:find("#define KS_SIMD_WIDTH 64", 1, true), where .. ": AVX-512F selects the 64-byte width")
-    assert(decoded.c:find("KS_EXP_ELEMENT(64, f32x16, float", 1, true), where .. ": sixteen binary32 lanes")
-    assert(decoded.c:find("ks_scalar_exp_mul_f32x16", 1, true), where .. ": the oracle walks sixteen lanes")
+    assert(
+        decoded.c:find(("#define KS_SIMD_WIDTH %d"):format(width), 1, true),
+        where .. (": AVX-512F selects %d bytes"):format(width)
+    )
+    assert(
+        decoded.c:find(("KS_EXP_ELEMENT(%d, f32x%d, float"):format(width, lanes), 1, true),
+        (where .. ": %d binary32 lanes"):format(lanes)
+    )
+    assert(
+        decoded.c:find(("ks_scalar_exp_mul_f32x%d"):format(lanes), 1, true),
+        (where .. ": the oracle walks %d lanes"):format(lanes)
+    )
     local asm, asmCode = run(dir, "--target " .. triple .. " --features avx512f --emit asm vectors.nupp")
     test.equal(asmCode, 0, asm)
-    assert(asm:find("zmm", 1, true), "the multiply lives in a 64-byte register: " .. asm)
+    local register = width == 64 and "zmm" or width == 32 and "ymm" or "xmm"
+    assert(asm:find(register, 1, true), ("the multiply lives in a %d-byte register: "):format(width) .. asm)
     -- The packed byte scanner stays at 32 bytes there: AVX-512F alone has no
     -- byte compare or shuffle, so a program carrying both keeps compiling.
     local both = project{["mixed.nupp"] = SCOPED_SIMD:gsub("return {quotes = quotes}", "") .. [[
@@ -2444,7 +2463,8 @@ return {quotes = quotes, twice = twice}
 ]]}
     local mixed, mixedCode = run(both, "--target " .. triple .. " --features avx512f --emit c mixed.nupp")
     test.equal(mixedCode, 0, mixed)
-    assert(mixed:find("ks_u8x32", 1, true), "byte vectors keep the 32-byte scanner: " .. mixed)
+    local scanner = ("ks_u8x%d"):format(math.min(32, width))
+    assert(mixed:find(scanner, 1, true), "byte vectors keep the " .. scanner .. " scanner: " .. mixed)
     assert(not mixed:find("ks_u8x64", 1, true), "no 64-byte byte scanner exists: " .. mixed)
 end
 
@@ -2697,17 +2717,27 @@ end
 -- the fixture names are one partial chunk of it and the gather still reaches
 -- the native instruction through that chunk's contiguous lanes.
 function M.indexedSimdUsesNativeAvx512MemoryInstructions()
-    local host = assert(require("nupp.compiler.aot.target").hostTriple())
+    local targets = require("nupp.compiler.aot.target")
+    local host = assert(targets.hostTriple())
     local triple = host:gsub("^[^-]+", "x86_64")
+    -- The gather and scatter this asserts address their lanes through a
+    -- 64-byte vector of addresses, so a target whose frame will not carry one
+    -- does not get them at all. The triple follows the host, so on Windows
+    -- there is nothing here to assert and the rest of the case still is.
+    local native = targets.vectorCeiling({triple = triple, architecture = "x86_64", tier = "avx512f"}) == nil
     for _, source in ipairs({INDEXED_SIMD, (INDEXED_SIMD:gsub("float", "number"):gsub(", 8%)", ", 4)"))}) do
         local dir = project{["indexed.nupp"] = source}
         local c, cCode = run(dir, "--target " .. triple .. " --features avx512f --emit c indexed.nupp")
         test.equal(cCode, 0, c)
-        assert(c:find("#define KS_SIMD_WIDTH 64", 1, true), c)
+        if native then
+            assert(c:find("#define KS_SIMD_WIDTH 64", 1, true), c)
+        end
         local asm, code = run(dir, "--target " .. triple .. " --features avx512f --emit asm indexed.nupp")
         test.equal(code, 0, asm)
-        assert(asm:find("vpgather", 1, true), asm)
-        assert(asm:find("vpscatter", 1, true), asm)
+        if native then
+            assert(asm:find("vpgather", 1, true), asm)
+            assert(asm:find("vpscatter", 1, true), asm)
+        end
 
         -- The lanes these walk are ordinary arrays, and a Windows worker died
         -- on one: GCC widened it to the register it moved it with, and the

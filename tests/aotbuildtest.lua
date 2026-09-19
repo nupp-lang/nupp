@@ -1671,13 +1671,25 @@ function M.theFeatureTierReachesTheBackend()
     -- Named from the tier's own width rather than a constant, because NEON's is
     -- not its register width: it pairs two registers for a region, so binary64
     -- gets four lanes there where one 16-byte register would hold two.
-    local tierBytes = require("nupp.compiler.aot.target").TIERS[tier]
+    local targets = require("nupp.compiler.aot.target")
+    -- Bounded by what the target's frame carries as well as by the tier: a
+    -- Windows build takes sixteen bytes however wide its registers are, so
+    -- every tier there names the same species.
+    local ceiling = targets.vectorCeiling({
+        triple = assert(targets.hostTriple()),
+        architecture = targets.architecture(assert(targets.hostTriple())),
+        tier = tier,
+    })
+    local tierBytes = math.min(targets.TIERS[tier], ceiling or math.huge)
     local expected = ("ks_exp_f64x%d"):format(tierBytes / 8)
     assert(after:find(expected, 1, true), ("the tier gets %s: %s"):format(expected, after:sub(1, 200)))
 
     if widens then
-        assert(baseline:find("ks_exp_f64x2", 1, true), "the same build carries its baseline fallback")
-        assert(after ~= baseline, "and the ceiling also carries the wide unit")
+        assert(
+            baseline:find(("ks_exp_f64x%d"):format(math.min(16, ceiling or 16) / 8), 1, true),
+            "the same build carries its baseline fallback"
+        )
+        assert(ceiling ~= nil or after ~= baseline, "and the ceiling also carries the wide unit")
         assert(read(dir .. "/build/native/aot/features.c"), "several tiers bring one baseline runtime detector")
     else
         test.equal(after, before, "naming the only tier an architecture has changes nothing")
