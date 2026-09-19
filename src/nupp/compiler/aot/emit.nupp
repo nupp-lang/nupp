@@ -3111,10 +3111,9 @@ end
 
 --- Render a proved whole-vector field pair with a portable gather fallback.
 local function neonFieldPair(context: emit.Context, pair: cplan.FieldPair, prefix: string): {string}?
-    if context.explicitScalar or emit.scalar(
-        context,
-        pair.left.args[2]
-    ) ~= emit.scalar(context, pair.right.args[2]) then
+    if context.explicitScalar
+        or emit.scalar(context, pair.left.args[2]) ~= emit.scalar(context, pair.right.args[2])
+    then
         return nil
     end
     local species = genericSpecies(context, pair.left.type)
@@ -3122,7 +3121,12 @@ local function neonFieldPair(context: emit.Context, pair: cplan.FieldPair, prefi
     if species.element ~= neon.element or species.lanes % neon.lanes ~= 0 then
         return nil
     end
-    local lines: {string} = {prefix .. "#if defined(__aarch64__) && (defined(__clang__) || defined(__GNUC__))"}
+    local lines: {string} = {}
+    for _, statement in ipairs({pair.first, pair.second}) do
+        lines[#lines + 1] = prefix .. emit.cType(context, statement.type) .. " " .. statement.cName .. ";"
+    end
+    lines[#lines + 1] = prefix .. "#if defined(__aarch64__) && (defined(__clang__) || defined(__GNUC__))"
+    lines[#lines + 1] = prefix .. "if (" .. emit.cursorSafe(context, pair.left) .. ") {"
     local temps: {string} = {}
     for chunk = 0, species.lanes / neon.lanes - 1 do
         local name = "ks_pair_" .. pair.first.cName .. "_" .. tostring(chunk)
@@ -3137,10 +3141,11 @@ local function neonFieldPair(context: emit.Context, pair: cplan.FieldPair, prefi
             .. neon.load
             .. "((const "
             .. neon.alias
-            .. " *)(p_"
-            .. tostring(
-                pair.left.span
-            ) .. " + (size_t)" .. tostring(pair.left.cursorCName) .. " + " .. tostring(chunk * neon.lanes) .. "u));"
+            .. " *)("
+            .. emit.cursorAddress(
+                context,
+                pair.left
+            ) .. " + " .. tostring(chunk * neon.lanes) .. "u));"
     end
 
     local function binding(statement: scalarIR.Let, member: integer): nil
@@ -3167,23 +3172,18 @@ local function neonFieldPair(context: emit.Context, pair: cplan.FieldPair, prefi
                 context.vectorCeiling
             )
         end
-        lines[
-            #lines + 1
-        ] = prefix .. emit.cType(context, statement.type) .. " " .. statement.cName .. " = " .. loaded .. ";"
+        lines[#lines + 1] = prefix .. statement.cName .. " = " .. loaded .. ";"
     end
 
     binding(pair.first, pair.leftIndex)
     binding(pair.second, pair.rightIndex)
-    lines[#lines + 1] = prefix .. "#else"
-    for _, statement in ipairs({pair.first, pair.second}) do
-        lines[
-            #lines + 1
-        ] = prefix .. emit.cType(
-            context,
-            statement.type
-        ) .. " " .. statement.cName .. " = " .. emit.scalar(context, statement.value) .. ";"
-    end
+    lines[#lines + 1] = prefix .. "} else"
     lines[#lines + 1] = prefix .. "#endif"
+    lines[#lines + 1] = prefix .. "{"
+    for _, statement in ipairs({pair.first, pair.second}) do
+        lines[#lines + 1] = prefix .. statement.cName .. " = " .. emit.scalar(context, statement.value) .. ";"
+    end
+    lines[#lines + 1] = prefix .. "}"
 
     return lines
 end

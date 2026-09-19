@@ -2708,8 +2708,13 @@ uint32_t %s(const void *, uint32_t, size_t);
 void %s(void *, uint32_t, size_t);
 ]]):format(names.width, names.read, names.read_base, names.write, names.read_fields, names.write_field))
     local lanes = tonumber(lib[names.width]())
+    if ffi.arch == "arm64" then
+        local emitted = assert(read(tieredC(dir, "neon")))
+        assert(emitted:find("vld2q_u32", 1, true), "paired derived loads did not deinterleave")
+    end
     local input = ffi.new("uint32_t[64]")
     for i = 0, 63 do input[i] = 100 + i end
+    test.equal(tonumber(lib[names.read_fields](input, 0, 32)), 201 + 4 * lanes, "paired load retains its vector displacement")
     -- The count is synthetic; every defined access wraps into the tiny buffer
     -- or is inactive at index zero. No multi-gigabyte allocation is necessary.
     local count, low, zero = 4294967296 + 128, 4294967296 - lanes, 4294967295 - lanes

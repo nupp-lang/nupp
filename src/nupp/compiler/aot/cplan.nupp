@@ -258,15 +258,16 @@ function cplan.neonFieldPair(
     if left == nil or right == nil then
         return nil
     end
-    if left.cursor == nil or left.cursor ~= right.cursor or left.cursorCName ~= right.cursorCName or left.args[
-        3
-    ] ~= nil or right.args[
-        3
-    ] ~= nil
+    if left.cursor == nil
+        or left.cursor ~= right.cursor
+        or left.cursorCName ~= right.cursorCName
+        or left.args[3] ~= nil
+        or right.args[3] ~= nil
         or left.span ~= right.span
         or left.layout ~= right.layout
         or left.field == right.field
-        or left.type ~= right.type then
+        or left.type ~= right.type
+    then
         return nil
     end
     local layout = layouts[left.layout as string]
