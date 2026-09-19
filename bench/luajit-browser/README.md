@@ -147,7 +147,7 @@ fresh worker with normal boot. This never selects a different Lua VM.
 
 The maintained tests cover transport cancellation and stale responses, package
 verification, LuaJIT FFI/callbacks/bit/buffer/LPeg/JIT features, fresh startup
-entropy, snapshot recovery, and thirty native-versus-guest compiler responses
+entropy, snapshot recovery, and thirty-nine native-versus-guest compiler responses
 with edits and compatibility switches. The workflow runs them without COOP/COEP.
 The diagnostic result in `results/guest-protocol.json` explicitly uses preserved
 spike binaries: it is separate from source-built package acceptance.
@@ -194,6 +194,71 @@ The source-built Linux CI package remains the baseline for local runtime edits.
 `stage-runtime.py` creates a labeled development overlay for interpreted code;
 production packaging rejects such an overlay unless `NUPP_BROWSER_DEV=1` is
 explicitly set. Local overlay evidence is not a replacement for source-build CI.
+
+## Integrated measurements (2026-09-19)
+
+The final local playground uses guest `140b5611…`, built from pinned sources in
+CI at `bfdc6a43`, with production package verification enabled. It does not use
+the development-overlay escape hatch. `results/integrated-provenance.json`
+records the guest, source revision, compiler/asset digests and test-driver hashes.
+`results/packaged-browser-matrix.json` records all thirty passing packaged checks
+across Chromium, Firefox and Playwright WebKit under the deployment CSP.
+The original CI run built the guest successfully, then exposed a cold-checkout
+bootstrap-order error; `f27b8f38` fixes that error. Do not describe that original
+run as a passing complete workflow.
+
+On an Apple M5 Pro, three fresh browser runs alternate the two backends. Each
+request kind has thirty measurements after three warmups; every edit changes
+source. These are medians of the three per-run p50/p95 values, in milliseconds:
+
+| Engine | Backend | Small edit p50 / p95 | Large edit p50 / p95 | Hover p50 / p95 |
+| --- | --- | --- | --- | --- |
+| Chromium 152 | LuaJIT | 2.4 / 3.1 | 148.1 / 241.2 | 0.5 / 0.6 |
+| Chromium 152 | Legacy Lua 5.1 | 0.3 / 0.6 | 20.1 / 32.9 | <1 / <1 |
+| Firefox 155 | LuaJIT | 3 / 4 | 191 / 294 | 1 / 1 |
+| Firefox 155 | Legacy Lua 5.1 | <1 / 1 | 27 / 40 | <1 / 1 |
+| Playwright WebKit 26.6 | LuaJIT | 3 / 4 | 205 / 328 | 1 / 1 |
+| Playwright WebKit 26.6 | Legacy Lua 5.1 | <1 / 1 | 19 / 30 | <1 / 1 |
+
+The large edit changes a 2,048-element numeric literal (roughly 9 KiB), not an
+imported project. Timers in Firefox/WebKit round submillisecond observations.
+Chromium compiler-worker startup is 450 ms for LuaJIT versus 77 ms for legacy;
+startup plus the first check is 1,354 ms versus 204 ms. This is localhost with
+no imposed network limit. The large-edit gap is guest execution, not a constant
+14 ms transport penalty. `results/playground-performance.json` retains samples
+and first-request timings. There is no blanket compiler-speed improvement.
+
+The actual playground tour, with a shared 10 Mbps response budget and 25 ms
+response delay, measured:
+
+| Fresh page | First diagnostic | First program output | Asset response bytes |
+| --- | --- | --- | --- |
+| Cold cache | 6.62 s | 9.90 s | 8,148,942 |
+| Warm HTTP cache | 1.35 s | 1.80 s | 0 |
+
+First diagnostic accounts for 5,191,268 cold bytes; Run also loads the runner.
+The measurement delivers text with HTTP gzip and binary assets with their
+explicit compression. It is not the game-only first-frame benchmark, a mobile
+network measurement, or a promise that cached startup is free. See
+`results/playground-delivery.json`. The actual UI's infinite-loop Stop took
+29–38 ms across these engines; `results/playground-ui.json` includes reruns,
+settings, backend switching and embedded-editor teardown.
+
+Memory profiles of 64/128 MiB describe guest RAM only. In a separate fresh
+Chromium process-family measurement, macOS's `footprint` tool reported:
+
+| Backend | Blank browser | Compiler ready | Sampled peak | After page close |
+| --- | --- | --- | --- | --- |
+| LuaJIT | 538 MiB | 823 MiB | 1,264 MiB | 543 MiB |
+| Legacy Lua 5.1 | 528 MiB | 610 MiB | 629 MiB | 474 MiB |
+
+Thus this run added about 285 MiB at compiler-ready and peaked 726 MiB above
+its blank-browser baseline. The peak occurred during the first application run.
+Samples are 100 ms apart, include browser overhead, and are not a hard upper
+bound. Process-family RSS is recorded separately because summing it counts
+shared pages more than once. These measurements do not establish mobile memory
+acceptance. See `results/playground-memory.json` and reproduce with
+`editors/playground/test/process-memory.mjs` on macOS.
 
 ## Release acceptance still required
 

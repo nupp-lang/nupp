@@ -1,0 +1,106 @@
+{
+  "scope": "Integrated branch browser implementation. Source-built guest with production asset verification; desktop engines only. No physical mobile or shipping Safari acceptance. Timings are observations, not a universal device budget.",
+  "runtimeRevision": "f27b8f3846ee1708fa4969c2b4d8240bbd86ffd1",
+  "guestSourceRevision": "bfdc6a434590a081f9813c8377d1360823dcec3e",
+  "guestBuildWorkflow": "https://github.com/nupp-lang/nupp/actions/runs/35423368430",
+  "guestBuildNote": "Guest build succeeded and artifact was uploaded. The subsequent compiler step failed because the workflow had not bootstrapped the new --host option; f27b8f38 fixes that ordering. Local production conformance is recorded separately.",
+  "buildKey": "140b5611ba31dfb101c21341deee8f10f0725632dda20f5404ff7815d8dc5fa5",
+  "manifestSha256": "ae999f18a9312012f0e66c5dc3b60d56f04253b113cada33d987d99680360cf2",
+  "playgroundAssets": {
+    "compiler": "nupp-compiler-7c735766fa8967cc.lua",
+    "compilerSha256": "7c735766fa8967cc3116a29c5509e528cdf46ad1bf58c70f2ccdd87cb220a7db",
+    "hostModule": "nupp-playground.mjs",
+    "hostWasm": "nupp-playground.wasm",
+    "appRuntime": "nupp-app-runtime-72293faf441cd717.lua",
+    "appRuntimeSha256": "72293faf441cd71745b056c15c654cecac658a2ac9897d18af06966427741913",
+    "appHostModule": "nupp-runner.mjs",
+    "appHostWasm": "nupp-runner.wasm",
+    "bytes": {
+      "compiler": 7428395,
+      "hostModule": 12477,
+      "hostWasm": 224538,
+      "appRuntime": 693126,
+      "appHostModule": 33225,
+      "appHostWasm": 322280
+    },
+    "luajit": {
+      "guestManifest": "luajit/140b5611ba31dfb101c21341deee8f10f0725632dda20f5404ff7815d8dc5fa5/guest-manifest.json",
+      "compiler": "nupp-compiler-b47618967051484c.ljbc.gz",
+      "compilerSha256": "b47618967051484cd4e0f44c4ccdb4d8c4acafbeae1d9d94bd8070a64039a297",
+      "compilerBytes": 1634437,
+      "compilerDecodedBytes": 6491652,
+      "appRuntime": "nupp-luajit-app-e915fdacb3afe54d.lua.gz",
+      "appRuntimeSha256": "e915fdacb3afe54d7ec121b4e54d5132ada1ce2a6224028a5cb834d834c4545f",
+      "appRuntimeBytes": 111262,
+      "appRuntimeDecodedBytes": 668938
+    }
+  },
+  "driverSha256": {
+    "luajit-ui.mjs": "79063a3df37d5b379517182701440710622a1f3c4de476aead284c6ca36588ef",
+    "process-memory.mjs": "6055707e40e67086136f9e01f26ad8753e3abfdbe1b2965a3c966a700b8cf2fb",
+    "compiler-performance.mjs": "077529c5523854354881cf1b89d17b6adb813ab539419b39f290c27018423f6b",
+    "delivery.mjs": "2b411bce699872e0629647e85c45522bc14fd58a04192c440827eeb14e17302a",
+    "browser-matrix.mjs": "a1a517a5dabc2c99865f07ac73a0ec37b3fc106efe5c57915e2e52b232c8d838"
+  },
+  "csp": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:8791",
+  "crossOriginIsolationRequired": false,
+  "gpuScope": "Chromium SwiftShader software adapter executes the shader; Firefox and WebKit in this installation explicitly report unavailable WebGPU. Not hardware-GPU performance.",
+  "localValidation": {
+    "postRebaseFocused": {
+      "passed": 191,
+      "failed": 0
+    },
+    "fixpoint": "byte-identical",
+    "templateSmoke": {
+      "ok": true,
+      "plain": {
+        "ok": true,
+        "result": {
+          "persisted": true,
+          "digest": "c407c24e308675781158468ee3ef5e969bb6b6304232baf994c77b95073e85a6",
+          "project": "browser-example",
+          "elapsedMilliseconds": 112.10000002384186
+        }
+      },
+      "simd": {
+        "ok": true,
+        "selected": "simd",
+        "result": {
+          "first": 2,
+          "last": 12290,
+          "tier": "simd128",
+          "project": "browser-simd-example"
+        }
+      },
+      "scalar": {
+        "ok": true,
+        "selected": "scalar",
+        "result": {
+          "tier": "scalar",
+          "project": "browser-simd-example",
+          "first": 2,
+          "last": 12290
+        }
+      }
+    },
+    "productionBrowserMatrix": {
+      "file": "packaged-browser-matrix.json",
+      "checks": 30,
+      "passed": 30,
+      "engines": [
+        "chromium",
+        "firefox",
+        "webkit"
+      ]
+    },
+    "documentationAndTemplates": {
+      "passed": 139,
+      "failed": 0
+    }
+  },
+  "limits": [
+    "Lua-C-API builder AOT entries require ordinary LuaJIT execution or explicit legacy backend.",
+    "Guest FFI libraries must match i386 Linux; local header preprocessing is not available in the browser.",
+    "Legacy lowerers remain for the agreed rollback release; main and stage-zero pin are unchanged."
+  ]
+}
