@@ -1511,7 +1511,8 @@ end
 --- argument asks for `Preferred`, the target's own lane count; a second, a
 --- literal lane count, asks for `Fixed<N>`, which names the count the
 --- algorithm needs without naming an instruction set and may occupy several
---- native registers to get it. Either way the result is an optional. Code
+--- native registers to get it. Fixed counts must be between 2 and 64.
+--- Either way the result is an optional. Code
 --- that has a scalar continuation tests it:
 ---
 --- ```nupp

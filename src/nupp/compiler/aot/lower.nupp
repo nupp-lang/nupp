@@ -1601,6 +1601,16 @@ local function admitSpecies(node: cst.Call, kernel: lower.Kernel): nil
     if #arguments > 2 or #arguments == 2 and arguments[2].kind ~= "number" then
         context.reject(site, "simd.species takes a witness and, for a fixed shape, one literal lane count")
     end
+    if #arguments == 2 then
+        local token = (arguments[2] as cst.NumberLit).token
+        local lanes = token ~= nil and tonumber(((token as lexer.Token).text:gsub("_", ""))) or nil
+        if lanes == nil or lanes % 1 ~= 0 or lanes < 2 or lanes > 64 then
+            context.reject(
+                lower.site(arguments[2]),
+                "a fixed SIMD species needs an integer lane count between 2 and 64"
+            )
+        end
+    end
     if kernel.workgroupSize ~= nil or kernel.phasesName ~= nil then
         context.reject(site, "simd.species has no answer inside a GPU kernel; it is for @aot CPU functions")
     end

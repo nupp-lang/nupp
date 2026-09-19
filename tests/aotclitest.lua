@@ -2594,6 +2594,28 @@ return {nibbles = nibbles}
     assert(out:find("NUPP2003", 1, true), "as an operand type error: " .. out)
 end
 
+-- One lane previously reached fixedSimdPrelude and crashed after lowering.
+-- Keep the unsupported source as a diagnostic regression, not a larger vector.
+function M.fixedSpeciesRejectUnsupportedLaneCountsAtTheSource()
+    for _, lanes in ipairs({0, 1, 65}) do
+        local dir = project{["fixed-count.nupp"] = ([[
+local array = require("nupp.mem.array")
+local simd = require("nupp.simd")
+@aot
+local function count(): uint32
+    local species = assert(simd.species(array.uint8, %d))
+    return species.lanes
+end
+return {count = count}
+]]):format(lanes)}
+        local out, code = run(dir, "--target aarch64-apple-darwin --features neon --emit c fixed-count.nupp")
+        test.equal(code, 1, out)
+        assert(out:find("fixed-count.nupp:5:", 1, true), out)
+        assert(out:find("integer lane count between 2 and 64", 1, true), out)
+        assert(not out:find("stack traceback", 1, true), out)
+    end
+end
+
 function M.structuralVectorOperationsHaveScalarReferenceSemantics()
     local source = [[
 local span = require("nupp.mem.span")

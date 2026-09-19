@@ -520,7 +520,8 @@ arg reducers do not invent an index for a seed.
 
 `simd.species(witness)` is the target's preferred species for one element,
 named by its storage witness, and `simd.species(witness, N)` is the
-target-neutral `Fixed<N>` shape. Both answer an optional: a species on every
+target-neutral `Fixed<N>` shape, with an integer lane count from 2 through 64.
+Both answer an optional: a species on every
 tier that has vector registers, `nil` where there are none. Code with a
 scalar continuation tests it, and the compiler decides the test per artifact
 tier, so a tier with vectors compiles the vector arm and one without drops it
