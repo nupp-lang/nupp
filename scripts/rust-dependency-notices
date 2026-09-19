@@ -77,7 +77,7 @@ awk -v inventory="$inventory" '
         close(inventory)
         next
     }
-    { print }
+    { sub(/[[:blank:]]+$/, ""); print }
 ' "$report" > "$generated"
 
 if [ "$mode" = write ]; then
