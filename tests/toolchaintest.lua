@@ -348,10 +348,9 @@ end
 function M.windowsHostLinkersCarryPthread()
     local driver = read(ROOT .. "/scripts/toolchain")
     local packLinker = read(ROOT .. "/scripts/compiler-pack-link.c")
-    assert(
-        driver:match('windows%)%s+set %-%- "?%$@"? %-lpthread '),
-        "the Windows application host linker does not link pthread"
-    )
+    local systemFlags = assert(driver:match("host_system_flags%(%) {%s*(.-)\n}"))
+    local windowsFlags = assert(systemFlags:match("windows%)(.-);;"))
+    assert(windowsFlags:find("-lpthread", 1, true), "the Windows application host linker does not link pthread")
     assert(
         packLinker:match('#ifdef _WIN32%s+append%(&cursor, "%-lpthread"%);'),
         "the Windows compiler-pack host linker does not link pthread"
@@ -484,16 +483,14 @@ function M.staticHostsRetainTheRustApplicationArchive()
     )
     local applications = assert(driver:find('if [ -n "$archives" ]; then', 1, true))
     local windowsHost = assert(driver:find('set -- "$@" "$host_out/libnupp-host.a"', applications, true))
-    local systemImports = assert(
-        driver:find('-lws2_32 -ldbghelp -lole32 -lshell32 -lbcrypt -lcrypt32 -lntdll', 1, true)
-    )
+    local systemImports = assert(driver:find('$(host_system_flags "$features")', windowsHost, true))
     local hostImports = assert(driver:find('set -- "$@" "$host_out/libnupp-host-imports.a"', systemImports, true))
     assert(
         windowsHost < systemImports and systemImports < hostImports,
         "the Windows import companion can preempt MinGW's canonical system imports"
     )
     assert(
-        driver:find('-lkernel32 -lsecur32 -lncrypt', systemImports, true),
+        driver:find('-lkernel32 -lsecur32 -lncrypt', 1, true),
         "the import companion can preempt canonical kernel, security, or cryptography imports"
     )
     assert(
@@ -522,15 +519,9 @@ function M.staticHostsRetainTheRustApplicationArchive()
         "the Windows compiler-pack scans the host before force-loaded AOT archives"
     )
     assert(
-        packLinker:find(
-            'append(&cursor, "-lkernel32")',
-            packSystemImports,
-            true
-        ) and packLinker:find(
-            'append(&cursor, "-lsecur32")',
-            packSystemImports,
-            true
-        ) and packLinker:find('append(&cursor, "-lncrypt")', packSystemImports, true),
+        packLinker:find('append(&cursor, "-lkernel32")', packSystemImports, true)
+        and packLinker:find('append(&cursor, "-lsecur32")', packSystemImports, true)
+        and packLinker:find('append(&cursor, "-lncrypt")', packSystemImports, true),
         "the compiler-pack companion can preempt canonical Windows imports"
     )
     assert(
@@ -570,12 +561,18 @@ function M.gpuHostSelectionReachesTheProviderAndAdvertisedCapability()
     local driver = read(ROOT .. "/scripts/toolchain")
     local cargo = read(ROOT .. "/native/crates/host/Cargo.toml")
     local runtime = read(ROOT .. "/native/crates/host/src/lua.rs")
-    assert(driver:find('native-gpu|gpu) host_cargo_features="$host_cargo_features,native-gpu"', 1, true),
-        "the host driver must accept and forward the GPU feature")
-    assert(cargo:find('native-gpu = ["nupp-native/gpu"]', 1, true),
-        "the host feature must enable the native GPU provider")
-    assert(runtime:find('self.add_feature(c"native-gpu")?', 1, true),
-        "the packaged host must advertise its GPU capability")
+    assert(
+        driver:find('native-gpu|gpu) host_cargo_features="$host_cargo_features,native-gpu"', 1, true),
+        "the host driver must accept and forward the GPU feature"
+    )
+    assert(
+        cargo:find('native-gpu = ["nupp-native/gpu"]', 1, true),
+        "the host feature must enable the native GPU provider"
+    )
+    assert(
+        runtime:find('self.add_feature(c"native-gpu")?', 1, true),
+        "the packaged host must advertise its GPU capability"
+    )
 end
 
 function M.deletedCHostDoesNotContributeCacheInputs()
@@ -737,7 +734,6 @@ function M.theOldCCompilerNameStillSelects()
     assert(viaAlias ~= viaPrimary, "the primary names did not win over the aliases: " .. viaAlias)
 end
 
-
 -- Test a checkout copy: changing patch bytes must change both the native prefix
 -- and the source fingerprint used by host artifacts, without rebuilding C.
 function M.luaJitPatchContentChangesNativeAndHostKeys()
@@ -773,7 +769,13 @@ function M.luaJitBuildPatchesOnlyItsPrivateSourceCopy()
     local directory = temporary()
     local root = directory .. "/root"
     local source = directory .. "/cache/sources/LuaJIT-" .. pins().LUAJIT_REV
-    assert(os.execute("mkdir -p " .. quote(root .. "/scripts/patches") .. " " .. quote(root .. "/host/notices") .. " " .. quote(source .. "/src")) == 0)
+    assert(
+        os.execute(
+            "mkdir -p " .. quote(
+                root .. "/scripts/patches"
+            ) .. " " .. quote(root .. "/host/notices") .. " " .. quote(source .. "/src")
+        ) == 0
+    )
     local driver = root .. "/scripts/toolchain"
     write(driver, read(DRIVER))
     write(root .. "/scripts/toolchain.pins", read(ROOT .. "/scripts/toolchain.pins"))
@@ -788,7 +790,9 @@ function M.luaJitBuildPatchesOnlyItsPrivateSourceCopy()
         .. "LJ_DATA const uint8_t lj_ir_type_size[];\n\n"
     write(source .. "/src/lj_ir.h", header)
     local make = directory .. "/fake-make"
-    write(make, [[#!/bin/sh
+    write(
+        make,
+        [[#!/bin/sh
 set -eu
 mode=build
 while [ "$#" -gt 0 ]; do
@@ -807,11 +811,23 @@ if [ "$mode" = install ]; then
     printf '#!/bin/sh\necho LuaJIT 2.1.1784535650\n' > "$prefix/bin/luajit"
     chmod +x "$prefix/bin/luajit"
 fi
-]])
+]]
+    )
     write(directory .. "/uname", "#!/bin/sh\nif [ \"$1\" = -m ]; then echo x86_64; else echo Linux; fi\n")
     assert(os.execute("chmod +x " .. quote(driver) .. " " .. quote(make) .. " " .. quote(directory .. "/uname")) == 0)
     local compiler = fakeCompiler(directory, "fake-cc", "fixed")
-    local status, output = run({NUPP_TOOLCHAIN_DIR = directory .. "/cache", NUPP_CC = compiler, NUPP_CXX = compiler, MAKE = make, NUPP_TEST_SHARED_SOURCE = source, PATH = forPath(directory) .. ":$PATH"}, "luajit", driver)
+    local status, output = run(
+        {
+            NUPP_TOOLCHAIN_DIR = directory .. "/cache",
+            NUPP_CC = compiler,
+            NUPP_CXX = compiler,
+            MAKE = make,
+            NUPP_TEST_SHARED_SOURCE = source,
+            PATH = forPath(directory) .. ":$PATH"
+        },
+        "luajit",
+        driver
+    )
     assert(status == 0, output)
     assert(read(source .. "/src/lj_ir.h") == header, "the shared verified source was patched")
     assert(not io.open(source .. "/private-build-marker", "rb"), "make wrote into the shared verified source")
@@ -822,33 +838,67 @@ local function luaJitSelection(architecture, stagedExists, patched, replaceBinar
     local current = directory .. "/current"
     local staged = directory .. "/staged"
     local root = directory .. "/root"
-    assert(os.execute("mkdir -p " .. quote(current) .. " " .. quote(staged .. "/bin") .. " " .. quote(root .. "/scripts")) == 0)
-    write(current .. "/uname", "#!/bin/sh\nif [ \"$1\" = -m ]; then echo " .. quote(architecture) .. "; else echo Linux; fi\n")
+    assert(
+        os.execute(
+            "mkdir -p " .. quote(current) .. " " .. quote(staged .. "/bin") .. " " .. quote(root .. "/scripts")
+        ) == 0
+    )
+    write(
+        current .. "/uname",
+        "#!/bin/sh\nif [ \"$1\" = -m ]; then echo " .. quote(architecture) .. "; else echo Linux; fi\n"
+    )
     write(current .. "/luajit", "#!/bin/sh\necho 'LuaJIT 2.1.9999999999'\n")
     if patched then
         assert(os.execute("mkdir -p " .. quote(root .. "/scripts/patches")) == 0)
         local patch = root .. "/scripts/patches/luajit-irt-size.patch"
         write(patch, read(ROOT .. "/scripts/patches/luajit-irt-size.patch"))
         local receipt = directory .. "/.nupp-runtime-patch"
-        assert(os.execute("{ cksum < " .. quote(patch) .. "; cksum < " .. quote(current .. "/luajit") .. "; } > " .. quote(receipt)) == 0)
+        assert(
+            os.execute(
+                "{ cksum < " .. quote(
+                    patch
+                ) .. "; cksum < " .. quote(current .. "/luajit") .. "; } > " .. quote(receipt)
+            ) == 0
+        )
         if replaceBinary then
             write(current .. "/luajit", "#!/bin/sh\necho 'LuaJIT 2.1.9999999999 replacement'\n")
         end
     end
     local marker = directory .. "/provisioned"
-    write(root .. "/scripts/toolchain", "#!/bin/sh\nprintf requested > " .. quote(marker) .. "\nprintf '%s\\n' " .. quote(forPath(staged)) .. "\n")
+    write(
+        root .. "/scripts/toolchain",
+        "#!/bin/sh\nprintf requested > " .. quote(marker) .. "\nprintf '%s\\n' " .. quote(forPath(staged)) .. "\n"
+    )
     if stagedExists then
         write(staged .. "/bin/luajit", "#!/bin/sh\necho 'LuaJIT 2.1.1784535650'\n")
         assert(os.execute("chmod +x " .. quote(staged .. "/bin/luajit")) == 0)
     end
-    assert(os.execute("chmod +x " .. quote(current .. "/uname") .. " " .. quote(current .. "/luajit") .. " " .. quote(root .. "/scripts/toolchain")) == 0)
-    local command = ('env PATH="%s:$PATH" sh -c %s 2>&1'):format(forPath(current), quote('. ' .. quote(ROOT .. '/scripts/luajit.sh') .. '; if select_luajit ' .. quote(root) .. '; then command -v luajit; else echo SELECT_FAILED; fi'))
+    assert(
+        os.execute(
+            "chmod +x " .. quote(
+                current .. "/uname"
+            ) .. " " .. quote(current .. "/luajit") .. " " .. quote(root .. "/scripts/toolchain")
+        ) == 0
+    )
+    local command = (
+        'env PATH="%s:$PATH" sh -c %s 2>&1'
+    ):format(
+        forPath(current),
+        quote(
+            '. ' .. quote(
+                ROOT .. '/scripts/luajit.sh'
+            ) .. '; if select_luajit ' .. quote(root) .. '; then command -v luajit; else echo SELECT_FAILED; fi'
+        )
+    )
     local pipe = assert(io.popen(command))
     local selected = pipe:read("*a")
     pipe:close()
     local handle = io.open(marker, "rb")
     local provisioned = handle ~= nil
-    if handle then handle:close() end
+    if handle then
+        handle:close()
+    end
+
     return selected:gsub("%s+$", ""), provisioned, current, staged
 end
 

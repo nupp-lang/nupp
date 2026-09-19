@@ -1172,14 +1172,20 @@ function M.gpuRemarksNameTheAuthoredDeclarationAndArtifact()
     local dir = gpuProject()
     local path = dir .. "/nupp.lua"
     local manifest = assert(io.open(path, "wb"))
-    manifest:write([[return {include = {"src"}, build = {targets = {native = {
+    manifest:write(
+        [[return {include = {"src"}, build = {targets = {native = {
         kind = "modules", entries = {"gpucheck"}, outDir = "build/native", aot = "emit-c",
-    }}}}]])
+    }}}}]]
+    )
     manifest:close()
     for _ = 1, 2 do
-        local pipe = assert(io.popen((
-            "cd %q && NUPP_CACHE_DIR=%q '%s' build --target native --remarks-out --json 2>/dev/null"
-        ):format(dir, cacheFor(dir), NUPP)))
+        local pipe = assert(
+            io.popen(
+                (
+                    "cd %q && NUPP_CACHE_DIR=%q '%s' build --target native --remarks-out --json 2>/dev/null"
+                ):format(dir, cacheFor(dir), NUPP)
+            )
+        )
         local text = pipe:read("*a")
         pipe:close()
         local report = require("testjson").decode(text)
@@ -2534,16 +2540,21 @@ function M.scalarLogicalOperatorsReturnValuesAndPreserveEffects()
         os.remove(dir)
         assert(os.execute(("mkdir -p %q"):format(dir .. "/src")) == 0)
         local manifest = assert(io.open(dir .. "/nupp.lua", "wb"))
-        manifest:write(([[return {
+        manifest:write(
+            (
+                [[return {
     include = {"src"},
     build = {targets = {native = {
         kind = "modules", entries = {"logical"}, outDir = "build/native", aot = %q,
     }}},
 }
-]]):format(policy))
+]]
+            ):format(policy)
+        )
         manifest:close()
         local source = assert(io.open(dir .. "/src/logical.nupp", "wb"))
-        source:write([[
+        source:write(
+            [[
 module logical
 local span = require("nupp.mem.span")
 local array = require("nupp.mem.array")
@@ -2628,7 +2639,8 @@ local function overflowingRoom(borrows values: span.Span<uint32>): uint32
     return 0
 end
 export = {logical = logical, guarded = guarded, stringValue = stringValue, reverseGuarded = reverseGuarded, scalarMask = scalarMask, movedCursor = movedCursor, helperSpecies = helperSpecies, overflowingRoom = overflowingRoom, logicalResults = logicalResults}
-]])
+]]
+        )
         source:close()
         local out, code = build(dir)
         test.equal(code, 0, ("logical values at %s build under %s: %s"):format(dir, policy, out))
@@ -2656,17 +2668,29 @@ export = {logical = logical, guarded = guarded, stringValue = stringValue, rever
         answers[policy] = (pipe:read("*a"):gsub("%s+$", ""))
         pipe:close()
     end
-    test.equal(answers.require, answers.off, "compiled logical operators preserve Lua values and selected-branch effects")
-    test.equal(answers.require, "7\t1\t0\ttrue\n9\t10\t0\ttrue\n0\t1\t0\ttrue\ntrue\t1\n2147483649\t42\t0\t0\n[]\tfallback\n2147483649\t42\t0\t0\n1\t0\n1\n3\t0\n0\t9")
+    test.equal(
+        answers.require,
+        answers.off,
+        "compiled logical operators preserve Lua values and selected-branch effects"
+    )
+    test.equal(
+        answers.require,
+        "7\t1\t0\ttrue\n9\t10\t0\ttrue\n0\t1\t0\ttrue\ntrue\t1\n2147483649\t42\t0\t0\n[]\tfallback\n2147483649\t42\t0\t0\n1\t0\n1\n3\t0\n0\t9"
+    )
 end
 
 function M.provenSimdCursorsKeepWrappedIndicesOnLargeSpans()
-    if not hasToolchain() then return end
+    if not hasToolchain() then
+        return
+    end
     local ffi = require("ffi")
-    if ffi.sizeof("size_t") < 8 then return end
+    if ffi.sizeof("size_t") < 8 then
+        return
+    end
     local dir = project("require")
     local handle = assert(io.open(dir .. "/src/kernel.nupp", "wb"))
-    handle:write([[
+    handle:write(
+        [[
 local span = require("nupp.mem.span")
 local simd = require("nupp.simd")
 local array = require("nupp.mem.array")
@@ -2720,7 +2744,8 @@ local function writeField(exclusive output: span.WriteSpan<Pair>, cursor: uint32
     end
 end
 return {width=width, read=read, readBase=readBase, write=write, readFields=readFields, writeField=writeField}
-]])
+]]
+    )
     handle:close()
     local out, code = build(dir)
     test.equal(code, 0, out)
@@ -2730,22 +2755,32 @@ return {width=width, read=read, readBase=readBase, write=write, readFields=readF
         names[name] = librarySymbol(lib, "ks_" .. name)
     end
     -- Explicit scalar arguments precede the ABI's appended span counts.
-    ffi.cdef(([[
+    ffi.cdef(
+        (
+            [[
 uint32_t %s(void);
 uint32_t %s(const void *, uint32_t, size_t);
 uint32_t %s(const void *, uint32_t, size_t);
 void %s(void *, uint32_t, size_t);
 uint32_t %s(const void *, uint32_t, size_t);
 void %s(void *, uint32_t, size_t);
-]]):format(names.width, names.read, names.read_base, names.write, names.read_fields, names.write_field))
+]]
+        ):format(names.width, names.read, names.read_base, names.write, names.read_fields, names.write_field)
+    )
     local lanes = tonumber(lib[names.width]())
     if ffi.arch == "arm64" then
         local emitted = assert(read(tieredC(dir, "neon")))
         assert(emitted:find("vld2q_u32", 1, true), "paired derived loads did not deinterleave")
     end
     local input = ffi.new("uint32_t[64]")
-    for i = 0, 63 do input[i] = 100 + i end
-    test.equal(tonumber(lib[names.read_fields](input, 0, 32)), 201 + 4 * lanes, "paired load retains its vector displacement")
+    for i = 0, 63 do
+        input[i] = 100 + i
+    end
+    test.equal(
+        tonumber(lib[names.read_fields](input, 0, 32)),
+        201 + 4 * lanes,
+        "paired load retains its vector displacement"
+    )
     -- The count is synthetic; every defined access wraps into the tiny buffer
     -- or is inactive at index zero. No multi-gigabyte allocation is necessary.
     local count, low, zero = 4294967296 + 128, 4294967296 - lanes, 4294967295 - lanes
@@ -2757,11 +2792,17 @@ void %s(void *, uint32_t, size_t);
     for _, entry in ipairs({{name = "write", stride = 1}, {name = "write_field", stride = 2}}) do
         for _, cursor in ipairs({low, zero}) do
             local output = ffi.new("uint32_t[64]")
-            for i = 0, 63 do output[i] = 11 end
+            for i = 0, 63 do
+                output[i] = 11
+            end
             lib[names[entry.name]](output, cursor, count)
             for i = 0, 63 do
                 local changed = cursor == low and i < lanes * entry.stride and i % entry.stride == 0
-                test.equal(tonumber(output[i]), changed and 7 or 11, entry.name .. " at " .. cursor .. ": element " .. i)
+                test.equal(
+                    tonumber(output[i]),
+                    changed and 7 or 11,
+                    entry.name .. " at " .. cursor .. ": element " .. i
+                )
             end
         end
     end
@@ -4250,9 +4291,9 @@ end
             else
                 for i = 0, case.lanes - 1 do
                     local value = tonumber(input[i])
-                    local valid = not case.from.floating or case.to.floating or (
-                        value >= -2 ^ 63 and value < (case.to.name == "uint64" and 2 ^ 64 or 2 ^ 63)
-                    )
+                    local valid = not case.from.floating
+                        or case.to.floating
+                        or (value >= -2 ^ 63 and value < (case.to.name == "uint64" and 2 ^ 64 or 2 ^ 63))
                     local expected = valid and ffi.cast(case.to.c, input[i]) or reference[i]
                     local a, b = tonumber(actual[i]), tonumber(expected)
                     if a == a and b == b then
@@ -5043,10 +5084,8 @@ function M.rearrangementsPreserveEveryLaneBitInNativeAndScalarCode()
                     inputs[row] = "s:load(input, " .. ((row - 1) * n + 1) .. ")"
                     stores[row] = "s:store(output, " .. ((row - 1) * n + 1) .. ", " .. names[row] .. ")"
                 end
-                local call = op == "transpose" and "simd.transpose(" .. table.concat(
-                    inputs,
-                    ", "
-                ) .. ")" or inputs[1] .. ":" .. op .. "(" .. inputs[2] .. ")"
+                local call = op == "transpose" and "simd.transpose(" .. table.concat(inputs, ", ") .. ")"
+                    or inputs[1] .. ":" .. op .. "(" .. inputs[2] .. ")"
                 source[
                     #source + 1
                 ] = (
@@ -5110,9 +5149,8 @@ end
                 else
                     index = (i % case.n) * case.n + math.floor(i / case.n)
                 end
-                pieces[
-                    #pieces + 1
-                ] = index < active and ffi.string(bytes + index * size, size) or string.rep("\0", size)
+                pieces[#pieces + 1] = index < active and ffi.string(bytes + index * size, size)
+                    or string.rep("\0", size)
             end
             expected[active] = table.concat(pieces)
         end
@@ -5874,7 +5912,7 @@ return {include={"src"},build={targets={native={kind="bundle",entries={"main"},
     )
     local json = pipe:read("*a")
     pipe:close()
-    local result = require("lunajson").decode(json)
+    local result = require("testjson").decode(json)
     test.equal(result.ok, true, "warm SoA build")
     test.equal(result.timing.aot.compiledObjects, 0, "unchanged source mapping reuses native artifacts")
     test.equal(result.timing.aot.reusedObjects, result.timing.aot.units, "every SoA object reused")
@@ -5903,9 +5941,10 @@ return whole
     )
 end
 
-
 function M.homogeneousFieldPairsPreserveNativeValuesAndMaskedTails()
-    if not hasToolchain() then return end
+    if not hasToolchain() then
+        return
+    end
     local dir = project("require")
     local source = {'local span = require("nupp.mem.span")'}
     local variants = {
@@ -5916,7 +5955,10 @@ function M.homogeneousFieldPairsPreserveNativeValuesAndMaskedTails()
     }
     for _, variant in ipairs(variants) do
         local name, element = variant[1], variant[2]
-        source[#source + 1] = ([[
+        source[
+            #source + 1
+        ] = (
+            [[
 local struct Pair%s
     left: %s
     right: %s
@@ -5932,11 +5974,15 @@ local function pair%s(exclusive output: span.WriteSpan<number>, borrows points: 
         output[i] = left - right
     end
 end
-]]):format(name, element, element, name, name)
+]]
+        ):format(name, element, element, name, name)
     end
-    source[#source + 1] = 'return {pairFloat=pairFloat, pairDouble=pairDouble, pairSigned=pairSigned, pairUnsigned=pairUnsigned}'
+    source[
+        #source + 1
+    ] = 'return {pairFloat=pairFloat, pairDouble=pairDouble, pairSigned=pairSigned, pairUnsigned=pairUnsigned}'
     local handle = assert(io.open(dir .. "/src/kernel.nupp", "wb"))
-    handle:write(table.concat(source, "\n")); handle:close()
+    handle:write(table.concat(source, "\n"));
+    handle:close()
     local report, code = build(dir)
     test.equal(code, 0, report)
     local ffi = require("ffi")
@@ -5945,9 +5991,13 @@ end
         local name, ctype = variant[1], variant[3]
         local symbol = librarySymbol(library, "ks_pair_" .. name:lower())
         local oracle = librarySymbol(library, "ks_pair_" .. name:lower() .. "_forced_scalar")
-        ffi.cdef(([[typedef struct { %s left, right; } NuppFieldPair%s;
+        ffi.cdef(
+            (
+                [[typedef struct { %s left, right; } NuppFieldPair%s;
 void %s(double *, const NuppFieldPair%s *, size_t);
-void %s(double *, const NuppFieldPair%s *, size_t);]]):format(ctype, name, symbol, name, oracle, name))
+void %s(double *, const NuppFieldPair%s *, size_t);]]
+            ):format(ctype, name, symbol, name, oracle, name)
+        )
         for count = 0, 37 do
             local points = ffi.new("NuppFieldPair" .. name .. "[?]", math.max(count, 1))
             local output, scalar = ffi.new("double[?]", count + 4), ffi.new("double[?]", count + 4)
@@ -5955,7 +6005,9 @@ void %s(double *, const NuppFieldPair%s *, size_t);]]):format(ctype, name, symbo
                 points[i].left = name == "Unsigned" and 2147483648 + i or i - 19
                 points[i].right = i * 3 + 7
             end
-            for i = 0, count + 3 do output[i], scalar[i] = -991, -991 end
+            for i = 0, count + 3 do
+                output[i], scalar[i] = -991, -991
+            end
             library[symbol](output, points, count)
             library[oracle](scalar, points, count)
             for i = 0, count - 1 do
@@ -5963,7 +6015,9 @@ void %s(double *, const NuppFieldPair%s *, size_t);]]):format(ctype, name, symbo
                 test.equal(output[i], expected, name .. " lane " .. i)
                 test.equal(output[i], scalar[i], name .. " scalar lane " .. i)
             end
-            for i = count, count + 3 do test.equal(output[i], -991, "tail sentinel") end
+            for i = count, count + 3 do
+                test.equal(output[i], -991, "tail sentinel")
+            end
         end
     end
     if ffi.arch == "arm64" then

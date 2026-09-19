@@ -49,7 +49,9 @@ local function run(dir)
     local status, output = process.capture({"luajit", dir .. "/out/app.lua"})
     assert(status == 0, output)
 
-    return produced, output
+    -- Printed lines use CRLF on Windows; the provider results are the same.
+
+    return produced, (output:gsub("\r\n", "\n"))
 end
 
 function M.typedLazyIterationRetainsModuleIdentityAndBindsDirectFunctions()

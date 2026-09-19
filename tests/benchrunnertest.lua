@@ -53,12 +53,18 @@ end
 
 local M = {}
 
+-- The cases share build/bench-case.json, build/remarks.json and the final
+-- report. A lifecycle hook keeps the suite together when workers are assigned.
+function M.beforeAll()
+end
+
 function M.gpuCostFilesAreUniqueAcrossForksAndCandidates()
     local directory, stdout = os.tmpname(), os.tmpname()
     os.remove(directory)
     local fixture = HERE .. "/fixtures/bench_fixed_records.g.nupp"
-    local command = ("%q bench --file %q --case '^fixed$' --forks 2 --against %q --margin 5 --gpu-costs %q --json > %q")
-        :format(NUPP, fixture, NUPP, directory, stdout)
+    local command = (
+        "%q bench --file %q --case '^fixed$' --forks 2 --against %q --margin 5 --gpu-costs %q --json > %q"
+    ):format(NUPP, fixture, NUPP, directory, stdout)
     assertEq(os.execute(command), 0, "cost routing works without requiring a GPU workload")
     local report = json.decode(read(stdout))
     local seen, count = {}, 0
@@ -82,13 +88,16 @@ function M.comparisonRecordsRetainBothSidesAndVerdicts()
     local fixture = HERE .. "/fixtures/bench_fixed_records.g.nupp"
     os.remove(history)
     os.remove(baseline)
+
     local function run(extra)
         local command = ("%q bench --file %q --json %s > %q"):format(NUPP, fixture, extra, stdout)
         assertEq(os.execute(command), 0, "fixed-record comparison succeeds")
         local output = read(stdout)
         assertEq(output:gsub("%s+$", ""), read("build/bench-record.json"), "stdout and saved record agree")
+
         return json.decode(output)
     end
+
     local paired = run(("--case '^fixed$' --forks 12 --against %q --margin 5 --history %q"):format(NUPP, history))
     local comparison = paired.comparisons[1]
     assertEq(comparison.kind, "interleaved", "paired provenance survives serialization")
@@ -113,7 +122,9 @@ function M.comparisonRecordsRetainBothSidesAndVerdicts()
     assertEq(verdict.adjusted, 1, "adjusted significance is retained")
     assertEq(verdict.verdict, "unchanged", "the comparison verdict is retained")
     assertEq(read(history):gsub("%s+$", ""), read(stdout):gsub("%s+$", ""), "history retains identical evidence")
-    local f = assert(io.open(baseline, "wb")); f:write(read(stdout)); f:close()
+    local f = assert(io.open(baseline, "wb"));
+    f:write(read(stdout));
+    f:close()
 
     local observed = run(("--case '^fixed$' --forks 1 --baseline %q --margin 5 --accept"):format(baseline))
     comparison = observed.comparisons[1]
@@ -130,7 +141,9 @@ function M.comparisonRecordsRetainBothSidesAndVerdicts()
     assertEq(verdict.withheld, "trend-warning", "trend withholding survives serialization")
     assertEq(verdict.interval, nil, "a withheld interval is absent")
     assertEq(verdict.verdict, "inconclusive", "a trend cannot acquire a confident verdict")
-    os.remove(stdout); os.remove(history); os.remove(baseline)
+    os.remove(stdout);
+    os.remove(history);
+    os.remove(baseline)
 end
 
 function M.caseListingIsSeparateFromApplicationOutputAndRunnerNIsFixed()
@@ -332,9 +345,7 @@ function M.replicatedRunKeepsEveryForkAndFixesTheWorkAcrossThem()
     local fixture = HERE .. "/fixtures/bench_protocol.g.nupp"
     os.remove(stdout)
 
-    local ran = os.execute(
-        ("%q bench --file %q --forks 12 --seed 4242 --json > %q"):format(NUPP, fixture, stdout)
-    )
+    local ran = os.execute(("%q bench --file %q --forks 12 --seed 4242 --json > %q"):format(NUPP, fixture, stdout))
     assertEq(ran, 0, "a replicated run exits successfully")
     local document = json.decode(read(stdout))
     assertEq(document.forks, 12, "the record says how many processes ran")
@@ -350,8 +361,8 @@ function M.replicatedRunKeepsEveryForkAndFixesTheWorkAcrossThem()
         assertTrue(#fork.measurement.samplesSec > 0, "each fork keeps its own ordered samples")
     end
 
-    -- Fork one calibrates and the rest are told what it chose. Without this their scores
-    -- would each be a median over a different amount of work.
+    -- Fork one calibrates and the rest are told what it chose. Without this their
+    -- scores would each be a median over a different amount of work.
     local iterations = benchmark.forks[1].measurement.n
     assertTrue(iterations ~= nil and iterations >= 1, "the first fork calibrated an iteration count")
     for _, fork in ipairs(benchmark.forks) do
@@ -360,13 +371,10 @@ function M.replicatedRunKeepsEveryForkAndFixesTheWorkAcrossThem()
 
     assertEq(#benchmark.summary.forkSummariesSec, 12, "one summary per process feeds the interval")
     assertTrue(benchmark.summary.intervalLowSec ~= nil, "twelve forks support an interval")
-    assertTrue(
-        benchmark.summary.intervalCoverage >= 0.95,
-        "and it reports a coverage that clears the target"
-    )
+    assertTrue(benchmark.summary.intervalCoverage >= 0.95, "and it reports a coverage that clears the target")
     assertTrue(
         benchmark.summary.intervalLowSec <= benchmark.summary.medianSec
-            and benchmark.summary.medianSec <= benchmark.summary.intervalHighSec,
+        and benchmark.summary.medianSec <= benchmark.summary.intervalHighSec,
         "the interval brackets the score"
     )
 
