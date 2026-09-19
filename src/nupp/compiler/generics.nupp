@@ -2069,12 +2069,12 @@ function generics.unify(param: Type, arg: Type, map: Bindings): nil
         end
     elseif tag == "shape" then
         local staticOwner = arg.tag == "metatable" and arg.of and arg.of.tag == "nominal" and arg.of or nil
-        local reads = arg.tag == "shape" and arg.byname or (
-            arg.tag == "nominal" and arg.byname
-        ) or staticOwner and staticOwner.staticByname
-        local writes = arg.tag == "shape" and arg.writeByname or (
-            arg.tag == "nominal" and arg.writeByname
-        ) or staticOwner and staticOwner.staticWriteByname
+        local reads = arg.tag == "shape" and arg.byname
+            or (arg.tag == "nominal" and arg.byname)
+            or staticOwner and staticOwner.staticByname
+        local writes = arg.tag == "shape" and arg.writeByname
+            or (arg.tag == "nominal" and arg.writeByname)
+            or staticOwner and staticOwner.staticWriteByname
         if reads or writes then
             for _, f in ipairs(param.fields) do
                 local read = reads and reads[f.name]

@@ -155,10 +155,8 @@ local function directEntry(t: T.Shape | T.Nominal, name: string): members.Entry?
         declarationKind = t.tag == "nominal" and t.declKind or "shape",
         definition = defs[1],
         definitions = #defs > 1 and defs or nil,
-        annotations = readDefinition
-        and readDefinition.annotations
-        or writeDefinition
-        and writeDefinition.annotations
+        annotations = readDefinition and readDefinition.annotations
+        or writeDefinition and writeDefinition.annotations
         or {}
     }
 end

@@ -102,9 +102,11 @@ function gpu.Phases.inclusiveScanU32(
 ): nil
     local values = valuesInput as gpu.Shared<uint32>
     local temporary = temporaryInput as gpu.Shared<uint32>
-    if values.count ~= self._size or temporary.count ~= self._size or self._size < 1 or self._size & (
-        self._size - 1
-    ) ~= 0 then
+    if values.count ~= self._size
+        or temporary.count ~= self._size
+        or self._size < 1
+        or self._size & (self._size - 1) ~= 0
+    then
         error("nupp: fixed scan needs two power-of-two arrays with one value per lane", 2)
     end
     local offset: integer = 1

@@ -235,9 +235,9 @@ end
 local function applyTestColor(args: {string}): integer?
     local color: string? = nil
     for _, argument in ipairs(args) do
-        local asked = argument == "--color" and "always" or argument == "--no-color" and "never" or argument:match(
-            "^%-%-color=(.*)$"
-        )
+        local asked = argument == "--color" and "always"
+            or argument == "--no-color" and "never"
+            or argument:match("^%-%-color=(.*)$")
         if asked ~= nil then
             if asked ~= "always" and asked ~= "never" and asked ~= "auto" then
                 io.stderr:write("nupp: --color must be always, never, or auto\n")

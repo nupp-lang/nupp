@@ -217,9 +217,8 @@ function tree.findDeclaration(tokens: {lexer.Token}, name: string, near: number)
             local declared = previous ~= nil and DECLARING[previous.kind] or false
             if not declared and previous and (previous.kind == "." or previous.kind == ":") then
                 local cursor = index - 1
-                while tokens[
-                    cursor
-                ] and (tokens[cursor].kind == "." or tokens[cursor].kind == ":" or tokens[cursor].kind == "name") do
+                while tokens[cursor]
+                    and (tokens[cursor].kind == "." or tokens[cursor].kind == ":" or tokens[cursor].kind == "name") do
                     cursor = cursor - 1
                 end
                 declared = tokens[cursor] ~= nil and DECLARING[tokens[cursor].kind] or false
@@ -291,9 +290,12 @@ function tree.functionAt(functions: {any}?, offset: integer?): (any?, integer?, 
     local selected, selectedFrom, selectedTo = nil, nil, nil
     for _, info in ipairs(functions) do
         local from, to = tree.nodeBounds(info.node)
-        if from and to and offset >= from and offset <= to and (
-            not selected or to - from < (selectedTo as integer) - (selectedFrom as integer)
-        ) then
+        if from
+            and to
+            and offset >= from
+            and offset <= to
+            and (not selected or to - from < (selectedTo as integer) - (selectedFrom as integer))
+        then
             selected, selectedFrom, selectedTo = info, from, to
         end
     end

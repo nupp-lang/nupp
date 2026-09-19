@@ -179,16 +179,13 @@ function index.install(c: state.Checker): state.ExprHandlers
                 -- one that used to be a field of the ambient table, so it has to record
                 -- the same feature effect an explicit require would. Without this the
                 -- native library a module stands on stops being carried.
-                local moduleEffect = suffix[
-                    1
-                ] and (
-                    standardSurface.requireMember(
-                        c,
-                        candidate,
-                        suffix[1],
-                        node.name or node
-                    ) or native.forModuleMember(candidate, suffix[1])
-                ) or standardSurface.requireModule(c, candidate, node.name or node) or native.forModule(candidate)
+                local moduleEffect = suffix[1]
+                    and (
+                        standardSurface.requireMember(c, candidate, suffix[1], node.name or node)
+                        or native.forModuleMember(candidate, suffix[1])
+                    )
+                    or standardSurface.requireModule(c, candidate, node.name or node)
+                    or native.forModule(candidate)
                 if moduleEffect and c.recordEffect then
                     (node as any).compilerFeatureEffect = moduleEffect
                     c.recordEffect(moduleEffect)
@@ -214,9 +211,11 @@ function index.install(c: state.Checker): state.ExprHandlers
                 end
                 if node.name then
                     local exports = c.env.resolveModuleExports and c.env.resolveModuleExports(c.env, candidate) or nil
-                    local exported = #suffix == 0 and registry.moduleDefinitions and registry.moduleDefinitions[
-                        candidate
-                    ] or #suffix == 1 and exports and exports.valueDefs and exports.valueDefs[suffix[1]] or definition
+                    local exported = #suffix == 0
+                        and registry.moduleDefinitions
+                        and registry.moduleDefinitions[candidate]
+                        or #suffix == 1 and exports and exports.valueDefs and exports.valueDefs[suffix[1]]
+                        or definition
                     c.markToken(node.name, exported, resolved, exported and exported.kind or "property")
                 end
                 return resolved
@@ -382,9 +381,9 @@ function index.install(c: state.Checker): state.ExprHandlers
         -- intentionally not qualified with allocation/raising facts; a checked region
         -- can nevertheless ask for this one exported definition's sidecar entry.
         local targetDefinition = target.kind == "name" and target.token and target.token.definition or nil
-        local parentExport = not node.writeContext and (
-            (target as any).exactCallExport or targetDefinition and targetDefinition.exactCallExport
-        ) or nil
+        local parentExport = not node.writeContext
+            and ((target as any).exactCallExport or targetDefinition and targetDefinition.exactCallExport)
+            or nil
         if parentExport ~= nil then
             node.exactCallExport = {
                 module = parentExport.module,
@@ -405,15 +404,12 @@ function index.install(c: state.Checker): state.ExprHandlers
         local base = kind == "safeIndex" and ot.tag == "union" and T.union(ot.members) or ot
         base = rawType(base)
         local indexedView = indexedViews.describe(base)
-        if indexedView and (
-            memberName == "get" or memberName == "getMut" or memberName == "set" or memberName == "count"
-        ) then
-            local replacement = memberName == "count"
-                and "use #view"
-                or memberName == "set"
-                and "use view[index] = value"
-                or memberName == "getMut"
-                and "use view[index].field as the writable place"
+        if indexedView
+            and (memberName == "get" or memberName == "getMut" or memberName == "set" or memberName == "count")
+        then
+            local replacement = memberName == "count" and "use #view"
+                or memberName == "set" and "use view[index] = value"
+                or memberName == "getMut" and "use view[index].field as the writable place"
                 or "use view[index]"
             c.diag("NUPP2004", member, ("indexed views no longer expose %q; %s"):format(memberName, replacement), nil, {
                 help = replacement
@@ -444,9 +440,10 @@ function index.install(c: state.Checker): state.ExprHandlers
                 return nil
             end
             local t, def = c.env.exportedNominal(c.env, exporting, memberName)
-            if t and t.tag == "nominal" and (
-                t.declKind == "record" or t.declKind == "struct" or t.declKind == "interface"
-            ) then
+            if t
+                and t.tag == "nominal"
+                and (t.declKind == "record" or t.declKind == "struct" or t.declKind == "interface")
+            then
                 -- The same value the declaring module bound, so a record arrives as the
                 -- metatable its table is rather than as an instance of it.
                 local held = t.declKind == "struct" and t or T.typeObject(t)
@@ -491,9 +488,8 @@ function index.install(c: state.Checker): state.ExprHandlers
             if physicalOwner.tag == "nominal"
                 and physicalOwner.declKind == "struct"
                 and physicalOwner.writeFieldDefs
-                and physicalOwner.writeFieldDefs[
-                    memberName
-                ] then
+                and physicalOwner.writeFieldDefs[memberName]
+            then
                 node.fixedWidthPhysicalStore = true
             end
             local after = c.fieldType(base, memberName)
@@ -523,9 +519,11 @@ function index.install(c: state.Checker): state.ExprHandlers
         end
         local nominal = base.tag == "nominal" and base or nil
         local declaration = nominal and (((nominal as T.Nominal).origin or nominal) as T.Nominal) or nil
-        if declaration and declaration.privateFields and declaration.privateFields[
-            memberName
-        ] and declaration.moduleName ~= c.result.moduleName then
+        if declaration
+            and declaration.privateFields
+            and declaration.privateFields[memberName]
+            and declaration.moduleName ~= c.result.moduleName
+        then
             c.diag(
                 "NUPP2209",
                 member,
@@ -539,10 +537,11 @@ function index.install(c: state.Checker): state.ExprHandlers
             else
                 local holder = holderName ~= "" and c.lookupEntry(holderName) or nil
                 local exporting = holder and holder.requiredModule
-                local exports = exporting and c.env and c.env.resolveModuleExports and c.env.resolveModuleExports(
-                    c.env,
-                    exporting
-                ) or nil
+                local exports = exporting
+                    and c.env
+                    and c.env.resolveModuleExports
+                    and c.env.resolveModuleExports(c.env, exporting)
+                    or nil
                 fieldDef = exports and exports.valueDefs and exports.valueDefs[memberName] or nil
             end
         end
@@ -555,8 +554,7 @@ function index.install(c: state.Checker): state.ExprHandlers
                     ("property %q is %s-only"):format(memberName, writing and "read" or "write"),
                     nil,
                     {
-                        help = writing
-                        and "assign through a view that grants write access"
+                        help = writing and "assign through a view that grants write access"
                         or "read through a view that grants read access"
                     }
                 )
@@ -594,11 +592,8 @@ function index.install(c: state.Checker): state.ExprHandlers
             -- fields Lua itself reads: `__index` is a table to defer to or a function
             -- to run, `__newindex` the same for writes, and either may be absent.
             if base.tag == "metatable" and (memberName == "__index" or memberName == "__newindex") then
-                local handler = memberName == "__index" and T.func(
-                    {T.any, T.any},
-                    {T.any},
-                    false
-                ) or T.func({T.any, T.any, T.any}, {}, false)
+                local handler = memberName == "__index" and T.func({T.any, T.any}, {T.any}, false)
+                    or T.func({T.any, T.any, T.any}, {}, false)
                 local installed = T.optional(T.union({T.table_, handler}))
                 c.markToken(member, nil, installed, "property")
                 node.resolvedType = installed
@@ -635,9 +630,9 @@ function index.install(c: state.Checker): state.ExprHandlers
                 fixes = c.edits.spellingFix(member, c.metamethodNames(base))
             end
             c.diag("NUPP2004", member, ("no field %q in %s"):format(memberName, T.tostring(base)), fixes, {
-                help = fixes and (
-                    contracted and "use the suggested contract spelling" or "use the suggested field spelling"
-                ) or "check the receiver type and available fields"
+                help = fixes
+                and (contracted and "use the suggested contract spelling" or "use the suggested field spelling")
+                or "check the receiver type and available fields"
             })
             return T.any
         end
@@ -646,9 +641,8 @@ function index.install(c: state.Checker): state.ExprHandlers
             and staticOwner
             and staticOwner.tag == "nominal"
             and staticOwner.overloadedStatics
-            and staticOwner.overloadedStatics[
-                memberName
-            ] then
+            and staticOwner.overloadedStatics[memberName]
+        then
             node.staticOverloadOwner = staticOwner
             node.staticOverloadName = memberName
             if not node.callCallee then
@@ -660,9 +654,11 @@ function index.install(c: state.Checker): state.ExprHandlers
                     {help = "call it through the declaration table so the arguments select one body"}
                 )
             end
-        elseif not writing and base.tag == "nominal" and base.overloadedMethods and base.overloadedMethods[
-            memberName
-        ] then
+        elseif not writing
+            and base.tag == "nominal"
+            and base.overloadedMethods
+            and base.overloadedMethods[memberName]
+        then
             c.diag("NUPP2126", member, ("overloaded method %q has no single field value"):format(memberName), nil, {
                 help = "call it with `:` so the arguments select one body"
             })
@@ -675,12 +671,8 @@ function index.install(c: state.Checker): state.ExprHandlers
         if not effect and target.kind == "name" and target.token then
             local holder = c.lookupEntry(target.token.text)
             if holder and holder.requiredModule then
-                effect = standardSurface.requireMember(
-                    c,
-                    holder.requiredModule,
-                    memberName,
-                    member
-                ) or native.forModuleMember(holder.requiredModule, memberName)
+                effect = standardSurface.requireMember(c, holder.requiredModule, memberName, member)
+                    or native.forModuleMember(holder.requiredModule, memberName)
             end
         end
         if effect and c.recordEffect then
@@ -701,9 +693,11 @@ function index.install(c: state.Checker): state.ExprHandlers
             end
             ft = T.affine(rawType(ft), exact)
         end
-        if not writing and compilerOnlyValue(
-            ft
-        ) and (c.comptimeDepth or 0) == 0 and (c.comptimeFunctionDepth or 0) == 0 then
+        if not writing
+            and compilerOnlyValue(ft)
+            and (c.comptimeDepth or 0) == 0
+            and (c.comptimeFunctionDepth or 0) == 0
+        then
             c.diag("NUPP2421", member, ("compiler-only member %q is available only inside comptime"):format(memberName))
             return T.any
         end
@@ -763,10 +757,9 @@ function index.install(c: state.Checker): state.ExprHandlers
         if not writing and fixedWidth.requiresTrust(out) and target.fixedWidthTrusted == true then
             c.fixedWidth.trust(node, out)
         end
-        node.immutablePath = kind == "dotIndex" and target.immutablePath == true and c.fieldWriteType(
-            base,
-            memberName
-        ) == nil
+        node.immutablePath = kind == "dotIndex"
+            and target.immutablePath == true
+            and c.fieldWriteType(base, memberName) == nil
 
         return out
     end
@@ -878,9 +871,13 @@ function index.install(c: state.Checker): state.ExprHandlers
             end
             return result
         end
-        local staticallyBounded = ot.tag == "carray" and ot.count ~= nil and it.tag == "literal" and type(
-            it.constant
-        ) == "number" and it.constant % 1 == 0 and it.constant >= 0 and it.constant < ot.count
+        local staticallyBounded = ot.tag == "carray"
+            and ot.count ~= nil
+            and it.tag == "literal"
+            and type(it.constant) == "number"
+            and it.constant % 1 == 0
+            and it.constant >= 0
+            and it.constant < ot.count
         local literalIndex = it.tag == "literal" and type(it.constant) == "number" and it.constant % 1 == 0
         local boundsReported = false
         if ot.tag == "carray" and ot.count ~= nil and literalIndex and not staticallyBounded then

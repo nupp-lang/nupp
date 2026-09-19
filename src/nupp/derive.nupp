@@ -239,9 +239,9 @@ writeValue = function(value: any, spec: any, exclusive out: Writer, json: any, s
         if not number or not finite(number) then
             error(path .. ": expected finite number", 3)
         end
-        if kind == "integer" and (
-            number % 1 ~= 0 or spec.minimum and number < spec.minimum or spec.maximum and number > spec.maximum
-        ) then
+        if kind == "integer"
+            and (number % 1 ~= 0 or spec.minimum and number < spec.minimum or spec.maximum and number > spec.maximum)
+        then
             error(path .. ": integer is out of range", 3)
         end
         out:write(number)
@@ -489,9 +489,9 @@ decodeValue = function(value: any, spec: any, entry: any, path: string): (boolea
         if type(value) ~= "number" or not finite(value) then
             return false, nil, path .. ": expected finite number"
         end
-        if kind == "integer" and (
-            value % 1 ~= 0 or spec.minimum and value < spec.minimum or spec.maximum and value > spec.maximum
-        ) then
+        if kind == "integer"
+            and (value % 1 ~= 0 or spec.minimum and value < spec.minimum or spec.maximum and value > spec.maximum)
+        then
             return false, nil, path .. ": expected integer in range"
         end
 
@@ -1011,11 +1011,9 @@ local comptime function debugSpec(T: type, contract: type): any
             or value.name == "number"
             or value.name == "integer"
             or value.name == "float"
-            or value.name:find(
-                "int",
-                1,
-                true
-            ) or value.name:find("uint", 1, true) then
+            or value.name:find("int", 1, true)
+            or value.name:find("uint", 1, true)
+        then
             return {kind = value.name}
         end
     elseif value.kind == "array" then
@@ -1126,10 +1124,8 @@ local comptime function jsonSpec(T: type, contract: type): any
                             and nominal ~= nil
                             and nominal.kind == "record"
                             and nominal.deriveKey ~= nil
-                            and nupp.derive.claims(
-                                member,
-                                contract
-                            ) then
+                            and nupp.derive.claims(member, contract)
+                        then
                             for _, field in ipairs(nominal.fields or {}) do
                                 if field.name == candidate.name then
                                     tagged = field
@@ -1168,10 +1164,11 @@ local comptime function jsonSpec(T: type, contract: type): any
             end
         end
         return nil
-    elseif value.kind == "reference" and value.nominal and value.nominal.deriveKey and nupp.derive.claims(
-        T,
-        contract
-    ) then
+    elseif value.kind == "reference"
+        and value.nominal
+        and value.nominal.deriveKey
+        and nupp.derive.claims(T, contract)
+    then
         return {kind = "record", typeKey = value.nominal.deriveKey}
     end
 
@@ -1232,10 +1229,11 @@ local comptime function serdeSpec(T: type, contract: type): any
             choices[index] = item
         end
         return #choices ~= 0 and {kind = "union", choices = choices} or nil
-    elseif value.kind == "reference" and value.nominal and value.nominal.deriveKey and nupp.derive.claims(
-        T,
-        contract
-    ) then
+    elseif value.kind == "reference"
+        and value.nominal
+        and value.nominal.deriveKey
+        and nupp.derive.claims(T, contract)
+    then
         return {kind = "record", typeKey = value.nominal.deriveKey}
     end
 
@@ -1257,10 +1255,8 @@ comptime function derive.Debug(info: nupp.derive.Info): nupp.derive.Result<nupp.
                 "NUPP2803"
             )
         end
-        local spec = field.name ~= "debug" and not skip and not redact and debugSpec(
-            field.readType,
-            info.interfaceType
-        ) or nil
+        local spec = field.name ~= "debug" and not skip and not redact and debugSpec(field.readType, info.interfaceType)
+            or nil
         if not skip and not redact and not spec then
             if field.name ~= "debug" then
                 return nupp.derive.error("field type cannot be formatted by Debug", field.reference, "NUPP2803")

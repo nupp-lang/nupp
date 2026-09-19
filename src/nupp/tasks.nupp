@@ -633,9 +633,11 @@ local function frameHandler(owner: ScopeState): suspension.Handler
                     const deadline = owner.deadline
                     const expired = deadline ~= nil and timeModule.now() >= deadline
 
-                    return waiting:ready() or (
-                        #owner.queue > 0 and suspensionRuntime.__turnAvailable()
-                    ) or owner.failed or expired or (owner.cancellation ~= nil and not owner.deliberate)
+                    return waiting:ready()
+                    or (#owner.queue > 0 and suspensionRuntime.__turnAvailable())
+                    or owner.failed
+                    or expired
+                    or (owner.cancellation ~= nil and not owner.deliberate)
                 end,
                 onResume = function(_: any, wake: function(): nil): nil
                     local woke = false

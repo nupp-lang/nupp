@@ -67,12 +67,10 @@ local function privateSource(root: string, candidate: string): boolean
     end
     local filename = relative:match("([^/]+)$") or relative
 
-    return filename:sub(
-        1,
-        1
-    ) == "_" or filename == "internal.nupp" or relative:match(
-        "^internal/"
-    ) ~= nil or relative:match("/internal/") ~= nil
+    return filename:sub(1, 1) == "_"
+        or filename == "internal.nupp"
+        or relative:match("^internal/") ~= nil
+        or relative:match("/internal/") ~= nil
 end
 
 local function listDirectoryFiles(path)

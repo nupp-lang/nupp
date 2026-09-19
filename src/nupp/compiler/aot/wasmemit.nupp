@@ -55,9 +55,9 @@ function wasmemit.validate(programs: {scalarIR.Program}): string?
         end
         if program.entryMode == "kernel" then
             for _, param in ipairs(program.params) do
-                if (
-                    param.kind == "write_span" or param.kind == "read_span"
-                ) and param.spanModule ~= "nupp.mem.span" then
+                if (param.kind == "write_span" or param.kind == "read_span")
+                    and param.spanModule ~= "nupp.mem.span"
+                then
                     return "Wasm AOT kernel " .. program.name .. " must use nupp.mem.span spans"
                 end
             end
@@ -117,16 +117,14 @@ function wasmemit.registrar(programs: {scalarIR.Program}, unit: string, tier: st
                         .. element
                         .. " *)"
                         .. (
-                            param.kind == "write_span"
-                            and "nupp_wasm_write_pointer_address"
+                            param.kind == "write_span" and "nupp_wasm_write_pointer_address"
                             or "nupp_wasm_pointer_address"
                         ) .. "(L, " .. tostring(position) .. ", " .. tostring(count) .. " * sizeof(" .. element .. "));"
                     arguments[#arguments + 1] = "p_" .. param.name
                 else
                     local physical = ctype(param.type, param.sourceType)
-                    local read = param.type == "bool" and "(lua_toboolean(L, " .. tostring(
-                        position
-                    ) .. ") != 0)" or "(" .. physical .. ")luaL_checknumber(L, " .. tostring(position) .. ")"
+                    local read = param.type == "bool" and "(lua_toboolean(L, " .. tostring(position) .. ") != 0)"
+                        or "(" .. physical .. ")luaL_checknumber(L, " .. tostring(position) .. ")"
                     if param.type == "i64" or param.type == "u64" then
                         read = "(" .. physical .. ")nupp_wasm_wide_bits(L, " .. tostring(position) .. ")"
                     end
@@ -167,11 +165,8 @@ function wasmemit.registrar(programs: {scalarIR.Program}, unit: string, tier: st
     ] = "    if (lua_type(L, -1) != KS_LUA_TTABLE) return luaL_error(L, \"Wasm AOT registry is not installed\");"
     lines[#lines + 1] = "    lua_createtable(L, 0, " .. tostring(#programs + 1) .. ");"
     for _, program in ipairs(programs) do
-        local closure = program.entryMode == "lua-builder"
-            and program.symbol
-            .. "_lua"
-            or "ks_wasm_call_"
-            .. program.symbol
+        local closure = program.entryMode == "lua-builder" and program.symbol .. "_lua"
+            or "ks_wasm_call_" .. program.symbol
         lines[#lines + 1] = "    lua_pushcclosure(L, " .. closure .. ", 0);"
         lines[#lines + 1] = "    lua_setfield(L, -2, \"" .. program.symbol .. "\");"
     end

@@ -830,9 +830,8 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
             -- A built-in annotation, or a member of one, has no declaration in the
             -- project to show as hover; its own one-line blurb, plus a link to where
             -- it is actually documented, is the useful answer instead of nothing.
-            local label = def.kind == "annotation" and (
-                "@" .. (def.name or tok.text)
-            ) or (def.name or tok.text) .. (t and (": " .. T.tostring(t)) or "")
+            local label = def.kind == "annotation" and ("@" .. (def.name or tok.text))
+                or (def.name or tok.text) .. (t and (": " .. T.tostring(t)) or "")
             local value = "```nupp\n" .. label .. "\n```\n\n" .. def.doc
             if def.docsPath then
                 value = value .. "\n\n[Reference on nupp.org](https://nupp.org/" .. def.docsPath .. ")"
@@ -1130,11 +1129,10 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
                 parameters[
                     #parameters + 1
                 ] = {
-                    label = tail.kind == "homogeneous" and (
-                        "...: " .. T.tostring(tail.type)
-                    ) or tail.kind == "generic" and (
-                        tail.var.name .. "..."
-                    ) or tail.kind == "computed" and ("...: unpackof " .. T.tostring(tail.type)) or "..."
+                    label = tail.kind == "homogeneous" and ("...: " .. T.tostring(tail.type))
+                    or tail.kind == "generic" and (tail.var.name .. "...")
+                    or tail.kind == "computed" and ("...: unpackof " .. T.tostring(tail.type))
+                    or "..."
                 }
             end
             signatures[#signatures + 1] = {label = name .. ": " .. T.tostring(candidate), parameters = parameters,}
@@ -1267,10 +1265,8 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
             return
         end
         local patternEntry, patternSource, patternUri = unaliasedPatternDefinition(tok)
-        local patternRange = patternEntry and patternSource and tokenRange(
-            patternSource,
-            patternEntry.sourceName
-        ) or nil
+        local patternRange = patternEntry and patternSource and tokenRange(patternSource, patternEntry.sourceName)
+            or nil
         local changes = {}
         for _, location in ipairs(references(true)) do
             local edits = changes[location.uri]
@@ -1769,9 +1765,9 @@ function lsp.run(rootDir: string?): integer
 
     local process = require("nupp.io.process")
     local compilerRoot = os.getenv("NUPP_COMPILER_ROOT")
-    local executable = compilerRoot and compilerRoot .. "/bin/nupp" or type(
-        arg
-    ) == "table" and type(arg[0]) == "string" and arg[0] or nil
+    local executable = compilerRoot and compilerRoot .. "/bin/nupp"
+        or type(arg) == "table" and type(arg[0]) == "string" and arg[0]
+        or nil
     if not executable then
         io.stderr:write("nupp-lsp: cannot identify the current executable\n")
         return 1

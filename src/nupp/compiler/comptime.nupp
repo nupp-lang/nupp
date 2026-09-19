@@ -492,9 +492,11 @@ local function buildEnvironment(state)
         end,
         match = string.match,
         rep = function(value, count)
-            if type(
-                value
-            ) == "string" and type(count) == "number" and count > 0 and #value * count > MAX_RESULT_BYTES then
+            if type(value) == "string"
+            and type(count) == "number"
+            and count > 0
+            and #value * count > MAX_RESULT_BYTES
+            then
                 error("string.rep result exceeds the comptime value limit", 0)
             end
 
@@ -1769,11 +1771,10 @@ local function unsealProgram(helper, chunkPrefix, code, loadMessage, entryMessag
     end
 
     for helperName, descriptor in pairs(helper.serializedHelpers or {}) do
-        local parsed = type(
-            descriptor
-        ) == "table" and type(
-            descriptor.source
-        ) == "string" and require("nupp.compiler.parser").parse(descriptor.source, chunkPrefix .. helperName) or nil
+        local parsed = type(descriptor) == "table"
+            and type(descriptor.source) == "string"
+            and require("nupp.compiler.parser").parse(descriptor.source, chunkPrefix .. helperName)
+            or nil
         local node = parsed and #(parsed.errors or {}) == 0 and findLocalFunction(parsed.root) or nil
         if not node or not node.name or node.name.text ~= helperName then
             return nil, nil, {code = code, message = loadMessage .. helperName,} as comptime.Failure
@@ -2051,9 +2052,10 @@ function comptime.evaluateDeriveProviderDirect(
                     return nil, importFailure as comptime.Failure
                 end
                 local rightEntry = state.opaque[claimHandle]
-                local rightIdentity = rightEntry and rightEntry.payload and (
-                    rightEntry.payload.fingerprint or rightEntry.payload.key
-                ) or nil
+                local rightIdentity = rightEntry
+                    and rightEntry.payload
+                    and (rightEntry.payload.fingerprint or rightEntry.payload.key)
+                    or nil
                 if rightIdentity then
                     claims[rightIdentity] = true
                 end
@@ -2089,9 +2091,9 @@ function comptime.evaluate(
 ): string?, T.Type?, comptime.Failure?, any
     local root = getenv("NUPP_COMPILER_ROOT")
     local arguments: any = rawget(_G, "arg")
-    local executable = root and root .. "/bin/nupp" or type(
-        arguments
-    ) == "table" and type(arguments[0]) == "string" and arguments[0] or nil
+    local executable = root and root .. "/bin/nupp"
+        or type(arguments) == "table" and type(arguments[0]) == "string" and arguments[0]
+        or nil
     local worker = compilerServices and compilerServices.comptimeworker or nil
     if worker and executable and not getenv("NUPP_COMPTIME_WORKER_CHILD") then
         worker = worker as {evaluate: function(string, string, any, any, any, any?): (string?, any, any)}

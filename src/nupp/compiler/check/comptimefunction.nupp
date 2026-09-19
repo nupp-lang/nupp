@@ -65,9 +65,10 @@ local function check(c: state.Checker, helper: any, checkOrdinary: function(any)
     checkOrdinary(helper)
     c.comptimeFunctionDepth = c.comptimeFunctionDepth - 1
 
-    if (
-        helper.kind ~= "funcStmt" and not helper.exported
-    ) or owner ~= c.moduleLocal or not helper.comptimeSignature then
+    if (helper.kind ~= "funcStmt" and not helper.exported)
+        or owner ~= c.moduleLocal
+        or not helper.comptimeSignature
+    then
         return
     end
 
@@ -84,9 +85,12 @@ local function check(c: state.Checker, helper: any, checkOrdinary: function(any)
         local contract = answer.typeArgs and answer.typeArgs[1] or nil
         local hasContract = contract and contract.tag == "nominal" and contract.declKind == "interface"
         local isUnconstrained = contract == T.any
-        if #signature.params ~= 1 or signature.params[
-            1
-        ] ~= infoType or #signature.rets ~= 1 or signature.vararg or not (hasContract or isUnconstrained) then
+        if #signature.params ~= 1
+            or signature.params[1] ~= infoType
+            or #signature.rets ~= 1
+            or signature.vararg
+            or not (hasContract or isUnconstrained)
+        then
             c.diag(
                 "NUPP2809",
                 helper.name,
@@ -133,25 +137,26 @@ local function check(c: state.Checker, helper: any, checkOrdinary: function(any)
                     and cst.textOf(value.obj):gsub("%s+", "") == "nupp.derive.helper" then
                     local arguments = value.args and value.args.exprs or {}
                     local modulePath = arguments[1] and c.pathKey(arguments[1]) or nil
-                    local memberText = arguments[
-                        2
-                    ] and arguments[2].kind == "string" and arguments[2].token and arguments[2].token.text or nil
-                    local memberName = memberText and (
-                        memberText:match('^"(.*)"$') or memberText:match("^'(.*)'$")
-                    ) or nil
+                    local memberText = arguments[2]
+                        and arguments[2].kind == "string"
+                        and arguments[2].token
+                        and arguments[2].token.text
+                        or nil
+                    local memberName = memberText and (memberText:match('^"(.*)"$') or memberText:match("^'(.*)'$"))
+                        or nil
                     local first = modulePath and modulePath:match("^[^.]+") or nil
                     local holder = first and c.lookupEntry(first) or nil
-                    local moduleName = holder and holder.requiredModule or (
-                        first == c.moduleLocal and c.result.moduleName or nil
-                    )
+                    local moduleName = holder and holder.requiredModule
+                        or (first == c.moduleLocal and c.result.moduleName or nil)
                     local helperType
                     if moduleName == c.result.moduleName then
                         helperType = c.moduleFields and c.moduleFields[memberName]
                     else
-                        local moduleType = moduleName and c.env and c.env.resolveModule and c.env.resolveModule(
-                            c.env,
-                            moduleName
-                        ) or nil
+                        local moduleType = moduleName
+                            and c.env
+                            and c.env.resolveModule
+                            and c.env.resolveModule(c.env, moduleName)
+                            or nil
                         helperType = moduleType and c.fieldType(moduleType, memberName) or nil
                     end
                     if modulePath and moduleName and memberName and helperType and helperType.tag == "func" then

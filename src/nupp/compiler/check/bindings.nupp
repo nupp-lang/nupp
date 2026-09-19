@@ -78,10 +78,11 @@ function bindings.install(c: state.Checker): state.StatHandlers
                 local availableNames = c.fieldNames(sourceType)
                 if entry.typeOnly then
                     local moduleName = source.requiredModule
-                    local exports = moduleName and c.env and c.env.resolveModuleExports and c.env.resolveModuleExports(
-                        c.env,
-                        moduleName
-                    ) or nil
+                    local exports = moduleName
+                        and c.env
+                        and c.env.resolveModuleExports
+                        and c.env.resolveModuleExports(c.env, moduleName)
+                        or nil
                     fieldType = exports and exports.types and exports.types[fieldName] or nil
                     definition = exports and exports.typeDefs and exports.typeDefs[fieldName] or nil
                     availableNames = {}
@@ -99,9 +100,8 @@ function bindings.install(c: state.Checker): state.StatHandlers
                     c.diag(
                         "NUPP2004",
                         fieldTok or entry,
-                        entry.typeOnly and (
-                            "no exported type %q in this module"
-                        ):format(fieldName) or ("no field %q in %s"):format(fieldName, T.tostring(sourceType)),
+                        entry.typeOnly and ("no exported type %q in this module"):format(fieldName)
+                        or ("no field %q in %s"):format(fieldName, T.tostring(sourceType)),
                         c.edits.nameSpellingFix(fieldTok, availableNames)
                     )
                     fieldType = T.any
@@ -192,9 +192,10 @@ function bindings.install(c: state.Checker): state.StatHandlers
             -- A literal initializing an annotated callable is checked against that
             -- annotation the way a call argument is checked against its slot, so
             -- its parameters take the types and modes the annotation names.
-            if initializer and rawAnnotation.tag == "func" and (
-                initializer.kind == "shortfn" or initializer.kind == "funcExpr"
-            ) then
+            if initializer
+                and rawAnnotation.tag == "func"
+                and (initializer.kind == "shortfn" or initializer.kind == "funcExpr")
+            then
                 local contextual: any = initializer
                 contextual.expectedCallable = annotation
             end
@@ -226,9 +227,9 @@ function bindings.install(c: state.Checker): state.StatHandlers
                 end
             end
             if ann and init then
-                local initializer = initializers[
-                    j
-                ] or initializerCount > 0 and j >= initializerCount and initializers[initializerCount] or nil
+                local initializer = initializers[j]
+                    or initializerCount > 0 and j >= initializerCount and initializers[initializerCount]
+                    or nil
                 if initializer and j >= initializerCount then
                     initializer.fixedWidthResultIndex = j - initializerCount + 1
                 end
@@ -251,13 +252,14 @@ function bindings.install(c: state.Checker): state.StatHandlers
                     c.diag(
                         code,
                         initializers[j] or stat,
-                        ann == T.any and "a live capability cannot be erased into any" or (
-                            ownershipKind(init) as string
-                        ) .. " value needs a matching ownership annotation"
+                        ann == T.any and "a live capability cannot be erased into any"
+                        or (ownershipKind(init) as string) .. " value needs a matching ownership annotation"
                     )
-                elseif ok and not ownershipKind(
-                    init
-                ) and init ~= T.nil_ and (ownershipKind(ann) == "affine" or ownershipKind(ann) == "pinned") then
+                elseif ok
+                    and not ownershipKind(init)
+                    and init ~= T.nil_
+                    and (ownershipKind(ann) == "affine" or ownershipKind(ann) == "pinned")
+                then
                     -- The annotation would mint an obligation on a value nothing
                     -- produced as one: cleanup then runs on a plain table, or twice on
                     -- a resource somebody else still owns. Owners come from a typed
@@ -266,9 +268,8 @@ function bindings.install(c: state.Checker): state.StatHandlers
                     c.diag(
                         erased and "NUPP2611" or "NUPP2603",
                         initializers[j] or stat,
-                        erased and "a value of type any cannot become an owner by annotation" or (
-                            "%s cannot become an owner by annotation"
-                        ):format(T.tostring(init)),
+                        erased and "a value of type any cannot become an owner by annotation"
+                        or ("%s cannot become an owner by annotation"):format(T.tostring(init)),
                         nil,
                         {help = "obtain the owner from a typed producer, or adopt it with unsafe adopt"}
                     )
@@ -315,18 +316,19 @@ function bindings.install(c: state.Checker): state.StatHandlers
                     if not hasConst then
                         bound = T.table_
                     end
-                elseif bound == T.nil_ and (
-                    not (c.opts and c.opts.strict) or initializerCount == 0 or initializers[j] ~= nil
-                ) then
+                elseif bound == T.nil_
+                    and (not (c.opts and c.opts.strict) or initializerCount == 0 or initializers[j] ~= nil)
+                then
                     bound = T.any
                 end
                 -- A literal that keeps its shape here is bound by name from now on,
                 -- so the latitude a literal has while it is being checked ends.
                 bound = T.settled(bound)
             end
-            if (
-                ownershipKind(init) == "affine" or ownershipKind(init) == "pinned"
-            ) and stat.exprs and initializers[j] then
+            if (ownershipKind(init) == "affine" or ownershipKind(init) == "pinned")
+                and stat.exprs
+                and initializers[j]
+            then
                 moveExpression(initializers[j], init, "local initialization", ownershipKind(init))
             end
             if ann and nameTok.text == c.moduleLocal then
@@ -354,9 +356,9 @@ function bindings.install(c: state.Checker): state.StatHandlers
             if boundEntry and ownershipKind(bound) == "affine" and init == T.nil_ then
                 ownershipState(boundEntry).emptySlot = true
             end
-            local initNode = initializers[
-                j
-            ] or initializerCount > 0 and j >= initializerCount and initializers[initializerCount] or nil
+            local initNode = initializers[j]
+                or initializerCount > 0 and j >= initializerCount and initializers[initializerCount]
+                or nil
             local fixedResultIndex = initNode and j >= initializerCount and j - initializerCount + 1 or nil
             if initNode and fixedResultIndex then
                 initNode.fixedWidthResultIndex = fixedResultIndex
@@ -460,9 +462,8 @@ function bindings.install(c: state.Checker): state.StatHandlers
                     isLibrary = true
                 elseif coroutineGlobal ~= nil then
                     if source ~= nil then
-                        isLibrary = source == coroutineGlobal or (
-                            source.definition ~= nil and source.definition == coroutineGlobal.definition
-                        )
+                        isLibrary = source == coroutineGlobal
+                            or (source.definition ~= nil and source.definition == coroutineGlobal.definition)
                     else
                         isLibrary = baseTok.text == "coroutine"
                     end
@@ -482,11 +483,10 @@ function bindings.install(c: state.Checker): state.StatHandlers
             local returnPartitionFields = nil
             local exprCount = #initializers
             local expandedCall = exprCount > 0 and initializers[exprCount] or nil
-            local returnFacts = expandedCall and j >= exprCount and c.own.capabilityFacts(
-                expandedCall,
-                j - exprCount + 1,
-                false
-            ) or nil
+            local returnFacts = expandedCall
+                and j >= exprCount
+                and c.own.capabilityFacts(expandedCall, j - exprCount + 1, false)
+                or nil
             if returnFacts then
                 returnRoots = returnFacts.roots
                 returnExclusiveBorrow = returnFacts.exclusive or false
@@ -507,9 +507,12 @@ function bindings.install(c: state.Checker): state.StatHandlers
             -- elsewhere and assigns nothing, so it is not making this mistake.
             local nominal = ann and ann.tag == "nominal" and (ann.declKind == "record" or ann.declKind == "struct")
             local strict = c.opts and c.opts.strict
-            if boundEntry and ann and not initNode and not c.declarationFile and (
-                nominal or strict and not isA(T.nil_, ann)
-            ) then
+            if boundEntry
+                and ann
+                and not initNode
+                and not c.declarationFile
+                and (nominal or strict and not isA(T.nil_, ann))
+            then
                 boundEntry.unassigned = true
                 boundEntry.unassignedAt = nameTok
             end
@@ -553,14 +556,10 @@ function bindings.install(c: state.Checker): state.StatHandlers
             -- A const binding may carry the exact range proof produced by the sealed
             -- standard indexed-view operation. Every participating view is already a
             -- const name, as checked at the call.
-            local rangeExport = initNode
-                and initNode.kind == "call"
-                and initNode.obj
-                and initNode.obj.exactCallExport
+            local rangeExport = initNode and initNode.kind == "call" and initNode.obj and initNode.obj.exactCallExport
                 or nil
-            local indexedRangeCall = initNode and initNode.kind == "call" and (
-                initNode as cst.Call
-            ).indexedRangeCall or nil
+            local indexedRangeCall = initNode and initNode.kind == "call" and (initNode as cst.Call).indexedRangeCall
+                or nil
             if boundEntry
                 and boundEntry.definition
                 and stat.isConst
@@ -571,8 +570,7 @@ function bindings.install(c: state.Checker): state.StatHandlers
             then
                 boundEntry.definition.indexedRangeWitness = {views = indexedRangeCall.views,}
             end
-            local scalarIdentity = initNode
-                and initNode.scalarIntrinsic
+            local scalarIdentity = initNode and initNode.scalarIntrinsic
                 or initNode
                 and initNode.kind == "name"
                 and initNode.token
@@ -595,14 +593,16 @@ function bindings.install(c: state.Checker): state.StatHandlers
             if boundEntry and initNode and initNode.kind == "name" and initNode.token then
                 local sourceEntry = c.lookupEntry(initNode.token.text)
                 local source = init and rawType(init) or nil
-                if source and (
-                    source == T.table_
-                    or source.tag == "array"
-                    or source.tag == "map"
-                    or source.tag == "tuple"
-                    or source.tag == "shape"
-                    or source.tag == "nominal"
-                ) then
+                if source
+                    and (
+                        source == T.table_
+                        or source.tag == "array"
+                        or source.tag == "map"
+                        or source.tag == "tuple"
+                        or source.tag == "shape"
+                        or source.tag == "nominal"
+                    )
+                then
                     boundEntry.aliasNode = initNode
                     boundEntry.aliasPath = pathKey(initNode)
                 end
@@ -613,9 +613,9 @@ function bindings.install(c: state.Checker): state.StatHandlers
                     boundEntry.resourceCapability = sourceEntry.resourceCapability
                 end
                 if sourceEntry then
-                    boundEntry.mutationSummaryKnown = sourceEntry.mutationSummaryKnown or (
-                        sourceEntry.definition and sourceEntry.definition.mutationSummaryKnown
-                    ) or nil
+                    boundEntry.mutationSummaryKnown = sourceEntry.mutationSummaryKnown
+                        or (sourceEntry.definition and sourceEntry.definition.mutationSummaryKnown)
+                        or nil
                     boundEntry.mutatesParams = sourceEntry.mutatesParams
                     boundEntry.mutatesParamPaths = sourceEntry.mutatesParamPaths
                     boundEntry.mutatesCapturedEntries = sourceEntry.mutatesCapturedEntries
@@ -695,14 +695,14 @@ function bindings.install(c: state.Checker): state.StatHandlers
             -- was rooted in: the call's result facts where one produced it, else the
             -- initializer's first result. Each root counts the view until the binding
             -- ends.
-            local borrowRoots = returnRoots or j <= exprCount and initNode and c.own.capabilityFacts(
-                initNode,
-                nil,
-                false
-            ).roots or nil
-            if boundEntry and (
-                boundKind == "borrowed" or boundKind == "affine"
-            ) and borrowRoots and #borrowRoots > 0 then
+            local borrowRoots = returnRoots
+                or j <= exprCount and initNode and c.own.capabilityFacts(initNode, nil, false).roots
+                or nil
+            if boundEntry
+                and (boundKind == "borrowed" or boundKind == "affine")
+                and borrowRoots
+                and #borrowRoots > 0
+            then
                 local boundFacts = c.own.capabilityFacts(boundEntry)
                 local roots = {}
                 for index, owner in ipairs(borrowRoots) do
@@ -785,9 +785,12 @@ function bindings.install(c: state.Checker): state.StatHandlers
                 end
                 local nameIndex = exprCount + resultIndex - 1
                 local entry = nameIndex >= 1 and c.lookupEntry(stat.names[nameIndex].text) or nil
-                if compatible and ownedType and entry and not entry.automaticOwner and #(
-                    ownedType.cleanups or {}
-                ) > 0 then
+                if compatible
+                    and ownedType
+                    and entry
+                    and not entry.automaticOwner
+                    and #(ownedType.cleanups or {}) > 0
+                then
                     local automatic = {
                         name = stat.names[nameIndex].text,
                         token = stat.names[nameIndex],
@@ -845,9 +848,10 @@ function bindings.install(c: state.Checker): state.StatHandlers
             while entry and not seen[entry] do
                 seen[entry] = true
                 local kind = ownershipKind(entry.t)
-                if (
-                    kind == "affine" or kind == "pinned"
-                ) and not entry.moved and (entry.bindingOrdinal or 0) > (state.bindingOrdinal or 0) then
+                if (kind == "affine" or kind == "pinned")
+                    and not entry.moved
+                    and (entry.bindingOrdinal or 0) > (state.bindingOrdinal or 0)
+                then
                     return entry
                 end
                 local next = c.own.capabilityFacts(entry, nil, false).roots
@@ -1015,9 +1019,12 @@ function bindings.install(c: state.Checker): state.StatHandlers
                     local root = written and written:match("^[^.*]+") or nil
                     local rootEntry = root and c.lookupEntry(root) or nil
                     local functionBody: any = c.functionBodies[#c.functionBodies]
-                    if written and root and rootEntry and functionBody and (
-                        rootEntry.functionDepth or 0
-                    ) >= c.functionDepth then
+                    if written
+                        and root
+                        and rootEntry
+                        and functionBody
+                        and (rootEntry.functionDepth or 0) >= c.functionDepth
+                    then
                         recordWrite(functionBody, rootEntry, written:sub(#root + 1))
                     end
                 end
@@ -1144,10 +1151,8 @@ function bindings.install(c: state.Checker): state.StatHandlers
                         c.diag(
                             declared == T.any and "NUPP2611" or "NUPP2603",
                             written or stat,
-                            declared == T.any
-                            and "a live capability cannot be erased into any"
-                            or incomingKind
-                            .. " assignment needs a matching destination"
+                            declared == T.any and "a live capability cannot be erased into any"
+                            or incomingKind .. " assignment needs a matching destination"
                         )
                     end
                     if entry.ownership == incomingKind and not entryState.moved then
@@ -1206,20 +1211,20 @@ function bindings.install(c: state.Checker): state.StatHandlers
                     local constructorInit = target.obj.token
                         and target.obj.token.text == "self"
                         and constructor
-                        and not constructor.assigned[
-                            field
-                        ]
+                        and not constructor.assigned[field]
                     if constructorInit then
                         constructor.assigned[field] = true
                         if et and ownershipKind(et) then
                             moveExpression(written, et, "constructor field initialization", ownershipKind(et))
                             partialReinit = true
                         end
-                    elseif et == T.nil_ and tt and ownershipKind(
-                        tt
-                    ) == "affine" and container and (
-                        container.movedFields and container.movedFields[field]
-                    ) and not (container.conditionalMovedFields and container.conditionalMovedFields[field]) then
+                    elseif et == T.nil_
+                        and tt
+                        and ownershipKind(tt) == "affine"
+                        and container
+                        and (container.movedFields and container.movedFields[field])
+                        and not (container.conditionalMovedFields and container.conditionalMovedFields[field])
+                    then
                         -- An optional owned field whose owner was moved out holds
                         -- nothing until it is refilled, and nil is a refill: the field
                         -- is empty on purpose, so the record may be lent whole again
@@ -1230,9 +1235,12 @@ function bindings.install(c: state.Checker): state.StatHandlers
                             container.movedFieldTypes[field] = nil
                         end
                         partialReinit = true
-                    elseif et and ownershipKind(
-                        et
-                    ) == "affine" and tt and ownershipKind(tt) == "affine" and container then
+                    elseif et
+                        and ownershipKind(et) == "affine"
+                        and tt
+                        and ownershipKind(tt) == "affine"
+                        and container
+                    then
                         if not (container.movedFields and container.movedFields[field]) then
                             c.diag("NUPP2602", target, ("assignment overwrites live affine field %q"):format(field))
                         elseif container.conditionalMovedFields and container.conditionalMovedFields[field] then
@@ -1272,12 +1280,14 @@ function bindings.install(c: state.Checker): state.StatHandlers
                             local matched = false
                             local state = c.ownershipState(root)
                             local rootType = state and rawType(state.t) or nil
-                            local origin = rootType and rootType.tag == "nominal" and (
-                                (rootType.origin or rootType) as T.Nominal
-                            ) or nil
-                            if not origin or (
-                                origin.moduleName or origin.sealedModule
-                            ) ~= "nupp.tasks" or origin.name ~= "Scope" then
+                            local origin = rootType
+                                and rootType.tag == "nominal"
+                                and ((rootType.origin or rootType) as T.Nominal)
+                                or nil
+                            if not origin
+                                or (origin.moduleName or origin.sealedModule) ~= "nupp.tasks"
+                                or origin.name ~= "Scope"
+                            then
                                 taskAggregateWrite = false
                                 break
                             end
@@ -1295,11 +1305,10 @@ function bindings.install(c: state.Checker): state.StatHandlers
                 -- is copied byte for byte, so a borrowed source is read there and
                 -- nothing of it is retained.
                 local rawTarget = tt and rawType(tt) or nil
-                local aggregateCopy = ownershipKind(
-                    et
-                ) == "borrowed" and target.fixedWidthPhysicalStore == true and rawTarget ~= nil and (
-                    rawTarget.tag == "carray" or rawTarget.tag == "nominal" and rawTarget.declKind == "struct"
-                )
+                local aggregateCopy = ownershipKind(et) == "borrowed"
+                    and target.fixedWidthPhysicalStore == true
+                    and rawTarget ~= nil
+                    and (rawTarget.tag == "carray" or rawTarget.tag == "nominal" and rawTarget.declKind == "struct")
                 if et and ownershipKind(et) and not partialReinit and not taskAggregateWrite and not aggregateCopy then
                     c.diag(
                         "NUPP2603",
@@ -1311,9 +1320,9 @@ function bindings.install(c: state.Checker): state.StatHandlers
                 -- map accepts nil whatever its element type says a present value holds.
                 -- A record field is not that: it is declared, and removing it would
                 -- leave the type describing something that is not there.
-                local removing = et == T.nil_ and target.kind == "bracketIndex" and (
-                    target.containerTag == "array" or target.containerTag == "map" or target.containerIsSequence
-                )
+                local removing = et == T.nil_
+                    and target.kind == "bracketIndex"
+                    and (target.containerTag == "array" or target.containerTag == "map" or target.containerIsSequence)
                 if et and tt and target.metamethodName then
                     -- The name is a contract the receiver declared, so this assignment
                     -- is the installation that fulfils it and the contract is what the
@@ -1453,14 +1462,15 @@ function bindings.install(c: state.Checker): state.StatHandlers
             resultT = valueT
         elseif op == "&" or op == "|" or op == "~" or op == "<<" or op == ">>" or op == "~>>" then
             resultT = T.integer
-        elseif not fixedWidth.isValue(
-            targetT
-        ) and not fixedWidth.isValue(
-            valueT
-        ) and targetT ~= T.any and valueT ~= T.any and isA(
-            targetT,
-            T.integer
-        ) and isA(valueT, T.integer) and op ~= "/" and op ~= "^" then
+        elseif not fixedWidth.isValue(targetT)
+            and not fixedWidth.isValue(valueT)
+            and targetT ~= T.any
+            and valueT ~= T.any
+            and isA(targetT, T.integer)
+            and isA(valueT, T.integer)
+            and op ~= "/"
+            and op ~= "^"
+        then
             resultT = T.integer
         end
         if targetTok then

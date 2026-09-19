@@ -843,9 +843,8 @@ local function roundTrip(node: scalarIR.Expr): scalarIR.Expr?
     if from ~= tostring(node.type) then
         return nil
     end
-    local exact = middle.op == "widen_f32_f64" and from == "f32" or middle.op == "int_to_f64" and (
-        from == "i32" or from == "u32"
-    )
+    local exact = middle.op == "widen_f32_f64" and from == "f32"
+        or middle.op == "int_to_f64" and (from == "i32" or from == "u32")
     if not exact then
         return nil
     end
@@ -1353,9 +1352,10 @@ local function maySpeculate(name: string, mask: scalarIR.Expr?, loop: simdrewrit
     local context = loop as simdrewrite.Loop
     local given = mask as scalarIR.Expr
 
-    return given.op == "local" and (
-        given as scalarIR.Name
-    ).name == context.executing.name and context.speculate and context.observable[name] ~= true
+    return given.op == "local"
+        and (given as scalarIR.Name).name == context.executing.name
+        and context.speculate
+        and context.observable[name] ~= true
 end
 
 --- Names a produced block assigns that it did not declare: what a loop around
@@ -1406,9 +1406,8 @@ local function carriedOf(statements: {scalarIR.Statement}, state: simdrewrite.St
                 #carried + 1
             ] = new scalarIR.Carried(
                 name = name,
-                cName = state.inner.varyingLocals[
-                    name
-                ] ~= nil and (state.inner.helpers["$cname " .. name] as string) or name,
+                cName = state.inner.varyingLocals[name] ~= nil and (state.inner.helpers["$cname " .. name] as string)
+                or name,
                 type = held as string
             )
         end
@@ -1800,11 +1799,8 @@ block = function(
             local remaining = statementMask
             for _, clause in ipairs(branch.clauses) do
                 local condition = conditionMask(clause.condition, state)
-                local entry = remaining ~= nil and maskAnd(
-                    remaining as scalarIR.Expr,
-                    condition,
-                    clause.source
-                ) or condition
+                local entry = remaining ~= nil and maskAnd(remaining as scalarIR.Expr, condition, clause.source)
+                    or condition
                 local arm = fresh("if", maskType(state.control, state), state, clause.source)
                 state.types[arm.name] = arm.type
                 -- An empty arm needs no named mask. Value-block lowering can
@@ -1816,11 +1812,8 @@ block = function(
                     append(block(clause.body, arm, loop, readsAfter[position], state))
                 end
                 local excluded = maskNot(chosen, clause.source)
-                remaining = remaining ~= nil and maskAnd(
-                    remaining as scalarIR.Expr,
-                    excluded,
-                    clause.source
-                ) or excluded
+                remaining = remaining ~= nil and maskAnd(remaining as scalarIR.Expr, excluded, clause.source)
+                    or excluded
             end
             if branch.elseBody ~= nil then
                 local rest = fresh("else", maskType(state.control, state), state, source)
@@ -1874,10 +1867,9 @@ block = function(
                         end
                     )
                 )
-            elseif not simdrewrite.varying(
-                loop_.condition,
-                state.inner
-            ) and not simdrewrite.containsExit(loop_.body as {any}) then
+            elseif not simdrewrite.varying(loop_.condition, state.inner)
+                and not simdrewrite.containsExit(loop_.body as {any})
+            then
                 state.loopDepth = state.loopDepth + 1
                 local body = block(loop_.body, mask, loop, readsAfter[position], state)
                 state.loopDepth = state.loopDepth - 1
@@ -1894,11 +1886,8 @@ block = function(
             else
                 local live = fresh("live", maskType(state.control, state), state, source)
                 local condition = conditionMask(loop_.condition, state)
-                local initial = statementMask ~= nil and maskAnd(
-                    statementMask as scalarIR.Expr,
-                    condition,
-                    source
-                ) or condition
+                local initial = statementMask ~= nil and maskAnd(statementMask as scalarIR.Expr, condition, source)
+                    or condition
                 append(
                     maskedLoop(
                         live,
@@ -1927,11 +1916,8 @@ block = function(
         elseif op == "repeat" then
             local repeated = statement as scalarIR.Repeat
             local live = fresh("live", maskType(state.control, state), state, source)
-            local initial = statementMask ~= nil and statementMask as scalarIR.Expr or maskSplat(
-                boolConstant(true, source),
-                state.control,
-                state
-            )
+            local initial = statementMask ~= nil and statementMask as scalarIR.Expr
+                or maskSplat(boolConstant(true, source), state.control, state)
             append(
                 maskedLoop(
                     live,
@@ -1960,10 +1946,8 @@ block = function(
             )
         elseif op == "fornum" then
             local counted = statement as scalarIR.Fornum
-            local varyingBounds = simdrewrite.varying(
-                counted.from,
-                state.inner
-            ) or simdrewrite.varying(counted.to, state.inner)
+            local varyingBounds = simdrewrite.varying(counted.from, state.inner)
+                or simdrewrite.varying(counted.to, state.inner)
             if not varyingBounds and not simdrewrite.containsExit(counted.body as {any}) then
                 state.types[counted.binding.name] = "i32"
                 state.loopDepth = state.loopDepth + 1
@@ -2012,11 +1996,8 @@ block = function(
 
                 local live = fresh("live", maskType(state.control, state), state, source)
                 local condition = inRange()
-                local initial = statementMask ~= nil and maskAnd(
-                    statementMask as scalarIR.Expr,
-                    condition,
-                    source
-                ) or condition
+                local initial = statementMask ~= nil and maskAnd(statementMask as scalarIR.Expr, condition, source)
+                    or condition
                 append(
                     maskedLoop(
                         live,
@@ -2368,12 +2349,9 @@ local function loopBody(
     local room = fixedType("species", state.control, state)
     for _, spanName in ipairs(state.accessedOrder) do
         local term = le(laneSum(base, state), spanCount(spanName))
-        guard = guard ~= nil and new scalarIR.Binary(
-            op = "and",
-            left = guard as scalarIR.Expr,
-            right = term,
-            type = "bool"
-        ) or term
+        guard = guard ~= nil
+            and new scalarIR.Binary(op = "and", left = guard as scalarIR.Expr, right = term, type = "bool")
+            or term
         baseBounds[spanName] = room
     end
     if stop.uniform ~= nil then
@@ -2390,12 +2368,9 @@ local function loopBody(
             ),
             stop.scalar
         )
-        guard = guard ~= nil and new scalarIR.Binary(
-            op = "and",
-            left = guard as scalarIR.Expr,
-            right = term,
-            type = "bool"
-        ) or term
+        guard = guard ~= nil
+            and new scalarIR.Binary(op = "and", left = guard as scalarIR.Expr, right = term, type = "bool")
+            or term
     end
     if guard == nil then
         guard = le(laneSum(base, state), spanCount(stop.span))

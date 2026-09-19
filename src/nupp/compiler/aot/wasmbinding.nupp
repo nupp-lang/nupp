@@ -8,19 +8,15 @@ local scalarIR = require("nupp.compiler.aot.scalar")
 local wasmbinding = {}
 
 local function sourceType(param: scalarIR.Param): string
-    return param.sourceType or (
-        param.type == "f32"
-        and "float"
-        or param.type == "f64"
-        and "number"
-        or param.type == "u32"
-        and "uint32"
-        or param.type == "i32"
-        and "int32"
-        or param.type == "bool"
-        and "boolean"
-        or param.type
-    )
+    return param.sourceType
+        or (
+            param.type == "f32" and "float"
+            or param.type == "f64" and "number"
+            or param.type == "u32" and "uint32"
+            or param.type == "i32" and "int32"
+            or param.type == "bool" and "boolean"
+            or param.type
+        )
 end
 
 local function logical(param: scalarIR.Param): string

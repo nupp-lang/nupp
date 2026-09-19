@@ -581,11 +581,8 @@ export record Format
         if settings.unbounded and settings.maxOutputBytes ~= nil then
             error("nupp: compression ReaderOptions cannot set both unbounded and maxOutputBytes", 2)
         end
-        local maximum: integer? = settings.unbounded and nil or positive(
-            settings.maxOutputBytes,
-            DEFAULT_MAX_OUTPUT,
-            "compression maxOutputBytes"
-        )
+        local maximum: integer? = settings.unbounded and nil
+            or positive(settings.maxOutputBytes, DEFAULT_MAX_OUTPUT, "compression maxOutputBytes")
         local ratio = settings.maxExpansionRatio
         if ratio ~= nil and (ratio <= 0 or ratio >= math.huge or ratio ~= ratio) then
             error("nupp: compression maxExpansionRatio must be positive and finite", 2)
@@ -708,15 +705,15 @@ end
 
 local function validate(selected: provider.Provider): nil
     for name, implementation in pairs(selected.formats) do
-        if type(
-            name
-        ) ~= "string" or name == "" or type(
-            implementation
-        ) ~= "table" or implementation.name ~= name or type(
-            implementation.createEncoder
-        ) ~= "function" or type(
-            implementation.createDecoder
-        ) ~= "function" or WRITER_COMMON[name] or READER_COMMON[name] then
+        if type(name) ~= "string"
+            or name == ""
+            or type(implementation) ~= "table"
+            or implementation.name ~= name
+            or type(implementation.createEncoder) ~= "function"
+            or type(implementation.createDecoder) ~= "function"
+            or WRITER_COMMON[name]
+            or READER_COMMON[name]
+        then
             error("invalid compression format descriptor " .. tostring(name), 2)
         end
     end

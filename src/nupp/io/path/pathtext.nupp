@@ -78,10 +78,10 @@ local function isVerbatim(text: string, windows: boolean): boolean
         return false
     end
 
-    return byte(
-        text,
-        1
-    ) == BACKSLASH and byte(text, 2) == BACKSLASH and byte(text, 3) == 63 and byte(text, 4) == BACKSLASH
+    return byte(text, 1) == BACKSLASH
+        and byte(text, 2) == BACKSLASH
+        and byte(text, 3) == 63
+        and byte(text, 4) == BACKSLASH
 end
 
 --- How many leading bytes of `text` are its prefix: none on POSIX, and on
@@ -103,9 +103,9 @@ function pathtext.prefixLength(text: string, windows: boolean): integer
         -- past the server and the share name both.
         local at: integer = 2
         local third = byte(text, 3)
-        local parts: integer = (
-            length >= 4 and (third == 63 or third == DOT) and isSeparator(byte(text, 4), windows)
-        ) and 1 or 2
+        local parts: integer = (length >= 4 and (third == 63 or third == DOT) and isSeparator(byte(text, 4), windows))
+            and 1
+            or 2
         local seen: integer = 0
         while seen < parts do
             while at < length and not isSeparator(byte(text, at + 1), windows) do
@@ -358,10 +358,8 @@ local function lastComponent(text: string, windows: boolean): (integer?, integer
         local start = at + 1
         local width = finish - start + 1
         if not (width == 1 and byte(text, start) == DOT) then
-            local kind = width == 2 and byte(
-                text,
-                start
-            ) == DOT and byte(text, start + 1) == DOT and pathtext.PARENT or pathtext.NORMAL
+            local kind = width == 2 and byte(text, start) == DOT and byte(text, start + 1) == DOT and pathtext.PARENT
+                or pathtext.NORMAL
             return start, width, kind, anchored
         end
     end
@@ -489,10 +487,8 @@ local function nextComponent(
         end
         local width = at - start + 1
         if width ~= 0 and not (width == 1 and byte(text, start) == DOT) then
-            local kind = width == 2 and byte(
-                text,
-                start
-            ) == DOT and byte(text, start + 1) == DOT and pathtext.PARENT or pathtext.NORMAL
+            local kind = width == 2 and byte(text, start) == DOT and byte(text, start + 1) == DOT and pathtext.PARENT
+                or pathtext.NORMAL
             while at < length and isSeparator(byte(text, at + 1), windows) do
                 at = at + 1
             end
@@ -625,11 +621,13 @@ function pathtext.relative(target: string, base: string, windows: boolean): (str
 
     -- Diverging at a prefix or a root means the paths are anchored in different
     -- coordinate systems, and no count of `..` steps leads from one to the other.
-    if baseStart ~= nil and (
-        baseKind == pathtext.PREFIX or baseKind == pathtext.ROOT or (
-            targetStart ~= nil and (targetKind == pathtext.PREFIX or targetKind == pathtext.ROOT)
+    if baseStart ~= nil
+        and (
+            baseKind == pathtext.PREFIX
+            or baseKind == pathtext.ROOT
+            or (targetStart ~= nil and (targetKind == pathtext.PREFIX or targetKind == pathtext.ROOT))
         )
-    ) then
+    then
         return nil, "paths do not share a relative coordinate system"
     end
 

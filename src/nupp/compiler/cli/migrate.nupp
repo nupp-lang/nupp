@@ -90,11 +90,8 @@ local function run(options: any): integer
                 return false
             end
             local result = parser.parse(plan.text, plan.destination)
-            local checked = #result.errors == 0 and check.check(
-                result,
-                plan.destination,
-                env as {[string]: any}
-            ) or result.errors
+            local checked = #result.errors == 0 and check.check(result, plan.destination, env as {[string]: any})
+                or result.errors
             local fatal = nil
             for _, diagnostic in ipairs(checked) do
                 if diagnostics.isFatal(diagnostic) then

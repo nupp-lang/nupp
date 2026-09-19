@@ -187,9 +187,8 @@ function trace.profile(): trace.Profile
     -- snapshot). The pinned snapshot identity is the timestamp suffix exposed in the
     -- full version string.
     local version = math.floor(tonumber(jit.version:match("LuaJIT 2%.1%.(%d+)")) or jit.version_num) as integer
-    local revision = version == trace.PINNED_LUAJIT_VERSION and trace.PINNED_LUAJIT_REVISION or "external:" .. tostring(
-        version
-    )
+    local revision = version == trace.PINNED_LUAJIT_VERSION and trace.PINNED_LUAJIT_REVISION
+        or "external:" .. tostring(version)
     local bytecodeSchema = smallDigest(vmdef.bcnames)
     local id = table.concat({revision, jit.arch, jit.os, table.concat(flags, ","), bytecodeSchema}, "|")
 

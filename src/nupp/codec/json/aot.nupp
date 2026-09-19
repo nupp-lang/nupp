@@ -63,14 +63,10 @@ json.EMPTY_ARRAY = setmetatable({}, ARRAY_MARKER)
 json.EMPTY_OBJECT = setmetatable({}, OBJECT_MARKER)
 
 local function failDecode(code: uint32, position: uint32): never
-    local message = code == 2
-        and "invalid UTF-8"
-        or code == 3
-        and "unescaped control byte"
-        or code == 4
-        and "backslash outside a string"
-        or code == 5
-        and "structural index overflow"
+    local message = code == 2 and "invalid UTF-8"
+        or code == 3 and "unescaped control byte"
+        or code == 4 and "backslash outside a string"
+        or code == 5 and "structural index overflow"
         or "invalid syntax"
     error("invalid JSON at byte " .. tostring(position) .. ": " .. message, 0)
 end
@@ -427,18 +423,13 @@ local function nativeScalarComplete(plan: any): boolean
     if plan.kind == "boolean" or plan.kind == "string" or plan.kind == "number" then
         return plan.minimum == nil and plan.maximum == nil
     elseif plan.kind == "integer" then
-        return plan.minimum == nil
-            and plan.maximum == nil
-            or plan.minimum == -128
-            and plan.maximum == 127
-            or plan.minimum == -32768
-            and plan.maximum == 32767
-            or plan.minimum == -2147483648
-            and plan.maximum == 2147483647
+        return plan.minimum == nil and plan.maximum == nil
+            or plan.minimum == -128 and plan.maximum == 127
+            or plan.minimum == -32768 and plan.maximum == 32767
+            or plan.minimum == -2147483648 and plan.maximum == 2147483647
     elseif plan.kind == "unsigned" then
-        return (
-            plan.minimum == nil or plan.minimum == 0
-        ) and (plan.maximum == nil or plan.maximum == 255 or plan.maximum == 65535 or plan.maximum == 4294967295)
+        return (plan.minimum == nil or plan.minimum == 0)
+            and (plan.maximum == nil or plan.maximum == 255 or plan.maximum == 65535 or plan.maximum == 4294967295)
     end
 
     return false
@@ -467,9 +458,9 @@ local function nativeComplete(plan: any, visiting: any, known: any): boolean
             complete = complete and item.hasLiteral == true and nativeComplete(item, visiting, known)
         end
     elseif kind == "structure" then
-        complete = complete and (
-            plan.access == "record" or plan.access == "struct" or plan.access == "dynamic"
-        ) and #plan.fields <= 64
+        complete = complete
+            and (plan.access == "record" or plan.access == "struct" or plan.access == "dynamic")
+            and #plan.fields <= 64
         for _, field in ipairs(plan.fields) do
             complete = complete and nativeComplete(field.target, visiting, known)
         end
@@ -483,35 +474,16 @@ local function nativeComplete(plan: any, visiting: any, known: any): boolean
 end
 
 local function scalarShape(plan: any): any
-    local code = plan.kind == "boolean"
-        and 1
-        or plan.kind == "string"
-        and 2
-        or plan.kind == "number"
-        and 3
-        or plan.kind == "integer"
-        and plan.minimum == -128
-        and plan.maximum == 127
-        and 9
-        or plan.kind == "integer"
-        and plan.minimum == -32768
-        and plan.maximum == 32767
-        and 10
-        or plan.kind == "integer"
-        and plan.minimum == -2147483648
-        and plan.maximum == 2147483647
-        and 11
-        or plan.kind == "integer"
-        and 4
-        or plan.minimum == 0
-        and plan.maximum == 255
-        and 6
-        or plan.minimum == 0
-        and plan.maximum == 65535
-        and 7
-        or plan.minimum == 0
-        and plan.maximum == 4294967295
-        and 8
+    local code = plan.kind == "boolean" and 1
+        or plan.kind == "string" and 2
+        or plan.kind == "number" and 3
+        or plan.kind == "integer" and plan.minimum == -128 and plan.maximum == 127 and 9
+        or plan.kind == "integer" and plan.minimum == -32768 and plan.maximum == 32767 and 10
+        or plan.kind == "integer" and plan.minimum == -2147483648 and plan.maximum == 2147483647 and 11
+        or plan.kind == "integer" and 4
+        or plan.minimum == 0 and plan.maximum == 255 and 6
+        or plan.minimum == 0 and plan.maximum == 65535 and 7
+        or plan.minimum == 0 and plan.maximum == 4294967295 and 8
         or 5
 
     if plan.hasLiteral then

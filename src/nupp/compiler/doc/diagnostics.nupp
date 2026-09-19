@@ -110,9 +110,8 @@ local function section(
     if #entry.related > 0 then
         local names = {}
         for _, other in ipairs(entry.related) do
-            names[
-                #names + 1
-            ] = listed[other] and ("[**" .. other .. "**](" .. anchor(other) .. ")") or ("**" .. other .. "**")
+            names[#names + 1] = listed[other] and ("[**" .. other .. "**](" .. anchor(other) .. ")")
+                or ("**" .. other .. "**")
         end
         trail[#trail + 1] = "Related: " .. table.concat(names, ", ") .. "."
     end

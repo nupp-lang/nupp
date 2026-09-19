@@ -176,10 +176,8 @@ function services.implementations(inc: any, member: any, token: any): {any}
                 if entry.member ~= nil then
                     exported = exported and exported.byname and exported.byname[entry.member]
                 end
-                local at = fieldDefinition(
-                    exported,
-                    name
-                ) or checked.exports and checked.exports.valueDefs and checked.exports.valueDefs[name]
+                local at = fieldDefinition(exported, name)
+                    or checked.exports and checked.exports.valueDefs and checked.exports.valueDefs[name]
                 add(path, at and at.token or cst.firstToken(checked.result and checked.result.root))
             end
         end

@@ -653,9 +653,12 @@ local function validateTarget(target, label, dependencies)
             return nil, err
         end
     end
-    if target.optimize ~= nil and (
-        type(target.optimize) ~= "number" or (target.optimize ~= 0 and target.optimize ~= 1 and target.optimize ~= 2)
-    ) then
+    if target.optimize ~= nil
+        and (
+            type(target.optimize) ~= "number"
+            or (target.optimize ~= 0 and target.optimize ~= 1 and target.optimize ~= 2)
+        )
+    then
         return nil, label .. ".optimize must be 0, 1, or 2"
     end
     if kind == "binary" and target.stub == nil then
@@ -812,9 +815,10 @@ local function validateTarget(target, label, dependencies)
         if (target.aot == "emit-wasm" or target.aot == "require-wasm") and target.dialect ~= "lua51" then
             return nil, label .. ".aot = \"" .. target.aot .. "\" requires dialect = \"lua51\""
         end
-        if (
-            target.aot == "emit-wasm" or target.aot == "require-wasm"
-        ) and target.aotTarget ~= nil and target.aotTarget ~= "wasm32-unknown-emscripten" then
+        if (target.aot == "emit-wasm" or target.aot == "require-wasm")
+            and target.aotTarget ~= nil
+            and target.aotTarget ~= "wasm32-unknown-emscripten"
+        then
             return nil, label .. ".aot = \"" .. target.aot .. "\" fixes aotTarget to wasm32-unknown-emscripten"
         end
     end
@@ -890,9 +894,9 @@ local function validateTarget(target, label, dependencies)
                 return nil, err
             end
         end
-        local featureTarget = (
-            target.aot == "emit-wasm" or target.aot == "require-wasm"
-        ) and "wasm32-unknown-emscripten" or target.aotTarget as string?
+        local featureTarget = (target.aot == "emit-wasm" or target.aot == "require-wasm")
+            and "wasm32-unknown-emscripten"
+            or target.aotTarget as string?
         local _, tierErr = aotTargets.buildTiers(featureTarget, target.aotFeatures)
         if tierErr ~= nil then
             return nil, label .. ".aotFeatures: " .. tostring(tierErr)
@@ -967,9 +971,9 @@ local function validateTarget(target, label, dependencies)
                 if valid then
                     valid, err = validateString(resource.output, label .. ".resources[" .. index .. "].output")
                 end
-                if valid and (
-                    resource.output:sub(1, 1) == "/" or ("/" .. resource.output .. "/"):find("/../", 1, true)
-                ) then
+                if valid
+                    and (resource.output:sub(1, 1) == "/" or ("/" .. resource.output .. "/"):find("/../", 1, true))
+                then
                     valid, err = nil, label .. ".resources[" .. index .. "].output must stay inside the target"
                 end
             else
@@ -1174,9 +1178,9 @@ local function validateManifest(config: manifest.Config): boolean?, string?
             if dep.bindings.cbindgen ~= nil and type(dep.bindings.cbindgen) ~= "boolean" then
                 return nil, "dependencies." .. name .. ".bindings.cbindgen must be a boolean"
             end
-            if dep.bindings.command ~= nil and (
-                type(dep.bindings.command) ~= "string" or dep.bindings.command == ""
-            ) then
+            if dep.bindings.command ~= nil
+                and (type(dep.bindings.command) ~= "string" or dep.bindings.command == "")
+            then
                 return nil, "dependencies." .. name .. ".bindings.command must be a non-empty string"
             end
             valid, err = validateOwnership(dep.bindings.ownership, "dependencies." .. name .. ".bindings.ownership")
@@ -1226,9 +1230,10 @@ local function validateManifest(config: manifest.Config): boolean?, string?
             if type(dep.source) ~= "table" or type(dep.source.git) ~= "string" or dep.source.git == "" then
                 return nil, "dependencies." .. name .. ".source.git must be a non-empty string"
             end
-            if type(
-                dep.source.rev
-            ) ~= "string" or not dep.source.rev:match("^[0-9a-fA-F]+$") or #dep.source.rev < 40 then
+            if type(dep.source.rev) ~= "string"
+                or not dep.source.rev:match("^[0-9a-fA-F]+$")
+                or #dep.source.rev < 40
+            then
                 return nil, "dependencies." .. name .. ".source.rev must be a full Git commit id"
             end
             if dep.path ~= nil and (type(dep.path) ~= "string" or dep.path == "") then
@@ -1311,14 +1316,16 @@ local function validateManifest(config: manifest.Config): boolean?, string?
                         if type(artifact.path) ~= "string" or artifact.path == "" then
                             return nil, oneLabel .. ".path must be a non-empty string"
                         end
-                        if type(
-                            artifact.sha256
-                        ) ~= "string" or not artifact.sha256:match("^[0-9a-f][0-9a-f]+$") or #artifact.sha256 ~= 64 then
+                        if type(artifact.sha256) ~= "string"
+                            or not artifact.sha256:match("^[0-9a-f][0-9a-f]+$")
+                            or #artifact.sha256 ~= 64
+                        then
                             return nil, oneLabel .. ".sha256 must be a lowercase SHA-256"
                         end
-                        if type(
-                            artifact.size
-                        ) ~= "number" or artifact.size < 1 or artifact.size ~= math.floor(artifact.size) then
+                        if type(artifact.size) ~= "number"
+                            or artifact.size < 1
+                            or artifact.size ~= math.floor(artifact.size)
+                        then
                             return nil, oneLabel .. ".size must be a positive integer"
                         end
                     end

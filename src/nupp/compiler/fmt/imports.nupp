@@ -198,9 +198,8 @@ function imports.new(environment: any?, enabled: boolean?): any
                     local moduleName = value.qualifiedTypeModule
                     local valueFirst, valueLast = path[1], path[#path]
                     local written = source:sub(valueFirst.offset, valueLast.offset + #valueLast.text - 1)
-                    local safe = spelling(
-                        path
-                    ) == moduleName .. "." .. member and written:gsub("%s", "") == spelling(path)
+                    local safe = spelling(path) == moduleName .. "." .. member
+                        and written:gsub("%s", "") == spelling(path)
                     if safe then
                         for _, token in ipairs(parsed.tokens) do
                             if token.offset >= first.offset then
@@ -236,12 +235,12 @@ function imports.new(environment: any?, enabled: boolean?): any
                     local exports = env.resolveModuleExports(env, moduleName)
                     local value = exports and exports.values and exports.values[suffix[1]]
                     local declared = exports and exports.types and exports.types[suffix[1]]
-                    if value and (
-                        value.tag == "typeobject"
-                        or value == declared
-                        and value.tag == "nominal"
-                        and value.declKind == "struct"
-                    ) then
+                    if value
+                        and (
+                            value.tag == "typeobject"
+                            or value == declared and value.tag == "nominal" and value.declKind == "struct"
+                        )
+                    then
                         member = suffix[1]
                         count = count + 1
                         runtime = true
@@ -361,9 +360,9 @@ function imports.new(environment: any?, enabled: boolean?): any
             end
         end
         walk(checked.root, function(node: any): nil
-            local targets = node.kind == "assignStmt" and node.targets or node.kind == "compoundAssign" and {
-                node.target
-            } or {}
+            local targets = node.kind == "assignStmt" and node.targets
+                or node.kind == "compoundAssign" and {node.target}
+                or {}
             for _, target in ipairs(targets) do
                 if target.kind == "name" then
                     assigned[target.token.text] = true
@@ -374,11 +373,11 @@ function imports.new(environment: any?, enabled: boolean?): any
             for _, stat in ipairs(block.stats or {}) do
                 local value = stat.kind == "localStmt" and stat.exprs and #stat.exprs == 1 and stat.exprs[1]
                 local token = stat.kind == "localStmt" and #stat.names == 1 and stat.names[1]
-                local moduleName = value and (
-                    value.requiredModule or not shadowedRequire and #(
-                        value.qualifiedMembers or {}
-                    ) == 0 and value.qualifiedModule
-                )
+                local moduleName = value
+                    and (
+                        value.requiredModule
+                        or not shadowedRequire and #(value.qualifiedMembers or {}) == 0 and value.qualifiedModule
+                    )
                 if stat.kind == "localStmt" and not stat.pattern and moduleName and token then
                     local count = 0
                     for _ in pairs(definitions[token.text] or {}) do
@@ -494,17 +493,12 @@ function imports.new(environment: any?, enabled: boolean?): any
         end
         -- Inner annotations are consumed before the chunk's ordered children.
         local index = 1
-        while parsed.tokens[
-            index
-        ] and parsed.tokens[
-            index
-        ].text == "@" and parsed.tokens[
-            index + 1
-        ] and parsed.tokens[
-            index + 1
-        ].text == "!" and parsed.tokens[
-            index + 2
-        ] and (parsed.tokens[index + 2].text == "internal" or parsed.tokens[index + 2].text == "nofmt") do
+        while parsed.tokens[index]
+            and parsed.tokens[index].text == "@"
+            and parsed.tokens[index + 1]
+            and parsed.tokens[index + 1].text == "!"
+            and parsed.tokens[index + 2]
+            and (parsed.tokens[index + 2].text == "internal" or parsed.tokens[index + 2].text == "nofmt") do
             local token = parsed.tokens[index + 2]
             insertion = math.max(insertion, afterHeader(token))
             index = index + 3

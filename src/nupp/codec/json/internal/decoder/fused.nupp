@@ -228,9 +228,9 @@ local function decodeFused<const Variant: integer>(
                         203
                     )
                     local byte2High = nibbleTable(zero, 1, 1, 1, 1, 1, 1, 1, 1, 230, 174, 186, 186, 1, 1, 1, 1)
-                    local special = byte1High:swizzle(
-                        (previous1 >> 4) + 1
-                    ) & byte1Low:swizzle((previous1 & 15) + 1) & byte2High:swizzle((block >> 4) + 1)
+                    local special = byte1High:swizzle((previous1 >> 4) + 1)
+                        & byte1Low:swizzle((previous1 & 15) + 1)
+                        & byte2High:swizzle((block >> 4) + 1)
                     -- A byte two back at or above E0, or three back at or
                     -- above F0, says this byte must be a third or fourth
                     -- continuation. The tables answer the carry class 0x80 for
@@ -346,14 +346,10 @@ local function decodeFused<const Variant: integer>(
                         if not isContinuation then
                             return nullValue, 2, nupp.math.u32.add(position, 1)
                         end
-                        local constrained = constraint == 1
-                            and byte < 160
-                            or constraint == 2
-                            and byte > 159
-                            or constraint == 3
-                            and byte < 144
-                            or constraint == 4
-                            and byte > 143
+                        local constrained = constraint == 1 and byte < 160
+                            or constraint == 2 and byte > 159
+                            or constraint == 3 and byte < 144
+                            or constraint == 4 and byte > 143
                         if constrained then
                             return nullValue, 2, nupp.math.u32.add(position, 1)
                         end

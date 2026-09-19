@@ -445,11 +445,12 @@ function expr.install(c: state.Checker): nil
             end
         end
         if valueT == T.nil_ or valueT.tag == "literal" then
-            if valueT.tag == "literal" and type(
-                valueT.constant
-            ) == "number" and (
-                valueT.constant ~= valueT.constant or valueT.constant == math.huge or valueT.constant == -math.huge
-            ) then
+            if valueT.tag == "literal"
+                and type(valueT.constant) == "number"
+                and (
+                    valueT.constant ~= valueT.constant or valueT.constant == math.huge or valueT.constant == -math.huge
+                )
+            then
                 return nil, "numeric switch cases must be finite"
             end
             return valueT
@@ -818,12 +819,8 @@ function expr.install(c: state.Checker): nil
             end
             checkResult(node.elseCase)
             if not (
-                node.elseCase.expr
-                and node.elseCase.switchResultType == T.never
-                or node.elseCase.body
-                and c.alwaysExits(
-                    node.elseCase.body
-                )
+                node.elseCase.expr and node.elseCase.switchResultType == T.never
+                or node.elseCase.body and c.alwaysExits(node.elseCase.body)
             ) then
                 c.noteArmEnd(join)
             end
@@ -832,12 +829,8 @@ function expr.install(c: state.Checker): nil
                 ownershipBefore,
                 branchMoved,
                 not (
-                    node.elseCase.expr
-                    and node.elseCase.switchResultType == T.never
-                    or node.elseCase.body
-                    and c.alwaysExits(
-                        node.elseCase.body
-                    )
+                    node.elseCase.expr and node.elseCase.switchResultType == T.never
+                    or node.elseCase.body and c.alwaysExits(node.elseCase.body)
                 ),
                 join
             )
@@ -962,9 +955,8 @@ function expr.install(c: state.Checker): nil
                 and c.result.declaredModuleName
                 and c.moduleExports
                 and c.moduleExports.values
-                and c.moduleExports.values[
-                    nameText
-                ] then
+                and c.moduleExports.values[nameText]
+            then
                 local exportedType = c.moduleExports.values[nameText]
                 local definition = c.moduleExports.valueDefs and c.moduleExports.valueDefs[nameText] or nil
                 c.markToken(nameTok, definition, exportedType, definition and definition.kind or "variable")
@@ -996,9 +988,12 @@ function expr.install(c: state.Checker): nil
                 node.requiredModule = entry.requiredModule
             end
             local capturedType = nil
-            if entry and entry.definition and entry.definition.comptimeFunction and (
-                c.comptimeDepth or 0
-            ) == 0 and (c.comptimeFunctionDepth or 0) == 0 then
+            if entry
+                and entry.definition
+                and entry.definition.comptimeFunction
+                and (c.comptimeDepth or 0) == 0
+                and (c.comptimeFunctionDepth or 0) == 0
+            then
                 c.diag("NUPP2415", node, ("comptime function %q has no runtime value"):format(nameText), nil, {
                     help = "call it from a comptime block or another comptime function"
                 })
@@ -1017,11 +1012,10 @@ function expr.install(c: state.Checker): nil
                         help = "use the owner before this transfer, or borrow it " .. "instead of moving it"
                     })
                     node.ownershipUseReported = true
-                elseif c.ownershipKind(
-                    entry.t
-                ) and (
-                    entry.functionDepth or 0
-                ) < c.functionDepth and not (c.ownershipKind(entry.t) == "borrowed" and c.scopedCaptureDepth > 0) then
+                elseif c.ownershipKind(entry.t)
+                    and (entry.functionDepth or 0) < c.functionDepth
+                    and not (c.ownershipKind(entry.t) == "borrowed" and c.scopedCaptureDepth > 0)
+                then
                     local context = c.closureCaptureStack[#c.closureCaptureStack]
                     local capture = context and context.allowed[nameText] or nil
                     if context and not capture and not context.body.captureBorrows then
@@ -1068,11 +1062,13 @@ function expr.install(c: state.Checker): nil
                     local related, seen = {}, {}
                     for _, conflict in ipairs(conflicts or {}) do
                         local definition = conflict.definition
-                        local key = definition and (
-                            tostring(
-                                definition.filename
-                            ) .. ":" .. tostring(definition.token and definition.token.offset)
-                        ) or tostring(conflict)
+                        local key = definition
+                            and (
+                                tostring(
+                                    definition.filename
+                                ) .. ":" .. tostring(definition.token and definition.token.offset)
+                            )
+                            or tostring(conflict)
                         if not seen[key] then
                             seen[key] = true
                             local item = c.related(definition, "conflicting global value declared here")
@@ -1115,10 +1111,8 @@ function expr.install(c: state.Checker): nil
                 elseif not isModule and c.opts and c.opts.strict then
                     fixes = c.edits.nameSpellingFix(nameTok, visibleNames())
                     c.diag("NUPP2105", nameTok, ("unknown variable %q"):format(nameText), fixes, {
-                        help = fixes
-                        and "use the suggested visible name"
-                        or "declare the value, require its module, or correct "
-                        .. "the spelling"
+                        help = fixes and "use the suggested visible name"
+                        or "declare the value, require its module, or correct " .. "the spelling"
                     })
                 end
             end
@@ -1126,12 +1120,14 @@ function expr.install(c: state.Checker): nil
             -- the function that declared it is known to come first.
             if entry and entry.unassigned and (entry.functionDepth or 0) >= c.functionDepth then
                 c.diag("NUPP2207", nameTok, ("%s is read before it holds a value"):format(nameText), nil, {
-                    related = entry.unassignedAt and {
+                    related = entry.unassignedAt
+                    and {
                         c.related(
                             {filename = c.filename, token = entry.unassignedAt, name = nameText},
                             "declared here, with no value"
                         )
-                    } or nil,
+                    }
+                    or nil,
                     help = (
                         "assign it first, or declare it as %s? if it is " .. "meant to start empty"
                     ):format(T.tostring(entry.t))
@@ -1168,9 +1164,9 @@ function expr.install(c: state.Checker): nil
             local named = call.obj and c.pathKey(call.obj) or nil
             local declared = named and c.lookupType(named) or nil
             declared = declared and rawType(declared) or nil
-            local buildable = declared and declared.tag == "nominal" and (
-                declared.declKind == "record" or declared.declKind == "struct"
-            )
+            local buildable = declared
+                and declared.tag == "nominal"
+                and (declared.declKind == "record" or declared.declKind == "struct")
             if declared and not buildable then
                 local why = "`new` builds a record or a struct"
                 if declared.tag == "nominal" and declared.declKind == "interface" then
@@ -1294,9 +1290,15 @@ function expr.install(c: state.Checker): nil
             -- Only a subject that is a name or a path of them: anything computed has to
             -- run whether or not its answer was already known, and a test that stands
             -- in for a call is not the place to decide that.
-            if from and target and subject and c.pathKey(
-                subject
-            ) and from ~= T.any and from.tag ~= "typevar" and from ~= T.never and target ~= T.any then
+            if from
+                and target
+                and subject
+                and c.pathKey(subject)
+                and from ~= T.any
+                and from.tag ~= "typevar"
+                and from ~= T.never
+                and target ~= T.any
+            then
                 -- The nil an optional admits is the only part its declaration does not
                 -- settle, so it is taken off before asking and put back as the one
                 -- question left.
@@ -1309,25 +1311,30 @@ function expr.install(c: state.Checker): nil
                     -- this pairing is settled the other way and the test would spend a
                     -- metatable lookup to say false. The only pairing answered so: `as`
                     -- stays the way to override what the checker decided.
-                elseif (
-                    rawType(present).tag == "metatable" or rawType(present).tag == "typeobject"
-                ) and target.tag == "nominal" then
+                elseif (rawType(present).tag == "metatable" or rawType(present).tag == "typeobject")
+                    and target.tag == "nominal"
+                then
                     node.refutedStatically = true
                 end
             end
             local typeNode: any = node.type
-            local builtin = typeNode and typeNode.kind == "tname" and typeNode.base and (
-                typeNode.base.kind == "nil" or #typeNode == 1 and (
-                    typeNode.base.text == "boolean"
-                    or typeNode.base.text == "string"
-                    or typeNode.base.text == "number"
-                    or typeNode.base.text == "integer"
-                    or typeNode.base.text == "table"
-                    or typeNode.base.text == "thread"
-                    or typeNode.base.text == "userdata"
-                    or typeNode.base.text == "cdata"
+            local builtin = typeNode
+                and typeNode.kind == "tname"
+                and typeNode.base
+                and (
+                    typeNode.base.kind == "nil"
+                    or #typeNode == 1
+                    and (
+                        typeNode.base.text == "boolean"
+                        or typeNode.base.text == "string"
+                        or typeNode.base.text == "number"
+                        or typeNode.base.text == "integer"
+                        or typeNode.base.text == "table"
+                        or typeNode.base.text == "thread"
+                        or typeNode.base.text == "userdata"
+                        or typeNode.base.text == "cdata"
+                    )
                 )
-            )
             -- A primitive is testable however it was spelled. The list above reads the
             -- name, which answers for `integer` and not for an alias of it even though
             -- both resolve to the same interned type, so the resolved type is asked
@@ -1351,20 +1358,14 @@ function expr.install(c: state.Checker): nil
                 typeNode.primitiveTest = nil
             end
             local runtimeIdentity = node.provenStatically
-                or typeNode
-                and typeNode.primitiveTest
+                or typeNode and typeNode.primitiveTest
                 or node.refutedStatically
                 or builtin
-                or typeNode
-                and typeNode.kind == "tfunc"
-                or typeNode
-                and typeNode.wherePredicate
-                or typeNode
-                and typeNode.recordName
-                or typeNode
-                and typeNode.recordNames
-                or typeNode
-                and typeNode.reified
+                or typeNode and typeNode.kind == "tfunc"
+                or typeNode and typeNode.wherePredicate
+                or typeNode and typeNode.recordName
+                or typeNode and typeNode.recordNames
+                or typeNode and typeNode.reified
             if not runtimeIdentity then
                 c.diag(
                     "NUPP3001",
@@ -1429,9 +1430,9 @@ function expr.install(c: state.Checker): nil
                 end
                 for _, p in ipairs(node.params) do
                     if p.kind == "param" then
-                        local pt = p.type and c.resolveType(
-                            p.type
-                        ) or (expectedParams and expectedParams[#params + 1]) or T.any
+                        local pt = p.type and c.resolveType(p.type)
+                            or (expectedParams and expectedParams[#params + 1])
+                            or T.any
                         local pname = p.name
                         if p.namedVararg then
                             vararg = true
@@ -1578,19 +1579,21 @@ function expr.install(c: state.Checker): nil
                 if not c.ownershipKind(valueT) then
                     return valueT
                 end
-                local roots = c.ownershipKind(
-                    valueT
-                ) == "borrowed" and (c.own.capabilityFacts(value, nil, false).roots or {}) or {}
+                local roots = c.ownershipKind(valueT) == "borrowed"
+                    and (c.own.capabilityFacts(value, nil, false).roots or {})
+                    or {}
                 local taskScoped = #roots > 0
                 for _, root in ipairs(roots) do
                     local state = c.ownershipState(root)
                     local rootType = state and rawType(state.t) or nil
-                    local origin = rootType and rootType.tag == "nominal" and (
-                        (rootType.origin or rootType) as T.Nominal
-                    ) or nil
-                    taskScoped = taskScoped and origin ~= nil and (
-                        origin.moduleName or origin.sealedModule
-                    ) == "nupp.tasks" and origin.name == "Scope"
+                    local origin = rootType
+                        and rootType.tag == "nominal"
+                        and ((rootType.origin or rootType) as T.Nominal)
+                        or nil
+                    taskScoped = taskScoped
+                        and origin ~= nil
+                        and (origin.moduleName or origin.sealedModule) == "nupp.tasks"
+                        and origin.name == "Scope"
                 end
                 -- A fresh literal can safely carry application task handles. The
                 -- aggregate becomes borrowed from the same task scope, so returning
@@ -1758,16 +1761,14 @@ function expr.install(c: state.Checker): nil
         local dynamic: any = node
         local callee = dynamic.obj
         local isMethod = node.kind == "methodCall" or node.kind == "safeCall" and dynamic.name ~= nil
-        local entry = not isMethod and callee and callee.kind == "name" and callee.token and c.lookupEntry(
-            callee.token.text
-        ) or nil
-        local definition = isMethod
-            and dynamic.name
-            and dynamic.name.definition
-            or callee
-            and callee.kind == "dotIndex"
-            and callee.name
-            and callee.name.definition
+        local entry = not isMethod
+            and callee
+            and callee.kind == "name"
+            and callee.token
+            and c.lookupEntry(callee.token.text)
+            or nil
+        local definition = isMethod and dynamic.name and dynamic.name.definition
+            or callee and callee.kind == "dotIndex" and callee.name and callee.name.definition
             or nil
         local summaries = c.facts.summaries()
         local syntactic, calleeKnown = mutationSummaries.callEffects(summaries, node)
@@ -1779,9 +1780,8 @@ function expr.install(c: state.Checker): nil
         -- stored there is unknown here.
         local declared = false
         if definition then
-            declared = definition.filename ~= c.filename and (
-                definition.kind == "function" or definition.kind == "method"
-            )
+            declared = definition.filename ~= c.filename
+                and (definition.kind == "function" or definition.kind == "method")
         elseif entry and not entry.definition then
             declared = true
         end
@@ -1945,11 +1945,14 @@ function expr.install(c: state.Checker): nil
             end
             local dynamic: any = node
             dynamic.inferredType = inferred
-            if c.ownershipKind(
-                inferred
-            ) == "affine" and (
-                node.kind == "call" or node.kind == "methodCall" or node.kind == "safeCall" or node.kind == "newExpr"
-            ) then
+            if c.ownershipKind(inferred) == "affine"
+                and (
+                    node.kind == "call"
+                    or node.kind == "methodCall"
+                    or node.kind == "safeCall"
+                    or node.kind == "newExpr"
+                )
+            then
                 c.own.temporaryProduced(node)
             end
             return inferred
@@ -1969,11 +1972,9 @@ function expr.install(c: state.Checker): nil
         end
         local dynamic: any = node
         dynamic.inferredType = first
-        if c.ownershipKind(
-            first
-        ) == "affine" and (
-            node.kind == "call" or node.kind == "methodCall" or node.kind == "safeCall" or node.kind == "newExpr"
-        ) then
+        if c.ownershipKind(first) == "affine"
+            and (node.kind == "call" or node.kind == "methodCall" or node.kind == "safeCall" or node.kind == "newExpr")
+        then
             c.own.temporaryProduced(node)
         end
         if fixedWidth.isValue(first) and not node.fixedWidthUntrustedResult then

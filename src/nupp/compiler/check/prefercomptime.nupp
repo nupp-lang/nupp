@@ -98,14 +98,15 @@ end
 --- replace meaningful runtime work with a materially smaller scalar literal.
 function prefercomptime.check(c: state.Checker, declaration: any, body: any, receiver: boolean): nil
     local lint = lints.get("prefer-comptime")
-    if not lint or lints.level(
-        lint,
-        c.lintConfig
-    ) == "off" or c.suppressed(
-        lint.code
-    ) or declaration.comptimeFunction or receiver or body.generics or #(
-        body.params or {}
-    ) ~= 0 or not worthwhile(body.body) then
+    if not lint
+        or lints.level(lint, c.lintConfig) == "off"
+        or c.suppressed(lint.code)
+        or declaration.comptimeFunction
+        or receiver
+        or body.generics
+        or #(body.params or {}) ~= 0
+        or not worthwhile(body.body)
+    then
         return
     end
 

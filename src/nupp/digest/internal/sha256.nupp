@@ -110,11 +110,10 @@ end
 -- separately checked byte loads; this expression becomes one `rev` on arm64.
 local function bigEndianWord(word: uint32): uint32
     return unsigned(
-        (
-            signed(word) << 24
-        ) | (
-            (signed(word) & 0x0000FF00) << 8
-        ) | ((signed(word) >> 8) & 0x0000FF00) | ((signed(word) >> 24) & 0x000000FF)
+        (signed(word) << 24)
+        | ((signed(word) & 0x0000FF00) << 8)
+        | ((signed(word) >> 8) & 0x0000FF00)
+        | ((signed(word) >> 24) & 0x000000FF)
     )
 end
 
@@ -257,13 +256,10 @@ local function digestHex(source: string, nullValue: any): any
                     schedule,
                     at,
                     unsigned(
-                        (
-                            signed(valuebuilder.scratchByte(tail, within)) << 24
-                        ) | (
-                            signed(valuebuilder.scratchByte(tail, nupp.math.u32.add(within, u32(1)))) << 16
-                        ) | (
-                            signed(valuebuilder.scratchByte(tail, nupp.math.u32.add(within, u32(2)))) << 8
-                        ) | signed(valuebuilder.scratchByte(tail, nupp.math.u32.add(within, u32(3))))
+                        (signed(valuebuilder.scratchByte(tail, within)) << 24)
+                        | (signed(valuebuilder.scratchByte(tail, nupp.math.u32.add(within, u32(1)))) << 16)
+                        | (signed(valuebuilder.scratchByte(tail, nupp.math.u32.add(within, u32(2)))) << 8)
+                        | signed(valuebuilder.scratchByte(tail, nupp.math.u32.add(within, u32(3))))
                     )
                 )
                 at = nupp.math.u32.add(at, u32(1))

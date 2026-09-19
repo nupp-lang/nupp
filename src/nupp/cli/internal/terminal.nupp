@@ -156,9 +156,9 @@ local function capable(fd: integer): boolean
     if os.getenv("TERM") == "dumb" then
         return false
     end
-    if windows and not (
-        requested("WT_SESSION") or requested("ANSICON") or requested("ConEmuANSI") or os.getenv("TERM")
-    ) then
+    if windows
+        and not (requested("WT_SESSION") or requested("ANSICON") or requested("ConEmuANSI") or os.getenv("TERM"))
+    then
         return false
     end
 

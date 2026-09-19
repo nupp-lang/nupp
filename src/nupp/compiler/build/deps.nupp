@@ -334,9 +334,9 @@ local function buildC(root, outDir, name, dep, previous, childResults, target)
     end
     local artifactSet = dep.artifacts and artifactTriple and dep.artifacts[artifactTriple] or nil
     if artifactSet then
-        if configuredBinding and (
-            configuredBinding.bridge or configuredBinding.macros and next(configuredBinding.macros) ~= nil
-        ) then
+        if configuredBinding
+            and (configuredBinding.bridge or configuredBinding.macros and next(configuredBinding.macros) ~= nil)
+        then
             return nil, "prebuilt C dependency " .. name .. " cannot generate a bridge; build it from sources"
         end
 
@@ -375,14 +375,14 @@ local function buildC(root, outDir, name, dep, previous, childResults, target)
             return destination, nil
         end
 
-        local sharedOutput = buildsShared and join(
-            root,
-            dep.out or join(outDir, "lib/" .. sharedLibraryName(name))
-        ) or nil
-        local staticOutput = buildsStatic and join(
-            root,
-            dep.staticOut or (linkage == "static" and dep.out) or join(outDir, "lib/" .. staticLibraryName(name))
-        ) or nil
+        local sharedOutput = buildsShared and join(root, dep.out or join(outDir, "lib/" .. sharedLibraryName(name)))
+            or nil
+        local staticOutput = buildsStatic
+            and join(
+                root,
+                dep.staticOut or (linkage == "static" and dep.out) or join(outDir, "lib/" .. staticLibraryName(name))
+            )
+            or nil
         local problem
         if sharedOutput then
             _, problem = stageArtifact("shared", artifactSet.shared, sharedOutput)
@@ -393,9 +393,12 @@ local function buildC(root, outDir, name, dep, previous, childResults, target)
         if problem ~= nil then
             return nil, problem
         end
-        local reference = configuredBinding and not standalone and (
-            configuredBinding.library or dep.load or (sharedOutput and libraryReference(root, outDir, sharedOutput))
-        ) or nil
+        local reference = configuredBinding
+            and not standalone
+            and (
+                configuredBinding.library or dep.load or (sharedOutput and libraryReference(root, outDir, sharedOutput))
+            )
+            or nil
         local artifactCppflags = {}
         for _, flag in ipairs(dep.cppflags or {}) do
             artifactCppflags[#artifactCppflags + 1] = flag
@@ -501,14 +504,17 @@ local function buildC(root, outDir, name, dep, previous, childResults, target)
     end
     local hasMacroBridge = configuredBinding and configuredBinding.macros and next(configuredBinding.macros) ~= nil
     local wantsLibrary = #sources > 0 or (configuredBinding and configuredBinding.bridge) or hasMacroBridge
-    local sharedOutput = wantsLibrary and buildsShared and join(
-        root,
-        dep.out or join(outDir, "lib/" .. sharedLibraryName(name))
-    ) or nil
-    local staticOutput = wantsLibrary and buildsStatic and join(
-        root,
-        dep.staticOut or (linkage == "static" and dep.out) or join(outDir, "lib/" .. staticLibraryName(name))
-    ) or nil
+    local sharedOutput = wantsLibrary
+        and buildsShared
+        and join(root, dep.out or join(outDir, "lib/" .. sharedLibraryName(name)))
+        or nil
+    local staticOutput = wantsLibrary
+        and buildsStatic
+        and join(
+            root,
+            dep.staticOut or (linkage == "static" and dep.out) or join(outDir, "lib/" .. staticLibraryName(name))
+        )
+        or nil
     if sharedOutput ~= nil and staticOutput ~= nil and normalize(sharedOutput) == normalize(staticOutput) then
         return nil, "C dependency " .. name .. " must use different shared and static outputs"
     end
@@ -516,11 +522,15 @@ local function buildC(root, outDir, name, dep, previous, childResults, target)
     -- The same precedence `generateBinding` applies, worked out here as well so
     -- that what the record reports is what the binding wrote. A target that
     -- carries the binding somewhere has to carry the library it names.
-    local reference = configuredBinding and not standalone and (
-        configuredBinding.library or dep.load or (
-            sharedOutput and libraryReference(root, outDir, sharedOutput)
-        ) or type(dep.pkgConfig) == "string" and dep.pkgConfig
-    ) or nil
+    local reference = configuredBinding
+        and not standalone
+        and (
+            configuredBinding.library
+            or dep.load
+            or (sharedOutput and libraryReference(root, outDir, sharedOutput))
+            or type(dep.pkgConfig) == "string" and dep.pkgConfig
+        )
+        or nil
     local binding, bindingErr, bridge = generateBinding(root, outDir, name, dep, base, reference, cppflags, compiler)
     if bindingErr then
         return nil, bindingErr
@@ -539,11 +549,13 @@ local function buildC(root, outDir, name, dep, previous, childResults, target)
         ) .. "\0" .. hashFiles(
             nativeInputs
         ) .. "\0" .. version .. "\0" .. stable(
-            pack and {
+            pack
+            and {
                 version = (pack as any).version,
                 compileFlags = (pack as any).compileFlags,
                 linkFlags = (pack as any).linkFlags,
-            } or {}
+            }
+            or {}
         ) .. "\0" .. stable(
             pkgCflags
         ) .. "\0" .. stable(
@@ -554,9 +566,8 @@ local function buildC(root, outDir, name, dep, previous, childResults, target)
         if not output then
             return nil, "C dependency " .. name .. " has sources but no library output"
         end
-        local outputsExist = (
-            sharedOutput == nil or exists(sharedOutput)
-        ) and (staticOutput == nil or exists(staticOutput))
+        local outputsExist = (sharedOutput == nil or exists(sharedOutput))
+            and (staticOutput == nil or exists(staticOutput))
         if not previous or previous.key ~= key or not outputsExist then
             if sharedOutput then
                 mkdir(dirname(sharedOutput))
@@ -788,12 +799,12 @@ local function buildCargo(root, outDir, name, dep, previous)
         if not dep.artifactPath then
             for line in cargoOutput:gmatch("[^\r\n]+") do
                 local parsed, message = pcall(json.decode, line, json.NULL)
-                if parsed and type(
-                    message
-                ) == "table" and message.reason == "compiler-artifact" and message.target and message.target.name:gsub(
-                    "%-",
-                    "_"
-                ) == crateName then
+                if parsed
+                    and type(message) == "table"
+                    and message.reason == "compiler-artifact"
+                    and message.target
+                    and message.target.name:gsub("%-", "_") == crateName
+                then
                     for _, filename in ipairs(message.filenames or {}) do
                         if filename:match("%.so$") or filename:match("%.dylib$") or filename:match("%.dll$") then
                             artifact = filename
@@ -945,9 +956,8 @@ end
 --- or nil when it is not declared as one. The rock publisher reads rockspecs the
 --- same way, through this, so the two cannot disagree on what a declaration is.
 function deps.rockspecField(text: string, field: string): string?
-    return text:match(
-        "[\r\n]" .. field .. "%s*=%s*[\"']([^\"']+)[\"']"
-    ) or text:match("^" .. field .. "%s*=%s*[\"']([^\"']+)[\"']")
+    return text:match("[\r\n]" .. field .. "%s*=%s*[\"']([^\"']+)[\"']")
+        or text:match("^" .. field .. "%s*=%s*[\"']([^\"']+)[\"']")
 end
 
 local function declaredVersion(rockspec)
@@ -972,9 +982,12 @@ end
 -- authoritative, then the manifest, then what the rockspec declares, and the
 -- dependency's own name is the last word on the package.
 local function rockIdentity(record, dep, rockspec, name): (string, string?)
-    return record and record.rock or dep.rock or declaredPackage(
-        rockspec
-    ) or name, record and record.version or dep.version or declaredVersion(rockspec)
+    return record and record.rock
+        or dep.rock
+        or declaredPackage(rockspec)
+        or name, record and record.version
+        or dep.version
+        or declaredVersion(rockspec)
 end
 
 -- One listing per tree per run, and one version per LuaRocks. Nothing but this process
@@ -1428,9 +1441,9 @@ local function typeRoots(root: string, config: Config, records: {[string]: cache
         if dep then
             local record = dependencyRecord(records, name, "compile") or dependencyRecord(records, name, "target")
             local checkout = join(root, ".nupp/deps/" .. name)
-            local path = record and (
-                record.typesRoot or record.typeRoot
-            ) or dep.kind == "types" and join(checkout, dep.path or ".") or nil
+            local path = record and (record.typesRoot or record.typeRoot)
+                or dep.kind == "types" and join(checkout, dep.path or ".")
+                or nil
             if path and exists(path) then
                 roots[#roots + 1] = path as string
             end

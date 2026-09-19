@@ -66,11 +66,12 @@ function indices.unique(value: scalarIR.Expr): boolean
     local high = 2 ^ (signed and bits - 1 or bits) - 1
     local last = first + (lanes - 1) * step
 
-    return math.abs(
-        first
-    ) <= 9007199254740991 and math.abs(
-        last
-    ) <= 9007199254740991 and first >= low and first <= high and last >= low and last <= high
+    return math.abs(first) <= 9007199254740991
+        and math.abs(last) <= 9007199254740991
+        and first >= low
+        and first <= high
+        and last >= low
+        and last <= high
 end
 
 export = indices

@@ -186,9 +186,8 @@ function process.command(argv: {string}, opts: process.Options?): string
     end
     local command = table.concat(parts, " ")
     if opts.cwd then
-        command = windows and (
-            "cd /d " .. quote(opts.cwd) .. " && " .. command
-        ) or ("cd " .. quote(opts.cwd) .. " && " .. command)
+        command = windows and ("cd /d " .. quote(opts.cwd) .. " && " .. command)
+            or ("cd " .. quote(opts.cwd) .. " && " .. command)
     end
 
     -- The Windows test runner keeps legacy handwritten shell tests in Bash,

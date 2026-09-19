@@ -73,10 +73,12 @@ local function editDistance(left: string, right: string): integer
         for j = 1, #right do
             local cost = left:sub(i, i) == right:sub(j, j) and 0 or 1
             current[j] = math.min(current[j - 1] + 1, previous[j] + 1, previous[j - 1] + cost)
-            if beforePrevious and i > 1 and j > 1 and left:sub(
-                i,
-                i
-            ) == right:sub(j - 1, j - 1) and left:sub(i - 1, i - 1) == right:sub(j, j) then
+            if beforePrevious
+                and i > 1
+                and j > 1
+                and left:sub(i, i) == right:sub(j - 1, j - 1)
+                and left:sub(i - 1, i - 1) == right:sub(j, j)
+            then
                 current[j] = math.min(current[j], beforePrevious[j - 2] + 1)
             end
         end
@@ -219,9 +221,12 @@ function fixits.new(result: state.Parse, env: state.Env?): fixits.Edits
         local found = {}
         for _, block in ipairs(result.root.blocks or {}) do
             for _, stat in ipairs(block.stats or {}) do
-                local expr = stat.kind == "localStmt" and #(
-                    stat.names or {}
-                ) == 1 and stat.exprs and #stat.exprs == 1 and stat.exprs[1] or nil
+                local expr = stat.kind == "localStmt"
+                    and #(stat.names or {}) == 1
+                    and stat.exprs
+                    and #stat.exprs == 1
+                    and stat.exprs[1]
+                    or nil
                 local callee = expr and expr.kind == "call" and expr.obj or nil
                 if callee and callee.kind == "name" and callee.token and callee.token.text == "require" then
                     local arg = expr.args and expr.args.exprs and expr.args.exprs[1]

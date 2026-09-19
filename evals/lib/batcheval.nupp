@@ -71,9 +71,10 @@ function batch.runnable(nupp: string, jobs: integer): {string}
                 return json.NULL
             end
             local ok, entry = pcall(json.decode, done.stdout, json.NULL)
-            if not ok or entry.family ~= nil and entry.family ~= false and entry.family ~= json.NULL or type(
-                entry.wrong
-            ) ~= "string" then
+            if not ok
+            or entry.family ~= nil and entry.family ~= false and entry.family ~= json.NULL
+            or type(entry.wrong) ~= "string"
+            then
                 return json.NULL
             end
 
@@ -271,11 +272,8 @@ function batch.run(options: batch.Options, codes: {string}): {any}
             return batch.one(options, code)
         end,
         function(count: integer, record: any): nil
-            local mark = record.invalid ~= nil
-            and record.invalid ~= json.NULL
-            and "SKIP"
-            or record.grade.passed
-            and "pass"
+            local mark = record.invalid ~= nil and record.invalid ~= json.NULL and "SKIP"
+            or record.grade.passed and "pass"
             or "FAIL"
             print(("  [%3d/%d] %s %s"):format(count, #codes, mark, tostring(record.task.code)))
             io.stdout:flush()

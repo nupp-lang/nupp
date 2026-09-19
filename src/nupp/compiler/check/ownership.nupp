@@ -294,9 +294,12 @@ function ownership.install(c: state.Checker): ownership.Ops
     -- the declaration without leaking a block-local `File` beyond its scope.
     local function declaredFunctionEntry(name)
         local direct = c.lookupEntry(name) or c.qualifiedFunctionEntries[name]
-        if not direct and not name:find(
-            "%."
-        ) and c.moduleExports and c.moduleExports.values and c.moduleExports.values[name] then
+        if not direct
+            and not name:find("%.")
+            and c.moduleExports
+            and c.moduleExports.values
+            and c.moduleExports.values[name]
+        then
             direct = {
                 t = c.moduleExports.values[name],
                 definition = c.moduleExports.valueDefs and c.moduleExports.valueDefs[name] or nil,
@@ -331,10 +334,11 @@ function ownership.install(c: state.Checker): ownership.Ops
                     moduleName = holder.requiredModule .. moduleName:sub(#firstName + 1)
                 end
             end
-            local exports = moduleName and c.env and c.env.resolveModuleExports and c.env.resolveModuleExports(
-                c.env,
-                moduleName
-            ) or nil
+            local exports = moduleName
+                and c.env
+                and c.env.resolveModuleExports
+                and c.env.resolveModuleExports(c.env, moduleName)
+                or nil
             local exported = exports and exports.values and exports.values[exportName] or nil
             local exportedDefinition = exports and exports.valueDefs and exports.valueDefs[exportName] or nil
             if exported and exportedDefinition then
@@ -347,9 +351,8 @@ function ownership.install(c: state.Checker): ownership.Ops
             return nil
         end
         local functionType = owner.byname and owner.byname[member] or owner.staticByname and owner.staticByname[member]
-        local definition = owner.fieldDefs and owner.fieldDefs[
-            member
-        ] or owner.staticFieldDefs and owner.staticFieldDefs[member]
+        local definition = owner.fieldDefs and owner.fieldDefs[member]
+            or owner.staticFieldDefs and owner.staticFieldDefs[member]
         if not functionType or not definition then
             return nil
         end
@@ -372,10 +375,10 @@ function ownership.install(c: state.Checker): ownership.Ops
         if not definition then
             return nil, nil
         end
-        local definitionModule = definition.filename and c.env and c.env.moduleNameForPath and c.env.moduleNameForPath(
-            c.env,
-            definition.filename
-        )
+        local definitionModule = definition.filename
+            and c.env
+            and c.env.moduleNameForPath
+            and c.env.moduleNameForPath(c.env, definition.filename)
         local origin = stableOrigin(
             definitionModule or definition and definition.filename or c.result.moduleName or c.filename or "<module>"
         )
@@ -395,10 +398,7 @@ function ownership.install(c: state.Checker): ownership.Ops
             and definition.filename
             and c.env
             and c.env.moduleNameForPath
-            and c.env.moduleNameForPath(
-                c.env,
-                definition.filename
-            )
+            and c.env.moduleNameForPath(c.env, definition.filename)
         local origin = stableOrigin(
             definitionModule or definition and definition.filename or c.result.moduleName or c.filename or "<module>"
         )
@@ -471,9 +471,9 @@ function ownership.install(c: state.Checker): ownership.Ops
                             and cleanupEntry.definition
                             or nil
                         cleanup.token = localDefinition and localDefinition.token or nil
-                        cleanup.visibleBody = localDefinition and (
-                            not c.declarationFile or c.result.moduleName == "nupp.prelude"
-                        ) or nil
+                        cleanup.visibleBody = localDefinition
+                            and (not c.declarationFile or c.result.moduleName == "nupp.prelude")
+                            or nil
                         c.nosuspend.cleanup(cleanup, at)
                     end
                     local firstParam = cleanupFunc and cleanupFunc.params[1] or nil
@@ -508,25 +508,33 @@ function ownership.install(c: state.Checker): ownership.Ops
                         ] = {cleanup = cleanup, value = cleanupValue, bound = genericBound, at = at, code = code,}
                     elseif cleanupT and cleanupT ~= T.any and not cleanupFunc then
                         c.diag(code, at, ("terminal %q must be a function"):format(cleanup.name))
-                    elseif cleanupFunc and (
-                        #cleanupFunc.params ~= 1 or cleanupFunc.paramPack.tail ~= nil or cleanupFunc.paramModes[
-                            1
-                        ] ~= "takes"
-                    ) then
+                    elseif cleanupFunc
+                        and (
+                            #cleanupFunc.params ~= 1
+                            or cleanupFunc.paramPack.tail ~= nil
+                            or cleanupFunc.paramModes[1] ~= "takes"
+                        )
+                    then
                         c.diag(code, at, ("terminal %q must take exactly one consuming argument"):format(cleanup.name))
-                    elseif cleanupFunc and not genericBound and (
-                        not firstParam or firstParam.id ~= cleanupValue.id
-                    ) then
+                    elseif cleanupFunc
+                        and not genericBound
+                        and (not firstParam or firstParam.id ~= cleanupValue.id)
+                    then
                         c.diag(
                             code,
                             at,
                             ("terminal %q must take exactly %s"):format(cleanup.name, T.tostring(cleanupValue))
                         )
-                    elseif cleanupFunc and (
-                        not cVoidTerminal and (
-                            #cleanupFunc.rets ~= 1 or cleanupFunc.retPack.tail ~= nil or cleanupFunc.rets[1] ~= T.nil_
+                    elseif cleanupFunc
+                        and (
+                            not cVoidTerminal
+                            and (
+                                #cleanupFunc.rets ~= 1
+                                or cleanupFunc.retPack.tail ~= nil
+                                or cleanupFunc.rets[1] ~= T.nil_
+                            )
                         )
-                    ) then
+                    then
                         c.diag(code, at, ("terminal %q must return nil"):format(cleanup.name))
                     elseif cleanupFunc and j < #(cleanups or {}) and cleanupFunc.paramModes[1] == "takes" then
                         c.diag("NUPP2615", at, ("cleanup %q takes before the final step"):format(cleanup.name))
@@ -602,9 +610,10 @@ function ownership.install(c: state.Checker): ownership.Ops
     function own.conflictDetails(root, path, exclusiveOnly)
         for borrowed, site in pairs(root and root.activeBorrowSites or {}) do
             local borrowedFacts = own.capabilityFacts(borrowed, nil, false)
-            if not borrowed.moved and (
-                not exclusiveOnly or borrowedFacts.exclusive
-            ) and (not path or own.regionsOverlap(path, borrowedFacts.regionPath or "")) then
+            if not borrowed.moved
+                and (not exclusiveOnly or borrowedFacts.exclusive)
+                and (not path or own.regionsOverlap(path, borrowedFacts.regionPath or ""))
+            then
                 local related = c.related(site, "overlapping borrow is declared here")
                 return {
                     help = "end the overlapping borrow before requesting this access",
@@ -643,9 +652,11 @@ function ownership.install(c: state.Checker): ownership.Ops
             local ownCount = 0
             for borrowed in pairs(held) do
                 local facts = own.capabilityFacts(borrowed, nil, false)
-                if not borrowed.moved and facts.regionRoot == regionRoot and facts.regionPath == regionPath and (
-                    not exclusive or facts.exclusive
-                ) then
+                if not borrowed.moved
+                    and facts.regionRoot == regionRoot
+                    and facts.regionPath == regionPath
+                    and (not exclusive or facts.exclusive)
+                then
                     ownCount = ownCount + 1
                 end
             end
@@ -656,14 +667,13 @@ function ownership.install(c: state.Checker): ownership.Ops
                 active = regionRoot.activeExclusiveRegions
             end
             for activePath, count in pairs(active or {}) do
-                if (
-                    activePath == regionPath and count > ownCount
-                ) or (
-                    activePath ~= regionPath and own.regionsOverlap(
-                        activePath,
-                        regionPath
-                    ) and not own.regionContains(activePath, regionPath)
-                ) then
+                if (activePath == regionPath and count > ownCount)
+                    or (
+                        activePath ~= regionPath
+                        and own.regionsOverlap(activePath, regionPath)
+                        and not own.regionContains(activePath, regionPath)
+                    )
+                then
                     return true
                 end
             end
@@ -673,11 +683,11 @@ function ownership.install(c: state.Checker): ownership.Ops
             -- and every borrow it derives from -- authorize it rather than conflict.
             for borrowed in pairs(regionRoot.activeBorrowSites or {}) do
                 local borrowedFacts = own.capabilityFacts(borrowed, nil, false)
-                if not held[
-                    borrowed
-                ] and not borrowed.moved and (
-                    not exclusive or borrowedFacts.exclusive
-                ) and (borrowedFacts.regionPath == nil or borrowedFacts.regionPath == "") then
+                if not held[borrowed]
+                    and not borrowed.moved
+                    and (not exclusive or borrowedFacts.exclusive)
+                    and (borrowedFacts.regionPath == nil or borrowedFacts.regionPath == "")
+                then
                     return true
                 end
             end
@@ -733,9 +743,9 @@ function ownership.install(c: state.Checker): ownership.Ops
                 if facts.exclusive then
                     own.capabilityFacts(expr).exclusive = true
                 end
-                return facts.regionRoot or own.borrowRoot(
-                    facts.roots and facts.roots[1] or entry
-                ), facts.regionPath or ""
+                return facts.regionRoot
+                    or own.borrowRoot(facts.roots and facts.roots[1] or entry), facts.regionPath
+                    or ""
             end
         elseif expr.kind == "dotIndex" or expr.kind == "safeIndex" then
             if expr.indexedField and expr.obj and expr.obj.indexedAccess and expr.obj.obj then
@@ -743,9 +753,12 @@ function ownership.install(c: state.Checker): ownership.Ops
                 if root then
                     path = T.regionField(path, expr.indexedField.name)
                     local key = expr.obj.expr and c.infer(expr.obj.expr) or nil
-                    local exact = key and key.tag == "literal" and type(
-                        key.constant
-                    ) == "number" and key.constant % 1 == 0 and key.constant or nil
+                    local exact = key
+                        and key.tag == "literal"
+                        and type(key.constant) == "number"
+                        and key.constant % 1 == 0
+                        and key.constant
+                        or nil
                     return root, T.regionIndex(path, exact)
                 end
             end
@@ -773,9 +786,12 @@ function ownership.install(c: state.Checker): ownership.Ops
             local root, path = own.regionOf(expr.obj)
             if root then
                 local key = expr.expr and c.infer(expr.expr) or nil
-                local exact = key and key.tag == "literal" and type(
-                    key.constant
-                ) == "number" and key.constant % 1 == 0 and key.constant or nil
+                local exact = key
+                    and key.tag == "literal"
+                    and type(key.constant) == "number"
+                    and key.constant % 1 == 0
+                    and key.constant
+                    or nil
                 local referenced = c.refType(expr.obj)
                 local objectType = referenced and rawType(referenced) or nil
                 if objectType and objectType.tag == "tuple" and exact and exact >= 1 and exact <= #objectType.elems then
@@ -951,9 +967,10 @@ function ownership.install(c: state.Checker): ownership.Ops
                 if state and not seen[state] and (state.functionDepth or 0) == c.functionDepth and not state.moved then
                     seen[state] = true
                     local capability = own.capabilityOf(state.t, state)
-                    if T.capabilityHasMovable(
-                        capability
-                    ) or #capability.loans > 0 or (state.activeBorrows or 0) > 0 then
+                    if T.capabilityHasMovable(capability)
+                        or #capability.loans > 0
+                        or (state.activeBorrows or 0) > 0
+                    then
                         return name
                     end
                 end
@@ -1116,9 +1133,10 @@ function ownership.install(c: state.Checker): ownership.Ops
             local field = expr.name and expr.name.text
             local aggregate = container and rawType(container.t) or nil
             local declared = aggregate and aggregate.tag == "nominal" and aggregate.byname[field] or nil
-            if not container or own.ownershipKind(
-                container.t
-            ) ~= "affine" or own.ownershipKind(declared) ~= "affine" then
+            if not container
+                or own.ownershipKind(container.t) ~= "affine"
+                or own.ownershipKind(declared) ~= "affine"
+            then
                 c.diag("NUPP2602", expr, "only a declared affine field of a named owning record can move")
                 return false
             end
@@ -1130,9 +1148,8 @@ function ownership.install(c: state.Checker): ownership.Ops
             if aggregate
                 and aggregate.tag == "nominal"
                 and aggregate.borrowedRootFields
-                and aggregate.borrowedRootFields[
-                    field
-                ] then
+                and aggregate.borrowedRootFields[field]
+            then
                 c.diag("NUPP2602", expr, ("owned field %q cannot move while a sibling field borrows it"):format(field))
                 return false
             end

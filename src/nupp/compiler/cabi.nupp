@@ -50,9 +50,9 @@ local function optionalPointer(t: any): any?
     if t and t.tag == "union" and t.hasNil and #(t.members or {}) == 2 then
         local first, second = t.members[1], t.members[2]
         local other = first and first.tag == "nil" and second or first
-        if other and (
-            other.tag == "ptr" or other.tag == "cstring" or other.tag == "voidptr" or other.tag == "func"
-        ) then
+        if other
+            and (other.tag == "ptr" or other.tag == "cstring" or other.tag == "voidptr" or other.tag == "func")
+        then
             return other
         end
     end

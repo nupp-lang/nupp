@@ -1856,11 +1856,12 @@ function types.inherentOwner(t: types.Type): types.Type
             end
         end
     end
-    local cleanup = nominal and (
-        nominal.inherentCleanup or nominal.affineInterface and nominal.terminalMethod and types.methodCleanup(
-            nominal.terminalMethod
+    local cleanup = nominal
+        and (
+            nominal.inherentCleanup
+            or nominal.affineInterface and nominal.terminalMethod and types.methodCleanup(nominal.terminalMethod)
         )
-    ) or nil
+        or nil
     if cleanup then
         return types.affine(raw, {cleanup})
     end
@@ -2815,11 +2816,12 @@ function types.func(
         modes[j] = paramModes and paramModes[j] or "plain"
         names[j] = paramNames and paramNames[j] or ""
     end
-    paramPack = paramPack or types.pack(
-        params,
-        vararg and {kind = varargType and "homogeneous" or "unknown", type = varargType or types.any} or nil,
-        modes
-    )
+    paramPack = paramPack
+        or types.pack(
+            params,
+            vararg and {kind = varargType and "homogeneous" or "unknown", type = varargType or types.any} or nil,
+            modes
+        )
     retPack = retPack or types.pack(rets)
     local key = "fn" .. paramPack.id .. ":" .. retPack.id
     if predicate then
@@ -3329,11 +3331,8 @@ function types.neutral(
     -- collision unreachable in practice rather than impossible.
     local templateIds = {}
     for j, part in ipairs(templateParts or {}) do
-        templateIds[
-            j
-        ] = type(
-            part
-        ) == "string" and "s" .. #(part as string) .. ":" .. (part as string) or "t:" .. (part as types.Type).id
+        templateIds[j] = type(part) == "string" and "s" .. #(part as string) .. ":" .. (part as string)
+            or "t:" .. (part as types.Type).id
     end
     local id = "neutral(" .. op .. ":" .. (
         capability or "-"
@@ -3457,11 +3456,10 @@ end
 
 --- Whether a pack mentions a binder: in its head, its tail, or any alternative.
 local function packHasTypevar(pack: types.Pack): boolean
-    if pack.id:find(
-        MARK_TYPEVAR,
-        1,
-        true
-    ) or pack.id:find(MARK_PACKVAR, 1, true) or pack.id:find(MARK_CONSTVAR, 1, true) then
+    if pack.id:find(MARK_TYPEVAR, 1, true)
+        or pack.id:find(MARK_PACKVAR, 1, true)
+        or pack.id:find(MARK_CONSTVAR, 1, true)
+    then
         return true
     end
     for _, member in ipairs(pack.head) do
@@ -3491,11 +3489,10 @@ function types.hasTypevar(t: types.Type): boolean
             end
         end
         for _, argument in ipairs(t.packArgs or {}) do
-            if argument.id:find(
-                MARK_TYPEVAR,
-                1,
-                true
-            ) or argument.id:find(MARK_PACKVAR, 1, true) or argument.id:find(MARK_CONSTVAR, 1, true) then
+            if argument.id:find(MARK_TYPEVAR, 1, true)
+                or argument.id:find(MARK_PACKVAR, 1, true)
+                or argument.id:find(MARK_CONSTVAR, 1, true)
+            then
                 return true
             end
         end
@@ -3512,11 +3509,9 @@ function types.hasTypevar(t: types.Type): boolean
     -- the nominal's identity is intentionally opaque, so its type arguments are not in
     -- its id and the wrapper cannot inherit their marks. Fall back to its structural
     -- parts only when the fast summary did not answer.
-    local marked = t.id:find(
-        MARK_TYPEVAR,
-        1,
-        true
-    ) ~= nil or t.id:find(MARK_PACKVAR, 1, true) ~= nil or t.id:find(MARK_CONSTVAR, 1, true) ~= nil
+    local marked = t.id:find(MARK_TYPEVAR, 1, true) ~= nil
+        or t.id:find(MARK_PACKVAR, 1, true) ~= nil
+        or t.id:find(MARK_CONSTVAR, 1, true) ~= nil
     if marked then
         return true
     end
@@ -3531,11 +3526,11 @@ function types.hasTypevar(t: types.Type): boolean
     elseif tag == "typeHandle" then
         return types.hasTypevar(t.bound)
     elseif tag == "map" then
-        return (
-            t.key and types.hasTypevar(t.key)
-        ) or (
-            t.value and types.hasTypevar(t.value)
-        ) or (t.writeKey and types.hasTypevar(t.writeKey)) or (t.writeValue and types.hasTypevar(t.writeValue)) or false
+        return (t.key and types.hasTypevar(t.key))
+            or (t.value and types.hasTypevar(t.value))
+            or (t.writeKey and types.hasTypevar(t.writeKey))
+            or (t.writeValue and types.hasTypevar(t.writeValue))
+            or false
     elseif tag == "tuple" then
         for _, member in ipairs(t.elems) do
             if types.hasTypevar(member) then
@@ -3573,23 +3568,22 @@ function types.hasTypevar(t: types.Type): boolean
     elseif tag == "packResult" then
         return packHasTypevar(t.pack)
     elseif tag == "protocolThread" then
-        return packHasTypevar(
-            t.startPack
-        ) or packHasTypevar(t.resumePack) or packHasTypevar(t.yieldPack) or packHasTypevar(t.returnPack)
+        return packHasTypevar(t.startPack)
+            or packHasTypevar(t.resumePack)
+            or packHasTypevar(t.yieldPack)
+            or packHasTypevar(t.returnPack)
     elseif tag == "neutral" then
         -- A type-level operation over an instantiated nominal is where the fast
         -- summary most often falls short: `Box<T>.["value"]` and `keyof Box<T>` carry
         -- no mark, because the nominal's id carries none, and a substitution that
         -- trusted the id would leave the operation blocked at every call site.
-        if (
-            t.subject and types.hasTypevar(t.subject)
-        ) or (
-            t.key and types.hasTypevar(t.key)
-        ) or (
-            t.keys and types.hasTypevar(t.keys)
-        ) or (
-            t.value and types.hasTypevar(t.value)
-        ) or (t.remap and types.hasTypevar(t.remap)) or (t.comptimeBound and types.hasTypevar(t.comptimeBound)) then
+        if (t.subject and types.hasTypevar(t.subject))
+            or (t.key and types.hasTypevar(t.key))
+            or (t.keys and types.hasTypevar(t.keys))
+            or (t.value and types.hasTypevar(t.value))
+            or (t.remap and types.hasTypevar(t.remap))
+            or (t.comptimeBound and types.hasTypevar(t.comptimeBound))
+        then
             return true
         end
         if t.constTerm and t.constTerm.id:find(MARK_CONSTVAR, 1, true) then
@@ -3890,18 +3884,23 @@ function types.tostring(t: types.Type): string
         local ret = ""
         if hasRet then
             ret = ": " .. (
-                #t.retPack.head == 1 and not t.retPack.tail and not t.retPack.alternatives and renderedResults[
-                    1
-                ] or (
-                    t.retPack.alternatives or t.retPack.tail
-                ) and types.tostringPack(t.retPack) or "(" .. table.concat(renderedResults, ", ") .. ")"
+                #t.retPack.head == 1 and not t.retPack.tail and not t.retPack.alternatives and renderedResults[1]
+                or (t.retPack.alternatives or t.retPack.tail) and types.tostringPack(t.retPack)
+                or "(" .. table.concat(renderedResults, ", ") .. ")"
             )
         end
-        local protocol = t.yieldPack and (
-            " yields " .. types.tostringPack(
-                t.yieldPack
-            ) .. " resumes " .. types.tostringPack(t.resumePack or types.pack({}, {kind = "unknown", type = types.any}))
-        ) or ""
+        local protocol = t.yieldPack
+            and (
+                " yields " .. types.tostringPack(
+                    t.yieldPack
+                ) .. " resumes " .. types.tostringPack(
+                    t.resumePack or types.pack({}, {
+                        kind = "unknown",
+                        type = types.any
+                    })
+                )
+            )
+            or ""
         local binders = {}
         for _, tv in ipairs(t.typeParams or {}) do
             binders[#binders + 1] = tv.name

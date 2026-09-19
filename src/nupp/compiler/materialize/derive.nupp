@@ -112,9 +112,8 @@ function deriveProvider.installEvaluator(state: any, env: any, opaque: any, prov
             and argument.payload.value
             or nil
         local index = type(value) == "table" and value.kind == "type" and value.type or nil
-        local subject = type(
-            index
-        ) == "number" and state.deriveAnnotationTypes and state.deriveAnnotationTypes[index] or nil
+        local subject = type(index) == "number" and state.deriveAnnotationTypes and state.deriveAnnotationTypes[index]
+            or nil
         if args.n ~= 1 or not subject then
             return nil, failure("NUPP2810", "derive.annotationType needs one @ref annotation argument")
         end
@@ -232,15 +231,12 @@ function deriveProvider.installEvaluator(state: any, env: any, opaque: any, prov
             data = true,
             effects = true,
             initializer = true
-        }) or type(
-            specification.methods or {}
-        ) ~= "table" or type(
-            specification.statics or {}
-        ) ~= "table" or type(
-            specification.data or {}
-        ) ~= "table" or not denseArray(
-            specification.effects or {}
-        ) or (specification.initializer ~= nil and type(specification.initializer) ~= "boolean") then
+        })
+            or type(specification.methods or {}) ~= "table"
+            or type(specification.statics or {}) ~= "table"
+            or type(specification.data or {}) ~= "table"
+            or not denseArray(specification.effects or {})
+            or (specification.initializer ~= nil and type(specification.initializer) ~= "boolean") then
             return nil, failure(
                 "NUPP2810",
                 (
@@ -265,19 +261,15 @@ function deriveProvider.installEvaluator(state: any, env: any, opaque: any, prov
     install("error", function(at, args)
         local message, suppliedReference, code = args[1], args[2], args[3] or "NUPP2810"
         local reference = suppliedReference and entryOf(suppliedReference) or nil
-        if (
-            args.n ~= 1 and args.n ~= 2 and args.n ~= 3
-        ) or type(
-            message
-        ) ~= "string" or type(
-            code
-        ) ~= "string" or not code:match(
-            "^NUPP%d%d%d%d$"
-        ) or (
-            suppliedReference ~= nil and (
-                not reference or reference.provider ~= "derive" or reference.family ~= "Reference"
+        if (args.n ~= 1 and args.n ~= 2 and args.n ~= 3)
+            or type(message) ~= "string"
+            or type(code) ~= "string"
+            or not code:match("^NUPP%d%d%d%d$")
+            or (
+                suppliedReference ~= nil
+                and (not reference or reference.provider ~= "derive" or reference.family ~= "Reference")
             )
-        ) then
+        then
             return nil, failure("NUPP2810", "derive.error needs a message and optional Info reference")
         end
 
@@ -293,9 +285,11 @@ function deriveProvider.installEvaluator(state: any, env: any, opaque: any, prov
             return false
         end
         local right = entryOf(args[2])
-        local rightIdentity = right and right.provider == "types" and right.payload and (
-            right.payload.fingerprint or right.payload.key
-        ) or nil
+        local rightIdentity = right
+            and right.provider == "types"
+            and right.payload
+            and (right.payload.fingerprint or right.payload.key)
+            or nil
         local claims = state.deriveClaims and state.deriveClaims[args[1]] or nil
         if claims and rightIdentity and claims[rightIdentity] == true then
             return true
@@ -311,9 +305,10 @@ function deriveProvider.installEvaluator(state: any, env: any, opaque: any, prov
         local nominal = left.payload and left.payload.nominal or nil
         for _, supertype in ipairs(nominal and nominal.supertypes or {}) do
             local inherited = entryOf(supertype)
-            local inheritedIdentity = inherited and inherited.payload and (
-                inherited.payload.fingerprint or inherited.payload.key
-            ) or nil
+            local inheritedIdentity = inherited
+                and inherited.payload
+                and (inherited.payload.fingerprint or inherited.payload.key)
+                or nil
             if inheritedIdentity == rightIdentity then
                 return true
             end

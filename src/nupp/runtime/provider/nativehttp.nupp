@@ -86,9 +86,11 @@ local COPY_TURN: integer = 16 * 1024 * 1024
 ----------------------------------------------------------------------------
 
 local function whole(value: any, what: string, minimum: integer, maximum: integer?): integer
-    if type(
-        value
-    ) ~= "number" or value ~= math.floor(value) or value < minimum or maximum ~= nil and value > maximum then
+    if type(value) ~= "number"
+        or value ~= math.floor(value)
+        or value < minimum
+        or maximum ~= nil and value > maximum
+    then
         error(
             (
                 "nupp: HTTP %s must be an integer%s"
@@ -134,11 +136,12 @@ local function mergedHeaders(first: any, second: any, contentType: string?): (an
 
     local function add(headers: any): nil
         for name, value in pairs(headers or {}) do
-            if type(
-                name
-            ) ~= "string" or type(
-                value
-            ) ~= "string" or name == "" or name:find("[\r\n:]") ~= nil or value:find("[\r\n]") ~= nil then
+            if type(name) ~= "string"
+                or type(value) ~= "string"
+                or name == ""
+                or name:find("[\r\n:]") ~= nil
+                or value:find("[\r\n]") ~= nil
+            then
                 error("nupp: HTTP headers need valid string names and values", 3)
             end
             local lower = name:lower()
@@ -547,10 +550,8 @@ local function packedHeader(bytes: string, wanted: string): string?
         local valueAt, valueLength = u32(bytes, at + 8), u32(bytes, at + 12)
         if nameAt < tableEnd
             or valueAt < tableEnd
-            or nameAt
-            + nameLength > #bytes
-            or valueAt
-            + valueLength > #bytes
+            or nameAt + nameLength > #bytes
+            or valueAt + valueLength > #bytes
         then
             return nil
         end
@@ -711,10 +712,8 @@ function http.Response._decode(self: http.Response): nil
         local valueAt, valueLength = u32(self._packed, at + 8), u32(self._packed, at + 12)
         if nameAt < tableEnd
             or valueAt < tableEnd
-            or nameAt
-            + nameLength > #self._packed
-            or valueAt
-            + valueLength > #self._packed
+            or nameAt + nameLength > #self._packed
+            or valueAt + valueLength > #self._packed
         then
             error("nupp: malformed packed HTTP response headers", 0)
         end
@@ -964,11 +963,8 @@ function http.Client:send(borrows request: http.Request): (http.Response?, strin
         bodyKind = bodyKind,
         bodyLength = bodyLength,
         timeoutMs = remaining,
-        stallTimeoutMs = given.stallTimeoutMs ~= nil and whole(
-            given.stallTimeoutMs,
-            "stallTimeoutMs",
-            0
-        ) or self._options.stallTimeoutMs,
+        stallTimeoutMs = given.stallTimeoutMs ~= nil and whole(given.stallTimeoutMs, "stallTimeoutMs", 0)
+        or self._options.stallTimeoutMs,
         maxBytes = given.maxBytes ~= nil and whole(given.maxBytes, "maxBytes", 0) or self._options.maxBytes,
         insecure = insecure,
     }
@@ -1090,9 +1086,10 @@ function http.Client:send(borrows request: http.Request): (http.Response?, strin
     end
     local status = head.status as integer
     local location = manualRedirects and packedHeader(head.headers, "location") or nil
-    if manualRedirects and location ~= nil and (
-        status == 301 or status == 302 or status == 303 or status == 307 or status == 308
-    ) then
+    if manualRedirects
+        and location ~= nil
+        and (status == 301 or status == 302 or status == 303 or status == 307 or status == 308)
+    then
         local followed = (state.redirects or 0) as integer
         if followed >= self._options.maxRedirects then
             if self._options.maxRedirects == 0 then
@@ -1113,9 +1110,8 @@ function http.Client:send(borrows request: http.Request): (http.Response?, strin
                 return nil, "HTTP redirect must use http or https"
             end
             local nextMethod, nextBody = method, requestBody
-            local dropsBody = status == 303 and method ~= "HEAD" or (
-                status == 301 or status == 302
-            ) and method == "POST"
+            local dropsBody = status == 303 and method ~= "HEAD"
+                or (status == 301 or status == 302) and method == "POST"
             if dropsBody then
                 nextMethod = "GET"
                 nextBody = nil

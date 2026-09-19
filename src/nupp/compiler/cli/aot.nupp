@@ -540,9 +540,8 @@ local function writeListing(listing: Listing): nil
         -- Padded only when there is something to pad away from, so a listing
         -- carries no trailing space for a diff to trip over.
         io.write(
-            one.operands ~= "" and (
-                "      %-7s %s\n"
-            ):format(one.mnemonic, one.operands) or ("      " .. one.mnemonic .. "\n")
+            one.operands ~= "" and ("      %-7s %s\n"):format(one.mnemonic, one.operands)
+            or ("      " .. one.mnemonic .. "\n")
         )
     end
     io.write("\n")
@@ -609,9 +608,9 @@ local function run(options: any): integer
     for _, program in ipairs(artifacts.programs) do
         local artifact = artifacts.gpu[program.symbol]
         local selectedFunction = options.functionName
-        if artifact ~= nil and (
-            selectedFunction == nil or selectedFunction == program.name or selectedFunction == program.symbol
-        ) then
+        if artifact ~= nil
+            and (selectedFunction == nil or selectedFunction == program.name or selectedFunction == program.symbol)
+        then
             spirvParts[#spirvParts + 1] = artifact.spirv
             if artifact.wgsl ~= nil then
                 wgslParts[#wgslParts + 1] = artifact.wgsl as string
@@ -633,8 +632,7 @@ local function run(options: any): integer
     end
     if emit == "spirv" and #spirvParts ~= 1 then
         io.stderr:write(
-            #spirvParts == 0
-            and "nupp: no GPU function matched --emit spirv\n"
+            #spirvParts == 0 and "nupp: no GPU function matched --emit spirv\n"
             or "nupp: --emit spirv needs one GPU function; select it with --function\n"
         )
         return 1
@@ -700,9 +698,9 @@ local function run(options: any): integer
                 },
                 functions = functions,
                 ir = (emit == nil or emit == "ir") and artifacts.irText or nil,
-                c = (
-                    emit == nil or emit == "c"
-                ) and (options.sourceLocations and inspectionC(artifacts, path) or artifacts.c) or nil,
+                c = (emit == nil or emit == "c")
+                and (options.sourceLocations and inspectionC(artifacts, path) or artifacts.c)
+                or nil,
                 simd = simdText,
                 spirv = spirvHex,
                 wgsl = emit == "wgsl" and wgsl or nil,

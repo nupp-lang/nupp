@@ -101,9 +101,12 @@ function undocumentedraise.install(c: state.Checker): undocumentedraise.Ops
             end
             -- `self` is also a type name, so a receiver in a function type is parsed
             -- as an unnamed parameter whose type is the contextual `self` binder.
-            if not name and param.type and param.type.kind == "tname" and (
-                param.type as any
-            ).base and (param.type as any).base.text == "self" then
+            if not name
+                and param.type
+                and param.type.kind == "tname"
+                and (param.type as any).base
+                and (param.type as any).base.text == "self"
+            then
                 name = "self"
             end
             if name then
@@ -112,9 +115,8 @@ function undocumentedraise.install(c: state.Checker): undocumentedraise.Ops
         end
         for name in pairs(info.params) do
             if not parameters[name] then
-                local label = stat.name and (
-                    stat.name.text or cst.textOf(stat.name):gsub("%s+", "")
-                ) or "this declaration"
+                local label = stat.name and (stat.name.text or cst.textOf(stat.name):gsub("%s+", ""))
+                    or "this declaration"
                 c.diag(
                     "NUPP1007",
                     stat.name and cst.lastToken(stat.name) or stat,

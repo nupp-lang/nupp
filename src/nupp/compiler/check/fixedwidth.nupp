@@ -84,10 +84,7 @@ function fixedCheck.install(c: state.Checker): Ops
             end
         end
         target.fixedWidthEstablished = next(facts) and facts or nil
-        target.fixedWidthTrusted = left
-            and left.fixedWidthTrusted == true
-            and right
-            and right.fixedWidthTrusted == true
+        target.fixedWidthTrusted = left and left.fixedWidthTrusted == true and right and right.fixedWidthTrusted == true
             or nil
     end
 
@@ -178,9 +175,10 @@ function fixedCheck.install(c: state.Checker): Ops
             -- field or array slot outlives the call, and the pointer it keeps
             -- anchors nothing: the collector may free the string while the slot
             -- still points at it.
-            if physical == "store" and T.unwrapOwnership(
-                target
-            ) == T.cstring and isA(T.unwrapOwnership(source), T.string) then
+            if physical == "store"
+                and T.unwrapOwnership(target) == T.cstring
+                and isA(T.unwrapOwnership(source), T.string)
+            then
                 if c.unsafeDepth == 0 then
                     c.diag(
                         "NUPP2604",
@@ -200,18 +198,17 @@ function fixedCheck.install(c: state.Checker): Ops
             -- The store converts a Lua number to the slot's width, and a literal the
             -- slot cannot hold is a different value once stored: 300 in a byte is 44.
             local rawSource = T.unwrapOwnership(source)
-            if rawSource.tag == "literal" and type(
-                rawSource.constant
-            ) == "number" and fixed.isPhysical(
-                target
-            ) and not fixed.physicalLiteralFits(rawSource.constant as number, target) then
+            if rawSource.tag == "literal"
+                and type(rawSource.constant) == "number"
+                and fixed.isPhysical(target)
+                and not fixed.physicalLiteralFits(rawSource.constant as number, target)
+            then
                 return false, ("%s does not fit %s storage"):format(T.tostring(rawSource), T.tostring(target)), false
             end
             local accepted = fixed.physicalStoreAccepts(source, target)
             if accepted ~= nil then
-                return accepted, accepted and nil or (
-                    "%s is not numeric storage for %s"
-                ):format(T.tostring(source), T.tostring(target)), false
+                return accepted, accepted and nil
+                    or ("%s is not numeric storage for %s"):format(T.tostring(source), T.tostring(target)), false
             end
         end
 
@@ -257,9 +254,9 @@ function fixedCheck.install(c: state.Checker): Ops
                 ("%s is not established as %s"):format(T.tostring(source), T.tostring(target)),
                 fixes(node, source, target, conversion),
                 {
-                    help = conversion and (
-                        "use %s, a reified load, an exact literal, or an established result"
-                    ):format(conversion) or "first produce an integer, or widen the destination type"
+                    help = conversion
+                    and ("use %s, a reified load, an exact literal, or an established result"):format(conversion)
+                    or "first produce an integer, or widen the destination type"
                 }
             )
             return false, nil, true

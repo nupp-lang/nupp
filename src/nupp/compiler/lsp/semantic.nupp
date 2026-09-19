@@ -138,19 +138,14 @@ function semantic.syntaxKinds(result: semantic.Parse): {[lexer.Token]: string}
     -- than variables.
     local tokens = result.tokens or {}
     local at: integer = 1
-    while tokens[
-        at
-    ] and tokens[
-        at
-    ].kind == "@" and tokens[
-        at + 1
-    ] and tokens[
-        at + 1
-    ].kind == "not" and tokens[
-        at + 1
-    ].text == "!" and tokens[
-        at + 2
-    ] and tokens[at + 2].kind == "name" and (tokens[at + 2].text == "internal" or tokens[at + 2].text == "nofmt") do
+    while tokens[at]
+        and tokens[at].kind == "@"
+        and tokens[at + 1]
+        and tokens[at + 1].kind == "not"
+        and tokens[at + 1].text == "!"
+        and tokens[at + 2]
+        and tokens[at + 2].kind == "name"
+        and (tokens[at + 2].text == "internal" or tokens[at + 2].text == "nofmt") do
         mark(tokens[at + 2], "decorator")
         at = at + 3
     end
@@ -218,11 +213,9 @@ function semantic.syntaxKinds(result: semantic.Parse): {[lexer.Token]: string}
             end
         elseif kind == "switchExpr" or kind == "switchCase" or kind == "switchField" or kind == "yieldStmt" then
             for _, child in ipairs(node) do
-                if cst.isToken(
-                    child
-                ) and (
-                    child.text == "switch" or child.text == "case" or child.text == "yield" or child.text == "as"
-                ) then
+                if cst.isToken(child)
+                    and (child.text == "switch" or child.text == "case" or child.text == "yield" or child.text == "as")
+                then
                     mark(child, keywordType)
                 elseif cst.isToken(child) and child.text == "is" then
                     mark(child, "operator")
@@ -426,9 +419,10 @@ function semantic.install(s: semantic.Session): semantic.Api
             elseif lexer.KEYWORDS[tok.kind] then
                 kind = semantic.keywordType
             elseif tok.kind == "name" then
-                kind = syntax[
-                    tok
-                ] or semanticKindMap[tok.semanticKind] or (T.builtins[tok.text] and "type") or "variable"
+                kind = syntax[tok]
+                    or semanticKindMap[tok.semanticKind]
+                    or (T.builtins[tok.text] and "type")
+                    or "variable"
             elseif semanticIndex[syntax[tok]] then
                 kind = syntax[tok]
             elseif tok.kind ~= "eof"
@@ -453,9 +447,10 @@ function semantic.install(s: semantic.Session): semantic.Api
                 -- and never the same table. Within one file an offset names one token,
                 -- which is what identity was standing in for.
                 local def = tok.definition
-                local declaration = def ~= nil and def.token ~= nil and def.token.offset == tok.offset and (
-                    def.filename == nil or def.filename == doc.path
-                )
+                local declaration = def ~= nil
+                    and def.token ~= nil
+                    and def.token.offset == tok.offset
+                    and (def.filename == nil or def.filename == doc.path)
                 local modifiers = declaration and 1 or 0
                 if tok.definition and tok.definition.constant then
                     modifiers = modifiers + 2

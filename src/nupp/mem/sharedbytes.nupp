@@ -92,9 +92,9 @@ local RegionMT: metatable<sharedbytes.Region> = {__index = sharedbytes.Region}
 --- Two regions are equal when they name the same engine block, offset, and
 --- length; equal bytes in separate blocks are not equal.
 rawset(RegionMT as table, "__eq", function(left: any, right: any): boolean
-    return native.pointer(
-        left._handle
-    ) == native.pointer(right._handle) and left._first == right._first and left._length == right._length
+    return native.pointer(left._handle) == native.pointer(right._handle)
+        and left._first == right._first
+        and left._length == right._length
 end)
 
 local function wrap(handle: any, first: integer, length: integer): sharedbytes.Region

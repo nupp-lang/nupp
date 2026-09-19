@@ -48,11 +48,11 @@ function fieldcodec.finalize(state: any, value: any): any, fieldcodec.Failure?
         return nil, failure("NUPP2415", "the value is not a field-codec blueprint")
     end
     local descriptor = entry.payload.descriptor
-    if type(
-        descriptor
-    ) ~= "table" or descriptor.kind ~= "record" or type(
-        descriptor.fingerprint
-    ) ~= "string" or type(descriptor.fields) ~= "table" then
+    if type(descriptor) ~= "table"
+        or descriptor.kind ~= "record"
+        or type(descriptor.fingerprint) ~= "string"
+        or type(descriptor.fields) ~= "table"
+    then
         return nil, failure("NUPP2418", "keyed field codecs require a reflected record type")
     end
     local fields, seen = {}, {}
@@ -95,13 +95,13 @@ function fieldcodec.lower(envelope: any, expected: any, env: any): any, fieldcod
             "write nupp.reflect.FieldCodec<Record> on the declaration initialized by this comptime block"
         )
     end
-    if envelope.schema ~= 1 or envelope.family ~= "KeyedCodecBlueprint" or type(
-        envelope.payload
-    ) ~= "table" or type(
-        envelope.payload.fields
-    ) ~= "table" or type(
-        envelope.payload.typeFingerprint
-    ) ~= "string" or type(envelope.payload.typeName) ~= "string" then
+    if envelope.schema ~= 1
+        or envelope.family ~= "KeyedCodecBlueprint"
+        or type(envelope.payload) ~= "table"
+        or type(envelope.payload.fields) ~= "table"
+        or type(envelope.payload.typeFingerprint) ~= "string"
+        or type(envelope.payload.typeName) ~= "string"
+    then
         return nil, failure("NUPP2415", "field-codec blueprint has the wrong schema")
     end
     local fields, seen = {}, {}
@@ -121,13 +121,14 @@ function fieldcodec.lower(envelope: any, expected: any, env: any): any, fieldcod
     local namespace = env and env.globalTypes and env.globalTypes["nupp.reflect"]
     local codec = namespace and namespace.nestedTypes and namespace.nestedTypes.FieldCodec
     local target = expected and expected.typeArgs and expected.typeArgs[1]
-    if not codec or not expected or (
-        expected.origin or expected
-    ) ~= codec
+    if not codec
+        or not expected
+        or (expected.origin or expected) ~= codec
         or not target
         or target.tag ~= "nominal"
         or target.declKind ~= "record"
-        or target.name ~= envelope.payload.typeName then
+        or target.name ~= envelope.payload.typeName
+    then
         return nil, failure("NUPP2415", "field-codec blueprint needs nupp.reflect.FieldCodec<Record>")
     end
     local order = target.fieldOrder or {}

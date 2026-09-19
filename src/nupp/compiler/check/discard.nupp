@@ -257,13 +257,10 @@ function discard.install(c: state.Checker): discard.Ops
                 if inert[body] == nil then
                     -- A function that returns nothing discards nothing, whatever else
                     -- is true of it.
-                    inert[
-                        body
-                    ] = returnsAValue(
-                        body.body
-                    ) and signatureAdmitsAValue(
-                        known.definition and known.definition.type
-                    ) and closed(queries, known.summary) and not writesOutward(body.body)
+                    inert[body] = returnsAValue(body.body)
+                        and signatureAdmitsAValue(known.definition and known.definition.type)
+                        and closed(queries, known.summary)
+                        and not writesOutward(body.body)
                 end
                 if inert[body] then
                     local at = known.definition and known.definition.token

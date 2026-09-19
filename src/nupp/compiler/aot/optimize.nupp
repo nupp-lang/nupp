@@ -348,9 +348,9 @@ local function pairedBreaks(statements: {scalarIR.Statement}, found: any): boole
             if statement.elseBody ~= nil and not pairedBreaks(statement.elseBody, found) then
                 return false
             end
-        elseif (
-            statement.op == "block" or statement.op == "simd_region"
-        ) and not pairedBreaks((statement as any).body as {scalarIR.Statement}, found) then
+        elseif (statement.op == "block" or statement.op == "simd_region")
+            and not pairedBreaks((statement as any).body as {scalarIR.Statement}, found)
+        then
             return false
         end
     end
@@ -368,9 +368,9 @@ local function matchingBreakWrite(
     end
     local assignment = statement.values[1]
 
-    return assignment.target.kind == "local" and localIdentity(
-        assignment.target
-    ) == found.identity and sameLiteral(assignment.value, found.value)
+    return assignment.target.kind == "local"
+        and localIdentity(assignment.target) == found.identity
+        and sameLiteral(assignment.value, found.value)
 end
 
 --- Removes the writes whose value the post-loop condition now derives.
@@ -438,9 +438,11 @@ local function breakResult(statements: {scalarIR.Statement}, position: integer, 
             break
         end
     end
-    if declaration == nil or not fold.isLiteral(
-        declaration.value
-    ) or declaration.type ~= found.value.type or sameLiteral(declaration.value, found.value) then
+    if declaration == nil
+        or not fold.isLiteral(declaration.value)
+        or declaration.type ~= found.value.type
+        or sameLiteral(declaration.value, found.value)
+    then
         return nil
     end
     for between, intervening in ipairs(statements) do
@@ -648,9 +650,10 @@ optimizeBlock = function(statements: {scalarIR.Statement}, state: optimize.State
                     loop.conditionBody = optimizeBlock(loop.conditionBody, state)
                 end
                 loop.body = optimizeBlock(loop.body, state)
-                if loop.conditionBody == nil and loop.condition.op == "bool" and not (
-                    loop.condition as scalarIR.Bool
-                ).value then
+                if loop.conditionBody == nil
+                    and loop.condition.op == "bool"
+                    and not (loop.condition as scalarIR.Bool).value
+                then
                     state.removedStatements = state.removedStatements + 1
                     state.changed = true
                 else
@@ -668,10 +671,8 @@ optimizeBlock = function(statements: {scalarIR.Statement}, state: optimize.State
                 loop.body = optimizeBlock(loop.body, state)
                 local first = fold.exactInteger(loop.from)
                 local last = fold.exactInteger(loop.to)
-                local trips = first ~= nil and last ~= nil and math.max(
-                    (last as number) - (first as number) + 1,
-                    0
-                ) or nil
+                local trips = first ~= nil and last ~= nil and math.max((last as number) - (first as number) + 1, 0)
+                    or nil
                 if trips ~= nil and trips <= optimize.MAX_UNROLL_TRIPS and not containsLoopExit(loop.body) then
                     local expanded: {scalarIR.Statement} = {}
                     local growth = -specialize.nodes(loop)
@@ -990,11 +991,10 @@ end
 local function removeUnusedHelpers(program: scalarIR.Program, helpers: {[string]: scalarIR.Helper}): nil
     local used: {[string]: boolean} = {}
     markHelperUses(
-        program.loop ~= nil and (
-            program.loop as scalarIR.Loop
-        ).statements or program.workgroup ~= nil and (
-            program.workgroup as scalarIR.Workgroup
-        ).statements or program.body or {},
+        program.loop ~= nil and (program.loop as scalarIR.Loop).statements
+        or program.workgroup ~= nil and (program.workgroup as scalarIR.Workgroup).statements
+        or program.body
+        or {},
         used,
         helpers
     )

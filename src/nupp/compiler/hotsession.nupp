@@ -248,10 +248,7 @@ local function cdefFingerprint(parsed)
             or node.kind == "cdefFunc"
             or node.cdefDeclarationBlock
             or node.cheaderCdef
-            or node.kind == "pragmaStmt"
-            and wrapsCdef(
-                node
-            )
+            or node.kind == "pragmaStmt" and wrapsCdef(node)
     end
 
     local function visit(node, inside)
@@ -398,9 +395,10 @@ local function cDeclarationChange(old, current)
     for _, identity in ipairs(ordered) do
         local before, after = oldDeclarations[identity], nextDeclarations[identity]
         local changed = not before or not after or before.semantic ~= after.semantic
-        local relevant = before and before.runtimeBinding or after and after.runtimeBinding or oldUses[
-            identity
-        ] or nextUses[identity]
+        local relevant = before and before.runtimeBinding
+            or after and after.runtimeBinding
+            or oldUses[identity]
+            or nextUses[identity]
         if changed and relevant then
             return before or after, not before and "added" or not after and "removed" or "changed"
         end
@@ -428,12 +426,9 @@ local function snapshotChanged(previous, candidate, consumer)
         local old = previous.inputs[identity]
         local current = candidate.inputs[identity]
         if not current or current.fingerprint ~= old.fingerprint then
-            local kind = old.binary
-                and "native-artifact"
-                or old.kind == "header"
-                and "header-abi"
-                or old.kind == "provider-file"
-                and "provider-input"
+            local kind = old.binary and "native-artifact"
+                or old.kind == "header" and "header-abi"
+                or old.kind == "provider-file" and "provider-input"
                 or "semantic-input"
             return {
                 kind = kind,

@@ -38,12 +38,12 @@ record packs.Pack
 end
 
 local function safeRelative(path: any): boolean
-    return type(
-        path
-    ) == "string" and path ~= "" and path:sub(
-        1,
-        1
-    ) ~= "/" and path:sub(1, 1) ~= "\\" and not path:find("\\", 1, true) and not path:find("..", 1, true)
+    return type(path) == "string"
+        and path ~= ""
+        and path:sub(1, 1) ~= "/"
+        and path:sub(1, 1) ~= "\\"
+        and not path:find("\\", 1, true)
+        and not path:find("..", 1, true)
 end
 
 local function readTool(root: string, value: any, label: string): (string?, string?)

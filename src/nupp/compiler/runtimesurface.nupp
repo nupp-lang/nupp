@@ -186,9 +186,8 @@ function surface.requireIdentity(checker: any, root: string?, member: string?, a
         return
     end
     local members = COMMON_MEMBERS[root]
-    local unavailable = member and members and not members[
-        member
-    ] or not member and not (COMMON_ROOTS[root] or LOWERED_ROOTS[root])
+    local unavailable = member and members and not members[member]
+        or not member and not (COMMON_ROOTS[root] or LOWERED_ROOTS[root])
     if not unavailable then
         return
     end
@@ -196,8 +195,7 @@ function surface.requireIdentity(checker: any, root: string?, member: string?, a
     -- The global is LuaJIT's, because a global cannot be supplied without writing to
     -- `_G`. The module of the same name is not, so say which spelling carries over
     -- rather than leaving a reader to find that out from the module list.
-    local help = root == "bit"
-        and 'require the module instead: `require("bit")` resolves on every dialect'
+    local help = root == "bit" and 'require the module instead: `require("bit")` resolves on every dialect'
         or "use a portable module adapter or bind an application value with a different definition"
     checker.diag(
         "NUPP3010",

@@ -228,23 +228,25 @@ function effectregions.install(c: state.Checker): effectregions.Ops
                 return true
             end
             local kind = node.kind
-            if node ~= root and (
-                kind == "localFuncStmt"
-                or kind == "funcStmt"
-                or kind == "inlineMethod"
-                or kind == "constructorDecl"
-                or kind == "funcExpr"
-                or kind == "shortfn"
-            ) then
+            if node ~= root
+                and (
+                    kind == "localFuncStmt"
+                    or kind == "funcStmt"
+                    or kind == "inlineMethod"
+                    or kind == "constructorDecl"
+                    or kind == "funcExpr"
+                    or kind == "shortfn"
+                )
+            then
                 return effect ~= "allocates"
             elseif (
                 kind == "tableExpr"
                 or kind == "newExpr"
                 or kind == "istring"
-                or kind == "binop"
-                and node.op
-                and node.op.kind == ".."
-            ) and effect == "allocates" then
+                or kind == "binop" and node.op and node.op.kind == ".."
+            )
+                and effect == "allocates"
+            then
                 return false
             elseif node.wideArithmetic and effect == "allocates" then
                 return false
@@ -282,14 +284,16 @@ function effectregions.install(c: state.Checker): effectregions.Ops
                 return
             end
             local kind = node.kind
-            if node ~= root and (
-                kind == "localFuncStmt"
-                or kind == "funcStmt"
-                or kind == "inlineMethod"
-                or kind == "constructorDecl"
-                or kind == "funcExpr"
-                or kind == "shortfn"
-            ) then
+            if node ~= root
+                and (
+                    kind == "localFuncStmt"
+                    or kind == "funcStmt"
+                    or kind == "inlineMethod"
+                    or kind == "constructorDecl"
+                    or kind == "funcExpr"
+                    or kind == "shortfn"
+                )
+            then
                 if effect == "allocates" and not diagnosed[node] then
                     diagnosed[node] = true
                     report(effect, node, "allocates a closure", nil, queries)
@@ -299,10 +303,11 @@ function effectregions.install(c: state.Checker): effectregions.Ops
                 kind == "tableExpr"
                 or kind == "newExpr"
                 or kind == "istring"
-                or kind == "binop"
-                and node.op
-                and node.op.kind == ".."
-            ) and effect == "allocates" and not diagnosed[node] then
+                or kind == "binop" and node.op and node.op.kind == ".."
+            )
+                and effect == "allocates"
+                and not diagnosed[node]
+            then
                 diagnosed[node] = true
                 report(effect, node, "constructs a managed value", nil, queries)
             elseif node.wideArithmetic and effect == "allocates" and not diagnosed[node] then

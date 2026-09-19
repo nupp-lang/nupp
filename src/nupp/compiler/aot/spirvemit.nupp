@@ -853,9 +853,8 @@ function spirv.program(
     end
 
     local loop = program.loop
-    local scalarStatements = loop ~= nil and (
-        loop as scalarIR.Loop
-    ).statements or (workgroup as scalarIR.Workgroup).statements
+    local scalarStatements = loop ~= nil and (loop as scalarIR.Loop).statements
+        or (workgroup as scalarIR.Workgroup).statements
     if workgroup ~= nil then
         collect((workgroup as scalarIR.Workgroup).prelude)
     end
@@ -1085,11 +1084,10 @@ function spirv.program(
                 return input, outputType
             end
             local converted = id()
-            local opcode = outputType == u32Type and (
-                inputType == f32Type and OP.ConvertFToU or OP.UConvert
-            ) or outputType == i32Type and (
-                inputType == f32Type and OP.ConvertFToS or OP.SConvert
-            ) or outputType == f32Type and (inputType == i32Type and OP.ConvertSToF or OP.ConvertUToF) or OP.Bitcast
+            local opcode = outputType == u32Type and (inputType == f32Type and OP.ConvertFToU or OP.UConvert)
+                or outputType == i32Type and (inputType == f32Type and OP.ConvertFToS or OP.SConvert)
+                or outputType == f32Type and (inputType == i32Type and OP.ConvertSToF or OP.ConvertUToF)
+                or OP.Bitcast
             instruction(functions, opcode, {outputType, converted, input})
             return converted, outputType
         elseif op == "u32_div" or op == "u32_mod" then
@@ -1125,16 +1123,11 @@ function spirv.program(
                 instruction(functions, OP.ExtInst, {f32Type, result, ext, 27, input})
                 return result, f32Type
             end
-            local helper = op == "f16_to_f32"
-                and halfToFloatFn
-                or op == "f32_to_f16"
-                and floatToHalfFn
-                or op == "bf16_to_f32"
-                and bf16ToFloatFn
-                or op == "f32_to_bf16"
-                and floatToBf16Fn
-                or op == "f32_exp"
-                and expFn
+            local helper = op == "f16_to_f32" and halfToFloatFn
+                or op == "f32_to_f16" and floatToHalfFn
+                or op == "bf16_to_f32" and bf16ToFloatFn
+                or op == "f32_to_bf16" and floatToBf16Fn
+                or op == "f32_exp" and expFn
                 or sqrtFn
             local result = id()
             instruction(functions, OP.FunctionCall, {resultType, result, helper, input})

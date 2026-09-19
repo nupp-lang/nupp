@@ -91,11 +91,13 @@ function store.open(path: string?, stamp: string): store.Store
             -- guarded, and every way it can go wrong lands on the same answer: no
             -- entries, recompute, overwrite.
             local ok, decoded = pcall(buffer.decode, text)
-            if ok and type(
-                decoded
-            ) == "table" and decoded.format == FORMAT and decoded.stamp == stamp and type(
-                decoded.order
-            ) == "table" and type(decoded.entries) == "table" then
+            if ok
+                and type(decoded) == "table"
+                and decoded.format == FORMAT
+                and decoded.stamp == stamp
+                and type(decoded.order) == "table"
+                and type(decoded.entries) == "table"
+            then
                 entries = decoded.entries
                 for _, key in ipairs(decoded.order) do
                     if entries[key] ~= nil then

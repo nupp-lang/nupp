@@ -223,9 +223,9 @@ function annotate.install(c: state.Checker): annotate.Ops
             arg.annotationReferenceType = t
             return t, true
         end
-        local message = lookupErr and (
-            "ambiguous type reference %q; use a module-qualified name"
-        ):format(table.concat(names, ".")) or ("unknown type reference %q"):format(table.concat(names, "."))
+        local message = lookupErr
+            and ("ambiguous type reference %q; use a module-qualified name"):format(table.concat(names, "."))
+            or ("unknown type reference %q"):format(table.concat(names, "."))
         c.diag("NUPP2115", arg.expr, message)
 
         return nil, false
@@ -342,9 +342,10 @@ function annotate.install(c: state.Checker): annotate.Ops
     function ops.validateAnnotation(application, target, owner)
         local annotation = c.annotationRegistry:get(application.name.text)
         local resolutionError = nil
-        if c.env and c.env.resolveProjectAnnotation and (
-            not annotation or annotation.source and annotation.source ~= c.filename
-        ) then
+        if c.env
+            and c.env.resolveProjectAnnotation
+            and (not annotation or annotation.source and annotation.source ~= c.filename)
+        then
             annotation, resolutionError = c.env.resolveProjectAnnotation(c.env, c.filename, application.name.text)
         end
         if not annotation then
@@ -421,9 +422,10 @@ function annotate.install(c: state.Checker): annotate.Ops
 
             for _, arg in ipairs(application.annotationArgs or {}) do
                 local qualifiedProvider = application.name.text == "derive" and derivePath(arg.expr)
-                if arg.name or not arg.expr or (
-                    arg.expr.kind ~= "name" and arg.expr.kind ~= "string" and not qualifiedProvider
-                ) then
+                if arg.name
+                    or not arg.expr
+                    or (arg.expr.kind ~= "name" and arg.expr.kind ~= "string" and not qualifiedProvider)
+                then
                     c.diag("NUPP2112", arg, ("@%s arguments must be names or strings"):format(application.name.text))
                     valid = false
                 end
@@ -438,9 +440,9 @@ function annotate.install(c: state.Checker): annotate.Ops
                 ("@%s is reserved for %s, which is not implemented"):format(application.name.text, annotation.reserved)
             )
         end
-        if (
-            application.name.text == "annotationValue" or application.name.text == "ref"
-        ) and not (owner and owner.isAnnotationDefinition) then
+        if (application.name.text == "annotationValue" or application.name.text == "ref")
+            and not (owner and owner.isAnnotationDefinition)
+        then
             c.diag(
                 "NUPP2114",
                 application,
@@ -488,9 +490,11 @@ function annotate.install(c: state.Checker): annotate.Ops
                 local member = {
                     name = name,
                     type = nominal and nominal.byname[name] or T.any,
-                    optional = nominal and nominal.byname[
-                        name
-                    ] and nominal.byname[name].tag == "union" and nominal.byname[name].hasNil or false,
+                    optional = nominal
+                    and nominal.byname[name]
+                    and nominal.byname[name].tag == "union"
+                    and nominal.byname[name].hasNil
+                    or false,
                     definition = nominal and nominal.fieldDefs and nominal.fieldDefs[name] or nil,
                 }
                 members[name] = member
@@ -525,9 +529,10 @@ function annotate.install(c: state.Checker): annotate.Ops
                 declaration.name,
                 reserved and reserved.builtin and ("annotation @" .. name .. " is reserved by Nupp") or err,
                 nil,
-                reserved and reserved.builtin and {
-                    help = "rename the project annotation; built-in annotation names are project-wide"
-                } or nil
+                reserved
+                and reserved.builtin
+                and {help = "rename the project annotation; built-in annotation names are project-wide"}
+                or nil
             )
             return
         end

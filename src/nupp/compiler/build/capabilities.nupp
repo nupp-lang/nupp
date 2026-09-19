@@ -83,9 +83,9 @@ local function readDescriptor(record, dependencyName): {capabilities.Entry}?, st
         if not identifier(raw.entry) then
             return nil, label .. ".entry must be a module name"
         end
-        if raw.kind == "generator" and (
-            raw.service ~= nil or raw.member ~= nil or raw.contract ~= nil or raw.export ~= nil
-        ) then
+        if raw.kind == "generator"
+            and (raw.service ~= nil or raw.member ~= nil or raw.contract ~= nil or raw.export ~= nil)
+        then
             return nil, label .. " generator must not name a service contract or provider member"
         end
         if raw.kind == "service" then
@@ -99,15 +99,8 @@ local function readDescriptor(record, dependencyName): {capabilities.Entry}?, st
                 return nil, label .. ".member must be an identifier"
             end
         end
-        local identity = raw.kind == "service"
-            and raw.kind
-            .. "\0"
-            .. raw.service
-            .. "\0"
-            .. raw.name
-            or raw.kind
-            .. "\0"
-            .. raw.name
+        local identity = raw.kind == "service" and raw.kind .. "\0" .. raw.service .. "\0" .. raw.name
+            or raw.kind .. "\0" .. raw.name
         if seen[identity] then
             return nil, label .. " duplicates capability " .. raw.name
         end

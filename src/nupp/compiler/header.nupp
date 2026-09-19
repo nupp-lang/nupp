@@ -128,9 +128,11 @@ end
 --- reflected type or a module interface, so they must not invalidate either reader.
 local function declarationSignature(stat, declaration): string
     local parts = {}
-    local skippedBody = declaration and (
-        declaration.kind == "localFuncStmt" or declaration.kind == "funcStmt"
-    ) and declaration.body and declaration.body.body or nil
+    local skippedBody = declaration
+        and (declaration.kind == "localFuncStmt" or declaration.kind == "funcStmt")
+        and declaration.body
+        and declaration.body.body
+        or nil
 
     local function walk(value)
         if value == skippedBody then
@@ -189,9 +191,8 @@ function header.of(path: string, moduleName: string?, parsed: parser.ParseResult
     produced.internal = parsed.root.documentationInternal == true
     produced.declaredModuleName = declaredModuleName
     produced.moduleToken = moduleNode and declarationToken(moduleNode.keyword)
-    local moduleLocal = declaredModuleName and (
-        cst.exportedLocal(parsed.root) or "__nuppExports"
-    ) or cst.returnedLocal(parsed.root)
+    local moduleLocal = declaredModuleName and (cst.exportedLocal(parsed.root) or "__nuppExports")
+        or cst.returnedLocal(parsed.root)
     produced.moduleLocal = moduleLocal
     local dependencySet = {}
 
@@ -224,16 +225,19 @@ function header.of(path: string, moduleName: string?, parsed: parser.ParseResult
     for _, block in ipairs(parsed.root.blocks or {}) do
         for _, stat in ipairs(block.stats or {}) do
             local declaration, isAnnotation, deprecated, exported = annotatedDeclaration(stat)
-            local visibility = declaration and (
-                exported and "module" or (
-                    (
-                        declaration.kind == "typeAlias" or declaration.kind == "recordDecl"
-                    ) and cst.declVisibility(declaration, moduleLocal) or "local"
+            local visibility = declaration
+                and (
+                    exported and "module"
+                    or (
+                        (declaration.kind == "typeAlias" or declaration.kind == "recordDecl")
+                        and cst.declVisibility(declaration, moduleLocal)
+                        or "local"
+                    )
                 )
-            )
-            if declaration and (
-                declaration.kind == "typeAlias" or declaration.kind == "recordDecl"
-            ) and (visibility == "module" or visibility == "global") then
+            if declaration
+                and (declaration.kind == "typeAlias" or declaration.kind == "recordDecl")
+                and (visibility == "module" or visibility == "global")
+            then
                 produced.declarations[
                     #produced.declarations + 1
                 ] = {

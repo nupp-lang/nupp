@@ -197,15 +197,14 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
     installIntrinsic(state, library, "literal", function(at, args)
         local value = args[1]
         local valueKind = type(value)
-        if valueKind ~= "string" and valueKind ~= "boolean" and (
-            valueKind ~= "number" or value ~= math.floor(value)
-        ) then
+        if valueKind ~= "string"
+            and valueKind ~= "boolean"
+            and (valueKind ~= "number" or value ~= math.floor(value))
+        then
             return nil, failure("NUPP2415", "nupp.types.literal needs a string, boolean, or exact integer")
         end
-        local base = valueKind == "string"
-            and library.string
-            or valueKind == "boolean"
-            and library.boolean
+        local base = valueKind == "string" and library.string
+            or valueKind == "boolean" and library.boolean
             or library.integer
         local encoded = composeKey("literal", {valueKind, tostring(value)})
 
@@ -574,11 +573,10 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
                 )
             end
             local read, write = field.read, field.write
-            if read == nil and write == nil or read ~= nil and not entry(
-                state,
-                read,
-                "Type"
-            ) or write ~= nil and not entry(state, write, "Type") then
+            if read == nil and write == nil
+                or read ~= nil and not entry(state, read, "Type")
+                or write ~= nil and not entry(state, write, "Type")
+            then
                 return nil, failure(
                     "NUPP2415",
                     "nupp.types.shape field " .. field.name .. " needs a read or write type"
@@ -785,12 +783,13 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
 
         local function nominal(value)
             local found = entry(state, value, "Type")
-            while found and (
-                found.payload.kind == "const"
-                or found.payload.kind == "borrowed"
-                or found.payload.kind == "pinned"
-                or found.payload.kind == "affine"
-            ) do
+            while found
+                and (
+                    found.payload.kind == "const"
+                    or found.payload.kind == "borrowed"
+                    or found.payload.kind == "pinned"
+                    or found.payload.kind == "affine"
+                ) do
                 found = entry(state, found.payload.inner, "Type")
             end
 
@@ -807,9 +806,9 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
 
     installIntrinsic(state, library, "fields", function(_, args)
         local found = entry(state, args[1], "Type")
-        if not found or found.payload.kind ~= "shape" and not (
-            found.payload.kind == "reference" and found.payload.nominal
-        ) then
+        if not found
+            or found.payload.kind ~= "shape" and not (found.payload.kind == "reference" and found.payload.nominal)
+        then
             return nil, failure("NUPP2415", "nupp.types.fields needs a shape or nominal handle")
         end
         local fields = {}
@@ -924,9 +923,11 @@ function typeprovider.importDescriptor(
     source: any?,
     referencePrefix: string?
 ): any, typeprovider.Failure?
-    if type(
-        descriptor
-    ) ~= "table" or type(descriptor.types) ~= "table" or type(descriptor.root) ~= "number" or not state.typeHandles then
+    if type(descriptor) ~= "table"
+        or type(descriptor.types) ~= "table"
+        or type(descriptor.root) ~= "number"
+        or not state.typeHandles
+    then
         return nil, failure("NUPP2415", "type-function input has a malformed semantic descriptor")
     end
     local nodes, built, active = descriptor.types, {}, {}
@@ -962,13 +963,13 @@ function typeprovider.importDescriptor(
         local node = nodes[index]
         local kind = node.kind
         local made
-        local referencedSource = descriptor.sources and descriptor.sources[
-            index
-        ] or index == descriptor.root and source or nil
+        local referencedSource = descriptor.sources and descriptor.sources[index]
+            or index == descriptor.root and source
+            or nil
         if node.nominal and (referencedSource or referencePrefix) then
-            local referenceFingerprint = node.referenceFingerprint or referencedSource and require(
-                "nupp.compiler.reflection"
-            ).describe(referencedSource).fingerprint or nil
+            local referenceFingerprint = node.referenceFingerprint
+                or referencedSource and require("nupp.compiler.reflection").describe(referencedSource).fingerprint
+                or nil
             if type(referenceFingerprint) ~= "string" then
                 return nil
             end
@@ -1119,9 +1120,10 @@ function typeprovider.importDescriptor(
             local readValue = node.readValue and import(node.readValue) or nil
             local writeKey = node.writeKey and import(node.writeKey) or nil
             local writeValue = node.writeValue and import(node.writeValue) or nil
-            if (
-                readKey == nil
-            ) == (readValue == nil) and (writeKey == nil) == (writeValue == nil) and (readKey or writeKey) then
+            if (readKey == nil) == (readValue == nil)
+                and (writeKey == nil) == (writeValue == nil)
+                and (readKey or writeKey)
+            then
                 local keys = {
                     readKey and keyOf(state, readKey) or "-",
                     readValue and keyOf(state, readValue) or "-",
@@ -1212,9 +1214,12 @@ function typeprovider.importDescriptor(
             local inner = import(node.element)
             if inner then
                 local transferOnly = kind == "affine" and node.transferOnly == true
-                local terminal = kind == "affine" and not transferOnly and node.cleanups and node.cleanups[
-                    1
-                ] and node.cleanups[1].key or nil
+                local terminal = kind == "affine"
+                    and not transferOnly
+                    and node.cleanups
+                    and node.cleanups[1]
+                    and node.cleanups[1].key
+                    or nil
                 made = make(
                     state,
                     opaque,

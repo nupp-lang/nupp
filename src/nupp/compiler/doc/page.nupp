@@ -669,11 +669,9 @@ function page.render(
     if settings.favicon and settings.favicon ~= "" then
         favicon = '<link rel="icon" href="' .. htmlEscape(assetHref(prefix, settings.favicon)) .. '">'
     end
-    local playground = body:find(
-        "<nupp-playground",
-        1,
-        true
-    ) and '<script type="module" src="/playground/doc-app.js"></script>' or ""
+    local playground = body:find("<nupp-playground", 1, true)
+        and '<script type="module" src="/playground/doc-app.js"></script>'
+        or ""
 
     return "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
         .. '<meta name="viewport" content="width=device-width,initial-scale=1">'
@@ -703,8 +701,7 @@ function page.render(
         .. table.concat(
             actions
         ) .. search .. mobileOutlineAction .. '</div></nav></header>' .. (
-            home
-            and ""
+            home and ""
             or '<button class="nuppdoc-sidebar-backdrop" type="button"'
             .. ' data-mobile-nav-close aria-label="Close page navigation"></button>'
             .. '<button class="nuppdoc-outline-backdrop" type="button"'

@@ -56,15 +56,15 @@ local standard = provider.service:require("nupp.builtin")
 
 local function validate(selected: provider.Provider): nil
     for name, implementation in pairs(selected.algorithms) do
-        if type(
-            name
-        ) ~= "string" or name == "" or type(
-            implementation
-        ) ~= "table" or implementation.name ~= name or type(
-            implementation.digestSize
-        ) ~= "number" or implementation.digestSize <= 0 or implementation.digestSize % 1 ~= 0 or type(
-            implementation.create
-        ) ~= "function" then
+        if type(name) ~= "string"
+            or name == ""
+            or type(implementation) ~= "table"
+            or implementation.name ~= name
+            or type(implementation.digestSize) ~= "number"
+            or implementation.digestSize <= 0
+            or implementation.digestSize % 1 ~= 0
+            or type(implementation.create) ~= "function"
+        then
             error("invalid mac algorithm descriptor " .. tostring(name), 2)
         end
         local expected = standard.algorithms[name]

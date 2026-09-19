@@ -119,10 +119,10 @@ syntax.lines = matcher(function(value: string): {string}
 end)
 
 function syntax.closes(opened: string, marker: string?, rest: string?): boolean
-    return marker ~= nil and marker:sub(
-        1,
-        1
-    ) == opened:sub(1, 1) and #marker >= #opened and syntax.blank:match(rest or "") ~= nil
+    return marker ~= nil
+        and marker:sub(1, 1) == opened:sub(1, 1)
+        and #marker >= #opened
+        and syntax.blank:match(rest or "") ~= nil
 end
 
 function syntax.fenceState(line: string, opened: string?, markdown: boolean?): (string?, string?, string?)

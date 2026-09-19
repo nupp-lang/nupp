@@ -1570,9 +1570,10 @@ function runner.run(options: runner.Options): integer
             end
         end
     end
-    if (
-        onlyFile or casePatterns or parameterPatterns or variantPatterns
-    ) and #merged == 0 and #executionFailures == 0 then
+    if (onlyFile or casePatterns or parameterPatterns or variantPatterns)
+        and #merged == 0
+        and #executionFailures == 0
+    then
         executionFailures[#executionFailures + 1] = "no benchmark matched the selection"
     end
 

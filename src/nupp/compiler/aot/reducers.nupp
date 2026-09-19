@@ -419,18 +419,19 @@ end
 function reducers.valid(order: string, operation: string, element: string): boolean
     local integer = element == "i32" or element == "u32" or element == "i64" or element == "u64"
     if order == "exact" then
-        return integer and (
-            operation == "sum"
-            or operation == "product"
-            or operation == "and"
-            or operation == "or"
-            or operation == "xor"
-        ) or element == "bool" and (operation == "any" or operation == "all" or operation == "count")
+        return integer
+            and (
+                operation == "sum"
+                or operation == "product"
+                or operation == "and"
+                or operation == "or"
+                or operation == "xor"
+            )
+            or element == "bool" and (operation == "any" or operation == "all" or operation == "count")
     end
 
-    return (
-        order == "integer" and integer or (order == "number" or order == "propagating") and element == "f64"
-    ) and (operation == "min" or operation == "max" or operation == "argmin" or operation == "argmax")
+    return (order == "integer" and integer or (order == "number" or order == "propagating") and element == "f64")
+        and (operation == "min" or operation == "max" or operation == "argmin" or operation == "argmax")
 end
 
 function reducers.result(operation: string, element: string): string
@@ -446,13 +447,13 @@ function reducers.input(name: string, order: string, operation: string): string?
         end
         return nil
     end
-    if name == "simd_reducer_" .. order .. "_" .. operation and (
-        (
-            order == "ordered" or order == "pairwise" or order == "algebraic"
-        ) and (
-            operation == "sum" or operation == "product" or operation == "dot"
-        ) or order == "compensated" and operation == "sum"
-    ) then
+    if name == "simd_reducer_" .. order .. "_" .. operation
+        and (
+            (order == "ordered" or order == "pairwise" or order == "algebraic")
+            and (operation == "sum" or operation == "product" or operation == "dot")
+            or order == "compensated" and operation == "sum"
+        )
+    then
         return "f64"
     end
 
@@ -460,9 +461,9 @@ function reducers.input(name: string, order: string, operation: string): string?
 end
 
 function reducers.method(operation: string): string
-    return operation == "product" and "multiply" or (
-        operation == "and" or operation == "or" or operation == "xor"
-    ) and "combine" or "add"
+    return operation == "product" and "multiply"
+        or (operation == "and" or operation == "or" or operation == "xor") and "combine"
+        or "add"
 end
 
 function reducers.helper(order: string, operation: string, element: string): string

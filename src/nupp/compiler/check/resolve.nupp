@@ -195,9 +195,11 @@ function resolve.install(c: state.Checker): nil
     end
 
     local function compilerOnlyAliasAvailable(definition: any, node: Node, name: string): boolean
-        if definition and definition.comptimeOnly and (
-            c.comptimeDepth or 0
-        ) == 0 and (c.comptimeFunctionDepth or 0) == 0 then
+        if definition
+            and definition.comptimeOnly
+            and (c.comptimeDepth or 0) == 0
+            and (c.comptimeFunctionDepth or 0) == 0
+        then
             c.diag("NUPP2421", node, ("comptime type alias %q is available only inside comptime"):format(name))
             return false
         end
@@ -245,9 +247,10 @@ function resolve.install(c: state.Checker): nil
                     fixes[#fixes + 1] = fix(("use %s.%s"):format(bound, name), insertBefore(base, bound .. "."))
                 else
                     local short = moduleName:match("([^.]+)$")
-                    local edit = short and not c.lookupEntry(
-                        short
-                    ) and not requireBindsName(short) and requireEdit(short, moduleName)
+                    local edit = short
+                        and not c.lookupEntry(short)
+                        and not requireBindsName(short)
+                        and requireEdit(short, moduleName)
                     if edit then
                         fixes[
                             #fixes + 1
@@ -368,10 +371,8 @@ function resolve.install(c: state.Checker): nil
         if constError then
             c.diag("NUPP2131", arg, constError)
         end
-        local domain = reduced.tag == "constLiteral"
-            and reduced.domain
-            or reduced.tag == "constVar"
-            and reduced.domain
+        local domain = reduced.tag == "constLiteral" and reduced.domain
+            or reduced.tag == "constVar" and reduced.domain
             or nil
         if domain and domain ~= parameter.domain then
             c.diag(
@@ -389,22 +390,23 @@ function resolve.install(c: state.Checker): nil
     local function aliasArgumentMap(alias, node)
         local map, ordinaryAt, packAt, constAt = {}, 1, 1, 1
         for position, kind in ipairs(alias.paramKinds or {}) do
-            local arg = node.typeArgs and node.typeArgs[
-                position
-            ] or alias.paramDefaults and alias.paramDefaults[position]
+            local arg = node.typeArgs and node.typeArgs[position]
+                or alias.paramDefaults and alias.paramDefaults[position]
             if kind == "const" then
                 local cv = alias.constParams[constAt]
                 if cv then
                     map[cv] = constArgument(arg, cv, node)
                 end
                 constAt = constAt + 1
-            elseif kind == "pack" or not kind and arg and (
-                arg.kind == "tpack"
-                or arg.kind == "tpackUnion"
-                or arg.kind == "tparen"
-                and packAt <= #alias.packParams
-                and ordinaryAt > #alias.typeParams
-            ) then
+            elseif kind == "pack"
+                or not kind
+                and arg
+                and (
+                    arg.kind == "tpack"
+                    or arg.kind == "tpackUnion"
+                    or arg.kind == "tparen" and packAt <= #alias.packParams and ordinaryAt > #alias.typeParams
+                )
+            then
                 local pack = arg and (arg.kind == "tparen" and T.pack({
                     c.resolveType(arg.inner)
                 }) or c.resolvePack(arg)) or T.pack({}, {kind = "unknown", type = T.any})
@@ -458,9 +460,8 @@ function resolve.install(c: state.Checker): nil
                 local cleanups = {}
                 for position, cleanup in ipairs(reduced.cleanups) do
                     local term = cleanup.constTerm
-                    cleanups[
-                        position
-                    ] = term and (functionConstCleanups[term.id] or T.constFunctionCleanup(term)) or cleanup
+                    cleanups[position] = term and (functionConstCleanups[term.id] or T.constFunctionCleanup(term))
+                        or cleanup
                 end
                 reduced = T.affine(reduced.inner, cleanups)
                 c.own.validateCleanups(reduced, cleanups, node, "NUPP2615")
@@ -506,29 +507,32 @@ function resolve.install(c: state.Checker): nil
         c.validateTypeBounds(t.typeParams, t.typeBounds, map, node)
 
         local origin = (t.origin or t) as T.Nominal
-        local isGpuBuffer = origin.name == "Buffer" and (
-            origin.moduleName == "nupp.gpu"
-            or origin.moduleName == "nupp.gpu.internal"
-            or origin.moduleName == "nupp.gpu.types"
-            or origin.moduleName == "nupp.gpu.api"
-        )
+        local isGpuBuffer = origin.name == "Buffer"
+            and (
+                origin.moduleName == "nupp.gpu"
+                or origin.moduleName == "nupp.gpu.internal"
+                or origin.moduleName == "nupp.gpu.types"
+                or origin.moduleName == "nupp.gpu.api"
+            )
         local storageGeneric = (
-            origin.moduleName == "nupp.mem.span" and (
+            origin.moduleName == "nupp.mem.span"
+            and (
                 origin.name == "Span"
                 or origin.name == "FixedSpan"
                 or origin.name == "WriteSpan"
                 or origin.name == "FixedWriteSpan"
                 or origin.name == "WriteSplit"
             )
-        ) or (
-            origin.moduleName == "nupp.mem.soa" and (
-                origin.name == "Array" or origin.name == "Span" or origin.name == "WriteSpan"
+        )
+            or (
+                origin.moduleName == "nupp.mem.soa"
+                and (origin.name == "Array" or origin.name == "Span" or origin.name == "WriteSpan")
             )
-        ) or origin.moduleName == "nupp.mem.heap" and origin.name == "Array" or (
-            origin.moduleName == "nupp.mem.array" and origin.name == "Scalar"
-        ) or isGpuBuffer or (
-            origin.moduleName == "nupp.simd" or origin.sealedModule == "nupp.simd"
-        ) and (origin.name == "Vector" or origin.name == "Mask" or origin.name == "Species")
+            or origin.moduleName == "nupp.mem.heap" and origin.name == "Array"
+            or (origin.moduleName == "nupp.mem.array" and origin.name == "Scalar")
+            or isGpuBuffer
+            or (origin.moduleName == "nupp.simd" or origin.sealedModule == "nupp.simd")
+            and (origin.name == "Vector" or origin.name == "Mask" or origin.name == "Species")
         if not storageGeneric then
             local typePosition = 1
             for position, kind in ipairs(t.paramKinds or {}) do
@@ -686,9 +690,11 @@ function resolve.install(c: state.Checker): nil
                 end
                 local payload = c.resolveType(node.arguments[1])
                 local declared = c.lookupType(name == "managed" and "nupp.Managed" or "nupp.Alias")
-                if not declared or declared.tag ~= "nominal" or not declared.typeParams or not declared.typeParams[
-                    1
-                ] then
+                if not declared
+                    or declared.tag ~= "nominal"
+                    or not declared.typeParams
+                    or not declared.typeParams[1]
+                then
                     c.diag("NUPP2421", node, "the managed-cell prelude declarations are unavailable")
                     return T.any
                 end
@@ -891,9 +897,9 @@ function resolve.install(c: state.Checker): nil
                     open = open or T.hasTypevar(supplied) or T.hasProjection(supplied) or supplied.tag == "neutral"
                 elseif expected == T.typepack then
                     local packNode = argumentNode
-                    while packNode.kind == "tparen" and packNode.inner and (
-                        packNode.inner.kind == "tpack" or packNode.inner.kind == "tpackUnion"
-                    ) do
+                    while packNode.kind == "tparen"
+                        and packNode.inner
+                        and (packNode.inner.kind == "tpack" or packNode.inner.kind == "tpackUnion") do
                         packNode = packNode.inner
                     end
                     local suppliedPack = c.resolvePack(packNode)
@@ -934,9 +940,10 @@ function resolve.install(c: state.Checker): nil
                     if term then
                         reduced, constFailure = consteval.reduce(term)
                     end
-                    local domain = reduced and (
-                        reduced.tag == "constLiteral" or reduced.tag == "constVar"
-                    ) and reduced.domain or nil
+                    local domain = reduced
+                        and (reduced.tag == "constLiteral" or reduced.tag == "constVar")
+                        and reduced.domain
+                        or nil
                     if constFailure or not reduced or domain ~= expected.tag then
                         c.diag(
                             "NUPP2421",
@@ -1133,16 +1140,17 @@ function resolve.install(c: state.Checker): nil
                 local lexicalNamespace = lexical and lexical.tag == "nominal"
                 if lexical then
                     for j = walkFrom, #names do
-                        lexical = lexical.tag == "nominal" and lexical.nestedTypes and lexical.nestedTypes[
-                            names[j]
-                        ] or nil
+                        lexical = lexical.tag == "nominal" and lexical.nestedTypes and lexical.nestedTypes[names[j]]
+                            or nil
                         if not lexical then
                             break
                         end
                     end
-                    lexical = lexical and lexical.tag == "nominal" and lexical.nestedTypes and lexical.nestedTypes[
-                        typeName
-                    ] or nil
+                    lexical = lexical
+                        and lexical.tag == "nominal"
+                        and lexical.nestedTypes
+                        and lexical.nestedTypes[typeName]
+                        or nil
                     if lexical then
                         c.markToken(lastTok, nil, lexical, "type")
                         if lexical.runtimePath then
@@ -1202,11 +1210,9 @@ function resolve.install(c: state.Checker): nil
                         explicitModuleBinding = true
                     end
                 end
-                local access = c.env and c.env.moduleAccess and c.env.moduleAccess(
-                    c.env,
-                    c.result.moduleName,
-                    moduleName
-                )
+                local access = c.env
+                    and c.env.moduleAccess
+                    and c.env.moduleAccess(c.env, c.result.moduleName, moduleName)
                 if access and not c.opts.generatedSource then
                     c.diag("NUPP2144", lastTok, access)
                     return T.any
@@ -1321,18 +1327,19 @@ function resolve.install(c: state.Checker): nil
                         localOrigin = localOrigin:sub(3)
                     end
                     local localPrefix = localOrigin .. "#"
-                    if cleanup.kind == "function" and cleanup.name and cleanup.key and cleanup.key:sub(
-                        1,
-                        #localPrefix
-                    ) == localPrefix then
+                    if cleanup.kind == "function"
+                        and cleanup.name
+                        and cleanup.key
+                        and cleanup.key:sub(1, #localPrefix) == localPrefix
+                    then
                         c.own.cleanupKeyFor(cleanup.name)
                     end
                 end
-                if (
-                    t == T.type_ or t == T.typepack or t.tag == "typeHandle"
-                ) and not (
-                    node as any
-                ).comptimeOnly and (c.comptimeDepth or 0) == 0 and (c.comptimeFunctionDepth or 0) == 0 then
+                if (t == T.type_ or t == T.typepack or t.tag == "typeHandle")
+                    and not (node as any).comptimeOnly
+                    and (c.comptimeDepth or 0) == 0
+                    and (c.comptimeFunctionDepth or 0) == 0
+                then
                     c.diag(
                         "NUPP2421",
                         node,
@@ -1382,9 +1389,13 @@ function resolve.install(c: state.Checker): nil
                 local related, seen = {}, {}
                 for _, entry in ipairs(conflicts or {}) do
                     local definition = entry.definition
-                    local key = definition and (
-                        tostring(definition.filename) .. ":" .. tostring(definition.token and definition.token.offset)
-                    ) or tostring(entry)
+                    local key = definition
+                        and (
+                            tostring(
+                                definition.filename
+                            ) .. ":" .. tostring(definition.token and definition.token.offset)
+                        )
+                        or tostring(entry)
                     if not seen[key] then
                         seen[key] = true
                         local item = c.related(definition, "conflicting global type declared here")
@@ -1414,8 +1425,7 @@ function resolve.install(c: state.Checker): nil
             end
             if not recoverForeign(node, ("annotated Lua names unknown type %q"):format(name)) then
                 c.diag("NUPP2101", base, ("unknown type name %q"):format(name), fixes, {
-                    help = #fixes > 0
-                    and "use one of the suggested type names"
+                    help = #fixes > 0 and "use one of the suggested type names"
                     or "declare the type, qualify its module, or correct the spelling"
                 })
             end
@@ -1491,9 +1501,7 @@ function resolve.install(c: state.Checker): nil
             if reductionError then
                 c.diag("NUPP2131", countNode, reductionError)
             end
-            local count = reduced.tag == "constLiteral"
-                and reduced.domain == "integer"
-                and reduced.value as integer
+            local count = reduced.tag == "constLiteral" and reduced.domain == "integer" and reduced.value as integer
                 or nil
             return T.carray(elem, count, reduced)
         elseif kind == "tpredicate" then
@@ -1739,12 +1747,15 @@ function resolve.install(c: state.Checker): nil
             c.checkVarargMode(varargMode, varargModeToken, varargType, node)
             local paramPack = T.pack(
                 params,
-                paramPackTail or (
-                    vararg and {
+                paramPackTail
+                or (
+                    vararg
+                    and {
                         kind = varargType and "homogeneous" or "unknown",
                         type = varargType or T.any,
                         mode = varargMode,
-                    } or nil
+                    }
+                    or nil
                 ),
                 paramModes
             )

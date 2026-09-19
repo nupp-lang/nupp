@@ -2275,12 +2275,14 @@ function explain.lookup(code: string): explain.Entry?
     return new explain.Entry(
         code = code,
         summary = lint and lint.summary or family.summary,
-        rule = lint and (
+        rule = lint
+        and (
             "A lint, reported at "
             .. lint.level
             .. " by default and configurable by name or by category. "
             .. family.rule
-        ) or family.rule,
+        )
+        or family.rule,
         wrong = nil,
         right = nil,
         strict = false,

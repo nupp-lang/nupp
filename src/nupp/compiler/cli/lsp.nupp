@@ -1095,10 +1095,9 @@ local function runTraceCheck(client, opts)
         value.range = result.range and rangeValue(client, path, result.range) or nil
         value.traceProfile = result.traceProfile
         value.reasonCatalog = result.reasonCatalog
-        value.addContract = result.addContract and {
-            range = rangeValue(client, path, result.addContract.range),
-            newText = result.addContract.newText,
-        } or nil
+        value.addContract = result.addContract
+            and {range = rangeValue(client, path, result.addContract.range), newText = result.addContract.newText,}
+            or nil
         for _, finding in ipairs(result.findings or {}) do
             value.findings[
                 #value.findings + 1
@@ -1152,14 +1151,14 @@ local function runArtifacts(client, opts)
     local enclosing = result and result["function"] or nil
     local value = {
         artifacts = available,
-        [
-            "function"
-        ] = enclosing and {
+        ["function"] = enclosing
+        and {
             name = enclosing.name,
             aotSymbol = enclosing.aotSymbol,
             aotSource = enclosing.aotSource,
             range = enclosing.range and rangeValue(client, path, enclosing.range) or nil,
-        } or nil,
+        }
+        or nil,
     }
     if opts.format == "json" then
         jsonOutput(value)

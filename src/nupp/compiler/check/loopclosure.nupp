@@ -184,9 +184,8 @@ function loopclosure.install(c: state.Checker): loopclosure.Ops
                 .. "does not record building a function, so this loop never compiles",
                 help = "hand what varies to a function declared outside the loop, so "
                 .. "the loop calls one rather than builds one",
-                suppressed = not (
-                    watch.enclosingBody and watch.enclosingBody.jitRequired
-                ) and c.suppressed("jit-loop-closure"),
+                suppressed = not (watch.enclosingBody and watch.enclosingBody.jitRequired)
+                and c.suppressed("jit-loop-closure"),
             }
 
             return

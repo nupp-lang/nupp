@@ -1037,11 +1037,11 @@ record process.Process
         -- The aggregate, and only now: every stream given back, the pump gone, and the
         -- child handle released. `reaped` answering anything less would let a repeat
         -- call return early with something still held.
-        self.reaped = (
-            self.stdin == nil or self.stdin.closed
-        ) and (
-            self.stdout == nil or self.stdout.closed
-        ) and (self.stderr == nil or self.stderr.closed) and self.pump == nil and self.childReleased
+        self.reaped = (self.stdin == nil or self.stdin.closed)
+            and (self.stdout == nil or self.stdout.closed)
+            and (self.stderr == nil or self.stderr.closed)
+            and self.pump == nil
+            and self.childReleased
         if firstError ~= nil then
             error(firstError, 0)
         end
@@ -1292,13 +1292,14 @@ validateOptions = function(options: process.Options): nil
     if given.stderr ~= nil and streams[given.stderr] ~= true and given.stderr ~= "stdout" then
         error("nupp: process stderr must be pipe, inherit, null, or stdout", 3)
     end
-    if given.timeoutMs ~= nil and (
-        type(
-            given.timeoutMs
-        ) ~= "number" or given.timeoutMs < 0 or given.timeoutMs > 2147483647 or math.floor(
-            given.timeoutMs
-        ) ~= given.timeoutMs
-    ) then
+    if given.timeoutMs ~= nil
+        and (
+            type(given.timeoutMs) ~= "number"
+            or given.timeoutMs < 0
+            or given.timeoutMs > 2147483647
+            or math.floor(given.timeoutMs) ~= given.timeoutMs
+        )
+    then
         error("nupp: process timeout must be 0 through 2147483647 milliseconds", 3)
     end
 end

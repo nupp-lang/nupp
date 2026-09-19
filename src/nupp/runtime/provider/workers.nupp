@@ -691,17 +691,16 @@ local function packedValue(encoding: string?, bytes: string?, value: any): Packe
 end
 
 local function preparedRecord(plan: any, value: any): any
-    if type(
-        plan
-    ) ~= "table" or plan.kind ~= "record" or type(
-        plan.schema
-    ) ~= "string" or type(
-        plan.address
-    ) ~= "string" or type(
-        plan.record
-    ) ~= "table" or type(
-        plan.fields
-    ) ~= "table" or type(plan.types) ~= "table" or type(value) ~= "table" or getmetatable(value) ~= plan.record then
+    if type(plan) ~= "table"
+        or plan.kind ~= "record"
+        or type(plan.schema) ~= "string"
+        or type(plan.address) ~= "string"
+        or type(plan.record) ~= "table"
+        or type(plan.fields) ~= "table"
+        or type(plan.types) ~= "table"
+        or type(value) ~= "table"
+        or getmetatable(value) ~= plan.record
+    then
         return nil
     end
 
@@ -795,9 +794,11 @@ local function decode(bytes: string): Frame
     local header = value as {any}
     local tag = header[1]
     if type(header[2]) == "number" then
-        if tag == "t" and type(
-            header[3]
-        ) == "string" and type(header[4]) == "string" and type(header[5]) == "table" then
+        if tag == "t"
+            and type(header[3]) == "string"
+            and type(header[4]) == "string"
+            and type(header[5]) == "table"
+        then
             return {
                 kind = "task",
                 id = header[2] as integer,
@@ -878,9 +879,13 @@ local function pop(source: Channel, timeoutMs: integer): Frame?
         source.handle,
         timeoutMs
     )
-    if nativeKind == 7 and nativeId ~= nil and nativeModule ~= nil and nativeMember ~= nil and type(
-        nativeValue
-    ) == "string" and nativeCount ~= nil then
+    if nativeKind == 7
+        and nativeId ~= nil
+        and nativeModule ~= nil
+        and nativeMember ~= nil
+        and type(nativeValue) == "string"
+        and nativeCount ~= nil
+    then
         return {
             kind = "task",
             id = nativeId,
@@ -923,9 +928,12 @@ local function pop(source: Channel, timeoutMs: integer): Frame?
             encoding = "value",
             value = nativeValue,
         }
-    elseif nativeKind == 3 and nativeId ~= nil and nativeModule ~= nil and nativeMember ~= nil and type(
-        nativeValue
-    ) == "string" then
+    elseif nativeKind == 3
+        and nativeId ~= nil
+        and nativeModule ~= nil
+        and nativeMember ~= nil
+        and type(nativeValue) == "string"
+    then
         return {
             kind = "task",
             id = nativeId,
@@ -1152,10 +1160,8 @@ local function waitScheduler(value: Scheduler, timeoutMs: integer): integer
         local lane = value.lanes[index]
         if lane.inflight > 0 and not ended(lane) then
             value.waitCursor = index % count + 1
-            local bounded = timeoutMs < 0 and BLOCKING_REPLY_SLICE_MS or math.min(
-                timeoutMs,
-                BLOCKING_REPLY_SLICE_MS
-            ) as integer
+            local bounded = timeoutMs < 0 and BLOCKING_REPLY_SLICE_MS
+                or math.min(timeoutMs, BLOCKING_REPLY_SLICE_MS) as integer
 
             return route(lane, bounded) and 1 or 0
         end
@@ -1313,14 +1319,17 @@ local function spawnImpl(self: workers.Scope, fn: any, ...: any): any
     local captures = descriptor and descriptor.captures or pack()
     local arguments = pack(...)
     local preparedInput = descriptor and descriptor.input or nil
-    local recordInput = captures.count == 0 and arguments.count == 1 and (
-        preparedRecord(preparedInput, arguments.values[1]) or dynamicRecordPlan(arguments.values[1])
-    ) or nil
-    local prepared = captures.count == 0 and arguments.count == 1 and (
-        preparedInput == "number" and type(
-            arguments.values[1]
-        ) == "number" or preparedInput == "string" and type(arguments.values[1]) == "string" or recordInput ~= nil
-    )
+    local recordInput = captures.count == 0
+        and arguments.count == 1
+        and (preparedRecord(preparedInput, arguments.values[1]) or dynamicRecordPlan(arguments.values[1]))
+        or nil
+    local prepared = captures.count == 0
+        and arguments.count == 1
+        and (
+            preparedInput == "number" and type(arguments.values[1]) == "number"
+            or preparedInput == "string" and type(arguments.values[1]) == "string"
+            or recordInput ~= nil
+        )
     local transfer: TransferState? = nil
     if not prepared then
         transfer = validatedTaskTransfer(captures, arguments)
@@ -1511,10 +1520,11 @@ settleReply = function(task: any, reply: Frame): nil
         return
     end
     if reply.cancelled == true then
-        task._cancelled = task._cancelled or suspensionRuntime.__taskCancellation(
-            "worker task",
-            reply.deadline == true and "its deadline passed" or nil
-        )
+        task._cancelled = task._cancelled
+            or suspensionRuntime.__taskCancellation(
+                "worker task",
+                reply.deadline == true and "its deadline passed" or nil
+            )
         task._state = "cancelled"
     elseif reply.ok == true then
         local packed = packedValue(reply.encoding, reply.bytes, reply.value)
@@ -1680,14 +1690,15 @@ local function workerReply(outbox: Channel, id: integer, ok: boolean, answer: an
         return
     end
     local packed = answer as Packed
-    local recordOutput = packed.count == 1 and (
-        preparedRecord(preparedOutput, packed.values[1]) or dynamicRecordPlan(packed.values[1])
-    ) or nil
-    local prepared = packed.count == 1 and (
-        preparedOutput == "number" and type(
-            packed.values[1]
-        ) == "number" or preparedOutput == "string" and type(packed.values[1]) == "string" or recordOutput ~= nil
-    )
+    local recordOutput = packed.count == 1
+        and (preparedRecord(preparedOutput, packed.values[1]) or dynamicRecordPlan(packed.values[1]))
+        or nil
+    local prepared = packed.count == 1
+        and (
+            preparedOutput == "number" and type(packed.values[1]) == "number"
+            or preparedOutput == "string" and type(packed.values[1]) == "string"
+            or recordOutput ~= nil
+        )
     local transfer: TransferState? = nil
     local rejected: string? = nil
     if not prepared then
@@ -1799,9 +1810,8 @@ function workers.runScheduler(): nil
                 local moduleName = frame.module as string
                 local member = frame.member as string
                 local moduleValue = require(moduleName)
-                local callable = outlinedSendables[
-                    sendableKey(moduleName, member)
-                ] or (type(moduleValue) == "table" and (moduleValue as {[string]: any})[member] or nil)
+                local callable = outlinedSendables[sendableKey(moduleName, member)]
+                    or (type(moduleValue) == "table" and (moduleValue as {[string]: any})[member] or nil)
                 if type(callable) ~= "function" then
                     error(("%s.%s is not a registered sendable function"):format(moduleName, member), 0)
                 end

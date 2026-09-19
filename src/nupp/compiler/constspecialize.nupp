@@ -78,9 +78,8 @@ local function candidate(node: any, filename: string): any?
             and annotation.kind == "tname"
             and annotation.typeArgs == nil
             and annotation.base ~= nil
-            and byName[
-                annotation.base.text
-            ] or nil
+            and byName[annotation.base.text]
+            or nil
         if binder ~= nil and param.name ~= nil then
             binder.carriers[
                 #binder.carriers + 1
@@ -246,10 +245,8 @@ function constspecialize.collectCalls(result: any, filename: string, candidates:
         if node.kind ~= "call" or node.obj == nil then
             return
         end
-        local callee = node.obj.kind == "name"
-            and node.obj.token
-            or node.obj.kind == "dotIndex"
-            and node.obj.name
+        local callee = node.obj.kind == "name" and node.obj.token
+            or node.obj.kind == "dotIndex" and node.obj.name
             or nil
         if callee == nil then
             return
@@ -258,13 +255,11 @@ function constspecialize.collectCalls(result: any, filename: string, candidates:
         local looseDefinition = looseDefinitionKey(callee.definition)
         local exact = node.obj.exactCallExport or callee.definition and callee.definition.exactCallExport
         local exportIdentity = exact ~= nil and exact.identity or nil
-        local owner = candidates[
-            callee.definition
-        ] or stableDefinition ~= nil and candidates[
-            stableDefinition
-        ] or looseDefinition ~= nil and candidates[
-            looseDefinition
-        ] or exportIdentity ~= nil and candidates["export\0" .. exportIdentity] or nil
+        local owner = candidates[callee.definition]
+            or stableDefinition ~= nil and candidates[stableDefinition]
+            or looseDefinition ~= nil and candidates[looseDefinition]
+            or exportIdentity ~= nil and candidates["export\0" .. exportIdentity]
+            or nil
         local signature = node.signatureType
         if owner == nil or signature == nil or signature.tag ~= "func" then
             return

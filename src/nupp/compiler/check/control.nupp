@@ -406,24 +406,20 @@ function control.install(c: state.Checker): state.StatHandlers
             -- back edge. No loan can dangle across the edge when both sides are
             -- loan-idle, so only then is the identity change tolerated; a borrow or
             -- region live on either side keeps the identity comparison.
-            local loanIdle = (
-                state.activeBorrows or 0
-            ) == 0 and (
-                state.activeExclusiveBorrows or 0
-            ) == 0 and item.activeBorrows == 0 and item.activeExclusiveBorrows == 0 and regionSignature(
-                state.activeRegions
-            ) == "" and item.activeRegions == "" and regionSignature(
-                state.activeExclusiveRegions
-            ) == "" and item.activeExclusiveRegions == ""
-            local capabilityChanged = own.capabilityOf(
-                state.t,
-                state
-            ).id ~= item.capability and not loanIdle or (
-                state.activeBorrows or 0
-            ) ~= item.activeBorrows or (state.activeExclusiveBorrows or 0) ~= item.activeExclusiveBorrows
-            capabilityChanged = capabilityChanged or regionSignature(
-                state.activeRegions
-            ) ~= item.activeRegions or regionSignature(state.activeExclusiveRegions) ~= item.activeExclusiveRegions
+            local loanIdle = (state.activeBorrows or 0) == 0
+                and (state.activeExclusiveBorrows or 0) == 0
+                and item.activeBorrows == 0
+                and item.activeExclusiveBorrows == 0
+                and regionSignature(state.activeRegions) == ""
+                and item.activeRegions == ""
+                and regionSignature(state.activeExclusiveRegions) == ""
+                and item.activeExclusiveRegions == ""
+            local capabilityChanged = own.capabilityOf(state.t, state).id ~= item.capability and not loanIdle
+                or (state.activeBorrows or 0) ~= item.activeBorrows
+                or (state.activeExclusiveBorrows or 0) ~= item.activeExclusiveBorrows
+            capabilityChanged = capabilityChanged
+                or regionSignature(state.activeRegions) ~= item.activeRegions
+                or regionSignature(state.activeExclusiveRegions) ~= item.activeExclusiveRegions
             local fieldsChanged = false
             for field in pairs(state.movedFields or {}) do
                 if not (item.movedFields and item.movedFields[field]) then
@@ -435,9 +431,11 @@ function control.install(c: state.Checker): state.StatHandlers
                     fieldsChanged = true
                 end
             end
-            if state.moved ~= item.moved or (
-                own.capabilityFacts(state, nil, false).retention ~= nil
-            ) ~= item.retained or capabilityChanged or fieldsChanged then
+            if state.moved ~= item.moved
+                or (own.capabilityFacts(state, nil, false).retention ~= nil) ~= item.retained
+                or capabilityChanged
+                or fieldsChanged
+            then
                 c.diag(
                     "NUPP2609",
                     state.movedAt or at,
@@ -545,9 +543,9 @@ function control.install(c: state.Checker): state.StatHandlers
         stat.switchResultType = valueT
         if collector.roots then
             collector.expressions[#collector.expressions + 1] = stat.value
-            local roots = ownershipKind(
-                valueT
-            ) == "borrowed" and provenanceOwners(stat.value) or own.capabilityFacts(stat.value, nil, false).roots or {}
+            local roots = ownershipKind(valueT) == "borrowed" and provenanceOwners(stat.value)
+                or own.capabilityFacts(stat.value, nil, false).roots
+                or {}
             for _, root in ipairs(roots) do
                 if not collector.visible[root] then
                     c.diag(
@@ -777,10 +775,10 @@ function control.install(c: state.Checker): state.StatHandlers
             if ownershipKind(valueT) == "borrowed" and not borrowContract then
                 local expr = stat.exprs[j] or stat
                 local root = provenanceOwners(expr)[1]
-                local related = root and root.definition and c.related(
-                    root.definition,
-                    "borrowed source is declared here"
-                ) or nil
+                local related = root
+                    and root.definition
+                    and c.related(root.definition, "borrowed source is declared here")
+                    or nil
                 local ownReturns = c.ownReturnStack[#c.ownReturnStack]
                 local ownCode = ownReturns and ownReturns[j] and "NUPP2616" or nil
                 c.diag(
@@ -798,19 +796,18 @@ function control.install(c: state.Checker): state.StatHandlers
                 local valueKind = ownershipKind(valueT) as string
                 local expected = annotatedPack and T.packAt(annotatedPack, j) or nil
                 local ownReturns = c.ownReturnStack[#c.ownReturnStack]
-                local capabilityResult = expected and ownReturns and ownReturns[
-                    j
-                ] and rawType(expected).id == rawType(valueT).id
+                local capabilityResult = expected
+                    and ownReturns
+                    and ownReturns[j]
+                    and rawType(expected).id == rawType(valueT).id
                 if #c.retStack == 0 then
                     c.diag("NUPP2603", stat.exprs[j] or stat, valueKind .. " value cannot be exported as module state")
                 elseif not expected or ownershipKind(expected) ~= valueKind and not capabilityResult then
                     c.diag(
                         expected == T.any and "NUPP2611" or "NUPP2603",
                         stat.exprs[j] or stat,
-                        expected == T.any
-                        and "a live capability cannot be erased into an any result"
-                        or valueKind
-                        .. " return needs a matching annotation"
+                        expected == T.any and "a live capability cannot be erased into an any result"
+                        or valueKind .. " return needs a matching annotation"
                     )
                 else
                     -- An owner rooted in a binding of this function is a view of that
@@ -831,27 +828,23 @@ function control.install(c: state.Checker): state.StatHandlers
                     -- exit, and only a borrowed parameter stands for one the caller
                     -- holds.
                     for _, root in ipairs(own.rootsOf(stat.exprs[j])) do
-                        if not declaredSources[
-                            root
-                        ] and (root.functionDepth or 0) >= c.functionDepth and ownershipKind(root.t) ~= nil then
-                            local rootName = root.definition
-                                and root.definition.token
-                                and root.definition.token.text
+                        if not declaredSources[root]
+                            and (root.functionDepth or 0) >= c.functionDepth
+                            and ownershipKind(root.t) ~= nil
+                        then
+                            local rootName = root.definition and root.definition.token and root.definition.token.text
                                 or "?"
                             local parameter = root.definition and root.definition.kind == "parameter"
-                            local related = root.definition and c.related(
-                                root.definition,
-                                "the root is declared here"
-                            ) or nil
+                            local related = root.definition and c.related(root.definition, "the root is declared here")
+                                or nil
                             c.diag(
                                 "NUPP2608",
                                 stat.exprs[j] or stat,
-                                parameter and (
+                                parameter
+                                and (
                                     "an owning result rooted in parameter %q must declare `borrows (%s)`"
-                                ):format(
-                                    rootName,
-                                    rootName
-                                ) or ("an owning result rooted in %q outlives it"):format(rootName),
+                                ):format(rootName, rootName)
+                                or ("an owning result rooted in %q outlives it"):format(rootName),
                                 nil,
                                 {
                                     help = parameter
@@ -1017,9 +1010,11 @@ function control.install(c: state.Checker): state.StatHandlers
                 while constructed and (constructed.kind == "paren" or constructed.kind == "castExpr") do
                     constructed = constructed.expr
                 end
-                local freshConstruction = constructed and (
-                    constructed.kind == "newExpr" or constructed.kind == "call" and constructed.recordConstruct ~= nil
-                )
+                local freshConstruction = constructed
+                    and (
+                        constructed.kind == "newExpr"
+                        or constructed.kind == "call" and constructed.recordConstruct ~= nil
+                    )
                 if ownReturns and ownReturns[j] and (not ownershipKind(got) or freshConstruction) then
                     expected = ownReturns[j]
                     got = rawType(got)
@@ -1047,11 +1042,14 @@ function control.install(c: state.Checker): state.StatHandlers
                         c.diag("NUPP2002", stat, ("return %d: %s"):format(j, why))
                     end
                 end
-            elseif annotatedPack.tail and annotatedPack.tail.kind == "generic" and (
-                not returnedPack.tail
-                or returnedPack.tail.kind ~= "generic"
-                or returnedPack.tail.var ~= annotatedPack.tail.var
-            ) then
+            elseif annotatedPack.tail
+                and annotatedPack.tail.kind == "generic"
+                and (
+                    not returnedPack.tail
+                    or returnedPack.tail.kind ~= "generic"
+                    or returnedPack.tail.var ~= annotatedPack.tail.var
+                )
+            then
                 c.diag("NUPP2010", stat, "returned values do not preserve the declared generic pack")
             end
         end
@@ -1068,10 +1066,15 @@ function control.install(c: state.Checker): state.StatHandlers
         local firstClause = stat.clauses and stat.clauses[1] or nil
         local firstEnd = cst.lastToken(stat)
         local nextIf = adjacent and cst.firstToken(adjacent) or nil
-        if first and second and first.name == second.name and first.literal ~= second.literal and isLocal(
-            c,
-            first.name
-        ) and not writesName(firstClause and firstClause.body, first.name) and firstEnd and nextIf then
+        if first
+            and second
+            and first.name == second.name
+            and first.literal ~= second.literal
+            and isLocal(c, first.name)
+            and not writesName(firstClause and firstClause.body, first.name)
+            and firstEnd
+            and nextIf
+        then
             c.diag(
                 "else-if",
                 adjacent,
@@ -1096,14 +1099,19 @@ function control.install(c: state.Checker): state.StatHandlers
         local elseTok = otherwise and cst.firstToken(otherwise) or nil
         local nestedIf = nested and cst.firstToken(nested) or nil
         local nestedEnd = nested and cst.lastToken(nested) or nil
-        local fixes = nested and elseTok and nestedIf and nestedEnd and {
-            c.edits.fix(
-                "write `elseif`",
-                c.edits.replaceToken(elseTok, "elseif"),
-                c.edits.replaceToken(nestedIf, ""),
-                c.edits.replaceToken(nestedEnd, "")
-            ),
-        } or nil
+        local fixes = nested
+            and elseTok
+            and nestedIf
+            and nestedEnd
+            and {
+                c.edits.fix(
+                    "write `elseif`",
+                    c.edits.replaceToken(elseTok, "elseif"),
+                    c.edits.replaceToken(nestedIf, ""),
+                    c.edits.replaceToken(nestedEnd, "")
+                ),
+            }
+            or nil
         if nested then
             c.diag("else-if", otherwise, "this else contains only an if; write elseif instead", fixes, {
                 help = "replace else followed by if with elseif"
@@ -1245,9 +1253,8 @@ function control.install(c: state.Checker): state.StatHandlers
             and not stat.elseClause
             and allBranchesLeave
             and not dispatchTotal
-            and memberSet(
-                dispatchStart
-            ) then
+            and memberSet(dispatchStart)
+        then
             local remaining = accumulatedElse[dispatchKey]
             local missing = remaining and memberSet(remaining) or nil
             if missing and #missing > 0 then
@@ -1389,10 +1396,10 @@ function control.install(c: state.Checker): state.StatHandlers
         -- directly instead of deferring a bad handler until generated code runs.
         if stat.handler then
             local actual = c.infer(stat.handler as cst.Node)
-            local exports = c.env and c.env.resolveModuleExports and c.env.resolveModuleExports(
-                c.env,
-                "nupp.suspension"
-            ) or nil
+            local exports = c.env
+                and c.env.resolveModuleExports
+                and c.env.resolveModuleExports(c.env, "nupp.suspension")
+                or nil
             local expected = exports and exports.types and exports.types.Handler or nil
             if expected then
                 local ok, why = isA(actual, expected)
@@ -1416,12 +1423,14 @@ function control.install(c: state.Checker): state.StatHandlers
                 return
             end
             inside[node] = true
-            if node ~= stat.body and (
-                node.kind == "funcExpr"
-                or node.kind == "shortfn"
-                or node.kind == "localFuncStmt"
-                or node.kind == "funcStmt"
-            ) then
+            if node ~= stat.body
+                and (
+                    node.kind == "funcExpr"
+                    or node.kind == "shortfn"
+                    or node.kind == "localFuncStmt"
+                    or node.kind == "funcStmt"
+                )
+            then
                 return
             end
             if node.kind == "labelStmt" and node.name then
@@ -1475,11 +1484,13 @@ function control.install(c: state.Checker): state.StatHandlers
                 then
                     nextFunction = node
                 end
-                if nextFunction == targetFunction and not inside[
-                    node
-                ] and node.kind == "gotoStmt" and node.name and labels[
-                    node.name.text
-                ] and not node.handledEntryDiagnosed then
+                if nextFunction == targetFunction
+                    and not inside[node]
+                    and node.kind == "gotoStmt"
+                    and node.name
+                    and labels[node.name.text]
+                    and not node.handledEntryDiagnosed
+                then
                     node.handledEntryDiagnosed = true
                     c.diag("NUPP2706", node, "control cannot enter a `handle suspension` region", nil, {
                         help = "move the label outside the handled region"
@@ -1564,16 +1575,19 @@ function control.install(c: state.Checker): state.StatHandlers
         end
 
         local rangeDefinition = not stat.step and rangeField(from, "first") or nil
-        local witness = rangeDefinition and rangeDefinition == rangeField(
-            to,
-            "last"
-        ) and rangeDefinition.indexedRangeWitness or nil
+        local witness = rangeDefinition
+            and rangeDefinition == rangeField(to, "last")
+            and rangeDefinition.indexedRangeWitness
+            or nil
         if not witness and not stat.step and to.kind == "unop" and to.indexedLength then
             local firstToken = cst.firstToken(from)
             local receiverDefinition = to.indexedLength.receiverDefinition
-            if firstToken and firstToken.kind == "number" and tonumber(
-                firstToken.text
-            ) == 1 and receiverDefinition and receiverDefinition.constant then
+            if firstToken
+                and firstToken.kind == "number"
+                and tonumber(firstToken.text) == 1
+                and receiverDefinition
+                and receiverDefinition.constant
+            then
                 witness = {views = {[receiverDefinition] = to.indexedLength.descriptor,},}
             end
         end
@@ -1716,11 +1730,12 @@ function control.install(c: state.Checker): state.StatHandlers
         end
         for j, nameTok in ipairs(stat.names) do
             local vt = T.any
-            local mode = resultPack and (
-                resultPack.modes[
-                    j
-                ] or resultPack.tail and resultPack.tail.kind == "homogeneous" and resultPack.tail.mode
-            ) or "plain"
+            local mode = resultPack
+                and (
+                    resultPack.modes[j]
+                    or resultPack.tail and resultPack.tail.kind == "homogeneous" and resultPack.tail.mode
+                )
+                or "plain"
             if resultPack and T.packAt(resultPack, j) then
                 vt = T.packAt(resultPack, j)
             elseif iterT and iterT.tag == "func" and iterT.rets[j] then

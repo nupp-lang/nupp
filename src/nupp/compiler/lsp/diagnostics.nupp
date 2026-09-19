@@ -79,30 +79,23 @@ function diagnostics.install(s: diagnostics.Session): diagnostics.Api
     local function toLspDiagnostics(errors, source)
         local out = wire.array({})
         for _, e in ipairs(errors) do
-            local start = source and positionAtOffset(
-                source,
-                e.offset or 1
-            ) or {line = math.max(0, (e.line or 1) - 1), character = math.max(0, (e.col or 1) - 1)}
-            local finish = source and positionAtOffset(
-                source,
-                (e.offset or 1) + (e.length or 0)
-            ) or {line = start.line, character = start.character + (e.length or 1)}
+            local start = source and positionAtOffset(source, e.offset or 1)
+                or {line = math.max(0, (e.line or 1) - 1), character = math.max(0, (e.col or 1) - 1)}
+            local finish = source and positionAtOffset(source, (e.offset or 1) + (e.length or 0))
+                or {line = start.line, character = start.character + (e.length or 1)}
             local related = wire.array({})
             for _, item in ipairs(e.related or {}) do
                 local path = item.filename or e.filename
                 local uri = path and pathToUri(path) or nil
                 local relatedDoc = uri and s.documents[uri] or nil
-                local relatedSource = relatedDoc and relatedDoc.text or (
-                    path and s.inc.fileText(path)
-                ) or (path and readFile(path))
-                local relatedStart = relatedSource and positionAtOffset(
-                    relatedSource,
-                    item.offset or 1
-                ) or {line = math.max(0, (item.line or 1) - 1), character = math.max(0, (item.col or 1) - 1)}
-                local relatedFinish = relatedSource and positionAtOffset(
-                    relatedSource,
-                    (item.offset or 1) + (item.length or 0)
-                ) or {line = relatedStart.line, character = relatedStart.character + (item.length or 1)}
+                local relatedSource = relatedDoc and relatedDoc.text
+                    or (path and s.inc.fileText(path))
+                    or (path and readFile(path))
+                local relatedStart = relatedSource and positionAtOffset(relatedSource, item.offset or 1)
+                    or {line = math.max(0, (item.line or 1) - 1), character = math.max(0, (item.col or 1) - 1)}
+                local relatedFinish = relatedSource
+                    and positionAtOffset(relatedSource, (item.offset or 1) + (item.length or 0))
+                    or {line = relatedStart.line, character = relatedStart.character + (item.length or 1)}
                 if uri then
                     related[
                         #related + 1

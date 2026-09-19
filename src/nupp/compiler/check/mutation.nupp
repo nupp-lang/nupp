@@ -935,9 +935,8 @@ end
 --- @param path the path read, from the binding's name
 function mutation.writtenAfter(token: any, offset: integer, path: string): boolean
     for _, write in ipairs(token and token.writes or {}) do
-        local later = write.offset > offset or (
-            write.loopFrom ~= nil and write.loopFrom <= offset and offset <= write.loopTo
-        )
+        local later = write.offset > offset
+            or (write.loopFrom ~= nil and write.loopFrom <= offset and offset <= write.loopTo)
         if later then
             local wrote: string = write.path
             local reaches

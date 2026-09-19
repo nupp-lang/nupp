@@ -73,13 +73,11 @@ end
 local function disabled(hazard): boolean
     local body = hazard.body
     local definition = body and body.jitDefinition or nil
-    return (
-        body and body.jitDisabled
-    ) or (
-        definition and definition.jitDisabled
-    ) or (
-        hazard.disabledBody and hazard.disabledBody.jitDisabled
-    ) or (hazard.disabledDefinition and hazard.disabledDefinition.jitDisabled) or false
+    return (body and body.jitDisabled)
+        or (definition and definition.jitDisabled)
+        or (hazard.disabledBody and hazard.disabledBody.jitDisabled)
+        or (hazard.disabledDefinition and hazard.disabledDefinition.jitDisabled)
+        or false
 end
 
 local function callsIn(info, queries, checker): {any}, {any}
@@ -98,21 +96,14 @@ local function callsIn(info, queries, checker): {any}, {any}
                 edges[#edges + 1] = {at = node, callee = callee}
             else
                 local obj = node.obj
-                local exact = obj
-                    and obj.exactCallExport
-                    or obj
-                    and obj.token
-                    and obj.token.definition
-                    and obj.token.definition.exactCallExport
+                local exact = obj and obj.exactCallExport
+                    or obj and obj.token and obj.token.definition and obj.token.definition.exactCallExport
                     or nil
                 local imported = exact
                     and checker.env
                     and checker.env.resolveCallGuarantees
-                    and checker.env.resolveCallGuarantees(
-                        checker.env,
-                        exact.module,
-                        exact.member
-                    ) or nil
+                    and checker.env.resolveCallGuarantees(checker.env, exact.module, exact.member)
+                    or nil
                 if imported then
                     edges[#edges + 1] = {at = node, imported = imported}
                 else

@@ -59,9 +59,10 @@ type ffi.Intrinsic = function(
 
 --- The text inside a string literal, whichever way it was quoted.
 local function cdefBody(text: string): string?
-    return text:match(
-        "^%[%[(.*)%]%]$"
-    ) or text:match('^"(.*)"$') or text:match("^'(.*)'$") or text:match("^%[=+%[(.*)%]=+%]$")
+    return text:match("^%[%[(.*)%]%]$")
+        or text:match('^"(.*)"$')
+        or text:match("^'(.*)'$")
+        or text:match("^%[=+%[(.*)%]=+%]$")
 end
 
 --- Installs the FFI intrinsics on one run.
@@ -263,9 +264,12 @@ function ffi.install(c: state.Checker): ffi.Intrinsic
             -- not enough here: `carray(game.Position, n)` must construct the array
             -- from `game.Position`, not an unrelated global `Position`.
             node.carrayElem = args[1]
-            local count = countT.tag == "literal" and type(
-                countT.constant
-            ) == "number" and countT.constant >= 0 and countT.constant % 1 == 0 and countT.constant or nil
+            local count = countT.tag == "literal"
+                and type(countT.constant) == "number"
+                and countT.constant >= 0
+                and countT.constant % 1 == 0
+                and countT.constant
+                or nil
             return T.carray(elemT, count as integer?)
 
             -- layoutof(Struct) answers how one is laid out in C memory: the fields in
@@ -332,11 +336,11 @@ function ffi.install(c: state.Checker): ffi.Intrinsic
                 -- `ffi.sizeof("Inner")` fails. The element ctype goes alongside; for an
                 -- array the helper multiplies it by the count it carries.
                 local elementOf = fieldType and fieldType.tag == "carray" and fieldType.count and fieldType.elem or nil
-                local byValue = fieldType and (
-                    (
-                        fieldType.tag == "nominal" and fieldType.declKind == "struct"
-                    ) or (elementOf and elementOf.tag == "nominal" and elementOf.declKind == "struct")
-                )
+                local byValue = fieldType
+                    and (
+                        (fieldType.tag == "nominal" and fieldType.declKind == "struct")
+                        or (elementOf and elementOf.tag == "nominal" and elementOf.declKind == "struct")
+                    )
                 if not spelling then
                     -- A struct whose every field reified cannot reach this, so it means
                     -- the type moved and the spelling did not follow.

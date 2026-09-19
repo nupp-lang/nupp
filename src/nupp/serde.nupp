@@ -561,16 +561,14 @@ validateValue = function(value: any, schema: Schema, path: string): nil
         if type(value) ~= "number" or value ~= value or value == math.huge or value == -math.huge or value % 1 ~= 0 then
             error("nupp: " .. path .. " must be an integer", 3)
         end
-        if schema.state.minimum ~= nil
-            and value < schema.state.minimum
-            or schema.state.maximum ~= nil
-            and value > schema.state.maximum
+        if schema.state.minimum ~= nil and value < schema.state.minimum
+            or schema.state.maximum ~= nil and value > schema.state.maximum
         then
             error("nupp: " .. path .. " is outside " .. tostring(schema.name) .. " range", 3)
         end
-    elseif schema.kind == "number" and (
-        type(value) ~= "number" or value ~= value or value == math.huge or value == -math.huge
-    ) then
+    elseif schema.kind == "number"
+        and (type(value) ~= "number" or value ~= value or value == math.huge or value == -math.huge)
+    then
         error("nupp: " .. path .. " must be a finite number", 3)
     elseif schema.kind == "list" then
         if type(value) ~= "table" then
@@ -621,11 +619,10 @@ local function schemaForSpec(spec: any): Schema
     elseif kind == "boolean" then
         return boolean
     elseif kind == "literal" then
-        local scalarKind: Kind = type(
-            spec.value
-        ) == "string" and "string" or type(
-            spec.value
-        ) == "boolean" and "boolean" or type(spec.value) == "number" and spec.value % 1 == 0 and "integer" or "number"
+        local scalarKind: Kind = type(spec.value) == "string" and "string"
+            or type(spec.value) == "boolean" and "boolean"
+            or type(spec.value) == "number" and spec.value % 1 == 0 and "integer"
+            or "number"
         return makeSchema(scalarKind, "literal", nil, {hasLiteral = true, literalValue = spec.value,})
     elseif kind == "string" then
         return string
@@ -1669,10 +1666,8 @@ export record JsonCodec
         local decodeProvider: any = decodePlan ~= nil and require("nupp.codec.json.provider") or nil
         local nativeDecode = decodeProvider ~= nil
             and decodeProvider.compileSerde ~= nil
-            and decodeProvider.compileSerde(
-                decodePlan,
-                self.profile.unknownMembers
-            ) or nil
+            and decodeProvider.compileSerde(decodePlan, self.profile.unknownMembers)
+            or nil
         local nativeComplete = nativeDecode ~= nil and nativeDecode.complete == true
         local prepared = new PreparedImpl(token = binding)
         preparedStates[prepared] = {

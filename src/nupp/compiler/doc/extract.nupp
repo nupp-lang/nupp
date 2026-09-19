@@ -906,9 +906,9 @@ local function buildMembers(
             local member = new extract.Member(
                 name = entry.name.text,
                 type = syntax(entry.type),
-                text = fieldInfo.text ~= "" and fieldInfo.text or (
-                    fieldTextOverrides and fieldTextOverrides[entry.name.text]
-                ) or "",
+                text = fieldInfo.text ~= "" and fieldInfo.text
+                or (fieldTextOverrides and fieldTextOverrides[entry.name.text])
+                or "",
                 path = basePath .. "." .. entry.name.text,
                 params = {},
                 returns = {},
@@ -1190,9 +1190,9 @@ declarationItem = function(stat, moduleName, includeAll, declarationFile, includ
         comptimeKind = itemComptimeKind,
     }
     local declaredFunction = stat.kind == "localStmt" and typeFunction(stat.types and stat.types[1]) or nil
-    local generics = stat.generics or (
-        stat.body and stat.body.generics
-    ) or (declaredFunction and declaredFunction.generics)
+    local generics = stat.generics
+        or (stat.body and stat.body.generics)
+        or (declaredFunction and declaredFunction.generics)
     for _, generic in ipairs(generics and generics.names or {}) do
         item.typeargs[#item.typeargs + 1] = {name = generic.text, text = info.typeargs[generic.text] or "",}
     end
@@ -1436,9 +1436,8 @@ function extract.extract(
                     and source.obj.kind == "name"
                     and source.obj.token
                     and source.obj.token.text == "require"
-                    and (
-                        source.args as cst.Args?
-                    ) or nil
+                    and (source.args as cst.Args?)
+                    or nil
                 local argument = args and args.exprs and args.exprs[1]
                 local literal = argument and argument.kind == "string" and argument.token and argument.token.text or nil
                 local imported = literal and (literal:match('^"(.*)"$') or literal:match("^'(.*)'$")) or nil
@@ -1505,9 +1504,12 @@ function extract.extract(
             -- same
             -- rule as any other declaration, so a private `local` stays out unless
             -- `--all` asks for it too.
-            local shape = stat.kind == "localStmt" and #(
-                stat.names or {}
-            ) == 1 and stat.types[1] and stat.types[1].kind == "tshape" and stat.types[1] or nil
+            local shape = stat.kind == "localStmt"
+                and #(stat.names or {}) == 1
+                and stat.types[1]
+                and stat.types[1].kind == "tshape"
+                and stat.types[1]
+                or nil
             local shapeName = shape and stat.kind == "localStmt" and stat.names[1].text or nil
             local shapePublic = opts.includeAll or declarationFile or info.tags.export or info.tags.public
             if info.tags["local"] then

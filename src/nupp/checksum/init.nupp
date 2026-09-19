@@ -114,15 +114,16 @@ local standard = provider.service:require("nupp.builtin")
 
 local function validate(selected: provider.Provider): nil
     for name, implementation in pairs(selected.algorithms) do
-        if type(
-            name
-        ) ~= "string" or name == "" or type(
-            implementation
-        ) ~= "table" or implementation.name ~= name or type(
-            implementation.width
-        ) ~= "number" or implementation.width < 1 or implementation.width > 64 or implementation.width % 1 ~= 0 or type(
-            implementation.create
-        ) ~= "function" then
+        if type(name) ~= "string"
+            or name == ""
+            or type(implementation) ~= "table"
+            or implementation.name ~= name
+            or type(implementation.width) ~= "number"
+            or implementation.width < 1
+            or implementation.width > 64
+            or implementation.width % 1 ~= 0
+            or type(implementation.create) ~= "function"
+        then
             error("invalid checksum algorithm descriptor " .. tostring(name), 2)
         end
         local expected = standard.algorithms[name]

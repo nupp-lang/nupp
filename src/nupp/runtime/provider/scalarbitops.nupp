@@ -45,9 +45,9 @@ local function combine(left: number, right: number, operation: string): integer
     local place, answer = 1, 0
     for _ = 1, 32 do
         local a, b = left % 2, right % 2
-        local selected = operation == "and" and a == 1 and b == 1 or operation == "or" and (
-            a == 1 or b == 1
-        ) or operation == "xor" and a ~= b
+        local selected = operation == "and" and a == 1 and b == 1
+            or operation == "or" and (a == 1 or b == 1)
+            or operation == "xor" and a ~= b
         if selected then
             answer = answer + place
         end

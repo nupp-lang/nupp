@@ -167,9 +167,9 @@ function binding.foreign(program: scalarIR.Program, library: string?, symbol: st
     end
     if scalarIR.independentCounts(program) then
         for _, param in ipairs(program.params) do
-            if (
-                param.kind == "write_span" or param.kind == "read_span"
-            ) and (param.soa == nil or param.soa.ordinal == 1) then
+            if (param.kind == "write_span" or param.kind == "read_span")
+                and (param.soa == nil or param.soa.ordinal == 1)
+            then
                 params[#params + 1] = "count_" .. param.name .. ": uint64"
             end
         end
@@ -182,9 +182,8 @@ function binding.foreign(program: scalarIR.Program, library: string?, symbol: st
         lines[#lines + 1] = "    " .. param .. (position < #params and "," or "")
     end
     local resultTypes = program.resultTypes or {}
-    local result = #resultTypes == 0 and "" or ": " .. (
-        #resultTypes > 1 and resultName(program) or tostring(binding.ABI_TYPE[resultTypes[1]] or "int32")
-    )
+    local result = #resultTypes == 0 and ""
+        or ": " .. (#resultTypes > 1 and resultName(program) or tostring(binding.ABI_TYPE[resultTypes[1]] or "int32"))
     lines[#lines + 1] = ")" .. result .. " " .. from(library)
 
     return lines
@@ -381,9 +380,9 @@ function binding.wrapper(program: scalarIR.Program, nativeSymbol: string?): {str
         lines[#lines + 1] = "    " .. param .. (position < #params and "," or "")
     end
     local resultSourceTypes = program.resultSourceTypes or {}
-    local result = #resultSourceTypes == 0 and "nil" or #resultSourceTypes == 1 and resultSourceTypes[
-        1
-    ] or "(" .. table.concat(resultSourceTypes, ", ") .. ")"
+    local result = #resultSourceTypes == 0 and "nil"
+        or #resultSourceTypes == 1 and resultSourceTypes[1]
+        or "(" .. table.concat(resultSourceTypes, ", ") .. ")"
     lines[#lines + 1] = "): " .. result
     for _, line in ipairs(binding.relations(program)) do
         lines[#lines + 1] = line

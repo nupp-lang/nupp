@@ -74,9 +74,10 @@ export function install(__nupp: any, runtime: any): nil
         end
 
         local function __nuppAliasCell(self)
-            if type(
-                self
-            ) ~= "table" or self._brand ~= __nuppManagedBrand or getmetatable(self) ~= __nuppManagedAlias then
+            if type(self) ~= "table"
+                or self._brand ~= __nuppManagedBrand
+                or getmetatable(self) ~= __nuppManagedAlias
+            then
                 return nil, __nuppManagedError("NUPP2614", "value is not a managed alias")
             end
             local cell = self._cell;
@@ -184,9 +185,10 @@ export function install(__nupp: any, runtime: any): nil
         end
 
         function __nupp.__recoverAlias(value)
-            if type(
-                value
-            ) ~= "table" or value._brand ~= __nuppManagedBrand or getmetatable(value) ~= __nuppManagedAlias then
+            if type(value) ~= "table"
+                or value._brand ~= __nuppManagedBrand
+                or getmetatable(value) ~= __nuppManagedAlias
+            then
                 return nil, __nuppManagedError("NUPP2614", "value is not a managed alias")
             end
             local cell, problem = __nuppAliasCell(value);

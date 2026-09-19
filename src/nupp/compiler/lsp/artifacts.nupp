@@ -225,14 +225,14 @@ function artifacts.install(s: artifacts.Session): artifacts.Api
 
         return {
             artifacts = out,
-            [
-                "function"
-            ] = selected and {
+            ["function"] = selected
+            and {
                 name = selected.traceName,
                 aotSymbol = aotSymbol,
                 aotSource = aotSource,
                 range = from and to and spanRange(doc.text, from, to as integer) or nil,
-            } or nil,
+            }
+            or nil,
         }
     end
 

@@ -476,9 +476,9 @@ local function loadModules(root, config, settings, requested)
         end
         seen[item] = true
         for _, candidate in ipairs(origin.items) do
-            if candidate.name == member or (
-                origin.moduleLocal and candidate.name == origin.moduleLocal .. "." .. member
-            ) then
+            if candidate.name == member
+                or (origin.moduleLocal and candidate.name == origin.moduleLocal .. "." .. member)
+            then
                 local expanded = copy(projected(candidate, origin, seen))
                 expanded.name, expanded.path, expanded.module, expanded.line = item.name, item.path, item.module, item.line
                 expanded.signature = renamed(expanded.signature, member, item.name)
@@ -601,9 +601,8 @@ local function loadModules(root, config, settings, requested)
     for _, module in ipairs(modules) do
         local kept = {}
         for _, item in ipairs(module.items) do
-            local binding = item.kind == "variable" and item.aliasSource and item.aliasSource:match(
-                "^[%a_][%w_]*$"
-            ) or nil
+            local binding = item.kind == "variable" and item.aliasSource and item.aliasSource:match("^[%a_][%w_]*$")
+                or nil
             local imported = binding and module.imports and module.imports[binding] or nil
             local origin = imported and byName[imported] or nil
             if not origin or origin == module or byName[module.name .. "." .. item.name] then
@@ -1378,11 +1377,8 @@ local function renderSite(root, outDir, modules, title, settings)
             ok, err = writeFile(
                 join(outDir, legacy),
                 redirectHtml(
-                    candidate.module.name:match(
-                        "%."
-                    ) and candidate.module.name:match(
-                        "([^.]+)$"
-                    ) .. "/index.html" or candidate.module.name .. "/index.html"
+                    candidate.module.name:match("%.") and candidate.module.name:match("([^.]+)$") .. "/index.html"
+                    or candidate.module.name .. "/index.html"
                 )
             )
             if not ok then

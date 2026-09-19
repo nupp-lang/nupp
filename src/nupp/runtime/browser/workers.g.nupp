@@ -253,10 +253,11 @@ local function settle(task: any, value: any): nil
         task._count = packed.count
         task._state = "done"
     elseif status == "cancelled" then
-        task._cancelled = task._cancelled or suspensionRuntime.__taskCancellation(
-            "worker task",
-            value.deadline == true and "its deadline passed" or nil
-        )
+        task._cancelled = task._cancelled
+            or suspensionRuntime.__taskCancellation(
+                "worker task",
+                value.deadline == true and "its deadline passed" or nil
+            )
         task._state = "cancelled"
     else
         task._error = value ~= nil and value.error or "worker task failed without an error"
@@ -634,9 +635,8 @@ local function runFrame(frame: any): any
         local moduleName = frame.module as string
         local member = frame.member as string
         local moduleValue = require(moduleName)
-        local callable = outlinedSendables[
-            sendableKey(moduleName, member)
-        ] or (type(moduleValue) == "table" and (moduleValue as {[string]: any})[member] or nil)
+        local callable = outlinedSendables[sendableKey(moduleName, member)]
+            or (type(moduleValue) == "table" and (moduleValue as {[string]: any})[member] or nil)
         if type(callable) ~= "function" then
             error(("%s.%s is not a registered sendable function"):format(moduleName, member), 0)
         end

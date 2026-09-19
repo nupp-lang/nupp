@@ -135,13 +135,12 @@ local function statements(text)
             depth = depth - 1
             if depth == 0 then
                 local prefix = table.concat(buf):gsub("^%s+", "")
-                local aggregate = prefix:match(
-                    "^typedef%s+struct%f[%W]"
-                ) or prefix:match(
-                    "^typedef%s+union%f[%W]"
-                ) or prefix:match(
-                    "^typedef%s+enum%f[%W]"
-                ) or prefix:match("^struct%f[%W]") or prefix:match("^union%f[%W]") or prefix:match("^enum%f[%W]")
+                local aggregate = prefix:match("^typedef%s+struct%f[%W]")
+                    or prefix:match("^typedef%s+union%f[%W]")
+                    or prefix:match("^typedef%s+enum%f[%W]")
+                    or prefix:match("^struct%f[%W]")
+                    or prefix:match("^union%f[%W]")
+                    or prefix:match("^enum%f[%W]")
                 if prefix:find("%b()") and not aggregate then
                     -- A function definition has no declaration-ending semicolon.
                     -- Drop it here so it cannot glue itself to the declaration
@@ -288,9 +287,11 @@ renderType = function(model, knownStructs, callbacks)
             return rendered and (rendered .. "?") or nil
         end
         local aggregateName = pointee and (pointee.name or (pointee.id and knownStructs[pointee.id] or nil)) or nil
-        if pointee and (
-            pointee.kind == "struct" or pointee.kind == "union"
-        ) and aggregateName and knownStructs[aggregateName] then
+        if pointee
+            and (pointee.kind == "struct" or pointee.kind == "union")
+            and aggregateName
+            and knownStructs[aggregateName]
+        then
             return (model.const and "const " or "") .. aggregateName .. "*?"
         end
         if pointee and pointee.kind == "void" then

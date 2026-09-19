@@ -202,11 +202,11 @@ local function classifyArm(mnemonic: string, operands: string): {string}
     local kinds: {string} = {}
     local base = mnemonic:match("^[^%.]+") or mnemonic
     local padded = " " .. operands
-    if mnemonic:find(
-        "%.%d+[bhsd]"
-    ) ~= nil or operands:find(
-        "%.%d+[bhsd]"
-    ) ~= nil or padded:find("[^%w_%.]v%d") ~= nil or padded:find("[^%w_%.]q%d") ~= nil then
+    if mnemonic:find("%.%d+[bhsd]") ~= nil
+        or operands:find("%.%d+[bhsd]") ~= nil
+        or padded:find("[^%w_%.]v%d") ~= nil
+        or padded:find("[^%w_%.]q%d") ~= nil
+    then
         kinds[#kinds + 1] = "vector"
     end
     if base:find("^ld") ~= nil then
@@ -239,13 +239,11 @@ end
 --- or a bit test writes flags, not the operand, so a memory operand in the
 --- destination position is a load and not a store.
 local function comparesOnly(mnemonic: string): boolean
-    return mnemonic:match(
-        "^cmp[bwlq]?$"
-    ) ~= nil or mnemonic:match(
-        "^test[bwlq]?$"
-    ) ~= nil or mnemonic:match(
-        "^bt[bwlq]?$"
-    ) ~= nil or mnemonic:match("^v?u?comis[sd]$") ~= nil or mnemonic:match("^v?ptest$") ~= nil
+    return mnemonic:match("^cmp[bwlq]?$") ~= nil
+        or mnemonic:match("^test[bwlq]?$") ~= nil
+        or mnemonic:match("^bt[bwlq]?$") ~= nil
+        or mnemonic:match("^v?u?comis[sd]$") ~= nil
+        or mnemonic:match("^v?ptest$") ~= nil
 end
 
 --- The x86-64 rules, over AT&T syntax.
@@ -368,9 +366,9 @@ function instructions.parse(assembly: string, architecture: string, system: stri
         local locFile, locLine, locColumn = line:match("^%.loc%s+(%d+)%s+(%d+)%s+(%d+)")
         if fileId ~= nil then
             local second = line:match('^%.file%s+%d+%s+"[^"]+"%s+"([^"]+)"')
-            files[
-                tonumber(fileId) as integer
-            ] = second ~= nil and (second:sub(1, 1) == "/" and second or fileName .. "/" .. second) or fileName
+            files[tonumber(fileId) as integer] = second ~= nil
+                and (second:sub(1, 1) == "/" and second or fileName .. "/" .. second)
+                or fileName
         elseif locFile ~= nil then
             sourceLine = tonumber(locLine) as integer
             sourceFile = sourceLine > 0 and files[tonumber(locFile) as integer] or nil
@@ -403,10 +401,8 @@ function instructions.parse(assembly: string, architecture: string, system: stri
         elseif current ~= nil then
             local mnemonic = line:match("^([%w_%.][%w_%.]*)") or line
             local operands = trim(line:sub(#mnemonic + 1))
-            local kinds = architecture == "x86_64" and classifyX86(
-                mnemonic,
-                operands
-            ) or classifyArm(mnemonic, operands)
+            local kinds = architecture == "x86_64" and classifyX86(mnemonic, operands)
+                or classifyArm(mnemonic, operands)
             local held = (current as instructions.Listing).instructions
             held[#held + 1] = new instructions.Instruction(
                 label = pending,

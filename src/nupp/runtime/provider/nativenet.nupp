@@ -336,10 +336,8 @@ local function create(): contract.Provider
         end,
 
         address = function(self: contract.Provider, stream: any, peer: boolean): shared.Address?
-            const status = peer and C.nuppNativeNetStreamPeerAddress(
-                stream,
-                addressOutput
-            ) or C.nuppNativeNetStreamLocalAddress(stream, addressOutput)
+            const status = peer and C.nuppNativeNetStreamPeerAddress(stream, addressOutput)
+            or C.nuppNativeNetStreamLocalAddress(stream, addressOutput)
             if status ~= 0 then
                 return nil
             end

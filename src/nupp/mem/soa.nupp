@@ -433,12 +433,8 @@ local record WriteSpanImpl<T> is soa.WriteToken, soa.WriteSpan<T>
         if count < 0
             or targetFirst < 1
             or sourceFirst < 1
-            or targetFirst
-            - 1 > self.count
-            - count
-            or sourceFirst
-            - 1 > #source
-            - count
+            or targetFirst - 1 > self.count - count
+            or sourceFirst - 1 > #source - count
         then
             error("SoA copy range is out of bounds", 2)
         end

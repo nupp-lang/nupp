@@ -687,9 +687,10 @@ local function inferFunction(info, byDefinition)
                 local escaped = rootOf(expr)
                 local target = node.targets and node.targets[j]
                 local targetName = directName(target)
-                if escaped and target and (
-                    (targetName and not localDefinitions[targetName.definition]) or not targetName
-                ) then
+                if escaped
+                    and target
+                    and ((targetName and not localDefinitions[targetName.definition]) or not targetName)
+                then
                     out.escapes[escaped] = true
                 end
                 walk(expr, false)

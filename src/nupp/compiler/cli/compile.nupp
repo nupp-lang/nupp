@@ -154,11 +154,13 @@ function compile.attachSamples(
         sourceSamples = samples
     }
     for _, entry in ipairs(settings.collectedRemarks or {}) do
-        if entry.filename and byFile[
-            fs.absolute(entry.filename)
-        ] and entry.line and entry.line > 0 and entry.status ~= "unavailable" and not (
-            entry.code or ""
-        ):match("^AOT") then
+        if entry.filename
+            and byFile[fs.absolute(entry.filename)]
+            and entry.line
+            and entry.line > 0
+            and entry.status ~= "unavailable"
+            and not (entry.code or ""):match("^AOT")
+        then
             local last = math.max(entry.line, entry.sourceEndLine or entry.line)
             local count = 0
             for line, hits in pairs(byFile[fs.absolute(entry.filename)] or {}) do

@@ -127,20 +127,22 @@ local function run(options: any): integer
     if values.accept and not values.baseline then
         return usageError("--accept needs --baseline PATH")
     end
-    if values.list and (
-        values.baseline
-        or values.accept
-        or values.history
-        or values.label
-        or values.geo
-        or values.profile
-        or values.profileIntervalMs
-        or values.profileZone
-        or values.forks
-        or values.margin
-        or values.pilot
-        or values.against
-    ) then
+    if values.list
+        and (
+            values.baseline
+            or values.accept
+            or values.history
+            or values.label
+            or values.geo
+            or values.profile
+            or values.profileIntervalMs
+            or values.profileZone
+            or values.forks
+            or values.margin
+            or values.pilot
+            or values.against
+        )
+    then
         return usageError("--list cannot be combined with result, baseline, history, or profile options")
     end
     local forks: integer? = nil
@@ -199,9 +201,9 @@ local function run(options: any): integer
     end
     local compilerRoot = os.getenv("NUPP_COMPILER_ROOT")
     local hosted = rawget(_G, "__NUPP_EXECUTABLE")
-    local executable = compilerRoot and compilerRoot .. "/bin/nupp" or type(
-        hosted
-    ) == "string" and hosted or tostring(arg[0] or "nupp")
+    local executable = compilerRoot and compilerRoot .. "/bin/nupp"
+        or type(hosted) == "string" and hosted
+        or tostring(arg[0] or "nupp")
     const {type Options} = require("nupp.compiler.benchrunner")
     local runner = require("nupp.compiler.benchrunner")
 

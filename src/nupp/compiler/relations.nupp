@@ -156,10 +156,10 @@ disjoint = function(a: Type, b: Type): string?
     end
     if a.tag == "constrained" or b.tag == "constrained" then
         local predicate = require("nupp.compiler.predicate")
-        if a.tag == "constrained" and b.tag == "constrained" and predicate.disjoint(
-            (a as T.Constrained).predicate,
-            (b as T.Constrained).predicate
-        ) then
+        if a.tag == "constrained"
+            and b.tag == "constrained"
+            and predicate.disjoint((a as T.Constrained).predicate, (b as T.Constrained).predicate)
+        then
             return "constraints that admit nothing in common"
         end
         return disjoint(T.unconstrained(a), T.unconstrained(b))
@@ -419,10 +419,11 @@ end
 --- method slot receives the table as its first argument, and a method behind a
 --- plain slot is called with whatever that slot's first parameter admits.
 local function memberIsA(have: Type, want: Type, haveOwner: Type?, wantOwner: Type?): boolean
-    if have.tag == "func" and want.tag == "func" and relations.hasReceiver(
-        have,
-        haveOwner
-    ) and relations.hasReceiver(want, wantOwner) then
+    if have.tag == "func"
+        and want.tag == "func"
+        and relations.hasReceiver(have, haveOwner)
+        and relations.hasReceiver(want, wantOwner)
+    then
         local haveReceiverMode = have.paramModes and have.paramModes[1] or "plain"
         local wantReceiverMode = want.paramModes and want.paramModes[1] or "plain"
         if (haveReceiverMode == "takes") ~= (wantReceiverMode == "takes") then
@@ -686,19 +687,19 @@ end
 --- contravariantly, like the members in `propertiesFit`.
 local function indexersFit(a: PropertyType, b: PropertyType): boolean, boolean
     local readOk = not (
-        b.indexReadValue and (
-            not a.indexReadValue or not optionalIsA(
-                b.indexReadKey,
-                a.indexReadKey
-            ) or not optionalIsA(a.indexReadValue, b.indexReadValue)
+        b.indexReadValue
+        and (
+            not a.indexReadValue
+            or not optionalIsA(b.indexReadKey, a.indexReadKey)
+            or not optionalIsA(a.indexReadValue, b.indexReadValue)
         )
     )
     local writeOk = not (
-        b.indexWriteValue and (
-            not a.indexWriteValue or not optionalIsA(
-                b.indexWriteKey,
-                a.indexWriteKey
-            ) or not optionalIsA(b.indexWriteValue, a.indexWriteValue)
+        b.indexWriteValue
+        and (
+            not a.indexWriteValue
+            or not optionalIsA(b.indexWriteKey, a.indexWriteKey)
+            or not optionalIsA(b.indexWriteValue, a.indexWriteValue)
         )
     )
 
@@ -960,9 +961,9 @@ local function check(a: Type, b: Type): boolean, string?
             if isA(a.base or T.string, into) then
                 return true
             end
-            if type(
-                (a as T.Literal).constant
-            ) == "number" and fixedWidth.literalFits((a as T.Literal).constant as number, into) then
+            if type((a as T.Literal).constant) == "number"
+                and fixedWidth.literalFits((a as T.Literal).constant as number, into)
+            then
                 return true
             end
         end
@@ -1025,9 +1026,11 @@ local function check(a: Type, b: Type): boolean, string?
     -- spells exactly, which is what `local wide: int64 = 4294967296` means on the
     -- native path and the same value under LuaJIT; a fraction or an out-of-range
     -- value is still not one.
-    if atag == "literal" and type(
-        a.constant
-    ) == "number" and (fixedWidth.isValue(b) or BOXED[btag]) and fixedWidth.literalFits(a.constant, b) then
+    if atag == "literal"
+        and type(a.constant) == "number"
+        and (fixedWidth.isValue(b) or BOXED[btag])
+        and fixedWidth.literalFits(a.constant, b)
+    then
         return true
     end
 
@@ -1041,9 +1044,11 @@ local function check(a: Type, b: Type): boolean, string?
     -- three unboxed value refinements are deliberately excluded: they consume the
     -- checker fact handled at value boundaries. The two boxed widths are excluded as
     -- well: outside a physical store nothing converts a Lua number into one.
-    if CDATA_NUM[
-        btag
-    ] and not fixedWidth.isValue(b) and not BOXED[btag] and (atag == "number" or atag == "integer" or widensFrom) then
+    if CDATA_NUM[btag]
+        and not fixedWidth.isValue(b)
+        and not BOXED[btag]
+        and (atag == "number" or atag == "integer" or widensFrom)
+    then
         return true
     end
 
@@ -1082,15 +1087,14 @@ local function check(a: Type, b: Type): boolean, string?
             end
         end
         local origin = a.origin as T.Nominal
-        local intrinsicInvariant = (
-            origin.moduleName == "nupp.simd" or origin.sealedModule == "nupp.simd"
-        ) and (
-            origin.name == "Vector"
-            or origin.name == "Mask"
-            or origin.name == "Species"
-            or origin.name == "Fixed"
-            or origin.name == "Preferred"
-        )
+        local intrinsicInvariant = (origin.moduleName == "nupp.simd" or origin.sealedModule == "nupp.simd")
+            and (
+                origin.name == "Vector"
+                or origin.name == "Mask"
+                or origin.name == "Species"
+                or origin.name == "Fixed"
+                or origin.name == "Preferred"
+            )
         if intrinsicInvariant then
             local aArgs, bArgs = a.typeArgs or {}, b.typeArgs or {}
             if #aArgs ~= #bArgs or #aConsts ~= #bConsts then
@@ -1159,9 +1163,13 @@ local function check(a: Type, b: Type): boolean, string?
 
     -- every FFI value is a cdata; going the other way needs a cast
     if btag == "cdata" then
-        if atag == "ptr" or atag == "carray" or atag == "cstring" or atag == "voidptr" or atag == "ctype" or (
-            atag == "nominal" and a.declKind == "struct"
-        ) then
+        if atag == "ptr"
+            or atag == "carray"
+            or atag == "cstring"
+            or atag == "voidptr"
+            or atag == "ctype"
+            or (atag == "nominal" and a.declKind == "struct")
+        then
             return true
         end
     end
@@ -1212,15 +1220,14 @@ local function check(a: Type, b: Type): boolean, string?
         -- argument. Their public interfaces intentionally carry no runtime
         -- witness, so structural conformance must not erase species identity.
         local bOrigin = (b.origin or b) as T.Nominal
-        local invariant = (
-            bOrigin.moduleName == "nupp.simd" or bOrigin.sealedModule == "nupp.simd"
-        ) and (
-            bOrigin.name == "Vector"
-            or bOrigin.name == "Mask"
-            or bOrigin.name == "Species"
-            or bOrigin.name == "Fixed"
-            or bOrigin.name == "Preferred"
-        )
+        local invariant = (bOrigin.moduleName == "nupp.simd" or bOrigin.sealedModule == "nupp.simd")
+            and (
+                bOrigin.name == "Vector"
+                or bOrigin.name == "Mask"
+                or bOrigin.name == "Species"
+                or bOrigin.name == "Fixed"
+                or bOrigin.name == "Preferred"
+            )
         if invariant then
             if atag ~= "nominal" or (a.origin or a) ~= bOrigin then
                 return fail(a, b)
@@ -1401,9 +1408,10 @@ local function check(a: Type, b: Type): boolean, string?
                 end
             end
         end
-        if b.writeValue and a.indexWriteValue and (
-            not optionalIsA(b.writeKey, a.indexWriteKey) or not optionalIsA(b.writeValue, a.indexWriteValue)
-        ) then
+        if b.writeValue
+            and a.indexWriteValue
+            and (not optionalIsA(b.writeKey, a.indexWriteKey) or not optionalIsA(b.writeValue, a.indexWriteValue))
+        then
             return fail(a, b)
         elseif b.writeValue and not a.indexWriteValue then
             if not optionalIsA(T.string, b.writeKey) then
@@ -1431,9 +1439,9 @@ local function check(a: Type, b: Type): boolean, string?
         if b.readable and (not isA(T.integer, b.key) or not isA(element, b.value)) then
             return fail(a, b)
         end
-        if b.writeValue and (
-            atag == "tuple" or not optionalIsA(b.writeKey, T.integer) or not isA(b.writeValue, element)
-        ) then
+        if b.writeValue
+            and (atag == "tuple" or not optionalIsA(b.writeKey, T.integer) or not isA(b.writeValue, element))
+        then
             return fail(a, b)
         end
         return true
@@ -1443,9 +1451,13 @@ local function check(a: Type, b: Type): boolean, string?
         if b.readable and (not a.readable or not isA(b.key, a.key) or not isA(a.value, b.value)) then
             return fail(a, b)
         end
-        if b.writeValue and (
-            not a.writeValue or not optionalIsA(b.writeKey, a.writeKey) or not optionalIsA(b.writeValue, a.writeValue)
-        ) then
+        if b.writeValue
+            and (
+                not a.writeValue
+                or not optionalIsA(b.writeKey, a.writeKey)
+                or not optionalIsA(b.writeValue, a.writeValue)
+            )
+        then
             return fail(a, b)
         end
         return true
@@ -1504,14 +1516,13 @@ local function check(a: Type, b: Type): boolean, string?
     end
 
     if atag == "func" and btag == "func" then
-        if (
-            #(a.typeParams or {}) + #(a.packParams or {}) + #(a.constParams or {})
-        ) > 0 and (#(b.typeParams or {}) + #(b.packParams or {}) + #(b.constParams or {})) > 0 then
-            if #(
-                a.packParams or {}
-            ) ~= #(
-                b.packParams or {}
-            ) or #(a.typeParams or {}) ~= #(b.typeParams or {}) or #(a.constParams or {}) ~= #(b.constParams or {}) then
+        if (#(a.typeParams or {}) + #(a.packParams or {}) + #(a.constParams or {})) > 0
+            and (#(b.typeParams or {}) + #(b.packParams or {}) + #(b.constParams or {})) > 0
+        then
+            if #(a.packParams or {}) ~= #(b.packParams or {})
+                or #(a.typeParams or {}) ~= #(b.typeParams or {})
+                or #(a.constParams or {}) ~= #(b.constParams or {})
+            then
                 return false, ("%s is not a %s (generic parameter count)"):format(T.tostring(a), T.tostring(b))
             end
             local generic = require("nupp.compiler.generics")
@@ -1565,9 +1576,10 @@ local function check(a: Type, b: Type): boolean, string?
         -- concrete instantiation is wanted. Infer that instantiation from the target's
         -- parameter pack, validate ordinary bounds, then compare the resulting
         -- monomorphic callable with the usual variance rules.
-        if (
-            #(a.typeParams or {}) > 0 or #(a.packParams or {}) > 0
-        ) and #(b.typeParams or {}) == 0 and #(b.packParams or {}) == 0 then
+        if (#(a.typeParams or {}) > 0 or #(a.packParams or {}) > 0)
+            and #(b.typeParams or {}) == 0
+            and #(b.packParams or {}) == 0
+        then
             local generic = require("nupp.compiler.generics")
             local map = {}
             generic.unifyPack(a.paramPack, b.paramPack, map)
@@ -1677,9 +1689,12 @@ local function check(a: Type, b: Type): boolean, string?
             return false, ("%s is not a %s (extra arguments)"):format(T.tostring(a), T.tostring(b))
         end
         local aTail, bTail = a.paramPack.tail, b.paramPack.tail
-        if aTail and bTail and aTail.kind == "homogeneous" and bTail.kind == "homogeneous" and (
-            aTail.mode or "plain"
-        ) ~= (bTail.mode or "plain") then
+        if aTail
+            and bTail
+            and aTail.kind == "homogeneous"
+            and bTail.kind == "homogeneous"
+            and (aTail.mode or "plain") ~= (bTail.mode or "plain")
+        then
             return false, ("%s is not a %s (extra argument ownership mode)"):format(T.tostring(a), T.tostring(b))
         end
         local rn = #a.rets
@@ -1850,11 +1865,8 @@ function relations.typevarMismatch(actual: Type, expected: Type): boolean
     -- against. A nominal is left to the gradual relation: a phantom argument
     -- construction cannot infer is `any` there by design, and `Key<any>` has to
     -- keep standing for a `Key<T>`.
-    local positions = actual.tag == "tuple"
-        and actual.elems
-        or actual.tag == "array"
-        and actual.fresh
-        and actual.elems
+    local positions = actual.tag == "tuple" and actual.elems
+        or actual.tag == "array" and actual.fresh and actual.elems
         or nil
     if positions and expected.tag == "tuple" and #positions == #expected.elems then
         for j, member in ipairs(positions) do

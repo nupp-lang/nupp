@@ -643,9 +643,10 @@ function text.program(program: scalarIR.Program): string
     local lines = preamble(program)
     local loop = program.loop
     local workgroup = program.workgroup
-    local statements = loop ~= nil and (
-        loop as scalarIR.Loop
-    ).statements or workgroup ~= nil and (workgroup as scalarIR.Workgroup).statements or program.body or {}
+    local statements = loop ~= nil and (loop as scalarIR.Loop).statements
+        or workgroup ~= nil and (workgroup as scalarIR.Workgroup).statements
+        or program.body
+        or {}
     if workgroup ~= nil then
         for _, line in ipairs(text.block((workgroup as scalarIR.Workgroup).prelude, 1)) do
             lines[#lines + 1] = line

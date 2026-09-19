@@ -58,16 +58,11 @@ function factory.new(memory: any): any
             return cached
         end
         local width = assert(WIDTHS[kind], "nupp: Wasm storage has no scalar " .. tostring(kind))
-        local spelling = kind == "boolean"
-            and "bool"
-            or kind == "number"
-            and "double"
-            or kind == "float"
-            and "float"
-            or kind == "integer"
-            and "int32_t"
-            or kind
-            .. "_t"
+        local spelling = kind == "boolean" and "bool"
+            or kind == "number" and "double"
+            or kind == "float" and "float"
+            or kind == "integer" and "int32_t"
+            or kind .. "_t"
         local physical: any = {kind = kind, ctype = spelling, size = width[1], alignment = width[2],}
         function physical:read(pointer: any, byteOffset: integer): any
             return memory.load(pointer, byteOffset, self.kind)
@@ -341,9 +336,9 @@ function factory.new(memory: any): any
         end
 
         function fixed:isa(value: any): boolean
-            return type(
-                value
-            ) == "table" and getmetatable(value) == instances and rawget(value, "__nuppWasmType") == self
+            return type(value) == "table"
+                and getmetatable(value) == instances
+                and rawget(value, "__nuppWasmType") == self
         end
 
         descriptors[fixed] = true
@@ -491,9 +486,9 @@ function factory.new(memory: any): any
         end
 
         function fixed:isa(value: any): boolean
-            return type(
-                value
-            ) == "table" and getmetatable(value) == instances and rawget(value, "__nuppWasmType") == self
+            return type(value) == "table"
+                and getmetatable(value) == instances
+                and rawget(value, "__nuppWasmType") == self
         end
 
         setmetatable(fixed, {
@@ -511,9 +506,8 @@ function factory.new(memory: any): any
         local fields, offsets = {}, {}
         local fingerprint = {"wasm32", tostring(subject.name), tostring(subject.size), tostring(subject.alignment)}
         for _, field in ipairs(subject.fields or {}) do
-            local spelling = field.type.resolve and (
-                tostring(field.type.resolve().ctype) .. " *"
-            ) or tostring(field.type.ctype)
+            local spelling = field.type.resolve and (tostring(field.type.resolve().ctype) .. " *")
+                or tostring(field.type.ctype)
             fingerprint[
                 #fingerprint + 1
             ] = table.concat(

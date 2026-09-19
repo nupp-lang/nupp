@@ -416,11 +416,10 @@ local comptime function acceptsConstant(spec: any, value: any): boolean
     elseif spec.conversion == "number" then
         return type(value) == "number"
     elseif spec.conversion == "integer" then
-        return type(
-            value
-        ) == "number" and value % 1 == 0 and (
-            spec.minimum == nil or value >= spec.minimum
-        ) and (spec.maximum == nil or value <= spec.maximum)
+        return type(value) == "number"
+            and value % 1 == 0
+            and (spec.minimum == nil or value >= spec.minimum)
+            and (spec.maximum == nil or value <= spec.maximum)
     end
 
     return false
@@ -546,9 +545,10 @@ local comptime function recipe(info: nupp.derive.Info, command: boolean): any
         spec.constants = constants
         spec.role = role
         local displayOverride = option(field.annotations, "display") as string?
-        spec.display = positional or remainder and field.name:upper() or pattern and displayOverride or (
-            #names[1] == 1 and "-" .. names[1] or "--" .. names[1]
-        )
+        spec.display = positional
+            or remainder and field.name:upper()
+            or pattern and displayOverride
+            or (#names[1] == 1 and "-" .. names[1] or "--" .. names[1])
         spec.displayOverride = displayOverride
         spec.invalid = option(field.annotations, "invalid") as string?
         local valueName = option(field.annotations, "value") as string?

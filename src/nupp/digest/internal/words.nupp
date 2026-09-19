@@ -228,9 +228,8 @@ local function finish(self: Engine): nil
     local little = self.name == "md5"
     local low = bit.tobit(self.low * 8)
     local high = bit.tobit(self.high * 8 + math.floor(self.low / 536870912))
-    local length = little and (
-        encodedWord(low, true) .. encodedWord(high, true)
-    ) or (encodedWord(high, false) .. encodedWord(low, false))
+    local length = little and (encodedWord(low, true) .. encodedWord(high, true))
+        or (encodedWord(high, false) .. encodedWord(low, false))
     if lengthSize == 16 then
         -- A 64-bit byte counter can carry three bits into the 128-bit bit length.
         length = encodedWord(0, false) .. encodedWord(math.floor(self.high / 536870912), false) .. length

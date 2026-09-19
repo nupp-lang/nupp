@@ -338,9 +338,9 @@ local function provenNonYielding(node: cst.Node?, body: cst.Node?): boolean
             end
             visited[current] = true
             local kind = current.kind
-            if current ~= body and (
-                kind == "funcExpr" or kind == "shortfn" or kind == "localFuncStmt" or kind == "funcStmt"
-            ) then
+            if current ~= body
+                and (kind == "funcExpr" or kind == "shortfn" or kind == "localFuncStmt" or kind == "funcStmt")
+            then
                 return true
             end
             if kind == "call" or kind == "safeCall" or kind == "methodCall" then
@@ -407,9 +407,13 @@ local function qualifyExport(t: Type?, value: cst.Node?): Type?
     -- Each leaf is paired with the field that produced it, so each answers for itself.
     -- An indexer is left alone rather than reconstructed: `T.shape` takes one in a
     -- decomposed form this does not hold, and dropping it would widen the export.
-    if t.tag == "shape" and t.indexReadKey == nil and t.indexWriteKey == nil and value and not cst.isToken(
-        value
-    ) and value.kind == "tableExpr" then
+    if t.tag == "shape"
+        and t.indexReadKey == nil
+        and t.indexWriteKey == nil
+        and value
+        and not cst.isToken(value)
+        and value.kind == "tableExpr"
+    then
         local written: {[string]: cst.Node} = {}
         for _, field in ipairs(value.fields or {}) do
             if field.kind == "fieldNamed" and field.name and field.value then
@@ -501,11 +505,11 @@ local function requirePublicCapabilityContracts(c: state.Checker): nil
                 end
                 for result = 1, #signature.rets do
                     local source = signature.preservesResults and signature.preservesResults[result]
-                    if source and couldCarryPublicCapability(
-                        signature.params[source]
-                    ) and not implicitCapabilityParams[
-                        source
-                    ] and not (signature.explicitPreserves and signature.explicitPreserves[result]) then
+                    if source
+                        and couldCarryPublicCapability(signature.params[source])
+                        and not implicitCapabilityParams[source]
+                        and not (signature.explicitPreserves and signature.explicitPreserves[result])
+                    then
                         c.diag(
                             "NUPP2610",
                             c.moduleFieldTokens[name] or c.moduleReturnValue,
@@ -589,9 +593,9 @@ local function finalizeCallGuarantees(c: state.Checker, queries: any)
         if not value or cst.isToken(value) then
             return nil
         end
-        local body = value.kind == "funcbody" and value or (
-            value.kind == "funcExpr" or value.kind == "shortfn"
-        ) and value.body or nil
+        local body = value.kind == "funcbody" and value
+            or (value.kind == "funcExpr" or value.kind == "shortfn") and value.body
+            or nil
         if value.kind == "name" and value.token and queries then
             local known = queries.known(value.token)
             body = known and known.body or nil
@@ -618,9 +622,13 @@ local function finalizeCallGuarantees(c: state.Checker, queries: any)
 
     local function imported(value)
         local exact = value and not cst.isToken(value) and value.exactCallExport or nil
-        if not exact and value and not cst.isToken(
-            value
-        ) and value.kind == "name" and value.token and value.token.definition then
+        if not exact
+            and value
+            and not cst.isToken(value)
+            and value.kind == "name"
+            and value.token
+            and value.token.definition
+        then
             exact = value.token.definition.exactCallExport
         end
         if not exact or not c.env or not c.env.resolveCallGuarantees then
@@ -645,9 +653,8 @@ local function finalizeCallGuarantees(c: state.Checker, queries: any)
             published[
                 member
             ] = {
-                identity = source and source.identity or (
-                    (c.result.moduleName or c.filename or "<module>") .. "." .. member
-                ),
+                identity = source and source.identity
+                or ((c.result.moduleName or c.filename or "<module>") .. "." .. member),
                 noAllocate = noAllocate,
                 noRaise = noRaise,
                 traceFindings = traceFindings,
@@ -748,9 +755,8 @@ local function finalizeNominalEffects(c: state.Checker)
     -- A `function M.Thing:method` declaration is not one of the inline dispatch
     -- entries above. Its exact owner and slot were retained while it was checked.
     for _, entry in ipairs(c.nominalEffectEntries or {}) do
-        local inlineEntries = entry.static and entry.owner.staticEntries and entry.owner.staticEntries[
-            entry.member
-        ] or entry.owner.methodDispatchEntries and entry.owner.methodDispatchEntries[entry.member]
+        local inlineEntries = entry.static and entry.owner.staticEntries and entry.owner.staticEntries[entry.member]
+            or entry.owner.methodDispatchEntries and entry.owner.methodDispatchEntries[entry.member]
         if not inlineEntries or #inlineEntries == 0 then
             local qualified = qualifyExport(entry.signature, entry.body)
             local reads = entry.static and entry.owner.staticByname or entry.owner.byname
@@ -887,10 +893,9 @@ function checkMod.check(
     -- dialect-specific rule is implied merely by recording it here.
     result.dialect = selectedDialect
     result.preludeRuntime = env and env.preludeRuntime or nil
-    result.moduleName = opts and opts.moduleName or env and env.moduleNameForPath and env.moduleNameForPath(
-        env,
-        filename
-    ) or nil
+    result.moduleName = opts and opts.moduleName
+        or env and env.moduleNameForPath and env.moduleNameForPath(env, filename)
+        or nil
     local declaredModuleName, declaredModuleNode = cst.declaredModule(result.root)
     result.declaredModuleName = declaredModuleName
     local registry = opts and opts.annotations or env and env.annotations or annotationMod.default()
@@ -920,14 +925,14 @@ function checkMod.check(
             -- declarations are that interface and have no table of the file's own to
             -- attach to. Bundled declarations are checked under their module name
             -- rather than a path, so they say so directly.
-            declarationFile = (
-                opts and (opts.declarationFile or opts.declareGlobals)
-            ) and true or (filename and filename:match("%.d%.nupp$")) and true or false,
+            declarationFile = (opts and (opts.declarationFile or opts.declareGlobals)) and true
+            or (filename and filename:match("%.d%.nupp$")) and true
+            or false,
             -- The table qualified declarations attach to, so `record M.Point` in a file
             -- that returns M exports Point while `record Other.Point` does not.
-            moduleLocal = declaredModuleName and (
-                cst.exportedLocal(result.root) or "__nuppExports"
-            ) or cst.returnedLocal(result.root) or result.foreignModuleLocal,
+            moduleLocal = declaredModuleName and (cst.exportedLocal(result.root) or "__nuppExports")
+            or cst.returnedLocal(result.root)
+            or result.foreignModuleLocal,
             annotationRegistry = registry,
             annotationDefinitions = {},
             lintConfig = opts and opts.lints or env and env.config and env.config.lints or nil,
@@ -937,14 +942,8 @@ function checkMod.check(
             edits = fixits.new(result, env),
             diags = {},
             moduleType = nil,
-            moduleExports = opts and opts.initialExports or {
-                types = {},
-                typeDefs = {},
-                values = {},
-                valueDefs = {},
-                comptimeFunctions = {},
-                callGuarantees = {},
-            },
+            moduleExports = opts and opts.initialExports
+            or {types = {}, typeDefs = {}, values = {}, valueDefs = {}, comptimeFunctions = {}, callGuarantees = {},},
             seenDefinitions = {},
             scope = {
                 vars = {},
@@ -1122,9 +1121,9 @@ function checkMod.check(
         end
         local root = getenv("NUPP_COMPILER_ROOT")
         local cliArguments: any = rawget(_G, "arg")
-        local executable = root and root .. "/bin/nupp" or type(
-            cliArguments
-        ) == "table" and type(cliArguments[0]) == "string" and cliArguments[0] or nil
+        local executable = root and root .. "/bin/nupp"
+            or type(cliArguments) == "table" and type(cliArguments[0]) == "string" and cliArguments[0]
+            or nil
         local envelope, evaluationFailure
         local worker = c.env and c.env.compilerServices and c.env.compilerServices.comptimeworker or nil
         if worker and executable and not getenv("NUPP_COMPTIME_WORKER_CHILD") then
@@ -1316,9 +1315,12 @@ function checkMod.check(
         end
         for name, entry in pairs(s.vars or {}) do
             local state = entry.ownershipOrigin or entry
-            if not entry.ownershipOrigin and ownershipKind and ownershipKind(
-                state.t
-            ) == "affine" and not state.moved and not (state.automaticOwner and state.automaticOwner.lowerable) then
+            if not entry.ownershipOrigin
+                and ownershipKind
+                and ownershipKind(state.t) == "affine"
+                and not state.moved
+                and not (state.automaticOwner and state.automaticOwner.lowerable)
+            then
                 c.diag(
                     "NUPP2603",
                     entry.definition and entry.definition.token or entry.assignedAt,
@@ -1327,9 +1329,12 @@ function checkMod.check(
                         .. "dropped, returned, or released with unsafe release"
                     ):format(name)
                 )
-            elseif not entry.ownershipOrigin and ownershipKind and ownershipKind(
-                state.t
-            ) == "affine" and not state.moved and (state.activeBorrows or 0) > 0 then
+            elseif not entry.ownershipOrigin
+                and ownershipKind
+                and ownershipKind(state.t) == "affine"
+                and not state.moved
+                and (state.activeBorrows or 0) > 0
+            then
                 -- Lexical destruction discharges the owner exactly as `drop` would,
                 -- and `drop` refuses while a borrow is live. The scope's own borrows
                 -- were released before this audit, so what is left is held outside.
@@ -1340,11 +1345,10 @@ function checkMod.check(
                     nil,
                     c.own.conflictDetails(state, nil)
                 )
-            elseif not entry.ownershipOrigin and c.own.capabilityFacts(
-                state,
-                nil,
-                false
-            ).retention and not state.moved then
+            elseif not entry.ownershipOrigin
+                and c.own.capabilityFacts(state, nil, false).retention
+                and not state.moved
+            then
                 c.diag(
                     "NUPP2603",
                     entry.definition and entry.definition.token,
@@ -1498,9 +1502,10 @@ function checkMod.check(
         tok.inferredType = t
         tok.semanticKind = kind or def and def.kind or "variable"
         local deprecated = def and def.deprecated
-        local declaration = deprecated and def.token and def.token.offset == tok.offset and (
-            not def.filename or def.filename == filename
-        )
+        local declaration = deprecated
+            and def.token
+            and def.token.offset == tok.offset
+            and (not def.filename or def.filename == filename)
         if deprecated and not declaration and tok.deprecationReported ~= def then
             tok.deprecationReported = def
             local label = def.name or tok.text
@@ -1509,9 +1514,10 @@ function checkMod.check(
                 msg = msg .. ": " .. deprecated.reason
             end
             c.diag("NUPP2513", tok, msg, nil, {
-                help = deprecated.replacement and deprecated.replacement ~= "" and (
-                    "use " .. deprecated.replacement .. " instead"
-                ) or nil,
+                help = deprecated.replacement
+                and deprecated.replacement ~= ""
+                and ("use " .. deprecated.replacement .. " instead")
+                or nil,
                 related = def.token and {c.related(def, "deprecated API is declared here")} or nil,
             })
         end
@@ -1715,17 +1721,15 @@ function checkMod.check(
                     )
                 end
                 domain = domain or "string"
-                local cv = predeclared and predeclared.constParams and predeclared.constParams[
-                    #constParams + 1
-                ] or c.constvarAt(nameTok, domain, role)
+                local cv = predeclared and predeclared.constParams and predeclared.constParams[#constParams + 1]
+                    or c.constvarAt(nameTok, domain, role)
                 constParams[#constParams + 1] = cv
                 paramKinds[j] = "const"
                 c.bindType(nameTok.text, consteval.singleton(cv), nameTok)
             elseif isPack then
                 sawPack = true
-                local pv = predeclared and predeclared.packParams and predeclared.packParams[
-                    #packParams + 1
-                ] or c.packvarAt(nameTok, role)
+                local pv = predeclared and predeclared.packParams and predeclared.packParams[#packParams + 1]
+                    or c.packvarAt(nameTok, role)
                 packParams[#packParams + 1] = pv
                 paramKinds[j] = "pack"
                 c.bindPack(nameTok.text, pv, nameTok)
@@ -1733,9 +1737,8 @@ function checkMod.check(
                 if sawPack then
                     c.diag("NUPP2121", nameTok, "an ordinary type parameter cannot follow a pack parameter")
                 end
-                local tv = predeclared and predeclared.typeParams and predeclared.typeParams[
-                    #params + 1
-                ] or c.typevarAt(nameTok, role)
+                local tv = predeclared and predeclared.typeParams and predeclared.typeParams[#params + 1]
+                    or c.typevarAt(nameTok, role)
                 params[#params + 1] = tv
                 paramKinds[j] = "type"
                 c.bindType(nameTok.text, tv, nameTok)
@@ -1832,9 +1835,10 @@ function checkMod.check(
         local decls = {}
         local resolved = c.opts._capabilityResolution or capabilities.resolve(c.opts.dialect)
         local cinterop = capabilities.get(resolved, "cinterop")
-        if cinterop.kind ~= "missing" and (
-            not c.env or c.env.nativeCompilerServices ~= false
-        ) and next(c.cDeclared) ~= nil then
+        if cinterop.kind ~= "missing"
+            and (not c.env or c.env.nativeCompilerServices ~= false)
+            and next(c.cDeclared) ~= nil
+        then
             local cheader: any = assert(
                 c.env and c.env.compilerServices and c.env.compilerServices.cheader,
                 "native C-header compiler service is unavailable"
@@ -2474,12 +2478,9 @@ function checkMod.check(
                 ("exported \"%s\" carries a runtime value, and this module's value is `export =` instead"):format(name),
                 nil,
                 {
-                    help = exportedName ~= nil and (
-                        "declare it on the module value as %s.%s, or assign it there"
-                    ):format(
-                        exportedName,
-                        name
-                    ) or "declare it on the module value, or drop `export =` and export the declarations",
+                    help = exportedName ~= nil
+                    and ("declare it on the module value as %s.%s, or assign it there"):format(exportedName, name)
+                    or "declare it on the module value, or drop `export =` and export the declarations",
                 }
             )
 
@@ -2840,9 +2841,9 @@ function checkMod.check(
                 if owner and owner.tag == "nominal" then
                     nominalOwner = owner
                 end
-                local isStatic = nominalOwner ~= nil and not fname.method and (
-                    nominalOwner.declKind == "record" or nominalOwner.declKind == "interface"
-                )
+                local isStatic = nominalOwner ~= nil
+                    and not fname.method
+                    and (nominalOwner.declKind == "record" or nominalOwner.declKind == "interface")
                 local members = nil
                 if nominalOwner then
                     members = isStatic and nominalOwner.staticByname or nominalOwner.byname
@@ -3161,11 +3162,12 @@ function checkMod.check(
             module, qualified = cleanup.key:match("^(.*)#(.*)$")
         end
         local member = qualified and qualified:match("([^.]+)$") or nil
-        local guarantee = module and member and c.env and c.env.resolveCallGuarantees and c.env.resolveCallGuarantees(
-            c.env,
-            module,
-            member
-        ) or nil
+        local guarantee = module
+            and member
+            and c.env
+            and c.env.resolveCallGuarantees
+            and c.env.resolveCallGuarantees(c.env, module, member)
+            or nil
 
         return guarantee and guarantee.noRaise == true or false
     end
@@ -3182,14 +3184,16 @@ function checkMod.check(
                 return
             end
             local kind = node.kind
-            if node ~= root and (
-                kind == "localFuncStmt"
-                or kind == "funcStmt"
-                or kind == "inlineMethod"
-                or kind == "constructorDecl"
-                or kind == "funcExpr"
-                or kind == "shortfn"
-            ) then
+            if node ~= root
+                and (
+                    kind == "localFuncStmt"
+                    or kind == "funcStmt"
+                    or kind == "inlineMethod"
+                    or kind == "constructorDecl"
+                    or kind == "funcExpr"
+                    or kind == "shortfn"
+                )
+            then
                 return
             end
             local owners = node.automaticOwners or {}
@@ -3221,9 +3225,9 @@ function checkMod.check(
         end
         if node.kind == "withStmt" then
             local bindings = node.bindings or {}
-            local direct = #bindings == 1 and straightforwardWithBody(
-                node.body
-            ) and c.effectRegions.free(node.body, "raises", effectQueries)
+            local direct = #bindings == 1
+                and straightforwardWithBody(node.body)
+                and c.effectRegions.free(node.body, "raises", effectQueries)
             for _, cleanup in ipairs(bindings[1] and bindings[1].ownerCleanups or {}) do
                 direct = direct and cleanupNonRaising(cleanup)
             end

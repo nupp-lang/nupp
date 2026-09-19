@@ -177,9 +177,11 @@ function consteval.reduce(term: T.ConstTerm, bindings: consteval.Bindings?): T.C
     if (op == "//" or op == "%") and b == 0 then
         return term, "const integer division by zero"
     end
-    local raw = op == "+" and a + b or op == "-" and a - b or op == "*" and a * b or op == "//" and math.floor(
-        a / b
-    ) or a % b
+    local raw = op == "+" and a + b
+        or op == "-" and a - b
+        or op == "*" and a * b
+        or op == "//" and math.floor(a / b)
+        or a % b
     local value, err = checkedInteger(raw)
 
     return value and T.constLiteral("integer", value) or term, err

@@ -41,15 +41,9 @@ local function validUtf8(text: string): boolean
         if first < 128 then
             at = at + 1
         else
-            local count = first >= 194
-                and first <= 223
-                and 1
-                or first >= 224
-                and first <= 239
-                and 2
-                or first >= 240
-                and first <= 244
-                and 3
+            local count = first >= 194 and first <= 223 and 1
+                or first >= 224 and first <= 239 and 2
+                or first >= 240 and first <= 244 and 3
                 or 0
             if count == 0 or at + count > length then
                 return false
@@ -57,14 +51,10 @@ local function validUtf8(text: string): boolean
             local second = text:byte(at + 1) as integer
             if second < 128
                 or second > 191
-                or first == 224
-                and second < 160
-                or first == 237
-                and second > 159
-                or first == 240
-                and second < 144
-                or first == 244
-                and second > 143
+                or first == 224 and second < 160
+                or first == 237 and second > 159
+                or first == 240 and second < 144
+                or first == 244 and second > 143
             then
                 return false
             end

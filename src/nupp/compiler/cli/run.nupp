@@ -99,9 +99,8 @@ local function run(options: any): integer
     if values.jitAborts == "" then
         return usageError("--jit-aborts= requires a file name")
     end
-    local abortsOut = values.jitAborts == "\0" and (
-        values.json and "jit-aborts.json" or "jit-aborts.csv"
-    ) or values.jitAborts as string
+    local abortsOut = values.jitAborts == "\0" and (values.json and "jit-aborts.json" or "jit-aborts.csv")
+        or values.jitAborts as string
 
     local path = positional[1]
     if not path then

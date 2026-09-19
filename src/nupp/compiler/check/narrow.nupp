@@ -875,9 +875,11 @@ function narrow.install(c: state.Checker): narrow.Ops
                     out.t[key] = litT
                     if refNode.kind == "name" and refNode.token then
                         local entry = c.lookupEntry(refNode.token.text)
-                        if entry and entry.coroutineStatusName and litT.tag == "literal" and type(
-                            litT.constant
-                        ) == "string" then
+                        if entry
+                            and entry.coroutineStatusName
+                            and litT.tag == "literal"
+                            and type(litT.constant) == "string"
+                        then
                             out.t["@coroutine:" .. entry.coroutineStatusName] = litT
                         end
                         local group = entry and entry.packCorrelation

@@ -415,9 +415,8 @@ function declare.install(
                 break
             end
         end
-        local fixes = keyword and {
-            c.edits.fix("change `record` to `struct`", c.edits.replaceToken(keyword, "struct"))
-        } or nil
+        local fixes = keyword and {c.edits.fix("change `record` to `struct`", c.edits.replaceToken(keyword, "struct"))}
+            or nil
         c.diag("NUPP2509", stat.name, ("record %s declares only fields that reify"):format(n.name), fixes, {
             help = "declaring it `struct` puts its instances in C memory, off the "
             .. "collector's graph, at the cost of a fixed layout: no fields added "
@@ -523,10 +522,8 @@ function declare.install(
 
         local test, shape = refinementTest(clause)
         if not test then
-            local said = shape == "parameter"
-                and "a refinement takes the value it tests, and only that"
-                or shape == "body"
-                and "a refinement is one test, so its body is one `return`"
+            local said = shape == "parameter" and "a refinement takes the value it tests, and only that"
+                or shape == "body" and "a refinement is one test, so its body is one `return`"
                 or "a refinement needs a test"
             c.diag("NUPP2122", clause, said, nil, {help = help})
             return
@@ -547,10 +544,8 @@ function declare.install(
                 "NUPP2122",
                 clause,
                 always
-                and "this refinement is always true, so it identifies "
-                .. "every value rather than this declaration's"
-                or "this refinement is always false, so nothing can "
-                .. "ever be one of these",
+                and "this refinement is always true, so it identifies " .. "every value rather than this declaration's"
+                or "this refinement is always false, so nothing can " .. "ever be one of these",
                 nil,
                 {help = help}
             )
@@ -961,9 +956,10 @@ function declare.install(
                 local state = localMembers[name]
                 local want = substType(inherited, selfMap)
                 if not state then
-                    if stat.declKind == "struct" and not isCallable(
-                        want
-                    ) and not reifiableField(T.unwrapOwnership(want), false) then
+                    if stat.declKind == "struct"
+                        and not isCallable(want)
+                        and not reifiableField(T.unwrapOwnership(want), false)
+                    then
                         conflict(
                             name,
                             nil,
@@ -1173,12 +1169,10 @@ function declare.install(
             elseif kind == "pragmaStmt" then
                 return buildStatement(stat.stat, nextNode, breakNode, continueNode)
             elseif kind == "ifStmt" then
-                local otherwise = stat.elseClause and buildBlock(
-                    stat.elseClause.body,
-                    nextNode,
-                    breakNode,
-                    continueNode
-                ) or stat.exhaustiveDispatch and point({}, nil) or nextNode
+                local otherwise = stat.elseClause
+                    and buildBlock(stat.elseClause.body, nextNode, breakNode, continueNode)
+                    or stat.exhaustiveDispatch and point({}, nil)
+                    or nextNode
                 for j = #stat.clauses, 1, -1 do
                     local clause = stat.clauses[j]
                     local arm = buildBlock(clause.body, nextNode, breakNode, continueNode)
@@ -1341,9 +1335,8 @@ function declare.install(
                         and value
                         and value.kind == "name"
                         and value.token
-                        and takes[
-                            value.token.text
-                        ] then
+                        and takes[value.token.text]
+                    then
                         moves = true
                     end
                 end
@@ -1430,9 +1423,8 @@ function declare.install(
             else
                 local declared = resultPack.head[1]
                 local representation = T.unwrapOwnership(declared)
-                local origin = representation.tag == "nominal" and (
-                    representation.origin or representation
-                ) or representation
+                local origin = representation.tag == "nominal" and (representation.origin or representation)
+                    or representation
                 local owner = n.origin or n
                 if origin ~= owner then
                     c.diag(
@@ -1502,13 +1494,15 @@ function declare.install(
         for _, name in ipairs(order) do
             local ft2 = n.byname[name] or n.writeByname[name]
             local method = n.overloadedMethods and n.overloadedMethods[name] or ft2 and relations.isMethod(ft2, n)
-            if returnsInstance and ft2 and not method and ft2.tag ~= "typeobject" and not nested[
-                name
-            ] and not assigned[
-                name
-            ] and not (
-                n.fieldDefaults and n.fieldDefaults[name]
-            ) and (not isA(T.nil_, ft2) or relations.typevarMismatch(T.nil_, ft2)) then
+            if returnsInstance
+                and ft2
+                and not method
+                and ft2.tag ~= "typeobject"
+                and not nested[name]
+                and not assigned[name]
+                and not (n.fieldDefaults and n.fieldDefaults[name])
+                and (not isA(T.nil_, ft2) or relations.typevarMismatch(T.nil_, ft2))
+            then
                 missing[#missing + 1] = name
             end
         end
@@ -1605,9 +1599,9 @@ function declare.install(
             and not stat.isAnnotationDefinition
             and not stat.exported
         then
-            local suggestion = c.moduleLocal and (
-                "write it as %s.%s, or mark it local or global"
-            ):format(c.moduleLocal, name) or "mark it local or global, or attach it to a table"
+            local suggestion = c.moduleLocal
+                and ("write it as %s.%s, or mark it local or global"):format(c.moduleLocal, name)
+                or "mark it local or global, or attach it to a table"
             local fixes = {}
             if stat.keyword then
                 if c.moduleLocal then
@@ -1944,9 +1938,8 @@ function declare.install(
                 else
                     local byParameters, order = {}, {}
                     local inherited = n.byname[name]
-                    local inheritedMembers = inherited and inherited.tag == "intersection" and inherited.members or (
-                        inherited and {inherited} or {}
-                    )
+                    local inheritedMembers = inherited and inherited.tag == "intersection" and inherited.members
+                        or (inherited and {inherited} or {})
                     for _, signature in ipairs(inheritedMembers) do
                         if signature.tag == "func" then
                             local key = methodslots.parameters(dropSelf(signature))
@@ -2041,9 +2034,10 @@ function declare.install(
                         end
                         if not terminal then
                             c.diag("NUPP2615", e, "a terminal member must be a function")
-                        elseif #terminal.params ~= 1 or terminal.paramPack.tail ~= nil or terminal.paramModes[
-                            1
-                        ] ~= "takes" then
+                        elseif #terminal.params ~= 1
+                            or terminal.paramPack.tail ~= nil
+                            or terminal.paramModes[1] ~= "takes"
+                        then
                             c.diag("NUPP2615", e, "a terminal method must take exactly one consuming self")
                         elseif #terminal.rets ~= 1 or terminal.retPack.tail ~= nil or terminal.rets[1] ~= T.nil_ then
                             c.diag("NUPP2615", e, "a terminal method must return nil")
@@ -2112,9 +2106,11 @@ function declare.install(
                                 partitionApplication,
                                 "@partition names exactly two sibling result fields"
                             )
-                        elseif not result or result.tag ~= "nominal" or not result.byname[
-                            names[1]
-                        ] or not result.byname[names[2]] then
+                        elseif not result
+                            or result.tag ~= "nominal"
+                            or not result.byname[names[1]]
+                            or not result.byname[names[2]]
+                        then
                             c.diag(
                                 "NUPP2602",
                                 partitionApplication,
@@ -2124,13 +2120,13 @@ function declare.install(
                             ft = T.withPartitionResults(ft, {[1] = {[names[1]] = "L", [names[2]] = "R"}})
                         end
                     end
-                    local fieldBorrowRelation: any = e.type and (
-                        e.type.kind == "tborrows" and e.type or e.type.kind == "tfunc" and e.type.captureBorrows
-                    ) or nil
+                    local fieldBorrowRelation: any = e.type
+                        and (e.type.kind == "tborrows" and e.type or e.type.kind == "tfunc" and e.type.captureBorrows)
+                        or nil
                     if fieldBorrowRelation then
-                        local sources = fieldBorrowRelation.params or fieldBorrowRelation.names or {
-                            fieldBorrowRelation.param
-                        }
+                        local sources = fieldBorrowRelation.params
+                            or fieldBorrowRelation.names
+                            or {fieldBorrowRelation.param}
                         if stat.declKind ~= "record" then
                             c.diag("NUPP2602", e, "borrowed field relations are available only on nominal records")
                         elseif not sources[1] then
@@ -2286,14 +2282,9 @@ function declare.install(
                                 ):format(e.name.text, n.name),
                                 nil,
                                 {
-                                    help = cycle == n.name and (
-                                        "hold it by pointer instead: `%s: %s*`"
-                                    ):format(
-                                        e.name.text,
-                                        n.name
-                                    ) or (
-                                        "the cycle runs through %s; hold one step of it " .. "by pointer"
-                                    ):format(cycle)
+                                    help = cycle == n.name
+                                    and ("hold it by pointer instead: `%s: %s*`"):format(e.name.text, n.name)
+                                    or ("the cycle runs through %s; hold one step of it " .. "by pointer"):format(cycle)
                                 }
                             )
                         end
@@ -2354,9 +2345,9 @@ function declare.install(
                             c.edits.spellingFix(e.name, operators.contractMetamethod)
                         )
                     elseif not operators.contractMetamethod[e.name.text] then
-                        local fixes = not operators.runtimeMetamethod[
-                            e.name.text
-                        ] and c.edits.spellingFix(e.name, operators.contractMetamethod) or nil
+                        local fixes = not operators.runtimeMetamethod[e.name.text]
+                            and c.edits.spellingFix(e.name, operators.contractMetamethod)
+                            or nil
                         c.diag(
                             "NUPP2118",
                             e.name,
@@ -2399,11 +2390,8 @@ function declare.install(
                     -- is what lets a const value call the method.
                     local first = e.body.params and e.body.params[1]
                     local constReceiver = receiver and first and first.type and first.type.kind == "tconst"
-                    local ft = receiver and addSelf(
-                        checked,
-                        constReceiver and T.constOf(n) or n,
-                        e.body.receiverMode
-                    ) or checked
+                    local ft = receiver and addSelf(checked, constReceiver and T.constOf(n) or n, e.body.receiverMode)
+                        or checked
                     c.raises.check(e, e.body)
                     local callable = (receiver and dropSelf(ft) or ft) as T.Func
                     local parameterKey = methodslots.parameters(callable)
@@ -2521,9 +2509,9 @@ function declare.install(
                                 nested.runtimePath = (n.runtimePath or n.name) .. "." .. e.name.text
                             end
                             n.nestedTypes[e.name.text] = nested
-                            if nested.tag == "nominal" and (
-                                nested.declKind == "record" or nested.declKind == "struct"
-                            ) then
+                            if nested.tag == "nominal"
+                                and (nested.declKind == "record" or nested.declKind == "struct")
+                            then
                                 local held = T.typeObject(nested)
                                 n.byname[e.name.text] = held
                                 n.writeByname[e.name.text] = held
@@ -2569,9 +2557,9 @@ function declare.install(
                         local positionalKey = methodslots.unlabeledParameters(localCallable)
                         for _, candidate in pairs(inheritedMembers) do
                             local inheritedCallable = dropSelf(candidate.signature) as T.Func
-                            if methodslots.unlabeledParameters(
-                                inheritedCallable
-                            ) == positionalKey and implementationLabelsFit(localCallable, inheritedCallable) then
+                            if methodslots.unlabeledParameters(inheritedCallable) == positionalKey
+                                and implementationLabelsFit(localCallable, inheritedCallable)
+                            then
                                 inherited = candidate
                                 break
                             end
@@ -2714,9 +2702,7 @@ function declare.install(
                         or settled.reason ~= nil
                         or settled.gradual == true
                         or resolvedTo == T.any
-                        or (
-                            resolvedTo ~= nil and resolvedTo.tag == "projection"
-                        )
+                        or (resolvedTo ~= nil and resolvedTo.tag == "projection")
                     if unsettled then
                         c.diag(
                             "NUPP2122",

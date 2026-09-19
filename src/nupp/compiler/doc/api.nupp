@@ -216,11 +216,8 @@ local function moduleSummary(module: extractMod.Module): string
                 row[#row + 1] = inlineHtml(summaryText(item.doc.text))
                 rows[#rows + 1] = row
             end
-            local headers = group.kinds and {
-                group.title:sub(1, -2),
-                "Kind",
-                "Description"
-            } or {group.title:sub(1, -2), "Description"}
+            local headers = group.kinds and {group.title:sub(1, -2), "Kind", "Description"}
+                or {group.title:sub(1, -2), "Description"}
             out[#out + 1] = '<h3>' .. group.title .. '</h3>' .. tableHtml(headers, rows)
         end
     end

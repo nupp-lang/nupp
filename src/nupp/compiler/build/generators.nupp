@@ -80,9 +80,11 @@ function generators.run(root, outDir, config, records, previous): ({[string]: an
         )
         local oldFiles = old and old.files or {}
         local currentFiles = fs.listFiles(output)
-        if old and old.key == key and cache.stable(
-            currentFiles
-        ) == cache.stable(oldFiles) and cache.hashFiles(currentFiles) == old.outputHash then
+        if old
+            and old.key == key
+            and cache.stable(currentFiles) == cache.stable(oldFiles)
+            and cache.hashFiles(currentFiles) == old.outputHash
+        then
             result[name] = old
         else
             removeTree(staged)

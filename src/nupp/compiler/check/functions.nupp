@@ -332,9 +332,8 @@ function functions.install(c: state.Checker): state.StatHandlers
                     source = callable
                         and callable.tag == "func"
                         and callable.preservesResults
-                        and callable.preservesResults[
-                            1
-                        ] or nil
+                        and callable.preservesResults[1]
+                        or nil
                 end
                 local argument = source and expr.args and expr.args.exprs and expr.args.exprs[source] or nil
                 if argument then
@@ -778,9 +777,9 @@ function functions.install(c: state.Checker): state.StatHandlers
         body.takenCaptures = captures
         if selfType then
             local owner = constSelf(explicitSelf) and T.constOf(selfType) or selfType
-            local receiverType = receiverMode == "takes" and T.affine(
-                owner
-            ) or (receiverMode == "borrows" or receiverMode == "exclusive") and T.borrowed(owner) or owner
+            local receiverType = receiverMode == "takes" and T.affine(owner)
+                or (receiverMode == "borrows" or receiverMode == "exclusive") and T.borrowed(owner)
+                or owner
             c.bindVar(
                 "self",
                 receiverType,
@@ -830,9 +829,10 @@ function functions.install(c: state.Checker): state.StatHandlers
                 if p.type and (mode == "borrows" or mode == "exclusive") then
                     c.suppressInherentOwner = true
                 end
-                local pt = p.constDomainTok and T.functionConst or p.type and c.resolveType(
-                    p.type
-                ) or (expectedParams and expectedParams[#params + 1]) or T.any
+                local pt = p.constDomainTok and T.functionConst
+                    or p.type and c.resolveType(p.type)
+                    or (expectedParams and expectedParams[#params + 1])
+                    or T.any
                 c.suppressInherentOwner = priorSuppression
                 if p.type then
                     c.fixedWidth.storageOnly(p.type, pt, "a parameter")
@@ -855,18 +855,20 @@ function functions.install(c: state.Checker): state.StatHandlers
                 if not declaredModes[sourceIndex] and (expectedMode == "borrows" or expectedMode == "exclusive") then
                     mode = expectedMode
                 else
-                    if not declaredModes[
-                        sourceIndex
-                    ] and scopedCandidates[
-                        p.name.text
-                    ] and rawType(pt).tag == "func" and not mentionedInNestedFunction(body, p.name.text) then
+                    if not declaredModes[sourceIndex]
+                        and scopedCandidates[p.name.text]
+                        and rawType(pt).tag == "func"
+                        and not mentionedInNestedFunction(body, p.name.text)
+                    then
                         mode = "scoped"
                     end
                     -- A callable is not pointer-shaped, and `scoped` is the one
                     -- inferred mode a callable can carry: it stays.
-                    if not declaredModes[
-                        sourceIndex
-                    ] and mode ~= "takes" and mode ~= "scoped" and not pointerShaped(pt) then
+                    if not declaredModes[sourceIndex]
+                        and mode ~= "takes"
+                        and mode ~= "scoped"
+                        and not pointerShaped(pt)
+                    then
                         mode = "plain"
                     end
                 end
@@ -881,9 +883,9 @@ function functions.install(c: state.Checker): state.StatHandlers
                 -- Wrapping it in the terminal-less internal `takes` capability would
                 -- erase that identity and let a body return it as an owner with a
                 -- different cleanup function.
-                local bound = mode == "takes" and (
-                    pt.tag == "affine" and pt or T.affine(pt)
-                ) or (mode == "borrows" or mode == "exclusive") and T.borrowed(pt) or pt
+                local bound = mode == "takes" and (pt.tag == "affine" and pt or T.affine(pt))
+                    or (mode == "borrows" or mode == "exclusive") and T.borrowed(pt)
+                    or pt
                 c.bindVar(p.name.text, bound, p.type ~= nil, p.name, "parameter")
                 c.scope.vars[p.name.text].mutationParameter = #params
                 c.fixedWidth.mark(c.scope.vars[p.name.text], pt)
@@ -911,12 +913,11 @@ function functions.install(c: state.Checker): state.StatHandlers
         c.checkVarargMode(varargMode, varargModeToken, varargType, body)
         local paramPack = T.pack(
             params,
-            paramPackTail or (
-                vararg and {
-                    kind = varargType and "homogeneous" or "unknown",
-                    type = varargType or T.any,
-                    mode = varargMode,
-                } or nil
+            paramPackTail
+            or (
+                vararg
+                and {kind = varargType and "homogeneous" or "unknown", type = varargType or T.any, mode = varargMode,}
+                or nil
             ),
             paramModes
         )
@@ -940,11 +941,11 @@ function functions.install(c: state.Checker): state.StatHandlers
         -- container accessor is noise. The result stays explicitly a borrow, so a
         -- method returning a plain value is unaffected, and the body returns the value
         -- itself as it does under an explicit `borrows`.
-        local elidedSelfBorrow = selfType ~= nil and annotated ~= nil and annotated[
-            1
-        ] ~= nil and annotated[
-            1
-        ].tag == "borrowed" and not (body.rets and body.rets[1] and body.rets[1].kind == "tborrows")
+        local elidedSelfBorrow = selfType ~= nil
+            and annotated ~= nil
+            and annotated[1] ~= nil
+            and annotated[1].tag == "borrowed"
+            and not (body.rets and body.rets[1] and body.rets[1].kind == "tborrows")
         if elidedSelfBorrow then
             annotated[1] = rawType(annotated[1])
             rets[1] = annotated[1]
@@ -1005,9 +1006,9 @@ function functions.install(c: state.Checker): state.StatHandlers
                 declaredBorrow, declaredBorrowResult = ret, result
             end
         end
-        c.borrowReturnStack[
-            #c.borrowReturnStack + 1
-        ] = declaredBorrow and {contract = declaredBorrow, result = declaredBorrowResult,} or false
+        c.borrowReturnStack[#c.borrowReturnStack + 1] = declaredBorrow
+            and {contract = declaredBorrow, result = declaredBorrowResult,}
+            or false
         local consumingContext, consumingRoot
         local resource, root = nil, nil
         if selfType and receiverMode == "takes" then
@@ -1042,9 +1043,11 @@ function functions.install(c: state.Checker): state.StatHandlers
         -- has nothing to call. An aggregate is audited field by field above.
         local consumingEntry = root and c.scope.vars[root] or nil
         local consumingState = consumingEntry and ownershipState(consumingEntry) or nil
-        local consumingTerminal = consumingState and consumingState.t and consumingState.t.tag == "affine" and (
-            consumingState.t.cleanups or {}
-        )[1] or nil
+        local consumingTerminal = consumingState
+            and consumingState.t
+            and consumingState.t.tag == "affine"
+            and (consumingState.t.cleanups or {})[1]
+            or nil
         local definesTerminal = consumingTerminal
             and consumingTerminal.kind == "method"
             and body.definedMember ~= nil
@@ -1055,9 +1058,9 @@ function functions.install(c: state.Checker): state.StatHandlers
         else
             body.consumingEntry = nil
         end
-        c.constructorFieldStack[
-            #c.constructorFieldStack + 1
-        ] = body.constructorOwner and {owner = body.constructorOwner, assigned = {}} or false
+        c.constructorFieldStack[#c.constructorFieldStack + 1] = body.constructorOwner
+            and {owner = body.constructorOwner, assigned = {}}
+            or false
         -- Started here rather than with the scope: the parameters are bound by now, so
         -- the body reading one of them resolves inside the watch and is not a capture.
         local loopClosure = c.loops.begin(c.functionDepth - 1)
@@ -1147,9 +1150,11 @@ function functions.install(c: state.Checker): state.StatHandlers
                 elseif node.kind == "returnStmt" then
                     local exprs = node.exprs or {}
                     local last = exprs[#exprs]
-                    if isVararg(
-                        last
-                    ) and retPack.tail and retPack.tail.kind == "generic" and retPack.tail.var == paramPackTail.var then
+                    if isVararg(last)
+                        and retPack.tail
+                        and retPack.tail.kind == "generic"
+                        and retPack.tail.var == paramPackTail.var
+                    then
                         transfers = transfers + 1
                         transferred[last] = true
                     end
@@ -1241,12 +1246,8 @@ function functions.install(c: state.Checker): state.StatHandlers
                 local alternatives = {}
                 for _, left in ipairs(resumePack.alternatives or {resumePack}) do
                     for _, right in ipairs(required.alternatives or {required}) do
-                        local symbolic = left.tail
-                            and left.tail.kind ~= "unknown"
-                            and left.tail.kind ~= "homogeneous"
-                            or right.tail
-                            and right.tail.kind ~= "unknown"
-                            and right.tail.kind ~= "homogeneous"
+                        local symbolic = left.tail and left.tail.kind ~= "unknown" and left.tail.kind ~= "homogeneous"
+                            or right.tail and right.tail.kind ~= "unknown" and right.tail.kind ~= "homogeneous"
                         local leftOpen = #left.head == 0 and left.tail and left.tail.kind == "unknown"
                         local rightOpen = #right.head == 0 and right.tail and right.tail.kind == "unknown"
                         local sameGeneric = left.tail
@@ -1375,9 +1376,10 @@ function functions.install(c: state.Checker): state.StatHandlers
         -- discharged, and the borrow it holds is tracked on the value rather than in
         -- the type, the way a lexical borrow is.
         local borrowedSlot = borrowsResult or 1
-        if (
-            borrowsParam or borrowsSelf or borrowsParams
-        ) and rets[borrowedSlot] and rets[borrowedSlot].tag ~= "affine" then
+        if (borrowsParam or borrowsSelf or borrowsParams)
+            and rets[borrowedSlot]
+            and rets[borrowedSlot].tag ~= "affine"
+        then
             rets[borrowedSlot] = T.borrowed(rawType(rets[borrowedSlot]))
         end
         if body.returnPack and not retPack.alternatives then
@@ -1487,16 +1489,18 @@ function functions.install(c: state.Checker): state.StatHandlers
                 end
                 local pt = p.constDomainTok and T.functionConst or p.type and c.resolveType(p.type) or T.any
                 c.suppressInherentOwner = priorSuppression
-                if not declaredModes[
-                    sourceIndex
-                ] and scopedCandidates[
-                    p.name.text
-                ] and rawType(pt).tag == "func" and not mentionedInNestedFunction(body, p.name.text) then
+                if not declaredModes[sourceIndex]
+                    and scopedCandidates[p.name.text]
+                    and rawType(pt).tag == "func"
+                    and not mentionedInNestedFunction(body, p.name.text)
+                then
                     mode = "scoped"
                 end
-                if not declaredModes[
-                    sourceIndex
-                ] and mode ~= "takes" and mode ~= "scoped" and not pointerShaped(pt) then
+                if not declaredModes[sourceIndex]
+                    and mode ~= "takes"
+                    and mode ~= "scoped"
+                    and not pointerShaped(pt)
+                then
                     mode = "plain"
                 end
                 params[#params + 1] = pt
@@ -1517,9 +1521,8 @@ function functions.install(c: state.Checker): state.StatHandlers
         end
         local paramPack = T.pack(
             params,
-            paramPackTail or (
-                vararg and {kind = varargType and "homogeneous" or "unknown", type = varargType or T.any} or nil
-            ),
+            paramPackTail
+            or (vararg and {kind = varargType and "homogeneous" or "unknown", type = varargType or T.any} or nil),
             modes
         )
         local retPack = body and body.returnPack and c.resolvePack(body.returnPack) or T.pack({}, {
@@ -1718,10 +1721,8 @@ function functions.install(c: state.Checker): state.StatHandlers
         if not fname.method and #fname == 1 and fname.base then
             c.bindVar(fname.base.text, T.any, false, fname.base, "function")
         end
-        local earlyMemberDefinition = memberTok and c.definition(
-            memberTok,
-            fname.method and "method" or "function"
-        ) or nil
+        local earlyMemberDefinition = memberTok and c.definition(memberTok, fname.method and "method" or "function")
+            or nil
         body.jitDefinition = earlyMemberDefinition or (fname.base and fname.base.definition or nil)
         local diagnosticsBefore = #c.diags
         local ft = c.checkFuncbody(body, selfType)

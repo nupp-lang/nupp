@@ -243,9 +243,9 @@ function services.check(session: any, entries: {any}, root: string, outDir: stri
         entry.members = shape(exported.typeArgs[1])
         local providerPath = session.inc.modulePath(entry.entry) or session.stageBundled(entry.entry)
         local bundledDeclaration = session.inc.env and session.inc.env.bundled and session.inc.env.bundled[entry.entry]
-        if providerPath ~= nil and providerPath:match(
-            "%.lua$"
-        ) or providerPath == nil and bundledDeclaration == nil then
+        if providerPath ~= nil and providerPath:match("%.lua$")
+            or providerPath == nil and bundledDeclaration == nil
+        then
             return nil, label .. ": provider requires a .d.nupp declaration or typed Nupp adapter: " .. entry.entry
         end
         local provider = providerPath and session.inc.checkFile(providerPath) or nil

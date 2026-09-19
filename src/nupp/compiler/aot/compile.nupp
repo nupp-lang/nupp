@@ -369,9 +369,10 @@ function compile.constSpecializations(
     local candidatesByDefinition: {[any]: any} = {}
     for _, application in ipairs(found.applications) do
         local declaration = application.tail
-        local body = declaration ~= nil and declaration.kind == "localFuncStmt" and (
-            declaration as cst.LocalFuncStmt
-        ).body or nil
+        local body = declaration ~= nil
+            and declaration.kind == "localFuncStmt"
+            and (declaration as cst.LocalFuncStmt).body
+            or nil
         local generics = body ~= nil and (body as cst.Funcbody).generics or nil
         if generics ~= nil then
             local clause = generics as cst.Generics
@@ -397,11 +398,12 @@ function compile.constSpecializations(
                 for position, raw in ipairs((body as cst.Funcbody).params or {}) do
                     local param = raw as cst.Param
                     local annotation = param.type
-                    local binder = annotation ~= nil and annotation.kind == "tname" and (
-                        annotation as cst.Tname
-                    ).typeArgs == nil and (
-                        annotation as cst.Tname
-                    ).base ~= nil and byBinder[((annotation as cst.Tname).base as lexer.Token).text] or nil
+                    local binder = annotation ~= nil
+                        and annotation.kind == "tname"
+                        and (annotation as cst.Tname).typeArgs == nil
+                        and (annotation as cst.Tname).base ~= nil
+                        and byBinder[((annotation as cst.Tname).base as lexer.Token).text]
+                        or nil
                     if binder ~= nil and param.name ~= nil then
                         binder.carriers[#binder.carriers + 1] = {position = position, name = param.name.text,}
                     end
@@ -837,9 +839,9 @@ function compile.artifacts(
         )
         if specialized ~= nil then
             constArtifacts = specialized
-        elseif specializationDiagnostics[
-            1
-        ] ~= nil and specializationDiagnostics[1].message ~= "no closed const-generic AOT applications were found" then
+        elseif specializationDiagnostics[1] ~= nil
+            and specializationDiagnostics[1].message ~= "no closed const-generic AOT applications were found"
+        then
             return nil, specializationDiagnostics
         end
     end

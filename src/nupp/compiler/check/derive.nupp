@@ -183,9 +183,10 @@ function derive.install(c: state.Checker): derive.Ops
         local moduleName = table.concat(parts, ".")
         local first = parts[1]
         local exports
-        if (
-            first == c.moduleLocal and #parts == 1
-        ) or moduleName == c.result.moduleName or moduleName == c.result.declaredModuleName then
+        if (first == c.moduleLocal and #parts == 1)
+            or moduleName == c.result.moduleName
+            or moduleName == c.result.declaredModuleName
+        then
             exports = c.moduleExports
             moduleName = c.result.moduleName or moduleName
         elseif c.env and c.env.resolveModuleExports then
@@ -263,9 +264,8 @@ function derive.install(c: state.Checker): derive.Ops
                     stat.deriveInterfaceRuntimeNames = stat.deriveInterfaceRuntimeNames or {}
                     if contract then
                         local base = spelling and spelling:match("^(.*)%.[^.]+$") or nil
-                        stat.deriveInterfaceRuntimeNames[
-                            contract
-                        ] = base and (base .. "." .. contract.name) or contract.name
+                        stat.deriveInterfaceRuntimeNames[contract] = base and (base .. "." .. contract.name)
+                            or contract.name
                     end
                 end
             end
@@ -346,10 +346,8 @@ function derive.install(c: state.Checker): derive.Ops
         -- edge. The incremental environment records module-interface reads, whereas
         -- the export lookup below alone would be only a comptime/provider edge.
         local moduleType = c.env and c.env.resolveModule and c.env.resolveModule(c.env, descriptor.module) or nil
-        local exports = c.env and c.env.resolveModuleExports and c.env.resolveModuleExports(
-            c.env,
-            descriptor.module
-        ) or nil
+        local exports = c.env and c.env.resolveModuleExports and c.env.resolveModuleExports(c.env, descriptor.module)
+            or nil
         local exported = exports and exports.values and exports.values[descriptor.member] or nil
         if exported then
             return exported
@@ -365,10 +363,8 @@ function derive.install(c: state.Checker): derive.Ops
         if descriptor.module == c.result.moduleName then
             return c.moduleExports.valueDefs and c.moduleExports.valueDefs[descriptor.member] or nil
         end
-        local exports = c.env and c.env.resolveModuleExports and c.env.resolveModuleExports(
-            c.env,
-            descriptor.module
-        ) or nil
+        local exports = c.env and c.env.resolveModuleExports and c.env.resolveModuleExports(c.env, descriptor.module)
+            or nil
 
         return exports and exports.valueDefs and exports.valueDefs[descriptor.member] or nil
     end
@@ -450,9 +446,8 @@ function derive.install(c: state.Checker): derive.Ops
                 for _, reflectedArgument in ipairs(reflectedApplication.arguments or {}) do
                     local sourceArgument = application
                         and application.annotationValues
-                        and application.annotationValues[
-                            reflectedArgument.name
-                        ] or nil
+                        and application.annotationValues[reflectedArgument.name]
+                        or nil
                     for _, candidate in ipairs(application and application.arguments or {}) do
                         if candidate.name == reflectedArgument.name then
                             sourceArgument = candidate
@@ -460,9 +455,12 @@ function derive.install(c: state.Checker): derive.Ops
                         end
                     end
                     local index = reflectedArgument.kind == "type" and reflectedArgument.type or nil
-                    local subject = sourceArgument and (
-                        sourceArgument.annotationReferenceType or sourceArgument.kind == "type" and sourceArgument.type
-                    ) or nil
+                    local subject = sourceArgument
+                        and (
+                            sourceArgument.annotationReferenceType
+                            or sourceArgument.kind == "type" and sourceArgument.type
+                        )
+                        or nil
                     if type(index) == "number" and subject then
                         local edge = transportedType(subject)
                         if not collected[index] then
@@ -573,9 +571,9 @@ function derive.install(c: state.Checker): derive.Ops
                 claims = claims,
                 reference = "field:" .. tostring(index),
             }
-            local definition = n.fieldDefs and n.fieldDefs[
-                fieldName
-            ] or n.writeFieldDefs and n.writeFieldDefs[fieldName] or nil
+            local definition = n.fieldDefs and n.fieldDefs[fieldName]
+                or n.writeFieldDefs and n.writeFieldDefs[fieldName]
+                or nil
             collectAnnotationTypes(
                 definition and definition.annotations,
                 descriptorFields[index] and descriptorFields[index].annotations
@@ -663,19 +661,19 @@ function derive.install(c: state.Checker): derive.Ops
         local persistent = c.env and c.env.openTypeFunctionStore and c.env.openTypeFunctionStore(c.env) or nil
         if not envelope and persistent then
             local cached = persistent.get(memoKey)
-            if type(
-                cached
-            ) == "table" and cached.provider == "derive" and cached.schema == 1 and (
-                cached.family == "Result" or cached.family == "Error"
-            ) then
+            if type(cached) == "table"
+                and cached.provider == "derive"
+                and cached.schema == 1
+                and (cached.family == "Result" or cached.family == "Error")
+            then
                 local canonical = recipeCodec.canonical(cached.payload)
                 local prefix = cached.family == "Result" and "nupp.derive.result\0v3\0" or "nupp.derive.error\0v1\0"
-                if canonical and cached.fingerprint == hash.sha256(
-                    prefix .. canonical
-                )
+                if canonical
+                    and cached.fingerprint == hash.sha256(prefix .. canonical)
                     and cached.payload.requestFingerprint == input.fingerprint
                     and cached.payload.providerIdentity == provider.identity
-                    and cached.payload.ownerIdentity == n.deriveKey then
+                    and cached.payload.ownerIdentity == n.deriveKey
+                then
                     envelope = cached
                 end
             end
@@ -950,11 +948,12 @@ function derive.install(c: state.Checker): derive.Ops
                         provider.site.arg.expr or provider.site.arg,
                         "a derive cannot replace an interface default"
                     )
-                elseif not declared and (
-                    (
-                        not isStatic and contract.overloadedMethods and contract.overloadedMethods[methodName]
-                    ) or requirement.tag == "intersection"
-                ) then
+                elseif not declared
+                    and (
+                        (not isStatic and contract.overloadedMethods and contract.overloadedMethods[methodName])
+                        or requirement.tag == "intersection"
+                    )
+                then
                     c.diag(
                         "NUPP2811",
                         provider.site.arg.expr or provider.site.arg,
@@ -1078,11 +1077,13 @@ function derive.install(c: state.Checker): derive.Ops
                             -- differ when compiler-owned records first derived a
                             -- package interface. The resolver has already retained
                             -- the stable source spelling used to claim the contract.
-                            recipe.interface = contract and (
-                                item.stat.deriveInterfaceRuntimeNames and item.stat.deriveInterfaceRuntimeNames[
-                                    contract
-                                ] or contract.name
-                            ) or nil
+                            recipe.interface = contract
+                                and (
+                                    item.stat.deriveInterfaceRuntimeNames
+                                    and item.stat.deriveInterfaceRuntimeNames[contract]
+                                    or contract.name
+                                )
+                                or nil
                             recipe.signature = T.tostring(callable)
                             recipe.paramNames = callable.paramNames
                             if recipe.helper.module == c.result.moduleName and c.moduleLocal then
@@ -1154,9 +1155,10 @@ function derive.install(c: state.Checker): derive.Ops
                 -- both providers are present, keep Serde's logical types and fold
                 -- Debug's indexed policies into the same member entries. Provider
                 -- evaluation order therefore cannot duplicate or replace the schema.
-                if name == "serde" and (
-                    prior.debugOnly or value.debugOnly
-                ) and not (prior.debugOnly and value.debugOnly) then
+                if name == "serde"
+                    and (prior.debugOnly or value.debugOnly)
+                    and not (prior.debugOnly and value.debugOnly)
+                then
                     local shared = prior.debugOnly and value or prior
                     local debugRecipe = prior.debugOnly and prior or value
                     for index, field in ipairs(debugRecipe.fields or {}) do
@@ -1249,13 +1251,8 @@ function derive.install(c: state.Checker): derive.Ops
         end
 
         local args = application and application.annotationArgs or {}
-        local title = duplicate
-            and "remove duplicate @derive("
-            .. provider
-            .. ")"
-            or "remove @derive("
-            .. provider
-            .. ")"
+        local title = duplicate and "remove duplicate @derive(" .. provider .. ")"
+            or "remove @derive(" .. provider .. ")"
         local first, last
         if #args == 1 then
             first, last = token(application), lastToken(application)
@@ -1663,9 +1660,9 @@ function derive.install(c: state.Checker): derive.Ops
         end)
         c.result.deriveInterface = interface
         local interfaceBytes = recipeCodec.canonical(interface)
-        c.moduleExports.deriveInterfaceFingerprint = #interface > 0 and hash.sha256(
-            "nupp.derive.interface\0v1\0" .. assert(interfaceBytes)
-        ) or nil
+        c.moduleExports.deriveInterfaceFingerprint = #interface > 0
+            and hash.sha256("nupp.derive.interface\0v1\0" .. assert(interfaceBytes))
+            or nil
 
         local observations = {}
         for _, item in ipairs(pending) do

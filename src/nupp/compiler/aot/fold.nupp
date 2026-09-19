@@ -497,9 +497,9 @@ local function matches(node: scalarIR.Expr, shape: fold.Pattern?, other: scalarI
     elseif shape == "allones" then
         return node.type == "u32" and value == 4294967295
     elseif shape == "negzero" then
-        return node.op == "constant" and tonumber(
-            (node as scalarIR.Constant).value
-        ) == 0 and 1 / (tonumber((node as scalarIR.Constant).value) as number) < 0
+        return node.op == "constant"
+            and tonumber((node as scalarIR.Constant).value) == 0
+            and 1 / (tonumber((node as scalarIR.Constant).value) as number) < 0
     elseif shape == "zero" then
         if node.op == "constant" then
             local number = tonumber((node as scalarIR.Constant).value)
@@ -658,17 +658,10 @@ local function action(rule: fold.Rule, node: scalarIR.Expr, context: fold.Contex
         end
         local left = tonumber((pair.left as scalarIR.Constant).value) as number
         local right = tonumber((pair.right as scalarIR.Constant).value) as number
-        local answer = node.op == "add"
-            and left
-            + right
-            or node.op == "sub"
-            and left
-            - right
-            or node.op == "mul"
-            and left
-            * right
-            or left
-            / right
+        local answer = node.op == "add" and left + right
+            or node.op == "sub" and left - right
+            or node.op == "mul" and left * right
+            or left / right
         return finite(answer) and constant(answer, node) or nil
     elseif name == "f64_neg" then
         local value = (node as scalarIR.Unary).value
@@ -681,9 +674,12 @@ local function action(rule: fold.Rule, node: scalarIR.Expr, context: fold.Contex
         local converted = node as scalarIR.Convert
         local value = fold.exactInteger(converted.value)
         local low, high = integerRange(converted.type)
-        return value ~= nil and low ~= nil and value >= (
-            low as number
-        ) and value <= (high as number) and integerConstant(value, converted.type, node) or nil
+        return value ~= nil
+            and low ~= nil
+            and value >= (low as number)
+            and value <= (high as number)
+            and integerConstant(value, converted.type, node)
+            or nil
     elseif name == "int_to_f64" then
         local value = fold.exactInteger((node as scalarIR.Convert).value)
         return value ~= nil and math.abs(value) <= 9007199254740992 and constant(value, node) or nil
@@ -713,14 +709,14 @@ local function action(rule: fold.Rule, node: scalarIR.Expr, context: fold.Contex
         if left == nil or right == nil then
             return nil
         end
-        local answer = node.op:match(
-            "_add$"
-        ) ~= nil and left + right or node.op:match("_sub$") ~= nil and left - right or left * right
-        return finite(
-            answer
-        ) and math.abs(
-            answer
-        ) < 9007199254740992 and (node.type ~= "u64" or answer >= 0) and integerConstant(answer, node.type, node) or nil
+        local answer = node.op:match("_add$") ~= nil and left + right
+            or node.op:match("_sub$") ~= nil and left - right
+            or left * right
+        return finite(answer)
+            and math.abs(answer) < 9007199254740992
+            and (node.type ~= "u64" or answer >= 0)
+            and integerConstant(answer, node.type, node)
+            or nil
     elseif name == "compare_constants" then
         local pair = node as scalarIR.Binary
         local left, right = fold.exactInteger(pair.left), fold.exactInteger(pair.right)
@@ -813,10 +809,10 @@ function fold.apply(node: scalarIR.Expr, context: fold.Context): scalarIR.Expr?,
             end
             if matched and (not sameRule or stable((node as scalarIR.Binary).left, context)) then
                 local replacement = action(rule, node, context)
-                if replacement ~= nil and not semanticSame(
-                    node,
-                    replacement
-                ) and removalSafe(node, replacement, context) then
+                if replacement ~= nil
+                    and not semanticSame(node, replacement)
+                    and removalSafe(node, replacement, context)
+                then
                     return replacement, rule.id
                 end
             end

@@ -29,13 +29,12 @@ local type StubRecord = {
 }
 
 local function safeComponent(value: any): boolean
-    return type(
-        value
-    ) == "string" and value ~= "" and not value:find(
-        "/",
-        1,
-        true
-    ) and not value:find("\\", 1, true) and value ~= "." and value ~= ".."
+    return type(value) == "string"
+        and value ~= ""
+        and not value:find("/", 1, true)
+        and not value:find("\\", 1, true)
+        and value ~= "."
+        and value ~= ".."
 end
 
 local function validateExecutable(platform: string, text: string, path: string): boolean?, string?
@@ -48,16 +47,15 @@ local function validateExecutable(platform: string, text: string, path: string):
             return nil, "stub " .. path .. " is not an arm64 Mach-O executable"
         end
     elseif platform == "x86_64-pc-windows-msvc" then
-        local offset = #text >= 64 and (
-            text:byte(61) + text:byte(62) * 256 + text:byte(63) * 65536 + text:byte(64) * 16777216
-        ) or -1
-        if text:sub(
-            1,
-            2
-        ) ~= "MZ" or offset < 0 or text:sub(
-            offset + 1,
-            offset + 4
-        ) ~= "PE\0\0" or text:byte(offset + 5) ~= 100 or text:byte(offset + 6) ~= 134 then
+        local offset = #text >= 64
+            and (text:byte(61) + text:byte(62) * 256 + text:byte(63) * 65536 + text:byte(64) * 16777216)
+            or -1
+        if text:sub(1, 2) ~= "MZ"
+            or offset < 0
+            or text:sub(offset + 1, offset + 4) ~= "PE\0\0"
+            or text:byte(offset + 5) ~= 100
+            or text:byte(offset + 6) ~= 134
+        then
             return nil, "stub " .. path .. " is not an x86-64 PE executable"
         end
     else

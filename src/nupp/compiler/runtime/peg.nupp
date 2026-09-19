@@ -641,13 +641,10 @@ local function fastScan9Run(plan: any, sets: any): any
             end
         end
         local q, r, s, t, u, v, w, x, y = subject:byte(suffixStart, #subject)
-        if (
-            (q * 256 + r) * 256 + s
-        ) * 256 + t == suffixHead and (
-            (u * 256 + v) * 256 + w
-        ) * 256 + x == suffixTail and (
-            (lastByte ~= nil and y == lastByte) or (lastClass ~= nil and (lastClass as string):byte(y + 1) ~= 0)
-        ) then
+        if ((q * 256 + r) * 256 + s) * 256 + t == suffixHead
+            and ((u * 256 + v) * 256 + w) * 256 + x == suffixTail
+            and ((lastByte ~= nil and y == lastByte) or (lastClass ~= nil and (lastClass as string):byte(y + 1) ~= 0))
+        then
             return #subject + 1
         end
 
@@ -672,17 +669,12 @@ local function repeatSource(plan: any): string
     local head = checkSource(plan.head as integer, "byte")
     local tail = checkSource(plan.tail as integer, "byte")
     local accept = plan.eof and "if position~=#subject+1 then return nil end;" or ""
-    local result = plan.result == "string"
-        and "lastSubject,lastFirst,lastNext=subject,first,position;return position"
+    local result = plan.result == "string" and "lastSubject,lastFirst,lastNext=subject,first,position;return position"
         or "return position"
     local visitValue = plan.result == "string" and "subject:sub(first,position-1)" or "position"
     local visit = plan.eof
-        and "if position==length+1 then count=count+1;visitor(first,position,"
-        .. visitValue
-        .. ");return count end"
-        or "count=count+1;visitor(first,position,"
-        .. visitValue
-        .. ")"
+        and "if position==length+1 then count=count+1;visitor(first,position," .. visitValue .. ");return count end"
+        or "count=count+1;visitor(first,position," .. visitValue .. ")"
     local state = plan.result == "string"
         and "local lastSubject,lastFirst,lastNext;"
         .. "local function take()return lastSubject:sub(lastFirst,lastNext-1)end;"
@@ -747,13 +739,16 @@ export function codegen(program: any, definitions: any): any
     local scan = program.fastScan
     if scan ~= nil and scan.packedKeys ~= nil and (scan.maximum as integer) <= 6 and #scan.keys <= 8 then
         local suffix = scan.suffix
-        if #suffix == 9 and suffix[
-            1
-        ] < 256 and suffix[
-            2
-        ] < 256 and suffix[
-            3
-        ] < 256 and suffix[4] < 256 and suffix[5] < 256 and suffix[6] < 256 and suffix[7] < 256 and suffix[8] < 256 then
+        if #suffix == 9
+            and suffix[1] < 256
+            and suffix[2] < 256
+            and suffix[3] < 256
+            and suffix[4] < 256
+            and suffix[5] < 256
+            and suffix[6] < 256
+            and suffix[7] < 256
+            and suffix[8] < 256
+        then
             return matcher(fastScan9Run(scan, program.sets), nil, false, program.search, nil, nil, nil)
         end
     end

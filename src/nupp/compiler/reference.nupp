@@ -3190,8 +3190,7 @@ function reference.skill(chapter: reference.Chapter?): string
     out[#out + 1] = "description: >-"
     if chapter then
         local description = chapter.skillDescription
-            or chapter.summary
-            .. " Load when this is the only Nupp context needed."
+            or chapter.summary .. " Load when this is the only Nupp context needed."
         for _, line in ipairs(wrapped(description)) do
             out[#out + 1] = "  " .. line
         end

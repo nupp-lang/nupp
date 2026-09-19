@@ -331,9 +331,9 @@ end
 
 local function probeArm(ft: T.Func, argPack: T.Pack, cdefCall: boolean?, control: any?): T.Func?, string?
     local map = {}
-    if T.hasTypevar(
-        ft
-    ) and (#(ft.typeParams or {}) > 0 or #(ft.packParams or {}) > 0 or #(ft.constParams or {}) > 0) then
+    if T.hasTypevar(ft)
+        and (#(ft.typeParams or {}) > 0 or #(ft.packParams or {}) > 0 or #(ft.constParams or {}) > 0)
+    then
         unifyPack(ft.paramPack, argPack, map)
         local constProblem = constInferenceProblem(ft, map)
         if constProblem then
@@ -352,15 +352,12 @@ local function probeArm(ft: T.Func, argPack: T.Pack, cdefCall: boolean?, control
         end
     end
     local specialized, specializationProblem = ft, nil
-    if #(
-        ft.typeParams or {}
-    ) > 0 or #(
-        ft.packParams or {}
-    ) > 0 or #(
-        ft.constParams or {}
-    ) > 0 or (
-        ft.paramPack.tail and ft.paramPack.tail.kind == "computed"
-    ) or (ft.retPack.tail and ft.retPack.tail.kind == "computed") then
+    if #(ft.typeParams or {}) > 0
+        or #(ft.packParams or {}) > 0
+        or #(ft.constParams or {}) > 0
+        or (ft.paramPack.tail and ft.paramPack.tail.kind == "computed")
+        or (ft.retPack.tail and ft.retPack.tail.kind == "computed")
+    then
         specialized, specializationProblem = generics.instantiateFunction(ft, map, control)
     end
     if specializationProblem then
@@ -596,11 +593,8 @@ function calls.install(c: state.Checker): calls.Ops
             end
             gapOffset = gapOffset or offset
         end
-        local opening = gapOffset and {
-            offset = gapOffset,
-            length = open.offset + #open.text - gapOffset,
-            newText = "("
-        } or c.edits.replaceToken(open, "(")
+        local opening = gapOffset and {offset = gapOffset, length = open.offset + #open.text - gapOffset, newText = "("}
+            or c.edits.replaceToken(open, "(")
         local edits = {opening, c.edits.replaceToken(close, ")")}
         for _, separator in ipairs(separators) do
             -- A `;` separates table fields and nothing else, and the last one before
@@ -694,9 +688,12 @@ function calls.install(c: state.Checker): calls.Ops
             -- width, while reading one exposes the value obtained after the FFI load.
             -- Methods and record fields keep their ordinary declared type.
             local owner = t.tag == "nominal" and t or t.tag == "typevar" and t.bound or nil
-            if owner and owner.tag == "nominal" and owner.declKind == "struct" and owner.fieldDefs and owner.fieldDefs[
-                name
-            ] then
+            if owner
+                and owner.tag == "nominal"
+                and owner.declKind == "struct"
+                and owner.fieldDefs
+                and owner.fieldDefs[name]
+            then
                 ft = fixedWidth.loaded(ft)
             end
             local element = owner and indexedViews.spanElement(owner) or nil
@@ -1176,16 +1173,16 @@ function calls.install(c: state.Checker): calls.Ops
         -- table is for, so the wrapper comes off before asking what is being called.
         -- Reaching a `metatable<R>` any other way -- a hand-built one under an
         -- annotation -- is not a declaration and is left alone.
-        if (
-            calleeT.tag == "metatable" or calleeT.tag == "typeobject"
-        ) and calleeT.of.tag == "nominal" and (calleeT.of.declKind == "record" or calleeT.of.declKind == "struct") then
+        if (calleeT.tag == "metatable" or calleeT.tag == "typeobject")
+            and calleeT.of.tag == "nominal"
+            and (calleeT.of.declKind == "record" or calleeT.of.declKind == "struct")
+        then
             calleeT = calleeT.of
             node.signatureType = calleeT
         end
         -- struct construction: S{...} named or S(...) positional
-        local constructible = calleeT.tag == "nominal" and (
-            calleeT.declKind == "struct" or calleeT.declKind == "record"
-        )
+        local constructible = calleeT.tag == "nominal"
+            and (calleeT.declKind == "struct" or calleeT.declKind == "record")
         -- An operand naming a declared type was already answered as one. What is left
         -- is a value that is not a type at all, and `any` -- an unknown name under
         -- gradual typing -- is deliberately not one of them.
@@ -1366,9 +1363,8 @@ function calls.install(c: state.Checker): calls.Ops
                     ("%s is constructed from arguments, not from a table"):format(declared),
                     tableConstructionFix(tbl),
                     {
-                        help = isRecord and (
-                            "write new %s(field = value, ...)"
-                        ):format(declared) or ("write new %s(...) with one value per field, in order"):format(declared),
+                        help = isRecord and ("write new %s(field = value, ...)"):format(declared)
+                        or ("write new %s(...) with one value per field, in order"):format(declared),
                     }
                 )
                 c.infer(tbl)
@@ -1493,15 +1489,16 @@ function calls.install(c: state.Checker): calls.Ops
                 -- An any field is the one store through which an owner disappeared
                 -- unremarked: every other route into any reports NUPP2611, and the
                 -- record would have held a resource nothing would ever close.
-                if (
-                    valueOwnership == "affine" or valueOwnership == "pinned"
-                ) and expected.tag ~= "typevar" and not expectedOwnership and not suppliesBorrowedField then
+                if (valueOwnership == "affine" or valueOwnership == "pinned")
+                    and expected.tag ~= "typevar"
+                    and not expectedOwnership
+                    and not suppliesBorrowedField
+                then
                     local erased = expected == T.any or expected == T.unknown
                     c.diag(
                         erased and "NUPP2611" or "NUPP2603",
                         value,
-                        erased
-                        and "a live capability cannot be erased into an any field"
+                        erased and "a live capability cannot be erased into an any field"
                         or "an ownership-bearing value needs an ownership-bearing record field"
                     )
                 end
@@ -1538,9 +1535,8 @@ function calls.install(c: state.Checker): calls.Ops
                         c.infer(arg.value or arg)
                     else
                         if fname then
-                            local fieldDef = calleeT.writeFieldDefs and calleeT.writeFieldDefs[
-                                fname
-                            ] or (calleeT.fieldDefs and calleeT.fieldDefs[fname] or nil)
+                            local fieldDef = calleeT.writeFieldDefs and calleeT.writeFieldDefs[fname]
+                                or (calleeT.fieldDefs and calleeT.fieldDefs[fname] or nil)
                             c.markToken(
                                 arg.name,
                                 fieldDef,
@@ -1621,15 +1617,16 @@ function calls.install(c: state.Checker): calls.Ops
                     if genericMap and fieldType then
                         fieldType = generics.rebind(fieldType, genericMap)
                     end
-                    local method = calleeT.overloadedMethods and calleeT.overloadedMethods[
-                        field
-                    ] or fieldType and relations.isMethod(fieldType, calleeT)
+                    local method = calleeT.overloadedMethods and calleeT.overloadedMethods[field]
+                        or fieldType and relations.isMethod(fieldType, calleeT)
                     local nested = calleeT.nestedTypes and calleeT.nestedTypes[field]
-                    if not bound[
-                        field
-                    ] and fieldType and not method and not nested and fieldType.tag ~= "typeobject" and (
-                        not isA(T.nil_, fieldType) or relations.typevarMismatch(T.nil_, fieldType)
-                    ) then
+                    if not bound[field]
+                        and fieldType
+                        and not method
+                        and not nested
+                        and fieldType.tag ~= "typeobject"
+                        and (not isA(T.nil_, fieldType) or relations.typevarMismatch(T.nil_, fieldType))
+                    then
                         missing[#missing + 1] = field
                     end
                 end
@@ -1681,9 +1678,8 @@ function calls.install(c: state.Checker): calls.Ops
                         )
                     end
                     local sourceType = calleeT.byname[source]
-                    local internalRoot = c.ownershipKind(
-                        sourceType
-                    ) == "affine" or c.ownershipKind(sourceType) == "pinned"
+                    local internalRoot = c.ownershipKind(sourceType) == "affine"
+                        or c.ownershipKind(sourceType) == "pinned"
                     if not internalRoot then
                         for _, root in ipairs(actual) do
                             if not rootSeen[root] then
@@ -1949,13 +1945,8 @@ function calls.install(c: state.Checker): calls.Ops
                     if entry then
                         types[j] = entry.type
                         nodes[j] = entry.node
-                        lowered[
-                            j
-                        ] = entry.field and {
-                            generatedKind = "field",
-                            source = entry.node,
-                            name = entry.field,
-                        } or {generatedKind = "expr", expr = entry.node}
+                        lowered[j] = entry.field and {generatedKind = "field", source = entry.node, name = entry.field,}
+                            or {generatedKind = "expr", expr = entry.node}
                     else
                         types[j] = T.nil_
                         nodes[j] = node
@@ -2153,11 +2144,9 @@ function calls.install(c: state.Checker): calls.Ops
         -- binders, but calling that callback must preserve those symbolic packs rather
         -- than treating them as a fresh generic signature and replacing an unbound
         -- result pack with `...any`.
-        if T.hasTypevar(
-            calleeT
-        ) and (
-            #(calleeT.typeParams or {}) > 0 or #(calleeT.packParams or {}) > 0 or #(calleeT.constParams or {}) > 0
-        ) then
+        if T.hasTypevar(calleeT)
+            and (#(calleeT.typeParams or {}) > 0 or #(calleeT.packParams or {}) > 0 or #(calleeT.constParams or {}) > 0)
+        then
             local map = {}
             genericMap = map
             local slots = slotBinders(calleeT)
@@ -2288,9 +2277,8 @@ function calls.install(c: state.Checker): calls.Ops
                         -- binders happen to instantiate as the same concrete type.
                         path = T.preservationPath(rawType(result), rawType(params[source]))
                     end
-                    adjusted[
-                        j
-                    ] = source and ats[source] and T.withOwnershipPayload(ats[source], rawType(result), path) or result
+                    adjusted[j] = source and ats[source] and T.withOwnershipPayload(ats[source], rawType(result), path)
+                        or result
                 end
 
                 return T.pack(adjusted, pack.tail, pack.modes)
@@ -2452,9 +2440,11 @@ function calls.install(c: state.Checker): calls.Ops
         local parameterTail = paramPack.tail
         for j = 1, actualCount do
             local tailSlot = j > nparams
-            local mode = tailSlot and parameterTail and parameterTail.kind == "homogeneous" and (
-                parameterTail.mode or (varargType == T.any and "plain" or nil)
-            ) or (not tailSlot and (paramModes[j] or "plain") or nil)
+            local mode = tailSlot
+                and parameterTail
+                and parameterTail.kind == "homogeneous"
+                and (parameterTail.mode or (varargType == T.any and "plain" or nil))
+                or (not tailSlot and (paramModes[j] or "plain") or nil)
             local actualForCheck = ats[j]
             local preservationResult = preservedByParam[j]
             if preservationResult then
@@ -2472,10 +2462,7 @@ function calls.install(c: state.Checker): calls.Ops
             else
                 local expected = tailSlot and (varargType or T.any) or params[j]
                 local physical = node.cdefCall == true
-                    or node.fixedWidthPhysicalParameters ~= nil
-                    and node.fixedWidthPhysicalParameters[
-                        j
-                    ] == true
+                    or node.fixedWidthPhysicalParameters ~= nil and node.fixedWidthPhysicalParameters[j] == true
                 ok, why, reported = c.fixedWidth.fits(
                     actualForCheck,
                     expected,
@@ -2506,9 +2493,8 @@ function calls.install(c: state.Checker): calls.Ops
             end
             if mode == "takes" then
                 local takenKind = c.ownershipKind(ats[j])
-                local conditional = node.kind == "safeCall" or node.kind == "methodCall" and (
-                    node.safeObj ~= nil or node.safeMethod ~= nil
-                )
+                local conditional = node.kind == "safeCall"
+                    or node.kind == "methodCall" and (node.safeObj ~= nil or node.safeMethod ~= nil)
                 if conditional and (takenKind == "affine" or takenKind == "pinned") then
                     c.diag(
                         "NUPP2602",
@@ -2544,9 +2530,8 @@ function calls.install(c: state.Checker): calls.Ops
                 if kind == "affine" or kind == "pinned" then
                     local movedNode = cst.isToken(argNodes[j]) and node or argNodes[j]
                     local sourceEntry = c.ownershipEntry(movedNode)
-                    local conditional = node.kind == "safeCall" or node.kind == "methodCall" and (
-                        node.safeObj ~= nil or node.safeMethod ~= nil
-                    )
+                    local conditional = node.kind == "safeCall"
+                        or node.kind == "methodCall" and (node.safeObj ~= nil or node.safeMethod ~= nil)
                     if conditional then
                         c.diag(
                             "NUPP2602",
@@ -2725,10 +2710,9 @@ function calls.install(c: state.Checker): calls.Ops
                     local roots = entry and {entry} or c.own.provenanceOwners(argNodes[j])
                     local base = entry or c.own.pathBase(argNodes[j])
                     for _, root in ipairs(roots) do
-                        if not reborrowsExclusiveView(
-                            argNodes[j],
-                            c.borrowRoot(root)
-                        ) and c.own.regionBlocked(root, base, entryFacts, regionRoot, regionPath, true) then
+                        if not reborrowsExclusiveView(argNodes[j], c.borrowRoot(root))
+                            and c.own.regionBlocked(root, base, entryFacts, regionRoot, regionPath, true)
+                        then
                             c.diag(
                                 "NUPP2607",
                                 nameNode or argNodes[j] or node,
@@ -2760,15 +2744,15 @@ function calls.install(c: state.Checker): calls.Ops
                 -- a borrow rides through. An owner still cannot, since nothing there
                 -- receives the obligation.
                 local forwarded = tailSlot and varargType == nil and actualOwnership == "borrowed"
-                local liveAcrossAny = plainExpected == T.any and not forwarded and not ownershipUseReported and (
-                    not entry or not entry.moved and (entry.activeBorrows or 0) == 0
-                )
+                local liveAcrossAny = plainExpected == T.any
+                    and not forwarded
+                    and not ownershipUseReported
+                    and (not entry or not entry.moved and (entry.activeBorrows or 0) == 0)
                 if plainExpected ~= T.any or liveAcrossAny then
                     c.diag(
                         plainExpected == T.any and "NUPP2611" or "NUPP2603",
                         argNodes[j] or node,
-                        plainExpected == T.any
-                        and "a live capability cannot cross an any parameter"
+                        plainExpected == T.any and "a live capability cannot cross an any parameter"
                         or "an owner or borrow needs a borrows, exclusive, or takes contract"
                     )
                 end
@@ -2839,9 +2823,10 @@ function calls.install(c: state.Checker): calls.Ops
         -- expression would. Everything downstream, binding it, blocking a move of the
         -- owner, releasing at scope exit, is the machinery lexical borrows already
         -- use.
-        if calleeT and calleeT.tag == "func" and (
-            calleeT.borrowsParam or calleeT.borrowsSelf or calleeT.borrowsParams
-        ) then
+        if calleeT
+            and calleeT.tag == "func"
+            and (calleeT.borrowsParam or calleeT.borrowsSelf or calleeT.borrowsParams)
+        then
             local sources = {}
             if calleeT.borrowsSelf then
                 sources[#sources + 1] = node.obj
@@ -2866,9 +2851,9 @@ function calls.install(c: state.Checker): calls.Ops
                 -- authorized by that loan rather than in conflict with it.
                 local base = not sourceEntry and source and c.own.pathBase(source) or nil
                 local found
-                if sourceEntry and (
-                    c.ownershipKind(sourceEntry.t) == "affine" or c.ownershipKind(sourceEntry.t) == "pinned"
-                ) then
+                if sourceEntry
+                    and (c.ownershipKind(sourceEntry.t) == "affine" or c.ownershipKind(sourceEntry.t) == "pinned")
+                then
                     found = {sourceEntry}
                 elseif base then
                     found = {base}

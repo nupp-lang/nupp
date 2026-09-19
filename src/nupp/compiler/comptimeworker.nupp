@@ -274,10 +274,8 @@ local function handleRequest(request): any
     if request.kind == "type-function" then
         local program, programFailure = parseHelpers(request)
         if not program then
-            local stopped = programFailure or {
-                code = "NUPP2412",
-                message = "type-function worker program could not be loaded",
-            }
+            local stopped = programFailure
+                or {code = "NUPP2412", message = "type-function worker program could not be loaded",}
             return {ok = false, code = stopped.code, message = stopped.message}
         end
         local comptime = require(
@@ -296,10 +294,8 @@ local function handleRequest(request): any
     if request.kind == "derive-provider" then
         local program, programFailure = parseHelpers(request)
         if not program then
-            local stopped = programFailure or {
-                code = "NUPP2810",
-                message = "derive-provider worker program could not be loaded",
-            }
+            local stopped = programFailure
+                or {code = "NUPP2810", message = "derive-provider worker program could not be loaded",}
             return {ok = false, code = stopped.code, message = stopped.message}
         end
         local comptime = require(
@@ -330,11 +326,10 @@ local function handleRequest(request): any
     end
     local helpers = {}
     for name, descriptor in pairs(request.helpers or {}) do
-        local helperParse = type(
-            descriptor
-        ) == "table" and type(
-            descriptor.source
-        ) == "string" and require("nupp.compiler.parser").parse(descriptor.source, "=comptime-helper-" .. name) or nil
+        local helperParse = type(descriptor) == "table"
+            and type(descriptor.source) == "string"
+            and require("nupp.compiler.parser").parse(descriptor.source, "=comptime-helper-" .. name)
+            or nil
         local helper = helperParse and #(helperParse.errors or {}) == 0 and findLocalFunction(helperParse.root) or nil
         if not helper or not helper.name or helper.name.text ~= name then
             return {ok = false, code = "NUPP2412", message = "invalid comptime helper request"}
@@ -402,9 +397,8 @@ function worker.serviceMain(): integer
             response = {ok = false, code = "NUPP2416", message = "comptime worker request exceeds 2097152 bytes"}
         else
             local decoded, request = decodeProtocol(requestText)
-            response = decoded and handleRequest(
-                request
-            ) or {ok = false, code = "NUPP2412", message = "invalid worker request"}
+            response = decoded and handleRequest(request)
+                or {ok = false, code = "NUPP2412", message = "invalid worker request"}
         end
         local encoded = encodeResponse(response)
         if #encoded > MAX_PROTOCOL_BYTES then

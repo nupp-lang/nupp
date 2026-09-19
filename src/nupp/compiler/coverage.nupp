@@ -342,9 +342,8 @@ local function treeHtml(files, currentPage, currentPath)
         table.sort(names)
         for _, name in ipairs(names) do
             local path = prefix == "" and name or prefix .. "/" .. name
-            local selected = currentPath == path or (
-                currentPath ~= nil and currentPath:sub(1, #path + 1) == path .. "/"
-            )
+            local selected = currentPath == path
+                or (currentPath ~= nil and currentPath:sub(1, #path + 1) == path .. "/")
             out[
                 #out + 1
             ] = "<li><details" .. (

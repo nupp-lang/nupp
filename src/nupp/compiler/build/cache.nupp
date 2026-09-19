@@ -431,17 +431,24 @@ local function requiredBy(text: string, path: string): {string}, boolean, {strin
         local token = tokens[index]
         local previous = tokens[index - 1]
         local following = tokens[index + 1]
-        if token.kind == "name" and token.text == "require" and not (
-            previous and (previous.text == "." or previous.text == ":")
-        ) and not (previous and previous.text == "function") and not (following and following.text == "=") then
+        if token.kind == "name"
+            and token.text == "require"
+            and not (previous and (previous.text == "." or previous.text == ":"))
+            and not (previous and previous.text == "function")
+            and not (following and following.text == "=")
+        then
             local literal = nil
             if following and following.kind == "string" then
                 literal = following
             elseif following and following.text == "(" and tokens[index + 2] and tokens[index + 2].kind == "string" then
                 literal = tokens[index + 2]
-            elseif following and following.text == "," and previous and previous.text == "(" and tokens[
-                index + 2
-            ] and tokens[index + 2].kind == "string" then
+            elseif following
+                and following.text == ","
+                and previous
+                and previous.text == "("
+                and tokens[index + 2]
+                and tokens[index + 2].kind == "string"
+            then
                 literal = tokens[index + 2]
             end
             if not literal then

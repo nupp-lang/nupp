@@ -54,9 +54,8 @@ local function identifier(value: string): string
 end
 
 local function fixedStorage(param: scalarIR.Param): boolean
-    return param.type:match(
-        "^struct:"
-    ) ~= nil or (param.sourceType ~= nil and STORAGE_TYPE[param.sourceType as string] == true)
+    return param.type:match("^struct:") ~= nil
+        or (param.sourceType ~= nil and STORAGE_TYPE[param.sourceType as string] == true)
 end
 
 --- The GPU subset rule a verified program breaks, or nil when it breaks none.
@@ -79,9 +78,9 @@ local function outsideSubset(
     if program.entryMode ~= "kernel" or (loop ~= nil) == (workgroup ~= nil) then
         return "GPU entry must be a map or phased workgroup kernel"
     end
-    if loop ~= nil and (
-        (loop as scalarIR.Loop).first ~= 1 or (loop as scalarIR.Loop).last ~= (loop as scalarIR.Loop).count
-    ) then
+    if loop ~= nil
+        and ((loop as scalarIR.Loop).first ~= 1 or (loop as scalarIR.Loop).last ~= (loop as scalarIR.Loop).count)
+    then
         return "GPU entry must dispatch one complete span"
     end
     for _, param in ipairs(program.params) do
@@ -186,9 +185,8 @@ function gpuartifact.program(program: scalarIR.Program, browser: boolean?): (gpu
         uniforms = uniforms,
         uniformBytes = uniformBytes,
         threads = threads,
-        countSpan = workgroup ~= nil and (
-            workgroup as scalarIR.Workgroup
-        ).dispatchSpan or (loop as scalarIR.Loop).count,
+        countSpan = workgroup ~= nil and (workgroup as scalarIR.Workgroup).dispatchSpan
+        or (loop as scalarIR.Loop).count,
         exactCounts = exactCounts
     ), nil
 end

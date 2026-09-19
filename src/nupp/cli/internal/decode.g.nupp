@@ -70,10 +70,8 @@ local function converted(text: string, field: any, token: parser.OptParser?): an
         local number = tonumber(text)
         if number == nil
             or number % 1 ~= 0
-            or field.minimum ~= nil
-            and number < field.minimum
-            or field.maximum ~= nil
-            and number > field.maximum
+            or field.minimum ~= nil and number < field.minimum
+            or field.maximum ~= nil and number > field.maximum
         then
             return nil, failure(
                 "invalidValue",
@@ -97,7 +95,8 @@ local function converted(text: string, field: any, token: parser.OptParser?): an
         end
         return nil, failure(
             "invalidChoice",
-            field.invalid or "option " .. field.display .. " does not take " .. text .. "; expected " .. table.concat(
+            field.invalid
+            or "option " .. field.display .. " does not take " .. text .. "; expected " .. table.concat(
                 field.choices,
                 ", "
             ),

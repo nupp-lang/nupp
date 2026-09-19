@@ -262,9 +262,8 @@ local function resolveRoutedLink(
     end
     local path, fragment = target:match("^([^#]+)(#.*)$")
     path, fragment = path or target, fragment or ""
-    local destination = (
-        sourceDirectory and routes[resolveDots(normalize(join(sourceDirectory, path)))] or nil
-    ) or routes[resolveDots(normalize(path))]
+    local destination = (sourceDirectory and routes[resolveDots(normalize(join(sourceDirectory, path)))] or nil)
+        or routes[resolveDots(normalize(path))]
     if destination == nil then
         return nil
     end

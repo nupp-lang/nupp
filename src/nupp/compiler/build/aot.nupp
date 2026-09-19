@@ -242,19 +242,16 @@ end
 function aot.multiversionFlagError(extra: {string}?): string?
     for _, flag in ipairs(extra or {}) do
         local lower = flag:lower()
-        if lower:match(
-            "^%-march"
-        ) ~= nil or lower:match(
-            "^%-mcpu"
-        ) ~= nil or lower:match(
-            "^%-mtune"
-        ) ~= nil or lower:match(
-            "^%-mavx"
-        ) ~= nil or lower:match(
-            "^%-mno%-avx"
-        ) ~= nil or lower:match(
-            "^%-msse"
-        ) ~= nil or lower:match("^%-mfma") ~= nil or lower:match("^%-flto") ~= nil or lower:match("^/arch:") ~= nil then
+        if lower:match("^%-march") ~= nil
+            or lower:match("^%-mcpu") ~= nil
+            or lower:match("^%-mtune") ~= nil
+            or lower:match("^%-mavx") ~= nil
+            or lower:match("^%-mno%-avx") ~= nil
+            or lower:match("^%-msse") ~= nil
+            or lower:match("^%-mfma") ~= nil
+            or lower:match("^%-flto") ~= nil
+            or lower:match("^/arch:") ~= nil
+        then
             return "aotCflags entry " .. flag .. " changes the CPU tier; multiversion builds own ISA and LTO flags"
         end
     end
@@ -541,9 +538,8 @@ function aot.toolchain(targetTriple: string?, memo: aot.Remembered?): (aot.Toolc
             else
                 return new aot.Toolchain(
                     command = command,
-                    version = pack and (
-                        (pack as any).version .. ":" .. (text:match("^[^\n]*") or command)
-                    ) or (text:match("^[^\n]*") or command) as string,
+                    version = pack and ((pack as any).version .. ":" .. (text:match("^[^\n]*") or command))
+                    or (text:match("^[^\n]*") or command) as string,
                     dialect = dialect as string,
                     archiver = pack and (pack as any).ar or nil,
                     packCompileFlags = pack and (pack as any).compileFlags or nil,
@@ -798,11 +794,9 @@ function aot.wasmDispatch(
         local site = sites[position]
         if site ~= nil then
             local program = programs[position]
-            local replacement = program.executionTarget == "gpu" and gpuBinding.replacement(
-                program,
-                gpuArtifacts[program.symbol],
-                true
-            ) or wasmBinding.replacement(program, unit)
+            local replacement = program.executionTarget == "gpu"
+                and gpuBinding.replacement(program, gpuArtifacts[program.symbol], true)
+                or wasmBinding.replacement(program, unit)
             rewritten = rewritten:sub(1, site.from - 1) .. replacement .. rewritten:sub(site.to + 1)
         end
     end
@@ -965,9 +959,10 @@ function aot.compileWasm(
         local moduleKey = moduleKeys[position] as string
         -- The record is evidence, not authority: the module it names still has
         -- to be on disk, and its name carries the digest of what it contains.
-        if record ~= nil and (
-            record as aot.WasmModule
-        ).key == moduleKey and fs.exists((record as aot.WasmModule).output) then
+        if record ~= nil
+            and (record as aot.WasmModule).key == moduleKey
+            and fs.exists((record as aot.WasmModule).output)
+        then
             reused = reused + 1
             one.wasm = (record as aot.WasmModule).output
             digests[position] = (record as aot.WasmModule).digest
@@ -1436,11 +1431,10 @@ function aot.emitC(
             if resolved ~= nil and resolved ~= listed and fs.canonical(resolved as string) == fs.canonical(listed) then
                 source = resolved as string
             end
-            if not seen[
-                source
-            ] and source:match(
-                "%.nupp$"
-            ) ~= nil and (scope == nil or (scope as {[string]: boolean})[fs.normalize(source)] == true) then
+            if not seen[source]
+                and source:match("%.nupp$") ~= nil
+                and (scope == nil or (scope as {[string]: boolean})[fs.normalize(source)] == true)
+            then
                 seen[source] = true
                 local text = fs.readFile(source)
                 if text ~= nil then

@@ -372,9 +372,11 @@ local function validateTest(envelope)
         if type(value) ~= "number" or value ~= math.floor(value) then
             return nil, "compiler-test blueprint has a non-integer value"
         end
-        if type(
-            nextIndex
-        ) ~= "number" or nextIndex ~= math.floor(nextIndex) or nextIndex < 0 or nextIndex > #values then
+        if type(nextIndex) ~= "number"
+            or nextIndex ~= math.floor(nextIndex)
+            or nextIndex < 0
+            or nextIndex > #values
+        then
             return nil, "compiler-test blueprint has an invalid edge"
         end
         canonicalParts[#canonicalParts + 1] = tostring(value) .. ":" .. tostring(nextIndex)
@@ -391,9 +393,12 @@ local function testFactoryTarget(expected, env)
     local input = env and env.globalTypes and env.globalTypes["nupp.__MaterializationTestInput"]
     local output = env and env.globalTypes and env.globalTypes["nupp.__MaterializedTest"]
 
-    return expected and expected.tag == "func" and #expected.params == 1 and #expected.rets == 1 and expected.params[
-        1
-    ] == input and expected.rets[1] == output
+    return expected
+        and expected.tag == "func"
+        and #expected.params == 1
+        and #expected.rets == 1
+        and expected.params[1] == input
+        and expected.rets[1] == output
 end
 
 --- Validates the worker envelope, checks the provider's expected-type relation, and
@@ -401,11 +406,12 @@ end
 --- determined by its blueprint may return that inferred target in the fourth slot;
 --- providers needing application types still require an explicit boundary.
 function providers.lower(envelope: any, expected: any, env: any): any, providers.Failure?, any, any
-    if type(
-        envelope
-    ) ~= "table" or envelope.kind ~= "materialized" or type(
-        envelope.provider
-    ) ~= "string" or type(envelope.schema) ~= "number" or type(envelope.fingerprint) ~= "string" then
+    if type(envelope) ~= "table"
+        or envelope.kind ~= "materialized"
+        or type(envelope.provider) ~= "string"
+        or type(envelope.schema) ~= "number"
+        or type(envelope.fingerprint) ~= "string"
+    then
         return nil, {code = "NUPP2415", message = "the comptime worker returned a malformed blueprint envelope"}
     end
     if envelope.provider ~= "compiler-test" then

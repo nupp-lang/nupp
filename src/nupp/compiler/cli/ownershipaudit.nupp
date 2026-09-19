@@ -139,8 +139,7 @@ local function run(options: any): integer
                     line = owners[1].line,
                     column = owners[1].column,
                     lowering = node.automaticDirect and "direct" or #owners > 1 and "fused" or "general",
-                    protection = node.automaticDirect
-                    and "elided: empty live interval and non-raising cleanup"
+                    protection = node.automaticDirect and "elided: empty live interval and non-raising cleanup"
                     or "raised exits and cleanup failures",
                     activationOrder = activation,
                     cleanupOrder = cleanup,
@@ -218,9 +217,11 @@ local function run(options: any): integer
             -- `unsafe do` block, and are assertion sites wherever they are spelled.
             -- The other intrinsics are ordinary helpers, worth listing only inside a
             -- declared unsafe region.
-        elseif node.ownershipIntrinsic and (
-            inUnsafe or node.ownershipIntrinsic == "adopt" or node.ownershipIntrinsic == "release"
-        ) and node.ownershipIntrinsic ~= "borrow" and node.ownershipIntrinsic ~= "drop" then
+        elseif node.ownershipIntrinsic
+            and (inUnsafe or node.ownershipIntrinsic == "adopt" or node.ownershipIntrinsic == "release")
+            and node.ownershipIntrinsic ~= "borrow"
+            and node.ownershipIntrinsic ~= "drop"
+        then
             local token = firstToken(node)
             unsafeSites[
                 #unsafeSites + 1

@@ -61,25 +61,25 @@ local function failure(message)
 end
 
 function typeblueprint.validate(envelope: any, permittedReferences: any?): any, typeblueprint.Failure?
-    if type(
-        envelope
-    ) ~= "table"
+    if type(envelope) ~= "table"
         or envelope.kind ~= "type-blueprint"
         or envelope.provider ~= "types"
         or envelope.schema ~= typeblueprint.SCHEMA
-        or envelope.family ~= "Type"
-        and envelope.family ~= "Pack"
-        or type(
-            envelope.payload
-        ) ~= "table" or type(envelope.fingerprint) ~= "string" then
+        or envelope.family ~= "Type" and envelope.family ~= "Pack"
+        or type(envelope.payload) ~= "table"
+        or type(envelope.fingerprint) ~= "string"
+    then
         return nil, failure("the comptime worker returned a malformed type blueprint envelope")
     end
     local payload, nodes = envelope.payload, envelope.payload.nodes
-    if type(
-        nodes
-    ) ~= "table" or #nodes < 1 or #nodes > typeblueprint.MAX_NODES or type(
-        payload.root
-    ) ~= "number" or payload.root ~= math.floor(payload.root) or payload.root < 1 or payload.root > #nodes then
+    if type(nodes) ~= "table"
+        or #nodes < 1
+        or #nodes > typeblueprint.MAX_NODES
+        or type(payload.root) ~= "number"
+        or payload.root ~= math.floor(payload.root)
+        or payload.root < 1
+        or payload.root > #nodes
+    then
         return nil, failure("type blueprint has an invalid graph root or node count")
     end
     local expectedFingerprint = hash.sha256("nupp.types\0v1\0" .. stable(payload))
@@ -137,9 +137,10 @@ function typeblueprint.validate(envelope: any, permittedReferences: any?): any, 
         elseif node.kind == "reference" then
             local reference = type(envelope.references) == "table" and envelope.references[node.reference] or nil
             local explicitlyPermitted = false
-            if (
-                type(reference) ~= "table" or not reference.source
-            ) and type(node.referenceId) == "string" and type(permittedReferences) == "table" then
+            if (type(reference) ~= "table" or not reference.source)
+                and type(node.referenceId) == "string"
+                and type(permittedReferences) == "table"
+            then
                 reference = permittedReferences[node.referenceId]
                 explicitlyPermitted = reference ~= nil
             end
@@ -152,13 +153,12 @@ function typeblueprint.validate(envelope: any, permittedReferences: any?): any, 
                     end
                 end
             end
-            if type(
-                node.fingerprint
-            ) ~= "string" or type(
-                reference
-            ) ~= "table" or type(
-                reference.fingerprint
-            ) ~= "string" or not reference.source or node.fingerprint ~= reference.fingerprint then
+            if type(node.fingerprint) ~= "string"
+                or type(reference) ~= "table"
+                or type(reference.fingerprint) ~= "string"
+                or not reference.source
+                or node.fingerprint ~= reference.fingerprint
+            then
                 why = "type blueprint names an invalid permitted input reference " .. tostring(
                     node.referenceId or node.reference
                 )
@@ -181,9 +181,10 @@ function typeblueprint.validate(envelope: any, permittedReferences: any?): any, 
             end
             if base then
                 local kind = type(node.value)
-                if kind ~= "string" and kind ~= "boolean" and (
-                    kind ~= "number" or node.value ~= math.floor(node.value)
-                ) then
+                if kind ~= "string"
+                    and kind ~= "boolean"
+                    and (kind ~= "number" or node.value ~= math.floor(node.value))
+                then
                     why = "type blueprint literal is not a string, boolean, or exact integer"
                 else
                     value = T.literal(node.value, base)
@@ -221,9 +222,9 @@ function typeblueprint.validate(envelope: any, permittedReferences: any?): any, 
                 why, element = "C-array element is a type pack", nil
             end
             if element then
-                if node.count ~= nil and (
-                    type(node.count) ~= "number" or node.count ~= math.floor(node.count) or node.count < 0
-                ) then
+                if node.count ~= nil
+                    and (type(node.count) ~= "number" or node.count ~= math.floor(node.count) or node.count < 0)
+                then
                     why = "C-array count is not a non-negative exact integer"
                 else
                     value = T.carray(element, node.count)
@@ -258,9 +259,9 @@ function typeblueprint.validate(envelope: any, permittedReferences: any?): any, 
                 elseif type(node.terminal) ~= "string" then
                     why = "affine blueprint has no permitted terminal identity"
                 else
-                    local permitted = type(
-                        permittedReferences
-                    ) == "table" and permittedReferences["function:" .. node.terminal] or nil
+                    local permitted = type(permittedReferences) == "table"
+                        and permittedReferences["function:" .. node.terminal]
+                        or nil
                     local cleanup = permitted and permitted.cleanup or nil
                     if not cleanup or cleanup.key ~= node.terminal then
                         why = "affine blueprint names an unpermitted const-function terminal"
@@ -301,11 +302,10 @@ function typeblueprint.validate(envelope: any, permittedReferences: any?): any, 
                 end
             end
             if not why then
-                if (
-                    values[1] == nil
-                ) ~= (
-                    values[2] == nil
-                ) or (values[3] == nil) ~= (values[4] == nil) or values[1] == nil and values[3] == nil then
+                if (values[1] == nil) ~= (values[2] == nil)
+                    or (values[3] == nil) ~= (values[4] == nil)
+                    or values[1] == nil and values[3] == nil
+                then
                     why = "indexer capabilities do not contain complete key/value pairs"
                 else
                     value = T.indexer(values[1], values[2], values[3], values[4])
@@ -317,9 +317,11 @@ function typeblueprint.validate(envelope: any, permittedReferences: any?): any, 
             else
                 local fields, seen = {}, {}
                 for position, field in ipairs(node.fields) do
-                    if type(
-                        field
-                    ) ~= "table" or type(field.name) ~= "string" or field.name == "" or seen[field.name] then
+                    if type(field) ~= "table"
+                        or type(field.name) ~= "string"
+                        or field.name == ""
+                        or seen[field.name]
+                    then
                         why = "shape has an invalid or repeated field at " .. tostring(position)
                         break
                     end
@@ -331,12 +333,9 @@ function typeblueprint.validate(envelope: any, permittedReferences: any?): any, 
                         write, why = edge(field.write, "shape write field " .. field.name)
                     end
                     if why
-                        or read
-                        and read.tag == "pack"
-                        or write
-                        and write.tag == "pack"
-                        or not read
-                        and not write
+                        or read and read.tag == "pack"
+                        or write and write.tag == "pack"
+                        or not read and not write
                     then
                         why = why or "shape field " .. field.name .. " has invalid capabilities"
                         break
@@ -354,12 +353,14 @@ function typeblueprint.validate(envelope: any, permittedReferences: any?): any, 
                 if not why then
                     value = T.shape(
                         fields,
-                        indexer and {
+                        indexer
+                        and {
                             readKey = indexer.readable and indexer.key or nil,
                             readValue = indexer.readable and indexer.value or nil,
                             writeKey = indexer.writeKey,
                             writeValue = indexer.writeValue,
-                        } or nil
+                        }
+                        or nil
                     )
                 end
             end

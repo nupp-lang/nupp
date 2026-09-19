@@ -32,12 +32,8 @@ local function driven(compilerRoot: string, what: string, features: {string}): (
     -- os.execute reaches cmd.exe on Windows, which does not interpret a
     -- shebang. The driver belongs to the Git Bash environment used to launch
     -- Nupp, so name its shell explicitly there.
-    local argv = windows and {
-        "sh.exe",
-        driver,
-        what,
-        table.concat(features, ",")
-    } or {driver, what, table.concat(features, ",")}
+    local argv = windows and {"sh.exe", driver, what, table.concat(features, ",")}
+        or {driver, what, table.concat(features, ",")}
     local code, text = process.capture(argv)
     if code ~= 0 then
         return nil, text

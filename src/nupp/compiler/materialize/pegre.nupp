@@ -267,10 +267,11 @@ local function parseClass(state: any): any?, pegRe.Failure?
             item = state.source:sub(state.position, state.position)
             state.position = state.position + 1
         end
-        if item and #item == 1 and state.source:sub(
-            state.position,
-            state.position
-        ) == "-" and state.source:sub(state.position + 1, state.position + 1) ~= "]" then
+        if item
+            and #item == 1
+            and state.source:sub(state.position, state.position) == "-"
+            and state.source:sub(state.position + 1, state.position + 1) ~= "]"
+        then
             state.position = state.position + 1
             local last = state.source:sub(state.position, state.position)
             if last == "" or last == "%" then
@@ -551,13 +552,14 @@ end
 
 local function sequenceEnded(state: any, ruleBoundary: boolean): boolean
     skip(state)
-    if state.position > #state.source or starts(
-        state,
-        "/"
-    ) or starts(
-        state,
-        ")"
-    ) or starts(state, "}") or starts(state, ":}") or starts(state, "~}") or starts(state, "|}") then
+    if state.position > #state.source
+        or starts(state, "/")
+        or starts(state, ")")
+        or starts(state, "}")
+        or starts(state, ":}")
+        or starts(state, "~}")
+        or starts(state, "|}")
+    then
         return true
     end
 

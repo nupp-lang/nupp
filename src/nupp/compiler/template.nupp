@@ -157,16 +157,16 @@ end
 ----------------------------------------------------------------------------
 
 local function isPathSpelling(spelling: string): boolean
-    return spelling:sub(
-        1,
-        1
-    ) == "." or spelling:sub(1, 1) == "/" or spelling:sub(1, 1) == "~" or spelling:match("^[A-Za-z]:[/\\]") ~= nil
+    return spelling:sub(1, 1) == "."
+        or spelling:sub(1, 1) == "/"
+        or spelling:sub(1, 1) == "~"
+        or spelling:match("^[A-Za-z]:[/\\]") ~= nil
 end
 
 local function isUrlSpelling(spelling: string): boolean
-    return spelling:match(
-        "^[a-z][a-z0-9+.-]*://"
-    ) ~= nil or spelling:match("^git@") ~= nil or spelling:match("^ssh://") ~= nil
+    return spelling:match("^[a-z][a-z0-9+.-]*://") ~= nil
+        or spelling:match("^git@") ~= nil
+        or spelling:match("^ssh://") ~= nil
 end
 
 --- The built-in templates this compiler carries, by name.
@@ -619,9 +619,8 @@ function template.values(
                 end
             end
             table.sort(declared)
-            local hint = #declared > 0 and (
-                "\nDeclared: " .. table.concat(declared, ", ")
-            ) or "\nThis template declares no variables to set."
+            local hint = #declared > 0 and ("\nDeclared: " .. table.concat(declared, ", "))
+                or "\nThis template declares no variables to set."
 
             return nil, key .. " is not a variable of this template" .. hint
         end

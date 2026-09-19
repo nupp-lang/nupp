@@ -184,9 +184,9 @@ local function constructorField(stat, name, keys)
         or stat.automaticOwnerMove
         or stat.automaticOwnerMoves
         or stat.automaticOwnerReinit
-        or #(
-            stat.targets or {}
-        ) ~= 1 or #(stat.exprs or {}) ~= 1 then
+        or #(stat.targets or {}) ~= 1
+        or #(stat.exprs or {}) ~= 1
+    then
         return nil
     end
     local target = stat.targets[1]
@@ -304,17 +304,14 @@ end
 
 local function presizeBlock(stats, remarks)
     for i, stat in ipairs(stats) do
-        if not isToken(
-            stat
-        )
+        if not isToken(stat)
             and stat.kind == "localStmt"
             and stat.names
             and #stat.names == 1
             and stat.exprs
             and #stat.exprs == 1
-            and isEmptyTable(
-                stat.exprs[1]
-            ) then
+            and isEmptyTable(stat.exprs[1])
+        then
             local name = stat.names[1].text
             local constructor = stat.exprs[1]
             local array, hash, stoppedAt, constructorFields = planPresize(stats, i, name)
@@ -543,9 +540,12 @@ local function soleAccumulation(loop, definition, asked)
         end
         if node.kind == "assignStmt" and #(node.targets or {}) == 1 and #(node.exprs or {}) == 1 then
             local target = node.targets[1]
-            if target and not isToken(
-                target
-            ) and target.kind == "name" and target.token and target.token.definition == definition then
+            if target
+                and not isToken(target)
+                and target.kind == "name"
+                and target.token
+                and target.token.definition == definition
+            then
                 local pieces = appendedPieces(node.exprs[1], definition)
                 if pieces and not found then
                     found = {stat = node, pieces = pieces}
@@ -591,9 +591,12 @@ local function concatBufferBlocks(node, asked, remarks, counter: integer): integ
     end
     local stats = node.kind == "block" and node.stats or nil
     for i, stat in ipairs(stats or {}) do
-        if stat.kind == "localStmt" and #(
-            stat.names or {}
-        ) == 1 and #(stat.exprs or {}) == 1 and emptyString(stat.exprs[1]) and stat.names[1].definition then
+        if stat.kind == "localStmt"
+            and #(stat.names or {}) == 1
+            and #(stat.exprs or {}) == 1
+            and emptyString(stat.exprs[1])
+            and stat.names[1].definition
+        then
             local definition = stat.names[1].definition
             -- The loop this accumulator is built by, if the statements in
             -- between leave it alone. One that is read or reassigned before the
@@ -619,14 +622,18 @@ local function concatBufferBlocks(node, asked, remarks, counter: integer): integ
                 accumulation.stat.concatBuffer = {name = name, pieces = accumulation.pieces}
                 loop.concatBuffer = {name = name, target = stat.names[1].text, directReturn = false}
                 local following = stats[(loopIndex or 0) + 1]
-                local returned = following and following.kind == "returnStmt" and #(
-                    following.exprs or {}
-                ) == 1 and following.exprs[1] or nil
+                local returned = following
+                    and following.kind == "returnStmt"
+                    and #(following.exprs or {}) == 1
+                    and following.exprs[1]
+                    or nil
                 -- Declaration, the loop's read and write, and this return must
                 -- account for every mention of the accumulator in its body.
-                if returned and returned.kind == "name" and returned.token.definition == definition and asked.uses(
-                    definition
-                ) == 4 then
+                if returned
+                    and returned.kind == "name"
+                    and returned.token.definition == definition
+                    and asked.uses(definition) == 4
+                then
                     stat.concatBuffer.elide = true
                     loop.concatBuffer.directReturn = true
                     returned.concatBufferResult = name
@@ -730,9 +737,13 @@ local function integerLiteral(node)
         return nil
     end
     local value = tonumber((text:gsub("_", "")))
-    if not value or value ~= value or value == math.huge or value == -math.huge or value ~= math.floor(
-        value
-    ) or math.abs(value) > MAX_EXACT_INTEGER then
+    if not value
+        or value ~= value
+        or value == math.huge
+        or value == -math.huge
+        or value ~= math.floor(value)
+        or math.abs(value) > MAX_EXACT_INTEGER
+    then
         return nil
     end
 
@@ -834,9 +845,12 @@ local function scope(parent, writes)
 end
 
 local function unchangedScalar(name, value, current)
-    if not value or not value.code or not name.definition or current.writes[
-        bindingKey(name)
-    ] or current.writes[name.text] then
+    if not value
+        or not value.code
+        or not name.definition
+        or current.writes[bindingKey(name)]
+        or current.writes[name.text]
+    then
         return false
     end
     -- Wider representations and ownership still belong to the checker and
@@ -933,11 +947,12 @@ local function resolvedLiteral(node)
     if not node or not node.immutablePath or not t or t.tag ~= "literal" then
         return nil
     end
-    if t.base and (
-        t.base.tag == "number" or t.base.tag == "integer"
-    ) and type(
-        t.constant
-    ) == "number" and t.constant == math.floor(t.constant) and math.abs(t.constant) <= MAX_EXACT_INTEGER then
+    if t.base
+        and (t.base.tag == "number" or t.base.tag == "integer")
+        and type(t.constant) == "number"
+        and t.constant == math.floor(t.constant)
+        and math.abs(t.constant) <= MAX_EXACT_INTEGER
+    then
         return literal("number", t.constant, ("%.0f"):format(t.constant))
     elseif t.base and t.base.tag == "string" and type(t.constant) == "string" then
         return literal("string", t.constant, string.format("%q", t.constant))
@@ -1040,9 +1055,9 @@ local function foldExpr(node, current)
         end
         local op = node.op.kind
         if left and left.code and (op == "and" or op == "or" or op == "??") then
-            local takeRight = op == "and" and truthy(
-                left
-            ) or op == "or" and not truthy(left) or op == "??" and left.kind == "nil"
+            local takeRight = op == "and" and truthy(left)
+                or op == "or" and not truthy(left)
+                or op == "??" and left.kind == "nil"
             local selected = left
             if takeRight then
                 selected = right
@@ -1103,9 +1118,10 @@ local function foldExpr(node, current)
             node.folded = folded.code
             return folded
         end
-        if left.kind == right.kind and (
-            left.kind == "number" or left.kind == "string"
-        ) and (op == "<" or op == ">" or op == "<=" or op == ">=") then
+        if left.kind == right.kind
+            and (left.kind == "number" or left.kind == "string")
+            and (op == "<" or op == ">" or op == "<=" or op == ">=")
+        then
             local answer
             if op == "<" then
                 answer = left.value < right.value
@@ -1462,17 +1478,20 @@ local function deadScalarLocals(root)
             depth = depth + 1
         end
         node.deadScalarLocal = nil
-        if node.kind == "localStmt" and not node.pattern and not node.concatBuffer and not node.exported and #(
-            node.names or {}
-        ) == 1 and #(node.exprs or {}) == 1 then
+        if node.kind == "localStmt"
+            and not node.pattern
+            and not node.concatBuffer
+            and not node.exported
+            and #(node.names or {}) == 1
+            and #(node.exprs or {}) == 1
+        then
             local name, value = node.names[1], node.exprs[1]
             -- The module graph reads these emitted strings as dependency
             -- metadata, even when the program never reads their bindings.
-            if value.folded and not value.folded:find(
-                "@requires-dynamically",
-                1,
-                true
-            ) and unchangedScalar(name, {code = value.folded}, {writes = {}}) then
+            if value.folded
+                and not value.folded:find("@requires-dynamically", 1, true)
+                and unchangedScalar(name, {code = value.folded}, {writes = {}})
+            then
                 candidates[#candidates + 1] = node
                 declarations[name] = true
             end
@@ -1656,9 +1675,9 @@ local function directViewUse(node, parent)
     if parent.kind == "unop" then
         return parent.indexedLength and parent.operand == node
     elseif parent.kind == "bracketIndex" then
-        return parent.obj == node and parent.indexedAccess ~= nil and (
-            not parent.soaRow or parent.indexedDirectAccess == true
-        )
+        return parent.obj == node
+            and parent.indexedAccess ~= nil
+            and (not parent.soaRow or parent.indexedDirectAccess == true)
     elseif parent.kind == "localStmt" then
         return parent.isConst and parent.exprs and parent.exprs[1] == node
     end
@@ -1801,14 +1820,12 @@ local function indexedRangeWalk(result, remarks)
                     local exact = constructor.obj and constructor.obj.exactCallExport
                     local resultName = node.names[1]
                     local resultDefinition = resultName and resultName.definition
-                    local resultType = resultName and resultName.inferredType or resultDefinition and (
-                        resultDefinition.inferredType or resultDefinition.type
-                    )
-                    local root = exact and resultType and indexedViews.exportProducer(
-                        exact.module,
-                        exact.member,
-                        resultType
-                    ) or nil
+                    local resultType = resultName and resultName.inferredType
+                        or resultDefinition and (resultDefinition.inferredType or resultDefinition.type)
+                    local root = exact
+                        and resultType
+                        and indexedViews.exportProducer(exact.module, exact.member, resultType)
+                        or nil
                     local producerArgs = constructor.args and constructor.args.exprs or {}
                     if root then
                         producer = {producer = root, source = producerArgs[1], count = producerArgs[2],}
@@ -1851,22 +1868,22 @@ local function indexedRangeWalk(result, remarks)
                 end
                 local args = constructor and constructor.args and constructor.args.exprs or {}
                 local definition = node.names[1] and node.names[1].definition
-                if operation and (
-                    operation.kind == "root"
-                    or operation.kind == "slice"
-                    or operation.kind == "shared"
-                    or operation.kind == "alias"
-                    or operation.kind == "field"
-                ) and (
-                    producer
-                    and producer.transport
-                    or source
-                    and source.kind == "name"
-                    and source.token
-                    and source.token.definition
-                ) and (
-                    operation.kind ~= "slice" or args[1]
-                ) and (node.isConst or operation.kind == "root" and operation.descriptor.writable) and definition then
+                if operation
+                    and (
+                        operation.kind == "root"
+                        or operation.kind == "slice"
+                        or operation.kind == "shared"
+                        or operation.kind == "alias"
+                        or operation.kind == "field"
+                    )
+                    and (
+                        producer and producer.transport
+                        or source and source.kind == "name" and source.token and source.token.definition
+                    )
+                    and (operation.kind ~= "slice" or args[1])
+                    and (node.isConst or operation.kind == "root" and operation.descriptor.writable)
+                    and definition
+                then
                     local candidate = {
                         kind = operation.kind,
                         definition = definition,
@@ -2124,9 +2141,11 @@ local function indexedViewReturnTransportWalk(result, remarks)
         if node.kind == "localFuncStmt" and node.name and node.body and node.body.body then
             local stats = node.body.body.stats or {}
             local terminal = stats[#stats]
-            local value = terminal and terminal.kind == "returnStmt" and #(
-                terminal.exprs or {}
-            ) == 1 and terminal.exprs[1] or nil
+            local value = terminal
+                and terminal.kind == "returnStmt"
+                and #(terminal.exprs or {}) == 1
+                and terminal.exprs[1]
+                or nil
             local producer = value and value.indexedViewProducer or nil
             if producer
                 and producer.source
@@ -2205,9 +2224,8 @@ local function indexedViewParameterTransportPlan(result, remarks)
             local params = {}
             for index, param in ipairs(node.body.params or {}) do
                 local name = param.name
-                local descriptor = name and indexedViews.describe(
-                    name.inferredType or name.definition and name.definition.type
-                )
+                local descriptor = name
+                    and indexedViews.describe(name.inferredType or name.definition and name.definition.type)
                 if descriptor then
                     params[index] = {param = param, descriptor = descriptor,}
                 end
@@ -2279,15 +2297,15 @@ local function indexedViewParameterTransportPlan(result, remarks)
                 local selected
                 for _, call in ipairs(plan.calls) do
                     local argument = call.args and call.args.exprs and call.args.exprs[index]
-                    local producer = argument and argument.kind == "name" and argument.token and rootProducer(
-                        argument.token.definition,
-                        {}
-                    ) or nil
+                    local producer = argument
+                        and argument.kind == "name"
+                        and argument.token
+                        and rootProducer(argument.token.definition, {})
+                        or nil
                     if not producer
                         or producer.descriptor.adapter ~= paramPlan.descriptor.adapter
                         or producer.descriptor.writable ~= paramPlan.descriptor.writable
-                        or selected
-                        and selected.kind ~= producer.kind
+                        or selected and selected.kind ~= producer.kind
                     then
                         plan.admitted = false
                         plan.decline = "incompatible-view-abi"
@@ -2341,10 +2359,7 @@ local function finalizeIndexedViewParameterTransport(plans, remarks)
         for index in pairs(plan.params) do
             for _, call in ipairs(plan.calls) do
                 local argument = call.args and call.args.exprs and call.args.exprs[index]
-                local definition = argument
-                    and argument.kind == "name"
-                    and argument.token
-                    and argument.token.definition
+                local definition = argument and argument.kind == "name" and argument.token and argument.token.definition
                     or nil
                 if not definition or not definition.virtualIndexedView then
                     admitted = false
@@ -2543,8 +2558,7 @@ local function substitutableArgument(node)
     end
     local kind = node.kind
 
-    if kind == "name"
-        and node.token ~= nil
+    if kind == "name" and node.token ~= nil
         or kind == "number"
         or kind == "string"
         or kind == "nilExpr"
@@ -2557,9 +2571,10 @@ local function substitutableArgument(node)
     elseif kind == "unop" then
         return node.op ~= nil and node.op.kind ~= "#" and substitutableArgument(node.operand)
     elseif kind == "binop" then
-        return node.op ~= nil and node.op.kind ~= ".." and substitutableArgument(
-            node.lhs
-        ) and substitutableArgument(node.rhs)
+        return node.op ~= nil
+            and node.op.kind ~= ".."
+            and substitutableArgument(node.lhs)
+            and substitutableArgument(node.rhs)
     end
 
     return false
@@ -2604,9 +2619,11 @@ end
 -- The helper is measured afresh at each call: earlier calls in its own body may
 -- have been rewritten by this same walk. Stop as soon as either limit is exceeded.
 local function measureInline(node, measured)
-    if not node or isToken(
-        node
-    ) or measured.size > measured.limit or measured.duplicated > INLINE_MAX_DUPLICATED_OPS then
+    if not node
+        or isToken(node)
+        or measured.size > measured.limit
+        or measured.duplicated > INLINE_MAX_DUPLICATED_OPS
+    then
         return
     end
     local kind = node.kind
@@ -2716,9 +2733,8 @@ local function inlinableHelpers(root)
                 -- value. A body returning a call or `...` yields as many as that
                 -- does, so it is inlined only where its own signature says one.
                 local expr = single and returned.exprs[1] or nil
-                local multi = expr ~= nil and (
-                    expr.kind == "call" or expr.kind == "methodCall" or expr.kind == "vararg"
-                )
+                local multi = expr ~= nil
+                    and (expr.kind == "call" or expr.kind == "methodCall" or expr.kind == "vararg")
                 if multi and (body.rets == nil or #body.rets ~= 1) then
                     single = false
                 end

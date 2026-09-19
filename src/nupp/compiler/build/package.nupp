@@ -124,17 +124,19 @@ local function bundleText(
 ): string?, string?, {string}?
     local outDir = target.outDir or "build"
     local mainName, mainPath = entryModule(root, outDir, target)
-    local chunks = component and {
-        "-- NUPP-COMPONENT 1\n",
-        interpolate(
-            "return {format=1,hostAbi=%d,entry=%q,layoutTarget=%s,exports=%s,requiredHostFeatures=%s,install=function()\n",
-            hostAbiVersion,
-            mainName,
-            target.layoutTarget and interpolate("%q", target.layoutTarget) or "nil",
-            stringArray(target.exports),
-            stringArray(hostFeatures)
-        ),
-    } or {banner or ""}
+    local chunks = component
+        and {
+            "-- NUPP-COMPONENT 1\n",
+            interpolate(
+                "return {format=1,hostAbi=%d,entry=%q,layoutTarget=%s,exports=%s,requiredHostFeatures=%s,install=function()\n",
+                hostAbiVersion,
+                mainName,
+                target.layoutTarget and interpolate("%q", target.layoutTarget) or "nil",
+                stringArray(target.exports),
+                stringArray(hostFeatures)
+            ),
+        }
+        or {banner or ""}
     local collisionIndex
     local installedModules = {}
     local sharedModules = {}
@@ -146,9 +148,9 @@ local function bundleText(
     end
 
     local function compilerArtifact(name: string): boolean
-        return compilerArtifactBundle and name:match(
-            "^nupp%."
-        ) ~= nil and (name:match("^nupp%.compiler%.") == nil or name:match("^nupp%.compiler%.runtime%.") ~= nil)
+        return compilerArtifactBundle
+            and name:match("^nupp%.") ~= nil
+            and (name:match("^nupp%.compiler%.") == nil or name:match("^nupp%.compiler%.runtime%.") ~= nil)
     end
 
     local function addModule(name: string, text: string, shared: boolean?): nil
@@ -652,9 +654,8 @@ end
 --- Mach-O is first made unsigned and its __LINKEDIT segment grows over the appended
 --- bytes, so Apple's native signer can put a new signature after the trailer.
 local function stampBinary(stubText, payload, selectedPlatform, flags)
-    local macTarget = selectedPlatform == "aarch64-apple-darwin" or (
-        selectedPlatform == nil and jit.os == "OSX" and stubText:sub(1, 4) == "\207\250\237\254"
-    )
+    local macTarget = selectedPlatform == "aarch64-apple-darwin"
+        or (selectedPlatform == nil and jit.os == "OSX" and stubText:sub(1, 4) == "\207\250\237\254")
     if macTarget then
         local unsigned, unsignedErr = unsignedMachOStub(stubText)
         if not unsigned then

@@ -306,13 +306,14 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
         if not a or not b then
             return false
         end
-        if a.path ~= b.path or a.moduleName ~= b.moduleName or a.declaredModuleName ~= b.declaredModuleName or (
-            a.moduleToken and a.moduleToken.offset
-        ) ~= (
-            b.moduleToken and b.moduleToken.offset
-        ) or a.moduleLocal ~= b.moduleLocal or #a.declarations ~= #b.declarations or #(
-            a.dependencies or {}
-        ) ~= #(b.dependencies or {}) then
+        if a.path ~= b.path
+            or a.moduleName ~= b.moduleName
+            or a.declaredModuleName ~= b.declaredModuleName
+            or (a.moduleToken and a.moduleToken.offset) ~= (b.moduleToken and b.moduleToken.offset)
+            or a.moduleLocal ~= b.moduleLocal
+            or #a.declarations ~= #b.declarations
+            or #(a.dependencies or {}) ~= #(b.dependencies or {})
+        then
             return false
         end
         for index, name in ipairs(a.dependencies or {}) do
@@ -385,9 +386,7 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
     -- Fingerprints are asked for thousands of times a run, once per recorded
     -- dependency of every module considered for reuse. The native digest a host
     -- carries answers identically, so take it where the session has one.
-    local contentDigest = env.compilerServices
-        and env.compilerServices.hash
-        and env.compilerServices.hash.digest
+    local contentDigest = env.compilerServices and env.compilerServices.hash and env.compilerServices.hash.digest
         or hash.digest
 
     local function entrySurface(entry)
@@ -713,21 +712,25 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
             if not path then
                 -- project files shadow bundled declarations; see env.resolveModule
                 local bundled = env.bundled and env.bundled[name]
-                return bundled and {
+                return bundled
+                and {
                     type = bundled.type,
                     nominalEffectFingerprint = bundled.exports and bundled.exports.nominalEffectFingerprint,
                     deriveInterfaceFingerprint = bundled.exports and bundled.exports.deriveInterfaceFingerprint,
-                } or nil
+                }
+                or nil
             end
             -- nil on the re-entrant edge of a require cycle: the module is mid-check,
             -- so nothing is known about it yet
             local r = self:get("checkModule", path)
 
-            return r and {
+            return r
+            and {
                 type = r.moduleType,
                 nominalEffectFingerprint = r.exports and r.exports.nominalEffectFingerprint,
                 deriveInterfaceFingerprint = r.exports and r.exports.deriveInterfaceFingerprint,
-            } or nil
+            }
+            or nil
         end,
         function(left, right)
             if left == nil or right == nil then
@@ -771,10 +774,10 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
         left, right = left or {}, right or {}
         for name, definition in pairs(left) do
             local other = right[name]
-            if not other or definition.comptimeOnly ~= other.comptimeOnly or not sameDeprecation(
-                definition.deprecated,
-                other.deprecated
-            ) then
+            if not other
+                or definition.comptimeOnly ~= other.comptimeOnly
+                or not sameDeprecation(definition.deprecated, other.deprecated)
+            then
                 return false
             end
         end
@@ -794,16 +797,10 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
         return left.nominalEffectFingerprint == right.nominalEffectFingerprint
             and left.deriveInterfaceFingerprint == right.deriveInterfaceFingerprint
             and left.comptimeFunctionFingerprint == right.comptimeFunctionFingerprint
-            and sameTypeMap(
-                left.types,
-                right.types
-            ) and sameTypeMap(
-                left.values,
-                right.values
-            ) and sameDefinitionMap(
-                left.typeDefs,
-                right.typeDefs
-            ) and sameDefinitionMap(left.valueDefs, right.valueDefs)
+            and sameTypeMap(left.types, right.types)
+            and sameTypeMap(left.values, right.values)
+            and sameDefinitionMap(left.typeDefs, right.typeDefs)
+            and sameDefinitionMap(left.valueDefs, right.valueDefs)
     end
 
     q:define(
