@@ -2566,6 +2566,13 @@ local function movedCursor(borrows values: span.Span<uint32>): number
     end
     return 1
 end
+local function pair(value: number): (number, number)
+    return value, 99
+end
+@aot
+local function logicalResults(flag: boolean): number
+    return flag and pair(0) or pair(9)
+end
 local function speciesLanes<S>(species: simd.Species<uint32, S>): uint32
     return species.lanes
 end
@@ -2589,7 +2596,7 @@ local function overflowingRoom(borrows values: span.Span<uint32>): uint32
     end
     return 0
 end
-export = {logical = logical, guarded = guarded, stringValue = stringValue, reverseGuarded = reverseGuarded, scalarMask = scalarMask, movedCursor = movedCursor, helperSpecies = helperSpecies, overflowingRoom = overflowingRoom}
+export = {logical = logical, guarded = guarded, stringValue = stringValue, reverseGuarded = reverseGuarded, scalarMask = scalarMask, movedCursor = movedCursor, helperSpecies = helperSpecies, overflowingRoom = overflowingRoom, logicalResults = logicalResults}
 ]])
         source:close()
         local out, code = build(dir)
@@ -2612,13 +2619,14 @@ export = {logical = logical, guarded = guarded, stringValue = stringValue, rever
             local backing = ffi.new("uint32_t[4]", 1, 1, 1, 1)
             print(m.movedCursor(span.fromCarray(backing, 4)))
             print(m.helperSpecies(), m.overflowingRoom(input))
+            print(m.logicalResults(true), m.logicalResults(false))
         ]]
         local pipe = assert(io.popen(("cd %q && luajit -e %q 2>&1"):format(dir, searchPathPrelude() .. script)))
         answers[policy] = (pipe:read("*a"):gsub("%s+$", ""))
         pipe:close()
     end
     test.equal(answers.require, answers.off, "compiled logical operators preserve Lua values and selected-branch effects")
-    test.equal(answers.require, "7\t1\t0\ttrue\n9\t10\t0\ttrue\n0\t1\t0\ttrue\ntrue\t1\n2147483649\t42\t0\t0\n[]\tfallback\n2147483649\t42\t0\t0\n1\t0\n1\n3\t0")
+    test.equal(answers.require, "7\t1\t0\ttrue\n9\t10\t0\ttrue\n0\t1\t0\ttrue\ntrue\t1\n2147483649\t42\t0\t0\n[]\tfallback\n2147483649\t42\t0\t0\n1\t0\n1\n3\t0\n0\t9")
 end
 
 function M.wideBitwiseAnswersAgreeWithAndWithoutAot()

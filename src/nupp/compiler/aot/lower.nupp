@@ -4187,6 +4187,7 @@ function lower.logicalValue(
             return
         end
         local value, setup = lower.capture(expression, environment, activeIndex, kernel)
+        value = firstValue(value, kernel, setup)
         for _, statement in ipairs(setup) do
             statements[#statements + 1] = statement
         end
