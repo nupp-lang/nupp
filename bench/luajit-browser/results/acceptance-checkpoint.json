@@ -145,12 +145,12 @@
   },
   "ci": {
     "status": "success",
-    "compiler": 35454811936,
+    "compiler": 35458965996,
     "guest": "success",
     "releaseRehearsal": 35453482994,
     "releaseGuest": "success",
     "guestRun": 35453468481,
-    "previousCompilerRun": 35453468545,
+    "previousCompilerRun": 35454811936,
     "releaseRehearsalStatus": "success",
     "browserJobAtFinalHead": "success",
     "supersededCompilerRunDisposition": "Cancelled after its browser job passed; the final test-fix head supersedes its known jit.bc test failure.",
@@ -211,7 +211,7 @@
       "compiler"
     ]
   },
-  "head": "873b600247c48404d6413c433dc21771dd9162f9",
+  "head": "bdbba9cb3965f510eb9ac5175bd4a8fe27be8f91",
   "testOnlyFollowup": {
     "revision": "873b600247c48404d6413c433dc21771dd9162f9",
     "file": "tests/gentest.lua",
@@ -333,5 +333,56 @@
       ]
     },
     "timeoutPolicyChanged": false
+  },
+  "compilerPerformanceFollowup": {
+    "sourceBase": "bdbba9cb3965f510eb9ac5175bd4a8fe27be8f91",
+    "sourceSha256": {
+      "src/nupp/compiler/types.nupp": "09fdc799dfa96438bad66a19535b611baa7b8c57af6d05eff846ac574be9346e",
+      "src/nupp/compiler/preludeimage.nupp": "ed47834976ada0ae99f5a56391d09667eb887b6ac07a029c7a6d15891022f1aa",
+      "src/nupp/compiler/build/package.nupp": "42b924181dbc7a0d1b1e3420dd956d6993356936a549b02ace39946283a3e7ca",
+      "editors/playground/tools/generate-prelude-image.lua": "3c650d6d8147561b6a056afd3889c31fc5e4130a1a6be86b2944b69d8422d9eb",
+      "tests/ownershipflowtest.lua": "2a989518d1c4d9beb536138e2df5222f47bfee860f64c5a601f5fa36df25edcc",
+      "tests/preludecachetest.lua": "4088d943c9c6ce6f540fa14bf1595cc79b003891d345709c15a52ff334221543",
+      "tests/buildtest.lua": "7c8dd73f078d6b1796c27f1fb3f10f2f470230589622b3f75028f601bdd6560d"
+    },
+    "changes": [
+      "Canonical empty capability lookup before allocating temporary lists",
+      "Compact prelude-only graph with dictionary strings and varints",
+      "Preserve CR and Windows Ctrl-Z in bundled binary resources"
+    ],
+    "nativeCapabilityEvidence": "results/compiler-capability-native.json",
+    "guestCapabilityEvidence": "results/compiler-capability-pair.json",
+    "compactEvidence": [
+      "results/compiler-compact-size.json",
+      "results/compiler-compact-pair.json"
+    ],
+    "excludedCacheExperiment": "results/compiler-cache-experiment.json",
+    "preexistingRegenerationVariability": "results/prelude-regeneration.json",
+    "tests": {
+      "shared": 2025,
+      "sharedSuites": 110,
+      "focusedCompilerAndCodec": 12,
+      "packagingAndPrelude": 38,
+      "finalPackagingAfterWindowsFix": 31,
+      "playgroundNode": 34,
+      "guestResponseComparisonSessions": 36,
+      "packagedUiChecks": 24,
+      "fullOfficialLua51Portability": "passed",
+      "finalFixpoint": "byte-identical",
+      "formatAndDiff": "passed"
+    },
+    "packagedUiEvidence": "results/compiler-compact-ui.json",
+    "deliveryEvidence": "results/compiler-compact-delivery.json",
+    "finalCompilerMatchesUiTestedBytes": true,
+    "finalCompilerDecodedSha256": "3a0a366b943aa816a8bfcba32fc48af94b22f54b0604b1a3883b1684ccb73ea9",
+    "finalCompilerDecodedBytes": 5072684,
+    "scope": "Artifact sizes and controlled native allocations improve. Shared-host browser timings are not accepted performance/device budgets. Each result keeps its own digest; fresh prelude generation can assign different internal pack identities, including with the old text generator and without the capability fast path. Final packaging rebuild using the UI-tested image is byte-identical to that tested package.",
+    "safariRuntime": "results/safari-runtime-issue59.json",
+    "safariScope": "11 installed Safari runtime groups passed using older recorded assets. This is not Safari validation of the compact-image compiler. UI remains blocked by locked desktop; no physical mobile device tested.",
+    "remaining": [
+      "Performance and process-memory acceptance budgets",
+      "Unlocked actual Safari UI and physical mobile/constrained-device validation",
+      "Prerequisite release, stage-zero pin move, rollback release, later legacy deletion and post-deletion cold build"
+    ]
   }
 }

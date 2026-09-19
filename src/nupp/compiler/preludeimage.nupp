@@ -35,18 +35,42 @@ local ROOT_NAMES = {
 
 function image.new(): any
     local data = assert(bundled.source("/preludeimage.bin"), "portable prelude image is absent")
-    local cursor: integer = 1
+    local magic = "NUPP-PRELUDE-3\n"
+    assert(data:sub(1, #magic) == magic, "portable prelude image has an unsupported format")
+    local cursor: integer = #magic + 1
 
-    local function line(): string
-        local ending = assert(data:find("\n", cursor, true), "portable prelude image is truncated")
-        local value = data:sub(cursor, ending - 1)
-        cursor = ending + 1
-
-        return value
+    local function readInteger(): integer
+        local result: number = 0
+        local scale: number = 1
+        for _ = 1, 8 do
+            local byte = assert(data:byte(cursor), "portable prelude image is truncated inside an integer")
+            cursor = cursor + 1
+            result = result + (byte % 128) * scale
+            assert(result <= 9007199254740991, "portable prelude image integer is too large")
+            if byte < 128 then
+                return result as integer
+            end
+            scale = scale * 128
+        end
+        error("portable prelude image integer is too large", 0)
     end
 
-    assert(line() == "NUPP-PRELUDE-2", "portable prelude image has an unsupported format")
-    local tableCount = assert(tonumber(line()), "portable prelude image has no table count") as integer
+    local function stringValue(): string
+        local length = readInteger()
+        local result = data:sub(cursor, cursor + length - 1)
+        assert(#result == length, "portable prelude image is truncated inside a string")
+        cursor = cursor + length
+
+        return result
+    end
+
+    local tableCount = readInteger()
+    local dictionaryCount = readInteger()
+    assert(tableCount <= #data and dictionaryCount <= #data, "portable prelude image has invalid counts")
+    local dictionary: {string} = {}
+    for index = 1, dictionaryCount do
+        dictionary[index] = stringValue()
+    end
     local tables = {}
 
     local function value(): any
@@ -59,9 +83,15 @@ function image.new(): any
         elseif tag == "t" then
             return true
         elseif tag == "r" then
-            return tables[assert(tonumber(line()), "portable prelude image has an invalid table reference")]
+            return assert(tables[readInteger()], "portable prelude image has an invalid table reference")
+        elseif tag == "d" then
+            return assert(dictionary[readInteger()], "portable prelude image has an invalid string reference")
+        elseif tag == "i" then
+            return readInteger()
+        elseif tag == "j" then
+            return -readInteger()
         elseif tag == "n" then
-            local encoded = line()
+            local encoded = stringValue()
             if encoded == "nan" then
                 return 0 / 0
             elseif encoded == "inf" then
@@ -72,12 +102,7 @@ function image.new(): any
 
             return assert(tonumber(encoded), "portable prelude image has an invalid number")
         elseif tag == "s" then
-            local length = assert(tonumber(line()), "portable prelude image has an invalid string length") as integer
-            local result = data:sub(cursor, cursor + length - 1)
-            assert(#result == length, "portable prelude image is truncated inside a string")
-            cursor = cursor + length
-
-            return result
+            return stringValue()
         end
         error("portable prelude image has an unknown value tag", 0)
     end
@@ -86,19 +111,20 @@ function image.new(): any
     -- an id names a table of this image's own or one the process already has
     -- decides what filling it in would mean.
     local internedAs: {[integer]: {string}} = {}
-    local internedCount = assert(tonumber(line()), "portable prelude image has no interned count") as integer
+    local internedCount = readInteger()
+    assert(internedCount <= tableCount, "portable prelude image has an invalid interned count")
     for _ = 1, internedCount do
-        local id = assert(tonumber(line()), "portable prelude image has an invalid interned id") as integer
+        local id = readInteger()
+        assert(
+            id >= 1 and id <= tableCount and internedAs[id] == nil,
+            "portable prelude image has an invalid interned id"
+        )
         local bucket: any = value()
         local key: any = value()
         assert(type(bucket) == "string" and type(key) == "string", "portable prelude image has an invalid interned key")
         internedAs[id] = {bucket as string, key as string}
     end
-    local identity = {
-        serial = assert(tonumber(line()), "portable prelude image has no serial counter"),
-        capability = assert(tonumber(line()), "portable prelude image has no capability counter"),
-        nominal = assert(tonumber(line()), "portable prelude image has no nominal counter"),
-    }
+    local identity = {serial = readInteger(), capability = readInteger(), nominal = readInteger(),}
 
     -- A key this process already interned answers with the type it is already
     -- using, and that type is left exactly as it stands. Writing the image's
@@ -119,7 +145,7 @@ function image.new(): any
 
     local metatables = {}
     for index = 1, tableCount do
-        local memberCount = assert(tonumber(line()), "portable prelude image has no member count")
+        local memberCount = readInteger()
         local target = mine[index] and tables[index] or nil
         for _ = 1, memberCount do
             local key: any = value()
@@ -128,7 +154,9 @@ function image.new(): any
                 target[key] = member
             end
         end
-        metatables[index] = assert(tonumber(line()), "portable prelude image has an invalid metatable")
+        local metatableIndex = readInteger()
+        assert(metatableIndex <= tableCount, "portable prelude image has an invalid metatable")
+        metatables[index] = metatableIndex
     end
     for index, metatableIndex in ipairs(metatables) do
         if metatableIndex ~= 0 and mine[index] then

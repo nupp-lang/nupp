@@ -1,0 +1,1224 @@
+{
+  "scope": "Controlled native ARM64 LuaJIT interpreter experiment; not guest/browser acceptance. Four fresh process pairs alternate order; each initializes same imported-scoreboard session, uses 3 warmups and 200 changing checks with normal GC. Separate20-check allocation measurement stops GC. Whole-process measurements are not confidence intervals.",
+  "compiler": "LuaJIT2.1.1787165859 /opt/homebrew/bin/luajit with jit.off() and jit.flush()",
+  "control": "Control derived from current candidate by replacing only the586-byte generated capability fast path with17 newlines. Everything else including prelude image is byte-identical. Historical saved production bundle predates source rebase and is excluded from effect claims.",
+  "artifacts": [
+    {
+      "path": "build/issue59-capability/control-compiler.lua",
+      "bytes": 7469544,
+      "sha256": "6534497e14aef15b5eca860a9a6b1850f96c505d8ea6c7b27974d00fd24170e3"
+    },
+    {
+      "path": "build/issue59-capability/luajit-compiler.lua",
+      "bytes": 7470113,
+      "sha256": "0e7d279490fd24db96926891cb6ff772129d1fe817e6b93e5a52ee313bc3fda5"
+    },
+    {
+      "path": "build/issue59-capability/control.ljbc",
+      "bytes": 6445775,
+      "sha256": "5bb446bbcc3d015e3ece8aea36553d9358f413bbe473058b8eab697588ee1293"
+    },
+    {
+      "path": "build/issue59-capability/candidate.ljbc",
+      "bytes": 6446050,
+      "sha256": "5d66543e32cca96ba6aac00079710b250fe0022035b758288a590ad900e5fc76"
+    },
+    {
+      "path": "bench/luajit-browser/imported-scoreboard.nupp",
+      "bytes": 2200,
+      "sha256": "a22e79bbc4553fd4f5181fed5a5fc3b2127f7a9a6fddb932309ef04b7aa11aaa"
+    }
+  ],
+  "correctness": "All8processes produced zero diagnostics on every valid changing check, and identical complete diagnostics for six deliberately invalid imported calls. 288 focused tests passed. LuaJIT browser prelude source/image roundtrip passed.",
+  "deterministicCounts": {
+    "capabilityCallsPerWarmCheck": 883,
+    "absentFacts": 687,
+    "emptyFacts": 196,
+    "ordinaryTypeCalls": 874,
+    "borrowedCalls": 9,
+    "coldModuleChecks": 23,
+    "tenWarmEditsModuleChecks": 10,
+    "warmImportedModuleChecks": 0,
+    "scope": "Counters collected on initial preserved production bundle, separately from timing."
+  },
+  "samples": [
+    {
+      "diagnostics": {
+        "json.decode(false)": [
+          {
+            "msg": "argument 1: boolean is not a string",
+            "line": 67,
+            "col": 13,
+            "severity": "error",
+            "length": 5,
+            "code": "NUPP2006",
+            "related": [
+              {
+                "line": 400,
+                "col": 17,
+                "length": 6,
+                "message": "called function is declared here",
+                "filename": "nupp.codec.json",
+                "offset": 13579
+              }
+            ],
+            "help": "compare the call with the declared parameter list",
+            "offset": 2170
+          }
+        ],
+        "hex.encode(false)": [
+          {
+            "msg": "argument 1: boolean is not a string",
+            "line": 67,
+            "col": 12,
+            "severity": "error",
+            "length": 5,
+            "code": "NUPP2006",
+            "related": [
+              {
+                "line": 18,
+                "col": 17,
+                "length": 6,
+                "message": "called function is declared here",
+                "filename": "nupp.codec.hex",
+                "offset": 370
+              }
+            ],
+            "help": "compare the call with the declared parameter list",
+            "offset": 2169
+          }
+        ],
+        "text.newBuffer(false)": [
+          {
+            "msg": "argument 1: false is not a integer | nil | table",
+            "line": 67,
+            "col": 16,
+            "severity": "error",
+            "length": 5,
+            "code": "NUPP2006",
+            "related": [
+              {
+                "line": 39,
+                "col": 14,
+                "length": 9,
+                "message": "called function is declared here",
+                "filename": "nupp.text",
+                "offset": 1300
+              }
+            ],
+            "help": "compare the call with the declared parameter list",
+            "offset": 2173
+          }
+        ],
+        "utf8.truncate(false, 24)": [
+          {
+            "msg": "argument 1: boolean is not a string",
+            "line": 67,
+            "col": 15,
+            "severity": "error",
+            "length": 5,
+            "code": "NUPP2006",
+            "related": [
+              {
+                "line": 407,
+                "col": 15,
+                "length": 8,
+                "message": "called function is declared here",
+                "filename": "nupp.text.utf8",
+                "offset": 13337
+              }
+            ],
+            "help": "compare the call with the declared parameter list",
+            "offset": 2172
+          }
+        ],
+        "path.newPath(false)": [
+          {
+            "msg": "argument 1: false is not a Path | string",
+            "line": 67,
+            "col": 14,
+            "severity": "error",
+            "length": 5,
+            "code": "NUPP2006",
+            "related": [
+              {
+                "line": 389,
+                "col": 17,
+                "length": 7,
+                "message": "called function is declared here",
+                "filename": "nupp.io.path",
+                "offset": 13244
+              }
+            ],
+            "help": "compare the call with the declared parameter list",
+            "offset": 2171
+          }
+        ],
+        "uri.newURI(false)": [
+          {
+            "msg": "argument 1: false is not a Components | string",
+            "line": 67,
+            "col": 12,
+            "severity": "error",
+            "length": 5,
+            "code": "NUPP2006",
+            "related": [
+              {
+                "line": 633,
+                "col": 17,
+                "length": 6,
+                "message": "called function is declared here",
+                "filename": "nupp.io.uri",
+                "offset": 21588
+              }
+            ],
+            "help": "compare the call with the declared parameter list",
+            "offset": 2169
+          }
+        ]
+      },
+      "allocated20KiB": 34296.88671875,
+      "bundle": "build/issue59-capability/control-compiler.lua",
+      "firstMs": 404.96500000000003,
+      "warm200Ms": 868.3649999999998,
+      "p50Ms": 3.377999999999992,
+      "p95Ms": 12.17899999999994,
+      "noGc20Ms": 64.28800000000012,
+      "label": "control",
+      "round": 0
+    },
+    {
+      "firstMs": 373.11499999999995,
+      "warm200Ms": 709.438,
+      "p50Ms": 3.049999999999997,
+      "label": "candidate",
+      "noGc20Ms": 59.87399999999998,
+      "allocated20KiB": 19515.76953125,
+      "diagnostics": {
+        "json.decode(false)": [
+          {
+            "msg": "argument 1: boolean is not a string",
+            "help": "compare the call with the declared parameter list",
+            "length": 5,
+            "line": 67,
+            "col": 13,
+            "related": [
+              {
+                "message": "called function is declared here",
+                "length": 6,
+                "col": 17,
+                "filename": "nupp.codec.json",
+                "offset": 13579,
+                "line": 400
+              }
+            ],
+            "code": "NUPP2006",
+            "offset": 2170,
+            "severity": "error"
+          }
+        ],
+        "hex.encode(false)": [
+          {
+            "msg": "argument 1: boolean is not a string",
+            "help": "compare the call with the declared parameter list",
+            "length": 5,
+            "line": 67,
+            "col": 12,
+            "related": [
+              {
+                "message": "called function is declared here",
+                "length": 6,
+                "col": 17,
+                "filename": "nupp.codec.hex",
+                "offset": 370,
+                "line": 18
+              }
+            ],
+            "code": "NUPP2006",
+            "offset": 2169,
+            "severity": "error"
+          }
+        ],
+        "text.newBuffer(false)": [
+          {
+            "msg": "argument 1: false is not a integer | nil | table",
+            "help": "compare the call with the declared parameter list",
+            "length": 5,
+            "line": 67,
+            "col": 16,
+            "related": [
+              {
+                "message": "called function is declared here",
+                "length": 9,
+                "col": 14,
+                "filename": "nupp.text",
+                "offset": 1300,
+                "line": 39
+              }
+            ],
+            "code": "NUPP2006",
+            "offset": 2173,
+            "severity": "error"
+          }
+        ],
+        "utf8.truncate(false, 24)": [
+          {
+            "msg": "argument 1: boolean is not a string",
+            "help": "compare the call with the declared parameter list",
+            "length": 5,
+            "line": 67,
+            "col": 15,
+            "related": [
+              {
+                "message": "called function is declared here",
+                "length": 8,
+                "col": 15,
+                "filename": "nupp.text.utf8",
+                "offset": 13337,
+                "line": 407
+              }
+            ],
+            "code": "NUPP2006",
+            "offset": 2172,
+            "severity": "error"
+          }
+        ],
+        "path.newPath(false)": [
+          {
+            "msg": "argument 1: false is not a Path | string",
+            "help": "compare the call with the declared parameter list",
+            "length": 5,
+            "line": 67,
+            "col": 14,
+            "related": [
+              {
+                "message": "called function is declared here",
+                "length": 7,
+                "col": 17,
+                "filename": "nupp.io.path",
+                "offset": 13244,
+                "line": 389
+              }
+            ],
+            "code": "NUPP2006",
+            "offset": 2171,
+            "severity": "error"
+          }
+        ],
+        "uri.newURI(false)": [
+          {
+            "msg": "argument 1: false is not a Components | string",
+            "help": "compare the call with the declared parameter list",
+            "length": 5,
+            "line": 67,
+            "col": 12,
+            "related": [
+              {
+                "message": "called function is declared here",
+                "length": 6,
+                "col": 17,
+                "filename": "nupp.io.uri",
+                "offset": 21588,
+                "line": 633
+              }
+            ],
+            "code": "NUPP2006",
+            "offset": 2169,
+            "severity": "error"
+          }
+        ]
+      },
+      "bundle": "build/issue59-capability/luajit-compiler.lua",
+      "p95Ms": 7.452999999999932,
+      "round": 0
+    },
+    {
+      "bundle": "build/issue59-capability/luajit-compiler.lua",
+      "label": "candidate",
+      "firstMs": 373.19699999999995,
+      "warm200Ms": 695.107,
+      "p50Ms": 3.001999999999949,
+      "p95Ms": 6.261000000000072,
+      "noGc20Ms": 59.09999999999993,
+      "allocated20KiB": 19514.15234375,
+      "diagnostics": {
+        "text.newBuffer(false)": [
+          {
+            "related": [
+              {
+                "offset": 1300,
+                "length": 9,
+                "message": "called function is declared here",
+                "line": 39,
+                "col": 14,
+                "filename": "nupp.text"
+              }
+            ],
+            "severity": "error",
+            "msg": "argument 1: false is not a integer | nil | table",
+            "offset": 2173,
+            "length": 5,
+            "line": 67,
+            "help": "compare the call with the declared parameter list",
+            "col": 16,
+            "code": "NUPP2006"
+          }
+        ],
+        "utf8.truncate(false, 24)": [
+          {
+            "related": [
+              {
+                "offset": 13337,
+                "length": 8,
+                "message": "called function is declared here",
+                "line": 407,
+                "col": 15,
+                "filename": "nupp.text.utf8"
+              }
+            ],
+            "severity": "error",
+            "msg": "argument 1: boolean is not a string",
+            "offset": 2172,
+            "length": 5,
+            "line": 67,
+            "help": "compare the call with the declared parameter list",
+            "col": 15,
+            "code": "NUPP2006"
+          }
+        ],
+        "path.newPath(false)": [
+          {
+            "related": [
+              {
+                "offset": 13244,
+                "length": 7,
+                "message": "called function is declared here",
+                "line": 389,
+                "col": 17,
+                "filename": "nupp.io.path"
+              }
+            ],
+            "severity": "error",
+            "msg": "argument 1: false is not a Path | string",
+            "offset": 2171,
+            "length": 5,
+            "line": 67,
+            "help": "compare the call with the declared parameter list",
+            "col": 14,
+            "code": "NUPP2006"
+          }
+        ],
+        "uri.newURI(false)": [
+          {
+            "related": [
+              {
+                "offset": 21588,
+                "length": 6,
+                "message": "called function is declared here",
+                "line": 633,
+                "col": 17,
+                "filename": "nupp.io.uri"
+              }
+            ],
+            "severity": "error",
+            "msg": "argument 1: false is not a Components | string",
+            "offset": 2169,
+            "length": 5,
+            "line": 67,
+            "help": "compare the call with the declared parameter list",
+            "col": 12,
+            "code": "NUPP2006"
+          }
+        ],
+        "json.decode(false)": [
+          {
+            "related": [
+              {
+                "offset": 13579,
+                "length": 6,
+                "message": "called function is declared here",
+                "line": 400,
+                "col": 17,
+                "filename": "nupp.codec.json"
+              }
+            ],
+            "severity": "error",
+            "msg": "argument 1: boolean is not a string",
+            "offset": 2170,
+            "length": 5,
+            "line": 67,
+            "help": "compare the call with the declared parameter list",
+            "col": 13,
+            "code": "NUPP2006"
+          }
+        ],
+        "hex.encode(false)": [
+          {
+            "related": [
+              {
+                "offset": 370,
+                "length": 6,
+                "message": "called function is declared here",
+                "line": 18,
+                "col": 17,
+                "filename": "nupp.codec.hex"
+              }
+            ],
+            "severity": "error",
+            "msg": "argument 1: boolean is not a string",
+            "offset": 2169,
+            "length": 5,
+            "line": 67,
+            "help": "compare the call with the declared parameter list",
+            "col": 12,
+            "code": "NUPP2006"
+          }
+        ]
+      },
+      "round": 1
+    },
+    {
+      "firstMs": 399.54799999999994,
+      "warm200Ms": 869.5809999999999,
+      "p50Ms": 3.350999999999993,
+      "p95Ms": 11.817999999999884,
+      "noGc20Ms": 65.43300000000008,
+      "allocated20KiB": 34292.99609375,
+      "bundle": "build/issue59-capability/control-compiler.lua",
+      "label": "control",
+      "diagnostics": {
+        "uri.newURI(false)": [
+          {
+            "msg": "argument 1: false is not a Components | string",
+            "related": [
+              {
+                "line": 633,
+                "col": 17,
+                "filename": "nupp.io.uri",
+                "message": "called function is declared here",
+                "length": 6,
+                "offset": 21588
+              }
+            ],
+            "severity": "error",
+            "line": 67,
+            "col": 12,
+            "offset": 2169,
+            "length": 5,
+            "help": "compare the call with the declared parameter list",
+            "code": "NUPP2006"
+          }
+        ],
+        "json.decode(false)": [
+          {
+            "msg": "argument 1: boolean is not a string",
+            "related": [
+              {
+                "line": 400,
+                "col": 17,
+                "filename": "nupp.codec.json",
+                "message": "called function is declared here",
+                "length": 6,
+                "offset": 13579
+              }
+            ],
+            "severity": "error",
+            "line": 67,
+            "col": 13,
+            "offset": 2170,
+            "length": 5,
+            "help": "compare the call with the declared parameter list",
+            "code": "NUPP2006"
+          }
+        ],
+        "hex.encode(false)": [
+          {
+            "msg": "argument 1: boolean is not a string",
+            "related": [
+              {
+                "line": 18,
+                "col": 17,
+                "filename": "nupp.codec.hex",
+                "message": "called function is declared here",
+                "length": 6,
+                "offset": 370
+              }
+            ],
+            "severity": "error",
+            "line": 67,
+            "col": 12,
+            "offset": 2169,
+            "length": 5,
+            "help": "compare the call with the declared parameter list",
+            "code": "NUPP2006"
+          }
+        ],
+        "text.newBuffer(false)": [
+          {
+            "msg": "argument 1: false is not a integer | nil | table",
+            "related": [
+              {
+                "line": 39,
+                "col": 14,
+                "filename": "nupp.text",
+                "message": "called function is declared here",
+                "length": 9,
+                "offset": 1300
+              }
+            ],
+            "severity": "error",
+            "line": 67,
+            "col": 16,
+            "offset": 2173,
+            "length": 5,
+            "help": "compare the call with the declared parameter list",
+            "code": "NUPP2006"
+          }
+        ],
+        "utf8.truncate(false, 24)": [
+          {
+            "msg": "argument 1: boolean is not a string",
+            "related": [
+              {
+                "line": 407,
+                "col": 15,
+                "filename": "nupp.text.utf8",
+                "message": "called function is declared here",
+                "length": 8,
+                "offset": 13337
+              }
+            ],
+            "severity": "error",
+            "line": 67,
+            "col": 15,
+            "offset": 2172,
+            "length": 5,
+            "help": "compare the call with the declared parameter list",
+            "code": "NUPP2006"
+          }
+        ],
+        "path.newPath(false)": [
+          {
+            "msg": "argument 1: false is not a Path | string",
+            "related": [
+              {
+                "line": 389,
+                "col": 17,
+                "filename": "nupp.io.path",
+                "message": "called function is declared here",
+                "length": 7,
+                "offset": 13244
+              }
+            ],
+            "severity": "error",
+            "line": 67,
+            "col": 14,
+            "offset": 2171,
+            "length": 5,
+            "help": "compare the call with the declared parameter list",
+            "code": "NUPP2006"
+          }
+        ]
+      },
+      "round": 1
+    },
+    {
+      "warm200Ms": 864.4799999999999,
+      "p50Ms": 3.339000000000092,
+      "p95Ms": 11.809999999999988,
+      "noGc20Ms": 64.79899999999984,
+      "allocated20KiB": 34296.58203125,
+      "bundle": "build/issue59-capability/control-compiler.lua",
+      "label": "control",
+      "diagnostics": {
+        "uri.newURI(false)": [
+          {
+            "col": 12,
+            "offset": 2169,
+            "help": "compare the call with the declared parameter list",
+            "code": "NUPP2006",
+            "line": 67,
+            "severity": "error",
+            "length": 5,
+            "msg": "argument 1: false is not a Components | string",
+            "related": [
+              {
+                "col": 17,
+                "offset": 21588,
+                "line": 633,
+                "length": 6,
+                "filename": "nupp.io.uri",
+                "message": "called function is declared here"
+              }
+            ]
+          }
+        ],
+        "json.decode(false)": [
+          {
+            "col": 13,
+            "offset": 2170,
+            "help": "compare the call with the declared parameter list",
+            "code": "NUPP2006",
+            "line": 67,
+            "severity": "error",
+            "length": 5,
+            "msg": "argument 1: boolean is not a string",
+            "related": [
+              {
+                "col": 17,
+                "offset": 13579,
+                "line": 400,
+                "length": 6,
+                "filename": "nupp.codec.json",
+                "message": "called function is declared here"
+              }
+            ]
+          }
+        ],
+        "hex.encode(false)": [
+          {
+            "col": 12,
+            "offset": 2169,
+            "help": "compare the call with the declared parameter list",
+            "code": "NUPP2006",
+            "line": 67,
+            "severity": "error",
+            "length": 5,
+            "msg": "argument 1: boolean is not a string",
+            "related": [
+              {
+                "col": 17,
+                "offset": 370,
+                "line": 18,
+                "length": 6,
+                "filename": "nupp.codec.hex",
+                "message": "called function is declared here"
+              }
+            ]
+          }
+        ],
+        "text.newBuffer(false)": [
+          {
+            "col": 16,
+            "offset": 2173,
+            "help": "compare the call with the declared parameter list",
+            "code": "NUPP2006",
+            "line": 67,
+            "severity": "error",
+            "length": 5,
+            "msg": "argument 1: false is not a integer | nil | table",
+            "related": [
+              {
+                "col": 14,
+                "offset": 1300,
+                "line": 39,
+                "length": 9,
+                "filename": "nupp.text",
+                "message": "called function is declared here"
+              }
+            ]
+          }
+        ],
+        "utf8.truncate(false, 24)": [
+          {
+            "col": 15,
+            "offset": 2172,
+            "help": "compare the call with the declared parameter list",
+            "code": "NUPP2006",
+            "line": 67,
+            "severity": "error",
+            "length": 5,
+            "msg": "argument 1: boolean is not a string",
+            "related": [
+              {
+                "col": 15,
+                "offset": 13337,
+                "line": 407,
+                "length": 8,
+                "filename": "nupp.text.utf8",
+                "message": "called function is declared here"
+              }
+            ]
+          }
+        ],
+        "path.newPath(false)": [
+          {
+            "col": 14,
+            "offset": 2171,
+            "help": "compare the call with the declared parameter list",
+            "code": "NUPP2006",
+            "line": 67,
+            "severity": "error",
+            "length": 5,
+            "msg": "argument 1: false is not a Path | string",
+            "related": [
+              {
+                "col": 17,
+                "offset": 13244,
+                "line": 389,
+                "length": 7,
+                "filename": "nupp.io.path",
+                "message": "called function is declared here"
+              }
+            ]
+          }
+        ]
+      },
+      "firstMs": 400.779,
+      "round": 2
+    },
+    {
+      "bundle": "build/issue59-capability/luajit-compiler.lua",
+      "label": "candidate",
+      "noGc20Ms": 59.52699999999989,
+      "allocated20KiB": 19514.15234375,
+      "p50Ms": 3.010999999999986,
+      "p95Ms": 7.30900000000001,
+      "diagnostics": {
+        "utf8.truncate(false, 24)": [
+          {
+            "related": [
+              {
+                "filename": "nupp.text.utf8",
+                "line": 407,
+                "col": 15,
+                "message": "called function is declared here",
+                "offset": 13337,
+                "length": 8
+              }
+            ],
+            "line": 67,
+            "col": 15,
+            "length": 5,
+            "help": "compare the call with the declared parameter list",
+            "offset": 2172,
+            "msg": "argument 1: boolean is not a string",
+            "severity": "error",
+            "code": "NUPP2006"
+          }
+        ],
+        "path.newPath(false)": [
+          {
+            "related": [
+              {
+                "filename": "nupp.io.path",
+                "line": 389,
+                "col": 17,
+                "message": "called function is declared here",
+                "offset": 13244,
+                "length": 7
+              }
+            ],
+            "line": 67,
+            "col": 14,
+            "length": 5,
+            "help": "compare the call with the declared parameter list",
+            "offset": 2171,
+            "msg": "argument 1: false is not a Path | string",
+            "severity": "error",
+            "code": "NUPP2006"
+          }
+        ],
+        "uri.newURI(false)": [
+          {
+            "related": [
+              {
+                "filename": "nupp.io.uri",
+                "line": 633,
+                "col": 17,
+                "message": "called function is declared here",
+                "offset": 21588,
+                "length": 6
+              }
+            ],
+            "line": 67,
+            "col": 12,
+            "length": 5,
+            "help": "compare the call with the declared parameter list",
+            "offset": 2169,
+            "msg": "argument 1: false is not a Components | string",
+            "severity": "error",
+            "code": "NUPP2006"
+          }
+        ],
+        "json.decode(false)": [
+          {
+            "related": [
+              {
+                "filename": "nupp.codec.json",
+                "line": 400,
+                "col": 17,
+                "message": "called function is declared here",
+                "offset": 13579,
+                "length": 6
+              }
+            ],
+            "line": 67,
+            "col": 13,
+            "length": 5,
+            "help": "compare the call with the declared parameter list",
+            "offset": 2170,
+            "msg": "argument 1: boolean is not a string",
+            "severity": "error",
+            "code": "NUPP2006"
+          }
+        ],
+        "hex.encode(false)": [
+          {
+            "related": [
+              {
+                "filename": "nupp.codec.hex",
+                "line": 18,
+                "col": 17,
+                "message": "called function is declared here",
+                "offset": 370,
+                "length": 6
+              }
+            ],
+            "line": 67,
+            "col": 12,
+            "length": 5,
+            "help": "compare the call with the declared parameter list",
+            "offset": 2169,
+            "msg": "argument 1: boolean is not a string",
+            "severity": "error",
+            "code": "NUPP2006"
+          }
+        ],
+        "text.newBuffer(false)": [
+          {
+            "related": [
+              {
+                "filename": "nupp.text",
+                "line": 39,
+                "col": 14,
+                "message": "called function is declared here",
+                "offset": 1300,
+                "length": 9
+              }
+            ],
+            "line": 67,
+            "col": 16,
+            "length": 5,
+            "help": "compare the call with the declared parameter list",
+            "offset": 2173,
+            "msg": "argument 1: false is not a integer | nil | table",
+            "severity": "error",
+            "code": "NUPP2006"
+          }
+        ]
+      },
+      "firstMs": 372.93399999999997,
+      "warm200Ms": 699.4149999999998,
+      "round": 2
+    },
+    {
+      "bundle": "build/issue59-capability/luajit-compiler.lua",
+      "label": "candidate",
+      "warm200Ms": 702.014,
+      "p50Ms": 3.001999999999949,
+      "p95Ms": 7.634999999999947,
+      "noGc20Ms": 60.724000000000004,
+      "allocated20KiB": 19514.19921875,
+      "diagnostics": {
+        "hex.encode(false)": [
+          {
+            "help": "compare the call with the declared parameter list",
+            "msg": "argument 1: boolean is not a string",
+            "code": "NUPP2006",
+            "severity": "error",
+            "length": 5,
+            "col": 12,
+            "related": [
+              {
+                "col": 17,
+                "line": 18,
+                "message": "called function is declared here",
+                "offset": 370,
+                "length": 6,
+                "filename": "nupp.codec.hex"
+              }
+            ],
+            "offset": 2169,
+            "line": 67
+          }
+        ],
+        "text.newBuffer(false)": [
+          {
+            "help": "compare the call with the declared parameter list",
+            "msg": "argument 1: false is not a integer | nil | table",
+            "code": "NUPP2006",
+            "severity": "error",
+            "length": 5,
+            "col": 16,
+            "related": [
+              {
+                "col": 14,
+                "line": 39,
+                "message": "called function is declared here",
+                "offset": 1300,
+                "length": 9,
+                "filename": "nupp.text"
+              }
+            ],
+            "offset": 2173,
+            "line": 67
+          }
+        ],
+        "utf8.truncate(false, 24)": [
+          {
+            "help": "compare the call with the declared parameter list",
+            "msg": "argument 1: boolean is not a string",
+            "code": "NUPP2006",
+            "severity": "error",
+            "length": 5,
+            "col": 15,
+            "related": [
+              {
+                "col": 15,
+                "line": 407,
+                "message": "called function is declared here",
+                "offset": 13337,
+                "length": 8,
+                "filename": "nupp.text.utf8"
+              }
+            ],
+            "offset": 2172,
+            "line": 67
+          }
+        ],
+        "path.newPath(false)": [
+          {
+            "help": "compare the call with the declared parameter list",
+            "msg": "argument 1: false is not a Path | string",
+            "code": "NUPP2006",
+            "severity": "error",
+            "length": 5,
+            "col": 14,
+            "related": [
+              {
+                "col": 17,
+                "line": 389,
+                "message": "called function is declared here",
+                "offset": 13244,
+                "length": 7,
+                "filename": "nupp.io.path"
+              }
+            ],
+            "offset": 2171,
+            "line": 67
+          }
+        ],
+        "uri.newURI(false)": [
+          {
+            "help": "compare the call with the declared parameter list",
+            "msg": "argument 1: false is not a Components | string",
+            "code": "NUPP2006",
+            "severity": "error",
+            "length": 5,
+            "col": 12,
+            "related": [
+              {
+                "col": 17,
+                "line": 633,
+                "message": "called function is declared here",
+                "offset": 21588,
+                "length": 6,
+                "filename": "nupp.io.uri"
+              }
+            ],
+            "offset": 2169,
+            "line": 67
+          }
+        ],
+        "json.decode(false)": [
+          {
+            "help": "compare the call with the declared parameter list",
+            "msg": "argument 1: boolean is not a string",
+            "code": "NUPP2006",
+            "severity": "error",
+            "length": 5,
+            "col": 13,
+            "related": [
+              {
+                "col": 17,
+                "line": 400,
+                "message": "called function is declared here",
+                "offset": 13579,
+                "length": 6,
+                "filename": "nupp.codec.json"
+              }
+            ],
+            "offset": 2170,
+            "line": 67
+          }
+        ]
+      },
+      "firstMs": 372.23499999999996,
+      "round": 3
+    },
+    {
+      "bundle": "build/issue59-capability/control-compiler.lua",
+      "label": "control",
+      "warm200Ms": 865.8729999999999,
+      "p50Ms": 3.3729999999999594,
+      "p95Ms": 12.391999999999959,
+      "noGc20Ms": 66.5960000000001,
+      "allocated20KiB": 34293.13671875,
+      "diagnostics": {
+        "path.newPath(false)": [
+          {
+            "length": 5,
+            "severity": "error",
+            "code": "NUPP2006",
+            "help": "compare the call with the declared parameter list",
+            "offset": 2171,
+            "line": 67,
+            "related": [
+              {
+                "message": "called function is declared here",
+                "line": 389,
+                "length": 7,
+                "filename": "nupp.io.path",
+                "offset": 13244,
+                "col": 17
+              }
+            ],
+            "msg": "argument 1: false is not a Path | string",
+            "col": 14
+          }
+        ],
+        "uri.newURI(false)": [
+          {
+            "length": 5,
+            "severity": "error",
+            "code": "NUPP2006",
+            "help": "compare the call with the declared parameter list",
+            "offset": 2169,
+            "line": 67,
+            "related": [
+              {
+                "message": "called function is declared here",
+                "line": 633,
+                "length": 6,
+                "filename": "nupp.io.uri",
+                "offset": 21588,
+                "col": 17
+              }
+            ],
+            "msg": "argument 1: false is not a Components | string",
+            "col": 12
+          }
+        ],
+        "json.decode(false)": [
+          {
+            "length": 5,
+            "severity": "error",
+            "code": "NUPP2006",
+            "help": "compare the call with the declared parameter list",
+            "offset": 2170,
+            "line": 67,
+            "related": [
+              {
+                "message": "called function is declared here",
+                "line": 400,
+                "length": 6,
+                "filename": "nupp.codec.json",
+                "offset": 13579,
+                "col": 17
+              }
+            ],
+            "msg": "argument 1: boolean is not a string",
+            "col": 13
+          }
+        ],
+        "hex.encode(false)": [
+          {
+            "length": 5,
+            "severity": "error",
+            "code": "NUPP2006",
+            "help": "compare the call with the declared parameter list",
+            "offset": 2169,
+            "line": 67,
+            "related": [
+              {
+                "message": "called function is declared here",
+                "line": 18,
+                "length": 6,
+                "filename": "nupp.codec.hex",
+                "offset": 370,
+                "col": 17
+              }
+            ],
+            "msg": "argument 1: boolean is not a string",
+            "col": 12
+          }
+        ],
+        "text.newBuffer(false)": [
+          {
+            "length": 5,
+            "severity": "error",
+            "code": "NUPP2006",
+            "help": "compare the call with the declared parameter list",
+            "offset": 2173,
+            "line": 67,
+            "related": [
+              {
+                "message": "called function is declared here",
+                "line": 39,
+                "length": 9,
+                "filename": "nupp.text",
+                "offset": 1300,
+                "col": 14
+              }
+            ],
+            "msg": "argument 1: false is not a integer | nil | table",
+            "col": 16
+          }
+        ],
+        "utf8.truncate(false, 24)": [
+          {
+            "length": 5,
+            "severity": "error",
+            "code": "NUPP2006",
+            "help": "compare the call with the declared parameter list",
+            "offset": 2172,
+            "line": 67,
+            "related": [
+              {
+                "message": "called function is declared here",
+                "line": 407,
+                "length": 8,
+                "filename": "nupp.text.utf8",
+                "offset": 13337,
+                "col": 15
+              }
+            ],
+            "msg": "argument 1: boolean is not a string",
+            "col": 15
+          }
+        ]
+      },
+      "firstMs": 400.259,
+      "round": 3
+    }
+  ],
+  "summary": {
+    "control": {
+      "firstMs": 400.519,
+      "warm200Ms": 867.1189999999999,
+      "p50Ms": 3.361999999999976,
+      "p95Ms": 11.998499999999911,
+      "noGc20Ms": 65.11599999999996,
+      "allocated20KiB": 34294.859375
+    },
+    "candidate": {
+      "firstMs": 373.0245,
+      "warm200Ms": 700.7144999999999,
+      "p50Ms": 3.0064999999999675,
+      "p95Ms": 7.380999999999971,
+      "noGc20Ms": 59.700499999999934,
+      "allocated20KiB": 19514.17578125
+    }
+  }
+}

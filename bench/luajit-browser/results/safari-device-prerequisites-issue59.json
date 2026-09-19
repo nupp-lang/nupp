@@ -1,0 +1,24 @@
+{
+  "recordedAt": "2026-09-19T17:55:37.342635+00:00",
+  "revision": "bdbba9cb3965f510eb9ac5175bd4a8fe27be8f91",
+  "scope": "Read-only local device inventory; no browser, system, or device settings changed. Not mobile acceptance.",
+  "desktopSessionLocked": true,
+  "safariUiAttempt": "safari-ui-issue59-attempt.json",
+  "safariUiDisposition": "Blocked by locked desktop; initial compilation checked clean, WebDriver Run click did not produce output. Not a diagnosed product regression.",
+  "xcdevicePhysicalDevices": [
+    {
+      "operatingSystemVersion": "26.6 (25G72)",
+      "platform": "com.apple.platform.macosx",
+      "interface": "usb",
+      "available": true,
+      "name": "My Mac"
+    }
+  ],
+  "usbAppleMobileDevices": [],
+  "coreDeviceInventory": "Unavailable: initial query reported CoreDeviceService initialization timeout; unsandboxed retry exceeded requested 15-second timeout and was terminated after more than two minutes.",
+  "remainingPrerequisites": [
+    "Unlocked macOS desktop for trusted Safari UI interaction checks.",
+    "Connected and paired physical iPhone/iPad available to Safari automation, or a device owner executing the served acceptance harness."
+  ],
+  "timingScope": "Concurrent compiler investigation ran during this check; elapsed timings are not performance acceptance evidence."
+}

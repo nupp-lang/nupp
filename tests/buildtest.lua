@@ -68,6 +68,45 @@ end
 
 local M = {}
 
+function M.bundleResourcesPreserveEveryByte()
+    local bytes = {}
+    for byte = 0, 255 do
+        bytes[#bytes + 1] = string.char(byte)
+    end
+    local packaging = require("nupp.compiler.build.package")
+    for _, payload in ipairs({"\r\n\n\r\r\0" .. table.concat(bytes), "\0\n[[binary]]\255", "before\026after"}) do
+        local dir = tempProject({
+            ["data.bin"] = payload,
+            ["build/data.bin"] = payload,
+            ["build/main.lua"] = 'return package.preload["nupp.embedded"]()["/data.bin"]\n',
+        })
+        local text = assert(
+            packaging.bundleText(
+                dir,
+                {},
+                {
+                    kind = "bundle",
+                    outDir = "build",
+                    entries = {"main"},
+                    resources = {{source = "data.bin", output = "data.bin"}},
+                },
+                nil,
+                {main = {output = dir .. "/build/main.lua"}},
+                false
+            )
+        )
+        assert(not text:find("\026", 1, true), "a Windows text loader must not truncate the bundle at Ctrl-Z")
+        local original = package.preload["nupp.embedded"]
+        local ok, restored = pcall(function()
+            return assert(loadstring(text))()
+        end)
+        package.preload["nupp.embedded"] = original
+        os.execute("rm -rf '" .. dir .. "'")
+        assert(ok, restored)
+        assertEq(restored, payload, "bundled resources preserve binary bytes and line endings")
+    end
+end
+
 local LIB = table.concat(
     {"local function double(n: number): number", "    return n * 2", "end", "return {double = double}",},
     "\n"
@@ -308,7 +347,11 @@ function M.buildAndCheckResolveTheSameDialectOption()
         "testjson"
     ).decode(captureJson(("cd '%s' && '%s' build --dialect luajit main.nupp --json"):format(dir, NUPP)))
     assertEq(explicitNative.dialect, "luajit", "LuaJIT may be selected explicitly")
-    assertEq(read(dir .. "/build/main.lua"), nativeCode, "omitted and explicit LuaJIT dialects generate byte-identically")
+    assertEq(
+        read(dir .. "/build/main.lua"),
+        nativeCode,
+        "omitted and explicit LuaJIT dialects generate byte-identically"
+    )
 
     local portable = require(
         "testjson"
@@ -527,6 +570,7 @@ return {
 ]],
     })
     local listed = capture(("cd '%s' && '%s' task -l"):format(dir, NUPP))
+
     -- The listing is a table, so a row is a name, a kind and a description separated
     -- by runs of padding rather than by a fixed " - ".
     local function row(name)
@@ -535,8 +579,10 @@ return {
                 return line
             end
         end
+
         return nil
     end
+
     assert(row("app (default)"), "text listing marks the default: " .. listed)
     assert(
         row("app (default)"):find("Build the application", 1, true),
@@ -843,9 +889,16 @@ function M.optimizerAccountsFilterFilesAndExplainUnavailableOptimization()
         ["src/main.g.nupp"] = 'local other = require("other")\nlocal t = {}\nt.a = 1\nt.b = 2\nreturn t, other',
         ["src/other.g.nupp"] = 'local t = {}\nt.a = 3\nt.b = 4\nreturn t',
     })
-    local output = capture(("cd %q && %q build -O1 --remarks --remarks-out --remarks-file src/main.g.nupp src/main.g.nupp"):format(dir, NUPP))
+    local output = capture(
+        (
+            "cd %q && %q build -O1 --remarks --remarks-out --remarks-file src/main.g.nupp src/main.g.nupp"
+        ):format(dir, NUPP)
+    )
     assert(not output:find("src/other.g.nupp:", 1, true), "terminal remarks obey file filter: " .. output)
-    assert(not exists(dir .. "/src/main.lua") and not exists(dir .. "/src/other.lua"), "inspection creates no source neighbors")
+    assert(
+        not exists(dir .. "/src/main.lua") and not exists(dir .. "/src/other.lua"),
+        "inspection creates no source neighbors"
+    )
     local record = json.decode(read(dir .. "/build/remarks.json"))
     assert(#record.remarks > 0, "selected workload has optimizer decisions")
     for _, remark in ipairs(record.remarks) do
@@ -853,13 +906,23 @@ function M.optimizerAccountsFilterFilesAndExplainUnavailableOptimization()
         assert(remark.status == "fired" or remark.status == "declined", "decision has status")
         assertEq(remark.hotness, "unknown", "static remarks do not invent hotness")
     end
-    local manifestCommand = ("cd %q && %q build --remarks --remarks-out --remarks-file src/main.g.nupp"):format(dir, NUPP)
+    local manifestCommand = (
+        "cd %q && %q build --remarks --remarks-out --remarks-file src/main.g.nupp"
+    ):format(dir, NUPP)
     for attempt = 1, 2 do
         local manifestOut = capture(manifestCommand)
-        assert(manifestOut:find("src/main.g.nupp:", 1, true), "cold and warm builds replay selected remarks: " .. manifestOut)
-        assert(not manifestOut:find("src/other.g.nupp:", 1, true), "manifest filter excludes dependencies: " .. manifestOut)
+        assert(
+            manifestOut:find("src/main.g.nupp:", 1, true),
+            "cold and warm builds replay selected remarks: " .. manifestOut
+        )
+        assert(
+            not manifestOut:find("src/other.g.nupp:", 1, true),
+            "manifest filter excludes dependencies: " .. manifestOut
+        )
     end
-    output = capture(("cd %q && %q build --remarks --remarks-out --remarks-file src/main.g.nupp src/main.g.nupp"):format(dir, NUPP))
+    output = capture(
+        ("cd %q && %q build --remarks --remarks-out --remarks-file src/main.g.nupp src/main.g.nupp"):format(dir, NUPP)
+    )
     assert(output:find("optimizer unavailable at -O0", 1, true), "default tier is explained: " .. output)
     record = json.decode(read(dir .. "/build/remarks.json"))
     assertEq(record.remarks[1].status, "unavailable", "disabled optimizer is machine-readable")
@@ -870,18 +933,30 @@ function M.optimizerHeatJoinsOnlyTheMatchingFileAndSourceRange()
     local compile = require("nupp.compiler.cli.compile")
     local settings = compile.settings({remarksOut = true})
     settings.collectedRemarks = {
-        {filename = "work.nupp", line = 10, sourceEndLine = 20, code = "OPT-6", status = "declined", hotness = "unknown"},
+        {
+            filename = "work.nupp",
+            line = 10,
+            sourceEndLine = 20,
+            code = "OPT-6",
+            status = "declined",
+            hotness = "unknown"
+        },
         {filename = "work.nupp", line = 30, sourceEndLine = 31, code = "OPT-2", status = "fired", hotness = "unknown"},
         {filename = "work.nupp", line = 10, code = "AOT-LOOP", status = "fired", hotness = "unknown"},
     }
     local file = require("nupp.compiler.fs").absolute("work.nupp")
-    compile.attachSamples(settings, {
-        {file = file, line = 10, samples = 2},
-        {file = file, line = 15, samples = 5},
-        {file = file, line = 20, samples = 1},
-        {file = file, line = 21, samples = 9},
-        {file = "other.nupp", line = 15, samples = 99},
-    }, 120, 2)
+    compile.attachSamples(
+        settings,
+        {
+            {file = file, line = 10, samples = 2},
+            {file = file, line = 15, samples = 5},
+            {file = file, line = 20, samples = 1},
+            {file = file, line = 21, samples = 9},
+            {file = "other.nupp", line = 15, samples = 99},
+        },
+        120,
+        2
+    )
     assertEq(settings.collectedRemarks[1].hotnessSamples, 8, "only matching source range contributes")
     assertEq(settings.collectedRemarks[2].hotnessSamples, 0, "a measured empty range differs from unknown")
     assertEq(settings.collectedRemarks[3].hotness, "unknown", "Lua sampling does not invent native heat")

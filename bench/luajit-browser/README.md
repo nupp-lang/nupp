@@ -201,11 +201,12 @@ explicitly set. Local overlay evidence is not a replacement for source-build CI.
 
 ### Installed Safari
 
-`results/safari-runtime.json` records ten passing packaged groups in the
+`results/safari-runtime-issue59.json` records eleven passing packaged groups in the
 installed Safari 26.6 on macOS 26.6, driven by Apple's `safaridriver`. They cover
 FFI callbacks and exception unwinding, bit/buffer/JIT features, 39 compiler
 response comparisons, applications, snapshot recovery, cancellation and memory
-exhaustion, independent Wasm AOT, HTTP, platform services, workers and WebGPU.
+exhaustion, independent Wasm AOT, guest-native Lua-C-API builders, HTTP, platform
+services, workers and WebGPU.
 Safari executed the WebGPU fixture; it did not take the unavailable-capability
 path. The guest and playground asset identities are recorded in the result.
 
@@ -213,7 +214,10 @@ This closes the desktop Safari runtime check, not the complete browser/device
 gate. The Mac was locked during the attempted UI run: the compiler loaded and
 checked the initial program, but the Run click did not produce output. Repeat
 the UI checks after unlocking; do not treat this attempt as a UI pass or a
-diagnosed product regression. Physical iPhone/iPad acceptance remains untested.
+diagnosed product regression. `results/safari-ui-issue59-attempt.json` retains
+the latest attempt; `results/safari-device-prerequisites-issue59.json` records
+the locked session and local device inventory. Physical iPhone/iPad acceptance
+remains untested.
 
 To repeat with the existing built playground and packaged fixtures served at
 the supplied URLs:
@@ -423,7 +427,68 @@ consumers, preserved shared semantic fixtures and the required cold-build gate.
 Nothing here authorizes deleting the old backend or merging this branch.
 
 `results/acceptance-checkpoint.json` records the passing compiler matrix at
-`873b6002`, release rehearsal at `ce7f6f65`, cold-build evidence and subsequent
+`bdbba9cb`, release rehearsal at `ce7f6f65`, cold-build evidence and subsequent
 checks. The shared compiler-worker error formatter also preserves messages when
 WebKit stacks omit them; 34 playground tests and a real missing-asset boot check
 in all three engines pass. Timeout limits are unchanged.
+
+## Compiler allocation and image improvements
+
+The issue 59 follow-up changes the compiler, not the emulator. Ordinary
+ownership-capability queries now return the canonical empty capability before
+allocating temporary lists. A controlled native-interpreter comparison removes
+only that generated fast path from the candidate; the saved earlier playground
+bundle predates a source rebase and is not an isolation baseline.
+
+Four alternating native process pairs measured 34,295 → 19,514 KiB allocated
+per twenty warmed imported checks with GC stopped (43% less). With normal GC,
+median total time for 200 changing checks fell from 867 to 701 ms; p50 was
+3.362 → 3.007 ms and p95 11.999 → 7.381 ms. These are native measurements,
+not browser latency promises. `results/compiler-capability-native.json` retains
+the protocol, artifact digests, samples and complete invalid-call diagnostics.
+All eighteen guest sessions in `results/compiler-capability-pair.json` preserve
+complete diagnostics, generated code and hover responses. Guest timings include
+explicitly recorded concurrent workload and do not establish accepted budgets.
+
+The prelude image uses a deterministic string dictionary and variable-width
+integers, preserving every existing root, table, metatable, arena and identity
+counter. No checked module interfaces are added. The current image shrinks from
+2,118,274 to 744,757 bytes; the complete compiler bytecode shrinks from 6,446,050
+to 5,072,684 bytes (21%). Complete compiler gzip delivery shrinks from 1,624,291
+to 1,574,901 bytes (3%). These are measured artifact sizes; a smaller decoded
+image does not imply a comparable reduction in total browser memory or latency.
+`results/compiler-compact-size.json` records the identities and sizes. Each
+interpreter, LuaJIT and official Lua 5.1, passes a byte-identical source/image
+round trip.
+Binary-resource packaging now quotes carriage-return and Ctrl-Z bytes. Lua otherwise
+normalizes carriage returns inside long strings; Windows text loading can truncate
+at Ctrl-Z. An all-byte resource regression covers both paths.
+`results/compiler-compact-pair.json` records eighteen further passing guest
+sessions with full response equivalence, including related declaration locations.
+Startup and edit timings vary under the recorded shared-host load; artifact size
+is the demonstrated delivery improvement.
+
+A separate expanded-module-cache experiment is **not shipped**. Across six
+Chromium sessions, its cold imported check took 3.3–4.7 seconds versus
+11.8–24.9 seconds for source checking on the shared host. Generated code, hover
+and primary diagnostics matched, but full diagnostic comparison failed:
+related declaration locations disappeared. Exact target/compiler-service state,
+compatibility checking and repeated-environment type identity also need a cache
+contract. `results/compiler-cache-experiment.json` preserves the failed
+comparison. The production compiler continues checking imports from source.
+
+The rebuilt compact-image playground passes all 24 desktop UI checks and 34
+Node tests. `results/compiler-compact-ui.json` includes its exact asset identities.
+The single shared-host delivery run in `results/compiler-compact-delivery.json`
+transfers 8,089,160 cold asset bytes and zero cached asset bytes, but its timings
+are slower than the earlier baseline (8.76 s first diagnostic / 12.69 s first
+output; cached output 5.38 s). Concurrent compiler builds/tests prevent attributing
+that difference. This is not a demonstrated startup speedup.
+
+`results/prelude-regeneration.json` records an existing reproducibility limitation:
+fresh LuaJIT processes can assign different transient pack IDs while checking the
+prelude. The old text generator and compiler without the allocation fast path
+also reproduce it. Source/image roundtrips and response comparisons pass, but
+fresh regeneration need not produce identical bytes. Each measured artifact
+therefore retains its actual digest; stabilizing generation remains follow-up
+work rather than an inferred property of the new dictionary encoding.

@@ -1,0 +1,119 @@
+{
+  "scope": "Actual playground tour; shared 10 Mbps response budget, 25 ms response delay; gzip text delivery; cached run opens a fresh page in the same browser context",
+  "results": [
+    {
+      "mode": "cold",
+      "checkedMs": 8759.128292,
+      "compilerBytes": 5132494,
+      "firstOutputMs": 12688.70225,
+      "assetBodyBytes": 8089160,
+      "errors": []
+    },
+    {
+      "mode": "cached",
+      "checkedMs": 4000.474542,
+      "compilerBytes": 0,
+      "firstOutputMs": 5384.031708999999,
+      "assetBodyBytes": 0,
+      "errors": []
+    }
+  ],
+  "provenance": {
+    "baseRevision": "bdbba9cb3965f510eb9ac5175bd4a8fe27be8f91",
+    "workingTreeBuild": true,
+    "recordedAt": "2026-09-19T18:37:17.743Z",
+    "buildManifest": {
+      "compiler": "nupp-compiler-b4e51dbf2efef5ef.lua",
+      "compilerSha256": "b4e51dbf2efef5efdb6caef1780c45a09002ffaa29cddef25648164957a2bba2",
+      "hostModule": "nupp-playground.mjs",
+      "hostWasm": "nupp-playground.wasm",
+      "appRuntime": "nupp-app-runtime-49ade50321b457fa.lua",
+      "appRuntimeSha256": "49ade50321b457fae50c7e4fc0bcc74e3a4a9aa8d8fbc5fee9031a7c2effb92e",
+      "appHostModule": "nupp-runner.mjs",
+      "appHostWasm": "nupp-runner.wasm",
+      "bytes": {
+        "compiler": 6310895,
+        "hostModule": 12477,
+        "hostWasm": 224538,
+        "appRuntime": 692372,
+        "appHostModule": 33225,
+        "appHostWasm": 322280
+      },
+      "luajit": {
+        "guestManifest": "luajit/25ac4dcdb02ba761641be35ce90b9c40f8bd1dc6d4c61f0b3e65aed1f073be87/guest-manifest.json",
+        "compiler": "nupp-compiler-b96818227fbede83.ljbc.gz",
+        "compilerSha256": "b96818227fbede830b90f9a9c270a06061b784c8253f99287c2d24a2e069e0d4",
+        "compilerBytes": 1574887,
+        "compilerDecodedBytes": 5072684,
+        "appRuntime": "nupp-luajit-app-7848b586565dbc7c.lua.gz",
+        "appRuntimeSha256": "7848b586565dbc7cdc48651f7df50db1bb8d67c36311575373bbfe839a7dc535",
+        "appRuntimeBytes": 111148,
+        "appRuntimeDecodedBytes": 668184
+      }
+    },
+    "guestBuildKey": "25ac4dcdb02ba761641be35ce90b9c40f8bd1dc6d4c61f0b3e65aed1f073be87",
+    "guestManifest": {
+      "path": "editors/playground/dist/luajit/25ac4dcdb02ba761641be35ce90b9c40f8bd1dc6d4c61f0b3e65aed1f073be87/guest-manifest.json",
+      "bytes": 11890,
+      "sha256": "f054be850fb0a8e03d9ed5226dac0a6bfda9e62dc144e2783cae41dcbad8fc01"
+    },
+    "assets": [
+      {
+        "path": "editors/playground/dist/app.js",
+        "bytes": 882155,
+        "sha256": "7fb6cb8e0149e7e9a2b4056618978791821e6b10525bdc73a1303560cf00ca4e"
+      },
+      {
+        "path": "editors/playground/dist/doc-app.js",
+        "bytes": 882131,
+        "sha256": "3f2ab778359f38d25176c2db44c814df2807f8dd0d7020428250c92f4574de9a"
+      },
+      {
+        "path": "editors/playground/dist/worker.js",
+        "bytes": 10924,
+        "sha256": "376f01f29ff8ffef3ea385ed8ae2aeb8ea0438dffcb032e0be1715b94343b136"
+      },
+      {
+        "path": "editors/playground/dist/legacy-worker.js",
+        "bytes": 5350,
+        "sha256": "f1eff20a4677e4c1a6d1e1780f50a534787cdcd1ea6ebdb49ecdec5aa06a7501"
+      },
+      {
+        "path": "editors/playground/dist/app-worker.js",
+        "bytes": 41368,
+        "sha256": "146eafd32b73153e7dc404ed1bde97e93ea71da3ffec00ea01a606c53b2694e7"
+      },
+      {
+        "path": "editors/playground/dist/legacy-app-worker.js",
+        "bytes": 35339,
+        "sha256": "7fc35fb608302c337ad5321e45c729c14e9fcf6873ad792fdd2a93a6ca9a8897"
+      },
+      {
+        "path": "editors/playground/dist/nupp-compiler-b4e51dbf2efef5ef.lua",
+        "bytes": 6310895,
+        "sha256": "b4e51dbf2efef5efdb6caef1780c45a09002ffaa29cddef25648164957a2bba2"
+      },
+      {
+        "path": "editors/playground/dist/nupp-compiler-b96818227fbede83.ljbc.gz",
+        "bytes": 1574887,
+        "sha256": "b96818227fbede830b90f9a9c270a06061b784c8253f99287c2d24a2e069e0d4"
+      },
+      {
+        "path": "editors/playground/dist/nupp-app-runtime-49ade50321b457fa.lua",
+        "bytes": 692372,
+        "sha256": "49ade50321b457fae50c7e4fc0bcc74e3a4a9aa8d8fbc5fee9031a7c2effb92e"
+      },
+      {
+        "path": "editors/playground/dist/nupp-luajit-app-7848b586565dbc7c.lua.gz",
+        "bytes": 111148,
+        "sha256": "7848b586565dbc7cdc48651f7df50db1bb8d67c36311575373bbfe839a7dc535"
+      }
+    ],
+    "hostConditions": "Shared M5 Pro host. Native formatting, focused tests, image generation and fixpoint work may overlap. These results verify final packaged behavior and give one modeled-delivery observation; they do not isolate a speedup from any one compiler change.",
+    "driver": {
+      "path": "editors/playground/test/delivery.mjs",
+      "bytes": 3678,
+      "sha256": "2b411bce699872e0629647e85c45522bc14fd58a04192c440827eeb14e17302a"
+    }
+  }
+}
