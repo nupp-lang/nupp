@@ -866,4 +866,43 @@ function M.optimizerAccountsFilterFilesAndExplainUnavailableOptimization()
     os.execute("rm -rf " .. string.format("%q", dir))
 end
 
+function M.optimizerHeatJoinsOnlyTheMatchingFileAndSourceRange()
+    local compile = require("nupp.compiler.cli.compile")
+    local settings = compile.settings({remarksOut = true})
+    settings.collectedRemarks = {
+        {filename = "work.nupp", line = 10, sourceEndLine = 20, code = "OPT-6", status = "declined", hotness = "unknown"},
+        {filename = "work.nupp", line = 30, sourceEndLine = 31, code = "OPT-2", status = "fired", hotness = "unknown"},
+        {filename = "work.nupp", line = 10, code = "AOT-LOOP", status = "fired", hotness = "unknown"},
+    }
+    local file = require("nupp.compiler.fs").absolute("work.nupp")
+    compile.attachSamples(settings, {
+        {file = file, line = 10, samples = 2},
+        {file = file, line = 15, samples = 5},
+        {file = file, line = 20, samples = 1},
+        {file = file, line = 21, samples = 9},
+        {file = "other.nupp", line = 15, samples = 99},
+    }, 120, 2)
+    assertEq(settings.collectedRemarks[1].hotnessSamples, 8, "only matching source range contributes")
+    assertEq(settings.collectedRemarks[2].hotnessSamples, 0, "a measured empty range differs from unknown")
+    assertEq(settings.collectedRemarks[3].hotness, "unknown", "Lua sampling does not invent native heat")
+    assertEq(settings.sampledHeat.attributedSamples, 116, "source samples remain accounted")
+    assertEq(settings.sampledHeat.unattributedSamples, 4, "native and unavailable locations remain explicit")
+    local encoded = require("nupp.compiler.cli.report").diagnosticValues(settings.collectedRemarks)
+    assertEq(encoded[1].hotnessSamples, 8, "serialization retains measured count")
+    assertEq(encoded[1].hotnessRange.endLine, 20, "serialization retains attribution range")
+end
+
+function M.optimizerHeatWithoutLuaLocationsStaysUnknown()
+    local compile = require("nupp.compiler.cli.compile")
+    local settings = compile.settings({remarksOut = true})
+    settings.collectedRemarks = {
+        {filename = "work.nupp", line = 10, code = "OPT-2", status = "declined", hotness = "unknown"},
+    }
+    compile.attachSamples(settings, {}, 125, 1)
+    assertEq(settings.collectedRemarks[1].hotness, "unknown", "C-only samples cannot measure Lua source heat")
+    assertEq(settings.collectedRemarks[1].hotnessSamples, nil, "unavailable heat must not become measured zero")
+    assertEq(settings.sampledHeat.attributedSamples, 0, "no source attribution was available")
+    assertEq(settings.sampledHeat.unattributedSamples, 125, "C-only samples remain visible")
+end
+
 return M

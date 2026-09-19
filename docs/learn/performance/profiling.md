@@ -96,6 +96,11 @@ LuaJIT can inline several function calls into one trace. Those inlined calls
 have no separate stack frames, so the profile may show fewer calls than the
 source.
 
+`SampleReport.sourceSamples` retains Lua leaf source-line counts with full paths.
+Native VM states are excluded from those counts. Combine `run --profile` with
+`--remarks-out` to join these observations to optimizer decisions in
+`build/remarks.json`.
+
 ## Zones
 
 Zones label phases such as loading, physics, and rendering. They let you

@@ -133,6 +133,8 @@ function diagnostics.report(values: {any}): boolean
             severity
         ) .. ": " .. code .. (
             diagnostic.status and ("[" .. diagnostic.status .. "] ") or ""
+        ) .. (
+            diagnostic.hotness == "sampled" and (tostring(diagnostic.hotnessSamples) .. " samples: ") or ""
         ) .. style.strong(diagnostic.msg or "error") .. "\n"
         writeSourceMark(out, style, paint, sourceFor(diagnostic.filename), diagnostic)
         local notePaint = ansi.severity(style, "note")

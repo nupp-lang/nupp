@@ -74,8 +74,11 @@ record compile.Settings
     remarksOut: string?
 
     --- Remarks accumulated across the files this command reached. Present only when
-    --- `remarksOut` is, because the artifact is the only reason to keep them.
+    --- an artifact or profiled terminal report needs the completed account.
     collectedRemarks: {any}?
+
+    --- Measured source samples from a profiled run, absent from static builds.
+    sampledHeat: any?
 
     --- Allocation sites the optimizer left standing, accumulated the same way and for
     --- the same reason.
@@ -105,7 +108,8 @@ function compile.settings(values: {[string]: any}, collected: {any}?): compile.S
         coverage = os.getenv("NUPP_COVERAGE") == "1",
         bytecodeBoundary = nil,
         remarksOut = values.remarksOut and "build/remarks.json" or nil,
-        collectedRemarks = values.remarksOut and {} or nil,
+        collectedRemarks = (values.remarksOut or values.profile and values.remarks) and {} or nil,
+        sampledHeat = nil,
         collectedAllocationSites = values.remarksOut and {} or nil,
         accountedModules = values.remarksOut and 0 or nil
     )
@@ -123,6 +127,50 @@ function compile.selectRemarks(remarks: {any}, path: string?): {any}
     end
 
     return selected
+end
+
+--- Join sampled Lua locations to optimizer source ranges. Zero means no sample
+--- landed there, not proof that the region never ran. Native AOT work stays unknown.
+function compile.attachSamples(
+    settings: compile.Settings,
+    samples: {any},
+    totalSamples: integer,
+    intervalMs: integer
+): nil
+    local byFile = {}
+    local attributed = 0
+    for _, sample in ipairs(samples) do
+        local file = fs.absolute(sample.file)
+        local lines = byFile[file] or {}
+        byFile[file] = lines
+        lines[sample.line] = (lines[sample.line] or 0) + sample.samples
+        attributed = attributed + sample.samples
+    end
+    settings.sampledHeat = {
+        intervalMs = intervalMs,
+        totalSamples = totalSamples,
+        attributedSamples = attributed,
+        unattributedSamples = totalSamples - attributed,
+        sourceSamples = samples
+    }
+    for _, entry in ipairs(settings.collectedRemarks or {}) do
+        if entry.filename and byFile[
+            fs.absolute(entry.filename)
+        ] and entry.line and entry.line > 0 and entry.status ~= "unavailable" and not (
+            entry.code or ""
+        ):match("^AOT") then
+            local last = math.max(entry.line, entry.sourceEndLine or entry.line)
+            local count = 0
+            for line, hits in pairs(byFile[fs.absolute(entry.filename)] or {}) do
+                if line >= entry.line and line <= last then
+                    count = count + hits
+                end
+            end
+            entry.hotness = "sampled"
+            entry.hotnessSamples = count
+            entry.hotnessRange = {startLine = entry.line, endLine = last}
+        end
+    end
 end
 
 --- Writes the optimizer's account of this command, when one was asked for.
@@ -169,6 +217,7 @@ function compile.writeRemarks(settings: compile.Settings): boolean
         },
         remarks = report.diagnosticValues(compile.selectRemarks(collected, settings.remarksFile)),
         allocationSites = settings.collectedAllocationSites or {},
+        sampling = settings.sampledHeat,
     }
     local wrote, writeErr = require("nupp.compiler.fs").writeFile(out, report.encode(document) .. "\n")
     if not wrote then
@@ -280,7 +329,7 @@ function compile.module(
     if settings.specializedBodies ~= nil then
         settings.specializedBodies = (settings.specializedBodies as integer) + specializedBodies
     end
-    if (settings.remarks or settings.remarksOut) and (settings.optLevel or 0) == 0 then
+    if (settings.remarks or settings.remarksOut or settings.collectedRemarks) and (settings.optLevel or 0) == 0 then
         remarks[
             #remarks + 1
         ] = {

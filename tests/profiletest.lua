@@ -180,6 +180,13 @@ function M.sampleCollectsCollapsedStacks()
       ("a fifth of a second at 1ms must sample, got %d in %s")
          :format(report.samples, describeSampling()))
    assert(report.stacks > 0, "samples fell on at least one stack")
+   assert(#report.sourceSamples > 0, "Lua leaf source samples are retained")
+   local sourceCount = 0
+   for _, sample in ipairs(report.sourceSamples) do
+      assert(sample.line > 0 and sample.samples > 0 and #sample.file > 0, "a source sample has its measured location")
+      sourceCount = sourceCount + sample.samples
+   end
+   assert(sourceCount <= report.samples, "native VM states have no fabricated source count")
    assertEq(report.intervalMs, 1, "the interval it ran at")
    assertEq(tostring(report), report.text, "tostring is the collapsed text")
 
@@ -695,6 +702,53 @@ for i=1,40 do run(100) end
       crossed = crossed or site.rootLocation:find("work.g.nupp", 1, true) and site.location:find("lazy.g.nupp", 1, true)
    end
    assert(crossed, "program root survives a dependency's abort site")
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
+function M.sourceSamplesRespectZoneBoundariesAndPreserveFullPaths()
+   local session = profile.sample({intervalMs = 1000, zone = "kept"})
+   session:pause()
+   session.sourceSamples = {
+      kept = {["C:/project/work.nupp:12"] = 3},
+      ["kept/child"] = {["C:/project/work.nupp:12"] = 2, ["C:/project/work.nupp:14"] = 1},
+      keptElsewhere = {["C:/project/work.nupp:12"] = 99},
+   }
+   local report = session:stop()
+   assertEq(#report.sourceSamples, 2, "one row per retained source line")
+   assertEq(report.sourceSamples[1].file, "C:/project/work.nupp", "path includes drive and directories")
+   assertEq(report.sourceSamples[1].line, 12, "line split occurs after final colon")
+   assertEq(report.sourceSamples[1].samples, 5, "zone subtree counts merge")
+   assertEq(report.sourceSamples[2].samples, 1, "other line stays separate")
+end
+
+function M.cliProfileJoinsMeasuredHeatToOptimizerRemarks()
+   local dir = tempProject()
+   local file = assert(io.open(dir .. "/heat.g.nupp", "wb"))
+   local source = [[
+local total = 0
+local values: {number} = {1, 2, 3, 4}
+for _ = 1, 80000000 do
+    for _, value in ipairs(values) do total = total + value end
+end
+print(total)
+]]
+   source = source:gsub("80000000", sampleRepeats(80000000), 1)
+   file:write(source)
+   file:close()
+   local out, ok = run(dir, "run -O1 --profile=1 --remarks --remarks-out --remarks-file heat.g.nupp heat.g.nupp")
+   assert(ok, out)
+   local document = require("testjson").decode(readFile(dir .. "/build/remarks.json"))
+   assert(document.sampling and document.sampling.totalSamples > 0, "measurement metadata is retained")
+   assert(#document.sampling.sourceSamples > 0, "actual sampled Lua locations are retained")
+   local measured = false
+   for _, remark in ipairs(document.remarks) do
+      assertEq(remark.hotness, "sampled", "profiled source decisions have measured heat")
+      assert(type(remark.hotnessSamples) == "number" and remark.hotnessSamples >= 0, "counts include measured zero")
+      assert(remark.hotnessRange.endLine >= remark.hotnessRange.startLine, "the counted source range is explicit")
+      measured = true
+   end
+   assert(measured, "the workload produces an optimizer decision")
+   assert(out:find("samples:", 1, true), "terminal remarks report measured sample counts: " .. out)
    os.execute("rm -rf '" .. dir .. "'")
 end
 

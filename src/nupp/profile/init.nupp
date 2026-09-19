@@ -141,6 +141,14 @@ record profile.Sample
     compiling: integer
 end
 
+--- Lua leaf samples attributed to one source line. Native VM states have no
+--- reliable Lua location and are excluded.
+type profile.SourceSample = {
+    file: string,
+    line: integer,
+    samples: integer
+}
+
 --- What a sample session saw, as `SampleSession:stop` returns it.
 ---
 --- `tostring` on it is the collapsed-stack text, so it prints and pipes directly.
@@ -150,6 +158,10 @@ record profile.SampleReport
 
     --- Samples recorded, after the zone filter.
     samples: integer
+
+    --- Lua leaf locations, ordered by file and line. Their sum can be less than
+    --- samples because native VM states have no reliable Lua source location.
+    sourceSamples: {profile.SourceSample}
 
     --- Distinct stacks they fell on.
     stacks: integer
@@ -188,6 +200,9 @@ record profile.SampleSession is profile.Session
     --- joined key, so a sample taken in a zone that has not changed since the last one
     --- costs a single table lookup.
     aggregate: {[string]: {[string]: profile.Sample}}
+
+    --- Lua leaf locations counted separately in each zone, before filtering.
+    sourceSamples: {[string]: {[string]: integer}}
 
     pause: function(self)
     resume: function(self)
@@ -561,7 +576,8 @@ function profile.sample(options: profile.SampleOptions?): profile.SampleSession
         root = opts.root,
         paused = false,
         stopped = false,
-        aggregate = {}
+        aggregate = {},
+        sourceSamples = {}
     )
 
     -- Negative, so the walk runs outermost frame first: that is the order a collapsed
@@ -609,6 +625,16 @@ function profile.sample(options: profile.SampleOptions?): profile.SampleSession
             cachedStacks[stack] = sample
         end
 
+        if thread and (vmstate == "N" or vmstate == "I") then
+            -- Preserve paths and lines independently of the flamegraph's names.
+            local location = jitProfile.dumpstack(thread, "pl", 1)
+            local locations = session.sourceSamples[path]
+            if not locations then
+                locations = {}
+                session.sourceSamples[path] = locations
+            end
+            locations[location] = (locations[location] or 0) + samples
+        end
         sample.count = sample.count + samples
         if vmstate == "N" then
             sample.compiled = sample.compiled + samples
@@ -722,8 +748,31 @@ function profile.SampleSession:stop(filename: string?): profile.SampleReport
         end
     end
 
+    local counts: {[string]: integer} = {}
+    for path, locations in pairs(self.sourceSamples) do
+        if not prefix or path == prefix or path:sub(1, #subtree) == subtree then
+            for location, count in pairs(locations) do
+                counts[location] = (counts[location] or 0) + count
+            end
+        end
+    end
+    local sourceSamples: {profile.SourceSample} = {}
+    for location, count in pairs(counts) do
+        local file, at = location:match("^(.*):(%d+)$")
+        local line = tonumber(at)
+        if file and line and line > 0 then
+            sourceSamples[#sourceSamples + 1] = {file = file, line = line as integer, samples = count}
+        end
+    end
+    table.sort(sourceSamples, function(a: profile.SourceSample, b: profile.SourceSample): boolean
+        if a.file ~= b.file then
+            return a.file < b.file
+        end
+        return a.line < b.line
+    end)
     local report = new profile.SampleReport(
         intervalMs = self.intervalMs,
+        sourceSamples = sourceSamples,
         samples = samples,
         stacks = #kept,
         text = collapse(kept)

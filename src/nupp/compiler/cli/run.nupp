@@ -121,6 +121,10 @@ local function run(options: any): integer
 
     local compile = require("nupp.compiler.cli.compile")
     local settings = compile.settings(values)
+    local sampledRemarks = profiling and settings.remarks
+    if sampledRemarks then
+        settings.remarks = false
+    end
     local projectEnv = require("nupp.compiler.env").new(".")
     local chunk, err
     local watch: Session? = nil
@@ -221,10 +225,6 @@ local function run(options: any): integer
     end
     _G.__nuppRemarksAvailable = previousRemarksAvailable
     removeLoader()
-    -- Now complete: a `require` reached during the run compiled through the installed
-    -- loader, so the modules holding the code a benchmark actually measured are only
-    -- accounted for here.
-    compile.writeRemarks(settings)
     if watch then
         watch.finish(ok)
     end
@@ -234,12 +234,20 @@ local function run(options: any): integer
     -- the samples.
     if sampling then
         local summary = sampling:stop(profileOut)
+        compile.attachSamples(settings, summary.sourceSamples, summary.samples, summary.intervalMs)
+        if sampledRemarks then
+            require(
+                "nupp.compiler.diagnostics"
+            ).report(compile.selectRemarks(settings.collectedRemarks or {}, settings.remarksFile))
+        end
         io.stderr:write(
             (
                 "nupp: %d samples on %d stacks every %dms, written to " .. "%s\n"
             ):format(summary.samples, summary.stacks, summary.intervalMs, profileOut)
         )
     end
+    -- Complete after lazy loading and sampling, so the artifact carries runtime heat.
+    compile.writeRemarks(settings)
     if tracing then
         -- Stop collecting before any report serialization or filesystem work. Both
         -- formats then use the checked atomic writer below, so a failed CSV write is

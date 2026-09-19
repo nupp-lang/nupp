@@ -276,6 +276,7 @@ end
 
 local function remark(remarks, node, code, message, related, status)
     local token = firstToken(node)
+    local last = cst.lastToken(node)
     remarks[
         #remarks + 1
     ] = {
@@ -283,6 +284,7 @@ local function remark(remarks, node, code, message, related, status)
         severity = "note",
         status = status or "fired",
         hotness = "unknown",
+        sourceEndLine = last and last.line or token and token.line or 0,
         msg = message,
         line = token and token.line or 0,
         col = token and token.col or 0,
