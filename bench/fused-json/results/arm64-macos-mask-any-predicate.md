@@ -25,7 +25,7 @@ Seven compiled JSON, Unicode, first-error and vector-tail differentials passed.
 The independent native oracle covered every byte at every lane, active masks,
 and input boundaries across fixed widths 2, 16, 17, 32, 33 and 64. A separate
 one-lane fixture exposed an existing compiler crash, reproduced on the baseline;
-its failing output is preserved for a separate diagnostic fix. It is
+its failing output is preserved and its diagnostic is fixed in `30b6da78`. It is
 not counted as passing native coverage.
 
 Measurements used Apple M5 Pro, macOS 26.6, Clang 21 and the same patched LuaJIT

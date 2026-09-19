@@ -1,0 +1,875 @@
+{
+  "provenance": {
+    "baseline_revision": "f89264df55e7bec8fb4230d4f318af1021c8c49a",
+    "harness_revision": "5b6aed94",
+    "host": "Apple M5 Pro, arm64 macOS26.6 (25G72), Apple clang21.0.0",
+    "mechanism": "Probe four preferred byte vectors for ASCII; remember successful range and suppress overlapping failed probes. On ARM64, Clang if-converts current-block fallback, yielding two reductions per four-block probe, plus scalar branches and state spills.",
+    "decision": "Rejected at pilot: clear ASCII and sparse-Unicode regressions. No confirmatory run performed. No grouped production change retained."
+  },
+  "qualification": {
+    "machine_wide_task_hold_confirmed": true,
+    "task_builds_tests_browsers_paused": true,
+    "all_pilot_forks_retained": true,
+    "formal_run_performed": false
+  },
+  "candidate_artifacts": {
+    "base_revision": "30b6da780893713dc517ea92cd1a0bb7c374f1bd",
+    "candidate": "four-block ASCII lookahead with nonoverlapping failed probes",
+    "sha256": {
+      "/private/tmp/nupp-63-grouped-candidate/aot/src/nupp/codec/json/internal/decoder/fusedbench.neon.c": "c636a30467ccd2a8bb98da5afa13807738b08f829904b55dcd899b0eb57dc895",
+      "/private/tmp/nupp-63-grouped-candidate/fusedbench.neon.s": "380fedb495d3bcf068bd924703d19a62927d77113b83d9fb7278f402799f262a",
+      "/private/tmp/nupp-63-grouped-candidate/lib/libfused_json_aot.dylib": "e27e9e8d326010d5f3bc0b7e7aa13ea612c12ab1af41af4a192ac575513e00ed",
+      "/private/tmp/nupp-63-grouped-candidate/nupp/codec/json/internal/decoder/fusedbench.lua": "b2b4f1fce36da07ce56d5d61ccfae1c1a77ed122c3b8fd405d8f7bc063fb98dd",
+      "/private/tmp/nupp-63-grouped-source.patch": "3b2ad4f347ea3b4f0914416ec4b4a25c201c142d1c4ed5e67f3a4b4913d5a855"
+    },
+    "correctness_log": "/private/tmp/nupp-63-grouped-differentials.log",
+    "fixpoint_log": "/private/tmp/nupp-63-grouped-fixpoint.log"
+  },
+  "protocol": {
+    "stage": "pilot",
+    "frozen_at_utc": "2026-09-19T21:55:43.492740+00:00",
+    "forks_per_payload": 3,
+    "samples_per_fork": 7,
+    "warmups": 3,
+    "native_batch_bytes": 67108864,
+    "control_batch_bytes": 2097152,
+    "primary": "ascii",
+    "ceilings": [
+      "unicode",
+      "sparseUnicode"
+    ],
+    "margin_percent": 1,
+    "retention_rule": "ASCII paired throughput 95% interval entirely above 1/.99; Both Unicode interval lower bounds above 1/1.01; all correctness and native-call proofs pass.",
+    "analysis": "Per-fork median paired sample log throughput ratios; mean and Student t 95% interval over independent forks. All forks retained.",
+    "hashes": {
+      "/Users/dowling/projects/nupp/.nupp-cache/toolchain/146f4035337ca7ca/luajit/bin/luajit": "b08a2f4b75efc0095b18d74a065d1c3637d60bc66887ad86cc88ed70b074a86a",
+      "/private/tmp/nupp-mask-any-proof/bench/fused-json/tests/bench.lua": "4f24d4232bb1b63960ec23ef3826fa001d682a7119f5278441633ccf13015524",
+      "/private/tmp/nupp-63-baseline/lib/libfused_json_aot.dylib": "4ce9ef8edf38ef9bfdc05388783048d228f26b2f926ee4a63738d19ee78493db",
+      "/private/tmp/nupp-63-baseline/aot/src/nupp/codec/json/internal/decoder/fusedbench.neon.c": "e39426c92533d1c618f9d7398b2f475b9f242479e56bb050687f5d7a94b37aba",
+      "/private/tmp/nupp-63-baseline/nupp/codec/json/internal/decoder/fusedbench.lua": "b2b4f1fce36da07ce56d5d61ccfae1c1a77ed122c3b8fd405d8f7bc063fb98dd",
+      "/private/tmp/nupp-63-grouped-candidate/lib/libfused_json_aot.dylib": "e27e9e8d326010d5f3bc0b7e7aa13ea612c12ab1af41af4a192ac575513e00ed",
+      "/private/tmp/nupp-63-grouped-candidate/aot/src/nupp/codec/json/internal/decoder/fusedbench.neon.c": "c636a30467ccd2a8bb98da5afa13807738b08f829904b55dcd899b0eb57dc895",
+      "/private/tmp/nupp-63-grouped-candidate/nupp/codec/json/internal/decoder/fusedbench.lua": "b2b4f1fce36da07ce56d5d61ccfae1c1a77ed122c3b8fd405d8f7bc063fb98dd"
+    },
+    "script": "from pathlib import Path\nimport subprocess,os,time,json,sys,hashlib,datetime\nroot=Path('/private/tmp/nupp-mask-any-proof')\ncandidate=Path('/private/tmp/nupp-63-grouped-candidate')\nbaseline=Path('/private/tmp/nupp-63-baseline')\nvm=Path('/Users/dowling/projects/nupp/.nupp-cache/toolchain/146f4035337ca7ca/luajit/bin/luajit')\nstage=sys.argv[1]\nassert stage in ('pilot','formal')\nforks,samples=(3,7) if stage=='pilot' else (25,25)\nout=Path('/private/tmp/nupp-63-grouped-'+stage)\nout.mkdir(exist_ok=False)\nsha=lambda p:hashlib.sha256(p.read_bytes()).hexdigest()\nfiles=[vm,root/'bench/fused-json/tests/bench.lua']\nfor directory in (baseline,candidate):\n files.extend(sorted(directory.rglob('*.dylib')))\n files.extend(sorted(directory.rglob('*.neon.c')))\n files.append(directory/'nupp/codec/json/internal/decoder/fusedbench.lua')\nprotocol={'stage':stage,'frozen_at_utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),'forks_per_payload':forks,'samples_per_fork':samples,'warmups':3,'native_batch_bytes':67108864,'control_batch_bytes':2097152,'primary':'ascii','ceilings':['unicode','sparseUnicode'],'margin_percent':1,'retention_rule':'ASCII paired throughput 95% interval entirely above 1/.99; Both Unicode interval lower bounds above 1/1.01; all correctness and native-call proofs pass.','analysis':'Per-fork median paired sample log throughput ratios; mean and Student t 95% interval over independent forks. All forks retained.','hashes':{str(p):sha(p) for p in files},'script':Path(__file__).read_text()}\n(out/'protocol.json').write_text(json.dumps(protocol,indent=2)+'\\n')\nenv=os.environ.copy()\nenv['LUA_PATH']=str(candidate)+'/?.lua;'+str(candidate)+'/?/init.lua;'+str(root)+'/build/?.lua;'+str(root)+'/.rocks/share/lua/5.1/?.lua;'+str(root)+'/.rocks/share/lua/5.1/?/init.lua;;'\nenv['LUA_CPATH']=str(root)+'/.rocks/lib/lua/5.1/?.so;;'\nenv['NUPP_FUSED_BASELINE']=str(baseline)\nenv['NUPP_FUSED_BENCH_BATCH_BYTES']='67108864'\nfor fork in range(1,forks+1):\n for payload in (('ascii','unicode','sparseUnicode') if fork%2 else ('sparseUnicode','unicode','ascii')):\n  env['NUPP_FUSED_BENCH_PAYLOAD']=payload\n  env['NUPP_FUSED_BENCH_OUTPUT']=str(out/('%s-%02d.json'%(payload,fork)))\n  started=time.time()\n  with (out/('%s-%02d.log'%(payload,fork))).open('w') as log:\n   subprocess.run([str(vm),str(root/'bench/fused-json/tests/bench.lua'),str(samples)],cwd=root/'bench/fused-json',env=env,stdout=log,stderr=subprocess.STDOUT,check=True)\n  print(json.dumps({'fork':fork,'payload':payload,'started_utc':datetime.datetime.fromtimestamp(started,datetime.timezone.utc).isoformat(),'seconds':time.time()-started}),flush=True)\nassert all(sha(Path(p))==v for p,v in protocol['hashes'].items()),'artifact changed during measurement'\n"
+  },
+  "summary": {
+    "payloads": [
+      {
+        "payload": "ascii",
+        "bytes": 2097217,
+        "digest": "fnv1a32:7b49ddf0",
+        "forks": 3,
+        "candidate_MBps": 2570.02,
+        "baseline_MBps": 2934.71,
+        "throughput_ratio": 0.8931426826603138,
+        "ratio_CI95": [
+          0.8416716818995881,
+          0.9477613049655014
+        ],
+        "duration_change_percent": 11.96419333822465,
+        "verdict": "regressed",
+        "control_MBps": 184.761,
+        "control_min_max": [
+          180.437,
+          185.677
+        ],
+        "control_cv_percent": 1.524095117636951,
+        "fork_paired_log_ratios": [
+          -0.08561786330318837,
+          -0.12957273583745155,
+          -0.12383619642146877
+        ]
+      },
+      {
+        "payload": "unicode",
+        "bytes": 2097192,
+        "digest": "fnv1a32:c9a0b750",
+        "forks": 3,
+        "candidate_MBps": 2580.564,
+        "baseline_MBps": 2612.306,
+        "throughput_ratio": 0.9880005647138358,
+        "ratio_CI95": [
+          0.9757891062136466,
+          1.0003648428322727
+        ],
+        "duration_change_percent": 1.2145170473297995,
+        "verdict": "inconclusive",
+        "control_MBps": 190.914,
+        "control_min_max": [
+          190.758,
+          191.892
+        ],
+        "control_cv_percent": 0.3214904285600508,
+        "fork_paired_log_ratios": [
+          -0.006642891133017981,
+          -0.01306658441135383,
+          -0.01650655344080113
+        ]
+      },
+      {
+        "payload": "sparseUnicode",
+        "bytes": 2097255,
+        "digest": "fnv1a32:c175c620",
+        "forks": 3,
+        "candidate_MBps": 2898.513,
+        "baseline_MBps": 3627.684,
+        "throughput_ratio": 0.8112302259002329,
+        "ratio_CI95": [
+          0.795074094185068,
+          0.8277146548066996
+        ],
+        "duration_change_percent": 23.269568622185744,
+        "verdict": "regressed",
+        "control_MBps": 182.608,
+        "control_min_max": [
+          181.282,
+          187.876
+        ],
+        "control_cv_percent": 1.8963791002077726,
+        "fork_paired_log_ratios": [
+          -0.19990569730703445,
+          -0.2129905053913494,
+          -0.21471395564434437
+        ]
+      }
+    ],
+    "retention_pass": false
+  },
+  "execution_log": "{\"fork\": 1, \"payload\": \"ascii\", \"started_utc\": \"2026-09-19T21:55:43.493982+00:00\", \"seconds\": 0.5909802913665771}\n{\"fork\": 1, \"payload\": \"unicode\", \"started_utc\": \"2026-09-19T21:55:44.085062+00:00\", \"seconds\": 0.6146552562713623}\n{\"fork\": 1, \"payload\": \"sparseUnicode\", \"started_utc\": \"2026-09-19T21:55:44.699793+00:00\", \"seconds\": 0.5368051528930664}\n{\"fork\": 2, \"payload\": \"sparseUnicode\", \"started_utc\": \"2026-09-19T21:55:45.236703+00:00\", \"seconds\": 0.5378811359405518}\n{\"fork\": 2, \"payload\": \"unicode\", \"started_utc\": \"2026-09-19T21:55:45.774660+00:00\", \"seconds\": 0.6131608486175537}\n{\"fork\": 2, \"payload\": \"ascii\", \"started_utc\": \"2026-09-19T21:55:46.387909+00:00\", \"seconds\": 0.5985608100891113}\n{\"fork\": 3, \"payload\": \"ascii\", \"started_utc\": \"2026-09-19T21:55:46.986572+00:00\", \"seconds\": 0.5976099967956543}\n{\"fork\": 3, \"payload\": \"unicode\", \"started_utc\": \"2026-09-19T21:55:47.584281+00:00\", \"seconds\": 0.6177458763122559}\n{\"fork\": 3, \"payload\": \"sparseUnicode\", \"started_utc\": \"2026-09-19T21:55:48.202108+00:00\", \"seconds\": 0.5357480049133301}\n",
+  "analysis_script": "from pathlib import Path\nimport json,math,statistics,sys\nroot=Path(sys.argv[1]); protocol=json.loads((root/'protocol.json').read_text()); n=protocol['forks_per_payload'];t={3:4.3026527299,25:2.0638985616}[n]\nrows=[]\nfor payload in ('ascii','unicode','sparseUnicode'):\n forks=[json.loads(p.read_text()) for p in sorted(root.glob(payload+'-??.json'))]\n assert len(forks)==n,(payload,len(forks))\n data=[f['payloads'][0] for f in forks]; first=data[0]\n assert all(d['payload']==payload and d['digest']==first['digest'] and len(d['fused']['samples'])==protocol['samples_per_fork'] for d in data)\n paired=[statistics.median(math.log(a/b) for a,b in zip(d['fused']['samples'],d['baseline']['samples'])) for d in data]\n center=statistics.mean(paired); delta=t*statistics.stdev(paired)/math.sqrt(n)\n low,high=math.exp(center-delta),math.exp(center+delta)\n verdict='improved' if low>1/.99 else 'regressed' if high<1/1.01 else 'unchanged' if low>=1/1.01 and high<=1/.99 else 'inconclusive'\n control=[d['lunajson']['median'] for d in data]\n rows.append({'payload':payload,'bytes':first['bytes'],'digest':first['digest'],'forks':n,'candidate_MBps':statistics.median(d['fused']['median'] for d in data),'baseline_MBps':statistics.median(d['baseline']['median'] for d in data),'throughput_ratio':math.exp(center),'ratio_CI95':[low,high],'duration_change_percent':100*(1/math.exp(center)-1),'verdict':verdict,'control_MBps':statistics.median(control),'control_min_max':[min(control),max(control)],'control_cv_percent':100*statistics.stdev(control)/statistics.mean(control),'fork_paired_log_ratios':paired})\nreport={'payloads':rows,'retention_pass':rows[0]['ratio_CI95'][0]>1/.99 and all(row['ratio_CI95'][0]>1/1.01 for row in rows[1:])}\n(root/'summary.json').write_text(json.dumps(report,indent=2)+'\\n');print(json.dumps(report,indent=2))\n",
+  "forks": [
+    {
+      "name": "ascii-01",
+      "result": {
+        "loadBefore": "3.22 4.15 6.24",
+        "loadAfter": "3.22 4.15 6.24",
+        "samples": 7,
+        "artifact": "/private/tmp/nupp-63-grouped-candidate/nupp/codec/json/internal/decoder/fusedbench.lua",
+        "object": "/private/tmp/nupp-63-grouped-candidate/nupp/codec/json/internal/decoder/../../../../../lib/libfused_json_aot.dylib",
+        "baselineArtifact": "/private/tmp/nupp-63-baseline/nupp/codec/json/internal/decoder/fusedbench.lua",
+        "baselineObject": "/private/tmp/nupp-63-baseline/nupp/codec/json/internal/decoder/../../../../../lib/libfused_json_aot.dylib",
+        "payloads": [
+          {
+            "payload": "ascii",
+            "bytes": 2097217,
+            "digest": "fnv1a32:7b49ddf0",
+            "batch": 32,
+            "fused": {
+              "median": 2719.795,
+              "min": 2655.23,
+              "max": 2749.772,
+              "batch": 32,
+              "samples": [
+                2672.678,
+                2655.23,
+                2681.006,
+                2719.795,
+                2731.974,
+                2746.621,
+                2749.772
+              ]
+            },
+            "lunajson": {
+              "median": 184.761,
+              "min": 183.757,
+              "max": 186.968,
+              "batch": 1,
+              "samples": [
+                183.757,
+                183.95,
+                186.386,
+                185.858,
+                184.468,
+                186.968,
+                184.761
+              ]
+            },
+            "baseline": {
+              "median": 2955.258,
+              "min": 2920.661,
+              "max": 3007.436,
+              "batch": 32,
+              "samples": [
+                2955.258,
+                2932.145,
+                2920.661,
+                3007.436,
+                2925.371,
+                2957.993,
+                2978.473
+              ]
+            },
+            "ratio": 14.7206
+          }
+        ]
+      },
+      "log": "baseline compiled decoder: /private/tmp/nupp-63-baseline/nupp/codec/json/internal/decoder/fusedbench.lua\ncompiled decoder proof\n  artifact       /private/tmp/nupp-63-grouped-candidate/nupp/codec/json/internal/decoder/fusedbench.lua (14682 bytes)\n  replacements   4\n  native entries 3 C functions registered\n\nload averages before: 3.22 4.15 6.24\nsamples: 7, warmups: 3, about 64.0 MiB per native batch (control 2 MiB)\n\nascii       2097217 bytes  fnv1a32:7b49ddf0\n  fused     median   2719.8 MB/s   min   2655.2   max   2749.8\n  lunajson  median    184.8 MB/s   min    183.8   max    187.0\n  baseline  median   2955.3 MB/s   min   2920.7   max   3007.4\n  fused / lunajson  14.72x\n  fused / baseline  0.920x\n\nload averages after: 3.22 4.15 6.24\n"
+    },
+    {
+      "name": "ascii-02",
+      "result": {
+        "loadBefore": "3.04 4.10 6.21",
+        "loadAfter": "3.04 4.10 6.21",
+        "samples": 7,
+        "artifact": "/private/tmp/nupp-63-grouped-candidate/nupp/codec/json/internal/decoder/fusedbench.lua",
+        "object": "/private/tmp/nupp-63-grouped-candidate/nupp/codec/json/internal/decoder/../../../../../lib/libfused_json_aot.dylib",
+        "baselineArtifact": "/private/tmp/nupp-63-baseline/nupp/codec/json/internal/decoder/fusedbench.lua",
+        "baselineObject": "/private/tmp/nupp-63-baseline/nupp/codec/json/internal/decoder/../../../../../lib/libfused_json_aot.dylib",
+        "payloads": [
+          {
+            "payload": "ascii",
+            "bytes": 2097217,
+            "digest": "fnv1a32:7b49ddf0",
+            "batch": 32,
+            "fused": {
+              "median": 2559.923,
+              "min": 2541.889,
+              "max": 2617.738,
+              "batch": 32,
+              "samples": [
+                2552.426,
+                2555.634,
+                2617.738,
+                2581.687,
+                2573.667,
+                2541.889,
+                2559.923
+              ]
+            },
+            "lunajson": {
+              "median": 180.437,
+              "min": 179.234,
+              "max": 188.311,
+              "batch": 1,
+              "samples": [
+                179.895,
+                180.717,
+                180.111,
+                186.303,
+                179.234,
+                188.311,
+                180.437
+              ]
+            },
+            "baseline": {
+              "median": 2916.346,
+              "min": 2908.509,
+              "max": 2982.576,
+              "batch": 32,
+              "samples": [
+                2916.346,
+                2908.509,
+                2911.411,
+                2932.786,
+                2929.713,
+                2982.576,
+                2915.205
+              ]
+            },
+            "ratio": 14.1874
+          }
+        ]
+      },
+      "log": "baseline compiled decoder: /private/tmp/nupp-63-baseline/nupp/codec/json/internal/decoder/fusedbench.lua\ncompiled decoder proof\n  artifact       /private/tmp/nupp-63-grouped-candidate/nupp/codec/json/internal/decoder/fusedbench.lua (14682 bytes)\n  replacements   4\n  native entries 3 C functions registered\n\nload averages before: 3.04 4.10 6.21\nsamples: 7, warmups: 3, about 64.0 MiB per native batch (control 2 MiB)\n\nascii       2097217 bytes  fnv1a32:7b49ddf0\n  fused     median   2559.9 MB/s   min   2541.9   max   2617.7\n  lunajson  median    180.4 MB/s   min    179.2   max    188.3\n  baseline  median   2916.3 MB/s   min   2908.5   max   2982.6\n  fused / lunajson  14.19x\n  fused / baseline  0.878x\n\nload averages after: 3.04 4.10 6.21\n"
+    },
+    {
+      "name": "ascii-03",
+      "result": {
+        "loadBefore": "3.04 4.10 6.21",
+        "loadAfter": "3.04 4.10 6.21",
+        "samples": 7,
+        "artifact": "/private/tmp/nupp-63-grouped-candidate/nupp/codec/json/internal/decoder/fusedbench.lua",
+        "object": "/private/tmp/nupp-63-grouped-candidate/nupp/codec/json/internal/decoder/../../../../../lib/libfused_json_aot.dylib",
+        "baselineArtifact": "/private/tmp/nupp-63-baseline/nupp/codec/json/internal/decoder/fusedbench.lua",
+        "baselineObject": "/private/tmp/nupp-63-baseline/nupp/codec/json/internal/decoder/../../../../../lib/libfused_json_aot.dylib",
+        "payloads": [
+          {
+            "payload": "ascii",
+            "bytes": 2097217,
+            "digest": "fnv1a32:7b49ddf0",
+            "batch": 32,
+            "fused": {
+              "median": 2570.02,
+              "min": 2552.329,
+              "max": 2600.393,
+              "batch": 32,
+              "samples": [
+                2552.329,
+                2556.705,
+                2570.02,
+                2600.393,
+                2585.167,
+                2569.824,
+                2593.66
+              ]
+            },
+            "lunajson": {
+              "median": 185.677,
+              "min": 184.176,
+              "max": 187.101,
+              "batch": 1,
+              "samples": [
+                185.923,
+                185.677,
+                185.103,
+                186.735,
+                187.101,
+                184.176,
+                184.193
+              ]
+            },
+            "baseline": {
+              "median": 2934.71,
+              "min": 2873.023,
+              "max": 3025.059,
+              "batch": 32,
+              "samples": [
+                2934.71,
+                2874.377,
+                3009.729,
+                2943.204,
+                2920.152,
+                3025.059,
+                2873.023
+              ]
+            },
+            "ratio": 13.8414
+          }
+        ]
+      },
+      "log": "baseline compiled decoder: /private/tmp/nupp-63-baseline/nupp/codec/json/internal/decoder/fusedbench.lua\ncompiled decoder proof\n  artifact       /private/tmp/nupp-63-grouped-candidate/nupp/codec/json/internal/decoder/fusedbench.lua (14682 bytes)\n  replacements   4\n  native entries 3 C functions registered\n\nload averages before: 3.04 4.10 6.21\nsamples: 7, warmups: 3, about 64.0 MiB per native batch (control 2 MiB)\n\nascii       2097217 bytes  fnv1a32:7b49ddf0\n  fused     median   2570.0 MB/s   min   2552.3   max   2600.4\n  lunajson  median    185.7 MB/s   min    184.2   max    187.1\n  baseline  median   2934.7 MB/s   min   2873.0   max   3025.1\n  fused / lunajson  13.84x\n  fused / baseline  0.876x\n\nload averages after: 3.04 4.10 6.21\n"
+    },
+    {
+      "name": "sparseUnicode-01",
+      "result": {
+        "loadBefore": "3.04 4.10 6.21",
+        "loadAfter": "3.04 4.10 6.21",
+        "samples": 7,
+        "artifact": "/private/tmp/nupp-63-grouped-candidate/nupp/codec/json/internal/decoder/fusedbench.lua",
+        "object": "/private/tmp/nupp-63-grouped-candidate/nupp/codec/json/internal/decoder/../../../../../lib/libfused_json_aot.dylib",
+        "baselineArtifact": "/private/tmp/nupp-63-baseline/nupp/codec/json/internal/decoder/fusedbench.lua",
+        "baselineObject": "/private/tmp/nupp-63-baseline/nupp/codec/json/internal/decoder/../../../../../lib/libfused_json_aot.dylib",
+        "payloads": [
+          {
+            "payload": "sparseUnicode",
+            "bytes": 2097255,
+            "digest": "fnv1a32:c175c620",
+            "batch": 32,
+            "fused": {
+              "median": 2988.74,
+              "min": 2933.865,
+              "max": 3011.404,
+              "batch": 32,
+              "samples": [
+                2936.946,
+                2933.865,
+                2956.222,
+                3011.404,
+                2988.74,
+                3001.036,
+                2996.48
+              ]
+            },
+            "lunajson": {
+              "median": 181.282,
+              "min": 180.223,
+              "max": 183.423,
+              "batch": 1,
+              "samples": [
+                180.223,
+                182.196,
+                181.502,
+                180.923,
+                180.923,
+                181.282,
+                183.423
+              ]
+            },
+            "baseline": {
+              "median": 3654.749,
+              "min": 3423.566,
+              "max": 3698.251,
+              "batch": 32,
+              "samples": [
+                3423.566,
+                3555.046,
+                3654.749,
+                3599.665,
+                3698.251,
+                3665.128,
+                3693.773
+              ]
+            },
+            "ratio": 16.4867
+          }
+        ]
+      },
+      "log": "baseline compiled decoder: /private/tmp/nupp-63-baseline/nupp/codec/json/internal/decoder/fusedbench.lua\ncompiled decoder proof\n  artifact       /private/tmp/nupp-63-grouped-candidate/nupp/codec/json/internal/decoder/fusedbench.lua (14682 bytes)\n  replacements   4\n  native entries 3 C functions registered\n\nload averages before: 3.04 4.10 6.21\nsamples: 7, warmups: 3, about 64.0 MiB per native batch (control 2 MiB)\n\nsparseUnicode   2097255 bytes  fnv1a32:c175c620\n  fused     median   2988.7 MB/s   min   2933.9   max   3011.4\n  lunajson  median    181.3 MB/s   min    180.2   max    183.4\n  baseline  median   3654.7 MB/s   min   3423.6   max   3698.3\n  fused / lunajson  16.49x\n  fused / baseline  0.818x\n\nload averages after: 3.04 4.10 6.21\n"
+    },
+    {
+      "name": "sparseUnicode-02",
+      "result": {
+        "loadBefore": "3.04 4.10 6.21",
+        "loadAfter": "3.04 4.10 6.21",
+        "samples": 7,
+        "artifact": "/private/tmp/nupp-63-grouped-candidate/nupp/codec/json/internal/decoder/fusedbench.lua",
+        "object": "/private/tmp/nupp-63-grouped-candidate/nupp/codec/json/internal/decoder/../../../../../lib/libfused_json_aot.dylib",
+        "baselineArtifact": "/private/tmp/nupp-63-baseline/nupp/codec/json/internal/decoder/fusedbench.lua",
+        "baselineObject": "/private/tmp/nupp-63-baseline/nupp/codec/json/internal/decoder/../../../../../lib/libfused_json_aot.dylib",
+        "payloads": [
+          {
+            "payload": "sparseUnicode",
+            "bytes": 2097255,
+            "digest": "fnv1a32:c175c620",
+            "batch": 32,
+            "fused": {
+              "median": 2873.936,
+              "min": 2769.796,
+              "max": 2889.03,
+              "batch": 32,
+              "samples": [
+                2789.251,
+                2769.796,
+                2889.03,
+                2875.66,
+                2873.936,
+                2886.669,
+                2846.751
+              ]
+            },
+            "lunajson": {
+              "median": 182.608,
+              "min": 177.99,
+              "max": 185.729,
+              "batch": 1,
+              "samples": [
+                182.608,
+                183.023,
+                177.99,
+                179.79,
+                181.329,
+                183.776,
+                185.729
+              ]
+            },
+            "baseline": {
+              "median": 3533.335,
+              "min": 3495.061,
+              "max": 3612.453,
+              "batch": 32,
+              "samples": [
+                3533.335,
+                3495.243,
+                3510.968,
+                3612.453,
+                3540.605,
+                3571.886,
+                3495.061
+              ]
+            },
+            "ratio": 15.7383
+          }
+        ]
+      },
+      "log": "baseline compiled decoder: /private/tmp/nupp-63-baseline/nupp/codec/json/internal/decoder/fusedbench.lua\ncompiled decoder proof\n  artifact       /private/tmp/nupp-63-grouped-candidate/nupp/codec/json/internal/decoder/fusedbench.lua (14682 bytes)\n  replacements   4\n  native entries 3 C functions registered\n\nload averages before: 3.04 4.10 6.21\nsamples: 7, warmups: 3, about 64.0 MiB per native batch (control 2 MiB)\n\nsparseUnicode   2097255 bytes  fnv1a32:c175c620\n  fused     median   2873.9 MB/s   min   2769.8   max   2889.0\n  lunajson  median    182.6 MB/s   min    178.0   max    185.7\n  baseline  median   3533.3 MB/s   min   3495.1   max   3612.5\n  fused / lunajson  15.74x\n  fused / baseline  0.813x\n\nload averages after: 3.04 4.10 6.21\n"
+    },
+    {
+      "name": "sparseUnicode-03",
+      "result": {
+        "loadBefore": "3.04 4.10 6.21",
+        "loadAfter": "3.04 4.10 6.21",
+        "samples": 7,
+        "artifact": "/private/tmp/nupp-63-grouped-candidate/nupp/codec/json/internal/decoder/fusedbench.lua",
+        "object": "/private/tmp/nupp-63-grouped-candidate/nupp/codec/json/internal/decoder/../../../../../lib/libfused_json_aot.dylib",
+        "baselineArtifact": "/private/tmp/nupp-63-baseline/nupp/codec/json/internal/decoder/fusedbench.lua",
+        "baselineObject": "/private/tmp/nupp-63-baseline/nupp/codec/json/internal/decoder/../../../../../lib/libfused_json_aot.dylib",
+        "payloads": [
+          {
+            "payload": "sparseUnicode",
+            "bytes": 2097255,
+            "digest": "fnv1a32:c175c620",
+            "batch": 32,
+            "fused": {
+              "median": 2898.513,
+              "min": 2826.132,
+              "max": 3003.184,
+              "batch": 32,
+              "samples": [
+                3003.184,
+                2898.513,
+                2944.42,
+                2891.145,
+                2852.317,
+                2978.527,
+                2826.132
+              ]
+            },
+            "lunajson": {
+              "median": 187.876,
+              "min": 182.529,
+              "max": 189.163,
+              "batch": 1,
+              "samples": [
+                188.585,
+                182.529,
+                187.876,
+                188.128,
+                186.092,
+                186.938,
+                189.163
+              ]
+            },
+            "baseline": {
+              "median": 3627.684,
+              "min": 3565.055,
+              "max": 3663.727,
+              "batch": 32,
+              "samples": [
+                3565.055,
+                3592.728,
+                3627.684,
+                3593.882,
+                3640.475,
+                3663.727,
+                3649.185
+              ]
+            },
+            "ratio": 15.4278
+          }
+        ]
+      },
+      "log": "baseline compiled decoder: /private/tmp/nupp-63-baseline/nupp/codec/json/internal/decoder/fusedbench.lua\ncompiled decoder proof\n  artifact       /private/tmp/nupp-63-grouped-candidate/nupp/codec/json/internal/decoder/fusedbench.lua (14682 bytes)\n  replacements   4\n  native entries 3 C functions registered\n\nload averages before: 3.04 4.10 6.21\nsamples: 7, warmups: 3, about 64.0 MiB per native batch (control 2 MiB)\n\nsparseUnicode   2097255 bytes  fnv1a32:c175c620\n  fused     median   2898.5 MB/s   min   2826.1   max   3003.2\n  lunajson  median    187.9 MB/s   min    182.5   max    189.2\n  baseline  median   3627.7 MB/s   min   3565.1   max   3663.7\n  fused / lunajson  15.43x\n  fused / baseline  0.799x\n\nload averages after: 3.04 4.10 6.21\n"
+    },
+    {
+      "name": "unicode-01",
+      "result": {
+        "loadBefore": "3.22 4.15 6.24",
+        "loadAfter": "3.04 4.10 6.21",
+        "samples": 7,
+        "artifact": "/private/tmp/nupp-63-grouped-candidate/nupp/codec/json/internal/decoder/fusedbench.lua",
+        "object": "/private/tmp/nupp-63-grouped-candidate/nupp/codec/json/internal/decoder/../../../../../lib/libfused_json_aot.dylib",
+        "baselineArtifact": "/private/tmp/nupp-63-baseline/nupp/codec/json/internal/decoder/fusedbench.lua",
+        "baselineObject": "/private/tmp/nupp-63-baseline/nupp/codec/json/internal/decoder/../../../../../lib/libfused_json_aot.dylib",
+        "payloads": [
+          {
+            "payload": "unicode",
+            "bytes": 2097192,
+            "digest": "fnv1a32:c9a0b750",
+            "batch": 32,
+            "fused": {
+              "median": 2598.348,
+              "min": 2565.569,
+              "max": 2613.934,
+              "batch": 32,
+              "samples": [
+                2591.926,
+                2583.843,
+                2598.348,
+                2609.868,
+                2565.569,
+                2602.177,
+                2613.934
+              ]
+            },
+            "lunajson": {
+              "median": 191.892,
+              "min": 185.79,
+              "max": 192.456,
+              "batch": 1,
+              "samples": [
+                191.018,
+                192.456,
+                191.892,
+                185.79,
+                191.892,
+                192.297,
+                187.099
+              ]
+            },
+            "baseline": {
+              "median": 2612.306,
+              "min": 2603.085,
+              "max": 2626.826,
+              "batch": 32,
+              "samples": [
+                2603.388,
+                2612.306,
+                2615.666,
+                2604.702,
+                2618.422,
+                2626.826,
+                2603.085
+              ]
+            },
+            "ratio": 13.5407
+          }
+        ]
+      },
+      "log": "baseline compiled decoder: /private/tmp/nupp-63-baseline/nupp/codec/json/internal/decoder/fusedbench.lua\ncompiled decoder proof\n  artifact       /private/tmp/nupp-63-grouped-candidate/nupp/codec/json/internal/decoder/fusedbench.lua (14682 bytes)\n  replacements   4\n  native entries 3 C functions registered\n\nload averages before: 3.22 4.15 6.24\nsamples: 7, warmups: 3, about 64.0 MiB per native batch (control 2 MiB)\n\nunicode     2097192 bytes  fnv1a32:c9a0b750\n  fused     median   2598.3 MB/s   min   2565.6   max   2613.9\n  lunajson  median    191.9 MB/s   min    185.8   max    192.5\n  baseline  median   2612.3 MB/s   min   2603.1   max   2626.8\n  fused / lunajson  13.54x\n  fused / baseline  0.995x\n\nload averages after: 3.04 4.10 6.21\n"
+    },
+    {
+      "name": "unicode-02",
+      "result": {
+        "loadBefore": "3.04 4.10 6.21",
+        "loadAfter": "3.04 4.10 6.21",
+        "samples": 7,
+        "artifact": "/private/tmp/nupp-63-grouped-candidate/nupp/codec/json/internal/decoder/fusedbench.lua",
+        "object": "/private/tmp/nupp-63-grouped-candidate/nupp/codec/json/internal/decoder/../../../../../lib/libfused_json_aot.dylib",
+        "baselineArtifact": "/private/tmp/nupp-63-baseline/nupp/codec/json/internal/decoder/fusedbench.lua",
+        "baselineObject": "/private/tmp/nupp-63-baseline/nupp/codec/json/internal/decoder/../../../../../lib/libfused_json_aot.dylib",
+        "payloads": [
+          {
+            "payload": "unicode",
+            "bytes": 2097192,
+            "digest": "fnv1a32:c9a0b750",
+            "batch": 32,
+            "fused": {
+              "median": 2580.564,
+              "min": 2567.826,
+              "max": 2586.631,
+              "batch": 32,
+              "samples": [
+                2580.762,
+                2580.564,
+                2572.551,
+                2567.826,
+                2577.491,
+                2585.635,
+                2586.631
+              ]
+            },
+            "lunajson": {
+              "median": 190.914,
+              "min": 184.515,
+              "max": 194.563,
+              "batch": 1,
+              "samples": [
+                190.914,
+                191.21,
+                184.515,
+                194.563,
+                189.363,
+                187.182,
+                192.051
+              ]
+            },
+            "baseline": {
+              "median": 2606.017,
+              "min": 2585.236,
+              "max": 2622.514,
+              "batch": 32,
+              "samples": [
+                2585.236,
+                2615.258,
+                2622.514,
+                2602.278,
+                2611.391,
+                2605.309,
+                2606.017
+              ]
+            },
+            "ratio": 13.5169
+          }
+        ]
+      },
+      "log": "baseline compiled decoder: /private/tmp/nupp-63-baseline/nupp/codec/json/internal/decoder/fusedbench.lua\ncompiled decoder proof\n  artifact       /private/tmp/nupp-63-grouped-candidate/nupp/codec/json/internal/decoder/fusedbench.lua (14682 bytes)\n  replacements   4\n  native entries 3 C functions registered\n\nload averages before: 3.04 4.10 6.21\nsamples: 7, warmups: 3, about 64.0 MiB per native batch (control 2 MiB)\n\nunicode     2097192 bytes  fnv1a32:c9a0b750\n  fused     median   2580.6 MB/s   min   2567.8   max   2586.6\n  lunajson  median    190.9 MB/s   min    184.5   max    194.6\n  baseline  median   2606.0 MB/s   min   2585.2   max   2622.5\n  fused / lunajson  13.52x\n  fused / baseline  0.990x\n\nload averages after: 3.04 4.10 6.21\n"
+    },
+    {
+      "name": "unicode-03",
+      "result": {
+        "loadBefore": "3.04 4.10 6.21",
+        "loadAfter": "3.04 4.10 6.21",
+        "samples": 7,
+        "artifact": "/private/tmp/nupp-63-grouped-candidate/nupp/codec/json/internal/decoder/fusedbench.lua",
+        "object": "/private/tmp/nupp-63-grouped-candidate/nupp/codec/json/internal/decoder/../../../../../lib/libfused_json_aot.dylib",
+        "baselineArtifact": "/private/tmp/nupp-63-baseline/nupp/codec/json/internal/decoder/fusedbench.lua",
+        "baselineObject": "/private/tmp/nupp-63-baseline/nupp/codec/json/internal/decoder/../../../../../lib/libfused_json_aot.dylib",
+        "payloads": [
+          {
+            "payload": "unicode",
+            "bytes": 2097192,
+            "digest": "fnv1a32:c9a0b750",
+            "batch": 32,
+            "fused": {
+              "median": 2576.106,
+              "min": 2564.0,
+              "max": 2591.926,
+              "batch": 32,
+              "samples": [
+                2565.274,
+                2580.365,
+                2576.106,
+                2591.926,
+                2564.0,
+                2578.779,
+                2566.942
+              ]
+            },
+            "lunajson": {
+              "median": 190.758,
+              "min": 187.299,
+              "max": 193.005,
+              "batch": 1,
+              "samples": [
+                190.793,
+                190.758,
+                192.898,
+                189.688,
+                193.005,
+                187.299,
+                190.498
+              ]
+            },
+            "baseline": {
+              "median": 2613.629,
+              "min": 2582.053,
+              "max": 2636.112,
+              "batch": 32,
+              "samples": [
+                2614.953,
+                2618.115,
+                2582.053,
+                2597.041,
+                2613.629,
+                2636.112,
+                2609.665
+              ]
+            },
+            "ratio": 13.5046
+          }
+        ]
+      },
+      "log": "baseline compiled decoder: /private/tmp/nupp-63-baseline/nupp/codec/json/internal/decoder/fusedbench.lua\ncompiled decoder proof\n  artifact       /private/tmp/nupp-63-grouped-candidate/nupp/codec/json/internal/decoder/fusedbench.lua (14682 bytes)\n  replacements   4\n  native entries 3 C functions registered\n\nload averages before: 3.04 4.10 6.21\nsamples: 7, warmups: 3, about 64.0 MiB per native batch (control 2 MiB)\n\nunicode     2097192 bytes  fnv1a32:c9a0b750\n  fused     median   2576.1 MB/s   min   2564.0   max   2591.9\n  lunajson  median    190.8 MB/s   min    187.3   max    193.0\n  baseline  median   2613.6 MB/s   min   2582.1   max   2636.1\n  fused / lunajson  13.50x\n  fused / baseline  0.986x\n\nload averages after: 3.04 4.10 6.21\n"
+    }
+  ],
+  "validation": {
+    "nupp-63-grouped-baseline-differentials.log": "passed decodingIsUnchangedByTheSourceLength\npassed groupedAsciiLookaheadPreservesTransitionsTailsAndFirstErrors\npassed theFusedDecoderDecodesEveryCorpusDocumentAsLunajsonDoes\npassed theFusedDecoderRejectsEveryDocumentLunajsonRejects\npassed theFusedScanFindsTheSameBadByteAtEveryVectorOffset\npassed theFusedScanReportsTheSameFirstErrorAsTheScalarReference\npassed theScalarReferenceAcceptsEveryWellFormedCorpusDocument\npassed wellFormedUnicodeSurvivesEveryVectorOffset\n8 compiled decoder differential tests passed\n",
+    "nupp-63-grouped-differentials.log": "passed decodingIsUnchangedByTheSourceLength\npassed groupedAsciiLookaheadPreservesTransitionsTailsAndFirstErrors\npassed theFusedDecoderDecodesEveryCorpusDocumentAsLunajsonDoes\npassed theFusedDecoderRejectsEveryDocumentLunajsonRejects\npassed theFusedScanFindsTheSameBadByteAtEveryVectorOffset\npassed theFusedScanReportsTheSameFirstErrorAsTheScalarReference\npassed theScalarReferenceAcceptsEveryWellFormedCorpusDocument\npassed wellFormedUnicodeSurvivesEveryVectorOffset\n8 compiled decoder differential tests passed\n",
+    "nupp-63-grouped-tests.log": "1 suites across 1 Nupp workers\n..\n\n8 tests, 8 passed, 0 skipped, 0 failed (806.0ms)\n\nTiming: 806ms wall, 745ms of suite work\n  1 Nupp worker shards: busiest 746ms, idlest 746ms, mean 746ms, predicted 22.0s from 22.0s over 1 lanes, heaviest piece 11.0s\n\n  slowest suites                  wall     load    hooks    cases  tests\n  jsonfuseddifferentialtest      593ms      0ms      0ms    592ms      4\n  jsonfuseddifferentialtest      152ms      0ms      1ms    148ms      4\n\n  slowest tests                                             wall\n  jsonfuseddifferentialtest / groupedAsciiLookaheadPres    579ms\n  jsonfuseddifferentialtest / theFusedScanFindsTheSameB     79ms\n  jsonfuseddifferentialtest / theFusedDecoderDecodesEve     48ms\n  jsonfuseddifferentialtest / decodingIsUnchangedByTheS     18ms\n  jsonfuseddifferentialtest / theFusedDecoderRejectsEve      9ms\n  jsonfuseddifferentialtest / theScalarReferenceAccepts      3ms\n  jsonfuseddifferentialtest / wellFormedUnicodeSurvives      3ms\n  jsonfuseddifferentialtest / theFusedScanReportsTheSam      2ms\n",
+    "nupp-63-grouped-fixpoint.log": "fixpoint ok: /private/tmp/nupp-mask-any-predicate/build/stage0/15ed8a0432bd4c2df5840c7c8959c54ef4310611f29cae30da57a5f5621ac53b/nupp-f10eb69e49ce7d767081f8135e22662f0dacab4ff1a42d03ad884b4bac240016.lua rebuilds itself byte-identically\n"
+  },
+  "candidate_source_patch": "diff --git a/src/nupp/codec/json/internal/decoder/fused.nupp b/src/nupp/codec/json/internal/decoder/fused.nupp\nindex bce7403c..4b4cb2fa 100644\n--- a/src/nupp/codec/json/internal/decoder/fused.nupp\n+++ b/src/nupp/codec/json/internal/decoder/fused.nupp\n@@ -159,6 +159,8 @@ local function decodeFused<const Variant: integer>(\n     local seeded = false\n \n     local previousNonAscii = false\n+    local asciiThrough: uint32 = 0\n+    local asciiProbeAfter: uint32 = 0\n     local one: uint64 = 1\n \n     -- Set when the lookup has seen a malformed pair. The scan then finishes a\n@@ -186,7 +188,31 @@ local function decodeFused<const Variant: integer>(\n                 -- reach of it. A vector of ASCII after a vector of ASCII\n                 -- cannot be malformed, and one after a non-ASCII vector is\n                 -- classified so the pairs straddling the boundary are seen.\n-                local currentNonAscii = (block >= 128):any()\n+                local currentNonAscii = false\n+                if scanCursor >= asciiThrough then\n+                    if not previousNonAscii\n+                        and scanCursor >= asciiProbeAfter\n+                        and scanCursor + species.lanes * 4 <= sourceCount\n+                    then\n+                        -- One high-bit test can cover four ASCII blocks. The\n+                        -- normal scan still drains each block's events in\n+                        -- order, so lookahead never reports an error early.\n+                        local second = species:load(bytes, scanCursor + species.lanes + 1)\n+                        local third = species:load(bytes, scanCursor + species.lanes * 2 + 1)\n+                        local fourth = species:load(bytes, scanCursor + species.lanes * 3 + 1)\n+                        asciiProbeAfter = scanCursor + species.lanes * 4\n+                        if not ((block | second | third | fourth) >= 128):any() then\n+                            asciiThrough = asciiProbeAfter\n+                        else\n+                            -- A failed group says nothing about this block.\n+                            -- Do not retry an overlapping group while draining\n+                            -- these four blocks, even when some are ASCII.\n+                            currentNonAscii = (block >= 128):any()\n+                        end\n+                    else\n+                        currentNonAscii = (block >= 128):any()\n+                    end\n+                end\n                 if currentNonAscii or previousNonAscii then\n                     -- The vector before this one, read again rather than\n                     -- carried: a vector cannot cross an iteration of this\ndiff --git a/tests/jsonfuseddifferentialtest.lua b/tests/jsonfuseddifferentialtest.lua\nindex 5e97e4a2..183d2309 100644\n--- a/tests/jsonfuseddifferentialtest.lua\n+++ b/tests/jsonfuseddifferentialtest.lua\n@@ -407,4 +407,37 @@ function M.decodingIsUnchangedByTheSourceLength()\n     end\n end\n \n+\n+-- Lookahead may include later Unicode or a later error, but only the current\n+-- block can advance the scan or select its first error. Sweep group boundaries\n+-- and transitions back to long ASCII runs rather than only dense Unicode.\n+function M.groupedAsciiLookaheadPreservesTransitionsTailsAndFirstErrors()\n+    local euro, smile = \"\\226\\130\\172\", \"\\240\\159\\152\\128\"\n+    for pad = 0, 260 do\n+        for _, gap in ipairs({0, 15, 16, 31, 32, 63, 64, 65, 127, 128, 129}) do\n+            local text = '\"' .. string.rep(\"a\", pad) .. euro .. string.rep(\"b\", gap) .. smile .. string.rep(\"c\", pad % 67) .. '\"'\n+            local mine, message = decodedBy(fused, text)\n+            local theirs, other = decodedBy(lunajson, text)\n+            assert(message == nil and other == nil, \"mixed Unicode refused at \" .. pad .. \":\" .. gap .. \": \" .. tostring(message))\n+            assert(mine == theirs, \"mixed Unicode changed at \" .. pad .. \":\" .. gap)\n+        end\n+        for _, bad in ipairs(BAD_UTF8) do\n+            for _, suffix in ipairs({\"\", string.rep(\"z\", 65)}) do\n+                local text = '\"' .. string.rep(\"a\", pad) .. bad .. suffix .. '\"'\n+                local code, position = referenceScan(text)\n+                assert(code == INVALID_UTF8, \"reference missed grouped malformed UTF-8\")\n+                local _, message = decodedBy(fused, text)\n+                local reported = message and tonumber(message:match(\"at byte (%d+)\"))\n+                assert(reported == position, \"grouped malformed UTF-8 at \" .. pad .. \": \" .. tostring(reported) .. \" vs \" .. position)\n+            end\n+        end\n+        -- A control error before the lookahead's malformed Unicode stays first.\n+        local text = '\"' .. string.rep(\"a\", pad) .. \"\\001\" .. string.rep(\"b\", 65) .. \"\\255\\\"\"\n+        local code, position = referenceScan(text)\n+        assert(code == INVALID_CONTROL)\n+        local _, message = decodedBy(fused, text)\n+        assert(message and tonumber(message:match(\"at byte (%d+)\")) == position, \"lookahead displaced earlier control error\")\n+    end\n+end\n+\n return M\n",
+  "x86_inspection_commands": [
+    {
+      "command": [
+        "/private/tmp/nupp-mask-any-predicate/bin/nupp",
+        "aot",
+        "--target",
+        "x86_64-apple-darwin",
+        "--features",
+        "baseline",
+        "--emit",
+        "c",
+        "/private/tmp/nupp-mask-any-proof/bench/fused-json/src/nupp/codec/json/internal/decoder/fusedbench.nupp"
+      ],
+      "output": "/private/tmp/nupp-63-x86-artifacts/baseline-baseline.c",
+      "status": 0
+    },
+    {
+      "command": [
+        "/private/tmp/nupp-mask-any-predicate/bin/nupp",
+        "aot",
+        "--target",
+        "x86_64-apple-darwin",
+        "--features",
+        "baseline",
+        "--emit",
+        "asm",
+        "/private/tmp/nupp-mask-any-proof/bench/fused-json/src/nupp/codec/json/internal/decoder/fusedbench.nupp"
+      ],
+      "output": "/private/tmp/nupp-63-x86-artifacts/baseline-baseline.asm",
+      "status": 0
+    },
+    {
+      "command": [
+        "/private/tmp/nupp-mask-any-predicate/bin/nupp",
+        "aot",
+        "--target",
+        "x86_64-apple-darwin",
+        "--features",
+        "baseline",
+        "--emit",
+        "c",
+        "/private/tmp/nupp-mask-any-predicate/bench/fused-json/src/nupp/codec/json/internal/decoder/fusedbench.nupp"
+      ],
+      "output": "/private/tmp/nupp-63-x86-artifacts/grouped-baseline.c",
+      "status": 0
+    },
+    {
+      "command": [
+        "/private/tmp/nupp-mask-any-predicate/bin/nupp",
+        "aot",
+        "--target",
+        "x86_64-apple-darwin",
+        "--features",
+        "baseline",
+        "--emit",
+        "asm",
+        "/private/tmp/nupp-mask-any-predicate/bench/fused-json/src/nupp/codec/json/internal/decoder/fusedbench.nupp"
+      ],
+      "output": "/private/tmp/nupp-63-x86-artifacts/grouped-baseline.asm",
+      "status": 0
+    },
+    {
+      "command": [
+        "/private/tmp/nupp-mask-any-predicate/bin/nupp",
+        "aot",
+        "--target",
+        "x86_64-apple-darwin",
+        "--features",
+        "avx2",
+        "--emit",
+        "c",
+        "/private/tmp/nupp-mask-any-proof/bench/fused-json/src/nupp/codec/json/internal/decoder/fusedbench.nupp"
+      ],
+      "output": "/private/tmp/nupp-63-x86-artifacts/baseline-avx2.c",
+      "status": 0
+    },
+    {
+      "command": [
+        "/private/tmp/nupp-mask-any-predicate/bin/nupp",
+        "aot",
+        "--target",
+        "x86_64-apple-darwin",
+        "--features",
+        "avx2",
+        "--emit",
+        "asm",
+        "/private/tmp/nupp-mask-any-proof/bench/fused-json/src/nupp/codec/json/internal/decoder/fusedbench.nupp"
+      ],
+      "output": "/private/tmp/nupp-63-x86-artifacts/baseline-avx2.asm",
+      "status": 0
+    },
+    {
+      "command": [
+        "/private/tmp/nupp-mask-any-predicate/bin/nupp",
+        "aot",
+        "--target",
+        "x86_64-apple-darwin",
+        "--features",
+        "avx2",
+        "--emit",
+        "c",
+        "/private/tmp/nupp-mask-any-predicate/bench/fused-json/src/nupp/codec/json/internal/decoder/fusedbench.nupp"
+      ],
+      "output": "/private/tmp/nupp-63-x86-artifacts/grouped-avx2.c",
+      "status": 0
+    },
+    {
+      "command": [
+        "/private/tmp/nupp-mask-any-predicate/bin/nupp",
+        "aot",
+        "--target",
+        "x86_64-apple-darwin",
+        "--features",
+        "avx2",
+        "--emit",
+        "asm",
+        "/private/tmp/nupp-mask-any-predicate/bench/fused-json/src/nupp/codec/json/internal/decoder/fusedbench.nupp"
+      ],
+      "output": "/private/tmp/nupp-63-x86-artifacts/grouped-avx2.asm",
+      "status": 0
+    }
+  ]
+}
