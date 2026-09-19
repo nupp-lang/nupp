@@ -1975,6 +1975,27 @@ end
 --- Exposes one canonical capability view over the existing erased wrapper encoding
 --- plus flow facts supplied by the checker. An empty loan set is ordinary access.
 function types.capability(t: types.Type, facts: types.CapabilityFacts?): types.Capability
+    -- Ordinary values share one capability. Check the fields that contribute flow
+    -- identity before allocating the temporary lists used by qualified values.
+    -- Read the fields rather than caching by facts identity: a checker extends the
+    -- same facts table as ownership moves through the program.
+    if t.tag ~= "affine" and t.tag ~= "borrowed" and t.tag ~= "pinned" and (
+        not facts
+        or facts.loans == nil
+        and facts.roots == nil
+        and facts.regionRoot == nil
+        and facts.anchors == nil
+        and facts.retentions == nil
+        and facts.retention == nil
+    ) then
+        local id = "none:loans=:anchors=:retentions="
+        local found = capabilityArena[id]
+        if not found then
+            found = new types.Capability(id = id, loans = {}, anchors = {}, retentions = {})
+            capabilityArena[id] = found
+        end
+        return found
+    end
     facts = facts or new types.CapabilityFacts()
     local obligation = types.obligationFor(t)
     local loans: {types.Loan} = {}

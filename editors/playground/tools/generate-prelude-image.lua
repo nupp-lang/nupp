@@ -184,7 +184,71 @@ while at <= #pending do
     at = at + 1
 end
 
+-- Repeated strings dominate the graph: member names and interned type keys recur
+-- in its declarations and arenas. A deterministic dictionary keeps their identity
+-- while variable-width integers avoid decimal text for every count and reference.
+local stringCounts = {}
+
+local function countString(value)
+    if type(value) == "string" then
+        stringCounts[value] = (stringCounts[value] or 0) + 1
+    end
+end
+
+for _, value in ipairs(tables) do
+    for _, entry in ipairs(entries(value)) do
+        countString(entry.key)
+        countString(entry.value)
+    end
+    local where = internedAt[value]
+    if where then
+        countString(where[1])
+        countString(where[2])
+    end
+end
+for _, name in ipairs({
+    "annotationsByName",
+    "featureEffects",
+    "globalTypeDefs",
+    "globalTypes",
+    "globals",
+    "preludeComptimeFunctions",
+    "stringLib",
+    "preludeRuntime",
+}) do
+    countString(roots[name])
+end
+local dictionary = {}
+for value, count in pairs(stringCounts) do
+    if count > 1 then
+        dictionary[#dictionary + 1] = value
+    end
+end
+table.sort(dictionary, function(left, right)
+    local a, b = stringCounts[left], stringCounts[right]
+    return a == b and left < right or a > b
+end)
+local stringIds = {}
+for index, value in ipairs(dictionary) do
+    stringIds[value] = index
+end
+
 local file = assert(io.open(output, "wb"))
+local MAX_INTEGER = 9007199254740991
+
+local function writeInteger(value)
+    assert(value >= 0 and value <= MAX_INTEGER and value % 1 == 0, "invalid prelude image integer")
+    repeat
+        local byte = value % 128
+        value = math.floor(value / 128)
+        assert(file:write(string.char(byte + (value > 0 and 128 or 0))))
+    until value == 0
+end
+
+local function writeString(value)
+    writeInteger(#value)
+    assert(file:write(value))
+end
 
 local function writeValue(value)
     local kind = type(value)
@@ -193,21 +257,34 @@ local function writeValue(value)
     elseif kind == "boolean" then
         assert(file:write(value and "t" or "f"))
     elseif kind == "string" then
-        assert(file:write("s", tostring(#value), "\n", value))
-    elseif kind == "table" then
-        assert(file:write("r", tostring(ids[value]), "\n"))
-    elseif kind == "number" then
-        local encoded
-        if value ~= value then
-            encoded = "nan"
-        elseif value == math.huge then
-            encoded = "inf"
-        elseif value == -math.huge then
-            encoded = "-inf"
+        local id = stringIds[value]
+        assert(file:write(id and "d" or "s"))
+        if id then
+            writeInteger(id)
         else
-            encoded = string.format("%.17g", value)
+            writeString(value)
         end
-        assert(file:write("n", encoded, "\n"))
+    elseif kind == "table" then
+        assert(file:write("r"))
+        writeInteger(assert(ids[value]))
+    elseif kind == "number" then
+        if value % 1 == 0 and math.abs(value) <= MAX_INTEGER and not (value == 0 and 1 / value < 0) then
+            assert(file:write(value < 0 and "j" or "i"))
+            writeInteger(math.abs(value))
+        else
+            local encoded
+            if value ~= value then
+                encoded = "nan"
+            elseif value == math.huge then
+                encoded = "inf"
+            elseif value == -math.huge then
+                encoded = "-inf"
+            else
+                encoded = string.format("%.17g", value)
+            end
+            assert(file:write("n"))
+            writeString(encoded)
+        end
     else
         error("prelude image cannot encode " .. kind, 0)
     end
@@ -223,24 +300,29 @@ for id, value in ipairs(tables) do
     end
 end
 
-assert(file:write("NUPP-PRELUDE-2\n", tostring(#tables), "\n"))
-assert(file:write(tostring(#internedAs), "\n"))
+assert(file:write("NUPP-PRELUDE-3\n"))
+writeInteger(#tables)
+writeInteger(#dictionary)
+for _, value in ipairs(dictionary) do
+    writeString(value)
+end
+writeInteger(#internedAs)
 for _, entry in ipairs(internedAs) do
-    assert(file:write(tostring(entry.id), "\n"))
+    writeInteger(entry.id)
     writeValue(entry.where[1])
     writeValue(entry.where[2])
 end
-assert(
-    file:write(tostring(identity.serial), "\n", tostring(identity.capability), "\n", tostring(identity.nominal), "\n")
-)
+writeInteger(identity.serial)
+writeInteger(identity.capability)
+writeInteger(identity.nominal)
 for id, value in ipairs(tables) do
     local members = entries(value)
-    assert(file:write(tostring(#members), "\n"))
+    writeInteger(#members)
     for _, entry in ipairs(members) do
         writeValue(entry.key)
         writeValue(entry.value)
     end
-    assert(file:write(tostring(metatables[id] and ids[metatables[id]] or 0), "\n"))
+    writeInteger(metatables[id] and ids[metatables[id]] or 0)
 end
 for _, name in ipairs({
     "annotationsByName",

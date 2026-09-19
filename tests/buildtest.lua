@@ -68,6 +68,45 @@ end
 
 local M = {}
 
+function M.bundleResourcesPreserveEveryByte()
+    local bytes = {}
+    for byte = 0, 255 do
+        bytes[#bytes + 1] = string.char(byte)
+    end
+    local packaging = require("nupp.compiler.build.package")
+    for _, payload in ipairs({"\r\n\n\r\r\0" .. table.concat(bytes), "\0\n[[binary]]\255", "before\026after"}) do
+        local dir = tempProject({
+            ["data.bin"] = payload,
+            ["build/data.bin"] = payload,
+            ["build/main.lua"] = 'return package.preload["nupp.embedded"]()["/data.bin"]\n',
+        })
+        local text = assert(
+            packaging.bundleText(
+                dir,
+                {},
+                {
+                    kind = "bundle",
+                    outDir = "build",
+                    entries = {"main"},
+                    resources = {{source = "data.bin", output = "data.bin"}},
+                },
+                nil,
+                {main = {output = dir .. "/build/main.lua"}},
+                false
+            )
+        )
+        assert(not text:find("\026", 1, true), "a Windows text loader must not truncate the bundle at Ctrl-Z")
+        local original = package.preload["nupp.embedded"]
+        local ok, restored = pcall(function()
+            return assert(loadstring(text))()
+        end)
+        package.preload["nupp.embedded"] = original
+        os.execute("rm -rf '" .. dir .. "'")
+        assert(ok, restored)
+        assertEq(restored, payload, "bundled resources preserve binary bytes and line endings")
+    end
+end
+
 local LIB = table.concat(
     {"local function double(n: number): number", "    return n * 2", "end", "return {double = double}",},
     "\n"
@@ -526,6 +565,7 @@ return {
 ]],
     })
     local listed = capture(("cd '%s' && '%s' task -l"):format(dir, NUPP))
+
     -- The listing is a table, so a row is a name, a kind and a description separated
     -- by runs of padding rather than by a fixed " - ".
     local function row(name)
@@ -534,8 +574,10 @@ return {
                 return line
             end
         end
+
         return nil
     end
+
     assert(row("app (default)"), "text listing marks the default: " .. listed)
     assert(
         row("app (default)"):find("Build the application", 1, true),
