@@ -32,6 +32,6 @@ try {
 } catch (error) {
   // Engines without WebGPU must reject the capability explicitly, not hang.
   const unsupported = name === 'gpu' && /WebGPU is not available|WebGPU adapter is not available|no WebGPU adapter is available|WebGPU is unavailable|WebGPU is not supported/.test(String(error));
-  out.textContent = JSON.stringify({ok:unsupported, name, unsupported, error:String(error.stack || error)});
+  out.textContent = JSON.stringify({ok:unsupported, name, unsupported, error:String(error), stack:error.stack});
   out.dataset.status = unsupported ? 'passed' : 'failed';
 }
