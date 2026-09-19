@@ -34,6 +34,45 @@ local REPORT_SCHEMA = {
             type = "string",
             description = "interleaved for a paired causal comparison, observational for one against a stored record.",
         },
+        comparisons = {
+            type = "array",
+            description = "Comparison evidence, serialized after verdicts are calculated. Candidate measurements are in benchmarks.",
+            items = {
+                type = "object",
+                properties = {
+                    kind = {type = "string", enum = {"interleaved", "observational"}},
+                    source = {type = "string", description = "Baseline executable or saved record path."},
+                    baseline = {
+                        type = "object",
+                        description = "Baseline benchmark summaries and every fork's ordered samples, with stored-record provenance when available.",
+                    },
+                    verdicts = {
+                        type = "array",
+                        items = {
+                            type = "object",
+                            properties = {
+                                case = {type = "string"},
+                                name = {type = "string"},
+                                change = {type = "number", description = "Relative duration change as a fraction."},
+                                interval = {
+                                    type = "object",
+                                    properties = {low = {type = "number"}, upper = {type = "number"}}
+                                },
+                                withheld = {type = "string", description = "Reason no interval is reported."},
+                                pValue = {type = "number"},
+                                adjusted = {type = "number", description = "Benjamini-Hochberg adjusted p-value."},
+                                verdict = {
+                                    type = "string",
+                                    enum = {"improved", "regressed", "unchanged", "inconclusive"}
+                                },
+                            },
+                            required = {"case", "name", "change", "pValue", "adjusted", "verdict"},
+                        },
+                    },
+                },
+                required = {"kind", "source", "baseline", "verdicts"},
+            },
+        },
         benchmarks = {
             type = "array",
             items = {

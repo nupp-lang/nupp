@@ -362,6 +362,13 @@ what changed on the machine between the two sessions. Where the machine itself
 differs, the duration section is withheld entirely while the deterministic gate
 is unaffected.
 
+`--json`, `build/bench-record.json`, and `--history` retain the same comparison
+record. Candidate measurements are in `benchmarks`; each `comparisons` entry
+names its `kind` and baseline `source`, keeps the baseline's full `benchmarks`,
+and records `verdicts` with the relative change, interval (or `withheld` reason),
+raw `pValue`, adjusted significance and verdict. Saved baselines remain labeled
+`observational`; interleaved executable comparisons remain `interleaved`.
+
 ### The four verdicts
 
 `--margin` is required and has no default, because three of the four answers are

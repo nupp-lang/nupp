@@ -1,0 +1,37 @@
+-- A benchmark-protocol fixture with authored measurements: no workload is timed.
+local json = require("nupp.codec.json")
+
+local function option(name)
+    for index = 1, #arg do
+        if arg[index] == name then
+            return arg[index + 1]
+        end
+    end
+end
+
+local listing = option("--cases-out")
+local file = assert(io.open(listing or option("--out"), "wb"))
+if listing then
+    file:write(json.encode({name = "fixed"}), "\n", json.encode({name = "trend"}), "\n")
+else
+    local name = option("--case")
+    file:write(
+        json.encode({
+            executionProfile = {optLevel = 1, disabled = ""},
+            cases = {
+                {
+                    name = name,
+                    kind = "case",
+                    n = 1,
+                    rounds = 3,
+                    medianSec = 0.25,
+                    samplesSec = {0.25, 0.25, 0.25},
+                    trend = name == "trend" and "trend" or "no-trend-detected",
+                    trendDrift = name == "trend" and 0.5 or 0,
+                    abortSites = {},
+                }
+            },
+        })
+    )
+end
+file:close()

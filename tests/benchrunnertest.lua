@@ -53,6 +53,62 @@ end
 
 local M = {}
 
+function M.comparisonRecordsRetainBothSidesAndVerdicts()
+    local stdout, history, baseline = os.tmpname(), os.tmpname(), os.tmpname()
+    local fixture = HERE .. "/fixtures/bench_fixed_records.g.nupp"
+    os.remove(history)
+    os.remove(baseline)
+    local function run(extra)
+        local command = ("%q bench --file %q --json %s > %q"):format(NUPP, fixture, extra, stdout)
+        assertEq(os.execute(command), 0, "fixed-record comparison succeeds")
+        local output = read(stdout)
+        assertEq(output:gsub("%s+$", ""), read("build/bench-record.json"), "stdout and saved record agree")
+        return json.decode(output)
+    end
+    local paired = run(("--case '^fixed$' --forks 12 --against %q --margin 5 --history %q"):format(NUPP, history))
+    local comparison = paired.comparisons[1]
+    assertEq(comparison.kind, "interleaved", "paired provenance survives serialization")
+    assertEq(comparison.source, NUPP, "the baseline executable is named")
+    local before, after = comparison.baseline.benchmarks[1], paired.benchmarks[1]
+    assertEq(before.case, after.case, "baseline and candidate identify the same file")
+    assertEq(before.name, after.name, "baseline and candidate identify the same case")
+    for _, entry in ipairs({before, after}) do
+        assertEq(#entry.forks, 12, "every process measurement is retained")
+        for index, fork in ipairs(entry.forks) do
+            assertEq(fork.index, index, "fork identity is retained")
+            assertEq(fork.measurement.samplesSec[2], 0.25, "raw ordered samples survive")
+        end
+    end
+    local verdict = comparison.verdicts[1]
+    assertEq(verdict.case, after.case, "verdict identifies its program")
+    assertEq(verdict.name, after.name, "verdict identifies its benchmark")
+    assertEq(verdict.change, 0, "equal authored scores have zero change")
+    assertEq(verdict.interval.low, 0, "interval lower endpoint is retained")
+    assertEq(verdict.interval.upper, 0, "interval upper endpoint is retained")
+    assertEq(verdict.pValue, 1, "raw significance is retained")
+    assertEq(verdict.adjusted, 1, "adjusted significance is retained")
+    assertEq(verdict.verdict, "unchanged", "the comparison verdict is retained")
+    assertEq(read(history):gsub("%s+$", ""), read(stdout):gsub("%s+$", ""), "history retains identical evidence")
+    local f = assert(io.open(baseline, "wb")); f:write(read(stdout)); f:close()
+
+    local observed = run(("--case '^fixed$' --forks 1 --baseline %q --margin 5 --accept"):format(baseline))
+    comparison = observed.comparisons[1]
+    assertEq(comparison.kind, "observational", "stored baselines are never labeled causal")
+    assertEq(comparison.source, baseline, "the baseline record is named")
+    assertEq(#comparison.baseline.benchmarks[1].forks, 12, "stored baseline measurements survive")
+    assertEq(comparison.baseline.comparisons, nil, "accepted baselines do not nest comparison history")
+    assertEq(comparison.verdicts[1].withheld, "below-minimum-forks", "too few forks explain the absent interval")
+    assertEq(comparison.verdicts[1].verdict, "inconclusive", "too few forks remain inconclusive")
+    assertEq(read(baseline), read(stdout):gsub("%s+$", ""), "accepted baseline retains the full report")
+
+    local trending = run(("--case '^trend$' --forks 2 --against %q --margin 5"):format(NUPP))
+    verdict = trending.comparisons[1].verdicts[1]
+    assertEq(verdict.withheld, "trend-warning", "trend withholding survives serialization")
+    assertEq(verdict.interval, nil, "a withheld interval is absent")
+    assertEq(verdict.verdict, "inconclusive", "a trend cannot acquire a confident verdict")
+    os.remove(stdout); os.remove(history); os.remove(baseline)
+end
+
 function M.caseListingIsSeparateFromApplicationOutputAndRunnerNIsFixed()
     local casesOut = os.tmpname()
     local stdout = os.tmpname()

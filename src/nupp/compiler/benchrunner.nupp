@@ -1591,22 +1591,24 @@ function runner.run(options: runner.Options): integer
         machineKey = machineKey(),
         comparison = against and "interleaved" or (baselinePath and "observational" or nil),
         benchmarks = merged,
+        comparisons = json.asArray({}) as {any},
     }
-    local encoded = json.encode(document)
-    if not writeFile(MERGED_OUT, encoded) then
-        executionFailures[#executionFailures + 1] = "cannot write " .. MERGED_OUT
-    end
-    if historyPath and #executionFailures == 0 and not appendFile(historyPath, encoded .. "\n") then
-        executionFailures[#executionFailures + 1] = "cannot append " .. historyPath
-    end
-
     -- Deterministic counters, which gate, and durations, which do not.
-    local verdicts: {any} = {}
-    local pairedComparison = false
-    local verdictSource = baselinePath or ""
     if against and margin then
-        pairedComparison = true
-        verdictSource = against
+        local baselines: {any} = {}
+        for _, entry in ipairs(merged) do
+            local other = againstByName[tostring(entry.case) .. "\0" .. tostring(entry.name)]
+            if other then
+                baselines[#baselines + 1] = other
+            end
+        end
+        local comparison = {
+            kind = "interleaved",
+            source = against,
+            baseline = {benchmarks = baselines},
+            verdicts = json.asArray({}) as {any}
+        }
+        document.comparisons[#document.comparisons + 1] = comparison
         local pending: {any} = {}
         for _, entry in ipairs(merged) do
             local other = againstByName[tostring(entry.case) .. "\0" .. tostring(entry.name)]
@@ -1625,7 +1627,14 @@ function runner.run(options: runner.Options): integer
                 end
                 pending[
                     #pending + 1
-                ] = {name = entry.name, change = change, interval = interval, pValue = pValue, withheld = withheld,}
+                ] = {
+                    case = entry.case,
+                    name = entry.name,
+                    change = change,
+                    interval = interval,
+                    pValue = pValue,
+                    withheld = withheld,
+                }
             end
         end
         if #pending > 0 then
@@ -1637,11 +1646,23 @@ function runner.run(options: runner.Options): integer
             for index, item in ipairs(pending) do
                 item.adjusted = adjusted[index]
                 item.verdict = statistics.verdict(item.interval, margin or 0.0, adjusted[index])
-                verdicts[#verdicts + 1] = item
+                comparison.verdicts[#comparison.verdicts + 1] = item
             end
         end
     end
     if previous then
+        local comparison = {
+            kind = "observational",
+            source = baselinePath,
+            baseline = {
+                recordedAt = previous.recordedAt,
+                hostProfile = previous.hostProfile,
+                machineKey = previous.machineKey,
+                benchmarks = previous.benchmarks,
+            },
+            verdicts = json.asArray({}) as {any},
+        }
+        document.comparisons[#document.comparisons + 1] = comparison
         local baselineByName: {[string]: any} = {}
         for _, entry in ipairs(previous.benchmarks or {}) do
             baselineByName[tostring(entry.case) .. "\0" .. tostring(entry.name)] = entry
@@ -1670,7 +1691,14 @@ function runner.run(options: runner.Options): integer
                     end
                     pending[
                         #pending + 1
-                    ] = {name = entry.name, change = change, interval = interval, pValue = pValue, withheld = withheld,}
+                    ] = {
+                        case = entry.case,
+                        name = entry.name,
+                        change = change,
+                        interval = interval,
+                        pValue = pValue,
+                        withheld = withheld,
+                    }
                 end
             end
         end
@@ -1688,9 +1716,19 @@ function runner.run(options: runner.Options): integer
             for index, item in ipairs(pending) do
                 item.adjusted = adjusted[index]
                 item.verdict = statistics.verdict(item.interval, margin or 0.0, adjusted[index])
-                verdicts[#verdicts + 1] = item
+                comparison.verdicts[#comparison.verdicts + 1] = item
             end
         end
+    end
+
+    -- Serialize only after comparisons are complete: stdout, the latest record,
+    -- history and accepted baselines must retain the same evidence.
+    local encoded = json.encode(document)
+    if not writeFile(MERGED_OUT, encoded) then
+        executionFailures[#executionFailures + 1] = "cannot write " .. MERGED_OUT
+    end
+    if historyPath and #executionFailures == 0 and not appendFile(historyPath, encoded .. "\n") then
+        executionFailures[#executionFailures + 1] = "cannot append " .. historyPath
     end
 
     if asJson then
@@ -1701,8 +1739,17 @@ function runner.run(options: runner.Options): integer
             cases[#cases + 1] = entry.summary
         end
         io.stdout:write(format({cases = cases,}, {geometricMean = options.geo == true, forks = forks,}))
-        if #verdicts > 0 then
-            io.stdout:write(formatVerdicts(verdicts, margin or 0.0, verdictSource, pairedComparison))
+        for _, comparison in ipairs(document.comparisons) do
+            if #comparison.verdicts > 0 then
+                io.stdout:write(
+                    formatVerdicts(
+                        comparison.verdicts,
+                        margin or 0.0,
+                        comparison.source,
+                        comparison.kind == "interleaved"
+                    )
+                )
+            end
         end
     end
     for _, note in ipairs(notes) do
@@ -1725,7 +1772,7 @@ function runner.run(options: runner.Options): integer
 
             return 1
         end
-        io.stdout:write("bench: baseline written to " .. baselinePath .. "\n")
+        io.stderr:write("bench: baseline written to " .. baselinePath .. "\n")
 
         return 0
     end
