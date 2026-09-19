@@ -88,6 +88,9 @@ local function run(options: any): integer
     local positional: {string} = options.files
     local paths: {string} = positional
     local values = options
+    -- An absent flag leaves the decision to the file's extension. False is an
+    -- explicit request for gradual checking in the checker API.
+    local strict = values.strict and true or nil
     local target = values.target
     if (target or values.platform) and #paths > 0 then
         return usageError("--target and --platform cannot be combined with source files")
@@ -109,7 +112,7 @@ local function run(options: any): integer
         local project = require("nupp.compiler.build.project")
         local produced: {[string]: any} = {}
         local code = project.check(".", {
-            strict = values.strict,
+            strict = strict,
             dialect = values.dialect,
             target = target,
             platform = values.platform,
@@ -209,7 +212,7 @@ local function run(options: any): integer
             local unchecked = {}
             local produced: {[string]: any} = {}
             local code = project.check(".", {
-                strict = values.strict,
+                strict = strict,
                 dialect = values.dialect,
                 paths = mine,
                 unchecked = unchecked,
@@ -258,7 +261,7 @@ local function run(options: any): integer
             failed = true
         else
             local diags = check.check(result, path, env as {[string]: any}, {
-                strict = values.strict,
+                strict = strict,
                 dialect = effectiveDialect,
             })
             if asJson then

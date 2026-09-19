@@ -704,6 +704,41 @@ function M.jsonPositionsAreResolvedThroughALineIndex()
     os.remove(path)
 end
 
+function M.checkNamedFilesKeepTheirExtensionStrictness()
+    local dir = os.tmpname()
+    os.remove(dir)
+    assert(os.execute("mkdir -p '" .. dir .. "'") == 0)
+    local function write(name, text)
+        local file = assert(io.open(dir .. "/" .. name, "wb"))
+        file:write(text)
+        file:close()
+    end
+    local function unknown(command, expected)
+        local output = captureJsonAt(dir, command)
+        local report = json.decode(output)
+        local found = false
+        for _, diagnostic in ipairs(report.diagnostics) do
+            found = found or diagnostic.code == "NUPP2105"
+        end
+        assert(found == expected, command .. " must respect the strict floor: " .. output)
+        assert(report.ok == not expected, command .. ": " .. output)
+    end
+    for _, manifest in ipairs({false, true}) do
+        if manifest then write("nupp.lua", 'return {include = {"."}}') end
+        for _, extension in ipairs({".nupp", ".g.nupp", ".nupp", ".lua"}) do
+            local name = "probe" .. extension
+            write(name, "return missingForStrictCheck\n")
+            unknown("check --json " .. name, extension == ".nupp")
+            unknown("check --json --strict " .. name, true)
+            if manifest and extension ~= ".lua" then
+                unknown("check --json", extension == ".nupp")
+            end
+            os.remove(dir .. "/" .. name)
+        end
+    end
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
 function M.checkRefusesAManifestItCannotLoad()
     local dir = os.tmpname()
     os.remove(dir)

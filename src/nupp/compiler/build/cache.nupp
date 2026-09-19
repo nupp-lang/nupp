@@ -45,6 +45,8 @@ local cache = {}
 --- writes all of them, and a file that turns out to be missing one is a cache miss
 --- rather than a crash.
 type cache.ModuleRecord = {
+    --- The source identity also determines the strict floor and diagnostic paths.
+    sourcePath: string?,
     sourceHash: string?,
     interfaceHash: string?,
     artifactHash: string?,

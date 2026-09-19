@@ -609,6 +609,7 @@ local function copyModuleRecord(record)
     end
 
     return {
+        sourcePath = record.sourcePath,
         sourceHash = record.sourceHash,
         interfaceHash = record.interfaceHash,
         artifactHash = record.artifactHash,
@@ -927,7 +928,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
     -- cache entry that is about to be reused.
     local function moduleDependencies(name: string, path: string): {string}
         local previous = oldState.modules[name]
-        if cacheCompatible and previous and previous.sourceHash == sourceContentHash(
+        if cacheCompatible and previous and previous.sourcePath == path and previous.sourceHash == sourceContentHash(
             path
         ) and type(previous.dependencies) == "table" then
             return previous.dependencies as {string}
@@ -1583,6 +1584,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
         local projectDependencies = inc.projectDependencies(path)
         local checkedExports = result.exports or {}
         records[name] = {
+            sourcePath = path,
             sourceHash = sourceHash,
             interfaceHash = modules.interfaceHash(result.moduleType, checkedExports, external and sourceHash or nil),
             artifactHash = artifactHash,
@@ -1658,6 +1660,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
                 -- nothing to confirm but the record.
                 local usable = cacheCompatible
                     and previous
+                    and previous.sourcePath == path
                     and previous.sourceHash == sourceHash
                     and previous.specializationHash == (
                         specializationHashes[normalize(path)] or emptySpecializationHash
@@ -1819,7 +1822,10 @@ local function buildModules(root: string, outDir: string, config: Config, target
         local catalogPath = join(root, join(outDir, "generated/nupp/runtime/services/artifact.g.nupp"))
         local catalogHash = hashFile(catalogPath)
         local catalogRecord = records["nupp.runtime.services.artifact"]
-        if catalogRecord == nil or catalogRecord.sourceHash ~= catalogHash then
+        if catalogRecord == nil
+            or catalogRecord.sourcePath ~= catalogPath
+            or catalogRecord.sourceHash ~= catalogHash
+        then
             if catalogRecord == nil then
                 paths["nupp.runtime.services.artifact"] = catalogPath
                 order[#order + 1] = "nupp.runtime.services.artifact"
@@ -1829,11 +1835,15 @@ local function buildModules(root: string, outDir: string, config: Config, target
             local catalogOutput = join(root, join(outDir, "nupp/runtime/services/artifact.lua"))
             -- The catalog is generated data. Its source, compiler, and output hashes
             -- determine whether its existing artifact can be retained.
-            if cacheCompatible and previous and previous.sourceHash == catalogHash and (
-                checkOnly or previous.output == catalogOutput and previous.artifactHash ~= nil and hashFile(
-                    catalogOutput
-                ) == previous.artifactHash
-            ) then
+            if cacheCompatible
+                and previous
+                and previous.sourcePath == catalogPath
+                and previous.sourceHash == catalogHash
+                and (
+                    checkOnly or previous.output == catalogOutput and previous.artifactHash ~= nil and hashFile(
+                        catalogOutput
+                    ) == previous.artifactHash
+                ) then
                 records[name] = copyModuleRecord(previous)
                 reused[name] = true
                 codeFor[name] = nil
