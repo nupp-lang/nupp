@@ -96,11 +96,21 @@
     "documentationAndTemplates": {
       "passed": 139,
       "failed": 0
+    },
+    "legacyBrowserRollback": {
+      "passed": 12,
+      "ok": true
     }
   },
   "limits": [
     "Lua-C-API builder AOT entries require ordinary LuaJIT execution or explicit legacy backend.",
     "Guest FFI libraries must match i386 Linux; local header preprocessing is not available in the browser.",
     "Legacy lowerers remain for the agreed rollback release; main and stage-zero pin are unchanged."
-  ]
+  ],
+  "ciFollowup": {
+    "workflow": "https://github.com/nupp-lang/nupp/actions/runs/35423936114",
+    "outcome": "Normal boot, snapshots, 39 compiler responses and recovery passed. Chromium passed all ten packaged checks. Firefox passed nine; its partial WebGPU API correctly rejected missing usage constants, which the test classifier did not yet recognize. The fixture now recognizes that exact capability error; the real error path was reproduced locally.",
+    "legacyWorkflow": "https://github.com/nupp-lang/nupp/actions/runs/35423369747",
+    "legacyCorrection": "The LuaJIT-only GPU fixture is now outside the legacy source set; the legacy Wasm AOT and memory acceptance rerun passed."
+  }
 }
