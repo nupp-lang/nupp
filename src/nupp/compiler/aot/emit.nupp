@@ -2082,7 +2082,7 @@ local function helperParams(context: emit.Context, helper: scalarIR.Helper): str
         end
     end
 
-    return table.concat(parts, ", ")
+    return #parts == 0 and "void" or table.concat(parts, ", ")
 end
 
 --- Whether one helper signature carries target-neutral explicit SIMD values.

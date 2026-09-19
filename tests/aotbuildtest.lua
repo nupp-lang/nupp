@@ -2493,6 +2493,80 @@ function M.aKernelThatOnlyReadsALengthStillBuilds()
     assert(answered:find("0 1 7 64", 1, true), "and the compiled entry answers the count at every length: " .. answered)
 end
 
+function M.scalarLogicalOperatorsReturnValuesAndPreserveEffects()
+    if not hasToolchain() then
+        return
+    end
+    local answers = {}
+    for _, policy in ipairs({"off", "require"}) do
+        local dir = os.tmpname()
+        os.remove(dir)
+        assert(os.execute(("mkdir -p %q"):format(dir .. "/src")) == 0)
+        local manifest = assert(io.open(dir .. "/nupp.lua", "wb"))
+        manifest:write(([[return {
+    include = {"src"},
+    build = {targets = {native = {
+        kind = "modules", entries = {"logical"}, outDir = "build/native", aot = %q,
+    }}},
+}
+]]):format(policy))
+        manifest:close()
+        local source = assert(io.open(dir .. "/src/logical.nupp", "wb"))
+        source:write([[
+module logical
+local span = require("nupp.mem.span")
+@aot
+local function logical(flag: boolean, a: number, b: number): (number, number, number, boolean)
+    local count = 0
+    local selected = flag and do
+        count = count + 1
+        yield a
+    end or do
+        count = count + 10
+        yield b
+    end
+    local zero = 0 or do
+        count = count + 100
+        yield 99
+    end
+    return selected, count, zero, (0 and true)
+end
+@aot
+local function guarded(borrows values: span.Span<uint32>, index: uint32): uint32
+    local cursor: uint32 = index
+    return cursor < #values and values[cursor + 1] or 0
+end
+@aot
+local function stringValue(flag: boolean): string
+    return flag and "" or "fallback"
+end
+export = {logical = logical, guarded = guarded, stringValue = stringValue}
+]])
+        source:close()
+        local out, code = build(dir)
+        test.equal(code, 0, ("logical values at %s build under %s: %s"):format(dir, policy, out))
+        local script = [[
+            local m = require("logical")
+            local ffi = require("ffi")
+            local span = require("nupp.mem.span")
+            local values = ffi.new("uint32_t[2]", 2147483649, 42)
+            local input = span.fromCarray(values, 2)
+            print(m.logical(true, 7, 9))
+            print(m.logical(false, 7, 9))
+            print(m.logical(true, 0, 9))
+            local nan, count = m.logical(true, 0/0, 9)
+            print(nan ~= nan, count)
+            print(m.guarded(input, 0), m.guarded(input, 1), m.guarded(input, 2), m.guarded(input, 4294967295))
+            print("[" .. m.stringValue(true) .. "]", m.stringValue(false))
+        ]]
+        local pipe = assert(io.popen(("cd %q && luajit -e %q 2>&1"):format(dir, searchPathPrelude() .. script)))
+        answers[policy] = (pipe:read("*a"):gsub("%s+$", ""))
+        pipe:close()
+    end
+    test.equal(answers.require, answers.off, "compiled logical operators preserve Lua values and selected-branch effects")
+    test.equal(answers.require, "7\t1\t0\ttrue\n9\t10\t0\ttrue\n0\t1\t0\ttrue\ntrue\t1\n2147483649\t42\t0\t0\n[]\tfallback")
+end
+
 function M.wideBitwiseAnswersAgreeWithAndWithoutAot()
     if not hasToolchain() then
         return

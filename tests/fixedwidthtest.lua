@@ -205,6 +205,27 @@ return value
 ]]), "NUPP2011", "contextual function result")
 end
 
+function M.logicalValuesKeepOnlyProvedSelectedWidths()
+   checkedTree([[
+local function choose(flag: boolean, value: uint32, other: uint32): (uint32, uint32, uint32)
+    return flag and value or 0, flag and 0 or other, (flag and value or other) or 0
+end
+return choose
+]])
+   assertEq(errorCodes([[
+local function choose(flag: boolean, value: number): uint32
+    return flag and (value as uint32) or 0
+end
+return choose
+]]), "NUPP2011", "logical selection cannot establish an erased cast")
+   assertEq(errorCodes([[
+local function choose(flag: boolean, value: uint32, other: number): uint32
+    return flag and value or (other as uint32)
+end
+return choose
+]]), "NUPP2011", "the fallback also needs a width proof")
+end
+
 function M.fixedWidthFactsFollowEveryCallResult()
    checkedTree([[
 local function pair(): (float, uint32)

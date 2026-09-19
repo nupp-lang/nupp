@@ -560,6 +560,41 @@ function operators.install(c: state.Checker): state.ExprHandlers
         end
     end
 
+    --- Every value selectable from a logical expression must carry its own
+    --- width proof. A false intermediate in `flag and u32 or 0` never reaches
+    --- the result, whereas an erased cast on either selected arm still does.
+    local function selectedWidth(node: any, target: Type, truthyOnly: boolean?): boolean
+        if node.kind == "paren" then
+            return selectedWidth(node.expr, target, truthyOnly)
+        end
+        local inferred = node.inferredType
+        if inferred == nil then
+            return false
+        end
+        local truthy, falsy = narrowing.truthiness(inferred)
+        if truthyOnly == true and (
+            truthy == nil or truthy == T.never
+        ) or truthyOnly == false and (falsy == nil or falsy == T.never) then
+            return true
+        end
+        if node.kind == "binop" and node.op and (node.op.kind == "and" or node.op.kind == "or") then
+            local leftTruthy, leftFalsy = narrowing.truthiness(node.lhs.inferredType)
+            local isAnd = node.op.kind == "and"
+            local selectedLeft, reachesRight = leftTruthy, leftFalsy
+            if isAnd then
+                selectedLeft, reachesRight = leftFalsy, leftTruthy
+            end
+            local leftNeeded = selectedLeft ~= nil and selectedLeft ~= T.never and (
+                truthyOnly == nil or truthyOnly ~= isAnd
+            )
+            return (
+                not leftNeeded or selectedWidth(node.lhs, target, not isAnd)
+            ) and (reachesRight == nil or reachesRight == T.never or selectedWidth(node.rhs, target, truthyOnly))
+        end
+
+        return c.fixedWidth.established(node, target)
+    end
+
     handlers.binop = function(node: cst.Binop): Type
         local opTok, lhs, rhs = node.op, node.lhs, node.rhs
         if not opTok or not lhs or not rhs then
@@ -811,7 +846,21 @@ function operators.install(c: state.Checker): state.ExprHandlers
                     parts[#parts + 1] = rt
                 end
             end
-            return #parts == 0 and T.never or T.union(parts)
+            local result = #parts == 0 and T.never or T.union(parts)
+            local members = result.tag == "union" and (result as T.Union).members or {result}
+            for _, target in ipairs({T.uint32, T.int32, T.float}) do
+                local hasWidth = false
+                for _, member in ipairs(members) do
+                    hasWidth = hasWidth or member.tag == target.tag
+                end
+                -- The current node has not been memoized by infer yet.
+                (node as any).inferredType = result
+                if hasWidth and isA(result, target) and selectedWidth(node, target, nil) then
+                    c.fixedWidth.mark(node, target)
+                    return target
+                end
+            end
+            return result
         end
 
         return T.any

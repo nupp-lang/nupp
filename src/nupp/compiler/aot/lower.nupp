@@ -388,6 +388,15 @@ local function semanticValueType(t: any?, helper: boolean?): scalarIR.Type?
         if hasString and hasBuffer and #(raw.members or {}) == 2 then
             return "lua_bytes"
         end
+        local common: scalarIR.Type? = nil
+        for _, member in ipairs(raw.members or {}) do
+            local valueType = semanticValueType(member, helper)
+            if valueType == nil or common ~= nil and common ~= valueType then
+                return nil
+            end
+            common = valueType
+        end
+        return common
     elseif tag == "nil" then
         return "lua_nil"
     elseif tag == "any" then
@@ -4084,6 +4093,112 @@ function lower.capture(
     return value, setup
 end
 
+--- Lower value-returning logical expressions through branches. Intermediate
+--- `false | number` values in `flag and number or fallback` never need a union
+--- representation: false continues into the fallback before any result is stored.
+function lower.logicalValue(
+    node: cst.Node,
+    environment: {[string]: any},
+    activeIndex: string?,
+    kernel: lower.Kernel,
+    resultType: scalarIR.Type
+): scalarIR.Expr
+    local out = kernel.pending
+    local result = temporary(lower.zeroValue(resultType, lower.site(node), kernel.context), kernel, out)
+    local visitLogical: function(
+        cst.Node,
+        function(scalarIR.Expr, {scalarIR.Statement}): nil,
+        function(scalarIR.Expr, {scalarIR.Statement}): nil,
+        {scalarIR.Statement}
+    ): nil
+    visitLogical = function(expression, yes, no, statements)
+        expression = lower.unwrapped(expression) as cst.Node
+        local operator = expression.kind == "binop" and (expression as cst.Binop).op or nil
+        local written = operator ~= nil and (operator as lexer.Token).text or ""
+        if written == "and" or written == "or" then
+            local binary = expression as cst.Binop
+
+            local function nextOperand(_value: scalarIR.Expr, branch: {scalarIR.Statement}): nil
+                visitLogical(binary.rhs as cst.Node, yes, no, branch)
+            end
+
+            visitLogical(
+                binary.lhs as cst.Node,
+                written == "and" and nextOperand or yes,
+                written == "or" and nextOperand or no,
+                statements
+            )
+            return
+        end
+        local value, setup = lower.capture(expression, environment, activeIndex, kernel)
+        for _, statement in ipairs(setup) do
+            statements[#statements + 1] = statement
+        end
+        if kernel.context.unreachableValues[value] then
+            return
+        elseif value.type == "lua_nil" then
+            no(value, statements)
+        elseif value.type == "bool" then
+            if value.op == "bool" then
+                if (value as scalarIR.Bool).value then
+                    yes(value, statements)
+                else
+                    no(value, statements)
+                end
+            else
+                local whenTrue: {scalarIR.Statement} = {}
+                local whenFalse: {scalarIR.Statement} = {}
+                local cursor, root, room = shortCircuitBound("and", expression, environment, kernel)
+                local previous = kernel.cursorBounds
+                local proved: scalarIR.CursorBounds? = nil
+                if cursor ~= nil then
+                    proved = {}
+                    withBound(proved as scalarIR.CursorBounds, cursor as string, root as string, room as string)
+                    local bounds: scalarIR.CursorBounds = {}
+                    for name, spans in pairs(previous) do
+                        bounds[name] = spans
+                    end
+                    withBound(bounds, cursor as string, root as string, room as string)
+                    kernel.cursorBounds = bounds
+                end
+                yes(new scalarIR.Bool(op = "bool", value = true, type = "bool", source = value.source), whenTrue)
+                kernel.cursorBounds = previous
+                no(new scalarIR.Bool(op = "bool", value = false, type = "bool", source = value.source), whenFalse)
+                statements[
+                    #statements + 1
+                ] = new scalarIR.If(
+                    op = "if",
+                    clauses = {new scalarIR.Clause(condition = value, body = whenTrue, cursorBounds = proved)},
+                    elseBody = whenFalse,
+                    source = value.source
+                )
+            end
+        elseif value.type == "f64"
+            or value.type == "f32"
+            or value.type == "i32"
+            or value.type == "u32"
+            or value.type == "i64"
+            or value.type == "u64"
+            or value.type == "lua_string"
+        then
+            -- Lua numbers (including zero and NaN) and strings are truthy.
+            yes(temporary(value, kernel, statements), statements)
+        else
+            kernel.context.reject(value.source, "native logical value needs an admitted scalar type")
+        end
+    end
+
+    local function finish(value: scalarIR.Expr, statements: {scalarIR.Statement}): nil
+        statements[
+            #statements + 1
+        ] = assignValue(result, lower.convert(value, resultType, value.source, kernel.context))
+    end
+
+    visitLogical(node, finish, finish, out)
+
+    return result
+end
+
 local function expressionRaw(
     node: cst.Node,
     environment: {[string]: any},
@@ -4484,6 +4599,14 @@ local function expressionRaw(
         local decided = speciesNilTest(written, operator.lhs as cst.Node, operator.rhs as cst.Node, environment)
         if decided ~= nil then
             return new scalarIR.Bool(op = "bool", value = decided as boolean, type = "bool", source = lower.site(node))
+        end
+        if written == "and" or written == "or" then
+            local leftType = semanticValueType((operator.lhs as any).inferredType)
+            local rightType = semanticValueType((operator.rhs as any).inferredType)
+            local resultType = semanticValueType((node as any).inferredType) or kernel.expectedType
+            if resultType ~= nil and (leftType ~= "bool" or rightType ~= "bool") then
+                return lower.logicalValue(node, environment, activeIndex, kernel, resultType as scalarIR.Type)
+            end
         end
         local left = lower.expression(operator.lhs as cst.Node, environment, activeIndex, kernel)
         local cursor, boundName, room = shortCircuitBound(written, operator.lhs, environment, kernel)
