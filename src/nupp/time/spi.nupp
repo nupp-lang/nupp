@@ -1,0 +1,32 @@
+module nupp.time.spi
+
+--[[Implementation interfaces consumed during ordinary module initialization.
+Discover with nupp.spi.load; the consumer chooses the unique highest priority.
+Omitted priority is zero. Importing these declarations loads no implementation.]]
+
+--- Clocks and cancellable waits, measured in milliseconds.
+---
+--- now is monotonic with an unspecified origin; wallTime is Unix epoch time and
+--- must not be used for monotonic deadlines. wakeAt and sleepUntil use the same
+--- origin as now. Finite non-negative durations and deadlines are required.
+--- Waits cooperate with the selected suspension implementation. Timer callbacks and
+--- cancellation functions belong to the current Lua state.
+export interface TimeProvider
+    readonly priority: integer?
+
+    --- Schedules one deadline callback and returns its cancellation function.
+    --- Registration itself must not suspend the subscriber.
+    readonly wakeAt: function(deadline: number, resume: function(boolean): nil): function(): nil
+
+    --- Returns monotonic milliseconds used for durations and deadlines.
+    readonly now: function(): number
+
+    --- Returns milliseconds since the Unix epoch.
+    readonly wallTime: function(): number
+
+    --- Waits for a relative interval through the current suspension context.
+    readonly sleep: function(milliseconds: number): nil
+
+    --- Waits until an absolute deadline in the now clock domain.
+    readonly sleepUntil: function(deadline: number): nil
+end

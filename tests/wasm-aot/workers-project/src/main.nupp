@@ -3,6 +3,16 @@ local tasks = require("nupp.tasks")
 local time = require("nupp.time")
 local workers = require("nupp.workers")
 
+local counter = require("counter")
+for index = 1, 100 do
+    assert(counter.next() == index)
+end
+with scope = workers.scope() do
+    local independent = scope:spawn(jobs.nextCounter)
+    assert(independent:await() == 1, "each lane loads its own implementation from the shared SPI index")
+    assert(counter.next() == 101, "worker state is independent of the caller")
+end
+
 -- The smoke page reads one JSON document, and `nupp.codec.json` is not part of the
 -- portable browser surface, so this writes the few scalars it reports itself.
 local report: {string} = {}
@@ -250,9 +260,8 @@ end
 local deadlineProblem = raised(bounded)
 text(
     "deadlineOutcome",
-    deadlineProblem == nil and "completed" or (
-        deadlineProblem:find("was cancelled", 1, true) ~= nil and "cancelled" or "failed"
-    )
+    deadlineProblem == nil and "completed"
+    or (deadlineProblem:find("was cancelled", 1, true) ~= nil and "cancelled" or "failed")
 )
 number("deadlineMs", time.now() - deadlineStarted)
 

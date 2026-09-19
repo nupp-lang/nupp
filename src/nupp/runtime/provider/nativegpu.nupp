@@ -2,7 +2,7 @@
 module nupp.runtime.provider.nativegpu
 
 --[[
-Native resident-compute implementation of `host.gpu` API 1.
+Native resident-compute implementation used as a built-in module fallback.
 
 `open` creates a device context through [](nupp.runtime.native). The artifact
 must carry the native GPU feature and a compatible host driver. Generated shader

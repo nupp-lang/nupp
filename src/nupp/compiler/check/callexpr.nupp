@@ -107,7 +107,7 @@ local COMPILER_SURFACES: {
     [string]: {[string]: {[string]: CompilerSurface}}
 } = {
     [
-        "nupp.runtime.services.workers"
+        "nupp.workers.spi"
     ] = {
         Scope = {spawn = {rotate = true, sendableLast = true,},},
         PublicScope = {spawn = {rotate = true, sendableLast = true,},},

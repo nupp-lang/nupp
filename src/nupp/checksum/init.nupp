@@ -33,14 +33,16 @@ that reach for [](nupp.mac).
 A snapshot is a number, so whatever writes one to the wire picks its byte order.
 
 A host may supply its own catalog through
-[](nupp.runtime.services.checksum), selected during setup before this module
+[](nupp.checksum.spi), selected during setup before this module
 loads. Its entries override the built-ins of the same name and may add others,
 and the ones it does not name stay available. The catalog is read once, at load,
 so no lookup or update resolves a service.
 ]]
 
+local spi = require("nupp.spi")
+
 const span = require("nupp.mem.span")
-const provider = require("nupp.runtime.services.checksum")
+const provider = require("nupp.checksum.spi")
 
 --- Owned incremental checksum state with non-consuming numeric reads.
 export affine interface Checksum is nupp.Closeable
@@ -110,7 +112,7 @@ export record Algorithm
     end
 end
 
-local standard = provider.service:require("nupp.builtin")
+local standard = require("nupp.runtime.provider.checksum")
 
 local function validate(selected: provider.Provider): nil
     for name, implementation in pairs(selected.algorithms) do
@@ -133,12 +135,24 @@ local function validate(selected: provider.Provider): nil
     end
 end
 
-local selected = provider.service:assemble(
-    function(): provider.Provider
-        return standard
-    end,
-    validate
-)
+local selected: provider.Provider = do
+    local chosen: provider.Provider?
+    local tied = false
+    for candidate in spi.load(provider.Provider) do
+        if chosen == nil or (candidate.priority ?? 0) > (chosen.priority ?? 0) then
+            chosen = candidate
+            tied = false
+        elseif (candidate.priority ?? 0) == (chosen.priority ?? 0) then
+            tied = true
+        end
+    end
+    assert(not tied, "nupp.checksum: multiple implementations have the highest priority")
+    if chosen ~= nil then
+        yield chosen
+    end
+    yield standard
+end
+validate(selected)
 local available: {[string]: Algorithm} = {}
 for name, implementation in pairs(standard.algorithms) do
     available[name] = new Algorithm(name = name, width = implementation.width, implementation = implementation)

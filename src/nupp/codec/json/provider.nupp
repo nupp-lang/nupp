@@ -1,8 +1,25 @@
 @!internal
 module nupp.codec.json.provider
 
-const contracts = require("nupp.runtime.services.contracts")
+local spi = require("nupp.spi")
+local contracts = require("nupp.codec.json.spi")
 
-export = contracts.json:assemble(function(): contracts.JsonProvider
-    return require("nupp.runtime.provider.lunajson")
-end)
+local provider: contracts.JsonProvider = do
+    local chosen: contracts.JsonProvider?
+    local tied = false
+    for candidate in spi.load(contracts.JsonProvider) do
+        if chosen == nil or (candidate.priority ?? 0) > (chosen.priority ?? 0) then
+            chosen = candidate
+            tied = false
+        elseif (candidate.priority ?? 0) == (chosen.priority ?? 0) then
+            tied = true
+        end
+    end
+    assert(not tied, "nupp.codec.json.provider: multiple implementations have the highest priority")
+    if chosen ~= nil then
+        yield chosen
+    end
+    yield require("nupp.runtime.provider.lunajson")
+end
+
+export = provider

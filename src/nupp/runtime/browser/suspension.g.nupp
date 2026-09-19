@@ -8,12 +8,12 @@ Browser-effect implementation of the `suspension` API 1 contract.
 Parking yields through the browser effect channel. Subscription and handler
 execution avoid yielding across stock Lua 5.1 protected-call boundaries. Source
 polling, nested handler restoration, and subscription cleanup implement the same
-canonical records declared by [](nupp.runtime.services.suspension).
+canonical records declared by [](nupp.suspension.spi).
 
 A bounded activation budget returns control to the browser event loop so queued
 callbacks and cancellation can make progress. Resume settles a wait once;
 release removes registrations without suspending. Tasks and worker lanes use
-[](nupp.runtime.services.cancellation) for cancellation identity.
+[](nupp.runtime.cancellation) for cancellation identity.
 
 The browser host must install its effect transport before consumers load
 [](nupp.suspension). Handler, source, and waiting state stays local to each Lua
@@ -21,8 +21,8 @@ state, and scheduling operations never resolve the service again.
 ]]
 
 local effects = require("nupp.runtime.browser.effects")
-local contract = require("nupp.runtime.services.suspension")
-local cancellation = require("nupp.runtime.services.cancellation")
+local contract = require("nupp.suspension.spi")
+local cancellation = require("nupp.runtime.cancellation")
 local suspension = {}
 local running = coroutine.running
 local sources: {any} = {}

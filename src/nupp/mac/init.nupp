@@ -26,12 +26,14 @@ The key is raw bytes. Finalizing consumes the context.
 | --- | ---: | --- |
 | `hmac-sha256` | 32 bytes | HMAC over SHA-256 |
 
-A host may supply its own catalog through [](nupp.runtime.services.mac),
-selected during setup before this module loads. It is read once, at load.
+A host may supply its own catalog through [](nupp.mac.spi),
+chosen by priority when this module initializes. It is read once, at load.
 ]]
 
+local spi = require("nupp.spi")
+
 const context = require("nupp.digest.internal.context")
-const provider = require("nupp.runtime.services.mac")
+const provider = require("nupp.mac.spi")
 
 --- An owned keyed context with consuming digest finalization.
 export type Mac = context.Digest
@@ -52,7 +54,7 @@ export record Algorithm
     end
 end
 
-local standard = provider.service:require("nupp.builtin")
+local standard = require("nupp.runtime.provider.mac")
 
 local function validate(selected: provider.Provider): nil
     for name, implementation in pairs(selected.algorithms) do
@@ -74,12 +76,24 @@ local function validate(selected: provider.Provider): nil
     end
 end
 
-local selected = provider.service:assemble(
-    function(): provider.Provider
-        return standard
-    end,
-    validate
-)
+local selected: provider.Provider = do
+    local chosen: provider.Provider?
+    local tied = false
+    for candidate in spi.load(provider.Provider) do
+        if chosen == nil or (candidate.priority ?? 0) > (chosen.priority ?? 0) then
+            chosen = candidate
+            tied = false
+        elseif (candidate.priority ?? 0) == (chosen.priority ?? 0) then
+            tied = true
+        end
+    end
+    assert(not tied, "nupp.mac: multiple implementations have the highest priority")
+    if chosen ~= nil then
+        yield chosen
+    end
+    yield standard
+end
+validate(selected)
 local available: {[string]: Algorithm} = {}
 for name, implementation in pairs(standard.algorithms) do
     available[

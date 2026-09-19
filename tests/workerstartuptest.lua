@@ -1,15 +1,9 @@
 local native = require("nupp.workers.native")
 local M = {}
 
-function M.catalogBackedSetupRunsBeforeAnIdleWorkerExits()
+function M.idleWorkerStartsWithoutSetupReplay()
     local inbox, outbox = native.channelCreate(), native.channelCreate()
-    local handle, problem = native.workerSpawn(
-        inbox,
-        outbox,
-        [[local contracts = require("nupp.runtime.services.contracts")
-contracts.bitops:select("nupp.scalar")
-assert(require("nupp.runtime.bitops") == contracts.bitops:require("nupp.scalar"))]]
-    )
+    local handle, problem = native.workerSpawn(inbox, outbox)
     if not handle then
         native.channelDestroy(inbox)
         native.channelDestroy(outbox)

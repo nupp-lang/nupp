@@ -6,11 +6,11 @@ module nupp.runtime.provider.checksum
 Module initialization retains the fixed algorithm descriptors from the ordinary
 checksum implementation. It creates no mutable algorithm state. Factories return
 independent affine contexts; updates keep bounded state and do not retain spans.
-The public facade selects and validates this catalog during require-time assembly.
+The public facade selects and validates this catalog during module initialization.
 Calls through retained descriptors perform no service resolution.
 ]]
 
-local contract = require("nupp.runtime.services.checksum")
+local contract = require("nupp.checksum.spi")
 local builtin = require("nupp.checksum.internal.builtin")
 local algorithms: {[string]: contract.Algorithm} = {}
 for _, name in ipairs(builtin.names()) do

@@ -1,0 +1,31 @@
+module nupp.runtime.uuid
+
+--[[UUID operations selected once for this artifact's runtime.
+External implementations advertise the interface in [](nupp.runtime.uuid.spi).
+Public utilities use these same bound functions.]]
+
+local spi = require("nupp.spi")
+local target = require("nupp.runtime.target")
+local contracts = require("nupp.runtime.uuid.spi")
+local provider: contracts.UuidProvider = do
+    local chosen: contracts.UuidProvider?
+    local tied = false
+    for candidate in spi.load(contracts.UuidProvider) do
+        if chosen == nil or (candidate.priority ?? 0) > (chosen.priority ?? 0) then
+            chosen = candidate
+            tied = false
+        elseif (candidate.priority ?? 0) == (chosen.priority ?? 0) then
+            tied = true
+        end
+    end
+    assert(not tied, "nupp.runtime.uuid: multiple implementations have the highest priority")
+    if chosen ~= nil then
+        yield chosen
+    end
+    if target.dialect ~= "lua51" then
+        yield _G.require("nupp.runtime.provider.nativeuuid") as contracts.UuidProvider
+    end
+    yield _G.require("nupp.runtime.browser.crypto") as contracts.UuidProvider
+end
+
+export = provider

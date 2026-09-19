@@ -1108,11 +1108,8 @@ return {include = {"src"}, build = {targets = {app = {
     assert(load('"lua51"'), "the portable dialect is accepted")
     local _, unsupported = load('"lua54"')
     assert(
-        unsupported and unsupported:find(
-            'build.targets.app.dialect must be "luajit", "luajit-compat" or "lua51"',
-            1,
-            true
-        ),
+        unsupported
+        and unsupported:find('build.targets.app.dialect must be "luajit", "luajit-compat" or "lua51"', 1, true),
         tostring(unsupported)
     )
     local _, wrongType = load("true")
@@ -1218,7 +1215,9 @@ function M.gpuOverrideSelectsAHostWithTheProviderLinked()
         calls[#calls + 1] = argv
         return 0, "/built/nupp-host\n"
     end
-    compilerEnv.compilerRoot = function() return "." end
+    compilerEnv.compilerRoot = function()
+        return "."
+    end
     local ok, problem = pcall(function()
         for _, enabled in ipairs({false, true}) do
             local effects = nativeStage.resolve({}, {gpu = enabled})
@@ -1851,11 +1850,11 @@ return {
     remove(dir)
 end
 
--- Linking a compiler-carried service runtime needs its source closure before the
--- checker sees it. A prior module record already names that closure; rediscovering it
--- through a fresh query graph checks the module solely to confirm an otherwise usable
--- cache entry, which made the shared contracts module dominate every warm command.
-function M.warmServiceCheckUsesRecordedRuntimeDependencies()
+-- Linking a compiler-carried runtime needs its source closure before the checker sees
+-- it. A prior module record already names that closure; rediscovering it through a
+-- fresh query graph checks the module solely to confirm an otherwise usable cache
+-- entry, which made the shared representation declarations dominate every warm command.
+function M.warmRuntimeCheckUsesRecordedRuntimeDependencies()
     local dir = tempProject({
         [
             "nupp.lua"
@@ -1881,11 +1880,11 @@ return random, storage, time
 
     local warm = {}
     assertEq(project.check(dir, {produced = warm, diagnostics = {}}), 0)
-    assertEq(warm.timing.compiledModules, 0, "the unchanged service closure is reused")
+    assertEq(warm.timing.compiledModules, 0, "the unchanged runtime closure is reused")
     for _, span in ipairs(warm.timing.slowest) do
         assert(
-            span.module ~= "nupp.runtime.services.contracts",
-            "a warm service check must not recheck the shared contracts module"
+            span.module ~= "nupp.runtime.representation.spi",
+            "a warm check must not recheck shared representation declarations"
         )
     end
 
@@ -2570,9 +2569,7 @@ end
 
 function M.staticAotComponentRegistersLuaBuildersThroughTheHost()
     local dir = tempProject({
-        [
-            "src/main.nupp"
-        ] = [[
+        ["src/main.nupp"] = [[
 @aot
 local function make(): {string: any} return {ready = true} end
 return {make = make}

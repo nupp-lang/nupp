@@ -34,7 +34,7 @@ local materializeObserve = require("nupp.compiler.materialize.observe")
 local progress = require("nupp.compiler.build.progress")
 local constspecialize = require("nupp.compiler.constspecialize")
 local native = require("nupp.compiler.native")
-local serviceCatalog = require("nupp.runtime.services.catalog")
+local moduleTargets = require("nupp.compiler.standardsurface")
 
 local normalize, join = fs.normalize, fs.join
 local readFile, writeFile = fs.readFile, fs.writeFile
@@ -154,7 +154,6 @@ type modules.Result = {
 
     materializations: {any},
     derives: {any},
-    services: {any},
     optimizationRemarks: {any},
     allocationSites: {any},
     accountedModules: integer,
@@ -952,18 +951,8 @@ local function buildModules(root: string, outDir: string, config: Config, target
 
     local enqueueLinked: function(string): nil
 
-    local function compatibleProvider(name: string): boolean
-        local found = false
-        for _, provider in ipairs(serviceCatalog.entries) do
-            if provider.entry == name then
-                found = true
-                if serviceCatalog.supports(provider, target.dialect or "luajit") then
-                    return true
-                end
-            end
-        end
-
-        return not found
+    local function compatibleModule(name: string): boolean
+        return moduleTargets.supports(name, target.dialect or "luajit")
     end
 
     local function runtimeImports(name: string, code: string): any
@@ -981,22 +970,9 @@ local function buildModules(root: string, outDir: string, config: Config, target
                 required[#required + 1] = provider.implementation
             end
         end
-        local service = serviceCatalog.facades[name]
-        if service ~= nil then
-            for _, provider in ipairs(serviceCatalog.entries) do
-                if provider.service == service and serviceCatalog.supports(provider, target.dialect or "luajit") then
-                    required[#required + 1] = provider.entry
-                end
-            end
-        elseif name == "nupp.runtime.services.artifact" then
-            for _, provider in ipairs(config._serviceEntries or {}) do
-                required[#required + 1] = provider.contract
-                required[#required + 1] = provider.entry
-            end
-        end
         local unique, seen = {}, {}
         for _, dependency in ipairs(required) do
-            if not seen[dependency] and compatibleProvider(dependency) then
+            if not seen[dependency] and compatibleModule(dependency) then
                 seen[dependency] = true
                 unique[#unique + 1] = dependency
             end
@@ -1008,18 +984,10 @@ local function buildModules(root: string, outDir: string, config: Config, target
 
     local linkRuntimeSource: function(name: string): nil
     linkRuntimeSource = function(name: string): nil
-        if linkedRuntimeSource[name] or linkingRuntimeSource[name] or not compatibleProvider(name) then
+        if linkedRuntimeSource[name] or linkingRuntimeSource[name] or not compatibleModule(name) then
             return
         end
         linkingRuntimeSource[name] = true
-        local service = serviceCatalog.facades[name]
-        if service ~= nil then
-            for _, provider in ipairs(serviceCatalog.entries) do
-                if provider.service == service and serviceCatalog.supports(provider, target.dialect or "luajit") then
-                    linkRuntimeSource(provider.entry)
-                end
-            end
-        end
         local path = inc.modulePath(name) or stageBundled(name)
         if path ~= nil and not path:match("%.d%.nupp$") then
             linkedModules[name] = true
@@ -1118,13 +1086,8 @@ local function buildModules(root: string, outDir: string, config: Config, target
     end
 
     local function linkSelectedDependencies(name: string, names: any, effects: any): nil
-        if serviceCatalog.facades[name] ~= nil then
-            linkRuntimeSource(name)
-        end
         linkFeatureRuntime(effects)
-        local selected = name == "nupp.services"
-            or serviceCatalog.facades[name] ~= nil
-            or (linkedModules[name] == true and not packagedRuntimeModules[name])
+        local selected = name == "nupp.spi" or (linkedModules[name] == true and not packagedRuntimeModules[name])
         if not selected then
             return
         end
@@ -1153,9 +1116,6 @@ local function buildModules(root: string, outDir: string, config: Config, target
     local queue, queuedPaths = {}, {}
 
     local function seed(name, path)
-        if name == "nupp.runtime.services.artifact" then
-            return
-        end
         path = normalize(path)
         if queuedPaths[path] then
             return
@@ -1435,7 +1395,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
     end
 
     local function enqueue(name, path)
-        if queued[name] or records[name] or not compatibleProvider(name) then
+        if queued[name] or records[name] or not compatibleModule(name) then
             return
         end
         path = path or inc.modulePath(name)
@@ -1457,10 +1417,6 @@ local function buildModules(root: string, outDir: string, config: Config, target
     end
     linkFeatureRuntime(configuredEffects)
 
-    for _, provider in ipairs(config._serviceEntries or {}) do
-        linkRuntimeSource(provider.contract)
-        linkRuntimeSource(provider.entry)
-    end
     if #(config._spiEntries or {}) > 0 then
         linkRuntimeSource("nupp.spi")
         linkRuntimeSource("nupp.spi.index")
@@ -1812,72 +1768,6 @@ local function buildModules(root: string, outDir: string, config: Config, target
         processQueue()
     end
 
-    -- The artifact catalog names exactly the providers its module graph carries.
-    local artifactProviders = {}
-    for _, provider in ipairs(config._serviceEntries or {}) do
-        artifactProviders[#artifactProviders + 1] = provider
-    end
-    for _, provider in ipairs(serviceCatalog.entries) do
-        if serviceCatalog.supports(provider, target.dialect or "luajit")
-            and (records[provider.entry] ~= nil or linkedRuntimeSource[provider.entry])
-        then
-            artifactProviders[#artifactProviders + 1] = provider
-        end
-    end
-    local serviceWriter = require("nupp.compiler.build.services")
-    if #artifactProviders > 0 or records["nupp.services"] ~= nil or linkedRuntimeSource["nupp.services"] then
-        local catalogWritten, catalogProblem = serviceWriter.write(
-            root,
-            outDir,
-            config,
-            target,
-            newState.dependencies,
-            artifactProviders,
-            true
-        )
-        if not catalogWritten then
-            return nil, catalogProblem
-        end
-        local catalogPath = join(root, join(outDir, "generated/nupp/runtime/services/artifact.g.nupp"))
-        local catalogHash = hashFile(catalogPath)
-        local catalogRecord = records["nupp.runtime.services.artifact"]
-        if catalogRecord == nil
-            or catalogRecord.sourcePath ~= catalogPath
-            or catalogRecord.sourceHash ~= catalogHash
-        then
-            if catalogRecord == nil then
-                paths["nupp.runtime.services.artifact"] = catalogPath
-                order[#order + 1] = "nupp.runtime.services.artifact"
-            end
-            local name = "nupp.runtime.services.artifact"
-            local previous = oldState.modules[name]
-            local catalogOutput = join(root, join(outDir, "nupp/runtime/services/artifact.lua"))
-            -- The catalog is generated data. Its source, compiler, and output hashes
-            -- determine whether its existing artifact can be retained.
-            if cacheCompatible
-                and previous
-                and previous.sourcePath == catalogPath
-                and previous.sourceHash == catalogHash
-                and (
-                    checkOnly
-                    or previous.output == catalogOutput
-                    and previous.artifactHash ~= nil
-                    and hashFile(catalogOutput) == previous.artifactHash
-                )
-            then
-                records[name] = copyModuleRecord(previous)
-                reused[name] = true
-                codeFor[name] = nil
-                said[name] = previous.diags
-            else
-                inc.diskChanged(catalogPath, 2)
-                compile(name, catalogPath, catalogHash)
-                processQueue()
-            end
-        end
-
-    end
-
     -- Counted here rather than where reuse is decided, because a module reused early
     -- can be invalidated by a dependency later and recompiled; only once the loop above
     -- settles is `reused` the answer. A check counts the same way a build does, which
@@ -2008,7 +1898,6 @@ local function buildModules(root: string, outDir: string, config: Config, target
             outputs = {},
             materializations = materializations,
             derives = derives,
-            services = serviceWriter.describe(artifactProviders),
             optimizationRemarks = optimizationRemarks,
             allocationSites = allocationSites,
             accountedModules = accountedModules
@@ -2083,7 +1972,6 @@ local function buildModules(root: string, outDir: string, config: Config, target
         effects = effects,
         materializations = materializations,
         derives = derives,
-        services = serviceWriter.describe(artifactProviders),
         optimizationRemarks = optimizationRemarks,
         allocationSites = allocationSites,
         accountedModules = accountedModules
@@ -2138,6 +2026,15 @@ local function targetScope(root: string, target: Target, session: modules.Sessio
     end
     for _, path in ipairs(selected or {}) do
         seed(path)
+    end
+    -- Discovery adds runtime roots that no literal require in the consumer names.
+    -- Their ordinary import closure needs the same AOT policy as the entry's.
+    for _, implementation in ipairs(inc.env.config._spiEntries or {}) do
+        local path = inc.modulePath(implementation.implementation)
+            or session.stageBundled(implementation.implementation)
+        if path ~= nil then
+            seed(path)
+        end
     end
     local cursor: integer = 1
     while cursor <= #queue do

@@ -16,6 +16,10 @@ A child and its streams are owners. See
 [ownership.md](docs/learn/runtime/ownership/borrowing.md) for the contract they are handed
 out under.
 ]]
+
+local spi = require("nupp.spi")
+local target = require("nupp.runtime.target")
+
 const {type Reader as Reader2} = require("nupp.io")
 const {type Buffer} = require("nupp.io")
 const {type Writer as Writer2} = require("nupp.io")
@@ -25,10 +29,25 @@ local physical = require("nupp.runtime.storage")
 local span = require("nupp.mem.span")
 local spanStringValue: function(borrows source: const uint8[?], count: integer): string = physical.string as any
 
-const contract = require("nupp.runtime.services.process")
-const provider = contract.service:assemble(function(): contract.Provider
-    return contract.service:require("nupp.native")
-end)
+const contract = require("nupp.io.process.spi")
+local provider: contract.Provider = do
+    local chosen: contract.Provider?
+    local tied = false
+    for candidate in spi.load(contract.Provider) do
+        if chosen == nil or (candidate.priority ?? 0) > (chosen.priority ?? 0) then
+            chosen = candidate
+            tied = false
+        elseif (candidate.priority ?? 0) == (chosen.priority ?? 0) then
+            tied = true
+        end
+    end
+    assert(not tied, "nupp.io.process: multiple implementations have the highest priority")
+    if chosen ~= nil then
+        yield chosen
+    end
+    assert(target.dialect ~= "lua51", "nupp.io.process: no implementation is available")
+    yield _G.require("nupp.runtime.provider.nativeprocess") as contract.Provider
+end
 local process = {}
 const shared = require("nupp.io.process.types")
 

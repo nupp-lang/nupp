@@ -1,0 +1,20 @@
+module nupp.text.spi
+
+--[[Implementation interfaces consumed during ordinary module initialization.
+Discover with nupp.spi.load; the consumer chooses the unique highest priority.
+Omitted priority is zero. Importing these declarations loads no implementation.]]
+
+local {type Buffer as SharedBuffer} = require("nupp.text.internal.buffer")
+
+--- Construction of the canonical portable FIFO Buffer.
+---
+--- Return the shared Buffer type from nupp.text.internal.buffer. Implementations may
+--- use native objects or portable state, but all signatures and chaining results
+--- must retain that identity. Native pointer and serializer facilities are outside
+--- this portable contract.
+export interface TextBufferProvider
+    readonly priority: integer?
+
+    --- Creates an independent FIFO buffer; accepts a size hint or an options table.
+    readonly new: function(size: (integer | table)?, options: table?): SharedBuffer
+end

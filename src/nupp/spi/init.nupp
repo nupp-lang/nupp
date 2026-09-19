@@ -1,5 +1,7 @@
 module nupp.spi
 
+const _DYNAMIC_REQUIRES = "@requires-dynamically nupp.spi.index"
+
 --[[
 Discover implementations, then choose with ordinary module initialization code.
 
@@ -18,7 +20,7 @@ local index: {[string]: {string}} = found and loaded or {}
 --- Iterates implementations of an exported interface without choosing one.
 --- The compiler replaces the interface argument with its qualified name.
 --- Each iteration loads one module; ordinary require caching retains its identity.
---- @raises when an implementation cannot load or does not export a table
+--- @raises when an implementation cannot load
 export function load<I>(interface: string): function(): I?
     local modules = index[interface] or {}
     local position: integer = 0
@@ -28,14 +30,7 @@ export function load<I>(interface: string): function(): I?
         if name == nil then
             return nil
         end
-        local ok, value = pcall(require, name)
-        if not ok then
-            error("nupp.spi: cannot load " .. interface .. " from " .. name .. ": " .. tostring(value), 2)
-        end
-        if type(value) ~= "table" then
-            error("nupp.spi: " .. name .. " must export an implementation of " .. interface, 2)
-        end
 
-        return value as I
+        return require(name) as I
     end
 end

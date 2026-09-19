@@ -1,0 +1,49 @@
+module nupp.time
+
+--[[
+Clocks and sleeps, from whichever host is running.
+
+```nupp
+const time = nupp.time
+
+const started = time.now()
+time.sleep(50)
+print(time.now() - started)  -- about 50
+
+print(time.wallTime())       -- milliseconds since the Unix epoch
+```
+
+`now` is the clock durations and deadlines are measured in. It only moves
+forward and its zero is whatever the host picked, so one reading means nothing
+except against another. `wallTime` is calendar time and may jump backwards when
+the machine's clock is corrected -- never subtract two of those to measure how
+long something took.
+]]
+
+local contracts = require("nupp.time.spi")
+
+local target = require("nupp.runtime.target")
+const provider: contracts.TimeProvider = require("nupp.runtime.timeprovider").provider ?? do
+    if target.dialect ~= "lua51" then
+        yield _G.require("nupp.runtime.provider.nativetime") as contracts.TimeProvider
+    end
+    assert(rawget(_G, "__nuppWasmHost") ~= nil, "nupp.time: no clock provider is available")
+    yield _G.require("nupp.runtime.browser.time") as contracts.TimeProvider
+end
+
+--- Answers monotonic milliseconds, the domain durations and deadlines use.
+export const now: function(): number = provider.now
+
+--- Answers milliseconds since the Unix epoch.
+export const wallTime: function(): number = provider.wallTime
+
+--- Waits for a relative interval through the current suspension context.
+export const sleep: function(milliseconds: number): nil = provider.sleep
+
+--- Waits until an absolute deadline in the [](now) domain; a deadline already
+--- past returns without waiting.
+export const sleepUntil: function(deadline: number): nil = provider.sleepUntil
+
+--- Schedules one callback for a deadline in the [](now) domain and answers the
+--- function that cancels it. Registration itself does not suspend.
+export const wakeAt: function(deadline: number, resume: function(boolean): nil): function(): nil = provider.wakeAt

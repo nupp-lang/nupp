@@ -27,7 +27,7 @@ local pullDecoder = require("nupp.codec.json.internal.decode")
 local serdeDecoder = require("nupp.codec.json.internal.decoder.serde")
 local newBuffer = require("nupp.text").newBuffer
 local bit = require("bit")
-local contracts = require("nupp.runtime.services.contracts")
+local contracts = require("nupp.codec.json.spi")
 
 local json = {}
 local ARRAY_MARKER, OBJECT_MARKER, ARRAY_SHAPE = {}, {}, {}

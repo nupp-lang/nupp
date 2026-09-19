@@ -1,0 +1,50 @@
+module nupp.runtime.representation
+
+local spi = require("nupp.spi")
+local target = require("nupp.runtime.target")
+local contracts = require("nupp.runtime.representation.spi")
+
+export const storage: contracts.CstorageProvider? = do
+    local chosen: contracts.CstorageProvider?
+    local tied = false
+    for candidate in spi.load(contracts.CstorageProvider) do
+        if chosen == nil or (candidate.priority ?? 0) > (chosen.priority ?? 0) then
+            chosen = candidate
+            tied = false
+        elseif (candidate.priority ?? 0) == (chosen.priority ?? 0) then
+            tied = true
+        end
+    end
+    assert(not tied, "nupp.runtime.representation: multiple implementations have the highest priority")
+    if chosen ~= nil then
+        yield chosen
+    end
+    if target.dialect ~= "lua51" then
+        yield _G.require("nupp.runtime.provider.nativestorage") as contracts.CstorageProvider
+    end
+    if rawget(_G, "__nuppWasmHost") ~= nil then
+        yield _G.require("nupp.runtime.provider.wasmstorage") as contracts.CstorageProvider
+    end
+    yield nil
+end
+if storage ~= nil then
+    if target.dialect == "lua51" then
+        assert(storage.representation == "linear32", "nupp.runtime.storage: target requires linear32 storage")
+        assert(
+            storage.layout ~= nil and storage.reference ~= nil,
+            "nupp.runtime.storage: portable layout operations are missing"
+        )
+        assert(storage.integers ~= nil, "nupp.runtime.storage: integer implementation is missing")
+        assert(
+            storage.structs ~= nil and storage.structs.referenceValued,
+            "nupp.runtime.storage: reference-valued structs are required"
+        )
+        assert(storage.host ~= nil, "nupp.runtime.storage: memory host is missing")
+    else
+        assert(storage.representation == "native", "nupp.runtime.storage: target requires native pointer storage")
+    end
+end
+local tableStructs: contracts.StructvalueProvider = require("nupp.runtime.provider.tablestruct")
+export const structs: contracts.StructvalueProvider = storage and storage.structs or tableStructs
+export const integers = storage and storage.integers or nil
+export const host = storage and storage.host or nil

@@ -1,5 +1,10 @@
 module jobs
 
+local counter = require("counter")
+export function nextCounter(): integer
+    return counter.next()
+end
+
 -- Ordinary exported functions. Nothing here names a worker: submitting one is what
 -- runs it on a lane, and calling it runs it in whichever state made the call.
 
@@ -73,5 +78,9 @@ end
 
 --- A value no copy could reproduce, refused by the lane rather than by the caller.
 export function unsendableResult(label: string): any
-    return {label = label, hook = function(): nil end,}
+    return {
+        label = label,
+        hook = function(): nil
+        end,
+    }
 end

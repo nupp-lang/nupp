@@ -1,0 +1,5 @@
+module counter.spi
+
+export interface Counter
+    readonly next: function(): integer
+end

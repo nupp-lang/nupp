@@ -3,18 +3,12 @@ local builtin = require("nupp.digest.internal.builtin")
 local M = {}
 
 local function selected(kind, algorithms)
-    local load, service = state.family(kind)
-    service:register("fixture", function()
-        return {algorithms = algorithms}
-    end)
-    service:select("fixture")
-
-    return load, service
+    return state.family(kind, {{algorithms = algorithms}})
 end
 
 function M.providerSelectionAndCleanup()
-    local created, closed, resolutions = 0, 0, 0
-    local load, service = selected("digest", {
+    local created, closed = 0, 0
+    local load, counts = selected("digest", {
         sha256 = {
             name = "sha256",
             digestSize = 32,
@@ -36,13 +30,8 @@ function M.providerSelectionAndCleanup()
             end
         }
     })
-    local lookup = service.lookup
-    service.lookup = function(self, name)
-        resolutions = resolutions + 1
-        return lookup(self, name)
-    end
     local digest = load("nupp.digest")
-    local initialized = resolutions
+    local initialized = counts.resolutions
     assert(initialized > 0)
     assert(digest.algorithm("sha256").digestSize == 32 and created == 0)
     assert(digest.lookup("sha512") ~= nil, "unreplaced built-ins remain available")
@@ -51,9 +40,8 @@ function M.providerSelectionAndCleanup()
         assert(#digest.algorithms() == 4)
     end
     assert(created == 20 and closed == 20)
-    assert(resolutions == initialized, "operations must not resolve providers")
+    assert(counts.resolutions == initialized, "operations must not resolve providers")
     assert(load("nupp.digest") == digest)
-    assert(not pcall(service.select, service, "nupp.builtin"))
 end
 
 function M.providerFailureClosesAndDoesNotFallBack()
@@ -103,21 +91,18 @@ function M.invalidDescriptorsFailAtRequireTime()
 end
 
 function M.failedLoadFailsTheFacadeInitialization()
-    local load, service = state.family("digest")
-    service:register("broken", function()
-        error("loader failure")
-    end)
-    service:select("broken")
+    local load = state.family("digest", {
+        function()
+            error("loader failure")
+        end
+    })
     local ok, problem = pcall(load, "nupp.digest")
     assert(not ok and tostring(problem):find("loader failure", 1, true))
 end
 
-function M.discoveryDoesNotSelectProviders()
+function M.emptyDiscoveryRetainsBuiltinsAndIndependentListings()
     for _, kind in ipairs({"digest", "checksum", "mac"}) do
-        local load, service = state.family(kind)
-        service:register("unused", function()
-            error("discovery must not select")
-        end)
+        local load = state.family(kind)
         local api = load("nupp." .. kind)
         assert(api.lookup("not-installed") == nil)
         assert(not pcall(api.create, "not-installed", "key"))
@@ -130,20 +115,10 @@ end
 
 function M.checksumAndMacRetainCatalogsDuringOperations()
     for _, kind in ipairs({"checksum", "mac"}) do
-        local load, service = state.family(kind)
-        local builtinProvider = service:require("nupp.builtin")
-        service:register("fixture", function()
-            return builtinProvider
-        end)
-        service:select("fixture")
-        local resolutions = 0
-        local lookup = service.lookup
-        service.lookup = function(self, name)
-            resolutions = resolutions + 1
-            return lookup(self, name)
-        end
+        local builtinProvider = require("nupp.runtime.provider." .. kind)
+        local load, counts = state.family(kind, {builtinProvider})
         local api = load("nupp." .. kind)
-        local initialized = resolutions
+        local initialized = counts.resolutions
         assert(initialized > 0)
         for _ = 1, 20 do
             api.algorithms()
@@ -153,7 +128,49 @@ function M.checksumAndMacRetainCatalogsDuringOperations()
                 assert(#api.digest("hmac-sha256", "key", "payload") == 32)
             end
         end
-        assert(resolutions == initialized, kind .. " operations resolved SPI")
+        assert(counts.resolutions == initialized, kind .. " operations resolved SPI")
+    end
+end
+
+local function catalog(name, priority)
+    return {
+        priority = priority,
+        algorithms = {
+            [name] = {
+                name = name,
+                digestSize = 1,
+                create = function()
+                    error("not used")
+                end,
+            }
+        }
+    }
+end
+
+function M.priorityWinsRegardlessOfDependencyOrder()
+    for _, providers in ipairs({
+        {catalog("low", 1), catalog("high", 5)},
+        {catalog("high", 5), catalog("low", 1)},
+        {catalog("negative", -1), catalog("default", nil)},
+    }) do
+        local load = state.family("digest", providers)
+        local digest = load("nupp.digest")
+        assert(digest.lookup(providers[1].priority == -1 and "default" or "high"))
+        assert(digest.lookup("low") == nil and digest.lookup("negative") == nil)
+    end
+end
+
+function M.lowerTiesCanBeSupersededButHighestTiesFail()
+    local load = state.family("digest", {catalog("a", 0), catalog("b", 0), catalog("winner", 1)})
+    assert(load("nupp.digest").lookup("winner"))
+    for _, providers in ipairs({
+        {catalog("a", 1), catalog("b", 1)},
+        {catalog("a", nil), catalog("b", 0)},
+        {catalog("high", 2), catalog("low", 0), catalog("alsoHigh", 2)},
+    }) do
+        local failed = state.family("digest", providers)
+        local ok, problem = pcall(failed, "nupp.digest")
+        assert(not ok and tostring(problem):find("highest priority", 1, true), tostring(problem))
     end
 end
 

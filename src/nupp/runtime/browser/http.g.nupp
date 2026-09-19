@@ -3,14 +3,14 @@
 module nupp.runtime.browser.http
 
 --[[
-Browser Fetch implementation of `host.http` API 1.
+Browser Fetch implementation used as a built-in module fallback.
 
 Requests cross the browser effect channel and suspend until Fetch completes.
 Request and response bodies are buffered, and browser policy controls proxies,
 certificates, connections, and protocol details. `capabilities` therefore reports
 all five optional transport guarantees as false.
 
-Client and Response records implement [](nupp.runtime.services.http). Body bytes
+Client and Response records implement [](nupp.io.http.spi). Body bytes
 are exposed through the shared owned-reader machinery, and affine teardown
 releases retained response storage and outstanding work. Request values are
 borrowed rather than consumed by send.
@@ -28,7 +28,7 @@ local uri = require("nupp.io.uri")
 const {type Path} = require("nupp.io.path")
 local io = require("nupp.io")
 local ownedReader = require("nupp.io.internal.ownedreader")
-local contracts = require("nupp.runtime.services.http")
+local contracts = require("nupp.io.http.spi")
 local memory = require("nupp.runtime.wasm") as any
 local http = {}
 

@@ -1,4 +1,3 @@
-require("simd_json.setup")
 const {type Member} = require("nupp.serde")
 
 local json = require("nupp.codec.json")
@@ -116,11 +115,8 @@ function test.run(): nil
     assert(numbers[2] == 7.2057594037927933e+16)
     assert(numbers[3] == 3.1415926535897932384626433832795028841971693993751)
     assert(
-        json.encode(
-            value
-        ) == [[{"items":[],"object":{},"escaped":"a\"b\\c\n","unicode":"κ"}]] or json.decode(
-            json.encode(value)
-        ).escaped == value.escaped
+        json.encode(value) == [[{"items":[],"object":{},"escaped":"a\"b\\c\n","unicode":"κ"}]]
+        or json.decode(json.encode(value)).escaped == value.escaped
     )
 
     local projected = json.pull([[{"id":41,"profile":{"name":"Ada","admin":true}}]], {

@@ -523,8 +523,12 @@ test("a worker pool boots at most its lane bound and reuses idle lanes", async (
   assert.equal(FakeLane.opened.length, 2, "the third task queues rather than opening a lane");
   for (const lane of FakeLane.opened) {
     assert.equal(lane.options.type, "module");
-    assert.equal(lane.posted[0].type, "boot");
-    assert.equal(lane.posted[0].entry, "nupp.workers");
+    assert.deepEqual(lane.posted[0], {
+      type: "boot",
+      manifestUrl: "https://example.test/nupp-browser-app.json",
+      entry: "nupp.workers",
+      limits: undefined,
+    });
   }
   FakeLane.opened[0].finish("done", {payload: "Zg=="});
   assert.equal(FakeLane.opened[0].running.id, 3, "the freed lane takes the queued task");

@@ -3,11 +3,11 @@
 module nupp.runtime.provider.nativetls
 
 --[[
-Native TLS session implementation of `host.tls` API 1.
+Native TLS session implementation used as a built-in module fallback.
 
 Sessions wrap stream handles from the native network implementation. The native
 runtime owns TLS state and certificate processing; this adapter supplies the
-receiver-based polling protocol in [](nupp.runtime.services.tls). It preserves
+receiver-based polling protocol in [](nupp.io.tls.spi). It preserves
 hostname, certificate, authority, verification, and ALPN options when creating a
 session. A separately selected network provider must expose compatible handles.
 
@@ -21,7 +21,7 @@ responsible for the underlying stream's lifecycle. Requiring the facade fixes
 the implementation; individual TLS operations never perform SPI lookups.
 ]]
 
-local contract = require("nupp.runtime.services.tls")
+local contract = require("nupp.io.tls.spi")
 local ffi = require("ffi")
 local ffiString: function(borrows source: const uint8[?], count: integer): string = ffi.string as any
 const READ_SIZE = 65536

@@ -1,0 +1,3 @@
+{
+  "nupp.codec.json.spi.JsonProvider": ["nupp.codec.json.aot"]
+}

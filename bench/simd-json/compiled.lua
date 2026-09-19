@@ -50,7 +50,6 @@ local function prove(entry, providerMember, decoderName)
 end
 
 return function()
-    require("simd_json.setup")
     local codec = require("nupp.codec.json")
     local proof = {
         eager = prove(codec.decode, "decode", "eagerDecoder"),

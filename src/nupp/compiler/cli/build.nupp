@@ -76,24 +76,7 @@ local REPORT_SCHEMA = {
                 required = {"interface", "implementation", "dependency"},
             },
         },
-        services = {
-            type = "array",
-            description = "Checked service providers carried by the artifact, in service/name order.",
-            items = {
-                type = "object",
-                properties = {
-                    service = {type = "string"},
-                    name = {type = "string"},
-                    api = {type = "integer"},
-                    contract = {type = "string"},
-                    export = {type = "string"},
-                    entry = {type = "string"},
-                    member = {type = "string"},
-                    dependency = {type = "string"},
-                },
-                required = {"service", "name", "api", "contract", "export", "entry"},
-            },
-        },
+
         materializations = {
             type = "array",
             description = "Materialized expressions and their versioned provider and backend facts.",
@@ -322,7 +305,6 @@ local function run(options: any): integer
                 aotManifest = produced.aotManifest,
                 materializations = produced.materializations or materializations,
                 derives = produced.derives or derives,
-                services = produced.services or {},
                 spi = produced.spi or {},
                 timing = code == 0 and produced.timing or nil,
             })

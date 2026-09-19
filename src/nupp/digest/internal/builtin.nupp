@@ -12,7 +12,7 @@ owns output allocation and consuming cleanup; these states write into the suppli
 destination. This module performs no SPI selection during operations.
 ]]
 
-const provider = require("nupp.runtime.services.digest")
+const provider = require("nupp.digest.spi")
 const streaming = require("nupp.digest.internal.streaming")
 const span = require("nupp.mem.span")
 const storage = require("nupp.runtime.storage")

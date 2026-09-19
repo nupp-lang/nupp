@@ -70,7 +70,7 @@ to the turn.
 ]]
 
 local suspension = require("nupp.suspension")
-local {type Submittable} = require("nupp.runtime.services.workers")
+local {type Submittable} = require("nupp.workers.spi")
 local workerModule = require("nupp.runtime.workersprovider").provider
 local suspensionRuntime = suspension as any
 local loadedTime = require("nupp.runtime.timeprovider").provider
@@ -300,7 +300,7 @@ record tasks.Scope
     fork: function<F is Submittable>(
         borrows self: tasks.Scope,
         F,
-        ...: unpackof nupp.runtime.services.workers.Submitted(F)
+        ...: unpackof nupp.workers.spi.Submitted(F)
     ): tasks.Task<F> borrows (self)
 
     --- Requests cancellation of every child.
@@ -1101,7 +1101,7 @@ local spawnNamedSurface: function<F is Nullary>(
 local forkSurface: function<F is Submittable>(
     borrows self: tasks.Scope,
     F,
-    ...: unpackof nupp.runtime.services.workers.Submitted(F)
+    ...: unpackof nupp.workers.spi.Submitted(F)
 ): tasks.Task<F> borrows (self)
 local cancelSurface: function(borrows self: tasks.Scope, reason: string?): nil
 @unsafe

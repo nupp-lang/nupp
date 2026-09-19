@@ -12,7 +12,7 @@ zero initialization, and zero final xor. Operations use retained bit methods and
 perform no SPI lookups.
 ]]
 
-const provider = require("nupp.runtime.services.checksum")
+const provider = require("nupp.checksum.spi")
 const span = require("nupp.mem.span")
 const bit = require("nupp.runtime.bitops")
 

@@ -3,7 +3,7 @@
 module nupp.runtime.browser.storage
 
 --[[
-Browser persistent key/value implementation of `host.storage` API 1.
+Browser persistent key/value implementation used as a built-in module fallback.
 
 Operations use IndexedDB through the application Worker and may suspend until
 its response arrives. Values are UTF-8 strings. Keys must be nonempty and at most
@@ -19,7 +19,7 @@ states acquire their own provider instance and use the host's storage policy.
 ]]
 
 local response = require("nupp.runtime.browser.response")
-local contracts = require("nupp.runtime.services.contracts")
+local contracts = require("nupp.io.storage.spi")
 local storage = {}
 
 local function key(value: string): string

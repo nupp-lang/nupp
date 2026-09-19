@@ -84,49 +84,37 @@ same consuming update/finalization vocabulary as a digest. Its descriptor has
 `digestSize = 32`. The one-shot forms are `mac.digest(name, key, bytes)`
 and `mac.hexDigest(name, key, bytes)`.
 
-## Service providers
+## Providers
 
-Each family has a canonical typed catalog under `nupp.runtime.services`:
+Each family declares its shared types beside the public module:
 
-| Facade | Contract module | Provider contents |
+| Facade | Interface module | Provider contents |
 | --- | --- | --- |
-| `nupp.digest` | `nupp.runtime.services.digest` | `algorithms: {[string]: Algorithm}` |
-| `nupp.checksum` | `nupp.runtime.services.checksum` | `algorithms: {[string]: Algorithm}` |
-| `nupp.mac` | `nupp.runtime.services.mac` | `algorithms: {[string]: Algorithm}` |
+| `nupp.digest` | `nupp.digest.spi` | `algorithms: {[string]: Algorithm}` |
+| `nupp.checksum` | `nupp.checksum.spi` | `algorithms: {[string]: Algorithm}` |
+| `nupp.mac` | `nupp.mac.spi` | `algorithms: {[string]: Algorithm}` |
 
-Import the contract's `service` handle in an ordinary setup module, register a
-checked loader returning its `Provider`, and select its implementation name before
-requiring the public facade. An implementation name identifies a catalog, such as
-`acme`, independently of the algorithm names its map contains.
+A package advertises its module in `nupp/spi.json`:
 
-```nupp
-local contract = require("nupp.runtime.services.digest")
-contract.service:register("acme", function(): contract.Provider
-    return require("acme.digests")
-end)
-contract.service:select("acme")
-local digest = require("nupp.digest")
+```json
+{"nupp.digest.spi.Provider":["acme.digests"]}
 ```
 
-A target dependency can advertise the same provider without executing its loader
-during discovery. Its schema 2 capability names `service = "nupp.digest"`,
-`name = "acme"`, `api = 1`, `contract = "nupp.runtime.services.digest"`,
-`export = "service"`, and the implementation's module in `entry`. Lua providers
-supply a matching `.d.nupp` declaration or a typed adapter. The compiler checks the
-export against the canonical `Provider`, including the owned state signatures.
+The implementation exports a `Provider` directly, with an optional integer
+`priority`. The facade chooses the unique highest priority, treating absence as
+zero, and reports a tie. It overlays that catalog's entries on the built-ins;
+unreplaced built-ins remain available. Empty discovery uses the built-in catalog.
+Dependency order does not decide which catalog wins.
 
-The facade resolves its selected catalog while being required and retains its
-algorithm descriptors. Explicitly selected entries override matching built-ins
-and can add names; other built-ins remain available. Without explicit selection,
-the built-in catalog supplies all algorithms. Discovery order never chooses a
-provider. Selection freezes at facade initialization, and later changes raise.
-Lookup, listing, context creation, updates, and finalization make no SPI calls.
+The compiler checks the export against `Provider`, including its owned state
+signatures. Lua providers need a `.d.nupp` declaration or typed adapter.
+Descriptors are retained during module initialization. Lookup, listing, context
+creation, updates, and finalization make no SPI calls.
 
 Descriptors must agree with their map keys and report a positive fixed output
 size, or a checksum width from 1 through 64. Built-in names retain their standard
 sizes and widths. Invalid descriptors fail the facade's require. Provider failures
-propagate without retrying another implementation. Duplicate implementation names
-are rejected.
+propagate without retrying another implementation.
 
 Each digest descriptor creates a fresh canonical `State`. Its `update` borrows
 input bytes, `finish` borrows the caller's writable destination exclusively, and
@@ -138,5 +126,4 @@ advertised byte count. Checksums use their canonical `State` with a non-consumin
 the shared digest state. Reuse these interfaces rather than defining public
 nominal identities in a provider.
 
-See [Service providers](../../projects/service-providers.md) for setup, dependency
-metadata, and worker-state initialization.
+See [SPI](../../projects/spi.md) for selection, metadata, and worker behavior.

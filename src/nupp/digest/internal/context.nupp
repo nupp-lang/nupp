@@ -15,7 +15,7 @@ context operations perform no provider resolution.
 const span = require("nupp.mem.span")
 const storage = require("nupp.runtime.storage")
 const hex = require("nupp.codec.hex")
-const provider = require("nupp.runtime.services.digest")
+const provider = require("nupp.digest.spi")
 
 export affine interface Digest is nupp.Closeable
     --- Consumes an unfinished context and releases provider state without suspension.

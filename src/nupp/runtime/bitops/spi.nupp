@@ -1,0 +1,51 @@
+module nupp.runtime.bitops.spi
+
+--[[Implementation interfaces consumed during ordinary module initialization.
+Discover with nupp.spi.load; the consumer chooses the unique highest priority.
+Omitted priority is zero. Importing these declarations loads no implementation.]]
+
+--- 32-bit operations with Lua BitOp semantics.
+---
+--- Results are signed integers representing 32-bit words, including logical right
+--- shift results whose high bit is set. Inputs normalize to 32 bits; shifts and
+--- rotates mask counts to five bits. Variadic operations consume every operand.
+--- Providers must preserve these conventions even on hosts with unsigned primitives.
+export interface BitopsProvider
+    readonly priority: integer?
+
+    --- Normalizes a numeric operand to a signed 32-bit word.
+    readonly tobit: function(value: number): integer
+
+    --- Formats the low requested hexadecimal digits; negative digits select uppercase.
+    readonly tohex: function(value: number, digits: number?): string
+
+    --- Rotates left by the low five bits of count.
+    readonly rol: function(value: number, count: number): integer
+
+    --- Rotates right by the low five bits of count.
+    readonly ror: function(value: number, count: number): integer
+
+    --- Reverses the four bytes of the normalized word.
+    readonly bswap: function(value: number): integer
+
+    --- Bitwise conjunction of the first operand and every remaining operand.
+    readonly band: function(first: number, ...: number): integer
+
+    --- Bitwise disjunction of every operand.
+    readonly bor: function(first: number, ...: number): integer
+
+    --- Bitwise exclusive-or of every operand.
+    readonly bxor: function(first: number, ...: number): integer
+
+    --- Inverts all 32 bits.
+    readonly bnot: function(value: number): integer
+
+    --- Shifts left, discarding bits beyond the word.
+    readonly lshift: function(value: number, count: number): integer
+
+    --- Shifts right with zero fill, then returns the signed word representation.
+    readonly rshift: function(value: number, count: number): integer
+
+    --- Shifts right with sign extension.
+    readonly arshift: function(value: number, count: number): integer
+end

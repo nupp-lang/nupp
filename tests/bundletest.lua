@@ -5,35 +5,39 @@
 -- asserted here is what docs/reference/distribution.md promises about payloads.
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 if not HERE:match("^/") then
-   local p = assert(io.popen("pwd"))
-   HERE = p:read("*l") .. "/" .. HERE
-   p:close()
+    local p = assert(io.popen("pwd"))
+    HERE = p:read("*l") .. "/" .. HERE
+    p:close()
 end
 local NUPP = HERE .. "/../bin/nupp"
 local packaging = require("nupp.compiler.build.package")
 
 local function tempProject(files)
-   local dir = os.tmpname()
-   os.remove(dir)
-   assert(os.execute("mkdir -p '" .. dir .. "'") == 0)
-   for name, text in pairs(files) do
-      local sub = name:match("^(.*)/[^/]+$")
-      if sub then
-         assert(os.execute("mkdir -p '" .. dir .. "/" .. sub .. "'") == 0)
-      end
-      local f = assert(io.open(dir .. "/" .. name, "wb"))
-      f:write(text)
-      f:close()
-   end
-   return dir
+    local dir = os.tmpname()
+    os.remove(dir)
+    assert(os.execute("mkdir -p '" .. dir .. "'") == 0)
+    for name, text in pairs(files) do
+        local sub = name:match("^(.*)/[^/]+$")
+        if sub then
+            assert(os.execute("mkdir -p '" .. dir .. "/" .. sub .. "'") == 0)
+        end
+        local f = assert(io.open(dir .. "/" .. name, "wb"))
+        f:write(text)
+        f:close()
+    end
+
+    return dir
 end
 
 local function readFile(path)
-   local f = io.open(path, "rb")
-   if not f then return nil end
-   local text = f:read("*a")
-   f:close()
-   return text
+    local f = io.open(path, "rb")
+    if not f then
+        return nil
+    end
+    local text = f:read("*a")
+    f:close()
+
+    return text
 end
 
 -- What the launcher writes about its own progress, which is not what these cases
@@ -41,9 +45,9 @@ end
 -- compiler wrote is also spelled `nupp: ...`, and several cases below are
 -- checking for one.
 local LAUNCHER_NOTICES = {
-   "nupp: sources changed, building the compiler\n",
-   "nupp: falling back to the stage-zero compiler\n",
-   "nupp: the compiler did not build; running the last one that did\n",
+    "nupp: sources changed, building the compiler\n",
+    "nupp: falling back to the stage-zero compiler\n",
+    "nupp: the compiler did not build; running the last one that did\n",
 }
 
 -- What the program said, without what the launcher said about getting there.
@@ -54,46 +58,50 @@ local LAUNCHER_NOTICES = {
 -- about the toolchain rather than about the program, and a case that failed on
 -- it was reporting a race in the test runner as a fault in the bundle.
 local function run(dir, argv)
-   local outfile = os.tmpname()
-   local status = os.execute(("cd '%s' && %s > '%s' 2>&1")
-      :format(dir, argv, outfile))
-   local out = readFile(outfile) or ""
-   os.remove(outfile)
-   -- A program that prints a newline on Windows writes a return with it, which
-   -- is the C runtime doing what it is for rather than anything about the
-   -- program. These cases compare what was printed, so they compare the line
-   -- and not the platform's spelling of the end of one.
-   out = out:gsub("\r\n", "\n")
-   for _, notice in ipairs(LAUNCHER_NOTICES) do
-      out = out:gsub(notice, "")
-   end
-   return out, status == 0
+    local outfile = os.tmpname()
+    local status = os.execute(("cd '%s' && %s > '%s' 2>&1"):format(dir, argv, outfile))
+    local out = readFile(outfile) or ""
+    os.remove(outfile)
+    -- A program that prints a newline on Windows writes a return with it, which
+    -- is the C runtime doing what it is for rather than anything about the
+    -- program. These cases compare what was printed, so they compare the line
+    -- and not the platform's spelling of the end of one.
+    out = out:gsub("\r\n", "\n")
+    for _, notice in ipairs(LAUNCHER_NOTICES) do
+        out = out:gsub(notice, "")
+    end
+
+    return out, status == 0
 end
 
 local RUST_HOST
 
 local function rustHost()
-   if RUST_HOST then return RUST_HOST end
-   local root = HERE .. "/.."
-   local output, ok = run(root, "'" .. root .. "/scripts/toolchain' host-rust workers")
-   assert(ok, "the Rust host builds: " .. output)
-   RUST_HOST = output:match("([^\n]+)\n?$")
-   assert(RUST_HOST and readFile(RUST_HOST), "the Rust host path is reported: " .. output)
-   return RUST_HOST
+    if RUST_HOST then
+        return RUST_HOST
+    end
+    local root = HERE .. "/.."
+    local output, ok = run(root, "'" .. root .. "/scripts/toolchain' host-rust workers")
+    assert(ok, "the Rust host builds: " .. output)
+    RUST_HOST = output:match("([^\n]+)\n?$")
+    assert(RUST_HOST and readFile(RUST_HOST), "the Rust host path is reported: " .. output)
+
+    return RUST_HOST
 end
 
 local function stampRustHost(dir, payload)
-   local suffix = package.config:sub(1, 1) == "\\" and ".exe" or ""
-   local output = dir .. "/build/app-rust" .. suffix
-   local written, problem = packaging.stampFile(
-      output,
-      assert(readFile(rustHost())),
-      assert(readFile(payload)),
-      nil,
-      0
-   )
-   assert(written, "the Rust host accepts the Nupp payload: " .. tostring(problem))
-   return "./build/app-rust" .. suffix
+    local suffix = package.config:sub(1, 1) == "\\" and ".exe" or ""
+    local output = dir .. "/build/app-rust" .. suffix
+    local written, problem = packaging.stampFile(
+        output,
+        assert(readFile(rustHost())),
+        assert(readFile(payload)),
+        nil,
+        0
+    )
+    assert(written, "the Rust host accepts the Nupp payload: " .. tostring(problem))
+
+    return "./build/app-rust" .. suffix
 end
 
 local MANIFEST = [[
@@ -150,9 +158,11 @@ return {
 ]]
 
 function M.aComponentInstallsBeforeItsEntryRuns()
-   local dir = tempProject({
-      ["nupp.lua"] = COMPONENT_MANIFEST,
-      ["src/app/main.g.nupp"] = [[
+    local dir = tempProject({
+        ["nupp.lua"] = COMPONENT_MANIFEST,
+        [
+            "src/app/main.g.nupp"
+        ] = [[
 local log = require("nupp.log")
 local json = require("nupp.codec.json")
 assert(component_started == nil)
@@ -161,25 +171,31 @@ component_json = json.encode({answer = 42})
 component_started = true
 return true
 ]],
-      ["src/game.g.nupp"] = [[
+        [
+            "src/game.g.nupp"
+        ] = [[
 local game = {}
 function game.answer(value: integer): integer
    return value + 1
 end
 return game
 ]],
-   })
-   local out, ok = run(dir, "'" .. NUPP .. "' build")
-   assert(ok, "the component target builds: " .. out)
-   local artifact = readFile(dir .. "/build/component.nuppc")
-   local marker = "-- NUPP-COMPONENT 1"
-   assert(artifact and artifact:sub(1, #marker) == marker, "the component has a version marker")
-   assert(artifact:find('package.preload["nupp.log"]', 1, true),
-      "the component carries standard-library modules reached by its source")
-   assert(artifact:find('package.preload["nupp.runtime.provider.lunajson"]', 1, true),
-      "the component carries providers reached through service facades")
+    })
+    local out, ok = run(dir, "'" .. NUPP .. "' build")
+    assert(ok, "the component target builds: " .. out)
+    local artifact = readFile(dir .. "/build/component.nuppc")
+    local marker = "-- NUPP-COMPONENT 1"
+    assert(artifact and artifact:sub(1, #marker) == marker, "the component has a version marker")
+    assert(
+        artifact:find('package.preload["nupp.log"]', 1, true),
+        "the component carries standard-library modules reached by its source"
+    )
+    assert(
+        artifact:find('package.preload["nupp.runtime.provider.lunajson"]', 1, true),
+        "the component carries providers reached through service facades"
+    )
 
-   local script = [[
+    local script = [[
 _G.__nuppHost = {hostAbi = 1, hostFeatures = {}}
 package.path, package.cpath = "", ""
 local descriptor = assert(loadfile("build/component.nuppc"))()
@@ -193,106 +209,123 @@ component.start()
 assert(component_started == true)
 assert(component_json == '{"answer":42}')
 ]]
-   local scriptFile = assert(io.open(dir .. "/run.lua", "wb"))
-   scriptFile:write(script)
-   scriptFile:close()
-   local ran, ranOk = run(dir, "luajit run.lua")
-   assert(ranOk, "an installed component starts explicitly: " .. ran)
-   os.execute("rm -rf '" .. dir .. "'")
+    local scriptFile = assert(io.open(dir .. "/run.lua", "wb"))
+    scriptFile:write(script)
+    scriptFile:close()
+    local ran, ranOk = run(dir, "luajit run.lua")
+    assert(ranOk, "an installed component starts explicitly: " .. ran)
+    os.execute("rm -rf '" .. dir .. "'")
 end
 
 function M.componentsShareOneRuntimeAndRejectNameCollisions()
-   local dir = tempProject({
-      ["build/one/main.lua"] = 'require("nupp.log")\nreturn {call=function(n) return n + 1 end}\n',
-      ["build/two/main.lua"] = 'require("nupp.log")\nreturn {call=function(n) return n + 2 end}\n',
-      ["build/three/main.lua"] = "return {call=function(n) return n + 3 end}\n",
-      ["build/shared/log.lua"] = "return {version=1}\n",
-      ["build/changed/log.lua"] = "return {version=2}\n",
-   })
-   local function artifact(entry, exported, shared)
-      local path = dir .. "/build/" .. entry:gsub("%.", "/") .. ".lua"
-      local modules = {[entry] = {output = path}}
-      if shared then
-         modules["nupp.log"] = {output = dir .. "/build/" .. shared .. "/log.lua", compilerRuntime = true}
-      end
-      local text = assert(packaging.bundleText(dir, {}, {
-         kind = "component", outDir = "build", entries = {entry}, exports = {exported},
-      }, nil, modules, false, nil, {}, {}, true))
-      return text
-   end
-   local one = assert(loadstring(artifact("one.main", "one.main.call", "shared")))()
-   local two = assert(loadstring(artifact("two.main", "two.main.call", "shared")))()
-   local collision = assert(loadstring(artifact("one.main", "one.main.other", "shared")))()
-   local changed = assert(loadstring(artifact("three.main", "three.main.call", "changed")))()
-   local savedHost, savedPublic = _G.__nuppHost, _G.__nuppComponentExports
-   local savedShared = _G.__nuppComponentSharedModules
-   local savedLogLoaded, savedLogPreload = package.loaded["nupp.log"], package.preload["nupp.log"]
-   _G.__nuppHost = {hostAbi = 1, hostFeatures = {}}
-   local first = one.install()
-   local second = two.install()
-   assert(first.exports["one.main.call"](40) == 41)
-   assert(second.exports["two.main.call"](40) == 42)
-   local installed, problem = pcall(collision.install)
-   assert(not installed and tostring(problem):find("component module collision: one.main", 1, true),
-      "a colliding component is refused before replacing the first")
-   installed, problem = pcall(changed.install)
-   assert(not installed and tostring(problem):find("component shared module collision: nupp.log", 1, true),
-      "components share only byte-identical compiler runtime modules")
-   assert(first.exports["one.main.call"](1) == 2, "the prior component remains installed")
-   package.loaded["one.main"], package.loaded["two.main"] = nil, nil
-   package.preload["one.main"], package.preload["two.main"] = nil, nil
-   package.loaded["nupp.log"], package.preload["nupp.log"] = savedLogLoaded, savedLogPreload
-   _G.__nuppHost, _G.__nuppComponentExports = savedHost, savedPublic
-   _G.__nuppComponentSharedModules = savedShared
-   os.execute("rm -rf '" .. dir .. "'")
+    local dir = tempProject({
+        ["build/one/main.lua"] = 'require("nupp.log")\nreturn {call=function(n) return n + 1 end}\n',
+        ["build/two/main.lua"] = 'require("nupp.log")\nreturn {call=function(n) return n + 2 end}\n',
+        ["build/three/main.lua"] = "return {call=function(n) return n + 3 end}\n",
+        ["build/shared/log.lua"] = "return {version=1}\n",
+        ["build/changed/log.lua"] = "return {version=2}\n",
+    })
+
+    local function artifact(entry, exported, shared)
+        local path = dir .. "/build/" .. entry:gsub("%.", "/") .. ".lua"
+        local modules = {[entry] = {output = path}}
+        if shared then
+            modules["nupp.log"] = {output = dir .. "/build/" .. shared .. "/log.lua", compilerRuntime = true}
+        end
+        local text = assert(
+            packaging.bundleText(
+                dir,
+                {},
+                {kind = "component", outDir = "build", entries = {entry}, exports = {exported},},
+                nil,
+                modules,
+                false,
+                nil,
+                {},
+                {},
+                true
+            )
+        )
+
+        return text
+    end
+
+    local one = assert(loadstring(artifact("one.main", "one.main.call", "shared")))()
+    local two = assert(loadstring(artifact("two.main", "two.main.call", "shared")))()
+    local collision = assert(loadstring(artifact("one.main", "one.main.other", "shared")))()
+    local changed = assert(loadstring(artifact("three.main", "three.main.call", "changed")))()
+    local savedHost, savedPublic = _G.__nuppHost, _G.__nuppComponentExports
+    local savedShared = _G.__nuppComponentSharedModules
+    local savedLogLoaded, savedLogPreload = package.loaded["nupp.log"], package.preload["nupp.log"]
+    _G.__nuppHost = {hostAbi = 1, hostFeatures = {}}
+    local first = one.install()
+    local second = two.install()
+    assert(first.exports["one.main.call"](40) == 41)
+    assert(second.exports["two.main.call"](40) == 42)
+    local installed, problem = pcall(collision.install)
+    assert(
+        not installed and tostring(problem):find("component module collision: one.main", 1, true),
+        "a colliding component is refused before replacing the first"
+    )
+    installed, problem = pcall(changed.install)
+    assert(
+        not installed and tostring(problem):find("component shared module collision: nupp.log", 1, true),
+        "components share only byte-identical compiler runtime modules"
+    )
+    assert(first.exports["one.main.call"](1) == 2, "the prior component remains installed")
+    package.loaded["one.main"], package.loaded["two.main"] = nil, nil
+    package.preload["one.main"], package.preload["two.main"] = nil, nil
+    package.loaded["nupp.log"], package.preload["nupp.log"] = savedLogLoaded, savedLogPreload
+    _G.__nuppHost, _G.__nuppComponentExports = savedHost, savedPublic
+    _G.__nuppComponentSharedModules = savedShared
+    os.execute("rm -rf '" .. dir .. "'")
 end
 
 function M.compilerHostPreambleMasksUniversalStubFeaturesBeforeUserCode()
-   local dir = tempProject({
-      ["build/main.lua"] = [[
+    local dir = tempProject({
+        [
+            "build/main.lua"
+        ] = [[
 assert(rawget(_G, "__nuppHost") == nil)
 local name = "lp" .. "eg"
 local loaded = pcall(require, name)
 return loaded
 ]],
-   })
-   local target = {kind = "binary", outDir = "build", entries = {"main"}}
-   local modules = {main = {output = dir .. "/build/main.lua"}}
-   local text = assert(packaging.bundleText(
-      dir, {}, target, nil, modules, false, {}, {"workers"}
-   ))
-   local again = assert(packaging.bundleText(
-      dir, {}, target, nil, modules, false, {}, {"workers"}
-   ))
-   assert(text == again, "the payload depends on selected features, not ambient stub state")
+    })
+    local target = {kind = "binary", outDir = "build", entries = {"main"}}
+    local modules = {main = {output = dir .. "/build/main.lua"}}
+    local text = assert(packaging.bundleText(dir, {}, target, nil, modules, false, {}, {"workers"}))
+    local again = assert(packaging.bundleText(dir, {}, target, nil, modules, false, {}, {"workers"}))
+    assert(text == again, "the payload depends on selected features, not ambient stub state")
 
-   -- The names are kept as a list rather than recovered from the saved table,
-   -- because a module that was not preloaded saves as nil and `pairs` does not
-   -- visit it. Restoring by iteration therefore left this test's stub opener
-   -- installed for every later `require` of it.
-   local stubbed = {"lpeg", "nupp.workers.native"}
-   local savedPreloads, savedLoaded = {}, package.loaded.lpeg
-   local savedPath, savedCpath = package.path, package.cpath
-   for _, name in ipairs(stubbed) do
-      savedPreloads[name] = package.preload[name]
-      package.preload[name] = function() return name end
-   end
-   package.loaded.lpeg = nil
-   package.path, package.cpath = "", ""
-   _G.__nuppHost = {hostAbi = 1, hostFeatures = {
-      lpeg = true,
-      workers = true,
-   }}
-   local loaded = assert(loadstring(text))()
-   assert(not loaded, "a computed require cannot observe an unselected universal feature")
-   assert(package.preload["nupp.workers.native"], "selected worker opener remains visible")
-   assert(package.preload.lpeg == nil, "unselected universal openers are removed")
-   assert(_G.__nuppHost == nil, "the private handshake is gone before user code")
-   package.loaded.lpeg = savedLoaded
-   package.path, package.cpath = savedPath, savedCpath
-   for _, name in ipairs(stubbed) do package.preload[name] = savedPreloads[name] end
-   package.preload["nupp.embedded"] = nil
-   os.execute("rm -rf '" .. dir .. "'")
+    -- The names are kept as a list rather than recovered from the saved table,
+    -- because a module that was not preloaded saves as nil and `pairs` does not
+    -- visit it. Restoring by iteration therefore left this test's stub opener
+    -- installed for every later `require` of it.
+    local stubbed = {"lpeg", "nupp.workers.native"}
+    local savedPreloads, savedLoaded = {}, package.loaded.lpeg
+    local savedPath, savedCpath = package.path, package.cpath
+    for _, name in ipairs(stubbed) do
+        savedPreloads[name] = package.preload[name]
+        package.preload[name] = function()
+            return name
+        end
+    end
+    package.loaded.lpeg = nil
+    package.path, package.cpath = "", ""
+    _G.__nuppHost = {hostAbi = 1, hostFeatures = {lpeg = true, workers = true,}}
+    local loaded = assert(loadstring(text))()
+    assert(not loaded, "a computed require cannot observe an unselected universal feature")
+    assert(package.preload["nupp.workers.native"], "selected worker opener remains visible")
+    assert(package.preload.lpeg == nil, "unselected universal openers are removed")
+    assert(_G.__nuppHost == nil, "the private handshake is gone before user code")
+    package.loaded.lpeg = savedLoaded
+    package.path, package.cpath = savedPath, savedCpath
+    for _, name in ipairs(stubbed) do
+        package.preload[name] = savedPreloads[name]
+    end
+    package.preload["nupp.embedded"] = nil
+    os.execute("rm -rf '" .. dir .. "'")
 end
 
 -- An ordinary compiler-owned binary can use both facilities compiled into its
@@ -300,58 +333,83 @@ end
 -- process namespace is deliberately partial in that case, so the sidecar must
 -- remain the one selected provider for the whole native closure.
 function M.aBinarySelectsOneProviderForItsMixedNativeClosure()
-   local dir = tempProject({
-      ["nupp.lua"] = [[
+    local dir = tempProject({
+        [
+            "nupp.lua"
+        ] = [[
 return {include = {"src"}, build = {default = "app", targets = {app = {
    kind = "binary", stub = "nupp", entries = {"main"}, outDir = "build",
    nativeFeatures = {net = true, http = true},
 }}}}
 ]],
-      ["src/main.nupp"] = [[
+        [
+            "src/main.nupp"
+        ] = [[
 const http = require("nupp.io.http")
 
 with client = http.client() do
     print("mixed native provider")
 end
 ]],
-   })
-   local built, builtOk = run(dir, "'" .. NUPP .. "' build")
-   assert(builtOk, "the mixed native binary builds: " .. built)
-   local executable = package.config:sub(1, 1) == "\\" and "build/app.exe" or "./build/app"
-   local output, ranOk = run(dir, executable)
-   assert(ranOk, "the mixed native binary runs: " .. output)
-   assert(output == "mixed native provider\n",
-      "one exact-feature provider serves the complete native closure: " .. output)
-   os.execute("rm -rf '" .. dir .. "'")
+    })
+    local built, builtOk = run(dir, "'" .. NUPP .. "' build")
+    assert(builtOk, "the mixed native binary builds: " .. built)
+    local executable = package.config:sub(1, 1) == "\\" and "build/app.exe" or "./build/app"
+    local output, ranOk = run(dir, executable)
+    assert(ranOk, "the mixed native binary runs: " .. output)
+    assert(
+        output == "mixed native provider\n",
+        "one exact-feature provider serves the complete native closure: " .. output
+    )
+    os.execute("rm -rf '" .. dir .. "'")
 end
 
 function M.machOPackagingReplacesTheStubSignatureWithASignableLayout()
-   local function little(value, width)
-      local bytes = {}
-      for index = 1, width do
-         bytes[index] = string.char(value % 256)
-         value = math.floor(value / 256)
-      end
-      return table.concat(bytes)
-   end
-   local header = "\207\250\237\254" .. little(0x0100000c, 4)
-      .. little(0, 4) .. little(2, 4) .. little(2, 4) .. little(88, 4)
-      .. little(0, 4) .. little(0, 4)
-   local linkedit = little(0x19, 4) .. little(72, 4) .. "__LINKEDIT" .. ("\0"):rep(6)
-      .. little(0x1000, 8) .. little(0x1000, 8) .. little(120, 8) .. little(8, 8)
-      .. little(1, 4) .. little(1, 4) .. little(0, 4) .. little(0, 4)
-   local signature = little(0x1d, 4) .. little(16, 4) .. little(120, 4) .. little(8, 4)
-   local stub = header .. linkedit .. signature .. "SIGNHERE"
-   local dir = tempProject({})
-   local output = dir .. "/app"
-   assert(packaging.stampFile(output, stub, "return true\n", "aarch64-apple-darwin"))
-   local bytes = assert(readFile(output))
-   assert(bytes:sub(-48, -41) == "NUPPLOAD", "the unsigned trailer ends the stamped file")
-   assert(bytes:sub(17, 20) == little(1, 4), "the old signature load command is removed")
-   assert(bytes:sub(21, 24) == little(72, 4), "the load-command byte count is updated")
-   assert(bytes:sub(81, 88) == little(#bytes - 120, 8),
-      "__LINKEDIT covers the payload and trailer for the next signer")
-   os.execute("rm -rf '" .. dir .. "'")
+    local function little(value, width)
+        local bytes = {}
+        for index = 1, width do
+            bytes[index] = string.char(value % 256)
+            value = math.floor(value / 256)
+        end
+
+        return table.concat(bytes)
+    end
+
+    local header = "\207\250\237\254" .. little(
+        0x0100000c,
+        4
+    ) .. little(0, 4) .. little(2, 4) .. little(2, 4) .. little(88, 4) .. little(0, 4) .. little(0, 4)
+    local linkedit = little(
+        0x19,
+        4
+    ) .. little(
+        72,
+        4
+    ) .. "__LINKEDIT" .. (
+        "\0"
+    ):rep(
+        6
+    ) .. little(
+        0x1000,
+        8
+    ) .. little(
+        0x1000,
+        8
+    ) .. little(120, 8) .. little(8, 8) .. little(1, 4) .. little(1, 4) .. little(0, 4) .. little(0, 4)
+    local signature = little(0x1d, 4) .. little(16, 4) .. little(120, 4) .. little(8, 4)
+    local stub = header .. linkedit .. signature .. "SIGNHERE"
+    local dir = tempProject({})
+    local output = dir .. "/app"
+    assert(packaging.stampFile(output, stub, "return true\n", "aarch64-apple-darwin"))
+    local bytes = assert(readFile(output))
+    assert(bytes:sub(-48, -41) == "NUPPLOAD", "the unsigned trailer ends the stamped file")
+    assert(bytes:sub(17, 20) == little(1, 4), "the old signature load command is removed")
+    assert(bytes:sub(21, 24) == little(72, 4), "the load-command byte count is updated")
+    assert(
+        bytes:sub(81, 88) == little(#bytes - 120, 8),
+        "__LINKEDIT covers the payload and trailer for the next signer"
+    )
+    os.execute("rm -rf '" .. dir .. "'")
 end
 
 -- Precompiling is a change to the shape of a payload, and the two things it must
@@ -361,87 +419,126 @@ end
 -- that name from the executable it found itself in. A dump that kept its debug
 -- information would answer with a name settled where it was built instead.
 function M.aPayloadForThisMachineIsStrippedBytecodeTheHostStillNames()
-   local source = "return debug.getinfo(1, 'S').source\n"
-   local bytes, flags = packaging.payloadBytes(source, nil)
-   assert(bytes, "a payload is produced for this machine")
-   assert(flags == packaging.payloadFlagBytecode, "and its trailer says it carries bytecode")
-   assert(bytes:sub(1, 3) == "\27LJ", "which is what it is")
+    local source = "return debug.getinfo(1, 'S').source\n"
+    local bytes, flags = packaging.payloadBytes(source, nil)
+    assert(bytes, "a payload is produced for this machine")
+    assert(flags == packaging.payloadFlagBytecode, "and its trailer says it carries bytecode")
+    assert(bytes:sub(1, 3) == "\27LJ", "which is what it is")
 
-   local chunk = assert(loadstring(bytes, "@/somewhere/nupp"))
-   assert(chunk() == "@/somewhere/nupp",
-      "the name comes from whoever loads it, as it does for a source payload")
+    local chunk = assert(loadstring(bytes, "@/somewhere/nupp"))
+    assert(chunk() == "@/somewhere/nupp", "the name comes from whoever loads it, as it does for a source payload")
 end
 
 -- A dump records the endianness and VM configuration it was written for and is
 -- refused by one that does not match. A cross-stamped binary is run by a VM this
 -- machine never sees, so it carries the bundle itself, which any of them can read.
 function M.aPayloadForAnotherPlatformStaysSource()
-   local platform = require("nupp.compiler.build.platform")
-   local elsewhere
-   for _, key in ipairs(platform.keys()) do
-      if key ~= platform.hostKey() then elsewhere = key break end
-   end
-   assert(elsewhere, "the platform list names somewhere this is not")
+    local platform = require("nupp.compiler.build.platform")
+    local elsewhere
+    for _, key in ipairs(platform.keys()) do
+        if key ~= platform.hostKey() then
+            elsewhere = key
+            break
+        end
+    end
+    assert(elsewhere, "the platform list names somewhere this is not")
 
-   local source = "return 1\n"
-   local bytes, flags = packaging.payloadBytes(source, elsewhere)
-   assert(bytes == source, "a cross-stamped payload is the bundle itself")
-   assert(flags == 0, "and its trailer says so")
+    local source = "return 1\n"
+    local bytes, flags = packaging.payloadBytes(source, elsewhere)
+    assert(bytes == source, "a cross-stamped payload is the bundle itself")
+    assert(flags == 0, "and its trailer says so")
 end
 
 function M.aWorkerPayloadCarriesRuntimeModulesAndDispatchesItsEntry()
-   local dir = tempProject({
-      ["build/main.lua"] = "return 'main'\n",
-      ["build/jobs/hash.lua"] = "return 'worker'\n",
-      ["build/nupp/suspension.lua"] = "return {runtime = 'suspension'}\n",
-      ["build/nupp/workers.lua"] = "return {runtime = 'workers'}\n",
-   })
-   local text, problem = packaging.bundleText(dir, {}, {
-      kind = "binary",
-      outDir = "build",
-      entries = {"main"},
-   }, nil, {
-      main = {output = dir .. "/build/main.lua"},
-      ["jobs.hash"] = {output = dir .. "/build/jobs/hash.lua"},
-   }, true, {"nupp.suspension", "nupp.workers"})
-   assert(text, "the worker payload is assembled: " .. tostring(problem))
-   assert(text:find('package.preload["nupp.suspension"]', 1, true),
-      "the suspension runtime is carried")
-   assert(text:find('package.preload["nupp.workers"]', 1, true),
-      "the workers runtime is carried")
-   assert(text:find('package.preload["main"]', 1, true),
-      "the ordinary entry becomes selectable")
-   assert(text:find('local __nuppEntry = rawget(_G, "__nuppWorkerEntry")', 1, true),
-      "one dispatcher selects the worker or ordinary entry")
-   assert(text:find('local __nuppServed = require(__nuppEntry)', 1, true)
-      and text:find('__nuppEntry == "nupp.workers"', 1, true)
-      and text:find('rawget(__nuppServed, "__runScheduler")', 1, true)
-      and text:find('then __nuppServe() end', 1, true),
-      "a scheduler worker selects the compiler-owned scheduler loop")
-   -- Not through `require`. It is a C function, and a payload whose entry ran inside
-   -- one could not suspend at all on a host whose every wait is a yield back to it.
-   assert(text:find('local __nuppLoaded = package.preload["main"]("main")', 1, true)
-      and text:find('return __nuppLoaded', 1, true),
-      "the ordinary entry is called where the payload runs")
-   assert(not text:find('require(__nuppEntry or', 1, true),
-      "the ordinary entry does not go through require")
-   assert(text:find("if __nuppLoaded == nil then return end", 1, true),
-      "an entry that returned nothing still returns nothing")
-   assert(not text:find("if __nuppEntry ~= nil then (require", 1, true),
-      "a native worker payload installs nothing a lane has to install for itself")
-   os.execute("rm -rf '" .. dir .. "'")
+    local dir = tempProject({
+        ["build/main.lua"] = "return 'main'\n",
+        ["build/jobs/hash.lua"] = "return 'worker'\n",
+        ["build/nupp/suspension.lua"] = "return {runtime = 'suspension'}\n",
+        ["build/nupp/workers.lua"] = "return {runtime = 'workers'}\n",
+    })
+    local text, problem = packaging.bundleText(
+        dir,
+        {},
+        {kind = "binary", outDir = "build", entries = {"main"},},
+        nil,
+        {main = {output = dir .. "/build/main.lua"}, ["jobs.hash"] = {output = dir .. "/build/jobs/hash.lua"},},
+        true,
+        {"nupp.suspension", "nupp.workers"}
+    )
+    assert(text, "the worker payload is assembled: " .. tostring(problem))
+    assert(text:find('package.preload["nupp.suspension"]', 1, true), "the suspension runtime is carried")
+    assert(text:find('package.preload["nupp.workers"]', 1, true), "the workers runtime is carried")
+    assert(text:find('package.preload["main"]', 1, true), "the ordinary entry becomes selectable")
+    assert(
+        text:find('local __nuppEntry = rawget(_G, "__nuppWorkerEntry")', 1, true),
+        "one dispatcher selects the worker or ordinary entry"
+    )
+    assert(
+        text:find('local __nuppServed = require(__nuppEntry)', 1, true)
+        and text:find('__nuppEntry == "nupp.workers"', 1, true)
+        and text:find('rawget(__nuppServed, "__runScheduler")', 1, true)
+        and text:find('then __nuppServe() end', 1, true),
+        "a scheduler worker selects the compiler-owned scheduler loop"
+    )
+    -- Not through `require`. It is a C function, and a payload whose entry ran inside
+    -- one could not suspend at all on a host whose every wait is a yield back to it.
+    assert(
+        text:find('local __nuppLoaded = package.preload["main"]("main")', 1, true)
+        and text:find('return __nuppLoaded', 1, true),
+        "the ordinary entry is called where the payload runs"
+    )
+    assert(not text:find('require(__nuppEntry or', 1, true), "the ordinary entry does not go through require")
+    assert(
+        text:find("if __nuppLoaded == nil then return end", 1, true),
+        "an entry that returned nothing still returns nothing"
+    )
+    assert(
+        not text:find("if __nuppEntry ~= nil then (require", 1, true),
+        "a native worker payload installs nothing a lane has to install for itself"
+    )
+    os.execute("rm -rf '" .. dir .. "'")
 end
 
 function M.aStampedBinaryRunsStructuredTasksOnTheSharedScheduler()
-   local dir = tempProject({
-      ["nupp.lua"] = [[
+    local dir = tempProject({
+        [
+            "nupp.lua"
+        ] = [[
 return {include = {"src"}, build = {default = "app", targets = {app = {
    kind = "binary", stub = "nupp", entries = {"main"}, outDir = "build",
    payloadOutput = "build/app.payload.lua",
 }}}}
 ]],
-      ["src/jobs.nupp"] = [[
+        ["nupp/spi.json"] = [[{"counter.spi.Counter":["counter.provider"]}]],
+        [
+            "src/counter/spi.nupp"
+        ] = [[module counter.spi
+export interface Counter
+    readonly next: function(): integer
+end]],
+        [
+            "src/counter/provider.nupp"
+        ] = [[module counter.provider
+local count: integer = 0
+export function next(): integer
+    count = count + 1
+    return count
+end]],
+        [
+            "src/counter/init.nupp"
+        ] = [[module counter
+local spi = require("nupp.spi")
+local {type Counter} = require("counter.spi")
+local implementation = assert(spi.load(Counter)())
+export const next = implementation.next]],
+        [
+            "src/jobs.nupp"
+        ] = [[
 module jobs
+local counter = require("counter")
+export function nextCounter(): integer
+    return counter.next()
+end
 
 export function square(value: integer): integer
     return value * value
@@ -553,13 +650,20 @@ export function nested(shards: integer): integer
     end
 end
 ]],
-      ["src/main.nupp"] = [[
+        [
+            "src/main.nupp"
+        ] = [[
 const capture = require("capture")
 const jobs = require("jobs")
 const workers = require("nupp.workers")
 const sharedbytes = require("nupp.mem.sharedbytes")
 
+local counter = require("counter")
+for index = 1, 100 do assert(counter.next() == index) end
 with scope = workers.scope() do
+    local independent = scope:spawn(jobs.nextCounter)
+    assert(independent:await() == 1, "the worker has the same SPI index and fresh provider state")
+    assert(counter.next() == 101, "worker initialization does not mutate the caller's provider")
     const left = scope:spawn(6, jobs.square)
     const right = scope:spawn(7, jobs.square)
     const paired = scope:spawn(5, jobs.pair)
@@ -696,7 +800,9 @@ collectgarbage("collect")
 collectgarbage("collect")
 print(rawShared.accounted() == before)
 ]],
-      ["src/capture.nupp"] = [[
+        [
+            "src/capture.nupp"
+        ] = [[
 module capture
 
 const jobs = require("jobs")
@@ -711,37 +817,37 @@ export function run(base: integer): integer
     end
 end
 ]],
-   })
-   local built, builtOk = run(dir, "'" .. NUPP .. "' build")
-   assert(builtOk, "the native worker binary builds: " .. built)
-   local portablePayload = assert(readFile(dir .. "/build/app.payload.lua"))
-   assert(portablePayload:sub(1, 3) ~= "\27LJ",
-      "payloadOutput retains Lua source rather than current-host bytecode")
-   assert(loadfile(dir .. "/build/app.payload.lua"),
-      "the separately retained payload is a loadable Lua chunk")
-   local executable = package.config:sub(1, 1) == "\\" and "build/app.exe" or "./build/app"
-   local output, ranOk = run(dir, executable)
-   assert(ranOk, "the native worker binary runs: " .. output)
-   local expected = "36\t36\t49\t10\tdone\t16\t18\ttrue\tkept\t1\t6\tnative string\t9\tschema\ttrue\ttrue\tdynamic\ttrue\t11\ttrue\tspare\ttrue\t13\ttrue\ttrue\theld\t112\tregion\n84\ntrue\ttrue\nfalse\ttrue\nfalse\ttrue\n64\t200\n45\nhi!\ntrue\ttrue\ntrue\n"
-   assert(output == expected,
-      "results, records, captures, and failures cross structured cleanup: " .. output)
-   local rustExecutable = stampRustHost(dir, dir .. "/build/app.payload.lua")
-   local rustOutput, rustRanOk = run(dir, rustExecutable)
-   assert(rustRanOk, "the Rust worker host runs the Nupp payload: " .. rustOutput)
-   assert(rustOutput == expected,
-      "the Rust host preserves structured worker and shared-byte results: " .. rustOutput)
-   os.execute("rm -rf '" .. dir .. "'")
+    })
+    local built, builtOk = run(dir, "'" .. NUPP .. "' build")
+    assert(builtOk, "the native worker binary builds: " .. built)
+    local portablePayload = assert(readFile(dir .. "/build/app.payload.lua"))
+    assert(portablePayload:sub(1, 3) ~= "\27LJ", "payloadOutput retains Lua source rather than current-host bytecode")
+    assert(loadfile(dir .. "/build/app.payload.lua"), "the separately retained payload is a loadable Lua chunk")
+    local executable = package.config:sub(1, 1) == "\\" and "build/app.exe" or "./build/app"
+    local output, ranOk = run(dir, executable)
+    assert(ranOk, "the native worker binary runs: " .. output)
+    local expected = "36\t36\t49\t10\tdone\t16\t18\ttrue\tkept\t1\t6\tnative string\t9\tschema\ttrue\ttrue\tdynamic\ttrue\t11\ttrue\tspare\ttrue\t13\ttrue\ttrue\theld\t112\tregion\n84\ntrue\ttrue\nfalse\ttrue\nfalse\ttrue\n64\t200\n45\nhi!\ntrue\ttrue\ntrue\n"
+    assert(output == expected, "results, records, captures, and failures cross structured cleanup: " .. output)
+    local rustExecutable = stampRustHost(dir, dir .. "/build/app.payload.lua")
+    local rustOutput, rustRanOk = run(dir, rustExecutable)
+    assert(rustRanOk, "the Rust worker host runs the Nupp payload: " .. rustOutput)
+    assert(rustOutput == expected, "the Rust host preserves structured worker and shared-byte results: " .. rustOutput)
+    os.execute("rm -rf '" .. dir .. "'")
 end
 
 function M.taskScopesOwnAndCancelWorkerTasks()
-   local dir = tempProject({
-      ["nupp.lua"] = [[
+    local dir = tempProject({
+        [
+            "nupp.lua"
+        ] = [[
 return {include = {"src"}, build = {default = "app", targets = {app = {
    kind = "binary", stub = "nupp", entries = {"main"}, outDir = "build",
    payloadOutput = "build/app.payload.lua",
 }}}}
 ]],
-      ["src/jobs.nupp"] = [[
+        [
+            "src/jobs.nupp"
+        ] = [[
 module jobs
 
 const tasks = require("nupp.tasks")
@@ -765,7 +871,9 @@ export function returnsAfterCancellation(): integer
     return 7
 end
 ]],
-      ["src/main.nupp"] = [[
+        [
+            "src/main.nupp"
+        ] = [[
 const jobs = require("jobs")
 const suspension = require("nupp.suspension")
 const tasks = require("nupp.tasks")
@@ -879,58 +987,66 @@ while coroutine.status(app) ~= "dead" or #runnable > 0 do
     runReady()
 end
 ]],
-   })
-   local built, builtOk = run(dir, "'" .. NUPP .. "' build")
-   assert(builtOk, "the task-owned worker binary builds: " .. built)
-   local executable = package.config:sub(1, 1) == "\\" and "build/app.exe" or "./build/app"
-   local output, ranOk = run(dir, executable)
-   assert(ranOk, "the task-owned worker binary runs: " .. output)
-   -- Every field is exact but the last, which is the cancellation's own message.
-   -- Two things can notice one deadline -- the scope that set it and the worker
-   -- awaiting inside it -- and a deadline of a millisecond makes which gets
-   -- there first a race. Both say the same thing about the same event, and the
-   -- field before this one already asserts the message names the deadline.
-   local head = "true\tfalse\ttrue\ttrue\ntrue\tfalse\ttrue\ttrue\n"
-      .. "5\tdone\ttrue\n"
-      .. "true\ttrue\tfalse\ttrue\nfalse\ttrue\ttrue\t"
-   local tail = "\ntrue\ttrue\n"
-   assert(output:sub(1, #head) == head
-      and output:sub(-#tail) == tail
-      and output:find("cancelled: its deadline passed", 1, true) ~= nil,
-      "running, queued, and deadline cancellation share one task identity: " .. output)
-   local rustExecutable = stampRustHost(dir, dir .. "/build/app.payload.lua")
-   for _ = 1, 32 do
-      local rustOutput, rustRanOk = run(dir, rustExecutable)
-      assert(rustRanOk, "the Rust worker host runs task cancellation: " .. rustOutput)
-      assert(rustOutput:sub(1, #head) == head
-         and rustOutput:sub(-#tail) == tail
-         and rustOutput:find("cancelled: its deadline passed", 1, true) ~= nil,
-         "Rust-owned workers preserve queued, running, and deadline cancellation: " .. rustOutput)
-   end
-   os.execute("rm -rf '" .. dir .. "'")
+    })
+    local built, builtOk = run(dir, "'" .. NUPP .. "' build")
+    assert(builtOk, "the task-owned worker binary builds: " .. built)
+    local executable = package.config:sub(1, 1) == "\\" and "build/app.exe" or "./build/app"
+    local output, ranOk = run(dir, executable)
+    assert(ranOk, "the task-owned worker binary runs: " .. output)
+    -- Every field is exact but the last, which is the cancellation's own message.
+    -- Two things can notice one deadline -- the scope that set it and the worker
+    -- awaiting inside it -- and a deadline of a millisecond makes which gets
+    -- there first a race. Both say the same thing about the same event, and the
+    -- field before this one already asserts the message names the deadline.
+    local head = "true\tfalse\ttrue\ttrue\ntrue\tfalse\ttrue\ttrue\n"
+        .. "5\tdone\ttrue\n"
+        .. "true\ttrue\tfalse\ttrue\nfalse\ttrue\ttrue\t"
+    local tail = "\ntrue\ttrue\n"
+    assert(
+        output:sub(1, #head) == head
+        and output:sub(-#tail) == tail
+        and output:find("cancelled: its deadline passed", 1, true) ~= nil,
+        "running, queued, and deadline cancellation share one task identity: " .. output
+    )
+    local rustExecutable = stampRustHost(dir, dir .. "/build/app.payload.lua")
+    for _ = 1, 32 do
+        local rustOutput, rustRanOk = run(dir, rustExecutable)
+        assert(rustRanOk, "the Rust worker host runs task cancellation: " .. rustOutput)
+        assert(
+            rustOutput:sub(1, #head) == head
+            and rustOutput:sub(-#tail) == tail
+            and rustOutput:find("cancelled: its deadline passed", 1, true) ~= nil,
+            "Rust-owned workers preserve queued, running, and deadline cancellation: " .. rustOutput
+        )
+    end
+    os.execute("rm -rf '" .. dir .. "'")
 end
 
 function M.nativeWorkersRequireACompatibleBinaryHost()
-   local function rejected(kind, stub)
-      local manifest = ([[
+    local function rejected(kind, stub)
+        local manifest = (
+            [[
 return {
    include = {"src"},
    build = {default = "app", targets = {app = {
       kind = %q, entries = {"main"}, stub = %s,
    }}},
 }
-]]):format(kind, stub and string.format("%q", stub) or "nil")
-      local dir = tempProject({
-         ["nupp.lua"] = manifest,
-         ["src/main.nupp"] = 'local workers = require("nupp.workers")\nreturn workers\n',
-      })
-      local out, ok = run(dir, "'" .. NUPP .. "' build")
-      os.execute("rm -rf '" .. dir .. "'")
-      assert(not ok and out:find('native workers require a binary host with stub = "nupp"', 1, true),
-         kind .. " with " .. tostring(stub) .. " is refused before runtime: " .. out)
-   end
+]]
+        ):format(kind, stub and string.format("%q", stub) or "nil")
+        local dir = tempProject({
+            ["nupp.lua"] = manifest,
+            ["src/main.nupp"] = 'local workers = require("nupp.workers")\nreturn workers\n',
+        })
+        local out, ok = run(dir, "'" .. NUPP .. "' build")
+        os.execute("rm -rf '" .. dir .. "'")
+        assert(
+            not ok and out:find('native workers require a binary host with stub = "nupp"', 1, true),
+            kind .. " with " .. tostring(stub) .. " is refused before runtime: " .. out
+        )
+    end
 
-   rejected("binary", "third-party-host")
+    rejected("binary", "third-party-host")
 end
 
 -- One tree, one deliverable, and every claim about it. That a bundle runs under
@@ -947,106 +1063,111 @@ end
 -- phase rewrites the manifest. Every assertion names the project it is about, so
 -- a failure says which directory to open as well as which claim broke.
 function M.oneBundleTreeCarriesRunsRebuildsAndTravelsAlone()
-   local dir = tempProject({
-      ["nupp.lua"] = MANIFEST,
-      ["src/app/main.g.nupp"] = MAIN,
-      ["src/app/greet.g.nupp"] = GREET,
-      ["src/app/data/note.txt"] = "carried along\n",
-      ["src/app/data/second.txt"] = "and another\n",
-   })
-   local where = " (built in " .. dir .. ")"
+    local dir = tempProject({
+        ["nupp.lua"] = MANIFEST,
+        ["src/app/main.g.nupp"] = MAIN,
+        ["src/app/greet.g.nupp"] = GREET,
+        ["src/app/data/note.txt"] = "carried along\n",
+        ["src/app/data/second.txt"] = "and another\n",
+    })
+    local where = " (built in " .. dir .. ")"
 
-   local out, ok = run(dir, "'" .. NUPP .. "' build")
-   assert(ok, "the bundle target builds" .. where .. ": " .. out)
-   local first = readFile(dir .. "/build/app.lua")
-   assert(first, "the bundle was written to build/app.lua" .. where)
+    local out, ok = run(dir, "'" .. NUPP .. "' build")
+    assert(ok, "the bundle target builds" .. where .. ": " .. out)
+    local first = readFile(dir .. "/build/app.lua")
+    assert(first, "the bundle was written to build/app.lua" .. where)
 
-   -- One file, runnable by an interpreter that has never heard of nupp.
-   local ran, ranOk = run(dir, "luajit build/app.lua")
-   assert(ranOk, "the bundle runs on its own" .. where .. ": " .. ran)
-   assert(ran:find("hello, world", 1, true),
-      "its modules are reachable through package.preload" .. where .. ": " .. ran)
-   assert(ran:find("carried along", 1, true),
-      "and its resources came with it" .. where .. ": " .. ran)
+    -- One file, runnable by an interpreter that has never heard of nupp.
+    local ran, ranOk = run(dir, "luajit build/app.lua")
+    assert(ranOk, "the bundle runs on its own" .. where .. ": " .. ran)
+    assert(
+        ran:find("hello, world", 1, true),
+        "its modules are reachable through package.preload" .. where .. ": " .. ran
+    )
+    assert(ran:find("carried along", 1, true), "and its resources came with it" .. where .. ": " .. ran)
 
-   -- Taken now, run in the last phase with this project deleted out from under it.
-   local elsewhere = os.tmpname()
-   os.remove(elsewhere)
-   assert(os.execute("mkdir -p '" .. elsewhere .. "'") == 0)
-   assert(os.execute(("cp '%s/build/app.lua' '%s/alone.lua'"):format(dir, elsewhere)) == 0)
+    -- Taken now, run in the last phase with this project deleted out from under it.
+    local elsewhere = os.tmpname()
+    os.remove(elsewhere)
+    assert(os.execute("mkdir -p '" .. elsewhere .. "'") == 0)
+    assert(os.execute(("cp '%s/build/app.lua' '%s/alone.lua'"):format(dir, elsewhere)) == 0)
 
-   -- Byte-identical across builds. The packaging fixpoint rests on this, and a
-   -- bundle that embedded a timestamp or a hash order would fail it in a way that
-   -- reproduces once a week. The output directory goes first, so nothing is
-   -- reused: the ordering has to be decided by the bundler rather than by
-   -- whatever order the last build left behind.
-   os.execute("rm -rf '" .. dir .. "/build'")
-   local rebuilt, rebuiltOk = run(dir, "'" .. NUPP .. "' build")
-   assert(rebuiltOk, "the discarded output directory builds again" .. where .. ": " .. rebuilt)
-   assert(first == readFile(dir .. "/build/app.lua"),
-      "two cold builds produce the same bundle" .. where)
+    -- Byte-identical across builds. The packaging fixpoint rests on this, and a
+    -- bundle that embedded a timestamp or a hash order would fail it in a way that
+    -- reproduces once a week. The output directory goes first, so nothing is
+    -- reused: the ordering has to be decided by the bundler rather than by
+    -- whatever order the last build left behind.
+    os.execute("rm -rf '" .. dir .. "/build'")
+    local rebuilt, rebuiltOk = run(dir, "'" .. NUPP .. "' build")
+    assert(rebuiltOk, "the discarded output directory builds again" .. where .. ": " .. rebuilt)
+    assert(first == readFile(dir .. "/build/app.lua"), "two cold builds produce the same bundle" .. where)
 
-   -- The output directory is also where native dependencies build, and their
-   -- trees are full of .lua that is examples, tests and scripts, some of which is
-   -- not a valid preload module -- so a bundle carries what the build compiled,
-   -- not what it finds. This one arrives after the fact, the way cargo's does.
-   assert(os.execute("mkdir -p '" .. dir .. "/build/native/examples'") == 0)
-   local intruder = assert(io.open(dir .. "/build/native/examples/tool.lua", "wb"))
-   intruder:write("#!/usr/bin/env lua\nprint('not a module')\n")
-   intruder:close()
-   local beside, besideOk = run(dir, "'" .. NUPP .. "' build")
-   assert(besideOk, "the build still succeeds beside a foreign tree" .. where .. ": " .. beside)
-   local bundle = readFile(dir .. "/build/app.lua")
-   assert(not bundle:find("not a module", 1, true),
-      "somebody else's script is not preloaded as a module" .. where)
-   local again, againOk = run(dir, "luajit build/app.lua")
-   assert(againOk, "and the bundle still parses and runs" .. where .. ": " .. again)
+    -- The output directory is also where native dependencies build, and their
+    -- trees are full of .lua that is examples, tests and scripts, some of which is
+    -- not a valid preload module -- so a bundle carries what the build compiled,
+    -- not what it finds. This one arrives after the fact, the way cargo's does.
+    assert(os.execute("mkdir -p '" .. dir .. "/build/native/examples'") == 0)
+    local intruder = assert(io.open(dir .. "/build/native/examples/tool.lua", "wb"))
+    intruder:write("#!/usr/bin/env lua\nprint('not a module')\n")
+    intruder:close()
+    local beside, besideOk = run(dir, "'" .. NUPP .. "' build")
+    assert(besideOk, "the build still succeeds beside a foreign tree" .. where .. ": " .. beside)
+    local bundle = readFile(dir .. "/build/app.lua")
+    assert(not bundle:find("not a module", 1, true), "somebody else's script is not preloaded as a module" .. where)
+    local again, againOk = run(dir, "luajit build/app.lua")
+    assert(againOk, "and the bundle still parses and runs" .. where .. ": " .. again)
 
-   -- A resource staged beside the entry's directory rather than under it has no
-   -- name a running program could ask for. It is left out and said out loud, so
-   -- the manifest is rewritten here to ask for one that cannot be named, and the
-   -- output directory goes again: this report is one a build makes from nothing
-   -- rather than one an incremental build happened to keep.
-   local reaching = MANIFEST:gsub('"src/app/data/%*%.txt"',
-      '"src/app/data/*.txt", "extra/*.txt"')
-   local rewritten = assert(io.open(dir .. "/nupp.lua", "wb"))
-   rewritten:write(reaching)
-   rewritten:close()
-   assert(os.execute("mkdir -p '" .. dir .. "/extra'") == 0)
-   local loose = assert(io.open(dir .. "/extra/loose.txt", "wb"))
-   loose:write("not reachable\n")
-   loose:close()
-   os.execute("rm -rf '" .. dir .. "/build'")
-   local reported, reportedOk = run(dir, "'" .. NUPP .. "' build")
-   assert(reportedOk,
-      "the build still succeeds with an unreachable resource" .. where .. ": " .. reported)
-   assert(reported:find("could not be bundled", 1, true),
-      "and says what it could not carry" .. where .. ": " .. reported)
-   bundle = readFile(dir .. "/build/app.lua")
-   assert(not bundle:find("not reachable", 1, true),
-      "the unreachable resource is not embedded under a name nothing reads" .. where)
-   assert(bundle:find("carried along", 1, true), "the reachable one still is" .. where)
+    -- A resource staged beside the entry's directory rather than under it has no
+    -- name a running program could ask for. It is left out and said out loud, so
+    -- the manifest is rewritten here to ask for one that cannot be named, and the
+    -- output directory goes again: this report is one a build makes from nothing
+    -- rather than one an incremental build happened to keep.
+    local reaching = MANIFEST:gsub('"src/app/data/%*%.txt"', '"src/app/data/*.txt", "extra/*.txt"')
+    local rewritten = assert(io.open(dir .. "/nupp.lua", "wb"))
+    rewritten:write(reaching)
+    rewritten:close()
+    assert(os.execute("mkdir -p '" .. dir .. "/extra'") == 0)
+    local loose = assert(io.open(dir .. "/extra/loose.txt", "wb"))
+    loose:write("not reachable\n")
+    loose:close()
+    os.execute("rm -rf '" .. dir .. "/build'")
+    local reported, reportedOk = run(dir, "'" .. NUPP .. "' build")
+    assert(reportedOk, "the build still succeeds with an unreachable resource" .. where .. ": " .. reported)
+    assert(
+        reported:find("could not be bundled", 1, true),
+        "and says what it could not carry" .. where .. ": " .. reported
+    )
+    bundle = readFile(dir .. "/build/app.lua")
+    assert(
+        not bundle:find("not reachable", 1, true),
+        "the unreachable resource is not embedded under a name nothing reads" .. where
+    )
+    assert(bundle:find("carried along", 1, true), "the reachable one still is" .. where)
 
-   -- Nothing beside it. A bundle that still needed its build tree would be a
-   -- bundle in name only, and the failure would be somebody else's, later.
-   os.execute("rm -rf '" .. dir .. "'")
-   local alone, aloneOk = run(elsewhere, "luajit alone.lua")
-   assert(aloneOk,
-      "the copy runs with its whole project deleted (copied to " .. elsewhere .. "): " .. alone)
-   assert(alone:find("hello, world", 1, true) and alone:find("carried along", 1, true),
-      "modules and resources both survived the move (copied to "
-      .. elsewhere .. "): " .. alone)
-   os.execute("rm -rf '" .. elsewhere .. "'")
+    -- Nothing beside it. A bundle that still needed its build tree would be a
+    -- bundle in name only, and the failure would be somebody else's, later.
+    os.execute("rm -rf '" .. dir .. "'")
+    local alone, aloneOk = run(elsewhere, "luajit alone.lua")
+    assert(aloneOk, "the copy runs with its whole project deleted (copied to " .. elsewhere .. "): " .. alone)
+    assert(
+        alone:find("hello, world", 1, true) and alone:find("carried along", 1, true),
+        "modules and resources both survived the move (copied to " .. elsewhere .. "): " .. alone
+    )
+    os.execute("rm -rf '" .. elsewhere .. "'")
 end
 
 function M.aCoroutineOnlyTaskBundleDoesNotAcquireWorkersOrTime()
-   local dir = tempProject({
-      ["nupp.lua"] = [[
+    local dir = tempProject({
+        [
+            "nupp.lua"
+        ] = [[
 return {include = {"src"}, build = {default = "app", targets = {app = {
    kind = "bundle", entries = {"main"}, outDir = "build",
 }}}}
 ]],
-      ["src/main.nupp"] = [[
+        [
+            "src/main.nupp"
+        ] = [[
 const tasks = require("nupp.tasks")
 local answer = 0
 with scope = tasks.open() do
@@ -1054,12 +1175,12 @@ with scope = tasks.open() do
 end
 print(answer)
 ]],
-   })
-   local out, ok = run(dir, "'" .. NUPP .. "' build")
-   assert(ok, "the coroutine-only task bundle builds without a native host: " .. out)
-   local ran, ranOk = run(dir, "luajit build/app.lua")
-   assert(ranOk and ran == "42\n", "the standalone task bundle runs: " .. ran)
-   os.execute("rm -rf '" .. dir .. "'")
+    })
+    local out, ok = run(dir, "'" .. NUPP .. "' build")
+    assert(ok, "the coroutine-only task bundle builds without a native host: " .. out)
+    local ran, ranOk = run(dir, "luajit build/app.lua")
+    assert(ranOk and ran == "42\n", "the standalone task bundle runs: " .. ran)
+    os.execute("rm -rf '" .. dir .. "'")
 end
 
 -- A rock is a library the program needs and the bundle cannot leave behind: a
@@ -1107,22 +1228,21 @@ build = { type = "builtin", modules = { tinyrock = "tinyrock.lua" } }
 ]]
 
 function M.aBundleCarriesTheRockModulesItWasToldTo()
-   local dir = tempProject({
-      ["nupp.lua"] = ROCK_MANIFEST,
-      ["src/app/main.g.nupp"] = ROCK_MAIN,
-      ["vendor/tinyrock/tinyrock.lua"] = "return {answer = 42}\n",
-      ["vendor/tinyrock/tinyrock-1.0-1.rockspec"] = TINY_ROCKSPEC,
-   })
-   local out, ok = run(dir, "'" .. NUPP .. "' build")
-   assert(ok, "the bundle target builds: " .. out)
+    local dir = tempProject({
+        ["nupp.lua"] = ROCK_MANIFEST,
+        ["src/app/main.g.nupp"] = ROCK_MAIN,
+        ["vendor/tinyrock/tinyrock.lua"] = "return {answer = 42}\n",
+        ["vendor/tinyrock/tinyrock-1.0-1.rockspec"] = TINY_ROCKSPEC,
+    })
+    local out, ok = run(dir, "'" .. NUPP .. "' build")
+    assert(ok, "the bundle target builds: " .. out)
 
-   -- With an empty search path, so nothing installed on this machine can
-   -- answer the require: what runs is what the bundle brought.
-   local ran, ranOk = run(dir, "LUA_PATH= LUA_CPATH= luajit build/app.lua")
-   assert(ranOk, "the bundle runs with nothing on its path: " .. ran)
-   assert(ran:find("answer 42", 1, true),
-      "the rock's module came with it: " .. ran)
-   os.execute("rm -rf '" .. dir .. "'")
+    -- With an empty search path, so nothing installed on this machine can
+    -- answer the require: what runs is what the bundle brought.
+    local ran, ranOk = run(dir, "LUA_PATH= LUA_CPATH= luajit build/app.lua")
+    assert(ranOk, "the bundle runs with nothing on its path: " .. ran)
+    assert(ran:find("answer 42", 1, true), "the rock's module came with it: " .. ran)
+    os.execute("rm -rf '" .. dir .. "'")
 end
 
 -- The compiler's own stage-zero bundle goes through this same code. If the two
@@ -1130,17 +1250,21 @@ end
 -- nothing else tests. It is fetched rather than tracked, so this asks the
 -- toolchain for it the way the launcher does.
 function M.theStageZeroIsProducedByTheGeneralBundler()
-   local root = HERE .. "/.."
-   local handle = assert(io.popen(("'%s/scripts/toolchain' stage0 2>/dev/null"):format(root)))
-   local named = handle:read("*a")
-   local ok = handle:close()
-   assert(ok, "no stage-zero compiler; run scripts/toolchain stage0")
-   local stage0 = readFile((named:match("([^\n]+)%s*$")))
-   assert(stage0, "the fetched stage zero is readable")
-   assert(stage0:find('package.preload["nupp.embedded"]', 1, true),
-      "it carries its resources the way every bundle does")
-   assert(stage0:find("package.preload[\"nupp.compiler.cst\"]", 1, true),
-      "and preloads its modules the way every bundle does")
+    local root = HERE .. "/.."
+    local handle = assert(io.popen(("'%s/scripts/toolchain' stage0 2>/dev/null"):format(root)))
+    local named = handle:read("*a")
+    local ok = handle:close()
+    assert(ok, "no stage-zero compiler; run scripts/toolchain stage0")
+    local stage0 = readFile((named:match("([^\n]+)%s*$")))
+    assert(stage0, "the fetched stage zero is readable")
+    assert(
+        stage0:find('package.preload["nupp.embedded"]', 1, true),
+        "it carries its resources the way every bundle does"
+    )
+    assert(
+        stage0:find("package.preload[\"nupp.compiler.cst\"]", 1, true),
+        "and preloads its modules the way every bundle does"
+    )
 end
 
 -- The standard library is this compiler's own Nupp, and it is carried as source
@@ -1165,27 +1289,30 @@ local STD_MANIFEST = 'return {include = {"."}}\n'
 --- diagnostics, so "NUPP2001 is in there somewhere" would pass for the wrong
 --- reason as easily as for the right one.
 local function diagnosed(report, file, code)
-   local prefix = "^" .. file:gsub("%p", "%%%0") .. ":%d+:%d+:"
-   for line in report:gmatch("[^\n]+") do
-      if line:match(prefix) and line:find(code, 1, true) then
-         return true
-      end
-   end
-   return false
+    local prefix = "^" .. file:gsub("%p", "%%%0") .. ":%d+:%d+:"
+    for line in report:gmatch("[^\n]+") do
+        if line:match(prefix) and line:find(code, 1, true) then
+            return true
+        end
+    end
+
+    return false
 end
 
 function M.theStandardLibrarySurfaceIsTypedAndOwnedOutsideThisTree()
-   local dir = tempProject({
-      ["nupp.lua"] = STD_MANIFEST,
-      ["input.txt"] = "hello\n",
-      -- The library is typed, not `any`.
-      ["typed.nupp"] = [[
+    local dir = tempProject({
+        ["nupp.lua"] = STD_MANIFEST,
+        ["input.txt"] = "hello\n",
+        -- The library is typed, not `any`.
+        ["typed.nupp"] = [[
 local wrong: integer = io.open("x", "r")
 
 return wrong
 ]],
-      -- `nupp.types`' checked functions travel with it.
-      ["format.nupp"] = [[
+        -- `nupp.types`' checked functions travel with it.
+        [
+            "format.nupp"
+        ] = [[
 local function format<F is string>(
     value: F,
     ...: unpackof nupp.types.formatArguments(F)
@@ -1195,61 +1322,78 @@ end
 
 print(format("%s=%d", "answer", 42))
 ]],
-      -- Typed is not enough on its own: the ownership contract has to cross too,
-      -- or an ordinary local cannot arrange automatic cleanup.
-      ["acquire.nupp"] = [[
+        -- Typed is not enough on its own: the ownership contract has to cross too,
+        -- or an ordinary local cannot arrange automatic cleanup.
+        ["acquire.nupp"] = [[
 do
     local file = assert(io.open("input.txt", "r"))
     print(file:read("*a"))
 end
 ]],
-      ["leak.nupp"] = [[
+        ["leak.nupp"] = [[
 local handle = assert(io.open("input.txt", "r"))
 
 return 1
 ]],
-      -- And the workers surface carries both halves.
-      ["workerstyped.nupp"] = [[
+        -- And the workers surface carries both halves.
+        [
+            "workerstyped.nupp"
+        ] = [[
 local workers = require("nupp.workers")
 local wrong: integer = workers.scope
 return wrong
 ]],
-      ["workersowned.nupp"] = [[
+        [
+            "workersowned.nupp"
+        ] = [[
 local workers = require("nupp.workers")
 with scope = workers.scope() do
     print(scope ~= nil)
 end
 return true
 ]],
-   })
-   local where = " (checked in " .. dir .. ")"
-   local report = run(dir, "'" .. NUPP .. "' check --strict")
+    })
+    local where = " (checked in " .. dir .. ")"
+    local report = run(dir, "'" .. NUPP .. "' check --strict")
 
-   assert(diagnosed(report, "typed.nupp", "NUPP2001"),
-      "the std surface is typed, not any" .. where .. ": " .. report)
-   assert(not report:find("format.nupp", 1, true),
-      "nupp.types checked functions are carried with the compiler" .. where .. ": " .. report)
-   assert(diagnosed(report, "workerstyped.nupp", "NUPP2001"),
-      "the workers surface is typed rather than gradual" .. where .. ": " .. report)
-   -- An untouched ordinary owner is discharged by its lexical scope rather than
-   -- diagnosed as forgotten, and a worker scope carries the same obligation.
-   assert(not diagnosed(report, "leak.nupp", "NUPP2603"),
-      "the ordinary owner receives automatic cleanup" .. where .. ": " .. report)
-   assert(not diagnosed(report, "workersowned.nupp", "NUPP2603"),
-      "a worker scope carries its automatic drain obligation" .. where .. ": " .. report)
-   -- And each of the two checks clean rather than merely escaping that one code,
-   -- which is what their own `check` exiting zero used to say before the files
-   -- were checked together with the ones that are meant to fail.
-   assert(not report:find("leak.nupp", 1, true),
-      "an ordinary owner is diagnosed for nothing at all" .. where .. ": " .. report)
-   assert(not report:find("workersowned.nupp", 1, true),
-      "an owned worker scope is diagnosed for nothing at all" .. where .. ": " .. report)
+    assert(diagnosed(report, "typed.nupp", "NUPP2001"), "the std surface is typed, not any" .. where .. ": " .. report)
+    assert(
+        not report:find("format.nupp", 1, true),
+        "nupp.types checked functions are carried with the compiler" .. where .. ": " .. report
+    )
+    assert(
+        diagnosed(report, "workerstyped.nupp", "NUPP2001"),
+        "the workers surface is typed rather than gradual" .. where .. ": " .. report
+    )
+    -- An untouched ordinary owner is discharged by its lexical scope rather than
+    -- diagnosed as forgotten, and a worker scope carries the same obligation.
+    assert(
+        not diagnosed(report, "leak.nupp", "NUPP2603"),
+        "the ordinary owner receives automatic cleanup" .. where .. ": " .. report
+    )
+    assert(
+        not diagnosed(report, "workersowned.nupp", "NUPP2603"),
+        "a worker scope carries its automatic drain obligation" .. where .. ": " .. report
+    )
+    -- And each of the two checks clean rather than merely escaping that one code,
+    -- which is what their own `check` exiting zero used to say before the files
+    -- were checked together with the ones that are meant to fail.
+    assert(
+        not report:find("leak.nupp", 1, true),
+        "an ordinary owner is diagnosed for nothing at all" .. where .. ": " .. report
+    )
+    assert(
+        not report:find("workersowned.nupp", 1, true),
+        "an owned worker scope is diagnosed for nothing at all" .. where .. ": " .. report
+    )
 
-   -- The private cleanup has to link and run, not only check.
-   local acquired, acquiredOk = run(dir, "'" .. NUPP .. "' run acquire.nupp")
-   assert(acquiredOk and acquired == "hello\n\n",
-      "the standard-library private cleanup links and runs" .. where .. ": " .. acquired)
-   os.execute("rm -rf '" .. dir .. "'")
+    -- The private cleanup has to link and run, not only check.
+    local acquired, acquiredOk = run(dir, "'" .. NUPP .. "' run acquire.nupp")
+    assert(
+        acquiredOk and acquired == "hello\n\n",
+        "the standard-library private cleanup links and runs" .. where .. ": " .. acquired
+    )
+    os.execute("rm -rf '" .. dir .. "'")
 end
 
 return M

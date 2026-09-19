@@ -36,12 +36,32 @@ applied with `gpu.view(buffer, layout)` without allocating. Transfers remain den
 layout-aware kernels consume the explicit metadata.
 ]]
 
+local spi = require("nupp.spi")
+local target = require("nupp.runtime.target")
+
 local api = require("nupp.gpu.api")
 local implementation = require("nupp.gpu.types")
-local service = require("nupp.runtime.services.gpu").service
-local provider = service:assemble(function()
-    return service:lookup("nupp.native") or service:require("nupp.browser")
-end)
+local contract = require("nupp.gpu.spi")
+local provider: contract.Provider = do
+    local chosen: contract.Provider?
+    local tied = false
+    for candidate in spi.load(contract.Provider) do
+        if chosen == nil or (candidate.priority ?? 0) > (chosen.priority ?? 0) then
+            chosen = candidate
+            tied = false
+        elseif (candidate.priority ?? 0) == (chosen.priority ?? 0) then
+            tied = true
+        end
+    end
+    assert(not tied, "nupp.gpu: multiple implementations have the highest priority")
+    if chosen ~= nil then
+        yield chosen
+    end
+    if target.dialect ~= "lua51" then
+        yield _G.require("nupp.runtime.provider.nativegpu") as contract.Provider
+    end
+    yield _G.require("nupp.runtime.browser.webgpu.internal") as contract.Provider
+end
 local operations = require("nupp.gpu.operations")
 local tensorlayout = require("nupp.gpu.layout")
 

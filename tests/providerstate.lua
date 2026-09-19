@@ -15,17 +15,23 @@ local function filename(name)
     error("no Lua source for " .. name)
 end
 
-local function instance(owned, replacements)
+local function instance(owned, replacements, preloads)
     local loaded = {}
     local environment = setmetatable({}, {__index = _G})
     environment._G = environment
-    environment.package = {loaded = loaded, preload = {}, path = package.path, cpath = package.cpath}
+    environment.package = {loaded = loaded, preload = preloads or {}, path = package.path, cpath = package.cpath}
     environment.require = function(name)
         if loaded[name] ~= nil then
             return loaded[name]
         end
         if replacements and replacements[name] ~= nil then
             return replacements[name]
+        end
+        local preload = preloads and preloads[name]
+        if preload then
+            local value = preload()
+            loaded[name] = value == nil and true or value
+            return loaded[name]
         end
         if not owned[name] then
             return require(name)
@@ -42,29 +48,22 @@ local function instance(owned, replacements)
 end
 
 function M.load(kind, provider)
-    local contract = "nupp.runtime.services." .. kind
     local facade = "nupp.io." .. kind
-    local load = instance({
-        ["nupp.services"] = true,
-        [contract] = true,
-        [facade] = true,
-        ["nupp.io.net.internal"] = true
-    })
-    local service = load(contract).service
-    for _, member in ipairs(service.members or {}) do
-        if provider[member.name] == nil then
-            local name = member.name
-            provider[name] = function()
+    setmetatable(provider, {
+        __index = function(_, name)
+            if name == "priority" then
+                return nil
+            end
+            return function()
                 error("fixture does not implement " .. name)
             end
         end
-    end
-    service:register("fixture", function()
-        return provider
-    end)
-    service:select("fixture")
+    })
 
-    return load(facade)
+    return instance({["nupp.spi"] = true, [facade] = true, ["nupp.io.net.internal"] = true}, {
+        ["nupp.spi.index"] = {[facade .. ".spi.Provider"] = {"fixture.provider"}},
+        ["fixture.provider"] = provider,
+    })(facade)
 end
 
 function M.browserHttp(memory)
@@ -72,23 +71,32 @@ function M.browserHttp(memory)
     return instance({[name] = true}, {["nupp.runtime.wasm"] = memory or {}})(name)
 end
 
-function M.services(catalog)
-    return instance({["nupp.services"] = true}, {
-        ["nupp.runtime.services.artifact"] = catalog or {providers = {}}
-    })("nupp.services")
-end
-
-function M.family(kind)
-    local contract = "nupp.runtime.services." .. kind
+-- Each fixture owns an ordinary immutable discovery index and module cache.
+function M.family(kind, providers)
     local facade = "nupp." .. kind
-    local load = instance({
-        ["nupp.services"] = true,
-        [contract] = true,
-        [facade] = true,
-        ["nupp.runtime.provider." .. kind] = true
-    })
+    local names, preloads = {}, {}
+    for index, provider in ipairs(providers or {}) do
+        local name = "fixture.provider" .. index
+        names[index] = name
+        preloads[name] = type(provider) == "function" and provider or function()
+            return provider
+        end
+    end
+    local load = instance(
+        {["nupp.spi"] = true, [facade] = true, ["nupp.runtime.provider." .. kind] = true},
+        {["nupp.spi.index"] = {[facade .. ".spi.Provider"] = names},},
+        preloads
+    )
+    local spi, counts = load("nupp.spi"), {resolutions = 0}
+    local original = spi.load
+    spi.load = function(interface)
+        counts.resolutions = counts.resolutions + 1
+        return original(interface)
+    end
 
-    return load, load(contract).service
+    return load, counts
 end
+
+M.instance = instance
 
 return M

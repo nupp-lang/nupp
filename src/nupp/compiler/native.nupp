@@ -129,42 +129,11 @@ local FEATURES: {[string]: native.Feature} = {
         portableRuntime = true,
         requires = {"runtime.suspension"}
     },
-    [
-        "runtime.services"
-    ] = {
-        name = "services",
-        module = "nupp.services",
-        runtimeModule = "nupp.services",
-        portableRuntime = true,
-        requires = {"runtime.service_catalog"}
-    },
-    [
-        "runtime.service_catalog"
-    ] = {name = "service_catalog", runtimeModule = "nupp.runtime.services.catalog", portableRuntime = true},
-    [
-        "runtime.int64"
-    ] = {
-        name = "int64",
-        runtimeModule = "nupp.runtime.int64",
-        portableRuntime = true,
-        requires = {"runtime.service_contracts"}
-    },
+    ["runtime.int64"] = {name = "int64", runtimeModule = "nupp.runtime.int64", portableRuntime = true, requires = {}},
     [
         "runtime.structvalue"
-    ] = {
-        name = "structvalue",
-        runtimeModule = "nupp.runtime.structvalue",
-        portableRuntime = true,
-        requires = {"runtime.service_contracts"}
-    },
-    [
-        "runtime.wasm"
-    ] = {
-        name = "wasm",
-        runtimeModule = "nupp.runtime.wasm",
-        portableRuntime = true,
-        requires = {"runtime.service_contracts"}
-    },
+    ] = {name = "structvalue", runtimeModule = "nupp.runtime.structvalue", portableRuntime = true, requires = {}},
+    ["runtime.wasm"] = {name = "wasm", runtimeModule = "nupp.runtime.wasm", portableRuntime = true, requires = {}},
     [
         "runtime.uuid"
     ] = {
@@ -175,12 +144,7 @@ local FEATURES: {[string]: native.Feature} = {
     },
     [
         "runtime.bitops"
-    ] = {
-        name = "bitops",
-        runtimeModule = "nupp.runtime.bitops",
-        portableRuntime = true,
-        requires = {"runtime.service_contracts"}
-    },
+    ] = {name = "bitops", runtimeModule = "nupp.runtime.bitops", portableRuntime = true, requires = {}},
     ["runtime.managed"] = {name = "managed", runtimeModule = "nupp.runtime.managed", portableRuntime = true},
     [
         "runtime.io_internal_ownedreader"
@@ -208,18 +172,10 @@ local FEATURES: {[string]: native.Feature} = {
         portableRuntime = true,
     },
     [
-        "runtime.service_contracts"
-    ] = {
-        name = "service_contracts",
-        runtimeModule = "nupp.runtime.services.contracts",
-        portableRuntime = true,
-        requires = {"runtime.services"}
-    },
-    [
         "runtime.net_contract"
     ] = {
         name = "net_contract",
-        runtimeModule = "nupp.runtime.services.net",
+        runtimeModule = "nupp.io.net.spi",
         portableRuntime = true,
         requires = {"runtime.net_types"}
     },
@@ -233,7 +189,7 @@ local FEATURES: {[string]: native.Feature} = {
         "runtime.tls_contract"
     ] = {
         name = "tls_contract",
-        runtimeModule = "nupp.runtime.services.tls",
+        runtimeModule = "nupp.io.tls.spi",
         portableRuntime = true,
         requires = {"runtime.tls_types"}
     },
@@ -244,7 +200,7 @@ local FEATURES: {[string]: native.Feature} = {
         "runtime.process_contract"
     ] = {
         name = "process_contract",
-        runtimeModule = "nupp.runtime.services.process",
+        runtimeModule = "nupp.io.process.spi",
         portableRuntime = true,
         requires = {"runtime.process_types"}
     },
@@ -253,12 +209,7 @@ local FEATURES: {[string]: native.Feature} = {
     ] = {name = "process_types", runtimeModule = "nupp.io.process.types", portableRuntime = true, requires = {}},
     [
         "runtime.http_messages"
-    ] = {
-        name = "http_messages",
-        runtimeModule = "nupp.io.http.messages",
-        portableRuntime = true,
-        requires = {"runtime.service_contracts"}
-    },
+    ] = {name = "http_messages", runtimeModule = "nupp.io.http.messages", portableRuntime = true, requires = {}},
 
     [
         "runtime.io_internal_bytes"
@@ -387,7 +338,7 @@ local FEATURES: {[string]: native.Feature} = {
         module = "nupp.text",
         runtimeModule = "nupp.text",
         portableRuntime = true,
-        requires = {"runtime.service_contracts"}
+        requires = {}
     },
     -- `portableRuntime` because the run-time half of `nupp.math` names nothing
     -- LuaJIT alone has: its bit operations come from whatever answers
@@ -438,7 +389,7 @@ local FEATURES: {[string]: native.Feature} = {
         providerFeature = "uri",
         library = "nupp_native",
         binary = true,
-        requires = {"runtime.service_contracts", "runtime.uri", "runtime.native"},
+        requires = {"runtime.uri", "runtime.native"},
     },
     [
         "runtime.uri"

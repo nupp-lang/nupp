@@ -3,7 +3,7 @@
 module nupp.runtime.provider.nativeprocess
 
 --[[
-Native child-process implementation of `host.process` API 1.
+Native child-process implementation used as a built-in module fallback.
 
 Loading requires the native process feature. Spawn translates the shared
 [](nupp.io.process.types) options into native argument, environment, directory,
@@ -21,7 +21,7 @@ reaping the child remain distinct operations. Cleanup releases every native
 handle even when a process is killed or a caller stops reading its output.
 ]]
 
-local contract = require("nupp.runtime.services.process")
+local contract = require("nupp.io.process.spi")
 local shared = require("nupp.io.process.types")
 local time = require("nupp.time")
 

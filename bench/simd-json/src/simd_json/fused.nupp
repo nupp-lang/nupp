@@ -1,3 +1,2 @@
-require("simd_json.setup")
 -- Exercise the shipped decoder through its public codec entry.
 return require("nupp.codec.json")

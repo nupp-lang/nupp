@@ -14,7 +14,7 @@ This module needs no FFI, native bit library, or other service. It is suitable f
 stock Lua 5.1 and supplies portable conformance behavior. Its bit-by-bit loops
 prioritize portability over native instruction throughput.
 
-[](nupp.runtime.bitops) loads it during default assembly when appropriate and
+[](nupp.runtime.bitops) imports it as its default when appropriate and
 retains its function table. Calls perform arithmetic directly without service
 resolution or mutable provider selection.
 ]]

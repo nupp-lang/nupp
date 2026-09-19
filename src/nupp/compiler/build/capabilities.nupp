@@ -1,6 +1,6 @@
 module nupp.compiler.build.capabilities
 
--- Static package metadata shared by build-time generators and target services.
+-- Static package metadata for build-time generators.
 -- Discovery never loads provider code: the capability entry point is required only
 -- after the build has selected and validated one descriptor entry.
 
@@ -13,23 +13,10 @@ type capabilities.Entry = {
     kind: string,
     name: string,
     api: integer,
-    entry: string,
-    service: string?,
-    member: string?,
-    contract: string?,
-    export: string?
+    entry: string
 }
 
-local ENTRY_KEYS = {
-    api = true,
-    entry = true,
-    kind = true,
-    member = true,
-    name = true,
-    service = true,
-    contract = true,
-    export = true
-}
+local ENTRY_KEYS = {api = true, entry = true, kind = true, name = true}
 
 local function identifier(value)
     return type(value) == "string" and value:match("^[A-Za-z0-9][A-Za-z0-9_.-]*$") ~= nil
@@ -71,8 +58,8 @@ local function readDescriptor(record, dependencyName): {capabilities.Entry}?, st
                 return nil, label .. " has no key " .. tostring(key)
             end
         end
-        if raw.kind ~= "generator" and raw.kind ~= "service" then
-            return nil, label .. ".kind must be generator or service"
+        if raw.kind ~= "generator" then
+            return nil, label .. ".kind must be generator"
         end
         if not identifier(raw.name) then
             return nil, label .. ".name must be an identifier"
@@ -83,24 +70,7 @@ local function readDescriptor(record, dependencyName): {capabilities.Entry}?, st
         if not identifier(raw.entry) then
             return nil, label .. ".entry must be a module name"
         end
-        if raw.kind == "generator"
-            and (raw.service ~= nil or raw.member ~= nil or raw.contract ~= nil or raw.export ~= nil)
-        then
-            return nil, label .. " generator must not name a service contract or provider member"
-        end
-        if raw.kind == "service" then
-            if not identifier(raw.service) then
-                return nil, label .. ".service must be an identifier"
-            end
-            if not identifier(raw.contract) or not identifier(raw.export) then
-                return nil, label .. " requires a contract module and service handle export"
-            end
-            if raw.member ~= nil and not identifier(raw.member) then
-                return nil, label .. ".member must be an identifier"
-            end
-        end
-        local identity = raw.kind == "service" and raw.kind .. "\0" .. raw.service .. "\0" .. raw.name
-            or raw.kind .. "\0" .. raw.name
+        local identity = raw.name
         if seen[identity] then
             return nil, label .. " duplicates capability " .. raw.name
         end

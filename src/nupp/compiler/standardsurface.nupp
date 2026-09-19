@@ -13,22 +13,22 @@ local MODULES = {
     ["nupp"] = {kind = "common"},
     ["nupp.test"] = {kind = "common"},
     ["nupp.system"] = facility("host", "runtime.system"),
-    ["nupp.services"] = {kind = "common"},
+    ["nupp.spi"] = {kind = "common"},
     ["nupp.codec.hex"] = {kind = "common"},
     ["nupp.digest"] = facility("runtime", "runtime.bitops"),
-    ["nupp.runtime.services.mac"] = {kind = "common"},
-    ["nupp.runtime.services.system"] = {kind = "common"},
-    ["nupp.runtime.services.digest"] = {kind = "common"},
+    ["nupp.mac.spi"] = {kind = "common"},
+    ["nupp.system.spi"] = {kind = "common"},
+    ["nupp.digest.spi"] = {kind = "common"},
     ["nupp.digest.internal.context"] = {kind = "common"},
     ["nupp.digest.internal.builtin"] = facility("runtime", "runtime.bitops"),
     ["nupp.digest.internal.words"] = facility("runtime", "runtime.bitops"),
     ["nupp.digest.internal.constants"] = {kind = "common"},
     ["nupp.checksum"] = facility("runtime", "runtime.bitops"),
-    ["nupp.runtime.services.checksum"] = {kind = "common"},
+    ["nupp.checksum.spi"] = {kind = "common"},
     ["nupp.checksum.internal.builtin"] = facility("runtime", "runtime.bitops"),
     ["nupp.mac"] = facility("runtime", "runtime.bitops"),
     ["nupp.compression"] = facility("runtime", "runtime.compression"),
-    ["nupp.runtime.services.compression"] = {kind = "common"},
+    ["nupp.compression.spi"] = {kind = "common"},
     ["nupp.runtime.provider.nativecompression"] = facility("runtime", "native.compression"),
     ["nupp.util.internal.hash"] = facility("runtime", "runtime.bitops"),
     ["nupp.util.internal.uuid"] = facility("runtime", "runtime.uuid"),
@@ -105,6 +105,36 @@ local FACILITIES = {["task.deadline"] = facility("host", "runtime.time")}
 
 local MODULE_MEMBERS = {["nupp.tasks"] = {runFor = "task.deadline",},}
 
+local BROWSER_IMPLEMENTATIONS = {
+    ["nupp.runtime.browser.system"] = true,
+    ["nupp.runtime.browser.webgpu.internal"] = true,
+    ["nupp.runtime.browser.http"] = true,
+    ["nupp.runtime.browser.workers"] = true,
+    ["nupp.runtime.browser.crypto"] = true,
+    ["nupp.runtime.browser.storage"] = true,
+    ["nupp.runtime.browser.suspension"] = true,
+    ["nupp.runtime.browser.uri"] = true,
+    ["nupp.runtime.browser.path"] = true,
+    ["nupp.runtime.browser.time"] = true,
+}
+
+--- Whether this implementation module belongs to the artifact's runtime.
+function surface.supports(moduleName: string, dialect: string): boolean
+    if BROWSER_IMPLEMENTATIONS[moduleName] or moduleName == "nupp.runtime.provider.wasmstorage" then
+        return dialect == "lua51"
+    end
+    if moduleName:match("^nupp%.runtime%.provider%.native")
+        or moduleName == "nupp.runtime.provider.workers"
+        or moduleName == "nupp.runtime.provider.suspension"
+        or moduleName == "nupp.codec.json.aot"
+        or moduleName == "bit"
+    then
+        return dialect ~= "lua51"
+    end
+
+    return true
+end
+
 function surface.classify(moduleName: string): any?
     return MODULES[moduleName]
 end
@@ -135,20 +165,12 @@ local function gate(checker: any, moduleName: string): any
 end
 
 local function reach(checker: any, moduleName: string, at: any?): boolean
-    local catalog = require("nupp.runtime.services.catalog")
-    local declared, compatible = false, false
-    for _, provider in ipairs(catalog.entries) do
-        if provider.entry == moduleName then
-            declared = true
-            compatible = compatible or catalog.supports(provider, checker.opts.dialect or "luajit")
-        end
-    end
-    if declared and not compatible then
+    if not surface.supports(moduleName, checker.opts.dialect or "luajit") then
         if at ~= nil then
             checker.diag(
                 "NUPP3006",
                 at,
-                ("provider module %q does not support dialect %q"):format(moduleName, checker.opts.dialect)
+                ("module %q does not support dialect %q"):format(moduleName, checker.opts.dialect)
             )
         end
         return false

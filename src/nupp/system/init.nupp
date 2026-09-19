@@ -1,0 +1,91 @@
+module nupp.system
+
+--[[
+Provides system information about the machine.
+
+Five facts, read once when the module loads.
+
+```nupp
+const system = nupp.system
+
+print(system.platform)              -- macos
+print(system.architecture)          -- aarch64
+print(system.endianness)            -- little
+print(system.pointerBits)           -- 64
+print(system.availableParallelism()) -- 10
+```
+
+Under emulation these describe the ABI actually executing, not the one being
+emulated, which is the pair generated code was built against. In a browser they
+are `browser`, `wasm32`, `little`, and 32.
+]]
+
+local spi = require("nupp.spi")
+local target = require("nupp.runtime.target")
+
+local contract = require("nupp.system.spi")
+local provider: contract.Provider = do
+    local chosen: contract.Provider?
+    local tied = false
+    for candidate in spi.load(contract.Provider) do
+        if chosen == nil or (candidate.priority ?? 0) > (chosen.priority ?? 0) then
+            chosen = candidate
+            tied = false
+        elseif (candidate.priority ?? 0) == (chosen.priority ?? 0) then
+            tied = true
+        end
+    end
+    assert(not tied, "nupp.system: multiple implementations have the highest priority")
+    if chosen ~= nil then
+        yield chosen
+    end
+    if target.dialect ~= "lua51" then
+        yield _G.require("nupp.runtime.provider.nativesystem") as contract.Provider
+    end
+    yield _G.require("nupp.runtime.browser.system") as contract.Provider
+end
+if provider.platform == "" or provider.architecture == "" then
+    error("system provider must name its platform and architecture", 2)
+end
+if provider.endianness ~= "little" and provider.endianness ~= "big" then
+    error("system provider endianness must be little or big", 2)
+end
+if provider.pointerBits ~= 32 and provider.pointerBits ~= 64 then
+    error("system provider pointerBits must be 32 or 64", 2)
+end
+
+--- The operating system, lowercase.
+---
+--- `macos`, `linux`, `windows`, `bsd`, or `browser`. An unrecognized host answers
+--- its own name lowercased rather than a placeholder, so a new platform reads as
+--- itself.
+export const platform = provider.platform
+
+--- The instruction set, by its canonical name.
+---
+--- `aarch64`, `x86_64`, `x86`, or `wasm32`. This is what is executing, so an
+--- x86_64 binary under Rosetta answers `x86_64`.
+export const architecture = provider.architecture
+
+--- Byte order: `little` everywhere Nupp runs today, or `big`.
+export const endianness = provider.endianness
+
+--- Pointer width: `64` natively, `32` in a browser.
+export const pointerBits = provider.pointerBits
+
+--- Estimates how many execution units this process may actually use.
+---
+--- At least 1, and counts the host's restrictions rather than the hardware: a
+--- container pinned to two cores of a ten-core machine answers 2. It opens no
+--- worker pool, so it is a fair default for the `limit` one is opened with.
+---
+--- ```nupp
+--- with scope = nupp.workers.scope() do
+---     for lane = 1, nupp.system.availableParallelism() do
+---         scope:spawn(lane, jobs.shard)
+---     end
+--- end
+--- ```
+---
+--- @return the estimate, never below one
+export const availableParallelism = provider.availableParallelism

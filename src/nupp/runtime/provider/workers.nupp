@@ -3,22 +3,20 @@
 module nupp.runtime.provider.workers
 
 --[[
-Native structured-worker implementation of `host.workers` API 1.
+Native structured-worker implementation used as a built-in module fallback.
 
 A bounded native scheduler owns isolated LuaJIT states. Submitted sendable
 functions are identified by module/member metadata, and arguments and results
 cross lanes through the native buffer codec. Lua heap identity is not shared;
 engine-backed owners move only through the supported ownership protocol.
 
-Scopes implement the canonical types in [](nupp.runtime.services.workers).
+Scopes implement the canonical types in [](nupp.workers.spi).
 Closing a scope settles every child, propagates unobserved failure after cleanup,
 and cooperates with [](nupp.suspension). Cancellation uses the shared cancellation
 identity, and scheduler operations retain their provider without SPI dispatch.
 
-Requiring this module captures [](nupp.services)' worker configuration. Catalog
-selections and explicit setup modules run in each child before consumers load.
-The artifact needs native worker support and LuaJIT's buffer codec. Register any
-runtime-only provider setup before requiring [](nupp.workers).
+Workers load the same immutable artifact and its SPI index in fresh Lua states.
+Each consumer chooses during initialization; provider state remains in its lane.
 ]]
 
 const _DYNAMIC_REQUIRES = "@requires-dynamically nothing"
@@ -66,7 +64,7 @@ local type Native = {
     ): (string?, string?, integer?, integer?, string?, string?, any, number?, any),
     channelCount: nosuspend function(any): integer,
     channelClosed: nosuspend function(any): boolean,
-    workerSpawn: nosuspend function(any, any, string?): (any?, string?),
+    workerSpawn: nosuspend function(any, any): (any?, string?),
     workerJoin: nosuspend function(any): (integer, string?),
     workerParallelism: nosuspend function(): integer,
     workerTaskCreate: nosuspend function(any, integer, number?): boolean,
@@ -85,7 +83,6 @@ assert(type(native.workerParallelism) == "function", "nupp: native worker schedu
 rawset(_G.nupp, "__workerCheckpoint", native.workerTaskCheckpoint)
 
 local workers = {}
-local workerConfiguration = require("nupp.services").workerConfiguration()
 
 workers.parallelism = native.workerParallelism
 
@@ -106,7 +103,7 @@ local type TransferState = {
     hasMoved: boolean?
 }
 
-local contracts = require("nupp.runtime.services.workers")
+local contracts = require("nupp.workers.spi")
 local type Callable = function(...: any): any
 type workers.Submittable = contracts.Submittable
 type workers.Job<F is Callable> = contracts.Job<F>
@@ -1019,7 +1016,7 @@ end
 local function startLane(): Lane
     local inbox = newChannel()
     local outbox = newChannel()
-    local handle, problem = native.workerSpawn(inbox.handle, outbox.handle, workerConfiguration)
+    local handle, problem = native.workerSpawn(inbox.handle, outbox.handle)
     if handle == nil then
         destroy(inbox)
         destroy(outbox)

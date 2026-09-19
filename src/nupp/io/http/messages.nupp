@@ -11,9 +11,26 @@ interface http.Reader is nupp.Closeable
     read: function(self: http.Reader, count: integer): (string?, string?)
 end
 
-const contracts = require("nupp.runtime.services.contracts")
-type http.Capabilities = contracts.HttpCapabilities
-http.Capabilities = contracts.HttpCapabilities
+--- Transport capability flags describing observable HTTP guarantees.
+---
+--- A true flag promises the corresponding behavior; callers must not infer support
+--- from a provider name or the presence of unrelated methods.
+record http.Capabilities
+    --- Response bytes become available before the whole response arrives.
+    streamingResponse: boolean
+
+    --- Request bodies may be read incrementally from a reader or file.
+    streamingRequest: boolean
+
+    --- Proxy and per-host certificate policy can be configured by the caller.
+    transportPolicy: boolean
+
+    --- Redirect and connection limits can be enforced by the caller.
+    connectionPolicy: boolean
+
+    --- The negotiated HTTP version is observable.
+    protocolVersion: boolean
+end
 
 --- The protocol version a response arrived over.
 type http.Version = "1.0" | "1.1" | "2"

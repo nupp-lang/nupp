@@ -19,7 +19,7 @@ belong to the current browser state and are not carried into worker lanes.
 ]]
 
 local response = require("nupp.runtime.browser.response")
-local contracts = require("nupp.runtime.services.contracts")
+local contracts = require("nupp.time.spi")
 local effects = require("nupp.runtime.browser.effects")
 local time = {}
 

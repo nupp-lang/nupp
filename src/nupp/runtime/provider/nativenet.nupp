@@ -3,10 +3,10 @@
 module nupp.runtime.provider.nativenet
 
 --[[
-Native reactor implementation of `host.net` API 1.
+Native reactor implementation used as a built-in module fallback.
 
 The table returned by this module implements the receiver-based protocol in
-[](nupp.runtime.services.net). Listener, connection-request, stream, and datagram
+[](nupp.io.net.spi). Listener, connection-request, stream, and datagram
 handles belong to the native runtime. The implementation retains scratch buffers
 and reactor generation state within the current Lua state.
 
@@ -23,7 +23,7 @@ stream are separate responsibilities. Address values use
 must agree with their native representation.
 ]]
 
-local contract = require("nupp.runtime.services.net")
+local contract = require("nupp.io.net.spi")
 local shared = require("nupp.io.net.types")
 local ffi = require("ffi")
 local ffiString: function(borrows source: const uint8[?], count: integer): string = ffi.string as any

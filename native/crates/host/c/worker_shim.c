@@ -115,7 +115,7 @@ extern int nupp_rust_region_builder_open(const void *builder);
 extern void *nupp_rust_region_builder_freeze(void *builder);
 
 extern void *nupp_rust_worker_spawn(const void *host, const void *inbox,
-    const void *outbox, const char *setup, size_t setup_length,
+    const void *outbox,
     char *error, size_t error_capacity);
 extern int nupp_rust_worker_join(void *worker, char *error,
     size_t error_capacity);
@@ -515,14 +515,12 @@ static void *global_pointer(lua_State *state, const char *name) {
 
 static int worker_spawn(lua_State *state) {
     char error[4096] = {0};
-    size_t setup_length = 0;
-    const char *setup = luaL_optlstring(state, 3, "", &setup_length);
     /* Host and channels remain owned by HostRuntime/Lua until the returned
      * worker is joined. Rust clones channel Arcs before this callback returns. */
     void *worker = nupp_rust_worker_spawn(
         global_pointer(state, "__nuppWorkerHost"),
         lua_touserdata(state, 1), lua_touserdata(state, 2),
-        setup, setup_length, error, sizeof error);
+        error, sizeof error);
     if (worker == NULL) {
         lua_pushnil(state);
         lua_pushstring(state, error[0] != '\0' ? error : "cannot start worker");

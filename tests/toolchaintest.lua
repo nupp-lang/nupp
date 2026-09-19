@@ -351,6 +351,7 @@ function M.windowsHostLinkersCarryPthread()
     local systemFlags = assert(driver:match("host_system_flags%(%) {%s*(.-)\n}"))
     local windowsFlags = assert(systemFlags:match("windows%)(.-);;"))
     assert(windowsFlags:find("-lpthread", 1, true), "the Windows application host linker does not link pthread")
+    assert(driver:find('$(host_system_flags "$features")', 1, true), "the application linker omits its system flags")
     assert(
         packLinker:match('#ifdef _WIN32%s+append%(&cursor, "%-lpthread"%);'),
         "the Windows compiler-pack host linker does not link pthread"
@@ -483,6 +484,10 @@ function M.staticHostsRetainTheRustApplicationArchive()
     )
     local applications = assert(driver:find('if [ -n "$archives" ]; then', 1, true))
     local windowsHost = assert(driver:find('set -- "$@" "$host_out/libnupp-host.a"', applications, true))
+    assert(
+        driver:find('-lws2_32 -ldbghelp -lole32 -lshell32 -lbcrypt -lcrypt32 -lntdll', 1, true),
+        "the Windows system flags omit canonical imports"
+    )
     local systemImports = assert(driver:find('$(host_system_flags "$features")', windowsHost, true))
     local hostImports = assert(driver:find('set -- "$@" "$host_out/libnupp-host-imports.a"', systemImports, true))
     assert(

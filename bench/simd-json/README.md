@@ -171,8 +171,8 @@ public decoder; the production decoder and structural indexer both use the
 general SIMD algebra. Prepared-schema tests cover defaults, nullable fields,
 literals and tuples through the public binding API.
 
-`simd_json.setup` selects `nupp.aot` through the public service contract before
-loading codec consumers. The default codec remains Lunajson elsewhere.
+`nupp/spi.json` advertises `nupp.codec.json.aot` for
+`nupp.codec.json.spi.JsonProvider`; codec consumers select it at first load. The default codec remains Lunajson elsewhere.
 The test and benchmark entry points refuse to run unless the public eager,
 pull and serde decoders reach registered native C builders, and classification,
 indexing and arena parsing have registered AOT replacements. Merely loading some other

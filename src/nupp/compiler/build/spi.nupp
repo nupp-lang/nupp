@@ -170,7 +170,15 @@ function spi.write(root: string, outDir: string, entries: {any}): (boolean?, str
         modules[#modules + 1] = string.format("%q", entry.implementation)
     end
     table.sort(names)
-    local lines = {"module nupp.spi.index", "export = {"}
+    local dependencies = {}
+    for _, entry in ipairs(entries) do
+        dependencies[#dependencies + 1] = "@requires-dynamically " .. entry.implementation
+    end
+    local lines = {
+        "module nupp.spi.index",
+        "const _DYNAMIC_REQUIRES = " .. string.format("%q", table.concat(dependencies, " ")),
+        "export = {",
+    }
     for _, name in ipairs(names) do
         lines[#lines + 1] = ("    [%q] = {%s},"):format(name, table.concat(interfaces[name], ", "))
     end

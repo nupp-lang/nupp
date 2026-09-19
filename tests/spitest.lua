@@ -66,6 +66,7 @@ assert(next() == nil and next() == nil)
 assert(first.encode("x") == "first:x")
 assert(second.encode("x") == "second:x")
 assert(spi.load(Codec)() == first)
+assert(nupp.spi.load(Codec)() == first)
 local api = require("example.api")
 assert(spi.load(api.Codec)() == first)
 local encode = first.encode
@@ -162,7 +163,27 @@ for candidate in spi.load(Codec) do print(candidate.encode("x")) end]]
         assert(project.build(dir) == 0)
         local status, output = process.capture({"luajit", dir .. "/out/app.lua"})
         assert(status ~= 0 and output:find("broken provider", 1, true), output)
-        assert(output:find("example.api.Codec", 1, true), output)
+    end)
+end
+
+function M.providerErrorsKeepTheirOriginalIdentity()
+    local sources = files(
+        [[module main
+local spi = require("nupp.spi")
+local {type Codec} = require("example.api")
+local failure = require("failure")
+local next = spi.load(Codec)
+local ok, problem = pcall(next)
+assert(not ok and problem == failure.marker)
+print("ok")]],
+        [[{"example.api.Codec":["example.first"]}]]
+    )
+    sources["src/failure.nupp"] = [[module failure
+export const marker = {}]]
+    sources["src/example/first.nupp"] = sources["src/example/first.nupp"] .. '\nerror(require("failure").marker, 0)'
+    fixture(sources, function(dir)
+        local _, output = run(dir)
+        assert(output == "ok\n", output)
     end)
 end
 
@@ -299,6 +320,38 @@ function M.onlyExportedConcreteInterfacesCanBeLoaded()
             end
         )
     end
+end
+
+function M.initializationFailureDoesNotPublishPartialFacadeExports()
+    local sources = files(
+        [[module main
+local ok, problem = pcall(require, "consumer")
+assert(not ok and tostring(problem):find("provider initialization failed", 1, true))
+assert(type(package.loaded["consumer"]) ~= "table")
+print("ok")]],
+        [[{"example.api.Codec":["example.first"]}]]
+    )
+    sources[
+        "src/consumer.nupp"
+    ] = [[module consumer
+local spi = require("nupp.spi")
+local {type Codec} = require("example.api")
+export const before = "partial"
+local provider = assert(spi.load(Codec)())
+export const encode = provider.encode]]
+    sources[
+        "src/example/first.nupp"
+    ] = sources[
+        "src/example/first.nupp"
+    ]
+        .. "\n"
+        .. [[
+assert(type(package.loaded["consumer"]) ~= "table", "partial facade was published")
+error("provider initialization failed")]]
+    fixture(sources, function(dir)
+        local _, output = run(dir)
+        assert(output == "ok\n", output)
+    end)
 end
 
 return M

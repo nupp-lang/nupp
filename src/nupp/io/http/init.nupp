@@ -94,17 +94,32 @@ reader body transferred into it.
 :::
 ]]
 
-local contracts = require("nupp.runtime.services.http")
+local spi = require("nupp.spi")
+local target = require("nupp.runtime.target")
+
+local contracts = require("nupp.io.http.spi")
 local messages = require("nupp.io.http.messages")
 local {type Path} = require("nupp.io.path")
-local provider = contracts.service:assemble(function(): contracts.Provider
-    local native = contracts.service:lookup("nupp.native")
-    if native ~= nil then
-        return native
+local provider: contracts.Provider = do
+    local chosen: contracts.Provider?
+    local tied = false
+    for candidate in spi.load(contracts.Provider) do
+        if chosen == nil or (candidate.priority ?? 0) > (chosen.priority ?? 0) then
+            chosen = candidate
+            tied = false
+        elseif (candidate.priority ?? 0) == (chosen.priority ?? 0) then
+            tied = true
+        end
     end
-
-    return contracts.service:require("nupp.browser")
-end)
+    assert(not tied, "nupp.io.http: multiple implementations have the highest priority")
+    if chosen ~= nil then
+        yield chosen
+    end
+    if target.dialect ~= "lua51" then
+        yield _G.require("nupp.runtime.provider.nativehttp") as contracts.Provider
+    end
+    yield _G.require("nupp.runtime.browser.http") as contracts.Provider
+end
 local http = {}
 
 type http.Client = contracts.Client

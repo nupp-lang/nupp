@@ -27,14 +27,16 @@ context that was never finalized closes its provider state.
 MD5 and SHA-1 are here for talking to things that already use them, and for
 nothing else.
 
-A host may supply its own catalog through [](nupp.runtime.services.digest),
-selected during setup before this module loads. Its entries override the
+A host may supply its own catalog through [](nupp.digest.spi),
+chosen by priority when this module initializes. Its entries override the
 built-ins of the same name, the ones it does not name stay available, and a
 descriptor whose size disagrees with its algorithm is refused. The catalog is
 read once, at load, so no context operation resolves a service.
 ]]
 
-const provider = require("nupp.runtime.services.digest")
+local spi = require("nupp.spi")
+
+const provider = require("nupp.digest.spi")
 
 const contexts = require("nupp.digest.internal.context")
 
@@ -59,7 +61,7 @@ export record Algorithm
     end
 end
 
-local standard = provider.service:require("nupp.builtin")
+local standard = require("nupp.runtime.provider.digest")
 
 local function validate(selected: provider.Provider): nil
     for name, implementation in pairs(selected.algorithms) do
@@ -81,12 +83,24 @@ local function validate(selected: provider.Provider): nil
     end
 end
 
-local selected = provider.service:assemble(
-    function(): provider.Provider
-        return standard
-    end,
-    validate
-)
+local selected: provider.Provider = do
+    local chosen: provider.Provider?
+    local tied = false
+    for candidate in spi.load(provider.Provider) do
+        if chosen == nil or (candidate.priority ?? 0) > (chosen.priority ?? 0) then
+            chosen = candidate
+            tied = false
+        elseif (candidate.priority ?? 0) == (chosen.priority ?? 0) then
+            tied = true
+        end
+    end
+    assert(not tied, "nupp.digest: multiple implementations have the highest priority")
+    if chosen ~= nil then
+        yield chosen
+    end
+    yield standard
+end
+validate(selected)
 local available: {[string]: Algorithm} = {}
 for name, implementation in pairs(standard.algorithms) do
     available[

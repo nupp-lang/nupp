@@ -118,8 +118,7 @@ async function boot(message) {
   await runPackagedNuppWasmApp(message.manifestUrl, {
     limits: message.limits,
     initialize: new TextEncoder().encode(
-      `rawset(_G, "__nuppWorkerEntry", ${JSON.stringify(message.entry || "nupp.workers")})\n` +
-      `rawset(_G, "__nuppWorkerSetup", ${JSON.stringify(message.setup || "")})`,
+      `rawset(_G, "__nuppWorkerEntry", ${JSON.stringify(message.entry || "nupp.workers")})\n`
     ),
     // A lane has no pool of its own: the page owns the one pool, and a worker task
     // that opened a scope would be a lane waiting on itself. `nupp.workers` refuses

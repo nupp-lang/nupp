@@ -4,10 +4,10 @@ module nupp.compiler.capabilities
 local capabilities = {}
 
 local CONTRACTS = {
-    bitops = {service = "numeric.bitops", effect = "runtime.bitops"},
-    int64 = {service = "numeric.int64", effect = "runtime.int64"},
-    structvalue = {service = "representation.structvalue", effect = "runtime.structvalue"},
-    cstorage = {service = "representation.cstorage", effect = "runtime.cstorage"},
+    bitops = {effect = "runtime.bitops"},
+    int64 = {effect = "runtime.int64"},
+    structvalue = {effect = "runtime.structvalue"},
+    cstorage = {effect = "runtime.cstorage"},
     simd = {compiler = true},
     cinterop = {},
     presize = {compiler = true},
@@ -23,11 +23,11 @@ function capabilities.resolve(dialect: string): any
         elseif dialect == "lua51" then
             if contract.compiler then
                 kind = "compiler"
-            elseif contract.service then
-                kind = "service"
+            elseif contract.effect then
+                kind = "runtime"
             end
         end
-        resolved.byName[name] = {kind = kind, name = name, service = contract.service, effect = contract.effect}
+        resolved.byName[name] = {kind = kind, name = name, effect = contract.effect}
     end
 
     return resolved

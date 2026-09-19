@@ -1,17 +1,49 @@
 @!internal
 module nupp.runtime.workersprovider
 
-local contracts = require("nupp.runtime.services.workers")
-export const provider = contracts.service:assembleOptional(function(): contracts.Provider?
-    if package.preload["nupp.workers.native"] ~= nil or package.loaded["nupp.workers.native"] ~= nil then
-        local native = contracts.service:lookup("nupp.native")
-        if native ~= nil then
-            return native
-        end
+const _DYNAMIC_REQUIRES = "@requires-dynamically nupp.runtime.provider.workers @requires-dynamically nupp.runtime.browser.workers"
+
+local spi = require("nupp.spi")
+local target = require("nupp.runtime.target")
+local contracts = require("nupp.workers.spi")
+
+-- Optional consumers use only implementations present in their artifact. The
+-- public facade's literal imports carry its built-in fallbacks when that facility
+-- is actually used; this dynamic require does not add a native dependency itself.
+local function available(name: string): contracts.Provider?
+    local ok, value = pcall(require, name)
+    if ok then
+        return value as contracts.Provider
     end
-    if rawget(_G, "__nuppWasmHost") ~= nil then
-        return contracts.service:lookup("nupp.browser")
+    if not tostring(value):find("module '" .. name .. "' not found", 1, true) then
+        error(value, 0)
     end
 
     return nil
-end)
+end
+
+export const provider: contracts.Provider? = do
+    local chosen: contracts.Provider?
+    local tied = false
+    for candidate in spi.load(contracts.Provider) do
+        if chosen == nil or (candidate.priority ?? 0) > (chosen.priority ?? 0) then
+            chosen = candidate
+            tied = false
+        elseif (candidate.priority ?? 0) == (chosen.priority ?? 0) then
+            tied = true
+        end
+    end
+    assert(not tied, "nupp.runtime.workersprovider: multiple implementations have the highest priority")
+    if chosen ~= nil then
+        yield chosen
+    end
+    if target.dialect ~= "lua51"
+        and (package.preload["nupp.workers.native"] ~= nil or package.loaded["nupp.workers.native"] ~= nil)
+    then
+        yield available("nupp.runtime.provider.workers")
+    end
+    if rawget(_G, "__nuppWasmHost") ~= nil then
+        yield available("nupp.runtime.browser.workers")
+    end
+    yield nil
+end

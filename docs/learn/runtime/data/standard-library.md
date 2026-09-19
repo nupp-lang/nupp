@@ -132,16 +132,14 @@ declares none of its own: it is Nupp rather than a native provider.
 
 ### Provider initialization
 
-A service-backed module resolves its provider while it is required. Generated
-module prologues bind those modules before the consumer body runs. Exported
-operations retain the resolved implementation and call it directly.
+A module selects its implementation while it is required and retains the actual
+functions. Generated module prologues bind those modules before the consumer body
+runs. Exported operations perform no SPI lookup.
 
-A setup entry imports canonical handles from `nupp.runtime.services`, registers
-or selects implementations, and then requires its consumer entry. Importing a
-contract defines its handle without loading a provider. Once a facade resolves,
-its default selection is fixed for that Lua state. See
-[service providers](../../projects/service-providers.md) for typed contracts and
-package discovery.
+Implementations satisfy the interface in the library's `.spi` module and are
+advertised in `nupp/spi.json`. Standard-library consumers choose the unique highest
+priority, or use their built-in fallback when discovery is empty. See
+[SPI](../../projects/spi.md) for ordinary selection code and package discovery.
 
 The public surface does not expose the JSON provider module, a provider's own
 handles, or FFI pointers. Those are implementation details, so application code

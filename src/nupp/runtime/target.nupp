@@ -1,0 +1,5 @@
+@!internal
+module nupp.runtime.target
+
+--- The compiler fixes this value to the artifact's target dialect.
+export const dialect: string = rawget(_G, "jit") ~= nil and "luajit" or "lua51"

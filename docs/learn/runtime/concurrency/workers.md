@@ -57,7 +57,7 @@ return {
 }
 ```
 
-A `lua51` bundle with a compatible `host.workers` provider runs them too.
+A `lua51` bundle with a compatible `nupp.workers.spi.Provider` provider runs them too.
 That is [the browser backend](#browser-lanes) today, where a lane is a Web
 Worker rather than a thread.
 :::
@@ -509,7 +509,7 @@ across process failure, and jobs that outlive the caller belong to a broker or
 
 A browser application selects
 [browser platform services](../../performance/ahead-of-time/wasm.md#browser-platform-services),
-which supplies `host.workers`, so everything above is written the same way there.
+which supplies `nupp.workers.spi.Provider`, so everything above is written the same way there.
 A lane is a module Web Worker holding its own Lua 5.1 Wasm state, booted from the
 same verified application package the page loaded; the packaging step ships the
 lane entry point beside the content-addressed runtime. Nothing is shared between

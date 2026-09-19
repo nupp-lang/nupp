@@ -399,7 +399,8 @@ end
 --- requires something this cannot name at all.
 ---
 --- The shapes are `require "m"`, `require("m")`, and `pcall(require, "m")`, which is
---- how an optional library is reached. A `require` that is a field of something -- the
+--- how an optional library is reached. `_G.require` names the same global operation.
+--- A `require` that is a field of anything else -- the
 --- checker looks up `env.globals.require` -- is a different name that happens to be
 --- spelled the same, and is not one of these.
 ---
@@ -413,7 +414,9 @@ end
 --- The first names what it may load -- a trailing `.*` is every module under that
 --- prefix -- and the second says the name it resolves is not code it is defined by.
 --- Both are claims the module makes and this cannot check, which is why they are
---- written where the `require` is rather than inferred from it.
+--- written where the `require` is rather than inferred from it. Nupp source carries
+--- these markers in a const string so they survive generation; ordinary comments
+--- are removed before this graph reads the compiled Lua.
 local function requiredBy(text: string, path: string): {string}, boolean, {string}
     local lexer = require("nupp.compiler.lexer")
     local tokens = lexer.lex(text, path)
@@ -431,9 +434,15 @@ local function requiredBy(text: string, path: string): {string}, boolean, {strin
         local token = tokens[index]
         local previous = tokens[index - 1]
         local following = tokens[index + 1]
+        local globalRequire = previous
+            and previous.text == "."
+            and tokens[index - 2]
+            and tokens[index - 2].text == "_G"
+            and not (tokens[index - 3] and (tokens[index - 3].text == "." or tokens[index - 3].text == ":"))
+        local callPrefix = globalRequire and tokens[index - 3] or previous
         if token.kind == "name"
             and token.text == "require"
-            and not (previous and (previous.text == "." or previous.text == ":"))
+            and (globalRequire or not (previous and (previous.text == "." or previous.text == ":")))
             and not (previous and previous.text == "function")
             and not (following and following.text == "=")
         then
@@ -444,8 +453,8 @@ local function requiredBy(text: string, path: string): {string}, boolean, {strin
                 literal = tokens[index + 2]
             elseif following
                 and following.text == ","
-                and previous
-                and previous.text == "("
+                and callPrefix
+                and callPrefix.text == "("
                 and tokens[index + 2]
                 and tokens[index + 2].kind == "string"
             then

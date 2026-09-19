@@ -1,4 +1,0 @@
--- Select the compiled codec before any consumer fixes the public facade.
-local contracts = require("nupp.runtime.services.contracts")
-contracts.json:select("nupp.aot")
-return true

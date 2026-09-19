@@ -1,0 +1,23 @@
+module nupp.io.path.spi
+
+--[[Implementation interfaces consumed during ordinary module initialization.
+Discover with nupp.spi.load; the consumer chooses the unique highest priority.
+Omitted priority is zero. Importing these declarations loads no implementation.]]
+
+--- Environmental path facts, independent of lexical path manipulation.
+---
+--- separator reports the host convention. currentDirectory and canonicalize may
+--- return nil with an explanatory message when the host has no such facility or
+--- an operating-system operation fails. Public Path identity remains in nupp.io.path.
+export interface PathProvider
+    readonly priority: integer?
+
+    --- Returns the host path separator.
+    readonly separator: function(): string
+
+    --- Returns the process directory or nil and an environmental error.
+    readonly currentDirectory: function(): (string?, string?)
+
+    --- Resolves a host filesystem path or returns nil and an error.
+    readonly canonicalize: function(path: string): (string?, string?)
+end

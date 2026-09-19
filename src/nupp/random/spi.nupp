@@ -1,0 +1,17 @@
+module nupp.random.spi
+
+--[[Implementation interfaces consumed during ordinary module initialization.
+Discover with nupp.spi.load; the consumer chooses the unique highest priority.
+Omitted priority is zero. Importing these declarations loads no implementation.]]
+
+--- Cryptographically secure randomness for the executing host.
+---
+--- Use the host secure random source and propagate its failures. Deterministic
+--- pseudo-random generators do not satisfy this contract. Host requests may suspend.
+export interface CryptoProvider
+    readonly priority: integer?
+
+    --- Returns exactly count random bytes. Accepts integers from zero through
+    --- 1048576; zero returns an empty string. Raises on invalid counts or failure.
+    readonly randomBytes: function(count: integer): string
+end

@@ -2,7 +2,7 @@
 module nupp.runtime.browser.webgpu.internal
 
 --[[
-Browser resident-compute implementation of `host.gpu` API 1.
+Browser resident-compute implementation used as a built-in module fallback.
 
 `open` acquires a WebGPU context through the browser effect channel. Buffers,
 kernels, and bindings retain host identifiers while implementing the canonical

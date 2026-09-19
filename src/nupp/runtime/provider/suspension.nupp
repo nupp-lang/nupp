@@ -6,7 +6,7 @@ module nupp.runtime.provider.suspension
 LuaJIT suspension and readiness-source implementation.
 
 The `suspension` API 1 contract is declared in
-[](nupp.runtime.services.suspension). This provider maintains ordered readiness
+[](nupp.suspension.spi). This provider maintains ordered readiness
 sources and coroutine-local handler installations. Without a handler, waiting
 drives the registered sources; with one, `suspend` delegates parking while its
 Context records which sources may make progress.
@@ -18,13 +18,13 @@ handler installations restore the captured outer handler.
 
 All public Source, Context, Waiting, Handler, and Installed values use the shared
 contract declarations. Cancellation values come from
-[](nupp.runtime.services.cancellation), so tasks and worker lanes recognize the
+[](nupp.runtime.cancellation), so tasks and worker lanes recognize the
 same cancellation identity within a state. [](nupp.suspension) resolves this
 implementation at require-time; scheduling operations retain it directly.
 ]]
 
-local contract = require("nupp.runtime.services.suspension")
-local cancellation = require("nupp.runtime.services.cancellation")
+local contract = require("nupp.suspension.spi")
+local cancellation = require("nupp.runtime.cancellation")
 local suspension = {}
 
 -- Coroutine and worker tasks share one nominal runtime cancellation identity.

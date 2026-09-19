@@ -5,7 +5,7 @@ module nupp.gpu.api
 Shared resident-GPU protocol declarations.
 
 Application-facing context operations are re-exported through nupp.gpu, and the
-complete provider protocol through nupp.runtime.services.gpu. This internal module
+complete provider protocol through nupp.gpu.spi. This internal module
 owns their common nominal identities. Implementations use private records that
 satisfy these interfaces rather than defining alternative public buffer, kernel,
 or context types.

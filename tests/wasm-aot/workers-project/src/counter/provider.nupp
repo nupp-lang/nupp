@@ -1,0 +1,7 @@
+module counter.provider
+
+local count: integer = 0
+export function next(): integer
+    count = count + 1
+    return count
+end

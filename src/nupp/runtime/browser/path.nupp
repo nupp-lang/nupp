@@ -15,7 +15,7 @@ it introduces no alternate Path type and performs no browser request or native
 filesystem access when loaded.
 ]]
 
-local contracts = require("nupp.runtime.services.contracts")
+local contracts = require("nupp.io.path.spi")
 local provider = {}
 
 function provider.separator(): string

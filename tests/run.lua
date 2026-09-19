@@ -1382,7 +1382,7 @@ local PROCESS_ISOLATED = {
     -- absolute checkout path on hosts where debug information is relative.
     hotreloadguaranteetest = true,
     projectlinktest = true,
-    servicepackagetest = true,
+    spipackagetest = true,
     spitest = true,
     profiletest = true,
     runnertest = true,
@@ -2164,18 +2164,6 @@ restoreLane = function()
     if embedded then
         repair(package.loaded, laneBaseline.loaded)
     else
-        -- Resolved services are the exception a full reset cannot survive.
-        -- `nupp.runtime.services.*` carries the provider a module resolved to,
-        -- and putting the baseline back means the next piece loads a second
-        -- copy while every reference the first one handed out still points at
-        -- the first -- which does not fail a case, it kills the worker. So
-        -- these are re-baselined rather than restored: the piece that resolved
-        -- one owns it from then on.
-        for name, value in pairs(package.loaded) do
-            if name:match("^nupp%.runtime%.services%.") then
-                laneBaseline.loaded[name] = value
-            end
-        end
         restore(package.loaded, laneBaseline.loaded)
     end
     restore(package.preload, laneBaseline.preload)

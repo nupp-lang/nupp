@@ -1,29 +1,39 @@
 @!internal
 module nupp.runtime.int64
 
-local contracts = require("nupp.runtime.services.contracts")
+local spi = require("nupp.spi")
+local contracts = require("nupp.runtime.representation.spi")
 local representation = require("nupp.runtime.representation")
 
--- Resolved as an optional service rather than a required one, because a module
+-- Kept optional because a module
 -- carrying 64-bit integer code requires this one from its preamble, before any of
 -- that code runs. `nupp.compiler.runtime.math` is such a module and the portable
 -- compiler bundle carries it on stock Lua 5.1, which has no integer provider at
 -- all. Loading the bundle there has to work; calling `nupp.math.u64` is the part
 -- that cannot, so absence is held until a member is actually read.
-local provider = contracts.int64:assembleOptional(
-    function(): contracts.Int64Provider?
-        return representation.integers
-    end,
-    function(candidate: contracts.Int64Provider): nil
-        if representation.integers ~= nil then
-            assert(
-                candidate == representation.integers,
-                "nupp.runtime.int64: integers must use the target storage implementation"
-            )
+local provider: contracts.Int64Provider? = do
+    local chosen: contracts.Int64Provider?
+    local tied = false
+    for candidate in spi.load(contracts.Int64Provider) do
+        if chosen == nil or (candidate.priority ?? 0) > (chosen.priority ?? 0) then
+            chosen = candidate
+            tied = false
+        elseif (candidate.priority ?? 0) == (chosen.priority ?? 0) then
+            tied = true
         end
     end
-)
-
+    assert(not tied, "nupp.runtime.int64: multiple implementations have the highest priority")
+    if chosen ~= nil then
+        yield chosen
+    end
+    yield representation.integers
+end
+if provider ~= nil and representation.integers ~= nil then
+    assert(
+        provider == representation.integers,
+        "nupp.runtime.int64: integers must use the target storage implementation"
+    )
+end
 -- A present provider is exported as itself, so the ordinary path reads a plain
 -- field and this module costs nothing once it has loaded.
 local absent: any = setmetatable({}, {

@@ -1,0 +1,261 @@
+module nupp.runtime.representation.spi
+
+--[[Implementation interfaces consumed during ordinary module initialization.
+Discover with nupp.spi.load; the consumer chooses the unique highest priority.
+Omitted priority is zero. Importing these declarations loads no implementation.]]
+
+--- Casts storage to elements of any supplied ctype.
+---
+--- The implementation must remain generic in T and use the target's representation;
+--- accepting one particular element type is not sufficient.
+export type CastElements = function<T>(element: ctype<T>, pointer: any): any
+
+--- One coherent family of physical storage operations.
+---
+--- `representation` is `native` for native pointers or `linear32` for 32-bit linear
+--- memory. The facade checks it against the target before publishing this table.
+--- Linear32 implementations must also supply layout, reference, integers, structs,
+--- and host. Their structs must be reference-valued. The integer facade must use
+--- the exact integer provider attached to this storage family.
+---
+--- Allocation, descriptors, scalar codecs, and copies must agree on byte order,
+--- alignment, width, and pointer units. Decode inputs contain at least the scalar
+--- width in bytes. Borrowed views preserve source lifetimes;
+--- `borrows`, generic casts, and const views are part of the implementation contract.
+--- Opaque values in these signatures carry provider storage, not permission to
+--- change a compiled representation at runtime.
+export interface CstorageProvider
+    readonly priority: integer?
+
+    --- Returns the requested count after any representation-specific extent check.
+    --- Callers remain responsible for valid native pointer extents.
+    readonly boundedCount: function(borrows source: any, count: integer): integer
+
+    --- Target pointer/layout convention: native or linear32.
+    readonly representation: string
+
+    --- Integer operations sharing this storage representation; required for linear32.
+    readonly integers: Int64Provider?
+
+    --- Struct descriptors and row operations sharing this storage family.
+    readonly structs: StructvalueProvider?
+
+    --- Opaque memory-host operations sharing these allocations and pointers.
+    readonly host: WasmProvider?
+
+    --- Returns target layout facts for a type or descriptor; required for linear32.
+    readonly layout: (function(subject: any): any)?
+
+    --- Returns the canonical descriptor for a scalar kind within this provider.
+    readonly scalar: function(kind: string): any
+
+    --- Reports layout and bounds for a provider value.
+    readonly descriptor: function(value: any): any
+
+    --- Creates a deferred descriptor reference for recursive layouts.
+    readonly reference: (function(resolve: function(): any): any)?
+
+    --- Allocates count elements of the supplied descriptor.
+    readonly allocateArray: function(element: any, count: integer): any
+
+    --- Allocates a writable byte region containing count bytes.
+    readonly allocateBytes: function(count: integer): uint8[?]
+
+    --- Returns a read-only byte view whose lifetime borrows the source string.
+    readonly borrowString: function(borrows bytes: string): const uint8[?] borrows (bytes)
+
+    --- Returns a read-only byte view borrowing the pointer owner.
+    readonly castBytes: function(borrows pointer: any): const uint8[?] borrows (pointer)
+
+    --- Interprets a pointer using any supplied element ctype.
+    readonly castElements: CastElements
+
+    --- Copies count bytes into destination without replacing its owner.
+    readonly copy: function(borrows destination: any, borrows source: any, count: integer): nil
+
+    --- Fills count bytes in destination with the given byte value.
+    readonly fill: function(destination: any, count: integer, value: integer): nil
+
+    --- Returns the descriptor size in bytes.
+    readonly sizeOf: function(element: any): integer
+
+    --- Copies count source bytes into an independent Lua string.
+    readonly string: function(borrows source: any, count: integer): string
+
+    --- Decodes one unsigned 8-bit integer using the target storage byte order.
+    readonly decodeUint8: function(bytes: string): uint32
+
+    --- Encodes one unsigned 8-bit integer using the target storage byte order.
+    readonly encodeUint8: function(value: uint32): string
+
+    --- Decodes one signed 8-bit integer using the target storage byte order.
+    readonly decodeInt8: function(bytes: string): int32
+
+    --- Encodes one signed 8-bit integer using the target storage byte order.
+    readonly encodeInt8: function(value: int32): string
+
+    --- Decodes one unsigned 16-bit integer using the target storage byte order.
+    readonly decodeUint16: function(bytes: string): uint32
+
+    --- Encodes one unsigned 16-bit integer using the target storage byte order.
+    readonly encodeUint16: function(value: uint32): string
+
+    --- Decodes one signed 16-bit integer using the target storage byte order.
+    readonly decodeInt16: function(bytes: string): int32
+
+    --- Encodes one signed 16-bit integer using the target storage byte order.
+    readonly encodeInt16: function(value: int32): string
+
+    --- Decodes one unsigned 32-bit integer using the target storage byte order.
+    readonly decodeUint32: function(bytes: string): uint32
+
+    --- Encodes one unsigned 32-bit integer using the target storage byte order.
+    readonly encodeUint32: function(value: uint32): string
+
+    --- Decodes one signed 32-bit integer using the target storage byte order.
+    readonly decodeInt32: function(bytes: string): int32
+
+    --- Encodes one signed 32-bit integer using the target storage byte order.
+    readonly encodeInt32: function(value: int32): string
+
+    --- Decodes one unsigned 64-bit integer using the target storage byte order.
+    readonly decodeUint64: function(bytes: string): uint64
+
+    --- Encodes one unsigned 64-bit integer using the target storage byte order.
+    readonly encodeUint64: function(value: uint64): string
+
+    --- Decodes one signed 64-bit integer using the target storage byte order.
+    readonly decodeInt64: function(bytes: string): int64
+
+    --- Encodes one signed 64-bit integer using the target storage byte order.
+    readonly encodeInt64: function(value: int64): string
+
+    --- Decodes one IEEE-754 binary32 value using the target storage byte order.
+    readonly decodeFloat32: function(bytes: string): float
+
+    --- Encodes one IEEE-754 binary32 value using the target storage byte order.
+    readonly encodeFloat32: function(value: number): string
+
+    --- Decodes one IEEE-754 binary64 value using the target storage byte order.
+    readonly decodeFloat64: function(bytes: string): number
+
+    --- Encodes one IEEE-754 binary64 value using the target storage byte order.
+    readonly encodeFloat64: function(value: number): string
+end
+
+--- 64-bit signed and unsigned arithmetic for generated portable operations.
+---
+--- Values must retain their full width rather than round through a Lua number.
+--- Arithmetic, comparisons, shifts, and conversions must agree with the signedness
+--- created by int64/uint64. toNumber is the explicit potentially inexact conversion.
+--- When physical storage supplies integers, this must be that same implementation.
+export interface Int64Provider
+    readonly priority: integer?
+
+    --- Constructs or converts a signed 64-bit value.
+    readonly int64: function(value: any): any
+
+    --- Constructs or converts an unsigned 64-bit value.
+    readonly uint64: function(value: any): any
+
+    --- Adds two full-width values.
+    readonly add: function(left: any, right: any): any
+
+    --- Subtracts the right operand.
+    readonly sub: function(left: any, right: any): any
+
+    --- Multiplies full-width values.
+    readonly mul: function(left: any, right: any): any
+
+    --- Divides using the integer representation semantics.
+    readonly div: function(left: any, right: any): any
+
+    --- Computes the corresponding integer remainder.
+    readonly mod: function(left: any, right: any): any
+
+    --- Raises to an integer power.
+    readonly pow: function(left: any, right: any): any
+
+    --- Negates the value.
+    readonly neg: function(value: any): any
+
+    --- Computes 64-bit conjunction.
+    readonly band: function(left: any, right: any): any
+
+    --- Computes 64-bit disjunction.
+    readonly bor: function(left: any, right: any): any
+
+    --- Computes 64-bit exclusive-or.
+    readonly bxor: function(left: any, right: any): any
+
+    --- Inverts all 64 bits.
+    readonly bnot: function(value: any): any
+
+    --- Shifts left within the 64-bit representation.
+    readonly lshift: function(value: any, count: number): any
+
+    --- Shifts right with zero fill.
+    readonly rshift: function(value: any, count: number): any
+
+    --- Shifts right with sign extension.
+    readonly arshift: function(value: any, count: number): any
+
+    --- Returns a negative number, zero, or a positive number for ordering.
+    readonly compare: function(left: any, right: any): number
+
+    --- Converts to a Lua number, which may lose integer precision.
+    readonly toNumber: function(value: any): number
+
+    --- Returns an exact decimal representation.
+    readonly toString: function(value: any): string
+end
+
+--- Struct-value operations supplied as part of the storage family.
+---
+--- Descriptors, arrays, and constructed values must agree with compiler layouts and
+--- canonical struct declarations. referenceValued reports whether a row reference
+--- addresses the underlying storage. The storage implementation
+--- supplies compatible struct operations as part of the same family.
+export interface StructvalueProvider
+    --- Returns a scalar descriptor accepted by define and array.
+    readonly scalar: function(kind: string): any
+
+    --- Allocates count elements using this family's element descriptor.
+    readonly array: function(element: any, count: integer): any
+
+    --- Constructs a type descriptor from a compiler layout and method table.
+    readonly define: function(layout: any, methods: table): any
+
+    --- Whether row references address their underlying storage.
+    readonly referenceValued: boolean
+end
+
+--- Opaque linear-memory operations belonging to a storage implementation.
+---
+--- Allocation and pointer values must refer to that implementation's memory host.
+--- Offsets and copy lengths are bytes; pointer's index/stride pair locates an
+--- element in an allocation. Loads and stores use the scalar kind's width and
+--- encoding. Bounds and owner lifetimes must remain valid across every operation.
+--- This interface is supplied through CstorageProvider.host, not a separate SPI.
+export interface WasmProvider
+    --- Allocates the requested number of bytes in this memory host.
+    readonly allocate: function(bytes: integer): any
+
+    --- Locates a zero-based element using index and byte stride.
+    readonly pointer: function(allocation: any, index: integer, stride: integer): any
+
+    --- Offsets an existing pointer by count bytes.
+    readonly offset: function(pointer: any, count: integer): any
+
+    --- Reads a scalar kind at a byte offset from the pointer.
+    readonly load: function(pointer: any, byteOffset: integer, kind: string): any
+
+    --- Writes a scalar kind at a byte offset from the pointer.
+    readonly store: function(pointer: any, byteOffset: integer, kind: string, value: any): nil
+
+    --- Copies bytes between regions belonging to this host.
+    readonly copy: function(destination: any, source: any, bytes: integer): nil
+
+    --- Returns bounds and layout information for a host value.
+    readonly descriptor: function(value: any): any
+end

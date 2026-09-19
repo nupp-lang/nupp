@@ -3,7 +3,7 @@
 module nupp.runtime.provider.nativehttp
 
 --[[
-Native HTTP transport implementation of `host.http` API 1.
+Native HTTP transport implementation used as a built-in module fallback.
 
 This module assembles clients and responses over the native HTTP transport in
 [](nupp.io.http.internal.transport). It supports streaming request and response
@@ -11,7 +11,7 @@ bodies, transport and connection policy, and observable protocol versions; its
 `capabilities` result advertises those guarantees.
 
 Clients, responses, and body readers implement the shared contracts in
-[](nupp.runtime.services.http). Pending transfers participate in
+[](nupp.io.http.spi). Pending transfers participate in
 [](nupp.suspension), and source registrations are retained while a client has
 work. Closing resources releases transfers and source registrations; request
 bodies remain borrowed for the send operation and response bodies retain their
@@ -28,7 +28,7 @@ local io = require("nupp.io")
 local span = require("nupp.mem.span")
 local uri = require("nupp.io.uri")
 const messages = require("nupp.io.http.messages")
-local contracts = require("nupp.runtime.services.http")
+local contracts = require("nupp.io.http.spi")
 local http = {}
 local redirectState: any = setmetatable({}, {__mode = "k"})
 

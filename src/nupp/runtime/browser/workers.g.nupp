@@ -3,22 +3,20 @@
 module nupp.runtime.browser.workers
 
 --[[
-Browser structured-worker implementation of `host.workers` API 1.
+Browser structured-worker implementation used as a built-in module fallback.
 
 Each lane is a module Web Worker with its own Lua 5.1 Wasm state, initialized from
 the application's verified payload. The host pool exchanges copied messages;
 parallel work requires neither Wasm threads nor shared memory. Sendable function
-metadata, scopes, and task results follow [](nupp.runtime.services.workers).
+metadata, scopes, and task results follow [](nupp.workers.spi).
 
 Replies become visible when the current state parks. `isDone` reflects the last
 received reply, queued cancellation settles at a park, and a running task observes
 cancellation at a checkpoint that gives its event loop a turn. Scope cleanup
 settles every child and preserves the shared cancellation identity.
 
-Requiring this module captures the catalog selections and setup modules used to
-initialize child states before their consumers load. Runtime-only registrations
-need explicit destination setup. No provider instance or captured Lua closure is
-transferred between lanes.
+Workers load the same immutable artifact and its SPI index in fresh Lua states.
+Each consumer chooses during initialization; provider state remains in its lane.
 ]]
 
 @allow("unused-binding")
@@ -30,9 +28,8 @@ local codec = require("nupp.runtime.browser.workercodec")
 local suspension = require("nupp.suspension")
 local suspensionRuntime = suspension as any
 local workers = {}
-local workerConfiguration = require("nupp.services").workerConfiguration()
 
-local contracts = require("nupp.runtime.services.workers")
+local contracts = require("nupp.workers.spi")
 local type Callable = function(...: any): any
 type workers.Submittable = contracts.Submittable
 type workers.Job<F is Callable> = contracts.Job<F>
@@ -271,7 +268,6 @@ end
 --- Queues one pool request. The browser effect layer sends it with whatever else is
 --- queued at the next park, so submission itself never waits.
 local function poolRequest(payload: any, resume: function(any): nil): function()
-    payload.setup = workerConfiguration
     return browserEffects.request("workers", payload, resume)
 end
 

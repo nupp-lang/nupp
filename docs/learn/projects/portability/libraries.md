@@ -72,52 +72,27 @@ without writing to `_G`, so portable source requires the module.
 SPI covers operations whose implementation varies. Fixed hashing, scalar SIMD,
 layout arithmetic, and other ordinary helpers are normal modules.
 
-Canonical interfaces and handles live under `nupp.runtime.services`. Importing a
-contract defines its handle without loading its implementations. A setup entry
-can select a named provider before requiring application modules:
+Implementation interfaces live beside their consuming library in `.spi` modules.
+Importing a declaration loads no implementation. Packages advertise their modules
+in `nupp/spi.json`; `nupp.spi.load(Interface)` lazily iterates them in dependency
+order. The consumer decides what wins.
 
-```nupp
-module setup
-local contracts = require("nupp.runtime.services.contracts")
-contracts.bitops:select("nupp.scalar")
-return require("application")
-```
+Standard-library facades choose the unique highest `priority`, with an omitted
+priority counting as zero. A highest-priority tie fails initialization. Empty
+discovery uses the facade's explicit target-dependent fallback. Each facade binds
+its actual operations during module initialization, so calls perform no SPI lookup.
 
-Use `setup` as the target entry. A consuming facade resolves its provider during
-`require`, retains the resulting table, and exports its actual operations. Lua's
-module cache retains that assembled module. Calls perform no SPI lookup.
+## Runtime interfaces
 
-An explicit selection wins. Without one, a facade chooses its documented built-in
-default with ordinary conditions. Discovering a third-party provider never makes
-it the default. Once the facade resolves, its default selection is frozen;
-reselection fails. A failed loader, invalid implementation, missing required
-provider, or dependency cycle fails the require with service context.
-
-## Runtime contracts
-
-| Handle | Interface and consumer |
-| --- | --- |
-| `contracts.bitops` | Signed, variadic word operations; `nupp.runtime.bitops` |
-| `contracts.buffer` | Portable buffers; `nupp.text` |
-| `contracts.json` | JSON values and markers; `nupp.codec.json` |
-| `contracts.cstorage` | Target storage and its representation operations |
-| `contracts.path`, `contracts.uri` | Path and URI operations |
-| `contracts.time` | Clock and timer operations; `nupp.time` |
-| `contracts.uuid`, `contracts.crypto`, `contracts.storage` | UUIDs, host cryptography, and persistent storage |
-| `services.suspension.service` | Suspension and cancellation |
-| `services.workers.service` | Isolated worker execution |
-| `services.http.service` | HTTP clients and responses |
-| `services.gpu.service` | GPU devices sharing canonical buffer and context types |
-| `services.net.service`, `services.process.service`, `services.tls.service` | Network, process, and TLS transports |
-
-Here `contracts` names `nupp.runtime.services.contracts`, and `services.*` names
-the corresponding module under `nupp.runtime.services`.
+[SPI](../spi.md#standard-library-providers) lists each interface and its owning
+module. Shared storage, struct, memory-host, and integer declarations remain in
+`nupp.runtime.representation.spi`; storage and its integer operations must agree.
 
 `nupp.text` owns the portable buffer surface and one shared `Buffer` type.
 Its native adapter uses LuaJIT's `string.buffer`. Explicitly native pointer and
 serialization facilities remain on the native `string.buffer` surface.
 
-GPU providers use the shared interfaces in `nupp.runtime.services.gpu`. Each context retains its
+GPU providers use the shared interfaces in `nupp.gpu.spi`. Each context retains its
 device methods. CPU workgroups and tensor layout operations are ordinary code.
 HTTP clients are created with `nupp.io.http.client(options)` and retain their
 response and body cleanup responsibilities.
@@ -127,29 +102,19 @@ providers construct exit values with `nupp.io.process.types.exited`.
 
 ## Dependency providers
 
-A runtime dependency advertises a canonical contract module, handle export, API
-version, provider name, and implementation export in its static descriptor. The
-build checks that export against the contract, including generic signatures,
-ownership, and suspension guarantees. Additional members are allowed. Lua
-implementations need a matching `.d.nupp` declaration or a typed adapter.
+A runtime dependency lists qualified interface names and implementation modules
+in `nupp/spi.json`. The build checks ordinary assignment compatibility, including
+generic signatures, ownership, and suspension. Lua implementations need a matching
+`.d.nupp` declaration or typed adapter. Discovery never executes provider code.
 
-The artifact catalog contains target-compatible implementations from the runtime
-dependency graph. Discovery and checking never execute provider code. Native
-adapters remain separately loadable and are excluded from portable payloads.
-Only target dependencies contribute runtime providers.
-
-See [Service Providers](../service-providers.md) for descriptors and the typed API.
+Only target runtime dependencies contribute implementations. Native adapters are
+excluded from portable payloads. See [SPI](../spi.md) for metadata and examples.
 
 ## Workers
 
-Worker lanes start fresh Lua states. Before loading consumers, child initialization
-loads explicit setup modules and replays catalog-backed named selections. Provider
-instances and loader closures do not cross the lane boundary.
-
-Register a setup module with `nupp.services.setupWorkers("workersetup")` before
-requiring consumers, and include that module in the artifact's entry modules.
-Runtime-only registrations need explicit setup in the destination lane. Each lane
-loads and caches its own provider instances.
+Worker lanes start fresh Lua states with the artifact's immutable provider index.
+They load and cache their own module instances. Provider objects and closures do
+not cross lane boundaries; each consumer chooses during its own initialization.
 
 ## Validation
 

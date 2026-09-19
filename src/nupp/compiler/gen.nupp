@@ -544,16 +544,21 @@ function gen.generate(
     bytecodeBoundary: string?,
     forcedEffects: {[string]: boolean}?
 ): string, {any}, gen.Coverage?, {[string]: boolean}, gen.HotMetadata?
+    -- This immutable fact describes generated code, including a portable artifact
+    -- executed by a LuaJIT host. It is unrelated to provider discovery.
+    if result.moduleName == "nupp.runtime.target" then
+        return ("return {dialect=%q}"):format(result.dialect or "luajit"), {}, nil, {}
+    end
     local out = {}
     local capabilityResolution = capabilities.resolve(result.dialect or "luajit")
     local bitopsCapability = capabilities.get(capabilityResolution, "bitops")
     local compatibilityBitops = result.dialect == "luajit-compat"
-    local portableBitops = bitopsCapability.kind == "service" or compatibilityBitops
+    local portableBitops = bitopsCapability.kind == "runtime" or compatibilityBitops
     local needsCompatibilityBitops = false
     local structvalueCapability = capabilities.get(capabilityResolution, "structvalue")
-    local portableStructvalue = structvalueCapability.kind == "service"
+    local portableStructvalue = structvalueCapability.kind == "runtime"
     local int64Capability = capabilities.get(capabilityResolution, "int64")
-    local portableInt64 = int64Capability.kind == "service"
+    local portableInt64 = int64Capability.kind == "runtime"
     --[[
     The fixed-width scalar members that lower to inline BitOp rather than to a
     call through the installed `nupp.math`.
@@ -659,7 +664,7 @@ function gen.generate(
             emittedFeatureEffects[effect] = true
             -- The runtime math table binds its bit functions when it loads.
             -- Install the selected representation before that table is required.
-            if effect == "stdlib.math" and bitopsCapability.kind == "service" then
+            if effect == "stdlib.math" and bitopsCapability.kind == "runtime" then
                 emittedFeatureEffects[bitopsCapability.effect] = true
             end
         end
@@ -1903,7 +1908,7 @@ function gen.generate(
         else
             local root = rootView(view)
             local producerKind = root and root.producer and root.producer.kind or nil
-            if producerKind == "string" and capabilities.get(capabilityResolution, "cstorage").kind == "service" then
+            if producerKind == "string" and capabilities.get(capabilityResolution, "cstorage").kind == "runtime" then
                 e("string.byte(")
                 emitViewRoot(view)
                 e(",")
@@ -2165,7 +2170,7 @@ function gen.generate(
         scalarInline = {forms = SCALAR_INLINE, bitop = inlineBitop,},
         structvalue = {enabled = portableStructvalue, name = structvalueName, effect = "runtime.structvalue",},
         storage = {
-            enabled = capabilities.get(capabilityResolution, "cstorage").kind == "service",
+            enabled = capabilities.get(capabilityResolution, "cstorage").kind == "runtime",
             name = reservedName("__nuppCstorage")
         },
         int64 = {
@@ -9755,38 +9760,24 @@ function gen.generate(
                 )
             end
         end
-        local consumesService = false
-        local visitedServices = {}
+        local loadsSpi = false
+        local visitedSpi = {}
 
-        local function inspectServices(node: any): nil
-            if type(node) ~= "table" or visitedServices[node] or cst.isToken(node) then
+        local function inspectSpi(node: any): nil
+            if type(node) ~= "table" or visitedSpi[node] or cst.isToken(node) then
                 return
             end
-            visitedServices[node] = true
-            consumesService = consumesService or node.spiInterface ~= nil
-            if node.kind == "methodCall"
-                and node.name
-                and (
-                    node.name.text == "assemble"
-                    or node.name.text == "assembleOptional"
-                    or node.name.text == "require"
-                    or node.name.text == "lookup"
-                )
-            then
-                local receiver = node.obj and node.obj.inferredType
-                local origin = receiver and receiver.origin
-                consumesService = consumesService
-                    or origin ~= nil and origin.moduleName == "nupp.services" and origin.name == "Service"
-            end
+            visitedSpi[node] = true
+            loadsSpi = loadsSpi or node.spiInterface ~= nil
             for _, child in ipairs(node) do
-                inspectServices(child)
+                inspectSpi(child)
             end
             for _, child in ipairs(node.stats or {}) do
-                inspectServices(child)
+                inspectSpi(child)
             end
         end
 
-        inspectServices(result.root)
+        inspectSpi(result.root)
         -- A patch is not a module load. It runs the module's top level again only to
         -- build candidate closures over the same lexical cells, and the module it
         -- patches is already in `package.loaded` -- so a patch that wrote there would
@@ -9797,7 +9788,7 @@ function gen.generate(
         local prefix
         if migrationAssignment then
             prefix = ("local %s;local __nuppOk,__nuppWhy=pcall(function()"):format(emitDepth.exportTableName)
-        elseif consumesService or patching then
+        elseif loadsSpi or patching then
             prefix = ("local %s={};local __nuppOk,__nuppWhy=pcall(function()"):format(emitDepth.exportTableName)
         else
             prefix = (

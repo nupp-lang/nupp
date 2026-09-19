@@ -3,7 +3,7 @@ module nupp.runtime.provider.nativecompression
 
 --[[Rust-native gzip, zlib and raw DEFLATE provider for compression API 1.]]
 
-const contract = require("nupp.runtime.services.compression")
+const contract = require("nupp.compression.spi")
 const native = require("nupp.runtime.native")
 const span = require("nupp.mem.span")
 

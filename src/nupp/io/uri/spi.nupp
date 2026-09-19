@@ -1,0 +1,55 @@
+module nupp.io.uri.spi
+
+--[[Implementation interfaces consumed during ordinary module initialization.
+Discover with nupp.spi.load; the consumer chooses the unique highest priority.
+Omitted priority is zero. Importing these declarations loads no implementation.]]
+
+--- Normalized absolute-URI components shared by every parser.
+---
+--- Use nil for an absent optional component and an empty string for a present empty
+--- one. text is the normalized serialization; scheme is normalized consistently
+--- with it. The public URI wrapper uses this record without introducing a
+--- provider-specific nominal identity.
+export record UriParts
+    --- Normalized complete URI text.
+    text: string
+
+    --- Normalized scheme without the colon.
+    scheme: string
+
+    --- Serialized authority, or nil if the URI has none.
+    authority: string?
+
+    --- Username component, empty when absent.
+    username: string
+
+    --- Password component, retaining absent versus empty.
+    password: string?
+
+    --- Normalized host, or nil for a URI without one.
+    host: string?
+
+    --- Explicit non-default port when present.
+    port: integer?
+
+    --- Normalized path component.
+    path: string
+
+    --- Query without its question mark, or nil when absent.
+    query: string?
+
+    --- Fragment without its hash mark, or nil when absent.
+    fragment: string?
+end
+
+--- Absolute-URI parsing into canonical components.
+---
+--- Return nil and a diagnostic for unsupported or invalid input. Successful parses
+--- must make text, authority, host, port, and path mutually consistent and preserve
+--- absent versus empty query and fragment values.
+export interface UriTextProvider
+    readonly priority: integer?
+
+    --- Parses an absolute URI into shared components or returns nil and a message.
+    readonly parse: function(text: string): (UriParts?, string?)
+end

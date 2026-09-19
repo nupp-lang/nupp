@@ -179,7 +179,7 @@ through an HTTP server.
 
 ## Browser platform services
 
-Browser facades select catalog-backed implementations for HTTP, URI,
+Browser facades select implementations during module initialization for HTTP, URI,
 suspension, time, random bytes, UUIDs, and persistent string storage when
 required. SHA-256 and HMAC-SHA256 are ordinary portable functions:
 
@@ -211,7 +211,7 @@ Worker uses `fetch`, `setTimeout`, Worker clocks, Web Crypto, or IndexedDB and
 resumes Lua with the result. Pure Lua work and AOT kernels do not cross the
 effect boundary.
 
-The host also supplies `host.workers`, so a browser application runs
+The host also supplies `nupp.workers.spi.Provider`, so a browser application runs
 [worker tasks](../../runtime/concurrency/workers.md) on a bounded pool of lane Workers. Each
 lane boots this same verified manifest in its own Lua 5.1 Wasm state, including
 the packaged AOT side modules, and receives work through the same effect
@@ -285,8 +285,9 @@ native AOT builder. Ordinary `cstorage` and typed span references use the
 target-compatible storage provider. Raw `ffi`, arbitrary `cinterop`, and native Lua modules remain
 unavailable.
 
-Pure Lua dependencies work when included by the target. The artifact catalog
-supplies compatible platform providers. Wasm storage does not supply
+Pure Lua dependencies work when included by the target. Facades import their
+built-in platform implementations explicitly; the artifact SPI index carries
+implementations advertised by application dependencies. Wasm storage does not supply
 filesystem, process, foreign C interoperability, or arbitrary third-party services.
 
 Browser HTTP accepts `http` and `https` absolute URIs. String and narrow

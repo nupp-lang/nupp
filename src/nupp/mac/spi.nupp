@@ -1,0 +1,39 @@
+module nupp.mac.spi
+
+--[[Implementation interfaces for keyed authentication algorithm catalogs.
+
+The facade chooses the unique highest priority during initialization. Its entries
+override matching built-ins and may add names; empty discovery uses the built-in
+catalog. Descriptors are retained once, so context operations perform no SPI
+resolution. Importing this declaration creates no keyed or storage state.
+
+Algorithm names match their map keys. digestSize is a positive fixed byte count;
+hmac-sha256 always produces 32 bytes. create receives the retained descriptor and
+a raw-byte key and returns independently owned State using the shared digest
+protocol. Updates must not retain input views. finish writes exactly digestSize
+bytes without consuming state; the facade closes state on success and failure.
+Cleanup consumes ownership without suspension. Providers define private records
+satisfying the canonical State interface rather than substituting its identity.
+]]
+
+local {type State} = require("nupp.digest.spi")
+
+--- Fixed-output authentication algorithm and a factory for keyed state.
+export interface Algorithm
+    --- Canonical algorithm name matching the catalog key.
+    readonly name: string
+
+    --- Fixed output size in bytes.
+    readonly digestSize: integer
+
+    --- Creates independent owned state from the raw-byte secret key.
+    create: function(self: Algorithm, key: string): State
+end
+
+--- A selectable catalog of keyed algorithm descriptors.
+export interface Provider
+    readonly priority: integer?
+
+    --- Algorithms keyed by canonical name; additional descriptor fields are allowed.
+    readonly algorithms: {[string]: Algorithm}
+end

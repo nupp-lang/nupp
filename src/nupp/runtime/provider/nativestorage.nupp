@@ -2,7 +2,7 @@
 module nupp.runtime.provider.nativestorage
 
 --[[
-LuaJIT FFI implementation of `representation.cstorage` API 1.
+LuaJIT FFI implementation used as a built-in module fallback.
 
 Allocations, casts, scalar descriptors, and struct layouts use native pointers
 and the target ABI. The published representation is `native`; byte codecs use

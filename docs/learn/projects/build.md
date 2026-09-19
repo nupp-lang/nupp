@@ -133,9 +133,9 @@ It is part of the cache key, so artifacts and checks from different dialects
 cannot satisfy one another.
 
 The `lua51` checker requires a supported target representation for every
-reached construct. Service facades resolve their implementations when required.
+reached construct. Library facades select their implementations during module initialization.
 See [portable libraries](portability/libraries.md) for typed providers, target
-dependencies, and setup entry modules.
+dependencies, and explicit fallback imports.
 
 A target's `dependencies` are names, declared once at the top level of the
 manifest and shared by every target that lists them:
@@ -160,8 +160,8 @@ dependencies](#rust-dependencies), [rock dependencies](#rock-dependencies),
 and [type dependencies](#type-dependencies). Dependency acquisition and usage are
 separate: target dependencies ship with the target, `compileDependencies` are visible
 only while compiling, and a dependency selected by `generators.*.using` is a host
-tool. See [Service Providers](service-providers.md) for generators, runtime service
-lookup, and the compatibility rule for ambient type dependencies. `nupp test`
+tool. See [SPI](spi.md) for runtime implementation discovery and
+[code generators](code-generators.md) for build-time generation. `nupp test`
 uses the default target and bundled runner. The optional `test` action names a
 different target to build first, and `argv` replaces the runner:
 
@@ -268,7 +268,7 @@ Files and filesystem-backed path operations use the Rust-native
 provider; whole-file transfers and processes share its Tokio executor and use
 bounded queues. HTTP uses Reqwest over Tokio and Rustls, URI uses Rust's `url`
 parser, and UUID uses the Rust-native provider. Built-in message digests are
-written in Nupp and stage no native artifact. Installed digest services may
+written in Nupp and stage no native artifact. Installed digest implementations may
 bring their own declared native dependencies.
 The Rust facilities share the versioned `build/lib/nupp_native` sidecar.
 Generated or external C interop builds its own declared native dependencies;

@@ -11,8 +11,8 @@ worker boundary; each Lua state loads this module independently. Operations use
 retained implementation functions without further SPI resolution.
 ]]
 
-local contract = require("nupp.runtime.services.mac")
-local {type State} = require("nupp.runtime.services.digest")
+local contract = require("nupp.mac.spi")
+local {type State} = require("nupp.digest.spi")
 local builtin = require("nupp.digest.internal.builtin")
 local record Algorithm is contract.Algorithm
     readonly name: string = "hmac-sha256"

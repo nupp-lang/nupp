@@ -1,15 +1,47 @@
 @!internal
 module nupp.runtime.timeprovider
 
-local contracts = require("nupp.runtime.services.contracts")
-export const provider = contracts.time:assembleOptional(function(): contracts.TimeProvider?
-    local native = contracts.time:lookup("nupp.native")
-    if native ~= nil then
-        return native
+const _DYNAMIC_REQUIRES = "@requires-dynamically nupp.runtime.provider.nativetime @requires-dynamically nupp.runtime.browser.time"
+
+local spi = require("nupp.spi")
+local target = require("nupp.runtime.target")
+local contracts = require("nupp.time.spi")
+
+-- Optional consumers use only implementations present in their artifact. The
+-- public facade's literal imports carry its built-in fallbacks when that facility
+-- is actually used; this dynamic require does not add a native dependency itself.
+local function available(name: string): contracts.TimeProvider?
+    local ok, value = pcall(require, name)
+    if ok then
+        return value as contracts.TimeProvider
     end
-    if rawget(_G, "__nuppWasmHost") ~= nil then
-        return contracts.time:lookup("nupp.browser")
+    if not tostring(value):find("module '" .. name .. "' not found", 1, true) then
+        error(value, 0)
     end
 
     return nil
-end)
+end
+
+export const provider: contracts.TimeProvider? = do
+    local chosen: contracts.TimeProvider?
+    local tied = false
+    for candidate in spi.load(contracts.TimeProvider) do
+        if chosen == nil or (candidate.priority ?? 0) > (chosen.priority ?? 0) then
+            chosen = candidate
+            tied = false
+        elseif (candidate.priority ?? 0) == (chosen.priority ?? 0) then
+            tied = true
+        end
+    end
+    assert(not tied, "nupp.runtime.timeprovider: multiple implementations have the highest priority")
+    if chosen ~= nil then
+        yield chosen
+    end
+    if target.dialect ~= "lua51" then
+        yield available("nupp.runtime.provider.nativetime")
+    end
+    if rawget(_G, "__nuppWasmHost") ~= nil then
+        yield available("nupp.runtime.browser.time")
+    end
+    yield nil
+end

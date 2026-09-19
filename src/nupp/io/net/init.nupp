@@ -21,6 +21,10 @@ A listener and a connection are owners. See
 [ownership.md](docs/learn/runtime/ownership/borrowing.md) for the contract they are handed
 out under.
 ]]
+
+local spi = require("nupp.spi")
+local target = require("nupp.runtime.target")
+
 const {type Reader} = require("nupp.io")
 const {type Writer} = require("nupp.io")
 const {type Buffer} = require("nupp.io")
@@ -37,10 +41,25 @@ local function spanString(borrows source: span.ByteSpan): string
     return spanStringValue(pointer, #source)
 end
 
-const contract = require("nupp.runtime.services.net")
-const provider = contract.service:assemble(function(): contract.Provider
-    return contract.service:require("nupp.native")
-end)
+const contract = require("nupp.io.net.spi")
+local provider: contract.Provider = do
+    local chosen: contract.Provider?
+    local tied = false
+    for candidate in spi.load(contract.Provider) do
+        if chosen == nil or (candidate.priority ?? 0) > (chosen.priority ?? 0) then
+            chosen = candidate
+            tied = false
+        elseif (candidate.priority ?? 0) == (chosen.priority ?? 0) then
+            tied = true
+        end
+    end
+    assert(not tied, "nupp.io.net: multiple implementations have the highest priority")
+    if chosen ~= nil then
+        yield chosen
+    end
+    assert(target.dialect ~= "lua51", "nupp.io.net: no implementation is available")
+    yield _G.require("nupp.runtime.provider.nativenet") as contract.Provider
+end
 local net = {}
 const shared = require("nupp.io.net.types")
 local layering = require("nupp.io.net.internal")

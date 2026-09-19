@@ -19,7 +19,6 @@ local manifest = require("nupp.compiler.build.manifest")
 local tasks = require("nupp.compiler.build.tasks")
 local deps = require("nupp.compiler.build.deps")
 local generators = require("nupp.compiler.build.generators")
-local services = require("nupp.compiler.build.services")
 local spi = require("nupp.compiler.build.spi")
 local modules = require("nupp.compiler.build.modules")
 local packaging = require("nupp.compiler.build.package")
@@ -452,21 +451,6 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         return 1
     end
     config._spiEntries = spiEntries
-    local wroteServices, serviceErr, hasServices, serviceEntries = services.write(
-        root,
-        outDir,
-        config,
-        target,
-        dependencies
-    )
-    if not wroteServices then
-        io.stderr:write("nupp: " .. tostring(serviceErr) .. "\n")
-        return 1
-    end
-    -- One query graph for the whole build, opened here because the ahead-of-time
-    -- policy checks through it before the module build does. It reads the
-    -- dependencies just resolved, which is why it cannot be opened any earlier.
-    config._serviceEntries = serviceEntries or {}
     local session = modules.session(root, outDir, config, target, dependencies, strict, report)
     local validSpi, invalidSpi = spi.check(session, spiEntries, root, outDir)
     if not validSpi then
@@ -479,20 +463,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         return 1
     end
     session.inc.diskChanged(join(root, join(outDir, "generated/nupp/spi/index.g.nupp")), 2)
-    if hasServices then
-        session.stageBundled("nupp.services")
-        local valid, why = services.check(session, serviceEntries or {}, root, outDir)
-        if not valid then
-            io.stderr:write("nupp: " .. tostring(why) .. "\n")
-            return 1
-        end
-        local written, problem = services.write(root, outDir, config, target, dependencies, serviceEntries)
-        if not written then
-            io.stderr:write("nupp: " .. tostring(problem) .. "\n");
-            return 1
-        end
-        session.inc.diskChanged(join(root, join(outDir, "generated/nupp/runtime/services/artifact.g.nupp")), 2)
-    end
+
     if opts.checkOnly
         and (target.aot == "require" or target.aot == "require-wasm")
         and checkedTargetNeedsGpu(root, config, opts.paths)
@@ -1034,7 +1005,6 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         opts.produced.outputs = mine
         opts.produced.materializations = materializeObserve.public(result.materializations)
         opts.produced.derives = result.derives
-        opts.produced.services = result.services
         opts.produced.spi = spiEntries
         opts.produced.optLevel = config._optLevel
         opts.produced.optimizationRemarks = result.optimizationRemarks
