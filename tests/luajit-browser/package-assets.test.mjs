@@ -20,7 +20,7 @@ function fixture(t) {
     profiles:{runner:{memoryMiB:64}, compiler:{memoryMiB:128}}, inputs:{}, assets:{}, snapshots:{}};
   for (const name of ['bridge.lua', 'guest-init.c', 'linux.config', 'vm-worker.mjs', 'assets.mjs']) {
     const relative = `runtime/luajit/${name}`;
-    write(repo, relative, name); manifest.inputs[relative] = digest(name);
+    write(repo, relative, name+'\n'); manifest.inputs[relative] = digest(name+'\n');
   }
   write(repo, 'host/notices/LICENSE.txt', 'license');
   manifest.inputs['host/notices/LICENSE.txt'] = digest('license');
@@ -85,7 +85,7 @@ test('runtime verification rejects corrupt assets, stale inputs and escaping pat
   f.asset('assets/v86.wasm', 'wasm');
   f.manifest.inputs['runtime/luajit/bridge.lua'] = 'b'.repeat(64); f.save();
   assert.throws(() => verifyGuest(f.repo, f.guest), /stale/);
-  f.manifest.inputs['runtime/luajit/bridge.lua'] = digest('bridge.lua');
+  f.manifest.inputs['runtime/luajit/bridge.lua'] = digest('bridge.lua\n');
   f.manifest.assets['../outside'] = {bytes:1, sha256:'0'.repeat(64)}; f.save();
   assert.throws(() => verifyGuest(f.repo, f.guest), /escapes/);
 });
@@ -125,4 +125,17 @@ test('archive consumers verify the actual matching-source recipe and upstream by
     const a = archiveFixture(f);
     assert.throws(() => prepareArchive(a.archive, path.join(f.root, 'consumer'), a.fixtures, f.repo), /source integrity|source archive hashes/);
   }
+});
+
+test('autocrlf consumer checkouts preserve the Linux runtime input hashes', t => {
+  const f = fixture(t), consumer = path.join(f.root, 'consumer-checkout');
+  f.write(f.repo, '.gitattributes', readFileSync(new URL('../../.gitattributes', import.meta.url)));
+  const attributes = path.join(f.root, 'empty-attributes');
+  writeFileSync(attributes, '');
+  execFileSync('git', ['init', '--quiet', f.repo]);
+  const git = ['-C', f.repo, '-c', `core.attributesFile=${attributes}`];
+  execFileSync('git', [...git, '-c', 'core.autocrlf=false', 'add', '.']);
+  mkdirSync(consumer);
+  execFileSync('git', [...git, '-c', 'core.autocrlf=true', 'checkout-index', '--all', `--prefix=${consumer}/`]);
+  assert.equal(verifyGuest(consumer, f.guest).buildKey, f.manifest.buildKey);
 });

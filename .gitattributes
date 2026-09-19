@@ -27,3 +27,7 @@ tests/fmtcorpus/** -text
 # that puts a return in the middle of the archive name it builds.
 scripts/** text eol=lf
 .github/scripts/** text eol=lf
+
+# Browser guest packages compare these recipe inputs by their raw digest. Keep
+# Windows consumer checkouts byte-identical to the Linux-built runtime inputs.
+runtime/luajit/** text=auto eol=lf
