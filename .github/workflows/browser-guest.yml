@@ -10,6 +10,9 @@ on:
       - 'scripts/browser-*.mjs'
       - 'scripts/toolchain*'
       - 'host/notices/**'
+      - 'src/nupp/compiler/**'
+      - 'scripts/prelude-image'
+      - 'nupp.lua'
       - '.github/workflows/browser-guest.yml'
   workflow_dispatch:
 permissions:
@@ -42,18 +45,24 @@ jobs:
           guest=$(./scripts/toolchain browser-guest)
           mkdir -p build/browser-guest
           cp -R "$guest/." build/browser-guest/
+      - name: Build the LuaJIT compiler and native response oracle
+        run: |
+          ./scripts/prelude-image luajit
+          luajit_dir=$(./scripts/toolchain luajit)
+          "$luajit_dir/bin/luajit" tests/luajit-browser/prepare-compiler.lua build/browser-luajit/nupp-compiler.lua build/browser-guest
       - name: Exercise LuaJIT in Chromium without cross-origin isolation
         env:
           NUPP_BENCH_ISOLATED: '0'
           NUPP_BENCH_CHROME_FLAGS: '["--no-sandbox", "--disable-dev-shm-usage"]'
         run: |
-          cp tests/luajit-browser/features.lua tests/luajit-browser/smoke.* tests/luajit-browser/snapshot.* build/browser-guest/
+          cp tests/luajit-browser/features.lua tests/luajit-browser/smoke.* tests/luajit-browser/snapshot.* tests/luajit-browser/compiler.html tests/luajit-browser/compiler.mjs build/browser-guest/
           node bench/luajit-browser/serve.mjs build/browser-guest 8113 &
           server=$!
           trap 'kill "$server"' EXIT
           node bench/luajit-browser/run-browser.mjs http://127.0.0.1:8113/smoke.html build/browser-guest/normal-boot-conformance.json
           node scripts/browser-snapshot.mjs build/browser-guest http://127.0.0.1:8113/
           node bench/luajit-browser/run-browser.mjs http://127.0.0.1:8113/smoke.html build/browser-guest/snapshot-conformance.json
+          node bench/luajit-browser/run-browser.mjs http://127.0.0.1:8113/compiler.html build/browser-guest/compiler-conformance.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
