@@ -111,13 +111,7 @@ function Registry:define(spec)
         return nil, "annotation name must be an identifier"
     end
     local previous = self.byname[spec.name]
-    local source = type(spec.source) == "string" and spec.source:gsub("\\", "/") or ""
-    local bootstrapCLI = previous and previous.builtin and spec.name == "cli" and (
-        source == "src/nupp/compiler/cli/annotation.g.nupp" or source:match(
-            "/src/nupp/compiler/cli/annotation%.g%.nupp$"
-        ) ~= nil
-    )
-    if previous and not bootstrapCLI and (not spec.source or not sameSource(previous.source, spec.source)) then
+    if previous and (not spec.source or not sameSource(previous.source, spec.source)) then
         return nil, ("annotation @%s is already defined"):format(spec.name)
     end
     if spec.arguments ~= "none"

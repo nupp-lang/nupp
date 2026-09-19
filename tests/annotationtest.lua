@@ -30,6 +30,22 @@ end
 
 local M = {}
 
+function M.builtinCliCannotBeReplacedByTheFormerBootstrapPath()
+    for _, source in ipairs({
+        "src/nupp/compiler/cli/annotation.g.nupp",
+        "/checkout/src/nupp/compiler/cli/annotation.g.nupp",
+        "C:\\checkout\\src\\nupp\\compiler\\cli\\annotation.g.nupp",
+    }) do
+        local registry = annotations.new()
+        local builtin = registry:get("cli")
+        local defined, problem = registry:define({name = "cli", source = source,
+            arguments = "typed", targets = {"record", "field"}})
+        assertEq(defined, nil, "a source file cannot replace builtin cli")
+        assert(problem and problem:find("already defined", 1, true), problem)
+        assertEq(registry:get("cli"), builtin, "the builtin remains registered")
+    end
+end
+
 local function checked(src)
     local result = parser.parse(src, "test.g.nupp")
     assertEq(#result.errors, 0, "syntax")
