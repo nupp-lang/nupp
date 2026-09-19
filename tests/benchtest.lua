@@ -633,6 +633,46 @@ function M.verdictsSeparateEquivalenceFromIgnorance()
     assertEq(statistics.verdict(nil, 0.02, 0.001), "inconclusive", "no interval is always inconclusive")
 end
 
+function M.pairedSignificanceIgnoresZerosAndHandlesTiedRanks()
+    local statistics = require("nupp.bench.internal.statistics")
+    local zeros = {}
+    for index = 1, 12 do zeros[index] = 0 end
+    assertEq(statistics.pairedPValue(zeros), 1, "identical pairs provide no evidence of a change")
+    assertEq(statistics.pairedPValue({0, 0, 1, 2, 3, 4}), 0.125, "zero pairs do not increase the evidence")
+    -- Independently enumerate every sign assignment. Rank by counting smaller
+    -- and equal magnitudes, rather than sorting or using the implementation's DP.
+    local function exact(values)
+        local ranks, total, observed = {}, 0, 0
+        for index, value in ipairs(values) do
+            local smaller, equal = 0, 0
+            for _, other in ipairs(values) do
+                if math.abs(other) < math.abs(value) then smaller = smaller + 1 end
+                if math.abs(other) == math.abs(value) then equal = equal + 1 end
+            end
+            local rank = smaller + (equal + 1) / 2
+            ranks[index] = rank
+            total = total + rank
+            if value > 0 then observed = observed + rank end
+        end
+        local lower, count = math.min(observed, total - observed), 0
+        for signs = 0, 2 ^ #values - 1 do
+            local sum = 0
+            for index, rank in ipairs(ranks) do
+                if math.floor(signs / 2 ^ (index - 1)) % 2 == 1 then sum = sum + rank end
+            end
+            if sum <= lower then count = count + 1 end
+        end
+        return math.min(1, 2 * count / 2 ^ #values)
+    end
+    for _, values in ipairs({{1, -1, 2, 2, -2, 3}, {1, 1, 1, -1, 2, 2}, {-1, 1, -1, 1}}) do
+        local expected = exact(values)
+        assertEq(statistics.pairedPValue(values), expected, "ties use their sign-permutation distribution")
+        local reversed = {}
+        for index = #values, 1, -1 do reversed[#reversed + 1] = -values[index] end
+        assertEq(statistics.pairedPValue(reversed), expected, "sign reversal and tie order do not change significance")
+    end
+end
+
 function M.pairedShiftIsDistributionFreeAndBracketsItsEstimate()
     local statistics = require("nupp.bench.internal.statistics")
     local differences = {}

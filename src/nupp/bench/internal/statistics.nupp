@@ -555,45 +555,62 @@ end
 
 --- Two-sided signed-rank p-value for the null that `differences` centre on zero.
 function statistics.pairedPValue(differences: {number}): number
-    local n = #differences
+    -- Zero differences carry no sign evidence. Rank only the nonzero pairs,
+    -- assigning tied magnitudes their average rank. Double the ranks so the
+    -- exact sign-permutation distribution has integer subset-sum indices.
+    local values: {number} = {}
+    for _, value in ipairs(differences) do
+        if value ~= 0.0 then
+            values[#values + 1] = value
+        end
+    end
+    local n = #values
     if n < 4 then
         return 1.0
     end
-    local positive = 0.0
-    local ranked: {number} = {}
-    for _, value in ipairs(differences) do
-        ranked[#ranked + 1] = math.abs(value)
-    end
-    local order: {integer} = {}
-    for index = 1, #ranked do
-        order[index] = index as integer
-    end
-    table.sort(order, function(left: integer, right: integer): boolean
-        return ranked[left] < ranked[right]
+    table.sort(values, function(left: number, right: number): boolean
+        return math.abs(left) < math.abs(right)
     end)
-    for rank = 1, #order do
-        if differences[order[rank]] > 0.0 then
-            positive = positive + rank
+    local ranks: {integer} = {}
+    local positive, squared = 0.0, 0.0
+    local first: integer = 1
+    while first <= n do
+        local last = first
+        while last < n and math.abs(values[last + 1]) == math.abs(values[first]) do
+            last = last + 1
         end
+        local rank = (first + last) as integer
+        for index = first, last do
+            ranks[index] = rank
+            squared = squared + rank * rank
+            if values[index] > 0.0 then
+                positive = positive + rank
+            end
+        end
+        first = last + 1
     end
+    local total = (n * (n + 1)) as integer
     if n > EXACT_LIMIT then
-        local mean = n * (n + 1) / 4.0
-        local variance = n * (n + 1) * (2 * n + 1) / 24.0
-        if variance <= 0.0 then
-            return 1.0
+        return normalTwoSided((positive - total / 2.0) / math.sqrt(squared / 4.0))
+    end
+    local lower = math.floor(math.min(positive, total - positive)) as integer
+    local counts: {number} = {}
+    for sum = 0, lower do
+        counts[sum + 1] = 0.0
+    end
+    counts[1] = 1.0
+    for _, rank in ipairs(ranks) do
+        for sum = lower, rank, -1 do
+            counts[sum + 1] = counts[sum + 1] + counts[sum - rank + 1]
         end
-
-        return normalTwoSided((positive - mean) / math.sqrt(variance))
     end
-    local total = n * (n + 1) / 2.0
-    local lower = positive < total - positive and positive or total - positive
-    local tail = signedRankAtMost(n as integer, math.floor(lower) as integer)
-    local p = 2.0 * tail
-    if p > 1.0 then
-        return 1.0
+    local accumulated = 0.0
+    for sum = 0, lower do
+        accumulated = accumulated + counts[sum + 1]
     end
 
-    return p
+    return math.min(1.0, 2.0 * accumulated / 2.0 ^ n)
+
 end
 
 ----------------------------------------------------------------------------
