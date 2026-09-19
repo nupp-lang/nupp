@@ -210,13 +210,20 @@ services, workers and WebGPU.
 Safari executed the WebGPU fixture; it did not take the unavailable-capability
 path. The guest and playground asset identities are recorded in the result.
 
+`results/safari-compact-compiler-retry.json` separately validates the final compact
+compiler (`3a0a366b…`) in installed Safari: all 39 complete responses match a fresh
+native oracle built from the same compiler. This covers the new image format;
+it does not depend on trusted UI interaction and does not satisfy the UI gate.
+
 This closes the desktop Safari runtime check, not the complete browser/device
 gate. The Mac was locked during the attempted UI run: the compiler loaded and
 checked the initial program, but the Run click did not produce output. Repeat
 the UI checks after unlocking; do not treat this attempt as a UI pass or a
 diagnosed product regression. `results/safari-ui-issue59-attempt.json` retains
-the latest attempt; `results/safari-device-prerequisites-issue59.json` records
-the locked session and local device inventory. Physical iPhone/iPad acceptance
+the earlier attempt. The compact compiler retry in
+`results/safari-ui-issue59-retry.json` also checked clean, but its Run click timed
+out while the Mac remained locked. `results/safari-device-retry.json` records
+the current lock flag and device inventory. Physical iPhone/iPad acceptance
 remains untested.
 
 To repeat with the existing built playground and packaged fixtures served at
@@ -230,9 +237,9 @@ node editors/playground/test/safari.mjs \
   build/luajit-browser/safari.json
 ```
 
-The test creates and closes its own Safari automation session and serves the
-HTTP fixture on loopback port 8791. `NUPP_SAFARI_SCOPE=runtime` selects the ten
-packaged groups; `ui` selects editing, execution, Stop, compatibility, backend
+The test creates and closes its own Safari automation session. Runtime checks
+serve the HTTP fixture on loopback port 8791; UI-only checks do not bind it.
+`NUPP_SAFARI_SCOPE=runtime` selects the eleven packaged groups; `ui` selects editing, execution, Stop, compatibility, backend
 switches and embedded editors. The default runs both. Narrow desktop windows
 are recorded with their actual dimensions and never counted as mobile devices.
 
@@ -485,10 +492,22 @@ are slower than the earlier baseline (8.76 s first diagnostic / 12.69 s first
 output; cached output 5.38 s). Concurrent compiler builds/tests prevent attributing
 that difference. This is not a demonstrated startup speedup.
 
-`results/prelude-regeneration.json` records an existing reproducibility limitation:
-fresh LuaJIT processes can assign different transient pack IDs while checking the
-prelude. The old text generator and compiler without the allocation fast path
-also reproduce it. Source/image roundtrips and response comparisons pass, but
-fresh regeneration need not produce identical bytes. Each measured artifact
-therefore retains its actual digest; stabilizing generation remains follow-up
-work rather than an inferred property of the new dictionary encoding.
+`results/prelude-regeneration.json` records the original nondeterminism, also
+reproduced with the old text generator and without the allocation fast path.
+`results/prelude-determinism.json` traces it to generic and inherited member-map
+traversal allocating pack identities in hash order. Those substitutions now visit
+sorted member names, preserving overload entry order and refreshing mutable
+members on every call. Six fresh candidate processes produce identical images;
+six control processes produce six different images. An adversarial map-order
+regression fails on the control and passes with the fix.
+
+`scripts/prelude-image` now checks a second fresh source generation before bundling,
+then retains its hydrate/write round trip. Both checks apply to either dialect
+with the selected interpreter. This establishes checked-prelude reproducibility,
+not canonical identities for every possible user module or a browser speedup.
+Earlier measured assets retain their actual digests.
+
+The freshly rebuilt deterministic compiler also passes all 39 native-oracle
+response comparisons in installed Safari 26.6; see
+`results/safari-deterministic-compiler.json`. This is separate from the unchanged
+playground UI asset tested earlier. Trusted UI and physical mobile checks remain.

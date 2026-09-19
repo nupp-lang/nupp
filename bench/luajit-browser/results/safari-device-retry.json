@@ -1,0 +1,36 @@
+{
+  "recordedAt": "2026-09-19T20:15:23.135048+00:00",
+  "scope": "Read-only physical Apple device inventory; not browser acceptance. No settings changed.",
+  "xcdevice": {
+    "command": [
+      "xcrun",
+      "xcdevice",
+      "list",
+      "--timeout",
+      "5"
+    ],
+    "exitCode": 0,
+    "stderr": "",
+    "physicalDevices": [
+      {
+        "operatingSystemVersion": "26.6 (25G72)",
+        "platform": "com.apple.platform.macosx",
+        "interface": "usb",
+        "available": true,
+        "name": "My Mac"
+      }
+    ]
+  },
+  "usb": {
+    "command": [
+      "/usr/sbin/system_profiler",
+      "SPUSBDataType",
+      "-json"
+    ],
+    "exitCode": 0,
+    "stderr": "",
+    "appleMobileDevices": []
+  },
+  "macOsScreenLocked": true,
+  "safariUiAttempt": "safari-ui-issue59-retry.json"
+}

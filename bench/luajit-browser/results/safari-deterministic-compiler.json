@@ -1,0 +1,333 @@
+{
+  "scope": "Installed Safari compiler-response conformance only; no trusted UI interaction, physical mobile or performance acceptance. Freshly rebuilt compiler after deterministic member traversal, compared against fresh native responses. This is not the unchanged packaged dist asset.",
+  "startedAt": "2026-09-19T20:32:16.785Z",
+  "revision": "9f7ba559f028f0514b716899a571b18b2c94a23d",
+  "host": {
+    "platform": "darwin",
+    "release": "25.6.0",
+    "arch": "arm64",
+    "cpu": "Apple M5 Pro"
+  },
+  "timingScope": "Shared host, local unthrottled startup; semantic proof only.",
+  "assets": {
+    "compiler.ljbc": {
+      "bytes": 5072750,
+      "sha256": "49626ce2e12b413317db0841f9e1cc23632c67e5fa96f59f05f867ab270b461d"
+    },
+    "compiler-requests.json": {
+      "bytes": 1977,
+      "sha256": "5aeddcb19454d47c00974f463cc93a8d9e580b6dfa711eb6e1687686bccb7027"
+    },
+    "compiler-expected.json": {
+      "bytes": 6329,
+      "sha256": "dac35ae8f1d9febd68db9b503c10a377b55825417ca096bc020aecf43216a050"
+    },
+    "compiler.html": {
+      "bytes": 187,
+      "sha256": "b578fbfef676f21a72a65665eaaef54edd24dde7b86e275d025eb67ecfb54b74"
+    },
+    "compiler.mjs": {
+      "bytes": 2201,
+      "sha256": "ba8f30bfeda6284aba5e7721a4a0c4f195ef3c216b87729811d7bf8add4da969"
+    },
+    "host.mjs": {
+      "bytes": 4565,
+      "sha256": "5ec429f7e63d82f0a70338526e9d3cb394fd1f00da5205e3dc4958961104f878"
+    },
+    "guest-manifest.json": {
+      "bytes": 11890,
+      "sha256": "f054be850fb0a8e03d9ed5226dac0a6bfda9e62dc144e2783cae41dcbad8fc01"
+    },
+    "native-oracle.lua": {
+      "bytes": 6393525,
+      "sha256": "285d6892e975c73251f3b1233e37b7928b652cc434a02d30c96b6418e39dbaba"
+    },
+    "native-oracle.ljbc": {
+      "bytes": 5072750,
+      "sha256": "49626ce2e12b413317db0841f9e1cc23632c67e5fa96f59f05f867ab270b461d"
+    },
+    "run-safari.mjs": {
+      "bytes": 4248,
+      "sha256": "000a1b1146acfc526e0254a997b66afff34f3c4608f9c531e6fb1cec48a6b9c4"
+    }
+  },
+  "guestBuildKey": "25ac4dcdb02ba761641be35ce90b9c40f8bd1dc6d4c61f0b3e65aed1f073be87",
+  "oracle": "tests/luajit-browser/prepare-compiler.lua executed by the pinned native LuaJIT against a frozen copy of the newly rebuilt build/browser-luajit/nupp-compiler.lua; both prepared bytecode and expected responses are used unchanged. The existing packaged dist asset is not used.",
+  "sourceBase": "9f7ba559f028f0514b716899a571b18b2c94a23d",
+  "changedSources": {
+    "src/nupp/compiler/generics.nupp": {
+      "bytes": 95964,
+      "sha256": "4348eb1de7c001b7a7e78f946057f1908c1c97c284f8bea49e6d3513cfa177f4"
+    },
+    "src/nupp/compiler/check/declare.nupp": {
+      "bytes": 135629,
+      "sha256": "336494fab2b28598d321379f6fb5f35d7a466f8541a5e8fac73dbd063dd387eb"
+    }
+  },
+  "capabilities": {
+    "safari:platformVersion": "26.6",
+    "safari:automaticInspection": false,
+    "webkit:WebRTC": {
+      "DisableICECandidateFiltering": false,
+      "DisableInsecureMediaCapture": false
+    },
+    "webkit:alwaysAllowAutoplay": false,
+    "browserVersion": "26.6",
+    "strictFileInteractability": false,
+    "browserName": "Safari",
+    "safari:useSimulator": false,
+    "safari:automaticProfiling": false,
+    "setWindowRect": true,
+    "acceptInsecureCerts": false,
+    "safari:platformBuildVersion": "25G72",
+    "safari:experimentalWebSocketUrl": false,
+    "platformName": "macOS",
+    "safari:diagnose": false
+  },
+  "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.6 Safari/605.1.15",
+  "crossOriginIsolated": false,
+  "result": {
+    "ok": true,
+    "startupMs": 887,
+    "requests": 39,
+    "samples": [
+      {
+        "round": 0,
+        "index": 0,
+        "kind": "check",
+        "durationMs": 2182
+      },
+      {
+        "round": 0,
+        "index": 1,
+        "kind": "hover",
+        "durationMs": 2
+      },
+      {
+        "round": 0,
+        "index": 2,
+        "kind": "compile",
+        "durationMs": 12
+      },
+      {
+        "round": 0,
+        "index": 3,
+        "kind": "compile",
+        "durationMs": 13
+      },
+      {
+        "round": 0,
+        "index": 4,
+        "kind": "check",
+        "durationMs": 1285
+      },
+      {
+        "round": 0,
+        "index": 5,
+        "kind": "compile",
+        "durationMs": 16
+      },
+      {
+        "round": 0,
+        "index": 6,
+        "kind": "check",
+        "durationMs": 4
+      },
+      {
+        "round": 0,
+        "index": 7,
+        "kind": "check",
+        "durationMs": 5.0000000000009095
+      },
+      {
+        "round": 0,
+        "index": 8,
+        "kind": "hover",
+        "durationMs": 0.9999999999990905
+      },
+      {
+        "round": 0,
+        "index": 9,
+        "kind": "check",
+        "durationMs": 3
+      },
+      {
+        "round": 0,
+        "index": 10,
+        "kind": "compile",
+        "durationMs": 26
+      },
+      {
+        "round": 0,
+        "index": 11,
+        "kind": "compile",
+        "durationMs": 7
+      },
+      {
+        "round": 0,
+        "index": 12,
+        "kind": "check",
+        "durationMs": 6
+      },
+      {
+        "round": 1,
+        "index": 0,
+        "kind": "check",
+        "durationMs": 3
+      },
+      {
+        "round": 1,
+        "index": 1,
+        "kind": "hover",
+        "durationMs": 1
+      },
+      {
+        "round": 1,
+        "index": 2,
+        "kind": "compile",
+        "durationMs": 7
+      },
+      {
+        "round": 1,
+        "index": 3,
+        "kind": "compile",
+        "durationMs": 6
+      },
+      {
+        "round": 1,
+        "index": 4,
+        "kind": "check",
+        "durationMs": 4
+      },
+      {
+        "round": 1,
+        "index": 5,
+        "kind": "compile",
+        "durationMs": 16
+      },
+      {
+        "round": 1,
+        "index": 6,
+        "kind": "check",
+        "durationMs": 5.0000000000009095
+      },
+      {
+        "round": 1,
+        "index": 7,
+        "kind": "check",
+        "durationMs": 3.9999999999990905
+      },
+      {
+        "round": 1,
+        "index": 8,
+        "kind": "hover",
+        "durationMs": 1
+      },
+      {
+        "round": 1,
+        "index": 9,
+        "kind": "check",
+        "durationMs": 4
+      },
+      {
+        "round": 1,
+        "index": 10,
+        "kind": "compile",
+        "durationMs": 9
+      },
+      {
+        "round": 1,
+        "index": 11,
+        "kind": "compile",
+        "durationMs": 7
+      },
+      {
+        "round": 1,
+        "index": 12,
+        "kind": "check",
+        "durationMs": 5
+      },
+      {
+        "round": 2,
+        "index": 0,
+        "kind": "check",
+        "durationMs": 3
+      },
+      {
+        "round": 2,
+        "index": 1,
+        "kind": "hover",
+        "durationMs": 1
+      },
+      {
+        "round": 2,
+        "index": 2,
+        "kind": "compile",
+        "durationMs": 6.0000000000009095
+      },
+      {
+        "round": 2,
+        "index": 3,
+        "kind": "compile",
+        "durationMs": 6.9999999999990905
+      },
+      {
+        "round": 2,
+        "index": 4,
+        "kind": "check",
+        "durationMs": 4
+      },
+      {
+        "round": 2,
+        "index": 5,
+        "kind": "compile",
+        "durationMs": 15
+      },
+      {
+        "round": 2,
+        "index": 6,
+        "kind": "check",
+        "durationMs": 4
+      },
+      {
+        "round": 2,
+        "index": 7,
+        "kind": "check",
+        "durationMs": 4
+      },
+      {
+        "round": 2,
+        "index": 8,
+        "kind": "hover",
+        "durationMs": 1
+      },
+      {
+        "round": 2,
+        "index": 9,
+        "kind": "check",
+        "durationMs": 4
+      },
+      {
+        "round": 2,
+        "index": 10,
+        "kind": "compile",
+        "durationMs": 9
+      },
+      {
+        "round": 2,
+        "index": 11,
+        "kind": "compile",
+        "durationMs": 7
+      },
+      {
+        "round": 2,
+        "index": 12,
+        "kind": "check",
+        "durationMs": 4
+      }
+    ],
+    "compilerBytes": 5072750
+  },
+  "ok": true,
+  "completedAt": "2026-09-19T20:32:25.521Z"
+}

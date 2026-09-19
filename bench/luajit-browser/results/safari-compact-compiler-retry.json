@@ -1,0 +1,322 @@
+{
+  "scope": "Installed Safari compiler-response conformance only; no trusted UI interaction, physical mobile or performance acceptance. Exact final packaged compact compiler compared against fresh current native compiler responses.",
+  "startedAt": "2026-09-19T20:21:16.678Z",
+  "revision": "9f7ba559f028f0514b716899a571b18b2c94a23d",
+  "host": {
+    "platform": "darwin",
+    "release": "25.6.0",
+    "arch": "arm64",
+    "cpu": "Apple M5 Pro"
+  },
+  "timingScope": "Shared host, local unthrottled startup; semantic proof only.",
+  "assets": {
+    "compiler.ljbc": {
+      "bytes": 5072684,
+      "sha256": "3a0a366b943aa816a8bfcba32fc48af94b22f54b0604b1a3883b1684ccb73ea9"
+    },
+    "compiler-requests.json": {
+      "bytes": 1977,
+      "sha256": "5aeddcb19454d47c00974f463cc93a8d9e580b6dfa711eb6e1687686bccb7027"
+    },
+    "compiler-expected.json": {
+      "bytes": 6329,
+      "sha256": "0441f7126dc59f94f626f8f940117b4beacec24fb4fa11a435cbfe86a4fd6b45"
+    },
+    "compiler.html": {
+      "bytes": 187,
+      "sha256": "b578fbfef676f21a72a65665eaaef54edd24dde7b86e275d025eb67ecfb54b74"
+    },
+    "compiler.mjs": {
+      "bytes": 2201,
+      "sha256": "ba8f30bfeda6284aba5e7721a4a0c4f195ef3c216b87729811d7bf8add4da969"
+    },
+    "host.mjs": {
+      "bytes": 4565,
+      "sha256": "5ec429f7e63d82f0a70338526e9d3cb394fd1f00da5205e3dc4958961104f878"
+    },
+    "guest-manifest.json": {
+      "bytes": 11890,
+      "sha256": "f054be850fb0a8e03d9ed5226dac0a6bfda9e62dc144e2783cae41dcbad8fc01"
+    },
+    "native-oracle.lua": {
+      "bytes": 6393202,
+      "sha256": "68eb0f4228483470bfda534744785ce710c7d651cff2e3323855a2bc9316c73e"
+    },
+    "native-oracle.ljbc": {
+      "bytes": 5072684,
+      "sha256": "3a0a366b943aa816a8bfcba32fc48af94b22f54b0604b1a3883b1684ccb73ea9"
+    },
+    "run-safari.mjs": {
+      "bytes": 3992,
+      "sha256": "650b0300f5e280f07a31ffff1d6747dd0f85a787cb8d0ee22fe6fb8b08eb1668"
+    }
+  },
+  "guestBuildKey": "25ac4dcdb02ba761641be35ce90b9c40f8bd1dc6d4c61f0b3e65aed1f073be87",
+  "oracle": "tests/luajit-browser/prepare-compiler.lua executed by the pinned native LuaJIT against a frozen copy of build/browser-luajit/nupp-compiler.lua. Its response JSON is used unchanged; compiler.ljbc is replaced by the exact decoded final production asset.",
+  "capabilities": {
+    "safari:platformVersion": "26.6",
+    "safari:automaticInspection": false,
+    "webkit:WebRTC": {
+      "DisableICECandidateFiltering": false,
+      "DisableInsecureMediaCapture": false
+    },
+    "webkit:alwaysAllowAutoplay": false,
+    "browserVersion": "26.6",
+    "strictFileInteractability": false,
+    "browserName": "Safari",
+    "safari:useSimulator": false,
+    "safari:automaticProfiling": false,
+    "setWindowRect": true,
+    "acceptInsecureCerts": false,
+    "safari:platformBuildVersion": "25G72",
+    "safari:experimentalWebSocketUrl": false,
+    "platformName": "macOS",
+    "safari:diagnose": false
+  },
+  "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.6 Safari/605.1.15",
+  "crossOriginIsolated": false,
+  "result": {
+    "ok": true,
+    "startupMs": 704,
+    "requests": 39,
+    "samples": [
+      {
+        "round": 0,
+        "index": 0,
+        "kind": "check",
+        "durationMs": 2064
+      },
+      {
+        "round": 0,
+        "index": 1,
+        "kind": "hover",
+        "durationMs": 1
+      },
+      {
+        "round": 0,
+        "index": 2,
+        "kind": "compile",
+        "durationMs": 12
+      },
+      {
+        "round": 0,
+        "index": 3,
+        "kind": "compile",
+        "durationMs": 13
+      },
+      {
+        "round": 0,
+        "index": 4,
+        "kind": "check",
+        "durationMs": 1709
+      },
+      {
+        "round": 0,
+        "index": 5,
+        "kind": "compile",
+        "durationMs": 24
+      },
+      {
+        "round": 0,
+        "index": 6,
+        "kind": "check",
+        "durationMs": 6
+      },
+      {
+        "round": 0,
+        "index": 7,
+        "kind": "check",
+        "durationMs": 6
+      },
+      {
+        "round": 0,
+        "index": 8,
+        "kind": "hover",
+        "durationMs": 1
+      },
+      {
+        "round": 0,
+        "index": 9,
+        "kind": "check",
+        "durationMs": 5
+      },
+      {
+        "round": 0,
+        "index": 10,
+        "kind": "compile",
+        "durationMs": 39
+      },
+      {
+        "round": 0,
+        "index": 11,
+        "kind": "compile",
+        "durationMs": 10
+      },
+      {
+        "round": 0,
+        "index": 12,
+        "kind": "check",
+        "durationMs": 7
+      },
+      {
+        "round": 1,
+        "index": 0,
+        "kind": "check",
+        "durationMs": 6
+      },
+      {
+        "round": 1,
+        "index": 1,
+        "kind": "hover",
+        "durationMs": 1
+      },
+      {
+        "round": 1,
+        "index": 2,
+        "kind": "compile",
+        "durationMs": 9
+      },
+      {
+        "round": 1,
+        "index": 3,
+        "kind": "compile",
+        "durationMs": 8
+      },
+      {
+        "round": 1,
+        "index": 4,
+        "kind": "check",
+        "durationMs": 7
+      },
+      {
+        "round": 1,
+        "index": 5,
+        "kind": "compile",
+        "durationMs": 23
+      },
+      {
+        "round": 1,
+        "index": 6,
+        "kind": "check",
+        "durationMs": 5
+      },
+      {
+        "round": 1,
+        "index": 7,
+        "kind": "check",
+        "durationMs": 6
+      },
+      {
+        "round": 1,
+        "index": 8,
+        "kind": "hover",
+        "durationMs": 1.0000000000009095
+      },
+      {
+        "round": 1,
+        "index": 9,
+        "kind": "check",
+        "durationMs": 4.9999999999990905
+      },
+      {
+        "round": 1,
+        "index": 10,
+        "kind": "compile",
+        "durationMs": 16
+      },
+      {
+        "round": 1,
+        "index": 11,
+        "kind": "compile",
+        "durationMs": 11.00000000000091
+      },
+      {
+        "round": 1,
+        "index": 12,
+        "kind": "check",
+        "durationMs": 7.9999999999990905
+      },
+      {
+        "round": 2,
+        "index": 0,
+        "kind": "check",
+        "durationMs": 6
+      },
+      {
+        "round": 2,
+        "index": 1,
+        "kind": "hover",
+        "durationMs": 1
+      },
+      {
+        "round": 2,
+        "index": 2,
+        "kind": "compile",
+        "durationMs": 9
+      },
+      {
+        "round": 2,
+        "index": 3,
+        "kind": "compile",
+        "durationMs": 11
+      },
+      {
+        "round": 2,
+        "index": 4,
+        "kind": "check",
+        "durationMs": 6
+      },
+      {
+        "round": 2,
+        "index": 5,
+        "kind": "compile",
+        "durationMs": 24
+      },
+      {
+        "round": 2,
+        "index": 6,
+        "kind": "check",
+        "durationMs": 6
+      },
+      {
+        "round": 2,
+        "index": 7,
+        "kind": "check",
+        "durationMs": 5
+      },
+      {
+        "round": 2,
+        "index": 8,
+        "kind": "hover",
+        "durationMs": 1.0000000000009095
+      },
+      {
+        "round": 2,
+        "index": 9,
+        "kind": "check",
+        "durationMs": 5.9999999999990905
+      },
+      {
+        "round": 2,
+        "index": 10,
+        "kind": "compile",
+        "durationMs": 14
+      },
+      {
+        "round": 2,
+        "index": 11,
+        "kind": "compile",
+        "durationMs": 11
+      },
+      {
+        "round": 2,
+        "index": 12,
+        "kind": "check",
+        "durationMs": 8
+      }
+    ],
+    "compilerBytes": 5072684
+  },
+  "ok": true,
+  "completedAt": "2026-09-19T20:21:25.386Z"
+}
