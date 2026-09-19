@@ -62,7 +62,7 @@ def build(root, cache, sources):
                 shutil.copytree(sources[name]['sourcePath'], trees[name], symlinks=True)
             musl = work / 'sysroot'
             run(trees['musl'] / 'configure', '--target=i386-linux-musl', '--prefix=' + str(musl),
-                '--syslibdir=/lib', 'CC=gcc -m32', 'AR=ar', 'RANLIB=ranlib', cwd=trees['musl'], env=environment)
+                '--syslibdir=/lib', 'CC=gcc -m32', 'AR=ar', 'RANLIB=ranlib', 'CFLAGS=-funwind-tables', cwd=trees['musl'], env=environment)
             run('make', '-j' + jobs, cwd=trees['musl'], env=environment)
             # Install the dynamic loader ourselves into the guest root, not /lib on the builder.
             run('make', 'install', 'DESTDIR=' + str(work / 'install'), cwd=trees['musl'], env=environment)
@@ -73,14 +73,30 @@ def build(root, cache, sources):
             (musl / 'lib/libc.so').chmod(0o755)
             cc = work / 'guest-cc'
             # musl replaces GCC's link spec, including its -m32 linker selection.
-            cc.write_text('#!/bin/sh\nexec gcc -m32 -Wl,-m,elf_i386 -static-libgcc -specs=' + shlex.quote(str(musl / 'lib/musl-gcc.specs')) + ' "$@"\n')
+            cc.write_text('#!/bin/sh\nexec gcc -m32 -Wl,-m,elf_i386,--eh-frame-hdr -static-libgcc -specs=' + shlex.quote(str(musl / 'lib/musl-gcc.specs')) + ' "$@"\n')
             cc.chmod(0o755)
             probe = work / 'target-probe.c'
             probe.write_text('int main(void) { return sizeof(void *) != 4; }\n')
             run(cc, probe, '-o', work / 'target-probe', env=environment)
             run(musl / 'lib/libc.so', work / 'target-probe', env=environment)
+            # Build LLVM's unwinder against the guest libc. The builder's GCC
+            # unwinder uses glibc-private APIs and cannot be copied into musl.
+            # Source units and flags follow libunwind/src/CMakeLists.txt for
+            # the fixed ELF i386 target; no C++ standard library is involved.
+            unwind = Path(sources['libunwind']['sourcePath'])
+            unwind_objects = []
+            for unit in ('libunwind.cpp', 'Unwind-EHABI.cpp', 'Unwind-seh.cpp',
+                         'UnwindLevel1.c', 'UnwindLevel1-gcc-ext.c', 'Unwind-sjlj.c', 'Unwind-wasm.c',
+                         'UnwindRegistersRestore.S', 'UnwindRegistersSave.S'):
+                obj = work / (unit + '.o')
+                flags = ['-std=c++17', '-fno-exceptions', '-fno-rtti', '-nostdinc++'] if unit.endswith('.cpp') else ['-std=c99', '-fexceptions'] if unit.endswith('.c') else []
+                run(cc, '-O2', '-fPIC', '-funwind-tables', '-DNDEBUG', '-D_GNU_SOURCE',
+                    '-D_LIBUNWIND_IS_NATIVE_ONLY', '-D_LIBUNWIND_SUPPORT_FRAME_APIS',
+                    '-I' + str(unwind / 'include'), *flags, '-c', unwind / 'src' / unit, '-o', obj, env=environment)
+                unwind_objects.append(obj)
+            run('ar', 'rcs', work / 'libunwind.a', *unwind_objects, env=environment)
             run('make', '-C', trees['luajit'] / 'src', '-j' + jobs, 'HOST_CC=gcc -m32', 'CC=' + str(cc),
-                'BUILDMODE=static', 'TARGET_SYS=Linux', env=environment)
+                'BUILDMODE=static', 'TARGET_SYS=Linux', 'TARGET_LIBS=' + str(work / 'libunwind.a'), env=environment)
             guest = work / 'guest'
             for directory in ('dev', 'proc', 'sys', 'tmp', 'host', 'nupp', 'lib'):
                 (guest / directory).mkdir(parents=True, exist_ok=True)
