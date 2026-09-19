@@ -905,6 +905,8 @@ Options:
   -o DIR               Output directory for explicit source-file builds.
   --strict             Treat strict checker rules as errors.
   --dialect DIALECT    Source-lowering dialect.
+  --host HOST          Runtime host services, independent of the Lua output
+                       dialect.
   --compat PROFILE     Enforce the stock Lua 5.1 source subset without
                        compatibility lowering.
   -O0, -O1, -O2        Optimization level.

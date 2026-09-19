@@ -37,12 +37,12 @@ export const provider: contracts.Provider? = do
     if chosen ~= nil then
         yield chosen
     end
-    if target.dialect ~= "lua51"
+    if target.host == "native"
         and (package.preload["nupp.workers.native"] ~= nil or package.loaded["nupp.workers.native"] ~= nil)
     then
         yield available("nupp.runtime.provider.workers")
     end
-    if rawget(_G, "__nuppWasmHost") ~= nil then
+    if target.host == "browser" and (rawget(_G, "__nuppWasmHost") ~= nil or rawget(_G, "__nuppBrowser") ~= nil) then
         yield available("nupp.runtime.browser.workers")
     end
     yield nil

@@ -901,6 +901,8 @@ function checkMod.check(
     -- The checker and every later lowering read the same resolved build axis. No
     -- dialect-specific rule is implied merely by recording it here.
     result.dialect = selectedDialect
+    local target = env and env.config and env.config._target
+    result.host = target and target.host or (selectedDialect == "lua51" and "browser" or "native")
     result.preludeRuntime = env and env.preludeRuntime or nil
     result.moduleName = opts and opts.moduleName
         or env and env.moduleNameForPath and env.moduleNameForPath(env, filename)
@@ -1854,7 +1856,7 @@ function checkMod.check(
         local resolved = c.opts._capabilityResolution or capabilities.resolve(c.opts.dialect)
         local cinterop = capabilities.get(resolved, "cinterop")
         if cinterop.kind ~= "missing"
-            and (not c.env or c.env.nativeCompilerServices ~= false)
+            and (c.env and c.env.compilerServices and c.env.compilerServices.cheader ~= nil)
             and next(c.cDeclared) ~= nil
         then
             local cheader: any = assert(

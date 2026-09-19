@@ -43,14 +43,17 @@ waits -- reach for [](nupp.tasks) instead.
 local contracts = require("nupp.workers.spi")
 local target = require("nupp.runtime.target")
 local provider: contracts.Provider = require("nupp.runtime.workersprovider").provider ?? do
-    if target.dialect ~= "lua51" then
+    if target.host == "native" then
         assert(
             package.preload["nupp.workers.native"] ~= nil or package.loaded["nupp.workers.native"] ~= nil,
             "nupp.workers: no worker provider is available"
         )
         yield _G.require("nupp.runtime.provider.workers") as contracts.Provider
     end
-    assert(rawget(_G, "__nuppWasmHost") ~= nil, "nupp.workers: no worker provider is available")
+    assert(
+        target.host == "browser" and (rawget(_G, "__nuppWasmHost") ~= nil or rawget(_G, "__nuppBrowser") ~= nil),
+        "nupp.workers: no worker provider is available"
+    )
     yield _G.require("nupp.runtime.browser.workers") as contracts.Provider
 end
 local workers = {}

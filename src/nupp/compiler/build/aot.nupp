@@ -39,6 +39,7 @@ const json = require("nupp.codec.json")
 local bindingRules = require("nupp.compiler.aot.binding")
 local gpuBinding = require("nupp.compiler.aot.gpubinding")
 local wasmBinding = require("nupp.compiler.aot.wasmbinding")
+local wasmBridge = require("nupp.compiler.aot.wasmbridge")
 local wasmEmitter = require("nupp.compiler.aot.wasmemit")
 local compile = require("nupp.compiler.aot.compile")
 local constspecialize = require("nupp.compiler.constspecialize")
@@ -337,6 +338,7 @@ record aot.Emitted
 
     wasm: string?
     registrar: string?
+    bridge: any?
     unit: string?
 end
 
@@ -789,19 +791,20 @@ function aot.wasmDispatch(
     sites: {compile.Site},
     unit: string,
     gpuArtifacts: {[string]: any},
-    constFamilies: {any}?
+    constFamilies: {any}?,
+    independent: boolean?
 ): string
     local rewritten = source
     local replacements: {any} = {}
     for _, family in ipairs(constFamilies or {}) do
-        replacements[#replacements + 1] = {site = family.site, text = wasmBinding.familyReplacement(family, unit)}
+        replacements[#replacements + 1] = {site = family.site, text = wasmBinding.familyReplacement(family, unit, independent)}
     end
     for position, program in ipairs(programs) do
         local site = sites[position]
         if site ~= nil then
             local replacement = program.executionTarget == "gpu"
                 and gpuBinding.replacement(program, gpuArtifacts[program.symbol], true)
-                or wasmBinding.replacement(program, unit)
+                or wasmBinding.replacement(program, unit, independent)
             replacements[#replacements + 1] = {site = site, text = replacement}
         end
     end
@@ -914,7 +917,8 @@ function aot.compileWasm(
     extra: {string}?,
     previous: {[string]: aot.WasmModule}?,
     memo: aot.Remembered?,
-    reporter: Reporter?
+    reporter: Reporter?,
+    independent: boolean?
 ): (aot.WasmOutcome?, string?)
     local report = reporter or progress.new("never")
     local command, version = aot.wasmToolchain(memo)
@@ -941,7 +945,8 @@ function aot.compileWasm(
             if artifacts == nil then
                 return nil, "missing Wasm AOT artifacts for " .. one.source
             end
-            local validation = wasmEmitter.validate((artifacts as compile.Artifacts).programs)
+            local validation = independent and wasmBridge.validate((artifacts as compile.Artifacts).programs)
+                or wasmEmitter.validate((artifacts as compile.Artifacts).programs)
             if validation ~= nil then
                 return nil, validation
             end
@@ -949,7 +954,10 @@ function aot.compileWasm(
             local source = one.output:gsub("%.c$", ".side.c")
             local bytes = (
                 artifacts as compile.Artifacts
-            ).c .. wasmEmitter.registrar((artifacts as compile.Artifacts).programs, unit, one.tier)
+            ).c .. (
+                independent and wasmBridge.registrar((artifacts as compile.Artifacts).programs, one.tier)
+                or wasmEmitter.registrar((artifacts as compile.Artifacts).programs, unit, one.tier)
+            )
             if fs.readFile(source) ~= bytes then
                 local wrote, writeErr = fs.writeFile(source, bytes)
                 if not wrote then
@@ -957,11 +965,19 @@ function aot.compileWasm(
                 end
             end
             one.wasmSource = source
-            one.registrar = "nupp_wasm_register_" .. unit
+            one.registrar = not independent and "nupp_wasm_register_" .. unit or nil
+            one.bridge = independent and wasmBridge.metadata((artifacts as compile.Artifacts).programs, one.tier) or nil
             one.unit = unit
             units[#units + 1] = one
             sources[#sources + 1] = source
-            moduleKeys[#moduleKeys + 1] = aot.wasmModuleKey(bytes, version as string, one.tier, extra)
+            moduleKeys[
+                #moduleKeys + 1
+            ] = aot.wasmModuleKey(
+                bytes,
+                (version as string) .. (independent and ":independent-v2" or ""),
+                one.tier,
+                extra
+            )
         end
     end
 
@@ -993,9 +1009,34 @@ function aot.compileWasm(
                 "-Wextra",
                 "-Werror",
                 "-Wno-parentheses-equality",
-                "-sSIDE_MODULE=2",
                 "-sFILESYSTEM=0",
             }
+            if independent then
+                for _, flag in ipairs({
+                    "-sSTANDALONE_WASM=1",
+                    "--no-entry",
+                    "-Wl,--export-dynamic",
+                    "-Wl,--export=malloc",
+                    "-Wl,--export=free",
+                    "-sALLOW_MEMORY_GROWTH=1",
+                    "-sINITIAL_MEMORY=4194304",
+                    "-sMAXIMUM_MEMORY=67108864"
+                }) do
+                    argv[#argv + 1] = flag
+                end
+                for _, entry in ipairs(one.bridge.entries) do
+                    argv[#argv + 1] = "-Wl,--export=" .. entry.call
+                    for _, layout in ipairs(entry.layouts) do
+                        argv[#argv + 1] = "-Wl,--export=" .. layout.prefix .. "_size"
+                        for _, field in ipairs(layout.fields) do
+                            argv[#argv + 1] = "-Wl,--export=" .. layout.prefix .. "_offset_" .. field
+                            argv[#argv + 1] = "-Wl,--export=" .. layout.prefix .. "_size_" .. field
+                        end
+                    end
+                end
+            else
+                argv[#argv + 1] = "-sSIDE_MODULE=2"
+            end
             local tierFlag = aot.TIER_FLAGS[one.tier]
             if tierFlag ~= nil then
                 argv[#argv + 1] = tierFlag as string
@@ -1003,7 +1044,7 @@ function aot.compileWasm(
             for _, flag in ipairs(extra or {}) do
                 argv[#argv + 1] = flag
             end
-            local stagedPath = one.output:gsub("%.c$", ".wasm.tmp")
+            local stagedPath = one.output:gsub("%.c$", independent and ".tmp.wasm" or ".wasm.tmp")
             argv[#argv + 1] = "-o"
             argv[#argv + 1] = stagedPath
             os.remove(stagedPath)
@@ -1843,6 +1884,7 @@ function aot.writeUnitsManifest(outDir: string, triple: string, emitted: {aot.Em
             role = one.role,
             wasm = one.wasm and (one.wasm as string):gsub("^" .. prefix:gsub("%p", "%%%0"), "") or nil,
             registrar = one.registrar,
+            bridge = one.bridge,
             unit = one.unit,
         }
     end
@@ -1968,7 +2010,8 @@ function aot.apply(
     linkage: string?,
     carried: aot.Carried?,
     reporter: Reporter?,
-    scope: {[string]: boolean}?
+    scope: {[string]: boolean}?,
+    independent: boolean?
 ): (aot.Result?, string?, compile.Diagnostic?)
     local report = reporter or progress.new("never")
     local held = carried or new aot.Carried()
@@ -2156,7 +2199,8 @@ function aot.apply(
             cflags,
             held.modules,
             held.toolchain,
-            report
+            report,
+            independent
         )
         if wasm == nil then
             return nil, wasmErr
@@ -2185,7 +2229,8 @@ function aot.apply(
                         (artifacts as compile.Artifacts).sites,
                         one.unit as string,
                         (artifacts as compile.Artifacts).gpu,
-                        (artifacts as compile.Artifacts).constFamilies
+                        (artifacts as compile.Artifacts).constFamilies,
+                        independent
                     )
                 end
             end
@@ -2202,7 +2247,8 @@ function aot.apply(
                             (artifacts as compile.Artifacts).sites,
                             "",
                             (artifacts as compile.Artifacts).gpu,
-                            (artifacts as compile.Artifacts).constFamilies
+                            (artifacts as compile.Artifacts).constFamilies,
+                            independent
                         )
                     end
                 end

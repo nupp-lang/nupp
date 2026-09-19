@@ -4,6 +4,41 @@ order: 636
 
 # Wasm AOT applications
 
+The default browser package runs LuaJIT inside a v86 guest. Select the browser
+host independently of the dialect:
+
+```lua
+app = {
+   kind = "bundle", entries = {"main"}, sources = {"src"},
+   output = "dist/app.lua", dialect = "luajit", host = "browser",
+   aot = "require-wasm",
+}
+```
+
+`scripts/browser-app . app dist/browser` packages the program, verified guest,
+independent Wasm kernels, worker entry and matching sources/notices. Linux
+builds the pinned guest; other hosts set `NUPP_BROWSER_GUEST_DIR` to a verified
+source-built guest package. Install `editors/playground` Node dependencies before
+packaging. Set `NUPP_WASM_CC` when Emscripten is not on `PATH`.
+
+Pure kernels exchange exact scalar slots and bounded copied spans with their
+own Wasm memory. Struct field offsets are converted between guest and Wasm
+layouts. The transfer batch limit is 2 MiB; Wasm kernel memory is capped at
+64 MiB. This boundary is best used for substantial kernels rather than tiny
+calls. `emit-wasm` exports the kernels while leaving ordinary Lua bodies active.
+
+Lua-builder entries that use the Lua C API are not supported by this independent
+ABI. Run that source with `aot = "off"`, or explicitly select the legacy host
+below during the rollback release. Guest FFI is native i386 Linux FFI and cannot
+load a Wasm side module. Browser services, including WebGPU and worker tasks,
+are selected by the browser host.
+
+## Legacy Lua 5.1 host
+
+The rest of this page describes the explicit legacy backend retained during the
+rollback release. Its shared-memory ABI differs from the default LuaJIT package.
+Set `NUPP_BROWSER_BACKEND=lua51` when invoking `scripts/browser-app` for it.
+
 A Lua 5.1 application can run inside Nupp's Wasm host while selected `@aot`
 functions run as WebAssembly side modules in the same linear memory. Use
 `nupp.mem.span` and `nupp.mem.array` when Lua and compiled code need zero-copy arrays of Nupp structs:
@@ -124,10 +159,11 @@ the ordinary Lua bodies active; `require-wasm` installs the compiled wrappers.
 
 ## Browser package
 
-`scripts/browser-app` builds a Lua 5.1 bundle and writes everything a static
+`NUPP_BROWSER_BACKEND=lua51 scripts/browser-app` builds a Lua 5.1 bundle and writes everything a static
 server needs. Name the project, target, and destination:
 
 ```bash
+NUPP_BROWSER_BACKEND=lua51 \
 NUPP_WASM_CC=/opt/emsdk/upstream/emscripten/emcc \
 NUPP_LUA51_SOURCE=/opt/src/lua-5.1.5/src \
   scripts/browser-app . app dist/browser

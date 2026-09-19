@@ -4,7 +4,7 @@ async function supportsSimd() {
   const manifestResponse = await fetch("./simd/nupp-browser-app.json");
   if (!manifestResponse.ok) throw new Error("cannot load the SIMD manifest");
   const manifest = await manifestResponse.json();
-  const side = manifest.sideModules.find((unit) => unit.tier === "simd128");
+  const side = (manifest.kernels || manifest.sideModules).find((unit) => unit.tier === "simd128");
   if (!side) throw new Error("the SIMD package contains no SIMD128 kernel");
   const response = await fetch("./simd/" + side.file);
   if (!response.ok) throw new Error("cannot load the SIMD kernel");

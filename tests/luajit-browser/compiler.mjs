@@ -6,6 +6,7 @@ function equivalent(actual, expected, path = 'response') {
   if (typeof actual !== typeof expected || actual === null || expected === null) {
     if (actual !== expected) throw new Error(`${path}: ${JSON.stringify(actual)} != ${JSON.stringify(expected)}`);
   } else if (typeof expected === 'object') {
+    if (Array.isArray(actual) !== Array.isArray(expected)) throw new Error(`${path}: array/object mismatch`);
     if (JSON.stringify(Object.keys(actual).sort()) !== JSON.stringify(Object.keys(expected).sort()))
       throw new Error(`${path}: different fields`);
     for (const key of Object.keys(expected)) equivalent(actual[key], expected[key], `${path}.${key}`);

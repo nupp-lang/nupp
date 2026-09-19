@@ -22,6 +22,7 @@ local response = require("nupp.runtime.browser.response")
 local contracts = require("nupp.time.spi")
 local effects = require("nupp.runtime.browser.effects")
 local time = {}
+local browserHost = rawget(_G, "__nuppBrowser")
 
 local function duration(value: number, label: string): number
     if value ~= value or value < 0 or value == math.huge then
@@ -32,6 +33,9 @@ end
 
 --- Monotonic milliseconds since the Worker time origin.
 function time.now(): number
+    if browserHost ~= nil then
+        return browserHost.now() as number
+    end
     return response.await("time", {operation = "now",}) as number
 end
 

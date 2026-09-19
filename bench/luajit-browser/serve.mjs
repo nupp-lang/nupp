@@ -5,13 +5,14 @@ import path from 'node:path';
 
 const root = path.resolve(process.argv[2] || 'build/luajit-browser/latency');
 const port = Number(process.argv[3] || 8112);
-const types = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.json': 'application/json', '.wasm': 'application/wasm' };
+const types = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.json': 'application/json', '.wasm': 'application/wasm' };
 http.createServer(async (req, res) => {
   if (process.env.NUPP_BENCH_ISOLATED !== '0') {
     res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
     res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
   }
   res.setHeader('Cache-Control', 'no-store');
+  if (process.env.NUPP_BENCH_CSP) res.setHeader('Content-Security-Policy', process.env.NUPP_BENCH_CSP);
   try {
     const url = new URL(req.url, 'http://localhost');
     const name = decodeURIComponent(url.pathname === '/' ? '/index.html' : url.pathname);

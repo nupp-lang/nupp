@@ -68,7 +68,7 @@ end
 
 function M.browserHttp(memory)
     local name = "nupp.runtime.browser.http"
-    return instance({[name] = true}, {["nupp.runtime.wasm"] = memory or {}})(name)
+    return instance({[name] = true}, {["nupp.runtime.browser.memory"] = memory or {}})(name)
 end
 
 -- Each fixture owns an ordinary immutable discovery index and module cache.

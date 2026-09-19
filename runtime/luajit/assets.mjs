@@ -44,6 +44,14 @@ export function assetsFor(manifest, base) {
     const url = new URL(name, base);
     if (url.origin !== new URL(base).origin) throw new Error('Guest asset crosses origins');
     const result = (async () => {
+      const encoded = manifest.delivery?.[name];
+      if (encoded) {
+        if (encoded === name || manifest.delivery?.[encoded]) throw new Error('Cyclic guest asset encoding');
+        const packed = await verified(encoded);
+        const bytes = new Uint8Array(await inflateSnapshot(packed, record.bytes));
+        if (await sha256(bytes) !== record.sha256) throw new Error(`Guest asset SHA-256 mismatch: ${name}`);
+        return bytes;
+      }
       const response = await fetch(url);
       if (!response.ok) throw new Error(`Cannot fetch ${name}: ${response.status}`);
       const chunks = [];
@@ -68,4 +76,11 @@ export function assetsFor(manifest, base) {
     pending.set(name, result);
     return result;
   };
+}
+
+export async function loadPackedAsset(url, record) {
+  const address = new URL(url, globalThis.location?.href);
+  const name = address.pathname.split('/').at(-1);
+  const bytes = await assetsFor({assets:{[name]:{sha256:record.sha256,bytes:record.bytes}}}, address)(name);
+  return record.decodedBytes ? new Uint8Array(await inflateSnapshot(bytes, record.decodedBytes)) : bytes;
 }

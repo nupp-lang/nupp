@@ -1,158 +1,116 @@
 # Nupp Playground
 
-The playground checks and compiles Nupp entirely in the browser. It runs the
-real self-hosted compiler inside official Lua 5.1 compiled to WebAssembly, in a
-module Worker and off the main thread. It does not reimplement the checker in
-JavaScript and does not send source to a server.
+The playground checks, compiles and runs Nupp entirely in the browser. The
+self-hosted compiler runs in LuaJIT inside a v86 Worker; each application runs
+in a separate guest. Source stays on the user's device.
 
-## Compiler artifact
+## Build and serve
 
-`scripts/prelude-image` produces one Lua 5.1 source bundle. It builds the
-bundle twice: the prelude image the bundle carries is generated from the
-compiler rather than committed, and the first bundle is what generates it.
-The portable-compiler acceptance lane first runs those bytes unchanged in a
-native official Lua 5.1 host that opens only base, package, table, string, math,
-and coroutine. The build then gives the exact same bytes a content-addressed
-filename and compiles their SHA-256 digest into the Wasm host.
+Install the pinned native toolchain and playground dependencies, then build:
 
-The browser downloads the compiler assets and a separate application runtime:
+```sh
+./scripts/toolchain --all
+npm ci --prefix editors/playground
+npm run build --prefix editors/playground
+npm run serve --prefix editors/playground
+```
 
-- `nupp-playground.mjs`, the Emscripten ES module loader;
-- `nupp-playground.wasm`, official Lua 5.1 and the small C host;
-- `nupp-compiler-<digest>.lua`, the separately cached compiler; and
-- `nupp-playground-assets.json`, the artifact names, digest, and sizes;
-- `nupp-runner.mjs` and `nupp-runner.wasm`, a fresh Lua 5.1 application VM;
-  and
-- `nupp-app-runtime-<digest>.lua`, the checked browser providers and runner.
+The LuaJIT guest is built from pinned sources on Linux x86_64. Other development
+hosts set `NUPP_BROWSER_GUEST_DIR` to a verified source-built guest package.
+See [guest requirements](../../runtime/luajit/README.md). Emscripten 6.0.8 is
+also needed while the explicitly selectable legacy Lua 5.1 host is retained.
+The build creates missing pre-LuaJIT snapshots in a derived build cache using
+headless Chromium; it does not modify the toolchain's source package.
 
-The C host hashes the supplied compiler before Lua sees it and fails closed on
-a mismatch. It uses `luaL_loadbuffer` directly and enables no Emscripten
-virtual filesystem.
+`scripts/prelude-image luajit` builds the compiler and checks its prelude image
+round trip. The compiler bytecode, application initializer, emulator and clean
+snapshots are compressed, content identified and verified before use. Matching
+guest sources and notices accompany the static distribution. HTTP caching and
+compression for JavaScript/CSS remain the static host's responsibility.
 
-## Fast startup
+## Compiler Worker
 
-Checking the standard prelude from source dominated the old compiler startup.
-The portable target carries that already-checked type graph as inert data. A
-small checked Nupp module hydrates a fresh graph for each output dialect; it
-does not evaluate generated fallback code.
-
-The source declarations remain authoritative. The acceptance test constructs
-the graph from source and requires a byte-identical image, then hydrates the
-image and requires the round trip to produce the same bytes. Table keys,
-cycles, metatables, and shared identities are preserved. Ordinary native
-compiler entries continue to check the prelude from source.
-
-## Worker protocol
-
-The UI keeps one stateful compiler session in `worker.js`. Requests retain the
-same IDs and shapes for `check`, `compile`, and `hover`:
+The UI retains one stateful compiler session for checks, compilation and hover:
 
 ```js
 worker.postMessage({
-  id: 1,
-  kind: "compile",
-  source,
-  filename: "playground.nupp",
-  options: { strict: true, optimize: true, dialect: "lua51" },
+  id: 1, kind: "compile", source, filename: "playground.nupp",
+  options: {strict: true, optimize: true, dialect: "luajit"},
 });
 ```
 
-The Worker passes that object through the compiler's JSON adapter. The C ABI
-returns an owned response handle; JavaScript copies the bytes and frees the
-handle on every path.
+Requests use the existing JSON response shape, with source bytes outside the
+JSON envelope at the guest boundary. Pending checks are coalesced; the queue
+holds at most 32 requests. Source is capped at 1 MiB. Closing or stopping the
+compiler terminates its guest; the next check creates a new session. Old worker
+responses cannot update a replacement editor session.
 
-The full playground exposes Lua 5.1 and LuaJIT output, defaulting to Lua 5.1.
-The VM hosting the compiler stays Lua 5.1 in both cases. Cross-dialect LuaJIT
-output is validated by LuaJIT in the differential suite instead of being
-misreported by the host parser.
+The compiler uses 128 MiB guest RAM. Snapshots precede LuaJIT startup, so no
+user code, compiler session, live resources or JIT traces are shared between
+users. Each restore injects fresh entropy, time and configuration. A rejected
+snapshot falls back to normal boot of the same verified guest.
 
 ## Application Worker
 
-Run first checks and lowers the source in the compiler Worker. Lua 5.1 output
-then starts a fresh application Worker, verifies the checked runtime bundle,
-and executes the generated bytes in a separate Lua/Wasm VM. The runner captures
-`print` output in checked source; JavaScript does not construct a Lua wrapper.
+Run compiles the source and starts a fresh 64 MiB guest. It captures output and
+uses browser providers for timers, Web Crypto, HTTP and WebGPU.
+Native guest FFI, `bit`, `string.buffer` and LPeg remain available. FFI addresses
+belong to the i386 guest; they are not browser addresses. Browser services use
+bounded copied leases, never shared guest pointers.
 
-The application Worker implements HTTP with `fetch`, timers with Worker clocks,
-and cryptography and randomness with Web Crypto. Checked providers suspend at
-the effect boundary and resume with the browser result. Pure computation and
-AOT kernels do not cross that boundary.
+Each playground run has a five-second execution deadline, 128 effects, a
+2 MiB effect-byte budget and a 4 MiB response budget.
+Startup has its own deadline. Stop terminates the application Worker even if
+code never yields. The compiler remains available for later edits.
 
-Each run receives at most 256 MiB of Wasm memory, 128 effects, bounded protocol
-messages, a five-second cooperative deadline, and a ten-second hard Worker
-deadline that includes cold startup. Source input is capped at 1 MiB, generated
-programs at 8 MiB, and captured output at 1 MiB.
-Terminating the application Worker stops code that never suspends. The compiler
-Worker remains alive for later checks.
+The guest RAM settings are not total browser memory: Wasm memory, JavaScript,
+snapshot decoding and generated emulator code also contribute. No
+SharedArrayBuffer or cross-origin isolation headers are required.
 
-LuaJIT output is displayed instead of executed because the application VM is
-Lua 5.1. Select Lua 5.1 to run the program.
+## Compatibility and legacy selection
+
+LuaJIT is the default runtime. The options menu's stock Lua 5.1 compatibility
+checkbox enables `compat = "lua51"`: unsupported source and dependencies are
+rejected without selecting a different generator or VM. It is narrower than
+the old portable lowering contract.
+
+Lua 5.1 remains explicitly selectable during the rollback release. Its compiler
+and application host are separate legacy Workers. Settings survive reload and
+shared URL fragments carry source, runtime and non-default options. Strict
+checking and O1 optimization default on.
 
 ## Host boundary
 
-The browser compiler accepts one in-memory source file. It has no filesystem,
-process, project resolver, persistent build cache, documentation renderer,
-AOT host, or C-header parser. `cinterop` and `cstorage` are unavailable because
-the browser supplies no native ABI or storage provider. Their diagnostics come
-from the same dialect and capability machinery as command-line builds.
+The compiler handles one in-memory source file, including inline C declarations
+and i386 layout inspection. It has no project filesystem, process launcher,
+local-header preprocessor or browser AOT compiler. Build applications with
+independent Wasm kernels using the CLI's browser target and package command;
+see [runtime migration](../../runtime/luajit/MIGRATION.md).
 
-The application runtime carries browser providers, `lunajson`, and the
-standard modules those providers implement. A dependency-provided service not
-carried by that bundle can still check and lower, but execution reports an
-ordinary missing-module or missing-provider error.
+The runtime carries the standard modules used by the examples and browser
+providers. An external module must be packaged explicitly. A dependency that
+checks successfully is not a promise that its host facilities exist in a browser.
 
-## Pages
+## Pages and tests
 
-`index.html` is the full playground. It has the example and output-dialect
-selectors, check status, options, sharing, and generated output. The output
-panel can be resized beside the editor and becomes a bottom drawer on narrow
-screens.
+`index.html` is the full playground; `embed.html` is the iframe form. Generated
+documentation uses `<nupp-playground>` from `doc-app.js`, sharing one lazy
+compiler Worker. Component removal and page teardown cancel application work.
 
-`embed.html` is the standalone iframe form. Generated documentation normally
-uses the `<nupp-playground>` element from `doc-app.js` instead, so editors share
-one lazy Worker and CodeMirror popups remain in page space.
-
-Strict checking and `-O1` optimization default on. Shared links store source,
-dialect, and non-default options in the URL fragment, so none of them reach a
-server.
-
-## Development
-
-Emscripten 6.0.8 is required. From this directory:
-
-```bash
-npm install
-npm test
-npm run serve
-```
-
-The build first proves the portable compiler under native Lua 5.1, builds the
-Wasm host, hashes and copies the exact tested compiler bytes, and then bundles
-the UI. `npm run test:wasm` runs the Node differential and digest-rejection
-tests. The Chromium smoke page exercises the generated Worker through the same
-static-server path used by Pages.
-
-The relevant files are:
-
-```text
-src/app.js                 full and iframe UI
-src/doc-app.js             inline documentation component
-src/wasm-worker.js         live compiler Worker and message protocol
-src/app-worker.js          isolated application Worker
-src/wasm-runtime.js        Wasm allocation and handle ownership
-src/examples/              checked standalone examples
-static/                    pages, theme, and favicon
-wasm/nupp_host.c           verified Lua 5.1 host ABI
-tools/build-wasm-host.sh   pinned Emscripten build
-build.mjs                  acceptance, hashing, host, and UI build
-```
+`npm test` covers the UI helpers; `npm run test:wasm` preserves the legacy
+rollback oracle. `test/luajit-ui.mjs` exercises the built UI in Chromium, Firefox
+and WebKit. `test/compiler-performance.mjs` measures the actual retained workers
+with changing source, and `test/delivery.mjs` measures cold/cached navigation
+under a shared modeled 10 Mbps transfer budget. Engine tests are not physical
+mobile-device or shipping Safari acceptance.
 
 ## Examples and theme
 
 Every entry in `src/examples.js` names one file in `src/examples/`. Examples
-must be standalone because the browser has no project filesystem. They must not
-require native C layout, and each ends with a small edit that demonstrates a
-diagnostic.
+must be standalone because the browser has no project filesystem. Inline C
+declarations and guest-native layouts are supported; local header files and host
+preprocessing are not available. Examples should end with a small edit that
+demonstrates a diagnostic.
 
 The colors in `static/style.css` follow the documentation site's woodblock
 theme. `src/cm-theme.js` owns CodeMirror's editor and syntax styles so the full

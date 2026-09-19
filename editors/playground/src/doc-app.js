@@ -8,7 +8,7 @@ import { EXAMPLES } from "./examples.js";
 import { renderLuaOutput } from "./lua-output.js";
 
 const FILENAME = "playground.nupp";
-const OPTIONS = { strict: true, optimize: true, dialect: "lua51" };
+const OPTIONS = { strict: true, optimize: true, dialect: "luajit" };
 // Documentation frequently introduces a declaration before showing its use.
 // Keep that teaching shape without turning every first step into yellow chrome.
 const IGNORED_DOC_DIAGNOSTICS = new Set(["NUPP2507"]);
@@ -31,6 +31,7 @@ class CompilerClient {
     this.pending = new Map();
     this.queue = Promise.resolve();
     this.lastSource = null;
+    this.generation = 0;
   }
 
   start() {
@@ -40,7 +41,9 @@ class CompilerClient {
       this.rejectReady = reject;
     });
     this.worker = new Worker(new URL("./worker.js", import.meta.url), { type: "module" });
+    const instance = this.worker;
     this.worker.addEventListener("message", (event) => {
+      if (this.worker !== instance) return;
       const message = event.data;
       if (message.type === "ready") {
         this.resolveReady?.();
@@ -49,9 +52,7 @@ class CompilerClient {
         return;
       }
       if (message.type === "boot-error") {
-        this.rejectReady?.(new Error(message.message));
-        this.resolveReady = null;
-        this.rejectReady = null;
+        this.close(message.message);
         return;
       }
       if (message.type === "status") return;
@@ -61,11 +62,19 @@ class CompilerClient {
       resolve(message);
     });
     this.worker.addEventListener("error", (event) => {
-      this.rejectReady?.(new Error(event.message || "the compiler worker failed to start"));
-      this.resolveReady = null;
-      this.rejectReady = null;
+      if (this.worker === instance) this.close(event.message || "the compiler worker failed to start");
     });
     return this.ready;
+  }
+
+  close(reason = "Compiler stopped") {
+    ++this.generation;
+    this.rejectReady?.(new Error(reason));
+    this.resolveReady = this.rejectReady = null;
+    for (const resolve of this.pending.values()) resolve({ok:false,error:reason});
+    this.pending.clear();
+    this.worker?.terminate();
+    this.worker = this.ready = this.lastSource = null;
   }
 
   async raw(kind, payload) {
@@ -78,7 +87,12 @@ class CompilerClient {
   }
 
   run(operation) {
-    const result = this.queue.then(operation, operation);
+    const generation = this.generation;
+    const next = () => {
+      if (generation !== this.generation) throw new Error("Compiler request cancelled");
+      return operation();
+    };
+    const result = this.queue.then(next, next);
     this.queue = result.catch(() => {});
     return result;
   }
@@ -109,22 +123,22 @@ class CompilerClient {
 
 const compiler = new CompilerClient();
 
-// Runs compiled Lua 5.1 in an isolated Worker to produce the computed result
+// Runs compiled LuaJIT in an isolated Worker to produce the computed result
 // the Run button shows. Mirrors app.js's runGenerated: a fresh Worker per run,
 // terminated on completion or on the same 10 second hard deadline.
-function runGenerated(code) {
+function runGenerated(code, signal) {
   return new Promise((resolve, reject) => {
     const application = new Worker(new URL("./app-worker.js", import.meta.url), { type: "module" });
     let settled = false;
     const timeout = setTimeout(() => {
-      application.terminate();
-      reject(new Error("the program exceeded the playground's 10 second hard deadline"));
+      finish(() => reject(new Error("the program exceeded the playground's 10 second hard deadline")));
     }, 10000);
     const finish = (body) => {
       if (settled) return;
       settled = true;
       clearTimeout(timeout);
       application.terminate();
+      signal?.removeEventListener("abort", abort);
       body();
     };
     application.addEventListener("message", (event) => finish(() => {
@@ -134,6 +148,9 @@ function runGenerated(code) {
     application.addEventListener("error", (event) => finish(() => {
       reject(event.error || new Error(event.message || "the application Worker failed"));
     }), { once: true });
+    const abort = () => finish(() => reject(new Error("Program stopped")));
+    if (signal?.aborted) { abort(); return; }
+    signal?.addEventListener("abort", abort, {once:true});
     application.postMessage({ type: "run", code });
   });
 }
@@ -419,7 +436,7 @@ class NuppDocPlayground extends HTMLElement {
     this.readerSource = readerSource.querySelector("code");
     this.readerSource.textContent = source;
 
-    const root = this.attachShadow({ mode: "open" });
+    const root = this.shadowRoot || this.attachShadow({ mode: "open" });
     root.innerHTML = `
       <style>${styles}</style>
       <div class="reader-source" aria-hidden="true"><slot name="reader-source"></slot></div>
@@ -541,6 +558,10 @@ class NuppDocPlayground extends HTMLElement {
   }
 
   disconnectedCallback() {
+    this.runController?.abort();
+    this.runController = null;
+    this.checkGeneration = (this.checkGeneration || 0) + 1;
+    this.luaGeneration = (this.luaGeneration || 0) + 1;
     clearTimeout(this.checkTimer);
     this.view?.destroy();
     this.view = null;
@@ -575,7 +596,7 @@ class NuppDocPlayground extends HTMLElement {
     const source = this.view.state.doc.toString();
     try {
       const result = await compiler.check(source);
-      if (generation !== this.checkGeneration || !result.ok) return;
+      if (generation !== this.checkGeneration || !result.ok || !this.view || !this.isConnected) return;
       this.applyDiagnostics(result.diagnostics);
     } catch {
       // Run exposes startup failures in an output area the reader can close;
@@ -617,7 +638,7 @@ class NuppDocPlayground extends HTMLElement {
     this.luaPanel.textContent = "compiling…";
     try {
       const result = await compiler.compile(source);
-      if (generation !== this.luaGeneration) return;
+      if (generation !== this.luaGeneration || !this.view || !this.isConnected) return;
       if (!result.ok) throw new Error(result.error);
       this.applyDiagnostics(result.diagnostics);
       if (result.code) {
@@ -640,7 +661,13 @@ class NuppDocPlayground extends HTMLElement {
   // compiled) and actually executes it, showing the computed result — the one
   // thing the Lua tab's static text cannot do.
   async run() {
-    this.runButton.disabled = true;
+    if (this.runController) {
+      this.runController.abort();
+      compiler.close();
+      return;
+    }
+    const controller = this.runController = new AbortController();
+    this.runButton.textContent = "Stop";
     this.output.hidden = false;
     this.outputSummary.textContent = "compiling…";
     this.outputMain.textContent = "";
@@ -649,6 +676,7 @@ class NuppDocPlayground extends HTMLElement {
       let code = this.compiledSource === source ? this.compiledCode : null;
       if (code === null) {
         const result = await compiler.compile(source);
+        if (controller.signal.aborted || !this.isConnected) return;
         if (!result.ok) throw new Error(result.error);
         this.applyDiagnostics(result.diagnostics);
         if (!result.code) {
@@ -662,16 +690,26 @@ class NuppDocPlayground extends HTMLElement {
         this.compiledCode = code;
       }
       this.outputSummary.textContent = "running…";
-      const execution = await runGenerated(code);
+      const execution = await runGenerated(code, controller.signal);
+      if (controller.signal.aborted || !this.isConnected) return;
       this.outputSummary.textContent = "ran";
       this.outputMain.textContent = execution?.stdout || "";
     } catch (error) {
+      if (this.runController !== controller) return;
       this.outputSummary.textContent = "failed";
       this.outputMain.textContent = `-- ${error instanceof Error ? error.message : String(error)}`;
     } finally {
-      this.runButton.disabled = false;
+      if (this.runController === controller) {
+        this.runController = null;
+        this.runButton.textContent = "Run";
+      }
     }
   }
 }
 
 customElements.define("nupp-playground", NuppDocPlayground);
+
+addEventListener("pagehide", () => {
+  for (const editor of document.querySelectorAll("nupp-playground")) editor.runController?.abort();
+  compiler.close("Page closed");
+});

@@ -416,7 +416,7 @@ function pragma.install(c: state.Checker): state.StatHandlers
                 if targetBody.aotTarget == "gpu"
                     and targetKind == "localFuncStmt"
                     and selected ~= nil
-                    and selected.aot == "require"
+                    and (selected.aot == "require" or selected.aot == "require-wasm")
                 then
                     bindGpuSpec(target, targetBody)
                 end

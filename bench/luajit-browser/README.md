@@ -1,8 +1,7 @@
 # LuaJIT browser migration measurements
 
-This directory holds measurements for `codex/luajit-everywhere`. The production
-browser default and legacy lowerers have not changed. The migration's release,
-browser-matrix and deletion gates still apply.
+This directory holds measurements for `codex/luajit-everywhere`. LuaJIT is the browser default on this branch. Main and the legacy lowerers
+remain unchanged; integration, release and deletion gates still apply.
 
 The compatibility implementation is in `nupp.compiler.compat`. Its stock-5.1
 execution oracle is `scripts/lua51-compat-corpus.sh`; its checker/cache tests are
@@ -169,19 +168,42 @@ that excludes JavaScript, decoded snapshots and generated code. These are
 package extents and conformance observations, not production transfer,
 first-frame or memory-pressure acceptance measurements.
 
-## Remaining migration gates
+## Integrated browser path
 
-The transport experiment substantially reduces serialization cost, but a warm
-large check is still about 7.7 times slower than the preserved stock-Lua Wasm
-compiler in the recorded comparison. Compiler responsiveness is an open gate.
-The full playground, application effect/resource bridge, native layout/storage
-providers, independent Wasm AOT ABI and platform schema have not migrated.
-Firefox, Safari, mobile, constrained-memory and production delivery acceptance
-remain open. No browser default or legacy lowerer has changed. The release/pin,
-one-release rollback and later cold-checkout deletion gates still apply.
-These remaining gates are tracked in [issue 59](https://github.com/nupp-lang/nupp/issues/59).
+The branch now packages LuaJIT applications by default, with a browser host
+independent of the lowering dialect. The playground and documentation editors
+use retained LuaJIT compiler workers and fresh application VMs. Compatibility
+settings, explicit legacy selection, Stop, late-response disposal and component
+teardown are exercised through the actual UI.
 
-The `jit` query parameter enables an exploratory compiler-JIT comparison. A
-five-sample run kept the large-check p50 near 174 ms and increased trivial-check
-p50 to 15.4 ms. That small run is not a controlled performance verdict, but it
-does not supply evidence for changing the compiler candidate's JIT-off default.
+The maintained packaged corpus covers HTTP streaming and leases, crypto and
+storage, worker copies/cancellation/deadlines, independent Wasm scalar and SIMD
+kernels, and browser WebGPU. Independent kernels copy bounded spans and preserve
+exact 64-bit results; mixed i386/Wasm struct layouts are converted explicitly.
+Lua-C-API builder entries have an explicit diagnostic and documented replacement;
+they have not been made compatible with the new ABI.
+
+`tests/luajit-browser/prepare-packaged.mjs` builds the fixtures from normal targets.
+`editors/playground/test/browser-matrix.mjs` exercises the source guest, compiler
+oracle, examples, recovery, memory exhaustion and packages in Chromium, Firefox
+and WebKit. Unsupported WebGPU is recorded explicitly; Chromium must execute it.
+The source-guest CI job runs the matrix under a same-origin CSP permitting Wasm
+compilation and blob Workers, without COOP/COEP.
+
+The source-built Linux CI package remains the baseline for local runtime edits.
+`stage-runtime.py` creates a labeled development overlay for interpreted code;
+production packaging rejects such an overlay unless `NUPP_BROWSER_DEV=1` is
+explicitly set. Local overlay evidence is not a replacement for source-build CI.
+
+## Release acceptance still required
+
+Desktop-engine conformance does not establish physical mobile or shipping Safari
+acceptance. The warm large-edit cost remains materially higher than stock-Lua
+Wasm; timings must be read with their actual workload, CPU and delivery scope.
+There is no claim that all editing workloads become faster by moving to LuaJIT.
+
+The default is implemented on this branch for review and measurement. Main has
+not changed. Publishing a compiler release, moving the stage-zero pin, shipping
+one rollback release, and deleting the old lowerers afterwards remain the
+ordered integration steps in the plan. They are not performed by branch pushes.
+See [migration details and limitations](../../runtime/luajit/MIGRATION.md).

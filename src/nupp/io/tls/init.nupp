@@ -72,7 +72,7 @@ local provider: contract.Provider = do
     if chosen ~= nil then
         yield chosen
     end
-    assert(target.dialect ~= "lua51", "nupp.io.tls: no implementation is available")
+    assert(target.host == "native", "nupp.io.tls: no implementation is available")
     yield _G.require("nupp.runtime.provider.nativetls") as contract.Provider
 end
 local tls = {}

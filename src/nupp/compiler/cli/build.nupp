@@ -256,8 +256,10 @@ local function run(options: any): integer
     -- they are separate keys rather than aliases of one.
     local outDir, projectOutDir = values.outDir, values.projectOutDir
     local target = values.target
-    if #paths > 0 and (projectOutDir or target or values.platform or values.standalone) then
-        return usageError("--target, --platform, --standalone and --out-dir cannot be used with explicit source files")
+    if #paths > 0 and (projectOutDir or target or values.platform or values.standalone or values.host) then
+        return usageError(
+            "--target, --platform, --host, --standalone and --out-dir cannot be used with explicit source files"
+        )
     end
     if #paths == 0 and outDir then
         return usageError("-o requires at least one explicit source file")
@@ -329,6 +331,7 @@ local function run(options: any): integer
             standalone = values.standalone,
             dialect = values.dialect,
             compat = values.compat,
+            host = values.host,
             strict = settings.strict,
             optLevel = settings.optLevel,
             remarks = settings.remarks,
@@ -544,6 +547,10 @@ local record Build
     --- Source-lowering dialect.
     @cli(value = "DIALECT", choices = {"luajit", "luajit-compat", "lua51"})
     dialect: string?
+
+    --- Runtime host services, independent of the Lua output dialect.
+    @cli(value = "HOST", choices = {"native", "browser"})
+    host: string?
 
     --- Enforce the stock Lua 5.1 source subset without compatibility lowering.
     @cli(value = "PROFILE", choices = {"lua51"})
