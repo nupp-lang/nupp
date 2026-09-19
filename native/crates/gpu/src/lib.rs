@@ -1056,7 +1056,7 @@ impl GpuContext {
                 json!({"dispatch": operation, "kernel": kernel_handle,
                 "binding": bindings, "metadata": metadata, "phase": phase, "workItems": work_items,
                 "workgroup": workgroup_size, "uniformBytes": uniforms.len(), "read": read_versions, "write": describe(&writes),
-                "bindingsReused": !need_readonly && !need_writable && !need_uniform,
+                "bindingsReused": (readonly_layout.is_none() || !need_readonly) && (writable_layout.is_none() || !need_writable) && (uniform_layout.is_none() || !need_uniform),
                 "hostMs": costs::elapsed(start), "gpuMs": null,
                 "gpuTiming": if self.timestamp_supported { "pending" } else { "unavailable" }}),
             );
@@ -1668,6 +1668,11 @@ mod tests {
         assert!(dispatches[2]["gpuMs"].is_null());
         assert_eq!(dispatches[0]["phase"], "first-use");
         assert_eq!(dispatches[1]["phase"], "steady-state");
+        assert_eq!(dispatches[0]["bindingsReused"], false);
+        assert_eq!(
+            dispatches[1]["bindingsReused"], true,
+            "absent layouts do not count as cache misses"
+        );
         assert_eq!(dispatches[1]["write"][0]["version"], 3);
         assert_eq!(
             dispatches[0]["write"][0]["layout"]["shape"],
