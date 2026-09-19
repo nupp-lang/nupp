@@ -111,6 +111,27 @@ return {
     assert(code:find("__derive.register", 1, true), code)
 end
 
+function M.avoidsCallerConstantsInGeneratedJSONParameters()
+    local result = run([[
+const text = require("nupp.text")
+const out = "caller output"
+@derive(nupp.derive.JSON)
+local record Message
+    value: string
+end
+local decoded, problem = Message.fromJSON('{"value":"forwarded"}')
+assert(decoded ~= nil and problem == nil)
+local buffer = text.newBuffer()
+local writer = nupp.codec.json.writer(buffer)
+local restored = decoded as Message
+restored:writeJSON(writer)
+writer:close()
+return {encoded = buffer:tostring(), outer = out}
+]])
+    assertEq(result.encoded, '{"value":"forwarded"}')
+    assertEq(result.outer, "caller output")
+end
+
 function M.composesDerivedAndPreencodedValuesInOneWriter()
     local result = run(
         [[

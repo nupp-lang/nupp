@@ -3,6 +3,11 @@ module tests.fixtures.ecsderiveconsumer
 local provider = require("tests.fixtures.ecsderiveprovider")
 local derive = require("nupp.derive")
 local tablemodule = require("tests.fixtures.ecsderivetable")
+const self = "caller receiver"
+const a1 = "caller argument"
+const __nuppDerived = "caller recipe"
+const __nuppDerivedEntry = "caller entry"
+const __nuppT1 = "caller temporary"
 
 @derive(provider.Component)
 @ecsname(name = "declared")
@@ -18,6 +23,7 @@ end
 local names: {Type<provider.Value>} = {Position, Label}
 local native: provider.Column(Position) = nil as any
 local managed: provider.Column(Label) = {}
+
 local function nativeType(value: Position[?]?): nil
     assert(value == nil)
 end
@@ -43,6 +49,14 @@ local value = new Position()
 value.x = 0
 derive.initializer(Position)(value)
 assert(value.x == 7)
+local label = new Label()
+assert(derive.initializer(Label)(label, "forwarded") == label)
+assert(label.text == "forwarded")
+derive.initializer(Label)(label)
+assert(label.text == "label")
+assert(self == "caller receiver" and a1 == "caller argument")
+assert(__nuppDerived == "caller recipe" and __nuppDerivedEntry == "caller entry")
+assert(__nuppT1 == "caller temporary")
 local found = false
 derive.forEach(function(candidate: derive.Entry): nil
     if candidate == entry then

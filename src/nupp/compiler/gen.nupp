@@ -1589,6 +1589,12 @@ function gen.generate(
             return
         end
         needRuntimeEffect("stdlib.derives")
+        -- Recipe names are logical argument keys, not bindings in the caller's
+        -- scope. Reserve every generated binding and keep forwarding through
+        -- the logical-to-runtime parameter map.
+        local receiverName = reservedName("self")
+        local recipeName = reservedName("__nuppDerived")
+        local entryName = reservedName("__nuppDerivedEntry")
         local nominal = x.resolvedType
         if recipe.initializer and nominal and #(nominal.constructorEntries or {}) == 0 then
             -- A declaration with no constructor is built from its fields, so its
@@ -1605,10 +1611,12 @@ function gen.generate(
                 ) and not (nominal.privateFields and nominal.privateFields[field])
                 if stored then
                     position = position + 1
-                    local parameter = "a" .. tostring(position)
+                    local parameter = reservedName("a" .. tostring(position))
                     parameters[position] = parameter
                     local default = nominal.fieldDefaults and nominal.fieldDefaults[field] or nil
-                    local target = cst.identifier(field) and ("self." .. field) or ("self[%q]"):format(field)
+                    local target = cst.identifier(
+                        field
+                    ) and (receiverName .. "." .. field) or ("%s[%q]"):format(receiverName, field)
                     if default then
                         local rendered, why = recipeCodec.render(default.value, {limit = recipeCodec.MAX_OUTPUT_BYTES,})
                         if not rendered then
@@ -1626,27 +1634,29 @@ function gen.generate(
             end
             e(
                 (
-                    ";%s.%s=function(self%s)%s return self end"
+                    ";%s.%s=function(%s%s)%s return %s end"
                 ):format(
                     memberOwner,
                     recipe.initializer,
+                    receiverName,
                     #parameters > 0 and (", " .. table.concat(parameters, ", ")) or "",
-                    table.concat(writes)
+                    table.concat(writes),
+                    receiverName
                 )
             )
         end
-        e(";do local __nuppDerived=" .. renderedRecipe)
-        e((";local __nuppDerivedEntry=_G.nupp.__derive.register(%q,%s,__nuppDerived)"):format(recipe.key, runtimeName))
+        e(";do local " .. recipeName .. "=" .. renderedRecipe)
+        e((";local %s=_G.nupp.__derive.register(%q,%s,%s)"):format(entryName, recipe.key, runtimeName, recipeName))
 
         local function forwardingArgument(argument, parameters)
             if argument.kind == "receiver" then
-                return "self"
+                return receiverName
             elseif argument.kind == "entry" then
-                return "__nuppDerivedEntry"
+                return entryName
             elseif argument.kind == "argument" then
                 return parameters[argument.name] or error("invalid derived member argument " .. tostring(argument.name))
             elseif argument.kind == "field" then
-                return ("self[%q]"):format(argument.name)
+                return ("%s[%q]"):format(receiverName, argument.name)
             elseif argument.kind == "constant" then
                 local rendered, why = recipeCodec.render(argument.value, {limit = recipeCodec.MAX_OUTPUT_BYTES,})
                 if not rendered then
@@ -1671,12 +1681,14 @@ function gen.generate(
                 local names, parameters = {}, {}
                 local first = 1
                 if member.namespace == "instance" then
-                    names[1] = "self"
+                    names[1] = receiverName
                     first = 2
                 end
                 for index = first, #(member.paramNames or {}) do
                     local declared = member.paramNames[index]
-                    local runtimeParameter = declared ~= "" and declared or ("argument" .. tostring(index - first + 1))
+                    local runtimeParameter = reservedName(
+                        declared ~= "" and declared or ("argument" .. tostring(index - first + 1))
+                    )
                     names[#names + 1] = runtimeParameter
                     if declared ~= "" then
                         parameters[declared] = runtimeParameter

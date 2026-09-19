@@ -1,4 +1,6 @@
 local inspect = require("tests.fixtures.deriveinspect")
+const prefix = "caller prefix"
+const self = "caller receiver"
 
 --- Credentials used to authenticate.
 ---
@@ -17,6 +19,7 @@ local credentials = new Credentials(username = "michael", password = "secret")
 assert(credentials:inspect() == "{username=michael, password=<redacted>}")
 assert(credentials:inspectKind() == "record")
 assert(credentials:prefixed("credentials=") == "credentials={username=michael, password=<redacted>}")
+assert(prefix == "caller prefix" and self == "caller receiver")
 assert(credentials:decorated() == "[{username=michael, password=<redacted>}]")
 assert(credentials:firstField() == "username")
 assert(
