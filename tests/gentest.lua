@@ -85,16 +85,22 @@ return direct, cast, constructed
     local code = generateChecked(source)
     assertEq(countLines(code), countLines(source), "record returns keep source lines")
     local direct, cast, constructed = assert(loadstring(code))()
-    local bc = require("jit.bc")
+    -- The packaged host includes jit.util and vmdef, but not the optional
+    -- jit.bc disassembler. Read the opcode from the VM's own name table.
+    local util = require("jit.util")
+    local names = require("jit.vmdef").bcnames
+    local band = require("bit").band
     for _, fn in ipairs({direct, cast, constructed}) do
         assertEq(fn(37).value, 37)
         local pc = 1
         while true do
-            local instruction = bc.line(fn, pc)
+            local instruction = util.funcbc(fn, pc)
             if not instruction then
                 break
             end
-            assert(not instruction:find("CALLT", 1, true), "a new return retains its frame: " .. instruction)
+            local offset = band(instruction, 255) * 6
+            local opcode = assert(names:sub(offset + 1, offset + 6):match("%S+"))
+            assert(opcode ~= "CALLT" and opcode ~= "CALLMT", "a new return retains its frame: " .. opcode)
             pc = pc + 1
         end
     end
