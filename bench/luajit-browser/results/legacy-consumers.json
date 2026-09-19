@@ -1,0 +1,155 @@
+{
+  "baseline": "d5c3e9e823a894d09d2ea9783c33629e086ffeef",
+  "scope": "Literal source references, not proof of exclusive ownership; dynamic provider selection requires review",
+  "consumers": {
+    "nupp.runtime.provider.scalarbitops": [
+      {
+        "file": "src/nupp/compiler/browser.nupp",
+        "line": 16,
+        "text": "local scalarBitops = require(\"nupp.runtime.provider.scalarbitops\")"
+      },
+      {
+        "file": "src/nupp/runtime/bitops.nupp",
+        "line": 26,
+        "text": "return require(\"nupp.runtime.provider.scalarbitops\")"
+      },
+      {
+        "file": "src/nupp/runtime/provider/scalarbitops.nupp",
+        "line": 3,
+        "text": "module nupp.runtime.provider.scalarbitops"
+      },
+      {
+        "file": "src/nupp/runtime/services/catalog.nupp",
+        "line": 360,
+        "text": "entry = \"nupp.runtime.provider.scalarbitops\""
+      },
+      {
+        "file": "tests/lua51compattest.lua",
+        "line": 217,
+        "text": "source = source:gsub(\"@!internal\", \"\"):gsub(\"module nupp.runtime.provider.scalarbitops\", \"module bits\")"
+      },
+      {
+        "file": "tests/providerconformancetest.lua",
+        "line": 25,
+        "text": "verify(\"bitops\", \"nupp.runtime.provider.scalarbitops\")"
+      }
+    ],
+    "nupp.runtime.provider.tablebuffer": [
+      {
+        "file": "src/nupp/compiler/env.nupp",
+        "line": 2217,
+        "text": "[\"nupp.runtime.provider.tablebuffer\"] = \"/nupp/runtime/provider/tablebuffer.nupp\","
+      },
+      {
+        "file": "src/nupp/runtime/provider/tablebuffer.nupp",
+        "line": 3,
+        "text": "module nupp.runtime.provider.tablebuffer"
+      },
+      {
+        "file": "src/nupp/runtime/services/catalog.nupp",
+        "line": 286,
+        "text": "entry = \"nupp.runtime.provider.tablebuffer\""
+      },
+      {
+        "file": "tests/providerconformancetest.lua",
+        "line": 37,
+        "text": "verify(\"textbuffer\", \"nupp.runtime.provider.tablebuffer\")"
+      },
+      {
+        "file": "tests/servicestest.lua",
+        "line": 689,
+        "text": "require(\"nupp.runtime.provider.tablebuffer\"),"
+      }
+    ],
+    "nupp.runtime.provider.tablestruct": [
+      {
+        "file": "src/nupp/compiler/env.nupp",
+        "line": 2276,
+        "text": "[\"nupp.runtime.provider.tablestruct\"] = \"/nupp/runtime/provider/tablestruct.nupp\","
+      },
+      {
+        "file": "src/nupp/runtime/provider/tablestruct.nupp",
+        "line": 3,
+        "text": "module nupp.runtime.provider.tablestruct"
+      },
+      {
+        "file": "src/nupp/runtime/representation.nupp",
+        "line": 37,
+        "text": "local tableStructs: contracts.StructvalueProvider = require(\"nupp.runtime.provider.tablestruct\")"
+      },
+      {
+        "file": "tests/portable-corpus/src/nupp/runtime/provider/tablestruct.nupp",
+        "line": 3,
+        "text": "module nupp.runtime.provider.tablestruct"
+      },
+      {
+        "file": "tests/providerconformancetest.lua",
+        "line": 45,
+        "text": "verify(\"structvalue\", \"nupp.runtime.provider.tablestruct\")"
+      }
+    ],
+    "nupp.runtime.provider.wasmstoragefactory": [
+      {
+        "file": "src/nupp/compiler/env.nupp",
+        "line": 2278,
+        "text": "[\"nupp.runtime.provider.wasmstoragefactory\"] = \"/nupp/runtime/provider/wasmstoragefactory.nupp\","
+      },
+      {
+        "file": "src/nupp/runtime/provider/wasmstorage.nupp",
+        "line": 9,
+        "text": "passes that memory service to [](nupp.runtime.provider.wasmstoragefactory) once"
+      },
+      {
+        "file": "src/nupp/runtime/provider/wasmstorage.nupp",
+        "line": 20,
+        "text": "local factory = require(\"nupp.runtime.provider.wasmstoragefactory\")"
+      },
+      {
+        "file": "src/nupp/runtime/provider/wasmstoragefactory.nupp",
+        "line": 3,
+        "text": "module nupp.runtime.provider.wasmstoragefactory"
+      }
+    ],
+    "runtime/wasm/app-runtime.mjs": [
+      {
+        "file": ".github/workflows/browser-guest.yml",
+        "line": 7,
+        "text": "- 'runtime/wasm/app-runtime.mjs'"
+      },
+      {
+        "file": "editors/playground/src/app-worker.js",
+        "line": 1,
+        "text": "import { runNuppWasmApp } from \"../../../runtime/wasm/app-runtime.mjs\";"
+      },
+      {
+        "file": "editors/playground/test/wasm-runtime.test.js",
+        "line": 8,
+        "text": "import { runNuppWasmApp } from \"../../../runtime/wasm/app-runtime.mjs\";"
+      },
+      {
+        "file": "tests/wasm-aot/run.mjs",
+        "line": 5,
+        "text": "import { runNuppWasmApp } from \"../../runtime/wasm/app-runtime.mjs\";"
+      },
+      {
+        "file": "tests/wasm-aot/runtime.test.mjs",
+        "line": 11,
+        "text": "} from \"../../runtime/wasm/app-runtime.mjs\";"
+      }
+    ],
+    "runtime/wasm/worker-pool.mjs": [
+      {
+        "file": "tests/wasm-aot/runtime.test.mjs",
+        "line": 13,
+        "text": "import { createWorkerPool } from \"../../runtime/wasm/worker-pool.mjs\";"
+      }
+    ],
+    "runtime/wasm/browser-entry.mjs": [
+      {
+        "file": "runtime/luajit/package-browser-app.mjs",
+        "line": 73,
+        "text": "copyFileSync(path.join(repo,'runtime/wasm/browser-entry.mjs'), path.join(output,'nupp-browser-app.mjs'));"
+      }
+    ]
+  }
+}

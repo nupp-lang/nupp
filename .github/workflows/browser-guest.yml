@@ -17,6 +17,7 @@ on:
       - 'nupp.lua'
       - '.github/workflows/browser-guest.yml'
   workflow_dispatch:
+  workflow_call:
 permissions:
   contents: read
 jobs:
@@ -42,7 +43,7 @@ jobs:
           npx --prefix editors/playground playwright install --with-deps firefox webkit
       - name: Test transport boundaries
         run: |
-          node --test tests/luajit-browser/transport.test.mjs
+          node --test tests/luajit-browser/transport.test.mjs tests/luajit-browser/native.test.mjs
           python3 tests/luajit-browser/toolchain_test.py
       - name: Install the guest build tools
         run: sudo apt-get update && sudo apt-get install -y gcc-multilib g++-multilib flex bison libelf-dev libssl-dev
@@ -82,8 +83,18 @@ jobs:
           node bench/luajit-browser/run-browser.mjs http://127.0.0.1:8113/compiler.html build/browser-guest/compiler-conformance.json
           node tests/luajit-browser/prepare-recovery.mjs build/browser-guest
           node bench/luajit-browser/run-browser.mjs http://127.0.0.1:8113/recovery.html build/browser-guest/recovery-conformance.json
+          export NUPP_BROWSER_NATIVE_CC=$(python3 tests/luajit-browser/prepare-native.py build/browser-guest build/browser-native-toolchain)
           node tests/luajit-browser/prepare-packaged.mjs build/browser-guest
           node editors/playground/test/browser-matrix.mjs http://127.0.0.1:8113/ build/browser-guest/browser-matrix.json
+      - name: Package the verified LuaJIT runtime and matching sources
+        run: |
+          node runtime/luajit/build-runtime-package.mjs release/browser-luajit build/browser-guest
+          tar -czf release/nupp-luajit-browser-runtime.tar.gz -C release/browser-luajit .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nupp-luajit-browser-runtime
+          path: release/nupp-luajit-browser-runtime.tar.gz
+          if-no-files-found: error
       - uses: actions/upload-artifact@v4
         if: always()
         with:

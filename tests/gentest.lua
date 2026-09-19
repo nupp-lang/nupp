@@ -843,4 +843,30 @@ function M.bitAndFloordivSemantics()
     assertEq(run("return 7 // 2"), 3)
 end
 
+-- These guarantees outlive the portable lowering backend. Both paths consume
+-- the same fixtures while the explicit rollback remains supported.
+function M.sharedLanguageSemanticsSurviveLegacyRetirement()
+    local fixtures = dofile(HERE .. "/fixtures/language-semantics.lua")
+    for name, fixture in pairs(fixtures) do
+        local result = parser.parse(fixture.source, name .. ".g.nupp")
+        assertEq(#result.errors, 0, name .. " parses")
+        local diagnostics = check.check(result, name .. ".g.nupp", env, {dialect = "luajit"})
+        for _, diagnostic in ipairs(diagnostics) do
+            assert(diagnostic.severity ~= "error", diagnostic.msg)
+        end
+        local code, generated = gen.generate(result, name)
+        assertEq(#generated, 0, name .. " generates")
+        local chunk = assert(loadstring(code, "@shared-" .. name))
+
+        local function verify(...)
+            assertEq(select("#", ...), fixture.count, name .. " result count")
+            for index = 1, fixture.count do
+                assertEq(select(index, ...), fixture.expected[index], name .. " result " .. index)
+            end
+        end
+
+        verify(chunk())
+    end
+end
+
 return M

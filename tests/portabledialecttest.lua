@@ -34,6 +34,8 @@ local function checked(src, dialect)
     return result, diags
 end
 
+local semanticSources = dofile(HERE .. "/fixtures/language-semantics.lua")
+
 local M = {}
 
 function M.waitingFacadesUseYieldableProtectedCalls()
@@ -73,29 +75,7 @@ scope:close()
 end
 
 function M.recordTestsLowerForPortableAndCompatibilityDialects()
-    local source = table.concat(
-        {
-            "local record Item",
-            "   value: integer",
-            "end",
-            "local calls = 0",
-            "local function subject(value: any): any",
-            "   calls = calls + 1",
-            "   return value",
-            "end",
-            "local function classify(value: Item | string | nil): boolean",
-            "   return switch value do",
-            "      case is Item -> true",
-            "      else -> false",
-            "   end",
-            "end",
-            "local item = new Item(value = 7)",
-            "local yes = subject(item) is Item",
-            "local no = subject(nil) is Item",
-            "return yes, no, calls, classify(item), classify('empty'), classify(nil)",
-        },
-        "\n"
-    )
+    local source = semanticSources.records.source
     for _, dialect in ipairs({"lua51", "luajit-compat"}) do
         local result, diags = checked(source, dialect)
         assertEq(#diags, 0, "record tests check: " .. (diags[1] and diags[1].msg or ""))
@@ -312,25 +292,7 @@ function M.constErasureDoesNotRewriteStringContents()
 end
 
 function M.cleanupContinueAndBreakUseTheStructuredLoopExit()
-    local source = table.concat(
-        {
-            "local h = {}",
-            "local total = 0",
-            "for index = 1, 3 do",
-            "    handle suspension with h do",
-            "        if index == 2 then continue end",
-            "        total = total + index",
-            "    end",
-            "end",
-            "while true do",
-            "    handle suspension with h do",
-            "        break",
-            "    end",
-            "end",
-            "return total, true",
-        },
-        "\n"
-    )
+    local source = semanticSources.cleanup.source
     local result, diags = checked(source, "lua51")
     for _, diag in ipairs(diags) do
         assert(
@@ -360,27 +322,7 @@ function M.safeMemberReadsShareAHelperAndOperandsStayDeferred()
     -- member serves every site and a loop reading it builds no function. `?.[]`
     -- and `?.()` evaluate their key and arguments only once the receiver is present,
     -- as they do natively, so those keep a body of their own.
-    local source = table.concat(
-        {
-            "local calls = 0",
-            "local function key(): string",
-            "   calls = calls + 1",
-            "   return 'k'",
-            "end",
-            "local points: {any} = {{x = 2}, {}, {x = 3}}",
-            "local none: any = nil",
-            "local total = 0",
-            "for index = 1, 3 do",
-            "   total = total + (points[index]?.x ?? 0) + (none?.x ?? 0)",
-            "end",
-            "local absent: any = nil",
-            "local missing: any = nil",
-            "local byKey = absent?.[key()]",
-            "local called = missing?.(key())",
-            "return total, calls, byKey, called",
-        },
-        "\n"
-    )
+    local source = semanticSources.safeReads.source
     local result, diags = checked(source, "lua51")
     assertEq(#diags, 0, "safe navigation source checks: " .. (diags[1] and diags[1].msg or ""))
     local code, loweringDiags = gen.generate(result, "portable-safe.nupp")
@@ -400,28 +342,7 @@ function M.wrappedRepeatLoopKeepsItsConditionInTheBodyScope()
     -- The wrapper's `until true` ends the body's scope, so the authored condition
     -- reads `done` inside it, and a `continue` reaches the condition the way it does
     -- natively rather than restarting the loop unconditionally.
-    local source = table.concat(
-        {
-            "local i = 0",
-            "local skipped = 0",
-            "repeat",
-            "    i = i + 1",
-            "    local done = i >= 3",
-            "    if i == 1 then",
-            "        skipped = skipped + 1",
-            "        continue",
-            "    end",
-            "until done",
-            "local j = 0",
-            "repeat",
-            "    j = j + 1",
-            "    local last = j == 2",
-            "    if last then continue end",
-            "until last",
-            "return i, skipped, j",
-        },
-        "\n"
-    )
+    local source = semanticSources.repeatScope.source
     local result, diags = checked(source, "lua51")
     assertEq(#diags, 0, "portable repeat source checks: " .. (diags[1] and diags[1].msg or ""))
     local code, loweringDiags = gen.generate(result, "portable-repeat.nupp")

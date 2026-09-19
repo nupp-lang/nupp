@@ -1,0 +1,74 @@
+{
+  "scope": "Guest-native C API and scalar FFI bindings, local interpreted-code development overlay; production source-build CI remains separate",
+  "guestBuildKey": "51a577cef5a81c62db2447cea8c267fee37b2fbb0c5d4a68dd922237944fc58e",
+  "libraries": [
+    {
+      "file": "native/libapp_aot.so",
+      "name": "libapp_aot.so"
+    }
+  ],
+  "assets": {
+    "guest/51a577cef5a81c62db2447cea8c267fee37b2fbb0c5d4a68dd922237944fc58e/guest-manifest.json": {
+      "bytes": 12270,
+      "sha256": "893d27ba6a6f36c176cad1d13d165a936166cca352b33df26cb54455772724d3"
+    },
+    "app-33f9ca73452c1f0e.lua": {
+      "bytes": 193873,
+      "sha256": "33f9ca73452c1f0e7e4abd4ec97f9658412020d8981a91f159c84e0af2b0edf1"
+    },
+    "native/libapp_aot.so": {
+      "bytes": 8360,
+      "sha256": "c40ce682ed4352d454977df1a812fec4ad8a72e08358021d959b44e7832be5bf"
+    },
+    "app-runtime.mjs": {
+      "bytes": 56841,
+      "sha256": "8fdbd932b465ef96429cc7967f3dcacb77f8c563b7cb35718d3b629a13669062"
+    },
+    "worker-lane.mjs": {
+      "bytes": 59920,
+      "sha256": "2aee13640b75329dbff9df10177ecdc1c90b7f224f2b2280a9f46d59baf5228e"
+    },
+    "browser-worker.mjs": {
+      "bytes": 57808,
+      "sha256": "c2cd0a1598a6e7cdc37b0d07b00dd3a36e7212bed5f61c150a3ee9940ef87a7a"
+    }
+  },
+  "results": [
+    {
+      "engine": "chromium",
+      "version": "152.0.7977.77",
+      "ok": true,
+      "name": "native",
+      "elapsedMs": 336.19000005722046,
+      "result": {
+        "bytes": 4,
+        "ok": true,
+        "iterations": 100
+      }
+    },
+    {
+      "engine": "firefox",
+      "version": "155.0",
+      "ok": true,
+      "name": "native",
+      "elapsedMs": 369.16,
+      "result": {
+        "bytes": 4,
+        "ok": true,
+        "iterations": 100
+      }
+    },
+    {
+      "engine": "webkit",
+      "version": "26.6",
+      "ok": true,
+      "name": "native",
+      "elapsedMs": 342.6,
+      "result": {
+        "iterations": 100,
+        "ok": true,
+        "bytes": 4
+      }
+    }
+  ]
+}

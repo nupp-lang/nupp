@@ -17,6 +17,10 @@ permissions:
   contents: read
 
 jobs:
+  build-luajit-browser-runtime:
+    name: LuaJIT browser runtime
+    uses: ./.github/workflows/browser-guest.yml
+
   build-browser-runtime:
     name: Browser application runtime
     runs-on: ubuntu-latest
@@ -786,6 +790,7 @@ jobs:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
     needs:
       - build-browser-runtime
+      - build-luajit-browser-runtime
       - build-unix
       - build-windows
       - build-compiler-pack-linux
