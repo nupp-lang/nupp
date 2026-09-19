@@ -1,5 +1,6 @@
 import {createKernels} from './aot.mjs';
 import {assetsFor} from './assets.mjs';
+import {nativeInitialization} from './native.mjs';
 import {createWorkerPool} from '../wasm/worker-pool.mjs';
 import {createGuest} from './host.mjs';
 import {createTransfers} from './transfers.mjs';
@@ -99,6 +100,11 @@ export async function runPackagedNuppLuaJITApp(manifestUrl, options = {}) {
   const guest = JSON.parse(new TextDecoder().decode(guestBytes));
   if (guest.buildKey !== manifest.guestBuildKey) throw new Error('Application guest identity mismatch');
   const kernels = await createKernels(manifest.kernels, verified);
+  const native = await nativeInitialization(manifest.nativeLibraries, verified);
+  const supplied = options.initialize || new Uint8Array();
+  if (!(supplied instanceof Uint8Array)) throw new Error('Application initialization must be bytes');
+  const initialize = new Uint8Array(native.length + supplied.length);
+  initialize.set(native); initialize.set(supplied, native.length);
   let pool;
   try {
     if (manifest.workers && options.workers !== false) {
@@ -107,7 +113,7 @@ export async function runPackagedNuppLuaJITApp(manifestUrl, options = {}) {
         manifestUrl: address.href, maxLanes: manifest.workers.maxLanes || 2,
         limits: options.limits || manifest.limits});
     }
-    return await runNuppLuaJITApp({...options, app,
+    return await runNuppLuaJITApp({...options, app, initialize,
       manifestUrl: new URL(manifest.guest, base).href,
       limits: options.limits || manifest.limits,
       storageName: options.storageName || `nupp-${manifest.assets[manifest.app].sha256.slice(0,24)}`,

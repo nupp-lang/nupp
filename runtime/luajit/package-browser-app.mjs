@@ -6,9 +6,10 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {build} from '../../editors/playground/node_modules/esbuild/lib/main.js';
 import {copyGuest, digest} from './package-assets.mjs';
+import {validateNativeLibrary} from './native.mjs';
 const repo = fileURLToPath(new URL('../../', import.meta.url));
 let compilerPrepared = false;
-export async function packageBrowserApp({project, target, output, guest}) {
+export async function packageBrowserApp({project, target, output, guest, nativeCc = process.env.NUPP_BROWSER_NATIVE_CC}) {
   // A cold checkout otherwise routes build --host through the pinned compiler,
   // which predates that option. Bootstrap the checkout's compiler first.
   if (!compilerPrepared) {
@@ -18,7 +19,8 @@ export async function packageBrowserApp({project, target, output, guest}) {
   project = path.resolve(project || '.');
   output = path.resolve(output || path.join(project, 'build/browser'));
   const result = JSON.parse(execFileSync(path.join(repo, 'bin/nupp'), ['build', '--target', target || 'browser', '--host', 'browser', '--json'],
-    {cwd: project, encoding: 'utf8', stdio: ['ignore','pipe','inherit']}).trim().split('\n').at(-1));
+    {cwd: project, encoding: 'utf8', stdio: ['ignore','pipe','inherit'],
+      env:{...process.env, ...(nativeCc ? {NUPP_NATIVE_CC:nativeCc} : {})}}).trim().split('\n').at(-1));
   if (!result.ok || result.dialect !== 'luajit' || !result.artifact?.endsWith('.lua')) throw new Error('A browser application must be a LuaJIT bundle target');
   guest = await prepareGuest(repo,guest);
   const guestManifest = JSON.parse(readFileSync(path.join(guest, 'guest-manifest.json'), 'utf8'));
@@ -36,6 +38,21 @@ export async function packageBrowserApp({project, target, output, guest}) {
   mkdirSync(output, {recursive: true});
   writeFileSync(path.join(output, app), bytes); record(app);
   const kernels = [];
+  const nativeLibraries = [];
+  const libraryDirectory = path.join(path.dirname(path.resolve(project, result.artifact)), 'lib');
+  let nativeBytes = 0;
+  for (const artifact of result.written || []) {
+    const source = path.resolve(project, artifact);
+    if (path.dirname(source) !== libraryDirectory || !/\.(?:so|dylib|dll)$/.test(source)) continue;
+    const name = path.basename(source), bytes = readFileSync(source);
+    validateNativeLibrary(name, bytes);
+    nativeBytes += bytes.length;
+    if (nativeBytes > 1024 * 1024) throw new Error('Guest native libraries exceed one MiB in total');
+    const file = `native/${digest(bytes).slice(0,16)}/${name}`;
+    mkdirSync(path.dirname(path.join(output, file)), {recursive:true});
+    copyFileSync(source, path.join(output, file));
+    record(file); nativeLibraries.push({file, name});
+  }
   if (result.aotManifest) {
     const manifestPath = path.resolve(project,result.aotManifest);
     const built = JSON.parse(readFileSync(manifestPath,'utf8'));
@@ -55,7 +72,7 @@ export async function packageBrowserApp({project, target, output, guest}) {
   }
   copyFileSync(path.join(repo,'runtime/wasm/browser-entry.mjs'), path.join(output,'nupp-browser-app.mjs'));
   const workers = (result.services || []).some(x => x.service === 'host.workers');
-  const manifest = {schema:1, runtime:'luajit-v86', app, guest:guestName, guestBuildKey:guestManifest.buildKey, assets, kernels,
+  const manifest = {schema:1, runtime:'luajit-v86', app, guest:guestName, guestBuildKey:guestManifest.buildKey, assets, kernels, nativeLibraries,
     build:{target, dialect:result.dialect, host:'browser'},
     ...(workers ? {workers:{lane:'worker-lane.mjs', maxLanes:2}} : {}),
     limits:{maxEffects:workers ? 262144 : 256, maxEffectBytes:workers ? 268435456 : 4194304,
@@ -67,7 +84,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const args = process.argv.slice(2), options = {};
   for (let i=0; i<args.length; i+=2) {
     if (!args[i].startsWith('--') || args[i+1] === undefined) throw new Error('Expected --name VALUE');
-    options[args[i].slice(2)] = args[i+1];
+    options[args[i].slice(2).replace(/-([a-z])/g, (_, letter) => letter.toUpperCase())] = args[i+1];
   }
   console.log(JSON.stringify(await packageBrowserApp(options),null,2));
 }

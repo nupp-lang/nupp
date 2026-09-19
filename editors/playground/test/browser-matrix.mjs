@@ -5,7 +5,7 @@ const [base, output] = process.argv.slice(2);
 if (!base || !output) throw new Error('usage: browser-matrix.mjs URL RESULT.json');
 const selected = (process.env.NUPP_TEST_BROWSERS || 'chromium,firefox,webkit').split(',');
 const results = [];
-const tests = ['smoke.html', 'compiler.html', 'application.html', 'recovery.html', 'lifecycle.html', ...['aot','http','platform','workers','gpu'].map(name=>`packaged.html?app=${name}`)];
+const tests = ['smoke.html', 'compiler.html', 'application.html', 'recovery.html', 'lifecycle.html', ...['aot','native','http','platform','workers','gpu'].map(name=>`packaged.html?app=${name}`)];
 const record = () => writeFileSync(output, JSON.stringify({ok:results.length === selected.length * tests.length && results.every(x => x.ok && !x.errors.length), scope:'Desktop browser engine conformance; not physical mobile-device acceptance', results}, null, 2)+'\n');
 // Request interception breaks blob workers in Playwright WebKit. A real HTTP
 // endpoint also exercises fetch and CORS instead of replacing the browser's response.
