@@ -22,6 +22,7 @@ import NARROWING from "./examples/narrowing.nupp";
 import GENERICS from "./examples/generics.nupp";
 import RECORDS from "./examples/records.nupp";
 import UNIONS from "./examples/unions.nupp";
+import CONSTRAINED from "./examples/constrained.nupp";
 import OWNERSHIP from "./examples/ownership.nupp";
 import SYNTAX from "./examples/syntax.nupp";
 import OPTIMIZER from "./examples/optimizer.nupp";
@@ -41,6 +42,7 @@ export const EXAMPLES = [
   { id: "generics", label: "Generics and bounds", source: GENERICS },
   { id: "records", label: "Records and interfaces", source: RECORDS },
   { id: "unions", label: "Literal and tagged unions", source: UNIONS },
+  { id: "constrained", label: "Constrained types", source: CONSTRAINED },
   { id: "ownership", label: "Ownership", source: OWNERSHIP },
   { id: "syntax", label: "LuaJIT 3.0 syntax", source: SYNTAX },
   { id: "optimizer", label: "Optimizing compiler", source: OPTIMIZER },

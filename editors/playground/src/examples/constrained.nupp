@@ -1,0 +1,38 @@
+-- A constrained type is a scalar narrowed to some of the values its base admits.
+-- It goes wherever its base goes, and a narrower one goes where a wider one is
+-- wanted. Entering one is admission rather than subtyping: a value the compiler
+-- can prove needs nothing written, and one it cannot prove is refused until
+-- `nupp.admit` says the program meant it.
+
+local type Percent = nupp.types.range(integer, 0, 100)
+local type Digit = nupp.types.range(Percent, 0, 9)
+local type Identifier = nupp.types.length(string, 1, 16)
+
+local half: Percent = 50 -- decided here; nothing reaches the program
+local name: Identifier = "width"
+
+local function widen(value: Digit): Percent
+    return value -- 0..9 fits 0..100, so containment carries it
+end
+
+local function count(value: Percent): integer
+    return value -- a constrained type is its base
+end
+
+local function shift(by: integer): Percent
+    return nupp.admit(by) -- unprovable, so written; raises outside 0..100
+end
+
+local function named(text: string): Identifier?
+    if text is Identifier then
+        return text -- the test narrowed it, and answers false rather than raising
+    end
+    return nil
+end
+
+print(half, name, widen(7), count(half))
+print(shift(30), named("height"), named(""))
+
+-- try breaking it: write `local no: Percent = 101`, drop the `nupp.admit` from
+-- `shift` and return `by` directly, or narrow `Digit` to `nupp.types.range(Percent,
+-- 200, 300)` and watch the empty intersection get refused at the declaration
