@@ -329,6 +329,7 @@ local FEATURES: {[string]: native.Feature} = {
         provider = "nupp_native",
         providerDriver = "native-rust",
         providerFeature = "gpu",
+        host = "native-gpu",
         library = "nupp_native",
         binary = true,
         requires = {"runtime.native", "runtime.spanview", "runtime.gpu_api", "runtime.gpu_layout"},

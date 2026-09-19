@@ -292,6 +292,21 @@ function M.hostBuildSelectsThePinnedWorkspaceBinary()
     assert(output:find(host, 1, true), output)
 end
 
+function M.gpuHostFeatureChangesTheCargoUnionAndArtifactKey()
+    local directory = temporary()
+    local env = environment(directory)
+    local plainStatus, plainOutput = run(env, "host-rust")
+    assert(plainStatus == 0, plainOutput)
+    local gpuStatus, gpuOutput = run(env, "host-rust native-gpu")
+    assert(gpuStatus == 0, gpuOutput)
+    local arguments = read(env.NUPP_TEST_CARGO_RECORD)
+    assert(arguments:find("--features native-gpu", 1, true), arguments)
+    assert(answer(plainOutput) ~= answer(gpuOutput), "GPU must select a distinct host artifact")
+    local aliasStatus, aliasOutput = run(env, "host-rust gpu")
+    assert(aliasStatus == 0, aliasOutput)
+    assert(answer(aliasOutput) == answer(gpuOutput), "the GPU alias must resolve to the same feature union")
+end
+
 function M.anUnpinnedToolchainIsRejected()
     local directory = temporary()
     local env = environment(directory, "1.97.0")
@@ -787,7 +802,7 @@ function M.retainedPlatformsGateTheExactRustNativeArtifacts()
     )
     assert(gate:find("$channel-x86_64-pc-windows-gnu", 1, true), "the gate does not select Windows GNU Rust")
     assert(
-        gate:find("lpeg,native-compression,native-files,native-net,native-process,native-tls,workers", 1, true),
+        gate:find("lpeg,native-compression,native-files,native-gpu,native-net,native-process,native-tls,workers", 1, true),
         "the gate does not select the production host feature set"
     )
     for _, package in ipairs({

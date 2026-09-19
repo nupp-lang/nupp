@@ -8,8 +8,8 @@
 set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
-FEATURES=lpeg,native-compression,native-files,native-net,native-process,native-tls,workers
-HOST_FEATURES=lpeg,native-compression,native-files,native-net,native-process,native-tls,workers
+FEATURES=lpeg,native-compression,native-files,native-gpu,native-net,native-process,native-tls,workers
+HOST_FEATURES=lpeg,native-compression,native-files,native-gpu,native-net,native-process,native-tls,workers
 
 cd "$ROOT"
 
@@ -61,7 +61,7 @@ sdk=$(./scripts/toolchain host-library "$FEATURES")
 [ -f "$host" ]
 [ -f "$sdk/libnupp.a" ]
 [ -f "$sdk/link.json" ]
-grep -F '"features": "lpeg,native-compression,native-files,native-net,native-process,native-tls,workers"' \
+grep -F '"features": "lpeg,native-compression,native-files,native-gpu,native-net,native-process,native-tls,workers"' \
     "$sdk/link.json" >/dev/null
 case "$(uname -s 2>/dev/null || printf unknown)" in
     MINGW*|MSYS*|CYGWIN*)
@@ -78,6 +78,18 @@ cat > "$TEMP/host.lua" <<'LUA'
 assert(__nuppHost.hostFeatures.lpeg)
 assert(__nuppHost.hostFeatures["native-compression"])
 assert(__nuppHost.hostFeatures["native-files"])
+assert(__nuppHost.hostFeatures["native-gpu"])
+local ffi = require("ffi")
+ffi.cdef[[
+uint64_t nuppNativeFeatures(void);
+int32_t nuppNativeGpuCostsOutput(const uint8_t *, size_t);
+int32_t nuppNativeGpuCostsEnabled(void);
+int32_t nuppNativeGpuCostMetadata(uint64_t, uint64_t, int32_t, const uint8_t *, size_t);
+]]
+assert(require("bit").band(tonumber(ffi.C.nuppNativeFeatures()), 4) ~= 0)
+assert(ffi.C.nuppNativeGpuCostsOutput(nil, 0) == 0)
+assert(type(ffi.C.nuppNativeGpuCostsEnabled()) == "number")
+assert(type(ffi.C.nuppNativeGpuCostMetadata) == "cdata")
 assert(__nuppHost.hostFeatures["native-net"])
 assert(__nuppHost.hostFeatures["native-process"])
 assert(__nuppHost.hostFeatures["native-tls"])

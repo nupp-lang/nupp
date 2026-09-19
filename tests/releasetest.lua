@@ -86,6 +86,11 @@ function M.recordsAndVerifiesACompleteStubCatalog()
    assert(catalog.stubs["x86_64-unknown-linux-gnu"].artifact == "nupp-host-linux")
    assert(catalog.stubs["aarch64-apple-darwin"].artifact == "nupp-host-macos")
    assert(catalog.stubs["x86_64-pc-windows-msvc"].executableSuffix == ".exe")
+   for _, record in pairs(catalog.stubs) do
+      local features = {}
+      for _, feature in ipairs(record.hostFeatures) do features[feature] = true end
+      assert(features["native-gpu"], "released catalog hosts promise GPU support")
+   end
    assert(text:find('\n  "catalogRelease":', 1, true),
       "the immutable catalog is stable readable JSON")
 

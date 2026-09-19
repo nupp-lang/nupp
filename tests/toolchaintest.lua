@@ -566,6 +566,18 @@ function M.networkAndTlsAreRustOnlyToolchainFeatures()
     end
 end
 
+function M.gpuHostSelectionReachesTheProviderAndAdvertisedCapability()
+    local driver = read(ROOT .. "/scripts/toolchain")
+    local cargo = read(ROOT .. "/native/crates/host/Cargo.toml")
+    local runtime = read(ROOT .. "/native/crates/host/src/lua.rs")
+    assert(driver:find('native-gpu|gpu) host_cargo_features="$host_cargo_features,native-gpu"', 1, true),
+        "the host driver must accept and forward the GPU feature")
+    assert(cargo:find('native-gpu = ["nupp-native/gpu"]', 1, true),
+        "the host feature must enable the native GPU provider")
+    assert(runtime:find('self.add_feature(c"native-gpu")?', 1, true),
+        "the packaged host must advertise its GPU capability")
+end
+
 function M.deletedCHostDoesNotContributeCacheInputs()
     local driver = read(ROOT .. "/scripts/toolchain")
     assert(not driver:find("host/c", 1, true), "the deleted C host still contributes toolchain cache inputs")

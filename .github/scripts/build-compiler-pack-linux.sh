@@ -128,7 +128,7 @@ sort -u "$runtime_packages" | while read -r package; do
     cp "/usr/share/doc/$package/copyright" "$toolchain/notices/runtime-$package-copyright.txt"
 done
 
-features=lpeg,native-compression,native-files,native-net,native-process,native-tls,workers
+features=lpeg,native-compression,native-files,native-gpu,native-net,native-process,native-tls,workers
 export NUPP_TOOLCHAIN_DIR="$cache"
 export NUPP_CC="$build_cc"
 export NUPP_CXX="$build_cxx"

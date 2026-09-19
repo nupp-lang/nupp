@@ -1210,6 +1210,30 @@ function M.nativeFacilitiesSharingAProviderBuildAsOneUnion()
     assert(copies[1][2]:find("out/lib/nupp_native", 1, true), "the Rust provider union keeps its stable sidecar name")
 end
 
+function M.gpuOverrideSelectsAHostWithTheProviderLinked()
+    local originalCapture = process.capture
+    local originalCompilerRoot = compilerEnv.compilerRoot
+    local calls = {}
+    process.capture = function(argv)
+        calls[#calls + 1] = argv
+        return 0, "/built/nupp-host\n"
+    end
+    compilerEnv.compilerRoot = function() return "." end
+    local ok, problem = pcall(function()
+        for _, enabled in ipairs({false, true}) do
+            local effects = nativeStage.resolve({}, {gpu = enabled})
+            local host, err = nativeStage.hostStub(".", "out", {stub = "nupp"}, effects)
+            assertEq(host, "/built/nupp-host", err)
+        end
+    end)
+    process.capture = originalCapture
+    compilerEnv.compilerRoot = originalCompilerRoot
+    assert(ok, problem)
+    assertEq(#calls, 2, "each feature union selects its own host")
+    assertEq(calls[1][#calls[1]], "", "GPU is absent when disabled")
+    assertEq(calls[2][#calls[2]], "native-gpu", "forcing GPU changes the host build and cache key")
+end
+
 function M.nativeFacilityCanSelectItsProviderDriver()
     local originalCapture, originalCopy = process.capture, fs.copyFile
     local originalCompilerRoot = compilerEnv.compilerRoot

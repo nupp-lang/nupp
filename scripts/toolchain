@@ -741,6 +741,7 @@ select_host_features() {
             native-files|files|filesystem)
                 host_cargo_features="$host_cargo_features,native-files"
                 ;;
+            native-gpu|gpu) host_cargo_features="$host_cargo_features,native-gpu" ;;
             native-net|net) host_cargo_features="$host_cargo_features,native-net" ;;
             native-tls|tls) host_cargo_features="$host_cargo_features,native-tls" ;;
             native-process|process)
