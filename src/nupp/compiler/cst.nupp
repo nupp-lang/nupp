@@ -30,6 +30,16 @@ local cst = {}
 --- These belong to no one kind, so they are declared once and included by every node
 --- rather than repeated on each.
 interface cst.Hints
+    --- Prefix annotations keep the operand's kind and result-count semantics.
+    expressionAnnotations: {cst.Node}?
+
+    --- With unary power precedence, permission stops before the binary operator
+    --- even though that operator is nested inside the unary expression's CST.
+    expressionPermissionOperand: cst.Node?
+
+    --- Only compiler-registered expression annotations may attach here.
+    expressionAttachment: boolean?
+
     --- A type/declaration imported from an annotated plain-Lua comment. It belongs to
     --- the semantic tree but not the lossless ordered children.
     foreignAnnotation: boolean?

@@ -347,6 +347,10 @@ function aot.install(c: state.Checker): aot.Ops
                 return
             end
             local kind = (current as Node).kind
+            if current.expressionAnnotations or (kind == "pragmaStmt" and current.name.text == "unsafe") then
+                decline(current as Node, "unsafeStmt")
+                return
+            end
             if kind == "call" then
                 local call = current as cst.Call
                 local callee = call.obj

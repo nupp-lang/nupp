@@ -1526,11 +1526,11 @@ function control.install(c: state.Checker): state.StatHandlers
     end
 
     handlers.unsafeStmt = function(stat: cst.UnsafeStmt)
-        c.unsafeDepth = c.unsafeDepth + 1
-        c.pushScope();
-        c.checkBlock(stat.body, true);
-        c.popScope()
-        c.unsafeDepth = c.unsafeDepth - 1
+        c.withUnsafe(true, function()
+            c.pushScope()
+            c.checkBlock(stat.body, true)
+            c.popScope()
+        end)
     end
 
     handlers.fornumStmt = function(stat: cst.FornumStmt)

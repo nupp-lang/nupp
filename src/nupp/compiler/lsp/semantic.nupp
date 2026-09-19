@@ -188,10 +188,18 @@ function semantic.syntaxKinds(result: semantic.Parse): {[lexer.Token]: string}
                 mark(tok, "typeParameter")
             end
         elseif kind == "newExpr" or kind == "constructorDecl" or kind == "satisfiesDecl" then
-            mark(node[1], keywordType)
+            for _, child in ipairs(node) do
+                if cst.isToken(child) then
+                    mark(child, keywordType)
+                    break
+                end
+            end
         elseif kind == "unsafeOwnershipExpr" then
-            mark(node[1], keywordType)
-            mark(node[2], keywordType)
+            for _, child in ipairs(node) do
+                if cst.isToken(child) and child.contextualOp then
+                    mark(child, keywordType)
+                end
+            end
         elseif kind == "whereClause" then
             mark(node[1], keywordType)
         elseif kind == "metamethodDecl" then

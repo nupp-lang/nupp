@@ -8709,6 +8709,10 @@ function gen.generate(
                 )
             end
 
+        elseif kind == "annotationApply" then
+            -- Expression permissions are checked metadata, with no runtime operand.
+            return
+
         elseif kind == "pragmaStmt" then
             pluck.emitRegistrations(x.cleanupRegistrations, sourceLine(x), false)
             if x.stat then

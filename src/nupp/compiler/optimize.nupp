@@ -2427,7 +2427,7 @@ end
 
 -- Every name a subtree reads, ignoring field names.
 local function referencedNames(node, found, fields)
-    if not node then
+    if not node or node.kind == "annotationApply" then
         return found
     end
     if isToken(node) then
@@ -2680,6 +2680,24 @@ local function inlineDecision(node, helper, subs, callerGrowth)
     return growth
 end
 
+-- Value blocks own control-flow exits and cleanup graphs tied to their lexical
+-- scope. This expression-only substitution cannot transfer that scope to a caller.
+local function hasInlineScope(node)
+    if not node or isToken(node) then
+        return false
+    end
+    if node.kind == "doExpr" or node.kind == "funcExpr" or node.kind == "shortfn" then
+        return true
+    end
+    for _, child in ipairs(node) do
+        if hasInlineScope(child) then
+            return true
+        end
+    end
+
+    return false
+end
+
 -- The helpers a chunk declares that this pass may inline, by name.
 local function inlinableHelpers(root)
     local found = {}
@@ -2704,7 +2722,7 @@ local function inlinableHelpers(root)
                 if multi and (body.rets == nil or #body.rets ~= 1) then
                     single = false
                 end
-                if single and not body.varargParam and not body.generics then
+                if single and not body.varargParam and not body.generics and not hasInlineScope(expr) then
                     local params, ok = {}, true
                     for _, param in ipairs(body.params or {}) do
                         local name = param.name and param.name.text or nil

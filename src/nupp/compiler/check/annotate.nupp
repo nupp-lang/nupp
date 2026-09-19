@@ -376,13 +376,31 @@ function annotate.install(c: state.Checker): annotate.Ops
         end
 
         local valid = true
-        if not target or not c.annotationRegistry:accepts(annotation, target) then
+        local accepts = target and c.annotationRegistry:accepts(annotation, target)
+        if application.expressionAttachment then
+            local direct = target
+            while direct and direct.kind == "paren" do
+                direct = direct.expr
+            end
+            accepts = annotation.builtin
+                and annotation.targetSet.expression
+                and direct
+                and direct.kind ~= "funcExpr"
+                and direct.kind ~= "shortfn"
+        end
+        if not accepts then
             c.diag(
                 "NUPP2112",
                 application.name,
                 (
                     "@%s may attach only to: %s"
-                ):format(application.name.text, c.annotationRegistry:describeTargets(annotation))
+                ):format(application.name.text, c.annotationRegistry:describeTargets(annotation)),
+                nil,
+                {
+                    help = application.name.text == "unsafe"
+                    and "annotate operations inside a function body; use return @unsafe expression or yield @unsafe expression"
+                    or "expression targets require explicit compiler support"
+                }
             )
             valid = false
         end

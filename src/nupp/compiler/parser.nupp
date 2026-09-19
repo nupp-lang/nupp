@@ -96,6 +96,7 @@ local ASSIGN_TARGETS = {
 }
 
 local EXPR_START = {
+    ["@"] = true,
     ["number"] = true,
     ["string"] = true,
     ["nil"] = true,
@@ -335,6 +336,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         return r
     end
 
+    local parseAnnotationApplication, parseAnnotatedOperand, parseOwnership, parseBinexp
     local parseExp, parseBlock, parseSuffixedexp, parseTableconstructor, parseFuncbody, parseType, parsePosttype, parseTypePack, parseStatement, parseReturnType, parseIstring, parseCaptureClause
 
     -- Tokens that can begin a type expression.
@@ -1933,39 +1935,63 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         return n
     end
 
+    parseOwnership = function(prefix): Node
+        local operation = cur().text as 'adopt' | 'release'
+        local n = new cst.UnsafeOwnershipExpr(kind = "unsafeOwnershipExpr", operation = operation)
+        if prefix then
+            add(n, prefix).contextualOp = true
+        end
+        add(n, advance()).contextualOp = true
+        if operation == "release" then
+            n.expr = add(n, parseExp())
+        else
+            -- Let the ordinary expression parser recognize the required `as`.
+            -- Keeping that cast as the authored child preserves every token while
+            -- this node gives checking the stronger ownership meaning.
+            local assertion = add(n, parseExp())
+            if assertion.kind == "castExpr" then
+                n.expr, n.type = assertion.expr, assertion.type
+            else
+                errAt(
+                    cst.lastToken(assertion) or cur(),
+                    "'@unsafe adopt' needs an affine target; write @unsafe adopt value as Owner",
+                    "NUPP1002"
+                )
+                n.expr = assertion
+            end
+        end
+
+        return n
+    end
+
     --- A literal, constructor, function, or suffixed expression.
     local function parseSimpleexp(): Node
         local kind = cur().kind
-        if kind == "do" then
+        if kind == "@" then
+            local application = parseAnnotationApplication(new cst.AnnotationApply(kind = "annotationApply"))
+            application.expressionAttachment = true
+            local operand, permissionOperand
+            if application.name.text == "unsafe" and cur().kind == "name" and (
+                cur().text == "adopt" or cur().text == "release"
+            ) then
+                operand = parseOwnership(nil)
+            else
+                operand, permissionOperand = parseAnnotatedOperand()
+            end
+            operand.expressionPermissionOperand = permissionOperand ~= operand and permissionOperand or nil
+            operand.expressionAnnotations = operand.expressionAnnotations or {}
+            table.insert(operand.expressionAnnotations, 1, application)
+            table.insert(operand, 1, application)
+            return operand
+        elseif kind == "do" then
             return parseDoexp()
         elseif atSwitchexp() then
             return parseSwitchexp()
         elseif kind == "name" and cur().text == "unsafe" and tokens[
             i + 1
         ] and tokens[i + 1].kind == "name" and (tokens[i + 1].text == "adopt" or tokens[i + 1].text == "release") then
-            local operation = tokens[i + 1].text as 'adopt' | 'release'
-            local n = new cst.UnsafeOwnershipExpr(kind = "unsafeOwnershipExpr", operation = operation)
-            add(n, advance()).contextualOp = true
-            add(n, advance()).contextualOp = true
-            if operation == "release" then
-                n.expr = add(n, parseExp())
-            else
-                -- Let the ordinary expression parser recognize the required `as`.
-                -- Keeping that cast as the authored child preserves every token while
-                -- this node gives checking the stronger ownership meaning.
-                local assertion = add(n, parseExp())
-                if assertion.kind == "castExpr" then
-                    n.expr, n.type = assertion.expr, assertion.type
-                else
-                    errAt(
-                        cst.lastToken(assertion) or cur(),
-                        "'unsafe adopt' needs an affine target; write unsafe adopt value as Owner",
-                        "NUPP1002"
-                    )
-                    n.expr = assertion
-                end
-            end
-            return n
+            local prefix = advance()
+            return parseOwnership(prefix)
         elseif kind == "name" and cur().text == "dedent" and tokens[
             i + 1
         ] and tokens[i + 1].kind == "string" and tokens[i + 1].text:sub(1, 1) == "[" then
@@ -2036,8 +2062,42 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         return nil
     end
 
+    --- A prefix permission includes unary operators and casts, but no binary operator.
+    parseAnnotatedOperand = function(): Node, Node
+        local operand
+        if UNOPS[cur().kind] then
+            local n = new cst.Unop(kind = "unop")
+            n.op = add(n, advance())
+            n.operand = add(n, parseBinexp(UNARY_PRI))
+            operand = n
+        else
+            operand = parseSimpleexp()
+        end
+        -- Preserve -x^y as -(x^y). The permission still ends at x: exponentiation
+        -- is outside the marked prefix, even though precedence nests it under '-'.
+        local prefix = operand
+        while prefix.kind == "unop" do
+            prefix = prefix.operand
+        end
+        if prefix.kind == "binop" then
+            while prefix.kind == "binop" do
+                prefix = (prefix as cst.Binop).lhs
+            end
+            return operand, prefix
+        end
+        while contextualOp(tokens[i - 1] and tokens[i - 1].line or cur().line) == "as" do
+            local n = new cst.CastExpr(kind = "castExpr")
+            n.expr = add(n, operand)
+            add(n, advance()).contextualOp = true
+            n.type = add(n, parseType())
+            operand = n
+        end
+
+        return operand, operand
+    end
+
     --- Operator-precedence parsing down to `limit`.
-    local function parseBinexp(limit: integer): Node
+    parseBinexp = function(limit: integer): Node
         local left
         if UNOPS[cur().kind] then
             local n = new cst.Unop(kind = "unop")
@@ -2306,10 +2366,21 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     -- checker, except that an @ref definition member accepts a type name; `name =
     -- value` records a structured annotation member while a positional value is the
     -- annotation's designated single-value member.
-    local function parseAnnotationApplication(n)
+    parseAnnotationApplication = function(n)
         add(n, expect("@"))
+        local negated = cur().text == "!" and add(n, advance()) or nil
         n.name = add(n, expectName("after '@'"))
-        if cur().kind ~= "(" then
+        if negated then
+            errAt(n.name, "@!" .. n.name.text .. " is not supported; annotate one statement or expression", "NUPP2112")
+        end
+        if n.name.text == "unsafe" then
+            if cur().kind == "(" and tokens[
+                i + 1
+            ] and tokens[i + 1].kind == "name" and tokens[i + 2] and tokens[i + 2].kind == "=" then
+                errAt(n.name, "@unsafe takes no configuration; parentheses enclose its operand", "NUPP2112")
+            end
+            return n
+        elseif cur().kind ~= "(" then
             return n
         end
 

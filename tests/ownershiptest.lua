@@ -6746,11 +6746,7 @@ function M.aBorrowCannotCrossAnAnyParameter()
         "NUPP2611",
         "a coroutine body"
     )
-    assertEq(
-        codes(crossing("local sink: any", "sink(resource)")),
-        "NUPP2611",
-        "a callable held in an any local"
-    )
+    assertEq(codes(crossing("local sink: any", "sink(resource)")), "NUPP2611", "a callable held in an any local")
 end
 
 -- The way out of the refusal above is a declaration, not an escape hatch. A
@@ -7197,6 +7193,98 @@ end
 ]]
     )
     assert(moved:find("NUPP2601", 1, true), moved)
+end
+
+function M.unsafeAnnotationKeepsOwnershipChecksAndOperandGrammar()
+    local source = RESOURCE
+        .. "\n"
+        .. [[
+local raw: resource*
+local owner = @unsafe adopt raw as affine(resource*, resource_free)
+local released = @unsafe release owner
+local restored = @unsafe adopt released as affine(resource*, resource_free)
+drop restored
+]]
+    assertClean(source)
+    assertEq(codes(source .. "\nlocal again = @unsafe release owner"), "NUPP2601")
+    assertEq(codes("local n = @unsafe release 1"), "NUPP2602 NUPP2602")
+    assertEq(codes("local n = @unsafe adopt 1 as integer"), "NUPP2602")
+    assertEq(codes([[local p: int32* = nil as any
+@unsafe local n: string = p[0]
+]]), "NUPP2001")
+    assertEq(
+        codes(
+            RESOURCE
+            .. "\n"
+            .. [[
+local owner = resource_new()
+@unsafe do local box = {owner = owner} end
+resource_free(owner)
+]]
+        ),
+        "NUPP2603"
+    )
+    for _, expression in ipairs({
+        "release first + second",
+        "release (first or second)",
+        "adopt (first or second) as Owner"
+    }) do
+        local parsed = parser.parse("local v = @unsafe " .. expression)
+        assertEq(#parsed.errors, 0)
+        local node = parsed.root.blocks[1].stats[1].exprs[1]
+        assertEq(node.kind, "unsafeOwnershipExpr")
+        assert(node.expressionAnnotations)
+        assertEq(node.expr.kind, expression == "release first + second" and "binop" or "paren")
+    end
+    assertClean([[local unsafe, adopt, release = print, print, print
+unsafe(1) adopt(2) release(3)
+]])
+end
+
+function M.unsafeAnnotationsPreserveCleanupAcrossTransfersAndExits()
+    local source = [[
+local log = ''
+local record Resource id: string end
+local function close(takes value: Resource): nil log = log .. value.id end
+local function open(id: string): affine(Resource, close) return new Resource(id = id) end
+local raw = @unsafe release open('a')
+local owner = @unsafe adopt raw as affine(Resource, close)
+drop owner
+local function run(): integer
+    return @unsafe do
+        local held = open('y')
+        yield 7
+    end
+end
+local answer = run()
+@unsafe for i = 1, 3 do
+    local held = open('b')
+    break
+end
+local function returning(): integer
+    @unsafe do
+        local held = open('r')
+        return 8
+    end
+end
+local returned = returning()
+@unsafe do local held = open('d') end
+return answer, returned, log
+]]
+    for _, dialect in ipairs({"luajit", "lua51"}) do
+        for _, level in ipairs({0, 1, 2}) do
+            local result, diags = checked(source, {dialect = dialect})
+            assertEq(#diags, 0, diags[1] and diags[1].msg)
+            require("nupp.compiler.optimize").run(result, {level = level, dialect = dialect, filename = 'test.g.nupp'})
+            local code, errors = gen.generate(result, "test.g.nupp")
+            assertEq(#errors, 0, errors[1] and errors[1].msg)
+            local chunk = assert(loadstring(code))
+            local answer, returned, log = chunk()
+            assertEq(answer, 7)
+            assertEq(returned, 8)
+            assertEq(log, "aybrd", dialect .. " O" .. level)
+        end
+    end
 end
 
 return M

@@ -747,6 +747,8 @@ function functions.install(c: state.Checker): state.StatHandlers
                 expectedModes = generics.expectedParameterModes(expectedFunc, c.reductionControl)
             end
         end
+        local savedUnsafe = c.unsafeDepth
+        c.unsafeDepth = 0
         c.functionDepth = c.functionDepth + 1
         c.functionBodies[#c.functionBodies + 1] = body
         c.pushScope()
@@ -1220,6 +1222,7 @@ function functions.install(c: state.Checker): state.StatHandlers
         c.functionBodies[#c.functionBodies] = nil
         c.blockYieldStack = savedBlockYields
         c.functionDepth = c.functionDepth - 1
+        c.unsafeDepth = savedUnsafe
         if observedReturns and #observedReturns > 0 then
             local inferred = observedResultTypes(observedReturns)
             if inferred then

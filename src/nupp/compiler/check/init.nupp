@@ -2065,6 +2065,9 @@ function checkMod.check(
     local function alwaysExits(block: Node?): boolean
         local stats = block and block.kind == "block" and block.stats or {}
         local last = stats[#stats]
+        while last and (last.kind == "pragmaStmt" or last.kind == "exportStmt") do
+            last = last.stat
+        end
         if not last then
             return false
         end
@@ -2143,6 +2146,12 @@ function checkMod.check(
     --- @param stat the statement to judge
     completesNormally = function(node: Node): boolean
         local stat = node as any
+        while stat and (stat.kind == "pragmaStmt" or stat.kind == "exportStmt") do
+            stat = stat.stat
+        end
+        if not stat then
+            return true
+        end
         local kind = stat.kind
         if kind == "returnStmt"
             or kind == "yieldStmt"
@@ -2252,6 +2261,18 @@ function checkMod.check(
     -- under each key is checked wherever one is written. See
     -- nupp.compiler.check.metatable.
     metatable.install(c)
+
+    c.withUnsafe = function(enabled, action)
+        local saved = c.unsafeDepth
+        c.unsafeDepth = enabled and saved + 1 or 0
+        local ok, result = pcall(action)
+        c.unsafeDepth = saved
+        if not ok then
+            error(result, 0)
+        end
+
+        return result
+    end
 
     -- The type an expression has. See nupp.compiler.check.expr.
     expr.install(c)

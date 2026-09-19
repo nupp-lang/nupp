@@ -201,6 +201,8 @@ record state.Checker
     --- How deep inside `unsafe do` the walk is; raw pointer use needs it above zero.
     unsafeDepth: integer
 
+    withUnsafe: function(enabled: boolean, action: function(): any): any
+
     --- The `nosuspend` region check, which judges after inference settles.
     nosuspend: any
 

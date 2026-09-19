@@ -86,9 +86,21 @@ local function run(options: any): integer
         return cleanup.id or cleanup.kind
     end
 
+    local markedOperands = {}
+
     local function visit(node, file, inUnsafe)
         if not node or cst.isToken(node) then
             return
+        end
+        local operand = node.expressionPermissionOperand
+        local previous = operand and markedOperands[operand]
+        if operand then
+            markedOperands[operand] = true
+        end
+        if node.kind == "funcbody" or node.kind == "shortfn" then
+            inUnsafe = false
+        elseif markedOperands[node] or (node.expressionAnnotations and not operand) then
+            inUnsafe = true
         end
         if options.regions and node.kind == "block" and node.automaticOwners then
             local owners = {}
@@ -191,7 +203,7 @@ local function run(options: any): integer
                     }
                 end
             end
-        elseif node.kind == "unsafeStmt" then
+        elseif node.kind == "unsafeStmt" or (node.kind == "pragmaStmt" and node.name.text == "unsafe") then
             local token = firstToken(node)
             unsafeSites[
                 #unsafeSites + 1
@@ -229,8 +241,26 @@ local function run(options: any): integer
                 kind = node.unsafeOwnershipOperation,
             }
         end
+        if node.expressionAnnotations and node.kind ~= "unsafeOwnershipExpr" then
+            for _, application in ipairs(node.expressionAnnotations) do
+                if application.name.text == "unsafe" then
+                    local token = firstToken(application)
+                    unsafeSites[
+                        #unsafeSites + 1
+                    ] = {
+                        file = file,
+                        line = token and token.line or 0,
+                        column = token and token.col or 0,
+                        kind = "unsafe assertion expression",
+                    }
+                end
+            end
+        end
         for _, child in ipairs(node) do
             visit(child, file, inUnsafe)
+        end
+        if operand then
+            markedOperands[operand] = previous
         end
     end
 

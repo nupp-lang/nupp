@@ -39,6 +39,7 @@ type annotations.TypeAPI = {
 }
 
 local KNOWN_TARGETS = {
+    expression = true,
     statement = true,
     declaration = true,
     binding = true,
@@ -136,6 +137,9 @@ function Registry:define(spec)
         if not KNOWN_TARGETS[target] then
             return nil, ("unknown annotation target %q"):format(tostring(target))
         end
+        if target == "expression" and not spec.builtin then
+            return nil, "expression annotations must be compiler-registered"
+        end
         if not targetSet[target] then
             targetSet[target] = true
             targets[#targets + 1] = target
@@ -193,6 +197,21 @@ local function categories(node)
 end
 
 function Registry:accepts(definition, node)
+    if definition.name == "unsafe" then
+        local allowed = {
+            doStmt = true,
+            ifStmt = true,
+            fornumStmt = true,
+            forinStmt = true,
+            whileStmt = true,
+            repeatStmt = true,
+            localStmt = true,
+            assignStmt = true,
+            compoundAssign = true,
+            callStmt = true,
+        }
+        return node ~= nil and allowed[node.kind] == true
+    end
     local actual = categories(node)
     for target in pairs(definition.targetSet) do
         if actual[target] then
@@ -213,6 +232,14 @@ end
 -- go-to-definition from the record they are written as, so only the built-ins
 -- compiled into the registry need a stand-in.
 local BUILTINS = {
+    {
+        name = "unsafe",
+        arguments = "none",
+        builtin = true,
+        targets = {"expression", "block", "conditional", "loop", "local-binding", "assignment", "call"},
+        doc = "Authorizes unsafe operations in one statement or operand; nested function bodies authorize their own operations.",
+        docsPath = "reference/annotations#unsafe-operations",
+    },
     {
         name = "annotation",
         arguments = "definition",

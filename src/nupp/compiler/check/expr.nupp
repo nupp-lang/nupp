@@ -1410,6 +1410,8 @@ function expr.install(c: state.Checker): nil
             return inferred
         elseif kind == "shortfn" then
             local function inferShort(): Type
+                local savedUnsafe = c.unsafeDepth
+                c.unsafeDepth = 0
                 c.pushScope()
                 c.scope.completionScope = node.body or node
                 local params, paramNames, paramModes = {}, {}, {}
@@ -1512,6 +1514,7 @@ function expr.install(c: state.Checker): nil
                 c.loops.setReturning(wasReturning)
                 c.loops.finish(loopClosure, node)
                 c.popScope()
+                c.unsafeDepth = savedUnsafe
 
                 return T.func(
                     params,
@@ -1930,7 +1933,7 @@ function expr.install(c: state.Checker): nil
         end
     end
 
-    c.infer = function(node: Node): Type
+    local function inferValue(node: Node): Type
         if not EXPANDS[node.kind] then
             local inferred = inferExpr(node)
             if node.kind == "call"
@@ -1997,6 +2000,39 @@ function expr.install(c: state.Checker): nil
         end
 
         return first
+    end
+
+    -- A unary prefix can straddle an unannotated power operation. Grant its
+    -- covered operand the same scope used by every other expression, without
+    -- changing the CST's ordinary operator precedence.
+    local pendingUnsafe: {[Node]: boolean?} = {}
+
+    c.infer = function(node: Node): Type
+        if not node.expressionAnnotations and not pendingUnsafe[node] then
+            return inferValue(node)
+        end
+        local authorized = pendingUnsafe[node] == true
+        for _, application in ipairs(node.expressionAnnotations or {}) do
+            local definition, valid = c.marks.validateAnnotation(application, node)
+            authorized = authorized or (valid and definition and definition.name == "unsafe")
+        end
+        if authorized and node.expressionPermissionOperand then
+            local operand = node.expressionPermissionOperand
+            local previous = pendingUnsafe[operand]
+            pendingUnsafe[operand] = true
+            local ok, result = pcall(inferValue, node)
+            pendingUnsafe[operand] = previous
+            if not ok then
+                error(result, 0)
+            end
+            return result
+        elseif authorized then
+            return c.withUnsafe(true, function(): Type
+                return inferValue(node)
+            end)
+        end
+
+        return inferValue(node)
     end
 
     c.apply.inferExpected = function(node, expected)

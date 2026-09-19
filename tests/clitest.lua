@@ -708,11 +708,13 @@ function M.checkNamedFilesKeepTheirExtensionStrictness()
     local dir = os.tmpname()
     os.remove(dir)
     assert(os.execute("mkdir -p '" .. dir .. "'") == 0)
+
     local function write(name, text)
         local file = assert(io.open(dir .. "/" .. name, "wb"))
         file:write(text)
         file:close()
     end
+
     local function unknown(command, expected)
         local output = captureJsonAt(dir, command)
         local report = json.decode(output)
@@ -725,8 +727,11 @@ function M.checkNamedFilesKeepTheirExtensionStrictness()
         assert(found == expected, command .. " must respect the strict floor: " .. output)
         assert(report.ok == not expected, command .. ": " .. output)
     end
+
     for _, manifest in ipairs({false, true}) do
-        if manifest then write("nupp.lua", 'return {include = {"."}}') end
+        if manifest then
+            write("nupp.lua", 'return {include = {"."}}')
+        end
         for _, extension in ipairs({".nupp", ".g.nupp", ".nupp", ".lua"}) do
             local name = "probe" .. extension
             write(name, "return missingForStrictCheck\n")
@@ -873,8 +878,9 @@ function M.ownershipAuditFindsInlineAssertionsAndAffineCResults()
                 "cdef function free(takes value: voidptr)",
                 "cdef function acquire(size: uint64): affine(voidptr, free)",
                 "local raw: voidptr",
-                "local owner = unsafe adopt raw as affine(voidptr, free)",
-                "local released = unsafe release owner",
+                "local owner = @unsafe adopt raw as affine(voidptr, free)",
+                "local released = @unsafe release owner",
+                "local read = @unsafe (nil as int32*)[0]",
                 "return released",
                 "",
             },
@@ -893,11 +899,13 @@ function M.ownershipAuditFindsInlineAssertionsAndAffineCResults()
         "the affine result is described"
     )
     assert(
-        #report.unsafe == 2 and report.unsafe[
+        #report.unsafe == 4 and report.unsafe[
             1
         ].kind == "ownership assertion: adopt" and report.unsafe[2].kind == "ownership assertion: release",
         "inline ownership assertions are listed outside unsafe-do regions"
     )
+    assert(report.unsafe[3].kind == "unchecked C memory indexing", "expression permission includes the read")
+    assert(report.unsafe[4].kind == "unsafe assertion expression", "expression markers are enumerable")
     os.execute("rm -rf '" .. dir .. "'")
 end
 

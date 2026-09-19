@@ -319,7 +319,18 @@ function pragma.install(c: state.Checker): state.StatHandlers
             end
             return
         end
-        if written == "annotation" then
+        if written == "unsafe" then
+            if stat.stat then
+                if valid then
+                    c.withUnsafe(true, function()
+                        c.checkStat(stat.stat)
+                    end)
+                else
+                    c.checkStat(stat.stat)
+                end
+            end
+            return
+        elseif written == "annotation" then
             if stat.stat then
                 c.checkStat(stat.stat)
             end

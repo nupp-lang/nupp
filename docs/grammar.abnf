@@ -286,7 +286,20 @@ compoundop     = "+=" / "-=" / "*=" / "/=" / "//=" / "%=" / "&=" / "|="
 ; so unknown annotations survive losslessly and receive a semantic diagnostic.
 stat           =/ annotatedstat
 annotatedstat  = annotation stat
-annotation     = "@" Name [annotationargs]
+annotation     = "@" Name [annotationargs]   ; @unsafe never consumes annotationargs
+simpleexp      =/ unsafeexp
+unsafeexp      = "@" %s"unsafe" (unsafeoperand / ownershipoperand)
+unsafeoperand  = (unop unexp / simpleexp) *(%s"as" type)
+ownershipoperand = %s"release" exp / %s"adopt" exp %s"as" type
+; Unary/power precedence stays unchanged; permission ends before the first
+; unparenthesized binary operator even when power is nested under a unary node.
+; An expression annotation preserves its operand's result count. Unary operators,
+; postfix operations and casts belong to that operand; binary operators do not.
+; Parentheses explicitly include a larger expression. Ownership operands retain
+; their full-expression grammar, including the final cast consumed by adoption.
+; Only compiler-registered annotations with expression support are admitted.
+; @unsafe statement targets are do/if/for/while/repeat, value bindings,
+; assignments and calls. Function bodies reset permission. @!unsafe is invalid.
 annotationargs = "(" [annotationarg *("," annotationarg)] ")"
 annotationarg  = [Name "="] exp
 ; affine(T, cleanup) is a compile-time affine type-generator call.

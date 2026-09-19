@@ -5,7 +5,8 @@ order: 670
 # Annotations
 
 An annotation is typed, type-erased metadata attached to a declaration or a
-statement. It is itself declared as a record or struct, whose fields are the
+statement. The built-in `@unsafe` also supports expressions. User-defined
+annotations are declared as records or structs, whose fields are the
 annotation's values and whose definition says where applications may attach.
 
 ```nupp
@@ -188,6 +189,64 @@ They do not insert `do ... end` and do not extend to later sibling statements.
 The grammar's terminal `return` is not an ordinary statement, so it cannot
 currently be annotated directly.
 
+## Unsafe operations
+
+`@unsafe` authorizes operations requiring unsafe permission in one statement or
+expression. Ordinary type, ownership, borrow, lifetime and cleanup checks still
+apply. It takes no arguments and cannot be redefined.
+
+On statements it supports `do`, `if`, numeric and generic `for`, `while`,
+`repeat`, local/const value bindings, assignments and calls. Permission covers
+conditions, loop setup, assignment destinations and initializers, as well as
+bodies. An annotated binding keeps its ordinary scope.
+
+```nupp
+local pointer: int32* = nil as any
+@unsafe local first = pointer[0]
+print(first)
+
+@unsafe if first > 0 then
+    pointer[0] = first
+end
+```
+
+In expression position the annotation covers the following operand, including
+unary operators, calls, indexing, member access and casts. Binary operators
+remain outside it; parentheses include a larger expression. Both
+`@unsafe(expression)` and `@unsafe (expression)` annotate that parenthesized
+operand. Annotated calls retain their normal multiple results. Unary/power
+precedence is unchanged: `@unsafe -x ^ y` still means `-(x ^ y)`, while
+permission ends before `^`.
+
+```nupp
+local pointer: int32* = nil as any
+local first = @unsafe pointer[0]
+local sum = @unsafe (pointer[0] + pointer[1])
+local chosen = @unsafe do
+    if first > 0 then
+        yield pointer[0]
+    end
+    yield 0
+end
+```
+
+For example, `@unsafe pointer[0] + other[0]` authorizes only the first read,
+and `(@unsafe pointer)[0]` authorizes neither index operation. A `switch`
+expression includes its selector, guards and arms, retaining lazy execution.
+
+Permission ends with the annotated construct and resets in every nested
+function body, including an immediately called literal. Function and type
+declarations, function literals, fields, foreign declarations and whole files
+are unsupported targets. Annotate operations inside functions; write
+`return @unsafe expression` or `yield @unsafe expression` for terminal values.
+`@aot` continues to reject unsafe constructs, and comptime gains no operations.
+
+Ownership transfers remain explicit: `@unsafe release owner` consumes an
+affine obligation without cleanup, and `@unsafe adopt raw as Owner` creates
+one with the target's cleanup policy. These forms are required even inside an
+annotated block. Their operands keep the full expression grammar; release and
+adoption introduce no extra grouping or function.
+
 ## File-level directives
 
 A file-level inner annotation is written `@!name` and applies to the file it
@@ -244,6 +303,7 @@ any of their names.
 
 | Annotation | Arguments | Attaches to |
 | --- | --- | --- |
+| `@unsafe` | None | Supported statements and operands; see [unsafe operations](#unsafe-operations) |
 | `@annotation` | `targets = {"..."}` | record, struct |
 | `@annotationValue` | none | annotation definition field |
 | `@ref` | none | annotation definition field |
