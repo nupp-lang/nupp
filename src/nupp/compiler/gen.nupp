@@ -3001,6 +3001,18 @@ function gen.generate(
         end
     end
 
+    function emitDepth.returnsConstruction(statement)
+        if #statement.exprs ~= 1 then
+            return false
+        end
+        local expr = statement.exprs[1]
+        while expr and (expr.kind == "paren" or expr.kind == "castExpr") do
+            expr = expr.expr
+        end
+
+        return expr ~= nil and expr.kind == "newExpr"
+    end
+
     local function switchOperands(node): {cst.Node}?
         local kind = node.kind
         if kind == "paren" or kind == "castExpr" or kind == "isExpr" or kind == "unsafeOwnershipExpr" then
@@ -8368,6 +8380,16 @@ function gen.generate(
 
         elseif kind == "returnStmt" and x.constructorReturn then
             e("do return " .. assert(emitDepth.constructorReturnName) .. " end", sourceLine(x))
+
+        elseif kind == "returnStmt" and emitDepth.returnsConstruction(x) then
+            -- A constructor produces one value. Keep its caller's frame alive
+            -- through the call: tail-calling setmetatable makes LuaJIT leave
+            -- the trace when the newly built record returns to a lower frame.
+            -- Parentheses require a single-result CALL followed by RET1, as a
+            -- temporary would, without taking another local at Lua's limit.
+            e("return (", sourceLine(x))
+            emit(x.exprs[1])
+            e(")")
 
         elseif (
             kind == "breakStmt" or kind == "continueStmt"

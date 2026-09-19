@@ -1,0 +1,107 @@
+# Benchmark: optparser.mixed-argv.mutable-cursor (bench/optparser.bench.nupp) fork 1/20
+# Result: optparser.mixed-argv.mutable-cursor  p50=74.580 ns/op  samples=15  wall=7.382s
+# Benchmark: optparser.mixed-argv.record-token (bench/optparser.bench.nupp) fork 1/20
+# Result: optparser.mixed-argv.record-token  p50=22.941 ns/op  samples=33  wall=6.204s
+# Benchmark: optparser.mixed-argv.record-token (bench/optparser.bench.nupp) fork 2/20
+# Result: optparser.mixed-argv.record-token  p50=25.968 ns/op  samples=30  wall=6.214s
+# Benchmark: optparser.mixed-argv.mutable-cursor (bench/optparser.bench.nupp) fork 2/20
+# Result: optparser.mixed-argv.mutable-cursor  p50=70.451 ns/op  samples=15  wall=6.959s
+# Benchmark: optparser.mixed-argv.record-token (bench/optparser.bench.nupp) fork 3/20
+# Result: optparser.mixed-argv.record-token  p50=24.990 ns/op  samples=31  wall=5.888s
+# Benchmark: optparser.mixed-argv.mutable-cursor (bench/optparser.bench.nupp) fork 3/20
+# Result: optparser.mixed-argv.mutable-cursor  p50=74.821 ns/op  samples=15  wall=7.154s
+# Benchmark: optparser.mixed-argv.mutable-cursor (bench/optparser.bench.nupp) fork 4/20
+# Result: optparser.mixed-argv.mutable-cursor  p50=78.999 ns/op  samples=15  wall=7.162s
+# Benchmark: optparser.mixed-argv.record-token (bench/optparser.bench.nupp) fork 4/20
+# Result: optparser.mixed-argv.record-token  p50=24.318 ns/op  samples=32  wall=5.925s
+# Benchmark: optparser.mixed-argv.record-token (bench/optparser.bench.nupp) fork 5/20
+# Result: optparser.mixed-argv.record-token  p50=24.585 ns/op  samples=31  wall=5.724s
+# Benchmark: optparser.mixed-argv.mutable-cursor (bench/optparser.bench.nupp) fork 5/20
+# Result: optparser.mixed-argv.mutable-cursor  p50=63.493 ns/op  samples=15  wall=7.873s
+# Benchmark: optparser.mixed-argv.mutable-cursor (bench/optparser.bench.nupp) fork 6/20
+# Result: optparser.mixed-argv.mutable-cursor  p50=75.843 ns/op  samples=15  wall=7.654s
+# Benchmark: optparser.mixed-argv.record-token (bench/optparser.bench.nupp) fork 6/20
+# Result: optparser.mixed-argv.record-token  p50=27.246 ns/op  samples=29  wall=6.138s
+# Benchmark: optparser.mixed-argv.record-token (bench/optparser.bench.nupp) fork 7/20
+# Result: optparser.mixed-argv.record-token  p50=29.126 ns/op  samples=29  wall=6.346s
+# Benchmark: optparser.mixed-argv.mutable-cursor (bench/optparser.bench.nupp) fork 7/20
+# Result: optparser.mixed-argv.mutable-cursor  p50=72.554 ns/op  samples=15  wall=7.407s
+# Benchmark: optparser.mixed-argv.record-token (bench/optparser.bench.nupp) fork 8/20
+# Result: optparser.mixed-argv.record-token  p50=22.355 ns/op  samples=34  wall=6.321s
+# Benchmark: optparser.mixed-argv.mutable-cursor (bench/optparser.bench.nupp) fork 8/20
+# Result: optparser.mixed-argv.mutable-cursor  p50=78.322 ns/op  samples=15  wall=8.507s
+# Benchmark: optparser.mixed-argv.mutable-cursor (bench/optparser.bench.nupp) fork 9/20
+# Result: optparser.mixed-argv.mutable-cursor  p50=74.140 ns/op  samples=15  wall=8.273s
+# Benchmark: optparser.mixed-argv.record-token (bench/optparser.bench.nupp) fork 9/20
+# Result: optparser.mixed-argv.record-token  p50=25.911 ns/op  samples=30  wall=7.137s
+# Benchmark: optparser.mixed-argv.mutable-cursor (bench/optparser.bench.nupp) fork 10/20
+# Result: optparser.mixed-argv.mutable-cursor  p50=64.374 ns/op  samples=15  wall=6.591s
+# Benchmark: optparser.mixed-argv.record-token (bench/optparser.bench.nupp) fork 10/20
+# Result: optparser.mixed-argv.record-token  p50=25.945 ns/op  samples=30  wall=6.293s
+# Benchmark: optparser.mixed-argv.mutable-cursor (bench/optparser.bench.nupp) fork 11/20
+# Result: optparser.mixed-argv.mutable-cursor  p50=65.084 ns/op  samples=15  wall=7.833s
+# Benchmark: optparser.mixed-argv.record-token (bench/optparser.bench.nupp) fork 11/20
+# Result: optparser.mixed-argv.record-token  p50=27.117 ns/op  samples=29  wall=5.887s
+# Benchmark: optparser.mixed-argv.record-token (bench/optparser.bench.nupp) fork 12/20
+# Result: optparser.mixed-argv.record-token  p50=26.389 ns/op  samples=30  wall=7.116s
+# Benchmark: optparser.mixed-argv.mutable-cursor (bench/optparser.bench.nupp) fork 12/20
+# Result: optparser.mixed-argv.mutable-cursor  p50=77.970 ns/op  samples=15  wall=6.935s
+# Benchmark: optparser.mixed-argv.mutable-cursor (bench/optparser.bench.nupp) fork 13/20
+# Result: optparser.mixed-argv.mutable-cursor  p50=75.493 ns/op  samples=15  wall=7.487s
+# Benchmark: optparser.mixed-argv.record-token (bench/optparser.bench.nupp) fork 13/20
+# Result: optparser.mixed-argv.record-token  p50=22.631 ns/op  samples=34  wall=5.248s
+# Benchmark: optparser.mixed-argv.mutable-cursor (bench/optparser.bench.nupp) fork 14/20
+# Result: optparser.mixed-argv.mutable-cursor  p50=76.689 ns/op  samples=15  wall=8.396s
+# Benchmark: optparser.mixed-argv.record-token (bench/optparser.bench.nupp) fork 14/20
+# Result: optparser.mixed-argv.record-token  p50=25.299 ns/op  samples=30  wall=5.813s
+# Benchmark: optparser.mixed-argv.mutable-cursor (bench/optparser.bench.nupp) fork 15/20
+# Result: optparser.mixed-argv.mutable-cursor  p50=76.316 ns/op  samples=15  wall=8.280s
+# Benchmark: optparser.mixed-argv.record-token (bench/optparser.bench.nupp) fork 15/20
+# Result: optparser.mixed-argv.record-token  p50=26.403 ns/op  samples=30  wall=7.130s
+# Benchmark: optparser.mixed-argv.mutable-cursor (bench/optparser.bench.nupp) fork 16/20
+# Result: optparser.mixed-argv.mutable-cursor  p50=69.177 ns/op  samples=15  wall=7.178s
+# Benchmark: optparser.mixed-argv.record-token (bench/optparser.bench.nupp) fork 16/20
+# Result: optparser.mixed-argv.record-token  p50=24.693 ns/op  samples=32  wall=6.055s
+# Benchmark: optparser.mixed-argv.mutable-cursor (bench/optparser.bench.nupp) fork 17/20
+# Result: optparser.mixed-argv.mutable-cursor  p50=76.568 ns/op  samples=15  wall=7.484s
+# Benchmark: optparser.mixed-argv.record-token (bench/optparser.bench.nupp) fork 17/20
+# Result: optparser.mixed-argv.record-token  p50=27.005 ns/op  samples=29  wall=6.981s
+# Benchmark: optparser.mixed-argv.record-token (bench/optparser.bench.nupp) fork 18/20
+# Result: optparser.mixed-argv.record-token  p50=25.761 ns/op  samples=30  wall=6.240s
+# Benchmark: optparser.mixed-argv.mutable-cursor (bench/optparser.bench.nupp) fork 18/20
+# Result: optparser.mixed-argv.mutable-cursor  p50=71.379 ns/op  samples=15  wall=7.181s
+# Benchmark: optparser.mixed-argv.mutable-cursor (bench/optparser.bench.nupp) fork 19/20
+# Result: optparser.mixed-argv.mutable-cursor  p50=162.160 ns/op  samples=15  wall=9.905s
+# Benchmark: optparser.mixed-argv.record-token (bench/optparser.bench.nupp) fork 19/20
+# Result: optparser.mixed-argv.record-token  p50=27.855 ns/op  samples=29  wall=5.937s
+# Benchmark: optparser.mixed-argv.record-token (bench/optparser.bench.nupp) fork 20/20
+# Result: optparser.mixed-argv.record-token  p50=24.526 ns/op  samples=32  wall=7.543s
+# Benchmark: optparser.mixed-argv.mutable-cursor (bench/optparser.bench.nupp) fork 20/20
+# Result: optparser.mixed-argv.mutable-cursor  p50=71.954 ns/op  samples=15  wall=6.587s
+bench: optparser.mixed-argv.record-token: flaky abort site: warn|failed to allocate mcode memory|bench/optparser.bench.nupp:48| in 2/20 forks; reported, not gated
+bench: optparser.mixed-argv.record-token: flaky abort site: warn|failed to allocate mcode memory|bench/optparser.bench.nupp:124| in 1/20 forks; reported, not gated
+bench: optparser.mixed-argv.mutable-cursor: flaky abort site: warn|failed to allocate mcode memory|<candidate-worktree>/build/nupp/cli/internal/optparser.lua:110| in 8/20 forks; reported, not gated
+bench: optparser.mixed-argv.mutable-cursor: flaky abort site: warn|loop unroll limit reached|<candidate-worktree>/build/nupp/cli/internal/optparser.lua:110| in 1/20 forks; reported, not gated
+bench: optparser.mixed-argv.mutable-cursor: flaky abort site: warn|persistent type instability|bench/optparser.bench.nupp:142| in 3/20 forks; reported, not gated
+bench: optparser.mixed-argv.mutable-cursor: flaky abort site: warn|failed to allocate mcode memory|bench/optparser.bench.nupp:142| in 5/20 forks; reported, not gated
+bench: optparser.mixed-argv.mutable-cursor: flaky abort site: warn|loop unroll limit reached|bench/optparser.bench.nupp:142| in 1/20 forks; reported, not gated
+bench: optparser.mixed-argv.mutable-cursor: flaky abort site: warn|failed to allocate mcode memory|<candidate-worktree>/build/nupp/cli/internal/optparser.lua:278| in 1/20 forks; reported, not gated
+bench: optparser.mixed-argv.mutable-cursor: flaky abort site: blacklist|blacklisted|<candidate-worktree>/build/nupp/cli/internal/optparser.lua:216| in 1/20 forks; reported, not gated
+bench: optparser.mixed-argv.mutable-cursor: flaky abort site: blacklist|blacklisted|bench/optparser.bench.nupp:141| in 1/20 forks; reported, not gated
+bench: optparser.mixed-argv.mutable-cursor: outliers: 32 severe of 300 samples across 20 forks, max 1.0x median; classified only, all samples retained
+
+Benchmark                             Mode  Forks       Score  Units       Alloc B/op              Interval   Coverage     Ratio
+optparser.mixed-argv.record-token      p50     20      25.761  ns/op           14.547      [24.585, 26.403]     95.86%    1.000x
+optparser.mixed-argv.mutable-cursor    p50     20      74.580  ns/op           40.729      [71.379, 76.568]     95.86%    0.345x
+
+Winners
+Workload              Winner         Speedup
+optparser.mixed-argv  record-token    2.895x
+
+Durations: candidate vs <baseline-checkout>/bin/nupp  (interleaved, paired)
+Benchmark                            Change          Interval  Verdict
+optparser.mixed-argv.record-token    -83.2%  [-83.8%, -82.7%]  improved
+optparser.mixed-argv.mutable-cursor   +7.9%   [+4.2%, +13.0%]  inconclusive
+
+bench: 2 compared, equivalence margin +-5.0%, Benjamini-Hochberg adjusted
+       0 regressed, 1 improved, 0 unchanged, 1 inconclusive

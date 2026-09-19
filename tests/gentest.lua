@@ -67,6 +67,71 @@ end
 
 local M = {}
 
+function M.returnedRecordsKeepTheCallersTraceFrame()
+    local source = [[
+local record Token value: integer end
+local record Built
+    value: integer
+    constructor(self, value: integer) self.value = value end
+end
+local function direct(value: integer): Token return new Token(value = value) end
+local function cast(value: integer): Token return new Token(value = value) as Token end
+local function constructed(value: integer): Built return new Built(value) end
+return direct, cast, constructed
+]]
+    local code = generateChecked(source)
+    assertEq(countLines(code), countLines(source), "record returns keep source lines")
+    local direct, cast, constructed = assert(loadstring(code))()
+    local bc = require("jit.bc")
+    for _, fn in ipairs({direct, cast, constructed}) do
+        assertEq(fn(37).value, 37)
+        local pc = 1
+        while true do
+            local instruction = bc.line(fn, pc)
+            if not instruction then break end
+            assert(not instruction:find("CALLT", 1, true), "a new return retains its frame: " .. instruction)
+            pc = pc + 1
+        end
+    end
+end
+
+function M.recordReturnsDoNotConsumeAnotherLocalSlot()
+    local declarations, terms = {}, {}
+    for index = 1, 200 do
+        declarations[index] = "local n" .. index .. ": integer = " .. index
+        terms[index] = "n" .. index
+    end
+    local code = generateChecked("local record Token value: integer end\n"
+        .. "local function make(): Token\n" .. table.concat(declarations, "\n")
+        .. "\nreturn new Token(value = " .. table.concat(terms, " + ") .. ")\nend\nreturn make()")
+    assertEq(assert(loadstring(code))().value, 20100, "a return fits at the local limit")
+end
+
+function M.recordReturnsPreserveEvaluationAndMultipleValues()
+    local code = generateChecked([[
+local record Token value: integer end
+local log = ""
+local function value(label: string, n: integer): integer log = log .. label return n end
+local function tail(): (nil, integer) log = log .. "c" return nil, 9 end
+local function one(): Token
+    local __nuppT1: integer = 31
+    return new Token(value = value("a", __nuppT1))
+end
+local function many(): (Token, nil, integer)
+    return new Token(value = value("b", 32)), tail()
+end
+local a = one()
+local b, c, d = many()
+return a.value, b.value, c, d, log
+]])
+    local a, b, c, d, log = assert(loadstring(code))()
+    assertEq(a, 31)
+    assertEq(b, 32)
+    assertEq(c, nil)
+    assertEq(d, 9)
+    assertEq(log, "abc", "each constructor argument runs once in source order")
+end
+
 function M.exportedPrimitiveFunctionsPublishPreparedWorkerTransfers()
     local code = generateChecked([[
 module jobs
