@@ -125,6 +125,8 @@ headers/tools. Other hosts can consume the branch CI artifact.
 guest=$(./scripts/toolchain browser-guest)
 mkdir -p build/browser-guest
 cp -R "$guest/." build/browser-guest/
+./scripts/toolchain --all
+./bin/nupp build --target bootstrapCompiler
 ./scripts/prelude-image luajit
 luajit_dir=$(./scripts/toolchain luajit)
 "$luajit_dir/bin/luajit" tests/luajit-browser/prepare-compiler.lua \
@@ -161,3 +163,8 @@ providers, independent Wasm AOT ABI and platform schema have not migrated.
 Firefox, Safari, mobile, constrained-memory and production delivery acceptance
 remain open. No browser default or legacy lowerer has changed. The release/pin,
 one-release rollback and later cold-checkout deletion gates still apply.
+
+The `jit` query parameter enables an exploratory compiler-JIT comparison. A
+five-sample run kept the large-check p50 near 174 ms and increased trivial-check
+p50 to 15.4 ms. That small run is not a controlled performance verdict, but it
+does not supply evidence for changing the compiler candidate's JIT-off default.

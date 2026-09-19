@@ -51,7 +51,7 @@ try {
       });
     } finally { worker.terminate(); }
   } else {
-    await startGuest({appUrl:'./latency.lua', config:{mode:'compiler',jit:false,slim:true,nativeCompiler:query.has('native'), direct:query.has('direct'), compilerTransport:query.has('transport'), timingProbe:query.has('phases'),
+    await startGuest({appUrl:'./latency.lua', config:{mode:'compiler',jit:query.has('jit'),slim:true,nativeCompiler:query.has('native'), direct:query.has('direct'), compilerTransport:query.has('transport'), timingProbe:query.has('phases'),
         bundle:query.has('native') ? '/nupp/native-compiler.ljbc' : undefined},
       deadlineMs:240000, effectHandlers:{'compiler-request':handle},
       onProgress:message => {if(message.log) terminal.textContent=message.log; if(message.type === 'phase') phaseMarkers.push(message);},
@@ -69,7 +69,7 @@ try {
     zeroGuestTimerSamples: values.filter(s => s.sampledWallMs === 0).length,
     sampledWallP50Ms: quantile(values.map(s => s.sampledWallMs), .5),
   }));
-  output.textContent = JSON.stringify({ok:true, backend, direct:query.has('direct'), compilerTransport:query.has('transport'), startup, summary, samples, phaseMarkers});
+  output.textContent = JSON.stringify({ok:true, backend, jit:query.has('jit'), direct:query.has('direct'), compilerTransport:query.has('transport'), startup, summary, samples, phaseMarkers});
   output.dataset.status = 'passed';
 } catch (error) {
   output.textContent = JSON.stringify({ok:false, error:String(error.stack || error), samples});
