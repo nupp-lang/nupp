@@ -4205,6 +4205,116 @@ return {quotes = quotes}
     assert(out:find("rooted string parameter", 1, true), out)
 end
 
+-- A rooted byte view names an entry's own parameter, and only a parameter: a
+-- local holding anything else is not what the load addresses.
+function M.rootedByteViewsRequireAnEntryParameter()
+    local dir = project{
+        [
+            "local-view.g.nupp"
+        ] = [[
+local array = require("nupp.mem.array")
+local builder = require("nupp.codec.valuebuilder")
+local simd = require("nupp.simd")
+
+@aot
+local function quotes(source: string, nullValue: any): (any, uint32, uint32)
+    local rooted = "not the parameter"
+    local count = builder.length(source)
+    local state = builder.newSized(nullValue, count, count)
+    local found: uint32 = 0
+    if species = simd.species(array.uint8) then
+        local bytes = builder.bytes(rooted)
+        found = (species:load(bytes, 1) == 34):count()
+    end
+    builder.null(state)
+    return builder.finish(state), found, 0
+end
+
+return {quotes = quotes}
+]]
+    }
+    local out, code = run(dir, "local-view.g.nupp")
+    test.equal(code, 1, out)
+    assert(out:find("rooted string parameter", 1, true), out)
+end
+
+-- The view is a name for a pointer and a length rather than a value, so
+-- nothing but a vector load may read it, and the refusal says so at the read.
+function M.rootedByteViewsAreNotValues()
+    local dir = project{
+        [
+            "escaped-view.g.nupp"
+        ] = [[
+local builder = require("nupp.codec.valuebuilder")
+
+@aot
+local function quotes(source: string, nullValue: any): (any, uint32, uint32)
+    local count = builder.length(source)
+    local state = builder.newSized(nullValue, count, count)
+    local bytes = builder.bytes(source)
+    local kept = bytes
+    builder.null(state)
+    return builder.finish(state), 0, 0
+end
+
+return {quotes = quotes}
+]]
+    }
+    local out, code = run(dir, "escaped-view.g.nupp")
+    test.equal(code, 1, out)
+    assert(out:find("a vector load may read it and nothing else", 1, true), out)
+end
+
+-- The load through a view is the unchecked one under the same guard a span
+-- parameter's load is proved by, and the checked one without it. Both read the
+-- parameter's own pointer and length, which is the whole point: a value-building
+-- entry's parameters cross the Lua stack and a span cannot.
+function M.rootedByteViewsCarryTheSameCursorProof()
+    local dir = project{
+        [
+            "rooted.g.nupp"
+        ] = [[
+local array = require("nupp.mem.array")
+local builder = require("nupp.codec.valuebuilder")
+local simd = require("nupp.simd")
+local {type Buffer} = require("nupp.text")
+
+@aot
+local function quotes(borrows source: string | Buffer, nullValue: any): (any, uint32, uint32)
+    local count = builder.length(source)
+    local state = builder.newSized(nullValue, count, count)
+    local cursor: uint32 = 0
+    local found: uint32 = 0
+    local loose: uint32 = 0
+    if species = simd.species(array.uint8) then
+        local bytes = builder.bytes(source)
+        loose = (species:load(bytes, 1) == 34):count()
+        while cursor + species.lanes <= count do
+            found = found + (species:load(bytes, cursor + 1) == 34):count()
+            cursor = cursor + species.lanes
+        end
+    end
+    builder.null(state)
+    return builder.finish(state), found, loose
+end
+
+return {quotes = quotes}
+]]
+    }
+    local decoded, raw, code, where = lowered(dir, "--json rooted.g.nupp")
+    test.equal(code, 0, raw)
+    assert(decoded.ir:find("simd_load.load", 1, true), where .. "\n" .. decoded.ir)
+    assert(decoded.ir:find("span:source", 1, true), where .. ": the parameter is the load's root\n" .. decoded.ir)
+    assert(
+        decoded.c:find("ks_exp_load_at_u8x16(ks_bytes_1 + (size_t)", 1, true),
+        where .. ": the guarded load reads the parameter's own bytes unchecked\n" .. decoded.c
+    )
+    assert(
+        decoded.c:find("ks_exp_load_full_u8x16(ks_bytes_1, ks_length_1", 1, true),
+        where .. ": an unproved load keeps the parameter's length\n" .. decoded.c
+    )
+end
+
 function M.fixedWidthSwitchesEmitNativeCDispatch()
     local source = [[
 local span = require("nupp.mem.span")

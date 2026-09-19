@@ -392,7 +392,54 @@ local function multipleBindings(value: number): {number}
     return {first, second, third, fourth}
 end
 
+local array = require("nupp.mem.array")
+
+--- Every byte's high nibble, as a pure helper over vectors, so the emitted
+--- unit carries a helper whose scalar rendering a value-building entry never
+--- calls -- which is the rendering the unit is compiled `-Werror` against.
+local function highNibble(value: simd.Vector<uint8, simd.Preferred>): simd.Vector<uint8, simd.Preferred>
+    return value >> 4
+end
+
+--- Counts the bytes in 0x20 through 0x2F through a span over the entry's own
+--- rooted bytes, which is the only way a value-building entry reaches the
+--- general vector load: its parameters cross the Lua stack, where a pointer
+--- and a count are not values. The guarded load is the unchecked one and the
+--- masked tail is the checked one, and the second result is the same count
+--- read one byte at a time, so the two have to agree on every length.
+@aot
+local function punctuation(source: string, nullValue: any): (any, uint32, uint32)
+    local count = valueBuilder.length(source)
+    local state = valueBuilder.newSized(nullValue, nupp.math.u32.wrap(2), count)
+    local cursor: uint32 = 0
+    local found: uint32 = 0
+    if species = simd.species(array.uint8) then
+        local bytes = valueBuilder.bytes(source)
+        while cursor + species.lanes <= count do
+            found = found + (highNibble(species:load(bytes, cursor + 1)) == 2):count()
+            cursor = cursor + species.lanes
+        end
+        local tail = species:tail(count - cursor)
+        found = found + ((highNibble(species:load(bytes, cursor + 1, tail)) == 2) & tail):count()
+    end
+    local scalar: uint32 = 0
+    local at: uint32 = 0
+    while at < count do
+        local byte: uint32 = valueBuilder.byteAt(source, at)
+        if byte >= 32 and byte < 48 then
+            scalar = scalar + 1
+        end
+        at = at + 1
+    end
+    valueBuilder.openArray(state, nupp.math.u32.wrap(1))
+    valueBuilder.number(state, count * 1.0)
+    valueBuilder.close(state)
+
+    return valueBuilder.finish(state), found, scalar
+end
+
 return {
+    punctuation = punctuation,
     multipleBindings = multipleBindings,
     rows = rows,
     object = object,
@@ -2899,6 +2946,20 @@ function M.luaBuilderRegistrationReturnsOrdinaryTables()
     assert(
         primitiveText:find("10,12,44,100,2147483755,110,3\t", 1, true),
         builderReport("primitive values", "require", dir, primitiveText)
+    )
+    -- The vector load through a span over the entry's own rooted bytes, run at
+    -- every length across a vector boundary: the guarded whole-vector load, the
+    -- masked tail, and the same count read a byte at a time have to agree.
+    local viewText = builderAnswer(
+        "require",
+        'local b=require("builder");local out={};'
+            .. 'for n=0,40 do local _,vector,scalar=b.punctuation(("ab, .!"):rep(n):sub(1,n),{});'
+            .. 'out[#out+1]=(vector==scalar) and tostring(vector) or ("!"..n..":"..vector.."~"..scalar) end;'
+            .. "print(table.concat(out,','))"
+    )
+    assert(
+        not viewText:find("!", 1, true) and viewText:find("^0,", 1),
+        builderReport("a rooted byte view reads the same bytes the scalar walk does", "require", dir, viewText)
     )
     local generated = assert(read(dir .. "/build/native/builder.lua"))
     assert(generated:find("ks_register_", 1, true), builderReport("generated wrapper", "require", dir, generated))

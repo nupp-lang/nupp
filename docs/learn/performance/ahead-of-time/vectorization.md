@@ -721,6 +721,52 @@ outside 0 to 15 as the native table instructions do. `loadString` is the
 VM-aware counterpart of `load`, reading bytes a Lua-builder entry already roots
 rather than a span.
 
+### Loading a value-building entry's own bytes
+
+A `load` reads a span, and a value-building entry cannot be handed one: its
+parameters cross the Lua stack, where a pointer and a count are not values.
+`nupp.codec.valuebuilder.bytes` answers the `Span<uint8>` over the bytes such
+an entry already roots, so the general algebra reads the input where it lies:
+
+```nupp
+local array = nupp.mem.array
+local simd = nupp.simd
+local valuebuilder = nupp.codec.valuebuilder
+
+@aot
+local function countQuotes(borrows source: string, nullValue: any): (any, uint32)
+    local count = valuebuilder.length(source)
+    local builder = valuebuilder.newSized(nullValue, count, count)
+    local cursor: uint32 = 0
+    local found: uint32 = 0
+    if species = simd.species(array.uint8) then
+        local bytes = valuebuilder.bytes(source)
+        while cursor + species.lanes <= count do
+            found = found + (species:load(bytes, cursor + 1) == 34):count()
+            cursor = cursor + species.lanes
+        end
+    end
+    while cursor < count do
+        if valuebuilder.byteAt(source, cursor) == 34 then
+            found = found + 1
+        end
+        cursor = cursor + 1
+    end
+    valuebuilder.null(builder)
+
+    return valuebuilder.finish(builder), found
+end
+```
+
+The view is a name for the parameter's own pointer and length rather than a
+value: it must name a parameter directly, nothing but a load may read it, and
+it costs nothing at run time. `cursor + species.lanes <= length(source)` is the
+same guard `#span` writes for a span parameter and proves the same thing about
+the same load, which is why the load above is one copy with no lane check.
+Without a guard it keeps the parameter's length and clamps, as an ordinary span
+load without a cursor does. A `string | Buffer` parameter is viewed on the same
+terms, because both arrive as a pointer and a length.
+
 ### Mask aggregates
 
 `simd.maskBits64` builds a `MaskBits64` from two uint32 words. It supplies

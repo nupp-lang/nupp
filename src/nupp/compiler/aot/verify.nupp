@@ -643,6 +643,18 @@ local function laneBound(
             spans[#spans + 1] = spanName
         end
         table.sort(spans)
+    elseif right.op == "local" and values[LENGTH_OF .. (right as scalarIR.Name).name] ~= nil then
+        -- Or a rooted string or buffer parameter's own length, taken into a
+        -- local by a `let` this verifier saw. The parameter is the root, which
+        -- is what a load through a view over it is stated against.
+        local bytesName = values[LENGTH_OF .. (right as scalarIR.Name).name] as string
+        local root = scope.spans[bytesName]
+        if root == nil or (
+            root as scalarIR.Param
+        ).type ~= "lua_string" and (root as scalarIR.Param).type ~= "lua_bytes" then
+            return nil, nil, nil
+        end
+        spans[1] = bytesName
     else
         return nil, nil, nil
     end
@@ -1052,6 +1064,7 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
     elseif GENERIC_SIMD[tostring(op)] == true then
         local simd = node as scalarIR.Simd
         local args = simd.args
+        holds(simd.rooted == nil or op == "simd_load", "unexpected rooted SIMD root")
         local family, element, shape = genericSimdType(node.type)
         if op == "simd_species" then
             holds(family == "species" and #args == 0, "invalid generic SIMD species")
@@ -1144,12 +1157,33 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
                 "generic SIMD load operands do not match"
             )
             local span = simd.span ~= nil and scope.spans[simd.span as string] or nil
-            holds(
-                span ~= nil and (
-                    (span as scalarIR.Param).kind == "read_span" or (span as scalarIR.Param).kind == "write_span"
-                ) and genericSimdSpanElement(span as scalarIR.Param) == element,
-                "invalid generic SIMD load root"
-            )
+            if simd.rooted ~= nil then
+                -- A load through a view over an entry's own rooted bytes. The
+                -- view is not a value and nothing carried it here, so what is
+                -- checked is the parameter the load addresses and counts
+                -- against, which is the same parameter the root names: the
+                -- span is that parameter, so every bounds fact stated about it
+                -- is the one a rooted byte read is held to.
+                local rooted = simd.rooted as scalarIR.Name
+                holds(
+                    scope.entryMode == "lua-builder" and element == "u8" and span ~= nil and (
+                        span as scalarIR.Param
+                    ).kind == "scalar" and (
+                        (span as scalarIR.Param).type == "lua_string" or (span as scalarIR.Param).type == "lua_bytes"
+                    ) and rooted.op == "local" and rooted.name == simd.span and rooted.type == (
+                        span as scalarIR.Param
+                    ).type and rooted.cName ~= nil and rooted.cName == (span as scalarIR.Param).cName,
+                    "invalid rooted SIMD load root"
+                )
+                scalarWalk(rooted, values, scope)
+            else
+                holds(
+                    span ~= nil and (
+                        (span as scalarIR.Param).kind == "read_span" or (span as scalarIR.Param).kind == "write_span"
+                    ) and genericSimdSpanElement(span as scalarIR.Param) == element,
+                    "invalid generic SIMD load root"
+                )
+            end
             if simd.cursor ~= nil then
                 holds(
                     simd.intrinsic == "load" and args[3] == nil and vectorCursor(simd, values, scope),
@@ -1411,6 +1445,7 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
             )
             scalarWalk(argument, values, scope)
         end
+        holds(simd.rooted == nil, "unexpected rooted SIMD root")
         if op == "simd_load_u8" then
             local span = simd.span ~= nil and scope.spans[simd.span as string] or nil
             holds(

@@ -1231,12 +1231,25 @@ local function laneBound(
     ).text == "lanes" and lower.nameOf(lanes.obj) or nil
     local species = speciesName ~= nil and environment[speciesName as string] or nil
     local speciesType = species ~= nil and tostring(species.type) or ""
+    local generic = cursorBinding ~= nil and cursorBinding.type == "u32" and speciesType:match(
+        "^simd_species_"
+    ) ~= nil and speciesType ~= "simd_species_u8"
+    if not generic then
+        return nil, nil, nil
+    end
     local spanName = lower.dotCount(counted)
     local param = spanName ~= nil and kernel.params[spanName as string] or nil
-    if cursorBinding ~= nil and cursorBinding.type == "u32" and speciesType:match(
-        "^simd_species_"
-    ) ~= nil and speciesType ~= "simd_species_u8" and param ~= nil and param.region ~= nil then
+    if param ~= nil and param.region ~= nil then
         return cursor, spanName, speciesType
+    end
+    -- A rooted string or buffer parameter counts the same way, through the
+    -- local its length was taken into: the root of the proof is the parameter,
+    -- which is what a load through a view over it carries.
+    local lengthName = lower.nameOf(counted)
+    local bytesName = lengthName ~= nil and kernel.lengthBounds[lengthName as string] or nil
+    local bytes = bytesName ~= nil and kernel.params[bytesName as string] or nil
+    if bytes ~= nil and bytes.kind == "scalar" and (bytes.type == "lua_string" or bytes.type == "lua_bytes") then
+        return cursor, bytesName, speciesType
     end
 
     return nil, nil, nil
@@ -1737,9 +1750,15 @@ local function binary(node: cst.Binop, left: scalarIR.Expr, right: scalarIR.Expr
         -- so past 2^32 - 1 the guard is false. Wrapped it would restart the
         -- loop from the top of the span, which no program means, and only the
         -- exact sum proves the vector access under it. See `laneBound`.
-        if written == "<=" and right.op == "span_count" then
+        -- A rooted string or buffer parameter's length is the same bound, held
+        -- in the local its length was taken into rather than read off a span.
+        local countedRight = right.op == "span_count" or right.op == "local" and (
+            right as scalarIR.Name
+        ).lengthOf ~= nil
+        local countedLeft = left.op == "span_count" or left.op == "local" and (left as scalarIR.Name).lengthOf ~= nil
+        if written == "<=" and countedRight then
             narrowedLeft = exactLaneSum(left, source)
-        elseif written == ">=" and left.op == "span_count" then
+        elseif written == ">=" and countedLeft then
             narrowedRight = exactLaneSum(right, source)
         end
 
@@ -3162,6 +3181,80 @@ local function fieldAccess(
     )
 end
 
+--- `s:load(bytes, i[, m])` where `bytes` is `valuebuilder.bytes(source)`: the
+--- same vector load, addressed through the pointer and length a rooted string
+--- or buffer parameter already arrives with.
+---
+--- The view is not a value, so there is nothing to check about it here; what
+--- is checked is the parameter it views, exactly as a rooted byte read checks
+--- one. That parameter is what the node carries as its root, so the bounds
+--- proof is the proof that guards `valuebuilder.byteAt` on the same bytes,
+--- read a whole vector wide instead of one byte wide. Without that proof the
+--- load keeps its count and clamps, which is what an ordinary span load
+--- without a cursor does.
+local function rootedLoad(
+    node: cst.MethodCall,
+    receiver: scalarIR.Expr,
+    method: string,
+    bytesName: string,
+    raw: {cst.Node},
+    vectorType: string,
+    maskType: string,
+    element: scalarIR.Type,
+    receiverType: string,
+    environment: {[string]: any},
+    activeIndex: string?,
+    kernel: lower.Kernel
+): scalarIR.Expr
+    local context = kernel.context
+    local source = lower.site(node)
+    if method ~= "load" then
+        context.reject(source, "a rooted byte view is read-only, so only a load may name one")
+    end
+    if element ~= "u8" then
+        context.reject(source, "a rooted byte view carries bytes, so only a uint8 species may load from it")
+    end
+    -- The binding named the parameter, and only `localStmt` writes one, but the
+    -- load addresses the C names read back here rather than the ones that were
+    -- checked there, so they are read off the parameter again.
+    local param = kernel.params[bytesName]
+    if param == nil or param.kind ~= "scalar" or param.type ~= "lua_string" and param.type ~= "lua_bytes" then
+        context.reject(source, "SIMD rooted loads require a rooted string parameter")
+    end
+    local rooted = new scalarIR.Name(
+        op = "local",
+        name = bytesName,
+        type = param.type,
+        cName = param.cName,
+        source = source
+    )
+    local offset = lower.convert(lower.expression(raw[2], environment, activeIndex, kernel), "f64", source, context)
+    local masked = raw[3] ~= nil
+    local cursor = not masked and provedCursor(lower.unwrapped(raw[2]), bytesName, kernel, receiverType) or nil
+    local cursorBinding = cursor ~= nil and environment[cursor as string] or nil
+    local args: {scalarIR.Expr} = {receiver, offset}
+    if masked then
+        local active = lower.expression(raw[3], environment, activeIndex, kernel)
+        if active.type ~= maskType then
+            context.reject(source, "SIMD load mask has a different species")
+        end
+        args[#args + 1] = active
+    end
+    markLua(kernel, source)
+
+    return new scalarIR.Simd(
+        op = "simd_load",
+        args = args,
+        span = bytesName,
+        rooted = rooted as scalarIR.Name,
+        intrinsic = "load",
+        cursor = cursor,
+        cursorCName = cursorBinding ~= nil and cursorBinding.cName or nil,
+        type = vectorType,
+        source = source
+    )
+end
+
 --- One operation on a source-visible AOT-only SIMD value.
 local function simdMethod(
     node: cst.MethodCall,
@@ -3399,6 +3492,23 @@ local function simdMethod(
                 kernel.context.reject(source, "SIMD " .. method .. " has an unsupported argument count")
             end
             local spanName = lower.nameOf(raw[1])
+            local rootedBinding = spanName ~= nil and environment[spanName as string] or nil
+            if rootedBinding ~= nil and rootedBinding.kind == "rooted_span" then
+                return rootedLoad(
+                    node,
+                    receiver as scalarIR.Expr,
+                    method,
+                    tostring(rootedBinding.bytes),
+                    raw,
+                    vectorType,
+                    maskType,
+                    genericElement as scalarIR.Type,
+                    receiverType,
+                    environment,
+                    activeIndex,
+                    kernel
+                )
+            end
             local span = spanName ~= nil and kernel.params[spanName as string] or nil
             local wantedKind = reading and "read_span" or "write_span"
             if named then
@@ -4283,6 +4393,15 @@ local function expressionRaw(
                 "this tier has no vectors, so " .. tostring(
                     name
                 ) .. " is nil here; keep the vector path inside the branch that tested it against nil"
+            )
+        end
+        if bound.kind == "rooted_span" then
+            context.reject(
+                lower.site(node),
+                tostring(
+                    name
+                )
+                .. " is a view over a rooted parameter rather than a value; a vector load may read it and nothing else"
             )
         end
 
@@ -5733,6 +5852,32 @@ local function localStmt(
             context.reject(lower.site(stat), "native locals may not shadow " .. names[1].text)
         end
         environment[names[1].text] = {kind = "absent_species"}
+        return
+    end
+
+    if #exprs == 1 and exprs[
+        1
+    ].kind == "call" and calledIdentity(exprs[1] as cst.Call, kernel) == "nupp.codec.valuebuilder.bytes" then
+        -- `valuebuilder.bytes(source)`: the span over a rooted parameter's own
+        -- bytes. It is a name for a pointer and a count the entry already has,
+        -- so nothing is constructed and no local is emitted -- the binding
+        -- records which parameter a load through it addresses, and the loads
+        -- carry that parameter as their root. Everything the verifier is told
+        -- about such a load it re-derives from that parameter, so this binding
+        -- cannot manufacture a bounds fact.
+        local call = exprs[1] as cst.Call
+        local arguments = call.args ~= nil and ((call.args as cst.Args).exprs or {}) or {}
+        if #names ~= 1 or #arguments ~= 1 then
+            context.reject(lower.site(stat), "valuebuilder.bytes takes one rooted string parameter")
+        end
+        local rooted = lower.expression(arguments[1], environment, kernel.index, kernel)
+        if not rootedBytesParam(rooted, kernel) then
+            context.reject(lower.site(call), "valuebuilder.bytes needs a rooted string parameter")
+        end
+        if environment[names[1].text] ~= nil then
+            context.reject(lower.site(stat), "native locals may not shadow " .. names[1].text)
+        end
+        environment[names[1].text] = {kind = "rooted_span", bytes = (rooted as scalarIR.Name).name}
         return
     end
 

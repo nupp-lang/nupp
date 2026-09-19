@@ -793,6 +793,13 @@ record scalarIR.Simd
     span: string?
     intrinsic: string?
 
+    --- On a `simd_load` through a rooted byte view, the string or buffer
+    --- parameter whose pointer and length the load addresses. `span` names
+    --- that same parameter, because it is what the bounds proof is stated
+    --- against; this carries the C name the emitter writes, which a copy of
+    --- the parameter would not share.
+    rooted: scalarIR.Name?
+
     --- On `simd_field_load` and `simd_field_store`, the reified layout of the
     --- span's element and the field each lane reaches within it.
     layout: string?

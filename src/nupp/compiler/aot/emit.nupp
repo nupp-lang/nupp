@@ -1358,13 +1358,22 @@ function emit.scalar(context: emit.Context, node: scalarIR.Expr): string
                 -- one copy at the cursor, no count and no lane check. A
                 -- composite vector keeps the checked form, because its last
                 -- chunk may be partial and its size is not its lane count.
+                -- A rooted byte view addresses the pointer and length the
+                -- entry's own parameter arrived with; everything else is the
+                -- same load over the same two operands.
+                local rooted = simd.rooted as scalarIR.Name?
+                local pointer = rooted ~= nil and "ks_bytes_" .. tostring(
+                    (rooted as scalarIR.Name).cName
+                ) or "p_" .. tostring(simd.span)
                 if simd.cursor ~= nil and not composite then
-                    return genericHelper .. "load_at_" .. genericSuffix .. "(p_" .. tostring(
-                        simd.span
-                    ) .. " + (size_t)" .. tostring(simd.cursorCName) .. ")"
+                    return genericHelper .. "load_at_" .. genericSuffix .. "(" .. pointer .. " + (size_t)" .. tostring(
+                        simd.cursorCName
+                    ) .. ")"
                 end
-                local count = context.independentSpanCounts and "count_" .. tostring(simd.span) or "count"
-                local at = "p_" .. tostring(simd.span) .. ", " .. count .. ", " .. emit.spanFirst(context, args[2])
+                local count = rooted ~= nil and "ks_length_" .. tostring(
+                    (rooted as scalarIR.Name).cName
+                ) or context.independentSpanCounts and "count_" .. tostring(simd.span) or "count"
+                local at = pointer .. ", " .. count .. ", " .. emit.spanFirst(context, args[2])
                 if args[3] == nil then
                     return genericHelper .. "load_full_" .. genericSuffix .. "(" .. at .. ")"
                 end
@@ -2362,8 +2371,14 @@ function emit.helpers(context: emit.Context, helpers: {scalarIR.Helper}): {strin
     if #helpers > 0 then
         lines[#lines + 1] = ""
     end
+    -- A helper is emitted once per rendering the unit may need, and which
+    -- renderings a body reaches is decided after this: a Lua-builder entry has
+    -- no forced-scalar oracle beside it, so the scalar rendering of a helper it
+    -- calls is defined and never called. That is the emitter's arithmetic
+    -- rather than anything the author wrote, so it is declared unused here
+    -- instead of reported against a line nobody authored.
     for _, variant in ipairs(variants) do
-        local linkage = variant.helper.native == true and "" or "static inline "
+        local linkage = variant.helper.native == true and "" or "static inline KS_UNUSED "
         lines[#lines + 1] = linkage .. variant.result .. " " .. variant.name .. "(" .. variant.parameters .. ");"
     end
     if #helpers > 0 then
@@ -2374,7 +2389,13 @@ function emit.helpers(context: emit.Context, helpers: {scalarIR.Helper}): {strin
         if helper.native ~= true then
             lines[
                 #lines + 1
-            ] = "static inline " .. variant.result .. " " .. variant.name .. "(" .. variant.parameters .. ") {"
+            ] = "static inline KS_UNUSED "
+                .. variant.result
+                .. " "
+                .. variant.name
+                .. "("
+                .. variant.parameters
+                .. ") {"
             if variant.resultName ~= nil then
                 local values: {string} = {}
                 for position, value in ipairs(helper.values) do
