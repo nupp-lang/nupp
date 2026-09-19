@@ -180,8 +180,10 @@ The maintained packaged corpus covers HTTP streaming and leases, crypto and
 storage, worker copies/cancellation/deadlines, independent Wasm scalar and SIMD
 kernels, and browser WebGPU. Independent kernels copy bounded spans and preserve
 exact 64-bit results; mixed i386/Wasm struct layouts are converted explicitly.
-Lua-C-API builder entries have an explicit diagnostic and documented replacement;
-they have not been made compatible with the new ABI.
+Lua-C-API builders use guest-native i386/musl shared libraries under `aot = "require"`;
+`require-wasm` remains the independent-kernel ABI. The package verifies and installs
+native assets before launching either the application or a worker lane. This uses
+the existing LuaJIT C API and FFI bindings and does not emulate the Lua API in JavaScript.
 
 `tests/luajit-browser/prepare-packaged.mjs` builds the fixtures from normal targets.
 `editors/playground/test/browser-matrix.mjs` exercises the source guest, compiler
@@ -312,3 +314,38 @@ not changed. Publishing a compiler release, moving the stage-zero pin, shipping
 one rollback release, and deleting the old lowerers afterwards remain the
 ordered integration steps in the plan. They are not performed by branch pushes.
 See [migration details and limitations](../../runtime/luajit/MIGRATION.md).
+
+## Remaining work that can run headlessly
+
+`results/native-aot.json` records the guest-native builder fixture in Chromium,
+Firefox and WebKit. Its generated shared library is about 12 KiB. The fixture
+checks fresh nested tables, arbitrary string bytes, rooted null-sentinel identity,
+100 iterations with collection, rejected arguments, and a scalar FFI function.
+These are local development-overlay results; source-guest CI separately rebuilds
+and runs the same fixture. Native AOT requires an i386/musl cross compiler and
+executes through CPU emulation. It does not turn Lua-C-API builders into
+independent Wasm kernels.
+
+`results/compiler-modes.json` compares the production compiler bytecode with its
+JIT disabled and enabled. Three alternating runs have 30 changing edits after
+three warmups per workload. Small-edit p50 is 2.6 ms with JIT disabled versus
+8.3–9.4 ms enabled; large-edit p50 is 137–147 ms versus 125–142 ms, with p95
+232–237 ms versus 235–252 ms. Enabling JIT is not a useful blanket fix. The compiler
+keeps JIT disabled; application JIT is unchanged. This harness uses the retained
+compiler protocol, not complete UI startup or a large multi-module project.
+Bundle `compiler-modes.mjs` with esbuild into the staged guest fixture directory
+and use `run-browser.mjs` to reproduce it.
+
+Snapshot inflation now writes into one buffer bounded by the declared extent,
+removing the retained decompressed-chunk list and its full-size concatenation
+copy. Extent and corruption checks remain enforced. This changes allocation,
+not the 64/128 MiB guest profiles; process memory must still be measured.
+
+The release workflow now calls the source-guest conformance workflow and adds
+`nupp-luajit-browser-runtime.tar.gz`, carrying the verified guest, snapshots,
+matching sources and notices. The old runtime archive remains for the rollback
+release. A workflow-dispatch rehearsal publishes no release.
+
+See [legacy-removal.md](legacy-removal.md) for the deletion units, live provider
+consumers, preserved shared semantic fixtures and the required cold-build gate.
+Nothing here authorizes deleting the old backend or merging this branch.

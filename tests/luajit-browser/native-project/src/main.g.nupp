@@ -1,0 +1,56 @@
+local valueBuilder = require("nupp.codec.valuebuilder")
+local table = require("table")
+
+@aot
+local function rows(count: integer): {number}
+    local result = table.new(count, 0)
+    for index = 1, count do
+        result[index] = index * 2
+    end
+
+    return result
+end
+
+@aot
+local function object(name: string): {[string]: any}
+    local result = {name = name, nested = {1, 2, 3}}
+    result["ready"] = true
+    return result
+end
+
+@aot
+local function root(source: string, nullValue: any): any
+    local state = valueBuilder.new(nullValue)
+    valueBuilder.openArray(state, nupp.math.u32.wrap(3))
+    valueBuilder.null(state)
+    valueBuilder.string(state, source, nupp.math.u32.wrap(0), nupp.math.u32.wrap(#source), false)
+    valueBuilder.boolean(state, false)
+    valueBuilder.close(state)
+
+    return valueBuilder.finish(state)
+end
+
+@aot
+local function scalar(value: number): number
+    return value * 3
+end
+
+assert(debug.getinfo(rows, "S").what == "Lua") -- The checked wrapper calls C.
+local bytes = "a\0b\255"
+local nullValue = {}
+for trial = 1, 100 do
+    local values = rows(trial)
+    assert(#values == trial and values[trial] == trial * 2)
+    local a, b = object(bytes), object(bytes)
+    assert(a ~= b and a.nested ~= b.nested and a.name == bytes and a.ready == true)
+    assert(a.nested[3] == 3)
+    local value = root(bytes, nullValue)
+    assert(value[1] == nullValue and value[2] == bytes and value[3] == false)
+    assert(scalar(trial) == trial * 3)
+    collectgarbage("collect")
+end
+local ok = pcall(function()
+    (rows as any)("invalid")
+end)
+assert(not ok)
+return {ok = true, iterations = 100, bytes = #bytes}

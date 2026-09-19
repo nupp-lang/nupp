@@ -27,11 +27,39 @@ layouts. The transfer batch limit is 2 MiB; Wasm kernel memory is capped at
 64 MiB. This boundary is best used for substantial kernels rather than tiny
 calls. `emit-wasm` exports the kernels while leaving ordinary Lua bodies active.
 
-Lua-builder entries that use the Lua C API are not supported by this independent
-ABI. Run that source with `aot = "off"`, or explicitly select the legacy host
-below during the rollback release. Guest FFI is native i386 Linux FFI and cannot
-load a Wasm side module. Browser services, including WebGPU and worker tasks,
-are selected by the browser host.
+Lua-builder entries use the guest's Lua C API through native AOT:
+
+```lua
+app = {
+   kind = "bundle", entries = {"main"}, sources = {"src"},
+   output = "dist/app.lua", host = "browser",
+   aot = "require", aotTarget = "i686-unknown-linux-gnu",
+   aotFeatures = "baseline",
+}
+```
+
+Set `NUPP_BROWSER_NATIVE_CC` to an **i386/musl cross compiler** when packaging
+with `scripts/browser-app`. A direct `nupp build` uses `NUPP_NATIVE_CC`. The
+modeled GNU triple describes the C layout; the library must link against the
+guest's musl, not glibc. Preserve unwind tables and C frame pointers in foreign
+code that Lua callbacks can unwind through. `tests/luajit-browser/prepare-native.py`
+builds the conformance fixture's minimal Clang driver from the verified guest's
+musl headers and libc; it is not a general compiler SDK.
+
+The packager includes the target's adjacent shared libraries as hashed assets,
+verifies their i386 ELF identity, and installs them before application or worker
+startup. Existing FFI and `package.loadlib` bindings call the actual guest VM:
+table construction, string bytes and rooted Lua values keep their normal ABI.
+Native libraries are limited to one MiB combined and share the seven-MiB startup
+budget with the application after binary escaping. Additional foreign library
+dependencies need their own cross build and validation.
+
+Guest-native AOT executes through x86 emulation. It is not an independent Wasm
+kernel or a promise of equivalent speed. `require-wasm` still rejects Lua-C-API
+builders; select native `require`, ordinary LuaJIT with `aot = "off"`, or the
+explicit legacy backend during the rollback release. Guest FFI cannot load a
+Wasm side module. Browser services, including WebGPU and worker tasks, are
+selected by the browser host.
 
 ## Legacy Lua 5.1 host
 

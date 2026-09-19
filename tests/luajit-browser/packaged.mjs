@@ -1,12 +1,13 @@
 const out = document.querySelector('#result');
 const name = new URL(location.href).searchParams.get('app') || 'aot';
 try {
-  if (!['aot', 'workers', 'http', 'platform', 'gpu'].includes(name)) throw new Error('Invalid package name');
+  if (!['aot', 'native', 'workers', 'http', 'platform', 'gpu'].includes(name)) throw new Error('Invalid package name');
   const {runPackagedNuppLuaJITApp} = await import(`./${name}-app/app-runtime.mjs`);
   const started = performance.now();
   const result = await runPackagedNuppLuaJITApp(new URL(`./${name}-app/nupp-browser-app.json`, location.href).href);
   const expect = (condition, message) => {if (!condition) throw new Error(`${message}: ${JSON.stringify(result)}`);};
-  if (name === 'aot' || name === 'gpu') expect(result?.ok === true, 'Kernel assertions did not complete');
+  if (name === 'aot' || name === 'native' || name === 'gpu') expect(result?.ok === true, 'AOT assertions did not complete');
+  if (name === 'native') expect(result.iterations === 100 && result.bytes === 4, 'Native builder assertions did not complete');
   if (name === 'http') {
     expect(result.status === 200 && JSON.parse(result.body).message === 'hello from Nupp over fetch', 'HTTP streaming result mismatch');
   }
