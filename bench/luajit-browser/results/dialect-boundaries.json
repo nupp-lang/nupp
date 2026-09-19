@@ -1,0 +1,1016 @@
+{
+  "baseRevision": "3f0c8e57d1be7cdb9c47a1c276e5d18dcb335b09",
+  "note": "Textual inventory for migration review, not proof of exhaustive behavior or deletion eligibility. Includes current branch additions.",
+  "matches": [
+    {
+      "path": ".github/workflows/compiler.yml",
+      "line": 878,
+      "text": "./bin/nupp build --strict --dialect lua51 -O1"
+    },
+    {
+      "path": "docs/index.md",
+      "line": 159,
+      "text": "dialect = \"lua51\","
+    },
+    {
+      "path": "docs/learn/performance/ahead-of-time/gpu.md",
+      "line": 144,
+      "text": "A browser target combines `dialect = \"lua51\"`, the browser provider catalog, and"
+    },
+    {
+      "path": "docs/learn/performance/ahead-of-time/wasm.md",
+      "line": 45,
+      "text": "dialect = \"lua51\","
+    },
+    {
+      "path": "docs/learn/performance/ahead-of-time/wasm.md",
+      "line": 204,
+      "text": "dialect = \"lua51\","
+    },
+    {
+      "path": "docs/learn/projects/build.md",
+      "line": 118,
+      "text": "dialect = \"lua51\","
+    },
+    {
+      "path": "docs/learn/projects/build.md",
+      "line": 129,
+      "text": "`nupp build --dialect lua51` and `nupp check --dialect lua51` override the"
+    },
+    {
+      "path": "docs/learn/projects/build.md",
+      "line": 197,
+      "text": "cycles. A target's `dialect` is `\"luajit\"`, `\"luajit-compat\"` or `\"lua51\"`."
+    },
+    {
+      "path": "docs/learn/projects/portability/compiler.md",
+      "line": 32,
+      "text": "{strict = true, dialect = \"lua51\"}"
+    },
+    {
+      "path": "docs/learn/projects/portability/compiler.md",
+      "line": 57,
+      "text": "default dialect is `lua51`:"
+    },
+    {
+      "path": "docs/learn/projects/portability/compiler.md",
+      "line": 62,
+      "text": "dialect = \"lua51\""
+    },
+    {
+      "path": "docs/learn/projects/portability/compiler.md",
+      "line": 83,
+      "text": "{\"kind\":\"check\",\"source\":\"return 1\",\"options\":{\"dialect\":\"lua51\"}}"
+    },
+    {
+      "path": "docs/learn/projects/portability/libraries.md",
+      "line": 14,
+      "text": "portable = {entries = {\"main\"}, dialect = \"lua51\", outDir = \"build/lua51\"},"
+    },
+    {
+      "path": "docs/learn/projects/portability/libraries.md",
+      "line": 53,
+      "text": "This is narrower than `dialect = \"lua51\"`. Runtime `const`, compound assignment,"
+    },
+    {
+      "path": "docs/learn/projects/portability/libraries.md",
+      "line": 91,
+      "text": "`jit.*` modules are LuaJIT's, and the `lua51` dialect refuses them: each does"
+    },
+    {
+      "path": "docs/learn/runtime/concurrency/workers.md",
+      "line": 534,
+      "text": "buffer](#moving-owned-buffers) needs [](nupp.mem.heap), which the `lua51` dialect"
+    },
+    {
+      "path": "editors/playground/README.md",
+      "line": 56,
+      "text": "options: { strict: true, optimize: true, dialect: \"lua51\" },"
+    },
+    {
+      "path": "editors/playground/src/app.js",
+      "line": 53,
+      "text": "const OPTION_DEFAULTS = { strict: true, optimize: true, dialect: \"lua51\" };"
+    },
+    {
+      "path": "editors/playground/src/app.js",
+      "line": 226,
+      "text": "if (params.dialect === \"lua51\" || params.dialect === \"luajit\") {"
+    },
+    {
+      "path": "editors/playground/src/app.js",
+      "line": 665,
+      "text": "if (options.dialect === \"lua51\") {"
+    },
+    {
+      "path": "editors/playground/src/doc-app.js",
+      "line": 11,
+      "text": "const OPTIONS = { strict: true, optimize: true, dialect: \"lua51\" };"
+    },
+    {
+      "path": "editors/playground/src/wasm-smoke.js",
+      "line": 51,
+      "text": "options: { strict: true, dialect: \"lua51\" },"
+    },
+    {
+      "path": "editors/playground/src/wasm-smoke.js",
+      "line": 56,
+      "text": "options: { dialect: \"lua51\" },"
+    },
+    {
+      "path": "editors/playground/src/wasm-smoke.js",
+      "line": 61,
+      "text": "options: { strict: true, optimize: true, dialect: \"lua51\" },"
+    },
+    {
+      "path": "editors/playground/test/markup.test.js",
+      "line": 184,
+      "text": "assert.match(app, /dialect: \"lua51\"/);"
+    },
+    {
+      "path": "editors/playground/test/wasm-runtime.test.js",
+      "line": 39,
+      "text": "options: { strict: true, dialect: \"lua51\" },"
+    },
+    {
+      "path": "editors/playground/test/wasm-runtime.test.js",
+      "line": 45,
+      "text": "options: { strict: true, optimize: true, dialect: \"lua51\" },"
+    },
+    {
+      "path": "editors/playground/test/wasm-runtime.test.js",
+      "line": 50,
+      "text": "options: { dialect: \"lua51\" },"
+    },
+    {
+      "path": "editors/playground/test/wasm-runtime.test.js",
+      "line": 89,
+      "text": "options: {strict: true, optimize: true, dialect: \"lua51\"},"
+    },
+    {
+      "path": "editors/playground/test/wasm-runtime.test.js",
+      "line": 127,
+      "text": "options: {strict: true, optimize: true, dialect: \"lua51\"},"
+    },
+    {
+      "path": "editors/playground/tools/generate-prelude-image.lua",
+      "line": 6,
+      "text": "dialect = dialect or \"lua51\""
+    },
+    {
+      "path": "editors/playground/tools/generate-prelude-image.lua",
+      "line": 7,
+      "text": "assert(dialect == \"lua51\" or dialect == \"luajit\", \"invalid prelude dialect\")"
+    },
+    {
+      "path": "nupp.lua",
+      "line": 500,
+      "text": "dialect = \"lua51\","
+    },
+    {
+      "path": "nupp.lua",
+      "line": 515,
+      "text": "dialect = \"lua51\","
+    },
+    {
+      "path": "nupp.lua",
+      "line": 546,
+      "text": "dialect = \"lua51\","
+    },
+    {
+      "path": "runtime/wasm/package-browser-app.mjs",
+      "line": 82,
+      "text": "if (result.dialect !== \"lua51\") {"
+    },
+    {
+      "path": "runtime/wasm/package-browser-app.mjs",
+      "line": 83,
+      "text": "throw new Error(`browser application target ${target} must use dialect = \"lua51\"`);"
+    },
+    {
+      "path": "scripts/portable-lua-corpus.sh",
+      "line": 13,
+      "text": "(cd \"$corpus\" && ../../bin/nupp build --dialect lua51 >/dev/null)"
+    },
+    {
+      "path": "scripts/portable-lua-corpus.sh",
+      "line": 14,
+      "text": "if ! (cd \"$root\" && ./bin/nupp build --dialect lua51 --strict -o \"$cli_build\" \\"
+    },
+    {
+      "path": "scripts/prelude-image",
+      "line": 22,
+      "text": "dialect=${1:-lua51}"
+    },
+    {
+      "path": "src/nupp/compiler/browser.nupp",
+      "line": 36,
+      "text": "dialect: ('lua51' | 'luajit')?,"
+    },
+    {
+      "path": "src/nupp/compiler/browser.nupp",
+      "line": 55,
+      "text": "return options and options.dialect or options and options.compat and \"luajit\" or \"lua51\""
+    },
+    {
+      "path": "src/nupp/compiler/build/manifest.nupp",
+      "line": 814,
+      "text": "if (target.aot == \"emit-wasm\" or target.aot == \"require-wasm\") and target.dialect ~= \"lua51\" then"
+    },
+    {
+      "path": "src/nupp/compiler/build/manifest.nupp",
+      "line": 815,
+      "text": "return nil, label .. \".aot = \\\"\" .. target.aot .. \"\\\" requires dialect = \\\"lua51\\\"\""
+    },
+    {
+      "path": "src/nupp/compiler/build/modules.nupp",
+      "line": 712,
+      "text": "nativeCompilerServices = target.dialect ~= \"lua51\","
+    },
+    {
+      "path": "src/nupp/compiler/build/modules.nupp",
+      "line": 769,
+      "text": "if target.dialect ~= \"lua51\" then"
+    },
+    {
+      "path": "src/nupp/compiler/build/modules.nupp",
+      "line": 835,
+      "text": "local contentDigest = cache.contentDigest(target.dialect ~= \"lua51\")"
+    },
+    {
+      "path": "src/nupp/compiler/build/modules.nupp",
+      "line": 943,
+      "text": "local portableTarget = target.dialect == \"lua51\""
+    },
+    {
+      "path": "src/nupp/compiler/build/project.nupp",
+      "line": 381,
+      "text": "local contentDigest = cache.contentDigest(target.dialect ~= \"lua51\")"
+    },
+    {
+      "path": "src/nupp/compiler/capabilities.nupp",
+      "line": 21,
+      "text": "if dialect == \"luajit\" or dialect == \"luajit-compat\" then"
+    },
+    {
+      "path": "src/nupp/compiler/capabilities.nupp",
+      "line": 23,
+      "text": "elseif dialect == \"lua51\" then"
+    },
+    {
+      "path": "src/nupp/compiler/check/aot.nupp",
+      "line": 355,
+      "text": "if selected ~= nil and selected.aot == \"off\" and exact ~= nil and c.opts.dialect ~= \"lua51\" then"
+    },
+    {
+      "path": "src/nupp/compiler/check/callexpr.nupp",
+      "line": 1209,
+      "text": "local rewritten = modname == \"bit\" and c.opts.dialect == \"lua51\" and PORTABLE_BITOPS or nil"
+    },
+    {
+      "path": "src/nupp/compiler/check/expr.nupp",
+      "line": 901,
+      "text": "if c.opts.dialect == \"lua51\" then"
+    },
+    {
+      "path": "src/nupp/compiler/check/init.nupp",
+      "line": 2398,
+      "text": "if c.opts.dialect == \"lua51\" then"
+    },
+    {
+      "path": "src/nupp/compiler/check/init.nupp",
+      "line": 2401,
+      "text": "c.diag(\"NUPP3009\", stat, (\"the `lua51` dialect cannot lower authored %s\"):format(spelling), nil, {"
+    },
+    {
+      "path": "src/nupp/compiler/dialects.nupp",
+      "line": 38,
+      "text": "function dialects.lowersSyntax(dialect: string): boolean"
+    },
+    {
+      "path": "src/nupp/compiler/dialects.nupp",
+      "line": 39,
+      "text": "return dialect == \"luajit-compat\" or dialect == \"lua51\""
+    },
+    {
+      "path": "src/nupp/compiler/explain.nupp",
+      "line": 1277,
+      "text": "rule = \"The `lua51` dialect runs on Lua 5.1 through 5.4 and LuaJIT, so an ambient prelude identity is available only when it has the same contract throughout that matrix or the compiler lowers it explicitly. A same-spelled local or ordinary table field is a different definition and remains application code.\","
+    },
+    {
+      "path": "src/nupp/compiler/gen.nupp",
+      "line": 553,
+      "text": "local compatibilityBitops = result.dialect == \"luajit-compat\""
+    },
+    {
+      "path": "src/nupp/compiler/gen.nupp",
+      "line": 1409,
+      "text": "if result.dialect == \"lua51\" then"
+    },
+    {
+      "path": "src/nupp/compiler/gen.nupp",
+      "line": 2088,
+      "text": "portable = dialects.lowersSyntax(result.dialect or \"luajit\"),"
+    },
+    {
+      "path": "src/nupp/compiler/gen.nupp",
+      "line": 2651,
+      "text": "if bitMethod or pluck.portable then"
+    },
+    {
+      "path": "src/nupp/compiler/gen.nupp",
+      "line": 2929,
+      "text": "elseif t.recordName and pluck.portable then"
+    },
+    {
+      "path": "src/nupp/compiler/gen.nupp",
+      "line": 3784,
+      "text": "pluck.portableExit(loop, kind)"
+    },
+    {
+      "path": "src/nupp/compiler/gen.nupp",
+      "line": 3878,
+      "text": "function pluck.portableLoopNeedsWrapper(loop): boolean"
+    },
+    {
+      "path": "src/nupp/compiler/gen.nupp",
+      "line": 3879,
+      "text": "if not pluck.portable and not (loop.kind == \"repeatStmt\" and emitDepth.switchContains(loop.cond)) then"
+    },
+    {
+      "path": "src/nupp/compiler/gen.nupp",
+      "line": 3922,
+      "text": "function pluck.portableUntilTest(portableLoop): string"
+    },
+    {
+      "path": "src/nupp/compiler/gen.nupp",
+      "line": 3941,
+      "text": "function pluck.portableExit(portableLoop, completion: string, line)"
+    },
+    {
+      "path": "src/nupp/compiler/gen.nupp",
+      "line": 3943,
+      "text": "e(pluck.portableUntilTest(portableLoop), line)"
+    },
+    {
+      "path": "src/nupp/compiler/gen.nupp",
+      "line": 4673,
+      "text": "elseif pluck.portable and x.kind == \"number\" then"
+    },
+    {
+      "path": "src/nupp/compiler/gen.nupp",
+      "line": 4682,
+      "text": "elseif pluck.portable then"
+    },
+    {
+      "path": "src/nupp/compiler/gen.nupp",
+      "line": 4834,
+      "text": "if pluck.portable and kind == \"assignStmt\" and #("
+    },
+    {
+      "path": "src/nupp/compiler/gen.nupp",
+      "line": 5169,
+      "text": "if pluck.portable and kind == \"ternary\" and x.cond and x.ifTrue and x.ifFalse then"
+    },
+    {
+      "path": "src/nupp/compiler/gen.nupp",
+      "line": 5184,
+      "text": "if pluck.portable and kind == \"binop\" and x.op and x.op.kind == \"??\" and x.lhs and x.rhs then"
+    },
+    {
+      "path": "src/nupp/compiler/gen.nupp",
+      "line": 5197,
+      "text": "if pluck.portable and kind == \"safeIndex\" and x.obj then"
+    },
+    {
+      "path": "src/nupp/compiler/gen.nupp",
+      "line": 5210,
+      "text": "if pluck.portable and (kind == \"safeBracket\" or kind == \"safeCall\") and x.obj then"
+    },
+    {
+      "path": "src/nupp/compiler/gen.nupp",
+      "line": 5231,
+      "text": "if pluck.portable and kind == \"methodCall\" and (x.safeObj or x.safeMethod) and x.obj and x.name then"
+    },
+    {
+      "path": "src/nupp/compiler/gen.nupp",
+      "line": 6436,
+      "text": "if pluck.portable then"
+    },
+    {
+      "path": "src/nupp/compiler/gen.nupp",
+      "line": 6495,
+      "text": "if not x.varargParam and not pluck.portable and not emitDepth.switchContains(x.expr) then"
+    },
+    {
+      "path": "src/nupp/compiler/gen.nupp",
+      "line": 6588,
+      "text": "pluck.portable or emitDepth.switchContains("
+    },
+    {
+      "path": "src/nupp/compiler/gen.nupp",
+      "line": 8302,
+      "text": "elseif pluck.portable and (kind == \"breakStmt\" or kind == \"continueStmt\") then"
+    },
+    {
+      "path": "src/nupp/compiler/gen.nupp",
+      "line": 8305,
+      "text": "pluck.portableExit(portableLoop, kind == \"breakStmt\" and \"break\" or \"continue\", sourceLine(x))"
+    },
+    {
+      "path": "src/nupp/compiler/gen.nupp",
+      "line": 8333,
+      "text": "if pluck.portableLoopNeedsWrapper(x) then"
+    },
+    {
+      "path": "src/nupp/compiler/gen.nupp",
+      "line": 8389,
+      "text": "if pluck.portableLoopNeedsWrapper(x) then"
+    },
+    {
+      "path": "src/nupp/compiler/gen.nupp",
+      "line": 8426,
+      "text": "e(pluck.portableUntilTest(portableLoop))"
+    },
+    {
+      "path": "src/nupp/compiler/gen.nupp",
+      "line": 8934,
+      "text": "if not pluck.portable then"
+    },
+    {
+      "path": "src/nupp/compiler/gen.nupp",
+      "line": 9598,
+      "text": "if pluck.portable then"
+    },
+    {
+      "path": "src/nupp/compiler/gen.nupp",
+      "line": 9605,
+      "text": "if pluck.portable then"
+    },
+    {
+      "path": "src/nupp/compiler/gen.nupp",
+      "line": 9769,
+      "text": "if pluck.portable then"
+    },
+    {
+      "path": "src/nupp/compiler/gen.nupp",
+      "line": 9817,
+      "text": "if pluck.portable then"
+    },
+    {
+      "path": "src/nupp/compiler/optimize.nupp",
+      "line": 3098,
+      "text": "].level and not disabled[\"OPT-5\"] and opts.dialect ~= \"lua51\" and result.compat ~= \"lua51\" then"
+    },
+    {
+      "path": "src/nupp/compiler/runtimesurface.nupp",
+      "line": 303,
+      "text": "if checker.opts.dialect ~= \"lua51\" or not root then"
+    },
+    {
+      "path": "src/nupp/compiler/runtimesurface.nupp",
+      "line": 344,
+      "text": "if checker.opts.dialect ~= \"lua51\" or not RUNTIME_MODULES[name] then"
+    },
+    {
+      "path": "src/nupp/compiler/standardsurface.nupp",
+      "line": 123,
+      "text": "if checker.opts.dialect ~= \"lua51\" and not (classification and classification.allDialects) then"
+    },
+    {
+      "path": "src/nupp/compiler/standardsurface.nupp",
+      "line": 192,
+      "text": "if checker.opts.dialect ~= \"lua51\" then"
+    },
+    {
+      "path": "src/nupp/runtime/bitops.nupp",
+      "line": 8,
+      "text": "`--dialect lua51`, so a program reaches it by writing the operator rather than"
+    },
+    {
+      "path": "src/nupp/runtime/representation.nupp",
+      "line": 9,
+      "text": "if dialect ~= \"lua51\" then"
+    },
+    {
+      "path": "src/nupp/runtime/representation.nupp",
+      "line": 19,
+      "text": "if dialect == \"lua51\" then"
+    },
+    {
+      "path": "src/nupp/runtime/services/catalog.nupp",
+      "line": 103,
+      "text": "dialect = \"lua51\""
+    },
+    {
+      "path": "src/nupp/runtime/services/catalog.nupp",
+      "line": 130,
+      "text": "dialect = \"lua51\""
+    },
+    {
+      "path": "src/nupp/runtime/services/catalog.nupp",
+      "line": 148,
+      "text": "dialect = \"lua51\""
+    },
+    {
+      "path": "src/nupp/runtime/services/catalog.nupp",
+      "line": 166,
+      "text": "dialect = \"lua51\""
+    },
+    {
+      "path": "src/nupp/runtime/services/catalog.nupp",
+      "line": 175,
+      "text": "dialect = \"lua51\""
+    },
+    {
+      "path": "src/nupp/runtime/services/catalog.nupp",
+      "line": 184,
+      "text": "dialect = \"lua51\""
+    },
+    {
+      "path": "src/nupp/runtime/services/catalog.nupp",
+      "line": 202,
+      "text": "dialect = \"lua51\""
+    },
+    {
+      "path": "src/nupp/runtime/services/catalog.nupp",
+      "line": 221,
+      "text": "dialect = \"lua51\""
+    },
+    {
+      "path": "src/nupp/runtime/services/catalog.nupp",
+      "line": 240,
+      "text": "dialect = \"lua51\""
+    },
+    {
+      "path": "src/nupp/runtime/services/catalog.nupp",
+      "line": 302,
+      "text": "dialect = \"lua51\""
+    },
+    {
+      "path": "src/nupp/runtime/services/catalog.nupp",
+      "line": 320,
+      "text": "dialect = \"lua51\""
+    },
+    {
+      "path": "src/nupp/runtime/services/catalog.nupp",
+      "line": 338,
+      "text": "dialect = \"lua51\""
+    },
+    {
+      "path": "src/nupp/runtime/services/catalog.nupp",
+      "line": 378,
+      "text": "return entry.dialect == nil or entry.dialect == dialect or entry.dialect == \"luajit\" and dialect == \"luajit-compat\""
+    },
+    {
+      "path": "src/nupp/services.nupp",
+      "line": 62,
+      "text": "local targetDialect: string = catalog.dialect or (rawget(_G, \"jit\") ~= nil and \"luajit\" or \"lua51\")"
+    },
+    {
+      "path": "src/nupp/simd.nupp",
+      "line": 869,
+      "text": "local portableIntegers = require(\"nupp.services\").dialect() == \"lua51\""
+    },
+    {
+      "path": "tests/aotbuildtest.lua",
+      "line": 1118,
+      "text": "local source = assert(read(path)):gsub('aot = \"require\"', 'dialect = \"lua51\", aot = \"require-wasm\"')"
+    },
+    {
+      "path": "tests/aotbuildtest.lua",
+      "line": 1933,
+      "text": "assert(out:find('aot = \"emit-wasm\" requires dialect = \"lua51\"', 1, true), out)"
+    },
+    {
+      "path": "tests/aotbuildtest.lua",
+      "line": 1938,
+      "text": "withKeys(dir, 'dialect = \"lua51\", aotTarget = \"x86_64-unknown-linux-gnu\",')"
+    },
+    {
+      "path": "tests/aotbuildtest.lua",
+      "line": 1944,
+      "text": "withKeys(dir, 'dialect = \"lua51\", aotFeatures = \"avx2\",')"
+    },
+    {
+      "path": "tests/aotbuildtest.lua",
+      "line": 4685,
+      "text": "dialect = \"lua51\","
+    },
+    {
+      "path": "tests/argumentplucktest.lua",
+      "line": 299,
+      "text": "for _, dialect in ipairs({\"luajit\", \"lua51\"}) do"
+    },
+    {
+      "path": "tests/buildtest.lua",
+      "line": 299,
+      "text": "[\"nupp.lua\"] = 'return {include = {\".\"}, build = {entries = {\"main\"}, ' .. 'dialect = \"lua51\"}}\\n',"
+    },
+    {
+      "path": "tests/buildtest.lua",
+      "line": 314,
+      "text": ").decode(captureJson((\"cd '%s' && '%s' build --dialect lua51 main.nupp --json\"):format(dir, NUPP)))"
+    },
+    {
+      "path": "tests/buildtest.lua",
+      "line": 315,
+      "text": "assertEq(portable.dialect, \"lua51\", \"an explicit build reports its dialect\")"
+    },
+    {
+      "path": "tests/buildtest.lua",
+      "line": 329,
+      "text": ").decode(captureJson((\"cd '%s' && '%s' check --dialect lua51 main.nupp --json\"):format(dir, NUPP)))"
+    },
+    {
+      "path": "tests/buildtest.lua",
+      "line": 330,
+      "text": "assertEq(checked.dialect, \"lua51\", \"check reports the same resolved dialect\")"
+    },
+    {
+      "path": "tests/buildtest.lua",
+      "line": 333,
+      "text": "assertEq(configuredBuild.dialect, \"lua51\", \"build inherits the manifest dialect\")"
+    },
+    {
+      "path": "tests/buildtest.lua",
+      "line": 335,
+      "text": "assertEq(configuredCheck.dialect, \"lua51\", \"check inherits the manifest dialect\")"
+    },
+    {
+      "path": "tests/buildtest.lua",
+      "line": 339,
+      "text": "rejected:find(\"option --dialect does not take lua54; expected luajit, luajit-compat, lua51\", 1, true),"
+    },
+    {
+      "path": "tests/doexpressiontest.lua",
+      "line": 31,
+      "text": "for _, dialect in ipairs({\"luajit\", \"lua51\"}) do"
+    },
+    {
+      "path": "tests/doexpressiontest.lua",
+      "line": 57,
+      "text": "for _, dialect in ipairs({\"luajit\", \"lua51\"}) do"
+    },
+    {
+      "path": "tests/doexpressiontest.lua",
+      "line": 99,
+      "text": "for _, dialect in ipairs({\"luajit\", \"lua51\"}) do"
+    },
+    {
+      "path": "tests/doexpressiontest.lua",
+      "line": 122,
+      "text": "for _, dialect in ipairs({\"luajit\", \"lua51\"}) do"
+    },
+    {
+      "path": "tests/doexpressiontest.lua",
+      "line": 164,
+      "text": "for _, dialect in ipairs({\"luajit\", \"lua51\"}) do"
+    },
+    {
+      "path": "tests/doexpressiontest.lua",
+      "line": 237,
+      "text": "for _, dialect in ipairs({\"luajit\", \"lua51\"}) do"
+    },
+    {
+      "path": "tests/doexpressiontest.lua",
+      "line": 269,
+      "text": "for _, dialect in ipairs({\"luajit\", \"lua51\"}) do"
+    },
+    {
+      "path": "tests/doexpressiontest.lua",
+      "line": 303,
+      "text": "for _, dialect in ipairs({\"luajit\", \"lua51\"}) do"
+    },
+    {
+      "path": "tests/doexpressiontest.lua",
+      "line": 338,
+      "text": "for _, dialect in ipairs({\"luajit\", \"lua51\"}) do"
+    },
+    {
+      "path": "tests/doexpressiontest.lua",
+      "line": 362,
+      "text": "for _, dialect in ipairs({\"luajit\", \"lua51\"}) do"
+    },
+    {
+      "path": "tests/doexpressiontest.lua",
+      "line": 403,
+      "text": "for _, dialect in ipairs({\"luajit\", \"lua51\"}) do"
+    },
+    {
+      "path": "tests/doexpressiontest.lua",
+      "line": 424,
+      "text": "for _, dialect in ipairs({\"luajit\", \"lua51\"}) do"
+    },
+    {
+      "path": "tests/doexpressiontest.lua",
+      "line": 463,
+      "text": "for _, dialect in ipairs({\"luajit\", \"lua51\"}) do"
+    },
+    {
+      "path": "tests/dual-dialect-library/nupp.lua",
+      "line": 9,
+      "text": "dialect = \"lua51\","
+    },
+    {
+      "path": "tests/fixedwidthtest.lua",
+      "line": 766,
+      "text": "assertEq(#check.check(portable, \"fixed-arithmetic.nupp\", sharedEnv, {dialect = \"lua51\",}), 0, \"checks portably\")"
+    },
+    {
+      "path": "tests/optimizetest.lua",
+      "line": 781,
+      "text": "for _, dialect in ipairs({\"luajit\", \"lua51\"}) do"
+    },
+    {
+      "path": "tests/ownershiptest.lua",
+      "line": 5618,
+      "text": "{dialect = \"lua51\"}"
+    },
+    {
+      "path": "tests/portable-compiler/reference.lua",
+      "line": 47,
+      "text": "dialect = \"lua51\","
+    },
+    {
+      "path": "tests/portable-compiler/reference.lua",
+      "line": 50,
+      "text": "config = {_target = {dialect = \"lua51\", layoutTarget = \"x86_64-unknown-linux-gnu\"}},"
+    },
+    {
+      "path": "tests/portable-compiler/reference.lua",
+      "line": 58,
+      "text": "{strict = true, dialect = \"lua51\", _capabilityResolution = capabilityResolution,}"
+    },
+    {
+      "path": "tests/portable-compiler/reference.lua",
+      "line": 62,
+      "text": "optimize.run(parsed, {level = 1, filename = filename, disabled = {}, dialect = \"lua51\",})"
+    },
+    {
+      "path": "tests/portable-compiler/smoke.lua",
+      "line": 46,
+      "text": "local checked = session:check(source, \"playground.nupp\", {strict = true, dialect = \"lua51\",})"
+    },
+    {
+      "path": "tests/portable-compiler/smoke.lua",
+      "line": 49,
+      "text": "local compiled = session:compile(source, \"playground.nupp\", {strict = true, optimize = true, dialect = \"lua51\",})"
+    },
+    {
+      "path": "tests/portable-compiler/smoke.lua",
+      "line": 76,
+      "text": "local browser = session:compile(browserSource, \"browser-platform.nupp\", {strict = true, dialect = \"lua51\",})"
+    },
+    {
+      "path": "tests/portable-compiler/smoke.lua",
+      "line": 89,
+      "text": "{strict = true, dialect = \"lua51\",}"
+    },
+    {
+      "path": "tests/portable-compiler/smoke.lua",
+      "line": 94,
+      "text": "local wire = session:request([[{\"kind\":\"check\",\"source\":\"return 1\",\"options\":{\"dialect\":\"lua51\"}}]])"
+    },
+    {
+      "path": "tests/portable-compiler/smoke.lua",
+      "line": 104,
+      "text": "dialect = \"lua51\","
+    },
+    {
+      "path": "tests/portable-compiler/smoke.lua",
+      "line": 109,
+      "text": "dialect = \"lua51\","
+    },
+    {
+      "path": "tests/portable-corpus/nupp.lua",
+      "line": 5,
+      "text": "dialect = \"lua51\","
+    },
+    {
+      "path": "tests/portable-corpus/src/nupp/simd.nupp",
+      "line": 869,
+      "text": "local portableIntegers = require(\"nupp.services\").dialect() == \"lua51\""
+    },
+    {
+      "path": "tests/portable-storage/project/nupp.lua",
+      "line": 11,
+      "text": "dialect = \"lua51\","
+    },
+    {
+      "path": "tests/portabledialecttest.lua",
+      "line": 99,
+      "text": "for _, dialect in ipairs({\"lua51\", \"luajit-compat\"}) do"
+    },
+    {
+      "path": "tests/projecttest.lua",
+      "line": 1107,
+      "text": "assert(load('\"luajit-compat\"'), \"the compatibility LuaJIT dialect is accepted\")"
+    },
+    {
+      "path": "tests/projecttest.lua",
+      "line": 1108,
+      "text": "assert(load('\"lua51\"'), \"the portable dialect is accepted\")"
+    },
+    {
+      "path": "tests/projecttest.lua",
+      "line": 1112,
+      "text": "'build.targets.app.dialect must be \"luajit\", \"luajit-compat\" or \"lua51\"',"
+    },
+    {
+      "path": "tests/projecttest.lua",
+      "line": 1120,
+      "text": "wrongType and wrongType:find('build.targets.app.dialect must be \"luajit\", \"luajit-compat\" or \"lua51\"', 1, true),"
+    },
+    {
+      "path": "tests/projecttest.lua",
+      "line": 1128,
+      "text": "return {build = {dialect = \"lua51\", targets = {"
+    },
+    {
+      "path": "tests/projecttest.lua",
+      "line": 1136,
+      "text": "assertEq(portableTask.dialect, \"lua51\", \"a target inherits the build dialect\")"
+    },
+    {
+      "path": "tests/projecttest.lua",
+      "line": 1145,
+      "text": "dialect = \"lua51\"}}"
+    },
+    {
+      "path": "tests/projecttest.lua",
+      "line": 1151,
+      "text": "assertEq(produced.dialect, \"lua51\", \"build reporting names the manifest dialect\")"
+    },
+    {
+      "path": "tests/projecttest.lua",
+      "line": 1170,
+      "text": "assertEq(project.check(dir, {dialect = \"lua51\", produced = checked}), 0, \"check accepts the same dialect axis\")"
+    },
+    {
+      "path": "tests/projecttest.lua",
+      "line": 1171,
+      "text": "assertEq(checked.dialect, \"lua51\", \"check reporting names its resolved dialect\")"
+    },
+    {
+      "path": "tests/projecttest.lua",
+      "line": 1841,
+      "text": "build = {outDir = \"out\", entries = {\"main\"}, dialect = \"lua51\"},"
+    },
+    {
+      "path": "tests/servicepackagetest.lua",
+      "line": 43,
+      "text": "kind = \"bundle\", dialect = \"lua51\", outDir = \"out\","
+    },
+    {
+      "path": "tests/servicepackagetest.lua",
+      "line": 190,
+      "text": "[\"nupp.lua\"] = 'return {include = {\"src\"}, build = {outDir = \"out\", entries = {\"setup\"}, dialect = \"lua51\"}}',"
+    },
+    {
+      "path": "tests/servicepackagetest.lua",
+      "line": 241,
+      "text": "[\"nupp.lua\"] = 'return {include = {\"src\"}, build = {outDir = \"out\", entries = {\"setup\"}, dialect = \"lua51\"}}',"
+    },
+    {
+      "path": "tests/stdlibtest.lua",
+      "line": 125,
+      "text": "check.check(portable, \"portable.nupp\", sharedEnv, {dialect = \"lua51\"})"
+    },
+    {
+      "path": "tests/stdlibtest.lua",
+      "line": 126,
+      "text": "assertEq(portable.dialect, \"lua51\", \"the checker records the selected dialect\")"
+    },
+    {
+      "path": "tests/stdlibtest.lua",
+      "line": 159,
+      "text": "dialect = \"lua51\","
+    },
+    {
+      "path": "tests/stdlibtest.lua",
+      "line": 191,
+      "text": "dialect = \"lua51\","
+    },
+    {
+      "path": "tests/stdlibtest.lua",
+      "line": 220,
+      "text": "dialect = \"lua51\","
+    },
+    {
+      "path": "tests/stdlibtest.lua",
+      "line": 250,
+      "text": "{dialect = \"lua51\"}"
+    },
+    {
+      "path": "tests/stdlibtest.lua",
+      "line": 271,
+      "text": "local diags = check.check(tree, \"wasm-arena.nupp\", sharedEnv, {dialect = \"lua51\",})"
+    },
+    {
+      "path": "tests/stdlibtest.lua",
+      "line": 317,
+      "text": "{dialect = \"lua51\",}"
+    },
+    {
+      "path": "tests/stdlibtest.lua",
+      "line": 332,
+      "text": "{dialect = \"lua51\",}"
+    },
+    {
+      "path": "tests/stdlibtest.lua",
+      "line": 345,
+      "text": "{dialect = \"lua51\",}"
+    },
+    {
+      "path": "tests/stdlibtest.lua",
+      "line": 358,
+      "text": "local diags = check.check(result, path, env, {dialect = \"lua51\"})"
+    },
+    {
+      "path": "tests/stdlibtest.lua",
+      "line": 447,
+      "text": "assertClean(\"local s: string = string.format('%d', 3)\\nreturn string.rep(s, 2)\", {dialect = \"lua51\"})"
+    },
+    {
+      "path": "tests/stdlibtest.lua",
+      "line": 536,
+      "text": "local portable = {opts = {dialect = \"lua51\"}}"
+    },
+    {
+      "path": "tests/stdlibtest.lua",
+      "line": 556,
+      "text": "local portable = {opts = {dialect = \"lua51\"}}"
+    },
+    {
+      "path": "tests/stdlibtest.lua",
+      "line": 571,
+      "text": "local portable = {opts = {dialect = \"lua51\"}}"
+    },
+    {
+      "path": "tests/stdlibtest.lua",
+      "line": 1789,
+      "text": "assertClean(\"local layout = require('nupp.gpu.layout')\", {dialect = \"lua51\"})"
+    },
+    {
+      "path": "tests/switchtest.lua",
+      "line": 701,
+      "text": "for _, dialect in ipairs({\"luajit\", \"lua51\"}) do"
+    },
+    {
+      "path": "tests/wasm-aot/cancel-project/nupp.lua",
+      "line": 14,
+      "text": "dialect = \"lua51\","
+    },
+    {
+      "path": "tests/wasm-aot/derive-project/nupp.lua",
+      "line": 14,
+      "text": "dialect = \"lua51\","
+    },
+    {
+      "path": "tests/wasm-aot/error-project/nupp.lua",
+      "line": 11,
+      "text": "dialect = \"lua51\","
+    },
+    {
+      "path": "tests/wasm-aot/gpu-project/nupp.lua",
+      "line": 11,
+      "text": "dialect = \"lua51\","
+    },
+    {
+      "path": "tests/wasm-aot/http-project/nupp.lua",
+      "line": 14,
+      "text": "dialect = \"lua51\","
+    },
+    {
+      "path": "tests/wasm-aot/plain-project/nupp.lua",
+      "line": 11,
+      "text": "dialect = \"lua51\","
+    },
+    {
+      "path": "tests/wasm-aot/platform-project/nupp.lua",
+      "line": 14,
+      "text": "dialect = \"lua51\","
+    },
+    {
+      "path": "tests/wasm-aot/project/nupp.lua",
+      "line": 11,
+      "text": "dialect = \"lua51\","
+    },
+    {
+      "path": "tests/wasm-aot/simd-project/nupp.lua",
+      "line": 11,
+      "text": "dialect = \"lua51\","
+    },
+    {
+      "path": "tests/wasm-aot/workers-project/nupp.lua",
+      "line": 11,
+      "text": "dialect = \"lua51\","
+    },
+    {
+      "path": "tests/wasm-aot/workers-simd-project/nupp.lua",
+      "line": 8,
+      "text": "dialect = \"lua51\","
+    }
+  ]
+}

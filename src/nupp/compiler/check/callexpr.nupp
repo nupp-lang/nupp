@@ -1266,6 +1266,9 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         local requireGlobal = c.env and c.env.globals and c.env.globals.require
         local requireEntry = calleeName == "require" and c.lookupEntry("require") or nil
         local stableRequire = requireGlobal and requireEntry and requireGlobal.definition == requireEntry.definition
+        if calleeName == "require" and stableRequire then
+            (node as any).runtimeLoader = "require"
+        end
         if calleeName == "require" and stableRequire and c.env and c.env.resolveModule then
             -- Ahead of reading the name, because a second argument is wrong
             -- whether or not the first one is a constant this can resolve.

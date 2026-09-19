@@ -971,7 +971,7 @@ function M.managedCellsCarryExactCleanupPoliciesBehindAliases()
         "manage must receive its cleanup program and policy:\n" .. code
     )
     assert(
-        code:find("const __nuppManagedCleanup%d+ = function%(__nuppV%)"),
+        code:find("local __nuppManagedCleanup%d+ = function%(__nuppV%)"),
         "managed cleanup must be declared once per policy:\n" .. code
     )
 end
@@ -4102,7 +4102,7 @@ function M.hotLoweringsBuildNoFunctionWhereTheyAreUsed()
     local loop = assert(code:match("for i = 1(.-)\nend"), "generated loop\n" .. code)
     assert(not loop:find("function", 1, true), "the out-parameter sequence is built in the loop:\n" .. loop)
     assert(
-        code:find("const __nuppOut%d+ = function%(__nuppFn"),
+        code:find("local __nuppOut%d+ = function%(__nuppFn"),
         "the sequence is declared once for the module:\n" .. code
     )
 
@@ -4132,7 +4132,7 @@ function M.hotLoweringsBuildNoFunctionWhereTheyAreUsed()
     )
     assert(code:find("=false; __nuppDrop%d+%("), "the move is marked by a statement ahead of the drop:\n" .. code)
     assert(
-        code:find("const __nuppDrop%d+ = function%(__nuppV%)"),
+        code:find("local __nuppDrop%d+ = function%(__nuppV%)"),
         "the cleanups a drop runs are declared once for the module:\n" .. code
     )
 end

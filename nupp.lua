@@ -422,6 +422,13 @@ end
 PLAYGROUND_COMPILER_RESOURCES[
     #PLAYGROUND_COMPILER_RESOURCES + 1
 ] = {source = "build/playground/preludeimage.bin", output = "nupp/compiler/preludeimage.bin",}
+local LUAJIT_BROWSER_RESOURCES = {}
+for index, resource in ipairs(RESOURCES) do
+    LUAJIT_BROWSER_RESOURCES[index] = resource
+end
+LUAJIT_BROWSER_RESOURCES[
+    #LUAJIT_BROWSER_RESOURCES + 1
+] = {source = "build/browser-luajit/preludeimage.bin", output = "nupp/compiler/preludeimage.bin",}
 for _, relative in ipairs(TEMPLATE_FILES) do
     RESOURCES[#RESOURCES + 1] = {source = "templates/" .. relative, output = "nupp/compiler/templates/" .. relative,}
 end
@@ -518,6 +525,26 @@ return {
                 entries = {"nupp.compiler.browser"},
                 sources = {"src/nupp/compiler/browser.nupp"},
 
+                resources = RESOURCES,
+            },
+            browserLuaJITCompiler = {
+                kind = "bundle",
+                description = "Build the LuaJIT browser compiler candidate",
+                outDir = "build/browser-luajit/compiler",
+                output = "build/browser-luajit/nupp-compiler.lua",
+                dialect = "luajit",
+                entries = {"nupp.compiler.browser"},
+                sources = {"src/nupp/compiler/browser.nupp"},
+                resources = LUAJIT_BROWSER_RESOURCES,
+            },
+            browserLuaJITCompilerWithoutPrelude = {
+                kind = "bundle",
+                description = "Build the LuaJIT browser prelude generator",
+                outDir = "build/browser-luajit/bootstrap",
+                output = "build/browser-luajit/bootstrap/nupp-compiler.lua",
+                dialect = "luajit",
+                entries = {"nupp.compiler.browser"},
+                sources = {"src/nupp/compiler/browser.nupp"},
                 resources = RESOURCES,
             },
             playgroundApplicationRuntime = {

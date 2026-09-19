@@ -1382,6 +1382,30 @@ local ENTRIES: {any} = {
         docs = "docs/learn/projects/portability/libraries.md",
     },
     {
+        code = "NUPP3013",
+        summary = "Authored syntax is outside the Lua 5.1 compatibility profile",
+        rule = "The project-wide compat=lua51 requirement checks source before optimization. Types can erase, but runtime const, operators, jumps and literals specific to LuaJIT are rejected even in dead code. Use ordinary Lua 5.1 syntax; this profile does not invoke a lowerer.",
+        docs = "docs/learn/projects/portability/libraries.md#lua-51-source-compatibility",
+    },
+    {
+        code = "NUPP3014",
+        summary = "A runtime identity or representation requires LuaJIT",
+        rule = "Compatibility follows resolved standard-library identities through aliases and checks the stock Lua 5.1 surface. Native bit, FFI, exact-width representations, string.buffer and VM table helpers are unavailable. Explicitly checked pure-Lua libraries remain usable; no automatic provider substitution occurs.",
+        docs = "docs/learn/projects/portability/libraries.md#lua-51-source-compatibility",
+    },
+    {
+        code = "NUPP3015",
+        summary = "A runtime dependency or calling contract cannot satisfy compatibility",
+        rule = "Every runtime import needs checked source. A declaration alone, an opaque native module or non-enumerable dynamic code cannot certify compatibility. Literal loadstring source is checked recursively without execution. Cleanup cannot depend on yieldable protected calls or variadic xpcall arguments. Follow the reported dependency to an explicit Lua 5.1 implementation.",
+        docs = "docs/learn/projects/portability/libraries.md#lua-51-source-compatibility",
+    },
+    {
+        code = "NUPP3016",
+        summary = "Ordinary generated output does not satisfy Lua 5.1 syntax",
+        rule = "The final compatibility guard checks generated helpers as well as authored code. A rejected construct needs shared portable emission before this profile can accept it. Changing the compatibility flag never selects the legacy Lua 5.1 lowerer.",
+        docs = "docs/learn/projects/portability/libraries.md#lua-51-source-compatibility",
+    },
+    {
         code = "NUPP3001",
         summary = "`is` has nothing to test against this type",
         rule = "A record is identified by the metatable it stamps and a struct "

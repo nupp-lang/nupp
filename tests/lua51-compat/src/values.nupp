@@ -1,0 +1,14 @@
+module values
+
+export function first<T>(items: {T}): T?
+    return items[1]
+end
+
+export function sum(...: number): number
+    local result = 0
+    for _, value in ipairs({...}) do
+        result = result + value
+    end
+
+    return result
+end

@@ -69,7 +69,14 @@ return {
     -- playground compiles under, and the generated browser templates.
     [
         "browser"
-    ] = {"browserworkerstest", "portabledialecttest", "portableiocontractstest", "targetprofiletest", "templatetest",},
+    ] = {
+        "browserworkerstest",
+        "portabledialecttest",
+        "lua51compattest",
+        "portableiocontractstest",
+        "targetprofiletest",
+        "templatetest",
+    },
 
     ["gpu"] = {"gputest"},
 

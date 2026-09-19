@@ -877,6 +877,14 @@ function checkMod.check(
         error(tostring(dialectErr), 2)
     end
     opts.dialect = selectedDialect
+    local selectedCompat, compatError = require(
+        "nupp.compiler.compat"
+    ).resolve(opts.compat, env and env.compat, selectedDialect)
+    if compatError then
+        error(compatError, 2)
+    end
+    opts.compat = selectedCompat
+    result.compat = selectedCompat
     if filename and filename:match("%.lua$") then
         require("nupp.compiler.annotatedlua").decorate(result, filename)
     end
@@ -3315,6 +3323,8 @@ function checkMod.check(
             end
         end
     end
+    require("nupp.compiler.compat").checkSyntax(c)
+    require("nupp.compiler.compat").dependencies(c)
     local comptimeNames, comptimeIdentities = {}, {}
     for name in pairs(c.moduleExports.comptimeFunctions or {}) do
         comptimeNames[#comptimeNames + 1] = name
@@ -3331,6 +3341,20 @@ function checkMod.check(
     end)
     result.moduleExports = c.moduleExports
     result.cNamespaceType = c.cNamespaceType()
+
+    if opts.compat == "lua51" and not c.declarationFile then
+        local failed = false
+        for _, diagnostic in ipairs(c.diags) do
+            failed = failed or diagnostic.severity == "error"
+        end
+        if not failed then
+            local _, generated = require("nupp.compiler.gen").generate(result as any, filename)
+            for _, diagnostic in ipairs(generated) do
+                diagnostic.severity = diagnostic.severity or "error"
+                c.diags[#c.diags + 1] = diagnostic
+            end
+        end
+    end
 
     return c.diags, c.moduleType, c.moduleExports
 end

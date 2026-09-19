@@ -489,6 +489,7 @@ type gen.Checked = {
     readonly declaredModuleName: string?,
     readonly sendableLiterals: {any}?,
     readonly dialect: string?,
+    readonly compat: string?,
     readonly effects: {[string]: any}?,
     readonly preludeRuntime: string?
 }
@@ -2101,6 +2102,7 @@ function gen.generate(
     -- instruments the largest function in the compiler and the module then will not
     -- load.
     local pluck = {
+        compat = result.compat,
         portable = dialects.lowersSyntax(result.dialect or "luajit"),
         plans = {},
         loweredPlans = {},
@@ -2710,7 +2712,7 @@ function gen.generate(
         local line = sourceLine(planned.node)
         e("function(" .. table.concat(names, ",") .. ")", line)
         if body.varargParam then
-            e(("const %s={n=select(\"#\",...),...}"):format(body.varargParam.name.text))
+            e(("local %s={n=select(\"#\",...),...}"):format(body.varargParam.name.text))
         end
         emitDepth.fn = emitDepth.fn + 1
         beginActivation()
@@ -2896,7 +2898,7 @@ function gen.generate(
             coverageHit("function", body)
         end
         if body.varargParam then
-            e(("const %s = { n = select(\"#\", ...), ... }"):format(body.varargParam.name.text))
+            e(("local %s = { n = select(\"#\", ...), ... }"):format(body.varargParam.name.text))
         end
         if body.body then
             emit(body.body)
@@ -4942,7 +4944,7 @@ function gen.generate(
         end
         local packed = #actives > 0 and nextTemp() or nil
         if packed then
-            e(("do const %s=%s("):format(packed, cleanupPackName), sourceLine(x))
+            e(("do local %s=%s("):format(packed, cleanupPackName), sourceLine(x))
         else
             e(("return \"return\",%s("):format(cleanupPackName), sourceLine(x))
         end
@@ -6194,7 +6196,7 @@ function gen.generate(
                 return
             end
             local sourceName = nextTemp()
-            e(("const %s="):format(sourceName), sourceLine(x))
+            e(("local %s="):format(sourceName), sourceLine(x))
             emit(x.patternSource)
             e(";")
             e(x.isConst and "const " or "local ")
@@ -6408,7 +6410,7 @@ function gen.generate(
             local path = declPath(x)
             local runtimeName = x.recordRuntimeName or path or x.name.text
             local attached = x.recordRuntimeName or path
-            local storage = attached and "" or x.visibility == "global" and "" or "const "
+            local storage = attached and "" or x.visibility == "global" and "" or "local "
             local expr = ("%s%s = {} %s.__index = %s"):format(storage, runtimeName, runtimeName, runtimeName)
             e(expr, line)
             local nominal = x.resolvedType
@@ -6468,7 +6470,7 @@ function gen.generate(
             local path = declPath(x)
             local runtimeName = x.recordRuntimeName or path or x.name.text
             local attached = x.recordRuntimeName or path
-            local storage = attached and "" or x.visibility == "global" and "" or "const "
+            local storage = attached and "" or x.visibility == "global" and "" or "local "
             e(("%s%s = {}"):format(storage, runtimeName), line)
             for _, entry in ipairs(defaults) do
                 entry.inlineRuntimeOwner = runtimeName
@@ -7010,7 +7012,7 @@ function gen.generate(
             emitDepth.fn = emitDepth.fn + 1
             emitDepth.beginActivation()
             if x.varargParam then
-                e(("const %s = { n = select(\"#\", ...), ... }"):format(x.varargParam.name.text))
+                e(("local %s = { n = select(\"#\", ...), ... }"):format(x.varargParam.name.text))
             end
             if x.expr then
                 -- Parentheses force the expression form to return exactly one result,
@@ -7965,7 +7967,7 @@ function gen.generate(
                 )
             end
             if body.varargParam then
-                e(("const %s = { n = select(\"#\", ...), ... }"):format(body.varargParam.name.text))
+                e(("local %s = { n = select(\"#\", ...), ... }"):format(body.varargParam.name.text))
             end
             local priorConstructorReturnName = emitDepth.constructorReturnName
             local instanceName = nextTemp()
@@ -8043,7 +8045,7 @@ function gen.generate(
                 )
             end
             if body.varargParam then
-                e(("const %s = { n = select(\"#\", ...), ... }"):format(body.varargParam.name.text))
+                e(("local %s = { n = select(\"#\", ...), ... }"):format(body.varargParam.name.text))
             end
             emitDepth.fn = emitDepth.fn + 1
             emitDepth.beginActivation()
@@ -8078,7 +8080,7 @@ function gen.generate(
                 line
             )
             if x.body.varargParam then
-                e(("const %s = { n = select(\"#\", ...), ... }"):format(x.body.varargParam.name.text))
+                e(("local %s = { n = select(\"#\", ...), ... }"):format(x.body.varargParam.name.text))
             end
             emitDepth.fn = emitDepth.fn + 1
             emitDepth.beginActivation()
@@ -8148,9 +8150,9 @@ function gen.generate(
             if virtualBinding then
                 local binding = x.bindings[1]
                 virtualBinding.anchorName = virtualBinding.anchorName or nextTemp()
-                e("do const " .. virtualBinding.anchorName .. "=", x.withTok and x.withTok.line or sourceLine(x))
+                e("do local " .. virtualBinding.anchorName .. "=", x.withTok and x.withTok.line or sourceLine(x))
                 emit(virtualBinding.source)
-                e("; const " .. binding.name.text .. "=", sourceLine(binding.expr))
+                e("; local " .. binding.name.text .. "=", sourceLine(binding.expr))
                 emit(binding.expr)
                 e("; do")
                 if x.body then
@@ -8160,7 +8162,7 @@ function gen.generate(
                 return
             elseif kind == "withStmt" and x.directCleanup then
                 local binding = x.bindings[1]
-                e("do const ", x.withTok and x.withTok.line or sourceLine(x))
+                e("do local ", x.withTok and x.withTok.line or sourceLine(x))
                 e(binding.name.text .. "=", sourceLine(binding.expr))
                 local move = ownershipMoveOf(binding.expr)
                 local movedActive = move and activeFlag(move) or nil
@@ -8292,7 +8294,8 @@ function gen.generate(
                     inStateRegion = true
                 end
             end
-            local shared = not emitDepth.constructorReturnName
+            local shared = pluck.compat ~= "lua51"
+                and not emitDepth.constructorReturnName
                 and not inStateRegion
                 and cacheName ~= nil
                 and #(x.bindings or {}) == 1
@@ -8349,7 +8352,8 @@ function gen.generate(
                     immutableCaptures = false
                 end
             end
-            local stateFrame = not shared
+            local stateFrame = pluck.compat ~= "lua51"
+                and not shared
                 and #(x.bindings or {}) > 1
                 and x.automaticSequence
                 and not x.repeatCondition
@@ -8397,6 +8401,16 @@ function gen.generate(
                 cleanupCacheSites = cleanupCacheSites + 1
                 stateSlot = cleanupCacheSites
                 stateRegion = nextTemp()
+            end
+            -- Cached regions pass their frame through LuaJIT's xpcall arguments.
+            -- The ordinary closure path works without that optimization on 5.1.
+            if pluck.compat == "lua51" and variadic then
+                emitDepth.diag(
+                    cst.firstToken(x),
+                    "NUPP3015",
+                    "variadic cleanup needs the LuaJIT xpcall argument contract",
+                    "bind the needed values before entering cleanup"
+                )
             end
             if shared then
                 if cacheName ~= cleanupCacheName then
@@ -8539,7 +8553,7 @@ function gen.generate(
                     end
                     pluck.loweredFunction(
                         (
-                            "; const %s,%s,%s=%s(function(%s)"
+                            "; local %s,%s,%s=%s(function(%s)"
                         ):format(ok, tag, payload, cleanupGlobals.xpcall, variadic and "..." or ""),
                         nil,
                         pluck.reasons.region
@@ -8610,7 +8624,7 @@ function gen.generate(
                 local function activate(j, binding, deferName)
                     local value = nextTemp()
                     liftSwitches(binding.expr)
-                    e(("const %s="):format(value), sourceLine(binding.expr))
+                    e(("local %s="):format(value), sourceLine(binding.expr))
                     local cleared = emitAcquired(binding, binding.expr)
                     e(";")
                     if cleared then
@@ -8641,7 +8655,7 @@ function gen.generate(
                                 liftSwitches(expr)
                                 if exprIndex == #exprs and #names > #exprs then
                                     local packed = nextTemp()
-                                    e(("const %s=%s("):format(packed, cleanupPackName), sourceLine(expr))
+                                    e(("local %s=%s("):format(packed, cleanupPackName), sourceLine(expr))
                                     local cleared = emitAcquired(bySlot[exprIndex], expr)
                                     e(");")
                                     if cleared then
@@ -8652,7 +8666,7 @@ function gen.generate(
                                     end
                                 else
                                     local value = nextTemp()
-                                    e(("const %s="):format(value), sourceLine(expr))
+                                    e(("local %s="):format(value), sourceLine(expr))
                                     local cleared = emitAcquired(bySlot[exprIndex], expr)
                                     e(";")
                                     if cleared then
@@ -8773,7 +8787,7 @@ function gen.generate(
                 end
                 cleanupStack[#cleanupStack] = nil
             end
-            e(("const %s={}; local %s=0;"):format(cleanupError, hasCleanupError), x.endTok and x.endTok.line or nil)
+            e(("local %s={}; local %s=0;"):format(cleanupError, hasCleanupError), x.endTok and x.endTok.line or nil)
             for j = #(x.bindings or {}), 1, -1 do
                 local binding = x.bindings[j]
 
@@ -8786,7 +8800,7 @@ function gen.generate(
                     local call = protectedCleanupCall(cleanup, value, cleanupGlobals.pcall)
                     if call then
                         local cok, cerr = nextTemp(), nextTemp()
-                        e(("const %s,%s=%s;"):format(cok, cerr, call))
+                        e(("local %s,%s=%s;"):format(cok, cerr, call))
                         e(
                             (
                                 " if not %s then %s=%s+1; %s[%s]=%s end;"
@@ -9168,7 +9182,7 @@ function gen.generate(
                         if coverageOn then
                             coverageHit("function", x)
                         end
-                        e(("const %s = { n = select(\"#\", ...), ... }"):format(x.varargParam.name.text))
+                        e(("local %s = { n = select(\"#\", ...), ... }"):format(x.varargParam.name.text))
                     end
                     if emitDepth.hoist and emitDepth.hoist.done and child == emitDepth.hoist.endTok then
                         pluck.skipHoistedEnd(child.line)
@@ -9202,7 +9216,7 @@ function gen.generate(
 
         elseif kind == "exportStmt" then
             if x.value then
-                e(("const %s="):format(emitDepth.exportAssignmentValueName), sourceLine(x))
+                e(("local %s="):format(emitDepth.exportAssignmentValueName), sourceLine(x))
                 emit(x.value)
                 e((";%s=%s"):format(emitDepth.exportTableName, emitDepth.exportAssignmentValueName))
                 return
@@ -10050,17 +10064,17 @@ function gen.generate(
         for _, helper in ipairs(pluck.helpers.order) do
             declarations[
                 #declarations + 1
-            ] = ("const %s = function(%s) %s end;"):format(helper.name, helper.params, helper.body)
+            ] = ("local %s = function(%s) %s end;"):format(helper.name, helper.params, helper.body)
         end
         code = table.concat(declarations) .. code
     end
     if #constants.order > 0 or #constants.spilled > 0 then
         local declarations = {}
         for _, constant in ipairs(constants.order) do
-            declarations[#declarations + 1] = ("const %s=%s;"):format(constant.name, constant.body)
+            declarations[#declarations + 1] = ("local %s=%s;"):format(constant.name, constant.body)
         end
         if #constants.spilled > 0 then
-            declarations[#declarations + 1] = ("const %s={};"):format(constants.spillName)
+            declarations[#declarations + 1] = ("local %s={};"):format(constants.spillName)
             for index, body in ipairs(constants.spilled) do
                 declarations[#declarations + 1] = ("%s[%d]=%s;"):format(constants.spillName, index, body)
             end
@@ -10158,11 +10172,11 @@ function gen.generate(
                 or name
         end
         code = (
-            "const %s={}; "
+            "local %s={}; "
         ):format(
             cleanupCacheName
         ) .. (
-            "const function %s(...) return "
+            "local function %s(...) return "
         ):format(
             cleanupPackName
         ) .. (
@@ -10172,7 +10186,7 @@ function gen.generate(
         ) .. (
             useYieldableCleanupCalls
             and (
-                "const function %s(body,handler,...) local thread=%s(body);"
+                "local function %s(body,handler,...) local thread=%s(body);"
                 .. "local input=%s(...);while true do local resumed=%s(coroutine.resume(thread,"
                 .. "%s(input,1,input.n)));if not resumed[1] then return false,handler(resumed[2]) end;"
                 .. "if coroutine.status(thread)==\"dead\" then return true,%s(resumed,2,resumed.n) end;"
@@ -10189,28 +10203,28 @@ function gen.generate(
             )
             or yieldableXpcallName
             and (
-                "const function %s(body,handler,...) local args=%s(...);"
+                "local function %s(body,handler,...) local args=%s(...);"
                 .. "return xpcall(function() return body(unpack(args,1,args.n)) end,handler) end; "
             ):format(yieldableXpcallName, cleanupPackName)
             or ""
         ) .. (
             yieldableCleanupPcall
             and (
-                "const function %s(body,...) return %s(body,function(problem) return problem end,...) end; "
+                "local function %s(body,...) return %s(body,function(problem) return problem end,...) end; "
             ):format(yieldablePcallName, yieldableXpcallName)
             or ""
         ) .. (
-            "const %s=%s; "
+            "local %s=%s; "
         ):format(
             table.concat(names, ","),
             table.concat(values, ",")
         ) .. (
-            "const function %s(value) return value end; "
+            "local function %s(value) return value end; "
         ):format(
             cleanupIdName
         ) .. (
-            "const function %s(primary,errors,start) "
-        ):format(cleanupFailureName) .. "const secondary={} for i=start,#errors do " .. (
+            "local function %s(primary,errors,start) "
+        ):format(cleanupFailureName) .. "local secondary={} for i=start,#errors do " .. (
             -- A cleanup that raises the very failure being propagated -- a settling
             -- terminal re-raising the scope's own failure the block already saw --
             -- is not a second failure, and wrapping the primary would cost a nominal
@@ -10300,7 +10314,7 @@ function gen.generate(
         -- not flattened into it. A `__metatable` field makes `getmetatable` answer with
         -- a stand-in rather than a table, and that is left where it is.
         code = (
-            "const function %s(t) const out = {} "
+            "local function %s(t) local out = {} "
         ):format(
             cloneTabName
         )
@@ -10583,6 +10597,22 @@ function gen.generate(
                 ) .. "` shows what it generated"
             end
             diag({line = line, col = 1, offset = 0, text = ""}, "NUPP3005", message, help)
+        end
+    end
+
+    if result.compat == "lua51" then
+        for _, diagnostic in ipairs(require("nupp.compiler.compat").generated(code, filename, result.tokens)) do
+            diags[#diags + 1] = diagnostic
+        end
+        if needsCleanupRegions and canSuspend then
+            diag(
+                result.tokens and result.tokens[1],
+                "NUPP3015",
+                "Lua 5.1 cleanup cannot cross the effect closure: " .. require(
+                    "nupp.compiler.compat"
+                ).suspensionPath(runtimeEffects),
+                "use a non-suspending cleanup dependency closure or remove the compatibility requirement"
+            )
         end
     end
 

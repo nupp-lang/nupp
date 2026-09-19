@@ -599,9 +599,9 @@ function M.constSemantics()
     assert(code:find("const answer = 42", 1, true), "const should survive type erasure: " .. code)
 end
 
-function M.generatedSingleAssignmentBindingsAreConst()
+function M.generatedBindingsPreserveTheSharedRuntimeSubset()
     local recordCode = generate(table.concat({"local record Point", "   x: number", "end", "return Point",}, "\n"))
-    assert(recordCode:find("const Point = {}", 1, true), recordCode)
+    assert(recordCode:find("local Point = {}", 1, true), recordCode)
 
     local interfaceCode = generate(
         table.concat(
@@ -615,7 +615,7 @@ function M.generatedSingleAssignmentBindingsAreConst()
             "\n"
         )
     )
-    assert(interfaceCode:find("const Named = {}", 1, true), interfaceCode)
+    assert(interfaceCode:find("local Named = {}", 1, true), interfaceCode)
 
     local compoundCode = generate(
         table.concat({"local target = {value = 8}", "target['value'] //= 2", "return target.value",}, "\n")
@@ -775,7 +775,7 @@ return collect("ignored", nil, 3)]]
 
     local code = generate("local function f(...args) return args.n end")
     assert(code:find("...", 1, true), "plain vararg remains in output")
-    assert(code:find("const args = { n = select", 1, true), "named vararg table is lowered")
+    assert(code:find("local args = { n = select", 1, true), "named vararg table is lowered")
     assert(not code:find("...args", 1, true), "named spelling is erased")
 end
 
