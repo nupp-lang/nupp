@@ -71,7 +71,7 @@ async function boot(message) {
     const [bios, vga, kernel, initrd] = await Promise.all(['assets/bios.bin', 'assets/vgabios.bin', 'assets/bzimage.bin', 'assets/initramfs.gz'].map(asset));
     Object.assign(options, {bios: {buffer: bios.buffer}, vga_bios: {buffer: vga.buffer},
       bzimage: {buffer: kernel.buffer}, initrd: {buffer: initrd.buffer},
-      cmdline: `console=ttyS0,115200 quiet rootfstype=ramfs rdinit=/init mem=${memoryMiB - 16}M iomem=relaxed tsc=reliable nupp.mailbox=${mailbox}`});
+      cmdline: `console=ttyS0,115200 earlyprintk=serial,ttyS0,115200 rootfstype=ramfs rdinit=/init mem=${memoryMiB - 16}M iomem=relaxed tsc=reliable random.trust_cpu=on nupp.mailbox=${mailbox}`});
   }
   const start = () => {
     const header = new Uint8Array(24), now = Date.now();
