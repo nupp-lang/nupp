@@ -429,14 +429,15 @@ Show what the @aot functions in a file compile to.
 
 With no artifact, reports what each function lowered to: the species every
 `@simd` loop runs in, or that it runs scalar. Select verified IR, generated
-C, native GPU SPIR-V, browser GPU WGSL, native assembly, or the generated
-Nupp binding with `--emit`.
+C, the `@simd` rewrite as Nupp, native GPU SPIR-V, browser GPU WGSL, native
+assembly, or the generated Nupp binding with `--emit`.
 
 Examples:
 
     nupp aot bench/kernel-subset-spike/mandelbrot.nupp
     nupp aot --emit ir src/kernel.nupp
     nupp aot --emit c src/kernel.nupp
+    nupp aot --emit simd bench/kernel-subset-spike/mandelbrot.nupp
     nupp aot --emit asm --function scale src/kernel.nupp
     nupp aot --emit wgsl --function transform src/gpu.nupp
     nupp aot --format json src/kernel.nupp
@@ -448,7 +449,8 @@ Arguments:
   FILE  Source file to inspect.
 
 Options:
-  --emit ARTIFACT  Artifact to print: ir, c, spirv, wgsl, asm, or binding.
+  --emit ARTIFACT  Artifact to print: ir, c, simd, spirv, wgsl, asm, or
+                   binding.
   --function NAME  Show only this function.
   --target TRIPLE  Target triple to compile for.
   --features TIER  CPU feature tier to promise.

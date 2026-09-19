@@ -80,6 +80,74 @@ by hand under [Explicit SIMD](#explicit-simd). There is one vector vocabulary: a
 second, private one, so every operation the rewrite needs is an operation the
 source could have written itself, and a legalization fix reaches both.
 
+That is what makes the rewrite readable rather than a report about itself.
+`--emit simd` prints it as Nupp:
+
+```bash
+nupp aot --emit simd --target x86_64-unknown-linux-gnu --features avx2 \
+    bench/kernel-subset-spike/mandelbrot.nupp
+```
+
+```nupp
+    local s_f32_x4 = assert(simd.species(array.float, 4))
+    local s_i32_x4 = assert(simd.species(array.int32, 4))
+    local s_u32_x4 = assert(simd.species(array.uint32, 4))
+    local s_f64_x4 = assert(simd.species(array.number, 4))
+    local base1: uint32 = nupp.math.u32.wrap(first) + 4294967295
+    do
+        while base1 + s_f64_x4.lanes <= #points and base1 + s_f64_x4.lanes <= #escapes and base1 + s_f64_x4.lanes <= last do
+            local cx = s_f64_x4:convert(s_f32_x4:load(points, base1 + 1, "re"))
+            local cy = s_f64_x4:convert(s_f32_x4:load(points, base1 + 1, "im"))
+            local cardioidX = cx - s_f64_x4:splat(0.25)
+            local ySquared = cy * cy
+            local q = cardioidX * cardioidX + ySquared
+            local inCardioid = s_f64_x4:splat(0)
+            local if2 = q * (q + cardioidX) <= s_f64_x4:splat(0.25) * ySquared
+            inCardioid = if2:select(s_f64_x4:splat(1), inCardioid)
+            local if3 = (cx + s_f64_x4:splat(1.0)) * (cx + s_f64_x4:splat(1.0)) + ySquared <= s_f64_x4:splat(0.0625)
+            inCardioid = if3:select(s_f64_x4:splat(1), inCardioid)
+            local zx = s_f64_x4:splat(0.0)
+            local zy = s_f64_x4:splat(0.0)
+            local zxSquared = s_f64_x4:splat(0.0)
+            local zySquared = s_f64_x4:splat(0.0)
+            local iteration = s_f64_x4:splat(0)
+            local escaped = s_f64_x4:splat(0)
+            local if4 = inCardioid == s_f64_x4:splat(1)
+            iteration = if4:select(s_f64_x4:splat(maxIterations), iteration)
+            local live5 = iteration < s_f64_x4:splat(maxIterations)
+            while live5:any() do
+                local exec6 = live5
+                local if7 = exec6 & (zxSquared + zySquared > s_f64_x4:splat(4.0))
+                live5 = live5 & ~(if7 & exec6)
+                exec6 = exec6 & ~(if7 & exec6)
+                zy = s_f64_x4:splat(2.0) * zx * zy + cy
+                zx = zxSquared - zySquared + cx
+                zxSquared = zx * zx
+                zySquared = zy * zy
+                iteration = exec6:select(iteration + s_f64_x4:splat(1), iteration)
+                live5 = live5 & (iteration < s_f64_x4:splat(maxIterations))
+            end
+            local if8 = iteration < s_f64_x4:splat(maxIterations)
+            escaped = if8:select(s_f64_x4:splat(1), escaped)
+            s_i32_x4:store(escapes, base1 + 1, "iterations", s_i32_x4:convert(iteration))
+            s_u32_x4:store(escapes, base1 + 1, "escaped", s_u32_x4:convert(escaped))
+            base1 = base1 + s_f64_x4.lanes
+        end
+```
+
+That is the whole-group copy; a masked copy of the same body follows it for the
+final partial group, with `s_f64_x4:tail(last - base1)` as its `active` mask and
+every load and store carrying it. The conditionals became masks and selects, the
+`while` became a live mask tested with `any()`, the `break` became two mask
+updates, and the loop index became a cursor the guard proves a whole vector of
+room for -- which is why the loads in the whole-group copy carry no mask.
+
+It is printed from the verified IR and has no lowering of its own, so it cannot
+drift: compiling the printed source produces the same vector C as the `@simd`
+loop it came from, which is what `aotclitest` holds it to. Where a construct in
+the rewrite has no Nupp spelling the command says so and exits nonzero rather
+than printing something that does not compile.
+
 ## Admitted loop shape
 
 A `@simd` loop is a numeric `for` loop over spans, indexed by the loop counter
@@ -554,9 +622,10 @@ struct. Both take the trailing mask a scalar span load does, and both drop
 their checks under the same `cursor + species.lanes <= #span` guard.
 
 `species:map(f, v, ...)` applies a scalar function lane by lane: a `math`
-function such as `math.sqrt`, or a pure helper the kernel can call, over
-locals of the species. A `float` species calls the helper in binary64 and
-narrows the result.
+function such as `math.sqrt`, one of the corrected binary32 operations
+`nupp.math.f32.fma`, `min` and `max` over a `float` species, or a pure helper
+the kernel can call, over locals of the species. A `float` species calls the
+helper in binary64 and narrows the result.
 
 A reducer takes a masked vector contribution inside a `do ... end` block,
 which is its region: `fold:add(v, active)` contributes the active lanes in

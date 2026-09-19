@@ -3460,6 +3460,220 @@ function M.aFourTripLoopLowersToTheSameVectorIrAsWritingItOut()
     test.equal(optimization.unrolledIterations, 4)
 end
 
+-- `--emit simd` and the round trip that says it is the same program.
+--
+-- `@simd` has no vector IR of its own any more: a marked loop is rewritten onto
+-- the explicit `simd_*` operations over `Fixed<N>` species, and `--emit simd`
+-- prints that rewrite as the Nupp somebody could have written instead. What
+-- makes the printer worth having rather than decorative is that the printed
+-- source is the same program: it checks, and the region it lowers to is the
+-- region the `@simd` loop lowered to.
+--
+-- Two differences are read past rather than asserted about, because neither is
+-- a difference in the vectorized work. A map-shaped kernel takes one `count`
+-- for the spans its range guard proved equal where an ordinary function takes
+-- one per span; and every generated C local carries the ordinal of the IR
+-- binding behind it, which the printed spelling numbers from its own bindings.
+
+--- One generated function's body, with those two differences normalized away.
+---
+--- Block braces, the `#pragma` a contract carries and the scalar loop bounds a
+--- map-shaped entry declares for the oracle beside it are dropped for the same
+--- reason: they are the entry's shape rather than the region's work.
+local function generatedBody(c, symbol, label)
+    local lines = {}
+    local inside = false
+    local found = false
+    for line in (c .. "\n"):gmatch("([^\n]*)\n") do
+        if inside and line == "}" then
+            inside = false
+        elseif inside then
+            local bare = line:match("^%s*(.-)%s*$")
+            local shape = bare == ""
+                or bare == "{"
+                or bare == "}"
+                or bare:match("^#")
+                or bare:match("^%(void%)[%w_]+;$")
+                or bare:match("^size_t [%w_]+ = .*;$")
+            if not shape then
+                lines[#lines + 1] = bare
+            end
+        elseif line:match("^KS_API .-[ %*]" .. symbol .. "%(") then
+            inside = true
+            found = true
+        end
+    end
+    assert(found, label .. ": the generated C has no " .. symbol)
+    local body = table.concat(lines, " ")
+    body = body:gsub("count_[%a_][%w_]*", "count")
+    body = body:gsub("%f[%w]v%d+_", ""):gsub("%f[%w]sr%d+_", "")
+    body = body:gsub("%f[%w]as%d+%f[%W]", "as")
+
+    return body
+end
+
+--- Prints one file's rewrite, compiles the printed source, and holds the two
+--- generated regions to each other.
+local function roundTrip(files, file, symbol, label)
+    local dir = project(files)
+    local printed, printedCode = run(dir, PINNED .. "--emit simd " .. file)
+    test.equal(printedCode, 0, label .. ": --emit simd refused:\n" .. printed)
+    local original, originalCode = run(dir, PINNED .. "--emit c " .. file)
+    test.equal(originalCode, 0, label .. ": " .. original)
+
+    -- Compiling the printed source checks it: a diagnostic is a nonzero status
+    -- and the diagnostic itself, which is what a failure here reports.
+    local again, againCode = run(project{["printed.nupp"] = printed}, PINNED .. "--emit c printed.nupp")
+    test.equal(againCode, 0, label .. ": the printed rewrite did not compile:\n" .. again .. "\n" .. printed)
+    test.equal(
+        generatedBody(again, symbol, label),
+        generatedBody(original, symbol, label),
+        label .. ": the printed rewrite lowered to different C\n" .. printed
+    )
+
+    return printed
+end
+
+function M.theMandelbrotRewritePrintsAsNuppThatLowersToTheSameVectorC()
+    -- The kernel the vectorizer is measured on: two binary32 fields gathered
+    -- from an array of structs, a per-lane escape loop with a break in it, and
+    -- two narrowing field stores. Read from the bench tree rather than copied,
+    -- so the thing that round-trips is the thing that is benchmarked.
+    local path = HERE .. "/../bench/kernel-subset-spike/mandelbrot.nupp"
+    local handle = assert(io.open(path, "rb"), "the mandelbrot kernel is missing")
+    local source = handle:read("*a")
+    handle:close()
+
+    local printed = roundTrip({["mandelbrot.nupp"] = source}, "mandelbrot.nupp", "ks_mandelbrot", "mandelbrot")
+
+    -- The vocabulary it is printed in, which is the point of printing it: a
+    -- species per element, the masked tail, and the per-lane loop as a mask.
+    for _, spelling in ipairs({
+        "assert(simd.species(array.number, 4))",
+        "assert(simd.species(array.float, 4))",
+        's_f32_x4:load(points, base1 + 1, "re")',
+        "while base1 + s_f64_x4.lanes <= #points",
+        "s_f64_x4:tail(last - base1)",
+        ":any() do",
+        ":select(",
+    }) do
+        assert(printed:find(spelling, 1, true), "the printed rewrite does not say " .. spelling .. ":\n" .. printed)
+    end
+end
+
+function M.aVaryingNestedLoopWithAPerLaneBreakPrintsAsNuppThatLowersToTheSame()
+    -- The control-flow case: an inner trip count that differs per lane and a
+    -- break inside it, which is the live mask, the execution mask and the
+    -- iota-derived bound all at once.
+    local printed = roundTrip({["required.nupp"] = REQUIRED_VARYING_FOR}, "required.nupp", "ks_varying", "varying")
+    assert(printed:find("s_i32_x4:iota(", 1, true), "the loop index is an iota:\n" .. printed)
+    assert(printed:find("s_f64_x4:mask(", 1, true), "the i32 comparison converts to the control mask:\n" .. printed)
+end
+
+function M.twoReducerRegionsInOneBodyPrintAsNuppThatLowersToTheSame()
+    -- Two regions in one function, each with its own contract, and each naming
+    -- its cursor the same thing: the printed scopes are what keep that legal,
+    -- because a native local may not shadow another.
+    local source = [[
+local span = require("nupp.mem.span")
+local simd = require("nupp.simd")
+
+@aot
+local function reductions(borrows values: span.Span<number>): (number, number)
+    local product = simd.reducer.pairwiseProduct(1.0)
+    @simd
+    for i = 1, #values do
+        product:multiply(values[i])
+    end
+
+    local dot = simd.reducer.algebraicDot(0.0)
+    @simd
+    for i = 1, #values do
+        dot:add(values[i], values[i])
+    end
+    return product:value(), dot:value()
+end
+
+
+return {reductions = reductions}
+]]
+    local printed = roundTrip({["reducers.nupp"] = source}, "reducers.nupp", "ks_reductions", "reducers")
+    assert(printed:find("simd.reducer.pairwiseProduct(1.0)", 1, true), "the contract survives:\n" .. printed)
+    assert(printed:find(":multiply(", 1, true), "a product is contributed by multiplying:\n" .. printed)
+    assert(printed:find("s_f64_x4:mask(true)", 1, true), "a whole group contributes every lane:\n" .. printed)
+end
+
+function M.aCorrectedBinary32RegionPrintsAsNuppThatLowersToTheSame()
+    -- The lane-wise corrections, which the rewrite applies one lane at a time
+    -- rather than computing in binary64: `min` and `max` become vector
+    -- intrinsics and `fma` stays a per-lane call, so printing it needs the
+    -- `s:map(nupp.math.f32.fma, ...)` spelling on the way back in.
+    local source = [[
+local span = require("nupp.mem.span")
+
+local struct Sample
+    a: float
+    b: float
+    c: float
+end
+
+local struct Result
+    least: float
+    greatest: float
+    fused: float
+end
+
+@aot
+local function corrected(
+    exclusive results: span.WriteSpan<Result>,
+    borrows samples: span.Span<Sample>,
+    first: integer,
+    last: integer
+): nil
+    assert(#results == #samples, "length mismatch")
+    assert(first >= 1 and last <= #results and first <= last + 1, "range out of bounds")
+
+    @simd
+    for i = first, last do
+        local result = results[i]
+        local sample = samples[i]
+        local a = nupp.math.f32.narrow(sample.a)
+        local b = nupp.math.f32.narrow(sample.b)
+        local c = nupp.math.f32.narrow(sample.c)
+        result.least = nupp.math.f32.min(a, b)
+        result.greatest = nupp.math.f32.max(a, b)
+        result.fused = nupp.math.f32.fma(a, b, c)
+    end
+end
+
+return {corrected = corrected, Sample = Sample, Result = Result,}
+]]
+    local printed = roundTrip({["corrected.nupp"] = source}, "corrected.nupp", "ks_corrected", "corrected")
+    assert(printed:find("s_f32_x8:map(nupp.math.f32.fma,", 1, true), "the fused lane call:\n" .. printed)
+    assert(printed:find(":propagatingMin(", 1, true), "the corrected minimum:\n" .. printed)
+end
+
+function M.aFileWithNoVectorizedLoopPrintsNothingForSimd()
+    local source = [[
+local span = require("nupp.mem.span")
+
+@aot
+local function total(borrows values: span.Span<number>): number
+    local sum = 0.0
+    for i = 1, #values do
+        sum = sum + values[i]
+    end
+    return sum
+end
+
+return {total = total}
+]]
+    local dir = project{["scalar.nupp"] = source}
+    local out, code = run(dir, PINNED .. "--emit simd scalar.nupp")
+    test.equal(code, 1, out)
+    assert(out:find("was vectorized", 1, true), "it says there is no rewrite to show: " .. out)
+end
+
 function M.aLoopRefusesASpanNothingProvesIsLongEnough()
     local dir = project{["unproved.nupp"] = UNPROVED_SPAN}
     local out, code = run(dir, "unproved.nupp")

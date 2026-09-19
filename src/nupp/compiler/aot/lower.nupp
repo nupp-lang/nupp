@@ -1157,9 +1157,24 @@ local function withBound(bounds: scalarIR.CursorBounds, cursor: string, root: st
     bounds[cursor] = spans
 end
 
+--- Whether a recorded room covers the whole vector an access of `species`
+--- reads: its own species, or another one of the same lane count, because the
+--- guard compared the count and every `Fixed<N>` species counts the same
+--- lanes. A region that loads `float` fields under a `number` guard is the
+--- ordinary case, and the verifier reads the proof the same way.
+local function sameRoom(held: string, species: string): boolean
+    if held == species then
+        return true
+    end
+    local lanes = held:match("_fixed(%d+)$")
+
+    return lanes ~= nil and species:match("_fixed(%d+)$") == lanes
+end
+
 --- The cursor a `candidate + 1` index names, when a dominating check bounded
---- that cursor against this span: with any room, or with exactly `room` when
---- one is asked for, which is how a vector access asks for its whole width.
+--- that cursor against this span: with any room, or with room for a whole
+--- vector of `room`'s lane count when one is asked for, which is how a vector
+--- access asks for its whole width.
 ---
 --- Shared by the load and the store for the same reason `provenIndex` is: two
 --- spellings of one proof drift apart.
@@ -1173,7 +1188,7 @@ local function provedCursor(indexArg: cst.Node?, spanName: string?, kernel: lowe
     local offset = token ~= nil and tonumber((token as lexer.Token).text) or nil
     local candidate = lower.nameOf(index.lhs)
     local held = boundRoom(kernel.cursorBounds, candidate, spanName)
-    if written == "+" and offset == 1 and held ~= nil and (room == nil or held == room) then
+    if written == "+" and offset == 1 and held ~= nil and (room == nil or sameRoom(held as string, room as string)) then
         return candidate
     end
 
@@ -2968,8 +2983,14 @@ local function maskedContribution(
     )
 end
 
---- `s:map(f, v...)`: one scalar call per lane over vector locals, either a
---- closed-set math operation or a pure helper of the element's scalar type.
+--- The binary32 operations the prelude corrects lane by lane rather than
+--- computing in binary64, and how many operands each takes. The verifier reads
+--- a `simd_call` naming one of these as carrying no compiled helper.
+const CORRECTED_LANES = {["f32_min"] = 2, ["f32_max"] = 2, ["f32_fma"] = 3,}
+
+--- `s:map(f, v...)`: one scalar call per lane over vector locals: a closed-set
+--- math operation, a binary32 correction, or a pure helper of the element's
+--- scalar type.
 local function laneWiseMap(
     node: cst.MethodCall,
     raw: {cst.Node},
@@ -3008,9 +3029,30 @@ local function laneWiseMap(
             source = source
         )
     end
+    -- The three binary32 operations the prelude corrects rather than computes
+    -- in binary64: they are already applied one lane at a time when the `@simd`
+    -- rewrite reaches one, so the same spelling names them here.
+    local corrected = path ~= nil and admit.fixed(path as string) or nil
+    if corrected ~= nil and CORRECTED_LANES[tostring((corrected as admit.Fixed).op)] ~= nil then
+        local fixed = corrected as admit.Fixed
+        if element ~= "f32" then
+            context.reject(source, "SIMD map applies a binary32 correction to a binary32 species")
+        end
+        if #args ~= fixed.arity then
+            context.reject(source, tostring(path) .. " has an unsupported argument count")
+        end
+
+        return new scalarIR.Simd(
+            op = "simd_call",
+            args = args,
+            intrinsic = tostring(fixed.op),
+            type = vectorType,
+            source = source
+        )
+    end
     local helperName = lower.nameOf(raw[1])
     if helperName == nil then
-        context.reject(source, "SIMD map applies a math operation or a visible pure helper")
+        context.reject(source, "SIMD map applies a math operation, a binary32 correction, or a visible pure helper")
     end
     local helper = lower.helper(helperName as string, node, kernel)
     -- A helper takes and returns ordinary Nupp values, so a float species

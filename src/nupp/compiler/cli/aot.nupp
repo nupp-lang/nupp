@@ -4,7 +4,8 @@ module nupp.compiler.cli.aot
 `nupp aot`: what an `@aot` function compiles to.
 
 An `@aot` body is compiled somewhere a reader cannot see, so `--emit ir` shows
-the verified IR, `--emit c` shows the generated C, `--emit spirv` writes the
+the verified IR, `--emit c` shows the generated C, `--emit simd` shows what a
+`@simd` loop was rewritten into as ordinary Nupp, `--emit spirv` writes the
 native WGPU module, `--emit wgsl` shows the browser WebGPU integer artifact,
 `--emit asm` shows the instructions that C became, and `--emit binding` shows
 the module that stands in front of it. Reading the C is how you tell a mask
@@ -152,6 +153,11 @@ local REPORT_SCHEMA = {
         },
         ir = {type = "string"},
         c = {type = "string"},
+        simd = {
+            type = "string",
+            description = "Every vectorized @simd loop in the file, printed back as the "
+            .. "explicit Nupp over Fixed<N> species it was rewritten onto.",
+        },
         spirv = {type = "string", description = "Canonical SPIR-V bytes as lowercase hexadecimal."},
         binding = {type = "string"},
         asm = {
@@ -588,6 +594,25 @@ local function run(options: any): integer
         end
         instructionReport = built
     end
+    -- The rewrite is printed from the verified IR and has no lowering of its
+    -- own, so a construct it cannot say is a gap in the surface rather than a
+    -- bad file: it is reported as itself rather than as a compile failure.
+    local simdText: string? = nil
+    if emit == "simd" then
+        local textMod = require("nupp.compiler.aot.text")
+        local ok, printed = pcall(textMod.explicitPrograms, artifacts.programs)
+        if not ok then
+            io.stderr:write("nupp: --emit simd: " .. tostring(printed) .. "\n")
+
+            return 1
+        end
+        if printed == "" then
+            io.stderr:write("nupp: no @simd loop in " .. path .. " was vectorized, so there is nothing to print\n")
+
+            return 1
+        end
+        simdText = printed as string
+    end
     if options.format == "json" then
         -- Lane counts and widths are integers the backend settled on, so a NaN
         -- here would be a fault rather than a measurement.
@@ -618,6 +643,7 @@ local function run(options: any): integer
                 functions = functions,
                 ir = (emit == nil or emit == "ir") and artifacts.irText or nil,
                 c = (emit == nil or emit == "c") and artifacts.c or nil,
+                simd = simdText,
                 spirv = spirvHex,
                 wgsl = emit == "wgsl" and wgsl or nil,
                 binding = (emit == nil or emit == "binding") and artifacts.binding or nil,
@@ -628,6 +654,8 @@ local function run(options: any): integer
         io.write(artifacts.irText)
     elseif emit == "c" then
         io.write(artifacts.c)
+    elseif emit == "simd" then
+        io.write(simdText as string)
     elseif emit == "spirv" then
         io.write(spirvParts[1])
     elseif emit == "wgsl" then
@@ -661,22 +689,23 @@ end
 ---
 --- With no artifact, reports what each function lowered to: the species every
 --- `@simd` loop runs in, or that it runs scalar. Select verified IR, generated
---- C, native GPU SPIR-V, browser GPU WGSL, native assembly, or the generated
---- Nupp binding with `--emit`.
+--- C, the `@simd` rewrite as Nupp, native GPU SPIR-V, browser GPU WGSL, native
+--- assembly, or the generated Nupp binding with `--emit`.
 ---
 --- Examples:
 ---
 ---     nupp aot bench/kernel-subset-spike/mandelbrot.nupp
 ---     nupp aot --emit ir src/kernel.nupp
 ---     nupp aot --emit c src/kernel.nupp
+---     nupp aot --emit simd bench/kernel-subset-spike/mandelbrot.nupp
 ---     nupp aot --emit asm --function scale src/kernel.nupp
 ---     nupp aot --emit wgsl --function transform src/gpu.nupp
 ---     nupp aot --format json src/kernel.nupp
 @cli("aot")
 @derive(cliModule.Command)
 local record Aot
-    --- Artifact to print: ir, c, spirv, wgsl, asm, or binding.
-    @cli(value = "ARTIFACT", choices = {"ir", "c", "spirv", "wgsl", "asm", "binding"})
+    --- Artifact to print: ir, c, simd, spirv, wgsl, asm, or binding.
+    @cli(value = "ARTIFACT", choices = {"ir", "c", "simd", "spirv", "wgsl", "asm", "binding"})
     emit: string?
 
     --- Show only this function.

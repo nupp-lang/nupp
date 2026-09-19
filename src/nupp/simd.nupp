@@ -1409,8 +1409,10 @@ sealed interface simd.Species<T, S>
         & function<U>(borrows self: simd.Species<T, S>, value: simd.Mask<U, S>): simd.Mask<T, S>
 
     --- One scalar operation on every lane: a closed-set math operation such as
-    --- `math.sqrt` over a floating species, or a pure helper of this element
-    --- taking one argument per vector. The operands must be locals.
+    --- `math.sqrt` over a floating species, one of the corrected binary32
+    --- operations `nupp.math.f32.fma`, `min` and `max` over a `float` species,
+    --- or a pure helper of this element taking one argument per vector. The
+    --- operands must be locals.
     map: function(
         borrows self: simd.Species<T, S>,
         operation: function(...: any): T | number,

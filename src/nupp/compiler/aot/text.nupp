@@ -13,8 +13,13 @@ the scalar body it came from.
 It keeps the spellings the vocabulary used before its families were given one tag
 each. `vand` rather than `vmask`, `vtobits` rather than `vbits`, because the
 reader wants the operation and not the record it happens to share.
+
+The second half of the file prints the same vector rewrite as Nupp rather than
+as IR, which is what `nupp aot --emit simd` shows. It starts at
+`text.explicitExpression`.
 ]]
 
+local reducers = require("nupp.compiler.aot.reducers")
 local relations = require("nupp.compiler.aot.relations")
 local scalarIR = require("nupp.compiler.aot.scalar")
 
@@ -710,6 +715,950 @@ function text.programs(programs: {scalarIR.Program}): string
     end
 
     return table.concat(parts, "\n")
+end
+
+--[[
+The Nupp surface form of a rewritten `@simd` region.
+
+`@simd` has no vector IR of its own: a marked loop is rewritten onto the same
+`simd_*` operations over `Fixed<N>` species that `nupp.simd` hands a programmer.
+What follows prints that rewrite back as the source somebody could have written
+instead, so the answer to "what did my loop become" is a Nupp program rather
+than a vector listing.
+
+It is a printer and nothing else. Every construct below reads one IR node and
+writes the surface spelling that lowers back to it; where the rewrite produces
+something the surface cannot say, this refuses rather than approximating, so the
+gap is reported instead of hidden behind a comment in the output.
+]]
+
+--- What one vector element is witnessed by in `nupp.mem.array`.
+const text.ELEMENT_WITNESS = {
+    ["f64"] = "number",
+    ["f32"] = "float",
+    ["i64"] = "int64",
+    ["u64"] = "uint64",
+    ["i32"] = "int32",
+    ["u32"] = "uint32",
+    ["i16"] = "int16",
+    ["u16"] = "uint16",
+    ["i8"] = "int8",
+    ["u8"] = "uint8",
+}
+
+--- How one scalar type is written in source.
+const text.SOURCE_SCALAR = {
+    ["f64"] = "number",
+    ["f32"] = "float",
+    ["i64"] = "int64",
+    ["u64"] = "uint64",
+    ["i32"] = "int32",
+    ["u32"] = "uint32",
+    ["bool"] = "boolean",
+}
+
+--- The operator each vector or mask intrinsic is written as.
+const text.SIMD_OPERATOR = {
+    ["add"] = "+",
+    ["sub"] = "-",
+    ["mul"] = "*",
+    ["div"] = "/",
+    ["and"] = "&",
+    ["or"] = "|",
+    ["xor"] = "~",
+    ["shl"] = "<<",
+    ["shr"] = ">>",
+    ["lt"] = "<",
+    ["le"] = "<=",
+    ["gt"] = ">",
+    ["ge"] = ">=",
+    ["eq"] = "==",
+    ["ne"] = "~=",
+}
+
+--- The vector intrinsics written as a method rather than an operator.
+const text.SIMD_EXTREMUM = {
+    ["propagating_min"] = "propagatingMin",
+    ["propagating_max"] = "propagatingMax",
+    ["number_min"] = "numberMin",
+    ["number_max"] = "numberMax",
+}
+
+--- The lane-wise `simd_call` corrections, by the operation each corrects. They
+--- name the prelude's own binary32 function rather than a compiled helper.
+const text.SIMD_CORRECTION = {["f32_min"] = "min", ["f32_max"] = "max", ["f32_fma"] = "fma",}
+
+--- The operator each scalar operation is written as.
+const text.SCALAR_OPERATOR = {
+    ["add"] = "+",
+    ["sub"] = "-",
+    ["mul"] = "*",
+    ["div"] = "/",
+    ["mod"] = "%",
+    ["pow"] = "^",
+    ["lt"] = "<",
+    ["le"] = "<=",
+    ["gt"] = ">",
+    ["ge"] = ">=",
+    ["eq"] = "==",
+    ["ne"] = "~=",
+    ["and"] = "and",
+    ["or"] = "or",
+    ["u32_add"] = "+",
+    ["u32_sub"] = "-",
+    ["u32_mul"] = "*",
+    ["u64_add"] = "+",
+    ["u64_sub"] = "-",
+    ["u64_mul"] = "*",
+    ["i32_add"] = "+",
+    ["i32_sub"] = "-",
+    ["i32_mul"] = "*",
+    ["i64_add"] = "+",
+    ["i64_sub"] = "-",
+    ["i64_mul"] = "*",
+}
+
+--- The scalar operations written as a call rather than an operator.
+---
+--- Binary32 arithmetic is one of them: `a + b` over two `float` values is
+--- binary64 arithmetic in Nupp, and `nupp.math.f32.add(a, b)` is what says the
+--- addition itself is single precision.
+const text.SCALAR_CALL = {
+    ["f32_add"] = "nupp.math.f32.add",
+    ["f32_sub"] = "nupp.math.f32.sub",
+    ["f32_mul"] = "nupp.math.f32.mul",
+    ["f32_div"] = "nupp.math.f32.div",
+    ["f32_min"] = "nupp.math.f32.min",
+    ["f32_max"] = "nupp.math.f32.max",
+    ["f32_sqrt"] = "nupp.math.f32.sqrt",
+    ["f32_exp"] = "nupp.math.f32.exp",
+}
+
+--- How tightly each operator binds, so a printed expression is parenthesized
+--- where the surface would read it differently and nowhere else. Extra
+--- parentheses are not free here: `cursor + s.lanes <= #span` is the proof
+--- shape the lowerer reads a whole-vector cursor bound out of, and it reads the
+--- comparison rather than whatever a parenthesis wrapped it in.
+const text.PRECEDENCE = {
+    ["or"] = 1,
+    ["and"] = 2,
+    ["<"] = 3,
+    [">"] = 3,
+    ["<="] = 3,
+    [">="] = 3,
+    ["~="] = 3,
+    ["=="] = 3,
+    ["|"] = 4,
+    ["~"] = 5,
+    ["&"] = 6,
+    ["<<"] = 7,
+    [">>"] = 7,
+    ["+"] = 9,
+    ["-"] = 9,
+    ["*"] = 10,
+    ["/"] = 10,
+    ["%"] = 10,
+    ["^"] = 12,
+}
+
+--- What a prefix operator binds at, and what a method receiver has to bind at
+--- least as tightly as to be written without parentheses.
+const text.PREFIX_PRECEDENCE = 11
+
+const text.RECEIVER_PRECEDENCE = 13
+
+--- The explicit narrowing each `numeric_cast` is written as, keyed by the pair
+--- it converts between. A conversion that is not here widens, and the surface
+--- inserts it at the use site rather than naming it.
+const text.SCALAR_CAST = {
+    ["f64:u32"] = "nupp.math.u32.wrap",
+    ["f64:i32"] = "nupp.math.i32.wrap",
+    ["i32:u32"] = "nupp.math.u32.fromI32",
+    ["u32:i32"] = "nupp.math.i32.fromU32",
+}
+
+--- What one printing run has settled: the species it needs declared, and the
+--- surface name each IR name is written under.
+record text.Explicit
+    --- Species type to the local name it is declared as, and the order they
+    --- were first reached in, so the declarations are stable.
+    species: {[string]: string}
+
+    order: {string}
+
+    --- The visible pure helpers the printed functions call, and the order they
+    --- were first reached in. A helper is a return list in the IR, so it can be
+    --- written back out; one that names another compiled entry cannot.
+    helpers: {[string]: boolean}
+
+    helperOrder: {string}
+
+    --- The parameters of the function being printed, by name, so an access
+    --- can be held to what the surface will let it name.
+    params: {[string]: scalarIR.Param}
+
+    --- The written names in scope right now, the binding each open scope
+    --- holds, and the names each scope will release. Two sibling regions reuse
+    --- one rewrite name where that is a scope apart and legal, and collide
+    --- where it is not -- a native local may not shadow another -- so a name
+    --- already live takes a suffix and everything under it follows.
+    live: {[string]: boolean}
+
+    scopes: {{[string]: string}}
+
+    owned: {{string}}
+
+    --- Whether the printed module reaches for each import.
+    usesArray: boolean
+
+    usesSimd: boolean
+    usesSpan: boolean
+end
+
+--- The family, element and shape of one abstract SIMD type.
+local function simdParts(written: string): (string?, string?, string?)
+    return written:match("^simd_(%a+)_([fiu]%d+)_(.+)$")
+end
+
+--- Refuses to print, naming the construct the surface cannot say. `what`
+--- completes "the rewrite produced ...", so it says both what was reached and
+--- why nothing can be written for it.
+---
+--- @raises always: it is reached only where the rewrite produced something the
+--- surface has no spelling for, which the caller reports rather than prints.
+local function unprintable(what: string): nil
+    error("the rewrite produced " .. what, 0)
+end
+
+--- The surface name one IR name is printed under. Names the rewrite made
+--- carry a `$` so they cannot collide with source names; the surface has no
+--- such character, so it is dropped and the rest stands.
+local function surfaceName(name: string): string
+    return (name:gsub("^%$", ""))
+end
+
+--- Opens one scope, and closes it again releasing what it declared.
+local function openScope(state: text.Explicit): nil
+    state.scopes[#state.scopes + 1] = {}
+    state.owned[#state.owned + 1] = {}
+end
+
+local function closeScope(state: text.Explicit): nil
+    for _, written in ipairs(state.owned[#state.owned]) do
+        state.live[written] = nil
+    end
+    state.scopes[#state.scopes] = nil
+    state.owned[#state.owned] = nil
+end
+
+--- Declares one local in the innermost scope, under a name nothing live holds.
+local function declareName(state: text.Explicit, name: string): string
+    local base = surfaceName(name)
+    local written = base
+    local ordinal = 1
+    while state.live[written] == true do
+        ordinal = ordinal + 1
+        written = base .. "_" .. tostring(ordinal)
+    end
+    state.live[written] = true
+    local owned = state.owned[#state.owned]
+    owned[#owned + 1] = written
+    state.scopes[#state.scopes][name] = written
+
+    return written
+end
+
+--- The name one binding is reached by: whatever the innermost declaration of
+--- it was written under, or a parameter's own name.
+local function boundName(state: text.Explicit, name: string): string
+    for depth = #state.scopes, 1, -1 do
+        local written = state.scopes[depth][name]
+        if written ~= nil then
+            return written as string
+        end
+    end
+
+    return surfaceName(name)
+end
+
+--- The local name the species of one vector, mask or species type is declared
+--- under, declaring it on first reach.
+local function speciesFor(state: text.Explicit, written: string): string
+    local _, element, shape = simdParts(written)
+    if element == nil then
+        unprintable("a SIMD value of type " .. written .. ", which names no species")
+    end
+    local speciesType = "simd_species_" .. tostring(element) .. "_" .. tostring(shape)
+    local existing = state.species[speciesType]
+    if existing ~= nil then
+        return existing as string
+    end
+    local name = "s_" .. tostring(element)
+    if shape ~= "preferred" then
+        name = name .. "_" .. tostring(shape):gsub("^fixed", "x")
+    end
+    state.species[speciesType] = name
+    state.order[#state.order + 1] = speciesType
+    state.usesSimd = true
+    state.usesArray = true
+
+    return name
+end
+
+--- The `simd.species` call one species type is declared by.
+local function speciesCall(written: string): string
+    local _, element, shape = simdParts(written)
+    local witness = text.ELEMENT_WITNESS[tostring(element)]
+    if witness == nil then
+        unprintable("a species over element " .. tostring(element) .. ", which nupp.mem.array does not witness")
+    end
+    local lanes = tostring(shape):match("^fixed(%d+)$")
+
+    return "assert(simd.species(array." .. tostring(witness) .. (lanes ~= nil and ", " .. lanes or "") .. "))"
+end
+
+--- The `simd.reducer` constructor one closed contract is created by.
+local function reducerConstructor(order: string, operation: string, element: string?): string
+    if element ~= nil then
+        for path, contract in pairs(reducers.CONSTRUCTORS) do
+            if contract.order == order and contract.operation == operation and contract.element == element then
+                return (path:gsub("^nupp%.simd%.", "simd."))
+            end
+        end
+        unprintable("a " .. order .. " " .. operation .. " reducer over " .. (element as string))
+    end
+
+    return "simd.reducer." .. order .. operation:sub(1, 1):upper() .. operation:sub(2)
+end
+
+--- One expression of the rewritten region, as Nupp, parenthesized only where an
+--- operator binding as loosely as `minimum` would otherwise take it apart.
+function text.explicitExpression(state: text.Explicit, node: any, minimum: integer): string
+    local op = tostring(node.op)
+
+    --- One operand, printed where nothing can rebind it.
+    local function at(position: integer): string
+        return text.explicitExpression(state, node.args[position], 0)
+    end
+
+    --- One operand, printed as something a method may be called on.
+    local function receiver(position: integer): string
+        return text.explicitExpression(state, node.args[position], text.RECEIVER_PRECEDENCE)
+    end
+
+    --- One operand of a constructor that converts what it is handed and takes
+    --- a binary64 to do it. Printing the conversion as well would say it twice,
+    --- and its surface spelling refuses the wider argument it was written over.
+    local function coerced(position: integer): string
+        local operand = node.args[position]
+        while operand.op == "numeric_cast" or operand.op == "int_to_f64" or operand.op == "widen_f32_f64" do
+            operand = (operand as scalarIR.Convert).value
+        end
+
+        return text.explicitExpression(state, operand, 0)
+    end
+
+    --- One infix operator over two operands, at its own binding strength.
+    local function infix(left: any, operator: string, right: any): string
+        local level = text.PRECEDENCE[operator] as integer
+        local rendered = text.explicitExpression(
+            state,
+            left,
+            level
+        ) .. " " .. operator .. " " .. text.explicitExpression(state, right, level + 1)
+
+        return level < minimum and "(" .. rendered .. ")" or rendered
+    end
+
+    --- One prefix operator over one operand.
+    local function prefix(operator: string, value: any): string
+        local rendered = operator .. text.explicitExpression(state, value, text.PREFIX_PRECEDENCE)
+
+        return text.PREFIX_PRECEDENCE < minimum and "(" .. rendered .. ")" or rendered
+    end
+
+    if op == "helper_param" then
+        return (node as scalarIR.Name).name
+    elseif op == "local" or op == "uniform" then
+        return boundName(state, (node as scalarIR.Name).name)
+    elseif op == "constant" or op == "constant_i32" or op == "constant_i64" then
+        return tostring(node.value)
+    elseif op == "bool" then
+        return tostring(node.value)
+    elseif op == "span_count" then
+        state.usesSpan = true
+
+        return "#" .. tostring((node as scalarIR.SpanCount).span)
+    elseif op == "int_to_f64" or op == "widen_f32_f64" then
+        -- The surface converts into binary64 wherever one is wanted, so the
+        -- promotion is the context's and not a call of its own.
+        return text.explicitExpression(state, (node as scalarIR.Convert).value, minimum)
+    elseif op == "narrow_f64_f32" then
+        return "nupp.math.f32.narrow(" .. text.explicitExpression(state, (node as scalarIR.Convert).value, 0) .. ")"
+    elseif op == "numeric_cast" then
+        local value = (node as scalarIR.Convert).value
+        local named = text.SCALAR_CAST[tostring(value.type) .. ":" .. tostring(node.type)]
+        if named == nil then
+            return text.explicitExpression(state, value, minimum)
+        end
+
+        return tostring(named) .. "(" .. text.explicitExpression(state, value, 0) .. ")"
+    elseif op == "neg" then
+        return prefix("-", (node as scalarIR.Unary).value)
+    elseif op == "not" then
+        return prefix("not ", (node as scalarIR.Unary).value)
+    elseif op == "simd_lanes_generic" then
+        return speciesFor(state, tostring(node.args[1].type)) .. ".lanes"
+    elseif op == "simd_splat" then
+        return speciesFor(state, tostring(node.type)) .. ":splat(" .. at(1) .. ")"
+    elseif op == "simd_iota" then
+        return speciesFor(state, tostring(node.type)) .. ":iota(" .. at(1) .. ", " .. at(2) .. ")"
+    elseif op == "simd_tail" then
+        return speciesFor(state, tostring(node.type)) .. ":tail(" .. coerced(1) .. ")"
+    elseif op == "simd_mask_splat" or op == "simd_mask_convert" then
+        return speciesFor(state, tostring(node.type)) .. ":mask(" .. at(1) .. ")"
+    elseif op == "simd_convert" or op == "simd_reinterpret" then
+        local method = op == "simd_convert" and "convert" or "reinterpret"
+
+        return speciesFor(state, tostring(node.type)) .. ":" .. method .. "(" .. at(1) .. ")"
+    elseif op == "simd_select" then
+        return receiver(1) .. ":select(" .. at(2) .. ", " .. at(3) .. ")"
+    elseif op == "simd_mask_any" or op == "simd_mask_all" or op == "simd_mask_count" then
+        return receiver(1) .. ":" .. op:gsub("^simd_mask_", "") .. "()"
+    elseif op == "simd_unary" then
+        local intrinsic = tostring(node.intrinsic)
+        if intrinsic ~= "neg" and intrinsic ~= "not" then
+            unprintable("the vector operation " .. intrinsic .. ", which no operator or method spells")
+        end
+
+        return prefix(intrinsic == "neg" and "-" or "~", node.args[1])
+    elseif op == "simd_binary" or op == "simd_compare" then
+        local intrinsic = tostring(node.intrinsic)
+        local method = text.SIMD_EXTREMUM[intrinsic]
+        if method ~= nil then
+            return receiver(1) .. ":" .. tostring(method) .. "(" .. at(2) .. ")"
+        end
+        local operator = text.SIMD_OPERATOR[intrinsic]
+        if operator == nil then
+            unprintable("a vector " .. intrinsic)
+        end
+
+        return infix(node.args[1], tostring(operator), node.args[2])
+    elseif op == "simd_math" then
+        local arguments: {string} = {"math." .. tostring(node.intrinsic)}
+        for position = 1, #node.args do
+            arguments[#arguments + 1] = at(position)
+        end
+
+        return speciesFor(state, tostring(node.type)) .. ":map(" .. table.concat(arguments, ", ") .. ")"
+    elseif op == "simd_call" then
+        local correction = node.helper == nil and text.SIMD_CORRECTION[tostring(node.intrinsic)] or nil
+        if correction == nil then
+            unprintable(
+                "a lane-wise call of " .. tostring(node.helper or node.intrinsic) .. ", which s:map does not name"
+            )
+        end
+        local arguments: {string} = {"nupp.math.f32." .. tostring(correction)}
+        for position = 1, #node.args do
+            arguments[#arguments + 1] = at(position)
+        end
+
+        return speciesFor(state, tostring(node.type)) .. ":map(" .. table.concat(arguments, ", ") .. ")"
+    elseif op == "simd_load" or op == "simd_field_load" or op == "simd_store" or op == "simd_field_store" then
+        local access = node as scalarIR.Simd
+        local reading = op == "simd_load" or op == "simd_field_load"
+        local field = access.field
+        state.usesSpan = true
+        -- The IR admits a read through an exclusive borrow, and a rewritten
+        -- read-modify-write region takes one; `Species:load` does not, so this
+        -- is a region the surface has no way to write.
+        local root = access.span ~= nil and state.params[access.span as string] or nil
+        if reading and root ~= nil and (root as scalarIR.Param).kind == "write_span" then
+            unprintable(
+                "a vector read of " .. tostring(
+                    access.span
+                ) .. ", which is exclusive, and Species:load names a borrowed Span"
+            )
+        end
+        local arguments: {string} = {tostring(access.span), at(2)}
+        if field ~= nil then
+            arguments[#arguments + 1] = string.format("%q", field as string)
+        end
+        local value = not reading and 3 or nil
+        if value ~= nil then
+            arguments[#arguments + 1] = at(value as integer)
+        end
+        local mask = reading and 3 or 4
+        if access.args[mask] ~= nil then
+            arguments[#arguments + 1] = at(mask)
+        end
+
+        return speciesFor(
+            state,
+            tostring(access.args[1].type)
+        ) .. ":" .. (reading and "load(" or "store(") .. table.concat(arguments, ", ") .. ")"
+    elseif op == "helper_call" then
+        local call = node as scalarIR.HelperCall
+        if state.helpers[call.helper] ~= true then
+            state.helpers[call.helper] = true
+            state.helperOrder[#state.helperOrder + 1] = call.helper
+        end
+        local arguments: {string} = {}
+        for position = 1, #call.args do
+            arguments[position] = at(position)
+        end
+
+        return call.helper .. "(" .. table.concat(arguments, ", ") .. ")"
+    elseif op == "reducer_init" then
+        local reducer = node as scalarIR.ReducerInit
+        local _, _, element = reducers.parse(tostring(reducer.type))
+        state.usesSimd = true
+
+        return reducerConstructor(
+            reducer.order,
+            reducer.operation,
+            element
+        ) .. "(" .. text.explicitExpression(state, reducer.initial, 0) .. ")"
+    elseif op == "reducer_value" then
+        return text.explicitExpression(
+            state,
+            (node as scalarIR.ReducerValue).reducer,
+            text.RECEIVER_PRECEDENCE
+        ) .. ":value()"
+    end
+
+    local called = text.SCALAR_CALL[op]
+    if called ~= nil then
+        if op == "f32_sqrt" or op == "f32_exp" then
+            return tostring(
+                called
+            ) .. "(" .. text.explicitExpression(state, (node as scalarIR.FixedUnary).value, 0) .. ")"
+        end
+        local pair = node as text.Pair
+
+        return tostring(
+            called
+        ) .. "(" .. text.explicitExpression(
+            state,
+            pair.left,
+            0
+        ) .. ", " .. text.explicitExpression(state, pair.right, 0) .. ")"
+    end
+    if op == "f32_fma" then
+        local corrected = node as scalarIR.Corrected
+        local arguments: {string} = {}
+        for position, argument in ipairs(corrected.args as {scalarIR.Expr}) do
+            arguments[position] = text.explicitExpression(state, argument, 0)
+        end
+
+        return "nupp.math.f32.fma(" .. table.concat(arguments, ", ") .. ")"
+    end
+    local operator = text.SCALAR_OPERATOR[op]
+    if operator == nil then
+        unprintable("the operation " .. op .. ", which nothing here writes")
+    end
+    local pair = node as text.Pair
+
+    return infix(pair.left, tostring(operator), pair.right)
+end
+
+--- One assignment target of the rewritten region.
+local function explicitTarget(state: text.Explicit, assignment: any): string
+    if assignment.target.kind ~= "local" then
+        unprintable("an assignment to a " .. tostring(assignment.target.kind) .. ", which nothing here assigns")
+    end
+
+    return boundName(state, tostring(assignment.target.name))
+end
+
+--- One block of the rewritten region, indented by `depth`.
+function text.explicitBlock(state: text.Explicit, statements: {any}, depth: integer): {string}
+    local lines: {string} = {}
+    local prefix = string.rep("    ", depth)
+
+    --- Appends one nested block, under the scope the surface gives it.
+    local function nested(body: {any}): nil
+        openScope(state)
+        for _, line in ipairs(text.explicitBlock(state, body, depth + 1)) do
+            lines[#lines + 1] = line
+        end
+        closeScope(state)
+    end
+
+    for _, statement in ipairs(statements) do
+        local op = tostring(statement.op)
+        if op == "let" and statement.value.op == "simd_species" then
+            -- Species bindings are hoisted to the head of the printed function
+            -- and named after their element, so the region's own are dropped
+            -- rather than printed twice under a name nothing reaches for.
+            speciesFor(state, tostring(statement.type))
+        elseif op == "let" then
+            -- A vector or mask local takes its type from what made it. A
+            -- binary64 one seeded with a whole number was an `integer` in the
+            -- source this was rewritten from, and only an integer narrows into
+            -- a 32-bit value later; anything else is annotated with its width,
+            -- because the width is the point.
+            local written = tostring(statement.type)
+            local whole = written == "f64"
+                and statement.value.op == "constant"
+                and tostring(statement.value.value):match("^%-?%d+$") ~= nil
+            local annotation = whole and "integer" or text.SOURCE_SCALAR[written]
+            lines[
+                #lines + 1
+            ] = prefix .. "local " .. declareName(
+                state,
+                tostring(statement.name)
+            ) .. (
+                annotation ~= nil and ": " .. tostring(annotation) or ""
+            ) .. " = " .. text.explicitExpression(state, statement.value, 0)
+        elseif op == "multi_let" then
+            local names: {string} = {}
+            for position, bound in ipairs(statement.bindings) do
+                names[position] = declareName(state, tostring(bound.name))
+            end
+            lines[
+                #lines + 1
+            ] = prefix .. "local " .. table.concat(
+                names,
+                ", "
+            ) .. " = " .. text.explicitExpression(state, statement.call, 0)
+        elseif op == "assign" then
+            for _, assignment in ipairs(statement.values) do
+                lines[
+                    #lines + 1
+                ] = prefix .. explicitTarget(
+                    state,
+                    assignment
+                ) .. " = " .. text.explicitExpression(state, assignment.value, 0)
+            end
+        elseif op == "if" then
+            for position, clause in ipairs(statement.clauses) do
+                lines[
+                    #lines + 1
+                ] = prefix .. (
+                    position == 1 and "if " or "elseif "
+                ) .. text.explicitExpression(state, clause.condition, 0) .. " then"
+                nested(clause.body)
+            end
+            if statement.elseBody ~= nil then
+                lines[#lines + 1] = prefix .. "else"
+                nested(statement.elseBody)
+            end
+            lines[#lines + 1] = prefix .. "end"
+        elseif op == "while" then
+            if statement.conditionBody ~= nil then
+                unprintable("a loop whose condition needs statements of its own, which no while may hold")
+            end
+            lines[#lines + 1] = prefix .. "while " .. text.explicitExpression(state, statement.condition, 0) .. " do"
+            nested(statement.body)
+            lines[#lines + 1] = prefix .. "end"
+        elseif op == "break" then
+            lines[#lines + 1] = prefix .. "break"
+        elseif op == "block" or op == "simd_region" then
+            -- A `do` block is the scope of an explicit SIMD region: it is what
+            -- the accumulators of the reducers inside it live in.
+            lines[#lines + 1] = prefix .. "do"
+            nested((statement as scalarIR.SimdRegion).body)
+            lines[#lines + 1] = prefix .. "end"
+        elseif op == "simd_store" or op == "simd_field_store" then
+            lines[#lines + 1] = prefix .. text.explicitExpression(state, statement, 0)
+        elseif op == "simd_reducer_add" then
+            local contribution = statement as scalarIR.SimdReducerAdd
+            local arguments: {string} = {text.explicitExpression(state, contribution.value, 0)}
+            if contribution.right ~= nil then
+                arguments[#arguments + 1] = text.explicitExpression(state, contribution.right as scalarIR.Expr, 0)
+            end
+            arguments[#arguments + 1] = text.explicitExpression(state, contribution.mask, 0)
+            lines[
+                #lines + 1
+            ] = prefix .. text.explicitExpression(
+                state,
+                contribution.reducer,
+                text.RECEIVER_PRECEDENCE
+            ) .. ":" .. reducers.method(contribution.operation) .. "(" .. table.concat(arguments, ", ") .. ")"
+        elseif op == "return" then
+            local values: {string} = {}
+            for position, value in ipairs(statement.values) do
+                values[position] = text.explicitExpression(state, value, 0)
+            end
+            lines[#lines + 1] = prefix .. "return " .. table.concat(values, ", ")
+        elseif op == "fornum" then
+            local region = statement as scalarIR.Fornum
+            if region.vector == nil then
+                unprintable("a counted loop no @simd rewrite replaced, which only ran scalar")
+            end
+            -- The loop was a scope, and the rewrite that replaced it keeps one:
+            -- two `@simd` loops in a body name their cursor the same thing, and
+            -- a native local may not shadow another.
+            lines[#lines + 1] = prefix .. "do"
+            nested(region.vector as {scalarIR.Statement})
+            lines[#lines + 1] = prefix .. "end"
+        else
+            unprintable("the statement " .. op .. ", which nothing here writes")
+        end
+    end
+
+    return lines
+end
+
+--- One parameter, as the printed function declares it.
+local function explicitParam(param: scalarIR.Param): string
+    local kind = param.kind
+    if kind == "read_span" or kind == "write_span" then
+        local layout = tostring(param.type):match("^struct:(.+)$")
+        local element = layout or text.SOURCE_SCALAR[tostring(param.type)] or param.sourceType
+        if element == nil then
+            unprintable("a span of " .. tostring(param.type) .. ", which has no written element")
+        end
+
+        return (
+            kind == "write_span" and "exclusive " or "borrows "
+        ) .. param.name .. ": span." .. (kind == "write_span" and "WriteSpan<" or "Span<") .. tostring(element) .. ">"
+    end
+    local written = param.sourceType or text.SOURCE_SCALAR[tostring(param.type)]
+    if written == nil then
+        unprintable("a parameter of " .. tostring(param.type) .. ", which has no written type")
+    end
+
+    return param.name .. ": " .. tostring(written)
+end
+
+--- One visible pure helper, as the printed module declares it.
+---
+--- A helper is a return list and its parameters in the IR, which is the whole
+--- of what the source wrote; one that names another compiled entry is not, and
+--- there is nothing here to write back out for it.
+local function explicitHelper(state: text.Explicit, helper: scalarIR.Helper): {string}
+    if helper.native == true or #helper.values == 0 then
+        unprintable("a call of " .. helper.name .. ", which is compiled elsewhere and has no body here")
+    end
+    local params: {string} = {}
+    for position, param in ipairs(helper.params) do
+        local written = text.SOURCE_SCALAR[tostring(param.type)]
+        if written == nil then
+            unprintable("a helper parameter of " .. tostring(param.type) .. ", which has no written type")
+        end
+        params[position] = param.name .. ": " .. tostring(written)
+    end
+    local results: {string} = {}
+    for position, result in ipairs(helper.resultTypes) do
+        results[position] = tostring(text.SOURCE_SCALAR[tostring(result)] or result)
+    end
+    local returns = #results == 1 and results[1] or "(" .. table.concat(results, ", ") .. ")"
+    local values: {string} = {}
+    for position, value in ipairs(helper.values) do
+        values[position] = text.explicitExpression(state, value, 0)
+    end
+
+    return {
+        "local function " .. helper.name .. "(" .. table.concat(params, ", ") .. "): " .. returns,
+        "    return " .. table.concat(values, ", "),
+        "end",
+        "",
+    }
+end
+
+--- Whether any loop in one program was rewritten onto vector operations.
+---
+--- A function that runs one iteration at a time has nothing to print, and its
+--- scalar body is not what this prints: it prints the rewrite.
+local function vectorized(statements: {any}): boolean
+    for _, statement in ipairs(statements) do
+        local op = tostring(statement.op)
+        if op == "fornum" and (statement as scalarIR.Fornum).vector ~= nil then
+            return true
+        elseif op == "block" or op == "simd_region" then
+            if vectorized((statement as scalarIR.SimdRegion).body) then
+                return true
+            end
+        elseif op == "if" then
+            for _, clause in ipairs(statement.clauses) do
+                if vectorized(clause.body) then
+                    return true
+                end
+            end
+            if statement.elseBody ~= nil and vectorized(statement.elseBody as {any}) then
+                return true
+            end
+        elseif (op == "while" or op == "repeat" or op == "fornum") and vectorized(statement.body) then
+            return true
+        end
+    end
+
+    return false
+end
+
+--- One program's rewritten regions, as the function somebody could have
+--- written instead. Nil when nothing in it was vectorized.
+local function explicitFunction(program: scalarIR.Program, state: text.Explicit): {string}?
+    local vector = program.vector
+    local statements = program.body or {}
+    if vector ~= nil then
+        statements = vector as {scalarIR.Statement}
+    elseif program.loop ~= nil then
+        statements = (program.loop as scalarIR.Loop).statements
+    end
+    if vector == nil and not vectorized(statements) then
+        return nil
+    end
+    state.params = {}
+    state.live = {}
+    state.scopes = {}
+    state.owned = {}
+    openScope(state)
+    for _, param in ipairs(program.params) do
+        state.params[param.name] = param
+        state.live[param.name] = true
+    end
+    local body = text.explicitBlock(state, statements, 1)
+    closeScope(state)
+
+    local params: {string} = {}
+    for position, param in ipairs(program.params) do
+        params[position] = explicitParam(param)
+        state.params[param.name] = param
+        if param.kind == "read_span" or param.kind == "write_span" then
+            state.usesSpan = true
+        end
+    end
+    local results = program.resultTypes or {}
+    local written: {string} = {}
+    for position, result in ipairs(results) do
+        written[position] = tostring(text.SOURCE_SCALAR[tostring(result)] or result)
+    end
+    local returns = #written == 0 and "nil" or #written == 1 and written[1] or "(" .. table.concat(written, ", ") .. ")"
+
+    local lines: {string} = {}
+    if program.fpContract == true then
+        lines[#lines + 1] = '@relax("fp-contract")'
+    end
+    if program.fpTranscendentals == true then
+        lines[#lines + 1] = '@relax("fp-transcendentals")'
+    end
+    lines[#lines + 1] = "@aot"
+    -- One line while it reads as one, and a parameter per line once it does
+    -- not: a rewritten kernel takes its spans, its bounds and its uniforms, and
+    -- run together they are the widest line in the file.
+    local signature = "local function " .. program.name .. "(" .. table.concat(params, ", ") .. "): " .. returns
+    if #signature <= 100 then
+        lines[#lines + 1] = signature
+    else
+        lines[#lines + 1] = "local function " .. program.name .. "("
+        for position, param in ipairs(params) do
+            lines[#lines + 1] = "    " .. param .. (position < #params and "," or "")
+        end
+        lines[#lines + 1] = "): " .. returns
+    end
+    for _, speciesType in ipairs(state.order) do
+        lines[#lines + 1] = "    local " .. tostring(state.species[speciesType]) .. " = " .. speciesCall(speciesType)
+    end
+    for _, line in ipairs(body) do
+        lines[#lines + 1] = line
+    end
+    lines[#lines + 1] = "end"
+
+    return lines
+end
+
+--- Every rewritten region in one file, as one Nupp module.
+---
+--- A file whose functions all ran one iteration at a time prints nothing,
+--- which is the honest answer: there is no rewrite to show.
+function text.explicitPrograms(programs: {scalarIR.Program}): string
+    local state = new text.Explicit(
+        species = {},
+        order = {},
+        helpers = {},
+        helperOrder = {},
+        params = {},
+        live = {},
+        scopes = {},
+        owned = {},
+        usesArray = false,
+        usesSimd = false,
+        usesSpan = false
+    )
+    local bodies: {string} = {}
+    local names: {string} = {}
+    local layouts: {string} = {}
+    local helpers: {string} = {}
+    local seen: {[string]: boolean} = {}
+    local declared: {[string]: boolean} = {}
+    for _, program in ipairs(programs) do
+        -- One species table per function: the declarations are its own locals,
+        -- and two functions in a file rarely reach for the same set.
+        state.species = {}
+        state.order = {}
+        local printed = explicitFunction(program, state)
+        if printed ~= nil then
+            for _, layout in ipairs(program.layouts or {}) do
+                if not seen[layout.name] then
+                    seen[layout.name] = true
+                    layouts[#layouts + 1] = "local struct " .. layout.name
+                    for _, field in ipairs(layout.fields) do
+                        layouts[#layouts + 1] = "    " .. field.name .. ": " .. tostring(field.sourceType)
+                    end
+                    layouts[#layouts + 1] = "end"
+                    layouts[#layouts + 1] = ""
+                end
+            end
+            -- Helpers first: the functions that call them come after, and a
+            -- helper reached from two functions is written once.
+            for _, wanted in ipairs(state.helperOrder) do
+                if not declared[wanted] then
+                    declared[wanted] = true
+                    for _, helper in ipairs(program.helpers or {}) do
+                        if helper.name == wanted then
+                            for _, line in ipairs(explicitHelper(state, helper)) do
+                                helpers[#helpers + 1] = line
+                            end
+                        end
+                    end
+                end
+            end
+            names[#names + 1] = program.name
+            for _, line in ipairs(printed as {string}) do
+                bodies[#bodies + 1] = line
+            end
+            bodies[#bodies + 1] = ""
+        end
+    end
+    if #names == 0 then
+        return ""
+    end
+
+    local lines: {
+        string
+    } = {
+        "-- The `@simd` loops of this file, as the compiler rewrote them: printed from",
+        "-- the verified IR by `nupp aot --emit simd`, and not what the source says.",
+    }
+    if state.usesSpan then
+        lines[#lines + 1] = 'local span = require("nupp.mem.span")'
+    end
+    if state.usesArray then
+        lines[#lines + 1] = 'local array = require("nupp.mem.array")'
+    end
+    if state.usesSimd then
+        lines[#lines + 1] = 'local simd = require("nupp.simd")'
+    end
+    lines[#lines + 1] = ""
+    for _, line in ipairs(layouts) do
+        lines[#lines + 1] = line
+    end
+    for _, line in ipairs(helpers) do
+        lines[#lines + 1] = line
+    end
+    for _, line in ipairs(bodies) do
+        lines[#lines + 1] = line
+    end
+    local exported: {string} = {}
+    for position, name in ipairs(names) do
+        exported[position] = name .. " = " .. name
+    end
+    lines[#lines + 1] = "return {" .. table.concat(exported, ", ") .. "}"
+
+    return table.concat(lines, "\n") .. "\n"
 end
 
 export = text
