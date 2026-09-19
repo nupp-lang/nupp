@@ -384,7 +384,10 @@ if baselineRoot then
         name = "baseline",
         run = function(source)
             local value, status = baseline.decodeEager(source, nil, ARRAY_MARKER, OBJECT_MARKER)
-            assert(status == 0, "baseline refused the payload: " .. tostring(status))
+            if status ~= 0 then
+                error("baseline refused the payload: status " .. tostring(status), 0)
+            end
+
             return value
         end
     }
