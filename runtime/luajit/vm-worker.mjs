@@ -1,5 +1,5 @@
 import {V86} from './assets/libv86.mjs';
-import {loadManifest, assetsFor} from './assets.mjs';
+import {loadManifest, assetsFor, inflateSnapshot} from './assets.mjs';
 const MIB = 1024 * 1024;
 const encoder = new TextEncoder(), decoder = new TextDecoder('utf-8', {fatal: true});
 let emulator, mailbox, active, sequence = 0, log = '', line = '', timer, booted = false;
@@ -47,8 +47,7 @@ async function boot(message) {
         throw new Error('Snapshot does not match the guest build/profile');
       }
       const packed = await asset(selected.asset);
-      snapshot = await new Response(new Blob([packed]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer();
-      if (snapshot.byteLength !== selected.uncompressedBytes || snapshot.byteLength > 256 * MIB) throw new Error('Invalid snapshot extent');
+      snapshot = await inflateSnapshot(packed, selected.uncompressedBytes);
     } catch (error) {
       self.postMessage({type: 'snapshot-fallback', reason: String(error.message)});
     }
@@ -97,7 +96,7 @@ async function boot(message) {
     const current = line; line = '';
     self.postMessage({type: 'log', log});
     try {
-      if (current.includes('Kernel panic - not syncing:') || current.startsWith('Failed to execute /init')) throw new Error(current);
+      if (current.includes('Kernel panic - not syncing:') || current.startsWith('Failed to execute /init') || current.startsWith('@@NUPP_INIT_ERROR@@')) throw new Error(current);
       if (current === '@@NUPP_SNAPSHOT_READY@@') {
         if (message.captureSnapshot) {
           (async () => {

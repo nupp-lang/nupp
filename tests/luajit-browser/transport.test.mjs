@@ -1,7 +1,8 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {createGuest, createCompiler} from '../../runtime/luajit/host.mjs';
-import {assetsFor, sha256} from '../../runtime/luajit/assets.mjs';
+import {assetsFor, sha256, inflateSnapshot} from '../../runtime/luajit/assets.mjs';
+import {gzipSync} from 'node:zlib';
 class Worker {
   static instances = [];
   constructor() { Worker.instances.push(this); this.sent = []; }
@@ -78,4 +79,12 @@ test('a restore failure retries normal boot once and ignores the discarded worke
   replacement.deliver({type: 'done', sequence: 0, result: {ok: true}});
   assert.deepEqual((await received).result, {ok: true});
   guest.close();
+});
+test('snapshot decompression stops at the declared size and rejects corrupt data', async () => {
+  const bytes = new Uint8Array(65536).fill(7), packed = gzipSync(bytes);
+  assert.deepEqual(new Uint8Array(await inflateSnapshot(packed, bytes.length)), bytes);
+  await assert.rejects(inflateSnapshot(packed, 1024), /exceeds/);
+  await assert.rejects(inflateSnapshot(packed, bytes.length + 1), /mismatch/);
+  await assert.rejects(inflateSnapshot(packed, 257 * 1024 * 1024), /Invalid/);
+  await assert.rejects(inflateSnapshot(new Uint8Array([1, 2]), 2));
 });
