@@ -817,7 +817,7 @@ fi
     assert(not io.open(source .. "/private-build-marker", "rb"), "make wrote into the shared verified source")
 end
 
-local function luaJitSelection(architecture, stagedExists)
+local function luaJitSelection(architecture, stagedExists, patched, replaceBinary)
     local directory = temporary()
     local current = directory .. "/current"
     local staged = directory .. "/staged"
@@ -825,6 +825,16 @@ local function luaJitSelection(architecture, stagedExists)
     assert(os.execute("mkdir -p " .. quote(current) .. " " .. quote(staged .. "/bin") .. " " .. quote(root .. "/scripts")) == 0)
     write(current .. "/uname", "#!/bin/sh\nif [ \"$1\" = -m ]; then echo " .. quote(architecture) .. "; else echo Linux; fi\n")
     write(current .. "/luajit", "#!/bin/sh\necho 'LuaJIT 2.1.9999999999'\n")
+    if patched then
+        assert(os.execute("mkdir -p " .. quote(root .. "/scripts/patches")) == 0)
+        local patch = root .. "/scripts/patches/luajit-irt-size.patch"
+        write(patch, read(ROOT .. "/scripts/patches/luajit-irt-size.patch"))
+        local receipt = directory .. "/.nupp-runtime-patch"
+        assert(os.execute("{ cksum < " .. quote(patch) .. "; cksum < " .. quote(current .. "/luajit") .. "; } > " .. quote(receipt)) == 0)
+        if replaceBinary then
+            write(current .. "/luajit", "#!/bin/sh\necho 'LuaJIT 2.1.9999999999 replacement'\n")
+        end
+    end
     local marker = directory .. "/provisioned"
     write(root .. "/scripts/toolchain", "#!/bin/sh\nprintf requested > " .. quote(marker) .. "\nprintf '%s\\n' " .. quote(forPath(staged)) .. "\n")
     if stagedExists then
@@ -859,6 +869,18 @@ end
 function M.arm64DoesNotFallBackWhenStagedLuaJitIsMissing()
     local selected, provisioned = luaJitSelection("arm64", false)
     assert(provisioned and selected:find("SELECT_FAILED", 1, true), selected)
+end
+
+function M.arm64KeepsAnAlreadyVerifiedPatchedInterpreter()
+    local selected, provisioned, current = luaJitSelection("arm64", true, true)
+    assert(not provisioned, "a patched interpreter was rebuilt for a changed AOT compiler")
+    assert(forPath(selected) == forPath(current) .. "/luajit", selected)
+end
+
+function M.arm64DoesNotTrustAReplacedPatchedInterpreter()
+    local selected, provisioned, _, staged = luaJitSelection("arm64", true, true, true)
+    assert(provisioned, "a replaced interpreter retained the old patch receipt")
+    assert(forPath(selected) == forPath(staged) .. "/bin/luajit", selected)
 end
 
 return M

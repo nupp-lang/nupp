@@ -23,12 +23,28 @@ luajit_is_usable() {
     return 1
 }
 
+# A staged interpreter may remain usable when a child changes its AOT compiler.
+# Match both the patch and executable to the receipt written by our build, so a
+# version banner or an unrelated PATH interpreter cannot claim the fix.
+luajit_has_required_patch() {
+    patch_interpreter=$(command -v luajit) || return 1
+    [ -f "$patch_interpreter" ] || return 1
+    patch_prefix=$(CDPATH= cd -- "$(dirname "$patch_interpreter")/.." && pwd) || return 1
+    [ -f "$patch_prefix/.nupp-runtime-patch" ] || return 1
+    [ -f "$1/scripts/patches/luajit-irt-size.patch" ] || return 1
+    patch_receipt=$(
+        cksum < "$1/scripts/patches/luajit-irt-size.patch"
+        cksum < "$patch_interpreter"
+    ) || return 1
+    [ "$(cat "$patch_prefix/.nupp-runtime-patch")" = "$patch_receipt" ]
+}
+
 # ARM64 needs the pinned build's IR type-width fix: a new banner alone does not
 # establish correct FFI argument widths. Other architectures retain a usable
 # PATH interpreter; otherwise provision the pinned build automatically.
 select_luajit() {
     case "$(uname -m 2>/dev/null)" in
-        arm64|aarch64) ;;
+        arm64|aarch64) luajit_has_required_patch "$1" && luajit_is_usable && return 0 ;;
         *) luajit_is_usable && return 0 ;;
     esac
     staged=$("$1/scripts/toolchain" luajit) || {

@@ -1028,6 +1028,10 @@ build_luajit() {
     include=$(find "$out/include" -maxdepth 1 -type d -name 'luajit-*' | head -n 1)
     [ -n "$include" ] || include="$out/include"
     native_path "$include" > "$out/.include"
+    {
+        cksum < "$ROOT/scripts/patches/luajit-irt-size.patch"
+        cksum < "$out/bin/luajit"
+    } > "$out/.nupp-runtime-patch"
     rm -rf "$luajit_build"
     printf 'done\n' > "$out/.complete"
     release_lock
