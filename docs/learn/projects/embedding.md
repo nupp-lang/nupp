@@ -113,9 +113,10 @@ game.answer(41) = 42
 
 Use `LD_LIBRARY_PATH` instead of `DYLD_LIBRARY_PATH` on Linux. Static linking
 uses `libnupp.a`, which contains the pinned LuaJIT VM, the Rust host, and the
-exact-feature Rust native provider. A static application may still need the
-ordinary platform libraries named by its C linker; the SDK does not require
-separate LuaJIT, LPeg, or provider archives.
+exact-feature Rust native provider. Pass the `staticLinkFlags` array from
+`link.json` to the C linker after the archive; it includes the system libraries
+and frameworks selected by the SDK features. The SDK does not require separate
+LuaJIT, LPeg, or provider archives.
 
 ## Runtime ownership
 

@@ -1201,6 +1201,26 @@ stage_application_archive() {
     rm -f "$members" "$imports"
 }
 
+# System dependencies needed by consumers of the flattened Rust static archive.
+# Keep the application linker and the embedding SDK's machine-readable contract
+# on the same feature-specific list.
+host_system_flags() {
+    case "$PLATFORM" in
+        darwin)
+            printf '%s\n' -lm -lpthread -framework CoreFoundation -framework Security
+            case ",$1," in
+                *,native-gpu,*) printf '%s\n' -framework Metal -framework CoreGraphics -framework Foundation ;;
+            esac
+            ;;
+        windows)
+            printf '%s\n' -lpthread -lpsapi -luser32 -ladvapi32 -liphlpapi -luserenv \
+                -lws2_32 -ldbghelp -lole32 -lshell32 -lbcrypt -lcrypt32 -lntdll \
+                -lkernel32 -lsecur32 -lncrypt
+            ;;
+        *) printf '%s\n' -lm -lpthread -ldl ;;
+    esac
+}
+
 # Stages the Rust executable and static application entry, or the Rust embedding
 # SDK, for one exact compiler-selected feature set.
 build_host() {
@@ -1244,6 +1264,15 @@ build_host() {
             printf '  "features": "%s",\n' "$selected_cargo_features"
             printf '  "header": "nupp.h",\n'
             printf '  "static": "libnupp.a",\n'
+            printf '  "staticLinkFlags": ['
+            separator=''
+            while IFS= read -r flag; do
+                printf '%s"%s"' "$separator" "$flag"
+                separator=', '
+            done <<EOF
+$(host_system_flags "$selected_cargo_features")
+EOF
+            printf '],\n'
             if [ "$PLATFORM" = windows ]; then
                 printf '  "dynamic": "%s",\n' "$dynamic_name"
                 printf '  "import": "libnupp.dll.a"\n}\n'
@@ -1350,19 +1379,18 @@ EOF
     while IFS= read -r flag; do
         set -- "$@" "$flag"
     done < "$flags_file"
+    while IFS= read -r flag; do
+        set -- "$@" "$flag"
+    done <<EOF
+$(host_system_flags "$features")
+EOF
     case "$PLATFORM" in
-        darwin)
-            set -- "$@" -lm -lpthread -framework CoreFoundation -framework Security
-            set -- "$@" -Wl,-export_dynamic
-            ;;
+        darwin) set -- "$@" -Wl,-export_dynamic ;;
         windows)
-            set -- "$@" -lpthread -lpsapi -luser32 -ladvapi32 -liphlpapi -luserenv
-            set -- "$@" -lws2_32 -ldbghelp -lole32 -lshell32 -lbcrypt -lcrypt32 -lntdll
-            set -- "$@" -lkernel32 -lsecur32 -lncrypt
             set -- "$@" "$host_out/libnupp-host-imports.a"
             set -- "$@" -Wl,--export-all-symbols
             ;;
-        *)       set -- "$@" -lm -lpthread -ldl -Wl,-E ;;
+        *) set -- "$@" -Wl,-E ;;
     esac
     "$@" >&2
     rm -f "$flags_file"

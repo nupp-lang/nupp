@@ -1102,6 +1102,8 @@ Options:
   --against PATH        Another nupp executable to measure beside this one,
                         interleaved and paired.
   --timeout-ms INTEGER  Child deadline in milliseconds.
+  --gpu-costs DIR       Write GPU JSONL cost records per case and fork in a
+                        unique run directory.
   --profile DIR         Write one collapsed-stack profile per case under this
                         directory.
   --profile-interval-ms INTEGER
@@ -1807,6 +1809,8 @@ Options:
   --profile[=MS]       Sample the program, optionally with an attached
                        interval.
   --profile-out PATH   File which receives profiling samples.
+  --gpu-costs PATH     Write GPU operation costs and device timestamps to this
+                       JSONL file.
   --jit-aborts[=PATH]  Record JIT aborts, optionally naming an attached output
                        path.
   --json               Write JIT aborts as JSON rather than CSV.

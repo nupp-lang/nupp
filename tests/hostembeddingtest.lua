@@ -79,31 +79,16 @@ local function compiler()
     return os.getenv("NUPP_CC") or "cc"
 end
 
-local function platformLibraries()
-    if jit.os == "OSX" then
-        return "-lm -lpthread -framework CoreFoundation -framework Security"
-    elseif jit.os == "Windows" then
-        return table.concat(
-            {
-                "-lpthread",
-                "-lpsapi",
-                "-luser32",
-                "-ladvapi32",
-                "-liphlpapi",
-                "-luserenv",
-                "-lws2_32",
-                "-ldbghelp",
-                "-lole32",
-                "-lshell32",
-                "-lbcrypt",
-                "-lcrypt32",
-                "-lntdll",
-            },
-            " "
-        )
+local function platformLibraries(library)
+    local file = assert(io.open(library .. "/link.json", "rb"))
+    local manifest = require("testjson").decode(file:read("*a"))
+    file:close()
+    local flags = assert(manifest.staticLinkFlags, "the SDK must advertise its static system dependencies")
+    local arguments = {}
+    for _, flag in ipairs(flags) do
+        arguments[#arguments + 1] = quote(flag)
     end
-
-    return "-lm -lpthread -ldl"
+    return table.concat(arguments, " ")
 end
 
 function M.staticSdkLinksAndRunsFromC()
@@ -120,7 +105,7 @@ function M.staticSdkLinksAndRunsFromC()
             quote(library),
             quote(ROOT .. "/host/examples/embed.c"),
             quote(library .. "/libnupp.a"),
-            platformLibraries(),
+            platformLibraries(library),
             quote(executable)
         )
     )

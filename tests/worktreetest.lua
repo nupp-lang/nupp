@@ -154,7 +154,7 @@ exit 0
     assert(os.execute(environment .. quote(root .. "/bin/nupp") .. " clean") == 0)
     local asked = read(record)
     assert(
-        asked == "native-rust base,compression,files,http,net,process,tls,uri,uuid\n",
+        asked == "native-rust base,compression,files,gpu,http,net,process,tls,uri,uuid\n",
         "the launcher requested the wrong development providers: " .. asked
     )
     assert(
