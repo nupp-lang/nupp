@@ -3,13 +3,14 @@ import {loadManifest, assetsFor, inflateSnapshot} from './assets.mjs';
 const MIB = 1024 * 1024;
 const encoder = new TextEncoder(), decoder = new TextDecoder('utf-8', {fatal: true});
 let emulator, mailbox, active, sequence = 0, log = '', line = '', timer, booted = false, completed = false;
+let clockOffset = 0;
 function fail(error) {
   clearInterval(timer);
   self.postMessage({type: 'failed', error: String(error?.stack || error), log});
 }
 function clock() {
   const bytes = new Uint8Array(8);
-  new DataView(bytes.buffer).setFloat64(0, performance.now(), true);
+  new DataView(bytes.buffer).setFloat64(0, performance.now() + clockOffset, true);
   emulator.write_memory(bytes, mailbox + 168);
 }
 function send(text) { clock(); emulator.serial0_send(text); }
@@ -29,6 +30,10 @@ function write(offset, index, capacity, bytes) {
 async function boot(message) {
   if (booted) throw new Error('Worker has already booted');
   booted = true;
+  // Deadlines belong to the owning host's performance clock, not this nested
+  // Worker's later time origin. Clock reads in the guest must not suspend.
+  if (!Number.isFinite(message.clockOrigin)) throw new Error('Invalid host clock origin');
+  clockOffset = performance.timeOrigin - message.clockOrigin;
   const base = new URL(message.manifestUrl, import.meta.url).href;
   const manifest = await loadManifest(base);
   const profile = message.profile === 'compiler' ? 'compiler' : 'runner';
@@ -39,6 +44,9 @@ async function boot(message) {
   const app = new Uint8Array(message.app);
   const config = encoder.encode(JSON.stringify(message.config || {}));
   if (!app.length || app.length > 7 * MIB || !config.length || config.length > 65536) throw new Error('Startup input exceeds mailbox');
+  // Fetch the emulator while the snapshot downloads and inflates.
+  const wasmPending = asset('assets/v86.wasm');
+  wasmPending.catch(() => {});
   let snapshot;
   const selected = manifest.snapshots?.[profile];
   if (selected && message.snapshot !== false && !message.captureSnapshot) {
@@ -52,7 +60,7 @@ async function boot(message) {
       self.postMessage({type: 'snapshot-fallback', reason: String(error.message)});
     }
   }
-  const wasm = await asset('assets/v86.wasm');
+  const wasm = await wasmPending;
   const options = {
     memory_size: memoryMiB * MIB, vga_memory_size: MIB,
     disable_speaker: true, disable_mouse: true, disable_keyboard: true,
@@ -117,7 +125,12 @@ async function boot(message) {
         if (incoming !== sequence || active) throw new Error('Unexpected guest frame sequence');
         active = match[1] !== 'DONE';
         completed = !active;
-        self.postMessage({type: match[1].toLowerCase(), sequence, result: read()});
+        const result = read();
+        const extent = emulator.read_memory(mailbox + 132, 4);
+        const length = new DataView(extent.buffer, extent.byteOffset, 4).getUint32(0, true);
+        if (length > 2 * MIB) throw new Error('Guest transfer exceeds mailbox');
+        const payload = emulator.read_memory(mailbox + 2 * MIB, length).slice().buffer;
+        self.postMessage({type: match[1].toLowerCase(), sequence, result, payload}, [payload]);
       }
     } catch (error) { fail(error); }
   });

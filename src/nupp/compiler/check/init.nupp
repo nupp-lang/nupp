@@ -1841,7 +1841,7 @@ function checkMod.check(
         local resolved = c.opts._capabilityResolution or capabilities.resolve(c.opts.dialect)
         local cinterop = capabilities.get(resolved, "cinterop")
         if cinterop.kind ~= "missing" and (
-            not c.env or c.env.nativeCompilerServices ~= false
+            c.env and c.env.compilerServices and c.env.compilerServices.cheader ~= nil
         ) and next(c.cDeclared) ~= nil then
             local cheader: any = assert(
                 c.env and c.env.compilerServices and c.env.compilerServices.cheader,

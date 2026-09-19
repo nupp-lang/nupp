@@ -17,12 +17,14 @@ need `cc -E` first, which the caller asks for explicitly.
 
 local T = require("nupp.compiler.types")
 local cdecl = require("nupp.compiler.cdecl")
-local fs = require("nupp.compiler.fs")
-local hash = require("nupp.compiler.build.hash")
-local process = require("nupp.compiler.build.process")
-local buildSyntax = require("nupp.compiler.build.syntax")
 
 local cheader = {}
+
+-- C type inspection only needs LuaJIT. File and preprocessor operations resolve
+-- their host services lazily so the browser can use the same declaration model.
+local function hostService(name: string): any
+    return require("nupp.compiler." .. name)
+end
 
 --- What a struct tag already stands for in the program being checked, so a header met
 --- twice keeps one identity. Nil when nothing has declared it yet.
@@ -220,7 +222,7 @@ local function toolchainTag(opts)
     if hit then
         return hit
     end
-    local code, output = process.capture(argv)
+    local code, output = hostService("build.process").capture(argv)
     local version = code == 0 and output:match("[^\r\n]+") or "unknown"
     toolchainCache[key] = version
 
@@ -250,13 +252,13 @@ local function compilerArgv(opts, ...)
 end
 
 local function dependencyPaths(text, sourcePath)
-    local paths = buildSyntax.depfile:match(text) or {}
+    local paths = hostService("build.syntax").depfile:match(text) or {}
     if #paths == 0 then
         paths[1] = sourcePath
     end
     local unique, out = {}, {}
     for _, path in ipairs(paths) do
-        path = fs.canonical(path)
+        path = hostService("fs").canonical(path)
         if not unique[path] then
             unique[path] = true
             out[#out + 1] = path
@@ -270,8 +272,8 @@ end
 local function preprocessHeader(path, opts)
     local depPath = os.tmpname()
     local argv = compilerArgv(opts, "-E", "-MD", "-MF", depPath, "-MT", "nupp_header", "-xc", path)
-    local code, expanded = process.capture(argv)
-    local depText = fs.readFile(depPath)
+    local code, expanded = hostService("build.process").capture(argv)
+    local depText = hostService("fs").readFile(depPath)
     os.remove(depPath)
     if code ~= 0 then
         return nil, nil, expanded ~= "" and expanded or ("cannot preprocess " .. path)
@@ -296,8 +298,8 @@ local cache = {}
 
 local function provenance(path: string, opts: cheader.Options?): cheader.Provenance?, string?
     opts = opts or {} as cheader.Options
-    path = fs.canonical(path)
-    local source = opts.read and opts.read(path) or fs.readFile(path)
+    path = hostService("fs").canonical(path)
+    local source = opts.read and opts.read(path) or hostService("fs").readFile(path)
     if not source then
         return nil, "cannot read " .. path
     end
@@ -312,9 +314,9 @@ local function provenance(path: string, opts: cheader.Options?): cheader.Provena
         dependencies = discovered
     end
     text = stripDirectives(text)
-    local semanticFingerprint = hash.digest(
-        table.concat({"cheader-v2", cdecl.abiTag(), toolchainIdentity(opts), semanticText(text)}, "\0")
-    )
+    local semanticFingerprint = hostService(
+        "build.hash"
+    ).digest(table.concat({"cheader-v2", cdecl.abiTag(), toolchainIdentity(opts), semanticText(text)}, "\0"))
 
     return {cdef = text, sourcePath = path, dependencies = dependencies, semanticFingerprint = semanticFingerprint,}
 end

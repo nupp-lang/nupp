@@ -1,0 +1,35 @@
+local span = require("nupp.mem.span")
+local array = require("nupp.mem.array")
+
+@aot(target = "gpu")
+local function addMask(exclusive output: span.WriteSpan<uint32>, borrows input: span.Span<uint32>, mask: uint32): nil
+    assert(#output == #input, "length mismatch")
+    for index = 1, #output do
+        output[index] = nupp.math.u32.add(input[index], mask)
+    end
+end
+
+local input = array.scalar(array.uint32, 2)
+do
+    local rows = input:write()
+    rows[1] = nupp.math.u32.wrap(4)
+    rows[2] = nupp.math.u32.wrap(9)
+    drop rows
+end
+local output = array.scalar(array.uint32, 2)
+local gpu = require("nupp.gpu")
+local ffi = require("ffi")
+local context = gpu.open()
+local gpuInput = context:buffer(ffi.typeof<uint32>(), 2)
+local gpuOutput = context:buffer(ffi.typeof<uint32>(), 2)
+local binding = addMask:compile(context):bind(gpuOutput, gpuInput)
+context:upload(gpuInput, input:read())
+binding:dispatch(nupp.math.u32.wrap(3))
+do
+    local rows = output:write()
+    context:download(gpuOutput, rows)
+    drop rows
+end
+local rows = output:read()
+assert(rows[1] == 7 and rows[2] == 12)
+return {ok = true}

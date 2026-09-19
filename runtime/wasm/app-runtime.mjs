@@ -240,6 +240,7 @@ function gpuRuntime(options) {
 }
 
 function memoryLease(effect, options, expectedBytes, writable = false) {
+  if (options.transfers) return options.transfers.lease(effect.lease, expectedBytes, writable);
   const module = options.wasmModule;
   const id = effect.lease;
   if (!module || !Number.isInteger(id) || id < 1 || !module._nupp_wasm_lease_address ||
@@ -265,6 +266,7 @@ function memoryLease(effect, options, expectedBytes, writable = false) {
 // the Lua side only releases after a successful answer, so every failed
 // operation would otherwise strand one of the fixed lease slots.
 function releaseEffectLease(effect, options) {
+  if (options.transfers) { options.transfers.release(effect.lease); return; }
   const module = options.wasmModule;
   const id = effect.lease;
   if (module && module._nupp_wasm_release_lease && Number.isInteger(id) && id > 0) {

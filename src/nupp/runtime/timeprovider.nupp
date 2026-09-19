@@ -7,7 +7,7 @@ export const provider = contracts.time:assembleOptional(function(): contracts.Ti
     if native ~= nil then
         return native
     end
-    if rawget(_G, "__nuppWasmHost") ~= nil then
+    if rawget(_G, "__nuppWasmHost") ~= nil or rawget(_G, "__nuppBrowser") ~= nil then
         return contracts.time:lookup("nupp.browser")
     end
 

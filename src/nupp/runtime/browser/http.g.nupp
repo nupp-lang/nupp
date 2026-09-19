@@ -29,7 +29,7 @@ const {type Path} = require("nupp.io.path")
 local io = require("nupp.io")
 local ownedReader = require("nupp.io.internal.ownedreader")
 local contracts = require("nupp.runtime.services.http")
-local memory = require("nupp.runtime.wasm") as any
+local memory = require("nupp.runtime.browser.memory") as any
 local http = {}
 
 const messages = require("nupp.io.http.messages")

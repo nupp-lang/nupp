@@ -60,6 +60,9 @@ elseif not tostring(loadedCatalog):find("module 'nupp.runtime.services.artifact'
     error("nupp.services: cannot read provider catalog: " .. tostring(loadedCatalog), 0)
 end
 local targetDialect: string = catalog.dialect or (rawget(_G, "jit") ~= nil and "luajit" or "lua51")
+local targetHost: string = catalog.host or (
+    rawget(_G, "__nuppBrowser") ~= nil and "browser" or (targetDialect == "lua51" and "browser" or "native")
+)
 
 local definitions: {[string]: any} = {}
 local loading: {string} = {}
@@ -353,7 +356,7 @@ export function define<T>(id: string, api: integer, defaultLoader: (function(): 
     )
 
     local function add(entry: any): nil
-        if entry.service ~= id or not builtin.supports(entry, targetDialect) then
+        if entry.service ~= id or not builtin.supports(entry, targetDialect, targetHost) then
             return
         end
         if entry.api ~= api then
@@ -440,7 +443,11 @@ export function workerConfiguration(): string
             local found: any = nil
             for _, entries in ipairs({foundCatalog and catalog.providers or builtin.entries}) do
                 for _, entry in ipairs(entries) do
-                    if entry.service == id and entry.name == selected and builtin.supports(entry, targetDialect) then
+                    if entry.service == id and entry.name == selected and builtin.supports(
+                        entry,
+                        targetDialect,
+                        targetHost
+                    ) then
                         found = entry
                     end
                 end

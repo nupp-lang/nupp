@@ -28,7 +28,7 @@ export function createGuest({manifestUrl, app, config = {}, profile = 'runner', 
   }
   const arm = (failed = close) => { clearTimeout(timer); timer = setTimeout(() => failed(new Error('Guest request timed out')), deadlineMs); };
   function launch(useSnapshot) {
-    const instance = new Worker(new URL('./vm-worker.mjs', import.meta.url), {type: 'module'});
+    const instance = new Worker(new URL('./vm-worker.mjs', new URL(manifestUrl, import.meta.url)), {type: 'module'});
     worker = instance;
     restored = false;
     const failed = error => {
@@ -54,7 +54,8 @@ export function createGuest({manifestUrl, app, config = {}, profile = 'runner', 
     arm(failed);
     const copy = app.slice();
     instance.postMessage({type: 'boot', manifestUrl: new URL(manifestUrl, import.meta.url).href,
-      app: copy.buffer, config, profile, snapshot: useSnapshot, captureSnapshot}, [copy.buffer]);
+      app: copy.buffer, config, profile, snapshot: useSnapshot, captureSnapshot,
+      clockOrigin: performance.timeOrigin}, [copy.buffer]);
   }
   if (signal?.aborted) abort();
   else signal?.addEventListener('abort', abort, {once: true});
@@ -74,7 +75,7 @@ export async function createCompiler(options) {
   const guest = createGuest({...options, profile: 'compiler', config: {...options.config, mode: 'compiler', jit: false}});
   try {
     const first = await guest.receive();
-    if (first.type !== 'compiler' || !first.result.ready) throw new Error('Compiler failed to initialize');
+    if (first.type !== 'compiler' || !first.result.ready) throw new Error(first.result?.error || 'Compiler failed to initialize');
   } catch (error) { guest.close(error); throw error; }
   let busy = false;
   return {

@@ -9,7 +9,7 @@ export const provider = contracts.service:assembleOptional(function(): contracts
             return native
         end
     end
-    if rawget(_G, "__nuppWasmHost") ~= nil then
+    if rawget(_G, "__nuppWasmHost") ~= nil or rawget(_G, "__nuppBrowser") ~= nil then
         return contracts.service:lookup("nupp.browser")
     end
 

@@ -1,7 +1,8 @@
-# LuaJIT browser runtime candidate
+# LuaJIT browser runtime
 
-This branch is building an explicit LuaJIT browser candidate. It is not the
-browser default, and it does not yet replace the packaged Lua 5.1 runtime.
+LuaJIT is the browser default on this branch. The explicit legacy Lua 5.1
+backend remains available through the rollback release. See [migration and
+remaining limits](MIGRATION.md).
 `guest-manifest.json` identifies every input and output by SHA-256. Guest
 artifacts come from source, rather than the spike's downloaded root filesystem.
 
@@ -33,5 +34,12 @@ application VM, credentials, service handles or live JIT traces.
 The compiler lane sends source outside its JSON envelope and retains one
 compiler session. A busy request is cancelled by terminating its worker/VM;
 the next request starts a fresh session. Guest FFI sees only i386 Linux guest
-libraries. Browser services and Wasm side-module migration require their own
-adapters and conformance checks before this can replace the existing host.
+libraries. Browser timers, entropy, crypto, storage, HTTP, worker tasks and WebGPU use
+bounded copied transfers. Independent Wasm kernels use a separate memory and
+scalar/span ABI; Lua-C-API builder entries still require the legacy host.
+
+A same-origin deployment can allow `script-src 'self' 'wasm-unsafe-eval'`,
+`worker-src 'self' blob:` and the application's required `connect-src`
+destinations. The emulator uses a blob Worker for compilation. Browser tests
+exercise this policy without COOP/COEP; the UI also needs its usual stylesheet
+policy. Test the exact deployment headers before publishing.

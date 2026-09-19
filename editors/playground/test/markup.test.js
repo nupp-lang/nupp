@@ -175,19 +175,19 @@ test("the playground build publishes only native-tested compiler bytes", () => {
   assert.match(build, /if \(!copied\.equals\(before\)\)/);
 });
 
-test("the full playground exposes both output dialects", () => {
+test("the full playground exposes the default and explicit legacy runtimes", () => {
   const html = readFileSync(new URL("../static/index.html", import.meta.url), "utf8");
   const app = readFileSync(new URL("../src/app.js", import.meta.url), "utf8");
   assert.match(html, /id="dialect-select"/);
   assert.match(html, /value="lua51">Lua 5\.1/);
   assert.match(html, /value="luajit">LuaJIT/);
-  assert.match(app, /dialect: "lua51"/);
+  assert.match(app, /OPTION_DEFAULTS = DEFAULT_OPTIONS/);
 });
 
-test("Lua 5.1 Run uses a separate bounded application Worker", () => {
+test("Run uses a separate bounded application Worker", () => {
   const app = readFileSync(new URL("../src/app.js", import.meta.url), "utf8");
   const worker = readFileSync(new URL("../src/app-worker.js", import.meta.url), "utf8");
-  assert.match(app, /new Worker\(new URL\("\.\/app-worker\.js"/);
+  assert.match(app, /"\.\/app-worker\.js"/);
   assert.match(app, /application\.terminate\(\)/);
   assert.match(worker, /managed: true/);
   assert.match(worker, /maxEffects: 128/);

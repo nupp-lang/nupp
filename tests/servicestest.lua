@@ -189,6 +189,7 @@ function M.assemblyChecksRunBeforePublishingAndCanBeRetried()
         return value
     end)
     service:select("chosen")
+
     local function check(provider)
         checks = checks + 1
         fails(
@@ -531,6 +532,7 @@ return marked.text
     end
     local ok, problem = pcall(function()
         local cold = incremental.new(dir)
+
         local function checked(graph)
             local result = graph.checkFile(fs.join(dir, "main.nupp"))
             for _, diagnostic in ipairs(result.diags) do
@@ -811,6 +813,24 @@ return m
 ]]
     )
     assert(rejected:find("NUPP2118", 1, true), rejected)
+end
+
+function M.browserHostRetainsLuaJitStorageButSelectsBrowserServices()
+    local catalog = require("nupp.runtime.services.catalog")
+    local selected = {}
+    for _, entry in ipairs(catalog.entries) do
+        if catalog.supports(entry, "luajit", "browser") then
+            selected[entry.service .. ":" .. entry.name] = true
+        end
+    end
+    assert(selected["host.time:nupp.browser"])
+    assert(selected["host.workers:nupp.browser"])
+    assert(selected["representation.cstorage:nupp.native"])
+    assert(selected["text.buffer:nupp.native"])
+    assert(selected["numeric.bitops:nupp.native"])
+    assert(not selected["host.time:nupp.native"])
+    assert(not selected["host.process:nupp.native"])
+    assert(not selected["representation.cstorage:nupp.wasm"])
 end
 
 return M

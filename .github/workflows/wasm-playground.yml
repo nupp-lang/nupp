@@ -14,9 +14,9 @@ permissions:
 
 jobs:
   candidate:
-    name: Portable compiler in Lua 5.1 Wasm
+    name: LuaJIT browser and legacy rollback
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 50
     steps:
       - name: Check out the repository
         uses: actions/checkout@v4
@@ -34,11 +34,23 @@ jobs:
           version: 6.0.8
           actions-cache-folder: emsdk-cache
 
+      - name: Install browser guest build tools
+        run: sudo apt-get update && sudo apt-get install -y gcc-multilib g++-multilib flex bison libelf-dev libssl-dev
+
+      - uses: actions/cache@v4
+        with:
+          path: .nupp-cache/toolchain
+          key: browser-guest-${{ runner.os }}-${{ hashFiles('scripts/toolchain.pins', 'scripts/browser-*.py', 'runtime/luajit/**') }}
+          restore-keys: browser-guest-${{ runner.os }}-
+
       - name: Build pinned host dependencies
         run: ./scripts/toolchain --all
 
       - name: Install playground dependencies
         run: npm ci --prefix editors/playground
+
+      - name: Install browser engines
+        run: npx --prefix editors/playground playwright install --with-deps firefox webkit
 
       - name: Test Node Wasm parity
         run: npm run test:wasm --prefix editors/playground
@@ -80,6 +92,11 @@ jobs:
           done
           exit 1
 
+      - name: Test the LuaJIT playground UI and actual edits
+        run: |
+          node editors/playground/test/luajit-ui.mjs http://127.0.0.1:8787/playground/ luajit-ui.json
+          node editors/playground/test/compiler-performance.mjs http://127.0.0.1:8787/playground/ luajit-editor.json
+
       - name: Test the Chromium Worker
         run: |
           node editors/playground/tools/run-browser-smoke.mjs \
@@ -97,6 +114,8 @@ jobs:
           name: wasm-playground-measurements
           path: |
             chromium-smoke.json
+            luajit-ui*
+            luajit-editor.json
             browser-template-smoke.json
             wasm-app-browser-smoke.json
             playground-server.log

@@ -19,10 +19,6 @@ cleanup() {
 }
 trap cleanup EXIT
 
-if [[ ! -f "$lua_source/lapi.c" ]]; then
-  echo "Lua 5.1 source directory is incomplete: $lua_source" >&2
-  exit 2
-fi
 
 plain="$work/plain-project"
 simd="$work/simd-project"

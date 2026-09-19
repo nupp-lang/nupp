@@ -94,6 +94,7 @@ function services.write(
         "",
         "export = {",
         "    dialect = " .. quote(target.dialect or "luajit") .. ",",
+        "    host = " .. quote(target.host or (target.dialect == "lua51" and "browser" or "native")) .. ",",
         "    providers = {"
     }
     for _, provider in ipairs(ordered) do

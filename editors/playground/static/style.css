@@ -348,7 +348,7 @@ body {
 /* The first Run gesture also starts an embed's deferred worker. Keep that
    gesture alive when startWorker marks the page busy; compileNow disables the
    button itself until the request finishes. */
-.is-embed.is-busy #compile-button:not(:disabled) { opacity: 1; pointer-events: auto; }
+.is-busy #compile-button:not(:disabled) { opacity: 1; pointer-events: auto; }
 .icon-button:disabled { opacity: .55; pointer-events: none; cursor: default; }
 
 /* Anchored under the button that opens it. Absolute rather than in flow so

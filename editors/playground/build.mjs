@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-// Builds the UI, the verified portable compiler asset, and its Lua 5.1 Wasm host.
+// Builds the LuaJIT browser UI and the explicit legacy rollback assets.
 import { build, context } from "esbuild";
+import {prepareLuaJIT} from "./tools/prepare-luajit.mjs";
 import {
   copyFileSync,
   cpSync,
@@ -130,6 +131,21 @@ const shared = {
 
 async function runBuild() {
   const manifest = prepareCompilerAsset();
+  manifest.luajit = await prepareLuaJIT(repoRoot, dist);
+  writeFileSync(path.join(dist, "nupp-playground-assets.json"), JSON.stringify(manifest, null, 2) + "\n");
+  const luaJITDefines = {
+    __NUPP_LUAJIT_MANIFEST__: JSON.stringify(manifest.luajit.guestManifest),
+    __NUPP_LUAJIT_COMPILER__: JSON.stringify(manifest.luajit.compiler),
+    __NUPP_LUAJIT_COMPILER_SHA256__: JSON.stringify(manifest.luajit.compilerSha256),
+    __NUPP_LUAJIT_COMPILER_BYTES__: JSON.stringify(manifest.luajit.compilerBytes),
+    __NUPP_LUAJIT_COMPILER_DECODED_BYTES__: JSON.stringify(manifest.luajit.compilerDecodedBytes),
+    __NUPP_LUAJIT_APP_RUNTIME__: JSON.stringify(manifest.luajit.appRuntime),
+    __NUPP_LUAJIT_APP_RUNTIME_SHA256__: JSON.stringify(manifest.luajit.appRuntimeSha256),
+    __NUPP_LUAJIT_APP_BYTES__: JSON.stringify(manifest.luajit.appRuntimeBytes),
+    __NUPP_LUAJIT_APP_DECODED_BYTES__: JSON.stringify(manifest.luajit.appRuntimeDecodedBytes),
+  };
+  const luaJITWorkerOpts = {...shared, entryPoints: [path.join(root, "src/luajit-worker.js")], outfile: path.join(dist, "worker.js"), define: luaJITDefines};
+  const luaJITAppWorkerOpts = {...shared, entryPoints: [path.join(root, "src/luajit-app-worker.js")], outfile: path.join(dist, "app-worker.js"), define: luaJITDefines};
   const appOpts = {
     ...shared,
     entryPoints: [path.join(root, "src/app.js")],
@@ -143,7 +159,7 @@ async function runBuild() {
   const workerOpts = {
     ...shared,
     entryPoints: [path.join(root, "src/wasm-worker.js")],
-    outfile: path.join(dist, "worker.js"),
+    outfile: path.join(dist, "legacy-worker.js"),
     define: {
       __NUPP_COMPILER_ASSET__: JSON.stringify(manifest.compiler),
       __NUPP_COMPILER_SHA256__: JSON.stringify(manifest.compilerSha256),
@@ -152,7 +168,7 @@ async function runBuild() {
   const appWorkerOpts = {
     ...shared,
     entryPoints: [path.join(root, "src/app-worker.js")],
-    outfile: path.join(dist, "app-worker.js"),
+    outfile: path.join(dist, "legacy-app-worker.js"),
     define: {
       __NUPP_APP_RUNTIME_ASSET__: JSON.stringify(manifest.appRuntime),
       __NUPP_APP_RUNTIME_SHA256__: JSON.stringify(manifest.appRuntimeSha256),
@@ -171,6 +187,8 @@ async function runBuild() {
       context(workerOpts),
       context(appWorkerOpts),
       context(wasmSmokeOpts),
+      context(luaJITWorkerOpts),
+      context(luaJITAppWorkerOpts),
     ];
     const contexts = await Promise.all(builds);
     await Promise.all(contexts.map((entry) => entry.watch()));
@@ -182,6 +200,8 @@ async function runBuild() {
       build(workerOpts),
       build(appWorkerOpts),
       build(wasmSmokeOpts),
+      build(luaJITWorkerOpts),
+      build(luaJITAppWorkerOpts),
     ];
     await Promise.all(builds);
   }

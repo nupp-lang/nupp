@@ -941,7 +941,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
     -- the compiler carries is staged from that build for a `luajit` target, which is
     -- the same artifact it would compile; for `lua51` it is not, so those modules are
     -- compiled here instead.
-    local portableTarget = target.dialect == "lua51"
+    local portableTarget = target.dialect == "lua51" or target.host == "browser"
     -- A directory of modules must carry its emitted stdlib dependencies too:
     -- moving the directory away from the compiler must not lose its runtime.
     local selfContainedTarget = target.kind == nil
@@ -957,7 +957,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
         for _, provider in ipairs(serviceCatalog.entries) do
             if provider.entry == name then
                 found = true
-                if serviceCatalog.supports(provider, target.dialect or "luajit") then
+                if serviceCatalog.supports(provider, target.dialect or "luajit", target.host) then
                     return true
                 end
             end
@@ -971,7 +971,11 @@ local function buildModules(root: string, outDir: string, config: Config, target
         local service = serviceCatalog.facades[name]
         if service ~= nil then
             for _, provider in ipairs(serviceCatalog.entries) do
-                if provider.service == service and serviceCatalog.supports(provider, target.dialect or "luajit") then
+                if provider.service == service and serviceCatalog.supports(
+                    provider,
+                    target.dialect or "luajit",
+                    target.host
+                ) then
                     required[#required + 1] = provider.entry
                 end
             end
@@ -1002,7 +1006,11 @@ local function buildModules(root: string, outDir: string, config: Config, target
         local service = serviceCatalog.facades[name]
         if service ~= nil then
             for _, provider in ipairs(serviceCatalog.entries) do
-                if provider.service == service and serviceCatalog.supports(provider, target.dialect or "luajit") then
+                if provider.service == service and serviceCatalog.supports(
+                    provider,
+                    target.dialect or "luajit",
+                    target.host
+                ) then
                     linkRuntimeSource(provider.entry)
                 end
             end
@@ -1800,7 +1808,8 @@ local function buildModules(root: string, outDir: string, config: Config, target
     for _, provider in ipairs(serviceCatalog.entries) do
         if serviceCatalog.supports(
             provider,
-            target.dialect or "luajit"
+            target.dialect or "luajit",
+            target.host
         ) and (records[provider.entry] ~= nil or linkedRuntimeSource[provider.entry]) then
             artifactProviders[#artifactProviders + 1] = provider
         end

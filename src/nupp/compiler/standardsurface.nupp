@@ -140,7 +140,11 @@ local function reach(checker: any, moduleName: string, at: any?): boolean
     for _, provider in ipairs(catalog.entries) do
         if provider.entry == moduleName then
             declared = true
-            compatible = compatible or catalog.supports(provider, checker.opts.dialect or "luajit")
+            compatible = compatible or catalog.supports(
+                provider,
+                checker.opts.dialect or "luajit",
+                checker.env and checker.env.config and checker.env.config._target and checker.env.config._target.host
+            )
         end
     end
     if declared and not compatible then

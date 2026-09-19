@@ -4,6 +4,8 @@ on:
     branches: ['codex/luajit-everywhere']
     paths:
       - 'runtime/luajit/**'
+      - 'runtime/wasm/app-runtime.mjs'
+      - 'editors/playground/test/browser-matrix.mjs'
       - 'tests/luajit-browser/**'
       - 'bench/luajit-browser/*.mjs'
       - 'scripts/browser-*.py'
@@ -20,7 +22,7 @@ permissions:
 jobs:
   guest:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v5
@@ -29,6 +31,15 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
+      - name: Set up Emscripten
+        uses: emscripten-core/setup-emsdk@v15
+        with:
+          version: 6.0.8
+          actions-cache-folder: emsdk-cache
+      - name: Install browser engines
+        run: |
+          npm ci --prefix editors/playground
+          npx --prefix editors/playground playwright install --with-deps firefox webkit
       - name: Test transport boundaries
         run: |
           node --test tests/luajit-browser/transport.test.mjs
@@ -50,14 +61,17 @@ jobs:
           ./scripts/toolchain --all
           ./bin/nupp build --target bootstrapCompiler
           ./scripts/prelude-image luajit
+          ./bin/nupp build --target browserLuaJITApplicationRuntime --host browser
+          node tests/luajit-browser/prepare-application.mjs build/browser-guest
           luajit_dir=$(./scripts/toolchain luajit)
           "$luajit_dir/bin/luajit" tests/luajit-browser/prepare-compiler.lua build/browser-luajit/nupp-compiler.lua build/browser-guest
       - name: Exercise LuaJIT in Chromium without cross-origin isolation
         env:
           NUPP_BENCH_ISOLATED: '0'
+          NUPP_BENCH_CSP: "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:8791"
           NUPP_BENCH_CHROME_FLAGS: '["--no-sandbox", "--disable-dev-shm-usage"]'
         run: |
-          cp tests/luajit-browser/features.lua tests/luajit-browser/smoke.* tests/luajit-browser/snapshot.* tests/luajit-browser/compiler.html tests/luajit-browser/compiler.mjs tests/luajit-browser/recovery.html tests/luajit-browser/recovery.mjs build/browser-guest/
+          cp tests/luajit-browser/features.lua tests/luajit-browser/smoke.* tests/luajit-browser/snapshot.* tests/luajit-browser/compiler.html tests/luajit-browser/compiler.mjs tests/luajit-browser/recovery.html tests/luajit-browser/recovery.mjs tests/luajit-browser/lifecycle.* build/browser-guest/
           node bench/luajit-browser/serve.mjs build/browser-guest 8113 &
           server=$!
           trap 'kill "$server"' EXIT
@@ -67,6 +81,8 @@ jobs:
           node bench/luajit-browser/run-browser.mjs http://127.0.0.1:8113/compiler.html build/browser-guest/compiler-conformance.json
           node tests/luajit-browser/prepare-recovery.mjs build/browser-guest
           node bench/luajit-browser/run-browser.mjs http://127.0.0.1:8113/recovery.html build/browser-guest/recovery-conformance.json
+          node tests/luajit-browser/prepare-packaged.mjs build/browser-guest
+          node editors/playground/test/browser-matrix.mjs http://127.0.0.1:8113/ build/browser-guest/browser-matrix.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:

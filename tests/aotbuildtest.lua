@@ -2109,11 +2109,10 @@ function M.anUnknownPolicyIsRejected()
     assert(out:find('must be "off", "emit-c", "require", "emit-wasm" or "require-wasm"', 1, true), out)
 end
 
-function M.wasmPoliciesRequireThePortableDialect()
+function M.wasmPoliciesAreIndependentOfTheSourceDialect()
     local dir = project("emit-wasm")
-    local out, code = build(dir)
-    test.equal(code, 1, out)
-    assert(out:find('aot = "emit-wasm" requires dialect = "lua51"', 1, true), out)
+    local config, problem = require("nupp.compiler.build.manifest").load(dir)
+    test.assert(config ~= nil, tostring(problem))
 end
 
 function M.wasmPoliciesFixTheirTargetAndFeatureVocabulary()
@@ -2231,6 +2230,7 @@ end
 
 --- Which case is running, read back from the table the runner calls it out of.
 local caseNames = nil
+
 local function runningCase()
     if caseNames == nil then
         caseNames = {}
@@ -3035,7 +3035,13 @@ end
 function M.luaBuilderChoosesATieredRegistrarAtLoad()
     local binding = require("nupp.compiler.aot.binding")
     local lines = binding.builderLoader(
-        {symbol = "ks_rows", registrar = "ks_register_rows", name = "rows", params = {}, resultSourceTypes = {"uint32"},},
+        {
+            symbol = "ks_rows",
+            registrar = "ks_register_rows",
+            name = "rows",
+            params = {},
+            resultSourceTypes = {"uint32"},
+        },
         "@lib/librows.so",
         {"baseline", "avx2", "avx512f"}
     )
@@ -3463,7 +3469,10 @@ function M.scopedPackedBytesHandleEveryTailWithoutOverreading()
     local regions, inRegion = 0, false
     local sawCopy = false
     for line in header:gmatch("[^\n]*") do
-        assert(not line:find("^KS_SCALAR_REGION_[A-Z]+ \\$"), "a scalar region is never opened inside a macro: " .. line)
+        assert(
+            not line:find("^KS_SCALAR_REGION_[A-Z]+ \\$"),
+            "a scalar region is never opened inside a macro: " .. line
+        )
         if line:find("^KS_SCALAR_REGION_BEGIN") then
             regions, inRegion = regions + 1, true
         elseif line:find("^KS_SCALAR_REGION_END") then
@@ -4906,7 +4915,8 @@ local function scopedProject()
     os.remove(dir)
     assert(os.execute("mkdir -p '" .. dir .. "/src'") == 0)
     local manifest = assert(io.open(dir .. "/nupp.lua", "wb"))
-    manifest:write([[
+    manifest:write(
+        [[
 return {
    include = {"src"},
    build = {targets = {native = {
@@ -4920,7 +4930,8 @@ return {
       aotFeatures = "scalar",
    }}},
 }
-]])
+]]
+    )
     manifest:close()
     for name, source in pairs({
         ["src/entry.nupp"] = SCOPED_ENTRY,
@@ -5262,7 +5273,11 @@ function M.genericVocabularyOperationsAgreeAcrossLuaScalarAndLaneExecution()
                 test.equal(actual.v3, compensated:value(), label .. " compensated")
             end
             for _, symbol in ipairs(symbols.dot) do
-                test.equal(lib[symbol](samples, seed, count), dot:value(), symbol .. " seed " .. seed .. " count " .. count)
+                test.equal(
+                    lib[symbol](samples, seed, count),
+                    dot:value(),
+                    symbol .. " seed " .. seed .. " count " .. count
+                )
             end
         end
     end
@@ -5438,20 +5453,7 @@ function M.crossLaneOperationsAgreeWithTheirScalarExecutableSemantics()
     -- and the exceptional values the two extremum contracts disagree about:
     -- `propagatingMin` answers NaN whenever any lane is NaN, `numberMax`
     -- answers the largest lane that is not one.
-    local samples = {
-        1.0,
-        1e16,
-        -1e16,
-        0.5,
-        0 / 0,
-        math.huge,
-        -math.huge,
-        -0.0,
-        0.0,
-        -2.25,
-        1e-3,
-        3.0,
-    }
+    local samples = {1.0, 1e16, -1e16, 0.5, 0 / 0, math.huge, -math.huge, -0.0, 0.0, -2.25, 1e-3, 3.0,}
     local lanes = ffi.new("double[4]")
     for offset = 0, #samples - 1 do
         local values = {}

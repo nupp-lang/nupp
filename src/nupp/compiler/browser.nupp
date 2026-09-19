@@ -51,8 +51,8 @@ local type HoverResponse = {
     length: integer?
 }
 
-local function selectedDialect(options: BrowserOptions?): 'lua51' | 'luajit'
-    return options and options.dialect or options and options.compat and "luajit" or "lua51"
+local function selectedDialect(options: BrowserOptions?, defaultDialect: any?): 'lua51' | 'luajit'
+    return options and options.dialect or options and options.compat and "luajit" or defaultDialect or "lua51"
 end
 
 local function diagnosticsOf(diags: {any}): {any}
@@ -87,9 +87,9 @@ local function hasErrors(diags: {any}): boolean
     return false
 end
 
-local function capabilityResolution(dialect: string): any
+local function capabilityResolution(dialect: string, services: any?): any
     local resolved = capabilities.resolve(dialect)
-    if dialect == "luajit" then
+    if dialect == "luajit" and not (services and services.cheader) then
         local reason = "the in-memory compiler has no native layout or storage provider"
         resolved.byName.cinterop = {kind = "missing", name = "cinterop", reason = reason,}
         resolved.byName.cstorage = {kind = "missing", name = "cstorage", reason = reason,}
@@ -112,9 +112,16 @@ function Session:environment(dialect: string, compatibility: string?): any
         memoryOnly = true,
         compat = compatibility,
         dialect = dialect,
-        capabilityResolution = capabilityResolution(dialect),
+        capabilityResolution = capabilityResolution(dialect, self.settings.compilerServices),
         nativeCompilerServices = false,
-        config = {_target = {dialect = dialect, layoutTarget = "x86_64-unknown-linux-gnu",},},
+        compilerServices = self.settings.compilerServices,
+        config = {
+            _target = {
+                dialect = dialect,
+                host = "browser",
+                layoutTarget = self.settings.layoutTarget or "x86_64-unknown-linux-gnu",
+            },
+        },
         typeRoots = {},
         preludeImage = preludeImage,
     })
@@ -124,7 +131,7 @@ function Session:environment(dialect: string, compatibility: string?): any
 end
 
 function Session:checked(source: string, filename: string, options: BrowserOptions?): (any, {any})
-    local dialect = selectedDialect(options)
+    local dialect = selectedDialect(options, self.settings.dialect)
     local compatibility, compatError = require("nupp.compiler.compat").resolve(options and options.compat, nil, dialect)
     if compatError then
         error(compatError, 2)
@@ -139,7 +146,7 @@ function Session:checked(source: string, filename: string, options: BrowserOptio
         strict = options and options.strict == true,
         compat = compatibility,
         dialect = dialect,
-        _capabilityResolution = capabilityResolution(dialect),
+        _capabilityResolution = capabilityResolution(dialect, self.settings.compilerServices),
     })
     if not hasErrors(diags) then
         self.lastResults[key] = result
@@ -215,7 +222,7 @@ function Session:request(requestText: string): string
     elseif request.kind == "compile" then
         return json.encode(self:compile(request.source or "", filename, options), json.NULL)
     elseif request.kind == "hover" then
-        self.lastDialect = selectedDialect(options) .. ":" .. (options.compat or "")
+        self.lastDialect = selectedDialect(options, self.settings.dialect) .. ":" .. (options.compat or "")
         return json.encode(self:hover(request.offset or 1), json.NULL)
     end
     error("unknown browser compiler request kind " .. tostring(request.kind), 2)
@@ -223,8 +230,11 @@ end
 
 local Browser = {}
 
-function Browser.new(): any
-    return setmetatable({environments = {}, lastResults = {}, lastDialect = "lua51",}, Session)
+function Browser.new(settings: any?): any
+    return setmetatable(
+        {environments = {}, lastResults = {}, lastDialect = "lua51", settings = settings or {},},
+        Session
+    )
 end
 
 export = Browser

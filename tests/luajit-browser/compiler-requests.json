@@ -1,12 +1,90 @@
 [
-  {"kind":"check","source":"local answer: integer = 42\nreturn answer","filename":"sample.nupp","options":{"strict":true}},
-  {"kind":"hover","offset":7},
-  {"kind":"compile","source":"local answer: integer = 42\nreturn answer","filename":"sample.nupp","options":{"strict":true,"optimize":true}},
-  {"kind":"compile","source":"const value = 2ULL\nreturn value","filename":"sample.g.nupp"},
-  {"kind":"check","source":"const value = 2ULL\nreturn value","filename":"sample.g.nupp","options":{"compat":"lua51"}},
-  {"kind":"compile","source":"local count: number = 2\nreturn count","filename":"sample.nupp","options":{"compat":"lua51"}},
-  {"kind":"check","source":"local count: number = 'wrong'\nreturn count","filename":"sample.nupp","options":{"strict":true}},
-  {"kind":"check","source":"local count: number = 3\nreturn count","filename":"sample.nupp","options":{"strict":true}},
-  {"kind":"hover","offset":7},
-  {"kind":"check","source":"const value = 2ULL\nreturn value","filename":"sample.g.nupp"}
+  {
+    "kind": "check",
+    "source": "local answer: integer = 42\nreturn answer",
+    "filename": "sample.nupp",
+    "options": {
+      "strict": true
+    }
+  },
+  {
+    "kind": "hover",
+    "offset": 7
+  },
+  {
+    "kind": "compile",
+    "source": "local answer: integer = 42\nreturn answer",
+    "filename": "sample.nupp",
+    "options": {
+      "strict": true,
+      "optimize": true
+    }
+  },
+  {
+    "kind": "compile",
+    "source": "const value = 2ULL\nreturn value",
+    "filename": "sample.g.nupp"
+  },
+  {
+    "kind": "check",
+    "source": "const value = 2ULL\nreturn value",
+    "filename": "sample.g.nupp",
+    "options": {
+      "compat": "lua51"
+    }
+  },
+  {
+    "kind": "compile",
+    "source": "local count: number = 2\nreturn count",
+    "filename": "sample.nupp",
+    "options": {
+      "compat": "lua51"
+    }
+  },
+  {
+    "kind": "check",
+    "source": "local count: number = 'wrong'\nreturn count",
+    "filename": "sample.nupp",
+    "options": {
+      "strict": true
+    }
+  },
+  {
+    "kind": "check",
+    "source": "local count: number = 3\nreturn count",
+    "filename": "sample.nupp",
+    "options": {
+      "strict": true
+    }
+  },
+  {
+    "kind": "hover",
+    "offset": 7
+  },
+  {
+    "kind": "check",
+    "source": "const value = 2ULL\nreturn value",
+    "filename": "sample.g.nupp"
+  },
+  {
+    "kind": "compile",
+    "filename": "ffi.nupp",
+    "source": "local ffi = require(\"ffi\")\nlocal values = ffi.new<int32[3]>()\nunsafe do values[0] = 41; print(values[0] + 1) end",
+    "options": {
+      "strict": true
+    }
+  },
+  {
+    "kind": "compile",
+    "filename": "layout.nupp",
+    "source": "local struct Point\n x: int32\n y: int32\nend\nlocal value = new Point(x = 2, y = 3)\nprint(value.x + value.y)\nreturn layoutof(Point)",
+    "options": {
+      "strict": true
+    }
+  },
+  {
+    "kind": "check",
+    "filename": "ffi.g.nupp",
+    "source": "local ffi = require(\"ffi\"); local value = ffi.new(\"int[3]\"); return value"
+  }
 ]

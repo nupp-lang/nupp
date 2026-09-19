@@ -196,7 +196,9 @@
       "callsWorkflow": ".github/workflows/wasm-playground.yml",
       "steps": [],
       "guarantees": [
-        "the portable compiler runs in Lua 5.1 compiled to Wasm",
+        "the LuaJIT playground checks and runs programs in Chromium, Firefox and WebKit",
+        "real changing-source editor latency is recorded for both browser backends",
+        "the explicit legacy compiler runs in Lua 5.1 compiled to Wasm",
         "browser applications and templates run in Chromium",
         "the generated Pages artifact builds"
       ]

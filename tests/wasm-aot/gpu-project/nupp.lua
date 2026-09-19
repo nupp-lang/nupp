@@ -12,6 +12,17 @@ return {
 
                 aot = "require-wasm",
             },
+            luajit = {
+                kind = "bundle",
+                entries = {"run"},
+                sources = {"src"},
+                output = "dist/luajit-app.lua",
+                outDir = "build/luajit-app",
+                dialect = "luajit",
+                host = "browser",
+
+                aot = "require-wasm",
+            },
         },
     },
 }

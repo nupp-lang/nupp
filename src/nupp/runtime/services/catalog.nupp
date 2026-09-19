@@ -82,7 +82,8 @@ export const entries = {
         contract = "nupp.runtime.services.compression",
         export = "service",
         entry = "nupp.runtime.provider.nativecompression",
-        dialect = "luajit"
+        dialect = "luajit",
+        host = "native"
     },
     {
         service = "host.system",
@@ -91,7 +92,8 @@ export const entries = {
         contract = "nupp.runtime.services.system",
         export = "service",
         entry = "nupp.runtime.provider.nativesystem",
-        dialect = "luajit"
+        dialect = "luajit",
+        host = "native"
     },
     {
         service = "host.system",
@@ -100,7 +102,7 @@ export const entries = {
         contract = "nupp.runtime.services.system",
         export = "service",
         entry = "nupp.runtime.browser.system",
-        dialect = "lua51"
+        host = "browser"
     },
     {
         service = "host.crypto",
@@ -109,7 +111,8 @@ export const entries = {
         contract = "nupp.runtime.services.contracts",
         export = "crypto",
         entry = "nupp.runtime.provider.nativecrypto",
-        dialect = "luajit"
+        dialect = "luajit",
+        host = "native"
     },
     {
         service = "host.gpu",
@@ -118,7 +121,8 @@ export const entries = {
         contract = "nupp.runtime.services.gpu",
         export = "service",
         entry = "nupp.runtime.provider.nativegpu",
-        dialect = "luajit"
+        dialect = "luajit",
+        host = "native"
     },
     {
         service = "host.gpu",
@@ -127,7 +131,7 @@ export const entries = {
         contract = "nupp.runtime.services.gpu",
         export = "service",
         entry = "nupp.runtime.browser.webgpu.internal",
-        dialect = "lua51"
+        host = "browser"
     },
     {
         service = "host.http",
@@ -136,7 +140,8 @@ export const entries = {
         contract = "nupp.runtime.services.http",
         export = "service",
         entry = "nupp.runtime.provider.nativehttp",
-        dialect = "luajit"
+        dialect = "luajit",
+        host = "native"
     },
     {
         service = "host.http",
@@ -145,7 +150,7 @@ export const entries = {
         contract = "nupp.runtime.services.http",
         export = "service",
         entry = "nupp.runtime.browser.http",
-        dialect = "lua51"
+        host = "browser"
     },
     {
         service = "host.workers",
@@ -154,7 +159,8 @@ export const entries = {
         contract = "nupp.runtime.services.workers",
         export = "service",
         entry = "nupp.runtime.provider.workers",
-        dialect = "luajit"
+        dialect = "luajit",
+        host = "native"
     },
     {
         service = "host.workers",
@@ -163,7 +169,7 @@ export const entries = {
         contract = "nupp.runtime.services.workers",
         export = "service",
         entry = "nupp.runtime.browser.workers",
-        dialect = "lua51"
+        host = "browser"
     },
     {
         service = "host.crypto",
@@ -172,7 +178,7 @@ export const entries = {
         contract = "nupp.runtime.services.contracts",
         export = "crypto",
         entry = "nupp.runtime.browser.crypto",
-        dialect = "lua51"
+        host = "browser"
     },
     {
         service = "host.storage",
@@ -181,7 +187,7 @@ export const entries = {
         contract = "nupp.runtime.services.contracts",
         export = "storage",
         entry = "nupp.runtime.browser.storage",
-        dialect = "lua51"
+        host = "browser"
     },
     {
         service = "data.uuid",
@@ -190,7 +196,8 @@ export const entries = {
         contract = "nupp.runtime.services.contracts",
         export = "uuid",
         entry = "nupp.runtime.provider.nativeuuid",
-        dialect = "luajit"
+        dialect = "luajit",
+        host = "native"
     },
     {
         service = "data.uuid",
@@ -199,7 +206,7 @@ export const entries = {
         contract = "nupp.runtime.services.contracts",
         export = "uuid",
         entry = "nupp.runtime.browser.crypto",
-        dialect = "lua51"
+        host = "browser"
     },
 
     {
@@ -228,7 +235,8 @@ export const entries = {
         contract = "nupp.runtime.services.suspension",
         export = "service",
         entry = "nupp.runtime.provider.suspension",
-        dialect = "luajit"
+        dialect = "luajit",
+        host = "native"
     },
     {
         service = "suspension",
@@ -237,7 +245,7 @@ export const entries = {
         contract = "nupp.runtime.services.suspension",
         export = "service",
         entry = "nupp.runtime.browser.suspension",
-        dialect = "lua51"
+        host = "browser"
     },
     {
         service = "host.process",
@@ -246,7 +254,8 @@ export const entries = {
         contract = "nupp.runtime.services.process",
         export = "service",
         entry = "nupp.runtime.provider.nativeprocess",
-        dialect = "luajit"
+        dialect = "luajit",
+        host = "native"
     },
     {
         service = "host.tls",
@@ -255,7 +264,8 @@ export const entries = {
         contract = "nupp.runtime.services.tls",
         export = "service",
         entry = "nupp.runtime.provider.nativetls",
-        dialect = "luajit"
+        dialect = "luajit",
+        host = "native"
     },
     {
         service = "host.net",
@@ -264,7 +274,8 @@ export const entries = {
         contract = "nupp.runtime.services.net",
         export = "service",
         entry = "nupp.runtime.provider.nativenet",
-        dialect = "luajit"
+        dialect = "luajit",
+        host = "native"
     },
     {
         service = "text.buffer",
@@ -290,7 +301,8 @@ export const entries = {
         contract = "nupp.runtime.services.contracts",
         export = "uri",
         entry = "nupp.runtime.provider.nativeuri",
-        dialect = "luajit"
+        dialect = "luajit",
+        host = "native"
     },
     {
         service = "host.uri",
@@ -299,7 +311,7 @@ export const entries = {
         contract = "nupp.runtime.services.contracts",
         export = "uri",
         entry = "nupp.runtime.browser.uri",
-        dialect = "lua51"
+        host = "browser"
     },
     {
         service = "host.path",
@@ -308,7 +320,8 @@ export const entries = {
         contract = "nupp.runtime.services.contracts",
         export = "path",
         entry = "nupp.runtime.provider.nativepath",
-        dialect = "luajit"
+        dialect = "luajit",
+        host = "native"
     },
     {
         service = "host.path",
@@ -317,7 +330,7 @@ export const entries = {
         contract = "nupp.runtime.services.contracts",
         export = "path",
         entry = "nupp.runtime.browser.path",
-        dialect = "lua51"
+        host = "browser"
     },
     {
         service = "host.time",
@@ -326,7 +339,8 @@ export const entries = {
         contract = "nupp.runtime.services.contracts",
         export = "time",
         entry = "nupp.runtime.provider.nativetime",
-        dialect = "luajit"
+        dialect = "luajit",
+        host = "native"
     },
     {
         service = "host.time",
@@ -335,7 +349,7 @@ export const entries = {
         contract = "nupp.runtime.services.contracts",
         export = "time",
         entry = "nupp.runtime.browser.time",
-        dialect = "lua51"
+        host = "browser"
     },
     {
         service = "numeric.bitops",
@@ -369,11 +383,17 @@ export const entries = {
         contract = "nupp.runtime.services.contracts",
         export = "json",
         entry = "nupp.codec.json.aot",
-        dialect = "luajit"
+        dialect = "luajit",
+        host = "native"
     },
 }
 
 --- Whether a declaration can be carried by a target with this dialect.
-export function supports(entry: any, dialect: string): boolean
+export function supports(entry: any, dialect: string, host: string?): boolean
+    local selected = host or (dialect == "lua51" and "browser" or "native")
+    if entry.host ~= nil and entry.host ~= selected then
+        return false
+    end
+
     return entry.dialect == nil or entry.dialect == dialect or entry.dialect == "luajit" and dialect == "luajit-compat"
 end
