@@ -47,6 +47,8 @@ jobs:
           cp -R "$guest/." build/browser-guest/
       - name: Build the LuaJIT compiler and native response oracle
         run: |
+          ./scripts/toolchain --all
+          ./bin/nupp build --target bootstrapCompiler
           ./scripts/prelude-image luajit
           luajit_dir=$(./scripts/toolchain luajit)
           "$luajit_dir/bin/luajit" tests/luajit-browser/prepare-compiler.lua build/browser-luajit/nupp-compiler.lua build/browser-guest
