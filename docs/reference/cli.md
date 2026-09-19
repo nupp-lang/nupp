@@ -449,18 +449,20 @@ Arguments:
   FILE  Source file to inspect.
 
 Options:
-  --emit ARTIFACT  Artifact to print: ir, c, simd, spirv, wgsl, asm, or
-                   binding.
-  --function NAME  Show only this function.
-  --target TRIPLE  Target triple to compile for.
-  --features TIER  CPU feature tier to promise.
-  --library PATH   Compiled object path used by a generated binding.
+  --emit ARTIFACT     Artifact to print: ir, c, simd, spirv, wgsl, asm, or
+                      binding.
+  --source-locations  Include authored #line locations in emitted C (assembly
+                      always carries them).
+  --function NAME     Show only this function.
+  --target TRIPLE     Target triple to compile for.
+  --features TIER     CPU feature tier to promise.
+  --library PATH      Compiled object path used by a generated binding.
   --format FORMAT, --json, --text
-                   Select the report representation.
-  --schema         Print the JSON Schema of JSON output and exit.
-  -h, --help       Show this help
-  --color[=WHEN]   When to color output: always, never, or auto
-  --no-color       Never color output
+                      Select the report representation.
+  --schema            Print the JSON Schema of JSON output and exit.
+  -h, --help          Show this help
+  --color[=WHEN]      When to color output: always, never, or auto
+  --no-color          Never color output
 ```
 
 The bare command says what every `@aot` function in the file lowered to: its
@@ -554,6 +556,7 @@ Arguments:
 Options:
   --format FORMAT, --json, --text
                    Select the report representation.
+  -O0, -O1, -O2    Optimization level, matching run and build (default -O0).
   --check          Report bytecode a loop cannot compile.
   --prologue       Include the generated runtime preamble.
   --width COLUMNS  Columns the listing may use. Defaults to the terminal's
@@ -893,25 +896,27 @@ Arguments:
   FILE  Source files to build.
 
 Options:
-  --target NAME      Build a named manifest target.
-  --platform NAME    Build one configured binary platform, or all.
-  --standalone       Link native FFI and AOT code into the binary host.
-  --out-dir DIR      Override the manifest target's output directory.
-  -o DIR             Output directory for explicit source-file builds.
-  --strict           Treat strict checker rules as errors.
-  --dialect DIALECT  Source-lowering dialect.
-  -O0, -O1, -O2      Optimization level.
-  --remarks          Report what the optimizer did and what it declined to do.
-  --remarks-out      Write the optimizer's account to build/remarks.json.
-  -Zno-opt=CODE      Turn off one optimizer pass by stable code.
+  --target NAME        Build a named manifest target.
+  --platform NAME      Build one configured binary platform, or all.
+  --standalone         Link native FFI and AOT code into the binary host.
+  --out-dir DIR        Override the manifest target's output directory.
+  -o DIR               Output directory for explicit source-file builds.
+  --strict             Treat strict checker rules as errors.
+  --dialect DIALECT    Source-lowering dialect.
+  -O0, -O1, -O2        Optimization level.
+  --remarks            Report what the optimizer did and what it declined to
+                       do.
+  --remarks-file PATH  Only report optimizer decisions for this source file.
+  --remarks-out        Write the optimizer's account to build/remarks.json.
+  -Zno-opt=CODE        Turn off one optimizer pass by stable code.
   --progress[=WHEN], -q, --quiet
-                     When to report progress and timing.
+                       When to report progress and timing.
   --format FORMAT, --json, --text
-                     Select the report representation.
-  --schema           Print the JSON Schema of JSON output and exit.
-  -h, --help         Show this help
-  --color[=WHEN]     When to color output: always, never, or auto
-  --no-color         Never color output
+                       Select the report representation.
+  --schema             Print the JSON Schema of JSON output and exit.
+  -h, --help           Show this help
+  --color[=WHEN]       When to color output: always, never, or auto
+  --no-color           Never color output
 ```
 
 #### Output directories
@@ -1795,6 +1800,7 @@ Options:
   -O0, -O1, -O2        Optimization level.
   --remarks            Report what the optimizer did and what it declined to
                        do.
+  --remarks-file PATH  Only report optimizer decisions for this source file.
   --remarks-out        Write the optimizer account to build/remarks.json.
   -Zno-opt=CODE        Turn off one optimizer pass by stable code.
   --watch              Keep named function identities patchable at poll points.
