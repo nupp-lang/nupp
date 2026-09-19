@@ -110,3 +110,54 @@ Removing the three portable manifest targets eventually retires the requirement
 that Nupp's own source compile through the portable lowerer. It does not retire
 shared language, ownership, provider or AOT conformance. The pinned stage-zero
 language floor remains independent of that simplification.
+
+## Guest package candidate
+
+The branch's `LuaJIT browser guest candidate` workflow builds Linux, musl,
+LLVM libunwind, LuaJIT, LPeg and SeaBIOS from pinned sources. It packages the
+pinned v86 distribution alongside them. `scripts/toolchain browser-sources`
+verifies downloads and notices, supports the existing source mirror/offline
+variables, and requires Python 3.12 (`NUPP_PYTHON` selects it). Building the guest
+currently requires Linux x86_64 with GCC multilib, flex, bison and kernel build
+headers/tools. Other hosts can consume the branch CI artifact.
+
+```sh
+guest=$(./scripts/toolchain browser-guest)
+mkdir -p build/browser-guest
+cp -R "$guest/." build/browser-guest/
+./scripts/prelude-image luajit
+luajit_dir=$(./scripts/toolchain luajit)
+"$luajit_dir/bin/luajit" tests/luajit-browser/prepare-compiler.lua \
+  build/browser-luajit/nupp-compiler.lua build/browser-guest
+```
+
+The manifest hashes guest inputs and assets. The package carries corresponding
+source archives, build recipes and notices; it is not a published release asset
+and has no invented download pin. Source pin changes and guest recipe changes
+invalidate its local artifact identity.
+
+`runtime/luajit/host.mjs` owns a 64 MiB runner or 128 MiB compiler VM in a dedicated
+worker. The compiler retains one session and accepts source outside JSON.
+Cancellation terminates its worker; continuing requires a new compiler instance.
+Snapshots precede LuaJIT startup and contain no application or compiler session.
+Code, configuration, entropy and wall time enter after restore. Snapshot extent
+and digest failures select normal boot; invalid state/restore timeout gets one
+fresh worker with normal boot. This never selects a different Lua VM.
+
+The maintained tests cover transport cancellation and stale responses, package
+verification, LuaJIT FFI/callbacks/bit/buffer/LPeg/JIT features, fresh startup
+entropy, snapshot recovery, and thirty native-versus-guest compiler responses
+with edits and compatibility switches. The workflow runs them without COOP/COEP.
+The diagnostic result in `results/guest-protocol.json` explicitly uses preserved
+spike binaries: it is separate from source-built package acceptance.
+
+## Remaining migration gates
+
+The transport experiment substantially reduces serialization cost, but a warm
+large check is still about 7.7 times slower than the preserved stock-Lua Wasm
+compiler in the recorded comparison. Compiler responsiveness is an open gate.
+The full playground, application effect/resource bridge, native layout/storage
+providers, independent Wasm AOT ABI and platform schema have not migrated.
+Firefox, Safari, mobile, constrained-memory and production delivery acceptance
+remain open. No browser default or legacy lowerer has changed. The release/pin,
+one-release rollback and later cold-checkout deletion gates still apply.
