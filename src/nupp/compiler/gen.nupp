@@ -4311,7 +4311,7 @@ function gen.generate(
 
         local function markName(node, into)
             local definition = node and node.kind == "name" and node.token and node.token.definition or nil
-            if definition and wanted[definition] then
+            if definition and (captures == nil or wanted[definition]) then
                 into[definition] = true
             end
         end
@@ -4384,6 +4384,7 @@ function gen.generate(
     end
 
     emitDepth.captureUsage = captureUsage
+    emitDepth.captureWrites = captureUsage(result.root, nil)
     emitDepth.frameEligible = frameEligible
     emitDepth.pushCaptureFrame = pushCaptureFrame
     emitDepth.popCaptureFrame = popCaptureFrame
@@ -7428,17 +7429,41 @@ function gen.generate(
                 end
             end
             local callable = nextTemp()
-            pluck.loweredFunction(("(function(%s,...) "):format(callable), sourceLine(x), pluck.reasons.move)
+            local current = cleanupStack[#cleanupStack]
+            local moveFrame = current and current.moveFrame
             for _, activeName in ipairs(activeNames) do
-                e(("%s=false; "):format(activeName))
+                if not moveFrame or activeName:sub(1, #moveFrame + 1) ~= moveFrame .. "[" then
+                    moveFrame = nil
+                    break
+                end
             end
-            if kind == "methodCall" then
-                e(("return %s:%s(...)"):format(callable, x.overloadMember or x.name.text))
+            local body = {}
+            for _, activeName in ipairs(activeNames) do
+                body[#body + 1] = ("%s=false; "):format(activeName)
+            end
+            body[
+                #body + 1
+            ] = kind == "methodCall" and (
+                "return %s:%s(...)"
+            ):format(callable, x.overloadMember or x.name.text) or ("return %s(...)"):format(callable)
+            if moveFrame then
+                e(
+                    pluck.declareHelper(
+                        "__nuppMove",
+                        callable .. "," .. moveFrame .. ",...",
+                        table.concat(body)
+                    ) .. "(",
+                    sourceLine(x)
+                )
             else
-                e(("return %s(...)"):format(callable))
+                pluck.loweredFunction(("(function(%s,...) "):format(callable), sourceLine(x), pluck.reasons.move)
+                e(table.concat(body))
+                e(" end)(")
             end
-            e(" end)(")
             emit(x.obj)
+            if moveFrame then
+                e("," .. moveFrame)
+            end
             local args = x.args
             local values = args and args.exprs or {}
             if args and args.table then
@@ -7932,7 +7957,109 @@ function gen.generate(
                 or stable and activation.name
                 or framed and cleanupCacheName
                 or nil
-            local shared = cacheName ~= nil and #(x.bindings or {}) == 1 and not active[1] and not x.automaticComplex
+            local inStateRegion = false
+            for _, parent in ipairs(cleanupStack) do
+                if parent.moveFrame then
+                    inStateRegion = true
+                end
+            end
+            local shared = not emitDepth.constructorReturnName and not inStateRegion and cacheName ~= nil and #(
+                x.bindings or {}
+            ) == 1 and not active[1] and not x.automaticComplex
+            -- A multi-owner region needs its acquisition progress after a raise.
+            -- Keep that state in a fresh frame, so the body function can be reused
+            -- without sharing owners between calls or recursive activations.
+            -- Capture acquisitions too: their inputs can occur nowhere in the body.
+            -- Only never-assigned captures can be snapshotted, since another closure
+            -- may read or write the caller's locals during a protected call.
+            local stateAnalysis = {analysisBody}
+            for _, binding in ipairs(x.bindings or {}) do
+                stateAnalysis[#stateAnalysis + 1] = binding.expr
+            end
+            for _, item in ipairs(x.automaticSequence or {}) do
+                if item.declaration then
+                    stateAnalysis[#stateAnalysis + 1] = item.declaration
+                end
+            end
+
+            local function frameBodyEligible(node): boolean
+                if not node or cst.isToken(node) then
+                    return true
+                end
+                -- These emissions use declared identities or generated lexical
+                -- names directly, rather than substituting an ordinary name read.
+                if node.recordConstruct
+                    or node.structConstruct
+                    or node.staticCallee
+                    or node.concatBufferResult
+                    or node.kind == "isExpr"
+                    or node.kind == "switchExpr"
+                then
+                    return false
+                end
+                for _, child in ipairs(node) do
+                    if not frameBodyEligible(child) then
+                        return false
+                    end
+                end
+
+                return true
+            end
+
+            local stateCaptures = automaticCaptures(stateAnalysis, x.bindings)
+            local _, stateNested = emitDepth.captureUsage(stateAnalysis, stateCaptures)
+            local immutableCaptures = true
+            for _, definition in ipairs(stateCaptures) do
+                local t = definition.type
+                if emitDepth.captureWrites[
+                    definition
+                ] or t and (t.tag == "typeobject" or t.tag == "metatable" or t.tag == "typeHandle") then
+                    immutableCaptures = false
+                end
+            end
+            local stateFrame = not shared and #(
+                x.bindings or {}
+            ) > 1
+                and x.automaticSequence
+                and not x.repeatCondition
+                and #cleanupStack == 0
+                and not emitDepth.constructorReturnName
+                and immutableCaptures
+                and frameBodyEligible(
+                    stateAnalysis
+                ) and emitDepth.frameEligible(stateCaptures, stateNested) and nextTemp() or nil
+            local stateRegion
+            local stateSlot
+            if stateFrame then
+                captures = stateCaptures
+                variadic = usesVararg(stateAnalysis)
+                count = stateFrame .. "[0]"
+                local index = 0
+
+                local function stateCell(): string
+                    index = index - 1
+                    return ("%s[%d]"):format(stateFrame, index)
+                end
+
+                for j = 1, #(x.bindings or {}) do
+                    owners[j] = stateCell()
+                    if active[j] then
+                        active[j] = stateCell()
+                    end
+                    for _, field in ipairs(fieldActiveOrder[j] or {}) do
+                        fieldActive[j][field] = stateCell()
+                    end
+                    local automatic = x.bindings[j].automaticOwner
+                    if automatic and automaticMap[automatic] then
+                        automaticMap[automatic].whole = active[j]
+                        automaticMap[automatic].slot = owners[j]
+                    end
+                end
+                ctx.moveFrame = stateFrame
+                cleanupCacheSites = cleanupCacheSites + 1
+                stateSlot = cleanupCacheSites
+                stateRegion = nextTemp()
+            end
             if shared then
                 if cacheName ~= cleanupCacheName then
                     activation.used = true
@@ -8029,26 +8156,47 @@ function gen.generate(
                 end
                 e(("const %s=1;"):format(count))
             else
-                e(
-                    ("do local %s=0; local "):format(count),
-                    (x.startTok or x.withTok) and (x.startTok or x.withTok).line or sourceLine(x)
-                )
-                e(table.concat(owners, ","))
-                for j = 1, #(x.bindings or {}) do
-                    if active[j] then
-                        e(("; local %s=false"):format(active[j]))
+                if stateFrame then
+                    e(("do local %s={[0]=0"):format(stateFrame), sourceLine(x))
+                    for index, definition in ipairs(captures) do
+                        e((",[%d]=%s"):format(index, definition.token.text))
                     end
-                    for _, field in ipairs(fieldActiveOrder[j] or {}) do
-                        e(("; local %s=false"):format(fieldActive[j][field]))
+                    e(
+                        (
+                            "}; local %s=%s[%d]; if not %s then %s=function(%s%s)"
+                        ):format(
+                            stateRegion,
+                            cleanupCacheName,
+                            stateSlot,
+                            stateRegion,
+                            stateRegion,
+                            stateFrame,
+                            variadic and ",..." or ""
+                        )
+                    )
+                    emitDepth.pushCaptureFrame(captures, stateFrame)
+                else
+                    e(
+                        ("do local %s=0; local "):format(count),
+                        (x.startTok or x.withTok) and (x.startTok or x.withTok).line or sourceLine(x)
+                    )
+                    e(table.concat(owners, ","))
+                    for j = 1, #(x.bindings or {}) do
+                        if active[j] then
+                            e(("; local %s=false"):format(active[j]))
+                        end
+                        for _, field in ipairs(fieldActiveOrder[j] or {}) do
+                            e(("; local %s=false"):format(fieldActive[j][field]))
+                        end
                     end
+                    pluck.loweredFunction(
+                        (
+                            "; const %s,%s,%s=%s(function(%s)"
+                        ):format(ok, tag, payload, cleanupGlobals.xpcall, variadic and "..." or ""),
+                        nil,
+                        pluck.reasons.region
+                    )
                 end
-                pluck.loweredFunction(
-                    (
-                        "; const %s,%s,%s=%s(function(%s)"
-                    ):format(ok, tag, payload, cleanupGlobals.xpcall, variadic and "..." or ""),
-                    nil,
-                    pluck.reasons.region
-                )
                 cleanupStack[#cleanupStack + 1] = ctx
 
                 -- Emits the acquisition and hands back the flag its move clears, if it
@@ -8241,7 +8389,31 @@ function gen.generate(
                     emit(x.repeatCondition)
                     emitDepth.endCondition(x.repeatConditionHeader)
                 end
-                e(("end; return \"normal\" end,%s%s);"):format(cleanupIdName, variadic and ",..." or ""))
+                if stateFrame then
+                    e(("end; return \"normal\" end; %s[%d]=%s end;"):format(cleanupCacheName, stateSlot, stateRegion))
+                    emitDepth.popCaptureFrame()
+                    e(
+                        (
+                            "const %s,%s,%s=%s(%s,%s,%s%s);"
+                        ):format(
+                            ok,
+                            tag,
+                            payload,
+                            cleanupGlobals.xpcall,
+                            stateRegion,
+                            cleanupIdName,
+                            stateFrame,
+                            variadic and ",..." or ""
+                        )
+                    )
+                    for index, definition in ipairs(captures) do
+                        if captureWrites[definition] then
+                            e(("%s=%s[%d];"):format(definition.token.text, stateFrame, index))
+                        end
+                    end
+                else
+                    e(("end; return \"normal\" end,%s%s);"):format(cleanupIdName, variadic and ",..." or ""))
+                end
                 cleanupStack[#cleanupStack] = nil
             end
             e(("const %s={}; local %s=0;"):format(cleanupError, hasCleanupError), x.endTok and x.endTok.line or nil)

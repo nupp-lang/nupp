@@ -316,6 +316,24 @@ function M.cleanupRegionsWritingFunctionAndLoopLocalsStillCompile()
     assert(not out:find("never compiles", 1, true), "neither loop retains a must-reach function construction:\n" .. out)
 end
 
+function M.multiOwnerLoopsReuseTheirCleanupBody()
+    local dir = project{["multiowner.g.nupp"] = [[
+cdef function free(takes value: voidptr)
+cdef function malloc(size: uint64): voidptr
+local function ownedMalloc(size: integer): affine(voidptr, free)
+    return malloc(size)
+end
+for i = 1, 3000 do
+    local first = ownedMalloc(i)
+    local second = ownedMalloc(i + 1)
+    drop second
+end
+]]}
+    local out, code = run(dir, "--check multiowner.g.nupp")
+    assert(code == 0, "multiple owners must not construct a cleanup body each iteration:\n" .. out)
+    assert(not out:find("never compiles", 1, true), out)
+end
+
 function M.checkPassesWhenEveryLoopCanCompile()
     local dir = project{["demo.g.nupp"] = SCALE}
     local out, code = run(dir, "--check demo.g.nupp")

@@ -1,0 +1,254 @@
+local parser = require("nupp.compiler.parser")
+local check = require("fragment")
+local gen = require("nupp.compiler.gen")
+local envMod = require("nupp.compiler.env")
+local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
+local M = {}
+
+local function compile(source, opts)
+    local result = parser.parse(source, "ownership-region.g.nupp")
+    assert(#result.errors == 0, result.errors[1] and result.errors[1].msg)
+    local diagnostics = check.check(result, "ownership-region.g.nupp", envMod.new(HERE .. "/.."), opts)
+    assert(#diagnostics == 0, diagnostics[1] and diagnostics[1].msg)
+    local code, generation = gen.generate(result, "ownershipregion")
+    assert(#generation == 0, generation[1] and generation[1].msg)
+    return code
+end
+
+local RESOURCE = [[
+local closed: {integer} = {}
+local record Resource
+    id: integer
+    function destroy(takes self): nil
+        closed[#closed + 1] = self.id
+        unsafe do local released = unsafe release self end
+    end
+end
+local function create(id: integer): affine(Resource, Resource.destroy)
+    if id < 0 then error("acquisition") end
+    return new Resource(id = id)
+end
+]]
+
+function M.cachedMultiOwnerRegionsKeepIndependentStateAndPartialAcquisitions()
+    local code = compile(RESOURCE .. [[
+local function run(value: integer, mode: integer): (integer, nil, integer)
+    local first = create(value)
+    local second = create(mode == 1 and -1 or value + 1)
+    if mode == 2 then
+        drop second
+    elseif mode == 3 then
+        error("body")
+    elseif mode == 4 then
+        run(value - 10, 0)
+    end
+    return first.id, nil, value + 2
+end
+return run, closed
+]])
+    local bodies, calls = {}, 0
+    local globals = setmetatable({xpcall = function(body, handler, ...)
+        bodies[body] = true
+        calls = calls + 1
+        return xpcall(body, handler, ...)
+    end}, {__index = _G})
+    local chunk = assert(loadstring(code))
+    setfenv(chunk, globals)
+    local run, closed = chunk()
+    for _, value in ipairs({20, 40, 60}) do
+        local first, hole, last = run(value, 0)
+        assert(first == value and hole == nil and last == value + 2)
+    end
+    assert(table.concat(closed, ",") == "21,20,41,40,61,60")
+    local unique = 0
+    for _ in pairs(bodies) do unique = unique + 1 end
+    assert(calls == 3 and unique == 1, "the multi-owner body must be reused across invocations")
+    local ok, why = pcall(run, 80, 1)
+    assert(not ok and tostring(why):find("acquisition", 1, true))
+    assert(closed[#closed] == 80)
+    run(90, 2)
+    assert(closed[#closed - 1] == 91 and closed[#closed] == 90)
+    ok, why = pcall(run, 100, 3)
+    assert(not ok and tostring(why):find("body", 1, true))
+    assert(closed[#closed - 1] == 101 and closed[#closed] == 100)
+    run(120, 4)
+    assert(table.concat(closed, ","):match("111,110,121,120$"), "recursive invocation must retain each caller's owners")
+end
+
+function M.multiOwnerRegionsPreserveObservableCapturedWrites()
+    local code = compile(RESOURCE .. [[
+local observer: any
+local function observe(): integer
+    return observer()
+end
+local function run(value: integer): integer
+    local result = value
+    observer = function(): integer return result end
+    do
+        local first = create(value)
+        local second = create(value + 1)
+        result = first.id + second.id
+        assert(observe() == result)
+    end
+    return result
+end
+return run
+]])
+    local run = assert(loadstring(code))()
+    assert(run(20) == 41)
+    assert(run(40) == 81)
+end
+
+function M.cachedAcquisitionsReadEachCallsArguments()
+    local code = compile(RESOURCE .. [[
+local function run(value: integer): nil
+    local first = create(value)
+    local second = create(1)
+end
+return run, closed
+]])
+    local run, closed = assert(loadstring(code))()
+    run(20)
+    run(40)
+    assert(table.concat(closed, ",") == "1,20,1,40", "an acquisition-only argument must not retain the first invocation")
+end
+
+function M.cachedRegionsDoNotSnapshotLocalsWrittenByOtherClosures()
+    local code = compile(RESOURCE .. [[
+local setter: any
+local function change(): nil setter() end
+local function run(value: integer): integer
+    setter = function(): nil value = value + 10 end
+    local first = create(1)
+    local second = create(2)
+    change()
+    return value
+end
+return run
+]])
+    local run = assert(loadstring(code))()
+    assert(run(20) == 30)
+    assert(run(40) == 50)
+end
+
+function M.portableMultiOwnerRegionsForwardTheStateFrame()
+    local code = compile(RESOURCE .. [[
+local function run(value: integer): integer
+    local first = create(value)
+    local second = create(1)
+    drop second
+    return first.id
+end
+return run, closed
+]], {dialect = "lua51"})
+    local globals = setmetatable({xpcall = function(body, handler)
+        return xpcall(body, handler)
+    end}, {__index = _G})
+    local chunk = assert(loadstring(code))
+    setfenv(chunk, globals)
+    local run, closed = chunk()
+    assert(run(20) == 20 and run(40) == 40)
+    assert(table.concat(closed, ",") == "1,20,1,40")
+end
+
+function M.nestedCleanupBodiesReadTheCurrentOuterFrame()
+    local code = compile(RESOURCE .. [[
+local seen: {integer} = {}
+local function run(value: integer): nil
+    local first = create(1)
+    local second = create(2)
+    do
+        local third = create(3)
+        seen[#seen + 1] = value
+    end
+end
+return run, seen
+]])
+    local run, seen = assert(loadstring(code))()
+    run(20)
+    run(40)
+    assert(table.concat(seen, ",") == "20,40", "nested cleanup must not retain an earlier outer frame")
+end
+
+function M.cachedMixedDeclarationsReadEveryInitializer()
+    local code = compile(RESOURCE .. [[
+local function run(value: integer): integer
+    local first, label = create(1), value
+    local second = create(2)
+    return label
+end
+return run
+]])
+    local run = assert(loadstring(code))()
+    assert(run(20) == 20)
+    assert(run(40) == 40, "non-owner initializer must use the current call's argument")
+end
+
+function M.cachedAcquisitionsForwardVarargs()
+    local code = compile(RESOURCE .. [[
+local function run(...: integer): integer
+    local first = create((...))
+    local second = create(1)
+    return first.id
+end
+return run
+]])
+    local run = assert(loadstring(code))()
+    assert(run(20) == 20)
+    assert(run(40) == 40)
+end
+
+function M.constructorCleanupReturnsEachNewInstance()
+    for _, extra in ipairs({"", "local second = create(2)"}) do
+        local code = compile(RESOURCE .. [[
+local record Box
+    id: integer = 0
+    constructor(self)
+        local first = create(1)
+]] .. extra .. [[
+        return
+    end
+end
+return function(): Box return new Box() end
+]])
+        local createBox = assert(loadstring(code))()
+        local first, second = createBox(), createBox()
+        assert(first ~= second, "a cached cleanup must not return an earlier constructor instance")
+    end
+end
+
+function M.localTypeIdentitiesRemainPerInvocation()
+    local code = compile(RESOURCE .. [[
+local function run(value: integer): (any, any)
+    local record R
+        id: integer
+    end
+    local first = create(1)
+    local second = create(2)
+    return new R(id = value), R
+end
+return run
+]])
+    local run = assert(loadstring(code))()
+    for _, value in ipairs({20, 40}) do
+        local instance, identity = run(value)
+        assert(instance.id == value and getmetatable(instance) == identity,
+            "construction must use this invocation's type identity")
+    end
+    code = compile(RESOURCE .. [[
+local function run(value: integer): boolean
+    local record R
+        id: integer
+    end
+    local object: any = new R(id = value)
+    local first = create(1)
+    local second = create(2)
+    return object is R
+end
+return run
+]])
+    run = assert(loadstring(code))()
+    assert(run(20) and run(40), "type tests must use this invocation's type identity")
+end
+
+return M
