@@ -3531,6 +3531,9 @@ function emit.program(programs: {scalarIR.Program}, tier: string?, sourceFile: s
     end
 
     for _, program in ipairs(programs) do
+        if sourceFile ~= nil then
+            lines[#lines + 1] = '#line 1 "<nupp-generated>"'
+        end
         local context = emit.context(context, program)
         -- Byte tables the body reads that were known when it was compiled, at
         -- file scope so the compiler has their contents and their alignment. A
@@ -3634,6 +3637,9 @@ function emit.program(programs: {scalarIR.Program}, tier: string?, sourceFile: s
             for _, line in ipairs(emit.luaBlock(context, program.body or {}, 1, body)) do
                 lines[#lines + 1] = line
             end
+            if sourceFile ~= nil then
+                lines[#lines + 1] = '#line 1 "<nupp-generated>"'
+            end
             lines[#lines + 1] = "    return 0;"
             lines[#lines + 1] = "}"
             lines[#lines + 1] = ""
@@ -3712,6 +3718,10 @@ function emit.program(programs: {scalarIR.Program}, tier: string?, sourceFile: s
                     end
                 end
                 if not general and (vector == nil or forced) then
+                    local loopSource = (program.loop as scalarIR.Loop).source
+                    if sourceFile ~= nil and loopSource ~= nil then
+                        lines[#lines + 1] = ('#line %d %q'):format(loopSource.line, sourceFile as string)
+                    end
                     lines[#lines + 1] = "    for (; i < end; ++i) {"
                     for _, line in ipairs(emit.block(context, (program.loop as scalarIR.Loop).statements, 2, body)) do
                         lines[#lines + 1] = line
@@ -3747,6 +3757,9 @@ function emit.program(programs: {scalarIR.Program}, tier: string?, sourceFile: s
         end
     end
     if #builders > 0 then
+        if sourceFile ~= nil then
+            lines[#lines + 1] = '#line 1 "<nupp-generated>"'
+        end
         lines[#lines + 1] = "KS_API int " .. physicalSymbol(tostring(registrar), tier) .. "(lua_State *L) {"
         lines[#lines + 1] = "    if (!lua_checkstack(L, 3)) return luaL_error(L, \"AOT builder Lua stack exhausted\");"
         lines[#lines + 1] = "    lua_createtable(L, 0, " .. tostring(#builders) .. ");"
