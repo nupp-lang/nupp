@@ -407,4 +407,35 @@ function M.decodingIsUnchangedByTheSourceLength()
     end
 end
 
+-- Sweep sparse Unicode transitions and short tails across vector boundaries.
+-- A later malformed sequence must never displace the first error in the input.
+function M.scanPreservesSparseUnicodeTransitionsAndFirstErrors()
+    local euro, smile = "\226\130\172", "\240\159\152\128"
+    for pad = 0, 260 do
+        for _, gap in ipairs({0, 15, 16, 31, 32, 63, 64, 65, 127, 128, 129}) do
+            local text = '"' .. string.rep("a", pad) .. euro .. string.rep("b", gap) .. smile .. string.rep("c", pad % 67) .. '"'
+            local mine, message = decodedBy(fused, text)
+            local theirs, other = decodedBy(lunajson, text)
+            assert(message == nil and other == nil, "mixed Unicode refused at " .. pad .. ":" .. gap .. ": " .. tostring(message))
+            assert(mine == theirs, "mixed Unicode changed at " .. pad .. ":" .. gap)
+        end
+        for _, bad in ipairs(BAD_UTF8) do
+            for _, suffix in ipairs({"", string.rep("z", 65)}) do
+                local text = '"' .. string.rep("a", pad) .. bad .. suffix .. '"'
+                local code, position = referenceScan(text)
+                assert(code == INVALID_UTF8, "reference missed malformed UTF-8")
+                local _, message = decodedBy(fused, text)
+                local reported = message and tonumber(message:match("at byte (%d+)"))
+                assert(reported == position, "malformed UTF-8 at " .. pad .. ": " .. tostring(reported) .. " vs " .. position)
+            end
+        end
+        -- A control error before later malformed Unicode stays first.
+        local text = '"' .. string.rep("a", pad) .. "\001" .. string.rep("b", 65) .. "\255\""
+        local code, position = referenceScan(text)
+        assert(code == INVALID_CONTROL)
+        local _, message = decodedBy(fused, text)
+        assert(message and tonumber(message:match("at byte (%d+)")) == position, "later Unicode displaced earlier control error")
+    end
+end
+
 return M
