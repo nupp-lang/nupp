@@ -1719,7 +1719,11 @@ local function binary(node: cst.Binop, left: scalarIR.Expr, right: scalarIR.Expr
             context.reject(source, "bitwise operands must be fixed 32-bit values or nonnegative uint32 literals")
         end
 
-        return new scalarIR.Binary(op = bitwise, left = left, right = right, type = "i32", source = source)
+        local result = new scalarIR.Binary(op = bitwise, left = left, right = right, type = "i32", source = source)
+        if node.fixedArithmetic ~= nil and node.fixedArithmetic:sub(1, 4) == "u32." then
+            return lower.convert(result, "u32", source, context)
+        end
+        return result
     end
 
     local comparison = admit.COMPARISON[written]
@@ -3724,7 +3728,8 @@ local function unary(node: cst.Unop, value: scalarIR.Expr, kernel: lower.Kernel)
     elseif written == "~" and value.type == "u64" then
         return new scalarIR.FixedUnary(op = "u64_not", value = value, type = "u64", source = source)
     elseif written == "~" and bitOperand(value) then
-        return new scalarIR.Unary(op = "bnot", value = value, type = "i32", source = source)
+        local result = new scalarIR.Unary(op = "bnot", value = value, type = "i32", source = source)
+        return node.fixedArithmetic == "u32.notBits" and lower.convert(result, "u32", source, kernel.context) or result
     end
 
     kernel.context.reject(source, "unary operator " .. tostring(written) .. " is not admitted for this type")
@@ -8205,9 +8210,6 @@ function lower.program(
         ).tag == "nil" or not context.checked and lower.compactType(rets[1]) == "nil"
     ) then
         rets = {}
-    end
-    if #rets > 4 then
-        context.reject(lower.site(body), "general AOT entries currently return at most four scalar values")
     end
     for position, result in ipairs(rets) do
         local resolved = context.checked and resolvedResults[position] or nil

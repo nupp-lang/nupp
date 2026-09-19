@@ -522,9 +522,13 @@ function operators.install(c: state.Checker): state.ExprHandlers
             end
             c.numericOperand(t, node, op)
             if not wide and fixedBitOperand(operand) then
-                c.fixedWidth.mark(node, T.int32)
+                local target = t.tag == "uint32" and T.uint32 or T.int32
+                if target == T.uint32 then
+                    node.fixedArithmetic = "u32.notBits"
+                end
+                c.fixedWidth.mark(node, target)
 
-                return T.int32
+                return target
             end
 
             return wide and t or T.integer
@@ -714,19 +718,20 @@ function operators.install(c: state.Checker): state.ExprHandlers
             c.numericOperand(lt, lhs, op)
             c.numericOperand(rt, rhs, op)
             if not wide and fixedBitOperand(lhs) and fixedBitOperand(rhs) then
-                -- Both operands are already thirty-two bits, so the operator is
-                -- the one BitOp defines on them and its result is what BitOp
-                -- says: a signed thirty-two bit pattern. Saying `integer` here
-                -- was not wrong, only less than what is known, and the shortfall
-                -- had to be made up at every use by wrapping a value that never
-                -- stopped being thirty-two bits.
-                --
-                -- Answering the narrower type only where the operands carry the
-                -- width, rather than always. The arithmetic branch above already
-                -- reads its operands the same way to choose between `integer`
-                -- and `number`.
+                local target = fixedArithmeticTarget(lt, rt, lhs, rhs)
+                local intrinsic = ({
+                    ['&'] = "andBits",
+                    ['|'] = "orBits",
+                    ['~'] = "xorBits",
+                    ['<<'] = "shiftLeft",
+                    ['>>'] = "shiftRightLogical",
+                })[op]
+                if target == T.uint32 and intrinsic ~= nil then
+                    node.fixedArithmetic = "u32." .. intrinsic
+                    c.fixedWidth.mark(node, T.uint32)
+                    return T.uint32
+                end
                 c.fixedWidth.mark(node, T.int32)
-
                 return T.int32
             end
 

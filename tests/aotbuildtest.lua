@@ -400,8 +400,8 @@ local array = require("nupp.mem.array")
 --- Every byte's high nibble, as a pure helper over vectors, so the emitted
 --- unit carries a helper whose scalar rendering a value-building entry never
 --- calls -- which is the rendering the unit is compiled `-Werror` against.
-local function highNibble(value: simd.Vector<uint8, simd.Preferred>): simd.Vector<uint8, simd.Preferred>
-    return value >> 4
+local function highNibble<S>(species: simd.Species<uint8, S>, value: simd.Vector<uint8, S>): simd.Vector<uint8, S>
+    return value >> species:splat(4)
 end
 
 --- Counts the bytes in 0x20 through 0x2F through a span over the entry's own
@@ -419,11 +419,11 @@ local function punctuation(source: string, nullValue: any): (any, uint32, uint32
     if species = simd.species(array.uint8) then
         local bytes = valueBuilder.bytes(source)
         while cursor + species.lanes <= count do
-            found = found + (highNibble(species:load(bytes, cursor + 1)) == 2):count()
+            found = found + (highNibble(species, species:load(bytes, cursor + 1)) == 2):count()
             cursor = cursor + species.lanes
         end
         local tail = species:tail(count - cursor)
-        found = found + ((highNibble(species:load(bytes, cursor + 1, tail)) == 2) & tail):count()
+        found = found + ((highNibble(species, species:load(bytes, cursor + 1, tail)) == 2) & tail):count()
     end
     local scalar: uint32 = 0
     local at: uint32 = 0
@@ -596,10 +596,16 @@ end
 export const answer = answer
 
 @aot
-local function literalCounts(): (uint32, uint32, uint32, uint64)
-    return nupp.math.u64.popcount(68719476735), nupp.math.u64.trailingZeros(4294967296), nupp.math.u64.leadingZeros(0), nupp.math.u64.prefixXor(5)
+local function literalCounts(): (uint32, uint32, uint32, uint64, uint64, uint64)
+    return nupp.math.u64.popcount(68719476735), nupp.math.u64.trailingZeros(4294967296), nupp.math.u64.leadingZeros(0), nupp.math.u64.prefixXor(5), nupp.math.u64.andBits(68719476735ULL, 4294967296ULL), nupp.math.u64.sub(0ULL, 1ULL)
 end
 export const literalCounts = literalCounts
+
+@aot
+local function unsignedBits(a: uint32, b: uint32): (uint32, uint32, uint32, uint32, uint32, uint32)
+    return a & b, a | b, a ~ b, a << 1, a >> 1, ~a
+end
+export const unsignedBits = unsignedBits
 
 @aot
 local function literalForms(): uint64
@@ -2504,7 +2510,7 @@ function M.wideBitwiseAnswersAgreeWithAndWithoutAot()
                 ):format(
                     dir,
                     searchPathPrelude()
-                    .. 'local w=require("wide"); print(w.answer()); print(w.literalCounts()); print(w.literalForms())'
+                    .. 'local w=require("wide"); print(w.answer()); print(w.literalCounts()); print(w.literalForms()); print(w.unsignedBits(2147483649, 4294967295))'
                 )
             )
         )
@@ -2523,7 +2529,7 @@ function M.wideBitwiseAnswersAgreeWithAndWithoutAot()
     )
     test.equal(
         compiled,
-        "4294967296ULL\n36\t32\t64\t3ULL\n1017ULL",
+        "4294967296ULL\n36\t32\t64\t3ULL\t4294967296ULL\t18446744073709551615ULL\n1017ULL\n2147483649\t4294967295\t2147483646\t2\t1073741824\t2147483646",
         "uint64 literals and operations agree on both routes"
     )
 end
@@ -5337,7 +5343,7 @@ local function crossLane(exclusive out: span.WriteSpan<int32>, borrows input: sp
     s:store(out, 41, s:splat(nupp.math.i32.wrap(positive:first() as integer)))
 end
 
--- Two entries because a general AOT entry returns at most four scalars.
+-- Two entries group the forward and reverse reduction probes.
 @aot
 local function horizontals(borrows input: span.Span<number>): (number, number, number, number)
     local s = assert(simd.species(array.number, 4))

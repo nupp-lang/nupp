@@ -3436,7 +3436,7 @@ function verify.program(program: scalarIR.Program): scalarIR.Program
     end
     local resultTypes = program.resultTypes or {}
     local sourceResults = program.resultSourceTypes or {}
-    holds(#resultTypes == #sourceResults and #resultTypes <= 4, "invalid AOT entry results")
+    holds(#resultTypes == #sourceResults, "invalid AOT entry results")
     for _, resultType in ipairs(resultTypes) do
         holds(
             verify.NUMERIC[

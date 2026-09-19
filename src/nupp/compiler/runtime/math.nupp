@@ -493,6 +493,14 @@ end
 --- Unsigned 64-bit bit operations.
 local u64 = {}
 
+function u64.andBits(a: uint64, b: uint64): uint64
+    return a & b
+end
+
+function u64.sub(a: uint64, b: uint64): uint64
+    return a - b
+end
+
 -- Like the u32 runtime functions above, these return a Lua number. Each count
 -- is in 0..64; calling the public nupp.math namespace here would make its
 -- installer require itself on portable targets.

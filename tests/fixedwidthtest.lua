@@ -600,6 +600,9 @@ function M.unsignedWideBitCountsAndPrefixParityCoverEveryBit()
    local u64 = library().u64
    local zero = ffi.new("uint64_t", 0)
    local wide = 0x8000000000000005ULL
+   assertEq(tostring(u64.andBits(wide, 0x8000000000000000ULL)), "9223372036854775808ULL")
+   assertEq(tostring(u64.sub(zero, 1ULL)), "18446744073709551615ULL")
+   assertEq(tostring(u64.sub(wide, wide)), "0ULL")
    assertEq(u64.popcount(zero), 0)
    assertEq(u64.popcount(wide), 3)
    assertEq(u64.trailingZeros(zero), 64)
@@ -770,6 +773,32 @@ function M.arithmeticBetweenOneFixedWidthWrapsAndEstablishes()
    assert(portableCode:find("nupp.math.u32.sub(", 1, true), portableCode)
    assert(portableCode:find("nupp.math.i32.mul(", 1, true), portableCode)
    assert(not portableCode:find("bit.tobit", 1, true), "and never LuaJIT's BitOp:\n" .. portableCode)
+end
+
+function M.unsignedBitOperatorsKeepTheirCanonicalRange()
+   local source = [[
+local function bits(a: uint32, b: uint32): (uint32, uint32, uint32, uint32, uint32, uint32)
+    return a & b, a | b, a ~ b, a << 1, a >> 1, ~a
+end
+return bits
+]]
+   local gen = require("nupp.compiler.gen")
+   for _, dialect in ipairs({"luajit", "lua51"}) do
+      local result = parser.parse(source, "unsigned-bits.nupp")
+      assertEq(#result.errors, 0)
+      assertEq(#check.check(result, "unsigned-bits.nupp", sharedEnv, {dialect = dialect}), 0)
+      local code, diags = gen.generate(result, "unsigned-bits.nupp", nil, nil, nil, dialect)
+      assertEq(#diags, 0)
+      local prelude = dialect == "lua51" and stdlib.bootstrap({["stdlib.math"] = true}) or ""
+      local bits = assert(loadstring(prelude .. code))()
+      local a, b, c, d, e, f = bits(0x80000001, 0xffffffff)
+      assertEq(a, 0x80000001)
+      assertEq(b, 0xffffffff)
+      assertEq(c, 0x7ffffffe)
+      assertEq(d, 2)
+      assertEq(e, 0x40000000)
+      assertEq(f, 0x7ffffffe)
+   end
 end
 
 return M

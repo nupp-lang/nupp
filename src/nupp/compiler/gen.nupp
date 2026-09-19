@@ -5566,14 +5566,14 @@ function gen.generate(
                 return
             end
         end
-        if kind == "binop" and x.fixedArithmetic and x.lhs and x.rhs then
+        if (kind == "binop" or kind == "unop") and x.fixedArithmetic then
             -- Established thirty-two bit operands: the operator is the
             -- `nupp.math` intrinsic the checker named, inlined where the bit
             -- library is native and called where it is not, exactly as the
             -- spelled-out call would be.
             local form = not pluck.bitops.portable and pluck.scalarInline.forms[x.fixedArithmetic] or nil
             if form ~= nil then
-                local sides = {x.lhs, x.rhs}
+                local sides = kind == "unop" and {x.operand} or {x.lhs, x.rhs}
                 for index, piece in ipairs(form.parts) do
                     if type(piece) == "number" then
                         emit(sides[piece as integer])
@@ -5584,9 +5584,13 @@ function gen.generate(
             else
                 pluck.needRuntimeEffect("stdlib.math")
                 e("nupp.math." .. x.fixedArithmetic .. "(", x.op.line)
-                emit(x.lhs)
-                e(",")
-                emit(x.rhs)
+                if kind == "unop" then
+                    emit(x.operand)
+                else
+                    emit(x.lhs)
+                    e(",")
+                    emit(x.rhs)
+                end
                 e(")")
             end
             return

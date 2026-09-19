@@ -1830,7 +1830,7 @@ not admitted. With `aot = "off"` the unchanged ordinary body runs; with
 `require`, one native call returns the completed ordinary Lua value.
 
 A block kernel may use independently sized spans, structured scalar control
-flow, and up to four numeric or boolean results. A loop from one through
+flow, and multiple numeric or boolean results. A loop from one through
 `#input` authorizes access to that input, and a zero-based `uint32` append
 cursor authorizes `output[cursor + 1] = value` only inside a dominating
 `cursor < #output` branch. These proofs remain in checked AOT IR, so omitting a

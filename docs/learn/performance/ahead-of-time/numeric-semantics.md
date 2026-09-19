@@ -109,10 +109,12 @@ the bits it was already given. Going through `wrap` instead means a round trip
 out to binary64 for a pattern that never left thirty-two, which is both slower
 and narrower -- a value at or above 2^31 does not survive it.
 
-A bitwise operator needs neither. Its operands normalize to thirty-two bits and
-its result comes back signed, so where both operands already carry a width the
-result is an established `int32` and flows straight into the next fixed-width
-operation. Nothing has to be wrapped back to the width it never left:
+A bitwise operator needs neither. Established `uint32` operands keep their
+unsigned range through `&`, `|`, `~`, `<<`, `>>`, and unary `~`; an exact
+in-range literal can supply the other operand. The ordinary Lua and native
+routes agree, including results with bit 31 set. Established signed or mixed
+operands retain the signed `int32` result. Arithmetic right shift remains
+signed. Nothing has to be wrapped back to the width it never left:
 
 ```nupp
 local function choose(e: int32, f: int32, g: int32): int32

@@ -2490,6 +2490,8 @@ end
 --- Unsigned 64-bit bit counts and prefix parity.
 --- @internal
 record nupp.U64MathLibrary
+    andBits: nosuspend function(a: uint64, b: uint64): uint64
+    sub: nosuspend function(a: uint64, b: uint64): uint64
     popcount: nosuspend function(a: uint64): uint32
     trailingZeros: nosuspend function(a: uint64): uint32
     leadingZeros: nosuspend function(a: uint64): uint32

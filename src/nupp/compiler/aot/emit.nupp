@@ -1109,6 +1109,10 @@ function emit.scalar(context: emit.Context, node: scalarIR.Expr): string
             (loaded.scratch as scalarIR.Name).cName
         ) .. ", " .. emit.scalar(context, loaded.index) .. ")"
     elseif operation == "local" or operation == "helper_param" then
+        if node.type:match("^simd_species_") ~= nil then
+            local _, _, lanes = explicitType(context, node.type)
+            return "UINT32_C(" .. tostring(lanes) .. ")"
+        end
         return (node as scalarIR.Name).cName or ""
     elseif operation == "loop_index" then
         return "((double)(i + 1u))"
@@ -1567,8 +1571,10 @@ function emit.scalarBits(context: emit.Context, node: scalarIR.Expr): string
     elseif operation == "helper_call" then
         local call = node as scalarIR.HelperCall
         local parts: {string} = {}
-        for position, argument in ipairs(call.args) do
-            parts[position] = emit.scalar(context, argument)
+        for _, argument in ipairs(call.args) do
+            if argument.type:match("^simd_species_") == nil then
+                parts[#parts + 1] = emit.scalar(context, argument)
+            end
         end
 
         local names = context.explicitScalar and context.scalarHelperNames or context.helperNames
@@ -2055,8 +2061,10 @@ end
 --- One helper's C parameter list.
 local function helperParams(context: emit.Context, helper: scalarIR.Helper): string
     local parts: {string} = {}
-    for position, param in ipairs(helper.params) do
-        parts[position] = emit.cType(context, param.type) .. " " .. tostring(param.cName)
+    for _, param in ipairs(helper.params) do
+        if param.type:match("^simd_species_") == nil then
+            parts[#parts + 1] = emit.cType(context, param.type) .. " " .. tostring(param.cName)
+        end
     end
 
     return table.concat(parts, ", ")

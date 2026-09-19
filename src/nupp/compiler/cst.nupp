@@ -2217,6 +2217,9 @@ record cst.Unop is cst.Hints
     --- Set when the result is a 64-bit integer, which LuaJIT boxes in a fresh
     --- cdata object: an allocation a `noalloc` region has to hear about.
     wideArithmetic: boolean?
+
+    --- Unsigned fixed-width complement keeps its canonical numeric range.
+    fixedArithmetic: string?
 end
 
 --- A binary operator and its two sides.
