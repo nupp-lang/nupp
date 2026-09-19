@@ -51,14 +51,21 @@ mkdir -p "$(dirname "$IMAGE")"
 "$LUA" "$GENERATOR" \
     "$ROOT/$bootstrap_dir/nupp-compiler.lua" "$IMAGE" source "$dialect"
 
+# A fresh checker process must reproduce the graph, including interned IDs.
+# A hydrate/write round trip alone cannot detect unordered source traversal.
+roundtrip=$(mktemp)
+trap 'rm -f "$roundtrip"' EXIT
+"$LUA" "$GENERATOR" \
+    "$ROOT/$bootstrap_dir/nupp-compiler.lua" "$roundtrip" source "$dialect"
+cmp "$IMAGE" "$roundtrip" \
+    || { echo "prelude-image: fresh generation is not byte-reproducible" >&2; exit 1; }
+
 "$ROOT/bin/nupp" build --target "$compiler_target"
 
 # The bundle now carries the image, so it can be asked to hydrate one and write
 # it back. That is the property worth checking and the one a committed file only
 # stood in for: what the checker produced and what a host reads back are the
 # same graph.
-roundtrip=$(mktemp)
-trap 'rm -f "$roundtrip"' EXIT
 "$LUA" "$GENERATOR" \
     "$ROOT/$image_dir/nupp-compiler.lua" "$roundtrip" image "$dialect"
 cmp "$IMAGE" "$roundtrip" \

@@ -1117,6 +1117,50 @@ function M.cachedGenericInstantiationsLearnLateDeclaredMembers()
     assertEq(stringify.rets[1], types.string, "late metamethods are copied onto the cached instance")
 end
 
+function M.genericMemberIdentitiesIgnoreHashIterationOrder()
+    local declaration = types.nominal("OrderedSurface", "record")
+    local argument = types.nominal("OrderedArgument", "record")
+    local parameter = types.typevar("T", "ordered-surface-test")
+    declaration.typeParams = {parameter}
+    local surfaces = {"byname", "writeByname", "staticByname", "staticWriteByname", "metamethods"}
+    local watched = {}
+    for index, surface in ipairs(surfaces) do
+        local members = declaration[surface]
+        members.alpha = types.tuple({parameter, types.literal(index, types.number)})
+        members.zeta = types.tuple({parameter, types.literal(index + #surfaces, types.number)})
+        watched[members] = true
+    end
+
+    -- Force the source maps to enumerate backwards; relying on one process's
+    -- hash seed would let a nondeterministic compiler pass this regression.
+    local originalPairs = pairs
+    _G.pairs = function(value)
+        if not watched[value] then
+            return originalPairs(value)
+        end
+        local names, index = {"zeta", "alpha"}, 0
+
+        return function()
+            index = index + 1
+            local name = names[index]
+            if name then
+                return name, value[name]
+            end
+        end
+    end
+    local ok, instance = pcall(generics.instantiate, declaration, {[parameter] = argument})
+    _G.pairs = originalPairs
+    assert(ok, instance)
+    for _, surface in ipairs(surfaces) do
+        local members = instance[surface]
+        assertEq(members.alpha.elems[1], argument, surface .. " alpha argument")
+        assertEq(members.zeta.elems[1], argument, surface .. " zeta argument")
+        local alpha = assert(tonumber(members.alpha.id:match("(%d+)$")))
+        local zeta = assert(tonumber(members.zeta.id:match("(%d+)$")))
+        assert(alpha < zeta, surface .. " identities depend on member map enumeration")
+    end
+end
+
 function M.recursiveGenericMethodsRefreshEachInstanceOncePerWalk()
     -- Issue #15: each separately bound method contributes another open Handle<T>.
     -- A stack-only recursion guard expands every path between those instances.
@@ -2176,6 +2220,7 @@ end
 -- one gets nothing at all, and the value is read exactly once either way.
 function M.admissionEmitsOnlyWhatProofLeaves()
     local alias = "local type Small = nupp.types.range(integer, 0, 10)\n"
+
     local function lua(source)
         local parsed = parser.parse(source, "admit.g.nupp")
         assertEq(#parsed.errors, 0, "syntax: " .. (parsed.errors[1] and parsed.errors[1].msg or ""))
@@ -2184,6 +2229,7 @@ function M.admissionEmitsOnlyWhatProofLeaves()
 
         return gen.generate(parsed, "admit.g.nupp")
     end
+
     local unproved = lua(alias .. "local function of(v: integer): Small\n    return nupp.admit(v)\nend\nprint(of(1))")
     assert(unproved:find("__nuppAdmit", 1, true), "an unprovable admission emits its test")
     assert(unproved:find("__nuppV <= 10", 1, true), "the test carries the upper bound")
@@ -2196,14 +2242,17 @@ end
 -- from a comptime function, or substituted into a generic alias. That is the whole
 -- reason the builder and the resolver share a constructor.
 function M.aConstraintBuiltAtComptimeIsTheOneWrittenInAType()
-    local built = table.concat({
-        "local comptime function Between(T: type, low: integer, high: integer): type",
-        "    return nupp.types.range(T, low, high)",
-        "end",
-        "local type Range<T, const Low: integer, const High: integer> = Between(T, Low, High)",
-        "local type Made = Range<integer, 0, 31>",
-        "local type Written = nupp.types.range(integer, 0, 31)",
-    }, "\n") .. "\n"
+    local built = table.concat(
+        {
+            "local comptime function Between(T: type, low: integer, high: integer): type",
+            "    return nupp.types.range(T, low, high)",
+            "end",
+            "local type Range<T, const Low: integer, const High: integer> = Between(T, Low, High)",
+            "local type Made = Range<integer, 0, 31>",
+            "local type Written = nupp.types.range(integer, 0, 31)",
+        },
+        "\n"
+    ) .. "\n"
     -- each is the other, in both directions, which only holds if they interned alike
     clean(built .. "local function pass(v: Made): Written\n    return v\nend\nprint(pass(1))")
     clean(built .. "local function pass(v: Written): Made\n    return v\nend\nprint(pass(1))")
@@ -2235,18 +2284,23 @@ end
 -- neither. Constrained positions a write reaches are refused rather than erased.
 function M.admissionCarriesExactlyTheEffectsItLeft()
     local alias = "local type Small = nupp.types.range(integer, 0, 10)\n"
+
     local function body(region, value)
-        return alias .. table.concat({
-            "local function of(v: integer): Small",
-            "    local out: Small = nupp.admit(0)",
-            "    " .. region .. " do",
-            "        out = nupp.admit(" .. value .. ")",
-            "    end",
-            "    return out",
-            "end",
-            "print(of(1))",
-        }, "\n")
+        return alias .. table.concat(
+            {
+                "local function of(v: integer): Small",
+                "    local out: Small = nupp.admit(0)",
+                "    " .. region .. " do",
+                "        out = nupp.admit(" .. value .. ")",
+                "    end",
+                "    return out",
+                "end",
+                "print(of(1))",
+            },
+            "\n"
+        )
     end
+
     clean(body("noraise", "7"))
     assertEq(codes(body("noraise", "v")), "NUPP2711")
     clean(body("noalloc", "v"))
@@ -2254,11 +2308,11 @@ function M.admissionCarriesExactlyTheEffectsItLeft()
     -- a field, an element and a constructor are admission positions too
     local box = alias .. "local record Box\n    n: Small\nend\n"
     assertEq(codes(box .. "local function put(b: Box, v: integer): nil\n    b.n = v\nend\nprint(put)"), "NUPP2001")
-    assertEq(codes(box .. "local function make(v: integer): Box\n    return new Box(n = v)\nend\nprint(make)"), "NUPP2202")
     assertEq(
-        codes(alias .. "local function list(v: integer): {Small}\n    return {v}\nend\nprint(list)"),
-        "NUPP2002"
+        codes(box .. "local function make(v: integer): Box\n    return new Box(n = v)\nend\nprint(make)"),
+        "NUPP2202"
     )
+    assertEq(codes(alias .. "local function list(v: integer): {Small}\n    return {v}\nend\nprint(list)"), "NUPP2002")
 end
 
 -- A constrained type is a union member like any other, so it has to be seen as
@@ -2266,15 +2320,20 @@ end
 -- narrowing a base-typed value is the shape that asks: `Short` reaching `Short?`.
 function M.aConstrainedTypeReachesAUnionAsItself()
     local alias = "local type Short = nupp.types.length(string, 1, 4)\n"
-    clean(alias .. table.concat({
-        "local function named(text: string): Short?",
-        "    if text is Short then",
-        "        return text",
-        "    end",
-        "    return nil",
-        "end",
-        "print(named('ab'))",
-    }, "\n"))
+    clean(
+        alias .. table.concat(
+            {
+                "local function named(text: string): Short?",
+                "    if text is Short then",
+                "        return text",
+                "    end",
+                "    return nil",
+                "end",
+                "print(named('ab'))",
+            },
+            "\n"
+        )
+    )
     clean(alias .. "local function pass(v: Short): Short?\n    return v\nend\nprint(pass('ab'))")
     -- and an assignment into a field resolves what it admits into, like a binding
     local box = alias .. "local record Box\n    text: Short\nend\n"

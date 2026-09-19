@@ -1632,25 +1632,34 @@ local instantiations: {[string]: T.Nominal} = {}
 -- the outer application returns, then forget them so later declarations are visible.
 local refreshingInstantiations: {[string]: boolean}?
 
+--- Substitution can intern new types and packs, so visit member names in a stable
+--- order. Recollect them on every refresh: declarations can still gain members.
+local function fillInstantiationMap(into: {[string]: T.Type}, source: {[string]: T.Type}?, map: Bindings)
+    if not source then
+        return
+    end
+    local names: {string} = {}
+    for name in pairs(source) do
+        names[#names + 1] = name
+    end
+    table.sort(names)
+    for _, name in ipairs(names) do
+        local member = source[name]
+        if member then
+            into[name] = substWith(member, map, PRESERVE)
+        end
+    end
+end
+
 --- Copies the declaration's current member surface onto an instantiation. A generic
 --- can instantiate itself while its declaration is still being populated; revisiting
 --- that cached identity must therefore pick up members declared afterward.
 local function fillInstantiationMembers(inst: T.Nominal, declaration: T.Nominal, map: Bindings)
-    for name, ft in pairs(declaration.byname) do
-        inst.byname[name] = substWith(ft, map, PRESERVE)
-    end
-    for name, ft in pairs(declaration.writeByname or {}) do
-        inst.writeByname[name] = substWith(ft, map, PRESERVE)
-    end
-    for name, ft in pairs(declaration.staticByname or {}) do
-        inst.staticByname[name] = substWith(ft, map, PRESERVE)
-    end
-    for name, ft in pairs(declaration.staticWriteByname or {}) do
-        inst.staticWriteByname[name] = substWith(ft, map, PRESERVE)
-    end
-    for name, ft in pairs(declaration.metamethods or {}) do
-        inst.metamethods[name] = substWith(ft, map, PRESERVE)
-    end
+    fillInstantiationMap(inst.byname, declaration.byname, map)
+    fillInstantiationMap(inst.writeByname, declaration.writeByname, map)
+    fillInstantiationMap(inst.staticByname, declaration.staticByname, map)
+    fillInstantiationMap(inst.staticWriteByname, declaration.staticWriteByname, map)
+    fillInstantiationMap(inst.metamethods, declaration.metamethods, map)
     -- What the declaration includes is filled in as it is checked, the same as its
     -- members, so an instantiation made before the `is` list was read carried none of
     -- it. A declaration standing for itself is made at exactly that point.

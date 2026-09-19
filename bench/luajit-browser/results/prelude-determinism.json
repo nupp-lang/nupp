@@ -1,0 +1,228 @@
+{
+  "scope": "Fresh-process prelude source generation reproducibility on native pinned LuaJIT. Frozen compiler control/candidate comparison isolates member traversal ordering; this is not a browser latency benchmark.",
+  "sourceHead": "9f7ba559f028f0514b716899a571b18b2c94a23d",
+  "sourceChanges": [
+    "src/nupp/compiler/generics.nupp: fillInstantiationMap/fillInstantiationMembers",
+    "src/nupp/compiler/check/declare.nupp: memberNames/inheritMembers"
+  ],
+  "cause": {
+    "instrumentation": "Record every types.serial(prefix) allocation, its constructor key from debug.getlocal, and producer stack. Compare event prefix/id/key, excluding process-specific stack C addresses.",
+    "firstDivergence": {
+      "serial": 583,
+      "keys": [
+        "pack(exclusive:!tt582)",
+        "pack(plain:nominal#59(Alias))"
+      ],
+      "producer": "generics.fillInstantiationMembers -> substWith -> substPackWith -> types.pack"
+    },
+    "afterSortingInstantiationMaps": {
+      "serial": 839,
+      "keys": [
+        "pack(plain:!tt826,plain:t7,plain:t653)",
+        "pack(plain:!tt826,plain:t7,plain:!pt836,plain:t653)"
+      ],
+      "producer": "check.declare.inheritMembers -> substType -> substPackWith -> types.pack"
+    },
+    "afterBothFixes": {
+      "freshProcesses": 2,
+      "matchingSerialEvents": 990,
+      "textFormatImagesByteIdentical": true
+    },
+    "fix": "Sort the five generic member maps and three inherited member maps before substitutions can allocate interned identities. Recollect keys each call because generic declarations are mutable; preserve overload entry array order and own-member precedence."
+  },
+  "artifacts": {
+    "control": {
+      "path": "build/issue59-capability/control-compiler.lua",
+      "sha256": "6534497e14aef15b5eca860a9a6b1850f96c505d8ea6c7b27974d00fd24170e3"
+    },
+    "candidate": {
+      "path": "/private/tmp/nupp-prelude-determinism/compiler-source-candidate.lua",
+      "sha256": "dd559767dc6ce5435c358d1cb9ac8ff1aaeb339ad99b38c7378b48c13871e883",
+      "derivation": "Control bundle with only fillInstantiationMembers and inheritMembers replaced by the helper/function source snippets emitted by that same frozen compiler. No instrumentation or bytecode changes elsewhere."
+    },
+    "compactGenerator": {
+      "path": "editors/playground/tools/generate-prelude-image.lua",
+      "sha256": "3c650d6d8147561b6a056afd3889c31fc5e4130a1a6be86b2944b69d8422d9eb"
+    },
+    "oldTextGenerator": {
+      "path": "build/issue59-compact/generate-v2.lua",
+      "bytes": 8455,
+      "sha256": "833ceb2bcbd11c28e6732b89222fdfa108a4773a00db1004dc0994ef493e34c0"
+    },
+    "instrumentedCandidate": {
+      "path": "/private/tmp/nupp-prelude-determinism/compiler-source-instrumented.lua",
+      "bytes": 7469903,
+      "sha256": "848901045a16ef943c43e8b5d8189f7414231a4cb0b40da305ed14d5b3fde3a1"
+    },
+    "textCandidateImage": {
+      "path": "/private/tmp/nupp-prelude-determinism/source-a.bin",
+      "bytes": 2118274,
+      "sha256": "312b7125db41a11355448aa63d369931f754ccd94cf20b3f60987bd6ba3f211a"
+    }
+  },
+  "interpreter": {
+    "path": "/Users/dowling/projects/nupp/.nupp-cache/toolchain/cfd399bdf9d30ae6/luajit/bin/luajit",
+    "version": "LuaJIT 2.1.1785763465 -- Copyright (C) 2005-2026 Mike Pall. https://luajit.org/"
+  },
+  "compactSourceGeneration": {
+    "dialect": "luajit",
+    "mode": "source",
+    "order": "Six process pairs, alternating control/candidate and candidate/control. Each child starts a fresh pinned LuaJIT process; no serial instrumentation.",
+    "summary": {
+      "control": {
+        "freshProcesses": 6,
+        "distinctImages": 6,
+        "medianMs": 326.16650000000004,
+        "minMs": 300.89,
+        "maxMs": 406.936
+      },
+      "candidate": {
+        "freshProcesses": 6,
+        "distinctImages": 1,
+        "medianMs": 361.637,
+        "minMs": 324.585,
+        "maxMs": 405.367
+      }
+    },
+    "runs": [
+      {
+        "variant": "control",
+        "pair": 1,
+        "elapsedMs": 326.851,
+        "bytes": 744757,
+        "sha256": "0c564a41c3ec5f132e36fb2b125a9f8a15a91699cd7abfef4b3f86f5fcd00f85",
+        "generatorReport": ""
+      },
+      {
+        "variant": "candidate",
+        "pair": 1,
+        "elapsedMs": 405.367,
+        "bytes": 744757,
+        "sha256": "c4fcc016109d895b837df4d81200730be34f9f1d90dce676afa559440cb00e9b",
+        "generatorReport": ""
+      },
+      {
+        "variant": "candidate",
+        "pair": 2,
+        "elapsedMs": 386.215,
+        "bytes": 744757,
+        "sha256": "c4fcc016109d895b837df4d81200730be34f9f1d90dce676afa559440cb00e9b",
+        "generatorReport": ""
+      },
+      {
+        "variant": "control",
+        "pair": 2,
+        "elapsedMs": 314.593,
+        "bytes": 744757,
+        "sha256": "9759fd00939f3619687f2f6f4ba182d34c4763abd06e2ee0367f303c5e4bac71",
+        "generatorReport": ""
+      },
+      {
+        "variant": "control",
+        "pair": 3,
+        "elapsedMs": 325.482,
+        "bytes": 744757,
+        "sha256": "fe1c65d12615da0b124e4983dfb4890f27e8b0a347b74aa02ad81cc13e0db15f",
+        "generatorReport": ""
+      },
+      {
+        "variant": "candidate",
+        "pair": 3,
+        "elapsedMs": 396.92,
+        "bytes": 744757,
+        "sha256": "c4fcc016109d895b837df4d81200730be34f9f1d90dce676afa559440cb00e9b",
+        "generatorReport": ""
+      },
+      {
+        "variant": "candidate",
+        "pair": 4,
+        "elapsedMs": 332.434,
+        "bytes": 744757,
+        "sha256": "c4fcc016109d895b837df4d81200730be34f9f1d90dce676afa559440cb00e9b",
+        "generatorReport": ""
+      },
+      {
+        "variant": "control",
+        "pair": 4,
+        "elapsedMs": 300.89,
+        "bytes": 744757,
+        "sha256": "6bcc82fc6a44ffe4b7193b9d495c9839dd05562fef6082998c96ae3762577749",
+        "generatorReport": ""
+      },
+      {
+        "variant": "control",
+        "pair": 5,
+        "elapsedMs": 331.687,
+        "bytes": 744757,
+        "sha256": "a31b25908e49175151d7e0c437397c9fc78212591d892c418215e02742d672c4",
+        "generatorReport": ""
+      },
+      {
+        "variant": "candidate",
+        "pair": 5,
+        "elapsedMs": 337.059,
+        "bytes": 744757,
+        "sha256": "c4fcc016109d895b837df4d81200730be34f9f1d90dce676afa559440cb00e9b",
+        "generatorReport": ""
+      },
+      {
+        "variant": "candidate",
+        "pair": 6,
+        "elapsedMs": 324.585,
+        "bytes": 744757,
+        "sha256": "c4fcc016109d895b837df4d81200730be34f9f1d90dce676afa559440cb00e9b",
+        "generatorReport": ""
+      },
+      {
+        "variant": "control",
+        "pair": 6,
+        "elapsedMs": 406.936,
+        "bytes": 744757,
+        "sha256": "2ab228ca45d82bff7c97d54bc92a4116ceadf73a610ee0a285a7cf3f5b9780cb",
+        "generatorReport": ""
+      }
+    ]
+  },
+  "durationInterpretation": "Inconclusive secondary regression check: concurrent shared compiler tests and browser acceptance work ran on the same host. Observed full process medians were 326.167 ms control and 361.637 ms candidate; overlapping ranges do not establish a speed or regression verdict. Image byte identity is the primary oracle.",
+  "focusedRegression": {
+    "suite": "typeleveltest",
+    "test": "genericMemberIdentitiesIgnoreHashIterationOrder",
+    "mechanism": "Force pairs to enumerate the five source member maps in reverse lexical order. Verify substituted arguments and monotonic allocated identities, restoring pairs through pcall. Unique nominal argument prevents earlier intern hits from hiding order dependence.",
+    "control": "Fails: byname identities depend on member map enumeration",
+    "candidate": "Passes all five member maps"
+  },
+  "limits": [
+    "Frozen bundle experiment targets LuaJIT dialect on native pinned LuaJIT; production LuaJIT and Lua 5.1 source/image checks are run separately by scripts/prelude-image.",
+    "This establishes reproducibility for the checked prelude and targeted member-map regression, not canonical ordering for every possible user module.",
+    "Candidate frozen bundle contains source-generated replacement functions only, keeping the control bundle otherwise byte-for-byte unchanged."
+  ],
+  "sourceSha256": {
+    "src/nupp/compiler/generics.nupp": "4348eb1de7c001b7a7e78f946057f1908c1c97c284f8bea49e6d3513cfa177f4",
+    "src/nupp/compiler/check/declare.nupp": "336494fab2b28598d321379f6fb5f35d7a466f8541a5e8fac73dbd063dd387eb",
+    "tests/typeleveltest.lua": "358d39ad9d12f62285a6744a41860b86225a7cae4cceba32618e3fa917607990",
+    "scripts/prelude-image": "8fb1324f70381cb82739b58a364fe0992aafcd9d8b39589355fdccc3ebd967ad"
+  },
+  "productionGeneration": {
+    "luajit": {
+      "interpreter": "pinned LuaJIT",
+      "freshSourceGenerationByteIdentical": true,
+      "hydrateRoundTripByteIdentical": true,
+      "imageBytes": 744757,
+      "imageSha256": "c4fcc016109d895b837df4d81200730be34f9f1d90dce676afa559440cb00e9b"
+    },
+    "lua51": {
+      "interpreter": "official Lua 5.1.5",
+      "freshSourceGenerationByteIdentical": true,
+      "hydrateRoundTripByteIdentical": true,
+      "imageBytes": 744757,
+      "imageSha256": "c4fcc016109d895b837df4d81200730be34f9f1d90dce676afa559440cb00e9b"
+    }
+  },
+  "validation": {
+    "typelevelAndPreludeTests": 96,
+    "sharedCompilerTests": 2025,
+    "installedSafariResponses": 39,
+    "installedSafariEvidence": "safari-deterministic-compiler.json",
+    "fixpoint": "byte-identical from pinned stage zero"
+  }
+}
