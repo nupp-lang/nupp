@@ -141,9 +141,10 @@ accumulation explicit binary32.
 
 ## Browser GPU kernels
 
-A browser target combines `dialect = "lua51"`, the browser provider catalog, and
+A browser target combines `host = "browser"`, the default LuaJIT dialect, and
 `aot = "require-wasm"`. GPU kernels use `nupp.mem.span.Span` and
-`nupp.mem.span.WriteSpan` so the Worker can transfer bounded Wasm-memory leases:
+`nupp.mem.span.WriteSpan`; the Worker transfers bounded copies between guest
+storage and WebGPU buffers:
 
 ```nupp
 local span = nupp.mem.span

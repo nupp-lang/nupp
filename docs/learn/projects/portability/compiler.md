@@ -2,9 +2,15 @@
 order: 515
 ---
 
-# Portable compiler bundle
+# Browser and portable compiler bundles
 
-The portable compiler bundle runs Nupp checking, lowering, optimization, and
+The playground defaults to a LuaJIT compiler bundle in a retained v86 guest.
+Build that artifact with `scripts/prelude-image luajit`; its output lives in
+`build/browser-luajit`. The LuaJIT entry supplies native storage and inline C
+declaration/layout support for the i686 Linux guest. It cannot read host headers
+or invoke a C preprocessor.
+
+The legacy portable compiler bundle runs Nupp checking, lowering, optimization, and
 hover queries inside a stock Lua 5.1 host. Build it when an application needs
 the compiler without giving that host LuaJIT, a filesystem, or native modules.
 
@@ -53,7 +59,7 @@ trip to reproduce the tracked bytes exactly.
 
 ## Session methods
 
-One session owns a lazy checker environment for each output dialect. The
+One portable session owns a lazy checker environment for each output dialect. The
 default dialect is `lua51`:
 
 ```lua
@@ -89,8 +95,20 @@ not as a second compiler API.
 
 ## Browser host
 
-The playground runs the same tested bundle inside official Lua 5.1 compiled to
-WebAssembly. Its generated assets are:
+The default playground loads verified, compressed LuaJIT compiler bytecode and
+a pre-LuaJIT VM snapshot in a dedicated Worker. One retained compiler session
+handles edits and hover queries. Stop terminates a busy VM; subsequent work
+creates a fresh one. Application execution uses a separate guest.
+
+The asset manifest records compiler and runtime sizes, digests and the pinned
+guest identity. Snapshots restore fresh entropy and wall time; invalid snapshots
+fall back to normal boot of the same LuaJIT guest. See the
+[LuaJIT browser host](../../performance/ahead-of-time/wasm.md).
+
+### Explicit legacy host
+
+The legacy selection runs the portable bundle inside official Lua 5.1 compiled
+to WebAssembly. Its generated assets are:
 
 - `nupp-playground.mjs`, the ES module loader;
 - `nupp-playground.wasm`, the Lua VM and host ABI;

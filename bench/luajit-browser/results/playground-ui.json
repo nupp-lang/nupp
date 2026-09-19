@@ -1,0 +1,53 @@
+{
+  "scope": "Desktop engines, including narrow viewport; not physical mobile-device acceptance",
+  "results": [
+    {
+      "engine": "chromium",
+      "version": "152.0.7977.77",
+      "cancelMs": 35.903999999999996,
+      "checks": [
+        "tour",
+        "stop infinite loop",
+        "run after stop",
+        "compat rejection",
+        "stored settings",
+        "legacy and LuaJIT switch",
+        "narrow iframe",
+        "documentation run and disconnect/reconnect"
+      ],
+      "errors": []
+    },
+    {
+      "engine": "firefox",
+      "version": "155.0",
+      "cancelMs": 28.69933299999866,
+      "checks": [
+        "tour",
+        "stop infinite loop",
+        "run after stop",
+        "compat rejection",
+        "stored settings",
+        "legacy and LuaJIT switch",
+        "narrow iframe",
+        "documentation run and disconnect/reconnect"
+      ],
+      "errors": []
+    },
+    {
+      "engine": "webkit",
+      "version": "26.6",
+      "cancelMs": 37.93700000000172,
+      "checks": [
+        "tour",
+        "stop infinite loop",
+        "run after stop",
+        "compat rejection",
+        "stored settings",
+        "legacy and LuaJIT switch",
+        "narrow iframe",
+        "documentation run and disconnect/reconnect"
+      ],
+      "errors": []
+    }
+  ]
+}
