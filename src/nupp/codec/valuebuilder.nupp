@@ -47,7 +47,7 @@ See [ahead-of-time.md](docs/learn/performance/ahead-of-time/index.md) for what
 generated code is allowed to do.
 ]]
 const utf8 = require("nupp.text.utf8")
-const span = require("nupp.mem.span")
+const {type ByteSpan} = require("nupp.mem.span")
 
 ----------------------------------------------------------------------------
 -- Reading encoded values
@@ -475,7 +475,7 @@ end
 --- @param bytes the rooted string or buffer to view
 --- @return the byte view over it
 --- @raises when the bytes are not a string outside an AOT entry
-function valuebuilder.bytes(borrows bytes: any): span.ByteSpan borrows (bytes)
+function valuebuilder.bytes(borrows bytes: any): ByteSpan borrows (bytes)
     -- A span is a view, so it has nothing to root a buffer's unread bytes
     -- with: only an entry's own parameter is rooted for the call, and that is
     -- the one place this is admitted. In the compiled path the buffer's bytes
@@ -484,7 +484,7 @@ function valuebuilder.bytes(borrows bytes: any): span.ByteSpan borrows (bytes)
         error("value stream bytes need a rooted string outside an AOT entry", 2)
     end
 
-    return span.fromString(bytes as string)
+    return require("nupp.mem.span").fromString(bytes as string)
 end
 
 --- Reads one byte at a zero-based offset.

@@ -65,6 +65,18 @@ function M.anOrdinaryJsonRequireLoadsLunajsonAndNoAotDecoder()
     assert(not output:find("LOADED ", 1, true), "ordinary JSON use loaded an AOT-only module: " .. output)
 end
 
+function M.valueBuildingWithoutByteViewsDoesNotLoadStorage()
+    local output = runScript([[
+        package.preload["nupp.mem.span"] = function()
+            error("valuebuilder loaded spans before a byte view was requested")
+        end
+        local builder = require("nupp.codec.valuebuilder")
+        assert(builder.length("hello") == 5)
+        print("done")
+    ]])
+    assert(output:find("done", 1, true), output)
+end
+
 function M.theJsonProviderModuleIsLunajson()
     -- The same claim from inside this process, without moving anything: the
     -- module the facade holds is the Lunajson provider itself.
