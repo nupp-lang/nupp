@@ -1,0 +1,96 @@
+{
+  "baseline": "d5c3e9e823a894d09d2ea9783c33629e086ffeef",
+  "scope": "Source archive exported with git archive into an empty directory, before the later rebase; no seeded compiler outputs, .rocks, prelude images or browser assets. Final-head source-build and release rehearsal are separate CI checks.",
+  "reusedExternalInputs": [
+    "Verified shared pinned toolchain cache (including stage-zero v0.0.8)",
+    "npm package cache through npm ci --offline",
+    "Verified source-built guest with buildKey 140b5611ba31dfb101c21341deee8f10f0725632dda20f5404ff7815d8dc5fa5",
+    "Verified official Lua 5.1.5 source archive"
+  ],
+  "commands": [
+    "./bin/nupp build --target bootstrapCompiler",
+    "./bin/nupp build",
+    "./bin/nupp build --target docs",
+    "npm ci --prefix editors/playground --offline",
+    "EMSDK_PYTHON=/opt/homebrew/bin/python3.14 node editors/playground/build.mjs"
+  ],
+  "environmentCorrections": [
+    "Allowed network access to install declared LuaRocks dependencies",
+    "Selected installed Python 3.14 for Emscripten, whose default Python was Xcode 3.9"
+  ],
+  "logs": [
+    {
+      "name": "nupp-luajit-cold-build.log",
+      "bytes": 4543,
+      "sha256": "93772cfdc83906592121067ae7b5f886198738d03000e123c8470a5b571d7d05"
+    },
+    {
+      "name": "nupp-luajit-cold-current.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "nupp-luajit-cold-docs.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "nupp-luajit-cold-playground.log",
+      "bytes": 5714,
+      "sha256": "fd35958598a3f7e8095a0cf8021413650350ffa9ed0748aa00a3914ebf59d065"
+    }
+  ],
+  "ui": {
+    "scope": "Desktop engines, including narrow viewport; not physical mobile-device acceptance",
+    "results": [
+      {
+        "engine": "chromium",
+        "version": "152.0.7977.77",
+        "cancelMs": 35.20295800000031,
+        "checks": [
+          "tour",
+          "stop infinite loop",
+          "run after stop",
+          "compat rejection",
+          "stored settings",
+          "legacy and LuaJIT switch",
+          "narrow iframe",
+          "documentation run and disconnect/reconnect"
+        ],
+        "errors": []
+      },
+      {
+        "engine": "firefox",
+        "version": "155.0",
+        "cancelMs": 28.37183300000106,
+        "checks": [
+          "tour",
+          "stop infinite loop",
+          "run after stop",
+          "compat rejection",
+          "stored settings",
+          "legacy and LuaJIT switch",
+          "narrow iframe",
+          "documentation run and disconnect/reconnect"
+        ],
+        "errors": []
+      },
+      {
+        "engine": "webkit",
+        "version": "26.6",
+        "cancelMs": 37.56345800000054,
+        "checks": [
+          "tour",
+          "stop infinite loop",
+          "run after stop",
+          "compat rejection",
+          "stored settings",
+          "legacy and LuaJIT switch",
+          "narrow iframe",
+          "documentation run and disconnect/reconnect"
+        ],
+        "errors": []
+      }
+    ]
+  }
+}
