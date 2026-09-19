@@ -198,7 +198,7 @@ record modules.Session
     --- answers where it landed, or nil when the compiler carries no such module. A
     --- module the project can already reach answers its own path and stages nothing.
     ---
-    --- Shared by catalog validation, AOT, and module compilation.
+    --- Shared by metadata checking, AOT, and module compilation.
     stageBundled: function(string, boolean?): string?
 
     --- Stages the compiler-carried native GPU runtime -- the layout, the native

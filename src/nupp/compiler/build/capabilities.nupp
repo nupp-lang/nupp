@@ -98,8 +98,4 @@ function capabilities.find(record, dependencyName: string, kind: string, name: s
     return nil, "dependency " .. dependencyName .. " provides no " .. kind .. " named " .. name
 end
 
-function capabilities.read(record, dependencyName: string): {capabilities.Entry}?, string?
-    return readDescriptor(record, dependencyName)
-end
-
 export = capabilities

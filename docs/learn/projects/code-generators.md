@@ -75,4 +75,3 @@ last published output and never installs or executes a tool. Generator modules a
 ordinary trusted build dependencies. The child process supplies time and memory
 bounds and narrows the request API, but it is not an operating-system security
 sandbox; do not install an untrusted provider.
-
