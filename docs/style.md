@@ -105,6 +105,11 @@ none of them says which is which. Name the subject:
 | What is inferred | Inference |
 | What this does not do | Limits |
 
+Put the answer in the title, not the question that discovers it. If the answer
+to "What an X omits" is "bars", the title is "Omitted bars". "What an X
+omits" is banned; X is context for the section, while the omitted bars are its
+subject.
+
 The same applies to a title naming the document rather than its subject:
 
 | Banned | Write instead |
