@@ -4188,6 +4188,7 @@ function gen.generate(
     -- function, a declaration sharing a loop with the region is fresh on a later
     -- iteration and cannot be retained by that cache.
     local definitionLoops = setmetatable({}, {__mode = "k"})
+    emitDepth.bindingWrites = {}
 
     local function planDefinitionLoops()
         local function walk(node, loops)
@@ -4202,6 +4203,11 @@ function gen.generate(
                         copy[index] = loop
                     end
                     definitionLoops[definition] = copy
+                    for _, write in ipairs(rawget(node, "writes") or {}) do
+                        if write.path == node.text then
+                            emitDepth.bindingWrites[write.offset] = definition
+                        end
+                    end
                 end
                 return
             end
@@ -4275,6 +4281,18 @@ function gen.generate(
         return nil
     end
 
+    -- A bare function declaration assigns an existing Lua binding. The checker
+    -- gives its declared function a fresh definition, so recover the actual
+    -- target from the mutation pass's lexical binding evidence instead.
+    function pluck.functionAssignment(node)
+        local name = node and node.kind == "funcStmt" and node.name or nil
+        if name and name.base and #name == 1 and not name.method then
+            return emitDepth.bindingWrites[name.base.offset]
+        end
+
+        return nil
+    end
+
     -- Whether this body would hold a region function to one execution.
     --
     -- The cached function is emitted where it is written and only its instance is
@@ -4309,8 +4327,8 @@ function gen.generate(
             if not node or cst.isToken(node) then
                 return
             end
-            if node.kind == "name" and node.token then
-                local definition = node.token.definition
+            if node.kind == "name" and node.token or pluck.functionAssignment(node) then
+                local definition = pluck.functionAssignment(node) or node.token.definition
                 if definition then
                     local token = definition.token
                     if not localBindings[definition]
@@ -4403,6 +4421,14 @@ function gen.generate(
                 end
             elseif kind == "compoundAssign" then
                 markName(node.target, written)
+            else
+                local definition = pluck.functionAssignment(node)
+                if definition and (captures == nil or wanted[definition]) then
+                    written[definition] = true
+                    -- Its target is emitted as a declaration, not as an ordinary
+                    -- name read. Keep the lexical cell rather than a frame slot.
+                    nested[definition] = true
+                end
             end
             for _, child in ipairs(node) do
                 walk(child, childFunctionDepth)
@@ -7511,11 +7537,9 @@ function gen.generate(
             for _, activeName in ipairs(activeNames) do
                 body[#body + 1] = ("%s=false; "):format(activeName)
             end
-            body[
-                #body + 1
-            ] = kind == "methodCall" and (
-                "return %s:%s(...)"
-            ):format(callable, x.overloadMember or x.name.text) or ("return %s(...)"):format(callable)
+            body[#body + 1] = kind == "methodCall"
+                and ("return %s:%s(...)"):format(callable, x.overloadMember or x.name.text)
+                or ("return %s(...)"):format(callable)
             if moveFrame then
                 e(
                     pluck.declareHelper(
@@ -8033,9 +8057,12 @@ function gen.generate(
                     inStateRegion = true
                 end
             end
-            local shared = not emitDepth.constructorReturnName and not inStateRegion and cacheName ~= nil and #(
-                x.bindings or {}
-            ) == 1 and not active[1] and not x.automaticComplex
+            local shared = not emitDepth.constructorReturnName
+                and not inStateRegion
+                and cacheName ~= nil
+                and #(x.bindings or {}) == 1
+                and not active[1]
+                and not x.automaticComplex
             -- A multi-owner region needs its acquisition progress after a raise.
             -- Keep that state in a fresh frame, so the body function can be reused
             -- without sharing owners between calls or recursive activations.
@@ -8081,23 +8108,23 @@ function gen.generate(
             local immutableCaptures = true
             for _, definition in ipairs(stateCaptures) do
                 local t = definition.type
-                if emitDepth.captureWrites[
-                    definition
-                ] or t and (t.tag == "typeobject" or t.tag == "metatable" or t.tag == "typeHandle") then
+                if emitDepth.captureWrites[definition]
+                    or t and (t.tag == "typeobject" or t.tag == "metatable" or t.tag == "typeHandle")
+                then
                     immutableCaptures = false
                 end
             end
-            local stateFrame = not shared and #(
-                x.bindings or {}
-            ) > 1
+            local stateFrame = not shared
+                and #(x.bindings or {}) > 1
                 and x.automaticSequence
                 and not x.repeatCondition
                 and #cleanupStack == 0
                 and not emitDepth.constructorReturnName
                 and immutableCaptures
-                and frameBodyEligible(
-                    stateAnalysis
-                ) and emitDepth.frameEligible(stateCaptures, stateNested) and nextTemp() or nil
+                and frameBodyEligible(stateAnalysis)
+                and emitDepth.frameEligible(stateCaptures, stateNested)
+                and nextTemp()
+                or nil
             local hoist = stateFrame
                 and emitDepth.hoist
                 and emitDepth.hoist.body == x.automaticBlock

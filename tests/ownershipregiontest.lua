@@ -310,4 +310,76 @@ return run
     assert(run(20) and run(40), "type tests must use this invocation's type identity")
 end
 
+function M.functionDeclarationsMutateTheirActualCapturedBinding()
+    for _, extra in ipairs({"", "local second = create(2)"}) do
+        local code = compile(RESOURCE .. [[
+local setter: any
+local function change(): nil setter() end
+local function run(value: any): any
+    setter = function(): nil
+        function value(): integer return 42 end
+    end
+    local first = create(1)
+]] .. extra .. [[
+    change()
+    return value
+end
+return run
+]])
+        local run = assert(loadstring(code))()
+        local value = run(20)
+        assert(type(value) == "function" and value() == 42,
+            "a function declaration must update the original captured binding")
+    end
+end
+
+function M.bodyFunctionDeclarationsKeepLoopBindingWrites()
+    -- The declaration is intentionally inside the loop: this tests its binding
+    -- write, so only the corresponding closure-allocation lint is suppressed.
+    for _, extra in ipairs({"", "local second = create(2)"}) do
+        local code = compile(RESOURCE .. [[
+local seen: {any} = {}
+for i = 1, 2 do
+    local value: any = i
+    local first = create(1)
+]] .. extra .. [[
+    function value(): integer return 42 end
+    seen[#seen + 1] = value
+end
+return seen
+]], {lints = {["unused-binding"] = "off", ["discarded-result"] = "off", ["loop-invariant-closure"] = "off"}})
+        local seen = assert(loadstring(code))()
+        assert(#seen == 2)
+        for _, value in ipairs(seen) do
+            assert(type(value) == "function" and value() == 42,
+                "a declaration in the owner body must retain its loop binding")
+        end
+    end
+end
+
+function M.unrelatedFunctionDeclarationsDoNotDisableOwnerHoisting()
+    local code = compile(RESOURCE .. [[
+local function replace(): nil
+    local value: any = 0
+    function value(): integer return 42 end
+end
+local function run(value: integer): integer
+    local first = create(1)
+    local second = create(2)
+    replace()
+    return value
+end
+return run
+]])
+    local run = assert(loadstring(code))()
+    assert(run(20) == 20 and run(40) == 40)
+    local util, names, bit = require("jit.util"), require("jit.vmdef").bcnames, require("bit")
+    for pc = 1, util.funcinfo(run).bytecodes - 1 do
+        local instruction = util.funcbc(run, pc)
+        local opcode = bit.band(instruction, 255)
+        local name = names:sub(opcode * 6 + 1, opcode * 6 + 6):gsub("%s+$", "")
+        assert(name ~= "FNEW" and name ~= "UCLO", "a shadowed binding wrongly disables hoisting")
+    end
+end
+
 return M
