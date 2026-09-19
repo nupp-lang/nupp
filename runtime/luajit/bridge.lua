@@ -92,14 +92,10 @@ local function main()
                 assert(request.kind == "check" or request.kind == "compile", "unknown compiler request")
                 assert(type(request.source) == "string", "compiler source must be a string")
 
-                return session[
-                    request.kind
-                ](
-                    session,
-                    request.source,
-                    request.filename or "playground.nupp",
-                    request.options or {dialect = "luajit"}
-                )
+                local options = request.options or {}
+                options.dialect = options.dialect or "luajit"
+
+                return session[request.kind](session, request.source, request.filename or "playground.nupp", options)
             end)
             result = ok and {ok = true, response = answer} or {ok = false, error = tostring(answer)}
         end
