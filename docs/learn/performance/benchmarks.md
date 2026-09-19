@@ -207,7 +207,7 @@ The collector runs normally during warmup and timing. Allocation is measured in
 a separate pass with collection paused, so forcing a collection per sample does
 not turn the benchmark into a GC benchmark.
 
-## Replication, and what an interval costs
+## Replication and interval cost
 
 A `Ratio` of `2.139x` is safe to believe. `1.03x` is not, and nothing above
 distinguishes them. That needs replicates from **separate processes**: one
@@ -445,7 +445,7 @@ thermal history, which is the confound replication exists to break. `--seed N`
 reproduces an order. Each child has a 120-second deadline, and `--timeout-ms`
 sets another.
 
-## What actually fails a run
+## Run gates
 
 Durations never do, in any mode. Every verdict above is a report; nothing there
 changes the exit status. Two things gate, because they are identical on every

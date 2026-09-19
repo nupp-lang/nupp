@@ -100,7 +100,7 @@ assert(last <= #escapes, "upper bound")
 assert(first <= last + 1, "an empty range is allowed")
 ```
 
-### What a guard may say
+### Guard expressions
 
 A comparison of integer parameters, integer literals and span lengths, either
 side offset by a literal. `<`, `<=`, `>`, `>=` and `==` all read. On the integers
@@ -119,7 +119,7 @@ compile a wrapper that never checks it:
 bench/kernel-subset-spike/mandelbrot.nupp:43:12: aot: `first * 2 >= 1` cannot be read as a guard: a guard compares integer parameters, integer literals and span lengths, offset by a literal
 ```
 
-### What is proved, and what is checked
+### Proof obligations and runtime checks
 
 The loop names the range and the guards name nothing: `for i = first, last` over
 `escapes` is what obliges `1 <= first`, `last <= #escapes` and `first <= last +
