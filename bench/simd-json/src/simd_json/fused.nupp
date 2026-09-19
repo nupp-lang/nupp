@@ -1,2 +1,3 @@
--- Exercise the shipped decoder so performance work cannot fork from runtime.
-return require("nupp.codec.json.internal.decode")
+require("simd_json.setup")
+-- Exercise the shipped decoder through its public codec entry.
+return require("nupp.codec.json")

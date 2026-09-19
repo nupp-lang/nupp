@@ -1,3 +1,4 @@
+local compiled = require("compiled")()
 local ffi = require("ffi")
 local hasCjson, cjson = pcall(require, "cjson")
 local json = require("simd_json")
@@ -140,6 +141,7 @@ local report = {
     samples = samples,
     warmups = warmups,
     mode = indexOnly and "index" or "all",
+    compiled = compiled,
     environment = {
         os = ffi.os,
         arch = ffi.arch,

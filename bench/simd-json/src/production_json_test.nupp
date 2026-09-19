@@ -1,5 +1,9 @@
+require("simd_json.setup")
+const {type Member} = require("nupp.serde")
+
 local json = require("nupp.codec.json")
 local serde = require("nupp.serde")
+local newBuffer = require("nupp.text").newBuffer
 
 @derive(nupp.derive.JSON, nupp.derive.Serde)
 local record FastChild
@@ -20,10 +24,24 @@ local record AdvancedEnvelope
     state: 'ready' | 'done'
 end
 
+@derive(nupp.derive.Serde)
+local record OptionalDefault
+    name: string
+    enabled: boolean = false
+    note: string?
+end
+
+@derive(nupp.derive.Serde)
+local record LiteralTuple
+    kind: 'pair'
+    items: {string, integer}
+    options: {[string]: string} = {mode = "safe"}
+end
+
 local fastSource = [[{"id":41,"child":{"label":"one"},"children":[{"label":"two"}],"labels":{"region":"us"}}]]
 local fastPrepared = serde.json():prepare(serde.of(FastEnvelope))
 local advancedPrepared = serde.json():prepare(serde.of(AdvancedEnvelope))
-local fastBuffer = require("string.buffer").new()
+local fastBuffer = newBuffer()
 fastBuffer:put(fastSource)
 
 local test = {}
@@ -32,7 +50,7 @@ function test.run(): nil
     local typed, typedProblem = fastPrepared:decode(fastSource)
     assert(typedProblem == nil and typed ~= nil and typed.id == 41)
     assert(typed.child.label == "one" and typed.children[1].label == "two" and typed.labels.region == "us")
-    local input = require("string.buffer").new()
+    local input = newBuffer()
     input:put(fastSource)
     local buffered, bufferedProblem = fastPrepared:decodeBuffer(input)
     assert(bufferedProblem == nil and buffered ~= nil and buffered.id == 41)
@@ -65,68 +83,19 @@ function test.run(): nil
         [[{"id":1.5,"child":{"label":"x"},"children":[],"labels":{}}]]
     )
     assert(derivedWrong == nil and derivedWrongProblem ~= nil)
-    local nativeProvider = require("nupp.codec.json.provider")
-    local optionalDefaultPlan = nativeProvider.compileSerde(
-        {
-            kind = "structure",
-            access = "record",
-            typeObject = {},
-            fields = {
-                {name = "name", wire = "name", target = {kind = "string"}, required = true},
-                {
-                    name = "enabled",
-                    wire = "enabled",
-                    target = {kind = "boolean"},
-                    hasDefault = true,
-                    defaultValue = false
-                },
-                {name = "note", wire = "note", target = {kind = "optional", element = {kind = "string"}}},
-            },
-        },
-        "reject"
-    )
-    assert(optionalDefaultPlan.complete == true)
-    local optionalDefault = nativeProvider.decodeSerde(optionalDefaultPlan, [[{"name":"x","note":null}]])
+    local optionalDefaultPlan = serde.json():prepare(serde.of(OptionalDefault))
+    local optionalDefault = assert(optionalDefaultPlan:decode([[{"name":"x","note":null}]]))
     assert(optionalDefault.name == "x" and optionalDefault.enabled == false and optionalDefault.note == nil)
-    local literalTuplePlan = nativeProvider.compileSerde(
-        {
-            kind = "structure",
-            access = "record",
-            typeObject = {},
-            fields = {
-                {
-                    name = "kind",
-                    wire = "kind",
-                    target = {kind = "string", hasLiteral = true, literalValue = "pair"},
-                    required = true
-                },
-                {
-                    name = "items",
-                    wire = "items",
-                    target = {kind = "tuple", items = {{kind = "string"}, {kind = "integer"}}},
-                    required = true
-                },
-                {
-                    name = "options",
-                    wire = "options",
-                    target = {kind = "map", value = {kind = "string"}},
-                    hasDefault = true,
-                    defaultValue = {mode = "safe"}
-                },
-            },
-        },
-        "reject"
-    )
-    assert(literalTuplePlan.complete == true)
-    local literalTuple = nativeProvider.decodeSerde(literalTuplePlan, [[{"kind":"pair","items":["x",2]}]])
+    local literalTuplePlan = serde.json():prepare(serde.of(LiteralTuple))
+    local literalTuple = assert(literalTuplePlan:decode([[{"kind":"pair","items":["x",2]}]]))
     assert(literalTuple.kind == "pair" and literalTuple.items[2] == 2 and literalTuple.options.mode == "safe")
-    local wrongLiteralOk = pcall(nativeProvider.decodeSerde, literalTuplePlan, [[{"kind":"other","items":["x",2]}]])
-    assert(not wrongLiteralOk)
-    local wrongTupleOk = pcall(nativeProvider.decodeSerde, literalTuplePlan, [[{"kind":"pair","items":["x"]}]])
-    assert(not wrongTupleOk)
+    local wrongLiteral, wrongLiteralProblem = literalTuplePlan:decode([[{"kind":"other","items":["x",2]}]])
+    assert(wrongLiteral == nil and wrongLiteralProblem ~= nil)
+    local wrongTuple, wrongTupleProblem = literalTuplePlan:decode([[{"kind":"pair","items":["x"]}]])
+    assert(wrongTuple == nil and wrongTupleProblem ~= nil)
     local renamed = serde.json{
         unknownMembers = "ignore",
-        fieldNames = function(member: nupp.serde.Member): string
+        fieldNames = function(member: Member): string
             return member.name == "id" and "i\"d" or member.name
         end,
     }:prepare(serde.of(FastEnvelope))
@@ -203,7 +172,7 @@ function test.run(): nil
     end
     assert(json.pull([[{"field-70":70}]], wideShape)["field-70"] == 70)
 
-    local out = require("string.buffer").new()
+    local out = newBuffer()
     local writer = json.writer(out)
     writer:startObject():key(json.encodedString('a"b')):write(json.verified("42")):endObject()
     writer:close()
@@ -265,16 +234,8 @@ function test.controlPlan(): {[string]: any}
     }
 end
 
-local rawPlan: any
-
-function test.rawDecode(): {[string]: any}
-    local provider: any = require("nupp.codec.json.provider")
-    if rawPlan == nil then
-        rawPlan = provider.compileSerde(test.controlPlan(), "reject")
-    end
-    local value = provider.decodeSerde(rawPlan, fastSource)
-
-    return value as {[string]: any}
+function test.untypedDecode(): {[string]: any}
+    return json.decode(fastSource) as {[string]: any}
 end
 
 return test

@@ -1,3 +1,4 @@
+require("compiled")()
 local ffi = require("ffi")
 local json = require("simd_json")
 local arena = require("simd_json.arena")
@@ -10,56 +11,14 @@ local valueBuilder = require("nupp.codec.valuebuilder")
 
 require("production_json_test").run()
 
-ffi.cdef[[
-   typedef struct { uint32_t v1; uint32_t v2; uint32_t v3; } SimdJsonIndexResult;
-]]
-local nativeExtension = ffi.os == "Windows" and ".dll" or ffi.os == "OSX" and ".dylib" or ".so"
-local native = ffi.load("build/lib/libsimd_json_aot" .. nativeExtension)
+local reference = require("simd_json.indexer_reference")
 
--- The forced-scalar oracle is not reachable through the generated module, so
--- it is looked up by name. An exported name carries the feature tier it was
--- built for, and an artifact holds only the tiers its target selected, so the
--- tier is resolved rather than assumed: the x86-64 ones are offered only when
--- the running machine reports them, and anything left is found by whether it
--- resolves. Ask for a tier the CPU lacks and the call would fault.
-local targets = require("nupp.compiler.aot.target")
-local function nativeSymbol(name, declaration)
-    local detected = 0
-    pcall(ffi.cdef, "int ks_aot_feature_tier(void);")
-    local reported, value = pcall(function()
-        return native.ks_aot_feature_tier()
-    end)
-    if reported then
-        detected = tonumber(value)
-    end
-    for _, tier in ipairs({"avx512f", "avx2", "neon", "simd128", "baseline"}) do
-        if targets.rank(tier) <= detected then
-            local suffixed = targets.symbol(name, tier)
-            pcall(ffi.cdef, declaration:format(suffixed))
-            local found, symbol = pcall(function()
-                return native[suffixed]
-            end)
-            if found and symbol ~= nil then
-                return symbol
-            end
-        end
-    end
-    error("the AOT library exports no build of " .. name)
-end
-
-local indexForcedScalar = nativeSymbol(
-    "ks_index_forced_scalar",
-    [[
-   SimdJsonIndexResult %s(
-      const uint8_t *source, uint32_t *tape, size_t count_source, size_t count_tape
-   );
-]]
-)
 local NodeArray = ffi.typeof("$[?]", parser.Node)
 local FrameArray = ffi.typeof("$[?]", parser.Frame)
 
 local checks = 0
 local numberBits = ffi.typeof("union { double number; uint64_t bits; }")
+
 local function check(condition, message)
     checks = checks + 1
     assert(condition, message)
@@ -174,14 +133,7 @@ end
 
 local function scalarIndexed(source, capacity)
     capacity = capacity == nil and #source or capacity
-    local storage = ffi.new("uint32_t[?]", math.max(capacity, 1))
-    local result = indexForcedScalar(ffi.cast("const uint8_t *", source), storage, #source, capacity)
-    local positions = {}
-    for offset = 0, tonumber(result.v1) - 1 do
-        positions[#positions + 1] = tonumber(storage[offset])
-    end
-
-    return positions, tonumber(result.v2), tonumber(result.v3)
+    return reference.index(source, capacity)
 end
 
 local function parsed(source, nodeCapacity, linkCapacity, frameCapacity)
@@ -473,6 +425,7 @@ end
 
 do
     local state = 104729
+
     local function random(limit)
         state = state * 48271 % 2147483647
         return state % limit

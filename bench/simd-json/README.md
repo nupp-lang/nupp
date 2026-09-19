@@ -116,8 +116,8 @@ benchmark baseline; they are no longer the large-document decode path.
 
 ## The structural indexer
 
-`simd_json.indexer` is the one piece written on the general `nupp.simd`
-algebra, and the one piece that builds on its own. It finds every byte the
+`simd_json.indexer` uses the general `nupp.simd` algebra and can also build
+on its own. It finds every byte the
 index has to look at -- quotes, backslashes, control bytes, the six
 structural characters and anything non-ASCII -- with vector comparisons
 whose masks are or'd together and read out as one `uint64` through
@@ -165,14 +165,21 @@ drained two, which is the whole of the difference. The reference runs at
 
 ## The rest of the experiment
 
-The full `simd-json` target no longer checks against the current tree:
-`production_json_test` builds its buffers from a type the current `nupp.io`
-Buffer does not unify with and reaches an internal `nupp.codec.json`
-module, and `arena.nupp` and `fused.nupp` have the same two kinds of rot.
-`run.sh`, `benchmark.lua` and `tests/run.lua` therefore cannot run
-until that is resolved; it is tracked at
-https://github.com/nupp-lang/nupp/issues/51. What follows describes the
-experiment as it last ran.
+The full `simd-json` target builds on the public `nupp.codec.json`,
+`nupp.serde` and `nupp.text` surfaces. Its fused control calls the shipped
+public decoder; the production decoder and structural indexer both use the
+general SIMD algebra. Prepared-schema tests cover defaults, nullable fields,
+literals and tuples through the public binding API.
+
+`simd_json.setup` selects `nupp.aot` through the public service contract before
+loading codec consumers. The default codec remains Lunajson elsewhere.
+The test and benchmark entry points refuse to run unless the public eager,
+pull and serde decoders reach registered native C builders, and classification,
+indexing and arena parsing have registered AOT replacements. Merely loading some other
+AOT module is insufficient. The typed benchmark's `nupp-untyped` row measures
+public untyped decoding; the former private `nupp-builder` probe is retired.
+Existing result files retain the names and implementation versions measured
+when they were recorded.
 
 Run the differential and public-runtime tests:
 

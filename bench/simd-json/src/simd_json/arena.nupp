@@ -1,3 +1,5 @@
+const utf8 = require("nupp.text.utf8")
+
 local ffi = require("ffi")
 local indexer = require("simd_json.indexer")
 local parser = require("simd_json.parser")
@@ -79,7 +81,7 @@ local function decodeString(source: string, first: integer, length: integer): st
                 elseif codepoint >= 0xDC00 and codepoint <= 0xDFFF then
                     error("low surrogate without a high surrogate", 0)
                 end
-                parts[#parts + 1] = nupp.text.utf8.encode(codepoint)
+                parts[#parts + 1] = utf8.encode(codepoint)
             else
                 error("unknown escape", 0)
             end
@@ -189,12 +191,7 @@ end
 --- Indexes, parses, and constructs ordinary Lua values in one VM-aware AOT
 --- entry. Structural words remain in Lua-rooted native scratch storage.
 function arena.decodeFused(source: string, nullValue: unknown): unknown
-    local value, status, errorByte = fused.decode(source, nullValue)
-    if status ~= fused.OK then
-        fail(errorByte, "parser", status, 2)
-    end
-
-    return value
+    return fused.decode(source, nullValue)
 end
 
 return arena
