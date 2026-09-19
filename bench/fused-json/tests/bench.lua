@@ -47,10 +47,9 @@ local function proveCompiled(decoder, artifactPath)
     local proof = {}
 
     local path = assert(
-        artifactPath or package.searchpath and package.searchpath(
-            "nupp.codec.json.internal.decoder.fusedbench",
-            package.path
-        ) or "build/nupp/codec/json/internal/decoder/fusedbench.lua",
+        artifactPath
+        or package.searchpath and package.searchpath("nupp.codec.json.internal.decoder.fusedbench", package.path)
+        or "build/nupp/codec/json/internal/decoder/fusedbench.lua",
         "cannot locate the loaded decoder artifact"
     )
     local handle = assert(io.open(path, "rb"), "cannot read " .. path)
@@ -119,10 +118,13 @@ local function proveCompiled(decoder, artifactPath)
     for _ in pairs(reached) do
         registeredEntry = true
     end
-    for _, registered in pairs(modules) do
+    proof.nativeEntries = {}
+    for key, registered in pairs(modules) do
         for _, fn in pairs(registered) do
             if seen[fn] then
                 nativeEntry = true
+                proof.nativeEntries[fn] = true
+                proof.object = tostring(key):match("^(.-)%z") or tostring(key)
             end
         end
     end
@@ -375,6 +377,9 @@ if baselineRoot then
     local baseline = assert(loadfile(path))()
     package.path, package.loaded[module] = oldPath, oldModule
     baselineProof = proveCompiled(baseline, path)
+    for entry in pairs(proof.nativeEntries) do
+        assert(not baselineProof.nativeEntries[entry], "candidate and baseline reach the same native builder")
+    end
     implementations[#implementations + 1] = {
         name = "baseline",
         run = function(source)
@@ -484,8 +489,10 @@ if out then
     handle:write(string.format("  %q: %q,\n", "loadAfter", loadAfter))
     handle:write(string.format("  %q: %d,\n", "samples", samples))
     handle:write(string.format("  %q: %q,\n", "artifact", proof.artifact))
+    handle:write(string.format("  %q: %q,\n", "object", proof.object))
     if baselineProof then
         handle:write(string.format("  %q: %q,\n", "baselineArtifact", baselineProof.artifact))
+        handle:write(string.format("  %q: %q,\n", "baselineObject", baselineProof.object))
     end
     handle:write("  \"payloads\": [\n")
     for index, row in ipairs(report) do
