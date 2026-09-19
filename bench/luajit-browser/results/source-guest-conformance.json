@@ -1,0 +1,575 @@
+{
+  "scope": "Conformance of the source-built package; not a delivery benchmark, browser matrix, or full playground acceptance.",
+  "revision": "6fe83d9268f27b51dc05aa49368f0c2f4afe0e27",
+  "workflow": "https://github.com/nupp-lang/nupp/actions/runs/35417207494",
+  "buildKey": "bc96e27bb5ef48402c7299eaefd1685b7dd7d1c20667fe25024fa60d5c51a431",
+  "manifestSha256": "b21fa76d9eaea4a515ec2968c52a5f27e5051dd269abc3fe8f71f8ac409f8566",
+  "compilerSha256": "4eea88a94a88f425e19fac4616bccf5c58ef00a33e81d3fc9d3ca7a7e2e38f1f",
+  "profiles": {
+    "runner": {
+      "memoryMiB": 64
+    },
+    "compiler": {
+      "memoryMiB": 128
+    }
+  },
+  "snapshots": {
+    "runner": {
+      "asset": "assets/snapshot-runner.bin.gz",
+      "buildKey": "bc96e27bb5ef48402c7299eaefd1685b7dd7d1c20667fe25024fa60d5c51a431",
+      "guestAbi": 1,
+      "memoryMiB": 64,
+      "uncompressedBytes": 8246604,
+      "packed": {
+        "bytes": 2823190,
+        "sha256": "0d120a83a72ccf04783c806d6b26e4ac6d35fcde07fc7de8be8d366967a4559d"
+      }
+    },
+    "compiler": {
+      "asset": "assets/snapshot-compiler.bin.gz",
+      "buildKey": "bc96e27bb5ef48402c7299eaefd1685b7dd7d1c20667fe25024fa60d5c51a431",
+      "guestAbi": 1,
+      "memoryMiB": 128,
+      "uncompressedBytes": 8723788,
+      "packed": {
+        "bytes": 2821881,
+        "sha256": "142a76c694eb5ee10dea2789b3f7db40469eed476ab2d23fdd0ce32af0218ddf"
+      }
+    }
+  },
+  "normalBoot": {
+    "ok": true,
+    "crossOriginIsolated": false,
+    "results": [
+      {
+        "runtime": "LuaJIT 2.1.1785763465",
+        "wallSeconds": 1789787127,
+        "seed": "d382276f6ac297475ea11bd854caf641dec213e5c4fe6aa60aa59351b67cbea0",
+        "kernelRandom": "a0cdd1e2e07dbc514437acef11dafe3ff0d449413e0bcb7660b57d0f02ba9506",
+        "ok": true,
+        "profile": "runner",
+        "wasmMemoryBytes": 79691776
+      },
+      {
+        "ok": true,
+        "runtime": "LuaJIT 2.1.1785763465",
+        "wallSeconds": 1789787129,
+        "seed": "fc4b2a22e9c47d6bb76fe7b2b9644005e743db26c850d0a3c66602c5742f42c4",
+        "kernelRandom": "f12d49542470f9b0374b33b454a67c5a3c2f6f6362dd9b261c98403c983a7689",
+        "profile": "runner",
+        "wasmMemoryBytes": 79691776
+      },
+      {
+        "seed": "4cb116b78f5eab8bc33aa17d9c0542ac8abc01c679a9eaa1c50d2df28ced80af",
+        "ok": true,
+        "kernelRandom": "4657f1cef6fd08b43c123962466d2c54f02dd7887eb1a2beadedecc5e8ebf346",
+        "runtime": "LuaJIT 2.1.1785763465",
+        "wallSeconds": 1789787133,
+        "profile": "compiler",
+        "wasmMemoryBytes": 147062784
+      }
+    ],
+    "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+    "isolated": false,
+    "browserErrors": []
+  },
+  "snapshotRestore": {
+    "ok": true,
+    "crossOriginIsolated": false,
+    "results": [
+      {
+        "seed": "080ea627fee6371c490fbb8b9bb59dcf9ca1a0f918ad933aa18455289eab68b9",
+        "ok": true,
+        "kernelRandom": "7f403502496a6ac490ee271856ba0b3e7b998fb1669bd46982f964d3ec25c204",
+        "runtime": "LuaJIT 2.1.1785763465",
+        "wallSeconds": 1789787147,
+        "profile": "runner",
+        "wasmMemoryBytes": 78970880
+      },
+      {
+        "runtime": "LuaJIT 2.1.1785763465",
+        "wallSeconds": 1789787147,
+        "seed": "e0e71ea1d52e1a734ad7760e43cf9d70619e0a2e59a81b6181ba62289c250a25",
+        "ok": true,
+        "kernelRandom": "37507dd598dd8d1f094e45f6bab95686f938b3652409a3d88fff4311818fbf58",
+        "profile": "runner",
+        "wasmMemoryBytes": 78970880
+      },
+      {
+        "runtime": "LuaJIT 2.1.1785763465",
+        "wallSeconds": 1789787148,
+        "seed": "c75fc6c78579d837494687196c1c3433c9d088e85b846db5261ba4181cb5c13e",
+        "kernelRandom": "f4538fc9331df3775bebf20ea0308a6837ed32fa010f4673ec3c2978ce50f581",
+        "ok": true,
+        "profile": "compiler",
+        "wasmMemoryBytes": 146014208
+      }
+    ],
+    "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+    "isolated": false,
+    "browserErrors": []
+  },
+  "compiler": {
+    "ok": true,
+    "startupMs": 2025.5,
+    "requests": 30,
+    "samples": [
+      {
+        "round": 0,
+        "index": 0,
+        "kind": "check",
+        "durationMs": 3601.0999999999767
+      },
+      {
+        "round": 0,
+        "index": 1,
+        "kind": "hover",
+        "durationMs": 8.699999999953434
+      },
+      {
+        "round": 0,
+        "index": 2,
+        "kind": "compile",
+        "durationMs": 53
+      },
+      {
+        "round": 0,
+        "index": 3,
+        "kind": "compile",
+        "durationMs": 17
+      },
+      {
+        "round": 0,
+        "index": 4,
+        "kind": "check",
+        "durationMs": 2745.2000000000116
+      },
+      {
+        "round": 0,
+        "index": 5,
+        "kind": "compile",
+        "durationMs": 26.29999999998836
+      },
+      {
+        "round": 0,
+        "index": 6,
+        "kind": "check",
+        "durationMs": 7
+      },
+      {
+        "round": 0,
+        "index": 7,
+        "kind": "check",
+        "durationMs": 7.099999999976717
+      },
+      {
+        "round": 0,
+        "index": 8,
+        "kind": "hover",
+        "durationMs": 1.6000000000349246
+      },
+      {
+        "round": 0,
+        "index": 9,
+        "kind": "check",
+        "durationMs": 5.7999999999883585
+      },
+      {
+        "round": 1,
+        "index": 0,
+        "kind": "check",
+        "durationMs": 7
+      },
+      {
+        "round": 1,
+        "index": 1,
+        "kind": "hover",
+        "durationMs": 1.2999999999883585
+      },
+      {
+        "round": 1,
+        "index": 2,
+        "kind": "compile",
+        "durationMs": 10.400000000023283
+      },
+      {
+        "round": 1,
+        "index": 3,
+        "kind": "compile",
+        "durationMs": 9.399999999965075
+      },
+      {
+        "round": 1,
+        "index": 4,
+        "kind": "check",
+        "durationMs": 7.400000000023283
+      },
+      {
+        "round": 1,
+        "index": 5,
+        "kind": "compile",
+        "durationMs": 25.399999999965075
+      },
+      {
+        "round": 1,
+        "index": 6,
+        "kind": "check",
+        "durationMs": 7.600000000034925
+      },
+      {
+        "round": 1,
+        "index": 7,
+        "kind": "check",
+        "durationMs": 6.2999999999883585
+      },
+      {
+        "round": 1,
+        "index": 8,
+        "kind": "hover",
+        "durationMs": 1.599999999976717
+      },
+      {
+        "round": 1,
+        "index": 9,
+        "kind": "check",
+        "durationMs": 9.5
+      },
+      {
+        "round": 2,
+        "index": 0,
+        "kind": "check",
+        "durationMs": 6.800000000046566
+      },
+      {
+        "round": 2,
+        "index": 1,
+        "kind": "hover",
+        "durationMs": 1.5
+      },
+      {
+        "round": 2,
+        "index": 2,
+        "kind": "compile",
+        "durationMs": 11.899999999965075
+      },
+      {
+        "round": 2,
+        "index": 3,
+        "kind": "compile",
+        "durationMs": 9.900000000023283
+      },
+      {
+        "round": 2,
+        "index": 4,
+        "kind": "check",
+        "durationMs": 6.599999999976717
+      },
+      {
+        "round": 2,
+        "index": 5,
+        "kind": "compile",
+        "durationMs": 27
+      },
+      {
+        "round": 2,
+        "index": 6,
+        "kind": "check",
+        "durationMs": 9.699999999953434
+      },
+      {
+        "round": 2,
+        "index": 7,
+        "kind": "check",
+        "durationMs": 9.599999999976717
+      },
+      {
+        "round": 2,
+        "index": 8,
+        "kind": "hover",
+        "durationMs": 1.7000000000116415
+      },
+      {
+        "round": 2,
+        "index": 9,
+        "kind": "check",
+        "durationMs": 13.100000000034925
+      }
+    ],
+    "compilerBytes": 6470095,
+    "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+    "isolated": false,
+    "browserErrors": []
+  },
+  "recovery": {
+    "ok": true,
+    "results": [
+      {
+        "mode": "stale",
+        "fallbacks": [
+          "Snapshot does not match the guest build/profile"
+        ]
+      },
+      {
+        "mode": "corrupt",
+        "fallbacks": [
+          "Guest asset SHA-256 mismatch: assets/snapshot-runner.bin.gz"
+        ]
+      },
+      {
+        "mode": "extent",
+        "fallbacks": [
+          "Snapshot exceeds its declared extent"
+        ]
+      },
+      {
+        "mode": "invalid-state",
+        "fallbacks": [
+          "Error: Invalid header: 0x0\n"
+        ]
+      }
+    ],
+    "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+    "isolated": false,
+    "browserErrors": []
+  },
+  "nativeCallbackUnwind": {
+    "musl": {
+      "returncode": 0,
+      "stdout": "callback unwind probe passed\n",
+      "stderr": ""
+    },
+    "glibc": {
+      "returncode": 1,
+      "stdout": "",
+      "stderr": "PANIC: unprotected error in call to Lua API (/home/runner/work/nupp/nupp/runtime/luajit/unwind-probe.lua:5: callback unwind probe)\n"
+    }
+  },
+  "desktopSnapshotRestore": {
+    "ok": true,
+    "crossOriginIsolated": false,
+    "results": [
+      {
+        "kernelRandom": "1a2fa98ebc716a77e4c406de2cfd9f6a6a234c177cb5ae873385be3a1b57af3f",
+        "ok": true,
+        "runtime": "LuaJIT 2.1.1785763465",
+        "wallSeconds": 1789787291,
+        "seed": "6cc4617ef38b8cc7f645e5a10f29d7a8a4ff221297dab9200927a179be0f7be7",
+        "profile": "runner",
+        "wasmMemoryBytes": 78774272
+      },
+      {
+        "kernelRandom": "8862dd015216be66673207a9439ef3e057ff1a98a3dd7ca836ba349a6ec9de9c",
+        "runtime": "LuaJIT 2.1.1785763465",
+        "wallSeconds": 1789787291,
+        "seed": "833ce0b89140469ec802e1310e44f4f4a20ca0af189637756a75adb83ecc7ef9",
+        "ok": true,
+        "profile": "runner",
+        "wasmMemoryBytes": 78708736
+      },
+      {
+        "runtime": "LuaJIT 2.1.1785763465",
+        "wallSeconds": 1789787291,
+        "seed": "81784aa953ea764cd31265138c5f9e90bf0cf91528e2430af0dd998407ffa8dd",
+        "kernelRandom": "434baceb17c9b56bfbd7954d82624c76da4db636043d3e2a6164e2cf7f343dfc",
+        "ok": true,
+        "profile": "compiler",
+        "wasmMemoryBytes": 146014208
+      }
+    ],
+    "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+    "isolated": false,
+    "browserErrors": []
+  },
+  "desktopCompiler": {
+    "ok": true,
+    "startupMs": 408.2000000476837,
+    "requests": 30,
+    "samples": [
+      {
+        "round": 0,
+        "index": 0,
+        "kind": "check",
+        "durationMs": 906.3999999761581
+      },
+      {
+        "round": 0,
+        "index": 1,
+        "kind": "hover",
+        "durationMs": 0.7000000476837158
+      },
+      {
+        "round": 0,
+        "index": 2,
+        "kind": "compile",
+        "durationMs": 3.600000023841858
+      },
+      {
+        "round": 0,
+        "index": 3,
+        "kind": "compile",
+        "durationMs": 3.1999999284744263
+      },
+      {
+        "round": 0,
+        "index": 4,
+        "kind": "check",
+        "durationMs": 886.2000000476837
+      },
+      {
+        "round": 0,
+        "index": 5,
+        "kind": "compile",
+        "durationMs": 8.600000023841858
+      },
+      {
+        "round": 0,
+        "index": 6,
+        "kind": "check",
+        "durationMs": 2.299999952316284
+      },
+      {
+        "round": 0,
+        "index": 7,
+        "kind": "check",
+        "durationMs": 2
+      },
+      {
+        "round": 0,
+        "index": 8,
+        "kind": "hover",
+        "durationMs": 0.6000000238418579
+      },
+      {
+        "round": 0,
+        "index": 9,
+        "kind": "check",
+        "durationMs": 1.899999976158142
+      },
+      {
+        "round": 1,
+        "index": 0,
+        "kind": "check",
+        "durationMs": 2.299999952316284
+      },
+      {
+        "round": 1,
+        "index": 1,
+        "kind": "hover",
+        "durationMs": 0.40000009536743164
+      },
+      {
+        "round": 1,
+        "index": 2,
+        "kind": "compile",
+        "durationMs": 3.1999999284744263
+      },
+      {
+        "round": 1,
+        "index": 3,
+        "kind": "compile",
+        "durationMs": 2.700000047683716
+      },
+      {
+        "round": 1,
+        "index": 4,
+        "kind": "check",
+        "durationMs": 2.1999999284744263
+      },
+      {
+        "round": 1,
+        "index": 5,
+        "kind": "compile",
+        "durationMs": 8.400000095367432
+      },
+      {
+        "round": 1,
+        "index": 6,
+        "kind": "check",
+        "durationMs": 2.299999952316284
+      },
+      {
+        "round": 1,
+        "index": 7,
+        "kind": "check",
+        "durationMs": 2
+      },
+      {
+        "round": 1,
+        "index": 8,
+        "kind": "hover",
+        "durationMs": 0.5
+      },
+      {
+        "round": 1,
+        "index": 9,
+        "kind": "check",
+        "durationMs": 1.7999999523162842
+      },
+      {
+        "round": 2,
+        "index": 0,
+        "kind": "check",
+        "durationMs": 2.100000023841858
+      },
+      {
+        "round": 2,
+        "index": 1,
+        "kind": "hover",
+        "durationMs": 0.6000000238418579
+      },
+      {
+        "round": 2,
+        "index": 2,
+        "kind": "compile",
+        "durationMs": 3.200000047683716
+      },
+      {
+        "round": 2,
+        "index": 3,
+        "kind": "compile",
+        "durationMs": 3
+      },
+      {
+        "round": 2,
+        "index": 4,
+        "kind": "check",
+        "durationMs": 2.299999952316284
+      },
+      {
+        "round": 2,
+        "index": 5,
+        "kind": "compile",
+        "durationMs": 9.899999976158142
+      },
+      {
+        "round": 2,
+        "index": 6,
+        "kind": "check",
+        "durationMs": 2.399999976158142
+      },
+      {
+        "round": 2,
+        "index": 7,
+        "kind": "check",
+        "durationMs": 2.100000023841858
+      },
+      {
+        "round": 2,
+        "index": 8,
+        "kind": "hover",
+        "durationMs": 0.5
+      },
+      {
+        "round": 2,
+        "index": 9,
+        "kind": "check",
+        "durationMs": 2
+      }
+    ],
+    "compilerBytes": 6470095,
+    "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+    "isolated": false,
+    "browserErrors": []
+  },
+  "timingCaveat": "Startup and request timings come from single conformance runs without controlled transfer or cache modeling. They are not delivery or editor acceptance results."
+}
