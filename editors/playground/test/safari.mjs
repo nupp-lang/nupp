@@ -94,7 +94,9 @@ try {
     metadata.capabilities = created.capabilities;
   }
   await post('/timeouts', {script:180000, pageLoad:180000, implicit:0});
-  await new Promise((resolve,reject) => {server.once('error',reject);server.listen(8791,'127.0.0.1',resolve);});
+  if (selection !== 'ui') {
+    await new Promise((resolve,reject) => {server.once('error',reject);server.listen(8791,'127.0.0.1',resolve);});
+  }
   await navigate(playground);
   metadata.userAgent = await evaluate('return navigator.userAgent');
   metadata.crossOriginIsolated = await evaluate('return crossOriginIsolated');

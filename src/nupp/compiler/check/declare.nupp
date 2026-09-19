@@ -148,19 +148,32 @@ local type Type = T.Type
 --- A node of the tree being checked.
 local type Node = cst.Node
 
+--- Rebinding inherited members can intern types and packs. Their identities must
+--- not depend on the hash iteration order of the member map.
+local function memberNames(members: {[string]: any}?): {string}
+    local names: {string} = {}
+    for name in pairs(members or {}) do
+        names[#names + 1] = name
+    end
+    table.sort(names)
+
+    return names
+end
+
 --- Copies the members a declaration takes from an interface it claims: every
 --- readable and writable member the declaration does not state itself, and the
 --- interface's dispatch entries, each read with the interface's Self as this
 --- declaration's own.
 local function inheritMembers(n: any, super: any, selfMap: {[any]: any}): nil
-    for name, inherited in pairs(super.byname or {}) do
+    for _, name in ipairs(memberNames(super.byname)) do
         if not n.byname[name] then
-            n.byname[name] = substType(inherited, selfMap)
+            n.byname[name] = substType(super.byname[name], selfMap)
         end
     end
-    for name, inheritedEntries in pairs(super.methodDispatchEntries or super.methodEntries or {}) do
+    local dispatch = super.methodDispatchEntries or super.methodEntries or {}
+    for _, name in ipairs(memberNames(dispatch)) do
         local into = n.methodDispatchEntries[name] or {}
-        for _, entry in ipairs(inheritedEntries) do
+        for _, entry in ipairs(dispatch[name]) do
             into[
                 #into + 1
             ] = {
@@ -173,9 +186,9 @@ local function inheritMembers(n: any, super: any, selfMap: {[any]: any}): nil
         end
         n.methodDispatchEntries[name] = into
     end
-    for name, inherited in pairs(super.writeByname or {}) do
+    for _, name in ipairs(memberNames(super.writeByname)) do
         if not n.writeByname[name] then
-            n.writeByname[name] = substType(inherited, selfMap)
+            n.writeByname[name] = substType(super.writeByname[name], selfMap)
         end
     end
 end

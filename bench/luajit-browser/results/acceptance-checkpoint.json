@@ -378,11 +378,37 @@
     "finalCompilerDecodedBytes": 5072684,
     "scope": "Artifact sizes and controlled native allocations improve. Shared-host browser timings are not accepted performance/device budgets. Each result keeps its own digest; fresh prelude generation can assign different internal pack identities, including with the old text generator and without the capability fast path. Final packaging rebuild using the UI-tested image is byte-identical to that tested package.",
     "safariRuntime": "results/safari-runtime-issue59.json",
-    "safariScope": "11 installed Safari runtime groups passed using older recorded assets. This is not Safari validation of the compact-image compiler. UI remains blocked by locked desktop; no physical mobile device tested.",
+    "safariScope": "11 installed Safari runtime groups passed using older recorded assets; the final compact compiler independently passed 39 complete native-oracle response comparisons in Safari 26.6. Trusted UI retry checked clean but remained blocked by the locked desktop; no physical mobile device tested.",
     "remaining": [
       "Performance and process-memory acceptance budgets",
       "Unlocked actual Safari UI and physical mobile/constrained-device validation",
       "Prerequisite release, stage-zero pin move, rollback release, later legacy deletion and post-deletion cold build"
-    ]
+    ],
+    "ci": {
+      "head": "9f7ba559f028f0514b716899a571b18b2c94a23d",
+      "compiler": {
+        "run": 35462265868,
+        "status": "success"
+      },
+      "sourceGuest": {
+        "run": 35462265728,
+        "status": "success"
+      }
+    },
+    "safariCompactCompiler": "results/safari-compact-compiler-retry.json"
+  },
+  "issue59Retry": {
+    "sourceBase": "9f7ba559f028f0514b716899a571b18b2c94a23d",
+    "preludeDeterminism": "results/prelude-determinism.json",
+    "typelevelAndPreludeTests": 96,
+    "sharedCompilerTests": 2025,
+    "luaJitAndStockLua51FreshGeneration": "byte-identical",
+    "luaJitAndStockLua51HydrationRoundTrip": "byte-identical",
+    "fixpoint": "byte-identical",
+    "safariCompactCompiler": "results/safari-compact-compiler-retry.json",
+    "safariRebuiltCompiler": "results/safari-deterministic-compiler.json",
+    "trustedUi": "Blocked by locked desktop; initial check passed",
+    "trustedUiEvidence": "results/safari-ui-issue59-retry.json",
+    "deviceEvidence": "results/safari-device-retry.json"
   }
 }
