@@ -1,0 +1,80 @@
+{
+  "metadata": {
+    "cpu": "Apple M5 Pro",
+    "physicalCores": 18,
+    "macOS": "26.6",
+    "platform": "Darwin Michaels-MBP.localdomain 25.6.0 Darwin Kernel Version 25.6.0: Sat Jul 11 15:27:04 PDT 2026; root:xnu-12377.161.13~4/RELEASE_ARM64_T6050 arm64",
+    "clang": "Apple clang version 21.0.0 (clang-2100.3.34.2)",
+    "harnessRevision": "643cab93e5b6271c9a1d4b88ea92c3d474e7b37f",
+    "artifacts": {
+      "/private/tmp/nupp-neon-measure/guarded/baseline/kernel.c": "2dfa32e4eb6806c5cef5db69195d5c84482e6d38ad6a47f81511ef4457419d8f",
+      "/private/tmp/nupp-neon-measure/guarded/baseline/kernel.dylib": "87fe6e73b0b4bca5dfb69c1c56e0435b927d36ba5777a25a93fbc1937aa681c6",
+      "/private/tmp/nupp-neon-measure/guarded/candidate/kernel.c": "09c1067af1036bff4bbce80bd0ce94c1e09f6f2fc243c3429146367f9cd95467",
+      "/private/tmp/nupp-neon-measure/guarded/candidate/kernel.dylib": "86135c70aa85ab3abe22215c2ca9306efb01a42a3e4f3030b55b641e274460f4"
+    }
+  },
+  "kind": "neon",
+  "forks": 9,
+  "method": "paired fork medians; percentile bootstrap of mean log ratio; 20000 resamples, seed 20260919",
+  "records": [
+    {
+      "baseline": 0.004516125,
+      "candidate": 0.004467964,
+      "control": 0.014593124
+    },
+    {
+      "baseline": 0.004503012,
+      "candidate": 0.004446983,
+      "control": 0.014537096
+    },
+    {
+      "baseline": 0.004631996,
+      "candidate": 0.004491091,
+      "control": 0.014581919
+    },
+    {
+      "baseline": 0.004510164,
+      "candidate": 0.004449129,
+      "control": 0.014513016
+    },
+    {
+      "baseline": 0.004508972,
+      "candidate": 0.004467964,
+      "control": 0.014585972
+    },
+    {
+      "baseline": 0.004590034,
+      "candidate": 0.004534006,
+      "control": 0.014585972
+    },
+    {
+      "baseline": 0.004486084,
+      "candidate": 0.004441977,
+      "control": 0.014491796
+    },
+    {
+      "baseline": 0.004506111,
+      "candidate": 0.004457951,
+      "control": 0.014557838
+    },
+    {
+      "baseline": 0.004503012,
+      "candidate": 0.004457951,
+      "control": 0.014535904
+    }
+  ],
+  "summary": {
+    "ratio": 0.9867704523951637,
+    "interval95": [
+      0.9821929964637139,
+      0.9896239753501529
+    ],
+    "margin": 0.01,
+    "verdict": "improved",
+    "medianSeconds": {
+      "baseline": 0.004508972,
+      "candidate": 0.004457951,
+      "control": 0.014557838
+    }
+  }
+}
