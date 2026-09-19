@@ -2173,4 +2173,42 @@ function M.admissionEmitsOnlyWhatProofLeaves()
     assert(not proved:find("__nuppAdmit", 1, true), "a proved admission emits nothing")
 end
 
+-- One constraint is one type however it was reached: written in a type, returned
+-- from a comptime function, or substituted into a generic alias. That is the whole
+-- reason the builder and the resolver share a constructor.
+function M.aConstraintBuiltAtComptimeIsTheOneWrittenInAType()
+    local built = table.concat({
+        "local comptime function Between(T: type, low: integer, high: integer): type",
+        "    return nupp.types.range(T, low, high)",
+        "end",
+        "local type Range<T, const Low: integer, const High: integer> = Between(T, Low, High)",
+        "local type Made = Range<integer, 0, 31>",
+        "local type Written = nupp.types.range(integer, 0, 31)",
+    }, "\n") .. "\n"
+    -- each is the other, in both directions, which only holds if they interned alike
+    clean(built .. "local function pass(v: Made): Written\n    return v\nend\nprint(pass(1))")
+    clean(built .. "local function pass(v: Written): Made\n    return v\nend\nprint(pass(1))")
+    clean(built .. "local ok: Made = 7\nprint(ok)")
+    assertEq(codes(built .. "local no: Made = 32\nprint(no)"), "NUPP2001")
+    -- and a wider interval still takes a narrower one
+    local percent = built .. "local type Percent = Range<integer, 0, 100>\n"
+    clean(percent .. "local function widen(v: Made): Percent\n    return v\nend\nprint(widen(1))")
+    assertEq(
+        codes(percent .. "local function narrow(v: Percent): Made\n    return v\nend\nprint(narrow(1))"),
+        "NUPP2002"
+    )
+end
+
+-- `as` is erased, so it may say a value is one of these but cannot make it one. A
+-- constraint is exactly the claim that has to be established.
+function M.anErasedCastCannotManufactureAConstraint()
+    local alias = "local type Small = nupp.types.range(integer, 0, 10)\n"
+    assertEq(
+        codes(alias .. "local function of(v: integer): Small\n    return v as Small\nend\nprint(of(1))"),
+        "NUPP2013"
+    )
+    -- casting something already established is not a claim, so it stays allowed
+    clean(alias .. "local function of(v: Small): Small\n    return v as Small\nend\nprint(of(1))")
+end
+
 return M

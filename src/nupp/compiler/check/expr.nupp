@@ -1237,6 +1237,20 @@ function expr.install(c: state.Checker): nil
             local source = c.infer(cast)
             local target = c.resolveType(node.type)
             c.fixedWidth.storageOnly(node.type, target, "a cast result")
+            -- `as` is erased, so it can say a value is one of these but cannot make it
+            -- one. A constrained type is exactly the claim that has to be established,
+            -- which is why this is refused the way an unproved `as int32` is.
+            if T.constraintOf(target) and not isA(source, target) then
+                c.diag(
+                    "NUPP2013",
+                    node,
+                    (
+                        "%s is not established as %s, and `as` does not establish it"
+                    ):format(T.tostring(source), T.tostring(target)),
+                    nil,
+                    {help = "use nupp.admit(value) to check it, or `value is " .. T.tostring(target) .. "` to test it"}
+                )
+            end
             node.fixedWidthEstablished = nil
             node.fixedWidthTrusted = nil
             node.fixedWidthCallableUntrusted = target.tag == "func" and true or nil

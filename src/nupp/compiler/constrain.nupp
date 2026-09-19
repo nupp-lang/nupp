@@ -1,0 +1,102 @@
+module nupp.compiler.constrain
+
+--[[
+Building a constrained scalar type, in one place.
+
+A constraint reaches the checker two ways: written in a type, where the resolver
+sees the bounds as literals, and built in a comptime type function, where they
+arrive as a blueprint the worker sent back. Both have to produce the same type,
+and the only way to be sure of that is for both to come here.
+
+So this validates and constructs, and reports by returning a sentence rather
+than raising a diagnostic: the resolver has a source position to attach one to
+and the blueprint decoder has a node, and neither wants the other's.
+]]
+
+local T = require("nupp.compiler.types")
+local predicate = require("nupp.compiler.predicate")
+
+local constrain = {}
+
+--- The value domain each base admits, so a bound outside it is refused where it is
+--- written rather than compiled into a test nothing can pass.
+---
+--- `integer` is bounded by what a double spells exactly, which is the same limit the
+--- language holds a numeric literal type to.
+local RANGE_DOMAIN: {
+    [string]: {number}
+} = {integer = {-9007199254740992, 9007199254740992}, int32 = {-2147483648, 2147483647}, uint32 = {0, 4294967295},}
+
+--- Whether `base` can carry a range or a length constraint, and why not when it
+--- cannot. A constrained alias of an admissible base is admissible: narrowing one
+--- intersects rather than replaces.
+function constrain.admits(base: T.Type, lengthwise: boolean): boolean, string?
+    local underlying = T.unconstrained(base)
+    if lengthwise then
+        if underlying ~= T.string then
+            return false, ("a length constraint needs a string base, got %s"):format(T.tostring(base))
+        end
+        return true
+    end
+    if not RANGE_DOMAIN[underlying.tag] then
+        return false, ("a range constraint needs an integer, int32 or uint32 base, got %s"):format(T.tostring(base))
+    end
+
+    return true
+end
+
+--- `base` narrowed to `low`..`high`, inclusive, by value or by byte length.
+---
+--- Narrowing something already narrowed conjoins rather than replaces, which is what
+--- makes an alias of a constrained alias a subtype of it. An intersection admitting
+--- nothing is refused here: it is a declaration that cannot be meant, rather than a
+--- type no value has.
+---
+--- @param base the type being narrowed
+--- @param low the lowest admitted value or length
+--- @param high the highest admitted value or length
+--- @param lengthwise whether the bounds describe byte length rather than value
+--- @return the constrained type, or nil and the reason it was refused
+function constrain.build(base: T.Type, low: number, high: number, lengthwise: boolean): T.Type?, string?
+    local admissible, why = constrain.admits(base, lengthwise)
+    if not admissible then
+        return nil, why
+    end
+    local underlying = T.unconstrained(base)
+    if low % 1 ~= 0 or high % 1 ~= 0 then
+        return nil, "a bound must be a whole number"
+    end
+    if low > high then
+        return nil, ("the bounds %d..%d are in descending order"):format(low, high)
+    end
+    local limits = RANGE_DOMAIN[underlying.tag]
+    local floor = lengthwise and 0 or (limits as {number})[1]
+    local ceiling = lengthwise and math.huge or (limits as {number})[2]
+    if low < floor or high > ceiling then
+        return nil, ("the bounds %d..%d leave what %s admits"):format(low, high, T.tostring(underlying))
+    end
+    local comparison = new predicate.Node(
+        op = "and",
+        a = new predicate.Node(op = "cmp", cmp = ">=", path = {}, literal = tostring(low), constant = low),
+        b = new predicate.Node(op = "cmp", cmp = "<=", path = {}, literal = tostring(high), constant = high)
+    )
+    local node = lengthwise and new predicate.Node(op = "len", path = {}, a = comparison) or comparison
+    if not lengthwise then
+        -- `type(x) == "number"` is all Lua's own test says, and an integer base says
+        -- more than that. Without this a fraction inside the bounds would answer `is`,
+        -- and so would an infinity once a bound was open.
+        node = new predicate.Node(op = "and", a = new predicate.Node(op = "integral", path = {}), b = node)
+    end
+    local existing = T.constraintOf(base)
+    if existing then
+        if predicate.disjoint(existing, node) then
+            return nil, ("%d..%d admits nothing %s does"):format(low, high, T.tostring(base))
+        end
+        node = new predicate.Node(op = "and", a = existing, b = node)
+    end
+    local normalized = predicate.normalize(node)
+
+    return T.constrained(underlying, normalized, predicate.key(normalized))
+end
+
+export = constrain

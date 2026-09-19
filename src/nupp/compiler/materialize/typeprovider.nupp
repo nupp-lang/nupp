@@ -218,6 +218,46 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
         )
     end)
 
+    -- `range` and `length` carry their bounds rather than a predicate: the two shapes
+    -- a constraint is written in are the two the blueprint transports, and rebuilding
+    -- the refinement on the far side is what keeps one account of what a bound means.
+    local function bounded(name, lengthwise)
+        return function(at, args)
+            local base = entry(state, args[1], "Type")
+            local low, high = args[2], args[3]
+            if not base or type(low) ~= "number" or type(high) ~= "number" then
+                return nil, failure("NUPP2415", "nupp.types." .. name .. " needs a type handle and two bounds")
+            end
+            if low ~= math.floor(low) or high ~= math.floor(high) then
+                return nil, failure("NUPP2415", "nupp.types." .. name .. " needs whole-number bounds")
+            end
+            if low > high then
+                return nil, failure(
+                    "NUPP2420",
+                    ("nupp.types.%s was given the bounds %d..%d, which are in descending order"):format(name, low, high)
+                )
+            end
+
+            return make(
+                state,
+                opaque,
+                "Type",
+                {
+                    kind = "constrained",
+                    inner = args[1],
+                    low = low,
+                    high = high,
+                    lengthwise = lengthwise,
+                    key = composeKey(name, {base.payload.key, tostring(low), tostring(high)}),
+                },
+                provenance(at, name)
+            )
+        end
+    end
+
+    installIntrinsic(state, library, "range", bounded("range", false))
+    installIntrinsic(state, library, "length", bounded("length", true))
+
     installIntrinsic(state, library, "array", function(at, args)
         local element = entry(state, args[1], "Type")
         if not element then
@@ -1341,6 +1381,9 @@ local function finalizeGraph(state, root)
         elseif payload.kind == "literal" then
             node.value = payload.value
             node.base = intern(payload.base)
+        elseif payload.kind == "constrained" then
+            node.inner = intern(payload.inner)
+            node.low, node.high, node.lengthwise = payload.low, payload.high, payload.lengthwise
         elseif payload.kind == "array" or payload.kind == "carray" then
             node.element = intern(payload.element)
             node.count = payload.count

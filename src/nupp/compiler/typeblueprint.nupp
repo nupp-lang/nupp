@@ -9,6 +9,7 @@ operation which allocates a nominal declaration.
 ]]
 
 local T = require("nupp.compiler.types")
+local constrain = require("nupp.compiler.constrain")
 local hash = require("nupp.compiler.hash")
 local stable = require("nupp.compiler.stable")
 
@@ -186,6 +187,23 @@ function typeblueprint.validate(envelope: any, permittedReferences: any?): any, 
                     why = "type blueprint literal is not a string, boolean, or exact integer"
                 else
                     value = T.literal(node.value, base)
+                end
+            end
+        elseif node.kind == "constrained" then
+            local base
+            base, why = edge(node.inner, "constrained base")
+            if base and base.tag == "pack" then
+                why, base = "constrained base is a type pack", nil
+            end
+            if base then
+                -- Rebuilt through the same constructor the resolver uses, so a
+                -- constraint a comptime function returned and one written in a type
+                -- are one interned type rather than two that look alike.
+                local built, reason = constrain.build(base, node.low or 0, node.high or 0, node.lengthwise == true)
+                if built then
+                    value = built
+                else
+                    why = reason or "type blueprint constraint cannot be built"
                 end
             end
         elseif node.kind == "array" then
