@@ -1423,10 +1423,19 @@ function aot.emitC(
     local sources: {string} = {}
     local sourceText: {[string]: string} = {}
     local sourceDirectory: {[string]: string} = {}
+    local sourceListed: {[string]: string} = {}
     local checkedBySource: {[string]: ParseResult} = {}
     local checkedModules: {any} = {}
     for _, directory in ipairs(roots) do
-        for _, source in ipairs(fs.listFiles(fs.join(root, directory))) do
+        for _, listed in ipairs(fs.listFiles(fs.join(root, directory))) do
+            -- The graph may reach the same file through a relative root. Its
+            -- key is also the key the module build uses for replacements.
+            local source = listed
+            local name = envMod.moduleNameForPath(session.inc.env, listed)
+            local resolved = name ~= nil and session.inc.modulePath(name as string) or nil
+            if resolved ~= nil and resolved ~= listed and fs.canonical(resolved as string) == fs.canonical(listed) then
+                source = resolved as string
+            end
             if not seen[
                 source
             ] and source:match(
@@ -1438,6 +1447,7 @@ function aot.emitC(
                     sources[#sources + 1] = source
                     sourceText[source] = text as string
                     sourceDirectory[source] = directory
+                    sourceListed[source] = listed
                 end
             end
         end
@@ -1581,12 +1591,15 @@ function aot.emitC(
                     -- `fs.join` writes one for a root of "." and the
                     -- listed source does not carry it.
                     local base = fs.join(root, directory):gsub("^%./", "")
-                    local listed = source:gsub("^%./", "")
+                    local listed = sourceListed[source]:gsub("^%./", "")
                     local relative = listed
                     if listed:sub(1, #base + 1) == base .. "/" then
                         relative = listed:sub(#base + 2)
                     end
                     local prefix = directory:gsub("^%./", ""):gsub("%.%./", "up/"):gsub("/$", "")
+                    if prefix:sub(1, 1) == "/" or prefix:match("^[A-Za-z]:/") then
+                        prefix = "absolute/" .. hash.digest(fs.canonical(base))
+                    end
                     local stem = (prefix == "" and relative or prefix .. "/" .. relative):gsub("%.nupp$", "")
                     local output = outDir .. "/aot/" .. stem .. "." .. tierTarget.tier .. ".c"
                     local cacheKey = source .. "#" .. tierTarget.tier

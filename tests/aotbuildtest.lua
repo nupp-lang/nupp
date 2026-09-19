@@ -2326,6 +2326,53 @@ function M.requireBuildsTheLibraryFromTheGeneratedC()
     assert(libraryKey(dir), "recorded under a key of its own")
 end
 
+function M.absoluteIncludeRootsKeepTheirCompiledBindings()
+    if not hasToolchain() then
+        return
+    end
+    local dir = project("require")
+    local source = assert(io.open(dir .. "/src/kernel.nupp", "wb"))
+    source:write([[
+module kernel
+@aot
+local function boxed(value: number): {value: number}
+    return {value = value + 1}
+end
+export = {boxed = boxed}
+]])
+    source:close()
+    local original = assert(read(dir .. "/nupp.lua"))
+    local absolute = dir:gsub("\\", "/"):gsub("^/([A-Za-z])/", "%1:/") .. "/src"
+    for _, scenario in ipairs({{"src", false}, {absolute, false}, {absolute, true}}) do
+        local include, scoped = scenario[1], scenario[2]
+        local manifest = assert(io.open(dir .. "/nupp.lua", "wb"))
+        local config = original:gsub('include = {"src"}', function()
+            return "include = {" .. string.format("%q", include) .. "}"
+        end)
+        if scoped then
+            config = config:gsub('outDir = "build/native",', 'outDir = "build/native", sources = {"src/kernel.nupp", "src/plain.nupp"},')
+        end
+        manifest:write(config)
+        manifest:close()
+        assert(os.execute(("rm -rf %q"):format(dir .. "/build")) == 0)
+        local out, code = build(dir)
+        test.equal(code, 0, out)
+        local rebuilt, rebuildCode = build(dir)
+        test.equal(rebuildCode, 0, rebuilt)
+        local script = [[
+            local kernel = require("kernel")
+            local compiled = rawget(_G, "__nuppAotCompiled") or {}
+            assert(compiled[kernel.boxed], "the required entry is not compiled")
+            assert(kernel.boxed(41).value == 42)
+            print("compiled entry answered 42")
+        ]]
+        local pipe = assert(io.popen(("cd %q && luajit -e %q 2>&1"):format(dir, searchPathPrelude() .. script)))
+        local answer = pipe:read("*a")
+        pipe:close()
+        assert(answer:find("compiled entry answered 42", 1, true), include .. ": " .. answer)
+    end
+end
+
 function M.pathNormalizationUsesOneBodyAcrossBuildPolicies()
     if not hasToolchain() then
         return
