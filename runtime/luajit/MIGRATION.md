@@ -33,11 +33,20 @@ and converts struct field offsets instead of sharing guest addresses. Wasm
 kernels have their own linear memory, capped at 64 MiB; each transfer batch is
 limited to 2 MiB. Measure the copy and bridge cost before using small kernels.
 
-Lua-C-API side modules are not compatible with the independent ABI. Lua-builder
-AOT entries are rejected by name. Their source still runs as ordinary LuaJIT with
-`aot = "off"`; projects requiring the old side-module ABI can explicitly retain
-`dialect = "lua51"` and package with `NUPP_BROWSER_BACKEND=lua51` during the rollback
-release. This restriction must be resolved or accepted before the deletion gate.
+Lua-C-API builders use guest-native `aot = "require"`,
+`aotTarget = "i686-unknown-linux-gnu"`, and `aotFeatures = "baseline"`.
+`NUPP_BROWSER_NATIVE_CC` selects an i386/musl cross compiler for packaging;
+direct compiler builds use `NUPP_NATIVE_CC`. Libraries travel as verified hashed
+assets and are installed before application or worker startup. Existing LuaJIT
+FFI and C-API bindings preserve tables, strings and rooted object identity.
+The combined native-library limit is one MiB; escaped initialization and the
+application share the seven-MiB startup budget. Guest-native code executes
+through CPU emulation, with different performance from independent Wasm.
+
+`require-wasm` still rejects Lua-C-API builders by name. Use guest-native AOT,
+ordinary LuaJIT with `aot = "off"`, or the explicit old side-module ABI with
+`dialect = "lua51"` and `NUPP_BROWSER_BACKEND=lua51` during the rollback release.
+Arbitrary external libraries still need their own guest ABI/conformance checks.
 
 FFI sees the guest's libc, LPeg and supplied i386 libraries. It cannot load a
 browser Wasm module or a macOS/Windows library. The source guest preserves frame

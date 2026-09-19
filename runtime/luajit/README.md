@@ -36,7 +36,9 @@ compiler session. A busy request is cancelled by terminating its worker/VM;
 the next request starts a fresh session. Guest FFI sees only i386 Linux guest
 libraries. Browser timers, entropy, crypto, storage, HTTP, worker tasks and WebGPU use
 bounded copied transfers. Independent Wasm kernels use a separate memory and
-scalar/span ABI; Lua-C-API builder entries still require the legacy host.
+scalar/span ABI. Lua-C-API builders use guest-native AOT shared libraries with
+`aot = "require"`, the i686 target and a musl cross compiler. They execute inside
+the real guest LuaJIT and share its objects; they are not independent Wasm kernels.
 
 A same-origin deployment can allow `script-src 'self' 'wasm-unsafe-eval'`,
 `worker-src 'self' blob:` and the application's required `connect-src`
