@@ -25,10 +25,12 @@ typedef struct nupp_runtime nupp_runtime;
 typedef struct nupp_component nupp_component;
 typedef struct nupp_handle nupp_handle;
 typedef struct nupp_error nupp_error;
+typedef struct nupp_reload nupp_reload;
 
 enum {
     NUPP_EMBED_ABI_VERSION = 1,
     NUPP_CONFIG_OPEN_LIBRARIES = 1,
+    NUPP_RELOAD_STRICT = 1,
 };
 
 typedef enum nupp_status {
@@ -64,11 +66,30 @@ typedef struct nupp_value {
     nupp_handle *handle;
 } nupp_value;
 
+typedef enum nupp_reload_verdict {
+    NUPP_RELOAD_NO_CHANGE = 0,
+    NUPP_RELOAD_COMMITTED = 1,
+    NUPP_RELOAD_REJECTED = 2,
+    NUPP_RELOAD_RESTART_REQUIRED = 3,
+} nupp_reload_verdict;
+
 typedef struct nupp_config {
     uint32_t size;
     uint32_t abi_version;
     uint32_t flags;
 } nupp_config;
+
+/* Development hot reload compiles the project while the program runs, so
+ * `compiler_path` names a directory holding the compiler's own Lua modules --
+ * what `nupp build --target bootstrapCompiler` writes. It may be null when the
+ * state already reaches them. `root` defaults to the process's directory. */
+typedef struct nupp_reload_config {
+    uint32_t size;
+    uint32_t flags;
+    const char *compiler_path;
+    const char *root;
+    const char *entry;
+} nupp_reload_config;
 
 NUPP_API void nupp_config_init(nupp_config *config);
 
@@ -175,6 +196,51 @@ NUPP_API nupp_status nupp_runtime_poll(
     nupp_runtime *runtime,
     nupp_error **error
 );
+
+NUPP_API void nupp_reload_config_init(nupp_reload_config *config);
+
+/* Builds `entry` in watch mode, runs its chunk, and leaves the session open.
+ * Development only: a watch build is -O0 and dispatches every named function
+ * through a slot. */
+NUPP_API nupp_status nupp_reload_open(
+    nupp_runtime *runtime,
+    const nupp_reload_config *config,
+    nupp_reload **out,
+    nupp_error **error
+);
+
+/* One member of the reloading entry, by dotted name. The handle keeps working
+ * across every commit, which is what a watch build's stable identity buys. */
+NUPP_API nupp_status nupp_reload_find(
+    nupp_runtime *runtime,
+    nupp_reload *reload,
+    const char *name,
+    nupp_handle **out,
+    nupp_error **error
+);
+
+/* The commit boundary, called where the host knows no work is half applied.
+ * Nothing in the running process changes anywhere else. */
+NUPP_API nupp_status nupp_reload_poll(
+    nupp_runtime *runtime,
+    nupp_reload *reload,
+    uint32_t *verdict,
+    uint64_t *generation,
+    nupp_error **error
+);
+
+/* The diagnostics behind the last poll, or null. Owned by the session and
+ * replaced by the next poll. */
+NUPP_API const char *nupp_reload_message(const nupp_reload *reload);
+
+NUPP_API nupp_status nupp_reload_close(
+    nupp_runtime *runtime,
+    nupp_reload *reload,
+    int ok,
+    nupp_error **error
+);
+
+NUPP_API void nupp_reload_free(nupp_reload *reload);
 
 NUPP_API void nupp_component_release(nupp_component *component);
 NUPP_API void nupp_runtime_free(nupp_runtime *runtime);

@@ -131,6 +131,21 @@ typedef struct ReferenceCall {
     int reference;
 } ReferenceCall;
 
+typedef struct PathCall {
+    ProtectedCall call;
+    const char *directory;
+} PathCall;
+
+/* One member taken by name, from a required module or from a value already
+ * rooted in the registry. Both are the same lookup with a different table. */
+typedef struct MemberCall {
+    ProtectedCall call;
+    const char *module;
+    int value;
+    const char *name;
+    int result;
+} MemberCall;
+
 typedef struct NuppLuaValue {
     uint32_t kind;
     int boolean;
@@ -508,6 +523,67 @@ static int find_export(lua_State *state) {
     return 0;
 }
 
+/* Prepends one directory's module patterns to package.path. A host naming a
+ * compiler tree means that tree, whatever else the process already has. */
+static int add_package_path(lua_State *state) {
+    PathCall *context = (PathCall *)lua_touserdata(state, 1);
+    const char *existing;
+    lua_getfield(state, LUA_GLOBALSINDEX, "package");
+    if (lua_type(state, -1) != LUA_TTABLE) {
+        fail_call(&context->call, "pinned LuaJIT did not install package");
+        return 0;
+    }
+    lua_getfield(state, -1, "path");
+    existing = lua_type(state, -1) == LUA_TSTRING ? lua_tostring(state, -1) : "";
+    lua_pushfstring(state, "%s/?.lua;%s/?/init.lua;%s", context->directory,
+        context->directory, existing);
+    lua_setfield(state, -3, "path");
+    return 0;
+}
+
+static int take_member(lua_State *state, MemberCall *context) {
+    char problem[256];
+    if (lua_type(state, -1) != LUA_TTABLE) {
+        snprintf(problem, sizeof problem, "%s is not a table",
+            context->module != NULL ? context->module : "the managed value");
+        fail_call(&context->call, problem);
+        return 0;
+    }
+    lua_getfield(state, -1, context->name);
+    if (lua_type(state, -1) == LUA_TNIL) {
+        snprintf(problem, sizeof problem, "%s has no member named %s",
+            context->module != NULL ? context->module : "the managed value",
+            context->name);
+        fail_call(&context->call, problem);
+        return 0;
+    }
+    context->result = luaL_ref(state, LUA_REGISTRYINDEX);
+    return 0;
+}
+
+static int module_member(lua_State *state) {
+    MemberCall *context = (MemberCall *)lua_touserdata(state, 1);
+    int status;
+    lua_getfield(state, LUA_GLOBALSINDEX, "require");
+    if (lua_type(state, -1) != LUA_TFUNCTION) {
+        fail_call(&context->call, "pinned LuaJIT did not install require");
+        return 0;
+    }
+    lua_pushstring(state, context->module);
+    status = lua_pcall(state, 1, 1, 0);
+    if (status != 0) {
+        capture_error(state, &context->call, status);
+        return 0;
+    }
+    return take_member(state, context);
+}
+
+static int value_member(lua_State *state) {
+    MemberCall *context = (MemberCall *)lua_touserdata(state, 1);
+    lua_rawgeti(state, LUA_REGISTRYINDEX, context->value);
+    return take_member(state, context);
+}
+
 static int release_reference(lua_State *state) {
     ReferenceCall *context = (ReferenceCall *)lua_touserdata(state, 1);
     luaL_unref(state, LUA_REGISTRYINDEX, context->reference);
@@ -817,5 +893,31 @@ int nupp_lua_take_result(lua_State *state, int results, size_t index,
     };
     int status = protect(state, take_result, &context.call);
     if (status == 0) *value = context.value;
+    return status;
+}
+
+int nupp_lua_add_package_path(lua_State *state, const char *directory,
+    char *error, size_t error_capacity) {
+    PathCall context = {{error, error_capacity, 0}, directory};
+    return protect(state, add_package_path, &context.call);
+}
+
+int nupp_lua_module_member(lua_State *state, const char *module,
+    const char *name, int *reference, char *error, size_t error_capacity) {
+    MemberCall context = {
+        {error, error_capacity, 0}, module, 0, name, 0
+    };
+    int status = protect(state, module_member, &context.call);
+    if (status == 0) *reference = context.result;
+    return status;
+}
+
+int nupp_lua_value_member(lua_State *state, int value, const char *name,
+    int *reference, char *error, size_t error_capacity) {
+    MemberCall context = {
+        {error, error_capacity, 0}, NULL, value, name, 0
+    };
+    int status = protect(state, value_member, &context.call);
+    if (status == 0) *reference = context.result;
     return status;
 }

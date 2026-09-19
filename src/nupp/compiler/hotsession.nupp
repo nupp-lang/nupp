@@ -754,6 +754,23 @@ function Session:compile(path, mode, module, only)
     if fatalIn(checked.diags) then
         return nil, diagnosticsFailure(checked.diags)
     end
+    -- A file the checker could not read leaves no tree and says nothing, because
+    -- nothing reached the point where a diagnostic has a source to point into. The
+    -- session has to answer anyway, and a host driving it has only what it answers.
+    if not checked.result then
+        return nil, diagnosticsFailure({
+            {
+                filename = path,
+                line = 1,
+                col = 1,
+                offset = 0,
+                length = 0,
+                code = "NUPP0001",
+                msg = "cannot read " .. path,
+                help = "check the path, and that the file is readable from the project root",
+            }
+        })
+    end
     local abi, abiFailure = self:semanticSnapshot(path, checked, module)
     if not abi then
         return nil, abiFailure

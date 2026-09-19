@@ -70,6 +70,20 @@ Lazily required modules join the running generation only after their top level
 returns successfully. Editing an unloaded module emits no patch; its current
 source is compiled when it is first required.
 
+## From a host
+
+`nupp run --watch` owns the process. A C or C++ program embedding Nupp owns its
+own loop instead, and drives the same session through the embedding ABI:
+`nupp_reload_open` in place of the watch command, `nupp_reload_find` for the
+functions it will call, and `nupp_reload_poll` wherever it knows no frame,
+request or transaction is half applied. The verdicts are the ones below.
+
+```c
+nupp_reload_poll(runtime, reload, &verdict, &generation, &error);
+```
+
+See [embedding.md](embedding.md#hot-reload) for the whole surface.
+
 ## Accepted edits
 
 A generation may change bodies of existing named local functions, qualified

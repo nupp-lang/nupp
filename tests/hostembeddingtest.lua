@@ -216,4 +216,139 @@ assert(ffi.C.nupp_rust_worker_channel_new ~= nil)
     assert(status == 0, output)
 end
 
+-- The C driver for the reload gate below. It edits the entry itself rather than
+-- waiting on a watcher, so what the case proves is the boundary and not a
+-- filesystem race: one member taken before the edit, called again after the poll
+-- that committed it.
+local RELOAD_DRIVER = [[
+#include "nupp.h"
+#include <stdio.h>
+
+static int report(const char *what, nupp_status status, nupp_error *error) {
+    if (status == NUPP_STATUS_OK) return 0;
+    fprintf(stderr, "%s: %s\n", what, error ? nupp_error_message(error) : "unknown error");
+    nupp_error_free(error);
+    return 1;
+}
+
+static void write_entry(const char *path, int value) {
+    FILE *file = fopen(path, "wb");
+    if (!file) return;
+    fprintf(file, "local function update(): integer\n    return %d\nend\n\nreturn {update = update}\n", value);
+    fclose(file);
+}
+
+int main(int argc, char **argv) {
+    nupp_runtime *runtime = NULL;
+    nupp_reload *reload = NULL;
+    nupp_handle *update = NULL;
+    nupp_error *error = NULL;
+    nupp_config config;
+    nupp_reload_config reloading;
+    nupp_value result = {0};
+    size_t count = 0;
+    uint32_t verdict = 0;
+    uint64_t generation = 0;
+    nupp_status status;
+    char entry[2048];
+
+    if (argc != 4) {
+        fprintf(stderr, "usage: %s COMPILER_DIR PROJECT_DIR ENTRY\n", argv[0]);
+        return 2;
+    }
+    snprintf(entry, sizeof entry, "%s/%s", argv[2], argv[3]);
+    write_entry(entry, 41);
+    nupp_config_init(&config);
+    status = nupp_runtime_new(&config, &runtime, &error);
+    if (report("runtime", status, error)) return 1;
+    nupp_reload_config_init(&reloading);
+    reloading.compiler_path = argv[1];
+    reloading.root = argv[2];
+    reloading.entry = argv[3];
+    error = NULL;
+    status = nupp_reload_open(runtime, &reloading, &reload, &error);
+    if (report("open", status, error)) return 1;
+    error = NULL;
+    status = nupp_reload_find(runtime, reload, "update", &update, &error);
+    if (report("find", status, error)) return 1;
+    error = NULL;
+    status = nupp_call(runtime, update, NULL, 0, &result, 1, &count, &error);
+    if (report("call", status, error)) return 1;
+    printf("before = %.0f\n", result.number);
+
+    write_entry(entry, 42);
+    error = NULL;
+    status = nupp_reload_poll(runtime, reload, &verdict, &generation, &error);
+    if (report("poll", status, error)) return 1;
+    printf("verdict = %u generation = %llu\n", verdict, (unsigned long long)generation);
+    if (nupp_reload_message(reload)) printf("message = %s\n", nupp_reload_message(reload));
+    error = NULL;
+    status = nupp_call(runtime, update, NULL, 0, &result, 1, &count, &error);
+    if (report("recall", status, error)) return 1;
+    printf("after = %.0f\n", result.number);
+
+    error = NULL;
+    status = nupp_reload_close(runtime, reload, 1, &error);
+    if (report("close", status, error)) return 1;
+    nupp_reload_free(reload);
+    error = NULL;
+    nupp_handle_release(runtime, update, &error);
+    nupp_error_free(error);
+    error = NULL;
+    status = nupp_runtime_shutdown(runtime, &error);
+    if (report("shutdown", status, error)) return 1;
+    nupp_runtime_free(runtime);
+    return 0;
+}
+]]
+
+function M.hotReloadCommitsAnEditThroughTheCApi()
+    local compilerModules = ROOT .. "/build"
+    local present = io.open(compilerModules .. "/nupp/compiler/hostreload.lua", "rb")
+    if not present then
+        test.skip("hot reload needs the compiler's Lua modules under build/")
+    end
+    present:close()
+    local directory, library = temporary(), sdk()
+    local project = directory .. "/project"
+    assert(os.execute("mkdir -p " .. quote(project)) == 0)
+    local source = directory .. "/reload.c"
+    write(source, RELOAD_DRIVER)
+    local executable = directory .. "/reload"
+    if jit.os == "Windows" then
+        executable = executable .. ".exe"
+    end
+    local status, output = run(
+        ("%s -std=c11 -I%s %s %s %s -o %s"):format(
+            quote(compiler()),
+            quote(library),
+            quote(source),
+            quote(library .. "/libnupp.a"),
+            platformLibraries(library),
+            quote(executable)
+        )
+    )
+    assert(status == 0, output)
+    status, output = run(
+        ("%s %s %s main.nupp"):format(quote(executable), quote(compilerModules), quote(project))
+    )
+    assert(status == 0, output)
+    assert(output:find("before = 41", 1, true), output)
+    assert(output:find("verdict = 1 generation = 2", 1, true), output)
+    assert(output:find("after = 42", 1, true), output)
+
+    -- The published example drives the same surface but waits on a person between
+    -- polls, so it is compiled rather than run: what would rot in it is the API it
+    -- spells, and that is what compiling catches.
+    status, output = run(
+        ("%s -std=c11 -I%s -c %s -o %s"):format(
+            quote(compiler()),
+            quote(library),
+            quote(ROOT .. "/host/examples/reload.c"),
+            quote(directory .. "/reload-example.o")
+        )
+    )
+    assert(status == 0, output)
+end
+
 return M

@@ -159,6 +159,28 @@ unsafe extern "C" {
         error: *mut c_char,
         error_capacity: usize,
     ) -> c_int;
+    fn nupp_lua_add_package_path(
+        state: *mut LuaState,
+        directory: *const c_char,
+        error: *mut c_char,
+        error_capacity: usize,
+    ) -> c_int;
+    fn nupp_lua_module_member(
+        state: *mut LuaState,
+        module: *const c_char,
+        name: *const c_char,
+        reference: *mut c_int,
+        error: *mut c_char,
+        error_capacity: usize,
+    ) -> c_int;
+    fn nupp_lua_value_member(
+        state: *mut LuaState,
+        value: c_int,
+        name: *const c_char,
+        reference: *mut c_int,
+        error: *mut c_char,
+        error_capacity: usize,
+    ) -> c_int;
     fn nupp_lua_release_reference(
         state: *mut LuaState,
         reference: c_int,
@@ -500,6 +522,50 @@ impl Lua {
             nupp_lua_find_export(
                 self.state.as_ptr(),
                 component,
+                name.as_ptr(),
+                &mut reference,
+                error,
+                capacity,
+            )
+        })?;
+        Ok(reference)
+    }
+
+    pub(crate) fn add_package_path(&self, directory: &CStr) -> Result<(), String> {
+        // SAFETY: the directory lives through this synchronous call and the shim
+        // rewrites `package.path` below its protected C frame.
+        self.protected(|error, capacity| unsafe {
+            nupp_lua_add_package_path(self.state.as_ptr(), directory.as_ptr(), error, capacity)
+        })
+    }
+
+    /// Requires `module` and roots one of its members. The member is a value
+    /// this state owns from here on; the caller releases it.
+    pub(crate) fn module_member(&self, module: &CStr, name: &CStr) -> Result<c_int, String> {
+        let mut reference = 0;
+        // SAFETY: both names and the output pointer live through the call, and
+        // the shim protects the require and the lookup behind it.
+        self.protected(|error, capacity| unsafe {
+            nupp_lua_module_member(
+                self.state.as_ptr(),
+                module.as_ptr(),
+                name.as_ptr(),
+                &mut reference,
+                error,
+                capacity,
+            )
+        })?;
+        Ok(reference)
+    }
+
+    pub(crate) fn value_member(&self, value: c_int, name: &CStr) -> Result<c_int, String> {
+        let mut reference = 0;
+        // SAFETY: `value` is rooted in this state, and the name and output live
+        // through the protected lookup.
+        self.protected(|error, capacity| unsafe {
+            nupp_lua_value_member(
+                self.state.as_ptr(),
+                value,
                 name.as_ptr(),
                 &mut reference,
                 error,

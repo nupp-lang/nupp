@@ -426,13 +426,23 @@ function hotreload.loaded(name: string): boolean
     return module ~= nil and module.loaded == true
 end
 
---- Clears process state. Intended for compiler/runtime tests only.
-function hotreload.resetForTesting(): nil
+--- Forgets every registered module, so another session may register its own.
+---
+--- What a running program holds is untouched: a generated module dispatches through
+--- the slot array it captured rather than through this registry, so every function
+--- already handed out keeps working and keeps its identity. What a retired registry
+--- gives up is patching them, which is what closing a session means.
+function hotreload.retire(): nil
     state.generation = 1
     state.modules = {}
     state.bySlots = setmetatable({}, {__mode = "k"})
     state.staging = nil
     state.preparedSerial = 0
+end
+
+--- Clears process state. Intended for compiler/runtime tests only.
+function hotreload.resetForTesting(): nil
+    hotreload.retire()
 end
 
 _G[API_KEY] = hotreload

@@ -1311,4 +1311,96 @@ function M.headerDependencyClosureGrowsAndShrinksAfterNoChange()
     assert(isWatched(nestedPath), "new include joins the dynamic watch set")
 end
 
+-- The host-driven surface: what `nupp.compiler.hostreload` answers is what the C
+-- functions behind it return, so these cases are the reload verdicts a host sees.
+
+local hostreloadModule = require("nupp.compiler.hostreload")
+
+local function hostProject(source)
+    hot.resetForTesting()
+    local dir = temporaryProject({["main.nupp"] = source})
+    local session, failure = hostreloadModule.open("main.nupp", dir)
+    assert(session, tostring(failure))
+
+    return session, dir, dir .. "/main.nupp"
+end
+
+function M.hostSessionCommitsAnEditThroughARetainedMember()
+    local session, _, path = hostProject(
+        "local function update(): integer return 41 end\nreturn {update = update}\n"
+    )
+    local update = session.member("update")
+    assertEq(update(), 41, "the member answers before the edit")
+    write(path, "local function update(): integer return 42 end\nreturn {update = update}\n")
+    local verdict, generation, message = session.poll()
+    session.close(true)
+    assertEq(verdict, "committed")
+    assertEq(generation, 2)
+    assertEq(message, nil)
+    assertEq(update(), 42, "the retained member reaches the new body")
+end
+
+function M.hostSessionReportsNoChangeWhenNothingMoved()
+    local session = hostProject("local function update(): integer return 1 end\nreturn {update = update}\n")
+    local verdict, generation = session.poll()
+    session.close(true)
+    assertEq(verdict, "no-change")
+    assertEq(generation, 1)
+end
+
+function M.hostSessionRejectionKeepsTheRunningGeneration()
+    local session, _, path = hostProject(
+        "local function update(): integer return 1 end\nreturn {update = update}\n"
+    )
+    local update = session.member("update")
+    write(path, "local function update(): integer return \"two\" end\nreturn {update = update}\n")
+    local verdict, generation, message = session.poll()
+    session.close(true)
+    assertEq(verdict, "rejected")
+    assertEq(generation, 1, "the running generation is what stays running")
+    assert(message and message:find("NUPP", 1, true), "the refusal names its diagnostic: " .. tostring(message))
+    assertEq(update(), 1, "the member still answers from the generation that checked")
+end
+
+function M.hostSessionReportsStructuralChangesAsRestartRequired()
+    local session, _, path = hostProject(
+        "local function update(): integer return 1 end\nreturn {update = update}\n"
+    )
+    write(path, "local added: integer = 2\nlocal function update(): integer return added end\nreturn {update = update}\n")
+    local verdict, generation, message = session.poll()
+    session.close(true)
+    assertEq(verdict, "restart-required")
+    assertEq(generation, 1)
+    assert(message and message:find("NUPP5001", 1, true), "the restart names its diagnostic: " .. tostring(message))
+end
+
+function M.hostSessionRefusesAnEntryThatDoesNotCheck()
+    hot.resetForTesting()
+    local dir = temporaryProject({["main.nupp"] = "local function update(): integer return \"one\" end\nreturn update\n"})
+    local session, failure = hostreloadModule.open("main.nupp", dir)
+    assertEq(session, nil, "an entry that does not check opens nothing")
+    assert(failure and failure:find("NUPP", 1, true), "the failure names its diagnostic: " .. tostring(failure))
+end
+
+function M.hostSessionRefusesASecondSessionAndReopensAfterClose()
+    local session, dir = hostProject("local function update(): integer return 1 end\nreturn {update = update}\n")
+    local update = session.member("update")
+    local second, why = hostreloadModule.open("main.nupp", dir)
+    assertEq(second, nil, "one registry means one session")
+    assert(why and why:find("already open", 1, true), tostring(why))
+    session.close(true)
+    local reopened, failure = hostreloadModule.open("main.nupp", dir)
+    assert(reopened, tostring(failure))
+    assertEq(update(), 1, "the closed session's values keep working")
+    reopened.close(true)
+end
+
+function M.hostSessionNamesAnEntryItCannotRead()
+    hot.resetForTesting()
+    local dir = temporaryProject({})
+    local session, failure = hostreloadModule.open("absent.nupp", dir)
+    assertEq(session, nil)
+    assert(failure and failure:find("NUPP0001", 1, true), "an unreadable entry reports a diagnostic: " .. tostring(failure))
+end
+
 return M

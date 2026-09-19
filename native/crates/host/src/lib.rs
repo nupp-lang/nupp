@@ -28,7 +28,7 @@ pub use lua::{LuaFunction, LuaState};
 use lua::{Lua, LuaAnswer, LuaArgument};
 use nupp_native_runtime::NativeLane;
 use std::collections::HashMap;
-use std::ffi::CString;
+use std::ffi::{CStr, CString};
 use std::fmt;
 use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
@@ -64,6 +64,47 @@ pub enum ManagedValue {
 struct ComponentState {
     reference: i32,
     started: bool,
+}
+
+/// One open development hot-reload session, named the way a component is: the
+/// runtime it belongs to and an id that outlives no other runtime's.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Reload {
+    runtime: u64,
+    id: u64,
+}
+
+/// What a poll decided about the running generation.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ReloadVerdict {
+    NoChange,
+    Committed,
+    Rejected,
+    RestartRequired,
+}
+
+/// One poll's answer: what it decided, the implementation generation running
+/// after it, and the diagnostics behind a refusal.
+#[derive(Clone, Debug)]
+pub struct ReloadReport {
+    pub verdict: ReloadVerdict,
+    pub generation: u64,
+    pub message: Option<String>,
+}
+
+/// The session table and the three functions taken from it once, so a poll is
+/// one Lua call rather than a lookup and a call.
+struct ReloadState {
+    session: i32,
+    member: i32,
+    poll: i32,
+    close: i32,
+}
+
+impl ReloadState {
+    fn references(&self) -> [i32; 4] {
+        [self.session, self.member, self.poll, self.close]
+    }
 }
 
 #[derive(Debug)]
@@ -125,6 +166,8 @@ pub struct HostRuntime {
     components: HashMap<u64, ComponentState>,
     next_handle: u64,
     handles: HashMap<u64, i32>,
+    next_reload: u64,
+    reloads: HashMap<u64, ReloadState>,
     frozen: bool,
     worker_host: Option<Box<worker_adapter::WorkersHost>>,
     // Neither the raw LuaJIT state nor the lane-facing scheduler contract may
@@ -210,6 +253,8 @@ impl HostRuntime {
             components: HashMap::new(),
             next_handle: 1,
             handles: HashMap::new(),
+            next_reload: 1,
+            reloads: HashMap::new(),
             frozen: false,
             worker_host: None,
             _thread_affine: PhantomData,
@@ -445,6 +490,212 @@ impl HostRuntime {
             .collect())
     }
 
+    /// Opens a development hot-reload session on this runtime's state.
+    ///
+    /// `compiler` names a directory of the compiler's own Lua modules, which is
+    /// what a host has that a component does not: reload compiles the project
+    /// while the program runs, so the compiler is part of the running process
+    /// rather than of the artifact. Passing `None` means the state already
+    /// reaches those modules.
+    pub fn reload_open(
+        &mut self,
+        compiler: Option<&str>,
+        root: Option<&str>,
+        entry: &str,
+        strict: bool,
+    ) -> Result<Reload, HostError> {
+        if let Some(compiler) = compiler {
+            let directory = CString::new(compiler).map_err(|_| HostError::InvalidChunkName)?;
+            self.lua()?
+                .add_package_path(&directory)
+                .map_err(HostError::Lua)?;
+        }
+        let entry = entry.as_bytes().to_vec();
+        let root = root.map(|root| root.as_bytes().to_vec());
+        let open = self
+            .lua()?
+            .module_member(c"nupp.compiler.hostreload", c"open")
+            .map_err(HostError::Lua)?;
+        let arguments = [
+            LuaArgument::Bytes(&entry),
+            match root.as_ref() {
+                Some(root) => LuaArgument::Bytes(root),
+                None => LuaArgument::Nil,
+            },
+            LuaArgument::Boolean(strict),
+        ];
+        let opened = self.lua()?.call(open, &arguments).map_err(HostError::Lua);
+        let _ = self.lua()?.release_reference(open);
+        let answers = opened?;
+        let session = match answers.first() {
+            Some(LuaAnswer::Reference(session)) => *session,
+            _ => {
+                self.release_answers(&answers);
+                return Err(HostError::Lua(match answers.get(1) {
+                    Some(LuaAnswer::Bytes(message)) => {
+                        String::from_utf8_lossy(message).into_owned()
+                    }
+                    _ => "the Nupp project has no watch build".to_owned(),
+                }));
+            }
+        };
+        self.release_answers(&answers[1..]);
+        let state = match self.reload_members(session) {
+            Ok(state) => state,
+            Err(error) => {
+                let _ = self.lua()?.release_reference(session);
+                return Err(error);
+            }
+        };
+        let id = self.next_reload;
+        self.next_reload += 1;
+        self.reloads.insert(id, state);
+        Ok(Reload {
+            runtime: self.id,
+            id,
+        })
+    }
+
+    /// Roots one member of the reloading entry as a callable handle. A watch
+    /// build dispatches a named function through a slot, so the handle stays
+    /// the same value across every commit.
+    pub fn reload_member(
+        &mut self,
+        reload: Reload,
+        name: &str,
+    ) -> Result<ManagedHandle, HostError> {
+        let member = self.reload_state(reload)?.member;
+        let name = name.as_bytes().to_vec();
+        let answers = self
+            .lua()?
+            .call(member, &[LuaArgument::Bytes(&name)])
+            .map_err(HostError::Lua)?;
+        match answers.first() {
+            Some(LuaAnswer::Reference(reference)) => Ok(self.insert_handle(*reference)),
+            _ => {
+                self.release_answers(&answers);
+                Err(HostError::Lua(format!(
+                    "the reloading entry has no callable {}",
+                    String::from_utf8_lossy(&name)
+                )))
+            }
+        }
+    }
+
+    /// The commit boundary. Nothing in the running process changes until this
+    /// is called, and a generation it commits is complete when it returns.
+    pub fn reload_poll(&mut self, reload: Reload) -> Result<ReloadReport, HostError> {
+        let poll = self.reload_state(reload)?.poll;
+        let answers = self.lua()?.call(poll, &[]).map_err(HostError::Lua)?;
+        let verdict = match answers.first() {
+            Some(LuaAnswer::Bytes(kind)) => match kind.as_slice() {
+                b"no-change" => ReloadVerdict::NoChange,
+                b"committed" => ReloadVerdict::Committed,
+                b"rejected" => ReloadVerdict::Rejected,
+                b"restart-required" => ReloadVerdict::RestartRequired,
+                other => {
+                    self.release_answers(&answers);
+                    return Err(HostError::Lua(format!(
+                        "the reload session answered an unknown verdict {}",
+                        String::from_utf8_lossy(other)
+                    )));
+                }
+            },
+            _ => {
+                self.release_answers(&answers);
+                return Err(HostError::Lua(
+                    "the reload session answered no verdict".to_owned(),
+                ));
+            }
+        };
+        let generation = match answers.get(1) {
+            Some(LuaAnswer::Number(generation)) if *generation >= 0.0 => *generation as u64,
+            _ => 0,
+        };
+        let message = match answers.get(2) {
+            Some(LuaAnswer::Bytes(message)) => Some(String::from_utf8_lossy(message).into_owned()),
+            _ => None,
+        };
+        self.release_answers(&answers);
+        Ok(ReloadReport {
+            verdict,
+            generation,
+            message,
+        })
+    }
+
+    /// Retires the session's loader and compiler session. The program's values
+    /// remain; what stops is reloading them.
+    pub fn reload_close(&mut self, reload: Reload, ok: bool) -> Result<(), HostError> {
+        let state = self.reload_state(reload)?;
+        let (close, references) = (state.close, state.references());
+        let answers = self.lua()?.call(close, &[LuaArgument::Boolean(ok)]);
+        let answers = answers.map_err(HostError::Lua);
+        if let Ok(answers) = answers.as_ref() {
+            self.release_answers(answers);
+        }
+        let mut released = Ok(());
+        for reference in references {
+            if let Err(error) = self.lua()?.release_reference(reference) {
+                released = Err(HostError::Lua(error));
+            }
+        }
+        self.reloads.remove(&reload.id);
+        answers.map(drop).and(released)
+    }
+
+    fn reload_members(&self, session: i32) -> Result<ReloadState, HostError> {
+        let lua = self.lua()?;
+        let mut taken = Vec::new();
+        let mut take = |name: &CStr| match lua.value_member(session, name) {
+            Ok(reference) => {
+                taken.push(reference);
+                Ok(reference)
+            }
+            Err(error) => Err(HostError::Lua(error)),
+        };
+        let members = (|| Ok((take(c"member")?, take(c"poll")?, take(c"close")?)))();
+        match members {
+            Ok((member, poll, close)) => Ok(ReloadState {
+                session,
+                member,
+                poll,
+                close,
+            }),
+            Err(error) => {
+                for reference in taken {
+                    let _ = lua.release_reference(reference);
+                }
+                Err(error)
+            }
+        }
+    }
+
+    fn reload_state(&self, reload: Reload) -> Result<&ReloadState, HostError> {
+        self.lua()?;
+        if reload.runtime != self.id {
+            return Err(HostError::Lua(
+                "the reload session belongs to another Nupp runtime".to_owned(),
+            ));
+        }
+        self.reloads
+            .get(&reload.id)
+            .ok_or_else(|| HostError::Lua("the reload session has been closed".to_owned()))
+    }
+
+    /// Releases the rooted answers of one call. A managed value Rust does not
+    /// keep is a registry owner Rust still holds.
+    fn release_answers(&self, answers: &[LuaAnswer]) {
+        let Ok(lua) = self.lua() else {
+            return;
+        };
+        for answer in answers {
+            if let LuaAnswer::Reference(reference) = answer {
+                let _ = lua.release_reference(*reference);
+            }
+        }
+    }
+
     pub fn release_handle(&mut self, handle: ManagedHandle) -> Result<(), HostError> {
         if handle.runtime != self.id {
             return Err(HostError::Lua(
@@ -515,9 +766,17 @@ impl HostRuntime {
                         release_error.get_or_insert_with(|| HostError::Lua(error));
                     }
                 }
+                for reload in self.reloads.values() {
+                    for reference in reload.references() {
+                        if let Err(error) = lua.release_reference(reference) {
+                            release_error.get_or_insert_with(|| HostError::Lua(error));
+                        }
+                    }
+                }
             }
             self.components.clear();
             self.handles.clear();
+            self.reloads.clear();
             let cancelled = self
                 .lane
                 .begin_shutdown()

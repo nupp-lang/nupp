@@ -4,7 +4,8 @@
 //! `HostRuntime`, whose C shim protects every operation that can raise.
 
 use crate::{
-    Component, HostError, HostRuntime, LuaFunction, LuaState, ManagedHandle, ManagedValue,
+    Component, HostError, HostRuntime, LuaFunction, LuaState, ManagedHandle, ManagedValue, Reload,
+    ReloadVerdict,
 };
 use std::ffi::{CStr, c_char, c_int, c_void};
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -30,6 +31,13 @@ const VALUE_NUMBER: u32 = 2;
 const VALUE_STRING: u32 = 3;
 const VALUE_BYTES: u32 = 4;
 const VALUE_HANDLE: u32 = 5;
+
+const RELOAD_STRICT: u32 = 1;
+
+const RELOAD_NO_CHANGE: u32 = 0;
+const RELOAD_COMMITTED: u32 = 1;
+const RELOAD_REJECTED: u32 = 2;
+const RELOAD_RESTART_REQUIRED: u32 = 3;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -72,6 +80,24 @@ pub struct NuppComponent {
 
 pub struct NuppHandle {
     handle: ManagedHandle,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct NuppReloadConfig {
+    size: u32,
+    flags: u32,
+    compiler_path: *const c_char,
+    root: *const c_char,
+    entry: *const c_char,
+}
+
+pub struct NuppReload {
+    reload: Reload,
+    // The last poll's diagnostics, kept here because a verdict is not a failed
+    // call: the host reads it through `nupp_reload_message` until the next poll
+    // replaces it.
+    message: Option<Box<[u8]>>,
 }
 
 pub struct NuppError {
@@ -733,6 +759,211 @@ pub unsafe extern "C" fn nupp_runtime_poll(
     }
 }
 
+unsafe fn reload_mut<'a>(reload: *mut NuppReload) -> Result<&'a mut NuppReload, Failure> {
+    if reload.is_null() {
+        return Err(Failure::invalid(
+            ERROR_CONFIGURATION,
+            "this call needs a reload session",
+        ));
+    }
+    Ok(unsafe { &mut *reload })
+}
+
+unsafe fn optional_utf8<'a>(
+    value: *const c_char,
+    what: &str,
+    category: c_int,
+) -> Result<Option<&'a str>, Failure> {
+    if value.is_null() {
+        return Ok(None);
+    }
+    unsafe { utf8(value, what, category) }.map(Some)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nupp_reload_config_init(config: *mut NuppReloadConfig) {
+    if !config.is_null() {
+        unsafe {
+            config.write(NuppReloadConfig {
+                size: size_of::<NuppReloadConfig>() as u32,
+                flags: 0,
+                compiler_path: ptr::null(),
+                root: ptr::null(),
+                entry: ptr::null(),
+            })
+        };
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nupp_reload_open(
+    runtime: *mut NuppRuntime,
+    config: *const NuppReloadConfig,
+    out: *mut *mut NuppReload,
+    error: *mut *mut NuppError,
+) -> c_int {
+    unsafe {
+        status_boundary(error, || {
+            let runtime = runtime_mut(runtime)?;
+            if out.is_null() {
+                return Err(Failure::invalid(
+                    ERROR_CONFIGURATION,
+                    "opening a reload session needs somewhere to put it",
+                ));
+            }
+            out.write(ptr::null_mut());
+            if config.is_null() {
+                return Err(Failure::invalid(
+                    ERROR_CONFIGURATION,
+                    "opening a reload session needs its configuration",
+                ));
+            }
+            let size = ptr::addr_of!((*config).size).read();
+            if (size as usize) < size_of::<NuppReloadConfig>() {
+                return Err(Failure {
+                    status: STATUS_INCOMPATIBLE,
+                    category: ERROR_COMPATIBILITY,
+                    message: "nupp_reload_config is smaller than embedding ABI 1 requires"
+                        .to_owned(),
+                });
+            }
+            let config = config.read();
+            if config.flags & !RELOAD_STRICT != 0 {
+                return Err(Failure::invalid(
+                    ERROR_CONFIGURATION,
+                    "nupp_reload_config contains unknown flags",
+                ));
+            }
+            let entry = utf8(config.entry, "a reloading entry", ERROR_CONFIGURATION)?;
+            let compiler = optional_utf8(
+                config.compiler_path,
+                "a compiler directory",
+                ERROR_CONFIGURATION,
+            )?;
+            let root = optional_utf8(config.root, "a project root", ERROR_CONFIGURATION)?;
+            let reload = runtime
+                .reload_open(compiler, root, entry, config.flags & RELOAD_STRICT != 0)
+                .map_err(|error| Failure::runtime(ERROR_COMPONENT, error))?;
+            out.write(Box::into_raw(Box::new(NuppReload {
+                reload,
+                message: None,
+            })));
+            Ok(())
+        })
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nupp_reload_find(
+    runtime: *mut NuppRuntime,
+    reload: *mut NuppReload,
+    name: *const c_char,
+    out: *mut *mut NuppHandle,
+    error: *mut *mut NuppError,
+) -> c_int {
+    unsafe {
+        status_boundary(error, || {
+            let runtime = runtime_mut(runtime)?;
+            let reload = reload_mut(reload)?;
+            if out.is_null() {
+                return Err(Failure::invalid(
+                    ERROR_RUNTIME,
+                    "finding a reloading member needs somewhere to put it",
+                ));
+            }
+            out.write(ptr::null_mut());
+            let name = utf8(name, "a reloading member", ERROR_RUNTIME)?;
+            let handle = runtime
+                .reload_member(reload.reload, name)
+                .map_err(|error| Failure::runtime(ERROR_RUNTIME, error))?;
+            out.write(Box::into_raw(Box::new(NuppHandle { handle })));
+            Ok(())
+        })
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nupp_reload_poll(
+    runtime: *mut NuppRuntime,
+    reload: *mut NuppReload,
+    verdict: *mut u32,
+    generation: *mut u64,
+    error: *mut *mut NuppError,
+) -> c_int {
+    unsafe {
+        status_boundary(error, || {
+            let runtime = runtime_mut(runtime)?;
+            let reload = reload_mut(reload)?;
+            reload.message = None;
+            let report = runtime
+                .reload_poll(reload.reload)
+                .map_err(|error| Failure::runtime(ERROR_RUNTIME, error))?;
+            if let Some(message) = report.message {
+                let mut bytes = message.into_bytes();
+                for byte in &mut bytes {
+                    if *byte == 0 {
+                        *byte = b'?';
+                    }
+                }
+                bytes.push(0);
+                reload.message = Some(bytes.into_boxed_slice());
+            }
+            if !verdict.is_null() {
+                verdict.write(match report.verdict {
+                    ReloadVerdict::NoChange => RELOAD_NO_CHANGE,
+                    ReloadVerdict::Committed => RELOAD_COMMITTED,
+                    ReloadVerdict::Rejected => RELOAD_REJECTED,
+                    ReloadVerdict::RestartRequired => RELOAD_RESTART_REQUIRED,
+                });
+            }
+            if !generation.is_null() {
+                generation.write(report.generation);
+            }
+            Ok(())
+        })
+    }
+}
+
+/// The diagnostics behind the last poll's verdict, or null when it had none.
+/// The bytes belong to the session and are replaced by the next poll.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nupp_reload_message(reload: *const NuppReload) -> *const c_char {
+    if reload.is_null() {
+        return ptr::null();
+    }
+    match unsafe { &(*reload).message } {
+        Some(message) => message.as_ptr().cast(),
+        None => ptr::null(),
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nupp_reload_close(
+    runtime: *mut NuppRuntime,
+    reload: *mut NuppReload,
+    ok: c_int,
+    error: *mut *mut NuppError,
+) -> c_int {
+    unsafe {
+        status_boundary(error, || {
+            let runtime = runtime_mut(runtime)?;
+            let reload = reload_mut(reload)?;
+            runtime
+                .reload_close(reload.reload, ok != 0)
+                .map_err(|error| Failure::runtime(ERROR_RUNTIME, error))
+        })
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nupp_reload_free(reload: *mut NuppReload) {
+    if !reload.is_null() {
+        let _ = catch_unwind(AssertUnwindSafe(|| unsafe {
+            drop(Box::from_raw(reload));
+        }));
+    }
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn nupp_component_release(component: *mut NuppComponent) {
     if !component.is_null() {
@@ -841,6 +1072,74 @@ return {
   end,
 }
 "#;
+
+    #[test]
+    fn a_reload_session_refuses_a_configuration_it_cannot_read() {
+        unsafe {
+            let runtime = new_runtime();
+            let mut reload = ptr::null_mut();
+            let mut error = ptr::null_mut();
+            assert_eq!(
+                nupp_reload_open(runtime, ptr::null(), &mut reload, &mut error),
+                STATUS_INVALID_ARGUMENT
+            );
+            assert_eq!(nupp_error_category(error), ERROR_CONFIGURATION);
+            nupp_error_free(error);
+
+            let mut config = NuppReloadConfig {
+                size: 0,
+                flags: 0,
+                compiler_path: ptr::null(),
+                root: ptr::null(),
+                entry: ptr::null(),
+            };
+            error = ptr::null_mut();
+            assert_eq!(
+                nupp_reload_open(runtime, &config, &mut reload, &mut error),
+                STATUS_INCOMPATIBLE
+            );
+            nupp_error_free(error);
+
+            nupp_reload_config_init(&mut config);
+            config.flags = 1 << 8;
+            error = ptr::null_mut();
+            assert_eq!(
+                nupp_reload_open(runtime, &config, &mut reload, &mut error),
+                STATUS_INVALID_ARGUMENT
+            );
+            nupp_error_free(error);
+
+            // No entry: a session has nothing to build.
+            nupp_reload_config_init(&mut config);
+            error = ptr::null_mut();
+            assert_eq!(
+                nupp_reload_open(runtime, &config, &mut reload, &mut error),
+                STATUS_INVALID_ARGUMENT
+            );
+            nupp_error_free(error);
+            assert!(reload.is_null());
+
+            let name = CString::new("update").expect("a test name has no NUL");
+            let mut handle = ptr::null_mut();
+            error = ptr::null_mut();
+            assert_eq!(
+                nupp_reload_find(
+                    runtime,
+                    ptr::null_mut(),
+                    name.as_ptr(),
+                    &mut handle,
+                    &mut error
+                ),
+                STATUS_INVALID_ARGUMENT
+            );
+            nupp_error_free(error);
+            assert!(nupp_reload_message(ptr::null()).is_null());
+            nupp_reload_free(ptr::null_mut());
+
+            nupp_runtime_shutdown(runtime, ptr::null_mut());
+            nupp_runtime_free(runtime);
+        }
+    }
 
     unsafe fn new_runtime() -> *mut NuppRuntime {
         let mut runtime = ptr::null_mut();
