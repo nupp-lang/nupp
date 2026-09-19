@@ -2629,6 +2629,108 @@ export = {logical = logical, guarded = guarded, stringValue = stringValue, rever
     test.equal(answers.require, "7\t1\t0\ttrue\n9\t10\t0\ttrue\n0\t1\t0\ttrue\ntrue\t1\n2147483649\t42\t0\t0\n[]\tfallback\n2147483649\t42\t0\t0\n1\t0\n1\n3\t0\n0\t9")
 end
 
+function M.provenSimdCursorsKeepWrappedIndicesOnLargeSpans()
+    if not hasToolchain() then return end
+    local ffi = require("ffi")
+    if ffi.sizeof("size_t") < 8 then return end
+    local dir = project("require")
+    local handle = assert(io.open(dir .. "/src/kernel.nupp", "wb"))
+    handle:write([[
+local span = require("nupp.mem.span")
+local simd = require("nupp.simd")
+local array = require("nupp.mem.array")
+local struct Pair
+    x: uint32
+    y: uint32
+end
+@aot
+local function width(): uint32
+    local s = assert(simd.species(array.uint32))
+    return s.lanes
+end
+@aot
+local function read(borrows input: span.Span<uint32>, cursor: uint32): uint32
+    local s = assert(simd.species(array.uint32))
+    if cursor + 2 * s.lanes <= #input then
+        return s:load(input, cursor + s.lanes + 1):extract(1)
+    end
+    return 77
+end
+@aot
+local function readBase(borrows input: span.Span<uint32>, cursor: uint32): uint32
+    local s = assert(simd.species(array.uint32))
+    if cursor + s.lanes <= #input then
+        return s:load(input, cursor + 1):extract(1)
+    end
+    return 77
+end
+@aot
+local function write(exclusive output: span.WriteSpan<uint32>, cursor: uint32): nil
+    local s = assert(simd.species(array.uint32))
+    if cursor + 2 * s.lanes <= #output then
+        s:store(output, cursor + s.lanes + 1, s:splat(7))
+    end
+end
+@aot
+local function readFields(borrows input: span.Span<Pair>, cursor: uint32): uint32
+    local s = assert(simd.species(array.uint32))
+    if cursor + 2 * s.lanes <= #input then
+        local x = s:load(input, cursor + s.lanes + 1, "x")
+        local y = s:load(input, cursor + s.lanes + 1, "y")
+        return x:extract(1) + y:extract(1)
+    end
+    return 77
+end
+@aot
+local function writeField(exclusive output: span.WriteSpan<Pair>, cursor: uint32): nil
+    local s = assert(simd.species(array.uint32))
+    if cursor + 2 * s.lanes <= #output then
+        s:store(output, cursor + s.lanes + 1, "x", s:splat(7))
+    end
+end
+return {width=width, read=read, readBase=readBase, write=write, readFields=readFields, writeField=writeField}
+]])
+    handle:close()
+    local out, code = build(dir)
+    test.equal(code, 0, out)
+    local lib = ffi.load(libraryPath(dir))
+    local names = {}
+    for _, name in ipairs({"width", "read", "read_base", "write", "read_fields", "write_field"}) do
+        names[name] = librarySymbol(lib, "ks_" .. name)
+    end
+    -- Explicit scalar arguments precede the ABI's appended span counts.
+    ffi.cdef(([[
+uint32_t %s(void);
+uint32_t %s(const void *, uint32_t, size_t);
+uint32_t %s(const void *, uint32_t, size_t);
+void %s(void *, uint32_t, size_t);
+uint32_t %s(const void *, uint32_t, size_t);
+void %s(void *, uint32_t, size_t);
+]]):format(names.width, names.read, names.read_base, names.write, names.read_fields, names.write_field))
+    local lanes = tonumber(lib[names.width]())
+    local input = ffi.new("uint32_t[64]")
+    for i = 0, 63 do input[i] = 100 + i end
+    -- The count is synthetic; every defined access wraps into the tiny buffer
+    -- or is inactive at index zero. No multi-gigabyte allocation is necessary.
+    local count, low, zero = 4294967296 + 128, 4294967296 - lanes, 4294967295 - lanes
+    test.equal(tonumber(lib[names.read](input, low, count)), 100, "derived load retains its wrapping index: " .. dir)
+    test.equal(tonumber(lib[names.read](input, zero, count)), 0, "derived index zero does not read")
+    test.equal(tonumber(lib[names.read_base](input, 4294967295, count)), 0, "base index zero does not read")
+    test.equal(tonumber(lib[names.read_fields](input, low, count)), 201, "paired fields retain their wrapping index")
+    test.equal(tonumber(lib[names.read_fields](input, zero, count)), 0, "field index zero does not read")
+    for _, entry in ipairs({{name = "write", stride = 1}, {name = "write_field", stride = 2}}) do
+        for _, cursor in ipairs({low, zero}) do
+            local output = ffi.new("uint32_t[64]")
+            for i = 0, 63 do output[i] = 11 end
+            lib[names[entry.name]](output, cursor, count)
+            for i = 0, 63 do
+                local changed = cursor == low and i < lanes * entry.stride and i % entry.stride == 0
+                test.equal(tonumber(output[i]), changed and 7 or 11, entry.name .. " at " .. cursor .. ": element " .. i)
+            end
+        end
+    end
+end
+
 function M.wideBitwiseAnswersAgreeWithAndWithoutAot()
     if not hasToolchain() then
         return

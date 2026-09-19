@@ -46,6 +46,14 @@ function simdbounds.covers(room: string?, species: string, count: number?): bool
     return (held == species or lanes ~= nil and species:match("_fixed(%d+)$") == lanes) and available >= (count or 1)
 end
 
+--- A named uint32 cursor, including entry and helper parameters.
+function simdbounds.cursor(value: scalarIR.Expr): scalarIR.Name?
+    if value.type == "u32" and (value.op == "local" or value.op == "uniform" or value.op == "helper_param") then
+        return value as scalarIR.Name
+    end
+    return nil
+end
+
 --- The zero-based base cursor and vector displacement in a one-based index.
 function simdbounds.offset(value: scalarIR.Expr): (scalarIR.Name?, string?, number?)
     if value.op == "int_to_f64" then
@@ -60,13 +68,15 @@ function simdbounds.offset(value: scalarIR.Expr): (scalarIR.Name?, string?, numb
         return nil, nil, nil
     end
     local base = added.left
-    if base.op == "local" and base.type == "u32" then
-        return base as scalarIR.Name, nil, 0
+    local named = simdbounds.cursor(base)
+    if named ~= nil then
+        return named, nil, 0
     elseif base.op == "u32_add" then
         local displaced = base as scalarIR.Fixed
         local species, count = simdbounds.lanes(displaced.right)
-        if displaced.left.op == "local" and displaced.left.type == "u32" and species ~= nil then
-            return displaced.left as scalarIR.Name, (species as scalarIR.Expr).type, count
+        local cursor = simdbounds.cursor(displaced.left)
+        if cursor ~= nil and species ~= nil then
+            return cursor, (species as scalarIR.Expr).type, count
         end
     end
 

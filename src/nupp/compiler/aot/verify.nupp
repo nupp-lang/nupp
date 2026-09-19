@@ -643,7 +643,7 @@ local function laneBound(
             )
         end
     end
-    if cursorNode.op ~= "local" or cursorNode.type ~= "u32" or lanesNode == nil then
+    if simdbounds.cursor(cursorNode) == nil or lanesNode == nil then
         return nil, nil, nil
     end
     local cursor = (cursorNode as scalarIR.Name).name

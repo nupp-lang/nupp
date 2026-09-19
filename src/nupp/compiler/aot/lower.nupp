@@ -1710,7 +1710,7 @@ local function exactLaneSum(sum: scalarIR.Expr, source: scalarIR.Source?): scala
     end
     local added = sum as scalarIR.Fixed
     local species = simdbounds.lanes(added.right)
-    if added.left.op ~= "local" or added.left.type ~= "u32" or species == nil then
+    if simdbounds.cursor(added.left) == nil or species == nil then
         return sum
     end
     local right: scalarIR.Expr = new scalarIR.Convert(

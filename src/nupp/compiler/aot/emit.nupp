@@ -638,7 +638,8 @@ function emit.spanFirst(context: emit.Context, offset: scalarIR.Expr): string
     return selected.helper .. "(" .. cast .. emit.scalar(context, selected.value) .. ")"
 end
 
---- The verified zero-based address shared by ordinary and paired field loads.
+--- The zero-based address shared by ordinary and paired field loads.
+--- Form this address only on the true branch of `cursorSafe`.
 --- @raises when a cursor access has no matching proved index
 function emit.cursorAddress(context: emit.Context, access: scalarIR.Simd): string
     local base, _, count = simdbounds.offset(access.args[2])
@@ -660,6 +661,25 @@ function emit.cursorAddress(context: emit.Context, access: scalarIR.Simd): strin
     return pointer .. " + " .. offset
 end
 
+--- The exact vector end must fit uint32 before its authored index can be
+--- replaced by pointer arithmetic. A larger span does not prove that fact.
+--- @raises when a cursor access has no matching proved index or species
+function emit.cursorSafe(context: emit.Context, access: scalarIR.Simd): string
+    local base, _, count = simdbounds.offset(access.args[2])
+    local _, _, lanes = explicitType(context, access.args[1].type)
+    if base == nil or (base as scalarIR.Name).cName ~= access.cursorCName or lanes == nil then
+        error("cursor access has no matching proved index or species", 0)
+    end
+
+    return "((uint64_t)" .. tostring(
+        access.cursorCName
+    ) .. " + UINT64_C(" .. tostring((count or 0) + 1) .. ") * UINT64_C(" .. tostring(lanes) .. ") <= UINT32_MAX)"
+end
+
+local function cursorChoice(context: emit.Context, access: scalarIR.Simd, unchecked: string, checked: string): string
+    return "(" .. emit.cursorSafe(context, access) .. " ? " .. unchecked .. " : " .. checked .. ")"
+end
+
 --- A generic store statement: one whole-vector helper when no mask was
 --- given, the masked one otherwise.
 --- @raises when the stored value has no resolved species
@@ -675,22 +695,21 @@ function emit.genericStore(context: emit.Context, store: scalarIR.Simd): string
     local helper = context.explicitScalar and "ks_scalar_exp_" or "ks_exp_"
     local elementBits = tonumber(element:match("%d+")) or 0
     local nativeLanes = elementBits > 0 and math.floor(context.explicitWidth * 8 / elementBits) or 0
-    -- The verified cursor store is the whole-vector copy, as the load is.
-    if store.cursor ~= nil and (shape == "preferred" or lanes == nativeLanes) then
-        return helper .. "store_at_" .. suffix .. "(" .. emit.cursorAddress(
-            context,
-            store
-        ) .. ", " .. emit.scalar(context, store.args[3]) .. ")"
-    end
     local count = emit.spanCount(context, tostring(store.span))
     local at = "p_" .. tostring(
         store.span
     ) .. ", " .. count .. ", " .. emit.spanFirst(context, store.args[2]) .. ", " .. emit.scalar(context, store.args[3])
-    if store.args[4] == nil then
-        return helper .. "store_full_" .. suffix .. "(" .. at .. ")"
+    local checked = store.args[4] == nil and helper .. "store_full_" .. suffix .. "(" .. at .. ")"
+        or helper .. "store_" .. suffix .. "(" .. at .. ", " .. emit.scalar(context, store.args[4]) .. ")"
+    if store.cursor ~= nil and (shape == "preferred" or lanes == nativeLanes) then
+        local unchecked = helper .. "store_at_" .. suffix .. "(" .. emit.cursorAddress(
+            context,
+            store
+        ) .. ", " .. emit.scalar(context, store.args[3]) .. ")"
+        return cursorChoice(context, store, unchecked, checked)
     end
 
-    return helper .. "store_" .. suffix .. "(" .. at .. ", " .. emit.scalar(context, store.args[4]) .. ")"
+    return checked
 end
 
 --- What a staging array of lanes says about its own alignment.
@@ -797,23 +816,26 @@ function emit.genericFieldAccess(context: emit.Context, access: scalarIR.Simd, s
     local place = "sizeof(" .. layoutC .. "), offsetof(" .. layoutC .. ", " .. tostring(access.field) .. ")"
     local verb = storing and "field_store" or "field_load"
     local value = storing and ", " .. emit.scalar(context, access.args[3]) or ""
-    if access.cursor ~= nil then
-        return species.helper .. verb .. "_at_" .. species.suffix .. "(" .. emit.cursorAddress(
-            context,
-            access
-        ) .. ", " .. place .. value .. ")"
-    end
     local count = emit.spanCount(context, tostring(access.span))
     local active = access.args[storing and 4 or 3]
     local mask = active ~= nil and emit.scalar(context, active)
         or species.helper .. "mask_splat_" .. species.suffix .. "(true)"
 
-    return species.helper .. verb .. "_" .. species.suffix .. "(p_" .. tostring(
+    local checked = species.helper .. verb .. "_" .. species.suffix .. "(p_" .. tostring(
         access.span
     ) .. ", " .. count .. ", " .. emit.spanFirst(
         context,
         access.args[2]
     ) .. ", " .. place .. value .. ", " .. mask .. ")"
+    if access.cursor ~= nil then
+        local unchecked = species.helper .. verb .. "_at_" .. species.suffix .. "(" .. emit.cursorAddress(
+            context,
+            access
+        ) .. ", " .. place .. value .. ")"
+        return cursorChoice(context, access, unchecked, checked)
+    end
+
+    return checked
 end
 
 --- Indexed memory over logical lanes, including composite representations.
@@ -1273,7 +1295,8 @@ function emit.scalar(context: emit.Context, node: scalarIR.Expr): string
                     return emit.indexedSimd(context, simd)
                 end
                 -- A verified cursor access is a whole vector inside the span:
-                -- one copy at the cursor, no count and no lane check. A
+                -- one copy at the cursor while its index fits uint32. The
+                -- checked fallback retains wrapping indices on larger spans. A
                 -- composite vector keeps the checked form, because its last
                 -- chunk may be partial and its size is not its lane count.
                 -- A rooted byte view addresses the pointer and length the
@@ -1282,22 +1305,22 @@ function emit.scalar(context: emit.Context, node: scalarIR.Expr): string
                 local rooted = simd.rooted as scalarIR.Name?
                 local pointer = rooted ~= nil and "ks_bytes_" .. tostring((rooted as scalarIR.Name).cName)
                     or "p_" .. tostring(simd.span)
-                if simd.cursor ~= nil and not composite then
-                    return genericHelper .. "load_at_" .. genericSuffix .. "(" .. emit.cursorAddress(
-                        context,
-                        simd
-                    ) .. ")"
-                end
                 local count = rooted ~= nil and "ks_length_" .. tostring((rooted as scalarIR.Name).cName)
                     or emit.spanCount(context, tostring(simd.span))
                 local at = pointer .. ", " .. count .. ", " .. emit.spanFirst(context, args[2])
-                if args[3] == nil then
-                    return genericHelper .. "load_full_" .. genericSuffix .. "(" .. at .. ")"
+                local checked = args[3] == nil and genericHelper .. "load_full_" .. genericSuffix .. "(" .. at .. ")"
+                    or genericHelper .. "load_" .. genericSuffix .. "(" .. at .. ", " .. emit.scalar(
+                        context,
+                        args[3]
+                    ) .. ")"
+                if simd.cursor ~= nil and not composite then
+                    local unchecked = genericHelper .. "load_at_" .. genericSuffix .. "(" .. emit.cursorAddress(
+                        context,
+                        simd
+                    ) .. ")"
+                    return cursorChoice(context, simd, unchecked, checked)
                 end
-                return genericHelper .. "load_" .. genericSuffix .. "(" .. at .. ", " .. emit.scalar(
-                    context,
-                    args[3]
-                ) .. ")"
+                return checked
             elseif operation == "simd_binary" or operation == "simd_compare" then
                 -- An extremum has no C operator and a contract a bare `<` would
                 -- not keep, so every representation calls the helper the prelude

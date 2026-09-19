@@ -5445,8 +5445,9 @@ function M.aProvenVectorAccessIsOneCopyAndAnIntegerCompare()
     -- `cursor + s.lanes <= #span`, taken exactly in u64, is the guard that
     -- proves a whole vector at `cursor + 1` lies inside the span. Under it
     -- an unmasked load or store is the `_at` helper: one memcpy the C
-    -- compiler turns into the vector instruction, with no count and no
-    -- check. The masked tail keeps the checked helper, tests all-active
+    -- compiler turns into the vector instruction. An overflow guard retains
+    -- the checked helper for wrapping uint32 indices on very large spans.
+    -- The masked tail keeps the checked helper, tests all-active
     -- with a vector compare rather than a lane loop, and moves its partial
     -- vector through general registers rather than a stack array. Nothing
     -- in the loop goes through a double.
@@ -5487,11 +5488,14 @@ return {add = add}
         "the guard is exact and compares the count as an integer\n" .. body
     )
     assert(
-        loop:find("ks_exp_store_at_u8x16(p_output + (size_t)v2_cursor, (ks_exp_load_at_u8x16(p_input + (size_t)v2_cursor) + ", 1, true),
+        loop:find("ks_exp_store_at_u8x16(p_output + (size_t)v2_cursor, ", 1, true)
+            and loop:find("ks_exp_load_at_u8x16(p_input + (size_t)v2_cursor)", 1, true),
         "the proven load and store are bare copies\n" .. body
     )
     assert(not loop:find("(double)", 1, true), "nothing in the loop goes through a double\n" .. body)
-    assert(not loop:find("count_input, nupp_first", 1, true), "the loop carries no checked access\n" .. body)
+    assert(loop:find("<= UINT32_MAX)", 1, true), "the unchecked path proves its index does not wrap\n" .. body)
+    assert(loop:find("ks_exp_load_full_u8x16(p_input, count_input, nupp_first", 1, true),
+        "wrapping indices keep the original checked access\n" .. body)
     assert(body:find("ks_exp_load_u8x16(p_input, count_input, nupp_first_u64(", 1, true), "the masked tail load is checked\n" .. body)
     assert(body:find("ks_exp_store_u8x16(p_output, count_output, nupp_first_u64(", 1, true), "and so is the masked tail store\n" .. body)
 
