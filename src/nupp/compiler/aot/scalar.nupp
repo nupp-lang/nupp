@@ -1144,8 +1144,10 @@ end
 --- cursor and then by span: `cursorBounds[cursor][span]` is the room the
 --- condition established below the span's count -- `"1"` for one element,
 --- from `cursor < #span`, or the species type whose lane count fits, from
---- `cursor + species.lanes <= #span`. A species bound implies the one-element
---- bound, so an ordinary `span[cursor + 1]` is proven under either.
+--- `cursor + species.lanes <= #span`. A `species@N` room records N vectors,
+--- from an exact `cursor + N * species.lanes <= #span` guard, and also covers
+--- derived offsets strictly below N vectors. Every vector bound implies the
+--- one-element bound, so an ordinary `span[cursor + 1]` is proven under either.
 type scalarIR.CursorBounds = {[string]: {[string]: string}}
 
 --- The room a one-element bound records.

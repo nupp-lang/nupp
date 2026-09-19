@@ -35,6 +35,7 @@ local reducers = require("nupp.compiler.aot.reducers")
 local effects = require("nupp.compiler.aot.effects")
 local relations = require("nupp.compiler.aot.relations")
 local scalarIR = require("nupp.compiler.aot.scalar")
+local simdbounds = require("nupp.compiler.aot.simdbounds")
 local simdindices = require("nupp.compiler.aot.simdindices")
 local simdcast = require("nupp.compiler.aot.simdcast")
 local visit = require("nupp.compiler.aot.visit")
@@ -588,6 +589,22 @@ local function corrected(node: scalarIR.Corrected, values: {[string]: string}, s
     scalarWalk(right as scalarIR.Expr, values, scope)
 end
 
+--- Recover a uint32 operand after exact widening, including folded constants.
+local function widenedUint32(value: scalarIR.Expr): scalarIR.Expr?
+    if value.op == "numeric_cast" and value.type == "u64" then
+        local original = (value as scalarIR.Convert).value
+        return original.type == "u32" and original or nil
+    elseif value.op == "constant_i64" and value.type == "u64" then
+        local written = (value as scalarIR.Int64Constant).value
+        local number = tonumber(written)
+        if number ~= nil and number >= 0 and number <= 4294967295 and number % 1 == 0 then
+            return new scalarIR.IntConstant(op = "constant_i32", value = written, type = "u32")
+        end
+    end
+
+    return nil
+end
+
 --- The whole-vector bound one comparison proves: `le(u64_add(cast cursor,
 --- cast lanes(s)), span_count)` for a `u32` local cursor and a species `s`
 --- bounds the cursor one of `s`'s vectors below the span's count. Returns the
@@ -604,16 +621,33 @@ local function laneBound(
         return nil, nil, nil
     end
     local sum = comparison.left as scalarIR.Fixed
-    if sum.left.op ~= "numeric_cast" or sum.right.op ~= "numeric_cast" then
+    if sum.left.op ~= "numeric_cast" or sum.left.type ~= "u64" then
         return nil, nil, nil
     end
     local cursorNode = (sum.left as scalarIR.Convert).value
-    local lanesNode = (sum.right as scalarIR.Convert).value
-    if cursorNode.op ~= "local" or cursorNode.type ~= "u32" or lanesNode.op ~= "simd_lanes_generic" then
+    local lanesNode: scalarIR.Expr? = nil
+    if sum.right.op == "numeric_cast"
+        and sum.right.type == "u64"
+        and (sum.right as scalarIR.Convert).value.op == "simd_lanes_generic"
+    then
+        lanesNode = (sum.right as scalarIR.Convert).value
+    elseif sum.right.op == "u64_mul" then
+        local product = sum.right as scalarIR.Fixed
+        local left, right = widenedUint32(product.left), widenedUint32(product.right)
+        if left ~= nil and right ~= nil then
+            lanesNode = new scalarIR.Fixed(
+                op = "u32_mul",
+                left = left as scalarIR.Expr,
+                right = right as scalarIR.Expr,
+                type = "u32"
+            )
+        end
+    end
+    if cursorNode.op ~= "local" or cursorNode.type ~= "u32" or lanesNode == nil then
         return nil, nil, nil
     end
     local cursor = (cursorNode as scalarIR.Name).name
-    local species = (lanesNode as scalarIR.Simd).args[1]
+    local species, count = simdbounds.lanes(lanesNode as scalarIR.Expr)
     if values[cursor] ~= "u32" or species == nil then
         return nil, nil, nil
     end
@@ -657,7 +691,7 @@ local function laneBound(
         return nil, nil, nil
     end
 
-    return cursor, spans, tostring(species.type)
+    return cursor, spans, simdbounds.room(tostring((species as scalarIR.Expr).type), count as number)
 end
 
 --- Whether a vector access's cursor claim holds: the access is at `cursor +
@@ -665,38 +699,18 @@ end
 --- dominating guard bounded that cursor a whole vector of the access's own
 --- species below the span's count, or of another species with the same lane
 --- count, since the count is what the guard compared.
-local function sameRoom(room: string?, speciesType: string): boolean
-    if room == speciesType then
-        return true
-    end
-    local lanes = room ~= nil and (room as string):match("_fixed(%d+)$") or nil
-
-    return lanes ~= nil and speciesType:match("_fixed(%d+)$") == lanes
-end
 
 local function vectorCursor(access: scalarIR.Simd, values: {[string]: string}, scope: verify.Scope): boolean
     local cursor = access.cursor as string
-    local offset = access.args[2]
-    if offset.op ~= "int_to_f64" then
-        return false
-    end
-    local sum = (offset as scalarIR.Convert).value
-    if sum.op ~= "u32_add" then
-        return false
-    end
-    local added = sum as scalarIR.Fixed
-    local one = added.right.op == "constant_i32"
-        and added.right.type == "u32"
-        and tonumber((added.right as scalarIR.IntConstant).value) == 1
-    local named = added.left.op == "local" and added.left as scalarIR.Name or nil
-
-    return one
-        and named ~= nil
+    local named, species, count = simdbounds.offset(access.args[2])
+    local wanted = tostring(access.args[1].type)
+    return named ~= nil
         and (named as scalarIR.Name).name == cursor
         and (named as scalarIR.Name).cName == access.cursorCName
         and access.cursorCName ~= nil
         and values[cursor] == "u32"
-        and sameRoom(boundRoom(scope.cursorBounds, cursor, access.span), tostring(access.args[1].type))
+        and (species == nil or simdbounds.covers(species, wanted))
+        and simdbounds.covers(boundRoom(scope.cursorBounds, cursor, access.span), wanted, (count or 0) + 1)
 end
 
 --- Checks one binary64 operation, comparison, or bitwise operation.

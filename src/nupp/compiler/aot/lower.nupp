@@ -24,6 +24,7 @@ local lexer = require("nupp.compiler.lexer")
 local cst = require("nupp.compiler.cst")
 local relations = require("nupp.compiler.aot.relations")
 local scalarIR = require("nupp.compiler.aot.scalar")
+local simdbounds = require("nupp.compiler.aot.simdbounds")
 local visit = require("nupp.compiler.aot.visit")
 local switchplan = require("nupp.compiler.switchplan")
 local T = require("nupp.compiler.types")
@@ -885,6 +886,7 @@ record lower.ValueFrame
 end
 
 record lower.Kernel
+    reassignedNames: {[string]: boolean} = {}
     pending: {scalarIR.Statement} = {}
     expressionFrame: lower.ExpressionFrame?
     valueFrame: lower.ValueFrame?
@@ -1207,12 +1209,7 @@ end
 --- lanes. A region that loads `float` fields under a `number` guard is the
 --- ordinary case, and the verifier reads the proof the same way.
 local function sameRoom(held: string, species: string): boolean
-    if held == species then
-        return true
-    end
-    local lanes = held:match("_fixed(%d+)$")
-
-    return lanes ~= nil and species:match("_fixed(%d+)$") == lanes
+    return simdbounds.covers(held, species)
 end
 
 --- The cursor a `candidate + 1` index names, when a dominating check bounded
@@ -1241,6 +1238,60 @@ local function provedCursor(indexArg: cst.Node?, spanName: string?, kernel: lowe
     return nil
 end
 
+--- A verified base plus a compile-time vector displacement.
+local function provedVectorCursor(offset: scalarIR.Expr, spanName: string?, kernel: lower.Kernel, room: string): string?
+    local base, species, count = simdbounds.offset(offset)
+    if base == nil or species ~= nil and not simdbounds.covers(species, room) then
+        return nil
+    end
+    local name = (base as scalarIR.Name).name
+    if simdbounds.covers(boundRoom(kernel.cursorBounds, name, spanName), room, (count or 0) + 1) then
+        return name
+    end
+
+    return nil
+end
+
+--- Species lanes multiplied by a positive compile-time uint32 count.
+local function laneMultiple(node: cst.Node?, environment: {[string]: any}): (string?, number?)
+    node = lower.unwrapped(node)
+    local count = 1
+    if node ~= nil and node.kind == "binop" then
+        local product = node as cst.Binop
+        if product.op == nil or (product.op as lexer.Token).text ~= "*" then
+            return nil, nil
+        end
+        local lane, factor = lower.unwrapped(product.lhs), lower.unwrapped(product.rhs)
+        if lane ~= nil and lane.kind == "number" then
+            lane, factor = factor, lane
+        end
+        local token = factor ~= nil and factor.kind == "number" and (factor as cst.NumberLit).token or nil
+        local multiple = token ~= nil and tonumber((token as lexer.Token).text) or nil
+        if multiple == nil or multiple < 1 or multiple > 4294967295 or multiple % 1 ~= 0 then
+            return nil, nil
+        end
+        count, node = multiple, lane
+    end
+    if node ~= nil and node.kind == "name" then
+        local alias = environment[tostring(lower.nameOf(node))]
+        if alias ~= nil and alias.op == "simd_lanes_generic" then
+            return (alias as scalarIR.Simd).args[1].type, count
+        end
+    end
+    if node == nil or node.kind ~= "dotIndex" then
+        return nil, nil
+    end
+    local lanes = node as cst.DotIndex
+    local name = lanes.name ~= nil and (lanes.name as lexer.Token).text == "lanes" and lower.nameOf(lanes.obj) or nil
+    local species = name ~= nil and environment[name as string] or nil
+    local speciesType = species ~= nil and tostring(species.type) or ""
+    if speciesType:match("^simd_species_") then
+        return speciesType, count
+    end
+
+    return nil, nil
+end
+
 --- The whole-vector bound one comparison establishes: `cursor + s.lanes <=
 --- #span`, for a `uint32` cursor and a species `s`, proves the cursor has room
 --- for one of `s`'s vectors below the span's count. Returns the cursor, the
@@ -1266,24 +1317,20 @@ local function laneBound(
         return nil, nil, nil
     end
     local added = sum as cst.Binop
-    if added.op == nil or (added.op as lexer.Token).text ~= "+" or added.rhs == nil or added.rhs.kind ~= "dotIndex" then
+    if added.op == nil or (added.op as lexer.Token).text ~= "+" then
         return nil, nil, nil
     end
     local cursor = lower.nameOf(added.lhs)
     local cursorBinding = cursor ~= nil and environment[cursor as string] or nil
-    local lanes = added.rhs as cst.DotIndex
-    local speciesName = lanes.name ~= nil and (lanes.name as lexer.Token).text == "lanes" and lower.nameOf(lanes.obj)
-        or nil
-    local species = speciesName ~= nil and environment[speciesName as string] or nil
-    local speciesType = species ~= nil and tostring(species.type) or ""
-    local generic = cursorBinding ~= nil and cursorBinding.type == "u32" and speciesType:match("^simd_species_") ~= nil
-    if not generic then
+    local speciesType, count = laneMultiple(added.rhs, environment)
+    if cursorBinding == nil or cursorBinding.type ~= "u32" or speciesType == nil then
         return nil, nil, nil
     end
+    local room = simdbounds.room(speciesType as string, count as number)
     local spanName = lower.dotCount(counted)
     local param = spanName ~= nil and kernel.params[spanName as string] or nil
     if param ~= nil and param.region ~= nil then
-        return cursor, spanName, speciesType
+        return cursor, spanName, room
     end
     -- A rooted string or buffer parameter counts the same way, through the
     -- local its length was taken into: the root of the proof is the parameter,
@@ -1292,7 +1339,7 @@ local function laneBound(
     local bytesName = lengthName ~= nil and kernel.lengthBounds[lengthName as string] or nil
     local bytes = bytesName ~= nil and kernel.params[bytesName as string] or nil
     if bytes ~= nil and bytes.kind == "scalar" and (bytes.type == "lua_string" or bytes.type == "lua_bytes") then
-        return cursor, bytesName, speciesType
+        return cursor, bytesName, room
     end
 
     return nil, nil, nil
@@ -1662,14 +1709,31 @@ local function exactLaneSum(sum: scalarIR.Expr, source: scalarIR.Source?): scala
         return sum
     end
     local added = sum as scalarIR.Fixed
-    if added.left.op ~= "local" or added.left.type ~= "u32" or added.right.op ~= "simd_lanes_generic" then
+    local species = simdbounds.lanes(added.right)
+    if added.left.op ~= "local" or added.left.type ~= "u32" or species == nil then
         return sum
+    end
+    local right: scalarIR.Expr = new scalarIR.Convert(
+        op = "numeric_cast",
+        value = added.right,
+        type = "u64",
+        source = source
+    )
+    if added.right.op == "u32_mul" then
+        local product = added.right as scalarIR.Fixed
+        right = new scalarIR.Fixed(
+            op = "u64_mul",
+            left = new scalarIR.Convert(op = "numeric_cast", value = product.left, type = "u64", source = source),
+            right = new scalarIR.Convert(op = "numeric_cast", value = product.right, type = "u64", source = source),
+            type = "u64",
+            source = source
+        )
     end
 
     return new scalarIR.Fixed(
         op = "u64_add",
         left = new scalarIR.Convert(op = "numeric_cast", value = added.left, type = "u64", source = source),
-        right = new scalarIR.Convert(op = "numeric_cast", value = added.right, type = "u64", source = source),
+        right = right,
         type = "u64",
         source = source
     )
@@ -1837,6 +1901,10 @@ local function binary(node: cst.Binop, left: scalarIR.Expr, right: scalarIR.Expr
             narrowedLeft = exactLaneSum(left, source)
         elseif written == ">=" and countedLeft then
             narrowedRight = exactLaneSum(right, source)
+            if narrowedRight ~= right then
+                comparison = "le"
+                narrowedLeft, narrowedRight = narrowedRight, narrowedLeft
+            end
         end
 
         return new scalarIR.Binary(
@@ -3090,7 +3158,7 @@ local function fieldAccess(
     local offset = lower.convert(lower.expression(raw[2], environment, activeIndex, kernel), "f64", source, context)
     local maskPosition = reading and 4 or 5
     local masked = raw[maskPosition] ~= nil
-    local cursor = not masked and provedCursor(lower.unwrapped(raw[2]), spanName, kernel, receiver.type) or nil
+    local cursor = not masked and provedVectorCursor(offset, spanName, kernel, receiver.type) or nil
     local cursorBinding = cursor ~= nil and environment[cursor as string] or nil
     local cursorCName = cursorBinding ~= nil and cursorBinding.cName or nil
     local args: {scalarIR.Expr} = {receiver, offset}
@@ -3172,7 +3240,7 @@ local function rootedLoad(
     )
     local offset = lower.convert(lower.expression(raw[2], environment, activeIndex, kernel), "f64", source, context)
     local masked = raw[3] ~= nil
-    local cursor = not masked and provedCursor(lower.unwrapped(raw[2]), bytesName, kernel, receiverType) or nil
+    local cursor = not masked and provedVectorCursor(offset, bytesName, kernel, receiverType) or nil
     local cursorBinding = cursor ~= nil and environment[cursor as string] or nil
     local args: {scalarIR.Expr} = {receiver, offset}
     if masked then
@@ -3516,7 +3584,7 @@ local function simdMethod(
             local masked = raw[reading and 3 or 4] ~= nil
             local cursor = not indexed
                 and not masked
-                and provedCursor(lower.unwrapped(raw[2]), spanName, kernel, tostring(receiverType))
+                and provedVectorCursor(offset, spanName, kernel, tostring(receiverType))
                 or nil
             local cursorBinding = cursor ~= nil and environment[cursor as string] or nil
             local cursorCName = cursorBinding ~= nil and cursorBinding.cName or nil
@@ -4137,21 +4205,57 @@ function lower.logicalValue(
                 local whenTrue: {scalarIR.Statement} = {}
                 local whenFalse: {scalarIR.Statement} = {}
                 local cursor, root, room = shortCircuitBound("and", expression, environment, kernel)
+                local whenTrueValue = true
+                if cursor == nil and value.op == "ge" then
+                    cursor, root, room = shortCircuitBound("or", expression, environment, kernel)
+                    if cursor ~= nil then
+                        local comparison = value as scalarIR.Binary
+                        value = new scalarIR.Binary(
+                            op = "lt",
+                            left = comparison.left,
+                            right = comparison.right,
+                            type = "bool",
+                            source = comparison.source
+                        )
+                        yes, no = no, yes
+                        whenTrueValue = false
+                    end
+                end
                 local previous = kernel.cursorBounds
+                local trueBounds: scalarIR.CursorBounds = {}
+                local falseBounds: scalarIR.CursorBounds = {}
+                for name, spans in pairs(previous) do
+                    trueBounds[name], falseBounds[name] = spans, spans
+                end
                 local proved: scalarIR.CursorBounds? = nil
                 if cursor ~= nil then
                     proved = {}
                     withBound(proved as scalarIR.CursorBounds, cursor as string, root as string, room as string)
-                    local bounds: scalarIR.CursorBounds = {}
-                    for name, spans in pairs(previous) do
-                        bounds[name] = spans
-                    end
-                    withBound(bounds, cursor as string, root as string, room as string)
-                    kernel.cursorBounds = bounds
+                    withBound(trueBounds, cursor as string, root as string, room as string)
                 end
-                yes(new scalarIR.Bool(op = "bool", value = true, type = "bool", source = value.source), whenTrue)
+                kernel.cursorBounds = trueBounds
+                yes(
+                    new scalarIR.Bool(op = "bool", value = whenTrueValue, type = "bool", source = value.source),
+                    whenTrue
+                )
+                trueBounds = kernel.cursorBounds
+                kernel.cursorBounds = falseBounds
+                no(
+                    new scalarIR.Bool(op = "bool", value = not whenTrueValue, type = "bool", source = value.source),
+                    whenFalse
+                )
+                falseBounds = kernel.cursorBounds
+                -- Either selected arm may have moved a previously bounded cursor.
+                local invalidated: {string} = {}
+                for name in pairs(previous) do
+                    if trueBounds[name] == nil or falseBounds[name] == nil then
+                        invalidated[#invalidated + 1] = name
+                    end
+                end
+                for _, name in ipairs(invalidated) do
+                    previous[name] = nil
+                end
                 kernel.cursorBounds = previous
-                no(new scalarIR.Bool(op = "bool", value = false, type = "bool", source = value.source), whenFalse)
                 statements[
                     #statements + 1
                 ] = new scalarIR.If(
@@ -4291,6 +4395,7 @@ local function expressionRaw(
         if bound.op == "constant"
             or bound.op == "constant_i32"
             or bound.op == "bool"
+            or bound.op == "simd_lanes_generic"
             or bound.op == "workgroup_index"
             or bound.op == "local_index"
         then
@@ -5837,16 +5942,22 @@ local function localStmt(
             kernel.reducers[binding.cName] = state
             kernel.reducerOrder[#kernel.reducerOrder + 1] = state
         end
-        out[
-            #out + 1
-        ] = new scalarIR.Let(
-            op = "let",
-            name = token.text,
-            cName = binding.cName,
-            type = expected as scalarIR.Type,
-            value = value,
-            source = lower.site(stat)
-        )
+        if value.op == "simd_lanes_generic" and not kernel.reassignedNames[token.text] then
+            -- The lane count is a compile-time species property. Retaining it
+            -- as such through an immutable alias lets bounds use `k * lanes`.
+            environment[token.text] = value
+        else
+            out[
+                #out + 1
+            ] = new scalarIR.Let(
+                op = "let",
+                name = token.text,
+                cName = binding.cName,
+                type = expected as scalarIR.Type,
+                value = value,
+                source = lower.site(stat)
+            )
+        end
     end
 end
 
@@ -8627,6 +8738,7 @@ function lower.program(
         local groupName = ((controllerParams[1] as cst.Param).name as lexer.Token).text
         local phasesName = ((controllerParams[2] as cst.Param).name as lexer.Token).text
         local kernel = newKernel(signature, declarations, layouts, symbol, context, {
+            reassignedNames = assignedNames(body.body, {}),
             loopSource = lower.site(workgroupCall),
             phasesName = phasesName,
             workgroupSize = size as integer,
@@ -8817,6 +8929,7 @@ function lower.program(
 
     if not mapShape then
         local kernel = newKernel(signature, declarations, layouts, symbol, context, {
+            reassignedNames = assignedNames(body.body, {}),
             stringAccumulators = lower.stringAccumulators(statements),
             loopSource = lower.site(body.body or body),
             resultTypes = resultTypes,
@@ -8887,6 +9000,7 @@ function lower.program(
     local loop = annotatedStatement(statements[#statements]) as cst.Node
     local index = (admission.shape as lower.LoopShape).index
     local kernel = newKernel(signature, declarations, layouts, symbol, context, {
+        reassignedNames = assignedNames(body.body, {}),
         loopSource = lower.site(loop),
         index = index,
         indexCName = "i",

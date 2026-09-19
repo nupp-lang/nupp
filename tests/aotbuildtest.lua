@@ -2515,6 +2515,8 @@ function M.scalarLogicalOperatorsReturnValuesAndPreserveEffects()
         source:write([[
 module logical
 local span = require("nupp.mem.span")
+local array = require("nupp.mem.array")
+local simd = require("nupp.simd")
 @aot
 local function logical(flag: boolean, a: number, b: number): (number, number, number, boolean)
     local count = 0
@@ -2540,7 +2542,54 @@ end
 local function stringValue(flag: boolean): string
     return flag and "" or "fallback"
 end
-export = {logical = logical, guarded = guarded, stringValue = stringValue}
+@aot
+local function reverseGuarded(borrows values: span.Span<uint32>, index: uint32): uint32
+    local cursor: uint32 = index
+    return cursor >= #values and 0 or values[cursor + 1]
+end
+@aot
+local function scalarMask(flag: boolean): uint32
+    return flag and 1 or 0
+end
+@aot
+local function movedCursor(borrows values: span.Span<uint32>): number
+    local species = simd.species(array.uint32)
+    if species ~= nil then
+        local cursor: uint32 = 0
+        if cursor + species.lanes <= #values then
+            local advanced = cursor < #values and do
+                cursor = cursor + species.lanes
+                yield 1
+            end or 0
+            return advanced + species:load(values, cursor + 1):extract(1)
+        end
+    end
+    return 1
+end
+local function speciesLanes<S>(species: simd.Species<uint32, S>): uint32
+    return species.lanes
+end
+@aot
+local function helperSpecies(): uint32
+    local fixed = simd.species(array.uint32, 3)
+    local preferred = simd.species(array.uint32)
+    if fixed ~= nil and preferred ~= nil then
+        return speciesLanes(fixed) + speciesLanes(preferred) - preferred.lanes
+    end
+    return 3
+end
+@aot
+local function overflowingRoom(borrows values: span.Span<uint32>): uint32
+    local species = simd.species(array.uint32)
+    if species ~= nil then
+        local cursor: uint32 = 0
+        if cursor + 1073741824 * species.lanes <= #values then
+            return 7
+        end
+    end
+    return 0
+end
+export = {logical = logical, guarded = guarded, stringValue = stringValue, reverseGuarded = reverseGuarded, scalarMask = scalarMask, movedCursor = movedCursor, helperSpecies = helperSpecies, overflowingRoom = overflowingRoom}
 ]])
         source:close()
         local out, code = build(dir)
@@ -2558,13 +2607,18 @@ export = {logical = logical, guarded = guarded, stringValue = stringValue}
             print(nan ~= nan, count)
             print(m.guarded(input, 0), m.guarded(input, 1), m.guarded(input, 2), m.guarded(input, 4294967295))
             print("[" .. m.stringValue(true) .. "]", m.stringValue(false))
+            print(m.reverseGuarded(input, 0), m.reverseGuarded(input, 1), m.reverseGuarded(input, 2), m.reverseGuarded(input, 4294967295))
+            print(m.scalarMask(true), m.scalarMask(false))
+            local backing = ffi.new("uint32_t[4]", 1, 1, 1, 1)
+            print(m.movedCursor(span.fromCarray(backing, 4)))
+            print(m.helperSpecies(), m.overflowingRoom(input))
         ]]
         local pipe = assert(io.popen(("cd %q && luajit -e %q 2>&1"):format(dir, searchPathPrelude() .. script)))
         answers[policy] = (pipe:read("*a"):gsub("%s+$", ""))
         pipe:close()
     end
     test.equal(answers.require, answers.off, "compiled logical operators preserve Lua values and selected-branch effects")
-    test.equal(answers.require, "7\t1\t0\ttrue\n9\t10\t0\ttrue\n0\t1\t0\ttrue\ntrue\t1\n2147483649\t42\t0\t0\n[]\tfallback")
+    test.equal(answers.require, "7\t1\t0\ttrue\n9\t10\t0\ttrue\n0\t1\t0\ttrue\ntrue\t1\n2147483649\t42\t0\t0\n[]\tfallback\n2147483649\t42\t0\t0\n1\t0\n1\n3\t0")
 end
 
 function M.wideBitwiseAnswersAgreeWithAndWithoutAot()

@@ -207,8 +207,8 @@ end
 
 function M.logicalValuesKeepOnlyProvedSelectedWidths()
    checkedTree([[
-local function choose(flag: boolean, value: uint32, other: uint32): (uint32, uint32, uint32)
-    return flag and value or 0, flag and 0 or other, (flag and value or other) or 0
+local function choose(flag: boolean, value: uint32, other: uint32): (uint32, uint32, uint32, uint32)
+    return flag and value or 0, flag and 0 or other, (flag and value or other) or 0, flag and 1 or 0
 end
 return choose
 ]])

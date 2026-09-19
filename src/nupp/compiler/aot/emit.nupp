@@ -20,6 +20,7 @@ programs different.
 local bundled = require("nupp.compiler.bundled")
 local reducers = require("nupp.compiler.aot.reducers")
 local scalarIR = require("nupp.compiler.aot.scalar")
+local simdbounds = require("nupp.compiler.aot.simdbounds")
 local target = require("nupp.compiler.aot.target")
 local verify = require("nupp.compiler.aot.verify")
 local visit = require("nupp.compiler.aot.visit")
@@ -637,6 +638,28 @@ function emit.spanFirst(context: emit.Context, offset: scalarIR.Expr): string
     return selected.helper .. "(" .. cast .. emit.scalar(context, selected.value) .. ")"
 end
 
+--- The verified zero-based address shared by ordinary and paired field loads.
+--- @raises when a cursor access has no matching proved index
+function emit.cursorAddress(context: emit.Context, access: scalarIR.Simd): string
+    local base, _, count = simdbounds.offset(access.args[2])
+    if base == nil or (base as scalarIR.Name).cName ~= access.cursorCName then
+        error("cursor access has no matching proved index", 0)
+    end
+    local offset = "(size_t)" .. tostring(access.cursorCName)
+    if count ~= nil and count > 0 then
+        local _, _, lanes = explicitType(context, access.args[1].type)
+        if lanes == nil then
+            error("cursor access has no resolved species", 0)
+        end
+        offset = "(" .. offset .. " + (size_t)" .. tostring(count) .. " * " .. tostring(lanes) .. ")"
+    end
+    local rooted = access.rooted
+    local pointer = rooted ~= nil and "ks_bytes_" .. tostring((rooted as scalarIR.Name).cName)
+        or "p_" .. tostring(access.span)
+
+    return pointer .. " + " .. offset
+end
+
 --- A generic store statement: one whole-vector helper when no mask was
 --- given, the masked one otherwise.
 --- @raises when the stored value has no resolved species
@@ -654,9 +677,10 @@ function emit.genericStore(context: emit.Context, store: scalarIR.Simd): string
     local nativeLanes = elementBits > 0 and math.floor(context.explicitWidth * 8 / elementBits) or 0
     -- The verified cursor store is the whole-vector copy, as the load is.
     if store.cursor ~= nil and (shape == "preferred" or lanes == nativeLanes) then
-        return helper .. "store_at_" .. suffix .. "(p_" .. tostring(
-            store.span
-        ) .. " + (size_t)" .. tostring(store.cursorCName) .. ", " .. emit.scalar(context, store.args[3]) .. ")"
+        return helper .. "store_at_" .. suffix .. "(" .. emit.cursorAddress(
+            context,
+            store
+        ) .. ", " .. emit.scalar(context, store.args[3]) .. ")"
     end
     local count = emit.spanCount(context, tostring(store.span))
     local at = "p_" .. tostring(
@@ -774,9 +798,10 @@ function emit.genericFieldAccess(context: emit.Context, access: scalarIR.Simd, s
     local verb = storing and "field_store" or "field_load"
     local value = storing and ", " .. emit.scalar(context, access.args[3]) or ""
     if access.cursor ~= nil then
-        return species.helper .. verb .. "_at_" .. species.suffix .. "(p_" .. tostring(
-            access.span
-        ) .. " + (size_t)" .. tostring(access.cursorCName) .. ", " .. place .. value .. ")"
+        return species.helper .. verb .. "_at_" .. species.suffix .. "(" .. emit.cursorAddress(
+            context,
+            access
+        ) .. ", " .. place .. value .. ")"
     end
     local count = emit.spanCount(context, tostring(access.span))
     local active = access.args[storing and 4 or 3]
@@ -1258,8 +1283,9 @@ function emit.scalar(context: emit.Context, node: scalarIR.Expr): string
                 local pointer = rooted ~= nil and "ks_bytes_" .. tostring((rooted as scalarIR.Name).cName)
                     or "p_" .. tostring(simd.span)
                 if simd.cursor ~= nil and not composite then
-                    return genericHelper .. "load_at_" .. genericSuffix .. "(" .. pointer .. " + (size_t)" .. tostring(
-                        simd.cursorCName
+                    return genericHelper .. "load_at_" .. genericSuffix .. "(" .. emit.cursorAddress(
+                        context,
+                        simd
                     ) .. ")"
                 end
                 local count = rooted ~= nil and "ks_length_" .. tostring((rooted as scalarIR.Name).cName)

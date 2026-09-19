@@ -16,6 +16,34 @@ local simd = require("base64simd")
 local reference = require("base64reference")
 local shipped = require("nupp.codec.base64")
 
+-- The public wrapper must reach this build's registered native encoder.
+-- An unrelated compiled module does not prove the vector path under test.
+local compiled = assert(rawget(_G, "__nuppAotCompiled"), "no compiled entries were loaded")
+local seen = {}
+
+local function reachesCompiled(fn)
+    if seen[fn] then
+        return false
+    end
+    seen[fn] = true
+    if compiled[fn] then
+        return true
+    end
+    for index = 1, 64 do
+        local name, value = debug.getupvalue(fn, index)
+        if name == nil then
+            break
+        end
+        if type(value) == "function" and reachesCompiled(value) then
+            return true
+        end
+    end
+
+    return false
+end
+
+assert(reachesCompiled(simd.encode), "the tested encoder does not reach its native replacement")
+
 local checks = 0
 
 local function agree(value, what)

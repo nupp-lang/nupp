@@ -842,19 +842,24 @@ function operators.install(c: state.Checker): state.ExprHandlers
             end
             local result = #parts == 0 and T.never or T.union(parts)
             local members = result.tag == "union" and (result as T.Union).members or {result}
+            local facts: {[string]: boolean} = {}
+            local established: Type? = nil
+            -- The current node has not been memoized by infer yet.
+            (node as any).inferredType = result
             for _, target in ipairs({T.uint32, T.int32, T.float}) do
                 local hasWidth = false
                 for _, member in ipairs(members) do
                     hasWidth = hasWidth or member.tag == target.tag
                 end
-                -- The current node has not been memoized by infer yet.
-                (node as any).inferredType = result
-                if hasWidth and isA(result, target) and selectedWidth(node, target, nil) then
-                    c.fixedWidth.mark(node, target)
-                    return target
+                if isA(result, target) and selectedWidth(node, target, nil) then
+                    facts[target.tag] = true
+                    if hasWidth then
+                        established = target
+                    end
                 end
             end
-            return result
+            (node as any).fixedWidthEstablished = next(facts) ~= nil and facts or nil
+            return established or result
         end
 
         return T.any

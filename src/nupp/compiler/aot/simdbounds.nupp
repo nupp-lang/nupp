@@ -1,0 +1,76 @@
+module nupp.compiler.aot.simdbounds
+
+local scalarIR = require("nupp.compiler.aot.scalar")
+local simdbounds = {}
+
+--- A species lane count, optionally multiplied by a positive uint32 constant.
+function simdbounds.lanes(value: scalarIR.Expr): (scalarIR.Expr?, number?)
+    if value.op == "simd_lanes_generic" then
+        return (value as scalarIR.Simd).args[1], 1
+    elseif value.op == "u32_mul" then
+        local product = value as scalarIR.Fixed
+        local lane, factor = product.left, product.right
+        if factor.op == "simd_lanes_generic" then
+            lane, factor = factor, lane
+        end
+        local count = factor.op == "constant_i32"
+            and factor.type == "u32"
+            and tonumber((factor as scalarIR.IntConstant).value)
+            or nil
+        if lane.op == "simd_lanes_generic"
+            and count ~= nil
+            and count >= 1
+            and count <= 4294967295
+            and count % 1 == 0
+        then
+            return (lane as scalarIR.Simd).args[1], count
+        end
+    end
+
+    return nil, nil
+end
+
+function simdbounds.room(species: string, count: number): string
+    return count == 1 and species or species .. "@" .. tostring(count)
+end
+
+function simdbounds.covers(room: string?, species: string, count: number?): boolean
+    if room == nil then
+        return false
+    end
+    local held, multiple = (room as string):match("^(.+)@(%d+)$")
+    held = held or room
+    local available = tonumber(multiple) or 1
+    local lanes = held:match("_fixed(%d+)$")
+
+    return (held == species or lanes ~= nil and species:match("_fixed(%d+)$") == lanes) and available >= (count or 1)
+end
+
+--- The zero-based base cursor and vector displacement in a one-based index.
+function simdbounds.offset(value: scalarIR.Expr): (scalarIR.Name?, string?, number?)
+    if value.op == "int_to_f64" then
+        value = (value as scalarIR.Convert).value
+    end
+    if value.op ~= "u32_add" then
+        return nil, nil, nil
+    end
+    local added = value as scalarIR.Fixed
+    local one = added.right
+    if one.op ~= "constant_i32" or one.type ~= "u32" or tonumber((one as scalarIR.IntConstant).value) ~= 1 then
+        return nil, nil, nil
+    end
+    local base = added.left
+    if base.op == "local" and base.type == "u32" then
+        return base as scalarIR.Name, nil, 0
+    elseif base.op == "u32_add" then
+        local displaced = base as scalarIR.Fixed
+        local species, count = simdbounds.lanes(displaced.right)
+        if displaced.left.op == "local" and displaced.left.type == "u32" and species ~= nil then
+            return displaced.left as scalarIR.Name, (species as scalarIR.Expr).type, count
+        end
+    end
+
+    return nil, nil, nil
+end
+
+export = simdbounds

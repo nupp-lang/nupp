@@ -484,6 +484,59 @@ end
 return {add = add}
 ]]
 
+function M.derivedVectorOffsetsRequireEnoughExactRoom()
+    local source = [[
+local span = require("nupp.mem.span")
+local array = require("nupp.mem.array")
+local simd = require("nupp.simd")
+@aot
+local function copy(borrows input: span.Span<uint8>, exclusive output: span.WriteSpan<uint8>): nil
+    local s = assert(simd.species(array.uint8))
+    local lanes = s.lanes
+    local cursor: uint32 = 0
+    while cursor + 3 * lanes <= #input and cursor + 2 * lanes <= #output do
+        s:store(output, cursor + lanes + 1, s:load(input, cursor + 2 * lanes + 1))
+        cursor = cursor + 3 * lanes
+    end
+end
+return {copy = copy}
+]]
+    local program = lowered(source, "derived.g.nupp")
+    verify.program(program)
+    local loop = find(program.body, function(statement) return statement.op == "while" end)
+    local store = loop.body[1]
+    local load = store.args[3]
+    assert(store.cursor == "cursor" and load.cursor == "cursor", "derived accesses retain their base proof")
+    local product = loop.condition.left.left.right
+    assert(product.op == "u64_mul", "the guard multiplies in64bits before adding")
+    local oldProduct = loop.condition.left.left.right
+    loop.condition.left.left.right = {
+        op = "numeric_cast", type = "u64", value = {
+            op = "u32_mul", type = "u32", left = product.left.value, right = product.right.value,
+        },
+    }
+    refuses(program, "invalid loop cursor bounds proof")
+    loop.condition.left.left.right = oldProduct
+    local offset = load.args[2].value.left.right
+    assert(offset.op == "u32_mul", "the source offset retains its constant displacement")
+    local factor = offset.left.op == "constant_i32" and offset.left or offset.right
+    local oldFactor = factor.value
+    factor.value = "3"
+    refuses(program, "unbounded SIMD cursor load")
+    factor.value = oldFactor
+    verify.program(program)
+
+    local reverse = source:gsub("cursor %+ 3 %* lanes <= #input", "#input >= cursor + 3 * lanes", 1)
+    verify.program(lowered(reverse, "reverse-derived.g.nupp"))
+
+    local mutable = source:gsub("local lanes = s.lanes", "local lanes: uint32 = s.lanes\n    lanes = s.lanes", 1)
+    local unproved = lowered(mutable, "mutable-lanes.g.nupp")
+    verify.program(unproved)
+    local changedLoop = find(unproved.body, function(statement) return statement.op == "while" end)
+    assert(changedLoop.body[1].cursor == nil and changedLoop.body[1].args[3].cursor == nil,
+        "a mutable lanes alias keeps checked loads and stores")
+end
+
 function M.aProvenVectorAccessIsHeldToTheGuardThatProvesIt()
     -- `cursor + s.lanes <= #span`, exact in u64, is what lets a whole-vector
     -- access at `cursor + 1` drop its checks. The verifier reproves it from
