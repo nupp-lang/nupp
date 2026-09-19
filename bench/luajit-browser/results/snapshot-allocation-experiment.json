@@ -1,0 +1,249 @@
+{
+  "scope": "Three fresh Chromium process-family measurements per variant. Existing Pages artifact versus rebuilt development-overlay artifact; same compiler source baseline d5c3e9e8, but independently captured snapshots. Whole-process memory is noisy; this is not an isolated allocator benchmark. RSS double-counts shared pages; footprint is the macOS process-family total.",
+  "candidate": "Inflate directly into an extent-bounded buffer instead of collecting decompressed chunks and then concatenating.",
+  "decision": "Rejected: no demonstrated whole-process memory or startup improvement. Original implementation retained.",
+  "host": {
+    "platform": "darwin",
+    "arch": "arm64",
+    "cpu": "Apple M5 Pro"
+  },
+  "results": [
+    {
+      "variant": "before",
+      "run": "-1",
+      "rawSha256": "2406c14fb7b8dc43f3123b87ffb59a65c7c2a2f5db92701ebac8447b7e66fd18",
+      "version": "152.0.7977.77",
+      "baseline": {
+        "phase": "baseline",
+        "elapsedMs": 526.71825,
+        "rssBytes": 956628992,
+        "processes": 7,
+        "footprintBytes": 495936176
+      },
+      "compilerReady": {
+        "phase": "compiler-startup",
+        "elapsedMs": 2706.833166,
+        "rssBytes": 1658929152,
+        "processes": 7,
+        "footprintBytes": 836905208
+      },
+      "afterRun": {
+        "phase": "first-run",
+        "elapsedMs": 5887.654333,
+        "rssBytes": 1697595392,
+        "processes": 7,
+        "footprintBytes": 858057048
+      },
+      "afterTeardown": {
+        "phase": "teardown",
+        "elapsedMs": 7842.167083,
+        "rssBytes": 988069888,
+        "processes": 7,
+        "footprintBytes": 571433720
+      },
+      "peakFootprintBytes": 1158998816,
+      "peakRssBytes": 1804681216
+    },
+    {
+      "variant": "before",
+      "run": "-2",
+      "rawSha256": "aa64be8cfb3b17e4528f9758490841fa520e6e4d33d7a57a501f2ad31a03b1e3",
+      "version": "152.0.7977.77",
+      "baseline": {
+        "phase": "baseline",
+        "elapsedMs": 1962.498958,
+        "rssBytes": 966262784,
+        "processes": 7,
+        "footprintBytes": 560177864
+      },
+      "compilerReady": {
+        "phase": "compiler-startup",
+        "elapsedMs": 4710.358208,
+        "rssBytes": 1679900672,
+        "processes": 7,
+        "footprintBytes": 837659016
+      },
+      "afterRun": {
+        "phase": "first-run",
+        "elapsedMs": 8830.463125,
+        "rssBytes": 1721221120,
+        "processes": 7,
+        "footprintBytes": 843852168
+      },
+      "afterTeardown": {
+        "phase": "teardown",
+        "elapsedMs": 12433.40225,
+        "rssBytes": 982581248,
+        "processes": 7,
+        "footprintBytes": 532374192
+      },
+      "peakFootprintBytes": 1193667408,
+      "peakRssBytes": 1854717952
+    },
+    {
+      "variant": "before",
+      "run": "-3",
+      "rawSha256": "024c64c33f5e7310c0e75fc5fb630f5dcba698483a6aefb8b46ddff3e37e8397",
+      "version": "152.0.7977.77",
+      "baseline": {
+        "phase": "baseline",
+        "elapsedMs": 1894.4659579999998,
+        "rssBytes": 970063872,
+        "processes": 7,
+        "footprintBytes": 560800912
+      },
+      "compilerReady": {
+        "phase": "compiler-startup",
+        "elapsedMs": 4385.136292,
+        "rssBytes": 1645674496,
+        "processes": 7,
+        "footprintBytes": 849193616
+      },
+      "afterRun": {
+        "phase": "first-run",
+        "elapsedMs": 8192.688624999999,
+        "rssBytes": 1683111936,
+        "processes": 7,
+        "footprintBytes": 851258024
+      },
+      "afterTeardown": {
+        "phase": "teardown",
+        "elapsedMs": 11578.33325,
+        "rssBytes": 994508800,
+        "processes": 7,
+        "footprintBytes": 482239776
+      },
+      "peakFootprintBytes": 1207200880,
+      "peakRssBytes": 1837039616
+    },
+    {
+      "variant": "after",
+      "run": "-1",
+      "rawSha256": "a67d38ddc0c6e16f2ff707caf60f26a7a75f280866fb5688e5646bba1c1e7298",
+      "version": "152.0.7977.77",
+      "baseline": {
+        "phase": "baseline",
+        "elapsedMs": 421.78462499999995,
+        "rssBytes": 954548224,
+        "processes": 7,
+        "footprintBytes": 490644000
+      },
+      "compilerReady": {
+        "phase": "compiler-startup",
+        "elapsedMs": 2579.025417,
+        "rssBytes": 1630273536,
+        "processes": 7,
+        "footprintBytes": 834840728
+      },
+      "afterRun": {
+        "phase": "first-run",
+        "elapsedMs": 5754.392625,
+        "rssBytes": 1675067392,
+        "processes": 7,
+        "footprintBytes": 849651984
+      },
+      "afterTeardown": {
+        "phase": "teardown",
+        "elapsedMs": 7812.482125,
+        "rssBytes": 982712320,
+        "processes": 7,
+        "footprintBytes": 551445168
+      },
+      "peakFootprintBytes": 1204841080,
+      "peakRssBytes": 1771880448
+    },
+    {
+      "variant": "after",
+      "run": "-2",
+      "rawSha256": "87ef1d2cb3c0eaadd068438421d8359c358e20ce102140d0a47c52e2f0e41ae2",
+      "version": "152.0.7977.77",
+      "baseline": {
+        "phase": "baseline",
+        "elapsedMs": 1894.9102500000001,
+        "rssBytes": 965197824,
+        "processes": 7,
+        "footprintBytes": 556884584
+      },
+      "compilerReady": {
+        "phase": "compiler-startup",
+        "elapsedMs": 4612.643875000001,
+        "rssBytes": 1633042432,
+        "processes": 7,
+        "footprintBytes": 838920368
+      },
+      "afterRun": {
+        "phase": "first-run",
+        "elapsedMs": 8544.870041,
+        "rssBytes": 1679081472,
+        "processes": 7,
+        "footprintBytes": 845408456
+      },
+      "afterTeardown": {
+        "phase": "teardown",
+        "elapsedMs": 11940.027166,
+        "rssBytes": 985481216,
+        "processes": 7,
+        "footprintBytes": 491791048
+      },
+      "peakFootprintBytes": 1209690840,
+      "peakRssBytes": 1789378560
+    },
+    {
+      "variant": "after",
+      "run": "-3",
+      "rawSha256": "04ab86e3810706956992e66b202a3fb9a0f2a8ccadd550fa37a198767fd222fe",
+      "version": "152.0.7977.77",
+      "baseline": {
+        "phase": "baseline",
+        "elapsedMs": 1051.502084,
+        "rssBytes": 956809216,
+        "processes": 7,
+        "footprintBytes": 488923848
+      },
+      "compilerReady": {
+        "phase": "compiler-startup",
+        "elapsedMs": 3516.517417,
+        "rssBytes": 1670266880,
+        "processes": 7,
+        "footprintBytes": 826698192
+      },
+      "afterRun": {
+        "phase": "first-run",
+        "elapsedMs": 6957.9695,
+        "rssBytes": 1712570368,
+        "processes": 7,
+        "footprintBytes": 847047192
+      },
+      "afterTeardown": {
+        "phase": "teardown",
+        "elapsedMs": 9275.068584,
+        "rssBytes": 986120192,
+        "processes": 7,
+        "footprintBytes": 496952152
+      },
+      "peakFootprintBytes": 1186425800,
+      "peakRssBytes": 1808728064
+    }
+  ],
+  "candidateDelivery": {
+    "scope": "Actual playground tour; shared 10 Mbps response budget, 25 ms response delay; gzip text delivery; cached run opens a fresh page in the same browser context",
+    "results": [
+      {
+        "mode": "cold",
+        "checkedMs": 6541.079334,
+        "compilerBytes": 5193132,
+        "firstOutputMs": 9842.722167,
+        "assetBodyBytes": 8150598,
+        "errors": []
+      },
+      {
+        "mode": "cached",
+        "checkedMs": 1427.4572910000006,
+        "compilerBytes": 0,
+        "firstOutputMs": 1877.9317910000009,
+        "assetBodyBytes": 0,
+        "errors": []
+      }
+    ]
+  }
+}

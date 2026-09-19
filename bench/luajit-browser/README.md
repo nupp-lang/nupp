@@ -336,10 +336,14 @@ compiler protocol, not complete UI startup or a large multi-module project.
 Bundle `compiler-modes.mjs` with esbuild into the staged guest fixture directory
 and use `run-browser.mjs` to reproduce it.
 
-Snapshot inflation now writes into one buffer bounded by the declared extent,
-removing the retained decompressed-chunk list and its full-size concatenation
-copy. Extent and corruption checks remain enforced. This changes allocation,
-not the 64/128 MiB guest profiles; process memory must still be measured.
+`results/snapshot-allocation-experiment.json` records a rejected direct-buffer
+inflation experiment. Three fresh-process runs per variant showed no lower
+whole-browser memory: baseline peak above blank was 604–632 MiB, candidate
+623–681 MiB. The snapshots were independently captured, so this does not isolate
+an allocator regression. Modeled delivery was essentially unchanged at 6.54 s
+to a diagnostic and 9.84 s to output; cached output was 1.88 s with zero asset
+body bytes. The original inflation implementation is retained. No startup or
+memory improvement is claimed from this experiment.
 
 The release workflow now calls the source-guest conformance workflow and adds
 `nupp-luajit-browser-runtime.tar.gz`, carrying the verified guest, snapshots,

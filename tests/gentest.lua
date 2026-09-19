@@ -91,7 +91,9 @@ return direct, cast, constructed
         local pc = 1
         while true do
             local instruction = bc.line(fn, pc)
-            if not instruction then break end
+            if not instruction then
+                break
+            end
             assert(not instruction:find("CALLT", 1, true), "a new return retains its frame: " .. instruction)
             pc = pc + 1
         end
@@ -104,14 +106,18 @@ function M.recordReturnsDoNotConsumeAnotherLocalSlot()
         declarations[index] = "local n" .. index .. ": integer = " .. index
         terms[index] = "n" .. index
     end
-    local code = generateChecked("local record Token value: integer end\n"
-        .. "local function make(): Token\n" .. table.concat(declarations, "\n")
-        .. "\nreturn new Token(value = " .. table.concat(terms, " + ") .. ")\nend\nreturn make()")
+    local code = generateChecked(
+        "local record Token value: integer end\n" .. "local function make(): Token\n" .. table.concat(
+            declarations,
+            "\n"
+        ) .. "\nreturn new Token(value = " .. table.concat(terms, " + ") .. ")\nend\nreturn make()"
+    )
     assertEq(assert(loadstring(code))().value, 20100, "a return fits at the local limit")
 end
 
 function M.recordReturnsPreserveEvaluationAndMultipleValues()
-    local code = generateChecked([[
+    local code = generateChecked(
+        [[
 local record Token value: integer end
 local log = ""
 local function value(label: string, n: integer): integer log = log .. label return n end
@@ -126,7 +132,8 @@ end
 local a = one()
 local b, c, d = many()
 return a.value, b.value, c, d, log
-]])
+]]
+    )
     local a, b, c, d, log = assert(loadstring(code))()
     assertEq(a, 31)
     assertEq(b, 32)
