@@ -1,6 +1,6 @@
 {
-  "baseline": "d5c3e9e823a894d09d2ea9783c33629e086ffeef",
-  "scope": "Literal source references, not proof of exclusive ownership; dynamic provider selection requires review",
+  "baseline": "8a0dec4241c41c6fd7c3fa717921d84a5fb26c27",
+  "scope": "Literal references and relative JavaScript module paths; includes tests and configuration. Not a reachability proof; dynamic provider selection requires review.",
   "consumers": {
     "nupp.runtime.provider.scalarbitops": [
       {
@@ -37,7 +37,7 @@
     "nupp.runtime.provider.tablebuffer": [
       {
         "file": "src/nupp/compiler/env.nupp",
-        "line": 2217,
+        "line": 2219,
         "text": "[\"nupp.runtime.provider.tablebuffer\"] = \"/nupp/runtime/provider/tablebuffer.nupp\","
       },
       {
@@ -64,7 +64,7 @@
     "nupp.runtime.provider.tablestruct": [
       {
         "file": "src/nupp/compiler/env.nupp",
-        "line": 2276,
+        "line": 2278,
         "text": "[\"nupp.runtime.provider.tablestruct\"] = \"/nupp/runtime/provider/tablestruct.nupp\","
       },
       {
@@ -91,7 +91,7 @@
     "nupp.runtime.provider.wasmstoragefactory": [
       {
         "file": "src/nupp/compiler/env.nupp",
-        "line": 2278,
+        "line": 2279,
         "text": "[\"nupp.runtime.provider.wasmstoragefactory\"] = \"/nupp/runtime/provider/wasmstoragefactory.nupp\","
       },
       {
@@ -127,6 +127,21 @@
         "text": "import { runNuppWasmApp } from \"../../../runtime/wasm/app-runtime.mjs\";"
       },
       {
+        "file": "runtime/luajit/app-runtime.mjs",
+        "line": 7,
+        "text": "import {handleBrowserEffects} from '../wasm/app-runtime.mjs';"
+      },
+      {
+        "file": "runtime/wasm/browser-worker.mjs",
+        "line": 1,
+        "text": "import { runPackagedNuppWasmApp } from \"./app-runtime.mjs\";"
+      },
+      {
+        "file": "runtime/wasm/worker-lane.mjs",
+        "line": 9,
+        "text": "import { runPackagedNuppWasmApp } from \"./app-runtime.mjs\";"
+      },
+      {
         "file": "tests/wasm-aot/run.mjs",
         "line": 5,
         "text": "import { runNuppWasmApp } from \"../../runtime/wasm/app-runtime.mjs\";"
@@ -138,6 +153,16 @@
       }
     ],
     "runtime/wasm/worker-pool.mjs": [
+      {
+        "file": "runtime/luajit/app-runtime.mjs",
+        "line": 4,
+        "text": "import {createWorkerPool} from '../wasm/worker-pool.mjs';"
+      },
+      {
+        "file": "runtime/wasm/app-runtime.mjs",
+        "line": 1,
+        "text": "import { createWorkerPool } from \"./worker-pool.mjs\";"
+      },
       {
         "file": "tests/wasm-aot/runtime.test.mjs",
         "line": 13,
