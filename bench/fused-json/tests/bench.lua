@@ -161,6 +161,10 @@ local function repeatTo(build, bytes)
 end
 
 local TARGET = 2 * 1024 * 1024
+-- Increase timed work without changing the corpus or its digest.
+local BATCH_BYTES = tonumber(os.getenv("NUPP_FUSED_BENCH_BATCH_BYTES")) or TARGET
+assert(BATCH_BYTES >= TARGET, "benchmark batches must cover at least the default byte count")
+local ONLY_PAYLOAD = os.getenv("NUPP_FUSED_BENCH_PAYLOAD")
 
 local corpora = {}
 
@@ -306,10 +310,12 @@ end
 
 local implementations = {{name = "fused", run = decodeFused}, {name = "lunajson", run = decodeLunajson},}
 
--- One timed batch: enough decodes of the payload to move roughly `TARGET`
--- bytes, so a small payload is not timed against the clock's resolution.
-local function batchFor(source)
-    return math.max(1, math.floor(TARGET / #source + 0.5))
+-- One timed batch: repeat the fixed payload to reach the requested byte
+-- budget, so a fast decoder is not timed against the clock's resolution.
+local function batchFor(source, implementation)
+    -- The pure Lua control already takes milliseconds on these corpora.
+    local bytes = implementation == "lunajson" and TARGET or BATCH_BYTES
+    return math.max(1, math.floor(bytes / #source + 0.5))
 end
 
 local function timeOne(run, source, batch)
@@ -402,8 +408,24 @@ io.write("\n")
 local loadBefore = loadAverages()
 io.write(string.format("load averages before: %s\n", loadBefore))
 io.write(
-    string.format("samples: %d, warmups: %d, about %.1f MB per timed batch\n\n", samples, warmups, TARGET / 1048576)
+    string.format(
+        "samples: %d, warmups: %d, about %.1f MiB per native batch (control 2 MiB)\n\n",
+        samples,
+        warmups,
+        BATCH_BYTES / 1048576
+    )
 )
+
+if ONLY_PAYLOAD then
+    local selected = {}
+    for _, payload in ipairs(corpora) do
+        if payload.name == ONLY_PAYLOAD then
+            selected[#selected + 1] = payload
+        end
+    end
+    assert(#selected == 1, "unknown benchmark payload: " .. ONLY_PAYLOAD)
+    corpora = selected
+end
 
 local report = {}
 for _, payload in ipairs(corpora) do
@@ -416,7 +438,8 @@ for _, payload in ipairs(corpora) do
 
     for _ = 1, warmups do
         for _, implementation in ipairs(implementations) do
-            timeOne(implementation.run, payload.source, math.max(1, math.floor(batch / 4)))
+            local implementationBatch = batchFor(payload.source, implementation.name)
+            timeOne(implementation.run, payload.source, math.max(1, math.floor(implementationBatch / 4)))
         end
     end
 
@@ -429,9 +452,10 @@ for _, payload in ipairs(corpora) do
         end
         for _, position in ipairs(order) do
             local implementation = implementations[position]
-            local elapsed = timeOne(implementation.run, payload.source, batch)
+            local implementationBatch = batchFor(payload.source, implementation.name)
+            local elapsed = timeOne(implementation.run, payload.source, implementationBatch)
             local rates = times[implementation.name]
-            rates[#rates + 1] = moved / elapsed / 1e6
+            rates[#rates + 1] = implementationBatch * #payload.source / elapsed / 1e6
         end
     end
 
@@ -453,7 +477,13 @@ for _, payload in ipairs(corpora) do
         table.sort(sorted)
         row.rates[
             implementation.name
-        ] = {median = median(rates), low = sorted[1], high = sorted[#sorted], samples = rates,}
+        ] = {
+            median = median(rates),
+            low = sorted[1],
+            high = sorted[#sorted],
+            samples = rates,
+            batch = batchFor(payload.source, implementation.name),
+        }
     end
     row.ratio = row.rates.fused.median / row.rates.lunajson.median
     if baselineProof then
@@ -512,11 +542,12 @@ if out then
             local rate = row.rates[implementation.name]
             handle:write(
                 string.format(
-                    "     \"%s\": {\"median\": %.3f, \"min\": %.3f, \"max\": %.3f, \"samples\": [",
+                    "     \"%s\": {\"median\": %.3f, \"min\": %.3f, \"max\": %.3f, \"batch\": %d, \"samples\": [",
                     implementation.name,
                     rate.median,
                     rate.low,
-                    rate.high
+                    rate.high,
+                    rate.batch
                 )
             )
             for position, value in ipairs(rate.samples) do
