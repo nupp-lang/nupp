@@ -2293,6 +2293,10 @@ record cst.SwitchCase is cst.Hints
     type: cst.Node?
     binding: lexer.Token?
     fields: {cst.SwitchField}
+
+    --- The `where` predicate narrowing this arm, when one was written.
+    guard: cst.WhereClause?
+
     expr: cst.Node?
     body: cst.Node?
 end

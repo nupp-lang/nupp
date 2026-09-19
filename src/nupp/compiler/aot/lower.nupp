@@ -5271,6 +5271,12 @@ local function switchLocal(
     for _, arm in ipairs(node.cases or {}) do
         if arm.patternKind ~= "static" then
             context.reject(lower.site(arm), "native switches do not admit type cases")
+        elseif arm.guard ~= nil then
+            -- Both paths below answer from the case label alone: the jump table has
+            -- nowhere to put a predicate, and constant selection would commit to an
+            -- arm whose guard it never evaluated. Refusing is the only sound answer
+            -- until the native switch grows a fallthrough.
+            context.reject(lower.site(arm), "native switches do not admit a `where` guard")
         elseif arm.body ~= nil or arm.expr == nil then
             context.reject(lower.site(arm), "native switches require expression arms")
         end

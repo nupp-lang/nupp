@@ -705,6 +705,10 @@ function expr.install(c: state.Checker): nil
         for _, arm in ipairs(node.cases or {}) do
             c.pushScope()
             local armReachable = residue ~= T.never
+            -- A `where` arm may decline a value its pattern admits, so it proves
+            -- nothing about coverage: the residue it leaves behind is the residue it
+            -- found. Everything else about the arm is checked exactly as usual.
+            local guarded = arm.guard ~= nil
             if arm.patternKind == "static" then
                 local narrowed = {}
                 for _, value in ipairs(arm.values or {}) do
@@ -718,14 +722,16 @@ function expr.install(c: state.Checker): nil
                             c.diag("NUPP2138", value, "duplicate static switch case", nil, {
                                 related = {c.related(seen[key], "the same value is handled here")}
                             })
-                        else
+                        elseif not guarded then
                             seen[key] = value
                         end
                         narrowed[#narrowed + 1] = exact
                         if selectorT ~= T.any and not isA(exact, selectorT) then
                             c.diag("NUPP2139", value, "this case value is not admitted by the selector type")
                         end
-                        residue = residue ~= T.never and isA(residue, exact) and T.never or subtract(residue, exact)
+                        if not guarded then
+                            residue = residue ~= T.never and isA(residue, exact) and T.never or subtract(residue, exact)
+                        end
                     end
                 end
                 if selectorKey and #narrowed > 0 then
@@ -780,10 +786,15 @@ function expr.install(c: state.Checker): nil
                         c.bindVar(bindingName, fieldT, true, binding, "variable", true)
                     end
                 end
-                residue = residue ~= T.never and isA(residue, target) and T.never or subtract(residue, target)
+                if not guarded then
+                    residue = residue ~= T.never and isA(residue, target) and T.never or subtract(residue, target)
+                end
             end
             if not armReachable then
                 c.diag("NUPP2139", arm, "this switch case is unreachable")
+            end
+            if arm.guard and arm.guard.expr then
+                c.infer(arm.guard.expr)
             end
             checkResult(arm)
             if not (arm.expr and arm.switchResultType == T.never or arm.body and c.alwaysExits(arm.body)) then

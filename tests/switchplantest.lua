@@ -104,6 +104,24 @@ function M.dynamicResultsAreNotMapped()
    assertEq(selected.reason, "an arm result is not one inert scalar")
 end
 
+function M.guardedCasesAreNotMapped()
+   -- A map answers from the key. A guarded arm may decline its own key, and the
+   -- value then has to reach the arm below it, which only branches can express.
+   local selected = plan(table.concat({
+      "local selector: number = 1",
+      "local selected = switch selector do",
+      "   case 1 where selector > 0 -> 'one'",
+      "   case 2 -> 'two'",
+      "   case 3 -> 'three'",
+      "   case 4 -> 'four'",
+      "   else -> 'other'",
+      "end",
+      "return selected",
+   }, "\n"))
+   assertEq(selected.tag, "OrderedBranches")
+   assertEq(selected.reason, "a guarded case needs lexical branches")
+end
+
 function M.dynamicFallbacksAreNotMapped()
    local selected = plan((sourceFor(strings(8), "string", function(index)
       return string.format("%q", "v" .. index)

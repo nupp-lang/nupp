@@ -1119,6 +1119,40 @@ local label = switch status do
 end
 ```
 
+### Guarded cases
+
+`where predicate` narrows an arm with a condition its pattern cannot state. The
+guard is checked in the arm's own scope, so it reads the bindings a type case
+introduced, and the arm runs only when its pattern matches and the guard holds.
+When the guard is false the value falls through to the arms below it.
+
+```nupp
+local reading = switch sample do
+    case is Measurement as m where m.celsius > 100 -> "boiling"
+    case is Measurement as m -> `${m.celsius} degrees`
+    else -> "no sample"
+end
+```
+
+A guarded arm proves nothing about coverage, because it may decline any value it
+matches. It subtracts nothing from what the remaining arms must handle, so a
+switch whose only arm for a value is guarded still needs `else`, and it never
+makes a later arm unreachable. Both halves show up above: the guarded arm leaves
+the unguarded `Measurement` arm below it perfectly reachable, and it would not on
+its own have covered `Measurement` had that arm been absent.
+
+Guards cost the map plans. A dense integer, sparse integer, or string switch
+answers from the key alone, and a guard needs somewhere to put a predicate and a
+way to reach the next arm after declining, so a guarded switch is always lowered
+to ordered branches. Native `@aot` switches refuse a guard outright rather than
+lower one whose predicate they cannot evaluate.
+
+The word is `where` rather than `and` because case values are read as ordinary
+expressions, and `and` is an expression operator: `case "foo" and ready -> ...`
+would parse as the single value `"foo" and ready` and quietly match the wrong
+thing. `where` cannot continue an expression, so it ends the pattern
+unambiguously.
+
 ### Type cases and destructuring
 
 `case is T` uses the same runtime identity test and narrowing rules as `value is

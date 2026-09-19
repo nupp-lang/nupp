@@ -902,4 +902,201 @@ return label .. ':' .. tostring(calls)
     )
 end
 
+function M.guardedArmRunsOnlyWhenItsPredicateHolds()
+    local even, odd, other = run(
+        [[
+local function classify(n: integer): string
+    return switch n do
+        case 1, 2, 3 where n % 2 == 0 -> 'small even'
+        case 1, 2, 3 -> 'small odd'
+        else -> 'big'
+    end
+end
+return classify(2), classify(3), classify(9)
+]]
+    )
+    assertEq(even, "small even")
+    assertEq(odd, "small odd")
+    assertEq(other, "big")
+end
+
+function M.guardedArmProvesNoCoverage()
+    -- The only arm naming `true` declines it whenever the guard is false, so the
+    -- selector is still open and the switch is not exhaustive.
+    assertEq(
+        diagnosticCodes(
+            [[
+local function f(b: boolean): string
+    return switch b do
+        case true where b -> 'yes'
+        case false -> 'no'
+    end
+end
+return f(true)
+]]
+        ),
+        "NUPP2140"
+    )
+end
+
+function M.guardedArmDoesNotShadowTheArmBelowIt()
+    assertEq(
+        diagnosticCodes(
+            [[
+local function f(n: 1 | 2): string
+    return switch n do
+        case 1 where n > 0 -> 'guarded'
+        case 1 -> 'plain'
+        case 2 -> 'two'
+    end
+end
+return f(1)
+]]
+        ),
+        ""
+    )
+end
+
+function M.repeatedValueAfterAnUnguardedArmIsStillADuplicate()
+    assertEq(
+        diagnosticCodes(
+            [[
+local function f(n: 1 | 2): string
+    return switch n do
+        case 1 -> 'plain'
+        case 1 where n > 0 -> 'guarded'
+        case 2 -> 'two'
+    end
+end
+return f(1)
+]]
+        ),
+        "NUPP2138"
+    )
+end
+
+function M.aGuardReadsTheArmsOwnBindings()
+    local big, small = run(
+        [[
+local record Box
+    n: integer
+end
+local function g(v: Box | string): string
+    return switch v do
+        case is Box as box where box.n > 10 -> 'big box'
+        case is Box as box -> 'box ' .. tostring(box.n)
+        case is string -> v
+    end
+end
+return g(new Box(n = 50)), g(new Box(n = 1))
+]]
+    )
+    assertEq(big, "big box")
+    assertEq(small, "box 1")
+end
+
+function M.aBareNameGuardIsNotAShortFunction()
+    -- `where b -> 'yes'` is a guard and an arm result. Reading it as a short
+    -- function taking `b` is the collision that rules out spelling this `and`.
+    local yes, no = run(
+        [[
+local function f(b: boolean): string
+    return switch b do
+        case true where b -> 'yes'
+        else -> 'no'
+    end
+end
+return f(true), f(false)
+]]
+    )
+    assertEq(yes, "yes")
+    assertEq(no, "no")
+end
+
+function M.aGuardStillAdmitsALambdaInsideBrackets()
+    local found, missing = run(
+        [[
+local function any(xs: {integer}, f: function(integer): boolean): boolean
+    for _, x in ipairs(xs) do
+        if f(x) then return true end
+    end
+    return false
+end
+local function f(xs: {integer}): string
+    return switch #xs > 0 do
+        case true where any(xs, x -> x > 2) -> 'found'
+        else -> 'missing'
+    end
+end
+return f({5}), f({1})
+]]
+    )
+    assertEq(found, "found")
+    assertEq(missing, "missing")
+end
+
+function M.aGuardedSwitchLowersToBranchesRatherThanAMap()
+    local code = generate(
+        [[
+local function label(n: integer): string
+    return switch n do
+        case 9 where n > 0 -> 'tab'
+        case 10 -> 'newline'
+        case 11 -> 'vertical tab'
+        case 12 -> 'form feed'
+        case 13 -> 'return'
+        else -> 'other'
+    end
+end
+return label(10)
+]]
+    )
+    assert(code:find("goto", 1, true), "a guarded switch jumps out of a taken arm:\n" .. code)
+end
+
+function M.breakInsideAGuardedArmStillLeavesTheEnclosingLoop()
+    -- The guarded lowering jumps to a label rather than wrapping the arms in a
+    -- loop, which is what keeps an arm's own `break` bound to the `for` above it.
+    local found = run(
+        [[
+local function firstBig(xs: {integer}): integer
+    local found: integer = -1
+    for _, x in ipairs(xs) do
+        local tag = switch x > 0 do
+            case true where x > 10 -> do
+                found = x
+                break
+            end
+            else -> 'keep'
+        end
+        if tag == nil then break end
+    end
+    return found
+end
+return firstBig({1, 5, 20, 30})
+]]
+    )
+    assertEq(found, 20)
+end
+
+function M.guardedSwitchesNest()
+    local both, outer, neither = run(
+        [[
+local function nested(a: integer, b: integer): string
+    return switch a do
+        case 1 where a > 0 -> switch b do
+            case 2 where b > 1 -> 'one-two'
+            else -> 'one-other'
+        end
+        else -> 'other'
+    end
+end
+return nested(1, 2), nested(1, 9), nested(5, 2)
+]]
+    )
+    assertEq(both, "one-two")
+    assertEq(outer, "one-other")
+    assertEq(neither, "other")
+end
+
 return M

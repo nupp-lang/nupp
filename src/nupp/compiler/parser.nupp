@@ -127,6 +127,12 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     -- not consumed (grammar note [CS-2]). Reset inside any parenthesized/bracketed
     -- context.
     local noMethod = 0
+    -- Nonzero where a bare `name ->` must not be read as a short function, because
+    -- something else in the grammar owns that arrow. A switch arm's `where` guard is
+    -- the case: `where b -> "yes"` is a guard `b` and an arm result, not a lambda
+    -- taking `b`. Bracketed contexts clear it, so a lambda nested in a guard still
+    -- parses as one.
+    local noArrow = 0
     -- `continue` is a soft keyword, but once recognized it must belong to the innermost
     -- loop. Function bodies reset this depth because a loop outside a closure cannot be
     -- continued from inside it.
@@ -319,9 +325,12 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     --- restores it.
     local function resetNoMethod(fn: any, ...: any): any
         local saved = noMethod
+        local savedArrow = noArrow
         noMethod = 0
+        noArrow = 0
         local r = fn(...)
         noMethod = saved
+        noArrow = savedArrow
 
         return r
     end
@@ -1780,13 +1789,13 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             return false
         end
         local savedI, savedErrors = i, #errors
-        local savedNoMethod = noMethod
+        local savedNoMethod, savedNoArrow = noMethod, noArrow
         local savedGenericClose, savedGenericHalf = genericCloseHalfAt, genericCloseHalf
         i = i + 1
         parseExp()
         local yes = cur().kind == "do"
         i = savedI
-        noMethod = savedNoMethod
+        noMethod, noArrow = savedNoMethod, savedNoArrow
         genericCloseHalfAt, genericCloseHalf = savedGenericClose, savedGenericHalf
         while #errors > savedErrors do
             errors[#errors] = nil
@@ -1860,6 +1869,20 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                     end
                     add(arm, advance())
                 until false
+            end
+            -- `where` narrows the arm with a predicate the pattern cannot state.
+            -- It is spelled `where` rather than `and` because case values are read
+            -- by `parseExp`, which would swallow `and` into the pattern itself and
+            -- leave a case arm quietly matching the operand to its right.
+            if cur().kind == "name" and cur().text == "where" then
+                local guard = new cst.WhereClause(kind = "whereClause")
+                add(guard, advance()).contextualOp = true
+                -- The arm's `->` is the guard's terminator, so a bare name in front
+                -- of it is the guard rather than a short function's parameter.
+                noArrow = noArrow + 1
+                guard.expr = add(guard, parseExp())
+                noArrow = noArrow - 1
+                arm.guard = add(arm, guard)
             end
             parseSwitchResult(arm)
             n.cases[#n.cases + 1] = add(n, arm)
@@ -1959,7 +1982,9 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             end
             n.token = add(n, advance())
             return n
-        elseif kind == "|" or atEmptyPipes() or (kind == "name" and tokens[i + 1] and tokens[i + 1].kind == "->") then
+        elseif kind == "|" or atEmptyPipes() or (
+            kind == "name" and tokens[i + 1] and tokens[i + 1].kind == "->" and noArrow == 0
+        ) then
             return parseShortfn()
         elseif kind == "istringOpen" then
             return parseIstring()

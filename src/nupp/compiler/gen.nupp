@@ -3568,9 +3568,32 @@ function gen.generate(
             e(("local %s=getmetatable(%s).__index;"):format(recordIdentity, selectorName), line)
         end
 
+        -- A `where` arm can match its pattern and still decline the value, so the
+        -- chain cannot be one `if`/`elseif`: control has to leave a taken arm and
+        -- reach the next test otherwise. Guarded switches become independent tests
+        -- that jump to a shared label once an arm commits. Nothing declares a local
+        -- between those jumps and the label, which is what keeps them legal.
+        local guarded = false
+        for _, arm in ipairs(node.cases or {}) do
+            if arm.guard then
+                guarded = true
+                break
+            end
+        end
+        local doneLabel
+        if guarded then
+            doneLabel = ("__nuppS%d"):format(tempCounter + 1)
+            tempCounter = tempCounter + 1
+            usedNames[doneLabel] = true
+        end
+
         local first = true
         for armIndex, arm in ipairs(node.cases or {}) do
-            e(first and "if " or "elseif ", sourceLine(arm))
+            if guarded then
+                e("if ", sourceLine(arm))
+            else
+                e(first and "if " or "elseif ", sourceLine(arm))
+            end
             first = false
             if coverageOn then
                 local branch = coverageSite("branch", arm)
@@ -3606,6 +3629,13 @@ function gen.generate(
                 local binding = field.alias and field.alias.text or name
                 e(("local %s=%s.%s;"):format(binding, selectorName, name))
             end
+            -- Inside the pattern's test, so the guard reads the bindings above it.
+            if arm.guard and arm.guard.expr then
+                e("if ", sourceLine(arm.guard))
+                lowerSwitches(arm.guard.expr)
+                emit(arm.guard.expr)
+                e(" then ")
+            end
             if arm.expr then
                 lowerSwitches(arm.expr)
                 emitDepth.emitArmResult(resultName, arm.expr)
@@ -3615,9 +3645,20 @@ function gen.generate(
                 emit(arm.body)
                 emitDepth.switchResult = prior
             end
+            if guarded then
+                e(("goto %s;"):format(doneLabel))
+                if arm.guard then
+                    e("end;")
+                end
+                e("end;")
+            end
         end
         if node.elseCase then
-            e(first and "if true then " or "else ", sourceLine(node.elseCase))
+            if guarded then
+                e("do ", sourceLine(node.elseCase))
+            else
+                e(first and "if true then " or "else ", sourceLine(node.elseCase))
+            end
             first = false
             local arm = node.elseCase
             coverageHit("statement", arm)
@@ -3631,7 +3672,12 @@ function gen.generate(
                 emitDepth.switchResult = prior
             end
         end
-        if not first then
+        if guarded then
+            if node.elseCase then
+                e("end;", node.endTok and node.endTok.line or nil)
+            end
+            e(("::%s::;"):format(doneLabel), node.endTok and node.endTok.line or nil)
+        elseif not first then
             e("end;", node.endTok and node.endTok.line or nil)
         end
     end
