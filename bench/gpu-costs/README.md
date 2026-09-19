@@ -43,3 +43,6 @@ An untimed compiled-route and full-output check is available separately:
 ```sh
 ./bin/nupp run --gpu-costs /private/tmp/nupp-gpu-smoke.jsonl bench/gpu-costs/costs.bench.lua --smoke 4096
 ```
+
+The [Apple M5 Pro exploratory curve](results/arm64-macos.md) includes all five
+forks, observed ranges, operation records, artifact hashes and packaged-VM proof.

@@ -1,0 +1,40 @@
+nupp: --remarks-out wrote nothing: this build accounted for no module
+nupp: --remarks-out wrote nothing: this build accounted for no module
+nupp: --remarks-out wrote nothing: this build accounted for no module
+nupp: --remarks-out wrote nothing: this build accounted for no module
+nupp: --remarks-out wrote nothing: this build accounted for no module
+nupp: --remarks-out wrote nothing: this build accounted for no module
+nupp: --remarks-out wrote nothing: this build accounted for no module
+nupp: --remarks-out wrote nothing: this build accounted for no module
+nupp: --remarks-out wrote nothing: this build accounted for no module
+nupp: --remarks-out wrote nothing: this build accounted for no module
+nupp: --remarks-out wrote nothing: this build accounted for no module
+nupp: --remarks-out wrote nothing: this build accounted for no module
+nupp: --remarks-out wrote nothing: this build accounted for no module
+nupp: --remarks-out wrote nothing: this build accounted for no module
+nupp: --remarks-out wrote nothing: this build accounted for no module
+nupp: --remarks-out wrote nothing: this build accounted for no module
+nupp: --remarks-out wrote nothing: this build accounted for no module
+nupp: --remarks-out wrote nothing: this build accounted for no module
+nupp: --remarks-out wrote nothing: this build accounted for no module
+nupp: --remarks-out wrote nothing: this build accounted for no module
+nupp: --remarks-out wrote nothing: this build accounted for no module
+nupp: --remarks-out wrote nothing: this build accounted for no module
+nupp: --remarks-out wrote nothing: this build accounted for no module
+nupp: --remarks-out wrote nothing: this build accounted for no module
+nupp: --remarks-out wrote nothing: this build accounted for no module
+nupp: --remarks-out wrote nothing: this build accounted for no module
+nupp: --remarks-out wrote nothing: this build accounted for no module
+nupp: --remarks-out wrote nothing: this build accounted for no module
+nupp: --remarks-out wrote nothing: this build accounted for no module
+nupp: --remarks-out wrote nothing: this build accounted for no module
+bench: gpu-costs.mix64.cpu-aot:count=64: flaky abort site: warn|failed to allocate mcode memory|src/nupp/bench/init.nupp:885| in 2/5 forks; reported, not gated
+bench: gpu-costs.mix64.cpu-aot:count=64: outliers: 2125 severe of 17273 samples across 5 forks, max 2.9x median; classified only, all samples retained
+bench: gpu-costs.mix64.gpu-transfer:count=64: flaky abort site: warn|failed to allocate mcode memory|src/nupp/bench/init.nupp:885| in 1/5 forks; reported, not gated
+bench: gpu-costs.mix64.gpu-transfer:count=64: outliers: 1 severe of 35 samples across 5 forks, max 1.0x median; classified only, all samples retained
+bench: gpu-costs.mix64.cpu-aot:count=4096: outliers: 1 severe of 275 samples across 5 forks, max 1.1x median; classified only, all samples retained
+bench: gpu-costs.mix64.gpu-transfer:count=4096: scattered: only 43% of samples lie within 10% of the median, so the score describes no rate this benchmark ran at; raise sampleIterations until one sample spans whole collector cycles
+bench: gpu-costs.mix64.cpu-aot:count=262144: outliers: 2 severe of 35 samples across 5 forks, max 1.0x median; classified only, all samples retained
+real 184.58
+user 119.07
+sys 20.29

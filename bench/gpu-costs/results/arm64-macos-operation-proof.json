@@ -1,0 +1,2081 @@
+{
+  "purpose": "Correctness and operation attribution; these instrumented records were collected during concurrent validation and are not the CPU/GPU timing comparison.",
+  "revision": "a3ffeb10b95ab7317230f9f9b439d739558cda08",
+  "machine": {
+    "hardware": "Apple M5 Pro",
+    "backend": "Metal",
+    "os": "macOS 26.6 (25G72)",
+    "wgpu": "30.0.1"
+  },
+  "command": "./bin/nupp run --gpu-costs /private/tmp/issue50-current-dispatch-costs.jsonl bench/gpu-costs/costs.bench.lua --smoke 262144",
+  "output": "compiled CPU/GPU outputs agree for 262144 elements",
+  "artifactSha256": {
+    "bench/gpu-costs/costs.bench.lua": "db729c994bba2ed466098e94040d15a814a3145897bbd7b31945abba6c627648",
+    "bench/gpu-costs/src/kernels.nupp": "695213536af86e0907194bb519323ef7d705833195553b3fca9db3e9842a2c80",
+    "bench/gpu-costs/build/aot/src/kernels.neon.c": "2c41e51367899aeec0dc9544dbd444873447736437e2215713ae24583c25dd3b",
+    "bench/gpu-costs/build/lib/libnative_aot.dylib": "bf1fca105dc89e4d707474bb2a44bab9be129863d525bef9c75705d66b0b541b",
+    "build/lib/libnupp_native_dev.dylib": "2f6325d527d9de6470d52fb3440c04b7dafb2c3f8fa61815b7b87331d33609dc"
+  },
+  "packagedVmProof": {
+    "revision": "8a2f444db2a7e6d35171435f48b73a75bbae313e",
+    "binary": "build/dist/nupp",
+    "binaryBytes": 22751552,
+    "sha256": "945f2a362707e7247040387a81abc131fb124666ec2d70262c68d0ccddfd3bf6",
+    "note": "Final package includes the corrected LuaJIT VM, static GPU provider and timestamp-resolution fix. Commands ran from an isolated directory with NUPP_COMPILER_ROOT and NUPP_NATIVE_LIBRARY unset; the proof asserts the GPU capability and provider identity ffi.C.",
+    "echoOutput": "300000 calls passed\t1500150000",
+    "tracedEchoOutput": "300000 calls passed\t1500150000\ncompleted JIT traces\t150",
+    "gpuOutput": "nupp: 30 samples on 11 stacks every 1ms, written to /private/tmp/issue50-final-package.samples\ncompiled CPU/GPU outputs agree for 4096 elements\nGPU provider is statically linked and advertised by the packaged host",
+    "records": [
+      {
+        "adapter": "Apple M5 Pro",
+        "adapterMs": 16.083916,
+        "backend": "metal",
+        "context": 1,
+        "deviceMs": 7.603791999999999,
+        "gpuTiming": "timestamp-query",
+        "operation": "adapterDevice",
+        "phase": "setup",
+        "processId": 52488,
+        "schemaVersion": 1,
+        "sequence": 1,
+        "target": "gpu"
+      },
+      {
+        "buffer": 2,
+        "bytes": 16384,
+        "context": 1,
+        "hostMs": 0.12475,
+        "operation": "bufferAllocate",
+        "processId": 52488,
+        "reused": false,
+        "schemaVersion": 1,
+        "sequence": 2,
+        "target": "gpu",
+        "version": 0
+      },
+      {
+        "context": 1,
+        "handle": 2,
+        "metadata": {
+          "elementBytes": 4,
+          "format": "ctype<unsigned int>",
+          "shape": [
+            4096
+          ]
+        },
+        "operation": "bufferIdentity",
+        "processId": 52488,
+        "schemaVersion": 1,
+        "sequence": 3,
+        "target": "gpu"
+      },
+      {
+        "buffer": 3,
+        "bytes": 16384,
+        "context": 1,
+        "hostMs": 0.008834,
+        "operation": "bufferAllocate",
+        "processId": 52488,
+        "reused": false,
+        "schemaVersion": 1,
+        "sequence": 4,
+        "target": "gpu",
+        "version": 0
+      },
+      {
+        "context": 1,
+        "handle": 3,
+        "metadata": {
+          "elementBytes": 4,
+          "format": "ctype<unsigned int>",
+          "shape": [
+            4096
+          ]
+        },
+        "operation": "bufferIdentity",
+        "processId": 52488,
+        "schemaVersion": 1,
+        "sequence": 5,
+        "target": "gpu"
+      },
+      {
+        "bytes": 5560,
+        "context": 1,
+        "entrypoint": "ks_device_gpu",
+        "hostMs": 1.5226250000000001,
+        "kernel": 4,
+        "operation": "pipelineCreate",
+        "phase": "setup",
+        "processId": 52488,
+        "reused": false,
+        "schemaVersion": 1,
+        "sequence": 6,
+        "target": "gpu",
+        "workgroup": [
+          256,
+          1,
+          1
+        ]
+      },
+      {
+        "context": 1,
+        "handle": 4,
+        "metadata": {
+          "artifactId": "f1cbfc9f24358cb5f095631e040bccee",
+          "entrypoint": "ks_device_gpu",
+          "readonlyNames": [
+            "input"
+          ],
+          "sourceFile": "/private/tmp/nupp-issue50/bench/gpu-costs/src/kernels.nupp",
+          "sourceLine": 23,
+          "writableNames": [
+            "output"
+          ]
+        },
+        "operation": "kernelIdentity",
+        "processId": 52488,
+        "schemaVersion": 1,
+        "sequence": 7,
+        "target": "gpu"
+      },
+      {
+        "binding": 5,
+        "context": 1,
+        "hostMs": 0.028666999999999998,
+        "kernel": 4,
+        "operation": "bindingCreate",
+        "processId": 52488,
+        "reused": false,
+        "schemaVersion": 1,
+        "sequence": 8,
+        "target": "gpu",
+        "uniformBytes": 20
+      },
+      {
+        "context": 1,
+        "handle": 2,
+        "metadata": {
+          "conversion": "none: typed span bytes preserved",
+          "count": 4096,
+          "elementBytes": 4,
+          "elementOffset": 0,
+          "shape": [
+            4096
+          ],
+          "strides": [
+            1
+          ]
+        },
+        "operation": "bufferIdentity",
+        "processId": 52488,
+        "schemaVersion": 1,
+        "sequence": 9,
+        "target": "gpu"
+      },
+      {
+        "binding": 5,
+        "buffer": 2,
+        "bytes": 16384,
+        "context": 1,
+        "kernel": 4,
+        "offset": 0,
+        "operation": "bindBuffer",
+        "processId": 52488,
+        "schemaVersion": 1,
+        "sequence": 10,
+        "slot": 0,
+        "target": "gpu",
+        "writable": false
+      },
+      {
+        "context": 1,
+        "handle": 3,
+        "metadata": {
+          "conversion": "none: typed span bytes preserved",
+          "count": 4096,
+          "elementBytes": 4,
+          "elementOffset": 0,
+          "shape": [
+            4096
+          ],
+          "strides": [
+            1
+          ]
+        },
+        "operation": "bufferIdentity",
+        "processId": 52488,
+        "schemaVersion": 1,
+        "sequence": 11,
+        "target": "gpu"
+      },
+      {
+        "binding": 5,
+        "buffer": 3,
+        "bytes": 16384,
+        "context": 1,
+        "kernel": 4,
+        "offset": 0,
+        "operation": "bindBuffer",
+        "processId": 52488,
+        "schemaVersion": 1,
+        "sequence": 12,
+        "slot": 0,
+        "target": "gpu",
+        "writable": true
+      },
+      {
+        "context": 1,
+        "handle": 2,
+        "metadata": {
+          "conversion": "none: typed span bytes preserved",
+          "count": 4096,
+          "elementBytes": 4,
+          "elementOffset": 0,
+          "shape": [
+            4096
+          ],
+          "strides": [
+            1
+          ]
+        },
+        "operation": "bufferIdentity",
+        "processId": 52488,
+        "schemaVersion": 1,
+        "sequence": 13,
+        "target": "gpu"
+      },
+      {
+        "buffer": 2,
+        "bytes": 16384,
+        "context": 1,
+        "gpuMs": null,
+        "gpuTiming": "unavailable",
+        "hostCopies": 1,
+        "hostMs": 0.109791,
+        "layout": {
+          "conversion": "none: typed span bytes preserved",
+          "count": 4096,
+          "elementBytes": 4,
+          "elementOffset": 0,
+          "format": "ctype<unsigned int>",
+          "shape": [
+            4096
+          ],
+          "strides": [
+            1
+          ]
+        },
+        "offset": 0,
+        "operation": "upload",
+        "processId": 52488,
+        "schemaVersion": 1,
+        "sequence": 14,
+        "target": "gpu",
+        "version": 1
+      },
+      {
+        "binding": 5,
+        "bindingsReused": false,
+        "context": 1,
+        "dispatch": 1,
+        "gpuMs": null,
+        "gpuTiming": "pending",
+        "hostMs": 1.213791,
+        "kernel": 4,
+        "metadata": {
+          "artifactId": "f1cbfc9f24358cb5f095631e040bccee",
+          "entrypoint": "ks_device_gpu",
+          "readonlyNames": [
+            "input"
+          ],
+          "sourceFile": "/private/tmp/nupp-issue50/bench/gpu-costs/src/kernels.nupp",
+          "sourceLine": 23,
+          "writableNames": [
+            "output"
+          ]
+        },
+        "operation": "dispatch",
+        "phase": "first-use",
+        "processId": 52488,
+        "read": [
+          {
+            "buffer": 2,
+            "bytes": 16384,
+            "layout": {
+              "conversion": "none: typed span bytes preserved",
+              "count": 4096,
+              "elementBytes": 4,
+              "elementOffset": 0,
+              "format": "ctype<unsigned int>",
+              "shape": [
+                4096
+              ],
+              "strides": [
+                1
+              ]
+            },
+            "offset": 0,
+            "slot": 0,
+            "version": 1
+          }
+        ],
+        "schemaVersion": 1,
+        "sequence": 15,
+        "target": "gpu",
+        "uniformBytes": 20,
+        "workItems": [
+          4096,
+          1,
+          1
+        ],
+        "workgroup": [
+          256,
+          1,
+          1
+        ],
+        "write": [
+          {
+            "buffer": 3,
+            "bytes": 16384,
+            "layout": {
+              "conversion": "none: typed span bytes preserved",
+              "count": 4096,
+              "elementBytes": 4,
+              "elementOffset": 0,
+              "format": "ctype<unsigned int>",
+              "shape": [
+                4096
+              ],
+              "strides": [
+                1
+              ]
+            },
+            "offset": 0,
+            "slot": 0,
+            "version": 1
+          }
+        ]
+      },
+      {
+        "context": 1,
+        "handle": 3,
+        "metadata": {
+          "conversion": "none: typed span bytes preserved",
+          "count": 4096,
+          "elementBytes": 4,
+          "elementOffset": 0,
+          "shape": [
+            4096
+          ],
+          "strides": [
+            1
+          ]
+        },
+        "operation": "bufferIdentity",
+        "processId": 52488,
+        "schemaVersion": 1,
+        "sequence": 16,
+        "target": "gpu"
+      },
+      {
+        "buffer": 3,
+        "bytes": 16384,
+        "context": 1,
+        "gpuMs": null,
+        "gpuTiming": "unavailable",
+        "hostMs": 0.21562499999999998,
+        "layout": {
+          "conversion": "none: typed span bytes preserved",
+          "count": 4096,
+          "elementBytes": 4,
+          "elementOffset": 0,
+          "format": "ctype<unsigned int>",
+          "shape": [
+            4096
+          ],
+          "strides": [
+            1
+          ]
+        },
+        "offset": 0,
+        "operation": "downloadQueue",
+        "processId": 52488,
+        "schemaVersion": 1,
+        "sequence": 17,
+        "stagingBytes": 16384,
+        "stagingReused": false,
+        "target": "gpu",
+        "version": 1
+      },
+      {
+        "context": 1,
+        "hostMs": 2.719459,
+        "operation": "synchronizeWait",
+        "pendingDownloads": 1,
+        "pendingTimestamps": 1,
+        "processId": 52488,
+        "schemaVersion": 1,
+        "sequence": 18,
+        "target": "gpu"
+      },
+      {
+        "buffer": 3,
+        "bytes": 16384,
+        "context": 1,
+        "hostCopies": 1,
+        "hostMs": 0.050959,
+        "layout": {
+          "conversion": "none: typed span bytes preserved",
+          "count": 4096,
+          "elementBytes": 4,
+          "elementOffset": 0,
+          "format": "ctype<unsigned int>",
+          "shape": [
+            4096
+          ],
+          "strides": [
+            1
+          ]
+        },
+        "offset": 0,
+        "operation": "downloadMapCopy",
+        "processId": 52488,
+        "schemaVersion": 1,
+        "sequence": 19,
+        "success": true,
+        "target": "gpu",
+        "version": 1
+      },
+      {
+        "context": 1,
+        "dispatch": 1,
+        "gpuMs": 0.005667,
+        "gpuTickPeriodNs": 1.0,
+        "gpuTicksBegin": "1068115409747833",
+        "gpuTicksEnd": "1068115409753500",
+        "gpuTiming": "timestamp-query",
+        "gpuTimingReason": null,
+        "instrumentationHostMs": 0.30174999999999996,
+        "kernel": 4,
+        "operation": "kernelExecution",
+        "processId": 52488,
+        "schemaVersion": 1,
+        "sequence": 20,
+        "target": "gpu"
+      },
+      {
+        "buffer": 3,
+        "bytes": 16384,
+        "context": 1,
+        "hostCopies": 1,
+        "hostMs": 0.0029170000000000003,
+        "layout": {
+          "conversion": "none: typed span bytes preserved",
+          "count": 4096,
+          "elementBytes": 4,
+          "elementOffset": 0,
+          "format": "ctype<unsigned int>",
+          "shape": [
+            4096
+          ],
+          "strides": [
+            1
+          ]
+        },
+        "offset": 0,
+        "operation": "downloadHostCopy",
+        "processId": 52488,
+        "schemaVersion": 1,
+        "sequence": 21,
+        "target": "gpu",
+        "version": 1
+      },
+      {
+        "context": 1,
+        "handle": 2,
+        "metadata": {
+          "conversion": "none: typed span bytes preserved",
+          "count": 4096,
+          "elementBytes": 4,
+          "elementOffset": 0,
+          "shape": [
+            4096
+          ],
+          "strides": [
+            1
+          ]
+        },
+        "operation": "bufferIdentity",
+        "processId": 52488,
+        "schemaVersion": 1,
+        "sequence": 22,
+        "target": "gpu"
+      },
+      {
+        "buffer": 2,
+        "bytes": 16384,
+        "context": 1,
+        "gpuMs": null,
+        "gpuTiming": "unavailable",
+        "hostCopies": 1,
+        "hostMs": 0.041333,
+        "layout": {
+          "conversion": "none: typed span bytes preserved",
+          "count": 4096,
+          "elementBytes": 4,
+          "elementOffset": 0,
+          "format": "ctype<unsigned int>",
+          "shape": [
+            4096
+          ],
+          "strides": [
+            1
+          ]
+        },
+        "offset": 0,
+        "operation": "upload",
+        "processId": 52488,
+        "schemaVersion": 1,
+        "sequence": 23,
+        "target": "gpu",
+        "version": 2
+      },
+      {
+        "binding": 5,
+        "bindingsReused": true,
+        "context": 1,
+        "dispatch": 2,
+        "gpuMs": null,
+        "gpuTiming": "pending",
+        "hostMs": 0.149208,
+        "kernel": 4,
+        "metadata": {
+          "artifactId": "f1cbfc9f24358cb5f095631e040bccee",
+          "entrypoint": "ks_device_gpu",
+          "readonlyNames": [
+            "input"
+          ],
+          "sourceFile": "/private/tmp/nupp-issue50/bench/gpu-costs/src/kernels.nupp",
+          "sourceLine": 23,
+          "writableNames": [
+            "output"
+          ]
+        },
+        "operation": "dispatch",
+        "phase": "steady-state",
+        "processId": 52488,
+        "read": [
+          {
+            "buffer": 2,
+            "bytes": 16384,
+            "layout": {
+              "conversion": "none: typed span bytes preserved",
+              "count": 4096,
+              "elementBytes": 4,
+              "elementOffset": 0,
+              "format": "ctype<unsigned int>",
+              "shape": [
+                4096
+              ],
+              "strides": [
+                1
+              ]
+            },
+            "offset": 0,
+            "slot": 0,
+            "version": 2
+          }
+        ],
+        "schemaVersion": 1,
+        "sequence": 24,
+        "target": "gpu",
+        "uniformBytes": 20,
+        "workItems": [
+          4096,
+          1,
+          1
+        ],
+        "workgroup": [
+          256,
+          1,
+          1
+        ],
+        "write": [
+          {
+            "buffer": 3,
+            "bytes": 16384,
+            "layout": {
+              "conversion": "none: typed span bytes preserved",
+              "count": 4096,
+              "elementBytes": 4,
+              "elementOffset": 0,
+              "format": "ctype<unsigned int>",
+              "shape": [
+                4096
+              ],
+              "strides": [
+                1
+              ]
+            },
+            "offset": 0,
+            "slot": 0,
+            "version": 2
+          }
+        ]
+      },
+      {
+        "context": 1,
+        "handle": 3,
+        "metadata": {
+          "conversion": "none: typed span bytes preserved",
+          "count": 4096,
+          "elementBytes": 4,
+          "elementOffset": 0,
+          "shape": [
+            4096
+          ],
+          "strides": [
+            1
+          ]
+        },
+        "operation": "bufferIdentity",
+        "processId": 52488,
+        "schemaVersion": 1,
+        "sequence": 25,
+        "target": "gpu"
+      },
+      {
+        "buffer": 3,
+        "bytes": 16384,
+        "context": 1,
+        "gpuMs": null,
+        "gpuTiming": "unavailable",
+        "hostMs": 0.056749999999999995,
+        "layout": {
+          "conversion": "none: typed span bytes preserved",
+          "count": 4096,
+          "elementBytes": 4,
+          "elementOffset": 0,
+          "format": "ctype<unsigned int>",
+          "shape": [
+            4096
+          ],
+          "strides": [
+            1
+          ]
+        },
+        "offset": 0,
+        "operation": "downloadQueue",
+        "processId": 52488,
+        "schemaVersion": 1,
+        "sequence": 26,
+        "stagingBytes": 16384,
+        "stagingReused": false,
+        "target": "gpu",
+        "version": 2
+      },
+      {
+        "context": 1,
+        "hostMs": 0.15341700000000003,
+        "operation": "synchronizeWait",
+        "pendingDownloads": 1,
+        "pendingTimestamps": 1,
+        "processId": 52488,
+        "schemaVersion": 1,
+        "sequence": 27,
+        "target": "gpu"
+      },
+      {
+        "buffer": 3,
+        "bytes": 16384,
+        "context": 1,
+        "hostCopies": 1,
+        "hostMs": 0.0185,
+        "layout": {
+          "conversion": "none: typed span bytes preserved",
+          "count": 4096,
+          "elementBytes": 4,
+          "elementOffset": 0,
+          "format": "ctype<unsigned int>",
+          "shape": [
+            4096
+          ],
+          "strides": [
+            1
+          ]
+        },
+        "offset": 0,
+        "operation": "downloadMapCopy",
+        "processId": 52488,
+        "schemaVersion": 1,
+        "sequence": 28,
+        "success": true,
+        "target": "gpu",
+        "version": 2
+      },
+      {
+        "context": 1,
+        "dispatch": 2,
+        "gpuMs": 0.00525,
+        "gpuTickPeriodNs": 1.0,
+        "gpuTicksBegin": "1068115411258000",
+        "gpuTicksEnd": "1068115411263250",
+        "gpuTiming": "timestamp-query",
+        "gpuTimingReason": null,
+        "instrumentationHostMs": 0.33766599999999997,
+        "kernel": 4,
+        "operation": "kernelExecution",
+        "processId": 52488,
+        "schemaVersion": 1,
+        "sequence": 29,
+        "target": "gpu"
+      },
+      {
+        "buffer": 3,
+        "bytes": 16384,
+        "context": 1,
+        "hostCopies": 1,
+        "hostMs": 0.003042,
+        "layout": {
+          "conversion": "none: typed span bytes preserved",
+          "count": 4096,
+          "elementBytes": 4,
+          "elementOffset": 0,
+          "format": "ctype<unsigned int>",
+          "shape": [
+            4096
+          ],
+          "strides": [
+            1
+          ]
+        },
+        "offset": 0,
+        "operation": "downloadHostCopy",
+        "processId": 52488,
+        "schemaVersion": 1,
+        "sequence": 30,
+        "target": "gpu",
+        "version": 2
+      },
+      {
+        "context": 1,
+        "handle": 2,
+        "metadata": {
+          "conversion": "none: typed span bytes preserved",
+          "count": 4096,
+          "elementBytes": 4,
+          "elementOffset": 0,
+          "shape": [
+            4096
+          ],
+          "strides": [
+            1
+          ]
+        },
+        "operation": "bufferIdentity",
+        "processId": 52488,
+        "schemaVersion": 1,
+        "sequence": 31,
+        "target": "gpu"
+      },
+      {
+        "buffer": 2,
+        "bytes": 16384,
+        "context": 1,
+        "gpuMs": null,
+        "gpuTiming": "unavailable",
+        "hostCopies": 1,
+        "hostMs": 0.049082999999999995,
+        "layout": {
+          "conversion": "none: typed span bytes preserved",
+          "count": 4096,
+          "elementBytes": 4,
+          "elementOffset": 0,
+          "format": "ctype<unsigned int>",
+          "shape": [
+            4096
+          ],
+          "strides": [
+            1
+          ]
+        },
+        "offset": 0,
+        "operation": "upload",
+        "processId": 52488,
+        "schemaVersion": 1,
+        "sequence": 32,
+        "target": "gpu",
+        "version": 3
+      },
+      {
+        "binding": 5,
+        "bindingsReused": true,
+        "context": 1,
+        "dispatch": 3,
+        "gpuMs": null,
+        "gpuTiming": "pending",
+        "hostMs": 0.16279200000000002,
+        "kernel": 4,
+        "metadata": {
+          "artifactId": "f1cbfc9f24358cb5f095631e040bccee",
+          "entrypoint": "ks_device_gpu",
+          "readonlyNames": [
+            "input"
+          ],
+          "sourceFile": "/private/tmp/nupp-issue50/bench/gpu-costs/src/kernels.nupp",
+          "sourceLine": 23,
+          "writableNames": [
+            "output"
+          ]
+        },
+        "operation": "dispatch",
+        "phase": "steady-state",
+        "processId": 52488,
+        "read": [
+          {
+            "buffer": 2,
+            "bytes": 16384,
+            "layout": {
+              "conversion": "none: typed span bytes preserved",
+              "count": 4096,
+              "elementBytes": 4,
+              "elementOffset": 0,
+              "format": "ctype<unsigned int>",
+              "shape": [
+                4096
+              ],
+              "strides": [
+                1
+              ]
+            },
+            "offset": 0,
+            "slot": 0,
+            "version": 3
+          }
+        ],
+        "schemaVersion": 1,
+        "sequence": 33,
+        "target": "gpu",
+        "uniformBytes": 20,
+        "workItems": [
+          4096,
+          1,
+          1
+        ],
+        "workgroup": [
+          256,
+          1,
+          1
+        ],
+        "write": [
+          {
+            "buffer": 3,
+            "bytes": 16384,
+            "layout": {
+              "conversion": "none: typed span bytes preserved",
+              "count": 4096,
+              "elementBytes": 4,
+              "elementOffset": 0,
+              "format": "ctype<unsigned int>",
+              "shape": [
+                4096
+              ],
+              "strides": [
+                1
+              ]
+            },
+            "offset": 0,
+            "slot": 0,
+            "version": 3
+          }
+        ]
+      },
+      {
+        "context": 1,
+        "handle": 3,
+        "metadata": {
+          "conversion": "none: typed span bytes preserved",
+          "count": 4096,
+          "elementBytes": 4,
+          "elementOffset": 0,
+          "shape": [
+            4096
+          ],
+          "strides": [
+            1
+          ]
+        },
+        "operation": "bufferIdentity",
+        "processId": 52488,
+        "schemaVersion": 1,
+        "sequence": 34,
+        "target": "gpu"
+      },
+      {
+        "buffer": 3,
+        "bytes": 16384,
+        "context": 1,
+        "gpuMs": null,
+        "gpuTiming": "unavailable",
+        "hostMs": 0.195083,
+        "layout": {
+          "conversion": "none: typed span bytes preserved",
+          "count": 4096,
+          "elementBytes": 4,
+          "elementOffset": 0,
+          "format": "ctype<unsigned int>",
+          "shape": [
+            4096
+          ],
+          "strides": [
+            1
+          ]
+        },
+        "offset": 0,
+        "operation": "downloadQueue",
+        "processId": 52488,
+        "schemaVersion": 1,
+        "sequence": 35,
+        "stagingBytes": 16384,
+        "stagingReused": false,
+        "target": "gpu",
+        "version": 3
+      },
+      {
+        "context": 1,
+        "hostMs": 0.328459,
+        "operation": "synchronizeWait",
+        "pendingDownloads": 1,
+        "pendingTimestamps": 1,
+        "processId": 52488,
+        "schemaVersion": 1,
+        "sequence": 36,
+        "target": "gpu"
+      },
+      {
+        "buffer": 3,
+        "bytes": 16384,
+        "context": 1,
+        "hostCopies": 1,
+        "hostMs": 0.018625,
+        "layout": {
+          "conversion": "none: typed span bytes preserved",
+          "count": 4096,
+          "elementBytes": 4,
+          "elementOffset": 0,
+          "format": "ctype<unsigned int>",
+          "shape": [
+            4096
+          ],
+          "strides": [
+            1
+          ]
+        },
+        "offset": 0,
+        "operation": "downloadMapCopy",
+        "processId": 52488,
+        "schemaVersion": 1,
+        "sequence": 37,
+        "success": true,
+        "target": "gpu",
+        "version": 3
+      },
+      {
+        "context": 1,
+        "dispatch": 3,
+        "gpuMs": 0.01125,
+        "gpuTickPeriodNs": 1.0,
+        "gpuTicksBegin": "1068115412594458",
+        "gpuTicksEnd": "1068115412605708",
+        "gpuTiming": "timestamp-query",
+        "gpuTimingReason": null,
+        "instrumentationHostMs": 0.361083,
+        "kernel": 4,
+        "operation": "kernelExecution",
+        "processId": 52488,
+        "schemaVersion": 1,
+        "sequence": 38,
+        "target": "gpu"
+      },
+      {
+        "buffer": 3,
+        "bytes": 16384,
+        "context": 1,
+        "hostCopies": 1,
+        "hostMs": 0.005666,
+        "layout": {
+          "conversion": "none: typed span bytes preserved",
+          "count": 4096,
+          "elementBytes": 4,
+          "elementOffset": 0,
+          "format": "ctype<unsigned int>",
+          "shape": [
+            4096
+          ],
+          "strides": [
+            1
+          ]
+        },
+        "offset": 0,
+        "operation": "downloadHostCopy",
+        "processId": 52488,
+        "schemaVersion": 1,
+        "sequence": 39,
+        "target": "gpu",
+        "version": 3
+      },
+      {
+        "context": 1,
+        "hostMs": 0.003542,
+        "operation": "synchronizeWait",
+        "pendingDownloads": 0,
+        "pendingTimestamps": 0,
+        "processId": 52488,
+        "schemaVersion": 1,
+        "sequence": 40,
+        "target": "gpu"
+      },
+      {
+        "context": 1,
+        "hostMs": 1.858083,
+        "operation": "contextCleanup",
+        "processId": 52488,
+        "schemaVersion": 1,
+        "sequence": 41,
+        "target": "gpu"
+      }
+    ]
+  },
+  "records": [
+    {
+      "adapter": "Apple M5 Pro",
+      "adapterMs": 14.890042,
+      "backend": "metal",
+      "context": 1,
+      "deviceMs": 7.098209000000001,
+      "gpuTiming": "timestamp-query",
+      "operation": "adapterDevice",
+      "phase": "setup",
+      "processId": 59233,
+      "schemaVersion": 1,
+      "sequence": 1,
+      "target": "gpu"
+    },
+    {
+      "buffer": 2,
+      "bytes": 1048576,
+      "context": 1,
+      "hostMs": 0.105666,
+      "operation": "bufferAllocate",
+      "processId": 59233,
+      "reused": false,
+      "schemaVersion": 1,
+      "sequence": 2,
+      "target": "gpu",
+      "version": 0
+    },
+    {
+      "context": 1,
+      "handle": 2,
+      "metadata": {
+        "elementBytes": 4,
+        "format": "ctype<unsigned int>",
+        "shape": [
+          262144
+        ]
+      },
+      "operation": "bufferIdentity",
+      "processId": 59233,
+      "schemaVersion": 1,
+      "sequence": 3,
+      "target": "gpu"
+    },
+    {
+      "buffer": 3,
+      "bytes": 1048576,
+      "context": 1,
+      "hostMs": 0.011583999999999999,
+      "operation": "bufferAllocate",
+      "processId": 59233,
+      "reused": false,
+      "schemaVersion": 1,
+      "sequence": 4,
+      "target": "gpu",
+      "version": 0
+    },
+    {
+      "context": 1,
+      "handle": 3,
+      "metadata": {
+        "elementBytes": 4,
+        "format": "ctype<unsigned int>",
+        "shape": [
+          262144
+        ]
+      },
+      "operation": "bufferIdentity",
+      "processId": 59233,
+      "schemaVersion": 1,
+      "sequence": 5,
+      "target": "gpu"
+    },
+    {
+      "bytes": 5560,
+      "context": 1,
+      "entrypoint": "ks_device_gpu",
+      "hostMs": 75.995333,
+      "kernel": 4,
+      "operation": "pipelineCreate",
+      "phase": "setup",
+      "processId": 59233,
+      "reused": false,
+      "schemaVersion": 1,
+      "sequence": 6,
+      "target": "gpu",
+      "workgroup": [
+        256,
+        1,
+        1
+      ]
+    },
+    {
+      "context": 1,
+      "handle": 4,
+      "metadata": {
+        "artifactId": "f1cbfc9f24358cb5f095631e040bccee",
+        "entrypoint": "ks_device_gpu",
+        "readonlyNames": [
+          "input"
+        ],
+        "sourceFile": "/private/tmp/nupp-issue50/bench/gpu-costs/src/kernels.nupp",
+        "sourceLine": 23,
+        "writableNames": [
+          "output"
+        ]
+      },
+      "operation": "kernelIdentity",
+      "processId": 59233,
+      "schemaVersion": 1,
+      "sequence": 7,
+      "target": "gpu"
+    },
+    {
+      "binding": 5,
+      "context": 1,
+      "hostMs": 0.034917,
+      "kernel": 4,
+      "operation": "bindingCreate",
+      "processId": 59233,
+      "reused": false,
+      "schemaVersion": 1,
+      "sequence": 8,
+      "target": "gpu",
+      "uniformBytes": 20
+    },
+    {
+      "context": 1,
+      "handle": 2,
+      "metadata": {
+        "conversion": "none: typed span bytes preserved",
+        "count": 262144,
+        "elementBytes": 4,
+        "elementOffset": 0,
+        "shape": [
+          262144
+        ],
+        "strides": [
+          1
+        ]
+      },
+      "operation": "bufferIdentity",
+      "processId": 59233,
+      "schemaVersion": 1,
+      "sequence": 9,
+      "target": "gpu"
+    },
+    {
+      "binding": 5,
+      "buffer": 2,
+      "bytes": 1048576,
+      "context": 1,
+      "kernel": 4,
+      "offset": 0,
+      "operation": "bindBuffer",
+      "processId": 59233,
+      "schemaVersion": 1,
+      "sequence": 10,
+      "slot": 0,
+      "target": "gpu",
+      "writable": false
+    },
+    {
+      "context": 1,
+      "handle": 3,
+      "metadata": {
+        "conversion": "none: typed span bytes preserved",
+        "count": 262144,
+        "elementBytes": 4,
+        "elementOffset": 0,
+        "shape": [
+          262144
+        ],
+        "strides": [
+          1
+        ]
+      },
+      "operation": "bufferIdentity",
+      "processId": 59233,
+      "schemaVersion": 1,
+      "sequence": 11,
+      "target": "gpu"
+    },
+    {
+      "binding": 5,
+      "buffer": 3,
+      "bytes": 1048576,
+      "context": 1,
+      "kernel": 4,
+      "offset": 0,
+      "operation": "bindBuffer",
+      "processId": 59233,
+      "schemaVersion": 1,
+      "sequence": 12,
+      "slot": 0,
+      "target": "gpu",
+      "writable": true
+    },
+    {
+      "context": 1,
+      "handle": 2,
+      "metadata": {
+        "conversion": "none: typed span bytes preserved",
+        "count": 262144,
+        "elementBytes": 4,
+        "elementOffset": 0,
+        "shape": [
+          262144
+        ],
+        "strides": [
+          1
+        ]
+      },
+      "operation": "bufferIdentity",
+      "processId": 59233,
+      "schemaVersion": 1,
+      "sequence": 13,
+      "target": "gpu"
+    },
+    {
+      "buffer": 2,
+      "bytes": 1048576,
+      "context": 1,
+      "gpuMs": null,
+      "gpuTiming": "unavailable",
+      "hostCopies": 1,
+      "hostMs": 0.4235,
+      "layout": {
+        "conversion": "none: typed span bytes preserved",
+        "count": 262144,
+        "elementBytes": 4,
+        "elementOffset": 0,
+        "format": "ctype<unsigned int>",
+        "shape": [
+          262144
+        ],
+        "strides": [
+          1
+        ]
+      },
+      "offset": 0,
+      "operation": "upload",
+      "processId": 59233,
+      "schemaVersion": 1,
+      "sequence": 14,
+      "target": "gpu",
+      "version": 1
+    },
+    {
+      "binding": 5,
+      "bindingsReused": false,
+      "context": 1,
+      "dispatch": 1,
+      "gpuMs": null,
+      "gpuTiming": "pending",
+      "hostMs": 0.986333,
+      "kernel": 4,
+      "metadata": {
+        "artifactId": "f1cbfc9f24358cb5f095631e040bccee",
+        "entrypoint": "ks_device_gpu",
+        "readonlyNames": [
+          "input"
+        ],
+        "sourceFile": "/private/tmp/nupp-issue50/bench/gpu-costs/src/kernels.nupp",
+        "sourceLine": 23,
+        "writableNames": [
+          "output"
+        ]
+      },
+      "operation": "dispatch",
+      "phase": "first-use",
+      "processId": 59233,
+      "read": [
+        {
+          "buffer": 2,
+          "bytes": 1048576,
+          "layout": {
+            "conversion": "none: typed span bytes preserved",
+            "count": 262144,
+            "elementBytes": 4,
+            "elementOffset": 0,
+            "format": "ctype<unsigned int>",
+            "shape": [
+              262144
+            ],
+            "strides": [
+              1
+            ]
+          },
+          "offset": 0,
+          "slot": 0,
+          "version": 1
+        }
+      ],
+      "schemaVersion": 1,
+      "sequence": 15,
+      "target": "gpu",
+      "uniformBytes": 20,
+      "workItems": [
+        262144,
+        1,
+        1
+      ],
+      "workgroup": [
+        256,
+        1,
+        1
+      ],
+      "write": [
+        {
+          "buffer": 3,
+          "bytes": 1048576,
+          "layout": {
+            "conversion": "none: typed span bytes preserved",
+            "count": 262144,
+            "elementBytes": 4,
+            "elementOffset": 0,
+            "format": "ctype<unsigned int>",
+            "shape": [
+              262144
+            ],
+            "strides": [
+              1
+            ]
+          },
+          "offset": 0,
+          "slot": 0,
+          "version": 1
+        }
+      ]
+    },
+    {
+      "context": 1,
+      "handle": 3,
+      "metadata": {
+        "conversion": "none: typed span bytes preserved",
+        "count": 262144,
+        "elementBytes": 4,
+        "elementOffset": 0,
+        "shape": [
+          262144
+        ],
+        "strides": [
+          1
+        ]
+      },
+      "operation": "bufferIdentity",
+      "processId": 59233,
+      "schemaVersion": 1,
+      "sequence": 16,
+      "target": "gpu"
+    },
+    {
+      "buffer": 3,
+      "bytes": 1048576,
+      "context": 1,
+      "gpuMs": null,
+      "gpuTiming": "unavailable",
+      "hostMs": 0.273125,
+      "layout": {
+        "conversion": "none: typed span bytes preserved",
+        "count": 262144,
+        "elementBytes": 4,
+        "elementOffset": 0,
+        "format": "ctype<unsigned int>",
+        "shape": [
+          262144
+        ],
+        "strides": [
+          1
+        ]
+      },
+      "offset": 0,
+      "operation": "downloadQueue",
+      "processId": 59233,
+      "schemaVersion": 1,
+      "sequence": 17,
+      "stagingBytes": 1048576,
+      "stagingReused": false,
+      "target": "gpu",
+      "version": 1
+    },
+    {
+      "context": 1,
+      "hostMs": 4.735375,
+      "operation": "synchronizeWait",
+      "pendingDownloads": 1,
+      "pendingTimestamps": 1,
+      "processId": 59233,
+      "schemaVersion": 1,
+      "sequence": 18,
+      "target": "gpu"
+    },
+    {
+      "buffer": 3,
+      "bytes": 1048576,
+      "context": 1,
+      "hostCopies": 1,
+      "hostMs": 0.284667,
+      "layout": {
+        "conversion": "none: typed span bytes preserved",
+        "count": 262144,
+        "elementBytes": 4,
+        "elementOffset": 0,
+        "format": "ctype<unsigned int>",
+        "shape": [
+          262144
+        ],
+        "strides": [
+          1
+        ]
+      },
+      "offset": 0,
+      "operation": "downloadMapCopy",
+      "processId": 59233,
+      "schemaVersion": 1,
+      "sequence": 19,
+      "success": true,
+      "target": "gpu",
+      "version": 1
+    },
+    {
+      "context": 1,
+      "dispatch": 1,
+      "gpuMs": 0.511666,
+      "gpuTickPeriodNs": 1.0,
+      "gpuTicksBegin": "1065795423126500",
+      "gpuTicksEnd": "1065795423638166",
+      "gpuTiming": "timestamp-query",
+      "gpuTimingReason": null,
+      "instrumentationHostMs": 0.725375,
+      "kernel": 4,
+      "operation": "kernelExecution",
+      "processId": 59233,
+      "schemaVersion": 1,
+      "sequence": 20,
+      "target": "gpu"
+    },
+    {
+      "buffer": 3,
+      "bytes": 1048576,
+      "context": 1,
+      "hostCopies": 1,
+      "hostMs": 0.022667000000000003,
+      "layout": {
+        "conversion": "none: typed span bytes preserved",
+        "count": 262144,
+        "elementBytes": 4,
+        "elementOffset": 0,
+        "format": "ctype<unsigned int>",
+        "shape": [
+          262144
+        ],
+        "strides": [
+          1
+        ]
+      },
+      "offset": 0,
+      "operation": "downloadHostCopy",
+      "processId": 59233,
+      "schemaVersion": 1,
+      "sequence": 21,
+      "target": "gpu",
+      "version": 1
+    },
+    {
+      "context": 1,
+      "handle": 2,
+      "metadata": {
+        "conversion": "none: typed span bytes preserved",
+        "count": 262144,
+        "elementBytes": 4,
+        "elementOffset": 0,
+        "shape": [
+          262144
+        ],
+        "strides": [
+          1
+        ]
+      },
+      "operation": "bufferIdentity",
+      "processId": 59233,
+      "schemaVersion": 1,
+      "sequence": 22,
+      "target": "gpu"
+    },
+    {
+      "buffer": 2,
+      "bytes": 1048576,
+      "context": 1,
+      "gpuMs": null,
+      "gpuTiming": "unavailable",
+      "hostCopies": 1,
+      "hostMs": 0.2605,
+      "layout": {
+        "conversion": "none: typed span bytes preserved",
+        "count": 262144,
+        "elementBytes": 4,
+        "elementOffset": 0,
+        "format": "ctype<unsigned int>",
+        "shape": [
+          262144
+        ],
+        "strides": [
+          1
+        ]
+      },
+      "offset": 0,
+      "operation": "upload",
+      "processId": 59233,
+      "schemaVersion": 1,
+      "sequence": 23,
+      "target": "gpu",
+      "version": 2
+    },
+    {
+      "binding": 5,
+      "bindingsReused": true,
+      "context": 1,
+      "dispatch": 2,
+      "gpuMs": null,
+      "gpuTiming": "pending",
+      "hostMs": 0.184916,
+      "kernel": 4,
+      "metadata": {
+        "artifactId": "f1cbfc9f24358cb5f095631e040bccee",
+        "entrypoint": "ks_device_gpu",
+        "readonlyNames": [
+          "input"
+        ],
+        "sourceFile": "/private/tmp/nupp-issue50/bench/gpu-costs/src/kernels.nupp",
+        "sourceLine": 23,
+        "writableNames": [
+          "output"
+        ]
+      },
+      "operation": "dispatch",
+      "phase": "steady-state",
+      "processId": 59233,
+      "read": [
+        {
+          "buffer": 2,
+          "bytes": 1048576,
+          "layout": {
+            "conversion": "none: typed span bytes preserved",
+            "count": 262144,
+            "elementBytes": 4,
+            "elementOffset": 0,
+            "format": "ctype<unsigned int>",
+            "shape": [
+              262144
+            ],
+            "strides": [
+              1
+            ]
+          },
+          "offset": 0,
+          "slot": 0,
+          "version": 2
+        }
+      ],
+      "schemaVersion": 1,
+      "sequence": 24,
+      "target": "gpu",
+      "uniformBytes": 20,
+      "workItems": [
+        262144,
+        1,
+        1
+      ],
+      "workgroup": [
+        256,
+        1,
+        1
+      ],
+      "write": [
+        {
+          "buffer": 3,
+          "bytes": 1048576,
+          "layout": {
+            "conversion": "none: typed span bytes preserved",
+            "count": 262144,
+            "elementBytes": 4,
+            "elementOffset": 0,
+            "format": "ctype<unsigned int>",
+            "shape": [
+              262144
+            ],
+            "strides": [
+              1
+            ]
+          },
+          "offset": 0,
+          "slot": 0,
+          "version": 2
+        }
+      ]
+    },
+    {
+      "context": 1,
+      "handle": 3,
+      "metadata": {
+        "conversion": "none: typed span bytes preserved",
+        "count": 262144,
+        "elementBytes": 4,
+        "elementOffset": 0,
+        "shape": [
+          262144
+        ],
+        "strides": [
+          1
+        ]
+      },
+      "operation": "bufferIdentity",
+      "processId": 59233,
+      "schemaVersion": 1,
+      "sequence": 25,
+      "target": "gpu"
+    },
+    {
+      "buffer": 3,
+      "bytes": 1048576,
+      "context": 1,
+      "gpuMs": null,
+      "gpuTiming": "unavailable",
+      "hostMs": 0.052292,
+      "layout": {
+        "conversion": "none: typed span bytes preserved",
+        "count": 262144,
+        "elementBytes": 4,
+        "elementOffset": 0,
+        "format": "ctype<unsigned int>",
+        "shape": [
+          262144
+        ],
+        "strides": [
+          1
+        ]
+      },
+      "offset": 0,
+      "operation": "downloadQueue",
+      "processId": 59233,
+      "schemaVersion": 1,
+      "sequence": 26,
+      "stagingBytes": 1048576,
+      "stagingReused": false,
+      "target": "gpu",
+      "version": 2
+    },
+    {
+      "context": 1,
+      "hostMs": 0.673667,
+      "operation": "synchronizeWait",
+      "pendingDownloads": 1,
+      "pendingTimestamps": 1,
+      "processId": 59233,
+      "schemaVersion": 1,
+      "sequence": 27,
+      "target": "gpu"
+    },
+    {
+      "buffer": 3,
+      "bytes": 1048576,
+      "context": 1,
+      "hostCopies": 1,
+      "hostMs": 0.177,
+      "layout": {
+        "conversion": "none: typed span bytes preserved",
+        "count": 262144,
+        "elementBytes": 4,
+        "elementOffset": 0,
+        "format": "ctype<unsigned int>",
+        "shape": [
+          262144
+        ],
+        "strides": [
+          1
+        ]
+      },
+      "offset": 0,
+      "operation": "downloadMapCopy",
+      "processId": 59233,
+      "schemaVersion": 1,
+      "sequence": 28,
+      "success": true,
+      "target": "gpu",
+      "version": 2
+    },
+    {
+      "context": 1,
+      "dispatch": 2,
+      "gpuMs": 0.185625,
+      "gpuTickPeriodNs": 1.0,
+      "gpuTicksBegin": "1065795426490666",
+      "gpuTicksEnd": "1065795426676291",
+      "gpuTiming": "timestamp-query",
+      "gpuTimingReason": null,
+      "instrumentationHostMs": 0.319916,
+      "kernel": 4,
+      "operation": "kernelExecution",
+      "processId": 59233,
+      "schemaVersion": 1,
+      "sequence": 29,
+      "target": "gpu"
+    },
+    {
+      "buffer": 3,
+      "bytes": 1048576,
+      "context": 1,
+      "hostCopies": 1,
+      "hostMs": 0.032916999999999995,
+      "layout": {
+        "conversion": "none: typed span bytes preserved",
+        "count": 262144,
+        "elementBytes": 4,
+        "elementOffset": 0,
+        "format": "ctype<unsigned int>",
+        "shape": [
+          262144
+        ],
+        "strides": [
+          1
+        ]
+      },
+      "offset": 0,
+      "operation": "downloadHostCopy",
+      "processId": 59233,
+      "schemaVersion": 1,
+      "sequence": 30,
+      "target": "gpu",
+      "version": 2
+    },
+    {
+      "context": 1,
+      "handle": 2,
+      "metadata": {
+        "conversion": "none: typed span bytes preserved",
+        "count": 262144,
+        "elementBytes": 4,
+        "elementOffset": 0,
+        "shape": [
+          262144
+        ],
+        "strides": [
+          1
+        ]
+      },
+      "operation": "bufferIdentity",
+      "processId": 59233,
+      "schemaVersion": 1,
+      "sequence": 31,
+      "target": "gpu"
+    },
+    {
+      "buffer": 2,
+      "bytes": 1048576,
+      "context": 1,
+      "gpuMs": null,
+      "gpuTiming": "unavailable",
+      "hostCopies": 1,
+      "hostMs": 0.210917,
+      "layout": {
+        "conversion": "none: typed span bytes preserved",
+        "count": 262144,
+        "elementBytes": 4,
+        "elementOffset": 0,
+        "format": "ctype<unsigned int>",
+        "shape": [
+          262144
+        ],
+        "strides": [
+          1
+        ]
+      },
+      "offset": 0,
+      "operation": "upload",
+      "processId": 59233,
+      "schemaVersion": 1,
+      "sequence": 32,
+      "target": "gpu",
+      "version": 3
+    },
+    {
+      "binding": 5,
+      "bindingsReused": true,
+      "context": 1,
+      "dispatch": 3,
+      "gpuMs": null,
+      "gpuTiming": "pending",
+      "hostMs": 0.13425,
+      "kernel": 4,
+      "metadata": {
+        "artifactId": "f1cbfc9f24358cb5f095631e040bccee",
+        "entrypoint": "ks_device_gpu",
+        "readonlyNames": [
+          "input"
+        ],
+        "sourceFile": "/private/tmp/nupp-issue50/bench/gpu-costs/src/kernels.nupp",
+        "sourceLine": 23,
+        "writableNames": [
+          "output"
+        ]
+      },
+      "operation": "dispatch",
+      "phase": "steady-state",
+      "processId": 59233,
+      "read": [
+        {
+          "buffer": 2,
+          "bytes": 1048576,
+          "layout": {
+            "conversion": "none: typed span bytes preserved",
+            "count": 262144,
+            "elementBytes": 4,
+            "elementOffset": 0,
+            "format": "ctype<unsigned int>",
+            "shape": [
+              262144
+            ],
+            "strides": [
+              1
+            ]
+          },
+          "offset": 0,
+          "slot": 0,
+          "version": 3
+        }
+      ],
+      "schemaVersion": 1,
+      "sequence": 33,
+      "target": "gpu",
+      "uniformBytes": 20,
+      "workItems": [
+        262144,
+        1,
+        1
+      ],
+      "workgroup": [
+        256,
+        1,
+        1
+      ],
+      "write": [
+        {
+          "buffer": 3,
+          "bytes": 1048576,
+          "layout": {
+            "conversion": "none: typed span bytes preserved",
+            "count": 262144,
+            "elementBytes": 4,
+            "elementOffset": 0,
+            "format": "ctype<unsigned int>",
+            "shape": [
+              262144
+            ],
+            "strides": [
+              1
+            ]
+          },
+          "offset": 0,
+          "slot": 0,
+          "version": 3
+        }
+      ]
+    },
+    {
+      "context": 1,
+      "handle": 3,
+      "metadata": {
+        "conversion": "none: typed span bytes preserved",
+        "count": 262144,
+        "elementBytes": 4,
+        "elementOffset": 0,
+        "shape": [
+          262144
+        ],
+        "strides": [
+          1
+        ]
+      },
+      "operation": "bufferIdentity",
+      "processId": 59233,
+      "schemaVersion": 1,
+      "sequence": 34,
+      "target": "gpu"
+    },
+    {
+      "buffer": 3,
+      "bytes": 1048576,
+      "context": 1,
+      "gpuMs": null,
+      "gpuTiming": "unavailable",
+      "hostMs": 0.079875,
+      "layout": {
+        "conversion": "none: typed span bytes preserved",
+        "count": 262144,
+        "elementBytes": 4,
+        "elementOffset": 0,
+        "format": "ctype<unsigned int>",
+        "shape": [
+          262144
+        ],
+        "strides": [
+          1
+        ]
+      },
+      "offset": 0,
+      "operation": "downloadQueue",
+      "processId": 59233,
+      "schemaVersion": 1,
+      "sequence": 35,
+      "stagingBytes": 1048576,
+      "stagingReused": false,
+      "target": "gpu",
+      "version": 3
+    },
+    {
+      "context": 1,
+      "hostMs": 0.228166,
+      "operation": "synchronizeWait",
+      "pendingDownloads": 1,
+      "pendingTimestamps": 1,
+      "processId": 59233,
+      "schemaVersion": 1,
+      "sequence": 36,
+      "target": "gpu"
+    },
+    {
+      "buffer": 3,
+      "bytes": 1048576,
+      "context": 1,
+      "hostCopies": 1,
+      "hostMs": 0.1145,
+      "layout": {
+        "conversion": "none: typed span bytes preserved",
+        "count": 262144,
+        "elementBytes": 4,
+        "elementOffset": 0,
+        "format": "ctype<unsigned int>",
+        "shape": [
+          262144
+        ],
+        "strides": [
+          1
+        ]
+      },
+      "offset": 0,
+      "operation": "downloadMapCopy",
+      "processId": 59233,
+      "schemaVersion": 1,
+      "sequence": 37,
+      "success": true,
+      "target": "gpu",
+      "version": 3
+    },
+    {
+      "context": 1,
+      "dispatch": 3,
+      "gpuMs": 0.173625,
+      "gpuTickPeriodNs": 1.0,
+      "gpuTicksBegin": "1065795428425875",
+      "gpuTicksEnd": "1065795428599500",
+      "gpuTiming": "timestamp-query",
+      "gpuTimingReason": null,
+      "instrumentationHostMs": 0.33820900000000004,
+      "kernel": 4,
+      "operation": "kernelExecution",
+      "processId": 59233,
+      "schemaVersion": 1,
+      "sequence": 38,
+      "target": "gpu"
+    },
+    {
+      "buffer": 3,
+      "bytes": 1048576,
+      "context": 1,
+      "hostCopies": 1,
+      "hostMs": 0.025834,
+      "layout": {
+        "conversion": "none: typed span bytes preserved",
+        "count": 262144,
+        "elementBytes": 4,
+        "elementOffset": 0,
+        "format": "ctype<unsigned int>",
+        "shape": [
+          262144
+        ],
+        "strides": [
+          1
+        ]
+      },
+      "offset": 0,
+      "operation": "downloadHostCopy",
+      "processId": 59233,
+      "schemaVersion": 1,
+      "sequence": 39,
+      "target": "gpu",
+      "version": 3
+    },
+    {
+      "context": 1,
+      "hostMs": 0.002209,
+      "operation": "synchronizeWait",
+      "pendingDownloads": 0,
+      "pendingTimestamps": 0,
+      "processId": 59233,
+      "schemaVersion": 1,
+      "sequence": 40,
+      "target": "gpu"
+    },
+    {
+      "context": 1,
+      "hostMs": 2.147666,
+      "operation": "contextCleanup",
+      "processId": 59233,
+      "schemaVersion": 1,
+      "sequence": 41,
+      "target": "gpu"
+    }
+  ],
+  "forkOverheadDiagnostic": {
+    "note": "Concurrent diagnostic, excluded from the final curve. CLI profiler starts after entry compilation; only116 samples at1ms during program execution despite10.73s total wall time.",
+    "wallSec": 10.73,
+    "userSec": 5.42,
+    "systemSec": 2.17,
+    "profileSamples": 116,
+    "case": "gpu-costs.mix64.cpu-aot:count=64",
+    "sampleIterations": 64,
+    "samples": 2890,
+    "timedSeconds": 0.10001147854328131,
+    "medianSec": 5.221404135227203e-07
+  }
+}
