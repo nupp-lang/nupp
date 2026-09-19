@@ -1,4 +1,25 @@
 const MAX_ASSET_BYTES = 256 * 1024 * 1024;
+export async function inflateSnapshot(packed, expectedBytes) {
+  if (!Number.isSafeInteger(expectedBytes) || expectedBytes <= 0 || expectedBytes > MAX_ASSET_BYTES)
+    throw new Error('Invalid snapshot extent');
+  const reader = new Blob([packed]).stream().pipeThrough(new DecompressionStream('gzip')).getReader();
+  const chunks = [];
+  let length = 0;
+  try {
+    while (true) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      length += value.length;
+      if (length > expectedBytes) throw new Error('Snapshot exceeds its declared extent');
+      chunks.push(value);
+    }
+  } finally { await reader.cancel().catch(() => {}); }
+  if (length !== expectedBytes) throw new Error('Snapshot extent mismatch');
+  const bytes = new Uint8Array(length);
+  let offset = 0;
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
+  return bytes.buffer;
+}
 export async function sha256(bytes) {
   return [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))]
     .map(byte => byte.toString(16).padStart(2, '0')).join('');

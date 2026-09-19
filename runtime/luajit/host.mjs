@@ -26,7 +26,7 @@ export function createGuest({manifestUrl, app, config = {}, profile = 'runner', 
     else if (messages.length < 2) messages.push(value);
     else close(new Error('Guest produced unsolicited frames'));
   }
-  const arm = () => { clearTimeout(timer); timer = setTimeout(() => close(new Error('Guest request timed out')), deadlineMs); };
+  const arm = (failed = close) => { clearTimeout(timer); timer = setTimeout(() => failed(new Error('Guest request timed out')), deadlineMs); };
   function launch(useSnapshot) {
     const instance = new Worker(new URL('./vm-worker.mjs', import.meta.url), {type: 'module'});
     worker = instance;
@@ -51,7 +51,7 @@ export function createGuest({manifestUrl, app, config = {}, profile = 'runner', 
       deliver(data);
     };
     instance.onerror = event => failed(new Error(event.message));
-    arm();
+    arm(failed);
     const copy = app.slice();
     instance.postMessage({type: 'boot', manifestUrl: new URL(manifestUrl, import.meta.url).href,
       app: copy.buffer, config, profile, snapshot: useSnapshot, captureSnapshot}, [copy.buffer]);

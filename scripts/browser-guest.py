@@ -39,6 +39,8 @@ def build(root, cache, sources):
     from browser_toolchain import lock
     recipe = [root / 'scripts/browser-guest.py', root / 'scripts/browser-toolchain.py', root / 'scripts/toolchain.pins', root / 'scripts/toolchain', root / 'scripts/browser-snapshot.mjs']
     recipe += sorted(path for path in (root / 'runtime/luajit').rglob('*') if path.is_file())
+    recipe += sorted(path for path in (root / 'src/nupp/runtime/vendor/lunajson').rglob('*') if path.is_file())
+    recipe += sorted(path for path in (root / 'host/notices').rglob('*') if path.is_file())
     identity = {str(path.relative_to(root)): sha(path) for path in recipe}
     identity['inputs'] = {name: record['sha256'] for name, record in sources.items()}
     identity['gcc'] = subprocess.check_output(['gcc', '--version'], text=True)
@@ -75,6 +77,10 @@ def build(root, cache, sources):
             # musl replaces GCC's link spec, including its -m32 linker selection.
             cc.write_text('#!/bin/sh\nexec gcc -m32 -Wl,-m,elf_i386,--eh-frame-hdr -static-libgcc -specs=' + shlex.quote(str(musl / 'lib/musl-gcc.specs')) + ' "$@"\n')
             cc.chmod(0o755)
+            run(cc, '-fPIC', '-fno-stack-protector', '-c', root / 'runtime/luajit/guest-ssp.c', '-o', work / 'guest-ssp.o', env=environment)
+            run('ar', 'rcs', musl / 'lib/libssp_nonshared.a', work / 'guest-ssp.o', env=environment)
+            specs = musl / 'lib/musl-gcc.specs'
+            specs.write_text(specs.read_text().replace('*libgcc:\n', '*libgcc:\n-lssp_nonshared '))
             probe = work / 'target-probe.c'
             probe.write_text('int main(void) { return sizeof(void *) != 4; }\n')
             run(cc, probe, '-o', work / 'target-probe', env=environment)
@@ -162,7 +168,7 @@ def build(root, cache, sources):
                 (matching / relative).parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(path, matching / relative)
             for directory in ('host/notices', 'src/nupp/runtime/vendor/lunajson'):
-                shutil.copytree(root / directory, matching / directory)
+                shutil.copytree(root / directory, matching / directory, dirs_exist_ok=True)
             shutil.copyfile(kernel / '.config', matching / 'linux.resolved.config')
             shutil.copyfile(trees['seabios'] / '.config', matching / 'seabios.resolved.config')
             (matching / 'build-inputs.json').write_text(json.dumps(identity, indent=2) + '\n')

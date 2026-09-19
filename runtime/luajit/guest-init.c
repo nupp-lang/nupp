@@ -22,6 +22,8 @@
 #define START_VERSION 1u
 
 static void fail(const char *operation) {
+    printf("@@NUPP_INIT_ERROR@@ %s: %s\n", operation, strerror(errno));
+    fflush(stdout);
     perror(operation);
     fflush(stderr);
     for (;;) pause();
