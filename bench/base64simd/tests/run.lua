@@ -19,30 +19,29 @@ local shipped = require("nupp.codec.base64")
 -- The public wrapper must reach this build's registered native encoder.
 -- An unrelated compiled module does not prove the vector path under test.
 local compiled = assert(rawget(_G, "__nuppAotCompiled"), "no compiled entries were loaded")
-local seen = {}
-
-local function reachesCompiled(fn)
-    if seen[fn] then
-        return false
-    end
-    seen[fn] = true
-    if compiled[fn] then
-        return true
-    end
-    for index = 1, 64 do
-        local name, value = debug.getupvalue(fn, index)
-        if name == nil then
-            break
+-- Ownership helpers may be cached in tables, so following function upvalues
+-- alone does not describe the executed call path. Observe that path directly
+-- and require the registered entry from this encoder's loaded artifact.
+local artifact = assert(package.searchpath("base64simd", package.path))
+local reached = false
+local jitEnabled = jit.status()
+jit.off()
+debug.sethook(
+    function()
+        local frame = debug.getinfo(2, "fS")
+        if frame and compiled[frame.func] and frame.source == "@" .. artifact then
+            reached = true
         end
-        if type(value) == "function" and reachesCompiled(value) then
-            return true
-        end
-    end
-
-    return false
+    end,
+    "c"
+)
+local proof = simd.encode("native proof")
+debug.sethook()
+if jitEnabled then
+    jit.on()
 end
-
-assert(reachesCompiled(simd.encode), "the tested encoder does not reach its native replacement")
+assert(proof == reference.encode("native proof"))
+assert(reached, "the tested encoder did not call its registered native replacement")
 
 local checks = 0
 

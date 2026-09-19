@@ -7,12 +7,13 @@ local now = dofile(here .. "../simd-mandelbrot/clock.lua")
 local simd = require("base64simd")
 local reference = require("base64reference")
 local entries = assert(rawget(_G, "__nuppAotCompiled"), "compiled-entry registry missing")
+local artifact = assert(package.searchpath("base64simd", package.path))
 local nativeCalls = 0
 jit.off()
 debug.sethook(
     function()
-        local frame = debug.getinfo(2, "f")
-        if frame and entries[frame.func] then
+        local frame = debug.getinfo(2, "fS")
+        if frame and entries[frame.func] and frame.source == "@" .. artifact then
             nativeCalls = nativeCalls + 1
         end
     end,

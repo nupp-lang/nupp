@@ -1,0 +1,417 @@
+{
+  "practicalMargin": 0.01,
+  "forks": 9,
+  "samplesPerFork": 15,
+  "method": "paired fork medians; percentile bootstrap of mean log ratio;20000resamples;seed20260919",
+  "runtime": "/Users/dowling/projects/nupp/.nupp-cache/toolchain/146f4035337ca7ca/luajit/bin/luajit",
+  "nativeLibrary": "/private/tmp/nupp-buffer-measure/candidate-hoisted/lib/libbase64_simd_aot.dylib",
+  "artifactHashes": {
+    "/Users/dowling/projects/nupp/.nupp-cache/toolchain/146f4035337ca7ca/luajit/bin/luajit": "b08a2f4b75efc0095b18d74a065d1c3637d60bc66887ad86cc88ed70b074a86a",
+    "/private/tmp/nupp-buffer-lease-cost/bench/base64simd/compare.lua": "d55cb74c31d65d02dee85def8a149a9a6c7e6f0f4d81c043eddb1fc3737b23c5",
+    "/private/tmp/nupp-buffer-lease-cost/bench/simd-mandelbrot/clock.lua": "8b3af4a8854953694e3b85340c703754eb0f2c28680721a718de5607c329ce55",
+    "/private/tmp/nupp-buffer-measure/control.dylib": "2f476c4215187cddd6f9e62a7b1faff1b8c069d3e5ea4e80e40f4041fa607f30",
+    "/private/tmp/nupp-buffer-measure/baseline/base64reference.lua": "5792b60b11906374cfeade8b15fbe35a964c01d05015ffe3383aeb71dc2dd945",
+    "/private/tmp/nupp-buffer-measure/baseline/base64simd.lua": "cffc0490dad792937814f42db780f0a934fd9141de9278d23ad957ff4f6868d4",
+    "/private/tmp/nupp-buffer-measure/baseline/nupp/compiler/runtime/math.lua": "7e8661c069a947741c3caa9b5668b477ef9be440afd1eb4f7d88b6758eeeafa9",
+    "/private/tmp/nupp-buffer-measure/baseline/nupp/io/internal/bytes.lua": "e4659f3ad38f9132713b3eda1a787181946c3d7b487c4f6b3f366ec716e7c5f5",
+    "/private/tmp/nupp-buffer-measure/baseline/nupp/io/internal/lines.lua": "f49aaaadc04ba45aa81f1e0acfb2ab453512884295a730b6a278ef8f8b525497",
+    "/private/tmp/nupp-buffer-measure/baseline/nupp/io/internal/scalars.lua": "396a71968e5e5917aa927930f75ff070e3d2106275ae6101a563d415fee1756a",
+    "/private/tmp/nupp-buffer-measure/baseline/nupp/io.lua": "0f436cdd4ec8db471ae61af790df6df4ad9d3e8924086af3bdbfb07fa31a9e96",
+    "/private/tmp/nupp-buffer-measure/baseline/nupp/mem/array.lua": "8eff6dc97931cd9e439fbae309c071ba59b27f8e9424924f6813a999be923a1c",
+    "/private/tmp/nupp-buffer-measure/baseline/nupp/mem/indexed.lua": "98a67c25a6ee9abc7113c8fdbe2f153d8293c33f4b4908f74bcb927811ba319b",
+    "/private/tmp/nupp-buffer-measure/baseline/nupp/mem/span.lua": "0e51eba70efce6da7d19f42737f8097c047e89c58dd5c8e30e7b0386ea00a4eb",
+    "/private/tmp/nupp-buffer-measure/baseline/nupp/runtime/bitops.lua": "65ea9638ab21ff64cad1e34b78093feeabb6847852a68872904cf46a29e74a43",
+    "/private/tmp/nupp-buffer-measure/baseline/nupp/runtime/int64.lua": "d36e0c4476cc6235ac5933f8aeb5d174bb1acfff014ed58dc6db2189db60a8d8",
+    "/private/tmp/nupp-buffer-measure/baseline/nupp/runtime/managed.lua": "1ba4c90eaca205311767fc4178b14b926bc147e2c4da04ed16adc8be4f99eab8",
+    "/private/tmp/nupp-buffer-measure/baseline/nupp/runtime/provider/nativebuffer.lua": "f4c541d1f871465d79088e18a960dba2c99c1b1718955bb626e6aa323780c3d6",
+    "/private/tmp/nupp-buffer-measure/baseline/nupp/runtime/provider/nativestorage.lua": "831b1654231683d0324348e223bdcf12e9fe0c39c466fa4f252bbe96eab39022",
+    "/private/tmp/nupp-buffer-measure/baseline/nupp/runtime/provider/scalarbitops.lua": "e1cd82889c21d7ce5100194b04a578f78867ed61d11dbe1ecd19379d9c26826d",
+    "/private/tmp/nupp-buffer-measure/baseline/nupp/runtime/provider/tablebuffer.lua": "acfd1c3713c83d7bd869fdbdfc048b7bd8ab52b358e90df68c366ab7c6a17d28",
+    "/private/tmp/nupp-buffer-measure/baseline/nupp/runtime/provider/tablestruct.lua": "621463bed3af30ad32b129f6cc43bc358a6d26ec52134e65383e825e4fea5a79",
+    "/private/tmp/nupp-buffer-measure/baseline/nupp/runtime/representation.lua": "55d672930c7fed48ec9ce3c0f8be7e755c20d499aa0034652fbebe0c27fbf2be",
+    "/private/tmp/nupp-buffer-measure/baseline/nupp/runtime/services/artifact.lua": "c79fce5287eac239c6c18af8ad727db39e304427198cb8e79ff59ad8636df588",
+    "/private/tmp/nupp-buffer-measure/baseline/nupp/runtime/services/catalog.lua": "58e3024cd6e969c69e264a8dcc3c0a74b28bfbfa8d28328990950c613fd84bab",
+    "/private/tmp/nupp-buffer-measure/baseline/nupp/runtime/services/contracts.lua": "65c362ee036849952275fa208a5ccc702b059d2f1540e5fc7380881c0fb0a1dd",
+    "/private/tmp/nupp-buffer-measure/baseline/nupp/runtime/storage.lua": "db272f3580db594a8efc910000cc94e6249c711047d2efe9ec05bd93474b8471",
+    "/private/tmp/nupp-buffer-measure/baseline/nupp/services.lua": "f2c53866765586ca9182453916977849cfec95507fa34607862ab56712cc0363",
+    "/private/tmp/nupp-buffer-measure/baseline/nupp/simd.lua": "89b3f45965c05c610cac5c1bcc4969f90cf2b83325c1e3f5c2d6c040a873bc64",
+    "/private/tmp/nupp-buffer-measure/baseline/nupp/text.lua": "3c71668ac0e780cde52ea61ab5dde7208399f19a1686cde0f49c4069261ff3d8",
+    "/private/tmp/nupp-buffer-measure/baseline/aot/src/base64simd.neon.c": "750f3d2e9e95f248ed3f14cb433cbc7b81e5f2c4addef1fefa0261209798d29b",
+    "/private/tmp/nupp-buffer-measure/candidate-hoisted/base64reference.lua": "5792b60b11906374cfeade8b15fbe35a964c01d05015ffe3383aeb71dc2dd945",
+    "/private/tmp/nupp-buffer-measure/candidate-hoisted/base64simd.lua": "556e861dda6e2ac3ec9436b43911690aea21a398906cb7ac365e79e672dde15f",
+    "/private/tmp/nupp-buffer-measure/candidate-hoisted/nupp/compiler/runtime/math.lua": "7e8661c069a947741c3caa9b5668b477ef9be440afd1eb4f7d88b6758eeeafa9",
+    "/private/tmp/nupp-buffer-measure/candidate-hoisted/nupp/io/internal/bytes.lua": "0653d1b481b59cb7a589a6135d9fe8f1075765a51537bb88feea4d9a73c5bccb",
+    "/private/tmp/nupp-buffer-measure/candidate-hoisted/nupp/io/internal/lines.lua": "f49aaaadc04ba45aa81f1e0acfb2ab453512884295a730b6a278ef8f8b525497",
+    "/private/tmp/nupp-buffer-measure/candidate-hoisted/nupp/io/internal/scalars.lua": "396a71968e5e5917aa927930f75ff070e3d2106275ae6101a563d415fee1756a",
+    "/private/tmp/nupp-buffer-measure/candidate-hoisted/nupp/io.lua": "0f436cdd4ec8db471ae61af790df6df4ad9d3e8924086af3bdbfb07fa31a9e96",
+    "/private/tmp/nupp-buffer-measure/candidate-hoisted/nupp/mem/array.lua": "8eff6dc97931cd9e439fbae309c071ba59b27f8e9424924f6813a999be923a1c",
+    "/private/tmp/nupp-buffer-measure/candidate-hoisted/nupp/mem/indexed.lua": "98a67c25a6ee9abc7113c8fdbe2f153d8293c33f4b4908f74bcb927811ba319b",
+    "/private/tmp/nupp-buffer-measure/candidate-hoisted/nupp/mem/span.lua": "0e51eba70efce6da7d19f42737f8097c047e89c58dd5c8e30e7b0386ea00a4eb",
+    "/private/tmp/nupp-buffer-measure/candidate-hoisted/nupp/runtime/bitops.lua": "65ea9638ab21ff64cad1e34b78093feeabb6847852a68872904cf46a29e74a43",
+    "/private/tmp/nupp-buffer-measure/candidate-hoisted/nupp/runtime/int64.lua": "d36e0c4476cc6235ac5933f8aeb5d174bb1acfff014ed58dc6db2189db60a8d8",
+    "/private/tmp/nupp-buffer-measure/candidate-hoisted/nupp/runtime/managed.lua": "1ba4c90eaca205311767fc4178b14b926bc147e2c4da04ed16adc8be4f99eab8",
+    "/private/tmp/nupp-buffer-measure/candidate-hoisted/nupp/runtime/provider/nativebuffer.lua": "f4c541d1f871465d79088e18a960dba2c99c1b1718955bb626e6aa323780c3d6",
+    "/private/tmp/nupp-buffer-measure/candidate-hoisted/nupp/runtime/provider/nativestorage.lua": "831b1654231683d0324348e223bdcf12e9fe0c39c466fa4f252bbe96eab39022",
+    "/private/tmp/nupp-buffer-measure/candidate-hoisted/nupp/runtime/provider/scalarbitops.lua": "e1cd82889c21d7ce5100194b04a578f78867ed61d11dbe1ecd19379d9c26826d",
+    "/private/tmp/nupp-buffer-measure/candidate-hoisted/nupp/runtime/provider/tablebuffer.lua": "acfd1c3713c83d7bd869fdbdfc048b7bd8ab52b358e90df68c366ab7c6a17d28",
+    "/private/tmp/nupp-buffer-measure/candidate-hoisted/nupp/runtime/provider/tablestruct.lua": "621463bed3af30ad32b129f6cc43bc358a6d26ec52134e65383e825e4fea5a79",
+    "/private/tmp/nupp-buffer-measure/candidate-hoisted/nupp/runtime/representation.lua": "55d672930c7fed48ec9ce3c0f8be7e755c20d499aa0034652fbebe0c27fbf2be",
+    "/private/tmp/nupp-buffer-measure/candidate-hoisted/nupp/runtime/services/artifact.lua": "c79fce5287eac239c6c18af8ad727db39e304427198cb8e79ff59ad8636df588",
+    "/private/tmp/nupp-buffer-measure/candidate-hoisted/nupp/runtime/services/catalog.lua": "58e3024cd6e969c69e264a8dcc3c0a74b28bfbfa8d28328990950c613fd84bab",
+    "/private/tmp/nupp-buffer-measure/candidate-hoisted/nupp/runtime/services/contracts.lua": "65c362ee036849952275fa208a5ccc702b059d2f1540e5fc7380881c0fb0a1dd",
+    "/private/tmp/nupp-buffer-measure/candidate-hoisted/nupp/runtime/storage.lua": "db272f3580db594a8efc910000cc94e6249c711047d2efe9ec05bd93474b8471",
+    "/private/tmp/nupp-buffer-measure/candidate-hoisted/nupp/services.lua": "f2c53866765586ca9182453916977849cfec95507fa34607862ab56712cc0363",
+    "/private/tmp/nupp-buffer-measure/candidate-hoisted/nupp/simd.lua": "89b3f45965c05c610cac5c1bcc4969f90cf2b83325c1e3f5c2d6c040a873bc64",
+    "/private/tmp/nupp-buffer-measure/candidate-hoisted/nupp/text.lua": "3c71668ac0e780cde52ea61ab5dde7208399f19a1686cde0f49c4069261ff3d8",
+    "/private/tmp/nupp-buffer-measure/candidate-hoisted/aot/src/base64simd.neon.c": "d5d78e392982ecb101fa9abec2b6c391862c61ddcc7ea8c91d8e80f2eaa145b0",
+    "/private/tmp/nupp-buffer-measure/candidate-hoisted/lib/libbase64_simd_aot.dylib": "74dd576b31ad586a009b234f2bd8b6c14c953e2e189d51c6ff98f6b0396fa9d3"
+  },
+  "runner": "import csv,hashlib,json,math,os,pathlib,random,statistics,subprocess,sys\nbase=pathlib.Path('/private/tmp/nupp-buffer-measure')\nwt=pathlib.Path('/private/tmp/nupp-buffer-lease-cost')\nruntime=pathlib.Path('/Users/dowling/projects/nupp/.nupp-cache/toolchain/146f4035337ca7ca/luajit/bin/luajit')\nout=base/'results-hoisted-shared-native-20260919'\nout.mkdir(exist_ok=False)\ncommon=os.environ.copy()\ncommon['PATH']=str(runtime.parent)+os.pathsep+common['PATH']\ncommon['LUA_CPATH']=str(wt/'.rocks/lib/lua/5.1/?.so')+';;'\ncommon['BUFFER_SAMPLES']='15'\nrecords=[]\nfor fork in range(1,10):\n row={}\n order=['baseline','candidate-hoisted'] if fork%2 else ['candidate-hoisted','baseline']\n for variant in order:\n  env=common.copy(); artifact=base/variant\n  env['LUA_PATH']=f'{artifact}/?.lua;{artifact}/?/init.lua;{wt}/build/?.lua;{wt}/.rocks/share/lua/5.1/?.lua;{wt}/.rocks/share/lua/5.1/?/init.lua;;'\n  with (out/f'fork-{fork}-{variant}.csv').open('w') as stdout,(out/f'fork-{fork}-{variant}.log').open('w') as stderr:\n   subprocess.run([str(runtime),'-e',\"local ffi=require('ffi'); local load=ffi.load; ffi.load=function(path,...) if path:match('/libbase64_simd_aot%.dylib$') then path='/private/tmp/nupp-buffer-measure/candidate-hoisted/lib/libbase64_simd_aot.dylib'; io.stderr:write('shared native library: ',path,'\\\\n') end; return load(path,...) end\",str(wt/'bench/base64simd/compare.lua'),str(base/'control.dylib')],env=env,cwd=wt,stdout=stdout,stderr=stderr,check=True)\n  proof=(out/f'fork-{fork}-{variant}.log').read_text()\n  assert 'compiled calls confirmed; native, scalar, and C results agree' in proof\n  assert 'shared native library: /private/tmp/nupp-buffer-measure/candidate-hoisted/lib/libbase64_simd_aot.dylib' in proof\n  samples={}\n  for item in csv.DictReader((out/f'fork-{fork}-{variant}.csv').open()): samples.setdefault(item['workload'],[]).append(float(item['seconds'])/int(item['iterations']))\n  assert all(len(values)==15 for values in samples.values()) and len(samples)==4\n  row[variant]={key:statistics.median(values) for key,values in samples.items()}\n records.append(row)\n print(f'completed pair {fork}',flush=True)\nrng=random.Random(20260919)\ndef interval(values):\n logs=[math.log(x) for x in values]\n boots=sorted(math.exp(sum(rng.choice(logs) for _ in logs)/len(logs)) for _ in range(20000))\n return {'ratio':math.exp(statistics.mean(logs)),'ci95':[boots[500],boots[19499]],'ratios':values}\nresults={}\nfor workload in ['encode64','alloc64','encode64k','control64']:\n ratios=[r['candidate-hoisted'][workload]/r['baseline'][workload] for r in records]\n control=[r['candidate-hoisted']['control64']/r['baseline']['control64'] for r in records]\n results[workload]={'baselineMedianUs':statistics.median(r['baseline'][workload] for r in records)*1e6,'candidateMedianUs':statistics.median(r['candidate-hoisted'][workload] for r in records)*1e6,'raw':interval(ratios),'controlNormalized':interval([x/y for x,y in zip(ratios,control)])}\npaths=[runtime,wt/'bench/base64simd/compare.lua',wt/'bench/simd-mandelbrot/clock.lua',base/'control.dylib']\nfor variant in ['baseline','candidate-hoisted']:\n paths += sorted((base/variant).rglob('*.lua')) + [base/variant/'aot/src/base64simd.neon.c']\nsummary={'practicalMargin':0.01,'forks':9,'samplesPerFork':15,'method':'paired fork medians; percentile bootstrap of mean log ratio;20000resamples;seed20260919','runtime':str(runtime),'revision':subprocess.check_output(['git','rev-parse','HEAD'],cwd=wt,text=True).strip(),'nativeLibrary':'/private/tmp/nupp-buffer-measure/candidate-hoisted/lib/libbase64_simd_aot.dylib','artifactHashes':{str(path):hashlib.sha256(path.read_bytes()).hexdigest() for path in paths},'runner':pathlib.Path(__file__).read_text(),'rawCsv':{p.name:p.read_text() for p in sorted(out.glob('*.csv'))},'proofLogs':{p.name:p.read_text() for p in sorted(out.glob('*.log'))},'records':records,'results':results}\n(out/'summary.json').write_text(json.dumps(summary,indent=2)+'\\n')\nprint(json.dumps(results,indent=2))\n",
+  "rawCsv": {
+    "fork-1-baseline.csv": "sample,workload,seconds,iterations\n1,encode64,0.008513927,10000\n1,alloc64,0.007036924,10000\n1,encode64k,0.000846863,100\n1,control64,0.000118971,10000\n2,alloc64,0.006825924,10000\n2,encode64k,0.000846148,100\n2,control64,0.000115871,10000\n2,encode64,0.008208990,10000\n3,encode64k,0.000826836,100\n3,control64,0.000115156,10000\n3,encode64,0.008191109,10000\n3,alloc64,0.007065058,10000\n4,control64,0.000118017,10000\n4,encode64,0.008260965,10000\n4,alloc64,0.006711006,10000\n4,encode64k,0.000845909,100\n5,encode64,0.007997990,10000\n5,alloc64,0.006487131,10000\n5,encode64k,0.000844002,100\n5,control64,0.000115156,10000\n6,alloc64,0.006532907,10000\n6,encode64k,0.000838995,100\n6,control64,0.000129938,10000\n6,encode64,0.008156061,10000\n7,encode64k,0.000796080,100\n7,control64,0.000113010,10000\n7,encode64,0.008109093,10000\n7,alloc64,0.006773949,10000\n8,control64,0.000144005,10000\n8,encode64,0.008029938,10000\n8,alloc64,0.006742954,10000\n8,encode64k,0.000813961,100\n9,encode64,0.007961988,10000\n9,alloc64,0.006724119,10000\n9,encode64k,0.000823021,100\n9,control64,0.000118971,10000\n10,alloc64,0.009719133,10000\n10,encode64k,0.001095057,100\n10,control64,0.000167131,10000\n10,encode64,0.011346817,10000\n11,encode64k,0.001207113,100\n11,control64,0.000186205,10000\n11,encode64,0.010765076,10000\n11,alloc64,0.009419918,10000\n12,control64,0.000116110,10000\n12,encode64,0.009469986,10000\n12,alloc64,0.009417772,10000\n12,encode64k,0.001009941,100\n13,encode64,0.008481979,10000\n13,alloc64,0.007791996,10000\n13,encode64k,0.001145124,100\n13,control64,0.000164986,10000\n14,alloc64,0.008802891,10000\n14,encode64k,0.001093864,100\n14,control64,0.000167131,10000\n14,encode64,0.008414030,10000\n15,encode64k,0.000833035,100\n15,control64,0.000122070,10000\n15,encode64,0.008129120,10000\n15,alloc64,0.006706953,10000\n",
+    "fork-1-candidate-hoisted.csv": "sample,workload,seconds,iterations\n1,encode64,0.003880024,10000\n1,alloc64,0.003553867,10000\n1,encode64k,0.000781059,100\n1,control64,0.000119925,10000\n2,alloc64,0.004115105,10000\n2,encode64k,0.000774860,100\n2,control64,0.000118017,10000\n2,encode64,0.004012108,10000\n3,encode64k,0.000750065,100\n3,control64,0.000126839,10000\n3,encode64,0.003880024,10000\n3,alloc64,0.003791094,10000\n4,control64,0.000121117,10000\n4,encode64,0.004133940,10000\n4,alloc64,0.003561020,10000\n4,encode64k,0.000767946,100\n5,encode64,0.003909111,10000\n5,alloc64,0.003520012,10000\n5,encode64k,0.000747919,100\n5,control64,0.000130892,10000\n6,alloc64,0.003540993,10000\n6,encode64k,0.000802994,100\n6,control64,0.000117064,10000\n6,encode64,0.003947973,10000\n7,encode64k,0.000784874,100\n7,control64,0.000118017,10000\n7,encode64,0.003895998,10000\n7,alloc64,0.003795862,10000\n8,control64,0.000133991,10000\n8,encode64,0.004018068,10000\n8,alloc64,0.003698111,10000\n8,encode64k,0.000767946,100\n9,encode64,0.003962040,10000\n9,alloc64,0.003608942,10000\n9,encode64k,0.000787020,100\n9,control64,0.000118017,10000\n10,alloc64,0.003612041,10000\n10,encode64k,0.000748158,100\n10,control64,0.000118971,10000\n10,encode64,0.003989220,10000\n11,encode64k,0.000794172,100\n11,control64,0.000119925,10000\n11,encode64,0.003909826,10000\n11,alloc64,0.003525019,10000\n12,control64,0.000117779,10000\n12,encode64,0.004086018,10000\n12,alloc64,0.003595114,10000\n12,encode64k,0.000768900,100\n13,encode64,0.004019976,10000\n13,alloc64,0.003465891,10000\n13,encode64k,0.000742197,100\n13,control64,0.000116110,10000\n14,alloc64,0.003484011,10000\n14,encode64k,0.000801086,100\n14,control64,0.000113010,10000\n14,encode64,0.003735065,10000\n15,encode64k,0.000739813,100\n15,control64,0.000119209,10000\n15,encode64,0.003906965,10000\n15,alloc64,0.003515959,10000\n",
+    "fork-2-baseline.csv": "sample,workload,seconds,iterations\n1,encode64,0.008265018,10000\n1,alloc64,0.007241964,10000\n1,encode64k,0.000837088,100\n1,control64,0.000114918,10000\n2,alloc64,0.007133961,10000\n2,encode64k,0.000858068,100\n2,control64,0.000114918,10000\n2,encode64,0.008413792,10000\n3,encode64k,0.000791073,100\n3,control64,0.000110865,10000\n3,encode64,0.008498907,10000\n3,alloc64,0.006972075,10000\n4,control64,0.000111818,10000\n4,encode64,0.008090973,10000\n4,alloc64,0.006876230,10000\n4,encode64k,0.000804901,100\n5,encode64,0.008239031,10000\n5,alloc64,0.006961107,10000\n5,encode64k,0.000823021,100\n5,control64,0.000114918,10000\n6,alloc64,0.007079124,10000\n6,encode64k,0.000773907,100\n6,control64,0.000111103,10000\n6,encode64,0.008149862,10000\n7,encode64k,0.000793934,100\n7,control64,0.000110865,10000\n7,encode64,0.008023977,10000\n7,alloc64,0.006970882,10000\n8,control64,0.000116110,10000\n8,encode64,0.008125067,10000\n8,alloc64,0.006917000,10000\n8,encode64k,0.000737190,100\n9,encode64,0.008074045,10000\n9,alloc64,0.006999016,10000\n9,encode64k,0.000848055,100\n9,control64,0.000115156,10000\n10,alloc64,0.006896973,10000\n10,encode64k,0.000818014,100\n10,control64,0.000110865,10000\n10,encode64,0.008208990,10000\n11,encode64k,0.000842094,100\n11,control64,0.000113964,10000\n11,encode64,0.008156061,10000\n11,alloc64,0.006992817,10000\n12,control64,0.000103951,10000\n12,encode64,0.008158922,10000\n12,alloc64,0.006712914,10000\n12,encode64k,0.000845909,100\n13,encode64,0.007942915,10000\n13,alloc64,0.006935120,10000\n13,encode64k,0.000811100,100\n13,control64,0.000110149,10000\n14,alloc64,0.006905079,10000\n14,encode64k,0.000812054,100\n14,control64,0.000111103,10000\n14,encode64,0.007912874,10000\n15,encode64k,0.000868082,100\n15,control64,0.000125885,10000\n15,encode64,0.007739067,10000\n15,alloc64,0.006725073,10000\n",
+    "fork-2-candidate-hoisted.csv": "sample,workload,seconds,iterations\n1,encode64,0.004096031,10000\n1,alloc64,0.003499031,10000\n1,encode64k,0.000767946,100\n1,control64,0.000121117,10000\n2,alloc64,0.003528118,10000\n2,encode64k,0.000760078,100\n2,control64,0.000113964,10000\n2,encode64,0.003808022,10000\n3,encode64k,0.000939846,100\n3,control64,0.000106096,10000\n3,encode64,0.004108906,10000\n3,alloc64,0.003817081,10000\n4,control64,0.000111818,10000\n4,encode64,0.003767967,10000\n4,alloc64,0.003478050,10000\n4,encode64k,0.000792027,100\n5,encode64,0.003882170,10000\n5,alloc64,0.003515959,10000\n5,encode64k,0.000789881,100\n5,control64,0.000111818,10000\n6,alloc64,0.003540039,10000\n6,encode64k,0.000875950,100\n6,control64,0.000113010,10000\n6,encode64,0.003871918,10000\n7,encode64k,0.000771046,100\n7,control64,0.000113964,10000\n7,encode64,0.003804922,10000\n7,alloc64,0.003573895,10000\n8,control64,0.000124931,10000\n8,encode64,0.003777027,10000\n8,alloc64,0.003728151,10000\n8,encode64k,0.000776052,100\n9,encode64,0.003840208,10000\n9,alloc64,0.003527880,10000\n9,encode64k,0.000771999,100\n9,control64,0.000115871,10000\n10,alloc64,0.003432989,10000\n10,encode64k,0.001023054,100\n10,control64,0.000114918,10000\n10,encode64,0.003899097,10000\n11,encode64k,0.000891924,100\n11,control64,0.000117779,10000\n11,encode64,0.003831148,10000\n11,alloc64,0.003680944,10000\n12,control64,0.000110865,10000\n12,encode64,0.003803968,10000\n12,alloc64,0.003607988,10000\n12,encode64k,0.000802994,100\n13,encode64,0.003894091,10000\n13,alloc64,0.003592014,10000\n13,encode64k,0.000828028,100\n13,control64,0.000112057,10000\n14,alloc64,0.003503084,10000\n14,encode64k,0.001013994,100\n14,control64,0.000109196,10000\n14,encode64,0.003882170,10000\n15,encode64k,0.000746012,100\n15,control64,0.000116825,10000\n15,encode64,0.003902912,10000\n15,alloc64,0.003587008,10000\n",
+    "fork-3-baseline.csv": "sample,workload,seconds,iterations\n1,encode64,0.008310080,10000\n1,alloc64,0.007066011,10000\n1,encode64k,0.000828028,100\n1,control64,0.000118017,10000\n2,alloc64,0.006736994,10000\n2,encode64k,0.000849009,100\n2,control64,0.000111818,10000\n2,encode64,0.008356810,10000\n3,encode64k,0.000816107,100\n3,control64,0.000108004,10000\n3,encode64,0.008239985,10000\n3,alloc64,0.006871939,10000\n4,control64,0.000124931,10000\n4,encode64,0.007992029,10000\n4,alloc64,0.006896973,10000\n4,encode64k,0.000840902,100\n5,encode64,0.008245945,10000\n5,alloc64,0.006869078,10000\n5,encode64k,0.000897884,100\n5,control64,0.000113964,10000\n6,alloc64,0.007268190,10000\n6,encode64k,0.000851870,100\n6,control64,0.000113964,10000\n6,encode64,0.008137941,10000\n7,encode64k,0.000819921,100\n7,control64,0.000113964,10000\n7,encode64,0.008050919,10000\n7,alloc64,0.007066965,10000\n8,control64,0.000131130,10000\n8,encode64,0.008246899,10000\n8,alloc64,0.006793976,10000\n8,encode64k,0.000813007,100\n9,encode64,0.008058071,10000\n9,alloc64,0.006669044,10000\n9,encode64k,0.000938177,100\n9,control64,0.000117064,10000\n10,alloc64,0.006810188,10000\n10,encode64k,0.000839949,100\n10,control64,0.000121832,10000\n10,encode64,0.008157969,10000\n11,encode64k,0.000840902,100\n11,control64,0.000117064,10000\n11,encode64,0.007912874,10000\n11,alloc64,0.006644011,10000\n12,control64,0.000105143,10000\n12,encode64,0.008231878,10000\n12,alloc64,0.006916046,10000\n12,encode64k,0.000822067,100\n13,encode64,0.008111954,10000\n13,alloc64,0.006730080,10000\n13,encode64k,0.000835180,100\n13,control64,0.000108004,10000\n14,alloc64,0.006788969,10000\n14,encode64k,0.000840902,100\n14,control64,0.000115156,10000\n14,encode64,0.008062124,10000\n15,encode64k,0.000793934,100\n15,control64,0.000110865,10000\n15,encode64,0.007942915,10000\n15,alloc64,0.006675959,10000\n",
+    "fork-3-candidate-hoisted.csv": "sample,workload,seconds,iterations\n1,encode64,0.004002094,10000\n1,alloc64,0.003657103,10000\n1,encode64k,0.000813007,100\n1,control64,0.000116110,10000\n2,alloc64,0.003546000,10000\n2,encode64k,0.000800848,100\n2,control64,0.000117064,10000\n2,encode64,0.004096031,10000\n3,encode64k,0.000752926,100\n3,control64,0.000120878,10000\n3,encode64,0.003928900,10000\n3,alloc64,0.003625870,10000\n4,control64,0.000115156,10000\n4,encode64,0.003929138,10000\n4,alloc64,0.003620863,10000\n4,encode64k,0.000748873,100\n5,encode64,0.004043102,10000\n5,alloc64,0.003633976,10000\n5,encode64k,0.000748158,100\n5,control64,0.000116110,10000\n6,alloc64,0.003622055,10000\n6,encode64k,0.000751019,100\n6,control64,0.000109911,10000\n6,encode64,0.003872871,10000\n7,encode64k,0.000771999,100\n7,control64,0.000117064,10000\n7,encode64,0.003910065,10000\n7,alloc64,0.003649950,10000\n8,control64,0.000132799,10000\n8,encode64,0.004015923,10000\n8,alloc64,0.003782034,10000\n8,encode64k,0.000751972,100\n9,encode64,0.003956079,10000\n9,alloc64,0.003677845,10000\n9,encode64k,0.000743151,100\n9,control64,0.000112057,10000\n10,alloc64,0.003640890,10000\n10,encode64k,0.000753880,100\n10,control64,0.000117064,10000\n10,encode64,0.003937960,10000\n11,encode64k,0.000756979,100\n11,control64,0.000116110,10000\n11,encode64,0.003904819,10000\n11,alloc64,0.003666878,10000\n12,control64,0.000119925,10000\n12,encode64,0.003856897,10000\n12,alloc64,0.003627062,10000\n12,encode64k,0.000777960,100\n13,encode64,0.003892183,10000\n13,alloc64,0.003482819,10000\n13,encode64k,0.000764132,100\n13,control64,0.000116110,10000\n14,alloc64,0.003556013,10000\n14,encode64k,0.000746965,100\n14,control64,0.000117064,10000\n14,encode64,0.003895998,10000\n15,encode64k,0.000744104,100\n15,control64,0.000117064,10000\n15,encode64,0.003868818,10000\n15,alloc64,0.003467083,10000\n",
+    "fork-4-baseline.csv": "sample,workload,seconds,iterations\n1,encode64,0.008486986,10000\n1,alloc64,0.006772041,10000\n1,encode64k,0.000831842,100\n1,control64,0.000111103,10000\n2,alloc64,0.006881952,10000\n2,encode64k,0.000875950,100\n2,control64,0.000110865,10000\n2,encode64,0.008405924,10000\n3,encode64k,0.000831842,100\n3,control64,0.000115871,10000\n3,encode64,0.008075953,10000\n3,alloc64,0.006794930,10000\n4,control64,0.000113010,10000\n4,encode64,0.008372068,10000\n4,alloc64,0.006786108,10000\n4,encode64k,0.000833035,100\n5,encode64,0.007883072,10000\n5,alloc64,0.006854057,10000\n5,encode64k,0.000887871,100\n5,control64,0.000114202,10000\n6,alloc64,0.007055998,10000\n6,encode64k,0.000814915,100\n6,control64,0.000117779,10000\n6,encode64,0.008263111,10000\n7,encode64k,0.000822067,100\n7,control64,0.000111103,10000\n7,encode64,0.008046150,10000\n7,alloc64,0.006763935,10000\n8,control64,0.000126123,10000\n8,encode64,0.008082867,10000\n8,alloc64,0.006918907,10000\n8,encode64k,0.000860929,100\n9,encode64,0.007957935,10000\n9,alloc64,0.006751060,10000\n9,encode64k,0.000849009,100\n9,control64,0.000113010,10000\n10,alloc64,0.006813049,10000\n10,encode64k,0.000844002,100\n10,control64,0.000108004,10000\n10,encode64,0.008249998,10000\n11,encode64k,0.000818968,100\n11,control64,0.000108957,10000\n11,encode64,0.008059978,10000\n11,alloc64,0.006985903,10000\n12,control64,0.000116110,10000\n12,encode64,0.007916927,10000\n12,alloc64,0.006896973,10000\n12,encode64k,0.000813007,100\n13,encode64,0.008179188,10000\n13,alloc64,0.006994009,10000\n13,encode64k,0.000791073,100\n13,control64,0.000118017,10000\n14,alloc64,0.006832123,10000\n14,encode64k,0.000805140,100\n14,control64,0.000111103,10000\n14,encode64,0.007827044,10000\n15,encode64k,0.000786066,100\n15,control64,0.000110865,10000\n15,encode64,0.007909775,10000\n15,alloc64,0.006826878,10000\n",
+    "fork-4-candidate-hoisted.csv": "sample,workload,seconds,iterations\n1,encode64,0.003868103,10000\n1,alloc64,0.003535032,10000\n1,encode64k,0.000764132,100\n1,control64,0.000113964,10000\n2,alloc64,0.003546000,10000\n2,encode64k,0.000756979,100\n2,control64,0.000118971,10000\n2,encode64,0.004209042,10000\n3,encode64k,0.000802040,100\n3,control64,0.000120163,10000\n3,encode64,0.003807068,10000\n3,alloc64,0.003491879,10000\n4,control64,0.000128031,10000\n4,encode64,0.003751040,10000\n4,alloc64,0.003579855,10000\n4,encode64k,0.000780106,100\n5,encode64,0.003830194,10000\n5,alloc64,0.003736019,10000\n5,encode64k,0.000787973,100\n5,control64,0.000115871,10000\n6,alloc64,0.003484964,10000\n6,encode64k,0.000754118,100\n6,control64,0.000113964,10000\n6,encode64,0.004031897,10000\n7,encode64k,0.000766039,100\n7,control64,0.000113964,10000\n7,encode64,0.003787041,10000\n7,alloc64,0.003537893,10000\n8,control64,0.000133991,10000\n8,encode64,0.003823996,10000\n8,alloc64,0.003559113,10000\n8,encode64k,0.000818014,100\n9,encode64,0.003865004,10000\n9,alloc64,0.003544092,10000\n9,encode64k,0.000758886,100\n9,control64,0.000113964,10000\n10,alloc64,0.003515005,10000\n10,encode64k,0.000777960,100\n10,control64,0.000113964,10000\n10,encode64,0.003973007,10000\n11,encode64k,0.000787020,100\n11,control64,0.000118017,10000\n11,encode64,0.003868103,10000\n11,alloc64,0.003525972,10000\n12,control64,0.000117064,10000\n12,encode64,0.003831148,10000\n12,alloc64,0.003530025,10000\n12,encode64k,0.000775814,100\n13,encode64,0.003846884,10000\n13,alloc64,0.003523111,10000\n13,encode64k,0.000767946,100\n13,control64,0.000116110,10000\n14,alloc64,0.003571987,10000\n14,encode64k,0.000759125,100\n14,control64,0.000113964,10000\n14,encode64,0.003844023,10000\n15,encode64k,0.000761986,100\n15,control64,0.000116110,10000\n15,encode64,0.003808022,10000\n15,alloc64,0.003547192,10000\n",
+    "fork-5-baseline.csv": "sample,workload,seconds,iterations\n1,encode64,0.008170843,10000\n1,alloc64,0.006979942,10000\n1,encode64k,0.000828028,100\n1,control64,0.000113964,10000\n2,alloc64,0.006663799,10000\n2,encode64k,0.000798941,100\n2,control64,0.000118971,10000\n2,encode64,0.008082151,10000\n3,encode64k,0.000744104,100\n3,control64,0.000111103,10000\n3,encode64,0.008075953,10000\n3,alloc64,0.006634951,10000\n4,control64,0.000118017,10000\n4,encode64,0.007915974,10000\n4,alloc64,0.006630898,10000\n4,encode64k,0.000831127,100\n5,encode64,0.008095026,10000\n5,alloc64,0.006586075,10000\n5,encode64k,0.000892878,100\n5,control64,0.000121117,10000\n6,alloc64,0.006763935,10000\n6,encode64k,0.000824928,100\n6,control64,0.000118017,10000\n6,encode64,0.007896900,10000\n7,encode64k,0.000815153,100\n7,control64,0.000114918,10000\n7,encode64,0.007889986,10000\n7,alloc64,0.006670952,10000\n8,control64,0.000138044,10000\n8,encode64,0.007732153,10000\n8,alloc64,0.006696224,10000\n8,encode64k,0.000813961,100\n9,encode64,0.008121014,10000\n9,alloc64,0.006670952,10000\n9,encode64k,0.000841856,100\n9,control64,0.000124931,10000\n10,alloc64,0.006560087,10000\n10,encode64k,0.000790834,100\n10,control64,0.000121117,10000\n10,encode64,0.007966042,10000\n11,encode64k,0.000806093,100\n11,control64,0.000133038,10000\n11,encode64,0.007745981,10000\n11,alloc64,0.006721020,10000\n12,control64,0.000117064,10000\n12,encode64,0.008084059,10000\n12,alloc64,0.006666899,10000\n12,encode64k,0.000786066,100\n13,encode64,0.007994175,10000\n13,alloc64,0.006644011,10000\n13,encode64k,0.000813961,100\n13,control64,0.000119925,10000\n14,alloc64,0.006642818,10000\n14,encode64k,0.000789881,100\n14,control64,0.000115156,10000\n14,encode64,0.008056879,10000\n15,encode64k,0.000802040,100\n15,control64,0.000116825,10000\n15,encode64,0.007891893,10000\n15,alloc64,0.006610870,10000\n",
+    "fork-5-candidate-hoisted.csv": "sample,workload,seconds,iterations\n1,encode64,0.004142046,10000\n1,alloc64,0.003732920,10000\n1,encode64k,0.000761032,100\n1,control64,0.000123024,10000\n2,alloc64,0.003466129,10000\n2,encode64k,0.000779152,100\n2,control64,0.000116110,10000\n2,encode64,0.003922939,10000\n3,encode64k,0.000763893,100\n3,control64,0.000116110,10000\n3,encode64,0.003970861,10000\n3,alloc64,0.003597975,10000\n4,control64,0.000118017,10000\n4,encode64,0.003912926,10000\n4,alloc64,0.003637075,10000\n4,encode64k,0.000752926,100\n5,encode64,0.003941059,10000\n5,alloc64,0.003808022,10000\n5,encode64k,0.000766039,100\n5,control64,0.000139952,10000\n6,alloc64,0.003684044,10000\n6,encode64k,0.000766993,100\n6,control64,0.000118017,10000\n6,encode64,0.003768206,10000\n7,encode64k,0.000786781,100\n7,control64,0.000136137,10000\n7,encode64,0.004270077,10000\n7,alloc64,0.004127026,10000\n8,control64,0.000149965,10000\n8,encode64,0.004271030,10000\n8,alloc64,0.003614187,10000\n8,encode64k,0.000785112,100\n9,encode64,0.003821850,10000\n9,alloc64,0.003720999,10000\n9,encode64k,0.000770092,100\n9,control64,0.000115871,10000\n10,alloc64,0.003541946,10000\n10,encode64k,0.000711918,100\n10,control64,0.000117064,10000\n10,encode64,0.003865957,10000\n11,encode64k,0.000743151,100\n11,control64,0.000110149,10000\n11,encode64,0.003783941,10000\n11,alloc64,0.003651857,10000\n12,control64,0.000118971,10000\n12,encode64,0.003793001,10000\n12,alloc64,0.003730059,10000\n12,encode64k,0.000745773,100\n13,encode64,0.003900051,10000\n13,alloc64,0.003798008,10000\n13,encode64k,0.000715017,100\n13,control64,0.000133038,10000\n14,alloc64,0.003825903,10000\n14,encode64k,0.000825167,100\n14,control64,0.000155926,10000\n14,encode64,0.003933907,10000\n15,encode64k,0.000710011,100\n15,control64,0.000113964,10000\n15,encode64,0.003810883,10000\n15,alloc64,0.003650904,10000\n",
+    "fork-6-baseline.csv": "sample,workload,seconds,iterations\n1,encode64,0.008024931,10000\n1,alloc64,0.006948948,10000\n1,encode64k,0.000801086,100\n1,control64,0.000108957,10000\n2,alloc64,0.007131100,10000\n2,encode64k,0.000888824,100\n2,control64,0.000116825,10000\n2,encode64,0.008229971,10000\n3,encode64k,0.000810146,100\n3,control64,0.000109911,10000\n3,encode64,0.008024931,10000\n3,alloc64,0.006785154,10000\n4,control64,0.000134945,10000\n4,encode64,0.008053064,10000\n4,alloc64,0.006881952,10000\n4,encode64k,0.000817060,100\n5,encode64,0.008163929,10000\n5,alloc64,0.007038832,10000\n5,encode64k,0.000853062,100\n5,control64,0.000114202,10000\n6,alloc64,0.006919861,10000\n6,encode64k,0.000792980,100\n6,control64,0.000135183,10000\n6,encode64,0.008132935,10000\n7,encode64k,0.000813007,100\n7,control64,0.000118017,10000\n7,encode64,0.008080959,10000\n7,alloc64,0.006886005,10000\n8,control64,0.000127077,10000\n8,encode64,0.008102179,10000\n8,alloc64,0.006644964,10000\n8,encode64k,0.000929117,100\n9,encode64,0.008182049,10000\n9,alloc64,0.006719112,10000\n9,encode64k,0.000839949,100\n9,control64,0.000125885,10000\n10,alloc64,0.006772995,10000\n10,encode64k,0.000810146,100\n10,control64,0.000118017,10000\n10,encode64,0.008390903,10000\n11,encode64k,0.000850916,100\n11,control64,0.000118971,10000\n11,encode64,0.008275986,10000\n11,alloc64,0.006759167,10000\n12,control64,0.000137091,10000\n12,encode64,0.008393049,10000\n12,alloc64,0.006763935,10000\n12,encode64k,0.000867128,100\n13,encode64,0.008296967,10000\n13,alloc64,0.006953955,10000\n13,encode64k,0.000797987,100\n13,control64,0.000111103,10000\n14,alloc64,0.006685019,10000\n14,encode64k,0.000809193,100\n14,control64,0.000114918,10000\n14,encode64,0.008099079,10000\n15,encode64k,0.000850916,100\n15,control64,0.000125885,10000\n15,encode64,0.008027077,10000\n15,alloc64,0.006747961,10000\n",
+    "fork-6-candidate-hoisted.csv": "sample,workload,seconds,iterations\n1,encode64,0.004038095,10000\n1,alloc64,0.003736019,10000\n1,encode64k,0.000762939,100\n1,control64,0.000113010,10000\n2,alloc64,0.003524065,10000\n2,encode64k,0.000823021,100\n2,control64,0.000113964,10000\n2,encode64,0.003956079,10000\n3,encode64k,0.000775099,100\n3,control64,0.000113964,10000\n3,encode64,0.003846884,10000\n3,alloc64,0.003934860,10000\n4,control64,0.000116825,10000\n4,encode64,0.003926039,10000\n4,alloc64,0.003666162,10000\n4,encode64k,0.000809908,100\n5,encode64,0.003862858,10000\n5,alloc64,0.003719091,10000\n5,encode64k,0.000754833,100\n5,control64,0.000113964,10000\n6,alloc64,0.003557920,10000\n6,encode64k,0.000810862,100\n6,control64,0.000123024,10000\n6,encode64,0.003915071,10000\n7,encode64k,0.000757933,100\n7,control64,0.000118971,10000\n7,encode64,0.003863096,10000\n7,alloc64,0.003522158,10000\n8,control64,0.000136137,10000\n8,encode64,0.003917933,10000\n8,alloc64,0.003477097,10000\n8,encode64k,0.000832081,100\n9,encode64,0.004006863,10000\n9,alloc64,0.003617048,10000\n9,encode64k,0.000777960,100\n9,control64,0.000128031,10000\n10,alloc64,0.003515959,10000\n10,encode64k,0.000786066,100\n10,control64,0.000114918,10000\n10,encode64,0.003898859,10000\n11,encode64k,0.000753880,100\n11,control64,0.000114202,10000\n11,encode64,0.003859997,10000\n11,alloc64,0.003577948,10000\n12,control64,0.000113964,10000\n12,encode64,0.003858805,10000\n12,alloc64,0.003576040,10000\n12,encode64k,0.000766039,100\n13,encode64,0.003872156,10000\n13,alloc64,0.003535986,10000\n13,encode64k,0.000751972,100\n13,control64,0.000119925,10000\n14,alloc64,0.003503084,10000\n14,encode64k,0.000769138,100\n14,control64,0.000115156,10000\n14,encode64,0.003864050,10000\n15,encode64k,0.000744104,100\n15,control64,0.000116110,10000\n15,encode64,0.003906965,10000\n15,alloc64,0.003496170,10000\n",
+    "fork-7-baseline.csv": "sample,workload,seconds,iterations\n1,encode64,0.008721113,10000\n1,alloc64,0.006810188,10000\n1,encode64k,0.000823021,100\n1,control64,0.000123024,10000\n2,alloc64,0.006866932,10000\n2,encode64k,0.000813007,100\n2,control64,0.000117064,10000\n2,encode64,0.008571863,10000\n3,encode64k,0.000852823,100\n3,control64,0.000118971,10000\n3,encode64,0.008465052,10000\n3,alloc64,0.007157087,10000\n4,control64,0.000115156,10000\n4,encode64,0.008149862,10000\n4,alloc64,0.006951094,10000\n4,encode64k,0.000820875,100\n5,encode64,0.008322954,10000\n5,alloc64,0.006965160,10000\n5,encode64k,0.000800133,100\n5,control64,0.000109911,10000\n6,alloc64,0.006742001,10000\n6,encode64k,0.000838041,100\n6,control64,0.000119209,10000\n6,encode64,0.008147001,10000\n7,encode64k,0.000801086,100\n7,control64,0.000115871,10000\n7,encode64,0.008019924,10000\n7,alloc64,0.006750107,10000\n8,control64,0.000124931,10000\n8,encode64,0.008111954,10000\n8,alloc64,0.006818056,10000\n8,encode64k,0.000854969,100\n9,encode64,0.008026838,10000\n9,alloc64,0.006750822,10000\n9,encode64k,0.000812054,100\n9,control64,0.000121117,10000\n10,alloc64,0.006852150,10000\n10,encode64k,0.000838995,100\n10,control64,0.000116110,10000\n10,encode64,0.008297920,10000\n11,encode64k,0.000837088,100\n11,control64,0.000118017,10000\n11,encode64,0.008157015,10000\n11,alloc64,0.006782055,10000\n12,control64,0.000128031,10000\n12,encode64,0.007937908,10000\n12,alloc64,0.006677866,10000\n12,encode64k,0.000856161,100\n13,encode64,0.007947922,10000\n13,alloc64,0.006768942,10000\n13,encode64k,0.000822067,100\n13,control64,0.000128031,10000\n14,alloc64,0.006581068,10000\n14,encode64k,0.000808001,100\n14,control64,0.000120163,10000\n14,encode64,0.008128881,10000\n15,encode64k,0.000945091,100\n15,control64,0.000123978,10000\n15,encode64,0.007946014,10000\n15,alloc64,0.006761074,10000\n",
+    "fork-7-candidate-hoisted.csv": "sample,workload,seconds,iterations\n1,encode64,0.003942013,10000\n1,alloc64,0.003592968,10000\n1,encode64k,0.000795841,100\n1,control64,0.000113964,10000\n2,alloc64,0.003791094,10000\n2,encode64k,0.000766993,100\n2,control64,0.000113964,10000\n2,encode64,0.004063129,10000\n3,encode64k,0.000767946,100\n3,control64,0.000128984,10000\n3,encode64,0.003834963,10000\n3,alloc64,0.003793001,10000\n4,control64,0.000113964,10000\n4,encode64,0.003856897,10000\n4,alloc64,0.003632069,10000\n4,encode64k,0.000777006,100\n5,encode64,0.003937960,10000\n5,alloc64,0.003632069,10000\n5,encode64k,0.000760078,100\n5,control64,0.000124931,10000\n6,alloc64,0.003603935,10000\n6,encode64k,0.000809908,100\n6,control64,0.000119925,10000\n6,encode64,0.003926039,10000\n7,encode64k,0.000780106,100\n7,control64,0.000116825,10000\n7,encode64,0.004049063,10000\n7,alloc64,0.003617048,10000\n8,control64,0.000138998,10000\n8,encode64,0.003913879,10000\n8,alloc64,0.003531218,10000\n8,encode64k,0.000761986,100\n9,encode64,0.003932953,10000\n9,alloc64,0.003502846,10000\n9,encode64k,0.000749826,100\n9,control64,0.000114202,10000\n10,alloc64,0.003475904,10000\n10,encode64k,0.000757933,100\n10,control64,0.000114202,10000\n10,encode64,0.003993034,10000\n11,encode64k,0.000758886,100\n11,control64,0.000120163,10000\n11,encode64,0.003893852,10000\n11,alloc64,0.003517866,10000\n12,control64,0.000114918,10000\n12,encode64,0.003915787,10000\n12,alloc64,0.003504992,10000\n12,encode64k,0.000766039,100\n13,encode64,0.003874063,10000\n13,alloc64,0.003484011,10000\n13,encode64k,0.000748873,100\n13,control64,0.000113964,10000\n14,alloc64,0.003469944,10000\n14,encode64k,0.000766039,100\n14,control64,0.000108957,10000\n14,encode64,0.003916025,10000\n15,encode64k,0.000755072,100\n15,control64,0.000123024,10000\n15,encode64,0.004066944,10000\n15,alloc64,0.003509045,10000\n",
+    "fork-8-baseline.csv": "sample,workload,seconds,iterations\n1,encode64,0.008496046,10000\n1,alloc64,0.007171154,10000\n1,encode64k,0.000805855,100\n1,control64,0.000116110,10000\n2,alloc64,0.007241011,10000\n2,encode64k,0.000836134,100\n2,control64,0.000112057,10000\n2,encode64,0.008283138,10000\n3,encode64k,0.000828981,100\n3,control64,0.000116825,10000\n3,encode64,0.008097887,10000\n3,alloc64,0.006793022,10000\n4,control64,0.000128984,10000\n4,encode64,0.008363008,10000\n4,alloc64,0.007114887,10000\n4,encode64k,0.000781059,100\n5,encode64,0.008219004,10000\n5,alloc64,0.006824017,10000\n5,encode64k,0.000838995,100\n5,control64,0.000111103,10000\n6,alloc64,0.006665945,10000\n6,encode64k,0.000813007,100\n6,control64,0.000112057,10000\n6,encode64,0.007861137,10000\n7,encode64k,0.000831127,100\n7,control64,0.000113010,10000\n7,encode64,0.008349180,10000\n7,alloc64,0.006945133,10000\n8,control64,0.000129938,10000\n8,encode64,0.008203030,10000\n8,alloc64,0.006737947,10000\n8,encode64k,0.000816822,100\n9,encode64,0.007971048,10000\n9,alloc64,0.006674051,10000\n9,encode64k,0.000809908,100\n9,control64,0.000118971,10000\n10,alloc64,0.006724119,10000\n10,encode64k,0.000833035,100\n10,control64,0.000114918,10000\n10,encode64,0.007889986,10000\n11,encode64k,0.000798941,100\n11,control64,0.000111818,10000\n11,encode64,0.007990837,10000\n11,alloc64,0.006682158,10000\n12,control64,0.000121832,10000\n12,encode64,0.007833004,10000\n12,alloc64,0.006671190,10000\n12,encode64k,0.000853062,100\n13,encode64,0.007819891,10000\n13,alloc64,0.006559849,10000\n13,encode64k,0.000814915,100\n13,control64,0.000117779,10000\n14,alloc64,0.006543159,10000\n14,encode64k,0.000818014,100\n14,control64,0.000122070,10000\n14,encode64,0.007946968,10000\n15,encode64k,0.000823021,100\n15,control64,0.000118971,10000\n15,encode64,0.007897854,10000\n15,alloc64,0.006718874,10000\n",
+    "fork-8-candidate-hoisted.csv": "sample,workload,seconds,iterations\n1,encode64,0.004014015,10000\n1,alloc64,0.003523827,10000\n1,encode64k,0.000783920,100\n1,control64,0.000115156,10000\n2,alloc64,0.003768206,10000\n2,encode64k,0.000757933,100\n2,control64,0.000114918,10000\n2,encode64,0.003890991,10000\n3,encode64k,0.000775099,100\n3,control64,0.000113010,10000\n3,encode64,0.003840923,10000\n3,alloc64,0.004067898,10000\n4,control64,0.000105143,10000\n4,encode64,0.003858089,10000\n4,alloc64,0.003574133,10000\n4,encode64k,0.000809908,100\n5,encode64,0.003698111,10000\n5,alloc64,0.003524065,10000\n5,encode64k,0.000757933,100\n5,control64,0.000123024,10000\n6,alloc64,0.003524065,10000\n6,encode64k,0.000771046,100\n6,control64,0.000114918,10000\n6,encode64,0.003804922,10000\n7,encode64k,0.000768185,100\n7,control64,0.000114918,10000\n7,encode64,0.003808975,10000\n7,alloc64,0.003499031,10000\n8,control64,0.000142813,10000\n8,encode64,0.003895044,10000\n8,alloc64,0.003654003,10000\n8,encode64k,0.000787020,100\n9,encode64,0.003876925,10000\n9,alloc64,0.003526926,10000\n9,encode64k,0.000771046,100\n9,control64,0.000116825,10000\n10,alloc64,0.003456116,10000\n10,encode64k,0.000763893,100\n10,control64,0.000124216,10000\n10,encode64,0.004007101,10000\n11,encode64k,0.000808001,100\n11,control64,0.000118971,10000\n11,encode64,0.003993988,10000\n11,alloc64,0.003669977,10000\n12,control64,0.000113964,10000\n12,encode64,0.003854990,10000\n12,alloc64,0.003579855,10000\n12,encode64k,0.000847101,100\n13,encode64,0.003953934,10000\n13,alloc64,0.003543854,10000\n13,encode64k,0.000753164,100\n13,control64,0.000114918,10000\n14,alloc64,0.003561020,10000\n14,encode64k,0.000776052,100\n14,control64,0.000108004,10000\n14,encode64,0.003892183,10000\n15,encode64k,0.000791073,100\n15,control64,0.000114918,10000\n15,encode64,0.003909826,10000\n15,alloc64,0.003590822,10000\n",
+    "fork-9-baseline.csv": "sample,workload,seconds,iterations\n1,encode64,0.008336067,10000\n1,alloc64,0.007005930,10000\n1,encode64k,0.000823975,100\n1,control64,0.000118017,10000\n2,alloc64,0.006711006,10000\n2,encode64k,0.000837088,100\n2,control64,0.000116110,10000\n2,encode64,0.008177996,10000\n3,encode64k,0.000798941,100\n3,control64,0.000109911,10000\n3,encode64,0.008425951,10000\n3,alloc64,0.006906986,10000\n4,control64,0.000116825,10000\n4,encode64,0.008182049,10000\n4,alloc64,0.006894827,10000\n4,encode64k,0.000846148,100\n5,encode64,0.008100986,10000\n5,alloc64,0.006747007,10000\n5,encode64k,0.000843048,100\n5,control64,0.000124931,10000\n6,alloc64,0.006668806,10000\n6,encode64k,0.000795126,100\n6,control64,0.000111818,10000\n6,encode64,0.008202791,10000\n7,encode64k,0.000802994,100\n7,control64,0.000118971,10000\n7,encode64,0.008104086,10000\n7,alloc64,0.007086039,10000\n8,control64,0.000115871,10000\n8,encode64,0.008208036,10000\n8,alloc64,0.006721973,10000\n8,encode64k,0.000906944,100\n9,encode64,0.007994890,10000\n9,alloc64,0.006817102,10000\n9,encode64k,0.000814915,100\n9,control64,0.000108957,10000\n10,alloc64,0.006551027,10000\n10,encode64k,0.000789165,100\n10,control64,0.000108957,10000\n10,encode64,0.007918835,10000\n11,encode64k,0.000794172,100\n11,control64,0.000108004,10000\n11,encode64,0.008102894,10000\n11,alloc64,0.006706953,10000\n12,control64,0.000115871,10000\n12,encode64,0.008188009,10000\n12,alloc64,0.006690979,10000\n12,encode64k,0.000813961,100\n13,encode64,0.008342981,10000\n13,alloc64,0.006613970,10000\n13,encode64k,0.000838995,100\n13,control64,0.000112057,10000\n14,alloc64,0.006580114,10000\n14,encode64k,0.000821114,100\n14,control64,0.000121832,10000\n14,encode64,0.008146048,10000\n15,encode64k,0.000808954,100\n15,control64,0.000110865,10000\n15,encode64,0.008058071,10000\n15,alloc64,0.006637096,10000\n",
+    "fork-9-candidate-hoisted.csv": "sample,workload,seconds,iterations\n1,encode64,0.003929853,10000\n1,alloc64,0.003525972,10000\n1,encode64k,0.000878811,100\n1,control64,0.000108957,10000\n2,alloc64,0.003537893,10000\n2,encode64k,0.000912905,100\n2,control64,0.000110865,10000\n2,encode64,0.003825903,10000\n3,encode64k,0.000828981,100\n3,control64,0.000113010,10000\n3,encode64,0.003881931,10000\n3,alloc64,0.003796101,10000\n4,control64,0.000108004,10000\n4,encode64,0.003884077,10000\n4,alloc64,0.003736973,10000\n4,encode64k,0.000796080,100\n5,encode64,0.004060030,10000\n5,alloc64,0.003823042,10000\n5,encode64k,0.000768900,100\n5,control64,0.000116110,10000\n6,alloc64,0.003746033,10000\n6,encode64k,0.000770092,100\n6,control64,0.000114918,10000\n6,encode64,0.003900051,10000\n7,encode64k,0.000763893,100\n7,control64,0.000110865,10000\n7,encode64,0.003871202,10000\n7,alloc64,0.003526926,10000\n8,control64,0.000128031,10000\n8,encode64,0.003876209,10000\n8,alloc64,0.003624916,10000\n8,encode64k,0.000761986,100\n9,encode64,0.003899097,10000\n9,alloc64,0.003643036,10000\n9,encode64k,0.000751019,100\n9,control64,0.000113964,10000\n10,alloc64,0.003515959,10000\n10,encode64k,0.000779867,100\n10,control64,0.000115871,10000\n10,encode64,0.003949881,10000\n11,encode64k,0.000756025,100\n11,control64,0.000116110,10000\n11,encode64,0.003929138,10000\n11,alloc64,0.003596783,10000\n12,control64,0.000111818,10000\n12,encode64,0.004009008,10000\n12,alloc64,0.003417015,10000\n12,encode64k,0.000789165,100\n13,encode64,0.003872156,10000\n13,alloc64,0.003448963,10000\n13,encode64k,0.000769854,100\n13,control64,0.000118017,10000\n14,alloc64,0.003412008,10000\n14,encode64k,0.000741005,100\n14,control64,0.000117064,10000\n14,encode64,0.003861904,10000\n15,encode64k,0.000747919,100\n15,control64,0.000112057,10000\n15,encode64,0.003870010,10000\n15,alloc64,0.003535032,10000\n"
+  },
+  "proofLogs": {
+    "fork-1-baseline.log": "shared native library: /private/tmp/nupp-buffer-measure/candidate-hoisted/lib/libbase64_simd_aot.dylib\ncompiled calls confirmed; native, scalar, and C results agree\n",
+    "fork-1-candidate-hoisted.log": "shared native library: /private/tmp/nupp-buffer-measure/candidate-hoisted/lib/libbase64_simd_aot.dylib\ncompiled calls confirmed; native, scalar, and C results agree\n",
+    "fork-2-baseline.log": "shared native library: /private/tmp/nupp-buffer-measure/candidate-hoisted/lib/libbase64_simd_aot.dylib\ncompiled calls confirmed; native, scalar, and C results agree\n",
+    "fork-2-candidate-hoisted.log": "shared native library: /private/tmp/nupp-buffer-measure/candidate-hoisted/lib/libbase64_simd_aot.dylib\ncompiled calls confirmed; native, scalar, and C results agree\n",
+    "fork-3-baseline.log": "shared native library: /private/tmp/nupp-buffer-measure/candidate-hoisted/lib/libbase64_simd_aot.dylib\ncompiled calls confirmed; native, scalar, and C results agree\n",
+    "fork-3-candidate-hoisted.log": "shared native library: /private/tmp/nupp-buffer-measure/candidate-hoisted/lib/libbase64_simd_aot.dylib\ncompiled calls confirmed; native, scalar, and C results agree\n",
+    "fork-4-baseline.log": "shared native library: /private/tmp/nupp-buffer-measure/candidate-hoisted/lib/libbase64_simd_aot.dylib\ncompiled calls confirmed; native, scalar, and C results agree\n",
+    "fork-4-candidate-hoisted.log": "shared native library: /private/tmp/nupp-buffer-measure/candidate-hoisted/lib/libbase64_simd_aot.dylib\ncompiled calls confirmed; native, scalar, and C results agree\n",
+    "fork-5-baseline.log": "shared native library: /private/tmp/nupp-buffer-measure/candidate-hoisted/lib/libbase64_simd_aot.dylib\ncompiled calls confirmed; native, scalar, and C results agree\n",
+    "fork-5-candidate-hoisted.log": "shared native library: /private/tmp/nupp-buffer-measure/candidate-hoisted/lib/libbase64_simd_aot.dylib\ncompiled calls confirmed; native, scalar, and C results agree\n",
+    "fork-6-baseline.log": "shared native library: /private/tmp/nupp-buffer-measure/candidate-hoisted/lib/libbase64_simd_aot.dylib\ncompiled calls confirmed; native, scalar, and C results agree\n",
+    "fork-6-candidate-hoisted.log": "shared native library: /private/tmp/nupp-buffer-measure/candidate-hoisted/lib/libbase64_simd_aot.dylib\ncompiled calls confirmed; native, scalar, and C results agree\n",
+    "fork-7-baseline.log": "shared native library: /private/tmp/nupp-buffer-measure/candidate-hoisted/lib/libbase64_simd_aot.dylib\ncompiled calls confirmed; native, scalar, and C results agree\n",
+    "fork-7-candidate-hoisted.log": "shared native library: /private/tmp/nupp-buffer-measure/candidate-hoisted/lib/libbase64_simd_aot.dylib\ncompiled calls confirmed; native, scalar, and C results agree\n",
+    "fork-8-baseline.log": "shared native library: /private/tmp/nupp-buffer-measure/candidate-hoisted/lib/libbase64_simd_aot.dylib\ncompiled calls confirmed; native, scalar, and C results agree\n",
+    "fork-8-candidate-hoisted.log": "shared native library: /private/tmp/nupp-buffer-measure/candidate-hoisted/lib/libbase64_simd_aot.dylib\ncompiled calls confirmed; native, scalar, and C results agree\n",
+    "fork-9-baseline.log": "shared native library: /private/tmp/nupp-buffer-measure/candidate-hoisted/lib/libbase64_simd_aot.dylib\ncompiled calls confirmed; native, scalar, and C results agree\n",
+    "fork-9-candidate-hoisted.log": "shared native library: /private/tmp/nupp-buffer-measure/candidate-hoisted/lib/libbase64_simd_aot.dylib\ncompiled calls confirmed; native, scalar, and C results agree\n"
+  },
+  "records": [
+    {
+      "baseline": {
+        "encode64": 8.208989999999999e-07,
+        "alloc64": 6.825924e-07,
+        "encode64k": 8.459090000000001e-06,
+        "control64": 1.18971e-08
+      },
+      "candidate-hoisted": {
+        "encode64": 3.9479729999999996e-07,
+        "alloc64": 3.5610199999999997e-07,
+        "encode64k": 7.689e-06,
+        "control64": 1.18971e-08
+      }
+    },
+    {
+      "candidate-hoisted": {
+        "encode64": 3.871918e-07,
+        "alloc64": 3.540039e-07,
+        "encode64k": 7.92027e-06,
+        "control64": 1.13964e-08
+      },
+      "baseline": {
+        "encode64": 8.149862000000001e-07,
+        "alloc64": 6.961107000000001e-07,
+        "encode64k": 8.180140000000001e-06,
+        "control64": 1.1181800000000001e-08
+      }
+    },
+    {
+      "baseline": {
+        "encode64": 8.137940999999999e-07,
+        "alloc64": 6.810188e-07,
+        "encode64k": 8.399489999999999e-06,
+        "control64": 1.13964e-08
+      },
+      "candidate-hoisted": {
+        "encode64": 3.9288999999999997e-07,
+        "alloc64": 3.627062e-07,
+        "encode64k": 7.52926e-06,
+        "control64": 1.1706400000000001e-08
+      }
+    },
+    {
+      "candidate-hoisted": {
+        "encode64": 3.8440229999999995e-07,
+        "alloc64": 3.537893e-07,
+        "encode64k": 7.67946e-06,
+        "control64": 1.1611e-08
+      },
+      "baseline": {
+        "encode64": 8.075953e-07,
+        "alloc64": 6.832123e-07,
+        "encode64k": 8.31842e-06,
+        "control64": 1.1301e-08
+      }
+    },
+    {
+      "baseline": {
+        "encode64": 7.994174999999999e-07,
+        "alloc64": 6.663799e-07,
+        "encode64k": 8.13961e-06,
+        "control64": 1.18017e-08
+      },
+      "candidate-hoisted": {
+        "encode64": 3.9129259999999996e-07,
+        "alloc64": 3.684044e-07,
+        "encode64k": 7.63893e-06,
+        "control64": 1.18017e-08
+      }
+    },
+    {
+      "candidate-hoisted": {
+        "encode64": 3.898859e-07,
+        "alloc64": 3.55792e-07,
+        "encode64k": 7.691380000000001e-06,
+        "control64": 1.15156e-08
+      },
+      "baseline": {
+        "encode64": 8.132935e-07,
+        "alloc64": 6.785154e-07,
+        "encode64k": 8.1706e-06,
+        "control64": 1.18017e-08
+      }
+    },
+    {
+      "baseline": {
+        "encode64": 8.147001e-07,
+        "alloc64": 6.782055000000001e-07,
+        "encode64k": 8.23021e-06,
+        "control64": 1.1920900000000001e-08
+      },
+      "candidate-hoisted": {
+        "encode64": 3.926039e-07,
+        "alloc64": 3.531218e-07,
+        "encode64k": 7.66039e-06,
+        "control64": 1.14918e-08
+      }
+    },
+    {
+      "candidate-hoisted": {
+        "encode64": 3.890991e-07,
+        "alloc64": 3.5610199999999997e-07,
+        "encode64k": 7.75099e-06,
+        "control64": 1.14918e-08
+      },
+      "baseline": {
+        "encode64": 7.990837000000001e-07,
+        "alloc64": 6.724119e-07,
+        "encode64k": 8.180140000000001e-06,
+        "control64": 1.1682499999999999e-08
+      }
+    },
+    {
+      "baseline": {
+        "encode64": 8.177996e-07,
+        "alloc64": 6.711006e-07,
+        "encode64k": 8.14915e-06,
+        "control64": 1.15871e-08
+      },
+      "candidate-hoisted": {
+        "encode64": 3.884077e-07,
+        "alloc64": 3.537893e-07,
+        "encode64k": 7.69854e-06,
+        "control64": 1.13964e-08
+      }
+    }
+  ],
+  "results": {
+    "encode64": {
+      "baselineMedianUs": 0.8137941,
+      "candidateMedianUs": 0.3898859,
+      "raw": {
+        "ratio": 0.48080157311803884,
+        "ci95": [
+          0.47777800224138084,
+          0.48402035355829703
+        ],
+        "ratios": [
+          0.4809328553208129,
+          0.4750900076590253,
+          0.4827879681113441,
+          0.47598382506683723,
+          0.48947214690696667,
+          0.4793913882257758,
+          0.48189990402603367,
+          0.48693159427479243,
+          0.47494239420024176
+        ]
+      },
+      "controlNormalized": {
+        "ratio": 0.4819431512279155,
+        "ci95": [
+          0.4738363376196899,
+          0.48994254352306643
+        ],
+        "ratios": [
+          0.4809328553208129,
+          0.4661438215262443,
+          0.47000314356113937,
+          0.46327561855829186,
+          0.48947214690696667,
+          0.4913016557039267,
+          0.4998938865890413,
+          0.49501195201058684,
+          0.48288977359847157
+        ]
+      }
+    },
+    "alloc64": {
+      "baselineMedianUs": 0.6785154,
+      "candidateMedianUs": 0.355792,
+      "raw": {
+        "ratio": 0.5260208054703056,
+        "ci95": [
+          0.519184230998749,
+          0.5341587360759765
+        ],
+        "ratios": [
+          0.5216905432876193,
+          0.5085454080794908,
+          0.5325935201788848,
+          0.517832158466702,
+          0.5528444060212501,
+          0.5243683488981974,
+          0.5206707996322648,
+          0.5295890807405401,
+          0.5271777435454535
+        ]
+      },
+      "controlNormalized": {
+        "ratio": 0.5272697486319726,
+        "ci95": [
+          0.515903087368658,
+          0.5380912218371648
+        ],
+        "ratios": [
+          0.5216905432876193,
+          0.49896923976547425,
+          0.51848978279972,
+          0.5040066508338815,
+          0.5528444060212501,
+          0.5373960491152746,
+          0.5401124745763297,
+          0.5383773156295235,
+          0.5359991955560989
+        ]
+      }
+    },
+    "encode64k": {
+      "baselineMedianUs": 8.180140000000002,
+      "candidateMedianUs": 7.689,
+      "raw": {
+        "ratio": 0.9330696085373819,
+        "ci95": [
+          0.9197315689217629,
+          0.9462258351814572
+        ],
+        "ratios": [
+          0.9089630208450318,
+          0.9682315950582753,
+          0.8963949001665578,
+          0.923187336056607,
+          0.9384884533779874,
+          0.9413482485986343,
+          0.9307648286009712,
+          0.9475375727065795,
+          0.9447046624494579
+        ]
+      },
+      "controlNormalized": {
+        "ratio": 0.9352850169296416,
+        "ci95": [
+          0.9126942505561034,
+          0.9554238724808609
+        ],
+        "ratios": [
+          0.9089630208450318,
+          0.9499993023781742,
+          0.8726572507566936,
+          0.8985393234670325,
+          0.9384884533779874,
+          0.9647356304045385,
+          0.9655192785524738,
+          0.9632614292925923,
+          0.9605127403625806
+        ]
+      }
+    },
+    "control64": {
+      "baselineMedianUs": 0.011682499999999998,
+      "candidateMedianUs": 0.0115156,
+      "raw": {
+        "ratio": 0.9976313013122646,
+        "ci95": [
+          0.9836251755558516,
+          1.0117685760416253
+        ],
+        "ratios": [
+          1.0,
+          1.0191919011250423,
+          1.0272015724263803,
+          1.0274312007786923,
+          1.0,
+          0.9757577298185854,
+          0.9640043956412686,
+          0.9836764391183396,
+          0.9835420424437521
+        ]
+      },
+      "controlNormalized": {
+        "ratio": 1.0,
+        "ci95": [
+          1.0,
+          1.0
+        ],
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    }
+  },
+  "runnerRevision": "f2e05fced67a3f525832d132c258d05417369b38",
+  "artifactRevisionNote": "The runner revision includes the capture-write correction. Timed generated Lua and native binaries were preserved before that narrow correction; their identities are the artifact hashes, not the runner revision.",
+  "hardware": {
+    "cpu": "Apple M5 Pro",
+    "physicalCores": 18,
+    "macOS": "26.6",
+    "clang": "Apple clang version21.0.0"
+  },
+  "coordination": "All three other active Nupp tasks and both sibling agents held heavy local work during the final paired run.",
+  "nativeProviderNote": "The Buffer/span path uses LuaJIT-backed storage and the registered AOT library; it does not load nupp.runtime.native. The nonexistent NUPP_NATIVE_LIBRARY override in the earlier diagnostic runner was unused. The final runner omits it.",
+  "originalSummarySha256": "d4251e89ac1d5c84046b3b49b50a4978cb44722f81cae65ef706cb93a97a493e",
+  "timedHarnessSource": "-- Run this once per preserved build, with that build first on LUA_PATH.\n-- Alternate baseline and candidate processes; the identical C encoder is a\n-- colocated control for each process. Timing excludes validation and warmup.\nlocal ffi = require(\"ffi\")\nlocal here = assert(debug.getinfo(1, \"S\").source:match(\"^@(.*[/\\\\])\"))\nlocal now = dofile(here .. \"../simd-mandelbrot/clock.lua\")\nlocal simd = require(\"base64simd\")\nlocal reference = require(\"base64reference\")\nlocal entries = assert(rawget(_G, \"__nuppAotCompiled\"), \"compiled-entry registry missing\")\nlocal nativeCalls = 0\njit.off()\ndebug.sethook(\n    function()\n        local frame = debug.getinfo(2, \"f\")\n        if frame and entries[frame.func] then\n            nativeCalls = nativeCalls + 1\n        end\n    end,\n    \"c\"\n)\nsimd.encode((\"native proof\"):rep(8))\ndebug.sethook()\nassert(nativeCalls > 0, \"the public encoder did not reach compiled code\")\njit.on()\n\nffi.cdef[[size_t nuppBase64EncodeVector(const uint8_t *, size_t, char *);]]\nlocal control = ffi.load(assert(arg[1], \"C control library required\"))\nlocal output = ffi.new(\"char[?]\", 100000)\n\nlocal function encodeControl(value)\n    local written = control.nuppBase64EncodeVector(value, #value, output)\n    return ffi.string(output, written)\nend\n\nlocal small = (\"0123456789abcdef\"):rep(4)\nlocal large = small:rep(1024)\nfor _, input in ipairs({\"\", \"a\", \"ab\", small, large}) do\n    local expected = reference.encode(input)\n    assert(simd.encode(input) == expected, \"native encoder disagrees with scalar reference\")\n    assert(encodeControl(input) == expected, \"C control disagrees with scalar reference\")\n    assert(simd.allocOnly(input) == string.char(#input % 256), \"lease allocation result changed\")\nend\nlocal sink = 0\n\nlocal function consume(result)\n    sink = sink + #result + (result:byte(#result) or 0)\nend\n\n-- Separate loop prototypes keep one case's tracing failures from blacklisting\n-- another case, especially the colocated C control.\nlocal cases = {\n    {\n        name = \"encode64\",\n        iterations = 10000,\n        batch = function()\n            for _ = 1, 10000 do\n                consume(simd.encode(small))\n            end\n        end\n    },\n    {\n        name = \"alloc64\",\n        iterations = 10000,\n        batch = function()\n            for _ = 1, 10000 do\n                consume(simd.allocOnly(small))\n            end\n        end\n    },\n    {\n        name = \"encode64k\",\n        iterations = 100,\n        batch = function()\n            for _ = 1, 100 do\n                consume(simd.encode(large))\n            end\n        end\n    },\n    {\n        name = \"control64\",\n        iterations = 10000,\n        batch = function()\n            for _ = 1, 10000 do\n                consume(encodeControl(small))\n            end\n        end\n    },\n}\n\nlocal function batch(case)\n    case.batch()\nend\n\nfor _, case in ipairs(cases) do\n    batch(case)\n    batch(case)\nend\nio.stderr:write(\"compiled calls confirmed; native, scalar, and C results agree\\n\")\nio.write(\"sample,workload,seconds,iterations\\n\")\nfor sample = 1, tonumber(os.getenv(\"BUFFER_SAMPLES\") or 15) do\n    for offset = 1, #cases do\n        local case = cases[(sample + offset - 2) % #cases + 1]\n        collectgarbage(\"collect\")\n        local started = now()\n        batch(case)\n        io.write((\"%d,%s,%.9f,%d\\n\"):format(sample, case.name, now() - started, case.iterations))\n    end\nend\nassert(sink > 0)\n",
+  "postMeasurementProof": {
+    "positive": "ok - 80744 base64 differential checks: vector path, scalar reference and nupp.codec.base64 agree\n",
+    "negative": "unregistered encoder correctly rejected\n",
+    "method": "Observe a call to the registered entry in the exact loaded base64simd artifact. Removing only that registration must make the guard fail."
+  }
+}
