@@ -51,7 +51,8 @@ local sink = 0
 local function batch(case)
     local fn, input = case.run, case.input
     for _ = 1, case.iterations do
-        sink = sink + #fn(input)
+        local result = fn(input)
+        sink = sink + #result + (result:byte(#result) or 0)
     end
 end
 
