@@ -1,6 +1,7 @@
 // Runs the exact stock-Lua compiler bundle tested during the build inside a
 // filesystem-free Lua 5.1 VM compiled to Wasm.
 import { createCompilerHost } from "./wasm-runtime.js";
+import { describeError } from "./describe-error.js";
 
 let host = null;
 let ready = false;
@@ -52,13 +53,6 @@ self.onmessage = (event) => {
     });
   }
 };
-
-function describeError(error) {
-  if (!(error instanceof Error)) return String(error);
-  return error.stack && error.stack.includes(error.message)
-    ? error.stack
-    : `${error.message}\n${error.stack || ""}`;
-}
 
 boot().catch((error) => {
   postMessage({ type: "boot-error", message: describeError(error) });

@@ -1,0 +1,67 @@
+local json = require("nupp.codec.json")
+local hex = require("nupp.codec.hex")
+local text = require("nupp.text")
+local utf8 = require("nupp.text.utf8")
+local path = require("nupp.io.path")
+local uri = require("nupp.io.uri")
+
+local type Player = {
+    name: string,
+    score: integer,
+    connected: boolean
+}
+local type Snapshot = {
+    round: integer,
+    names: {string},
+    total: integer,
+    payload: string
+}
+
+local function scorePlayers(players: {Player}, round: integer): Snapshot
+    local names: {string} = {}
+    local total: integer = 0
+    for _, player in ipairs(players) do
+        if player.connected then
+            names[#names + 1] = utf8.truncate(player.name, 24)
+            total = total + player.score
+        end
+    end
+    table.sort(names)
+    local payload = json.encode({round = round, players = names, total = total})
+
+    return {round = round, names = names, total = total, payload = payload}
+end
+
+local function describe(snapshot: Snapshot): string
+    local out = text.newBuffer()
+    out:put("round=", tostring(snapshot.round), "\n")
+    out:put("players=", table.concat(snapshot.names, ", "), "\n")
+    out:put("total=", tostring(snapshot.total), "\n")
+    out:put("payload=", hex.encode(snapshot.payload), "\n")
+
+    return out:get()
+end
+
+local function destination(round: integer): (string, string)
+    local localFile = path.newPath("scores", "round-" .. tostring(round)):withExtension("json")
+    local endpoint = assert(uri.newURI("https://game.example/scores/"))
+    local remoteFile = assert(endpoint:resolve(assert(localFile:fileName())))
+    return localFile:toString(), remoteFile:toString()
+end
+
+local players: {
+    Player
+} = {
+    {name = "Ada", score = 120, connected = true},
+    {name = "Lin", score = 90, connected = true},
+    {name = "Grace", score = 140, connected = false},
+}
+local round: integer = 5
+local snapshot = scorePlayers(players, round)
+local localFile, remoteFile = destination(round)
+local report = describe(snapshot)
+local wire = hex.encode("scoreboard-edit-5")
+assert(hex.decode(wire) == "scoreboard-edit-5")
+assert(snapshot.total == 210)
+assert(utf8.length(snapshot.names[1]) == 3)
+return report, localFile, remoteFile, wire

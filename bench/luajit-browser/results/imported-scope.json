@@ -1,0 +1,314 @@
+{
+  "scope": "Untimed native instrumentation of Browser.new() in each exact compiler source bundle: enumerate environment.bundled after environment initialization and again after checking the fixture. The LuaJIT source bundle was dumped with pinned LuaJIT and compared byte for byte to decompressed production bytecode. Measured browser workers are unchanged. Modules here are actually parsed and checked lazily, not a static require-text scan. Arbitrary project-file imports are unavailable in memoryOnly browser sessions.",
+  "commit": "873b600247c48404d6413c433dc21771dd9162f9",
+  "fixture": {
+    "path": "bench/luajit-browser/imported-scoreboard.nupp",
+    "sha256": "a22e79bbc4553fd4f5181fed5a5fc3b2127f7a9a6fddb932309ef04b7aa11aaa"
+  },
+  "luaJITBytecodeProof": {
+    "command": "\"$(scripts/toolchain luajit)/bin/luajit\" editors/playground/tools/dump-compiler.lua build/browser-luajit/nupp-compiler.lua > /tmp/redump.ljbc; gzip -dc editors/playground/dist/nupp-compiler-42100b77a5bf4504.ljbc.gz > /tmp/shipped.ljbc; cmp /tmp/redump.ljbc /tmp/shipped.ljbc",
+    "bytes": 6491652,
+    "sha256": "f894d13214e88f13684ebabaf4959d2db9c7922f092e6650c0bf2dba83a45ebd",
+    "byteIdentical": true
+  },
+  "results": [
+    {
+      "dialect": "lua51",
+      "response": {
+        "diagnostics": []
+      },
+      "modules": [
+        {
+          "name": "nupp.codec.hex",
+          "declarationOnly": false,
+          "sourceBytes": 1136,
+          "resource": "/nupp/codec/hex.nupp"
+        },
+        {
+          "name": "nupp.codec.json",
+          "declarationOnly": false,
+          "sourceBytes": 24410,
+          "resource": "/nupp/codec/json/init.nupp"
+        },
+        {
+          "name": "nupp.codec.json.provider",
+          "declarationOnly": false,
+          "sourceBytes": 232,
+          "resource": "/nupp/codec/json/provider.nupp"
+        },
+        {
+          "name": "nupp.io",
+          "declarationOnly": false,
+          "sourceBytes": 16535,
+          "resource": "/nupp/io/init.nupp"
+        },
+        {
+          "name": "nupp.io.internal.bytes",
+          "declarationOnly": false,
+          "sourceBytes": 33803,
+          "resource": "/nupp/io/internal/bytes.nupp"
+        },
+        {
+          "name": "nupp.io.internal.lines",
+          "declarationOnly": false,
+          "sourceBytes": 5731,
+          "resource": "/nupp/io/internal/lines.nupp"
+        },
+        {
+          "name": "nupp.io.internal.scalars",
+          "declarationOnly": false,
+          "sourceBytes": 23120,
+          "resource": "/nupp/io/internal/scalars.nupp"
+        },
+        {
+          "name": "nupp.io.path",
+          "declarationOnly": false,
+          "sourceBytes": 13920,
+          "resource": "/nupp/io/path/init.nupp"
+        },
+        {
+          "name": "nupp.io.path.provider",
+          "declarationOnly": false,
+          "sourceBytes": 339,
+          "resource": "/nupp/io/path/provider.nupp"
+        },
+        {
+          "name": "nupp.io.uri",
+          "declarationOnly": false,
+          "sourceBytes": 23201,
+          "resource": "/nupp/io/uri/init.nupp"
+        },
+        {
+          "name": "nupp.io.uri.pathtext",
+          "declarationOnly": false,
+          "sourceBytes": 974,
+          "resource": "/nupp/io/uri/pathtext.nupp"
+        },
+        {
+          "name": "nupp.io.uri.provider",
+          "declarationOnly": false,
+          "sourceBytes": 338,
+          "resource": "/nupp/io/uri/provider.nupp"
+        },
+        {
+          "name": "nupp.mem.span",
+          "declarationOnly": false,
+          "sourceBytes": 29631,
+          "resource": "/nupp/mem/span.nupp"
+        },
+        {
+          "name": "nupp.runtime.provider.tablestruct",
+          "declarationOnly": false,
+          "sourceBytes": 7824,
+          "resource": "/nupp/runtime/provider/tablestruct.nupp"
+        },
+        {
+          "name": "nupp.runtime.representation",
+          "declarationOnly": false,
+          "sourceBytes": 1733,
+          "resource": "/nupp/runtime/representation.nupp"
+        },
+        {
+          "name": "nupp.runtime.services.catalog",
+          "declarationOnly": false,
+          "sourceBytes": 11655,
+          "resource": "/nupp/runtime/services/catalog.nupp"
+        },
+        {
+          "name": "nupp.runtime.services.contracts",
+          "declarationOnly": false,
+          "sourceBytes": 28317,
+          "resource": "/nupp/runtime/services/contracts.nupp"
+        },
+        {
+          "name": "nupp.runtime.storage",
+          "declarationOnly": false,
+          "sourceBytes": 1814,
+          "resource": "/nupp/runtime/storage.nupp"
+        },
+        {
+          "name": "nupp.services",
+          "declarationOnly": false,
+          "sourceBytes": 18754,
+          "resource": "/nupp/services.nupp"
+        },
+        {
+          "name": "nupp.text",
+          "declarationOnly": false,
+          "sourceBytes": 1385,
+          "resource": "/nupp/text/init.nupp"
+        },
+        {
+          "name": "nupp.text.internal.buffer",
+          "declarationOnly": true,
+          "sourceBytes": 2133,
+          "resource": "/nupp/text/internal/buffer.d.nupp"
+        },
+        {
+          "name": "nupp.text.utf8",
+          "declarationOnly": false,
+          "sourceBytes": 13468,
+          "resource": "/nupp/text/utf8.nupp"
+        }
+      ],
+      "compilerSource": {
+        "path": "editors/playground/dist/nupp-compiler-7c735766fa8967cc.lua",
+        "bytes": 7428395,
+        "sha256": "7c735766fa8967cc3116a29c5509e528cdf46ad1bf58c70f2ccdd87cb220a7db"
+      },
+      "moduleCount": 22,
+      "moduleSourceBytes": 260453,
+      "beforeModules": [],
+      "newModuleCount": 22
+    },
+    {
+      "modules": [
+        {
+          "sourceBytes": 1136,
+          "declarationOnly": false,
+          "name": "nupp.codec.hex",
+          "resource": "/nupp/codec/hex.nupp"
+        },
+        {
+          "sourceBytes": 24410,
+          "declarationOnly": false,
+          "name": "nupp.codec.json",
+          "resource": "/nupp/codec/json/init.nupp"
+        },
+        {
+          "sourceBytes": 232,
+          "declarationOnly": false,
+          "name": "nupp.codec.json.provider",
+          "resource": "/nupp/codec/json/provider.nupp"
+        },
+        {
+          "sourceBytes": 16535,
+          "declarationOnly": false,
+          "name": "nupp.io",
+          "resource": "/nupp/io/init.nupp"
+        },
+        {
+          "sourceBytes": 33803,
+          "declarationOnly": false,
+          "name": "nupp.io.internal.bytes",
+          "resource": "/nupp/io/internal/bytes.nupp"
+        },
+        {
+          "sourceBytes": 5731,
+          "declarationOnly": false,
+          "name": "nupp.io.internal.lines",
+          "resource": "/nupp/io/internal/lines.nupp"
+        },
+        {
+          "sourceBytes": 23120,
+          "declarationOnly": false,
+          "name": "nupp.io.internal.scalars",
+          "resource": "/nupp/io/internal/scalars.nupp"
+        },
+        {
+          "sourceBytes": 13920,
+          "declarationOnly": false,
+          "name": "nupp.io.path",
+          "resource": "/nupp/io/path/init.nupp"
+        },
+        {
+          "sourceBytes": 339,
+          "declarationOnly": false,
+          "name": "nupp.io.path.provider",
+          "resource": "/nupp/io/path/provider.nupp"
+        },
+        {
+          "sourceBytes": 23201,
+          "declarationOnly": false,
+          "name": "nupp.io.uri",
+          "resource": "/nupp/io/uri/init.nupp"
+        },
+        {
+          "sourceBytes": 974,
+          "declarationOnly": false,
+          "name": "nupp.io.uri.pathtext",
+          "resource": "/nupp/io/uri/pathtext.nupp"
+        },
+        {
+          "sourceBytes": 338,
+          "declarationOnly": false,
+          "name": "nupp.io.uri.provider",
+          "resource": "/nupp/io/uri/provider.nupp"
+        },
+        {
+          "sourceBytes": 29631,
+          "declarationOnly": false,
+          "name": "nupp.mem.span",
+          "resource": "/nupp/mem/span.nupp"
+        },
+        {
+          "sourceBytes": 7824,
+          "declarationOnly": false,
+          "name": "nupp.runtime.provider.tablestruct",
+          "resource": "/nupp/runtime/provider/tablestruct.nupp"
+        },
+        {
+          "sourceBytes": 1733,
+          "declarationOnly": false,
+          "name": "nupp.runtime.representation",
+          "resource": "/nupp/runtime/representation.nupp"
+        },
+        {
+          "sourceBytes": 11655,
+          "declarationOnly": false,
+          "name": "nupp.runtime.services.catalog",
+          "resource": "/nupp/runtime/services/catalog.nupp"
+        },
+        {
+          "sourceBytes": 28317,
+          "declarationOnly": false,
+          "name": "nupp.runtime.services.contracts",
+          "resource": "/nupp/runtime/services/contracts.nupp"
+        },
+        {
+          "sourceBytes": 1814,
+          "declarationOnly": false,
+          "name": "nupp.runtime.storage",
+          "resource": "/nupp/runtime/storage.nupp"
+        },
+        {
+          "sourceBytes": 18754,
+          "declarationOnly": false,
+          "name": "nupp.services",
+          "resource": "/nupp/services.nupp"
+        },
+        {
+          "sourceBytes": 1385,
+          "declarationOnly": false,
+          "name": "nupp.text",
+          "resource": "/nupp/text/init.nupp"
+        },
+        {
+          "sourceBytes": 2133,
+          "declarationOnly": true,
+          "name": "nupp.text.internal.buffer",
+          "resource": "/nupp/text/internal/buffer.d.nupp"
+        },
+        {
+          "sourceBytes": 13468,
+          "declarationOnly": false,
+          "name": "nupp.text.utf8",
+          "resource": "/nupp/text/utf8.nupp"
+        }
+      ],
+      "dialect": "luajit",
+      "response": {
+        "diagnostics": []
+      },
+      "compilerSource": {
+        "path": "build/browser-luajit/nupp-compiler.lua",
+        "bytes": 7518783,
+        "sha256": "27b833e3e4581ff547d6eddef3792f2f41c1166f86f1fd3a7c1b011fc2a0184d"
+      },
+      "moduleCount": 22,
+      "moduleSourceBytes": 260453,
+      "beforeModules": [],
+      "newModuleCount": 22
+    }
+  ]
+}
