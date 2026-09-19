@@ -46,9 +46,17 @@ typedef uint32_t ks_alias_u32 __attribute__((may_alias));
  * trade everywhere the frame can be widened to match -- and the Windows x64
  * frame cannot: sixteen bytes is all a caller leaves, and GCC neither rounds
  * a pointer for these nor realigns, yet still reaches for `vmovaps` at a
- * thirty-two byte offset into one. Saying the alignment explicitly is what
- * holds it to the element, because an alignment the source asked for is one
- * the backend stops widening. Every other target leaves the choice alone. */
+ * thirty-two byte offset into one.
+ *
+ * This says what the array is aligned to and is not what holds the line. It
+ * was written believing that an alignment the source asked for is one the
+ * backend stops widening, and MinGW GCC widens these anyway: a cross build of
+ * the generated C emits `vmovdqa %ymm0, 128(%rsp)` into a frame no prologue
+ * realigns, with the attribute present. What removes the fault is that no
+ * value wider than the frame's sixteen bytes is built at all -- see
+ * `target.FRAME_VECTOR_CEILING` -- and `-mprefer-vector-width=128` for the
+ * ones the compiler invents. This stays because it costs nothing and narrows
+ * what is left. Every other target leaves the choice alone. */
 #if (defined(_WIN32) || defined(_WIN64)) && (defined(__GNUC__) || defined(__clang__))
 #define KS_LANE_ARRAY_ALIGN(type) __attribute__((aligned(__alignof__(type))))
 #else

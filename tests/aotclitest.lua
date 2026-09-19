@@ -2713,7 +2713,10 @@ function M.indexedSimdUsesNativeAvx512MemoryInstructions()
         -- on one: GCC widened it to the register it moved it with, and the
         -- frame it sat in was sixteen-byte aligned, which is all the calling
         -- convention leaves and all the prologue makes. Each one says what it
-        -- is aligned to, so there is nothing left to widen.
+        -- is aligned to, which narrows the choice without settling it -- MinGW
+        -- GCC widens one of these with the attribute on it. What settles it is
+        -- that a Windows target builds no value wider than its frame carries,
+        -- and this path is not emitted there at all.
         local c = run(dir, "--target " .. triple .. " --features avx512f --emit c indexed.nupp")
         for _, staged in ipairs({"ks_index", "ks_mask", "ks_value", "ks_offsets", "ks_batch"}) do
             local declaration = c:match(staged .. "%[%d+%] ([%w_]+)%(")

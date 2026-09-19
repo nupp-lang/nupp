@@ -242,21 +242,59 @@ function target.select(triple: string?, tier: string?): (target.Target?, string?
     return new target.Target(triple = named as string, architecture = architecture, tier = selected as string), nil
 end
 
+--- The widest vector a target's frame can carry, keyed by operating system.
+---
+--- Windows x64 is the one target that needs a ceiling. Its convention gives a
+--- frame sixteen bytes of alignment and nothing more, and GCC there reads a
+--- thirty-two or sixty-four byte object as deserving the aligned move for its
+--- own width without making the frame wide enough to hold it -- so half, or
+--- three quarters, of every such access is a #GP that MSYS reports as a
+--- segmentation fault. The object need not be one anybody wrote down: a spill
+--- slot for a value that never had an address is enough, and no alignment
+--- attribute reaches one of those. Holding every vector to sixteen bytes takes
+--- the premise away instead of moving it to whichever object the compiler
+--- decides to widen next.
+---
+--- The tier still selects its own instructions, so a Windows AVX2 build is VEX
+--- encodings and AVX2's own sixteen-byte operations, and a Windows AVX-512F
+--- build has its masks. What it gives up is the wider register: a `preferred`
+--- species is four binary32 lanes there whatever the tier, and a wider `Fixed`
+--- species is built out of sixteen-byte chunks. That is a real throughput cost
+--- and it is paid on that one target.
+const target.FRAME_VECTOR_CEILING = {["windows"] = 16}
+
+--- The widest vector one target may build a value out of, or nothing when
+--- its frame carries whatever its registers do.
+function target.vectorCeiling(selected: target.Target): integer?
+    return target.FRAME_VECTOR_CEILING[target.system(selected.triple)] as integer?
+end
+
+--- Narrows a width to what the target's frame can carry.
+local function held(selected: target.Target, width: integer): integer
+    local ceiling = target.vectorCeiling(selected)
+    if ceiling ~= nil and width > (ceiling as integer) then
+        return ceiling as integer
+    end
+
+    return width
+end
+
 --- The vector width, in bytes, an explicit SIMD program takes on this target.
 ---
 --- This is the width of one native register the tier's flags cover: NEON is
 --- 16 bytes even though two of its registers pair without an ABI question, so a
 --- `preferred` species there is one register wide. A 64-byte value only exists
 --- under AVX-512F, so only that tier answers 64 and no wider block is ever
---- instantiated for the others.
+--- instantiated for the others -- and no target whose frame cannot carry one
+--- answers wider than its ceiling, whatever its registers are.
 function target.simdWidth(selected: target.Target): integer
     if selected.tier == "avx512f" then
-        return 64
+        return held(selected, 64)
     elseif selected.tier == "avx2" then
-        return 32
+        return held(selected, 32)
     end
 
-    return 16
+    return held(selected, 16)
 end
 
 --- The vector width, in bytes, a `@simd` region groups its iterations into.
@@ -270,8 +308,18 @@ end
 --- `simdWidth` is what `preferred` means where someone wrote it, which is a
 --- promise to whoever reads that source: one register. This is only what the
 --- rewrite groups iterations by, which nobody writes down.
+---
+--- A region is grouped no wider than a value may be either: the rewrite
+--- writes `preferred` species, and what `preferred` means to the backend is
+--- this width, so a region grouped wider than the frame can carry would put
+--- the ceiling back exactly where `simdWidth` took it away.
 function target.simdRegionWidth(selected: target.Target): integer
-    return (target.TIERS[selected.tier] or target.simdWidth(selected)) as integer
+    local width = (target.TIERS[selected.tier] or target.simdWidth(selected)) as integer
+    if width == 0 then
+        return 0
+    end
+
+    return held(selected, width)
 end
 
 export = target

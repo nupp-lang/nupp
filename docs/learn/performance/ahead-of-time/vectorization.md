@@ -165,6 +165,19 @@ A vector wider than the register class still compiles by being split into
 native-width chunks, but has no stable ABI at a function boundary, and Clang
 reports that through `-Wpsabi` even at a `static inline` helper's call site.
 
+Windows on x86-64 is the one target where the table above does not apply. Its
+calling convention guarantees a frame 16 bytes of alignment and no more, and
+GCC there reads a wider stack object as deserving the aligned move for its own
+width without widening the frame to match -- including objects nothing in the
+source declared, such as a spill slot, which no alignment attribute can reach.
+So every vector on that target is 16 bytes whatever the tier says: a region is
+16 bytes wide, `preferred` is one SSE2 register, and a wider `Fixed<N>` species
+is built out of 16-byte chunks. The tiers still travel and still select their
+own instructions -- an AVX2 unit is VEX encodings and AVX2's own 16-byte
+operations -- so what a Windows build gives up is register width, not the tier.
+Every other target, Windows on aarch64 included, keeps the width its registers
+have.
+
 x86-64 project builds carry `baseline`, `avx2` and `avx512f` translation units
 in one library. Their exported symbols carry the tier name, and the generated
 wrapper asks a baseline C entry what the destination supports once at load,

@@ -718,6 +718,7 @@ end
 function compile.lanes(program: scalarIR.Program, filename: string, selected: targets.Target): {compile.Diagnostic}?
     if program.usesSimd == true then
         program.simdWidth = targets.simdWidth(selected)
+        program.vectorCeiling = targets.vectorCeiling(selected)
     end
     if program.simdRequired ~= true then
         return nil
@@ -764,6 +765,7 @@ function compile.lanes(program: scalarIR.Program, filename: string, selected: ta
             return out
         end
         program.simdWidth = width
+        program.vectorCeiling = targets.vectorCeiling(selected)
         verify.program(program)
         return nil
     end
@@ -787,6 +789,7 @@ function compile.lanes(program: scalarIR.Program, filename: string, selected: ta
         end
     end
     program.simdWidth = width
+    program.vectorCeiling = targets.vectorCeiling(selected)
     verify.program(program)
 
     return nil

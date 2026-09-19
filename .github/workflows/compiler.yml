@@ -685,19 +685,18 @@ jobs:
           done
           exit 0
 
-      - name: Collect Windows worker crash dumps
+      # Where the suite saves what a dying worker was holding: the library each
+      # native case built and its phase trace. Both are written by the suite
+      # itself, which is why they arrive at all -- four rounds of Windows
+      # crashes were diagnosed out of these and none out of a minidump. Windows
+      # Error Reporting was asked for one here through its LocalDumps keys and
+      # never produced a file or an Application Error event, so the request is
+      # gone rather than left looking like coverage.
+      - name: Make room for Windows worker diagnostics
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $dumpDirectory = Join-Path $env:RUNNER_TEMP 'nupp-worker-dumps'
-          New-Item -ItemType Directory -Force $dumpDirectory | Out-Null
-          foreach ($application in @('luajit.exe', 'nupp-test.exe')) {
-            $key = "HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\$application"
-            New-Item -Force $key | Out-Null
-            New-ItemProperty -Path $key -Name DumpFolder -PropertyType ExpandString -Value $dumpDirectory -Force | Out-Null
-            New-ItemProperty -Path $key -Name DumpType -PropertyType DWord -Value 1 -Force | Out-Null
-            New-ItemProperty -Path $key -Name DumpCount -PropertyType DWord -Value 3 -Force | Out-Null
-          }
+          New-Item -ItemType Directory -Force (Join-Path $env:RUNNER_TEMP 'nupp-worker-dumps') | Out-Null
 
       - name: Run the compiler suite
         if: runner.os == 'Windows'
@@ -715,6 +714,12 @@ jobs:
           ./bin/nupp test \
             --exclude-group=external-corpus,windows-preflight,rust-native-gate,measurement
 
+      # What the suite saved, named in the log so a reader knows what the
+      # artifact holds before downloading it. `aot-libraries.txt` beside these
+      # says which case built each library and which tier its detector chose,
+      # which is the question a saved library on its own cannot answer: the
+      # runner pool is mixed, and a case that passed may simply never have run
+      # the code being examined.
       - name: Report Windows worker crashes
         if: failure() && runner.os == 'Windows'
         continue-on-error: true
@@ -722,27 +727,6 @@ jobs:
         run: |
           $dumpDirectory = Join-Path $env:RUNNER_TEMP 'nupp-worker-dumps'
           New-Item -ItemType Directory -Force $dumpDirectory | Out-Null
-          $events = Get-WinEvent -FilterHashtable @{
-            LogName = 'Application'
-            Id = 1000, 1001
-            StartTime = (Get-Date).AddHours(-2)
-          } -ErrorAction SilentlyContinue | Where-Object { $_.Message -match 'luajit|nupp-test' }
-          $events | Format-List TimeCreated, Id, Message | Out-String | Tee-Object -FilePath (Join-Path $dumpDirectory 'events.txt')
-          $interpreter = (Get-Command luajit).Source
-          Copy-Item $interpreter $dumpDirectory
-          $runtime = Join-Path (Split-Path $interpreter) 'lua51.dll'
-          if (Test-Path $runtime) { Copy-Item $runtime $dumpDirectory }
-          foreach ($event in $events) {
-            $xml = [xml]$event.ToXml()
-            foreach ($entry in $xml.Event.EventData.Data) {
-              if ($entry.Name -eq 'ModulePath') {
-                $modulePath = [string]$entry.'#text'
-                if (($modulePath.StartsWith($env:GITHUB_WORKSPACE) -or $modulePath.StartsWith($env:TEMP)) -and (Test-Path $modulePath -PathType Leaf)) {
-                  Copy-Item $modulePath $dumpDirectory -Force
-                }
-              }
-            }
-          }
           Get-ChildItem $dumpDirectory | Format-Table Name, Length
 
       - name: Upload Windows worker crash diagnostics

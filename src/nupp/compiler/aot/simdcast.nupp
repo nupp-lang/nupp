@@ -64,6 +64,12 @@ end
 --- fortification `memcpy` is an always-inline wrapper carrying the file's own
 --- target options, and GCC refuses to inline a function into one whose
 --- options differ; the builtin has no such wrapper.
+---
+--- A conversion spans the whole species, which can be wider than one vector
+--- register and, on a target with a frame vector ceiling, wider than the frame
+--- can carry. `ceiling` is that limit in bytes, zero for none: above it the
+--- conversion is done in groups of lanes no wider than the ceiling on either
+--- side, and every intermediate a group forms is inside it too.
 function cast.emit(
     value: string,
     from: string,
@@ -72,7 +78,8 @@ function cast.emit(
     targetType: string,
     lanes: integer,
     reference: boolean,
-    reinterpret: boolean
+    reinterpret: boolean,
+    ceiling: integer
 ): string
     local lines = {
         "({ " .. sourceType .. " ks_cast_input = " .. value .. "; " .. targetType .. " ks_cast_result = {0};"
@@ -92,62 +99,81 @@ function cast.emit(
             to
         ) .. ";"
     else
+        -- A guarded float-to-integer conversion and a 64-bit integer to
+        -- binary32 both form a double per lane, so eight bytes a lane is the
+        -- widest an intermediate gets whatever the two ends measure.
+        local guarded = from:sub(1, 1) == "f" and to:sub(1, 1) ~= "f"
+        local viaDouble = guarded or (to == "f32" and (from == "i64" or from == "u64"))
+        local widest = math.max(fromBytes, toBytes, viaDouble and 8 or 0)
         local count = 2
         while count < lanes do
             count = count * 2
         end
+        if ceiling > 0 then
+            while count > 2 and count * widest > ceiling do
+                count = count / 2
+            end
+        end
+        local group = count as integer
         lines[
             #lines + 1
         ] = "typedef " .. C_TYPES[
             from
-        ] .. " ks_cast_from __attribute__((vector_size(" .. tostring(count * fromBytes) .. ")));"
+        ] .. " ks_cast_from __attribute__((vector_size(" .. tostring(group * fromBytes) .. ")));"
         lines[
             #lines + 1
         ] = "typedef " .. C_TYPES[
             to
-        ] .. " ks_cast_to __attribute__((vector_size(" .. tostring(count * toBytes) .. ")));"
-        lines[
-            #lines + 1
-        ] = "ks_cast_from ks_cast_x = {0}; __builtin_memcpy(&ks_cast_x, &ks_cast_input, " .. tostring(
-            lanes * fromBytes
-        ) .. ");"
-        local expression = "__builtin_convertvector(ks_cast_x, ks_cast_to)"
-        if from:sub(1, 1) == "f" and to:sub(1, 1) ~= "f" then
-            -- A bare C/LLVM float-to-integer conversion is undefined outside
-            -- range. Mask the floating input BEFORE converting, not the result.
-            -- Zero is an implementation choice for exceptional inputs here,
-            -- not an API promise that constrains future native instructions.
+        ] .. " ks_cast_to __attribute__((vector_size(" .. tostring(group * toBytes) .. ")));"
+        if viaDouble then
             lines[
                 #lines + 1
-            ] = "typedef double ks_cast_double __attribute__((vector_size(" .. tostring(count * 8) .. ")));"
-            lines[
-                #lines + 1
-            ] = "typedef int64_t ks_cast_int64 __attribute__((vector_size(" .. tostring(count * 8) .. ")));"
-            lines[#lines + 1] = "ks_cast_double ks_cast_d = __builtin_convertvector(ks_cast_x, ks_cast_double);"
-            if to == "u64" then
-                lines[#lines + 1] = "ks_cast_int64 ks_cast_high = ks_cast_d >= 0x1p63;"
-                lines[#lines + 1] = "ks_cast_d += __builtin_convertvector(ks_cast_high, ks_cast_double) * 0x1p63;"
-            end
-            lines[#lines + 1] = "ks_cast_int64 ks_cast_valid = (ks_cast_d >= -0x1p63) & (ks_cast_d < 0x1p63);"
-            lines[#lines + 1] = "ks_cast_d = (ks_cast_double)((ks_cast_int64)ks_cast_d & ks_cast_valid);"
-            lines[#lines + 1] = "ks_cast_int64 ks_cast_i64 = __builtin_convertvector(ks_cast_d, ks_cast_int64);"
-            if to == "u64" then
-                expression = "(ks_cast_to)ks_cast_i64 ^ ((ks_cast_to)(ks_cast_high & ks_cast_valid) & ((uint64_t)1 << 63))"
-            else
-                expression = "__builtin_convertvector(ks_cast_i64, ks_cast_to)"
-            end
-        elseif to == "f32" and (from == "i64" or from == "u64") then
-            -- LuaJIT's FFI conversion first rounds the integer to double.
-            lines[
-                #lines + 1
-            ] = "typedef double ks_cast_double __attribute__((vector_size(" .. tostring(count * 8) .. ")));"
-            expression = "__builtin_convertvector(__builtin_convertvector(ks_cast_x, ks_cast_double), ks_cast_to)"
+            ] = "typedef double ks_cast_double __attribute__((vector_size(" .. tostring(group * 8) .. ")));"
         end
-        lines[
-            #lines + 1
-        ] = "ks_cast_to ks_cast_y = " .. expression .. "; __builtin_memcpy(&ks_cast_result, &ks_cast_y, " .. tostring(
-            lanes * toBytes
-        ) .. ");"
+        if guarded then
+            lines[
+                #lines + 1
+            ] = "typedef int64_t ks_cast_int64 __attribute__((vector_size(" .. tostring(group * 8) .. ")));"
+        end
+        for first = 0, lanes - 1, group do
+            local taken = math.min(group, lanes - first) as integer
+            lines[#lines + 1] = "{ ks_cast_from ks_cast_x = {0};"
+            lines[
+                #lines + 1
+            ] = "__builtin_memcpy(&ks_cast_x, (const char *)&ks_cast_input + " .. tostring(
+                first * fromBytes
+            ) .. ", " .. tostring(taken * fromBytes) .. ");"
+            local expression = "__builtin_convertvector(ks_cast_x, ks_cast_to)"
+            if guarded then
+                -- A bare C/LLVM float-to-integer conversion is undefined
+                -- outside range. Mask the floating input BEFORE converting,
+                -- not the result. Zero is an implementation choice for
+                -- exceptional inputs here, not an API promise that constrains
+                -- future native instructions.
+                lines[#lines + 1] = "ks_cast_double ks_cast_d = __builtin_convertvector(ks_cast_x, ks_cast_double);"
+                if to == "u64" then
+                    lines[#lines + 1] = "ks_cast_int64 ks_cast_high = ks_cast_d >= 0x1p63;"
+                    lines[#lines + 1] = "ks_cast_d += __builtin_convertvector(ks_cast_high, ks_cast_double) * 0x1p63;"
+                end
+                lines[#lines + 1] = "ks_cast_int64 ks_cast_valid = (ks_cast_d >= -0x1p63) & (ks_cast_d < 0x1p63);"
+                lines[#lines + 1] = "ks_cast_d = (ks_cast_double)((ks_cast_int64)ks_cast_d & ks_cast_valid);"
+                lines[#lines + 1] = "ks_cast_int64 ks_cast_i64 = __builtin_convertvector(ks_cast_d, ks_cast_int64);"
+                if to == "u64" then
+                    expression = "(ks_cast_to)ks_cast_i64 "
+                        .. "^ ((ks_cast_to)(ks_cast_high & ks_cast_valid) & ((uint64_t)1 << 63))"
+                else
+                    expression = "__builtin_convertvector(ks_cast_i64, ks_cast_to)"
+                end
+            elseif to == "f32" and (from == "i64" or from == "u64") then
+                -- LuaJIT's FFI conversion first rounds the integer to double.
+                expression = "__builtin_convertvector(__builtin_convertvector(ks_cast_x, ks_cast_double), ks_cast_to)"
+            end
+            lines[
+                #lines + 1
+            ] = "ks_cast_to ks_cast_y = " .. expression .. "; __builtin_memcpy((char *)&ks_cast_result + " .. tostring(
+                first * toBytes
+            ) .. ", &ks_cast_y, " .. tostring(taken * toBytes) .. "); }"
+        end
     end
     lines[#lines + 1] = "ks_cast_result; })"
 

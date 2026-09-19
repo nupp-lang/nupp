@@ -1786,6 +1786,127 @@ function M.theStringFeatureFormIsTheMaximum()
     end
 end
 
+-- Explicit SIMD over species wider than any one register: conversions across
+-- every element width, indexed memory, and a rearrangement. Each is a shape a
+-- Windows worker has died on.
+local WIDE_SIMD = [[
+local span = require("nupp.mem.span")
+local array = require("nupp.mem.array")
+local simd = require("nupp.simd")
+
+@aot
+local function widen(exclusive out: span.WriteSpan<number>, borrows input: span.Span<int8>): nil
+    local source = assert(simd.species(array.int8, 16))
+    local wide = assert(simd.species(array.number, 16))
+    wide:store(out, 1, wide:convert(source:load(input, 1)))
+end
+
+@aot
+local function narrow(exclusive out: span.WriteSpan<int16>, borrows input: span.Span<number>): nil
+    local source = assert(simd.species(array.number, 16))
+    local small = assert(simd.species(array.int16, 16))
+    small:store(out, 1, small:convert(source:load(input, 1)))
+end
+
+@aot
+local function gathered(
+    exclusive out: span.WriteSpan<float>,
+    borrows input: span.Span<float>,
+    borrows map: span.Span<int64>
+): nil
+    local data = assert(simd.species(array.float, 17))
+    local index = assert(simd.species(array.int64, 17))
+    data:store(out, 1, data:gather(input, index:load(map, 1)))
+end
+
+@aot
+local function woven(exclusive out: span.WriteSpan<number>, borrows input: span.Span<number>): nil
+    local s = assert(simd.species(array.number, 64))
+    local a, b = s:load(input, 1):interleave(s:load(input, 65))
+    s:store(out, 1, a)
+    s:store(out, 65, b)
+end
+
+return {widen = widen, narrow = narrow, gathered = gathered, woven = woven}
+]]
+
+local function wideSimdProject(keys)
+    local dir = os.tmpname()
+    os.remove(dir)
+    assert(os.execute("mkdir -p '" .. dir .. "/src'") == 0)
+    local manifest = assert(io.open(dir .. "/nupp.lua", "wb"))
+    manifest:write(
+        (
+            [[
+return {
+   include = {"src"},
+   build = {targets = {native = {
+      kind = "modules", entries = {"kernel"}, outDir = "build/native",
+      aot = "emit-c", %s
+   }}},
+}
+]]
+        ):format(keys)
+    )
+    manifest:close()
+    local source = assert(io.open(dir .. "/src/kernel.nupp", "wb"))
+    source:write(WIDE_SIMD)
+    source:close()
+
+    return dir
+end
+
+-- The Windows x64 frame is sixteen-byte aligned and nothing in a generated
+-- prologue widens it, yet GCC there reads a wider object as deserving the
+-- aligned move for its own width. A spill slot is such an object and no
+-- attribute names one, so the only account that holds is that no value wider
+-- than sixteen bytes is built at all: a `preferred` species is one sixteen-byte
+-- register whatever the tier says, a wider `Fixed` species is chunks of that,
+-- and an operation that spans the whole species -- a conversion -- runs in
+-- groups no wider either. What the emitted C may not contain is the evidence.
+function M.aWindowsTargetBuildsNoVectorWiderThanItsFrameCarries()
+    local dir = wideSimdProject(
+        'aotTarget = "x86_64-pc-windows-msvc", aotFeatures = {minimum = "baseline", maximum = "avx512f"},'
+    )
+    local out, code = build(dir)
+    test.equal(code, 0, out)
+    for _, tier in ipairs({"baseline", "avx2", "avx512f"}) do
+        local c = assert(read(tieredC(dir, tier)), tier .. " travels")
+        for bytes in c:gmatch("vector_size%((%d+)%)") do
+            assert(tonumber(bytes) <= 16, tier .. " declares a " .. bytes .. "-byte vector:\n" .. c)
+        end
+        assert(c:find("#define KS_SIMD_WIDTH 16", 1, true), tier .. " takes the sixteen-byte species:\n" .. c)
+        for _, wider in ipairs({"#define KS_SIMD_WIDTH 32", "#define KS_SIMD_WIDTH 64"}) do
+            test.equal(c:find(wider, 1, true), nil, tier .. " instantiates " .. wider)
+        end
+        -- The address vector AVX-512's gather and scatter take is itself a
+        -- 64-byte object, so that path is not reached for and the lanes are
+        -- walked, which is what every narrower tier already does. The carried
+        -- header's own `__m256i` bodies are text under a width this build does
+        -- not instantiate, so what is asked about here is the emitted body.
+        for _, reached in ipairs({"__builtin_ia32_gatherdiv", "__builtin_ia32_scatterdiv", "__m512i ks_addresses"}) do
+            test.equal(c:find(reached, 1, true), nil, tier .. " reaches for " .. reached)
+        end
+    end
+    -- And the C compiler is told not to add one of its own where the source
+    -- has none, which is the only lever that reaches what it invents.
+    local units = assert(read(dir .. "/build/native/aot/units.json"))
+    assert(units:find("-mprefer-vector-width=128", 1, true), units)
+end
+
+-- The ceiling is Windows x64's alone: nothing else gives up its registers for
+-- it, and a Windows build for an architecture without those flags does not
+-- carry an x86 one.
+function M.onlyAWindowsX86TargetGivesUpItsWiderRegisters()
+    local dir = wideSimdProject('aotTarget = "x86_64-unknown-linux-gnu", aotFeatures = "avx512f",')
+    local out, code = build(dir)
+    test.equal(code, 0, out)
+    local c = assert(read(tieredC(dir, "avx512f")))
+    assert(c:find("KS_SIMD_WIDTH 64", 1, true), "Linux keeps the register its tier names:\n" .. c)
+    local units = assert(read(dir .. "/build/native/aot/units.json"))
+    test.equal(units:find("-mprefer-vector-width", 1, true), nil, units)
+end
+
 function M.aTierWithoutVectorsRefusesARequiredLoopAndNamesTheMinimum()
     local dir = project("emit-c")
     withKeys(dir, 'aotTarget = "wasm32-unknown-emscripten", aotFeatures = "scalar",')

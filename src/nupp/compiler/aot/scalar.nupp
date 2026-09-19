@@ -1681,6 +1681,14 @@ record scalarIR.Program
     usesSimd: boolean?
     usesNumberToken: boolean?
     simdWidth: integer?
+
+    --- The widest vector any value in this program may be built out of, when
+    --- the target's frame cannot carry whatever its registers can hold. The
+    --- species width is already held to it; this is what a flat vector formed
+    --- inside one operation is held to as well -- a lane conversion's, which
+    --- spans the whole species however wide that species is.
+    vectorCeiling: integer?
+
     rangeGuard: scalarIR.RangeGuard?
 
     --- The map loop written in the explicit SIMD vocabulary; see

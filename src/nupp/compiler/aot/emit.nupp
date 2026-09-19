@@ -42,6 +42,11 @@ end
 
 record emit.Context
     explicitWidth: integer
+
+    --- The widest vector a value may be built out of, or zero for no limit.
+    --- See `target.FRAME_VECTOR_CEILING`.
+    vectorCeiling: integer
+
     explicitScalar: boolean
     independentSpanCounts: boolean
     explicitFixedTypes: {[string]: boolean}
@@ -59,6 +64,7 @@ end
 function emit.context(parent: emit.Context?, program: scalarIR.Program?, scalar: boolean?): emit.Context
     local context = new emit.Context(
         explicitWidth = parent ~= nil and parent.explicitWidth or 0,
+        vectorCeiling = parent ~= nil and parent.vectorCeiling or 0,
         explicitScalar = scalar == true,
         independentSpanCounts = parent == nil or parent.independentSpanCounts,
         explicitFixedTypes = parent ~= nil and parent.explicitFixedTypes or {},
@@ -73,6 +79,7 @@ function emit.context(parent: emit.Context?, program: scalarIR.Program?, scalar:
     )
     if program ~= nil then
         context.explicitWidth = program.simdWidth or 0
+        context.vectorCeiling = program.vectorCeiling or 0
         context.independentSpanCounts = scalarIR.independentCounts(program)
         context.reusableScratchName = program.reusableScratch
         context.builderEager = program.builderMode == "eager"
@@ -889,7 +896,12 @@ function emit.indexedSimd(context: emit.Context, node: scalarIR.Simd): string
             lanes
         ) .. "] " .. emit.laneArrayAlign(elementC) .. "; __builtin_memcpy(ks_value, &ks_values, sizeof(ks_value));",
     }
-    local native = not context.explicitScalar and (element:sub(2) == "32" or element:sub(2) == "64")
+    -- The hardware gather and scatter are AVX-512's, and their address vector
+    -- is a 64-byte value. A target whose frame cannot carry one walks its
+    -- lanes instead, which is what every narrower tier already does.
+    local native = not context.explicitScalar and context.explicitWidth == 64 and (
+        element:sub(2) == "32" or element:sub(2) == "64"
+    )
     if native then
         local bits = element:sub(2)
         local register = bits == "32" and "__m256i" or "__m512i"
@@ -1266,7 +1278,8 @@ function emit.scalar(context: emit.Context, node: scalarIR.Expr): string
                     emit.cType(context, simd.type),
                     lanes,
                     context.explicitScalar,
-                    operation == "simd_reinterpret"
+                    operation == "simd_reinterpret",
+                    context.vectorCeiling
                 )
             elseif operation == "simd_mask_convert" then
                 -- Equal lane counts by contract, so a native mask converts

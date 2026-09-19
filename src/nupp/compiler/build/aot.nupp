@@ -135,6 +135,33 @@ const aot.DIALECT_FLAGS = {["clang"] = {"-Wno-parentheses-equality"}, ["gcc"] = 
 --- compiling.
 const aot.TIER_FLAGS = {["avx2"] = "-mavx2", ["avx512f"] = "-mavx512f", ["simd128"] = "-msimd128"}
 
+--- The flags one feature tier is compiled with on one target.
+---
+--- The tier's own, and on Windows over an x86 architecture the width its
+--- frame can carry -- the one target with a ceiling on that at all. The
+--- emitted code already builds nothing wider than sixteen bytes there --
+--- `target.FRAME_VECTOR_CEILING` is what holds it to that -- but the C compiler
+--- forms values the source never wrote, and it is a value GCC invents, spills
+--- and then reads back with an aligned move that faults on a frame the same GCC
+--- did not widen to match. This is the only thing that reaches those: it tells
+--- the vectorizer what width to prefer before it decides to want one.
+---
+--- Both halves are needed and neither is the other's fallback. The source
+--- ceiling removes the objects a program declares, which no flag governs; the
+--- flag narrows what the compiler adds, which no attribute names.
+function aot.tierFlags(triple: string, tier: string): {string}
+    local flags: {string} = {}
+    local tierFlag = aot.TIER_FLAGS[tier]
+    if tierFlag ~= nil then
+        flags[#flags + 1] = tierFlag as string
+    end
+    if targets.system(triple) == "windows" and targets.architecture(triple) ~= "aarch64" then
+        flags[#flags + 1] = "-mprefer-vector-width=128"
+    end
+
+    return flags
+end
+
 --- Which backend produced an artifact.
 ---
 --- Part of the key because two backends can lower one IR to two correct
@@ -199,9 +226,8 @@ function aot.compileFlags(selected: targets.Target, chain: aot.Toolchain, extra:
     for _, flag in ipairs(aot.DIALECT_FLAGS[chain.dialect] or {}) do
         flags[#flags + 1] = flag
     end
-    local tier = aot.TIER_FLAGS[selected.tier]
-    if tier ~= nil then
-        flags[#flags + 1] = tier as string
+    for _, flag in ipairs(aot.tierFlags(selected.triple, selected.tier)) do
+        flags[#flags + 1] = flag
     end
 
     return flags
@@ -1781,9 +1807,10 @@ function aot.writeUnitsManifest(outDir: string, triple: string, emitted: {aot.Em
     local prefix = outDir .. "/aot/"
     for _, one in ipairs(emitted) do
         local flags: {string} = {}
-        local tierFlag = aot.TIER_FLAGS[one.tier]
-        if tierFlag ~= nil and one.detector ~= true then
-            flags[#flags + 1] = tierFlag as string
+        if one.detector ~= true then
+            for _, flag in ipairs(aot.tierFlags(triple, one.tier)) do
+                flags[#flags + 1] = flag
+            end
         end
         units[
             #units + 1
