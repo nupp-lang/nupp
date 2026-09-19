@@ -350,11 +350,13 @@ enum Download {
         staging: wgpu::Buffer,
         offset: u64,
         version: u64,
+        layout: Value,
     },
     Ready {
         offset: u64,
         bytes: Vec<u8>,
         version: u64,
+        layout: Value,
     },
 }
 
@@ -364,6 +366,7 @@ struct BufferEntry {
     download: Option<Download>,
     version: u64,
     completed_download_version: Option<u64>,
+    completed_download_layout: Value,
     metadata: Value,
 }
 
@@ -542,6 +545,7 @@ impl GpuContext {
             download: None,
             version: 0,
             completed_download_version: None,
+            completed_download_layout: Value::Null,
             metadata: Value::Null,
         })?;
         cost_record!(
@@ -1196,10 +1200,12 @@ impl GpuContext {
             "stagingBytes": size, "hostMs": costs::elapsed(start), "gpuMs": null, "gpuTiming": "unavailable"})
         );
         let version = entry.version;
+        let layout = entry.metadata.clone();
         self.resources.buffer_mut(handle)?.download = Some(Download::Pending {
             staging,
             offset,
             version,
+            layout,
         });
         self.pending_downloads.push(handle);
         Ok(())
@@ -1214,27 +1220,27 @@ impl GpuContext {
             json!({"hostMs": costs::elapsed(start), "pendingDownloads": self.pending_downloads.len(), "pendingTimestamps": self.pending_timestamps.len()})
         );
         while let Some(handle) = self.pending_downloads.first().copied() {
-            let (staging, offset, version) = match self.resources.buffer(handle)?.download.as_ref()
-            {
-                Some(Download::Pending {
-                    staging,
-                    offset,
-                    version,
-                }) => (staging.clone(), *offset, *version),
-                _ => {
-                    return Err(GpuError::Internal(
-                        "pending download queue disagrees with buffer",
-                    ));
-                }
-            };
+            let (staging, offset, version, layout) =
+                match self.resources.buffer(handle)?.download.as_ref() {
+                    Some(Download::Pending {
+                        staging,
+                        offset,
+                        version,
+                        layout,
+                    }) => (staging.clone(), *offset, *version, layout.clone()),
+                    _ => {
+                        return Err(GpuError::Internal(
+                            "pending download queue disagrees with buffer",
+                        ));
+                    }
+                };
             let start = costs::clock();
             let outcome = self.map_download(&staging);
-            let entry = self.resources.buffer(handle)?;
             cost_record!(
                 self.cost_id,
                 "downloadMapCopy",
                 json!({"buffer": handle, "version": version,
-                "offset": offset, "bytes": staging.size(), "layout": entry.metadata,
+                "offset": offset, "bytes": staging.size(), "layout": layout,
                 "hostMs": costs::elapsed(start), "hostCopies": 1, "success": outcome.is_ok()})
             );
             // The download is settled either way. A failed map must not stay
@@ -1247,6 +1253,7 @@ impl GpuContext {
                         offset,
                         bytes,
                         version,
+                        layout,
                     });
                 }
                 Err(error) => {
@@ -1309,12 +1316,13 @@ impl GpuContext {
         size: u64,
     ) -> Result<Vec<u8>, GpuError> {
         let entry = self.resources.buffer_mut(handle)?;
-        let (ready_offset, bytes, version) = match entry.download.take() {
+        let (ready_offset, bytes, version, layout) = match entry.download.take() {
             Some(Download::Ready {
                 offset,
                 bytes,
                 version,
-            }) => (offset, bytes, version),
+                layout,
+            }) => (offset, bytes, version, layout),
             other => {
                 entry.download = other;
                 return Err(GpuError::DownloadNotReady(handle));
@@ -1326,6 +1334,7 @@ impl GpuContext {
                 offset: ready_offset,
                 bytes,
                 version,
+                layout,
             });
             return Err(GpuError::DownloadMismatch {
                 expected_offset: ready_offset,
@@ -1335,6 +1344,7 @@ impl GpuContext {
             });
         }
         entry.completed_download_version = Some(version);
+        entry.completed_download_layout = layout;
         Ok(bytes)
     }
 
@@ -1350,7 +1360,7 @@ impl GpuContext {
             self.cost_id,
             "downloadHostCopy",
             json!({"buffer": handle, "version": entry.completed_download_version, "offset": offset,
-            "bytes": size, "layout": entry.metadata, "hostCopies": 1, "hostMs": costs::elapsed(start)})
+            "bytes": size, "layout": entry.completed_download_layout, "hostCopies": 1, "hostMs": costs::elapsed(start)})
         );
         costs::check()
     }
@@ -1639,6 +1649,8 @@ mod tests {
         gpu.queue_download(buffer, 0, 16).unwrap();
         // This upload is ordered after the queued copy; its version must not
         // replace the downloaded snapshot's provenance.
+        gpu.metadata(buffer, false, br#"{"shape":[1,4],"strides":[4,1]}"#)
+            .unwrap();
         gpu.upload(buffer, 0, &[0; 16]).unwrap();
         gpu.synchronize().unwrap();
         assert_eq!(
@@ -1687,6 +1699,11 @@ mod tests {
                 "{operation} keeps the queued snapshot version"
             );
             assert_eq!(row["bytes"], 16);
+            assert_eq!(
+                row["layout"]["shape"],
+                json!([2, 2]),
+                "{operation} keeps queued layout"
+            );
         }
         if timestamp_supported {
             let timings: Vec<_> = rows
