@@ -62,7 +62,7 @@ def build(root, cache, sources):
                 shutil.copytree(sources[name]['sourcePath'], trees[name], symlinks=True)
             musl = work / 'sysroot'
             run(trees['musl'] / 'configure', '--target=i386-linux-musl', '--prefix=' + str(musl),
-                '--syslibdir=/lib', 'CC=gcc -m32', cwd=trees['musl'], env=environment)
+                '--syslibdir=/lib', 'CC=gcc -m32', 'AR=ar', 'RANLIB=ranlib', cwd=trees['musl'], env=environment)
             run('make', '-j' + jobs, cwd=trees['musl'], env=environment)
             # Install the dynamic loader ourselves into the guest root, not /lib on the builder.
             run('make', 'install', 'DESTDIR=' + str(work / 'install'), cwd=trees['musl'], env=environment)
@@ -104,7 +104,7 @@ def build(root, cache, sources):
                 elif path.is_dir():
                     entries.append((name, 0o040755, b''))
                 else:
-                    entries.append((name, 0o100755 if name in ('init', 'nupp/luajit') else 0o100644, path.read_bytes()))
+                    entries.append((name, 0o100755 if name in ('init', 'nupp/luajit', 'lib/ld-musl-i386.so.1') else 0o100644, path.read_bytes()))
             (packaged / 'assets/initramfs.gz').write_bytes(gzip.compress(cpio(entries), mtime=0))
             kernel = work / 'kernel'
             kernel.mkdir()

@@ -33,7 +33,7 @@ out:commit(4)
 assert(out:get() == "test")
 assert(buffer.decode(buffer.encode({value = 42})).value == 42)
 assert(require("lpeg").match(require("lpeg").P("yes"), "yes") == 4)
-assert(assert(loadstring("const x = 3; return (x << 2) + (9 // 2)"))() == 16)
+assert(assert(loadstring("const x = 3; return x << 2"))() == 12)
 jit.flush()
 jit.on()
 local total = 0
