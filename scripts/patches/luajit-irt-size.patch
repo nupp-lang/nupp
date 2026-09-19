@@ -1,0 +1,11 @@
+--- a/src/lj_ir.h
++++ b/src/lj_ir.h
+@@ -409,7 +409,7 @@
+ #define irt_is64(t)		((IRT_IS64 >> irt_type(t)) & 1)
+ #define irt_is64orfp(t)		(((IRT_IS64|(1u<<IRT_FLOAT))>>irt_type(t)) & 1)
+ 
+-#define irt_size(t)		(lj_ir_type_size[irt_t((t))])
++#define irt_size(t)		(lj_ir_type_size[irt_type((t))])
+ 
+ LJ_DATA const uint8_t lj_ir_type_size[];
+ 

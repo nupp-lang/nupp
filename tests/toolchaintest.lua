@@ -79,7 +79,7 @@ end
 -- for a Git Bash command produced entries like `C` and `\Windows;C`. The shell
 -- then had no `/usr/bin`, and the driver died on `dirname` before doing
 -- anything this suite meant to test.
-local function run(environment, arguments)
+local function run(environment, arguments, driver)
     local prefix = {}
     for name, value in pairs(environment) do
         if name == "PATH" then
@@ -91,7 +91,7 @@ local function run(environment, arguments)
     table.sort(prefix)
     local command = (
         "env %s %s %s 2>&1; echo \"__exit__:$?\""
-    ):format(table.concat(prefix, " "), quote(DRIVER), arguments)
+    ):format(table.concat(prefix, " "), quote(driver or DRIVER), arguments)
     local pipe = assert(io.popen(command))
     local output = pipe:read("*a")
     pipe:close()
@@ -735,6 +735,130 @@ function M.theOldCCompilerNameStillSelects()
     assert(primaryStatus == 0, viaPrimary)
 
     assert(viaAlias ~= viaPrimary, "the primary names did not win over the aliases: " .. viaAlias)
+end
+
+
+-- Test a checkout copy: changing patch bytes must change both the native prefix
+-- and the source fingerprint used by host artifacts, without rebuilding C.
+function M.luaJitPatchContentChangesNativeAndHostKeys()
+    local directory = temporary()
+    local root = directory .. "/root"
+    assert(os.execute("mkdir -p " .. quote(root .. "/scripts/patches")) == 0)
+    local driver = root .. "/scripts/toolchain"
+    write(driver, read(DRIVER))
+    write(root .. "/scripts/toolchain.pins", read(ROOT .. "/scripts/toolchain.pins"))
+    local patch = root .. "/scripts/patches/luajit-irt-size.patch"
+    write(patch, read(ROOT .. "/scripts/patches/luajit-irt-size.patch"))
+    local hostProbe = root .. "/scripts/host-key"
+    local text = read(DRIVER)
+    local entry = assert(text:find("# --- entry", 1, true))
+    write(hostProbe, text:sub(1, entry - 1) .. '\nrust_sources_digest\n')
+    assert(os.execute("chmod +x " .. quote(driver) .. " " .. quote(hostProbe)) == 0)
+    local compiler = fakeCompiler(directory, "fake-cc", "fixed")
+    local env = {NUPP_TOOLCHAIN_DIR = directory .. "/cache", NUPP_CC = compiler, NUPP_CXX = compiler, PATH = "$PATH"}
+    local status, prefix = run(env, "--prefix", driver)
+    assert(status == 0, prefix)
+    local hostStatus, host = run(env, "", hostProbe)
+    assert(hostStatus == 0, host)
+    write(patch, read(patch) .. "\n# Distinct patch content for cache invalidation.\n")
+    local newStatus, newPrefix = run(env, "--prefix", driver)
+    assert(newStatus == 0, newPrefix)
+    local newHostStatus, newHost = run(env, "", hostProbe)
+    assert(newHostStatus == 0, newHost)
+    assert(prefix ~= newPrefix, "changed LuaJIT patch reused the native prefix")
+    assert(host ~= newHost, "changed LuaJIT patch reused the host source fingerprint")
+end
+
+function M.luaJitBuildPatchesOnlyItsPrivateSourceCopy()
+    local directory = temporary()
+    local root = directory .. "/root"
+    local source = directory .. "/cache/sources/LuaJIT-" .. pins().LUAJIT_REV
+    assert(os.execute("mkdir -p " .. quote(root .. "/scripts/patches") .. " " .. quote(root .. "/host/notices") .. " " .. quote(source .. "/src")) == 0)
+    local driver = root .. "/scripts/toolchain"
+    write(driver, read(DRIVER))
+    write(root .. "/scripts/toolchain.pins", read(ROOT .. "/scripts/toolchain.pins"))
+    write(root .. "/scripts/patches/luajit-irt-size.patch", read(ROOT .. "/scripts/patches/luajit-irt-size.patch"))
+    local notice = read(ROOT .. "/host/notices/LuaJIT-COPYRIGHT.txt")
+    write(root .. "/host/notices/LuaJIT-COPYRIGHT.txt", notice)
+    write(source .. "/COPYRIGHT", notice)
+    write(source .. "/src/lj_arch.h", "/* fixture source marker */\n")
+    local header = "#define irt_is64(t)\t\t((IRT_IS64 >> irt_type(t)) & 1)\n"
+        .. "#define irt_is64orfp(t)\t\t(((IRT_IS64|(1u<<IRT_FLOAT))>>irt_type(t)) & 1)\n\n"
+        .. "#define irt_size(t)\t\t(lj_ir_type_size[irt_t((t))])\n\n"
+        .. "LJ_DATA const uint8_t lj_ir_type_size[];\n\n"
+    write(source .. "/src/lj_ir.h", header)
+    local make = directory .. "/fake-make"
+    write(make, [[#!/bin/sh
+set -eu
+mode=build
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        -C) tree=$2; shift ;;
+        PREFIX=*) prefix=${1#PREFIX=} ;;
+        clean|install) mode=$1 ;;
+    esac
+    shift
+done
+[ "$tree" != "$NUPP_TEST_SHARED_SOURCE" ]
+grep -F 'lj_ir_type_size[irt_type((t))]' "$tree/src/lj_ir.h" >/dev/null
+printf 'private\n' > "$tree/private-build-marker"
+if [ "$mode" = install ]; then
+    mkdir -p "$prefix/bin" "$prefix/include/luajit-2.1"
+    printf '#!/bin/sh\necho LuaJIT 2.1.1784535650\n' > "$prefix/bin/luajit"
+    chmod +x "$prefix/bin/luajit"
+fi
+]])
+    write(directory .. "/uname", "#!/bin/sh\nif [ \"$1\" = -m ]; then echo x86_64; else echo Linux; fi\n")
+    assert(os.execute("chmod +x " .. quote(driver) .. " " .. quote(make) .. " " .. quote(directory .. "/uname")) == 0)
+    local compiler = fakeCompiler(directory, "fake-cc", "fixed")
+    local status, output = run({NUPP_TOOLCHAIN_DIR = directory .. "/cache", NUPP_CC = compiler, NUPP_CXX = compiler, MAKE = make, NUPP_TEST_SHARED_SOURCE = source, PATH = forPath(directory) .. ":$PATH"}, "luajit", driver)
+    assert(status == 0, output)
+    assert(read(source .. "/src/lj_ir.h") == header, "the shared verified source was patched")
+    assert(not io.open(source .. "/private-build-marker", "rb"), "make wrote into the shared verified source")
+end
+
+local function luaJitSelection(architecture, stagedExists)
+    local directory = temporary()
+    local current = directory .. "/current"
+    local staged = directory .. "/staged"
+    local root = directory .. "/root"
+    assert(os.execute("mkdir -p " .. quote(current) .. " " .. quote(staged .. "/bin") .. " " .. quote(root .. "/scripts")) == 0)
+    write(current .. "/uname", "#!/bin/sh\nif [ \"$1\" = -m ]; then echo " .. quote(architecture) .. "; else echo Linux; fi\n")
+    write(current .. "/luajit", "#!/bin/sh\necho 'LuaJIT 2.1.9999999999'\n")
+    local marker = directory .. "/provisioned"
+    write(root .. "/scripts/toolchain", "#!/bin/sh\nprintf requested > " .. quote(marker) .. "\nprintf '%s\\n' " .. quote(forPath(staged)) .. "\n")
+    if stagedExists then
+        write(staged .. "/bin/luajit", "#!/bin/sh\necho 'LuaJIT 2.1.1784535650'\n")
+        assert(os.execute("chmod +x " .. quote(staged .. "/bin/luajit")) == 0)
+    end
+    assert(os.execute("chmod +x " .. quote(current .. "/uname") .. " " .. quote(current .. "/luajit") .. " " .. quote(root .. "/scripts/toolchain")) == 0)
+    local command = ('env PATH="%s:$PATH" sh -c %s 2>&1'):format(forPath(current), quote('. ' .. quote(ROOT .. '/scripts/luajit.sh') .. '; if select_luajit ' .. quote(root) .. '; then command -v luajit; else echo SELECT_FAILED; fi'))
+    local pipe = assert(io.popen(command))
+    local selected = pipe:read("*a")
+    pipe:close()
+    local handle = io.open(marker, "rb")
+    local provisioned = handle ~= nil
+    if handle then handle:close() end
+    return selected:gsub("%s+$", ""), provisioned, current, staged
+end
+
+function M.arm64SelectsPatchedLuaJitEvenWhenPathIsNewer()
+    for _, architecture in ipairs({"arm64", "aarch64"}) do
+        local selected, provisioned, _, staged = luaJitSelection(architecture, true)
+        assert(provisioned, "ARM64 trusted an unverified PATH LuaJIT")
+        assert(forPath(selected) == forPath(staged) .. "/bin/luajit", selected)
+    end
+end
+
+function M.otherArchitecturesKeepUsablePathLuaJit()
+    local selected, provisioned, current = luaJitSelection("x86_64", true)
+    assert(not provisioned, "x86_64 needlessly replaced a usable PATH LuaJIT")
+    assert(forPath(selected) == forPath(current) .. "/luajit", selected)
+end
+
+function M.arm64DoesNotFallBackWhenStagedLuaJitIsMissing()
+    local selected, provisioned = luaJitSelection("arm64", false)
+    assert(provisioned and selected:find("SELECT_FAILED", 1, true), selected)
 end
 
 return M

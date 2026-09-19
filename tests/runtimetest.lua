@@ -555,4 +555,70 @@ function M.cliWatchRequiresRestartForMappedNativeReplacement()
     )
 end
 
+-- Guarded integer IR carries flags which must not become a type-size index.
+-- ARM64 stack arguments exposed this as a halfword store for a uint32_t.
+function M.tracedFfiPreservesStackArgumentWidths()
+    local ffi = require("ffi")
+    withProject({
+        ["echo.c"] = [==[
+#include <stddef.h>
+#include <stdint.h>
+int32_t ffiWidthEcho(uint64_t context, const uint8_t *spirv, size_t spirv_length,
+ const char *entrypoint, size_t entrypoint_length, uint32_t reads,
+ uint32_t writes, uint64_t uniforms, uint32_t x, uint32_t y, uint32_t z,
+ uint64_t *output) {
+ output[0]=context; output[1]=x; output[2]=y; output[3]=z;
+ output[4]=(uintptr_t)output;
+ output[5]=spirv_length+entrypoint_length+reads+writes+uniforms+spirv[0]+entrypoint[0];
+ return 0;
+}
+]==],
+        ["echo.lua"] = [==[
+local ffi=require('ffi')
+ffi.cdef[[int32_t ffiWidthEcho(uint64_t,const uint8_t*,size_t,const char*,size_t,uint32_t,uint32_t,uint64_t,uint32_t,uint32_t,uint32_t,uint64_t*);]]
+local C=ffi.load(arg[2])
+local function compile(artifacts,context,reads,writes,uniforms,group)
+ local output=ffi.new('uint64_t[6]')
+ assert(C.ffiWidthEcho(context,artifacts.spirv,#artifacts.spirv,artifacts.entrypoint,#artifacts.entrypoint,reads,writes,uniforms,group,1,1,output)==0)
+ assert(output[0]==context)
+ assert(output[1]==group and output[2]==1 and output[3]==1,
+   ('bad workgroup[%s,%s,%s] output=%s'):format(tostring(output[1]),tostring(output[2]),tostring(output[3]),tostring(output[4])))
+ assert(output[5]==#artifacts.spirv+#artifacts.entrypoint+reads+writes+uniforms+artifacts.spirv:byte(1)+artifacts.entrypoint:byte(1))
+ return output
+end
+if arg[1]=='off' then jit.off() else jit.opt.start('hotloop=1','hotexit=1') end
+local total=0
+local traced=false
+for round=1,30 do
+ local artifacts={spirv=('abcdef'):rep(round),entrypoint='main'}
+ for i=1,10000 do
+  local result=compile(artifacts,i,1,1,20,256)
+  total=total+tonumber(result[0])
+ end
+ if arg[1]~='off' then
+  traced = traced or require('jit.util').traceinfo(1) ~= nil
+  jit.flush()
+ end
+end
+if arg[1] ~= 'off' then assert(traced, 'loop never traced') end
+print('300000 calls passed',total)
+]==],
+    }, function(dir)
+        local flags = ffi.os == "OSX" and "-dynamiclib" or "-shared -fPIC"
+        local library = dir .. (ffi.os == "Windows" and "/echo.dll" or "/echo.so")
+        local cc = os.getenv("NUPP_CC") or (ffi.os == "Windows" and "gcc" or "cc")
+        assertEq(os.execute(("%s -O2 %s '%s/echo.c' -o '%s' > '%s/cc.log' 2>&1")
+            :format(cc, flags, dir, library, dir)), 0, "build FFI width oracle")
+        for _, mode in ipairs({"off", "on"}) do
+            local output = dir .. "/" .. mode .. ".log"
+            local command = ("luajit '%s/echo.lua' %s '%s' > '%s' 2>&1")
+                :format(dir, mode, library, output)
+            local status = os.execute(command)
+            local result = readFile(output)
+            assertEq(status, 0, mode .. " FFI calls: " .. result)
+            assert(result:find("300000 calls passed", 1, true), result)
+        end
+    end)
+end
+
 return M

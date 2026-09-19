@@ -23,15 +23,16 @@ luajit_is_usable() {
     return 1
 }
 
-# Uses whatever is on PATH when it is new enough, and otherwise builds the pinned
-# LuaJIT and puts that on PATH instead. Telling somebody to go and install an
-# interpreter new enough to parse what this compiler emits is asking them to
-# solve a problem this can solve.
+# ARM64 needs the pinned build's IR type-width fix: a new banner alone does not
+# establish correct FFI argument widths. Other architectures retain a usable
+# PATH interpreter; otherwise provision the pinned build automatically.
 select_luajit() {
-    luajit_is_usable && return 0
+    case "$(uname -m 2>/dev/null)" in
+        arm64|aarch64) ;;
+        *) luajit_is_usable && return 0 ;;
+    esac
     staged=$("$1/scripts/toolchain" luajit) || {
-        echo "nupp: no LuaJIT new enough for generated Nupp is on PATH, and" \
-            "scripts/toolchain could not build the pinned one" >&2
+        echo "nupp: scripts/toolchain could not provision the required LuaJIT" >&2
         return 1
     }
     # Toolchain answers use drive-letter paths because native Windows programs
@@ -44,7 +45,7 @@ select_luajit() {
     esac
     PATH="$staged_path/bin:$PATH"
     export PATH
-    luajit_is_usable || {
+    [ -x "$staged_path/bin/luajit" ] && luajit_is_usable || {
         echo "nupp: LuaJIT staged at $staged does not run" >&2
         return 1
     }

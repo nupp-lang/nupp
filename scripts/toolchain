@@ -179,7 +179,7 @@ rust_sources_digest() {
         # `scripts/toolchain.pins` is not in this list because it is folded in
         # below through `pins_digest`, which leaves out the stage-zero pin.
         for file in Cargo.toml Cargo.lock rust-toolchain.toml .cargo/config.toml \
-            scripts/toolchain; do
+            scripts/toolchain scripts/patches/luajit-irt-size.patch; do
             [ -f "$ROOT/$file" ] && printf '%s\n' "$file"
         done
         (cd "$ROOT" && find native/crates -type f \
@@ -226,6 +226,7 @@ key_material() {
     "$CXX" --version 2>&1 | head -n 2 || true
     printf '%s %s\n' "$UNAME" "$(uname -m 2>/dev/null || echo unknown)"
     sha256 "$ROOT/scripts/toolchain"
+    sha256 "$ROOT/scripts/patches/luajit-irt-size.patch"
     pins_digest
 }
 KEY=$(key_material | sha256_stdin | cut -c1-16)
@@ -941,8 +942,17 @@ build_luajit() {
 
     directory="LuaJIT-$LUAJIT_REV"
     url="https://github.com/LuaJIT/LuaJIT/archive/$LUAJIT_REV.tar.gz"
-    tree=$(source_tree "$directory" "$url" "$LUAJIT_SHA256" "$LUAJIT_MARKER")
-    verify_notice "$tree/COPYRIGHT" LuaJIT-COPYRIGHT.txt
+    luajit_source=$(source_tree "$directory" "$url" "$LUAJIT_SHA256" "$LUAJIT_MARKER")
+    verify_notice "$luajit_source/COPYRIGHT" LuaJIT-COPYRIGHT.txt
+
+    # Shared verified sources are immutable inputs. Patch and compile a fresh
+    # private copy, so another compiler key cannot observe either change.
+    luajit_build="$PREFIX/.luajit-source"
+    rm -rf "$luajit_build"
+    mkdir -p "$luajit_build"
+    cp -R "$luajit_source/." "$luajit_build/"
+    patch -f -p1 -d "$luajit_build" < "$ROOT/scripts/patches/luajit-irt-size.patch" >&2
+    tree=$luajit_build
 
     note "building LuaJIT with $CC"
     rm -rf "$out"
@@ -1018,6 +1028,7 @@ build_luajit() {
     include=$(find "$out/include" -maxdepth 1 -type d -name 'luajit-*' | head -n 1)
     [ -n "$include" ] || include="$out/include"
     native_path "$include" > "$out/.include"
+    rm -rf "$luajit_build"
     printf 'done\n' > "$out/.complete"
     release_lock
 }
