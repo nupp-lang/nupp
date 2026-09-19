@@ -50,6 +50,11 @@ also validate generated Lua. Imports need checked runtime source; declaration
 files do not certify unseen implementations. Literal `loadstring` source is
 checked without execution. Dynamic module names and opaque code loading fail.
 
+Compatibility keeps provenance through local aliases and casts. Passing runtime
+namespace tables or code loaders through containers or unchecked callbacks is
+rejected because their use can no longer be verified. Registry, upvalue and
+local-variable reflection likewise cannot certify runtime dependencies.
+
 This is narrower than `dialect = "lua51"`. Runtime `const`, compound assignment,
 bit operators, `continue`, jumps, short functions, safe navigation, extended
 literals, FFI, native `bit`, `string.buffer`, exact-width representations and VM
@@ -135,11 +140,6 @@ default with ordinary conditions. Discovering a third-party provider never makes
 it the default. Once the facade resolves, its default selection is frozen;
 reselection fails. A failed loader, invalid implementation, missing required
 provider, or dependency cycle fails the require with service context.
-
-Compatibility keeps provenance through local aliases and casts. Passing runtime
-namespace tables or code loaders through containers or unchecked callbacks is
-rejected because their use can no longer be verified. Registry, upvalue and
-local-variable reflection likewise cannot certify runtime dependencies.
 
 ## Runtime contracts
 

@@ -2,7 +2,7 @@ import {V86} from './assets/libv86.mjs';
 import {loadManifest, assetsFor, inflateSnapshot} from './assets.mjs';
 const MIB = 1024 * 1024;
 const encoder = new TextEncoder(), decoder = new TextDecoder('utf-8', {fatal: true});
-let emulator, mailbox, active, sequence = 0, log = '', line = '', timer, booted = false;
+let emulator, mailbox, active, sequence = 0, log = '', line = '', timer, booted = false, completed = false;
 function fail(error) {
   clearInterval(timer);
   self.postMessage({type: 'failed', error: String(error?.stack || error), log});
@@ -97,6 +97,7 @@ async function boot(message) {
     self.postMessage({type: 'log', log});
     try {
       if (current.includes('Kernel panic - not syncing:') || current.startsWith('Failed to execute /init') || current.startsWith('@@NUPP_INIT_ERROR@@')) throw new Error(current);
+      if (current.startsWith('@@NUPP_GUEST_EXIT@@') && !completed) throw new Error('LuaJIT exited before returning a result: ' + current);
       if (current === '@@NUPP_SNAPSHOT_READY@@') {
         if (message.captureSnapshot) {
           (async () => {
@@ -115,6 +116,7 @@ async function boot(message) {
         const incoming = Number(match[2]);
         if (incoming !== sequence || active) throw new Error('Unexpected guest frame sequence');
         active = match[1] !== 'DONE';
+        completed = !active;
         self.postMessage({type: match[1].toLowerCase(), sequence, result: read()});
       }
     } catch (error) { fail(error); }
