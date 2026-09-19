@@ -2950,6 +2950,39 @@ function gen.generate(
         end
     end
 
+    -- Admission is one call to a test declared once for the module, not a function
+    -- built here: a helper shared by every site carrying the same constraint, which a
+    -- trace inlines and a loop can hold. Its parameter names the value, so the
+    -- refinement reads it as many times as it needs while the argument is evaluated
+    -- exactly once.
+    --
+    -- On emitDepth for the same reason `switchTest` is: the expression emitter is at
+    -- Lua's upvalue limit, and this needs three names it does not already hold.
+    emitDepth.admitCall = function(x)
+        local args = x.args as any
+        local supplied = args and args.exprs and args.exprs[1] or nil
+        if not x.admitPredicate then
+            -- Proved, so there is nothing to test and nothing to call. The admission
+            -- said what the source meant and leaves the value exactly as it was.
+            emit(supplied)
+            return
+        end
+        -- `render`, not `test`: the checker decided what this has to establish and put
+        -- all of it in the node. `test` would add the table check an interface
+        -- refinement needs, which is exactly the wrong question to ask about a number.
+        local test = predicate.render(x.admitPredicate, "__nuppV")
+        local name = declareHelper(
+            "__nuppAdmit",
+            "__nuppV",
+            (
+                "if %s then return __nuppV end error(%q, 2)"
+            ):format(test, ("value is not established as %s"):format(x.admitName or "a constrained type"))
+        )
+        e(name .. "(", sourceLine(x))
+        emit(supplied)
+        e(")")
+    end
+
     local lowerSwitch
     local planSwitchStatement
     local activeFlag, ownershipMoveOf
@@ -7050,6 +7083,10 @@ function gen.generate(
             if wrapsMove then
                 e(" end)()")
             end
+            return
+
+        elseif kind == "call" and x.admitName then
+            emitDepth.admitCall(x)
             return
 
         elseif kind == "call" and x.ffiIntrinsic then

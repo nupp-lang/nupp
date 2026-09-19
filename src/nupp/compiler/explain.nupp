@@ -307,6 +307,19 @@ local ENTRIES: {any} = {
         docs = "docs/learn/language/types/primitives.md#numbers",
     },
     {
+        code = "NUPP2013",
+        summary = "nupp.admit was written without a constrained destination or with the wrong value",
+        rule = "`nupp.admit(value)` takes the constrained type it admits into from where "
+        .. "its result goes: an annotated binding, a declared result, or a parameter. "
+        .. "A destination that is not constrained gives it nothing to establish, and a "
+        .. "value that is not already the constraint's base is a conversion rather than "
+        .. "an admission, which this does not do.",
+        wrong = "local type Small = nupp.types.range(integer, 0, 10)\nlocal function of(v: integer): integer\n    return nupp.admit(v)\nend\nreturn of\n",
+        right = "local type Small = nupp.types.range(integer, 0, 10)\nlocal function of(v: integer): Small\n    return nupp.admit(v)\nend\nreturn of\n",
+        related = {"NUPP2011", "NUPP2422"},
+        docs = "docs/reference/diagnostics.md#diagnostic-index",
+    },
+    {
         code = "NUPP2101",
         summary = "A type name cannot be resolved",
         rule = "A type name must be a built-in, a declaration visible in this "

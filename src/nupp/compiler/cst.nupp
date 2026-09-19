@@ -385,6 +385,15 @@ interface cst.Hints
     --- find that out.
     primitiveTest: string?
 
+    --- The refinement a `nupp.admit` call has to establish, attached by the checker so
+    --- the generator emits it without resolving anything again. Absent when the value
+    --- was already proved, which is what makes a written admission around one cost
+    --- nothing.
+    admitPredicate: any
+
+    --- The constrained type that admission names, for the failure it reports.
+    admitName: string?
+
     --- Set on an `is` whose answer the subject's own type already settles.
     provenStatically: boolean?
 

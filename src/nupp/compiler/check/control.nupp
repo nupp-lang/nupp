@@ -656,6 +656,14 @@ function control.install(c: state.Checker): state.StatHandlers
                 local contextual: any = returned
                 contextual.sendableContext = true
             end
+            -- A declared result is a destination like an annotated binding is, so a
+            -- call whose own result type is a binder resolves it from here as well.
+            if returned and expected and (returned.kind == "call" or returned.kind == "safeCall") then
+                local contextual: any = returned
+                if contextual.expectedResult == nil then
+                    contextual.expectedResult = expected
+                end
+            end
         end
         local wasReturning = c.loops.setReturning(true)
         local returnedPack = constructor and T.pack({}) or c.inferListPack(stat.exprs)

@@ -24,6 +24,7 @@ local native = require("nupp.compiler.native")
 local luaFormat = require("nupp.compiler.luaformat") as {analyze: function(string): (any, string?)}
 local reflection = require("nupp.compiler.reflection")
 local narrowing = require("nupp.compiler.narrowing")
+local predicate = require("nupp.compiler.predicate")
 local targetLayout = require("nupp.compiler.targetlayout")
 local fixedWidth = require("nupp.compiler.fixedwidth")
 local indexedViews = require("nupp.compiler.indexedviews")
@@ -701,6 +702,86 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
     ---------------------------------------------------------------------
     -- Calls
     ---------------------------------------------------------------------
+
+    --- `nupp.admit(value)` once the ordinary machinery has decided what it answers.
+    ---
+    --- The destination supplies the constrained type, so this runs after inference
+    --- rather than before it: there is nothing to resolve here, only to hold the call
+    --- to what it promised. The predicate travels to the generator on the node, the
+    --- same way `is` carries one.
+    local function admitted(node: cst.Call | cst.SafeCall, result: Type): Type
+        local callee = node.obj
+        if not callee or callee.kind ~= "dotIndex" then
+            return result
+        end
+        local base = callee.obj
+        if not base or base.kind ~= "name" or not base.token or base.token.text ~= "nupp" then
+            return result
+        end
+        if not callee.name or callee.name.text ~= "admit" then
+            return result
+        end
+        local args = (node.args as cst.Args?)
+        local exprs = args and args.exprs or nil
+        if not exprs or #exprs ~= 1 then
+            c.diag("NUPP2013", node, "nupp.admit takes one value")
+            return result
+        end
+        local constraint = T.constraintOf(result)
+        if not constraint then
+            c.diag(
+                "NUPP2013",
+                node,
+                ("nupp.admit needs a constrained destination, and this one is %s"):format(T.tostring(result)),
+                nil,
+                {help = "annotate the binding, result or parameter with a constrained type"}
+            )
+            return result
+        end
+        local into = T.unconstrained(result)
+        local supplied = c.infer(exprs[1])
+        local fits, why = isA(T.unconstrained(supplied), into)
+        if not fits and T.unconstrained(supplied) ~= T.any then
+            c.diag(
+                "NUPP2013",
+                exprs[1],
+                ("nupp.admit narrows %s, and this value is %s"):format(T.tostring(into), T.tostring(supplied)),
+                nil,
+                {help = why}
+            )
+            return result
+        end
+        -- A value already proved needs no test. Writing the admission anyway is not an
+        -- error: a bound may move, and the source that says what it meant should keep
+        -- compiling when it does.
+        local proved = isA(supplied, result)
+        -- What the test has to establish depends on what the checker already did. A
+        -- value typed as the base needs only the refinement; a gradual one needs the
+        -- base test in front of it, because nothing has said what it is. Deciding that
+        -- here keeps the generator emitting a predicate rather than choosing a policy.
+        local test = constraint
+        local bare = T.unconstrained(supplied)
+        if bare == T.any or bare == T.unknown then
+            local luaType = T.luaTypeName(into)
+            if luaType then
+                test = predicate.normalize(
+                    new predicate.Node(
+                        op = "and",
+                        a = new predicate.Node(op = "typeis", path = {}, luaType = luaType),
+                        b = constraint
+                    )
+                )
+            end
+        end
+        -- Written out rather than `proved and nil or test`: that idiom answers `test`
+        -- for a proved value, because `true and nil` is nil and `nil or test` is test.
+        if not proved then
+            node.admitPredicate = test
+        end
+        node.admitName = T.tostring(result)
+
+        return result
+    end
 
     handlers.call = function(node: cst.Call | cst.SafeCall): Type
         -- The intrinsic dispatch below asks the same three questions of every call,
@@ -2044,7 +2125,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         c.lastCallRets = rets
         node.valuePack = pack or (rets and T.pack(rets) or T.pack({}, {kind = "unknown", type = T.any}))
 
-        return first
+        return admitted(node, first)
     end
     handlers.safeCall = handlers.call
 

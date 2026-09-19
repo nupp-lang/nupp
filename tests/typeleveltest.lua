@@ -2131,4 +2131,46 @@ function M.aShapeMustCarryAnInterfacesDefaultMember()
     )
 end
 
+-- A value the checker cannot prove is refused where it would enter a constrained
+-- type, and `nupp.admit` is how the source says it meant it. The destination
+-- supplies the type, so nothing names it twice.
+function M.admissionIsWrittenWhereProofRunsOut()
+    local alias = "local type Small = nupp.types.range(integer, 0, 10)\n"
+    clean(alias .. "local function of(v: integer): Small\n    return nupp.admit(v)\nend\nprint(of(1))")
+    clean(alias .. "local v: integer = 1\nlocal x: Small = nupp.admit(v)\nprint(x)")
+    -- a proved value may be admitted too: a bound can move, and the source that
+    -- says what it meant should keep compiling when it does
+    clean(alias .. "local function of(): Small\n    return nupp.admit(7)\nend\nprint(of())")
+    -- the destination has to be constrained
+    assertEq(
+        codes(alias .. "local function of(v: integer): integer\n    return nupp.admit(v)\nend\nprint(of(1))"),
+        "NUPP2013"
+    )
+    -- and the value has to be the constraint's base: this admits, it does not convert
+    assertEq(
+        codes(alias .. "local function of(v: string): Small\n    return nupp.admit(v)\nend\nprint(of('x'))"),
+        "NUPP2013"
+    )
+end
+
+-- Proof decides what is emitted: an unprovable value gets one shared test, a proved
+-- one gets nothing at all, and the value is read exactly once either way.
+function M.admissionEmitsOnlyWhatProofLeaves()
+    local alias = "local type Small = nupp.types.range(integer, 0, 10)\n"
+    local function lua(source)
+        local parsed = parser.parse(source, "admit.g.nupp")
+        assertEq(#parsed.errors, 0, "syntax: " .. (parsed.errors[1] and parsed.errors[1].msg or ""))
+        env.loaded = {}
+        check.check(parsed, "admit.g.nupp", env)
+
+        return gen.generate(parsed, "admit.g.nupp")
+    end
+    local unproved = lua(alias .. "local function of(v: integer): Small\n    return nupp.admit(v)\nend\nprint(of(1))")
+    assert(unproved:find("__nuppAdmit", 1, true), "an unprovable admission emits its test")
+    assert(unproved:find("__nuppV <= 10", 1, true), "the test carries the upper bound")
+    assert(unproved:find("__nuppV %% 1 == 0"), "an integer base tests integrality")
+    local proved = lua(alias .. "local function of(): Small\n    return nupp.admit(7)\nend\nprint(of())")
+    assert(not proved:find("__nuppAdmit", 1, true), "a proved admission emits nothing")
+end
+
 return M

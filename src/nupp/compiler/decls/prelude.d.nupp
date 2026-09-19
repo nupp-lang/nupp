@@ -650,6 +650,21 @@ local nupp: {
     --- Semantic type reflection and reflection-driven field codecs.
     reflect: nupp.reflect,
 
+    --- Admits a value into the constrained type the destination declares.
+    ---
+    --- The constrained type is taken from where the result goes -- an annotated
+    --- binding, a declared result, a parameter -- so nothing names it twice. The
+    --- value's own type has to be the constraint's base, because this admits a value
+    --- into a narrower type and does not convert one.
+    ---
+    --- It raises when the constraint does not hold. `value is Type` is the same test
+    --- without the raise, for a caller that wants to recover. A value the checker can
+    --- already prove needs neither, and writing this around one is not an error.
+    --- @param value the base-typed value to admit
+    --- @return the same value, established as the destination's type
+    --- @raises when the value does not satisfy the constraint
+    admit: function<T>(value: any): T,
+
     --- Size in bytes under the build target's declared C ABI.
     sizeof: function(typeName: any): integer,
 
