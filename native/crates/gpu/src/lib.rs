@@ -416,9 +416,22 @@ impl DeviceErrorQueue {
 }
 
 struct PendingTimestamp {
-    staging: wgpu::Buffer,
+    query: wgpu::QuerySet,
     operation: u64,
     kernel: KernelHandle,
+}
+
+fn timestamp_milliseconds(begin: u64, end: u64, period_ns: f32) -> Result<f64, &'static str> {
+    if begin == end {
+        return Err("equal-timestamps");
+    }
+    if end < begin {
+        return Err("reversed-timestamps");
+    }
+    if !period_ns.is_finite() || period_ns <= 0.0 {
+        return Err("invalid-timestamp-period");
+    }
+    Ok((end - begin) as f64 * period_ns as f64 / 1_000_000.0)
 }
 
 pub struct GpuContext {
@@ -959,7 +972,7 @@ impl GpuContext {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("Nupp compute dispatch"),
             });
-        let query = self.timestamp_supported.then(|| {
+        let query = (self.timestamp_supported && costs::enabled()).then(|| {
             self.device.create_query_set(&wgpu::QuerySetDescriptor {
                 label: Some("Nupp cost timestamps"),
                 ty: wgpu::QueryType::Timestamp,
@@ -992,22 +1005,8 @@ impl GpuContext {
         self.dispatch_sequence += 1;
         let operation = self.dispatch_sequence;
         if let Some(query) = query {
-            let resolve = self.device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("Nupp timestamp resolve"),
-                size: 256,
-                usage: wgpu::BufferUsages::QUERY_RESOLVE | wgpu::BufferUsages::COPY_SRC,
-                mapped_at_creation: false,
-            });
-            let staging = self.device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("Nupp timestamp readback"),
-                size: 16,
-                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-                mapped_at_creation: false,
-            });
-            encoder.resolve_query_set(&query, 0..2, &resolve, 0);
-            encoder.copy_buffer_to_buffer(&resolve, 0, &staging, 0, 16);
             self.pending_timestamps.push(PendingTimestamp {
-                staging,
+                query,
                 operation,
                 kernel: kernel_handle,
             });
@@ -1266,17 +1265,43 @@ impl GpuContext {
         }
         while let Some(pending) = self.pending_timestamps.pop() {
             let start = costs::clock();
-            let bytes = self.map_download(&pending.staging)?;
+            // Metal can resolve pass-boundary counters from the preceding
+            // submission when resolution shares the compute command buffer.
+            // The wait above completes every measured dispatch first; only now
+            // submit its resolve/copy commands, preserving current-work identity.
+            let mut encoder = self
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("Nupp timestamp readback"),
+                });
+            let resolve = self.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("Nupp timestamp resolve"),
+                size: 256,
+                usage: wgpu::BufferUsages::QUERY_RESOLVE | wgpu::BufferUsages::COPY_SRC,
+                mapped_at_creation: false,
+            });
+            let staging = self.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("Nupp timestamp readback"),
+                size: 16,
+                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                mapped_at_creation: false,
+            });
+            encoder.resolve_query_set(&pending.query, 0..2, &resolve, 0);
+            encoder.copy_buffer_to_buffer(&resolve, 0, &staging, 0, 16);
+            self.queue.submit([encoder.finish()]);
+            let bytes = self.map_download(&staging)?;
             let begin = u64::from_le_bytes(bytes[0..8].try_into().expect("timestamp width"));
             let end = u64::from_le_bytes(bytes[8..16].try_into().expect("timestamp width"));
-            let milliseconds = end.wrapping_sub(begin) as f64
-                * self.queue.get_timestamp_period() as f64
-                / 1_000_000.0;
+            let period_ns = self.queue.get_timestamp_period();
+            let measured = timestamp_milliseconds(begin, end, period_ns);
             cost_record!(
                 self.cost_id,
                 "kernelExecution",
                 json!({"dispatch": pending.operation, "kernel": pending.kernel,
-                "gpuMs": milliseconds, "gpuTiming": "timestamp-query", "instrumentationHostMs": costs::elapsed(start)})
+                "gpuMs": measured.ok(), "gpuTiming": if measured.is_ok() { "timestamp-query" } else { "unavailable" },
+                "gpuTimingReason": measured.err(), "gpuTicksBegin": begin.to_string(), "gpuTicksEnd": end.to_string(),
+                "gpuTickPeriodNs": period_ns,
+                "instrumentationHostMs": costs::elapsed(start)})
             );
         }
         costs::check()?;
@@ -1520,6 +1545,26 @@ mod tests {
     use super::*;
 
     #[test]
+    fn invalid_timestamp_intervals_do_not_claim_device_duration() {
+        assert_eq!(timestamp_milliseconds(10, 1010, 2.0), Ok(0.002));
+        assert_eq!(timestamp_milliseconds(0, 0, 1.0), Err("equal-timestamps"));
+        assert_eq!(
+            timestamp_milliseconds(u64::MAX, u64::MAX, 1.0),
+            Err("equal-timestamps")
+        );
+        assert_eq!(
+            timestamp_milliseconds(10, 9, 1.0),
+            Err("reversed-timestamps")
+        );
+        for period in [0.0, -1.0, f32::NAN, f32::INFINITY] {
+            assert_eq!(
+                timestamp_milliseconds(10, 20, period),
+                Err("invalid-timestamp-period")
+            );
+        }
+    }
+
+    #[test]
     fn device_faults_are_buffered_and_drained_once() {
         let errors = DeviceErrorQueue::default();
         let first = errors.clone();
@@ -1665,6 +1710,12 @@ mod tests {
         gpu.dispatch(bindings, [4, 1, 1], &[]).unwrap();
         gpu.synchronize().unwrap();
         costs::configure(None).unwrap();
+        // A retained device keeps its feature capability, but disabling costs
+        // must stop allocating and resolving queries on later dispatches.
+        gpu.timestamp_supported = timestamp_supported;
+        gpu.dispatch(bindings, [4, 1, 1], &[]).unwrap();
+        assert!(gpu.pending_timestamps.is_empty());
+        gpu.synchronize().unwrap();
         let text = std::fs::read_to_string(&costs_path).unwrap();
         let rows: Vec<Value> = text
             .lines()
@@ -1712,7 +1763,23 @@ mod tests {
                 .filter(|r| r["operation"] == "kernelExecution")
                 .collect();
             assert_eq!(timings.len(), 2);
-            assert!(timings.iter().all(|r| r["gpuMs"].as_f64().unwrap() >= 0.0));
+            for timing in timings {
+                let begin = timing["gpuTicksBegin"].as_str().unwrap().parse().unwrap();
+                let end = timing["gpuTicksEnd"].as_str().unwrap().parse().unwrap();
+                let period = timing["gpuTickPeriodNs"].as_f64().unwrap() as f32;
+                match timestamp_milliseconds(begin, end, period) {
+                    Ok(milliseconds) => {
+                        assert_eq!(timing["gpuTiming"], "timestamp-query");
+                        assert_eq!(timing["gpuMs"].as_f64(), Some(milliseconds));
+                        assert!(timing["gpuTimingReason"].is_null());
+                    }
+                    Err(reason) => {
+                        assert_eq!(timing["gpuTiming"], "unavailable");
+                        assert!(timing["gpuMs"].is_null());
+                        assert_eq!(timing["gpuTimingReason"], reason);
+                    }
+                }
+            }
         } else {
             assert_eq!(dispatches[0]["gpuTiming"], "unavailable");
         }
@@ -1726,6 +1793,100 @@ mod tests {
         );
     }
 
+    #[test]
+    fn adapter_timestamps_belong_to_the_current_dispatch_when_available() {
+        let _costs_guard = costs::TEST_LOCK.lock().unwrap();
+        let required = std::env::var_os("NUPP_REQUIRE_GPU").is_some();
+        let path = std::env::temp_dir().join(format!(
+            "nupp-gpu-current-timestamps-{}.jsonl",
+            std::process::id()
+        ));
+        costs::configure(Some(path.to_str().unwrap())).unwrap();
+        let mut gpu = match GpuContext::new() {
+            Ok(gpu) => gpu,
+            Err(error) => {
+                costs::configure(None).unwrap();
+                std::fs::remove_file(path).unwrap();
+                assert!(!required, "required GPU adapter is unavailable: {error}");
+                return;
+            }
+        };
+        if !gpu.timestamp_supported {
+            costs::configure(None).unwrap();
+            std::fs::remove_file(path).unwrap();
+            return;
+        }
+        const SHADER: &str = r#"
+            @group(1) @binding(0) var<storage, read_write> values: array<u32>;
+            @compute @workgroup_size(64)
+            fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+                var value = id.x + 11u;
+                for (var round = 0u; round < 64u; round++) {
+                    value = value * 1664525u + 1013904223u;
+                    value = value ^ (value >> 13u);
+                }
+                values[id.x] = value;
+            }
+        "#;
+        let kernel = gpu.create_wgsl_test_kernel(SHADER, [64, 1, 1]).unwrap();
+        const COUNT: u32 = 262144;
+        let bytes = u64::from(COUNT) * 4;
+        let buffer = gpu.create_buffer(bytes).unwrap();
+        let binding = gpu.create_bindings(kernel).unwrap();
+        gpu.set_write_buffer(binding, 0, buffer, 0, bytes).unwrap();
+        let mut expected = Vec::with_capacity(bytes as usize);
+        for index in 0..COUNT {
+            let mut value = index + 11;
+            for _ in 0..64 {
+                value = value.wrapping_mul(1664525).wrapping_add(1013904223);
+                value ^= value >> 13;
+            }
+            expected.extend_from_slice(&value.to_le_bytes());
+        }
+        // The large/small contrast checks attribution, not performance: a
+        // one-submission-old counter would reverse these two populations.
+        for count in [COUNT, 64, COUNT, 64, COUNT] {
+            gpu.dispatch(binding, [count, 1, 1], &[]).unwrap();
+            gpu.queue_download(buffer, 0, bytes).unwrap();
+            gpu.synchronize().unwrap();
+            assert_eq!(gpu.read_download(buffer, 0, bytes).unwrap(), expected);
+        }
+        let sequence = gpu.dispatch_sequence;
+        gpu.dispatch(binding, [0, 1, 1], &[]).unwrap();
+        assert_eq!(gpu.dispatch_sequence, sequence);
+        assert!(gpu.pending_timestamps.is_empty());
+        costs::configure(None).unwrap();
+        let rows: Vec<Value> = std::fs::read_to_string(&path)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        let mut heavy = Vec::new();
+        let mut light = Vec::new();
+        for row in rows
+            .iter()
+            .filter(|row| row["operation"] == "kernelExecution")
+        {
+            let milliseconds = row["gpuMs"].as_f64().unwrap_or_else(|| {
+                panic!("nonempty dispatch has no usable device interval: {row}")
+            });
+            assert!(milliseconds > 0.0);
+            if row["dispatch"].as_u64().unwrap() % 2 == 1 {
+                heavy.push(milliseconds);
+            } else {
+                light.push(milliseconds);
+            }
+        }
+        assert_eq!((heavy.len(), light.len()), (3, 2));
+        heavy.sort_by(f64::total_cmp);
+        light.sort_by(f64::total_cmp);
+        assert!(
+            heavy[1] > 2.0 * light[1],
+            "timestamps are not attributed to current work: heavy={heavy:?}, light={light:?}"
+        );
+        std::fs::remove_file(path).unwrap();
+    }
+
     impl GpuContext {
         fn create_test_kernel(&mut self) -> Result<KernelHandle, GpuError> {
             const SHADER: &str = r#"
@@ -1737,12 +1898,20 @@ mod tests {
                     values[id.x] = values[id.x] + 1u;
                 }
             "#;
+            self.create_wgsl_test_kernel(SHADER, [1, 1, 1])
+        }
+
+        fn create_wgsl_test_kernel(
+            &mut self,
+            shader: &str,
+            workgroup_size: [u32; 3],
+        ) -> Result<KernelHandle, GpuError> {
             let scope = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
             let module = self
                 .device
                 .create_shader_module(wgpu::ShaderModuleDescriptor {
                     label: Some("Nupp GPU round-trip test"),
-                    source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(SHADER)),
+                    source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(shader)),
                 });
             let pipeline = self
                 .device
@@ -1764,7 +1933,7 @@ mod tests {
                 readonly_bindings: 0,
                 writable_bindings: 1,
                 uniform_size: 0,
-                workgroup_size: [1, 1, 1],
+                workgroup_size,
                 metadata: Value::Null,
                 dispatches: 0,
             })

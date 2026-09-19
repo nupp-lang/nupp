@@ -324,9 +324,13 @@ records carry `phase: "setup"`, and dispatches distinguish `first-use` from
 
 When the adapter supports timestamp queries, `kernelExecution.gpuMs` measures
 the compute pass on the device. Join it to `dispatch` by `context` and `dispatch`.
-Queries are resolved at synchronization, preserving asynchronous submission.
+Queries are resolved at synchronization after the measured work completes,
+preserving asynchronous dispatch and attributing counters to the current work.
 Unsupported adapters report `gpuTiming: "unavailable"` and `gpuMs: null`;
-host submission time is never substituted for device time. Timestamp readback
+equal or reversed device counters do the same, with `gpuTimingReason` explaining
+the invalid interval. Records retain `gpuTicksBegin` and `gpuTicksEnd` as decimal
+strings and `gpuTickPeriodNs` without losing integer precision. Host submission
+time is never substituted for device time. Timestamp readback
 reports its own `instrumentationHostMs`. Collection adds query resources and
 JSON output work, so compare variants with the same instrumentation settings.
 Host and GPU times can overlap and must not simply be summed.
