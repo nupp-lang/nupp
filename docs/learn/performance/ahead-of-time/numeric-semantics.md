@@ -314,6 +314,8 @@ end
 Lowering preserves left-to-right operand evaluation and conditional execution
 in boolean `and`/`or` and ternaries. A loop condition's statements execute on
 every condition test, including the test reached by `continue`. These blocks
-compile to native locals and control flow without closures. Statementful loop
-conditions currently use scalar execution; GPU profiles and the `@simd` rewrite
-do not admit that particular loop shape.
+compile to native locals and control flow without closures. Inside `@simd`,
+`while` and `repeat` condition blocks run under the live-lane mask: `continue`
+reaches the next condition test and `break` retires that lane without testing
+again. A condition block's own `break` or `continue` still targets its enclosing
+loop. GPU profiles do not admit statementful loop conditions.

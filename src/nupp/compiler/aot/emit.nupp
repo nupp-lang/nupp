@@ -2204,6 +2204,7 @@ record emit.Body
     luaRootSlots: {[string]: integer} = {}
 
     controlSerial: integer = 0
+    temporarySerial: integer = 0
     controlBreak: string?
     controlContinue: string?
     headerControl: boolean?
@@ -3098,7 +3099,6 @@ function emit.block(
     body.headerControl = body.headerControl or hasConditionBody(statements)
     local lines: {string} = {}
     local prefix = string.rep("    ", depth)
-    local temporary = 0
 
     local function recursive(inner: cplan.Block, at: integer, parent: emit.Body, continuation: string?): {string}
         return emit.block(context, inner, at, parent, continuation)
@@ -3131,9 +3131,9 @@ function emit.block(
             end
             case "multi_let" -> do
                 local statement = node as scalarIR.MultiLet
-                temporary = temporary + 1
+                body.temporarySerial = body.temporarySerial + 1
 
-                append(multiLet(context, statement, prefix, "mr" .. tostring(temporary)))
+                append(multiLet(context, statement, prefix, "mr" .. tostring(body.temporarySerial)))
                 yield true
             end
             case "store" -> do
@@ -3157,8 +3157,8 @@ function emit.block(
                 -- `a, b = b, a` means what it says and storing as it went would not.
                 local temps: {string} = {}
                 for position, entry in ipairs(statement.values) do
-                    temporary = temporary + 1
-                    temps[position] = "as" .. tostring(temporary)
+                    body.temporarySerial = body.temporarySerial + 1
+                    temps[position] = "as" .. tostring(body.temporarySerial)
                     lines[
                         #lines + 1
                     ] = prefix .. emit.cType(
@@ -3236,8 +3236,8 @@ function emit.block(
                 -- Everything else folds the active lanes into the scalar
                 -- reducer in ascending lane order, which is the order the
                 -- source would have contributed them one at a time.
-                temporary = temporary + 1
-                local serial = tostring(temporary)
+                body.temporarySerial = body.temporarySerial + 1
+                local serial = tostring(body.temporarySerial)
                 local vectorC = emit.cType(context, contribution.value.type)
                 lines[#lines + 1] = prefix .. "{"
                 lines[#lines + 1] = prefix .. "    " .. vectorC .. " simd_value_" .. serial .. " = " .. value .. ";"
@@ -3300,8 +3300,8 @@ function emit.block(
                     for _, reducer in ipairs(region.reducers) do
                         local species = genericSpecies(context, reducer.vectorType)
                         if reducers.parallel(reducer.order) and not species.composite and reducer.element ~= "bool" then
-                            temporary = temporary + 1
-                            local name = "simd_acc_" .. tostring(temporary)
+                            body.temporarySerial = body.temporarySerial + 1
+                            local name = "simd_acc_" .. tostring(body.temporarySerial)
                             accumulators[reducer.name] = name
                             parallel[#parallel + 1] = reducer
                             local accType = simdAccumulatorType(reducer.order, reducer.element, reducer.vectorType)
@@ -3642,7 +3642,13 @@ function emit.program(programs: {scalarIR.Program}, tier: string?): string
                 local context = emit.context(context, nil, forced and program.usesSimd == true)
                 body.forceScalar = forced
                 body.controlUsed = {}
-                if not general and hasConditionBody((program.loop as scalarIR.Loop).statements) then
+                body.controlSerial = 0
+                body.temporarySerial = 0
+                body.headerControl = false
+                body.controlBreak, body.controlContinue = nil, nil
+                if (
+                    forced or not program.usesSimd
+                ) and not general and hasConditionBody((program.loop as scalarIR.Loop).statements) then
                     body.headerControl = true
                     body.controlBreak = "ks_map_break"
                     body.controlContinue = "ks_map_continue"

@@ -1288,9 +1288,15 @@ function text.explicitBlock(state: text.Explicit, statements: {any}, depth: inte
             lines[#lines + 1] = prefix .. "end"
         elseif op == "while" then
             if statement.conditionBody ~= nil then
-                unprintable("a loop whose condition needs statements of its own, which no while may hold")
+                lines[#lines + 1] = prefix .. "while do"
+                nested(statement.conditionBody)
+                lines[#lines + 1] = prefix .. "    yield " .. text.explicitExpression(state, statement.condition, 0)
+                lines[#lines + 1] = prefix .. "end do"
+            else
+                lines[
+                    #lines + 1
+                ] = prefix .. "while " .. text.explicitExpression(state, statement.condition, 0) .. " do"
             end
-            lines[#lines + 1] = prefix .. "while " .. text.explicitExpression(state, statement.condition, 0) .. " do"
             nested(statement.body)
             lines[#lines + 1] = prefix .. "end"
         elseif op == "break" then

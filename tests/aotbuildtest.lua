@@ -1984,11 +1984,8 @@ function M.aTierWithoutVectorsRefusesARequiredLoopAndNamesTheMinimum()
     assert(out:find('set aotFeatures.minimum = "simd128"', 1, true), "and says what to write: " .. out)
 end
 
--- A loop whose condition is a block is refused rather than rewritten, and the
--- refusal is what this holds: carrying the condition without the statements
--- that bind what it reads used to reach the verifier as malformed IR and take
--- the process down with an internal message instead of naming the loop.
-function M.aStatementfulLoopConditionRefusesInsteadOfCrashing()
+-- A condition block is rewritten with the same live-lane mask as its body.
+function M.aStatementfulLoopConditionBuildsWithRequiredSimd()
     local dir = project("emit-c")
     local source = assert(io.open(dir .. "/src/conditional.nupp", "wb"))
     source:write(
@@ -2015,12 +2012,7 @@ export = run
     )
     source:close()
     local out, code = build(dir)
-    test.equal(code, 1, out)
-    assert(
-        out:find("statementful loop conditions currently require scalar control flow", 1, true),
-        "the refusal names the rule: " .. out
-    )
-    assert(out:find("conditional.nupp:6:5", 1, true), "and points at the marked loop: " .. out)
+    test.equal(code, 0, out)
 end
 
 function M.aDeclaredMinimumCarriesTheTierARequiredLoopNeeds()

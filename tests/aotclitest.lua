@@ -3540,6 +3540,8 @@ local function generatedBody(c, symbol, label)
     body = body:gsub("count_[%a_][%w_]*", "count")
     body = body:gsub("%f[%w]v%d+_", ""):gsub("%f[%w]sr%d+_", "")
     body = body:gsub("%f[%w]as%d+%f[%W]", "as")
+    -- Value-block locals carry a private C prefix that the printed source omits.
+    body = body:gsub("%f[%w_]__nupp_value_", "value_")
 
     return body
 end
@@ -3587,6 +3589,29 @@ local function update(exclusive values: span.WriteSpan<number>): nil
 end
 return {update = update}
 ]]}, "update.nupp", "ks_update", "scalar write span")
+end
+
+function M.aStatementfulConditionPrintsAsNuppThatLowersToTheSameVectorC()
+    local printed = roundTrip({["condition.nupp"] = [[
+local span = require("nupp.mem.span")
+@aot
+local function condition(exclusive values: span.WriteSpan<number>): nil
+    @simd
+    for i = 1, #values do
+        local count = 0.0
+        while do
+            count = count + 1.0
+            local keep = count < values[i]
+            yield keep
+        end do
+            if count == 3.0 then break end
+        end
+        values[i] = count
+    end
+end
+return {condition = condition}
+]]}, "condition.nupp", "ks_condition", "condition block")
+    assert(printed:find("while true do", 1, true), printed)
 end
 
 function M.theMandelbrotRewritePrintsAsNuppThatLowersToTheSameVectorC()

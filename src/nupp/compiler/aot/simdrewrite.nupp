@@ -291,6 +291,8 @@ function simdrewrite.markVarying(statements: {any}, state: simdrewrite.Analysis)
                 end
             elseif op == "block" and divergentExit(statement.body, controlled) then
                 return true
+            elseif (op == "while" or op == "repeat") and divergentExit(statement.conditionBody or {}, controlled) then
+                return true
             end
         end
 
@@ -331,6 +333,9 @@ function simdrewrite.markVarying(statements: {any}, state: simdrewrite.Analysis)
                     mark(statement.elseBody, branchControlled)
                 end
             elseif op == "while" or op == "repeat" then
+                -- Header effects belong to individual live lanes, including
+                -- the final false test. A retired lane must keep its value.
+                mark(statement.conditionBody or {}, controlled or statement.conditionBody ~= nil)
                 local diverges = simdrewrite.varying(statement.condition, state) or divergentExit(statement.body, false)
                 mark(statement.body, controlled or diverges)
             elseif op == "block" then
@@ -381,7 +386,7 @@ end
 
 --- Names an expression reads.
 local function exprReads(node: scalarIR.Expr, reads: {[string]: boolean}): nil
-    if node == nil then
+    if node == nil or type(node as any) ~= "table" then
         return
     end
     if node.op == "local" then
@@ -423,6 +428,9 @@ statementReads = function(statement: any, reads: {[string]: boolean}): nil
             statementReads(inner, reads)
         end
     elseif operation == "while" or operation == "repeat" then
+        for _, inner in ipairs(statement.conditionBody or {}) do
+            statementReads(inner, reads)
+        end
         exprReads(statement.condition, reads)
         for _, inner in ipairs(statement.body) do
             statementReads(inner, reads)
@@ -479,6 +487,9 @@ end
 --- a change of behaviour rather than a move of it.
 function simdrewrite.containsContinue(statements: {any}): boolean
     for _, statement in ipairs(statements) do
+        if statement.conditionBody ~= nil and simdrewrite.containsContinue(statement.conditionBody) then
+            return true
+        end
         if statement.op == "continue" then
             return true
         elseif statement.op == "if" then
@@ -521,6 +532,8 @@ function simdrewrite.containsExit(statements: {any}): boolean
                 return true
             end
         elseif op == "block" and simdrewrite.containsExit(statement.body) then
+            return true
+        elseif (op == "while" or op == "repeat") and simdrewrite.containsExit(statement.conditionBody or {}) then
             return true
         end
     end
@@ -1375,6 +1388,7 @@ local function carriedOf(statements: {scalarIR.Statement}, state: simdrewrite.St
                 declared[(statement as scalarIR.Fornum).binding.name] = true
                 walk((statement as scalarIR.Fornum).body)
             elseif op == "while" or op == "repeat" or op == "block" or op == "simd_region" then
+                walk((statement as any).conditionBody or {})
                 walk((statement as any).body as {scalarIR.Statement})
             end
         end
@@ -1555,6 +1569,10 @@ local function contribution(
     )
 end
 
+local function noLoopBottom(_: simdrewrite.Loop): {scalarIR.Statement}
+    return {}
+end
+
 --- A masked loop's body: the executing mask, the body, and whatever the caller
 --- appends at the bottom.
 local function maskedLoop(
@@ -1565,7 +1583,8 @@ local function maskedLoop(
     initial: scalarIR.Expr,
     bottom: function(simdrewrite.Loop): {scalarIR.Statement},
     source: scalarIR.Source?,
-    state: simdrewrite.State
+    state: simdrewrite.State,
+    header: (function(): {scalarIR.Statement})?
 ): {scalarIR.Statement}
     local out: {scalarIR.Statement} = {}
     out[#out + 1] = letOf(live, initial, true)
@@ -1582,6 +1601,10 @@ local function maskedLoop(
     state.types[executing.name] = executing.type
     state.loopDepth = state.loopDepth + 1
     local previousCursor = state.cursor
+    local conditionBody: {scalarIR.Statement}? = nil
+    if header ~= nil then
+        conditionBody = header()
+    end
     for _, statement in ipairs(block(body, executing, loop, nil, state)) do
         inner[#inner + 1] = statement
     end
@@ -1590,13 +1613,42 @@ local function maskedLoop(
     end
     state.cursor = previousCursor
     state.loopDepth = state.loopDepth - 1
+    local carriedBody: {scalarIR.Statement} = {}
+    for _, statement in ipairs(conditionBody or {}) do
+        carriedBody[#carriedBody + 1] = statement
+    end
+    for _, statement in ipairs(inner) do
+        carriedBody[#carriedBody + 1] = statement
+    end
+    local condition = simd("simd_mask_any", "any", {live}, "bool", source)
+    if conditionBody ~= nil then
+        local tested = conditionBody as {scalarIR.Statement}
+        tested[
+            #tested + 1
+        ] = new scalarIR.If(
+            op = "if",
+            clauses = {
+                new scalarIR.Clause(
+                    condition = new scalarIR.Unary(op = "not", value = condition, type = "bool", source = source),
+                    body = {new scalarIR.Break(op = "break", source = source)},
+                    source = source
+                )
+            },
+            source = source
+        )
+        for _, statement in ipairs(inner) do
+            tested[#tested + 1] = statement
+        end
+        inner = tested
+        condition = boolConstant(true, source)
+    end
     out[
         #out + 1
     ] = new scalarIR.While(
         op = "while",
-        condition = simd("simd_mask_any", "any", {live}, "bool", source),
+        condition = condition,
         body = inner,
-        carried = carriedOf(inner, state),
+        carried = carriedOf(carriedBody, state),
         source = source
     )
 
@@ -1629,14 +1681,6 @@ block = function(
     end
 
     for position, statement in ipairs(statements) do
-        -- A loop whose condition is a block binds locals the condition reads,
-        -- and those bindings have to be evaluated once per lane per trip like
-        -- any other body. Nothing here does that yet, and carrying the
-        -- condition without its block would emit a read of a local nobody
-        -- bound, so the region is refused while the control flow stays scalar.
-        if (statement as any).conditionBody ~= nil then
-            state.reject("statementful loop conditions currently require scalar control flow")
-        end
         local statementMask = activeMask(mask, loop)
         local bindings = state.inner.refBindings as any
         bindings["$mask"] = statementMask
@@ -1763,9 +1807,15 @@ block = function(
                 ) or condition
                 local arm = fresh("if", maskType(state.control, state), state, clause.source)
                 state.types[arm.name] = arm.type
-                emit(letOf(arm, entry))
-                append(block(clause.body, arm, loop, readsAfter[position], state))
-                local excluded = maskNot(arm, clause.source)
+                -- An empty arm needs no named mask. Value-block lowering can
+                -- leave one after its final yield.
+                local chosen: scalarIR.Expr = entry
+                if #clause.body > 0 then
+                    emit(letOf(arm, entry))
+                    chosen = arm
+                    append(block(clause.body, arm, loop, readsAfter[position], state))
+                end
+                local excluded = maskNot(chosen, clause.source)
                 remaining = remaining ~= nil and maskAnd(
                     remaining as scalarIR.Expr,
                     excluded,
@@ -1788,7 +1838,43 @@ block = function(
             )
         elseif op == "while" then
             local loop_ = statement as scalarIR.While
-            if not simdrewrite.varying(
+            if loop_.conditionBody ~= nil then
+                local live = fresh("live", maskType(state.control, state), state, source)
+                local initial = statementMask or maskSplat(boolConstant(true, source), state.control, state)
+                append(
+                    maskedLoop(
+                        live,
+                        loop_.body,
+                        readsAfter[position] or {},
+                        false,
+                        initial,
+                        noLoopBottom,
+                        source,
+                        state,
+                        function(): {scalarIR.Statement}
+                            -- A header's exits target the enclosing loop. Its
+                            -- effects run only for lanes still testing this loop.
+                            local header = block(
+                                loop_.conditionBody as {scalarIR.Statement},
+                                live,
+                                loop,
+                                readsAfter[position],
+                                state
+                            )
+                            local active = activeMask(live, loop) as scalarIR.Expr
+                            bindings["$mask"] = active
+                            local condition = conditionMask(loop_.condition, state)
+                            for _, pending in ipairs(state.pending) do
+                                header[#header + 1] = pending
+                            end
+                            state.pending = {}
+                            header[#header + 1] = assignTo(live, maskAnd(active, condition, source), source)
+
+                            return header
+                        end
+                    )
+                )
+            elseif not simdrewrite.varying(
                 loop_.condition,
                 state.inner
             ) and not simdrewrite.containsExit(loop_.body as {any}) then
@@ -1821,6 +1907,8 @@ block = function(
                         not simdrewrite.containsContinue(loop_.body as {any}),
                         initial,
                         function(_: simdrewrite.Loop): {scalarIR.Statement}
+                            -- Continuing lanes still evaluate the next test.
+                            bindings["$mask"] = live
                             local again = conditionMask(loop_.condition, state)
                             local bottom: {scalarIR.Statement} = {}
                             for _, pending in ipairs(state.pending) do
@@ -1852,13 +1940,17 @@ block = function(
                     not simdrewrite.containsContinue(repeated.body as {any}),
                     initial,
                     function(_: simdrewrite.Loop): {scalarIR.Statement}
+                        -- Continue reaches the condition; break does not. Use
+                        -- live, not the body's per-iteration executing mask.
+                        local bottom = block(repeated.conditionBody or {}, live, loop, readsAfter[position], state)
+                        local active = activeMask(live, loop) as scalarIR.Expr
+                        bindings["$mask"] = active
                         local until_ = conditionMask(repeated.condition, state)
-                        local bottom: {scalarIR.Statement} = {}
                         for _, pending in ipairs(state.pending) do
                             bottom[#bottom + 1] = pending
                         end
                         state.pending = {}
-                        bottom[#bottom + 1] = assignTo(live, maskAnd(live, maskNot(until_, source), source), source)
+                        bottom[#bottom + 1] = assignTo(live, maskAnd(active, maskNot(until_, source), source), source)
 
                         return bottom
                     end,
@@ -2020,6 +2112,7 @@ contributions = function(statements: {scalarIR.Statement}, name: string): intege
         elseif op == "block" then
             total = total + contributions((statement as scalarIR.Block).body, name)
         elseif op == "while" or op == "repeat" or op == "fornum" then
+            total = total + contributions((statement as any).conditionBody or {}, name)
             total = total + contributions((statement as any).body as {scalarIR.Statement}, name)
         end
     end
@@ -2048,6 +2141,7 @@ local function checkContributions(statements: {scalarIR.Statement}, state: simdr
                 end
                 collect((statement as scalarIR.If).elseBody or {})
             elseif op == "block" or op == "while" or op == "repeat" or op == "fornum" then
+                collect((statement as any).conditionBody or {})
                 collect((statement as any).body as {scalarIR.Statement})
             end
         end
@@ -2164,6 +2258,7 @@ local function wide(statements: {scalarIR.Statement}, state: simdrewrite.State):
                 end
                 walk((statement as scalarIR.If).elseBody or {})
             elseif op == "while" or op == "repeat" then
+                walk((statement as scalarIR.While).conditionBody or {})
                 walkExpr((statement as scalarIR.While).condition)
                 walk((statement as scalarIR.While).body)
             elseif op == "fornum" then
