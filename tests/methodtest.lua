@@ -487,7 +487,7 @@ function M.aComputedSubjectDoesNotBuildAFunctionWhereItIsUsed()
     assert(not loop:find("function", 1, true), "the test is built where it is used:\n" .. loop)
     assert(loop:find("__nuppIs1(", 1, true), "the loop calls the declared test:\n" .. loop)
     assert(
-        code:find("const __nuppIs1 = function(", 1, true),
+        code:find("local __nuppIs1 = function(", 1, true),
         "the test is declared once for the module:\n" .. code:sub(1, 200)
     )
 end
@@ -516,7 +516,7 @@ function M.refinementTestsAreSharedAndKeepShortCircuiting()
             "\n"
         )
     )
-    assertEq(select(2, code:gsub("const __nuppIs%d+ = function%(", "")), 1, "one declaration for two identical tests")
+    assertEq(select(2, code:gsub("local __nuppIs%d+ = function%(", "")), 1, "one declaration for two identical tests")
     assert(code:find("always or __nuppIs1(", 1, true), "`or` still decides whether the subject is reached:\n" .. code)
 end
 

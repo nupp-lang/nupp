@@ -166,6 +166,54 @@ local RUNTIME_MODULES: {
     ["nupp.workers.native"] = true,
 }
 
+-- Stock 5.1 is a separate profile from the cross-version lowered surface.
+local LUA51_ROOTS = {
+    unpack = true,
+    loadstring = true,
+    load = true,
+    getfenv = true,
+    setfenv = true,
+    gcinfo = true,
+    collectgarbage = true,
+    module = true,
+}
+local LUA51_MEMBERS = {}
+for root, members in pairs(COMMON_MEMBERS) do
+    local copy = {}
+    for member in pairs(members) do
+        copy[member] = true
+    end
+    LUA51_MEMBERS[root] = copy
+end
+LUA51_MEMBERS.table = {
+    concat = true,
+    insert = true,
+    remove = true,
+    sort = true,
+    maxn = true,
+    foreach = true,
+    foreachi = true,
+    getn = true,
+    setn = true,
+}
+LUA51_MEMBERS.package.loaders = true
+LUA51_MEMBERS.package.seeall = true
+LUA51_MEMBERS.package.config = true
+LUA51_MEMBERS.os.setlocale = true
+for _, member in ipairs({"atan2", "cosh", "sinh", "tanh", "ldexp", "log10", "mod"}) do
+    LUA51_MEMBERS.math[member] = true
+end
+LUA51_MEMBERS.string.dump = true
+LUA51_MEMBERS.string.gfind = true
+LUA51_MEMBERS.io.flush = true
+local FILE_MEMBERS = {close = true, flush = true, lines = true, read = true, seek = true, setvbuf = true, write = true}
+LUA51_MEMBERS["io.stdin"] = FILE_MEMBERS
+LUA51_MEMBERS["io.stdout"] = FILE_MEMBERS
+LUA51_MEMBERS["io.stderr"] = FILE_MEMBERS
+LUA51_MEMBERS.debug.debug = true
+LUA51_MEMBERS.debug.getfenv = true
+LUA51_MEMBERS.debug.setfenv = true
+
 --- Answers the exact bundled Lua-prelude root a token resolves to.
 function surface.resolvedRoot(checker: any, token: any): string?
     if not token or not checker.env or not checker.env.globals then
@@ -180,8 +228,81 @@ function surface.resolvedRoot(checker: any, token: any): string?
     return resolved and token.text or nil
 end
 
+--- Preserve prelude provenance through transparent casts and global-table reads.
+function surface.identity(node: any): string?
+    if not node then
+        return nil
+    end
+    if node.runtimeSurfaceRoot then
+        return node.runtimeSurfaceRoot
+    end
+    if node.kind == "castExpr" or node.kind == "paren" then
+        return surface.identity(node.expr)
+    end
+    if node.kind == "dotIndex" or node.kind == "bracketIndex" then
+        local root = surface.identity(node.obj)
+        local key = node.expr
+        local member = node.kind == "dotIndex" and node.name and node.name.text
+            or key and key.kind == "string" and require("nupp.compiler.lexer").stringValue(key.token.text)
+        if root and member then
+            return root == "_G" and member or root .. "." .. member
+        end
+    end
+    if node.kind == "call" then
+        local root = surface.identity(node.obj)
+        if root == "getfenv" then
+            return "_G"
+        end
+        local args = node.args and node.args.exprs
+        if root == "rawget" and args and surface.identity(args[1]) == "_G" then
+            local key = args[2]
+            return key and key.kind == "string" and require("nupp.compiler.lexer").stringValue(key.token.text) or nil
+        end
+    end
+
+    return nil
+end
+
+--- Keep the legacy cross-version contract while the new profile audits provenance.
+function surface.tracked(checker: any, node: any): string?
+    if checker.opts.compat == "lua51" then
+        return surface.identity(node)
+    end
+    return node and node.runtimeSurfaceRoot
+end
+
 --- Reports a source read of a runtime-specific prelude identity.
 function surface.requireIdentity(checker: any, root: string?, member: string?, at: any)
+    if checker.opts.compat == "lua51"
+        and root
+        and not checker.declarationFile
+        and (checker.comptimeDepth or 0) == 0
+    then
+        if root == "_G" and member then
+            root, member = member, nil
+        end
+        if root and not member then
+            local owner, field = root:match("^([^.]+)%.([^.]+)$")
+            if owner then
+                root, member = owner, field
+            end
+        end
+        local members = LUA51_MEMBERS[root]
+        local admitted = member and members and members[member]
+            or not member and (COMMON_ROOTS[root] or LUA51_ROOTS[root])
+        if not admitted then
+            checker.diag(
+                "NUPP3014",
+                at,
+                (
+                    'compat = "lua51" does not include runtime identity `%s`'
+                ):format(member and root .. "." .. member or root),
+                nil,
+                {help = "use the stock Lua 5.1 API or an explicitly checked pure-Lua dependency"}
+            )
+        end
+        return
+    end
     if checker.opts.dialect ~= "lua51" or not root then
         return
     end
@@ -213,6 +334,16 @@ end
 
 --- Reports a resolved require of a runtime-specific VM module.
 function surface.requireModule(checker: any, name: string, at: any)
+    if checker.opts.compat == "lua51"
+        and not checker.declarationFile
+        and (checker.comptimeDepth or 0) == 0
+        and (RUNTIME_MODULES[name] or name == "bit" or name == "jit" or name:match("^jit%."))
+    then
+        checker.diag("NUPP3014", at, ('compat = "lua51" does not include module `%s`'):format(name), nil, {
+            help = "use an explicitly checked pure-Lua dependency; native modules are not substituted",
+        })
+        return
+    end
     if checker.opts.dialect ~= "lua51" or not RUNTIME_MODULES[name] then
         return
     end

@@ -33,6 +33,7 @@ local REPORT_SCHEMA = {
             .. "used -- an empty `diagnostics` cannot tell those apart on its own.",
         },
         diagnostics = require("nupp.compiler.cli.report").DIAGNOSTICS,
+        compat = {type = "string", enum = {"lua51"}, description = "The enforced source compatibility profile."},
         dialect = {
             type = "string",
             enum = require("nupp.compiler.dialects").names(),
@@ -89,6 +90,10 @@ local function run(options: any): integer
     -- An absent flag leaves the decision to the file's extension. False is an
     -- explicit request for gradual checking in the checker API.
     local strict = values.strict and true or nil
+    local _, compatError = require("nupp.compiler.compat").resolve(values.compat, nil, values.dialect)
+    if compatError then
+        return usageError(compatError)
+    end
     local target = values.target
     if (target or values.platform) and #paths > 0 then
         return usageError("--target and --platform cannot be combined with source files")
@@ -106,6 +111,8 @@ local function run(options: any): integer
     local started = progress.now()
     local timing = {compiledModules = 0, reusedModules = 0, specializedBodies = 0, phases = {}, slowest = {}}
 
+    local effectiveCompat = values.compat
+
     local function writeJson(ok: boolean): nil
         local total = progress.now() - started
         timing.totalMs = total
@@ -114,6 +121,7 @@ local function run(options: any): integer
             ok = ok,
             diagnostics = reportMod.diagnosticValues(diagnostics),
             dialect = effectiveDialect,
+            compat = effectiveCompat,
             timing = timing
         })
     end
@@ -124,6 +132,7 @@ local function run(options: any): integer
         local code = project.check(".", {
             strict = strict,
             dialect = values.dialect,
+            compat = values.compat,
             target = target,
             platform = values.platform,
             diagnostics = asJson and diagnostics or nil,
@@ -137,11 +146,13 @@ local function run(options: any): integer
             timing.phases = {{name = "check", durationMs = total}}
             produced.timing = timing
         end
+        effectiveCompat = produced.compat or effectiveCompat
         if asJson then
             reportMod.write({
                 ok = code == 0,
                 diagnostics = reportMod.diagnosticValues(diagnostics),
                 dialect = effectiveDialect,
+                compat = effectiveCompat,
                 platform = produced.platform,
                 platforms = produced.platforms,
                 timing = produced.timing,
@@ -230,6 +241,7 @@ local function run(options: any): integer
             local code = project.check(".", {
                 strict = strict,
                 dialect = values.dialect,
+                compat = values.compat,
                 paths = mine,
                 unchecked = unchecked,
                 diagnostics = asJson and diagnostics or nil,
@@ -240,6 +252,7 @@ local function run(options: any): integer
                 timing = produced.timing
             end
             effectiveDialect = produced.dialect or effectiveDialect
+            effectiveCompat = produced.compat or effectiveCompat
             if code ~= 0 then
                 failed = true
             end
@@ -266,7 +279,8 @@ local function run(options: any): integer
         return failed and 1 or 0
     end
 
-    local env = require("nupp.compiler.env").new(".")
+    local env = require("nupp.compiler.env").new(".", {compat = values.compat})
+    effectiveCompat = env.compat or effectiveCompat
     for _, path in ipairs(remaining) do
         timing.compiledModules = timing.compiledModules + 1
         local fileStarted = progress.now()
@@ -284,6 +298,7 @@ local function run(options: any): integer
             local diags = check.check(result, path, env as {[string]: any}, {
                 strict = strict,
                 dialect = effectiveDialect,
+                compat = values.compat,
             })
             if asJson then
                 for _, diagnostic in ipairs(diags) do
@@ -335,6 +350,10 @@ local record Check
     --- Source-lowering dialect.
     @cli(value = "DIALECT", choices = {"luajit", "luajit-compat", "lua51"})
     dialect: string?
+
+    --- Enforce the stock Lua 5.1 source subset without compatibility lowering.
+    @cli(value = "PROFILE", choices = {"lua51"})
+    compat: string?
 
     --- Check a named manifest target.
     @cli(value = "NAME")

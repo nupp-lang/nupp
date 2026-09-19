@@ -82,6 +82,12 @@
           "guarantees": ["generated output runs on every supported Lua"]
         },
         {
+          "name": "Run the Lua 5.1 compatibility corpus",
+          "platforms": ["linux"],
+          "compilerModes": ["luajit", "compat-lua51", "O0", "O1", "O2"],
+          "guarantees": ["ordinary compatibility output runs on stock Lua 5.1 without legacy lowering"]
+        },
+        {
           "name": "Build the same library for LuaJIT and Lua 5.1",
           "platforms": ["linux"],
           "compilerModes": ["luajit", "lua51"],

@@ -24,6 +24,8 @@ record compile.Settings
     --- The resolved source-lowering dialect.
     dialect: string
 
+    compat: string?
+
     --- 0 is the promise that -O0 rewrites nothing. Optimization is opt-in until a
     --- benchmark says which passes have earned being on by default.
     --- Absent when the command line said nothing, so a target's own level can win.
@@ -99,6 +101,7 @@ local LEVELS: {[string]: integer} = {["0"] = 0, ["1"] = 1, ["2"] = 2}
 function compile.settings(values: {[string]: any}, collected: {any}?): compile.Settings
     return new compile.Settings(
         strict = values.strict,
+        compat = values.compat,
         dialect = assert(require("nupp.compiler.dialects").resolve(values.dialect)),
         optLevel = LEVELS[values.optLevel],
         remarks = values.remarks and true or false,
@@ -303,6 +306,7 @@ function compile.module(
     local diags = check.check(result, path, env, {
         strict = settings.strict,
         dialect = settings.dialect,
+        compat = settings.compat,
         moduleName = moduleName,
     })
     if settings.materializations then

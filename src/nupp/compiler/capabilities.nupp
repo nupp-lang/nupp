@@ -62,6 +62,10 @@ end
 
 --- Reports a missing capability at the source construct that requires it.
 function capabilities.require(checker: any, name: string, at: any): boolean
+    if checker.opts.compat == "lua51" and not checker.declarationFile and (checker.comptimeDepth or 0) == 0 then
+        checker.diag("NUPP3014", at, ('compat = "lua51" does not include the `%s` representation'):format(name))
+        return false
+    end
     local capability = capabilities.get(resolution(checker), name)
     if capability.kind ~= "missing" then
         return true

@@ -1,0 +1,1423 @@
+{
+  "method": "Three fresh Chromium processes per variant; 30 samples after two warmups per cell; alternating order json/raw/lua51 then lua51/raw/json then raw/json/lua51. Host monotonic round trips. No phase markers. Single-operation edit samples repeat the same replacement; batch edits vary the replacement. Not an incremental invalidation benchmark.",
+  "variants": {
+    "json": "LuaJIT-emitted compiler through generic effect transport and inner JSON session API",
+    "raw": "Same candidate with direct session calls and bounded raw-source compiler transport",
+    "lua51": "Preserved Lua 5.1 Wasm worker; no-op is JS-only message floor"
+  },
+  "provenance": {
+    "spikeRevision": "8f09a3e521b619c979c13414663040ddef90e93f",
+    "measurementRevision": "3f0c8e57d1be7cdb9c47a1c276e5d18dcb335b09",
+    "files": {
+      "app.ljbc": "14368339d2a072f8c4fb983024d779bbfb13175158ecfad95c54c13cd1ed966b",
+      "app.lua": "99bf8f77113c35489e6d3d1a191ca1162e71adb6d58cfe651983dff071d80b7f",
+      "assets/bzimage.bin": "507a759c70ab7a490a233be454d0b5b88bc667956a410b531cb4edc091e2eb1c",
+      "assets/kernel-empty-rootfs.bin": "1d3b8ed9ff4dcee9d3116d9104d07d6039ead8a88947b48f8c7e4754e1b5a194",
+      "assets/libv86-debug.mjs": "95b1a7cbedb4526418599532eddf1dba260442d76b8f7f7b6f1263fa44fdbe08",
+      "assets/libv86.mjs": "a07d5f6d3276fabde989194a84be5f4266cb65a0e7000c84c2ff69c09fb5a4c2",
+      "assets/seabios.bin": "73e3f359102e3a9982c35fce98eb7cd08f18303ac7f1ba6ebfbe6cdc1c244d98",
+      "assets/v86-fallback.wasm": "ea95aff75edd5136576026dc5a2d3350b333530d647df3dc3798daf3f30022b9",
+      "assets/v86.wasm": "aa0d0e149d6b60063b85de4871e78505637ce92821e14a9f9802c4008ba2336e",
+      "assets/vgabios.bin": "a4bc0d80cc3ca028c73dafa8fee396b8d054ce87ebd8abfbd31b06b437607880",
+      "cancellation.html": "334924eb8105f66b786a246685e9db3be450628bf83b43ddebdcde50fd0a60a6",
+      "cancellation.mjs": "e88d74e765083443e92b1d6ce94b5221055fad8abc16241b2fa996d4ca875e8a",
+      "compiler-cases.json": "bf5cb9fca13e0557d4aab8fe71fe9a268c98118262fb41f16841e67abfb83365",
+      "compiler-digest.txt": "8e6b1be25961080947a8b494429bddb8d02fc8da65c2e74154c3d16a96da0935",
+      "compiler-memory.lua": "25fe4370290f19f9e9d701b3428d4a925f3f3bf2eaacbaf93667bb1f477214d9",
+      "compiler-performance.lua": "ccc0b1b128b25e850b0c95771965e64209a7e3792b24344ccc5176e6679f6357",
+      "compiler-portable.html": "cb70f491805363af01ed492ff59395da2812e5eb185fd210898efd9f2fd45bd9",
+      "compiler-portable.mjs": "b8a9dae4a2b83f222a868501fb9198f883659be87a4f9dcbcefcb85eb6d8004e",
+      "guest-runtime.mjs": "07325fa89b5237023275befa286b712907d2c096bef8bac53e655794a13415cd",
+      "initramfs.gz": "f297baa03fdf42a8715bd762fa32076db1ad0971fb38be488c4656d517677b03",
+      "integration.html": "0580bc9e3896e4ffcc0121b184b95bff4eea7804461f75d22153d23b158e441d",
+      "integration.mjs": "b0eeb3261f578c8b035e9b1c8bcf4bf7e70fe46af9c4222f15edb30e76a4ea94",
+      "kernel.wgsl": "53b2eee55101607d881845ded478e3149835817a79928e2c41bd30d3c9b229e7",
+      "latency-portable.mjs": "ce41e9b60bf640328f3b0a4fec37e90e1b61b8474b1f4109dff872a2130b2aa5",
+      "latency-provenance.json": "ad806020804666d70a60104341dbb00f57f54f9b6c2573288c4789d82fa21663",
+      "latency.html": "5199fa82e4e2f937aedf4e9aed0944cd866e0b627d79bc9d19aa43c9ab359544",
+      "latency.lua": "3885413299af6355999f7511f28120c62c1ea08d7068c67158b8d939946da7e6",
+      "latency.mjs": "75e0f16bb85e35f9e30d52efeb3623d3d859269485e409fb01bdfa40eff9e597",
+      "native-modules.lua": "bf7385d24d43f115fdf39bb06f084219c6f19426132cc63d8ed338c0b375aa5b",
+      "notices/LPeg.html": "3f4f8a7997d9e0d9d0fca6d2b9877a5714251fff056783dd71288413b0abcf36",
+      "notices/LuaJIT.txt": "6cda3076a8c09b31bb1f90da614ea89e7ee194589626eeac613e522849604e47",
+      "notices/v86.txt": "3f61ba65e3215b09ef264ba8d777d73c19644309fbb705967634eb5147e500a0",
+      "nupp-compiler.lua": "995ae34e332582378996f936aadf33b77636e8095fe0e3d8ba290ae65872faa2",
+      "nupp-playground.mjs": "a797b191987af4ed5adcc48a64c6a7b79e5ee6df370c0d6b45b5646292c10319",
+      "nupp-playground.wasm": "cc8709fc4c758752d385db52b38b195fb3a8453cf0c3702c7b98022e83216ff6",
+      "nupp-runner.mjs": "e64e7325443d4aff81e298e2093519ef26987b610581d1b0ff89afad8331ca28",
+      "nupp-runner.wasm": "b06658352eb4b5faeca6aa9979421eb221ab731ae429b3e0b7476334d109caea",
+      "portable-app.lua": "0c3b03e8751261fa6d30cd8d29849628300fb369a9637f283b7f01b60dffa0a6",
+      "runtime/app-runtime.mjs": "3f55db3a0ce45f46664b7ad180afcceffc3d3f56ea3d4de203278c1a3dc2ce62",
+      "runtime/browser-entry.mjs": "5da722b5bfc6f0f0826c732f587b14baa7e1217411b4e07db344ccfd008f86ce",
+      "runtime/browser-worker.mjs": "e9b111b03bf63ee470631a4efd6e6729bd2d4fed491e08239efc58d305eac0f6",
+      "runtime/build-runtime-package.mjs": "1d33cf2b3ec58492b60b636bc5de0fda86fa86285ef518be776420c6787cd345",
+      "runtime/package-browser-app.mjs": "9351d30a345f8a944fe75759d692f640d0039c3da3ed964145f56f7a23119145",
+      "runtime/worker-lane.mjs": "e9276b35c8d9c850fb7029988563e4bac9c6462ab634335630245474891d3f74",
+      "runtime/worker-pool.mjs": "8e5e0b821ad662fdac346e874f09a18c272dad4940def550483d24cc8bc03e32",
+      "vm-worker.mjs": "492d3d3b9a3224c15ff894929fa6510e5a921c0cb23073000f0b1d87c9ea4573",
+      "wasm-runtime.js": "1afb4d1915897fb5cc6b05c0f7206ce7457a35b173a5e7f3597dd6d062960b58",
+      "worker-lane.mjs": "fa764b972a5dcf24c741e3b752ce69600ffc8578e3214edec3899d0501a6f3a7"
+    }
+  },
+  "runs": [
+    {
+      "name": "0-json",
+      "sha256": "9b28c47ebf071e556661bb6b7cd324cb1a8cd8995829f5ab06bafa4c69d889c8",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+      "summary": [
+        {
+          "key": "noop/1/0",
+          "p50Ms": 1.965000033378601,
+          "p95Ms": 5.194999933242798,
+          "msPerOperation": 2.6536666631698607,
+          "zeroGuestTimerSamples": 30,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "noop/1/4096",
+          "p50Ms": 4.0950000286102295,
+          "p95Ms": 6.794999957084656,
+          "msPerOperation": 4.2143333395322164,
+          "zeroGuestTimerSamples": 30,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "noop/1/65536",
+          "p50Ms": 33.675000071525574,
+          "p95Ms": 37.22500002384186,
+          "msPerOperation": 33.919499997297926,
+          "zeroGuestTimerSamples": 30,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "noop/16/0",
+          "p50Ms": 1.5199999809265137,
+          "p95Ms": 2.399999976158142,
+          "msPerOperation": 0.10146874984105428,
+          "zeroGuestTimerSamples": 30,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "noop/16/4096",
+          "p50Ms": 3.8550000190734863,
+          "p95Ms": 5.590000033378601,
+          "msPerOperation": 0.25414583310484884,
+          "zeroGuestTimerSamples": 29,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "noop/16/65536",
+          "p50Ms": 33.544999957084656,
+          "p95Ms": 36.49500000476837,
+          "msPerOperation": 2.104500000178814,
+          "zeroGuestTimerSamples": 30,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "check/1/0",
+          "p50Ms": 4.164999961853027,
+          "p95Ms": 8.139999985694885,
+          "msPerOperation": 4.942500003178915,
+          "zeroGuestTimerSamples": 22,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "check/16/0",
+          "p50Ms": 40.639999985694885,
+          "p95Ms": 151.21000003814697,
+          "msPerOperation": 3.3865208335220816,
+          "zeroGuestTimerSamples": 0,
+          "sampledWallP50Ms": 36.850000000000364
+        },
+        {
+          "key": "compile/1/0",
+          "p50Ms": 9.430000066757202,
+          "p95Ms": 12.325000047683716,
+          "msPerOperation": 9.81850000222524,
+          "zeroGuestTimerSamples": 5,
+          "sampledWallP50Ms": 3.9140000000006694
+        },
+        {
+          "key": "compile/16/0",
+          "p50Ms": 89.10500001907349,
+          "p95Ms": 137.07500004768372,
+          "msPerOperation": 6.222927083820105,
+          "zeroGuestTimerSamples": 0,
+          "sampledWallP50Ms": 68.36100000000079
+        },
+        {
+          "key": "hover/1/0",
+          "p50Ms": 1.6799999475479126,
+          "p95Ms": 3.4399999380111694,
+          "msPerOperation": 1.8754999915758768,
+          "zeroGuestTimerSamples": 30,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "hover/16/0",
+          "p50Ms": 9.110000014305115,
+          "p95Ms": 16.44000005722046,
+          "msPerOperation": 0.6592395834624767,
+          "zeroGuestTimerSamples": 1,
+          "sampledWallP50Ms": 4.125
+        },
+        {
+          "key": "edit/1/0",
+          "p50Ms": 3.9149999618530273,
+          "p95Ms": 4.514999985694885,
+          "msPerOperation": 3.977666656176249,
+          "zeroGuestTimerSamples": 24,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "edit/16/0",
+          "p50Ms": 41.38499999046326,
+          "p95Ms": 80.73000001907349,
+          "msPerOperation": 2.9856874997417133,
+          "zeroGuestTimerSamples": 0,
+          "sampledWallP50Ms": 36.36000000000058
+        },
+        {
+          "key": "large-check/1/0",
+          "p50Ms": 198.10000002384186,
+          "p95Ms": 287.52999997138977,
+          "msPerOperation": 213.31499998966854,
+          "zeroGuestTimerSamples": 0,
+          "sampledWallP50Ms": 188.8160000000007
+        },
+        {
+          "key": "large-check/4/0",
+          "p50Ms": 781.5299999713898,
+          "p95Ms": 810.5550000667572,
+          "msPerOperation": 193.84804166555404,
+          "zeroGuestTimerSamples": 0,
+          "sampledWallP50Ms": 773.0790000000052
+        },
+        {
+          "key": "import-check/1/0",
+          "p50Ms": 3.2049999237060547,
+          "p95Ms": 4.805000066757202,
+          "msPerOperation": 3.5620000044504803,
+          "zeroGuestTimerSamples": 28,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "import-check/4/0",
+          "p50Ms": 9.680000066757202,
+          "p95Ms": 11.925000071525574,
+          "msPerOperation": 2.4982500006755193,
+          "zeroGuestTimerSamples": 0,
+          "sampledWallP50Ms": 7.411000000000058
+        }
+      ]
+    },
+    {
+      "name": "0-lua51",
+      "sha256": "0b8b1db41dfecfa95fa62bbdfa45188e1c527a1670e41e6a2b32add3549c65f3",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+      "summary": [
+        {
+          "key": "noop/1/0",
+          "p50Ms": 0.014999985694885254,
+          "p95Ms": 0.034999966621398926,
+          "msPerOperation": 0.019166664282480875,
+          "zeroGuestTimerSamples": 25,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "noop/1/4096",
+          "p50Ms": 0.014999985694885254,
+          "p95Ms": 0.029999971389770508,
+          "msPerOperation": 0.015333334604899088,
+          "zeroGuestTimerSamples": 29,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "noop/1/65536",
+          "p50Ms": 0.029999971389770508,
+          "p95Ms": 0.2099999189376831,
+          "msPerOperation": 0.04899999698003133,
+          "zeroGuestTimerSamples": 26,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "noop/16/0",
+          "p50Ms": 0.009999990463256836,
+          "p95Ms": 0.019999980926513672,
+          "msPerOperation": 0.0007708333432674408,
+          "zeroGuestTimerSamples": 26,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "noop/16/4096",
+          "p50Ms": 0.019999980926513672,
+          "p95Ms": 0.040000081062316895,
+          "msPerOperation": 0.0012812502682209015,
+          "zeroGuestTimerSamples": 24,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "noop/16/65536",
+          "p50Ms": 0.020000100135803223,
+          "p95Ms": 0.11000001430511475,
+          "msPerOperation": 0.002697916825612386,
+          "zeroGuestTimerSamples": 29,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "check/1/0",
+          "p50Ms": 0.28999996185302734,
+          "p95Ms": 0.38499999046325684,
+          "msPerOperation": 0.2996666709582011,
+          "zeroGuestTimerSamples": 0,
+          "sampledWallP50Ms": 0.26499998569488525
+        },
+        {
+          "key": "check/16/0",
+          "p50Ms": 3.899999976158142,
+          "p95Ms": 9.434999942779541,
+          "msPerOperation": 0.30485416650772096,
+          "zeroGuestTimerSamples": 0,
+          "sampledWallP50Ms": 3.8200000524520874
+        },
+        {
+          "key": "compile/1/0",
+          "p50Ms": 0.4599999189376831,
+          "p95Ms": 0.5699999332427979,
+          "msPerOperation": 0.46766666571299237,
+          "zeroGuestTimerSamples": 0,
+          "sampledWallP50Ms": 0.42500007152557373
+        },
+        {
+          "key": "compile/16/0",
+          "p50Ms": 6.485000014305115,
+          "p95Ms": 15.02999997138977,
+          "msPerOperation": 0.4821041670938333,
+          "zeroGuestTimerSamples": 0,
+          "sampledWallP50Ms": 6.365000009536743
+        },
+        {
+          "key": "hover/1/0",
+          "p50Ms": 0.029999971389770508,
+          "p95Ms": 0.04500007629394531,
+          "msPerOperation": 0.031500001748402916,
+          "zeroGuestTimerSamples": 0,
+          "sampledWallP50Ms": 0.019999980926513672
+        },
+        {
+          "key": "hover/16/0",
+          "p50Ms": 0.26999998092651367,
+          "p95Ms": 0.33000004291534424,
+          "msPerOperation": 0.01750000019868215,
+          "zeroGuestTimerSamples": 0,
+          "sampledWallP50Ms": 0.25
+        },
+        {
+          "key": "edit/1/0",
+          "p50Ms": 0.24000000953674316,
+          "p95Ms": 0.3400000333786011,
+          "msPerOperation": 0.259333332379659,
+          "zeroGuestTimerSamples": 0,
+          "sampledWallP50Ms": 0.2250000238418579
+        },
+        {
+          "key": "edit/16/0",
+          "p50Ms": 3.884999990463257,
+          "p95Ms": 9.769999980926514,
+          "msPerOperation": 0.29465624938408536,
+          "zeroGuestTimerSamples": 0,
+          "sampledWallP50Ms": 3.809999942779541
+        },
+        {
+          "key": "large-check/1/0",
+          "p50Ms": 22.81500005722046,
+          "p95Ms": 36.669999957084656,
+          "msPerOperation": 25.617666673660278,
+          "zeroGuestTimerSamples": 0,
+          "sampledWallP50Ms": 22.694999933242798
+        },
+        {
+          "key": "large-check/4/0",
+          "p50Ms": 108.07999992370605,
+          "p95Ms": 114.23000001907349,
+          "msPerOperation": 26.223041665554046,
+          "zeroGuestTimerSamples": 0,
+          "sampledWallP50Ms": 107.92500007152557
+        },
+        {
+          "key": "import-check/1/0",
+          "p50Ms": 0.25,
+          "p95Ms": 0.5199999809265137,
+          "msPerOperation": 0.3011666695276896,
+          "zeroGuestTimerSamples": 0,
+          "sampledWallP50Ms": 0.24000000953674316
+        },
+        {
+          "key": "import-check/4/0",
+          "p50Ms": 1.315000057220459,
+          "p95Ms": 5.274999976158142,
+          "msPerOperation": 0.45695833464463553,
+          "zeroGuestTimerSamples": 0,
+          "sampledWallP50Ms": 1.2799999713897705
+        }
+      ]
+    },
+    {
+      "name": "0-raw",
+      "sha256": "4fccfbb65db206bcfd745d22b03149f114496c97fcf34256826d5fb8b2350c37",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+      "summary": [
+        {
+          "key": "noop/1/0",
+          "p50Ms": 0.8600000143051147,
+          "p95Ms": 4.7149999141693115,
+          "msPerOperation": 1.2268333315849305,
+          "zeroGuestTimerSamples": 30,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "noop/1/4096",
+          "p50Ms": 0.934999942779541,
+          "p95Ms": 1.8650000095367432,
+          "msPerOperation": 1.0243333339691163,
+          "zeroGuestTimerSamples": 30,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "noop/1/65536",
+          "p50Ms": 1.2599999904632568,
+          "p95Ms": 2.9950000047683716,
+          "msPerOperation": 1.4108333349227906,
+          "zeroGuestTimerSamples": 30,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "noop/16/0",
+          "p50Ms": 1.034999966621399,
+          "p95Ms": 2.819999933242798,
+          "msPerOperation": 0.08459375003973643,
+          "zeroGuestTimerSamples": 30,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "noop/16/4096",
+          "p50Ms": 1.1699999570846558,
+          "p95Ms": 4.034999966621399,
+          "msPerOperation": 0.09645833323399226,
+          "zeroGuestTimerSamples": 28,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "noop/16/65536",
+          "p50Ms": 1.2400000095367432,
+          "p95Ms": 1.5399999618530273,
+          "msPerOperation": 0.08221874957283339,
+          "zeroGuestTimerSamples": 30,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "check/1/0",
+          "p50Ms": 4.065000057220459,
+          "p95Ms": 8.644999980926514,
+          "msPerOperation": 4.75,
+          "zeroGuestTimerSamples": 24,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "check/16/0",
+          "p50Ms": 31.41000008583069,
+          "p95Ms": 61.394999980926514,
+          "msPerOperation": 2.1743541665375234,
+          "zeroGuestTimerSamples": 0,
+          "sampledWallP50Ms": 24.72499999999991
+        },
+        {
+          "key": "compile/1/0",
+          "p50Ms": 3.8700000047683716,
+          "p95Ms": 9.299999952316284,
+          "msPerOperation": 5.5931666731834415,
+          "zeroGuestTimerSamples": 17,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "compile/16/0",
+          "p50Ms": 44.21999990940094,
+          "p95Ms": 89.17000007629395,
+          "msPerOperation": 3.2103541664779187,
+          "zeroGuestTimerSamples": 0,
+          "sampledWallP50Ms": 36.38000000000011
+        },
+        {
+          "key": "hover/1/0",
+          "p50Ms": 0.4200000762939453,
+          "p95Ms": 0.9950000047683716,
+          "msPerOperation": 0.534500002861023,
+          "zeroGuestTimerSamples": 30,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "hover/16/0",
+          "p50Ms": 0.9149999618530273,
+          "p95Ms": 2.259999990463257,
+          "msPerOperation": 0.06455208336313566,
+          "zeroGuestTimerSamples": 30,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "edit/1/0",
+          "p50Ms": 2.2649999856948853,
+          "p95Ms": 2.615000009536743,
+          "msPerOperation": 2.2995000004768373,
+          "zeroGuestTimerSamples": 30,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "edit/16/0",
+          "p50Ms": 29.194999933242798,
+          "p95Ms": 69.3400000333786,
+          "msPerOperation": 2.15673958286643,
+          "zeroGuestTimerSamples": 0,
+          "sampledWallP50Ms": 24.71599999999944
+        },
+        {
+          "key": "large-check/1/0",
+          "p50Ms": 175.26499998569489,
+          "p95Ms": 250.36000001430511,
+          "msPerOperation": 189.03866665760677,
+          "zeroGuestTimerSamples": 0,
+          "sampledWallP50Ms": 168.77499999999964
+        },
+        {
+          "key": "large-check/4/0",
+          "p50Ms": 755.125,
+          "p95Ms": 782.7350000143051,
+          "msPerOperation": 187.98220833539963,
+          "zeroGuestTimerSamples": 0,
+          "sampledWallP50Ms": 752.3010000000031
+        },
+        {
+          "key": "import-check/1/0",
+          "p50Ms": 2.565000057220459,
+          "p95Ms": 2.944999933242798,
+          "msPerOperation": 2.6173333366711935,
+          "zeroGuestTimerSamples": 29,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "import-check/4/0",
+          "p50Ms": 9.355000019073486,
+          "p95Ms": 23.75499999523163,
+          "msPerOperation": 2.925124999880791,
+          "zeroGuestTimerSamples": 0,
+          "sampledWallP50Ms": 4.6049999999959255
+        }
+      ]
+    },
+    {
+      "name": "1-json",
+      "sha256": "7f0a6ab1c3f6f9e06ce8d7bc23b958d128da6e2ae17a20011ff63087cc6fdece",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+      "summary": [
+        {
+          "key": "noop/1/0",
+          "p50Ms": 2.1799999475479126,
+          "p95Ms": 5.309999942779541,
+          "msPerOperation": 2.4328333338101706,
+          "zeroGuestTimerSamples": 30,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "noop/1/4096",
+          "p50Ms": 4.245000004768372,
+          "p95Ms": 7.710000038146973,
+          "msPerOperation": 4.715333326657613,
+          "zeroGuestTimerSamples": 30,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "noop/1/65536",
+          "p50Ms": 31.3400000333786,
+          "p95Ms": 34.924999952316284,
+          "msPerOperation": 31.963666673501333,
+          "zeroGuestTimerSamples": 30,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "noop/16/0",
+          "p50Ms": 1.659999966621399,
+          "p95Ms": 4.009999990463257,
+          "msPerOperation": 0.11902083332339923,
+          "zeroGuestTimerSamples": 30,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "noop/16/4096",
+          "p50Ms": 3.615000009536743,
+          "p95Ms": 6.360000014305115,
+          "msPerOperation": 0.24247916688521703,
+          "zeroGuestTimerSamples": 30,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "noop/16/65536",
+          "p50Ms": 32.31000006198883,
+          "p95Ms": 35.74000000953674,
+          "msPerOperation": 2.036135416974624,
+          "zeroGuestTimerSamples": 30,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "check/1/0",
+          "p50Ms": 4.169999957084656,
+          "p95Ms": 9.324999928474426,
+          "msPerOperation": 4.912666662534078,
+          "zeroGuestTimerSamples": 9,
+          "sampledWallP50Ms": 4.020999999999731
+        },
+        {
+          "key": "check/16/0",
+          "p50Ms": 35.2849999666214,
+          "p95Ms": 67.12999999523163,
+          "msPerOperation": 2.5407395834724107,
+          "zeroGuestTimerSamples": 0,
+          "sampledWallP50Ms": 31.149000000000342
+        },
+        {
+          "key": "compile/1/0",
+          "p50Ms": 6.125,
+          "p95Ms": 8.879999995231628,
+          "msPerOperation": 6.714333335558574,
+          "zeroGuestTimerSamples": 12,
+          "sampledWallP50Ms": 3.469999999999345
+        },
+        {
+          "key": "compile/16/0",
+          "p50Ms": 70.67500007152557,
+          "p95Ms": 110.1599999666214,
+          "msPerOperation": 4.895770832896233,
+          "zeroGuestTimerSamples": 0,
+          "sampledWallP50Ms": 53.22100000000046
+        },
+        {
+          "key": "hover/1/0",
+          "p50Ms": 1.3049999475479126,
+          "p95Ms": 1.584999918937683,
+          "msPerOperation": 1.3263333320617676,
+          "zeroGuestTimerSamples": 30,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "hover/16/0",
+          "p50Ms": 7.544999957084656,
+          "p95Ms": 7.8450000286102295,
+          "msPerOperation": 0.474416666974624,
+          "zeroGuestTimerSamples": 8,
+          "sampledWallP50Ms": 3.5499999999992724
+        },
+        {
+          "key": "edit/1/0",
+          "p50Ms": 2.984999895095825,
+          "p95Ms": 3.319999933242798,
+          "msPerOperation": 3.010166656970978,
+          "zeroGuestTimerSamples": 22,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "edit/16/0",
+          "p50Ms": 34.35000002384186,
+          "p95Ms": 68.8549998998642,
+          "msPerOperation": 2.4465208326776824,
+          "zeroGuestTimerSamples": 0,
+          "sampledWallP50Ms": 31.30000000000109
+        },
+        {
+          "key": "large-check/1/0",
+          "p50Ms": 190.5699999332428,
+          "p95Ms": 268.585000038147,
+          "msPerOperation": 205.3934999982516,
+          "zeroGuestTimerSamples": 0,
+          "sampledWallP50Ms": 184.72000000000116
+        },
+        {
+          "key": "large-check/4/0",
+          "p50Ms": 810.9649999141693,
+          "p95Ms": 832.5199999809265,
+          "msPerOperation": 200.55833333532016,
+          "zeroGuestTimerSamples": 0,
+          "sampledWallP50Ms": 804.364999999998
+        },
+        {
+          "key": "import-check/1/0",
+          "p50Ms": 3.5449999570846558,
+          "p95Ms": 4.435000061988831,
+          "msPerOperation": 3.627166668574015,
+          "zeroGuestTimerSamples": 20,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "import-check/4/0",
+          "p50Ms": 10.485000014305115,
+          "p95Ms": 12.65500009059906,
+          "msPerOperation": 2.6608333329359692,
+          "zeroGuestTimerSamples": 0,
+          "sampledWallP50Ms": 7.980999999999767
+        }
+      ]
+    },
+    {
+      "name": "1-lua51",
+      "sha256": "3cc7810cb3e0253a8a4c805a78a7518463f1012a7aa7d2a04442e1ecf7b52160",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+      "summary": [
+        {
+          "key": "noop/1/0",
+          "p50Ms": 0.014999985694885254,
+          "p95Ms": 0.03500008583068848,
+          "msPerOperation": 0.01766666571299235,
+          "zeroGuestTimerSamples": 27,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "noop/1/4096",
+          "p50Ms": 0.010000109672546387,
+          "p95Ms": 0.019999980926513672,
+          "msPerOperation": 0.013499999046325683,
+          "zeroGuestTimerSamples": 24,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "noop/1/65536",
+          "p50Ms": 0.02499997615814209,
+          "p95Ms": 0.1799999475479126,
+          "msPerOperation": 0.04450000127156575,
+          "zeroGuestTimerSamples": 26,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "noop/16/0",
+          "p50Ms": 0.009999990463256836,
+          "p95Ms": 0.015000104904174805,
+          "msPerOperation": 0.0007708333432674408,
+          "zeroGuestTimerSamples": 26,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "noop/16/4096",
+          "p50Ms": 0.014999985694885254,
+          "p95Ms": 0.034999966621398926,
+          "msPerOperation": 0.001208333174387614,
+          "zeroGuestTimerSamples": 23,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "noop/16/65536",
+          "p50Ms": 0.02499997615814209,
+          "p95Ms": 0.15500009059906006,
+          "msPerOperation": 0.002802083392937978,
+          "zeroGuestTimerSamples": 30,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "check/1/0",
+          "p50Ms": 0.2549999952316284,
+          "p95Ms": 0.38499999046325684,
+          "msPerOperation": 0.2876666704813639,
+          "zeroGuestTimerSamples": 0,
+          "sampledWallP50Ms": 0.24000000953674316
+        },
+        {
+          "key": "check/16/0",
+          "p50Ms": 3.909999966621399,
+          "p95Ms": 9.559999942779541,
+          "msPerOperation": 0.30009374891718227,
+          "zeroGuestTimerSamples": 0,
+          "sampledWallP50Ms": 3.850000023841858
+        },
+        {
+          "key": "compile/1/0",
+          "p50Ms": 0.41499996185302734,
+          "p95Ms": 0.565000057220459,
+          "msPerOperation": 0.4441666682561239,
+          "zeroGuestTimerSamples": 0,
+          "sampledWallP50Ms": 0.3950001001358032
+        },
+        {
+          "key": "compile/16/0",
+          "p50Ms": 6.7799999713897705,
+          "p95Ms": 14.865000009536743,
+          "msPerOperation": 0.495864583303531,
+          "zeroGuestTimerSamples": 0,
+          "sampledWallP50Ms": 6.705000042915344
+        },
+        {
+          "key": "hover/1/0",
+          "p50Ms": 0.029999971389770508,
+          "p95Ms": 0.06500005722045898,
+          "msPerOperation": 0.035333335399627686,
+          "zeroGuestTimerSamples": 0,
+          "sampledWallP50Ms": 0.019999980926513672
+        },
+        {
+          "key": "hover/16/0",
+          "p50Ms": 0.28999996185302734,
+          "p95Ms": 0.3200000524520874,
+          "msPerOperation": 0.01811458294590314,
+          "zeroGuestTimerSamples": 0,
+          "sampledWallP50Ms": 0.2650001049041748
+        },
+        {
+          "key": "edit/1/0",
+          "p50Ms": 0.25,
+          "p95Ms": 0.2950000762939453,
+          "msPerOperation": 0.25450000365575154,
+          "zeroGuestTimerSamples": 0,
+          "sampledWallP50Ms": 0.2349998950958252
+        },
+        {
+          "key": "edit/16/0",
+          "p50Ms": 3.9800000190734863,
+          "p95Ms": 9.72000002861023,
+          "msPerOperation": 0.300427083671093,
+          "zeroGuestTimerSamples": 0,
+          "sampledWallP50Ms": 3.930000066757202
+        },
+        {
+          "key": "large-check/1/0",
+          "p50Ms": 23.30999994277954,
+          "p95Ms": 36.420000076293945,
+          "msPerOperation": 25.87433333794276,
+          "zeroGuestTimerSamples": 0,
+          "sampledWallP50Ms": 23.15499997138977
+        },
+        {
+          "key": "large-check/4/0",
+          "p50Ms": 110.04500007629395,
+          "p95Ms": 115.32000005245209,
+          "msPerOperation": 26.786375002066293,
+          "zeroGuestTimerSamples": 0,
+          "sampledWallP50Ms": 109.89499998092651
+        },
+        {
+          "key": "import-check/1/0",
+          "p50Ms": 0.30500006675720215,
+          "p95Ms": 0.48500001430511475,
+          "msPerOperation": 0.3518333355585734,
+          "zeroGuestTimerSamples": 0,
+          "sampledWallP50Ms": 0.26999998092651367
+        },
+        {
+          "key": "import-check/4/0",
+          "p50Ms": 1.315000057220459,
+          "p95Ms": 4.634999990463257,
+          "msPerOperation": 0.43416666487852734,
+          "zeroGuestTimerSamples": 0,
+          "sampledWallP50Ms": 1.274999976158142
+        }
+      ]
+    },
+    {
+      "name": "1-raw",
+      "sha256": "2ef5f49ab9c7f047ebb144627e358d09a0994630f8f591e14f4475e3795b6c5a",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+      "summary": [
+        {
+          "key": "noop/1/0",
+          "p50Ms": 1.0049999952316284,
+          "p95Ms": 3.0950000286102295,
+          "msPerOperation": 1.3166666706403096,
+          "zeroGuestTimerSamples": 30,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "noop/1/4096",
+          "p50Ms": 0.8249999284744263,
+          "p95Ms": 1.25,
+          "msPerOperation": 0.8793333371480306,
+          "zeroGuestTimerSamples": 30,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "noop/1/65536",
+          "p50Ms": 1.2750000953674316,
+          "p95Ms": 3.6399999856948853,
+          "msPerOperation": 1.5463333288828531,
+          "zeroGuestTimerSamples": 30,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "noop/16/0",
+          "p50Ms": 1.0899999141693115,
+          "p95Ms": 3.1799999475479126,
+          "msPerOperation": 0.09330208351214726,
+          "zeroGuestTimerSamples": 30,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "noop/16/4096",
+          "p50Ms": 1.024999976158142,
+          "p95Ms": 1.2699999809265137,
+          "msPerOperation": 0.0650937502582868,
+          "zeroGuestTimerSamples": 30,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "noop/16/65536",
+          "p50Ms": 1.3250000476837158,
+          "p95Ms": 1.7049999237060547,
+          "msPerOperation": 0.08587500005960465,
+          "zeroGuestTimerSamples": 30,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "check/1/0",
+          "p50Ms": 4.320000052452087,
+          "p95Ms": 8.085000038146973,
+          "msPerOperation": 4.879833336671194,
+          "zeroGuestTimerSamples": 11,
+          "sampledWallP50Ms": 3.6150000000002365
+        },
+        {
+          "key": "check/16/0",
+          "p50Ms": 32.545000076293945,
+          "p95Ms": 70.23000001907349,
+          "msPerOperation": 2.356614583482345,
+          "zeroGuestTimerSamples": 0,
+          "sampledWallP50Ms": 28.425000000000182
+        },
+        {
+          "key": "compile/1/0",
+          "p50Ms": 4.324999928474426,
+          "p95Ms": 10.195000052452087,
+          "msPerOperation": 6.000333329041799,
+          "zeroGuestTimerSamples": 9,
+          "sampledWallP50Ms": 3.9099999999998545
+        },
+        {
+          "key": "compile/16/0",
+          "p50Ms": 47.62000000476837,
+          "p95Ms": 101.54000008106232,
+          "msPerOperation": 3.41963541607062,
+          "zeroGuestTimerSamples": 0,
+          "sampledWallP50Ms": 40.08600000000024
+        },
+        {
+          "key": "hover/1/0",
+          "p50Ms": 0.4950000047683716,
+          "p95Ms": 0.7000000476837158,
+          "msPerOperation": 0.5206666707992553,
+          "zeroGuestTimerSamples": 30,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "hover/16/0",
+          "p50Ms": 1.0299999713897705,
+          "p95Ms": 1.3050000667572021,
+          "msPerOperation": 0.07025000005960465,
+          "zeroGuestTimerSamples": 30,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "edit/1/0",
+          "p50Ms": 2.444999933242798,
+          "p95Ms": 3.184999942779541,
+          "msPerOperation": 2.5354999979337056,
+          "zeroGuestTimerSamples": 24,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "edit/16/0",
+          "p50Ms": 30.350000023841858,
+          "p95Ms": 65.2150000333786,
+          "msPerOperation": 2.256697916984558,
+          "zeroGuestTimerSamples": 0,
+          "sampledWallP50Ms": 27.746000000000095
+        },
+        {
+          "key": "large-check/1/0",
+          "p50Ms": 177.10000002384186,
+          "p95Ms": 263.92000007629395,
+          "msPerOperation": 193.52616666555406,
+          "zeroGuestTimerSamples": 0,
+          "sampledWallP50Ms": 172.86000000000058
+        },
+        {
+          "key": "large-check/4/0",
+          "p50Ms": 736.4049999713898,
+          "p95Ms": 776.4649999141693,
+          "msPerOperation": 182.34487500091393,
+          "zeroGuestTimerSamples": 0,
+          "sampledWallP50Ms": 731.8950000000004
+        },
+        {
+          "key": "import-check/1/0",
+          "p50Ms": 2.225000023841858,
+          "p95Ms": 2.490000009536743,
+          "msPerOperation": 2.268333339691162,
+          "zeroGuestTimerSamples": 27,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "import-check/4/0",
+          "p50Ms": 8.990000009536743,
+          "p95Ms": 24.21999990940094,
+          "msPerOperation": 2.8684999982515973,
+          "zeroGuestTimerSamples": 8,
+          "sampledWallP50Ms": 4.024999999994179
+        }
+      ]
+    },
+    {
+      "name": "2-json",
+      "sha256": "c6a081a8fcefd8960e4a095864c67f25423ef80b51ecf0158eb3adf983ffbca7",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+      "summary": [
+        {
+          "key": "noop/1/0",
+          "p50Ms": 2.549999952316284,
+          "p95Ms": 5.090000033378601,
+          "msPerOperation": 2.8226666688919066,
+          "zeroGuestTimerSamples": 30,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "noop/1/4096",
+          "p50Ms": 3.700000047683716,
+          "p95Ms": 7.784999966621399,
+          "msPerOperation": 4.28033332824707,
+          "zeroGuestTimerSamples": 30,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "noop/1/65536",
+          "p50Ms": 29.899999976158142,
+          "p95Ms": 33.97000002861023,
+          "msPerOperation": 30.348333338896435,
+          "zeroGuestTimerSamples": 30,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "noop/16/0",
+          "p50Ms": 1.5099999904632568,
+          "p95Ms": 2.5250000953674316,
+          "msPerOperation": 0.09985416655739149,
+          "zeroGuestTimerSamples": 30,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "noop/16/4096",
+          "p50Ms": 3.375,
+          "p95Ms": 4.440000057220459,
+          "msPerOperation": 0.218166666974624,
+          "zeroGuestTimerSamples": 30,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "noop/16/65536",
+          "p50Ms": 28.679999947547913,
+          "p95Ms": 32.045000076293945,
+          "msPerOperation": 1.8091354168951512,
+          "zeroGuestTimerSamples": 30,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "check/1/0",
+          "p50Ms": 3.990000009536743,
+          "p95Ms": 8.715000033378601,
+          "msPerOperation": 4.6671666661898294,
+          "zeroGuestTimerSamples": 23,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "check/16/0",
+          "p50Ms": 35.84500002861023,
+          "p95Ms": 72.58000004291534,
+          "msPerOperation": 2.540937500447035,
+          "zeroGuestTimerSamples": 0,
+          "sampledWallP50Ms": 31.429000000000087
+        },
+        {
+          "key": "compile/1/0",
+          "p50Ms": 5.860000014305115,
+          "p95Ms": 9.175000071525574,
+          "msPerOperation": 6.455166669686635,
+          "zeroGuestTimerSamples": 16,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "compile/16/0",
+          "p50Ms": 68.17999994754791,
+          "p95Ms": 113.13499999046326,
+          "msPerOperation": 4.665354166428248,
+          "zeroGuestTimerSamples": 0,
+          "sampledWallP50Ms": 51.904999999998836
+        },
+        {
+          "key": "hover/1/0",
+          "p50Ms": 1.28000009059906,
+          "p95Ms": 1.5649999380111694,
+          "msPerOperation": 1.3191666682561238,
+          "zeroGuestTimerSamples": 30,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "hover/16/0",
+          "p50Ms": 7.200000047683716,
+          "p95Ms": 7.7799999713897705,
+          "msPerOperation": 0.456479166696469,
+          "zeroGuestTimerSamples": 14,
+          "sampledWallP50Ms": 2.7289999999993597
+        },
+        {
+          "key": "edit/1/0",
+          "p50Ms": 3.0449999570846558,
+          "p95Ms": 3.4450000524520874,
+          "msPerOperation": 3.093166665236155,
+          "zeroGuestTimerSamples": 29,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "edit/16/0",
+          "p50Ms": 33.875,
+          "p95Ms": 65.81499993801117,
+          "msPerOperation": 2.4223229167362055,
+          "zeroGuestTimerSamples": 0,
+          "sampledWallP50Ms": 28.688999999998487
+        },
+        {
+          "key": "large-check/1/0",
+          "p50Ms": 181.8550000190735,
+          "p95Ms": 264.5199999809265,
+          "msPerOperation": 199.24266666173935,
+          "zeroGuestTimerSamples": 0,
+          "sampledWallP50Ms": 176.7639999999992
+        },
+        {
+          "key": "large-check/4/0",
+          "p50Ms": 771.3050000667572,
+          "p95Ms": 785.7449998855591,
+          "msPerOperation": 190.9458333313465,
+          "zeroGuestTimerSamples": 0,
+          "sampledWallP50Ms": 765.3090000000011
+        },
+        {
+          "key": "import-check/1/0",
+          "p50Ms": 3.9250000715255737,
+          "p95Ms": 8.715000033378601,
+          "msPerOperation": 5.51550000111262,
+          "zeroGuestTimerSamples": 16,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "import-check/4/0",
+          "p50Ms": 9.170000076293945,
+          "p95Ms": 10.410000085830688,
+          "msPerOperation": 2.3265416661898297,
+          "zeroGuestTimerSamples": 0,
+          "sampledWallP50Ms": 5.174999999995634
+        }
+      ]
+    },
+    {
+      "name": "2-lua51",
+      "sha256": "0ebf620f4ea7e2e04082374531e9c577ba0c13af9f2130e02260ba54b33ae8a9",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+      "summary": [
+        {
+          "key": "noop/1/0",
+          "p50Ms": 0.014999985694885254,
+          "p95Ms": 0.040000081062316895,
+          "msPerOperation": 0.016000000635782878,
+          "zeroGuestTimerSamples": 25,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "noop/1/4096",
+          "p50Ms": 0.009999990463256836,
+          "p95Ms": 0.015000104904174805,
+          "msPerOperation": 0.010333335399627686,
+          "zeroGuestTimerSamples": 30,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "noop/1/65536",
+          "p50Ms": 0.02499997615814209,
+          "p95Ms": 0.18499994277954102,
+          "msPerOperation": 0.04849999745686849,
+          "zeroGuestTimerSamples": 27,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "noop/16/0",
+          "p50Ms": 0.014999985694885254,
+          "p95Ms": 0.019999980926513672,
+          "msPerOperation": 0.0008020833134651184,
+          "zeroGuestTimerSamples": 27,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "noop/16/4096",
+          "p50Ms": 0.010000109672546387,
+          "p95Ms": 0.02499997615814209,
+          "msPerOperation": 0.0009479165077209472,
+          "zeroGuestTimerSamples": 25,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "noop/16/65536",
+          "p50Ms": 0.02499997615814209,
+          "p95Ms": 0.06499993801116943,
+          "msPerOperation": 0.0026458332935969035,
+          "zeroGuestTimerSamples": 28,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "check/1/0",
+          "p50Ms": 0.23000001907348633,
+          "p95Ms": 0.3399999141693115,
+          "msPerOperation": 0.24166666666666667,
+          "zeroGuestTimerSamples": 0,
+          "sampledWallP50Ms": 0.2200000286102295
+        },
+        {
+          "key": "check/16/0",
+          "p50Ms": 3.7350000143051147,
+          "p95Ms": 8.324999928474426,
+          "msPerOperation": 0.2830312497913837,
+          "zeroGuestTimerSamples": 0,
+          "sampledWallP50Ms": 3.700000047683716
+        },
+        {
+          "key": "compile/1/0",
+          "p50Ms": 0.38999998569488525,
+          "p95Ms": 0.4700000286102295,
+          "msPerOperation": 0.40016667048136395,
+          "zeroGuestTimerSamples": 0,
+          "sampledWallP50Ms": 0.375
+        },
+        {
+          "key": "compile/16/0",
+          "p50Ms": 6.2850000858306885,
+          "p95Ms": 13.93500006198883,
+          "msPerOperation": 0.46421875059604645,
+          "zeroGuestTimerSamples": 0,
+          "sampledWallP50Ms": 6.215000033378601
+        },
+        {
+          "key": "hover/1/0",
+          "p50Ms": 0.03000009059906006,
+          "p95Ms": 0.0549999475479126,
+          "msPerOperation": 0.03366667032241821,
+          "zeroGuestTimerSamples": 0,
+          "sampledWallP50Ms": 0.019999980926513672
+        },
+        {
+          "key": "hover/16/0",
+          "p50Ms": 0.2749999761581421,
+          "p95Ms": 0.2900000810623169,
+          "msPerOperation": 0.01730208347241084,
+          "zeroGuestTimerSamples": 0,
+          "sampledWallP50Ms": 0.2549999952316284
+        },
+        {
+          "key": "edit/1/0",
+          "p50Ms": 0.23000001907348633,
+          "p95Ms": 0.3049999475479126,
+          "msPerOperation": 0.23849999904632568,
+          "zeroGuestTimerSamples": 0,
+          "sampledWallP50Ms": 0.21999990940093994
+        },
+        {
+          "key": "edit/16/0",
+          "p50Ms": 3.5950000286102295,
+          "p95Ms": 9.790000081062317,
+          "msPerOperation": 0.2847291668256124,
+          "zeroGuestTimerSamples": 0,
+          "sampledWallP50Ms": 3.555000066757202
+        },
+        {
+          "key": "large-check/1/0",
+          "p50Ms": 21.985000014305115,
+          "p95Ms": 34.43499994277954,
+          "msPerOperation": 24.429166662693024,
+          "zeroGuestTimerSamples": 0,
+          "sampledWallP50Ms": 21.84500002861023
+        },
+        {
+          "key": "large-check/4/0",
+          "p50Ms": 102.93999993801117,
+          "p95Ms": 109.60500001907349,
+          "msPerOperation": 24.994625000158944,
+          "zeroGuestTimerSamples": 0,
+          "sampledWallP50Ms": 102.8050000667572
+        },
+        {
+          "key": "import-check/1/0",
+          "p50Ms": 0.25,
+          "p95Ms": 0.4299999475479126,
+          "msPerOperation": 0.29416666825612386,
+          "zeroGuestTimerSamples": 0,
+          "sampledWallP50Ms": 0.23000001907348633
+        },
+        {
+          "key": "import-check/4/0",
+          "p50Ms": 1.2100000381469727,
+          "p95Ms": 4.564999938011169,
+          "msPerOperation": 0.40695833365122475,
+          "zeroGuestTimerSamples": 0,
+          "sampledWallP50Ms": 1.1850000619888306
+        }
+      ]
+    },
+    {
+      "name": "2-raw",
+      "sha256": "54e4bc6efc467e078111e3ccca70d4d551f7951e9dbd90e518b538e8ad9db210",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+      "summary": [
+        {
+          "key": "noop/1/0",
+          "p50Ms": 0.8250000476837158,
+          "p95Ms": 2.0250000953674316,
+          "msPerOperation": 1.0361666679382324,
+          "zeroGuestTimerSamples": 30,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "noop/1/4096",
+          "p50Ms": 0.9500000476837158,
+          "p95Ms": 1.4500000476837158,
+          "msPerOperation": 1.0178333361943563,
+          "zeroGuestTimerSamples": 30,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "noop/1/65536",
+          "p50Ms": 1.4199999570846558,
+          "p95Ms": 3.700000047683716,
+          "msPerOperation": 1.7503333369890848,
+          "zeroGuestTimerSamples": 30,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "noop/16/0",
+          "p50Ms": 1.3100000619888306,
+          "p95Ms": 3.7699999809265137,
+          "msPerOperation": 0.10743750035762786,
+          "zeroGuestTimerSamples": 30,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "noop/16/4096",
+          "p50Ms": 1.1799999475479126,
+          "p95Ms": 3.649999976158142,
+          "msPerOperation": 0.09028124958276748,
+          "zeroGuestTimerSamples": 30,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "noop/16/65536",
+          "p50Ms": 1.2400000095367432,
+          "p95Ms": 1.8049999475479126,
+          "msPerOperation": 0.08216666653752328,
+          "zeroGuestTimerSamples": 30,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "check/1/0",
+          "p50Ms": 4.175000071525574,
+          "p95Ms": 7.9700000286102295,
+          "msPerOperation": 5.074333333969117,
+          "zeroGuestTimerSamples": 22,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "check/16/0",
+          "p50Ms": 32.269999980926514,
+          "p95Ms": 69.94500005245209,
+          "msPerOperation": 2.2998020832737285,
+          "zeroGuestTimerSamples": 0,
+          "sampledWallP50Ms": 27.625
+        },
+        {
+          "key": "compile/1/0",
+          "p50Ms": 5.340000033378601,
+          "p95Ms": 10.014999985694885,
+          "msPerOperation": 6.128333338101705,
+          "zeroGuestTimerSamples": 17,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "compile/16/0",
+          "p50Ms": 48.575000047683716,
+          "p95Ms": 102.11500000953674,
+          "msPerOperation": 3.459458333750566,
+          "zeroGuestTimerSamples": 0,
+          "sampledWallP50Ms": 40.17399999999998
+        },
+        {
+          "key": "hover/1/0",
+          "p50Ms": 0.48000001907348633,
+          "p95Ms": 1.2049999237060547,
+          "msPerOperation": 0.6364999930063884,
+          "zeroGuestTimerSamples": 30,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "hover/16/0",
+          "p50Ms": 0.9850000143051147,
+          "p95Ms": 1.28000009059906,
+          "msPerOperation": 0.06484375024835269,
+          "zeroGuestTimerSamples": 30,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "edit/1/0",
+          "p50Ms": 2.4350000619888306,
+          "p95Ms": 3.100000023841858,
+          "msPerOperation": 2.5086666623751324,
+          "zeroGuestTimerSamples": 30,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "edit/16/0",
+          "p50Ms": 29.93500006198883,
+          "p95Ms": 76.02999997138977,
+          "msPerOperation": 2.254218749453624,
+          "zeroGuestTimerSamples": 0,
+          "sampledWallP50Ms": 24.65599999999995
+        },
+        {
+          "key": "large-check/1/0",
+          "p50Ms": 169.06499993801117,
+          "p95Ms": 237.70500004291534,
+          "msPerOperation": 187.9283333381017,
+          "zeroGuestTimerSamples": 0,
+          "sampledWallP50Ms": 164.64499999999862
+        },
+        {
+          "key": "large-check/4/0",
+          "p50Ms": 741.9599999189377,
+          "p95Ms": 765.7200000286102,
+          "msPerOperation": 183.88095833261806,
+          "zeroGuestTimerSamples": 0,
+          "sampledWallP50Ms": 736.5549999999967
+        },
+        {
+          "key": "import-check/1/0",
+          "p50Ms": 2.9149999618530273,
+          "p95Ms": 6.690000057220459,
+          "msPerOperation": 4.420499988396963,
+          "zeroGuestTimerSamples": 22,
+          "sampledWallP50Ms": 0
+        },
+        {
+          "key": "import-check/4/0",
+          "p50Ms": 8.394999980926514,
+          "p95Ms": 9.120000004768372,
+          "msPerOperation": 2.104875001311302,
+          "zeroGuestTimerSamples": 3,
+          "sampledWallP50Ms": 3.9200000000055297
+        }
+      ]
+    }
+  ]
+}

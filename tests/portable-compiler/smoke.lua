@@ -8,6 +8,20 @@ local function noErrors(response, label)
     end
 end
 
+local function compatibilitySession(browser)
+    local source = "const count: number = 2; return count"
+    local ordinary = browser:check(source, "sample.g.nupp", {dialect = "luajit"})
+    noErrors(ordinary, "unrestricted compatibility session")
+    local constrained = browser:check(source, "sample.g.nupp", {compat = "lua51"})
+    assert(constrained.diagnostics[1] and constrained.diagnostics[1].code == "NUPP3013")
+    local admitted = browser:compile("local count: number = 2; return count", "sample.g.nupp", {compat = "lua51"})
+    noErrors(admitted, "compatibility session compile")
+    assert(admitted.code)
+    assert(not admitted.code:find("__nuppPortable", 1, true))
+    local again = browser:check(source, "sample.g.nupp", {dialect = "luajit"})
+    noErrors(again, "restored unrestricted session")
+end
+
 local function equivalent(got, want, path)
     if type(got) ~= type(want) then
         error(path .. " has type " .. type(got) .. ", expected " .. type(want), 0)
@@ -26,6 +40,7 @@ end
 
 return function(Browser)
     local session = Browser.new()
+    compatibilitySession(session)
     local source = "local answer: integer = 42\nreturn answer"
 
     local checked = session:check(source, "playground.nupp", {strict = true, dialect = "lua51",})

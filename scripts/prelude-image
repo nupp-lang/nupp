@@ -19,7 +19,23 @@
 set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
-IMAGE="$ROOT/build/playground/preludeimage.bin"
+dialect=${1:-lua51}
+case "$dialect" in
+    lua51)
+        image_dir=build/playground
+        bootstrap_dir=build/playground-bootstrap
+        bootstrap_target=playgroundCompilerWithoutPrelude
+        compiler_target=playgroundCompiler
+        ;;
+    luajit)
+        image_dir=build/browser-luajit
+        bootstrap_dir=build/browser-luajit/bootstrap
+        bootstrap_target=browserLuaJITCompilerWithoutPrelude
+        compiler_target=browserLuaJITCompiler
+        ;;
+    *) echo "usage: scripts/prelude-image [lua51|luajit]" >&2; exit 2 ;;
+esac
+IMAGE="$ROOT/$image_dir/preludeimage.bin"
 GENERATOR="$ROOT/editors/playground/tools/generate-prelude-image.lua"
 
 if [ -n "${NUPP_PRELUDE_LUA:-}" ]; then
@@ -29,13 +45,13 @@ else
 fi
 [ -x "$LUA" ] || { echo "prelude-image: no interpreter at $LUA" >&2; exit 1; }
 
-"$ROOT/bin/nupp" build --target playgroundCompilerWithoutPrelude
+"$ROOT/bin/nupp" build --target "$bootstrap_target"
 
 mkdir -p "$(dirname "$IMAGE")"
 "$LUA" "$GENERATOR" \
-    "$ROOT/build/playground-bootstrap/nupp-compiler.lua" "$IMAGE" source
+    "$ROOT/$bootstrap_dir/nupp-compiler.lua" "$IMAGE" source "$dialect"
 
-"$ROOT/bin/nupp" build --target playgroundCompiler
+"$ROOT/bin/nupp" build --target "$compiler_target"
 
 # The bundle now carries the image, so it can be asked to hydrate one and write
 # it back. That is the property worth checking and the one a committed file only
@@ -44,6 +60,6 @@ mkdir -p "$(dirname "$IMAGE")"
 roundtrip=$(mktemp)
 trap 'rm -f "$roundtrip"' EXIT
 "$LUA" "$GENERATOR" \
-    "$ROOT/build/playground/nupp-compiler.lua" "$roundtrip" image
+    "$ROOT/$image_dir/nupp-compiler.lua" "$roundtrip" image "$dialect"
 cmp "$IMAGE" "$roundtrip" \
     || { echo "prelude-image: the image does not survive a round trip" >&2; exit 1; }
