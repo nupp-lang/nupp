@@ -1987,6 +1987,7 @@ end
 -- A condition block is rewritten with the same live-lane mask as its body.
 function M.aStatementfulLoopConditionBuildsWithRequiredSimd()
     local dir = project("emit-c")
+    withKeys(dir, 'sources = {"src/conditional.nupp"},')
     local source = assert(io.open(dir .. "/src/conditional.nupp", "wb"))
     source:write(
         [[
@@ -5520,6 +5521,30 @@ function M.cCompilerFailureIsAJsonDiagnostic()
     test.equal(report.ok, false)
     assert(#report.diagnostics > 0, text)
     assert(report.diagnostics[1].message:find("nupp-issue49-missing-header.h", 1, true), text)
+end
+
+function M.entryOnlyAotTargetsCheckOnlyTheirDependencyClosure()
+    local dir = project("emit-c")
+    for name, code in pairs({
+        ["unused.nupp"] = "@aot\nlocal function unused(value: int32): int32\n return nupp.math.i32.add(value, value)\nend\nreturn unused\n",
+        ["transitive.nupp"] = "@aot\nlocal function needed(value: int32): int32\n return nupp.math.i32.add(value, value)\nend\nreturn needed\n",
+        ["plain.nupp"] = 'return require("transitive")\n',
+    }) do
+        local file = assert(io.open(dir .. "/src/" .. name, "wb"))
+        file:write(code)
+        file:close()
+    end
+    local out, code = build(dir)
+    test.equal(code, 0, out)
+    local reached = false
+    for _, file in ipairs(require("nupp.compiler.fs").listFiles(dir .. "/build/native/aot")) do
+        if file:match("%.c$") then
+            local source = assert(read(file))
+            assert(not source:find("ks_unused", 1, true), "an unreachable AOT body is not emitted")
+            reached = reached or source:find("ks_needed", 1, true) ~= nil
+        end
+    end
+    assert(reached, "AOT bodies reached through an entry dependency are emitted")
 end
 
 return M

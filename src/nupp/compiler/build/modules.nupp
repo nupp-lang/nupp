@@ -2079,7 +2079,7 @@ end
 --- @return the reached files as a set of normalized paths, or nothing and why
 --- @raises never; an entry that resolves to nothing is reported, not thrown
 local function targetScope(root: string, target: Target, session: modules.Session): ({[string]: boolean}?, string?)
-    if target.sources == nil then
+    if target.sources == nil and #(target.entries or {}) == 0 then
         return nil, nil
     end
     local inc = session.inc

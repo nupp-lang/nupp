@@ -486,7 +486,12 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         -- at different CPU feature tiers -- the browser template builds one
         -- scalar and one SIMD128 package out of one source tree -- otherwise
         -- fails the scalar build over the SIMD module it never bundles.
+        -- Walking dependencies checks their interfaces through the shared graph.
+        local resumeChecking = report:charging("aot:check")
+        report:at("aot:check")
         local aotScope, scopeErr = modules.targetScope(root, target, session)
+        report:charging(resumeChecking)
+        report:at("aot")
         if scopeErr then
             io.stderr:write("nupp: " .. tostring(scopeErr) .. "\n")
 
