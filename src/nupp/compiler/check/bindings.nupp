@@ -929,6 +929,22 @@ function bindings.install(c: state.Checker): state.StatHandlers
     handlers.assignStmt = function(stat: cst.AssignStmt)
         local values = stat.exprs or {}
         local valueCount = #values
+        -- A binding that already has a declared type is a destination like an
+        -- annotated one, so a call whose own result is a binder resolves it from here.
+        -- Only a plain name paired one-to-one with a value: anything else would mean
+        -- inferring a target to find out, which is not this statement's order.
+        if #stat.targets == valueCount then
+            for index, target in ipairs(stat.targets) do
+                local value: any = values[index]
+                if value and (value.kind == "call" or value.kind == "safeCall") and target.kind == "name" then
+                    local token = (target as any).token
+                    local entry = token and c.lookupEntry(token.text) or nil
+                    if entry and entry.t and value.expectedResult == nil then
+                        value.expectedResult = entry.t
+                    end
+                end
+            end
+        end
         local inferred = inferList(stat.exprs, #stat.targets)
         for _, target in ipairs(stat.targets) do
             local key = pathKey(target)

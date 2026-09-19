@@ -2211,4 +2211,35 @@ function M.anErasedCastCannotManufactureAConstraint()
     clean(alias .. "local function of(v: Small): Small\n    return v as Small\nend\nprint(of(1))")
 end
 
+-- A written admission is a comparison and a raise, so a noraise region forbids one
+-- and a noalloc region does not mind it. A proved admission is erased and so is
+-- neither. Constrained positions a write reaches are refused rather than erased.
+function M.admissionCarriesExactlyTheEffectsItLeft()
+    local alias = "local type Small = nupp.types.range(integer, 0, 10)\n"
+    local function body(region, value)
+        return alias .. table.concat({
+            "local function of(v: integer): Small",
+            "    local out: Small = nupp.admit(0)",
+            "    " .. region .. " do",
+            "        out = nupp.admit(" .. value .. ")",
+            "    end",
+            "    return out",
+            "end",
+            "print(of(1))",
+        }, "\n")
+    end
+    clean(body("noraise", "7"))
+    assertEq(codes(body("noraise", "v")), "NUPP2711")
+    clean(body("noalloc", "v"))
+
+    -- a field, an element and a constructor are admission positions too
+    local box = alias .. "local record Box\n    n: Small\nend\n"
+    assertEq(codes(box .. "local function put(b: Box, v: integer): nil\n    b.n = v\nend\nprint(put)"), "NUPP2001")
+    assertEq(codes(box .. "local function make(v: integer): Box\n    return new Box(n = v)\nend\nprint(make)"), "NUPP2202")
+    assertEq(
+        codes(alias .. "local function list(v: integer): {Small}\n    return {v}\nend\nprint(list)"),
+        "NUPP2002"
+    )
+end
+
 return M

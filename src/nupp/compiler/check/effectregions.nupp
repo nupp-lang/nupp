@@ -155,6 +155,19 @@ function effectregions.install(c: state.Checker): effectregions.Ops
         if call.scalarIntrinsic then
             return true
         end
+        if call.admitName then
+            -- An admission is what proof left behind. One the checker discharged is
+            -- erased entirely, so it neither allocates nor raises; one that remains is
+            -- a comparison and a raise, which is exactly what a noraise region forbids
+            -- and exactly what a noalloc region does not mind.
+            if not call.admitPredicate then
+                return true
+            end
+            if effect == "allocates" then
+                return true
+            end
+            return false, "raises when the value does not satisfy its constraint", nil
+        end
         if call.constructorEntry and effect == "allocates" then
             return false, "constructs a new value", nil
         end
