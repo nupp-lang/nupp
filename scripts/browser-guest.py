@@ -103,6 +103,18 @@ def build(root, cache, sources):
             run('ar', 'rcs', work / 'libunwind.a', *unwind_objects, env=environment)
             run('make', '-C', trees['luajit'] / 'src', '-j' + jobs, 'HOST_CC=gcc -m32', 'CC=' + str(cc),
                 'BUILDMODE=static', 'TARGET_SYS=Linux', 'TARGET_LIBS=' + str(work / 'libunwind.a'), env=environment)
+            # Compare exceptional FFI callbacks on real i386 execution before
+            # blaming the emulator or claiming runtime parity.
+            oracle = work / 'luajit-glibc-oracle'
+            shutil.copytree(sources['luajit']['sourcePath'], oracle, symlinks=True)
+            run('make', '-C', oracle / 'src', '-j' + jobs, 'CC=gcc -m32', 'BUILDMODE=static', env=environment)
+            probes = {}
+            for name, command in [('musl', [musl / 'lib/libc.so', trees['luajit'] / 'src/luajit']),
+                                  ('glibc', [oracle / 'src/luajit'])]:
+                result = subprocess.run([str(part) for part in [*command, root / 'runtime/luajit/unwind-probe.lua']],
+                                        env=environment, capture_output=True, text=True, timeout=30)
+                probes[name] = {'returncode': result.returncode, 'stdout': result.stdout, 'stderr': result.stderr}
+                print('i386 callback unwind probe: ' + name + ': ' + json.dumps(probes[name]), file=__import__('sys').stderr)
             guest = work / 'guest'
             for directory in ('dev', 'proc', 'sys', 'tmp', 'host', 'nupp', 'lib'):
                 (guest / directory).mkdir(parents=True, exist_ok=True)
@@ -127,6 +139,7 @@ def build(root, cache, sources):
             (guest / 'lib/libc.so').symlink_to('ld-musl-i386.so.1')
             packaged = work / 'package'
             (packaged / 'assets').mkdir(parents=True)
+            (packaged / 'native-unwind-probes.json').write_text(json.dumps(probes, indent=2) + '\n')
             entries = []
             for path in sorted(guest.rglob('*')):
                 name = str(path.relative_to(guest))

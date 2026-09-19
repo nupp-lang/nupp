@@ -1,0 +1,10 @@
+local ffi = require("ffi")
+ffi.cdef[[void qsort(void *, size_t, size_t, int (*)(const void *, const void *));]]
+local values = ffi.new("int[4]", {4, 3, 2, 1})
+local callback = ffi.cast("int (*)(const void *, const void *)", function()
+    error("callback unwind probe")
+end)
+local ok, failure = pcall(ffi.C.qsort, values, 4, ffi.sizeof("int"), callback)
+callback:free()
+assert(not ok and tostring(failure):find("callback unwind probe", 1, true))
+print("callback unwind probe passed")
