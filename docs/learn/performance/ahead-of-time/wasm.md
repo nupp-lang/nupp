@@ -39,7 +39,8 @@ app = {
 ```
 
 Set `NUPP_BROWSER_NATIVE_CC` to an **i386/musl cross compiler** when packaging
-with `scripts/browser-app`. A direct `nupp build` uses `NUPP_NATIVE_CC`. The
+with `scripts/browser-app`. A direct `nupp build` uses `NUPP_AOT_CC`, which leaves the host compiler
+selected by `NUPP_CC` unchanged. The
 modeled GNU triple describes the C layout; the library must link against the
 guest's musl, not glibc. Preserve unwind tables and C frame pointers in foreign
 code that Lua callbacks can unwind through. `tests/luajit-browser/prepare-native.py`
