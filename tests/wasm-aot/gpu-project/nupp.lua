@@ -1,5 +1,5 @@
 return {
-    include = {"src"},
+    include = {"src", "luajit"},
     build = {
         targets = {
             app = {
@@ -15,7 +15,7 @@ return {
             luajit = {
                 kind = "bundle",
                 entries = {"run"},
-                sources = {"src"},
+                sources = {"luajit"},
                 output = "dist/luajit-app.lua",
                 outDir = "build/luajit-app",
                 dialect = "luajit",
