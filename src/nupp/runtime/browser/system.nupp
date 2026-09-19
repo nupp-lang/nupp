@@ -12,7 +12,8 @@ The public system facade retains this query and these values at module load.
 const response = require("nupp.runtime.browser.response")
 
 export const platform: string = "browser"
-export const architecture: string = "wasm32"
+local vm: any = rawget(_G, "jit")
+export const architecture: string = vm and vm.arch or "wasm32"
 export const endianness: string = "little"
 export const pointerBits: integer = 32
 

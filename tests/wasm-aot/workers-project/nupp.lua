@@ -11,6 +11,16 @@ return {
                 dialect = "lua51",
 
             },
+            luajit = {
+                kind = "bundle",
+                entries = {"main"},
+                sources = {"src"},
+                output = "dist/luajit-app.lua",
+                outDir = "build/luajit-app",
+                dialect = "luajit",
+                host = "browser",
+
+            },
         },
     },
 }

@@ -20,8 +20,9 @@ context state without service lookups.
 ]]
 
 local response = require("nupp.runtime.browser.response")
-local memory = require("nupp.runtime.wasm") as any
+local memory = require("nupp.runtime.browser.memory") as any
 local storage = require("nupp.runtime.storage")
+local array = require("nupp.mem.array")
 local span = require("nupp.mem.span")
 local {type Span, type WriteSpan} = require("nupp.mem.span")
 local shared = require("nupp.gpu.types")
@@ -306,12 +307,15 @@ function gpu.Binding.dispatchWords(borrows self: gpu.Binding, scalars: {uint32})
     if #words * 4 ~= self._kernel._uniformBytes then
         error("nupp: browser GPU uniform block has the wrong size", 2)
     end
-    local allocation = memory.allocate(#words * 4)
-    local pointer = memory.pointer(allocation, 0, 1)
+    local allocation = array.scalar(array.uint32, #words)
+    local writable = allocation:write()
     for index, value in ipairs(words) do
-        memory.store(pointer, (index - 1) * 4, "uint32", value)
+        writable[index] = value
     end
-    local lease = memory.lease(pointer, #words * 4)
+    drop writable
+    local pointer = allocation:read():ref()
+    local leasePointer = memory.lease as function(borrows pointer: const uint32[?], bytes: integer): integer
+    local lease = leasePointer(pointer, #words * 4)
     response.await("gpu", {
         operation = "runtime-dispatch",
         kernel = self._kernel._handle,

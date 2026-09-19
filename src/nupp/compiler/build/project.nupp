@@ -49,6 +49,7 @@ type project.BuildOptions = {
     --- and then to `luajit`.
     dialect: string?,
     compat: string?,
+    host: string?,
 
     --- Holds every file to the strict floor whatever its extension, as `--strict`
     --- does. A file's extension decides otherwise; the manifest has no say.
@@ -237,6 +238,24 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         return 1
     end
     target.dialect = dialect
+    target.host = opts.host or target.host or (dialect == "lua51" and "browser" or "native")
+    if target.host ~= "native" and target.host ~= "browser" then
+        io.stderr:write("nupp: host must be native or browser\n")
+        return 1
+    end
+    if target.host == "browser" and dialect ~= "lua51" then
+        if target.layoutTarget ~= nil and target.layoutTarget ~= "i686-unknown-linux-gnu" then
+            io.stderr:write("nupp: the LuaJIT browser guest requires layoutTarget i686-unknown-linux-gnu\n")
+            return 1
+        end
+        target.layoutTarget = "i686-unknown-linux-gnu"
+    end
+    if target.aot == "require-wasm" and target.host ~= "browser" then
+        io.stderr:write(
+            "nupp: require-wasm needs host = \"browser\" or --host browser; use emit-wasm to export kernels for another host\n"
+        )
+        return 1
+    end
     local compatibility, compatError = require("nupp.compiler.compat").resolve(opts.compat, config.compat, dialect)
     if compatError then
         io.stderr:write("nupp: " .. compatError .. "\n")
@@ -546,7 +565,8 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
                 toolchain = oldState.aotToolchain
             ),
             report,
-            aotScope
+            aotScope,
+            dialect ~= "lua51"
         )
         report:clear()
         if produced == nil then

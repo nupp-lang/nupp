@@ -25,6 +25,7 @@ local rules = {
 
     {"^src/nupp/compiler/aot/", {"compiler", "aot", "browser"}},
     {"^src/nupp/compiler/build/aot%.nupp$", {"compiler", "aot", "browser"}},
+    {"^src/nupp/compiler/browserluajit%.nupp$", {"compiler", "browser"}},
     {"^src/nupp/compiler/browser%.nupp$", {"compiler", "browser"}},
     {"^src/nupp/compiler/capabilities%.nupp$", {"compiler", "browser", "aot"}},
     {"^src/nupp/compiler/preludeimage", {"compiler", "browser"}},
@@ -42,6 +43,7 @@ local rules = {
 
     {"^native/", {"native"}},
     {"^runtime/wasm/", {"browser"}},
+    {"^runtime/luajit/", {"browser"}},
     {"^runtime/", {"native"}},
     {"^host/", {"native"}},
 
@@ -67,6 +69,7 @@ local rules = {
     {"^tests/portable%-storage/", {"tests", "browser"}},
     {"^tests/simd/", {"tests", "aot", "browser"}},
     {"^tests/wasm%-aot/", {"tests", "browser"}},
+    {"^tests/luajit%-browser/", {"tests", "browser"}},
     {"^tests/wasm%-memory/", {"tests", "browser"}},
     {"^tests/acceptance/", {"tests"}},
     {"^tests/", {"tests"}},

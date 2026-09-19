@@ -49,15 +49,96 @@ local function signal(kind, sequence)
 end
 
 local sequence = 0
+local leases = {}
+local nextLease = 0
+local transferLimit = 2 * 1024 * 1024
+local guestMemory = {}
+
+function guestMemory.lease(pointer, count, writable)
+    assert(
+        type(count) == "number" and count >= 0 and count % 1 == 0 and count <= transferLimit,
+        "invalid guest transfer extent"
+    )
+    assert(pointer ~= nil and (count == 0 or ffi.cast("void *", pointer) ~= nil), "null guest transfer pointer")
+    nextLease = nextLease + 1
+    assert(nextLease < 9007199254740991, "guest transfer identifiers exhausted")
+    leases[nextLease] = {pointer = pointer, bytes = count, writable = writable == true}
+
+    return nextLease
+end
+
+function guestMemory.releaseLease(id)
+    leases[id] = nil
+end
+
+local function exportLeases(frame)
+    local exported, seen, offset = {}, {}, 0
+    for _, request in ipairs(frame.requests or {}) do
+        local identifiers = {}
+        for _, field in ipairs({"lease", "bodyLease", "resultLease"}) do
+            if request[field] ~= nil then
+                identifiers[#identifiers + 1] = request[field]
+            end
+        end
+        for _, span in ipairs(request.spans or {}) do
+            identifiers[#identifiers + 1] = span.lease
+        end
+        for _, id in ipairs(identifiers) do
+            if id ~= nil and not seen[id] then
+                local lease = assert(leases[id], "stale guest transfer lease")
+                assert(offset + lease.bytes <= transferLimit, "guest transfer batch exceeds two MiB")
+                ffi.copy(memory + 2 * 1024 * 1024 + offset, lease.pointer, lease.bytes)
+                exported[#exported + 1] = {id = id, offset = offset, bytes = lease.bytes, writable = lease.writable}
+                offset = offset + lease.bytes
+                seen[id] = true
+            end
+        end
+    end
+    exported[0] = #exported
+    frame._leases = exported
+    header[1] = offset
+end
+
+local function importLeases(response)
+    local available = tonumber(header[3])
+    assert(available <= transferLimit, "host transfer exceeds two MiB")
+    local seen = {}
+    for _, returned in ipairs(response._leases or {}) do
+        local lease = assert(leases[returned.id], "host returned a stale transfer lease")
+        assert(not seen[returned.id], "host returned a duplicate transfer lease")
+        seen[returned.id] = true
+        if returned.offset ~= nil then
+            assert(
+                lease.writable
+                and returned.bytes == lease.bytes
+                and returned.offset >= 0
+                and returned.offset % 1 == 0
+                and returned.offset + returned.bytes <= available,
+                "invalid host transfer write"
+            )
+            ffi.copy(lease.pointer, memory + 5 * 1024 * 1024 + returned.offset, lease.bytes)
+        end
+        leases[returned.id] = nil
+    end
+    response._leases = nil
+end
 
 local function exchange(kind, result)
-    write(encode(result))
+    header[1] = 0
+    if kind == "EFFECT" then
+        exportLeases(result)
+    end
+    local codec = kind == "COMPILER" and require("nupp.runtime.provider.lunajson").encode or encode
+    write(codec(result))
     signal(kind, sequence)
     assert(tonumber(io.read("*l")) == sequence, "stale guest response")
     local response = decode(read(4 * 1024 * 1024, 2, 1024 * 1024))
+    if kind == "EFFECT" then
+        importLeases(response)
+    end
     if response.payloadField then
         assert(response.payloadField == "source", "unexpected binary payload field")
-        response.source = read(5 * 1024 * 1024, 3, 2 * 1024 * 1024)
+        response.source = read(5 * 1024 * 1024, 3, transferLimit)
         response.payloadField = nil
     end
     sequence = sequence + 1
@@ -65,8 +146,125 @@ local function exchange(kind, result)
     return response
 end
 
+local scalarTypes = {
+    bool = "bool",
+    f32 = "float",
+    f64 = "double",
+    i32 = "int32_t",
+    u32 = "uint32_t",
+    i64 = "int64_t",
+    u64 = "uint64_t"
+}
+
+local function kernel(unit, symbol, descriptor)
+    local params, results = descriptor.params, descriptor.results
+    local countCount = 1
+    if descriptor.independentCounts then
+        countCount = 0
+        for _, param in ipairs(params) do
+            if param.kind == "read_span" or param.kind == "write_span" then
+                countCount = countCount + 1
+            end
+        end
+    end
+
+    return function(...)
+        local values = {...}
+        local arguments = ffi.new("uint64_t[?]", math.max(1, #params + countCount))
+        local returned = ffi.new("uint64_t[?]", math.max(1, #results))
+        local spans, allocated = {}, {}
+
+        local function lease(pointer, bytes, writable)
+            local id = guestMemory.lease(pointer, bytes, writable)
+            allocated[#allocated + 1] = id
+            return id
+        end
+
+        local countIndex = #params + 1
+        local ok, problem = pcall(function()
+            for index, param in ipairs(params) do
+                if param.kind == "read_span" or param.kind == "write_span" then
+                    local count = values[countIndex]
+                    assert(
+                        type(count) == "number" and count >= 0 and count % 1 == 0 and count <= transferLimit,
+                        "invalid Wasm span count"
+                    )
+                    local layout = param.layout
+                    local ctype = scalarTypes[param.type]
+                    if param.sourceType == "uint8"
+                        or param.sourceType == "int8"
+                        or param.sourceType == "uint16"
+                        or param.sourceType == "int16"
+                    then
+                        ctype = param.sourceType .. "_t"
+                    end
+                    local stride = layout and layout.size or ffi.sizeof(assert(ctype, "unknown Wasm span type"))
+                    local fields = {}
+                    for _, field in ipairs(layout and layout.fields or {}) do
+                        fields[#fields + 1] = {name = field.name, offset = field.offset, bytes = field.size}
+                    end
+                    fields[0] = #fields
+                    spans[
+                        #spans + 1
+                    ] = {
+                        lease = lease(values[index], count * stride, param.kind == "write_span"),
+                        stride = stride,
+                        fields = fields
+                    }
+                    ffi.cast("uint32_t *", arguments + countIndex - 1)[0] = count
+                    if descriptor.independentCounts then
+                        countIndex = countIndex + 1
+                    end
+                else
+                    ffi.cast(
+                        assert(scalarTypes[param.type], "unknown Wasm scalar type") .. " *",
+                        arguments + index - 1
+                    )[0] = values[index]
+                end
+            end
+            spans[0] = #spans
+            local response = exchange("EFFECT", {
+                kind = "effects",
+                requests = {
+                    [0] = 1,
+                    {
+                        id = 1,
+                        kind = "aot",
+                        unit = unit,
+                        symbol = symbol,
+                        lease = lease(arguments, (#params + countCount) * 8, false),
+                        resultLease = lease(returned, #results * 8, true),
+                        spans = spans
+                    }
+                }
+            })
+            local answer = assert(response.responses and response.responses[1], "missing Wasm kernel response")
+            assert(not answer.error, answer.error)
+        end)
+        for _, id in ipairs(allocated) do
+            guestMemory.releaseLease(id)
+        end
+        if not ok then
+            error(problem, 2)
+        end
+        local valuesOut = {}
+        for index, kind in ipairs(results) do
+            local value = ffi.cast(scalarTypes[kind] .. " *", returned + index - 1)[0]
+            if kind == "i64" or kind == "u64" or kind == "bool" then
+                valuesOut[index] = value
+            else
+                valuesOut[index] = tonumber(value)
+            end
+        end
+
+        return unpack(valuesOut, 1, #results)
+    end
+end
+
 _G.__nuppBrowser = {
     config = config,
+    memory = guestMemory,
+    kernel = kernel,
     now = function()
         return clock.nupp_browser_clock(memory + 168)
     end
@@ -75,7 +273,32 @@ signal("MAILBOX")
 assert(io.read("*l") == "mailbox", "host did not acknowledge the mailbox")
 
 local function main()
-    local app = assert(loadfile("/host/app.lua"))
+    local app
+    if config.mode == "application" then
+        local bytes = readFile("/host/app.lua")
+        assert(bytes:sub(1, 8) == "NUAPP001", "invalid application payload")
+        local a, b, c, d = bytes:byte(9, 12)
+        assert(d, "truncated application payload")
+        local length = a + b * 256 + c * 65536 + d * 16777216
+        assert(length <= #bytes - 12, "invalid application initialization extent")
+        if config.workerEntry then
+            rawset(_G, "__nuppWorkerEntry", config.workerEntry)
+            rawset(_G, "__nuppWorkerSetup", config.workerSetup or "")
+        end
+        if length > 0 then
+            assert(loadstring(bytes:sub(13, 12 + length), "@nupp-initialize"))()
+        end
+        local source = bytes:sub(13 + length)
+        if config.managed then
+            app = function()
+                return _G.__nuppPlaygroundRun(source)
+            end
+        else
+            app = assert(loadstring(source, "@nupp-app.lua"))
+        end
+    else
+        app = assert(loadfile("/host/app.lua"))
+    end
     if config.mode == "compiler" then
         local Browser = app()
         local session = Browser.new()
@@ -116,5 +339,6 @@ local function main()
 end
 
 local ok, value = xpcall(main, debug.traceback)
+header[1] = 0
 write(encode(ok and {ok = true, value = value} or {ok = false, error = tostring(value)}))
 signal("DONE", sequence)

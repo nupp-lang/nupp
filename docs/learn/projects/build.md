@@ -104,6 +104,21 @@ or component. They may be module names or `.nupp` paths. Generated Lua
 preserves module paths beneath `outDir`, so `app.main` becomes
 `build/app/main.lua`.
 
+### Browser host and source compatibility
+
+A target's `host = "browser"` selects browser services independently of its
+source dialect. LuaJIT is the default; `nupp build --host browser` overrides the
+manifest for one invocation. Browser LuaJIT uses i686 Linux layouts and native
+guest storage. Browser Wasm kernels have their own memory and transfer ABI.
+See [Wasm applications](../performance/ahead-of-time/wasm.md).
+
+Project-root `compat = "lua51"` or `--compat lua51` checks that ordinary output
+and its reachable dependencies can run on stock Lua 5.1. It rejects unsupported
+syntax and LuaJIT-only facilities rather than translating them. It applies to
+every project target and cannot be relaxed by a file or dependency. The flag
+is independent of strict checking and optimization and cannot be combined with
+a legacy lowering dialect.
+
 ### Dialect selection
 
 Every target resolves one source-lowering dialect. `luajit` is the default.

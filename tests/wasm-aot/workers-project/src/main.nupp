@@ -258,6 +258,7 @@ local function bounded(): nil
 end
 
 local deadlineProblem = raised(bounded)
+text("deadlineProblem", deadlineProblem or "none")
 text(
     "deadlineOutcome",
     deadlineProblem == nil and "completed"

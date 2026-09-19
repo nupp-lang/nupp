@@ -1,6 +1,6 @@
 const output = document.querySelector("#result");
 const started = performance.now();
-const worker = new Worker(new URL("./worker.js", import.meta.url), {
+const worker = new Worker(new URL("./legacy-worker.js", import.meta.url), {
   type: "module",
 });
 let nextId = 1;
@@ -72,7 +72,7 @@ async function run() {
       luajit.diagnostics.some((diagnostic) => diagnostic.code === "NUPP3005")) {
     throw new Error("LuaJIT cross-dialect validation failed");
   }
-  const application = new Worker(new URL("./app-worker.js", import.meta.url), {type: "module"});
+  const application = new Worker(new URL("./legacy-app-worker.js", import.meta.url), {type: "module"});
   const executed = await new Promise((resolve, reject) => {
     const timeout = setTimeout(() => reject(new Error("application Worker timed out")), 10000);
     application.addEventListener("message", (event) => {

@@ -124,17 +124,26 @@ local BROWSER_IMPLEMENTATIONS = {
 }
 
 --- Whether this implementation module belongs to the artifact's runtime.
-function surface.supports(moduleName: string, dialect: string): boolean
-    if BROWSER_IMPLEMENTATIONS[moduleName] or moduleName == "nupp.runtime.provider.wasmstorage" then
+function surface.supports(moduleName: string, dialect: string, host: string?): boolean
+    local selectedHost = host or (dialect == "lua51" and "browser" or "native")
+    if BROWSER_IMPLEMENTATIONS[moduleName] or moduleName == "nupp.runtime.browser.memory" then
+        return selectedHost == "browser"
+    end
+    if moduleName == "nupp.runtime.provider.wasmstorage" then
         return dialect == "lua51"
+    end
+    if moduleName == "nupp.runtime.provider.nativebuffer"
+        or moduleName == "nupp.runtime.provider.nativestorage"
+        or moduleName == "bit"
+    then
+        return dialect ~= "lua51"
     end
     if moduleName:match("^nupp%.runtime%.provider%.native")
         or moduleName == "nupp.runtime.provider.workers"
         or moduleName == "nupp.runtime.provider.suspension"
         or moduleName == "nupp.codec.json.aot"
-        or moduleName == "bit"
     then
-        return dialect ~= "lua51"
+        return dialect ~= "lua51" and selectedHost == "native"
     end
 
     return true
@@ -170,7 +179,11 @@ local function gate(checker: any, moduleName: string): any
 end
 
 local function reach(checker: any, moduleName: string, at: any?): boolean
-    if not surface.supports(moduleName, checker.opts.dialect or "luajit") then
+    if not surface.supports(
+        moduleName,
+        checker.opts.dialect or "luajit",
+        checker.env and checker.env.config and checker.env.config._target and checker.env.config._target.host
+    ) then
         if at ~= nil then
             checker.diag(
                 "NUPP3006",

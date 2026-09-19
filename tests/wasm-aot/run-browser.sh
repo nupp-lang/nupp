@@ -47,7 +47,7 @@ for case_name in plain scalar simd128 http files platform derive cancel runtime-
   NUPP_WASM_CC="$emcc_command" \
   NUPP_BROWSER_RUNTIME="$runtime" \
   NUPP_LUA51_SOURCE="$lua_source" \
-    "$repo/scripts/browser-app" "$project" "$target" "$output" >/dev/null
+    NUPP_BROWSER_BACKEND=lua51 "$repo/scripts/browser-app" "$project" "$target" "$output" >/dev/null
   cp "$script_dir/browser/index.html" "$output/index.html"
   cp "$script_dir/browser/smoke.mjs" "$output/smoke.mjs"
 done

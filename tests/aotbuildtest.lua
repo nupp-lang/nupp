@@ -1217,7 +1217,16 @@ function M.gpuRemarksNameTheAuthoredDeclarationAndArtifact()
 end
 
 function M.gpuCountedLoopUnsupportedBoundsAndStepsHaveJsonPositions()
-    for _, bounds in ipairs({"1, #input", "0.5, 2.5", "1, limit", "1, 2147483648", "-2147483649, 0", "3, 1, -1", "1, 3, 1", "1, 3, 0"}) do
+    for _, bounds in ipairs({
+        "1, #input",
+        "0.5, 2.5",
+        "1, limit",
+        "1, 2147483648",
+        "-2147483649, 0",
+        "3, 1, -1",
+        "1, 3, 1",
+        "1, 3, 0"
+    }) do
         for _, browser in ipairs({false, true}) do
             local dir = gpuProject()
             local manifest = assert(read(dir .. "/nupp.lua"))
@@ -1228,7 +1237,8 @@ function M.gpuCountedLoopUnsupportedBoundsAndStepsHaveJsonPositions()
             file:write(manifest)
             file:close()
             file = assert(io.open(dir .. "/src/gpucheck.nupp", "wb"))
-            file:write([[
+            file:write(
+                [[
 module gpucheck
 local span = require("nupp.mem.span")
 @aot(target = "gpu")
@@ -1236,18 +1246,25 @@ local function kernel(exclusive output: span.WriteSpan<uint32>, borrows input: s
     assert(#output == #input)
     for index = 1, #output do
         local value = input[index] -- π before the diagnostic tests byte offsets
-        for cursor = ]] .. bounds .. [[ do
+        for cursor = ]]
+                .. bounds
+                .. [[ do
             value = nupp.math.u32.add(value, 1)
         end
         output[index] = value
     end
 end
 export const kernel = kernel
-]])
+]]
+            )
             file:close()
-            local pipe = assert(io.popen((
-                "cd %q && NUPP_CACHE_DIR=%q '%s' build --target native --json 2> .counted-stderr"
-            ):format(dir, cacheFor(dir), NUPP)))
+            local pipe = assert(
+                io.popen(
+                    (
+                        "cd %q && NUPP_CACHE_DIR=%q '%s' build --target native --json 2> .counted-stderr"
+                    ):format(dir, cacheFor(dir), NUPP)
+                )
+            )
             local output = pipe:read("*a")
             pipe:close()
             local report = require("testjson").decode(output)
@@ -1256,8 +1273,10 @@ export const kernel = kernel
             local found = false
             for _, diagnostic in ipairs(report.diagnostics or {}) do
                 local message = diagnostic.message or ""
-                if message:find("counted loop bounds", 1, true) or message:find("no explicit step", 1, true)
-                    or message:find("outside int32", 1, true) then
+                if message:find("counted loop bounds", 1, true)
+                    or message:find("no explicit step", 1, true)
+                    or message:find("outside int32", 1, true)
+                then
                     test.equal(diagnostic.file, "src/gpucheck.nupp", output)
                     test.equal(diagnostic.range.start.line, 8, output)
                     local token = bounds:find("#input", 1, true) and "#input"
@@ -1267,7 +1286,11 @@ export const kernel = kernel
                         or bounds:find("-2147483649", 1, true) and "-2147483649"
                         or "for"
                     local offset = diagnostic.range.start.offset
-                    test.equal(assert(read(dir .. "/" .. diagnostic.file)):sub(offset, offset + #token - 1), token, output)
+                    test.equal(
+                        assert(read(dir .. "/" .. diagnostic.file)):sub(offset, offset + #token - 1),
+                        token,
+                        output
+                    )
                     found = true
                 end
             end
@@ -2217,11 +2240,10 @@ function M.anUnknownPolicyIsRejected()
     assert(out:find('must be "off", "emit-c", "require", "emit-wasm" or "require-wasm"', 1, true), out)
 end
 
-function M.wasmPoliciesRequireThePortableDialect()
+function M.wasmPoliciesAreIndependentOfTheSourceDialect()
     local dir = project("emit-wasm")
-    local out, code = build(dir)
-    test.equal(code, 1, out)
-    assert(out:find('aot = "emit-wasm" requires dialect = "lua51"', 1, true), out)
+    local config, problem = require("nupp.compiler.build.manifest").load(dir)
+    test.assert(config ~= nil, tostring(problem))
 end
 
 function M.wasmPoliciesFixTheirTargetAndFeatureVocabulary()
@@ -4780,7 +4802,9 @@ function M.twoAotFunctionsOverOneStructBuild()
 end
 
 function M.countedLoopsPreserveBoundAndInductionSemantics()
-    if not hasToolchain() then return end
+    if not hasToolchain() then
+        return
+    end
     local answers = {}
     for _, policy in ipairs({"off", "require"}) do
         local dir = project(policy)
@@ -4789,7 +4813,8 @@ function M.countedLoopsPreserveBoundAndInductionSemantics()
         source:close()
         local out, code = build(dir)
         test.equal(code, 0, "counted loops at " .. dir .. " under " .. policy .. "\n" .. out)
-        local script = searchPathPrelude() .. ([=[
+        local script = searchPathPrelude() .. (
+            [=[
 -- Keep the oracle and aot=off route interpreted: traced FORI can choose
 -- a different integer/float mode for negative zero after warmup.
 jit.off()
@@ -4905,7 +4930,8 @@ for name, fn in pairs(m) do
     if compiled[fn] then assert(nativeCalls[fn], name .. " did not execute its native C entry") end
 end
 print("COUNTED-OK " .. checked)
-]=]):format(tostring(policy == "require"))
+]=]
+        ):format(tostring(policy == "require"))
         local runner = assert(io.open(dir .. "/compare.lua", "wb"))
         runner:write(script)
         runner:close()

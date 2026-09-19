@@ -53,7 +53,7 @@ local provider: contract.Provider = do
     if chosen ~= nil then
         yield chosen
     end
-    if target.dialect ~= "lua51" then
+    if target.host == "native" then
         yield _G.require("nupp.runtime.provider.suspension") as contract.Provider
     end
     yield _G.require("nupp.runtime.browser.suspension") as contract.Provider

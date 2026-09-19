@@ -763,7 +763,7 @@ local function openSession(
     local function stageGpuRuntime(): nil
         stageBundled("nupp.gpu.internal")
         stageBundled("nupp.gpu.layout")
-        if target.dialect ~= "lua51" then
+        if target.dialect ~= "lua51" and target.host ~= "browser" then
             stageBundled("nupp.runtime.native")
         end
         stageBundled("nupp.gpu")
@@ -940,7 +940,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
     -- the compiler carries is staged from that build for a `luajit` target, which is
     -- the same artifact it would compile; for `lua51` it is not, so those modules are
     -- compiled here instead.
-    local portableTarget = target.dialect == "lua51"
+    local portableTarget = target.dialect == "lua51" or target.host == "browser"
     -- A directory of modules must carry its emitted stdlib dependencies too:
     -- moving the directory away from the compiler must not lose its runtime.
     local selfContainedTarget = target.kind == nil
@@ -952,7 +952,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
     local enqueueLinked: function(string): nil
 
     local function compatibleModule(name: string): boolean
-        return moduleTargets.supports(name, target.dialect or "luajit")
+        return moduleTargets.supports(name, target.dialect or "luajit", target.host)
     end
 
     local function runtimeImports(name: string, code: string): any

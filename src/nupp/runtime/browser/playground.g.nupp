@@ -17,6 +17,41 @@ local dataJson = require("nupp.codec.json")
 -- And the PEG runtime, which a materialized matcher requires by name. Its
 -- general backend is LPeg, which the application host links in.
 local pegRuntime = require("nupp.compiler.runtime.peg")
+-- The in-memory compiler resolves these public browser facades. Carry their
+-- checked implementations so imports in user programs reach the same services.
+local platformLibraries = {
+    function()
+        return require("nupp.time")
+    end,
+    function()
+        return require("nupp.random")
+    end,
+    function()
+        return require("nupp.mac")
+    end,
+    function()
+        return require("nupp.digest")
+    end,
+    function()
+        return require("nupp.io.storage")
+    end,
+    function()
+        return require("nupp.util")
+    end,
+    function()
+        return require("nupp.io.http")
+    end,
+    function()
+        return require("nupp.gpu")
+    end,
+    function()
+        return require("nupp.tasks")
+    end,
+    function()
+        return require("nupp.workers")
+    end,
+}
+
 local lines: {string} = {}
 local outputBytes = 0
 local OUTPUT_LIMIT = 1048576
@@ -44,6 +79,7 @@ _G.__nuppPlaygroundRun = function(source: string): string
     if pegRuntime == nil then
         error("nupp: PEG runtime did not load", 0)
     end
+    assert(#platformLibraries == 10, "nupp: browser library loaders are missing")
     lines = {}
     outputBytes = 0
     local chunk, problem = loadstring(source, "@playground.nupp")

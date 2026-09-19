@@ -3,3 +3,7 @@ module nupp.runtime.target
 
 --- The compiler fixes this value to the artifact's target dialect.
 export const dialect: string = rawget(_G, "jit") ~= nil and "luajit" or "lua51"
+
+--- The compiler fixes this value independently from the artifact's dialect.
+export const host: string = (rawget(_G, "__nuppWasmHost") ~= nil or rawget(_G, "__nuppBrowser") ~= nil) and "browser"
+    or "native"

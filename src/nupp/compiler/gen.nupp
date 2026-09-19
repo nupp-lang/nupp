@@ -489,6 +489,7 @@ type gen.Checked = {
     readonly declaredModuleName: string?,
     readonly sendableLiterals: {any}?,
     readonly dialect: string?,
+    readonly host: string?,
     readonly compat: string?,
     readonly effects: {[string]: any}?,
     readonly preludeRuntime: string?
@@ -548,7 +549,12 @@ function gen.generate(
     -- This immutable fact describes generated code, including a portable artifact
     -- executed by a LuaJIT host. It is unrelated to provider discovery.
     if result.moduleName == "nupp.runtime.target" then
-        return ("return {dialect=%q}"):format(result.dialect or "luajit"), {}, nil, {}
+        return (
+            "return {dialect=%q,host=%q}"
+        ):format(
+            result.dialect or "luajit",
+            result.host or (result.dialect == "lua51" and "browser" or "native")
+        ), {}, nil, {}
     end
     local out = {}
     local capabilityResolution = capabilities.resolve(result.dialect or "luajit")

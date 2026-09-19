@@ -18,6 +18,9 @@ local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 -- exactly this way, and building one means checking the prelude from source.
 local sharedEnv = envMod.new(HERE .. "/..")
 local gpuEnv = envMod.new(HERE .. "/..", {config = {include = {"src"}, _target = {aot = "require"}},})
+local browserGpuEnv = envMod.new(HERE .. "/..", {
+    config = {include = {"src"}, _target = {aot = "require-wasm", host = "browser", dialect = "luajit"}},
+})
 
 local M = {}
 
@@ -46,15 +49,17 @@ local function reports(source, want, label)
 end
 
 local function reportsGpu(source, want, label)
-    local result = parser.parse(source, "test.nupp")
-    if #result.errors > 0 then
-        error("syntax: " .. (result.errors[1].message or result.errors[1].msg), 2)
+    for _, environment in ipairs({gpuEnv, browserGpuEnv}) do
+        local result = parser.parse(source, "test.nupp")
+        if #result.errors > 0 then
+            error("syntax: " .. (result.errors[1].message or result.errors[1].msg), 2)
+        end
+        local out = {}
+        for _, diagnostic in ipairs(check.check(result, "test.nupp", environment)) do
+            out[#out + 1] = diagnostic.code
+        end
+        assertEq(table.concat(out, " "), want, label)
     end
-    local out = {}
-    for _, diagnostic in ipairs(check.check(result, "test.nupp", gpuEnv)) do
-        out[#out + 1] = diagnostic.code
-    end
-    assertEq(table.concat(out, " "), want, label)
 end
 
 function M.anAdmittedBodyReportsNothing()

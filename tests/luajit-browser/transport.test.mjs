@@ -88,3 +88,43 @@ test('snapshot decompression stops at the declared size and rejects corrupt data
   await assert.rejects(inflateSnapshot(packed, 257 * 1024 * 1024), /Invalid/);
   await assert.rejects(inflateSnapshot(new Uint8Array([1, 2]), 2));
 });
+
+test('guest transfer leases check extents, permissions, releases and duplicate identities', async () => {
+  const {createTransfers} = await import('../../runtime/luajit/transfers.mjs');
+  const transfer = createTransfers([{id: 1, offset: 0, bytes: 2, writable: false},
+    {id: 2, offset: 2, bytes: 3, writable: true}], new Uint8Array([1,2,0,0,0]).buffer);
+  assert.deepEqual([...transfer.lease(1, 2).view], [1,2]);
+  assert.throws(() => transfer.lease(1, 2, true), /access/);
+  assert.throws(() => transfer.lease(2, 4, true), /extent/);
+  transfer.lease(2, 3, true).view.set([5,6,7]);
+  assert.throws(() => transfer.response(), /retained/);
+  transfer.release(1); transfer.release(2);
+  assert.throws(() => transfer.lease(1), /stale/);
+  assert.deepEqual(transfer.response(), {leases:[{id:1},{id:2,offset:0,bytes:3}], payload:new Uint8Array([5,6,7])});
+  assert.throws(() => createTransfers([{id:1,offset:0,bytes:0,writable:false},{id:1,offset:0,bytes:0,writable:false}]), /descriptor/);
+  assert.throws(() => createTransfers([{id:1,offset:1,bytes:0,writable:false}]), /descriptor/);
+  assert.throws(() => createTransfers([], new ArrayBuffer(1)), /Unclaimed/);
+});
+test('managed application framing preserves binary initialization and source bytes', async () => {
+  const {applicationPayload} = await import('../../runtime/luajit/app-runtime.mjs');
+  const packed = applicationPayload(new Uint8Array([9,0,8]), new Uint8Array([1,0,2]));
+  assert.equal(new TextDecoder().decode(packed.subarray(0,8)), 'NUAPP001');
+  assert.equal(new DataView(packed.buffer).getUint32(8,true), 3);
+  assert.deepEqual([...packed.subarray(12)], [1,0,2,9,0,8]);
+  assert.throws(() => applicationPayload(new Uint8Array(7*1024*1024)), /exceeds/);
+});
+
+test('compressed assets verify both encodings and enforce decoded extent', async () => {
+  const {gzipSync} = await import('node:zlib');
+  const original = globalThis.fetch;
+  try {
+    const bytes = new TextEncoder().encode('known guest input'), packed = gzipSync(bytes);
+    const manifest = {delivery:{kernel:'kernel.gz'},assets:{
+      kernel:{bytes:bytes.length,sha256:await sha256(bytes)},
+      'kernel.gz':{bytes:packed.length,sha256:await sha256(packed)}}};
+    globalThis.fetch=async url=>{assert.equal(new URL(url).pathname,'/runtime/kernel.gz');return new Response(packed);};
+    assert.deepEqual(await assetsFor(manifest,options.manifestUrl)('kernel'),bytes);
+    manifest.assets.kernel.bytes--;
+    await assert.rejects(assetsFor(manifest,options.manifestUrl)('kernel'),/extent|exceeds/);
+  } finally {globalThis.fetch=original;}
+});

@@ -37,10 +37,10 @@ export const provider: contracts.TimeProvider? = do
     if chosen ~= nil then
         yield chosen
     end
-    if target.dialect ~= "lua51" then
+    if target.host == "native" then
         yield available("nupp.runtime.provider.nativetime")
     end
-    if rawget(_G, "__nuppWasmHost") ~= nil then
+    if target.host == "browser" and (rawget(_G, "__nuppWasmHost") ~= nil or rawget(_G, "__nuppBrowser") ~= nil) then
         yield available("nupp.runtime.browser.time")
     end
     yield nil

@@ -115,7 +115,7 @@ local provider: contracts.Provider = do
     if chosen ~= nil then
         yield chosen
     end
-    if target.dialect ~= "lua51" then
+    if target.host == "native" then
         yield _G.require("nupp.runtime.provider.nativehttp") as contracts.Provider
     end
     yield _G.require("nupp.runtime.browser.http") as contracts.Provider

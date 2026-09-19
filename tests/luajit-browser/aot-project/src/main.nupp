@@ -1,0 +1,122 @@
+local span = require("nupp.mem.span")
+local array = require("nupp.mem.array")
+local struct Sample
+    value: float
+    bias: number
+    weight: float
+end
+
+@aot
+local function scale(
+    exclusive output: span.WriteSpan<Sample>,
+    borrows input: span.Span<Sample>,
+    factor: number,
+    enabled: boolean
+): nil
+    if #output ~= #input then
+        error("length mismatch", 2)
+    end
+    for index = 1, #output do
+        if enabled then
+            output[index].value = input[index].value * factor
+            output[index].bias = input[index].bias + factor
+            output[index].weight = input[index].weight + factor
+        end
+    end
+end
+
+local input = array.new(new Sample(), 3)
+local inputRows = input:write()
+inputRows[1] = new Sample(2, 10, 1)
+inputRows[2] = new Sample(3, 20, 4)
+inputRows[3] = new Sample(5, 30, 7)
+drop inputRows
+
+local output = array.new(new Sample(), 3)
+do
+    local writable = output:write()
+    scale(writable, input:read(), 2, true)
+    drop writable
+end
+
+local rows = output:read()
+assert(#rows == 3)
+assert(rows[1].value == 4 and rows[1].bias == 12 and rows[1].weight == 3)
+assert(rows[2].value == 6 and rows[2].bias == 22 and rows[2].weight == 6)
+assert(rows[3].value == 10 and rows[3].bias == 32 and rows[3].weight == 9)
+
+@aot
+local function incrementWide(
+    exclusive output: span.WriteSpan<uint64>,
+    borrows input: span.Span<uint64>,
+    delta: uint64
+): nil
+    if #output ~= #input then
+        error("length mismatch", 2)
+    end
+    for index = 1, #output do
+        output[index] = input[index] + delta
+    end
+end
+
+@aot
+local function addWide(left: uint64, right: uint64): uint64
+    return left + right
+end
+
+local wideInput = array.scalar(array.uint64, 2)
+do
+    local writable = wideInput:write()
+    writable[1] = (-1 as int64) as uint64
+    writable[2] = 9007199254740992 as uint64
+    drop writable
+end
+local wideOutput = array.scalar(array.uint64, 2)
+do
+    local writable = wideOutput:write()
+    incrementWide(writable, wideInput:read(), 1 as uint64)
+    drop writable
+end
+local exact = addWide(wideInput:read()[2], 1 as uint64)
+assert(exact == 9007199254740993ULL)
+assert(wideOutput:read()[1] == (0 as uint64))
+assert(wideOutput:read()[2] == 9007199254740993ULL)
+
+@aot
+local function both(left: number, right: boolean): (number, boolean)
+    return left, right
+end
+
+local negativeZero, falseValue = both(-0.0, false)
+assert(1 / negativeZero == -math.huge and falseValue == false)
+local nan, trueValue = both(0 / 0, true)
+assert(nan ~= nan and trueValue == true)
+
+@aot
+local function sumBytes(borrows first: span.Span<uint8>, borrows second: span.Span<uint8>): (number, uint32, uint32)
+    local total = 0.0
+    for i = 1, #first do
+        total = total + first[i]
+    end
+    for i = 1, #second do
+        total = total + second[i]
+    end
+
+    return total, nupp.math.u32.wrap(#first), nupp.math.u32.wrap(#second)
+end
+
+local first = array.scalar(array.uint8, 2)
+local second = array.scalar(array.uint8, 3)
+do
+    local a, b = first:write(), second:write()
+    a[1] = 4
+    a[2] = 5
+    b[1] = 6
+    b[2] = 7
+    b[3] = 8
+    drop a
+    drop b
+end
+local sum, n1, n2 = sumBytes(first:read(), second:read())
+assert(sum == 30 and n1 == 2 and n2 == 3)
+return {ok = true}

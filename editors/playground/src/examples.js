@@ -8,15 +8,8 @@
 // point of a playground is the diagnostic you get for editing it, not the
 // clean check you get for leaving it alone.
 //
-// Nothing here may declare a `struct`, `cdef`, or `cheader`: those need a
-// real C ABI, which is the one thing the browser build's `ffi` stub can't
-// stand in for.
-//
-// Nothing here may use syntax newer than the stage-zero compiler either — that
-// bundle, not build/, is the compiler this page runs, so `./bin/nupp check`
-// will pass a snippet the page cannot parse. Check a new one with
-// `luajit "$(./scripts/toolchain stage0)" check <file>` from the repository
-// root.
+// Examples use the current LuaJIT browser compiler. Guest FFI types are available;
+// browser services use their explicit host adapters.
 import TOUR from "./examples/tour.nupp";
 import NARROWING from "./examples/narrowing.nupp";
 import GENERICS from "./examples/generics.nupp";

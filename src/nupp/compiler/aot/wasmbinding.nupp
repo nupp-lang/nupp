@@ -43,7 +43,7 @@ local function cast(value: string, named: string): string
 end
 
 --- Replaces one source declaration with a call into its pre-registered side module.
-function wasmbinding.replacement(program: scalarIR.Program, unit: string): string
+function wasmbinding.replacement(program: scalarIR.Program, unit: string, independent: boolean?): string
     local prefix = "__nuppWasm_" .. program.symbol
     local entry = program.entryMode == "lua-builder" and "builder" or "kernel"
     local lines: {
@@ -73,47 +73,53 @@ function wasmbinding.replacement(program: scalarIR.Program, unit: string): strin
         .. program.name
         .. " is not registered\")",
     }
-    for _, layout in ipairs(program.layouts or {}) do
-        local variable = prefix .. "Layout" .. layout.name
-        lines[
-            #lines + 1
-        ] = "local "
-            .. variable
-            .. ": any = assert("
-            .. prefix
-            .. "Unit[\"layout:"
-            .. layout.name
-            .. "\"], \"Wasm AOT layout is not registered\")"
-        lines[#lines + 1] = "local " .. variable .. "Expected: any = layoutof(" .. layout.name .. ")"
-        lines[
-            #lines + 1
-        ] = "assert("
-            .. variable
-            .. ".size == "
-            .. variable
-            .. "Expected.size and "
-            .. variable
-            .. ".alignment == "
-            .. variable
-            .. "Expected.alignment, \"Wasm AOT layout mismatch for "
-            .. layout.name
-            .. "\")"
-        for _, field in ipairs(layout.fields) do
+    if independent then
+        lines = {
+            "local " .. prefix .. "Native: any = " .. require("nupp.compiler.aot.wasmbridge").binding(program, unit)
+        }
+    else
+        for _, layout in ipairs(program.layouts or {}) do
+            local variable = prefix .. "Layout" .. layout.name
+            lines[
+                #lines + 1
+            ] = "local "
+                .. variable
+                .. ": any = assert("
+                .. prefix
+                .. "Unit[\"layout:"
+                .. layout.name
+                .. "\"], \"Wasm AOT layout is not registered\")"
+            lines[#lines + 1] = "local " .. variable .. "Expected: any = layoutof(" .. layout.name .. ")"
             lines[
                 #lines + 1
             ] = "assert("
                 .. variable
-                .. "[\""
-                .. field.name
-                .. "\"] == "
+                .. ".size == "
                 .. variable
-                .. "Expected.offsets[\""
-                .. field.name
-                .. "\"], \"Wasm AOT field layout mismatch for "
+                .. "Expected.size and "
+                .. variable
+                .. ".alignment == "
+                .. variable
+                .. "Expected.alignment, \"Wasm AOT layout mismatch for "
                 .. layout.name
-                .. "."
-                .. field.name
                 .. "\")"
+            for _, field in ipairs(layout.fields) do
+                lines[
+                    #lines + 1
+                ] = "assert("
+                    .. variable
+                    .. "[\""
+                    .. field.name
+                    .. "\"] == "
+                    .. variable
+                    .. "Expected.offsets[\""
+                    .. field.name
+                    .. "\"], \"Wasm AOT field layout mismatch for "
+                    .. layout.name
+                    .. "."
+                    .. field.name
+                    .. "\")"
+            end
         end
     end
     local params: {string} = {}
@@ -207,10 +213,10 @@ function wasmbinding.replacement(program: scalarIR.Program, unit: string): strin
 end
 
 --- Replaces a const declaration with checked wrappers for each emitted Wasm body.
-function wasmbinding.familyReplacement(family: any, unit: string): string
+function wasmbinding.familyReplacement(family: any, unit: string, independent: boolean?): string
     local lines: {string} = {}
     for _, program in ipairs(family.programs) do
-        lines[#lines + 1] = wasmbinding.replacement(program, unit)
+        lines[#lines + 1] = wasmbinding.replacement(program, unit, independent)
     end
     lines[#lines + 1] = binding.familyDispatch(family)
 

@@ -1,0 +1,24 @@
+module nupp.compiler.browserluajit
+
+local Browser = require("nupp.compiler.browser")
+local cheader = require("nupp.compiler.cheader")
+
+local function unavailable(): (nil, string)
+    return nil, "the browser compiler cannot read C headers or invoke a preprocessor; declare C types inline"
+end
+
+export function new(): any
+    return Browser.new({
+        dialect = "luajit",
+        layoutTarget = "i686-unknown-linux-gnu",
+        compilerServices = {
+            cheader = {
+                declare = cheader.declare,
+                typeFromString = cheader.typeFromString,
+                declaredFunctions = cheader.declaredFunctions,
+                provenance = unavailable,
+                load = unavailable,
+            }
+        },
+    })
+end

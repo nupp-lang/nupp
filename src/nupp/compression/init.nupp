@@ -737,12 +737,12 @@ local selected: provider.Provider = do
     if chosen ~= nil then
         yield chosen
     end
-    assert(target.dialect ~= "lua51", "nupp.compression: no implementation is available")
+    assert(target.host == "native", "nupp.compression: no implementation is available")
     yield _G.require("nupp.runtime.provider.nativecompression") as provider.Provider
 end
 validate(selected)
 local standard: provider.Provider? = nil
-if target.dialect ~= "lua51" then
+if target.host == "native" then
     standard = _G.require("nupp.runtime.provider.nativecompression") as provider.Provider
 end
 local available: {[string]: Format} = {}

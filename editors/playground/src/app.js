@@ -1,3 +1,4 @@
+import {DEFAULT_OPTIONS, restoreOptions, storedOptions, saveOptions} from "./options.js";
 import { EditorView, basicSetup } from "codemirror";
 import { hoverTooltip } from "@codemirror/view";
 import { EditorState } from "@codemirror/state";
@@ -50,7 +51,7 @@ const shareButton = el("share-button");
 // switch is right there for anyone who wants the gradual one. Kept as one
 // object because it travels as one: into every worker request, into a shared
 // link, out of a fragment.
-const OPTION_DEFAULTS = { strict: true, optimize: true, dialect: "lua51" };
+const OPTION_DEFAULTS = DEFAULT_OPTIONS;
 
 const OPTION_FIELDS = [
   {
@@ -131,17 +132,27 @@ function startWorker() {
     resolveWorkerReady = resolve;
     rejectWorkerReady = reject;
   });
-  worker = new Worker(new URL("./worker.js", import.meta.url), { type: "module" });
-  worker.onmessage = onWorkerMessage;
+  worker = new Worker(new URL(options.dialect === "lua51" ? "./legacy-worker.js" : "./worker.js", import.meta.url), { type: "module" });
+  const instance = worker;
+  worker.onmessage = event => { if (worker === instance) onWorkerMessage(event); };
   worker.onerror = (event) => {
+    if (worker !== instance) return;
     const message = event.message || "the compiler worker failed to start";
     setBusy(false);
     setStatus("failed to start: " + message, true);
-    rejectWorkerReady?.(new Error(message));
-    resolveWorkerReady = null;
-    rejectWorkerReady = null;
+    if (worker === instance) closeCompiler(message);
   };
   return workerReady;
+}
+
+function closeCompiler(reason = "Compiler stopped") {
+  const error = new Error(reason);
+  rejectWorkerReady?.(error);
+  resolveWorkerReady = rejectWorkerReady = null;
+  worker?.terminate();
+  for (const resolve of pending.values()) resolve({ok: false, cancelled: true, error: reason});
+  pending.clear();
+  worker = null; workerReady = null;
 }
 
 async function request(kind, extra) {
@@ -220,12 +231,7 @@ function fragmentParams() {
 
 const params = fragmentParams();
 const inlined = typeof params.source === "string" ? params.source : null;
-for (const field of OPTION_FIELDS) {
-  if (params[field.key] !== undefined) options[field.key] = params[field.key] === "1";
-}
-if (params.dialect === "lua51" || params.dialect === "luajit") {
-  options.dialect = params.dialect;
-}
+Object.assign(options, restoreOptions(params, storedOptions()));
 
 // Everything needed to reopen this buffer elsewhere. `location.hash = ...` is
 // not used to publish it — the page never rewrites its own address, so a reader
@@ -240,6 +246,7 @@ function fragmentFor(source) {
   if (options.dialect !== OPTION_DEFAULTS.dialect) {
     parts.push(`dialect=${options.dialect}`);
   }
+  if (options.compat) parts.push(`compat=${options.compat}`);
   return "#" + parts.join("&");
 }
 
@@ -612,19 +619,21 @@ async function checkNow() {
 }
 
 let compilePending = false;
+let cancelRun = null;
+const runMarkup = compileButton?.innerHTML || "Run";
 function runGenerated(code) {
   return new Promise((resolve, reject) => {
-    const application = new Worker(new URL("./app-worker.js", import.meta.url), {type: "module"});
+    const application = new Worker(new URL(options.dialect === "lua51" ? "./legacy-app-worker.js" : "./app-worker.js", import.meta.url), {type: "module"});
     let settled = false;
     const timeout = setTimeout(() => {
-      application.terminate();
-      reject(new Error("the program exceeded the playground's 10 second hard deadline"));
+      finish(() => reject(new Error("the program exceeded the playground's 10 second hard deadline")));
     }, 10000);
     const finish = (body) => {
       if (settled) return;
       settled = true;
       clearTimeout(timeout);
       application.terminate();
+      cancelRun = null;
       body();
     };
     application.addEventListener("message", (event) => finish(() => {
@@ -634,14 +643,21 @@ function runGenerated(code) {
     application.addEventListener("error", (event) => finish(() => {
       reject(event.error || new Error(event.message || "the application Worker failed"));
     }), {once: true});
+    cancelRun = () => finish(() => reject(new Error("Program stopped")));
     application.postMessage({type: "run", code});
   });
 }
 
 async function compileNow() {
-  if (compilePending) return;
+  if (compilePending) {
+    if (cancelRun) cancelRun(); else closeCompiler();
+    return;
+  }
   compilePending = true;
-  if (compileButton) compileButton.disabled = true;
+  clearTimeout(checkTimer);
+  ++checkGeneration;
+  if (compileButton) { compileButton.textContent = "Stop"; compileButton.setAttribute("aria-label", "Stop"); }
+  setStatus("compiling…");
   if (outputEl) outputEl.hidden = false;
   setOutputExpanded(true);
   setOutput("");
@@ -661,8 +677,10 @@ async function compileNow() {
     }
     applyDiagnostics(result.diagnostics);
     const diags = result.diagnostics;
+    const checked = summarize(diags);
+    setStatus(checked.text || "checked, clean", checked.errors > 0);
     if (result.code) {
-      if (options.dialect === "lua51") {
+      {
         try {
           setOutputSummary(diags, "running…");
           const execution = await runGenerated(result.code);
@@ -672,9 +690,6 @@ async function compileNow() {
           setOutput(`-- ${error instanceof Error ? error.message : String(error)}`);
           setOutputSummary([{severity: "error"}], "runtime error");
         }
-      } else {
-        setOutput(result.code, true);
-        setOutputSummary(diags, "compiled LuaJIT output");
       }
     } else {
       // The reason is the compiler's own ("syntax errors", "type errors", "code
@@ -685,7 +700,7 @@ async function compileNow() {
   } finally {
     setBusy(false);
     compilePending = false;
-    if (compileButton) compileButton.disabled = false;
+    if (compileButton) { compileButton.disabled = false; compileButton.innerHTML = runMarkup; compileButton.setAttribute("aria-label", "Run"); }
   }
 }
 
@@ -731,6 +746,11 @@ if (dialectSelect) {
   dialectSelect.value = options.dialect;
   dialectSelect.addEventListener("change", () => {
     options.dialect = dialectSelect.value;
+    if (options.dialect === "lua51") delete options.compat;
+    saveOptions(options);
+    cancelRun?.();
+    closeCompiler("Runtime changed");
+    renderOptionsPanel();
     setOutput("");
     checkNow();
   });
@@ -741,6 +761,19 @@ if (dialectSelect) {
 function renderOptionsPanel() {
   if (!optionsPanel) return;
   optionsPanel.replaceChildren();
+  const compatibility = document.createElement("label");
+  compatibility.className = "options-row";
+  const subset = document.createElement("input");
+  subset.type = "checkbox";
+  subset.checked = options.compat === "lua51";
+  subset.disabled = options.dialect === "lua51";
+  subset.addEventListener("change", () => {
+    if (subset.checked) options.compat = "lua51"; else delete options.compat;
+    saveOptions(options);
+    checkNow();
+  });
+  compatibility.append(subset, document.createTextNode("Require stock Lua 5.1 compatibility"));
+  optionsPanel.appendChild(compatibility);
   for (const field of OPTION_FIELDS) {
     const row = document.createElement("label");
     row.className = "options-row";
@@ -749,6 +782,7 @@ function renderOptionsPanel() {
     box.checked = options[field.key];
     box.addEventListener("change", () => {
       options[field.key] = box.checked;
+      saveOptions(options);
       // Strict changes what the checker reports, so the buffer on screen is
       // answering the old question until it runs again. Optimize only shows up
       // in generated Lua, which the next Compile produces anyway.
@@ -845,3 +879,5 @@ if (isEmbed) {
 } else {
   activateCompiler();
 }
+
+addEventListener("pagehide", () => { cancelRun?.(); closeCompiler("Page closed"); });
