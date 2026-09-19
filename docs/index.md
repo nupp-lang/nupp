@@ -26,7 +26,7 @@ flow.
 ```
 
 <p style="text-align: right;"><small><em>
-Note: for WASM compatibility, these examples lower to Lua 5.1, not LuaJIT.
+These examples run on LuaJIT in your browser.
 </em></small></p>
 
 ---
@@ -148,16 +148,15 @@ See [ahead-of-time compilation](learn/performance/ahead-of-time/index.md),
 
 ## Portable targets and packaging
 
-A build target can lower for native LuaJIT or the portable Lua 5.1 surface.
+Nupp runs on LuaJIT natively and in the browser. For stock Lua 5.1 exports, a
+project-wide compatibility setting rejects unsupported source and dependencies.
 Projects can produce module trees, bundles, standalone binaries, embedded
-components, Wasm side modules, and browser packages.
+components, independent Wasm kernels, and browser packages.
 
 ```lua [nupp.lua]
-portable = {
-   kind = "modules",
-   entries = {"main"},
-   dialect = "lua51",
-   outDir = "build/lua51",
+return {
+   compat = "lua51",
+   include = {"src"},
 }
 ```
 

@@ -1,0 +1,21 @@
+{
+  "scope": "Actual playground tour; shared 10 Mbps response budget, 25 ms response delay; gzip text delivery; cached run opens a fresh page in the same browser context",
+  "results": [
+    {
+      "mode": "cold",
+      "checkedMs": 6620.5734999999995,
+      "compilerBytes": 5191268,
+      "firstOutputMs": 9904.626375,
+      "assetBodyBytes": 8148942,
+      "errors": []
+    },
+    {
+      "mode": "cached",
+      "checkedMs": 1354.4152080000003,
+      "compilerBytes": 0,
+      "firstOutputMs": 1804.888832999999,
+      "assetBodyBytes": 0,
+      "errors": []
+    }
+  ]
+}

@@ -1,30 +1,7 @@
 # Portable Lua libraries
 
-A library can target LuaJIT's native representations or portable Lua syntax. The
-target determines representations and calling conventions. Runtime service
-providers supply operations for those representations.
-
-```lua
-return {
-   include = {"src"},
-   build = {
-      default = "portable",
-      targets = {
-         native = {entries = {"main"}, dialect = "luajit", outDir = "build/luajit"},
-         portable = {entries = {"main"}, dialect = "lua51", outDir = "build/lua51"},
-      },
-   },
-}
-```
-
-Check and build each supported target:
-
-```bash
-nupp check --target native
-nupp check --target portable
-nupp build --target native
-nupp build --target portable
-```
+Nupp libraries normally use LuaJIT on both native and browser hosts. Stock Lua
+5.1 exports use the checked compatibility profile below.
 
 ## Lua 5.1 source compatibility
 
@@ -74,6 +51,37 @@ identical behavior across every VM or operating system. Platform services still
 need their own supported host. The legacy dialects remain available during the
 browser migration; they keep their existing lowering behavior.
 
+## Legacy lowering targets
+
+The legacy targets remain available during the browser rollback release. Their
+provider substitutions are separate from the source compatibility guarantee.
+
+A library can target LuaJIT's native representations or portable Lua syntax. The
+target determines representations and calling conventions. Runtime service
+providers supply operations for those representations.
+
+```lua
+return {
+   include = {"src"},
+   build = {
+      default = "portable",
+      targets = {
+         native = {entries = {"main"}, dialect = "luajit", outDir = "build/luajit"},
+         portable = {entries = {"main"}, dialect = "lua51", outDir = "build/lua51"},
+      },
+   },
+}
+```
+
+Check and build each supported target:
+
+```bash
+nupp check --target native
+nupp check --target portable
+nupp build --target native
+nupp build --target portable
+```
+
 ## Target representations
 
 `luajit` uses native FFI pointers, layouts, integer values, and supported operators.
@@ -88,7 +96,8 @@ structs, and memory host together. A module requiring physical storage fails to
 load if that representation is unavailable.
 
 Unsupported source operations still fail during checking. Foreign C calls need a
-native target; registering a provider cannot change that requirement.
+LuaJIT target and a compatible library. Browser calls execute against the i386
+guest's libraries; registering a provider cannot change that requirement.
 
 ## LuaJIT modules
 

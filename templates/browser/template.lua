@@ -1,6 +1,5 @@
--- A browser application using the checked platform services and Lua 5.1 Wasm
--- host. Packaging needs the Nupp source distribution because that is where the
--- pinned Emscripten host builder currently lives.
+-- A browser application using LuaJIT and checked browser platform services.
+-- Packaging uses the source distribution and its pinned guest toolchain.
 return {
     description = "A browser application using crypto and timers",
 
