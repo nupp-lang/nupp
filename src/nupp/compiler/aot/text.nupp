@@ -1121,17 +1121,6 @@ function text.explicitExpression(state: text.Explicit, node: any, minimum: integ
         local reading = op == "simd_load" or op == "simd_field_load"
         local field = access.field
         state.usesSpan = true
-        -- The IR admits a read through an exclusive borrow, and a rewritten
-        -- read-modify-write region takes one; `Species:load` does not, so this
-        -- is a region the surface has no way to write.
-        local root = access.span ~= nil and state.params[access.span as string] or nil
-        if reading and root ~= nil and (root as scalarIR.Param).kind == "write_span" then
-            unprintable(
-                "a vector read of " .. tostring(
-                    access.span
-                ) .. ", which is exclusive, and Species:load names a borrowed Span"
-            )
-        end
         local arguments: {string} = {tostring(access.span), at(2)}
         if field ~= nil then
             arguments[#arguments + 1] = string.format("%q", field as string)

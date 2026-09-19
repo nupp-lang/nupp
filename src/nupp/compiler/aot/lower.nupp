@@ -2995,11 +2995,11 @@ local function fieldAccess(
     local wantedKind = reading and "read_span" or "write_span"
     local layoutName = span ~= nil and span.type:match("^struct:(.+)$") or nil
     local layout = layoutName ~= nil and kernel.layouts.byName[layoutName as string] or nil
-    if span == nil or span.kind ~= wantedKind or layout == nil then
+    if span == nil or (span.kind ~= wantedKind and not (reading and span.kind == "write_span")) or layout == nil then
         context.reject(
             source,
             "SIMD field " .. method .. " needs a matching " .. (
-                reading and "borrowed Span" or "exclusive WriteSpan"
+                reading and "borrowed Span or WriteSpan" or "exclusive WriteSpan"
             ) .. " of a reified struct"
         )
     end
@@ -3404,12 +3404,14 @@ local function simdMethod(
                     kernel
                 )
             end
-            if span == nil or span.kind ~= wantedKind or genericSimdSpanElement(
-                span as scalarIR.Param
-            ) ~= genericElement then
+            if span == nil or (
+                span.kind ~= wantedKind and not (reading and span.kind == "write_span")
+            ) or genericSimdSpanElement(span as scalarIR.Param) ~= genericElement then
                 kernel.context.reject(
                     source,
-                    "SIMD " .. method .. " needs a matching " .. (reading and "borrowed Span" or "exclusive WriteSpan")
+                    "SIMD " .. method .. " needs a matching " .. (
+                        reading and "borrowed Span or WriteSpan" or "exclusive WriteSpan"
+                    )
                 )
             end
             local offset = lower.expression(raw[2], environment, activeIndex, kernel)

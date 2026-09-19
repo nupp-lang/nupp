@@ -3566,6 +3566,29 @@ local function roundTrip(files, file, symbol, label)
     return printed
 end
 
+function M.aReadModifyWriteRegionPrintsThroughThePublicWriteSpanLoad()
+    local path = HERE .. "/../bench/kernel-subset-spike/uniformcall.nupp"
+    local handle = assert(io.open(path, "rb"))
+    local source = handle:read("*a")
+    handle:close()
+    local printed = roundTrip({["uniformcall.nupp"] = source}, "uniformcall.nupp", "ks_advance", "uniform call")
+    assert(printed:find(':load(positions,', 1, true), printed)
+end
+
+function M.aScalarWriteSpanReadPrintsThroughThePublicLoad()
+    roundTrip({["update.nupp"] = [[
+local span = require("nupp.mem.span")
+@aot
+local function update(exclusive values: span.WriteSpan<number>): nil
+    @simd
+    for i = 1, #values do
+        values[i] = values[i] + 1.0
+    end
+end
+return {update = update}
+]]}, "update.nupp", "ks_update", "scalar write span")
+end
+
 function M.theMandelbrotRewritePrintsAsNuppThatLowersToTheSameVectorC()
     -- The kernel the vectorizer is measured on: two binary32 fields gathered
     -- from an array of structs, a per-lane escape loop with a break in it, and

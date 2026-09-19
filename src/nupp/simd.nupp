@@ -1419,7 +1419,8 @@ sealed interface simd.Species<T, S>
 
     --- The next lanes of a span from `offset`, or with a field name, that
     --- field of the next lanes of a span of structs, strided by the struct.
-    --- `active` limits both to the lanes it names.
+    --- `active` limits both to the lanes it names. A WriteSpan can be borrowed
+    --- for the read; the returned vector retains no borrow of its storage.
     load: function(
         borrows self: simd.Species<T, S>,
         borrows source: Span<T>,
@@ -1429,6 +1430,20 @@ sealed interface simd.Species<T, S>
         & function<E>(
             borrows self: simd.Species<T, S>,
             borrows source: Span<E>,
+            offset: integer,
+            field: string,
+            active: simd.Mask<T, S>?
+        ): simd.Vector<T, S>
+
+        & function(
+            borrows self: simd.Species<T, S>,
+            borrows source: WriteSpan<T>,
+            offset: integer,
+            active: simd.Mask<T, S>?
+        ): simd.Vector<T, S>
+        & function<E>(
+            borrows self: simd.Species<T, S>,
+            borrows source: WriteSpan<E>,
             offset: integer,
             field: string,
             active: simd.Mask<T, S>?
