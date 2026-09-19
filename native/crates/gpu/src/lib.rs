@@ -7,6 +7,7 @@
 
 #![forbid(unsafe_code)]
 
+use serde_json::{Value, json};
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::error::Error;
@@ -16,6 +17,14 @@ use std::ops::Range;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+pub mod costs;
+macro_rules! cost_record {
+    ($context:expr, $operation:expr, $values:expr) => {
+        if costs::enabled() {
+            costs::record($context, $operation, $values);
+        }
+    };
+}
 
 use nupp_native_abi::{Arena, Handle, Status};
 
@@ -284,6 +293,11 @@ impl<B, K, D> Resources<B, K, D> {
         self.buffers.get_mut(reference.internal).map_err(Into::into)
     }
 
+    fn kernel_mut(&mut self, handle: KernelHandle) -> Result<&mut K, GpuError> {
+        let reference = self.reference(handle, ResourceKind::Kernel)?;
+        self.kernels.get_mut(reference.internal).map_err(Into::into)
+    }
+
     fn kernel(&self, handle: KernelHandle) -> Result<&K, GpuError> {
         let reference = self.reference(handle, ResourceKind::Kernel)?;
         self.kernels.get(reference.internal).map_err(Into::into)
@@ -323,22 +337,34 @@ impl<B, K, D> Resources<B, K, D> {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 struct BufferSlot {
     buffer: BufferHandle,
     offset: u64,
     size: u64,
+    layout: Value,
 }
 
 enum Download {
-    Pending { staging: wgpu::Buffer, offset: u64 },
-    Ready { offset: u64, bytes: Vec<u8> },
+    Pending {
+        staging: wgpu::Buffer,
+        offset: u64,
+        version: u64,
+    },
+    Ready {
+        offset: u64,
+        bytes: Vec<u8>,
+        version: u64,
+    },
 }
 
 struct BufferEntry {
     buffer: wgpu::Buffer,
     size: u64,
     download: Option<Download>,
+    version: u64,
+    completed_download_version: Option<u64>,
+    metadata: Value,
 }
 
 struct KernelEntry {
@@ -350,6 +376,8 @@ struct KernelEntry {
     writable_bindings: u32,
     uniform_size: u64,
     workgroup_size: [u32; 3],
+    metadata: Value,
+    dispatches: u64,
 }
 
 struct BindingEntry {
@@ -384,7 +412,17 @@ impl DeviceErrorQueue {
     }
 }
 
+struct PendingTimestamp {
+    staging: wgpu::Buffer,
+    operation: u64,
+    kernel: KernelHandle,
+}
+
 pub struct GpuContext {
+    cost_id: u64,
+    timestamp_supported: bool,
+    pending_timestamps: Vec<PendingTimestamp>,
+    dispatch_sequence: u64,
     _instance: wgpu::Instance,
     adapter: wgpu::Adapter,
     device: wgpu::Device,
@@ -396,6 +434,8 @@ pub struct GpuContext {
 
 impl GpuContext {
     pub fn new() -> Result<Self, GpuError> {
+        let cost_id = NEXT_PUBLIC_HANDLE.fetch_add(1, Ordering::Relaxed);
+        let setup_start = costs::clock();
         let instance =
             wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
@@ -405,9 +445,17 @@ impl GpuContext {
             apply_limit_buckets: false,
         }))
         .map_err(|error| GpuError::AdapterUnavailable(error.to_string()))?;
+        let adapter_time = costs::elapsed(setup_start);
+        let timestamp_supported =
+            costs::enabled() && adapter.features().contains(wgpu::Features::TIMESTAMP_QUERY);
+        let device_start = costs::clock();
         let descriptor = wgpu::DeviceDescriptor {
             label: Some("Nupp native compute device"),
-            required_features: wgpu::Features::empty(),
+            required_features: if timestamp_supported {
+                wgpu::Features::TIMESTAMP_QUERY
+            } else {
+                wgpu::Features::empty()
+            },
             required_limits: adapter.limits(),
             experimental_features: wgpu::ExperimentalFeatures::disabled(),
             memory_hints: wgpu::MemoryHints::MemoryUsage,
@@ -424,7 +472,18 @@ impl GpuContext {
         device.set_device_lost_callback(move |reason, message| {
             lost.record(format!("device lost ({reason:?}): {message}"));
         });
+        let info = adapter.get_info();
+        cost_record!(
+            cost_id,
+            "adapterDevice",
+            json!({"phase": "setup", "adapter": info.name, "backend": info.backend.to_str(), "adapterMs": adapter_time, "deviceMs": costs::elapsed(device_start), "gpuTiming": if timestamp_supported { "timestamp-query" } else { "unavailable" }})
+        );
+        costs::check()?;
         Ok(Self {
+            cost_id,
+            timestamp_supported,
+            pending_timestamps: Vec::new(),
+            dispatch_sequence: 0,
             _instance: instance,
             adapter,
             device,
@@ -433,6 +492,10 @@ impl GpuContext {
             pending_downloads: Vec::new(),
             device_errors,
         })
+    }
+
+    pub fn cost_id(&self) -> u64 {
+        self.cost_id
     }
 
     pub fn adapter(&self) -> AdapterDescription {
@@ -464,6 +527,7 @@ impl GpuContext {
                 self.device.limits().max_buffer_size
             )));
         }
+        let start = costs::clock();
         let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Nupp resident compute buffer"),
             size,
@@ -472,11 +536,20 @@ impl GpuContext {
                 | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        self.resources.insert_buffer(BufferEntry {
+        let handle = self.resources.insert_buffer(BufferEntry {
             buffer,
             size,
             download: None,
-        })
+            version: 0,
+            completed_download_version: None,
+            metadata: Value::Null,
+        })?;
+        cost_record!(
+            self.cost_id,
+            "bufferAllocate",
+            json!({"buffer": handle, "version": 0, "bytes": size, "reused": false, "hostMs": costs::elapsed(start)})
+        );
+        Ok(handle)
     }
 
     pub fn release_buffer(&mut self, handle: BufferHandle) -> Result<(), GpuError> {
@@ -486,18 +559,36 @@ impl GpuContext {
         ) {
             return Err(GpuError::DownloadPending(handle));
         }
+        let start = costs::clock();
         self.resources.remove_buffer(handle)?;
+        cost_record!(
+            self.cost_id,
+            "bufferRelease",
+            json!({"buffer": handle, "hostMs": costs::elapsed(start)})
+        );
         Ok(())
     }
 
-    pub fn upload(&self, handle: BufferHandle, offset: u64, bytes: &[u8]) -> Result<(), GpuError> {
-        let entry = self.resources.buffer(handle)?;
+    pub fn upload(
+        &mut self,
+        handle: BufferHandle,
+        offset: u64,
+        bytes: &[u8],
+    ) -> Result<(), GpuError> {
+        let start = costs::clock();
+        let entry = self.resources.buffer_mut(handle)?;
         checked_range("upload", offset, bytes.len() as u64, entry.size)?;
         require_copy_alignment("upload offset", offset)?;
         require_copy_alignment("upload size", bytes.len() as u64)?;
         if !bytes.is_empty() {
             self.queue.write_buffer(&entry.buffer, offset, bytes);
+            entry.version += 1;
         }
+        cost_record!(
+            self.cost_id,
+            "upload",
+            json!({"buffer": handle, "version": entry.version, "offset": offset, "bytes": bytes.len(), "layout": entry.metadata, "hostMs": costs::elapsed(start), "gpuMs": null, "gpuTiming": "unavailable", "hostCopies": 1})
+        );
         Ok(())
     }
 
@@ -505,6 +596,7 @@ impl GpuContext {
         &mut self,
         descriptor: &KernelDescriptor<'_>,
     ) -> Result<KernelHandle, GpuError> {
+        let start = costs::clock();
         validate_kernel_descriptor(descriptor, &self.device.limits())?;
         let words = spirv_words(descriptor.spirv)?;
         let scope = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
@@ -555,7 +647,7 @@ impl GpuContext {
                 cache: None,
             });
         self.finish_validation_scope(scope)?;
-        self.resources.insert_kernel(KernelEntry {
+        let handle = self.resources.insert_kernel(KernelEntry {
             pipeline,
             readonly_layout,
             writable_layout,
@@ -564,7 +656,47 @@ impl GpuContext {
             writable_bindings: descriptor.writable_bindings,
             uniform_size: descriptor.uniform_size,
             workgroup_size: descriptor.workgroup_size,
-        })
+            metadata: Value::Null,
+            dispatches: 0,
+        })?;
+        cost_record!(
+            self.cost_id,
+            "pipelineCreate",
+            json!({"kernel": handle, "phase": "setup", "bytes": descriptor.spirv.len(), "entrypoint": descriptor.entry_point, "workgroup": descriptor.workgroup_size, "reused": false, "hostMs": costs::elapsed(start)})
+        );
+        Ok(handle)
+    }
+
+    pub fn metadata(&mut self, handle: u64, kernel: bool, bytes: &[u8]) -> Result<(), GpuError> {
+        let value: Value = serde_json::from_slice(bytes)
+            .map_err(|error| GpuError::InvalidArgument(format!("GPU cost metadata: {error}")))?;
+        if !value.is_object() {
+            return Err(GpuError::InvalidArgument(
+                "GPU cost metadata must be an object".into(),
+            ));
+        }
+        if kernel {
+            self.resources.kernel_mut(handle)?.metadata = value.clone();
+        } else {
+            let metadata = &mut self.resources.buffer_mut(handle)?.metadata;
+            if !metadata.is_object() {
+                *metadata = json!({});
+            }
+            metadata
+                .as_object_mut()
+                .expect("metadata object")
+                .extend(value.as_object().expect("validated object").clone());
+        }
+        cost_record!(
+            self.cost_id,
+            if kernel {
+                "kernelIdentity"
+            } else {
+                "bufferIdentity"
+            },
+            json!({"handle": handle, "metadata": value})
+        );
+        Ok(())
     }
 
     fn storage_layout(&self, count: u32, read_only: bool) -> Option<wgpu::BindGroupLayout> {
@@ -597,11 +729,18 @@ impl GpuContext {
     }
 
     pub fn release_kernel(&mut self, handle: KernelHandle) -> Result<(), GpuError> {
+        let start = costs::clock();
         self.resources.remove_kernel(handle)?;
+        cost_record!(
+            self.cost_id,
+            "kernelRelease",
+            json!({"kernel": handle, "hostMs": costs::elapsed(start)})
+        );
         Ok(())
     }
 
     pub fn create_bindings(&mut self, kernel: KernelHandle) -> Result<BindingHandle, GpuError> {
+        let start = costs::clock();
         let kernel_entry = self.resources.kernel(kernel)?;
         let uniform = if kernel_entry.uniform_size == 0 {
             None
@@ -622,11 +761,24 @@ impl GpuContext {
             writable_group: None,
             uniform_group: None,
         };
-        self.resources.insert_binding(binding)
+        let uniform_bytes = kernel_entry.uniform_size;
+        let handle = self.resources.insert_binding(binding)?;
+        cost_record!(
+            self.cost_id,
+            "bindingCreate",
+            json!({"binding": handle, "kernel": kernel, "uniformBytes": uniform_bytes, "reused": false, "hostMs": costs::elapsed(start)})
+        );
+        Ok(handle)
     }
 
     pub fn release_bindings(&mut self, handle: BindingHandle) -> Result<(), GpuError> {
+        let start = costs::clock();
         self.resources.remove_binding(handle)?;
+        cost_record!(
+            self.cost_id,
+            "bindingRelease",
+            json!({"binding": handle, "hostMs": costs::elapsed(start)})
+        );
         Ok(())
     }
 
@@ -681,6 +833,7 @@ impl GpuContext {
                 self.device.limits().max_storage_buffer_binding_size
             )));
         }
+        let layout = self.resources.buffer(buffer)?.metadata.clone();
         let entry = self.resources.binding_mut(bindings)?;
         let slots = if writable {
             &mut entry.writable
@@ -693,16 +846,23 @@ impl GpuContext {
                 if writable { "writable" } else { "read-only" }
             ))
         })?;
+        let kernel_handle = entry.kernel;
         *target = Some(BufferSlot {
             buffer,
             offset,
             size,
+            layout,
         });
         if writable {
             entry.writable_group = None;
         } else {
             entry.readonly_group = None;
         }
+        cost_record!(
+            self.cost_id,
+            "bindBuffer",
+            json!({"binding": bindings, "kernel": kernel_handle, "buffer": buffer, "writable": writable, "slot": slot, "offset": offset, "bytes": size})
+        );
         Ok(())
     }
 
@@ -712,6 +872,7 @@ impl GpuContext {
         work_items: [u32; 3],
         uniforms: &[u8],
     ) -> Result<(), GpuError> {
+        let start = costs::clock();
         let (kernel_handle, need_readonly, need_writable, need_uniform) = {
             let binding = self.resources.binding(bindings)?;
             (
@@ -794,10 +955,23 @@ impl GpuContext {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("Nupp compute dispatch"),
             });
+        let query = self.timestamp_supported.then(|| {
+            self.device.create_query_set(&wgpu::QuerySetDescriptor {
+                label: Some("Nupp cost timestamps"),
+                ty: wgpu::QueryType::Timestamp,
+                count: 2,
+            })
+        });
         {
             let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
                 label: Some("Nupp compute pass"),
-                timestamp_writes: None,
+                timestamp_writes: query.as_ref().map(|query_set| {
+                    wgpu::ComputePassTimestampWrites {
+                        query_set,
+                        beginning_of_pass_write_index: Some(0),
+                        end_of_pass_write_index: Some(1),
+                    }
+                }),
             });
             pass.set_pipeline(&pipeline);
             if let Some(group) = binding.readonly_group.as_ref() {
@@ -811,7 +985,82 @@ impl GpuContext {
             }
             pass.dispatch_workgroups(groups[0], groups[1], groups[2]);
         }
+        self.dispatch_sequence += 1;
+        let operation = self.dispatch_sequence;
+        if let Some(query) = query {
+            let resolve = self.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("Nupp timestamp resolve"),
+                size: 256,
+                usage: wgpu::BufferUsages::QUERY_RESOLVE | wgpu::BufferUsages::COPY_SRC,
+                mapped_at_creation: false,
+            });
+            let staging = self.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("Nupp timestamp readback"),
+                size: 16,
+                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                mapped_at_creation: false,
+            });
+            encoder.resolve_query_set(&query, 0..2, &resolve, 0);
+            encoder.copy_buffer_to_buffer(&resolve, 0, &staging, 0, 16);
+            self.pending_timestamps.push(PendingTimestamp {
+                staging,
+                operation,
+                kernel: kernel_handle,
+            });
+        }
         self.queue.submit([encoder.finish()]);
+        let binding = self.resources.binding(bindings)?;
+        let reads = binding.readonly.clone();
+        let writes = binding.writable.clone();
+        let read_versions = if costs::enabled() {
+            reads.iter().enumerate().filter_map(|(slot, binding)| binding.as_ref().map(|binding| {
+            let buffer = self.resources.buffer(binding.buffer).expect("validated binding");
+            json!({"slot": slot, "buffer": binding.buffer, "version": buffer.version, "offset": binding.offset,
+                "bytes": binding.size, "layout": binding.layout})
+        })).collect::<Vec<_>>()
+        } else {
+            Vec::new()
+        };
+        // One logical version per dispatch even when disjoint writable slots alias.
+        let mut changed = std::collections::HashSet::new();
+        for slot in writes.iter().flatten() {
+            if changed.insert(slot.buffer) {
+                self.resources.buffer_mut(slot.buffer)?.version += 1;
+            }
+        }
+        let kernel = self.resources.kernel_mut(kernel_handle)?;
+        kernel.dispatches += 1;
+        let phase = if kernel.dispatches == 1 {
+            "first-use"
+        } else {
+            "steady-state"
+        };
+        let metadata = kernel.metadata.clone();
+        if costs::enabled() {
+            let describe = |slots: &[Option<BufferSlot>]| -> Vec<Value> {
+                slots
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(slot, binding)| {
+                        binding.as_ref().map(|binding| {
+                    let buffer = self.resources.buffer(binding.buffer).expect("validated binding");
+                    json!({"slot": slot, "buffer": binding.buffer, "version": buffer.version,
+                        "offset": binding.offset, "bytes": binding.size, "layout": binding.layout})
+                })
+                    })
+                    .collect()
+            };
+            costs::record(
+                self.cost_id,
+                "dispatch",
+                json!({"dispatch": operation, "kernel": kernel_handle,
+                "binding": bindings, "metadata": metadata, "phase": phase, "workItems": work_items,
+                "workgroup": workgroup_size, "uniformBytes": uniforms.len(), "read": read_versions, "write": describe(&writes),
+                "bindingsReused": !need_readonly && !need_writable && !need_uniform,
+                "hostMs": costs::elapsed(start), "gpuMs": null,
+                "gpuTiming": if self.timestamp_supported { "pending" } else { "unavailable" }}),
+            );
+        }
         Ok(())
     }
 
@@ -824,11 +1073,11 @@ impl GpuContext {
         let Some(layout) = layout else {
             return Ok(None);
         };
-        let assigned: Vec<BufferSlot> = slots
+        let assigned: Vec<&BufferSlot> = slots
             .iter()
             .enumerate()
             .map(|(slot, value)| {
-                value.ok_or(GpuError::MissingBinding {
+                value.as_ref().ok_or(GpuError::MissingBinding {
                     writable,
                     slot: slot as u32,
                 })
@@ -870,7 +1119,7 @@ impl GpuContext {
         writable: bool,
     ) -> Result<(), GpuError> {
         for (slot, value) in slots.iter().enumerate() {
-            let value = value.ok_or(GpuError::MissingBinding {
+            let value = value.as_ref().ok_or(GpuError::MissingBinding {
                 writable,
                 slot: slot as u32,
             })?;
@@ -913,6 +1162,7 @@ impl GpuContext {
         offset: u64,
         size: u64,
     ) -> Result<(), GpuError> {
+        let start = costs::clock();
         let entry = self.resources.buffer(handle)?;
         checked_range("download", offset, size, entry.size)?;
         if size == 0 {
@@ -938,31 +1188,66 @@ impl GpuContext {
             });
         encoder.copy_buffer_to_buffer(&entry.buffer, offset, &staging, 0, size);
         self.queue.submit([encoder.finish()]);
-        self.resources.buffer_mut(handle)?.download = Some(Download::Pending { staging, offset });
+        cost_record!(
+            self.cost_id,
+            "downloadQueue",
+            json!({"buffer": handle, "version": entry.version,
+            "offset": offset, "bytes": size, "layout": entry.metadata, "stagingReused": false,
+            "stagingBytes": size, "hostMs": costs::elapsed(start), "gpuMs": null, "gpuTiming": "unavailable"})
+        );
+        let version = entry.version;
+        self.resources.buffer_mut(handle)?.download = Some(Download::Pending {
+            staging,
+            offset,
+            version,
+        });
         self.pending_downloads.push(handle);
         Ok(())
     }
 
     pub fn synchronize(&mut self) -> Result<(), GpuError> {
+        let start = costs::clock();
         self.poll_wait()?;
+        cost_record!(
+            self.cost_id,
+            "synchronizeWait",
+            json!({"hostMs": costs::elapsed(start), "pendingDownloads": self.pending_downloads.len(), "pendingTimestamps": self.pending_timestamps.len()})
+        );
         while let Some(handle) = self.pending_downloads.first().copied() {
-            let (staging, offset) = match self.resources.buffer(handle)?.download.as_ref() {
-                Some(Download::Pending { staging, offset }) => (staging.clone(), *offset),
+            let (staging, offset, version) = match self.resources.buffer(handle)?.download.as_ref()
+            {
+                Some(Download::Pending {
+                    staging,
+                    offset,
+                    version,
+                }) => (staging.clone(), *offset, *version),
                 _ => {
                     return Err(GpuError::Internal(
                         "pending download queue disagrees with buffer",
                     ));
                 }
             };
+            let start = costs::clock();
             let outcome = self.map_download(&staging);
+            let entry = self.resources.buffer(handle)?;
+            cost_record!(
+                self.cost_id,
+                "downloadMapCopy",
+                json!({"buffer": handle, "version": version,
+                "offset": offset, "bytes": staging.size(), "layout": entry.metadata,
+                "hostMs": costs::elapsed(start), "hostCopies": 1, "success": outcome.is_ok()})
+            );
             // The download is settled either way. A failed map must not stay
             // pending: its map request is already in flight, so a retry would
             // fail again, and a pending download refuses to release its buffer.
             self.pending_downloads.remove(0);
             match outcome {
                 Ok(bytes) => {
-                    self.resources.buffer_mut(handle)?.download =
-                        Some(Download::Ready { offset, bytes });
+                    self.resources.buffer_mut(handle)?.download = Some(Download::Ready {
+                        offset,
+                        bytes,
+                        version,
+                    });
                 }
                 Err(error) => {
                     if let Ok(entry) = self.resources.buffer_mut(handle) {
@@ -972,6 +1257,22 @@ impl GpuContext {
                 }
             }
         }
+        while let Some(pending) = self.pending_timestamps.pop() {
+            let start = costs::clock();
+            let bytes = self.map_download(&pending.staging)?;
+            let begin = u64::from_le_bytes(bytes[0..8].try_into().expect("timestamp width"));
+            let end = u64::from_le_bytes(bytes[8..16].try_into().expect("timestamp width"));
+            let milliseconds = end.wrapping_sub(begin) as f64
+                * self.queue.get_timestamp_period() as f64
+                / 1_000_000.0;
+            cost_record!(
+                self.cost_id,
+                "kernelExecution",
+                json!({"dispatch": pending.operation, "kernel": pending.kernel,
+                "gpuMs": milliseconds, "gpuTiming": "timestamp-query", "instrumentationHostMs": costs::elapsed(start)})
+            );
+        }
+        costs::check()?;
         let errors = self.take_device_errors();
         if errors.is_empty() {
             Ok(())
@@ -1008,8 +1309,12 @@ impl GpuContext {
         size: u64,
     ) -> Result<Vec<u8>, GpuError> {
         let entry = self.resources.buffer_mut(handle)?;
-        let (ready_offset, bytes) = match entry.download.take() {
-            Some(Download::Ready { offset, bytes }) => (offset, bytes),
+        let (ready_offset, bytes, version) = match entry.download.take() {
+            Some(Download::Ready {
+                offset,
+                bytes,
+                version,
+            }) => (offset, bytes, version),
             other => {
                 entry.download = other;
                 return Err(GpuError::DownloadNotReady(handle));
@@ -1020,6 +1325,7 @@ impl GpuContext {
             entry.download = Some(Download::Ready {
                 offset: ready_offset,
                 bytes,
+                version,
             });
             return Err(GpuError::DownloadMismatch {
                 expected_offset: ready_offset,
@@ -1028,7 +1334,25 @@ impl GpuContext {
                 requested_size: size,
             });
         }
+        entry.completed_download_version = Some(version);
         Ok(bytes)
+    }
+
+    pub fn copied_download(
+        &self,
+        handle: BufferHandle,
+        offset: u64,
+        size: u64,
+        start: Option<std::time::Instant>,
+    ) -> Result<(), GpuError> {
+        let entry = self.resources.buffer(handle)?;
+        cost_record!(
+            self.cost_id,
+            "downloadHostCopy",
+            json!({"buffer": handle, "version": entry.completed_download_version, "offset": offset,
+            "bytes": size, "layout": entry.metadata, "hostCopies": 1, "hostMs": costs::elapsed(start)})
+        );
+        costs::check()
     }
 
     fn finish_validation_scope(&self, scope: wgpu::ErrorScopeGuard) -> Result<(), GpuError> {
@@ -1271,35 +1595,105 @@ mod tests {
     #[test]
     fn adapter_compute_round_trip_when_available() {
         let required = std::env::var_os("NUPP_REQUIRE_GPU").is_some();
+        let costs_path =
+            std::env::temp_dir().join(format!("nupp-gpu-integration-{}.jsonl", std::process::id()));
+        costs::configure(Some(costs_path.to_str().unwrap())).unwrap();
         let mut gpu = match GpuContext::new() {
             Ok(gpu) => gpu,
             Err(error) => {
                 assert!(!required, "required GPU adapter is unavailable: {error}");
                 eprintln!("GPU adapter test skipped: {error}");
+                costs::configure(None).unwrap();
+                std::fs::remove_file(&costs_path).unwrap();
                 return;
             }
         };
+        let context_id = gpu.cost_id();
+        let timestamp_supported = gpu.timestamp_supported;
         let kernel = match gpu.create_test_kernel() {
             Ok(kernel) => kernel,
             Err(error) => {
                 assert!(!required, "required GPU test kernel failed: {error}");
                 eprintln!("GPU adapter test skipped: {error}");
+                costs::configure(None).unwrap();
+                std::fs::remove_file(&costs_path).unwrap();
                 return;
             }
         };
+        gpu.metadata(kernel, true, br#"{"sourceFile":"round-trip.nupp","sourceLine":8,"artifactId":"fixture","writableNames":["values"]}"#).unwrap();
         let buffer = gpu.create_buffer(16).unwrap();
+        gpu.metadata(
+            buffer,
+            false,
+            br#"{"format":"uint32","shape":[4],"elementBytes":4}"#,
+        )
+        .unwrap();
         gpu.upload(buffer, 0, &[1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0, 4, 0, 0, 0])
             .unwrap();
         let bindings = gpu.create_bindings(kernel).unwrap();
         gpu.set_write_buffer(bindings, 0, buffer, 0, 16).unwrap();
+        gpu.metadata(buffer, false, br#"{"shape":[2,2],"strides":[2,1]}"#)
+            .unwrap();
         gpu.dispatch(bindings, [4, 1, 1], &[]).unwrap();
         gpu.dispatch(bindings, [4, 1, 1], &[]).unwrap();
         gpu.queue_download(buffer, 0, 16).unwrap();
+        // This upload is ordered after the queued copy; its version must not
+        // replace the downloaded snapshot's provenance.
+        gpu.upload(buffer, 0, &[0; 16]).unwrap();
         gpu.synchronize().unwrap();
         assert_eq!(
             gpu.read_download(buffer, 0, 16).unwrap(),
             [3, 0, 0, 0, 4, 0, 0, 0, 5, 0, 0, 0, 6, 0, 0, 0]
         );
+        gpu.copied_download(buffer, 0, 16, costs::clock()).unwrap();
+        // Exercise hardware without timestamp support even on an adapter that
+        // supports queries. No host duration may masquerade as device time.
+        gpu.timestamp_supported = false;
+        gpu.dispatch(bindings, [4, 1, 1], &[]).unwrap();
+        gpu.synchronize().unwrap();
+        costs::configure(None).unwrap();
+        let text = std::fs::read_to_string(&costs_path).unwrap();
+        let rows: Vec<Value> = text
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .filter(|row: &Value| row["context"] == context_id)
+            .collect();
+        assert!(rows.iter().any(|r| r["operation"] == "adapterDevice"));
+        let dispatches: Vec<_> = rows
+            .iter()
+            .filter(|r| r["operation"] == "dispatch")
+            .collect();
+        assert_eq!(dispatches.len(), 3);
+        assert_eq!(dispatches[2]["gpuTiming"], "unavailable");
+        assert!(dispatches[2]["gpuMs"].is_null());
+        assert_eq!(dispatches[0]["phase"], "first-use");
+        assert_eq!(dispatches[1]["phase"], "steady-state");
+        assert_eq!(dispatches[1]["write"][0]["version"], 3);
+        assert_eq!(
+            dispatches[0]["write"][0]["layout"]["shape"],
+            json!([4]),
+            "bindings retain their own view shape"
+        );
+        assert_eq!(dispatches[0]["metadata"]["writableNames"][0], "values");
+        for operation in ["downloadQueue", "downloadMapCopy", "downloadHostCopy"] {
+            let row = rows.iter().find(|r| r["operation"] == operation).unwrap();
+            assert_eq!(
+                row["version"], 3,
+                "{operation} keeps the queued snapshot version"
+            );
+            assert_eq!(row["bytes"], 16);
+        }
+        if timestamp_supported {
+            let timings: Vec<_> = rows
+                .iter()
+                .filter(|r| r["operation"] == "kernelExecution")
+                .collect();
+            assert_eq!(timings.len(), 2);
+            assert!(timings.iter().all(|r| r["gpuMs"].as_f64().unwrap() >= 0.0));
+        } else {
+            assert_eq!(dispatches[0]["gpuTiming"], "unavailable");
+        }
+        std::fs::remove_file(costs_path).unwrap();
         gpu.release_bindings(bindings).unwrap();
         gpu.release_kernel(kernel).unwrap();
         gpu.release_buffer(buffer).unwrap();
@@ -1348,6 +1742,8 @@ mod tests {
                 writable_bindings: 1,
                 uniform_size: 0,
                 workgroup_size: [1, 1, 1],
+                metadata: Value::Null,
+                dispatches: 0,
             })
         }
     }

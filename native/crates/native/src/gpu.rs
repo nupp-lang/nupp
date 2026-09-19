@@ -104,6 +104,42 @@ fn require_handle_output(output: *mut u64) -> Result<(), (Status, String)> {
 }
 
 #[unsafe(no_mangle)]
+/// Configures JSONL cost output; an empty path restores the environment default.
+/// # Safety
+/// `path` must be readable for `length` bytes when nonzero.
+pub unsafe extern "C" fn nuppNativeGpuCostsOutput(path: *const u8, length: usize) -> i32 {
+    boundary(|| {
+        let bytes = unsafe { input(path, length, "cost output") }?;
+        let path =
+            std::str::from_utf8(bytes).map_err(|e| (Status::InvalidArgument, e.to_string()))?;
+        nupp_native_gpu::costs::configure((!path.is_empty()).then_some(path))
+            .map_err(|e| (gpu_status(&e), e.to_string()))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn nuppNativeGpuCostsEnabled() -> i32 {
+    i32::from(nupp_native_gpu::costs::enabled())
+}
+
+#[unsafe(no_mangle)]
+/// Associates an authored kernel or typed buffer with its native identity.
+/// # Safety
+/// `data` must be readable for `length` bytes.
+pub unsafe extern "C" fn nuppNativeGpuCostMetadata(
+    context: u64,
+    handle: u64,
+    kernel: i32,
+    data: *const u8,
+    length: usize,
+) -> i32 {
+    boundary(|| {
+        let bytes = unsafe { input(data, length, "cost metadata") }?;
+        with_context(context, |gpu| gpu.metadata(handle, kernel != 0, bytes))
+    })
+}
+
+#[unsafe(no_mangle)]
 /// Creates one thread-affine WGPU context.
 ///
 /// # Safety
@@ -182,9 +218,23 @@ pub extern "C" fn nuppNativeGpuContextRelease(raw: u64) -> i32 {
                 "context was released from a thread other than its owner".to_owned(),
             ));
         }
-        arena
+        let mut context = arena
             .remove(Handle::from_raw(raw))
             .map_err(|_| (Status::StaleHandle, "context handle is stale".to_owned()))?;
+        if nupp_native_gpu::costs::enabled() {
+            context
+                .gpu
+                .synchronize()
+                .map_err(|e| (gpu_status(&e), e.to_string()))?;
+            let id = context.gpu.cost_id();
+            let start = nupp_native_gpu::costs::clock();
+            drop(context);
+            nupp_native_gpu::costs::record(
+                id,
+                "contextCleanup",
+                nupp_native_gpu::costs::cleanup(start),
+            );
+        }
         Ok(())
     })
 }
@@ -401,10 +451,14 @@ pub unsafe extern "C" fn nuppNativeGpuDownloadRead(
             return Err((Status::Capacity, "download output is too small".to_owned()));
         }
         let bytes = with_context(context, |gpu| gpu.read_download(buffer, offset, size))?;
+        let start = nupp_native_gpu::costs::clock();
         if !bytes.is_empty() {
             // SAFETY: capacity was checked before consuming the queued result.
             unsafe { ptr::copy_nonoverlapping(bytes.as_ptr(), output.cast(), bytes.len()) };
         }
+        with_context(context, |gpu| {
+            gpu.copied_download(buffer, offset, size, start)
+        })?;
         Ok(())
     })
 }

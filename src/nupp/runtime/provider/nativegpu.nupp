@@ -26,6 +26,9 @@ local span = require("nupp.mem.span")
 local ffi = native.ffi
 local C = native.C
 native.ffi.cdef[[
+int32_t nuppNativeGpuCostsOutput(const uint8_t *, size_t);
+int32_t nuppNativeGpuCostsEnabled(void);
+int32_t nuppNativeGpuCostMetadata(uint64_t, uint64_t, int32_t, const uint8_t *, size_t);
 int32_t nuppNativeGpuContextCreate(uint64_t *);
 int32_t nuppNativeGpuContextDescription(uint64_t, uint8_t *, size_t, size_t *);
 int32_t nuppNativeGpuContextRelease(uint64_t);
@@ -259,6 +262,39 @@ end
 
 local contextdestroy = require("nupp.runtime.provider.nativegpurelease").destroy
 
+--- Selects process-local JSONL GPU costs; nil restores NUPP_GPU_COSTS.
+function gpu.costsOutput(path: string?): nil
+    native.requireFeature(4, "GPU cost instrumentation")
+    native.succeeded(C.nuppNativeGpuCostsOutput(path, path and #path or 0), 2)
+end
+
+local function costMetadata(context: any, handle: any, kernel: boolean, metadata: any): nil
+    if C.nuppNativeGpuCostsEnabled() == 0 then
+        return
+    end
+    local json = require("nupp.codec.json")
+    if kernel then
+        metadata.readonlyNames = json.asArray(metadata.readonlyNames or {})
+        metadata.writableNames = json.asArray(metadata.writableNames or {})
+    end
+    local encoded = json.encode(metadata)
+    native.succeeded(C.nuppNativeGpuCostMetadata(context, handle, kernel and 1 or 0, encoded, #encoded), 2)
+end
+
+local function costLayout<T>(context: any, borrows buffer: gpu.Buffer<T>): nil
+    if C.nuppNativeGpuCostsEnabled() == 0 then
+        return
+    end
+    costMetadata(context, buffer._handle, false, {
+        shape = buffer._shape,
+        strides = buffer._strides,
+        elementBytes = buffer._width,
+        elementOffset = buffer._offset,
+        count = buffer.count,
+        conversion = "none: typed span bytes preserved"
+    })
+end
+
 function gpu.Context.driver(borrows self: gpu.Context): string
     local length = ffi.new("size_t[1]")
     local handle = live(self)
@@ -284,6 +320,7 @@ function gpu.Context.buffer<T>(
     local output = ffi.new("uint64_t[1]")
     native.succeeded(C.nuppNativeGpuBufferCreate(live(self), width * count, output), 2)
     local handle = output[0]
+    costMetadata(live(self), handle, false, {format = tostring(element), elementBytes = width, shape = {count}})
 
     return new shared.Buffer(
         _anchor = self,
@@ -343,6 +380,15 @@ function gpu.Context.compileGenerated(
         2
     )
     local handle = output[0]
+    local identity = artifacts as any
+    costMetadata(live(self), handle, true, {
+        sourceFile = identity.sourceFile,
+        sourceLine = identity.sourceLine,
+        artifactId = identity.artifactId,
+        readonlyNames = identity.readonlyNames,
+        writableNames = identity.writableNames,
+        entrypoint = artifacts.entrypoint
+    })
 
     return new shared.Kernel(
         _anchor = self,
@@ -396,6 +442,7 @@ function gpu.Binding.setRead<T>(
     if slot < 0 or slot >= self._readonlyBuffers then
         error("nupp: read binding slot is outside the compiled kernel", 2)
     end
+    costLayout(self._context, buffer)
     native.succeeded(
         C.nuppNativeGpuBindingsSetBuffer(
             self._context,
@@ -436,6 +483,7 @@ function gpu.Binding.setWrite<T>(
     if slot < 0 or slot >= writable then
         error("nupp: write binding slot is outside the compiled kernel", 2)
     end
+    costLayout(self._context, buffer)
     native.succeeded(
         C.nuppNativeGpuBindingsSetBuffer(
             self._context,
@@ -485,6 +533,7 @@ function gpu.Context.upload<T>(
     if #source ~= buffer.count then
         error("nupp: GPU upload span length does not match its buffer", 2)
     end
+    costLayout(live(self), buffer)
     local pointer, count = source:ref()
     native.succeeded(
         uploadTyped(live(self), buffer._handle, pointer, buffer._offset * buffer._width, buffer._width * count),
@@ -497,6 +546,7 @@ function gpu.Context.enqueueDownload<T>(borrows self: gpu.Context, borrows buffe
     if not gpu.bufferIsDense(buffer) then
         error("nupp: GPU downloads require a dense tensor view", 2)
     end
+    costLayout(live(self), buffer)
     native.succeeded(
         C.nuppNativeGpuDownloadQueue(
             live(self),
@@ -614,3 +664,4 @@ function gpu.open(): affine(api.KernelContext, api.destroyContext)
 end
 
 export const open = gpu.open
+export const costsOutput = gpu.costsOutput
