@@ -438,4 +438,28 @@ function M.scanPreservesSparseUnicodeTransitionsAndFirstErrors()
     end
 end
 
+-- Exercise every byte class on both sides of the ASCII/Unicode transition,
+-- with enough following bytes to cover full vectors as well as short tails.
+function M.everyByteClassPreservesValuesAndFirstErrorsAcrossTransitions()
+    for _, prefix in ipairs({"", "\226\130\172"}) do
+        for pad = 0, 80 do
+            for byte = 0, 255 do
+                for _, tail in ipairs({"", string.rep("z", 17)}) do
+                    local text = '"' .. prefix .. string.rep("a", pad) .. string.char(byte) .. tail .. '"'
+                    local code, position = referenceScan(text)
+                    local mine, message = decodedBy(fused, text)
+                    local theirs, other = decodedBy(lunajson, text)
+                    assert((message == nil) == (other == nil), "byte-class acceptance at " .. pad .. ":" .. byte)
+                    if code ~= OK then
+                        local reported = message and tonumber(message:match("at byte (%d+)"))
+                        assert(reported == position, "byte-class error at " .. pad .. ":" .. byte .. ": " .. tostring(reported) .. " vs " .. position)
+                    elseif message == nil then
+                        assert(mine == theirs, "byte-class value at " .. pad .. ":" .. byte)
+                    end
+                end
+            end
+        end
+    end
+end
+
 return M

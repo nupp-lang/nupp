@@ -26,14 +26,17 @@ three before it, so the two nibbles of the previous byte and the high nibble
 of this one index three tables of error-class bit sets, and the pair is
 malformed exactly when the three sets share a class. The third and fourth
 bytes of a scalar are the one case a pair cannot see, so those are checked
-against the bytes two and three back and folded in with an xor. A vector with
-no non-ASCII byte, after another such vector, skips the lookup entirely.
+against the bytes two and three back and folded in with an xor. A validated
+block ending in ASCII owes no continuation, so the next block only needs the
+lookup if it contains a non-ASCII byte. Otherwise the lookup also checks the
+boundary, without first reducing the current block's high-byte mask.
 
-That is why a non-ASCII byte is not an event. It was one only so the drain
-could validate it, and a document that is forty percent non-ASCII therefore
-drained forty percent of its bytes; nothing above the validator needs to see
-it, because a non-ASCII byte outside a string is refused by the tape walk
-below as the syntax error it is, and one inside a string is only bytes.
+After an ASCII-ending block, the scan combines non-ASCII and structural
+masks. An empty result skips both the high-byte reduction and the drain.
+A nonempty result distinguishes Unicode and removes its bits before draining:
+Unicode is validated as a vector, never walked byte by byte on that path.
+A non-ASCII byte outside a string is refused by the tape walk below as the
+syntax error it is, and one inside a string is only bytes.
 
 Whatever the vectors do not cover -- the partial vector past the last whole
 one, and every byte on a target without vectors -- the same loop finishes one
@@ -158,6 +161,7 @@ local function decodeFused<const Variant: integer>(
     local lastNonAscii: uint32 = 0
     local seeded = false
 
+    -- Only the final byte matters for a possible UTF-8 continuation.
     local previousNonAscii = false
     local one: uint64 = 1
 
@@ -180,14 +184,30 @@ local function decodeFused<const Variant: integer>(
                 local structural = (block == 123) | (block == 125) | (block == 91) | (block == 93)
                 local separators = (block == 58) | (block == 44)
                 local strings = (block == 34) | (block == 92)
-                events = (structural | separators | strings | (block < 32)):bits()
+                local eventMask = structural | separators | strings | (block < 32)
+                local validateUtf8 = false
+                if previousNonAscii then
+                    events = eventMask:bits()
+                    validateUtf8 = true
+                else
+                    local nonAscii = block >= 128
+                    -- An empty combined mask proves both an event-free block
+                    -- and ASCII. Resolve the high-byte predicate only when
+                    -- the block has something for either path to process.
+                    events = (eventMask | nonAscii):bits()
+                    if events ~= 0 then
+                        validateUtf8 = nonAscii:any()
+                        if validateUtf8 then
+                            -- Validation handles Unicode as a vector; keep
+                            -- those bytes out of the scalar event drain.
+                            events = eventMask:bits()
+                        end
+                    end
+                end
 
-                -- The lookup only has to run where a non-ASCII byte is in
-                -- reach of it. A vector of ASCII after a vector of ASCII
-                -- cannot be malformed, and one after a non-ASCII vector is
-                -- classified so the pairs straddling the boundary are seen.
-                local currentNonAscii = (block >= 128):any()
-                if currentNonAscii or previousNonAscii then
+                -- Validate every block containing Unicode and any block
+                -- that could continue the preceding block's final scalar.
+                if validateUtf8 then
                     -- The vector before this one, read again rather than
                     -- carried: a vector cannot cross an iteration of this
                     -- loop, because the loop is only inside the species where
@@ -246,10 +266,16 @@ local function decodeFused<const Variant: integer>(
                         -- about to return an error, so it can afford to be told
                         -- a byte at a time.
                         vectorsOff = true
+                    else
+                        -- A validated block ending in ASCII owes no UTF-8
+                        -- continuation. Rotate its final byte to a literal
+                        -- lane so every species can extract it directly.
+                        previousNonAscii = block:align(block, 1):extract(1) >= 128
                     end
+                else
+                    previousNonAscii = false
                 end
                 if not vectorsOff then
-                    previousNonAscii = currentNonAscii
                     width = species.lanes
                 else
                     events = 0
