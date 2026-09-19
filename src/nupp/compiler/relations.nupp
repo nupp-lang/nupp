@@ -792,51 +792,6 @@ local function check(a: Type, b: Type): boolean, string?
     if atag == "any" or btag == "any" then
         return true
     end
-    -- A constrained type is its base narrowed, so it fits wherever its base fits, and
-    -- nothing fits it that is not already narrowed at least as far.
-    --
-    -- Entering one is admission rather than subtyping: a value the checker cannot
-    -- prove is refused here and the source says so with `nupp.admit`. That is the
-    -- whole reason this answers false instead of widening the way a literal does.
-    if atag == "constrained" or btag == "constrained" then
-        local predicate = require("nupp.compiler.predicate")
-        if atag == "constrained" and btag == "constrained" then
-            local fits, why = isA((a as T.Constrained).base, (b as T.Constrained).base)
-            if not fits then
-                return false, why
-            end
-            if predicate.implies((a as T.Constrained).predicate, (b as T.Constrained).predicate) then
-                return true
-            end
-            return false, ("%s is not established as %s"):format(T.tostring(a), T.tostring(b))
-        end
-        if atag == "constrained" then
-            return isA((a as T.Constrained).base, b)
-        end
-
-        -- A value the compiler holds is decided rather than admitted: the constraint
-        -- is run against it here, and a literal that passes needs nothing written. One
-        -- that fails is refused as a violation, which is a different thing from being
-        -- unproved and reads differently at the use.
-        local constraint = (b as T.Constrained).predicate
-        local into = (b as T.Constrained).base
-        if atag == "literal" and predicate.satisfiedByValue(constraint, (a as T.Literal).constant) == true then
-            -- A proved value establishes the fixed-width fact as well: inside the
-            -- base's own domain `wrap` is the identity, so a bound the value already
-            -- satisfies is strictly the stronger claim. Without this a constrained
-            -- `int32` would need a `wrap` before every bound it already passes.
-            if isA(a.base or T.string, into) then
-                return true
-            end
-            if type(
-                (a as T.Literal).constant
-            ) == "number" and fixedWidth.literalFits((a as T.Literal).constant as number, into) then
-                return true
-            end
-        end
-
-        return false, ("%s is not established as %s"):format(T.tostring(a), T.tostring(b))
-    end
     if atag == "neutral" or btag == "neutral" then
         -- A mapped/member/comptime term is neutral only until its inputs become
         -- reducible. Generic declarations commonly retain binders while their keys
@@ -964,6 +919,55 @@ local function check(a: Type, b: Type): boolean, string?
             end
         end
         return true
+    end
+    -- After the unions, which have to see a constrained type as itself: `Short` fits
+    -- `Short?` by being one of its members, and widening to `string` first would lose
+    -- that. Everything above this point either settles the pair another way or does
+    -- not care what narrowed it.
+    -- A constrained type is its base narrowed, so it fits wherever its base fits, and
+    -- nothing fits it that is not already narrowed at least as far.
+    --
+    -- Entering one is admission rather than subtyping: a value the checker cannot
+    -- prove is refused here and the source says so with `nupp.admit`. That is the
+    -- whole reason this answers false instead of widening the way a literal does.
+    if atag == "constrained" or btag == "constrained" then
+        local predicate = require("nupp.compiler.predicate")
+        if atag == "constrained" and btag == "constrained" then
+            local fits, why = isA((a as T.Constrained).base, (b as T.Constrained).base)
+            if not fits then
+                return false, why
+            end
+            if predicate.implies((a as T.Constrained).predicate, (b as T.Constrained).predicate) then
+                return true
+            end
+            return false, ("%s is not established as %s"):format(T.tostring(a), T.tostring(b))
+        end
+        if atag == "constrained" then
+            return isA((a as T.Constrained).base, b)
+        end
+
+        -- A value the compiler holds is decided rather than admitted: the constraint
+        -- is run against it here, and a literal that passes needs nothing written. One
+        -- that fails is refused as a violation, which is a different thing from being
+        -- unproved and reads differently at the use.
+        local constraint = (b as T.Constrained).predicate
+        local into = (b as T.Constrained).base
+        if atag == "literal" and predicate.satisfiedByValue(constraint, (a as T.Literal).constant) == true then
+            -- A proved value establishes the fixed-width fact as well: inside the
+            -- base's own domain `wrap` is the identity, so a bound the value already
+            -- satisfies is strictly the stronger claim. Without this a constrained
+            -- `int32` would need a `wrap` before every bound it already passes.
+            if isA(a.base or T.string, into) then
+                return true
+            end
+            if type(
+                (a as T.Literal).constant
+            ) == "number" and fixedWidth.literalFits((a as T.Literal).constant as number, into) then
+                return true
+            end
+        end
+
+        return false, ("%s is not established as %s"):format(T.tostring(a), T.tostring(b))
     end
     if atag == "intersection" then
         for _, m in ipairs(a.members) do

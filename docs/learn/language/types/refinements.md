@@ -33,6 +33,10 @@ test is part of the compiled predicate, because `is` is asked about values that
 may be anything at all. See [Interfaces](interfaces.md) for the rest of what an
 interface declares.
 
+A refinement answers `is` for a table. To narrow a scalar by value or by byte
+length instead, see [Constrained types](constrained.md), which compiles to the
+same kind of predicate and adds an admission rule for entering one.
+
 ## Refinement forms
 
 A refinement is a function of the value, so it is written as one, in either

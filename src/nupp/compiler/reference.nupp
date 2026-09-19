@@ -1601,6 +1601,87 @@ return m
     ),
 
     new reference.Section(
+        title = "Constrained scalar types",
+        codes = {"NUPP2001", "NUPP2013", "NUPP2422"},
+        body = [=[
+`nupp.types.range(base, min, max)` narrows `integer`, `int32` or `uint32` to the
+values from `min` through `max`, and `nupp.types.length(base, min, max)` narrows
+`string` by byte length. Both bounds are inclusive. Narrowing an already
+constrained alias intersects, so `Digit` below admits what `Percent` admits and
+less; a pair of bounds admitting nothing is `NUPP2422` at the declaration.
+
+A constrained type is its base narrowed. It goes wherever the base goes, and a
+narrower one goes where a wider one is wanted, by interval and byte-length
+containment. Nothing enters it that is not already narrowed at least as far.
+Representation is unchanged: this converts nothing, and a constrained `uint32`
+is a `uint32`.
+
+An alias is not a brand. One constraint over one base is one type however many
+names reach it and however the bounds were computed, so a comptime builder and
+the same bounds written in a type are the same type. The alias name is what
+hover and diagnostics show.
+
+Entering one is admission rather than subtyping. A value the compiler can prove
+needs nothing written; a value it cannot is refused, and `nupp.admit(value)`
+says the program meant it. That is the rule `int32` already follows, and for the
+same reason: `as` is erased, so it can claim a value is one of these but cannot
+establish it, and claiming it is `NUPP2013`.
+
+`nupp.admit` takes the type from where its result goes -- an annotated binding, a
+declared result, a parameter, an assignment to a declared binding -- so nothing
+names it twice. It raises when the constraint does not hold. `value is Type` is
+the same test without the raise, for a caller that wants to recover.
+
+What is emitted follows what proof left. An unprovable admission is one call to
+a test declared once for the module and shared by every site carrying the same
+constraint; a proved one emits nothing at all. Writing the admission around a
+value that is already proved is deliberate rather than an error, because a bound
+can move. A retained admission raises, so a `noraise` region refuses one and a
+`noalloc` region does not mind it.
+
+An integer base is tested for integrality beside `type(x) == "number"`, which is
+what rejects a fraction, an infinity and a NaN that a pair of bounds alone would
+admit. Length is bytes, matching Nupp's own string length: not code points, not
+graphemes, and an embedded NUL counts like any other byte.
+]=],
+        example = [=[
+local m = {}
+
+local type Percent = nupp.types.range(integer, 0, 100)
+local type Digit = nupp.types.range(Percent, 0, 9)
+local type Short = nupp.types.length(string, 1, 4)
+
+local comptime function Between(T: type, low: integer, high: integer): type
+    return nupp.types.range(T, low, high)
+end
+
+local type Range<T, const Low: integer, const High: integer> = Between(T, Low, High)
+local type ShiftCount = Range<integer, 0, 31>
+
+function m.widen(value: Digit): Percent
+    return value
+end
+
+function m.shift(value: integer): ShiftCount
+    return nupp.admit(value)
+end
+
+function m.label(text: string): Short?
+    if text is Short then
+        return text
+    end
+    return nil
+end
+
+function m.half(): Percent
+    return 50
+end
+
+return m
+]=]
+    ),
+
+    new reference.Section(
         title = "Checked span views",
         codes = {"NUPP2001", "NUPP2004", "NUPP2602", "NUPP2604"},
         body = [=[

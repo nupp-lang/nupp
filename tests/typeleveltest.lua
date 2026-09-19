@@ -2242,4 +2242,24 @@ function M.admissionCarriesExactlyTheEffectsItLeft()
     )
 end
 
+-- A constrained type is a union member like any other, so it has to be seen as
+-- itself where a union is expected rather than widened to its base first. `is`
+-- narrowing a base-typed value is the shape that asks: `Short` reaching `Short?`.
+function M.aConstrainedTypeReachesAUnionAsItself()
+    local alias = "local type Short = nupp.types.length(string, 1, 4)\n"
+    clean(alias .. table.concat({
+        "local function named(text: string): Short?",
+        "    if text is Short then",
+        "        return text",
+        "    end",
+        "    return nil",
+        "end",
+        "print(named('ab'))",
+    }, "\n"))
+    clean(alias .. "local function pass(v: Short): Short?\n    return v\nend\nprint(pass('ab'))")
+    -- and an assignment into a field resolves what it admits into, like a binding
+    local box = alias .. "local record Box\n    text: Short\nend\n"
+    clean(box .. "local function put(b: Box, v: string): nil\n    b.text = nupp.admit(v)\nend\nprint(put)")
+end
+
 return M

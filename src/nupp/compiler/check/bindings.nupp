@@ -936,11 +936,14 @@ function bindings.install(c: state.Checker): state.StatHandlers
         if #stat.targets == valueCount then
             for index, target in ipairs(stat.targets) do
                 local value: any = values[index]
-                if value and (value.kind == "call" or value.kind == "safeCall") and target.kind == "name" then
-                    local token = (target as any).token
-                    local entry = token and c.lookupEntry(token.text) or nil
-                    if entry and entry.t and value.expectedResult == nil then
-                        value.expectedResult = entry.t
+                if value and (value.kind == "call" or value.kind == "safeCall") then
+                    -- `refType` reads the path without inferring it, so asking what a
+                    -- target already is does not move this statement's order or report
+                    -- the target twice. The hint only helps a binder resolve; the
+                    -- assignment itself is still checked below.
+                    local declared = c.refType(target)
+                    if declared and value.expectedResult == nil then
+                        value.expectedResult = declared
                     end
                 end
             end

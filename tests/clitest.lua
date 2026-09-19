@@ -337,8 +337,12 @@ end
 
 function M.aotHelpNamesArtifactsAndShowsHighlightedExamples()
     local plain = capture("aot --help")
+    -- Collapsed, because the list is long enough to wrap and where it wraps is the
+    -- help formatter's business rather than this test's. What is asserted is that
+    -- every accepted artifact is named.
+    local flowed = plain:gsub("%s+", " ")
     assert(
-        plain:find("Artifact to print: ir, c, spirv, wgsl, asm, or binding.", 1, true),
+        flowed:find("Artifact to print: ir, c, simd, spirv, wgsl, asm, or binding.", 1, true),
         "--emit names every accepted artifact: " .. plain
     )
     assert(

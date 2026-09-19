@@ -153,6 +153,7 @@ that page:
 | Checked spans | [](nupp.mem.span) | `NUPP2001`, `NUPP2004`, `NUPP2602`, `NUPP2604` |
 | Comptime | [comptime.md](../learn/language/comptime.md) | `NUPP2410` through `NUPP2416`, `NUPP2419`, `NUPP2420`, `NUPP2421` |
 | Comptime types | [type-level-computation.md](../learn/language/types/comptime-types.md) | `NUPP2001` |
+| Constrained types | [constrained.md](../learn/language/types/constrained.md) | `NUPP2001`, `NUPP2013`, `NUPP2422` |
 | Derives | [derives.md](derives.md) | `NUPP2810` |
 | Effect contracts | [effects.md](../learn/language/effects.md) | `NUPP2112`, `NUPP2710`, `NUPP2711` |
 | Files | [](nupp.io.files) | `NUPP2701` |

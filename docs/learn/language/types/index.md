@@ -230,6 +230,8 @@ One page per idea, in the order they build on each other:
   destruction.
 - [Interfaces](interfaces.md): structural satisfaction, `is`, and metamethods.
 - [Refinements](refinements.md): the `satisfies` test a declaration carries.
+- [Constrained types](constrained.md): scalars narrowed by value or byte
+  length, and the admission that enters one.
 - [Property capabilities](properties.md): independent read and write views.
 - [Unions](unions.md): literal sets, tagged unions, and exhaustiveness.
 - [Intersections](intersections.md): capability composition and provable
