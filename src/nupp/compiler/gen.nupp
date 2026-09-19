@@ -2240,6 +2240,32 @@ function gen.generate(
     --- `scope:spawn(x, job):await()` still begins with the submission's `(` -- so the
     --- question is about the head of the expression rather than about its outermost
     --- node.
+    -- A terminal region's wrapper ends at the first owner line. Its helper then
+    -- occupies the original body lines, outside the wrapper's prototype, so the
+    -- wrapper needs neither FNEW nor UCLO. Generated cleanup stays on that first
+    -- line; only authored helper statements advance source positions.
+    function pluck.beginHoistedRegion()
+        local state = {output = out, line = curLine, start = atLineStart}
+        out, atLineStart = {}, false
+        return state
+    end
+
+    function pluck.saveHoistedRegion(state)
+        state.helperOutput, state.helperLine, state.helperStart = out, curLine, atLineStart
+        out, curLine, atLineStart = state.output, 0x7fffffff, state.start
+    end
+
+    function pluck.finishHoistedRegion(state)
+        e("end;")
+        curLine = state.line
+        raw(table.concat(state.helperOutput))
+        curLine, atLineStart = state.helperLine, state.helperStart
+    end
+
+    function pluck.skipHoistedEnd(line)
+        sync(line)
+    end
+
     function pluck.beginsWithLoweredWrapper(expr: any): boolean
         local at: any = expr
         while at ~= nil do
@@ -4206,6 +4232,49 @@ function gen.generate(
 
     planDefinitionLoops()
 
+    -- Only direct chunk declarations can publish a helper without entering an
+    -- authored expression, loop activation, or another function's lexical scope.
+    function pluck.hoistDeclaration(node)
+        if emitDepth.fn ~= 0 or not node.body or not node.body.body or node.body.body.automaticDirect then
+            return nil
+        end
+        local ownerCount = 0
+        for _, stat in ipairs(node.body.body.stats or {}) do
+            ownerCount = ownerCount + #(stat.automaticOwners or {})
+        end
+        if ownerCount < 2 then
+            return nil
+        end
+        if not emitDepth.hoistDeclarations then
+            local declarations = {}
+
+            local function collect(stat)
+                if not stat or cst.isToken(stat) then
+                    return
+                end
+                if stat.kind == "block" then
+                    for _, child in ipairs(stat.stats or stat) do
+                        collect(child)
+                    end
+                elseif stat.kind == "pragmaStmt" or stat.kind == "exportStmt" then
+                    collect(stat.stat)
+                elseif stat.kind == "localFuncStmt" or stat.kind == "funcStmt" then
+                    declarations[stat] = true
+                end
+            end
+
+            for _, child in ipairs(result.root) do
+                collect(child)
+            end
+            emitDepth.hoistDeclarations = declarations
+        end
+        if emitDepth.hoistDeclarations[node] then
+            return {body = node.body.body, endTok = cst.lastToken(node.body)}
+        end
+
+        return nil
+    end
+
     -- Whether this body would hold a region function to one execution.
     --
     -- The cached function is emitted where it is written and only its instance is
@@ -4506,6 +4575,7 @@ function gen.generate(
             bindings = bindings,
             body = body,
             automaticRegion = true,
+            automaticBlock = block,
             automaticSequence = sequence,
             repeatCondition = repeatCondition,
             repeatConditionTemp = loop and loop.cleanupConditionTemp or nil,
@@ -8028,6 +8098,12 @@ function gen.generate(
                 and frameBodyEligible(
                     stateAnalysis
                 ) and emitDepth.frameEligible(stateCaptures, stateNested) and nextTemp() or nil
+            local hoist = stateFrame
+                and emitDepth.hoist
+                and emitDepth.hoist.body == x.automaticBlock
+                and emitDepth.hoist
+                or nil
+            local hoistEmission
             local stateRegion
             local stateSlot
             if stateFrame then
@@ -8161,19 +8237,29 @@ function gen.generate(
                     for index, definition in ipairs(captures) do
                         e((",[%d]=%s"):format(index, definition.token.text))
                     end
-                    e(
-                        (
-                            "}; local %s=%s[%d]; if not %s then %s=function(%s%s)"
-                        ):format(
-                            stateRegion,
-                            cleanupCacheName,
-                            stateSlot,
-                            stateRegion,
-                            stateRegion,
-                            stateFrame,
-                            variadic and ",..." or ""
+                    if hoist then
+                        e(("}; local %s=%s[%d];"):format(stateRegion, cleanupCacheName, stateSlot))
+                        hoistEmission = pluck.beginHoistedRegion()
+                        e(
+                            (
+                                "%s[%d]=function(%s%s)"
+                            ):format(cleanupCacheName, stateSlot, stateFrame, variadic and ",..." or "")
                         )
-                    )
+                    else
+                        e(
+                            (
+                                "}; local %s=%s[%d]; if not %s then %s=function(%s%s)"
+                            ):format(
+                                stateRegion,
+                                cleanupCacheName,
+                                stateSlot,
+                                stateRegion,
+                                stateRegion,
+                                stateFrame,
+                                variadic and ",..." or ""
+                            )
+                        )
+                    end
                     emitDepth.pushCaptureFrame(captures, stateFrame)
                 else
                     e(
@@ -8390,7 +8476,16 @@ function gen.generate(
                     emitDepth.endCondition(x.repeatConditionHeader)
                 end
                 if stateFrame then
-                    e(("end; return \"normal\" end; %s[%d]=%s end;"):format(cleanupCacheName, stateSlot, stateRegion))
+                    if hoist then
+                        e("end; return \"normal\" end;")
+                        pluck.saveHoistedRegion(hoistEmission)
+                    else
+                        e(
+                            (
+                                "end; return \"normal\" end; %s[%d]=%s end;"
+                            ):format(cleanupCacheName, stateSlot, stateRegion)
+                        )
+                    end
                     emitDepth.popCaptureFrame()
                     e(
                         (
@@ -8574,6 +8669,10 @@ function gen.generate(
                 e(" end;")
             end
             e("end")
+            if hoist then
+                pluck.finishHoistedRegion(hoistEmission)
+                hoist.done = true
+            end
 
         elseif kind == "returnStmt" and x.indexedViewReturnTransport then
             local producer = x.indexedViewReturnTransport.producer
@@ -8809,7 +8908,11 @@ function gen.generate(
                         end
                         e(("const %s = { n = select(\"#\", ...), ... }"):format(x.varargParam.name.text))
                     end
-                    emit(child)
+                    if emitDepth.hoist and emitDepth.hoist.done and child == emitDepth.hoist.endTok then
+                        pluck.skipHoistedEnd(child.line)
+                    else
+                        emit(child)
+                    end
                 end
             else
                 for _, child in ipairs(x) do
@@ -8820,7 +8923,11 @@ function gen.generate(
                             coverageHit("function", x)
                         end
                     end
-                    emit(child)
+                    if emitDepth.hoist and emitDepth.hoist.done and child == emitDepth.hoist.endTok then
+                        pluck.skipHoistedEnd(child.line)
+                    else
+                        emit(child)
+                    end
                 end
             end
             if openedActivation then
@@ -8872,7 +8979,10 @@ function gen.generate(
             end
             e((x.name and x.name.text or "__nuppMissing") .. "=function", sourceLine(x))
             if x.body then
+                local previousHoist = emitDepth.hoist
+                emitDepth.hoist = pluck.hoistDeclaration(x)
                 emit(x.body)
+                emitDepth.hoist = previousHoist
             end
             for _, specialization in ipairs(x.constSpecializations or {}) do
                 pluck.constSpecialize.emitSpecialization(x, specialization)
@@ -8888,7 +8998,10 @@ function gen.generate(
             if dispatch and planned then
                 dispatch.emit(planned)
             else
+                local previousHoist = emitDepth.hoist
+                emitDepth.hoist = pluck.hoistDeclaration(x)
                 emitChildren(x)
+                emitDepth.hoist = previousHoist
             end
             for _, specialization in ipairs(x.constSpecializations or {}) do
                 pluck.constSpecialize.emitSpecialization(x, specialization)
@@ -8899,7 +9012,10 @@ function gen.generate(
         elseif kind == "funcStmt" and x.exported and x.name and x.name.base and #x.name == 1 and not x.name.method then
             e(x.name.base.text .. "=function", sourceLine(x))
             if x.body then
+                local previousHoist = emitDepth.hoist
+                emitDepth.hoist = pluck.hoistDeclaration(x)
                 emit(x.body)
+                emitDepth.hoist = previousHoist
             end
 
         elseif kind == "funcStmt" then
@@ -8911,7 +9027,20 @@ function gen.generate(
             if dispatch and planned then
                 dispatch.emit(planned)
             else
-                emitChildren(x)
+                local previousHoist = emitDepth.hoist
+                emitDepth.hoist = not x.name.method and pluck.hoistDeclaration(x) or nil
+                if emitDepth.hoist then
+                    -- Publishing a field can call __newindex. Install the helper
+                    -- before exposing a wrapper that such a hook could invoke.
+                    local wrapper = nextTemp()
+                    e(("do local %s=function"):format(wrapper), sourceLine(x))
+                    emit(x.body)
+                    emit(x.name)
+                    e(("=%s; end"):format(wrapper))
+                else
+                    emitChildren(x)
+                end
+                emitDepth.hoist = previousHoist
             end
             -- A qualified declaration's definition token is its final member, while
             -- `funcname.base` is the root table. Inspect every written name token so

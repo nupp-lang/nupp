@@ -73,6 +73,65 @@ return run, closed
     assert(closed[#closed - 1] == 101 and closed[#closed] == 100)
     run(120, 4)
     assert(table.concat(closed, ","):match("111,110,121,120$"), "recursive invocation must retain each caller's owners")
+    local coldRun, coldClosed = assert(loadstring(code))()
+    coldRun(120, 4)
+    assert(table.concat(coldClosed, ",") == "111,110,121,120", "the first invocation must support recursion")
+end
+
+function M.moduleOwnerWrappersHaveNoChildClosuresAndKeepBodyLines()
+    local source = RESOURCE .. [[
+local function run(value: integer, fail: boolean): integer
+    local adjusted = value + 1
+    local first = create(adjusted)
+    local second = create(adjusted + 1)
+    if fail then error("hoisted-body-line") end
+    return first.id + second.id
+end
+return run, closed
+]]
+    local code = compile(source)
+    local _, sourceLines = source:gsub("\n", "")
+    local _, codeLines = code:gsub("\n", "")
+    assert(codeLines == sourceLines, "hoisting must preserve generated source lines")
+    local run, closed = assert(loadstring(code, "@hoisted-ownership.nupp"))()
+    local util, names = require("jit.util"), require("jit.vmdef").bcnames
+    local bit = require("bit")
+    for pc = 1, util.funcinfo(run).bytecodes - 1 do
+        local ins = util.funcbc(run, pc)
+        local op = bit.band(ins, 255)
+        local name = names:sub(op * 6 + 1, op * 6 + 6):gsub("%s+$", "")
+        assert(name ~= "FNEW" and name ~= "UCLO", "hot owner wrapper retains " .. name)
+    end
+    assert(run(10, false) == 23 and run(20, false) == 43)
+    local line = 1
+    for text in source:gmatch("([^\n]*)\n") do
+        if text:find('error("hoisted-body-line")', 1, true) then break end
+        line = line + 1
+    end
+    local ok, why = pcall(run, 30, true)
+    assert(not ok and tostring(why):find("hoisted-ownership.nupp:" .. line .. ":", 1, true), tostring(why))
+    assert(table.concat(closed, ",") == "12,11,22,21,32,31")
+end
+
+function M.publishingAQualifiedWrapperCanCallItImmediately()
+    local code = compile(RESOURCE .. [[
+local observed = 0
+local target: any = setmetatable({}, {
+    __newindex = function(self: any, key: any, value: any): nil
+        observed = value(10)
+        rawset(self, key, value)
+    end,
+})
+function target.run(value: integer): integer
+    local first = create(value)
+    local second = create(value + 1)
+    return first.id + second.id
+end
+return target.run, observed, closed
+]])
+    local run, observed, closed = assert(loadstring(code))()
+    assert(observed == 21 and run(20) == 41)
+    assert(table.concat(closed, ",") == "11,10,21,20")
 end
 
 function M.multiOwnerRegionsPreserveObservableCapturedWrites()
