@@ -68,13 +68,19 @@ Each line is one stack: frames separated by semicolons, then the sample count.
 frame;physics;app.nupp:0;app.nupp:step_[N] 431
 ```
 
-The final frame has a suffix showing the most common VM state for that stack:
+Each stack has a separate row for every observed VM state, with that state's
+actual sample count. The final frame identifies the state:
 
 - `_[N]`: running compiled machine code.
 - `_[I]`: in the interpreter.
 - `_[C]`: inside a C function.
 - `_[G]`: in the garbage collector.
 - `_[J]`: inside the JIT compiler.
+
+C, GC, and JIT work has an explicit `<C>`, `<GC>`, or `<JIT>` leaf, so native
+work is not charged to a Lua callback. LuaJIT captures the state at the timer
+interrupt and inspects the stack later; native states therefore retain their
+zone but make no claim about which Lua frame called them.
 
 If a hot function shows `_[I]`, it is running in the interpreter. Use
 [`--jit-aborts`](#trace-aborts) to check for failed compilation attempts.
@@ -171,11 +177,12 @@ nupp run --jit-aborts app.nupp
 The command writes `jit-aborts.csv`:
 
 ```csv
-severity,count,reason,location,zone
-warn,7,NYI: bytecode FNEW,app.nupp:41,frame/spawn
+severity,count,reason,location,zone,rootLocation
+warn,7,NYI: bytecode FNEW,library.nupp:41,frame/spawn,app.nupp:20
 ```
 
-Each row gives an abort location, its count, and the active zone. Rows are
+Each row gives the root trace's starting location, the location where recording
+stopped (including runtime libraries), its count, and the active zone. Rows are
 ordered by severity:
 
 - `blacklist`: LuaJIT has stopped retrying this trace for the rest of the process.
@@ -183,7 +190,8 @@ ordered by severity:
 - `warn`: a failed compilation attempt. Use sampling to see how much time the
   affected code takes.
 - `info`: normal trace events, such as leaving a loop or encountering recursion.
-  Hidden by default.
+  Included by `run --jit-aborts`; `profile.trace()` omits them unless
+  `includeBenign = true` is requested.
 
 `NYI: bytecode FNEW` means LuaJIT encountered function construction while
 recording a trace. If the function is created inside a loop, move its declaration
@@ -198,8 +206,9 @@ nupp run --jit-aborts=jit-aborts.json --json app.nupp
 ```
 
 Each entry includes the raw VM details, a stable `reasonId`, and a `class`.
-The report also identifies the trace profile and reason catalog used. The CSV
-format is unchanged.
+`rootLocation` identifies the original trace across calls and side traces.
+The report also identifies the trace profile and reason catalog used. Compilation
+of lazily loaded modules is excluded from both CLI profiling sessions.
 
 ## Profiling a benchmark
 

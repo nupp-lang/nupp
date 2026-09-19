@@ -129,7 +129,11 @@ function diagnostics.report(values: {any}): boolean
             #out + 1
         ] = style.path(
             ("%s:%d:%d:"):format(diagnostic.filename or "?", diagnostic.line or 0, diagnostic.col or 0)
-        ) .. " " .. paint(severity) .. ": " .. code .. style.strong(diagnostic.msg or "error") .. "\n"
+        ) .. " " .. paint(
+            severity
+        ) .. ": " .. code .. (
+            diagnostic.status and ("[" .. diagnostic.status .. "] ") or ""
+        ) .. style.strong(diagnostic.msg or "error") .. "\n"
         writeSourceMark(out, style, paint, sourceFor(diagnostic.filename), diagnostic)
         local notePaint = ansi.severity(style, "note")
         for _, related in ipairs(diagnostic.related or {}) do

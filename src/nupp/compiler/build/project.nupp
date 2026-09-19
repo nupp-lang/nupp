@@ -75,6 +75,7 @@ type project.BuildOptions = {
 
     optLevel: integer?,
     remarks: boolean?,
+    remarksFile: string?,
 
     --- Optimization codes to skip, keyed by the code.
     disabled: {[string]: boolean}?,
@@ -297,7 +298,6 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         defaultLevel = 2
     end
     config._optLevel = opts.optLevel or target.optimize as integer? or defaultLevel
-    config._remarks = opts.remarks and true or false
     config._disabledPasses = opts.disabled or {}
     -- Coverage affects emitted Lua, therefore belongs in the configuration before the
     -- build key is calculated. A normal cache entry can never satisfy a coverage run.
@@ -584,6 +584,9 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     -- off the screen once rather than before each of a dozen messages.
     report:clear()
     if not result then
+        if opts.produced then
+            opts.produced.timing = report:timing()
+        end
         if buildErr ~= "project has errors" and buildErr ~= "code generation failed" then
             io.stderr:write("nupp: " .. tostring(buildErr) .. "\n")
         end
@@ -902,6 +905,36 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         end
     end
     newState.targets[targetKey] = mine
+    if opts.remarks or opts.produced then
+        if (config._optLevel or 0) == 0 then
+            result.optimizationRemarks[
+                #result.optimizationRemarks + 1
+            ] = {
+                code = "OPT-0",
+                severity = "note",
+                status = "unavailable",
+                hotness = "unknown",
+                filename = opts.remarksFile or join(root, "nupp.lua"),
+                line = 1,
+                col = 1,
+                offset = 1,
+                length = 0,
+                msg = "optimizer unavailable at -O0; select -O1 or -O2 to request optimization",
+            }
+        end
+        if opts.remarks then
+            local selected = require(
+                "nupp.compiler.cli.compile"
+            ).selectRemarks(result.optimizationRemarks, opts.remarksFile)
+            if opts.diagnostics then
+                for _, note in ipairs(selected) do
+                    opts.diagnostics[#opts.diagnostics + 1] = note
+                end
+            else
+                require("nupp.compiler.diagnostics").report(selected)
+            end
+        end
+    end
     -- What the build produced, for a caller that has to report it rather than leave it
     -- on disk to be discovered. Same shape of favour as opts.diagnostics.
     if opts.produced then

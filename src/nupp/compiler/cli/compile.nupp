@@ -32,6 +32,9 @@ record compile.Settings
     --- Report what the optimizer did and what it declined to do.
     remarks: boolean
 
+    --- Only show optimizer decisions for this source file.
+    remarksFile: string?
+
     --- Passes turned off by -Zno-opt, keyed by their stable code.
     disabled: {[string]: boolean}
 
@@ -96,6 +99,7 @@ function compile.settings(values: {[string]: any}, collected: {any}?): compile.S
         dialect = assert(require("nupp.compiler.dialects").resolve(values.dialect)),
         optLevel = LEVELS[values.optLevel],
         remarks = values.remarks and true or false,
+        remarksFile = values.remarksFile,
         disabled = values.disabled or {},
         diagnostics = collected,
         coverage = os.getenv("NUPP_COVERAGE") == "1",
@@ -105,6 +109,20 @@ function compile.settings(values: {[string]: any}, collected: {any}?): compile.S
         collectedAllocationSites = values.remarksOut and {} or nil,
         accountedModules = values.remarksOut and 0 or nil
     )
+end
+
+function compile.selectRemarks(remarks: {any}, path: string?): {any}
+    if not path then
+        return remarks
+    end
+    local selected = {}
+    for _, entry in ipairs(remarks) do
+        if fs.absolute(entry.filename or "") == fs.absolute(path) then
+            selected[#selected + 1] = entry
+        end
+    end
+
+    return selected
 end
 
 --- Writes the optimizer's account of this command, when one was asked for.
@@ -149,7 +167,7 @@ function compile.writeRemarks(settings: compile.Settings): boolean
             -- the compiler moved under it.
             digest = require("nupp.compiler.build.cache").moduleCompilerFingerprint(),
         },
-        remarks = report.diagnosticValues(collected),
+        remarks = report.diagnosticValues(compile.selectRemarks(collected, settings.remarksFile)),
         allocationSites = settings.collectedAllocationSites or {},
     }
     local wrote, writeErr = require("nupp.compiler.fs").writeFile(out, report.encode(document) .. "\n")
@@ -262,6 +280,22 @@ function compile.module(
     if settings.specializedBodies ~= nil then
         settings.specializedBodies = (settings.specializedBodies as integer) + specializedBodies
     end
+    if (settings.remarks or settings.remarksOut) and (settings.optLevel or 0) == 0 then
+        remarks[
+            #remarks + 1
+        ] = {
+            code = "OPT-0",
+            severity = "note",
+            status = "unavailable",
+            hotness = "unknown",
+            filename = path,
+            line = 1,
+            col = 1,
+            offset = 1,
+            length = 0,
+            msg = "optimizer unavailable at -O0; select -O1 or -O2 to request optimization"
+        }
+    end
     if settings.collectedRemarks then
         local collectedRemarks = settings.collectedRemarks
         for _, entry in ipairs(remarks) do
@@ -279,7 +313,7 @@ function compile.module(
         end
     end
     if settings.remarks then
-        say(remarks)
+        say(compile.selectRemarks(remarks, settings.remarksFile))
     end
     local gen = require("nupp.compiler.gen")
     local code, genDiags = gen.generate(

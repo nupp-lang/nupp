@@ -1967,4 +1967,12 @@ return size * 7
     assert(not code:find("local size", 1, true), code)
 end
 
+function M.optimizerRemarksCarryDecisionStatus()
+    local _, fired = compile("local t = {}\nt.a = 1\nt.b = 2\nreturn t")
+    assertEq(fired[1].status, "fired", "accepted decision")
+    assertEq(fired[1].hotness, "unknown", "static analysis invents no runtime heat")
+    local _, declined = compile("local t = {}\nprint(t)\nt.a = 1\nt.b = 2\nreturn t")
+    assertEq(declined[1].status, "declined", "declined decision")
+end
+
 return M

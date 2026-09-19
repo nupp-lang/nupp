@@ -274,13 +274,15 @@ local function isEmptyTable(node)
     return node and not isToken(node) and node.kind == "tableExpr" and #(node.fields or {}) == 0
 end
 
-local function remark(remarks, node, code, message, related)
+local function remark(remarks, node, code, message, related, status)
     local token = firstToken(node)
     remarks[
         #remarks + 1
     ] = {
         code = code,
         severity = "note",
+        status = status or "fired",
+        hotness = "unknown",
         msg = message,
         line = token and token.line or 0,
         col = token and token.col or 0,
@@ -342,7 +344,8 @@ local function presizeBlock(stats, remarks)
                         .. "something other than a field assignment before its "
                         .. "fields are known"
                     ):format(name),
-                    relatedAt(token, "used here")
+                    relatedAt(token, "used here"),
+                    "declined"
                 )
             end
         end
@@ -459,7 +462,8 @@ local function numericIpairsBody(body, facts, remarks)
                     node,
                     "OPT-2",
                     "numeric-ipairs: not rewritten because " .. reason,
-                    relatedAt(at, "proof stopped here")
+                    relatedAt(at, "proof stopped here"),
+                    "declined"
                 )
             end
         end
@@ -1706,6 +1710,7 @@ local function indexedRangeWalk(result, remarks)
             local adapters = {}
             local soaByView = {}
             local soaBindings = {}
+            local declinedNested = false
             local loopDefinition = entry.loop.var and entry.loop.var.definition
             for _, found in ipairs(entry.accesses) do
                 local access = found.node
@@ -1727,6 +1732,17 @@ local function indexedRangeWalk(result, remarks)
                 local field = found.parent and found.parent.soaField or nil
                 local viewDefinition = view and view.kind == "name" and view.token and view.token.definition or nil
                 local indexDefinition = index and index.kind == "name" and index.token and index.token.definition or nil
+                if field and entry.nested and not declinedNested then
+                    declinedNested = true
+                    remark(
+                        remarks,
+                        entry.loop,
+                        "OPT-6",
+                        "soa-loop-bindings: declines nested loop because repeated setup is left to LuaJIT hoisting",
+                        nil,
+                        "declined"
+                    )
+                end
                 if field
                     and not entry.nested
                     and viewDefinition
@@ -2010,7 +2026,9 @@ local function indexedRangeWalk(result, remarks)
                     .. " (unsupported-view-operation: "
                     .. tostring(
                         candidate.decline or "dependent-view-escapes"
-                    ) .. ")"
+                    ) .. ")",
+                    nil,
+                    "declined"
                 )
             end
         end
@@ -2153,7 +2171,9 @@ local function indexedViewReturnTransportWalk(result, remarks)
                 "OPT-6",
                 "view-scalar-replacement: declines static return (" .. tostring(
                     plan.decline or "no-static-caller"
-                ) .. ")"
+                ) .. ")",
+                nil,
+                "declined"
             )
         end
     end
@@ -2303,7 +2323,9 @@ local function indexedViewParameterTransportPlan(result, remarks)
                 remarks,
                 plan.node,
                 "OPT-6",
-                "view-scalar-replacement: declines static parameter (" .. tostring(plan.decline) .. ")"
+                "view-scalar-replacement: declines static parameter (" .. tostring(plan.decline) .. ")",
+                nil,
+                "declined"
             )
         end
     end
@@ -2343,7 +2365,9 @@ local function finalizeIndexedViewParameterTransport(plans, remarks)
                 remarks,
                 plan.node,
                 "OPT-6",
-                "view-scalar-replacement: declines static parameter (dependent-view-escapes)"
+                "view-scalar-replacement: declines static parameter (dependent-view-escapes)",
+                nil,
+                "declined"
             )
         end
     end
@@ -2891,7 +2915,14 @@ local function inlineReturnHelperWalk(result, remarks)
             if helper then
                 local growth, reason = inlineDecision(node, helper, subs, callerGrowth)
                 if growth == nil then
-                    remark(remarks, node, "OPT-7", ("inline-return-helper: keeps %s: %s"):format(name, reason))
+                    remark(
+                        remarks,
+                        node,
+                        "OPT-7",
+                        ("inline-return-helper: keeps %s: %s"):format(name, reason),
+                        nil,
+                        "declined"
+                    )
                 elseif inlineInto(node, helper, subs) then
                     callerGrowth = callerGrowth + growth
                     changed = true
@@ -3025,7 +3056,9 @@ local function constMonomorphizeWalk(result, remarks, selection: any?, selectedF
                     "OPT-8",
                     (
                         "const-monomorphize: declines body because this module already selected %d body classes"
-                    ):format(constspecialize.maxBodiesPerModule)
+                    ):format(constspecialize.maxBodiesPerModule),
+                    nil,
+                    "declined"
                 )
             end
         end

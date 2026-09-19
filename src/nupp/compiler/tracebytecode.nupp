@@ -233,7 +233,37 @@ end
 local function classify(instructions: {any}): {any}
     local cfg = controlFlow(instructions)
     local findings = {}
+    local callees = {}
     for _, ins in ipairs(instructions) do
+        local slot = tonumber(ins.text:match("[A-Z][A-Z0-9]*%s+(%d+)"))
+        if ins.op == "CALLT" and callees[slot] == "setmetatable" then
+            local reason = assert(trace.reason("jit/tailcall-constructor"))
+            findings[
+                #findings + 1
+            ] = {
+                reason = reason.id,
+                class = "risk",
+                reachability = "may",
+                pc = ins.pc,
+                opcode = ins.op,
+                line = ins.line,
+                explanation = reason.explanation,
+                repair = reason.repair
+            }
+            ins.traceReason = reason.id
+            ins.traceClass = "risk"
+            ins.traceReachability = "may"
+        end
+        if slot then
+            if ins.op == "GGET" then
+                callees[slot] = ins.text:match('; "([^"]+)"')
+            elseif ins.op == "MOV" then
+                local from = tonumber(ins.text:match("MOV%s+%d+%s+(%d+)"))
+                callees[slot] = callees[from]
+            else
+                callees[slot] = nil
+            end
+        end
         local owner
         for _, loop in ipairs(cfg.loops) do
             if loop.nodes[ins.pc] then

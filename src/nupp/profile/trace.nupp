@@ -67,6 +67,12 @@ local records: {
     trace.Reason
 } = {
     {
+        id = "jit/tailcall-constructor",
+        class = "risk",
+        explanation = "a constructor in tail position can leave the root trace before its caller loop closes",
+        repair = "bind the constructed result before returning it and inspect run --jit-aborts",
+    },
+    {
         id = "jit/loop-function-construction",
         class = "blocker",
         opcodes = {FNEW = true},

@@ -329,7 +329,12 @@ function listing.render(functions: {any}, source: string, opts: listing.Options?
                 text = text .. palette.note(note .. (" [%s, must-reach]"):format(ins.traceReason), true)
             else
                 text = text .. palette.note(
-                    ("  <-- this path aborts recording: %s [may-reach]"):format(ins.traceReason),
+                    (
+                        "  <-- %s: %s [may-reach]"
+                    ):format(
+                        ins.traceClass == "risk" and "recording risk" or "this path aborts recording",
+                        ins.traceReason
+                    ),
                     false
                 )
             end
@@ -428,7 +433,9 @@ function listing.aligned(functions: {any}, source: string, opts: listing.Options
                 text = text .. "   <-- this loop never compiles: " .. ins.unrecordable
                 text = text .. (" [%s, must-reach]"):format(ins.traceReason)
             else
-                text = text .. ("   <-- this path aborts recording: %s [may-reach]"):format(ins.traceReason)
+                text = text .. (
+                    "   <-- %s: %s [may-reach]"
+                ):format(ins.traceClass == "risk" and "recording risk" or "this path aborts recording", ins.traceReason)
             end
         end
 

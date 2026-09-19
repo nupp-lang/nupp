@@ -380,7 +380,7 @@ function M.traceReportRendersAsCsv()
    local report = session:stop()
 
    local rows = lines(tostring(report))
-   assertEq(rows[1], "severity,count,reason,location,zone", "the header")
+   assertEq(rows[1], "severity,count,reason,location,zone,rootLocation", "the header")
    assertEq(#rows, #report.sites + 1, "one row per site, after the header")
    for index = 2, #rows do
       assertMatch(rows[index], "^%a+,%d+,", "a row leads with severity, count")
@@ -541,7 +541,7 @@ function M.cliJitAbortsWritesCsv()
       .. "jit%-aborts%.csv", "the summary: " .. out)
 
    local rows = lines(readFile(dir .. "/jit-aborts.csv"))
-   assertEq(rows[1], "severity,count,reason,location,zone", "the header")
+   assertEq(rows[1], "severity,count,reason,location,zone,rootLocation", "the header")
    assert(#rows > 1, "the closure workload aborts, so there is a row")
    assertMatch(rows[2], "^warn,%d+,NYI", "and it says what was refused")
    os.execute("rm -rf '" .. dir .. "'")
@@ -630,6 +630,72 @@ function M.helpDescribesTheProfilingFlags()
    assertMatch(out, "%-%-profile%[=MS%]", "the sampling flag")
    assertMatch(out, "%-%-profile%-out PATH", "where it writes")
    assertMatch(out, "%-%-jit%-aborts", "the trace channel")
+end
+
+function M.samplePreservesEveryVmStateInCollapsedStacks()
+   local session = profile.sample({intervalMs = 1000})
+   session:pause()
+   session.aggregate = {[""] = {one = {
+      zonePath = "", stack = "work:entry;library:callback", count = 10,
+      compiled = 2, interpreted = 1, cCode = 3, collecting = 4, compiling = 0,
+   }}}
+   local report = session:stop()
+   assertEq(report.samples, 10, "all states counted")
+   assert(report.text:find("library:callback_[N] 2", 1, true), report.text)
+   assert(report.text:find("library:callback_[I] 1", 1, true), report.text)
+   assert(report.text:find("<C>_[C] 3", 1, true), report.text)
+   assert(not report.text:find("callback;<C>", 1, true), "native time must not inherit a delayed callback")
+   assert(report.text:find("<GC>_[G] 4", 1, true), report.text)
+end
+
+function M.traceKeepsRootWhenRecordingAbortsInsideALibrary()
+   local root = assert(loadstring("return function() return 1 end", "@program.nupp"))()
+   local library = assert(loadstring("return function() return 2 end", "@runtime/peg.lua"))()
+   local session = profile.trace()
+   session.callback("start", 90, root, 1)
+   session.callback("abort", 90, library, 1, FNEW_ERROR_CODE, FNEW_OPCODE)
+   session.callback("start", 91, library, 1, 90, 0)
+   session.callback("abort", 91, library, 1, FNEW_ERROR_CODE, FNEW_OPCODE)
+   local report = session:stop()
+   assertEq(report.totalAborts, 2, "both recording attempts counted")
+   assertEq(#report.sites, 1, "root and abort site aggregate together")
+   assertMatch(report.sites[1].rootLocation, "program.nupp:", "origin retained")
+   assertMatch(report.sites[1].location, "runtime/peg.lua:", "library retained")
+end
+
+function M.cliTraceExcludesTheWholeLazyCompilerWindow()
+   local dir = tempProject()
+   local function write(name, source)
+      local file = assert(io.open(dir .. "/" .. name, "wb"))
+      file:write(source)
+      file:close()
+   end
+   write("lazy.g.nupp", [[
+return function(n)
+   local sum=0
+   for i=1,n do local function step() return i end sum=sum+step() end
+   return sum
+end
+]])
+   write("work.g.nupp", [[
+local jit=require("jit")
+jit.opt.start("hotloop=1")
+jit.flush()
+local run=require("lazy")
+for i=1,40 do run(100) end
+]])
+   local out, ok = run(dir, "run --jit-aborts=aborts.json --json work.g.nupp")
+   assert(ok, out)
+   local report = require("testjson").decode(readFile(dir .. "/aborts.json"))
+   assert(report.totalAborts > 0, "program aborts remain visible")
+   local crossed = false
+   for _, site in ipairs(report.sites) do
+      assert(not site.rootLocation:find("nupp/compiler/", 1, true), "compiler root leaked: " .. site.rootLocation)
+      assert(not site.location:find("nupp/compiler/", 1, true), "compiler abort leaked: " .. site.location)
+      crossed = crossed or site.rootLocation:find("work.g.nupp", 1, true) and site.location:find("lazy.g.nupp", 1, true)
+   end
+   assert(crossed, "program root survives a dependency's abort site")
+   os.execute("rm -rf '" .. dir .. "'")
 end
 
 return M

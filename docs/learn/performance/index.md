@@ -1136,7 +1136,14 @@ nupp build -O1 -Zno-opt=OPT-2
 ```
 
 `build --remarks` and `run --remarks` report successful and declined rewrites
-with source locations. Remarks never fail a build; `check` does not optimize. Use
+with source locations. Add `--remarks-file src/work.nupp` to select one source,
+and `--remarks-out` to write `build/remarks.json`. Each machine-readable remark
+has `status` (`fired`, `declined`, or `unavailable`) and `hotness: "unknown"`:
+static decisions do not claim runtime heat. `-O0` reports that optimization is
+unavailable instead of silently producing no decisions. Explicit-file builds
+write beneath `build/` by default; `-o DIR` changes that directory.
+
+Remarks never fail a build; `check` does not optimize. Use
 `-Zno-opt=CODE` to disable one pass or `-O0` to disable all passes. `OPT-n`
 codes are stable; `-Z` flags are debugging interfaces.
 

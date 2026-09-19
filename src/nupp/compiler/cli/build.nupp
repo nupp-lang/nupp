@@ -329,6 +329,7 @@ local function run(options: any): integer
             strict = settings.strict,
             optLevel = settings.optLevel,
             remarks = settings.remarks,
+            remarksFile = settings.remarksFile,
             disabled = settings.disabled,
             diagnostics = asJson and diagnostics or nil,
             produced = (asJson or settings.remarksOut ~= nil) and produced or nil,
@@ -344,6 +345,7 @@ local function run(options: any): integer
         return finish(code, produced)
     end
     local fs = require("nupp.compiler.fs")
+    outDir = outDir or "build"
     if outDir and not fs.mkdir(outDir) then
         io.stderr:write("nupp: cannot create output directory " .. outDir .. "\n")
         return finish(1, {})
@@ -552,6 +554,10 @@ local record Build
 
     --- Report what the optimizer did and what it declined to do.
     remarks: boolean = false
+
+    --- Only report optimizer decisions for this source file.
+    @cli(value = "PATH")
+    remarksFile: string?
 
     --- Write the optimizer's account to build/remarks.json.
     remarksOut: boolean = false

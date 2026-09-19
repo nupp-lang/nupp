@@ -226,6 +226,8 @@ function report.diagnosticValues(diagnostics: {any}): {any}
             file = e.filename,
             severity = diagnosticMod.severityOf(e),
             code = e.code,
+            status = e.status,
+            hotness = e.hotness,
             lint = e.lint,
             -- Derived from the code rather than carried on every diagnostic: one code
             -- always means one section, so storing it at each of the hundreds of places
@@ -315,6 +317,8 @@ report.DIAGNOSTIC = {
             .. "and anchor. 'nupp explain <code>' says more."
         },
         message = {type = "string"},
+        status = {type = "string", enum = {"fired", "declined", "unavailable"}},
+        hotness = {type = "string", enum = {"unknown"}},
         range = RANGE,
         help = {type = "string", description = "A concrete repair direction."},
         notes = {type = "array", items = {type = "string"}},

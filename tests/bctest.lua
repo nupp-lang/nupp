@@ -477,4 +477,29 @@ return total
     assert(not out:find("FNEW", 1, true), out)
 end
 
+function M.bytecodeUsesTheSelectedTierAndNamesConstructorTailCalls()
+    local dir = project{["constructor.g.nupp"] = [[
+local function make()
+    return setmetatable({}, {})
+end
+return make()
+]]}
+    local out, code = run(dir, "--json --check -O1 constructor.g.nupp")
+    test.equal(code, 0, out)
+    local report = require("testjson").decode(out)
+    test.equal(report.optLevel, 1, "selected optimization tier")
+    assert(report.risks > 0, "constructor tail call is an explicit risk")
+    local found = false
+    for _, fn in ipairs(report.functions) do
+        for _, finding in ipairs(fn.findings) do
+            if finding.reason == "jit/tailcall-constructor" then
+                found = true
+                test.equal(finding.class, "risk", "tail call is not a proved blocker")
+            end
+        end
+    end
+    assert(found, "named constructor tail-call reason")
+    os.execute("rm -rf " .. string.format("%q", dir))
+end
+
 return M

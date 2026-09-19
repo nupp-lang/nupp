@@ -30,6 +30,7 @@ local REPORT_SCHEMA = {
     description = "The bytecode of one Nupp file, by function.",
     properties = {
         file = {type = "string"},
+        optLevel = {type = "integer"},
         functions = {
             type = "array",
             items = {
@@ -54,6 +55,7 @@ local REPORT_SCHEMA = {
                                     .. "compiled. Absent when it can.",
                                 },
                                 traceReason = {type = "string"},
+                                traceClass = {type = "string", enum = {"blocker", "risk", "stop"}},
                                 traceReachability = {type = "string", enum = {"must", "may"}},
                             },
                             required = {"pc", "op", "text"},
@@ -192,6 +194,7 @@ local function run(options: any): integer
         io.write(
             report.encode({
                 file = path,
+                optLevel = settings.optLevel or 0,
                 functions = functions,
                 unrecordable = unrecordable,
                 blockers = analysis.blockers,
@@ -242,6 +245,17 @@ local record Bytecode
     --- Select the report representation.
     @cli(value = "FORMAT", constantAliases = {json = "json", text = "text"})
     format: "text" | "json" = "text"
+
+    --- Optimization level, matching run and build (default -O0).
+    @cli(
+        name = "O",
+        long = false,
+        pattern = "^%-O([0-2])$",
+        choices = {"0", "1", "2"},
+        display = "-O0, -O1, -O2",
+        value = "LEVEL"
+    )
+    optLevel: string?
 
     --- Report bytecode a loop cannot compile.
     check: boolean = false

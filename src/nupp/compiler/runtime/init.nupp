@@ -23,7 +23,8 @@ function runtime.install(
     env: envMod.Env,
     compile: function(path: string, env: envMod.Env): (string?, string?),
     loaded: function(name: string, path: string, ok: boolean)?,
-    checkPlain: function(path: string, env: envMod.Env): boolean?
+    checkPlain: function(path: string, env: envMod.Env): boolean?,
+    preparing: (function(active: boolean): nil)?
 ): function(): nil
     local loaders = package.loaders
     assert(loaders, "this Lua runtime does not expose package loaders")
@@ -104,8 +105,23 @@ function runtime.install(
         end
     end
 
+    -- Profiling excludes resolution and loading as well as compilation. The
+    -- returned chunk runs after this wrapper has restored the measured window.
+    local installedLoader = loadLjppModule
+    if preparing then
+        installedLoader = function(name)
+            preparing(true)
+            local ok, result = pcall(loadLjppModule, name)
+            preparing(false)
+            if not ok then
+                error(result, 0)
+            end
+
+            return result
+        end
+    end
     -- package.preload remains authoritative, matching Lua's normal semantics.
-    table.insert(loaders, 2, loadLjppModule)
+    table.insert(loaders, 2, installedLoader)
 
     local installed = true
 
@@ -115,7 +131,7 @@ function runtime.install(
         end
         installed = false
         for j, loader in ipairs(loaders) do
-            if loader == loadLjppModule then
+            if loader == installedLoader then
                 table.remove(loaders, j)
                 return
             end

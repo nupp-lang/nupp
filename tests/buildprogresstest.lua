@@ -237,7 +237,7 @@ function M.aFileBuildCountsTheBodiesItEmitted()
     local decoded = require("testjson").decode(out)
     assertEq(decoded.ok, true, "the file build worked: " .. out)
     local emitted = 0
-    for _ in readAll(dir .. "/only.lua"):gmatch("local function __nuppConst_accumulate_") do
+    for _ in readAll(dir .. "/build/only.lua"):gmatch("local function __nuppConst_accumulate_") do
         emitted = emitted + 1
     end
     assertEq(emitted, 2, "two closed tuples emit two private bodies")
@@ -266,7 +266,7 @@ function M.aFileBuildAtLevelZeroCountsNothing()
     local decoded = require("testjson").decode(out)
     assertEq(decoded.timing.specializedBodies, 0, "-O0 emits and counts nothing")
     assert(
-        not readAll(dir .. "/only.lua"):find("__nuppConst_accumulate_", 1, true),
+        not readAll(dir .. "/build/only.lua"):find("__nuppConst_accumulate_", 1, true),
         "-O0 leaves the generic declaration and call"
     )
 end

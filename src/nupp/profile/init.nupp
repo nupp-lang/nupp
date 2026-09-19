@@ -222,6 +222,9 @@ record profile.AbortSite
     --- "<file>:<line>" of the function being recorded when it aborted.
     location: string
 
+    --- Where the root trace began, including when recording entered a library.
+    rootLocation: string?
+
     --- The zone path that was open, "" when none was.
     zonePath: string
 end
@@ -364,27 +367,6 @@ local function sanitize(frame: string): string
     return (frame:gsub("[;/\n\r]", "_"))
 end
 
--- The VM state the most samples on a stack were in, as the one character `jit.profile`
--- reports it with. Ties go to the earlier test, which puts "compiled" ahead of the
--- states that are all forms of not running the program.
-local function dominantState(sample: profile.Sample): string
-    local state, best = "N", sample.compiled
-    if sample.interpreted > best then
-        state, best = "I", sample.interpreted
-    end
-    if sample.cCode > best then
-        state, best = "C", sample.cCode
-    end
-    if sample.collecting > best then
-        state, best = "G", sample.collecting
-    end
-    if sample.compiling > best then
-        state, best = "J", sample.compiling
-    end
-
-    return state
-end
-
 -- Appends the pieces of `text`, split on `separator`, to `frames`. Empty pieces are
 -- dropped: a zone path is "" when no zone is open, and dumpstack can render a frame it
 -- has no name for as nothing at all.
@@ -403,7 +385,7 @@ end
 -- the sample count. The zone path leads, so a flame graph opens on the zones and drills
 -- into the code beneath each.
 --
--- The leaf carries the dominant VM state as a "_[N]" suffix, the convention FlameGraph
+-- Each row carries its VM state as a "_[N]" suffix, the convention FlameGraph
 -- and speedscope already colour on. The letters are LuaJIT's own: N compiled, I
 -- interpreted, C in a C function, G collecting, J compiling.
 local function collapse(samples: {profile.Sample}): string
@@ -431,8 +413,31 @@ local function collapse(samples: {profile.Sample}): string
         if #frames == 0 then
             frames[1] = "<root>"
         end
-        frames[#frames] = frames[#frames] .. "_[" .. dominantState(sample) .. "]"
-        lines[index] = table.concat(frames, ";") .. " " .. string.format("%d", sample.count)
+        -- A stack may have samples in several VM states. Preserve each count:
+        -- assigning the dominant state to the whole stack hides GC and C work.
+        local states = {
+            N = sample.compiled,
+            I = sample.interpreted,
+            C = sample.cCode,
+            G = sample.collecting,
+            J = sample.compiling
+        }
+        for _, state in ipairs({"N", "I", "C", "G", "J"}) do
+            local count = states[state]
+            if count > 0 then
+                local prefix = table.concat(frames, ";")
+                if state == "C" or state == "G" or state == "J" then
+                    -- VM state was captured at the interrupt, but the stack is
+                    -- inspected later. Native/GC/JIT work must not inherit that
+                    -- later Lua callback's frames.
+                    local zones: {string} = {}
+                    appendFrames(zones, sample.zonePath, "/")
+                    zones[#zones + 1] = "<" .. (state == "G" and "GC" or state == "J" and "JIT" or "C") .. ">"
+                    prefix = table.concat(zones, ";")
+                end
+                lines[#lines + 1] = prefix .. "_[" .. state .. "] " .. string.format("%d", count)
+            end
+        end
     end
 
     return table.concat(lines, "\n")
@@ -800,7 +805,7 @@ local function csvField(text: string): string
 end
 
 local function serializeTraceReport(report: profile.TraceReport): string
-    local lines: {string} = {"severity,count,reason,location,zone"}
+    local lines: {string} = {"severity,count,reason,location,zone,rootLocation"}
     for index = 1, #report.sites do
         local site = report.sites[index]
         lines[
@@ -812,6 +817,7 @@ local function serializeTraceReport(report: profile.TraceReport): string
                 csvField(site.reason),
                 csvField(site.location),
                 csvField(site.zonePath),
+                csvField(site.rootLocation or site.location),
             },
             ","
         )
@@ -874,11 +880,24 @@ function profile.trace(options: profile.TraceOptions?): profile.TraceSession
     )
 
     -- Variadic because `jit.attach` hands each event its own arguments; a "trace"
-    -- event's are what this unpacks. The trace number is the one this does not need:
-    -- what identifies a site is where the compiler was, not which attempt it was on.
+    -- event's are what this unpacks. Trace numbers connect side traces to their
+    -- root; persistent site identities use locations rather than attempt numbers.
+    local roots = {}
+
     local function onTraceEvent(...: any)
-        local what, _, func, pc, errorCode, errorArg = ...
-        if what ~= "abort" or session.paused then
+        local what, traceNumber, func, pc, errorCode, errorArg = ...
+        if what == "start" then
+            if session.paused or roots[errorCode] == false then
+                roots[traceNumber] = false
+            else
+                roots[traceNumber] = roots[errorCode] or describeLocation(func, pc)
+            end
+            return
+        elseif what == "flush" then
+            roots = {}
+            return
+        end
+        if what ~= "abort" or session.paused or roots[traceNumber] == false then
             return
         end
 
@@ -897,7 +916,8 @@ function profile.trace(options: profile.TraceOptions?): profile.TraceSession
 
         local location = describeLocation(func, pc)
         local path = zone.path()
-        local key = severity .. "|" .. reason .. "|" .. location .. "|" .. path
+        local rootLocation = roots[traceNumber] or location
+        local key = severity .. "|" .. reason .. "|" .. rootLocation .. "|" .. location .. "|" .. path
         local site = session.sites[key]
         if site then
             site.count = site.count + 1
@@ -912,6 +932,7 @@ function profile.trace(options: profile.TraceOptions?): profile.TraceSession
                 reasonClass = normalized.class,
                 rawReason = reason,
                 location = location,
+                rootLocation = rootLocation,
                 zonePath = path
             )
         end

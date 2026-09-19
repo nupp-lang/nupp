@@ -79,11 +79,12 @@ function M.buildEmitsTheDependencyClosure()
     local dir = tempProject({["nupp.lua"] = 'return {include = {"."}}\n', ["lib.nupp"] = LIB, ["main.nupp"] = APP,})
     local out = capture(("cd '%s' && '%s' build main.nupp"):format(dir, NUPP))
     assertEq(out, "", "build is quiet on success: " .. out)
-    assert(exists(dir .. "/main.lua"), "entry compiled")
-    assert(exists(dir .. "/lib.lua"), "required module compiled too")
-    assert(exists(dir .. "/nupp/runtime/managed.lua"), "generated ownership runtime is carried")
+    assert(exists(dir .. "/build/main.lua"), "entry compiled")
+    assert(not exists(dir .. "/main.lua"), "building leaves authored directories untouched")
+    assert(exists(dir .. "/build/lib.lua"), "required module compiled too")
+    assert(exists(dir .. "/build/nupp/runtime/managed.lua"), "generated ownership runtime is carried")
     -- and the result runs on plain LuaJIT, with no toolchain present
-    local ran = capture(("cd '%s' && LUA_PATH='./?.lua;;' luajit main.lua"):format(dir))
+    local ran = capture(("cd '%s' && LUA_PATH='./build/?.lua;;' luajit build/main.lua"):format(dir))
     assertEq(ran, "42\n", "built output runs standalone")
     os.execute("rm -rf '" .. dir .. "'")
 end
@@ -156,7 +157,7 @@ function M.runLoadsModulesFromSource()
     -- no build step: the runtime loader compiles requires on demand
     local ran = capture(("cd '%s' && '%s' run main.nupp"):format(dir, NUPP))
     assertEq(ran, "42\n", "multi-file program runs straight from source")
-    assert(not exists(dir .. "/lib.lua"), "running leaves no artifacts")
+    assert(not exists(dir .. "/build/lib.lua"), "running leaves no artifacts")
     os.execute("rm -rf '" .. dir .. "'")
 end
 
@@ -184,8 +185,8 @@ function M.declarationFilesEmitNoArtifact()
     })
     local out = capture(("cd '%s' && '%s' build main.nupp"):format(dir, NUPP))
     assertEq(out, "", "declaration-backed build succeeds: " .. out)
-    assert(exists(dir .. "/main.lua"), "entry compiled")
-    assert(not exists(dir .. "/shape.lua"), "a declaration file describes an interface and emits nothing")
+    assert(exists(dir .. "/build/main.lua"), "entry compiled")
+    assert(not exists(dir .. "/build/shape.lua"), "a declaration file describes an interface and emits nothing")
     os.execute("rm -rf '" .. dir .. "'")
 end
 
@@ -301,19 +302,19 @@ function M.buildAndCheckResolveTheSameDialectOption()
     })
     local native = require("testjson").decode(captureJson(("cd '%s' && '%s' build main.nupp --json"):format(dir, NUPP)))
     assertEq(native.dialect, "luajit", "an explicit build defaults to LuaJIT")
-    local nativeCode = read(dir .. "/main.lua")
+    local nativeCode = read(dir .. "/build/main.lua")
 
     local explicitNative = require(
         "testjson"
     ).decode(captureJson(("cd '%s' && '%s' build --dialect luajit main.nupp --json"):format(dir, NUPP)))
     assertEq(explicitNative.dialect, "luajit", "LuaJIT may be selected explicitly")
-    assertEq(read(dir .. "/main.lua"), nativeCode, "omitted and explicit LuaJIT dialects generate byte-identically")
+    assertEq(read(dir .. "/build/main.lua"), nativeCode, "omitted and explicit LuaJIT dialects generate byte-identically")
 
     local portable = require(
         "testjson"
     ).decode(captureJson(("cd '%s' && '%s' build --dialect lua51 main.nupp --json"):format(dir, NUPP)))
     assertEq(portable.dialect, "lua51", "an explicit build reports its dialect")
-    local portableCode = read(dir .. "/main.lua")
+    local portableCode = read(dir .. "/build/main.lua")
     assert(portableCode ~= nativeCode, "the portable dialect carries its compatibility floor")
     assert(
         portableCode:find("_G.loadstring or _G.load", 1, true),
@@ -791,7 +792,7 @@ return new Model()
         json.generatedMembers == 3 and json.canonicalBytes > 0 and json.renderedBytes > 0,
         "build observations expose bounded generation facts"
     )
-    local coldBytes = read(dir .. "/model.lua")
+    local coldBytes = read(dir .. "/build/model.lua")
 
     local second = require(
         "testjson"
@@ -805,7 +806,7 @@ return new Model()
         )
         assertEq(second.derives[index].canonicalBytes, observation.canonicalBytes, "cached/cold derive size")
     end
-    assertEq(read(dir .. "/model.lua"), coldBytes, "cached and cold derived output bytes")
+    assertEq(read(dir .. "/build/model.lua"), coldBytes, "cached and cold derived output bytes")
     os.execute("rm -rf '" .. dir .. "'")
 end
 
@@ -833,6 +834,35 @@ return main()
     local second = json.decode(read(dir .. "/build/remarks.json"))
     assertEq(#second.allocationSites, #first.allocationSites, "warm build preserves allocation account")
     assertEq(#second.remarks, #first.remarks, "warm build preserves optimizer remarks")
+    os.execute("rm -rf " .. string.format("%q", dir))
+end
+
+function M.optimizerAccountsFilterFilesAndExplainUnavailableOptimization()
+    local dir = tempProject({
+        ["nupp.lua"] = 'return {include = {"src"}, build = {entries = {"main"}, optimize = 1}}',
+        ["src/main.g.nupp"] = 'local other = require("other")\nlocal t = {}\nt.a = 1\nt.b = 2\nreturn t, other',
+        ["src/other.g.nupp"] = 'local t = {}\nt.a = 3\nt.b = 4\nreturn t',
+    })
+    local output = capture(("cd %q && %q build -O1 --remarks --remarks-out --remarks-file src/main.g.nupp src/main.g.nupp"):format(dir, NUPP))
+    assert(not output:find("src/other.g.nupp:", 1, true), "terminal remarks obey file filter: " .. output)
+    assert(not exists(dir .. "/src/main.lua") and not exists(dir .. "/src/other.lua"), "inspection creates no source neighbors")
+    local record = json.decode(read(dir .. "/build/remarks.json"))
+    assert(#record.remarks > 0, "selected workload has optimizer decisions")
+    for _, remark in ipairs(record.remarks) do
+        assertEq(remark.file, "src/main.g.nupp", "machine remarks obey file filter")
+        assert(remark.status == "fired" or remark.status == "declined", "decision has status")
+        assertEq(remark.hotness, "unknown", "static remarks do not invent hotness")
+    end
+    local manifestCommand = ("cd %q && %q build --remarks --remarks-out --remarks-file src/main.g.nupp"):format(dir, NUPP)
+    for attempt = 1, 2 do
+        local manifestOut = capture(manifestCommand)
+        assert(manifestOut:find("src/main.g.nupp:", 1, true), "cold and warm builds replay selected remarks: " .. manifestOut)
+        assert(not manifestOut:find("src/other.g.nupp:", 1, true), "manifest filter excludes dependencies: " .. manifestOut)
+    end
+    output = capture(("cd %q && %q build --remarks --remarks-out --remarks-file src/main.g.nupp src/main.g.nupp"):format(dir, NUPP))
+    assert(output:find("optimizer unavailable at -O0", 1, true), "default tier is explained: " .. output)
+    record = json.decode(read(dir .. "/build/remarks.json"))
+    assertEq(record.remarks[1].status, "unavailable", "disabled optimizer is machine-readable")
     os.execute("rm -rf " .. string.format("%q", dir))
 end
 

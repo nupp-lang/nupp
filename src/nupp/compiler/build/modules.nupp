@@ -1533,11 +1533,6 @@ local function buildModules(root: string, outDir: string, config: Config, target
                     #allocationSites + 1
                 ] = {file = path, kind = site.kind, line = site.line, col = site.col,}
             end
-            if config._remarks then
-                for _, note in ipairs(remarks) do
-                    mine[#mine + 1] = note
-                end
-            end
             local emittedEffects
             code, genDiags, coverage, emittedEffects = gen.generate(
                 result.result,

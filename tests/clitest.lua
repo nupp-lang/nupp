@@ -716,6 +716,8 @@ function M.checkNamedFilesKeepTheirExtensionStrictness()
     local function unknown(command, expected)
         local output = captureJsonAt(dir, command)
         local report = json.decode(output)
+        assert(report.timing and report.timing.totalMs >= 0, "every check form reports timing: " .. output)
+        assert(type(report.timing.compiledModules) == "number", "every check reports work count")
         local found = false
         for _, diagnostic in ipairs(report.diagnostics) do
             found = found or diagnostic.code == "NUPP2105"

@@ -71,12 +71,16 @@ Two static scopes matter to a project, and they catch different things:
 
 ```bash
 nupp check
-nupp bc --check src/physics.nupp
+nupp bc --check -O1 src/physics.nupp
 nupp bc --check --json src/physics.nupp > build/physics-bytecode.json
 ```
 
 `nupp check` enforces every `@jit` contract. `bc --check` catches blockers in
 exact generated loop bytecode even where no source annotation was written. Its
+Select the same `-O0`, `-O1`, or `-O2` level as the program run. JSON records
+`optLevel`; both commands default to `-O0`. A tail call to `setmetatable` is
+reported as a constructor risk, including in a helper without its own loop.
+
 JSON includes the generated-artifact fingerprint, trace profile, catalog
 version, prototype, PC, opcode, source line, reason ID, class, reachability,
 explanation, and repair. See [`bc`](../../reference/cli.md#bc) for the command.

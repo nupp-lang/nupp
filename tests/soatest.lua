@@ -22,9 +22,9 @@ local function compile(source)
    for _, diagnostic in ipairs(diagnostics or {}) do
       if diagnostic.severity == "error" then errors[#errors + 1] = diagnostic end
    end
-   optimize.run(parsed, {level = 1})
+   local remarks = optimize.run(parsed, {level = 1})
    local code, generated = gen.generate(parsed, "soa-test.g.nupp")
-   return code, errors, generated, parsed
+   return code, errors, generated, parsed, remarks
 end
 
 local function runs(source)
@@ -122,7 +122,7 @@ return advance
 end
 
 function M.nestedCountBoundedLoopsLeaveCrossLoopHoistingToTheRecorder()
-   local code, errors, generated = compile(PRELUDE .. [[
+   local code, errors, generated, _, remarks = compile(PRELUDE .. [[
 function advance(view: soa.WriteSpan<Particle>, delta: float, steps: integer): nil
     const rows = view
     for _ = 1, steps do
@@ -134,6 +134,14 @@ function advance(view: soa.WriteSpan<Particle>, delta: float, steps: integer): n
 end
 return advance
 ]])
+   local declined = false
+   for _, remark in ipairs(remarks) do
+      if remark.msg:find("soa-loop-bindings: declines nested loop", 1, true) then
+         assertEq(remark.status, "declined", "nested binding decision is structured")
+         declined = true
+      end
+   end
+   assert(declined, "the nested-loop decision explains why binding was declined")
    assertEq(#errors, 0, "checked nested invariant fixture")
    assertEq(#generated, 0, "generated nested invariant fixture")
    local compact = code:gsub("%s+", "")

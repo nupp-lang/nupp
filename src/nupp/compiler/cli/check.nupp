@@ -44,9 +44,7 @@ local REPORT_SCHEMA = {
             type = "object",
             description = "Where the check's wall-clock time went, and how many "
             .. "of the project's modules were reused from the cache versus "
-            .. "rechecked this run. Present only with no files named, since a "
-            .. "check of explicit files does not go through the project's module "
-            .. "cache. `compiledModules = 0` is the authoritative answer that "
+            .. "rechecked this run, including explicitly named files. `compiledModules = 0` is the authoritative answer that "
             .. "nothing was redone; `slowest` ranks modules by time actually "
             .. "spent regardless of that answer, since confirming a module's "
             .. "cache entry is still valid costs time too, only less of it.",
@@ -104,8 +102,20 @@ local function run(options: any): integer
     local diagnostics: {any} = {}
     local effectiveDialect = assert(require("nupp.compiler.dialects").resolve(values.dialect))
 
+    local progress = require("nupp.compiler.build.progress")
+    local started = progress.now()
+    local timing = {compiledModules = 0, reusedModules = 0, specializedBodies = 0, phases = {}, slowest = {}}
+
     local function writeJson(ok: boolean): nil
-        reportMod.write({ok = ok, diagnostics = reportMod.diagnosticValues(diagnostics), dialect = effectiveDialect,})
+        local total = progress.now() - started
+        timing.totalMs = total
+        timing.phases = {{name = "check", durationMs = total}}
+        reportMod.write({
+            ok = ok,
+            diagnostics = reportMod.diagnosticValues(diagnostics),
+            dialect = effectiveDialect,
+            timing = timing
+        })
     end
 
     if #paths == 0 then
@@ -121,6 +131,12 @@ local function run(options: any): integer
             progress = progressMode
         })
         effectiveDialect = produced.dialect or effectiveDialect
+        if not produced.timing then
+            local total = progress.now() - started
+            timing.totalMs = total
+            timing.phases = {{name = "check", durationMs = total}}
+            produced.timing = timing
+        end
         if asJson then
             reportMod.write({
                 ok = code == 0,
@@ -220,6 +236,9 @@ local function run(options: any): integer
                 produced = produced,
                 progress = progressMode,
             })
+            if produced.timing then
+                timing = produced.timing
+            end
             effectiveDialect = produced.dialect or effectiveDialect
             if code ~= 0 then
                 failed = true
@@ -249,6 +268,8 @@ local function run(options: any): integer
 
     local env = require("nupp.compiler.env").new(".")
     for _, path in ipairs(remaining) do
+        timing.compiledModules = timing.compiledModules + 1
+        local fileStarted = progress.now()
         local result = parser.parse(sources[path] as string, path)
         if #result.errors > 0 then
             if asJson then
@@ -275,6 +296,13 @@ local function run(options: any): integer
                 failed = true
             end
         end
+        timing.slowest[#timing.slowest + 1] = {module = path, durationMs = progress.now() - fileStarted}
+    end
+    table.sort(timing.slowest, function(a, b)
+        return a.durationMs > b.durationMs
+    end)
+    while #timing.slowest > progress.SLOWEST do
+        table.remove(timing.slowest)
     end
     -- Checking one named file still needs the project's declaration index, which is a
     -- header for every file in the project. Whatever this run had to work out for
