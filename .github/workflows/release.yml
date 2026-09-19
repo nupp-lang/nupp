@@ -21,6 +21,53 @@ jobs:
     name: LuaJIT browser runtime
     uses: ./.github/workflows/browser-guest.yml
 
+  cold-browser-checkout:
+    name: Cold browser checkout
+    needs: build-luajit-browser-runtime
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: emscripten-core/setup-emsdk@v15
+        with:
+          version: 6.0.8
+          actions-cache-folder: emsdk-cache
+      - uses: actions/cache/restore@v4
+        with:
+          path: .nupp-cache/toolchain
+          key: browser-guest-${{ runner.os }}-${{ hashFiles('scripts/toolchain.pins', 'scripts/browser-*.py', 'runtime/luajit/**') }}
+      - name: Install browser engines
+        run: |
+          npm ci --prefix editors/playground
+          npx --prefix editors/playground playwright install --with-deps chromium firefox webkit
+      - uses: actions/download-artifact@v4
+        with:
+          name: nupp-luajit-browser-runtime
+          path: release
+      - name: Build from source-only export and test the packaged playground
+        run: |
+          mkdir -p "$RUNNER_TEMP/cold-browser-guest"
+          tar -xzf release/nupp-luajit-browser-runtime.tar.gz -C "$RUNNER_TEMP/cold-browser-guest"
+          python3 .github/scripts/test-cold-browser-checkout.py \
+            --guest "$RUNNER_TEMP/cold-browser-guest" \
+            --toolchain-dir "$GITHUB_WORKSPACE/.nupp-cache/toolchain" \
+            "$RUNNER_TEMP/cold-browser"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cold-browser-validation
+          path: |
+            ${{ runner.temp }}/cold-browser/*.json
+            ${{ runner.temp }}/cold-browser/*.log
+            ${{ runner.temp }}/cold-browser/*.png
+          if-no-files-found: error
+
   build-browser-runtime:
     name: Browser application runtime
     runs-on: ubuntu-latest
@@ -791,6 +838,7 @@ jobs:
     needs:
       - build-browser-runtime
       - build-luajit-browser-runtime
+      - cold-browser-checkout
       - build-unix
       - build-windows
       - build-compiler-pack-linux

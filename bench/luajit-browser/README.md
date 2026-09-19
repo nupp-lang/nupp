@@ -416,6 +416,17 @@ workflow also calls it and adds
 matching sources and notices. The old runtime archive remains for the rollback
 release. A workflow-dispatch rehearsal publishes no release.
 
+The guest workflow now verifies the **extracted release archive**: asset and
+snapshot identities, notices, matching build recipes and upstream source
+digests, then the packaged application matrix across three desktop engines.
+Advertised snapshots must restore successfully during ordinary smoke checks;
+the recovery tests separately exercise intentional fallback to normal boot.
+The release workflow also requires a source-only cold build and the complete
+playground UI harness. See [the cold gate](legacy-removal.md) for reproduction.
+Shared playground and documentation links carry explicit runtime, compatibility,
+strictness and optimization settings, independent of the recipient's saved
+preferences. Explicit legacy links remain usable through the rollback release.
+
 `results/release-consumer.json` verifies the archive downloaded from release
 rehearsal [35453482994](https://github.com/nupp-lang/nupp/actions/runs/35453482994)
 as a consumer input: it packages the guest-native AOT fixture, whose checks pass

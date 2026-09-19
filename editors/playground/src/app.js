@@ -1,4 +1,4 @@
-import {DEFAULT_OPTIONS, restoreOptions, storedOptions, saveOptions} from "./options.js";
+import {DEFAULT_OPTIONS, restoreOptions, storedOptions, saveOptions, sourceFragment} from "./options.js";
 import { EditorView, basicSetup } from "codemirror";
 import { hoverTooltip } from "@codemirror/view";
 import { EditorState } from "@codemirror/state";
@@ -237,17 +237,7 @@ Object.assign(options, restoreOptions(params, storedOptions()));
 // not used to publish it — the page never rewrites its own address, so a reader
 // who came from a docs page can still reload back to what that page showed.
 function fragmentFor(source) {
-  const parts = ["source=" + encodeURIComponent(source)];
-  for (const field of OPTION_FIELDS) {
-    if (options[field.key] !== OPTION_DEFAULTS[field.key]) {
-      parts.push(`${field.key}=${options[field.key] ? "1" : "0"}`);
-    }
-  }
-  if (options.dialect !== OPTION_DEFAULTS.dialect) {
-    parts.push(`dialect=${options.dialect}`);
-  }
-  if (options.compat) parts.push(`compat=${options.compat}`);
-  return "#" + parts.join("&");
+  return sourceFragment(source, options);
 }
 
 const sourceView = new EditorView({
