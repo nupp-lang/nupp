@@ -118,6 +118,25 @@ function relations.relation(
     return new scalarIR.Relation(left = left, right = right, offset = offset, source = source)
 end
 
+--- Every column of a sealed row view has the same count. These are ABI facts,
+--- not authored guards, so wrappers never check or reconstruct them.
+function relations.withSoaCounts(pool: {scalarIR.Relation}, params: {scalarIR.Param}): {scalarIR.Relation}
+    local result: {scalarIR.Relation} = {}
+    for _, relation in ipairs(pool) do
+        result[#result + 1] = relation
+    end
+    for _, param in ipairs(params) do
+        if param.soa ~= nil and param.soa.ordinal > 1 then
+            local view = relations.count(param.soa.view)
+            local column = relations.count(param.name)
+            result[#result + 1] = relations.relation(view, column, 0)
+            result[#result + 1] = relations.relation(column, view, 0)
+        end
+    end
+
+    return result
+end
+
 --- One relation as a diagnostic spells it.
 function relations.text(relation: scalarIR.Relation): string
     local left = relations.termText(relation.left)

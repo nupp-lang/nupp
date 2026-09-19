@@ -623,12 +623,32 @@ function ownership.install(c: state.Checker): ownership.Ops
     --- exclusive borrows, which is what a shared use has to stay clear of.
     function own.regionBlocked(root, entry, entryFacts, regionRoot, regionPath, exclusive)
         if regionRoot and regionPath and regionPath ~= "" then
-            local ownCount = entry
-                and entryFacts
-                and entryFacts.regionRoot == regionRoot
-                and entryFacts.regionPath == regionPath
-                and 1
-                or 0
+            local held = {}
+
+            local function hold(candidate)
+                candidate = own.ownershipState(candidate)
+                if not candidate or held[candidate] then
+                    return
+                end
+                held[candidate] = true
+                for _, derived in ipairs(own.capabilityFacts(candidate, nil, false).roots or {}) do
+                    hold(derived)
+                end
+            end
+
+            hold(entry)
+            -- A pointer reborrow and the column view it derives from may name
+            -- the same region. Every active ancestor authorizes that reborrow;
+            -- an independent sibling still conflicts.
+            local ownCount = 0
+            for borrowed in pairs(held) do
+                local facts = own.capabilityFacts(borrowed, nil, false)
+                if not borrowed.moved and facts.regionRoot == regionRoot and facts.regionPath == regionPath and (
+                    not exclusive or facts.exclusive
+                ) then
+                    ownCount = ownCount + 1
+                end
+            end
             -- Chosen with a branch: a table that was never created is nil, and an
             -- `and ... or` would then read the other one.
             local active = regionRoot.activeRegions
@@ -651,20 +671,6 @@ function ownership.install(c: state.Checker): ownership.Ops
             -- counted on the root rather than under a path, so the region table above
             -- never sees them. The loans the use is made under -- the entry itself
             -- and every borrow it derives from -- authorize it rather than conflict.
-            local held = {}
-
-            local function hold(candidate)
-                candidate = own.ownershipState(candidate)
-                if not candidate or held[candidate] then
-                    return
-                end
-                held[candidate] = true
-                for _, derived in ipairs(own.capabilityFacts(candidate, nil, false).roots or {}) do
-                    hold(derived)
-                end
-            end
-
-            hold(entry)
             for borrowed in pairs(regionRoot.activeBorrowSites or {}) do
                 local borrowedFacts = own.capabilityFacts(borrowed, nil, false)
                 if not held[

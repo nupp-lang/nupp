@@ -516,7 +516,11 @@ local function load(node: scalarIR.Load, values: {[string]: string}, scope: veri
         holds(
             node.index == "" and values[
                 node.cursor as string
-            ] == "u32" and boundRoom(scope.cursorBounds, node.cursor, node.span) ~= nil and node.cursorCName ~= nil,
+            ] == "u32" and boundRoom(
+                scope.cursorBounds,
+                node.cursor,
+                span.soa ~= nil and span.soa.view or node.span
+            ) ~= nil and node.cursorCName ~= nil,
             "unbounded cursor load"
         )
     else
@@ -524,7 +528,12 @@ local function load(node: scalarIR.Load, values: {[string]: string}, scope: veri
             node.index == scope.index and (
                 scope.mapIndex == true and (
                     scope.indexSpans as {[string]: boolean}
-                )[node.span] == true or node.span == scope.boundSpan
+                )[
+                    node.span
+                ] == true or node.span == scope.boundSpan or scalarIR.sameSoaView(
+                    span,
+                    scope.spans[tostring(scope.boundSpan)]
+                )
             ),
             "unbounded load index"
         )
@@ -1845,7 +1854,9 @@ local function provesCursorBound(
     elseif condition.op == "lt" then
         local comparison = condition as scalarIR.Binary
         local right = comparison.right
-        return comparison.left.op == "local" and (
+        return (
+            comparison.left.op == "local" or comparison.left.op == "uniform"
+        ) and (
             comparison.left as scalarIR.Name
         ).name == cursor and (
             right.op == "span_count" and (
@@ -2112,12 +2123,13 @@ local function block(
                 declareLocal(values, bound.name, bound.assigned)
             end
         elseif statement.op == "store" then
+            local param = scope.spans[statement.span]
             local bounded = statement.cursor ~= nil and statement.index == "" and values[
                 statement.cursor as string
             ] == "u32" and boundRoom(
                 scope.cursorBounds,
                 statement.cursor,
-                statement.span
+                param ~= nil and param.soa ~= nil and param.soa.view or statement.span
             ) ~= nil
                 and statement.cursorCName ~= nil
                 or statement.cursor == nil
@@ -2125,7 +2137,12 @@ local function block(
                 and (
                     scope.mapIndex == true and (
                         scope.indexSpans as {[string]: boolean}
-                    )[statement.span] == true or statement.span == scope.boundSpan
+                    )[
+                        statement.span
+                    ] == true or statement.span == scope.boundSpan or scalarIR.sameSoaView(
+                        param,
+                        scope.spans[tostring(scope.boundSpan)]
+                    )
                 )
             holds(scope.writes[statement.span] == true and bounded, "invalid store root")
             scalarWalk(statement.value, values, scope)
@@ -2878,6 +2895,8 @@ local function signature(
     local byRegion: {[string]: scalarIR.Param} = {}
     local writes: {[string]: boolean} = {}
     local primary: scalarIR.Param? = nil
+    local views: {[string]: {scalarIR.Param}} = {}
+    local previousView: string? = nil
     for _, param in ipairs(program.params) do
         holds(byName[param.name] == nil, "duplicate IR parameter")
         holds(
@@ -2914,6 +2933,50 @@ local function signature(
             end
         end
         byName[param.name] = param
+        if param.soa ~= nil then
+            local column = param.soa
+            local layout = layouts[column.layout]
+            holds(program.executionTarget == "cpu" and program.entryMode == "kernel", "invalid SoA execution target")
+            holds(param.spanModule == "nupp.mem.soa" and param.region ~= nil and layout ~= nil, "invalid SoA column")
+            holds(column.ordinal >= 1 and column.ordinal % 1 == 0, "invalid SoA column ordinal")
+            local field = (layout as scalarIR.Layout).fields[column.ordinal]
+            holds(
+                field ~= nil
+                and field.name == column.field
+                and field.type == param.type
+                and field.sourceType == param.sourceType,
+                "invalid SoA field identity"
+            )
+            holds(param.ownership == (param.kind == "write_span" and "exclusive" or "shared"), "invalid SoA ownership")
+            local prior = views[column.view]
+            if prior == nil then
+                holds(
+                    column.ordinal == 1 and param.name == column.view and #column.sourceType > 0,
+                    "invalid SoA source parameter"
+                )
+                prior = {}
+                views[column.view] = prior
+            else
+                local first = prior[1]
+                holds(
+                    previousView == column.view and column.ordinal == #prior + 1 and column.layout == (
+                        first.soa as scalarIR.SoaColumn
+                    ).layout and column.sourceType == (
+                        first.soa as scalarIR.SoaColumn
+                    ).sourceType and param.kind == first.kind and param.ownership == first.ownership,
+                    "inconsistent SoA column mapping"
+                )
+            end
+            prior[#prior + 1] = param
+            previousView = column.view
+        else
+            holds(param.spanModule ~= "nupp.mem.soa", "SoA span lacks its source mapping")
+            previousView = nil
+        end
+    end
+    for _, columns in pairs(views) do
+        local layout = layouts[(columns[1].soa as scalarIR.SoaColumn).layout] as scalarIR.Layout
+        holds(#columns == #layout.fields, "incomplete SoA column mapping")
     end
     if program.loop ~= nil then
         holds(
@@ -2961,8 +3024,12 @@ local function regions(program: scalarIR.Program, byRegion: {[string]: scalarIR.
         local hasWrite = (
             byRegion[fact.left] as scalarIR.Param
         ).kind == "write_span" or (byRegion[fact.right] as scalarIR.Param).kind == "write_span"
-        holds(fact.relation == (hasWrite and "disjoint" or "may_alias"), "invalid alias relationship")
-        holds(fact.proof == (hasWrite and "exclusive_borrow" or "shared_borrows"), "invalid alias proof")
+        local siblings = scalarIR.sameSoaView(byRegion[fact.left], byRegion[fact.right])
+        holds(fact.relation == ((hasWrite or siblings) and "disjoint" or "may_alias"), "invalid alias relationship")
+        holds(
+            fact.proof == (siblings and "soa_columns" or hasWrite and "exclusive_borrow" or "shared_borrows"),
+            "invalid alias proof"
+        )
         seen[key] = true
     end
     holds(#program.aliasFacts == count * (count - 1) / 2, "incomplete alias matrix")
@@ -3042,7 +3109,7 @@ local function bounds(
         )
     end
     local terms, spans = termUniverse(program.params)
-    local closure = relations.solve(pool, spans, terms)
+    local closure = relations.solve(relations.withSoaCounts(pool, program.params), spans, terms)
     holds(closure.contradiction == nil, "guard relations that cannot all hold")
 
     local count = relations.count(primary_.name)

@@ -167,7 +167,9 @@ function binding.foreign(program: scalarIR.Program, library: string?, symbol: st
     end
     if scalarIR.independentCounts(program) then
         for _, param in ipairs(program.params) do
-            if param.kind == "write_span" or param.kind == "read_span" then
+            if (
+                param.kind == "write_span" or param.kind == "read_span"
+            ) and (param.soa == nil or param.soa.ordinal == 1) then
                 params[#params + 1] = "count_" .. param.name .. ": uint64"
             end
         end
@@ -190,6 +192,11 @@ end
 
 --- How the wrapper spells one parameter, which is how the source spelled it.
 local function logical(param: scalarIR.Param): string
+    if param.soa ~= nil then
+        return (
+            param.ownership == "exclusive" and "exclusive " or "borrows "
+        ) .. param.soa.view .. ": " .. param.soa.sourceType
+    end
     local element = param.type:match("^struct:(.+)$") or sourceType(param.type, param.sourceType)
     local spanName = "span"
     if param.kind == "write_span" then
@@ -305,16 +312,45 @@ function binding.spanArguments(params: {scalarIR.Param}, independent: boolean?):
     local arguments: {string} = {}
     local counts: {string} = {}
     local primary: string? = nil
+    local reserved: {[string]: boolean} = {}
+    for _, param in ipairs(params) do
+        reserved[param.name] = true
+    end
+
+    local function fresh(name: string): string
+        while reserved[name] do
+            name = name .. "_"
+        end
+        reserved[name] = true
+
+        return name
+    end
+
     for _, param in ipairs(params) do
         if param.kind == "write_span" or param.kind == "read_span" then
-            local pointer = "native_" .. param.name
-            local count = "native_" .. param.name .. "Count"
-            lines[#lines + 1] = "    local " .. pointer .. ", " .. count .. " = " .. param.name .. ":ref()"
+            local pointer = fresh("native_" .. param.name)
+            local count = fresh("native_" .. param.name .. "Count")
+            local value = param.name
+            if param.soa ~= nil then
+                value = fresh("native_" .. param.name .. "Column")
+                lines[
+                    #lines + 1
+                ] = "    local " .. value .. " = " .. param.soa.view .. ":field(" .. string.format(
+                    "%q",
+                    param.soa.field
+                ) .. ")"
+            end
+            local hasCount = param.soa == nil or param.soa.ordinal == 1
+            lines[
+                #lines + 1
+            ] = "    local " .. pointer .. (hasCount and ", " .. count or "") .. " = " .. value .. ":ref()"
             if primary == nil then
                 primary = count
             end
             arguments[#arguments + 1] = pointer .. " as " .. pointerType(param)
-            counts[#counts + 1] = count
+            if hasCount then
+                counts[#counts + 1] = count
+            end
         else
             arguments[#arguments + 1] = param.name
         end
@@ -334,8 +370,10 @@ end
 --- The checked wrapper the caller actually sees.
 function binding.wrapper(program: scalarIR.Program, nativeSymbol: string?): {string}
     local params: {string} = {}
-    for position, param in ipairs(program.params) do
-        params[position] = logical(param)
+    for _, param in ipairs(program.params) do
+        if param.soa == nil or param.soa.ordinal == 1 then
+            params[#params + 1] = logical(param)
+        end
     end
 
     local lines: {string} = {"local function " .. program.name .. "("}
@@ -857,7 +895,9 @@ function binding.familyReplacement(
         local program = (family.dispatchPrograms or family.programs)[position]
         local arguments: {string} = {}
         for _, param in ipairs(program.params) do
-            arguments[#arguments + 1] = param.name
+            if param.soa == nil or param.soa.ordinal == 1 then
+                arguments[#arguments + 1] = param.name
+            end
         end
         local branch = position == 1 and "if" or "elseif"
         lines[#lines + 1] = "    " .. branch .. " " .. table.concat(conditions, " and ") .. " then"

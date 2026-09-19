@@ -2230,6 +2230,7 @@ end
 
 --- Which case is running, read back from the table the runner calls it out of.
 local caseNames = nil
+
 local function runningCase()
     if caseNames == nil then
         caseNames = {}
@@ -2334,14 +2335,16 @@ function M.absoluteIncludeRootsKeepTheirCompiledBindings()
     end
     local dir = project("require")
     local source = assert(io.open(dir .. "/src/kernel.nupp", "wb"))
-    source:write([[
+    source:write(
+        [[
 module kernel
 @aot
 local function boxed(value: number): {value: number}
     return {value = value + 1}
 end
 export = {boxed = boxed}
-]])
+]]
+    )
     source:close()
     local original = assert(read(dir .. "/nupp.lua"))
     local absolute = dir:gsub("\\", "/"):gsub("^/([A-Za-z])/", "%1:/") .. "/src"
@@ -2352,7 +2355,10 @@ export = {boxed = boxed}
             return "include = {" .. string.format("%q", include) .. "}"
         end)
         if scoped then
-            config = config:gsub('outDir = "build/native",', 'outDir = "build/native", sources = {"src/kernel.nupp", "src/plain.nupp"},')
+            config = config:gsub(
+                'outDir = "build/native",',
+                'outDir = "build/native", sources = {"src/kernel.nupp", "src/plain.nupp"},'
+            )
         end
         manifest:write(config)
         manifest:close()
@@ -3002,9 +3008,9 @@ function M.luaBuilderRegistrationReturnsOrdinaryTables()
     local viewText = builderAnswer(
         "require",
         'local b=require("builder");local out={};'
-            .. 'for n=0,40 do local _,vector,scalar=b.punctuation(("ab, .!"):rep(n):sub(1,n),{});'
-            .. 'out[#out+1]=(vector==scalar) and tostring(vector) or ("!"..n..":"..vector.."~"..scalar) end;'
-            .. "print(table.concat(out,','))"
+        .. 'for n=0,40 do local _,vector,scalar=b.punctuation(("ab, .!"):rep(n):sub(1,n),{});'
+        .. 'out[#out+1]=(vector==scalar) and tostring(vector) or ("!"..n..":"..vector.."~"..scalar) end;'
+        .. "print(table.concat(out,','))"
     )
     assert(
         not viewText:find("!", 1, true) and viewText:find("^0,", 1),
@@ -3034,7 +3040,13 @@ end
 function M.luaBuilderChoosesATieredRegistrarAtLoad()
     local binding = require("nupp.compiler.aot.binding")
     local lines = binding.builderLoader(
-        {symbol = "ks_rows", registrar = "ks_register_rows", name = "rows", params = {}, resultSourceTypes = {"uint32"},},
+        {
+            symbol = "ks_rows",
+            registrar = "ks_register_rows",
+            name = "rows",
+            params = {},
+            resultSourceTypes = {"uint32"},
+        },
         "@lib/librows.so",
         {"baseline", "avx2", "avx512f"}
     )
@@ -3462,7 +3474,10 @@ function M.scopedPackedBytesHandleEveryTailWithoutOverreading()
     local regions, inRegion = 0, false
     local sawCopy = false
     for line in header:gmatch("[^\n]*") do
-        assert(not line:find("^KS_SCALAR_REGION_[A-Z]+ \\$"), "a scalar region is never opened inside a macro: " .. line)
+        assert(
+            not line:find("^KS_SCALAR_REGION_[A-Z]+ \\$"),
+            "a scalar region is never opened inside a macro: " .. line
+        )
         if line:find("^KS_SCALAR_REGION_BEGIN") then
             regions, inRegion = regions + 1, true
         elseif line:find("^KS_SCALAR_REGION_END") then
@@ -3561,16 +3576,8 @@ function M.scopedPackedBytesHandleEveryTailWithoutOverreading()
         local packed = lib[shapes](source, count)
         trace("tail length " .. count .. " scalar shapes")
         local oracle = lib[shapesScalar](source, count)
-        test.equal(
-            packed.v1,
-            oracle.v1,
-            "packed bits agree with the scalar oracle at length " .. count
-        )
-        test.equal(
-            packed.v2,
-            oracle.v2,
-            "packed tail agrees with the scalar oracle at length " .. count
-        )
+        test.equal(packed.v1, oracle.v1, "packed bits agree with the scalar oracle at length " .. count)
+        test.equal(packed.v2, oracle.v2, "packed tail agrees with the scalar oracle at length " .. count)
         test.equal(
             tonumber(packed.v3),
             tonumber(oracle.v3),
@@ -4905,7 +4912,8 @@ local function scopedProject()
     os.remove(dir)
     assert(os.execute("mkdir -p '" .. dir .. "/src'") == 0)
     local manifest = assert(io.open(dir .. "/nupp.lua", "wb"))
-    manifest:write([[
+    manifest:write(
+        [[
 return {
    include = {"src"},
    build = {targets = {native = {
@@ -4919,7 +4927,8 @@ return {
       aotFeatures = "scalar",
    }}},
 }
-]])
+]]
+    )
     manifest:close()
     for name, source in pairs({
         ["src/entry.nupp"] = SCOPED_ENTRY,
@@ -5261,7 +5270,11 @@ function M.genericVocabularyOperationsAgreeAcrossLuaScalarAndLaneExecution()
                 test.equal(actual.v3, compensated:value(), label .. " compensated")
             end
             for _, symbol in ipairs(symbols.dot) do
-                test.equal(lib[symbol](samples, seed, count), dot:value(), symbol .. " seed " .. seed .. " count " .. count)
+                test.equal(
+                    lib[symbol](samples, seed, count),
+                    dot:value(),
+                    symbol .. " seed " .. seed .. " count " .. count
+                )
             end
         end
     end
@@ -5437,20 +5450,7 @@ function M.crossLaneOperationsAgreeWithTheirScalarExecutableSemantics()
     -- and the exceptional values the two extremum contracts disagree about:
     -- `propagatingMin` answers NaN whenever any lane is NaN, `numberMax`
     -- answers the largest lane that is not one.
-    local samples = {
-        1.0,
-        1e16,
-        -1e16,
-        0.5,
-        0 / 0,
-        math.huge,
-        -math.huge,
-        -0.0,
-        0.0,
-        -2.25,
-        1e-3,
-        3.0,
-    }
+    local samples = {1.0, 1e16, -1e16, 0.5, 0 / 0, math.huge, -math.huge, -0.0, 0.0, -2.25, 1e-3, 3.0,}
     local lanes = ffi.new("double[4]")
     for offset = 0, #samples - 1 do
         local values = {}
@@ -5514,7 +5514,13 @@ function M.cCompilerFailureIsAJsonDiagnostic()
     end
     local dir = project("require")
     withKeys(dir, 'aotCflags = {"-DNUPP_ISSUE49_FAILURE=1", "-include", "nupp-issue49-missing-header.h"},')
-    local pipe = assert(io.popen(("cd %q && NUPP_CACHE_DIR=%q NO_COLOR= %q build --target native --json 2>/dev/null"):format(dir, cacheFor(dir), NUPP)))
+    local pipe = assert(
+        io.popen(
+            (
+                "cd %q && NUPP_CACHE_DIR=%q NO_COLOR= %q build --target native --json 2>/dev/null"
+            ):format(dir, cacheFor(dir), NUPP)
+        )
+    )
     local text = pipe:read("*a")
     pipe:close()
     local report = require("testjson").decode(text)
@@ -5526,8 +5532,12 @@ end
 function M.entryOnlyAotTargetsCheckOnlyTheirDependencyClosure()
     local dir = project("emit-c")
     for name, code in pairs({
-        ["unused.nupp"] = "@aot\nlocal function unused(value: int32): int32\n return nupp.math.i32.add(value, value)\nend\nreturn unused\n",
-        ["transitive.nupp"] = "@aot\nlocal function needed(value: int32): int32\n return nupp.math.i32.add(value, value)\nend\nreturn needed\n",
+        [
+            "unused.nupp"
+        ] = "@aot\nlocal function unused(value: int32): int32\n return nupp.math.i32.add(value, value)\nend\nreturn unused\n",
+        [
+            "transitive.nupp"
+        ] = "@aot\nlocal function needed(value: int32): int32\n return nupp.math.i32.add(value, value)\nend\nreturn needed\n",
         ["plain.nupp"] = 'return require("transitive")\n',
     }) do
         local file = assert(io.open(dir .. "/src/" .. name, "wb"))
@@ -5545,6 +5555,78 @@ function M.entryOnlyAotTargetsCheckOnlyTheirDependencyClosure()
         end
     end
     assert(reached, "AOT bodies reached through an entry dependency are emitted")
+end
+
+function M.directSoaViewsRunAgainstTheSameLuaOracleAndReuseNativeObjects()
+    local dir = os.tmpname()
+    os.remove(dir)
+    assert(os.execute(("mkdir -p %q"):format(dir .. "/src")) == 0)
+
+    local function write(name, text)
+        local handle = assert(io.open(dir .. "/" .. name, "wb"))
+        handle:write(text)
+        handle:close()
+    end
+
+    write("src/main.g.nupp", assert(read(NATIVE_HERE .. "/aot-soa/main.g.nupp")))
+    local expected
+    for _, policy in ipairs({"off", "require"}) do
+        write(
+            "nupp.lua",
+            (
+                [=[
+return {include={"src"},build={targets={native={kind="bundle",entries={"main"},
+    outDir="build/native",output="dist/app.lua",aot=%q}}}}
+]=]
+            ):format(policy)
+        )
+        local out, code = build(dir)
+        test.equal(code, 0, policy .. " SoA build at " .. dir .. ": " .. out)
+        local pipe = assert(io.popen(("cd %q && %q run dist/app.lua 2>&1"):format(dir, NUPP)))
+        local answer = pipe:read("*a"):gsub("%s+$", "")
+        pipe:close()
+        assert(answer:match("^SoA native results%s+%d"), policy .. " at " .. dir .. ": " .. answer)
+        if expected then
+            test.equal(answer, expected, "identical SoA input and all resulting columns")
+        else
+            expected = answer
+        end
+    end
+    local code = assert(read(dir .. "/build/native/main.lua"))
+    assert(code:find("__nuppAotCompiled", 1, true), "required AOT installed the native wrappers")
+    assert(not code:find("ffi.copy", 1, true), "entry/exit must not copy row payloads")
+    local pipe = assert(
+        io.popen(("cd %q && NUPP_CACHE_DIR=%q %q build --target native --json 2>&1"):format(dir, cacheFor(dir), NUPP))
+    )
+    local json = pipe:read("*a")
+    pipe:close()
+    local result = require("lunajson").decode(json)
+    test.equal(result.ok, true, "warm SoA build")
+    test.equal(result.timing.aot.compiledObjects, 0, "unchanged source mapping reuses native artifacts")
+    test.equal(result.timing.aot.reusedObjects, result.timing.aot.units, "every SoA object reused")
+    write(
+        "src/main.g.nupp",
+        [[
+local soa = require("nupp.mem.soa")
+local struct Particle
+    x: float
+end
+@aot
+local function whole(borrows rows: soa.Span<Particle>): number
+    for i = 1, #rows do
+        local row = rows[i]
+        return row.x
+    end
+    return 0
+end
+return whole
+]]
+    )
+    local rejected, status = build(dir)
+    assert(
+        status ~= 0 and rejected:find("whole-row values are not admitted", 1, true),
+        "required AOT must diagnose unsupported rows: " .. rejected
+    )
 end
 
 return M

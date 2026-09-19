@@ -7287,4 +7287,41 @@ return answer, returned, log
     end
 end
 
+function M.columnPointerReborrowsKeepTheirAncestorsAndRejectSiblings()
+    local prelude = [[
+local soa = require("nupp.mem.soa")
+local struct Particle
+    x: float
+    y: float
+end
+cdef function update(exclusive x: float*, exclusive y: float*)
+cdef function one(exclusive x: float*)
+local particles = soa.allocate(ffi.typeof<Particle>(), 2)
+local rows = particles:write()
+local xs = rows:field("x")
+local ys = rows:field("y")
+local xp, count = xs:ref()
+local yp, otherCount = ys:ref()
+]]
+    assertClean(prelude .. [[
+unsafe do update(xp as float*, yp as float*) end
+print(count, otherCount)
+]])
+    local bad = codes(prelude .. [[
+local other = xp
+unsafe do one(xp as float*) end
+print(other)
+]])
+    assert(bad:find("NUPP2607", 1, true), "a same-column sibling must still conflict: " .. bad)
+    bad = codes(prelude .. [[
+unsafe do update(xp as float*, xp as float*) end
+]])
+    assert(bad:find("NUPP2607", 1, true), "exclusive native arguments must not overlap: " .. bad)
+    bad = codes(prelude .. [[
+drop xs
+unsafe do one(xp as float*) end
+]])
+    assert(bad:find("NUPP2602", 1, true), "a pointer keeps its column owner alive: " .. bad)
+end
+
 return M

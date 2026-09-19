@@ -674,7 +674,9 @@ function bindings.install(c: state.Checker): state.StatHandlers
                     regionRoot.activeRegions = regionRoot.activeRegions or {}
                     regionRoot.activeRegions[returnRegionPath] = (regionRoot.activeRegions[returnRegionPath] or 0) + 1
                 end
-            elseif boundEntry and initNode then
+            elseif boundEntry and initNode and j <= exprCount then
+                -- Unslotted initializer facts describe its first result only.
+                -- Later results (such as ref's count) use their own return facts.
                 local regionRoot, regionPath = c.regionOf(initNode)
                 local initFacts = c.own.capabilityFacts(initNode, nil, false)
                 local carriesRegion = boundKind ~= nil or initFacts.exclusive or initFacts.roots ~= nil
@@ -691,8 +693,13 @@ function bindings.install(c: state.Checker): state.StatHandlers
             end
             -- A borrowed or affine binding is a live view of whatever the initializer
             -- was rooted in: the call's result facts where one produced it, else the
-            -- initializer's own. Each root counts the view until the binding ends.
-            local borrowRoots = returnRoots or initNode and c.own.capabilityFacts(initNode, nil, false).roots or nil
+            -- initializer's first result. Each root counts the view until the binding
+            -- ends.
+            local borrowRoots = returnRoots or j <= exprCount and initNode and c.own.capabilityFacts(
+                initNode,
+                nil,
+                false
+            ).roots or nil
             if boundEntry and (
                 boundKind == "borrowed" or boundKind == "affine"
             ) and borrowRoots and #borrowRoots > 0 then

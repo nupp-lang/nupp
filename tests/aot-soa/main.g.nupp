@@ -1,0 +1,190 @@
+local soa = require("nupp.mem.soa")
+local ffi = require("ffi")
+
+local struct Particle
+    x: float
+    velocity: float
+end
+
+local type Reader = soa.Span<Particle>
+local type Writer = soa.WriteToken & soa.WriteSpan<Particle>
+
+local function delta(velocity: number, dt: number): number
+    return velocity * dt
+end
+
+@aot
+local function advance(exclusive rows: soa.WriteToken & soa.WriteSpan<Particle>, dt: float): nil
+    for i = 1, #rows do
+        rows[i].x += rows[i].velocity * dt
+    end
+end
+
+@aot
+local function advanceSimd(exclusive rows: Writer, dt: float): nil
+    @simd
+    for i = 1, #rows do
+        rows[i].x += delta(rows[i].velocity, dt)
+        rows[i].velocity = rows[i].velocity + 1
+    end
+end
+
+@aot
+local function copy(exclusive output: Writer, borrows input: Reader, dt: float): nil
+    assert(#output == #input, "length mismatch")
+    @simd
+    for i = 1, #output do
+        output[i].x = input[i].x + input[i].velocity * dt
+        output[i].velocity = input[i].velocity
+    end
+end
+
+@aot
+local function count(borrows rows: Reader): integer
+    return #rows
+end
+
+@aot
+local function named(
+    borrows rows: Reader,
+    native_rows: number,
+    native_rowsColumn: number,
+    native_rowsCount: number
+): number
+    return #rows + native_rows + native_rowsColumn + native_rowsCount
+end
+
+@aot
+local function countPlus<const Bump: integer>(borrows rows: Reader, bump: Bump): integer
+    return #rows + bump as integer
+end
+
+@aot
+local function sum(borrows first: Reader, borrows second: Reader): number
+    local result = 0.0
+    for i = 1, #first do
+        result = result + first[i].x + first[i].velocity
+    end
+    for i = 1, #second do
+        result = result + second[i].x
+    end
+
+    return result
+end
+
+@aot
+local function cursorRead(borrows rows: Reader, cursor: uint32): number
+    if cursor < #rows then
+        return rows[cursor + 1].velocity
+    end
+    return -99
+end
+
+@aot
+local function orderedUpdate(exclusive rows: Writer): nil
+    for i = 1, #rows do
+        rows[i].x = rows[i].x + do
+            rows[i].x = 100
+            yield 2
+        end
+    end
+end
+
+local struct Numeric
+    tiny: uint8
+    small: int16
+    flags: uint32
+    single: float
+    wide: number
+end
+
+@aot
+local function numeric(exclusive rows: soa.WriteToken & soa.WriteSpan<Numeric>, value: number): nil
+    for i = 1, #rows do
+        rows[i].tiny = value
+        rows[i].small = -value
+        rows[i].flags = rows[i].flags + 1
+        rows[i].single = rows[i].wide + 0.25
+        rows[i].wide = rows[i].single * 3
+    end
+end
+
+local checksum = 0.0
+for _, n in ipairs({0, 1, 3, 4, 5, 7, 8, 9, 17, 65}) do
+    local particles = soa.allocate(ffi.typeof<Particle>(), n + 4)
+    local other = soa.allocate(ffi.typeof<Particle>(), n)
+    do
+        local rows = particles:write()
+        for i = 1, #rows do
+            rows[i].x = i * 0.5
+            rows[i].velocity = 2
+        end
+        do
+            local middle = rows:slice(3, n + 2)
+            advance(middle, 0.5)
+            advanceSimd(middle, 0.5)
+            drop middle
+        end
+        drop rows
+    end
+    do
+        local all = particles:read()
+        local middle = all:slice(3, n + 2)
+        assert(count(middle) == n)
+        assert(named(middle, 1, 2, 3) == n + 6)
+        assert(countPlus(middle, 1) == n + 1 and countPlus(middle, 3) == n + 3)
+        assert(count(all:slice(1, 0)) == 0)
+        assert(all[1].x == 0.5 and all[2].x == 1)
+        assert(all[n + 3].x == (n + 3) * 0.5)
+        assert(all[n + 4].x == (n + 4) * 0.5)
+        for i = 1, #middle do
+            assert(middle[i].x == (i + 2) * 0.5 + 2)
+            assert(middle[i].velocity == 3)
+        end
+        assert(cursorRead(middle, nupp.math.u32.wrap(n)) == -99)
+        if n > 0 then
+            assert(cursorRead(middle, 0) == 3)
+        end
+        local output = other:write()
+        copy(output, middle, 0.5)
+        drop output
+        -- Two shared views may overlap, including passing the same view twice.
+        checksum = checksum + sum(middle, middle) + sum(middle, all:slice(1, 0))
+    end
+    do
+        local rows = other:read()
+        for i = 1, #rows do
+            assert(rows[i].x == (i + 2) * 0.5 + 3.5)
+            assert(rows[i].velocity == 3)
+        end
+        checksum = checksum + sum(rows, rows)
+    end
+    do
+        local rows = other:write()
+        orderedUpdate(rows)
+        for i = 1, #rows do
+            assert(rows[i].x == (i + 2) * 0.5 + 5.5)
+        end
+        drop rows
+    end
+    drop other
+    drop particles
+end
+
+local numbers = soa.allocate(ffi.typeof<Numeric>(), 5)
+do
+    local rows = numbers:write()
+    for i = 1, #rows do
+        rows[i].flags = 4294967295
+        rows[i].wide = 16777216
+    end
+    numeric(rows, 65539)
+    for i = 1, #rows do
+        assert(rows[i].tiny == 3 and rows[i].small == -3)
+        assert(rows[i].flags == 0)
+        assert(rows[i].single == 16777216 and rows[i].wide == 50331648)
+    end
+    drop rows
+end
+drop numbers
+print("SoA native results", checksum)

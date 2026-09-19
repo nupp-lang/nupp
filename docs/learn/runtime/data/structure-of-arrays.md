@@ -258,6 +258,37 @@ See [`OPT-6`](../../performance/index.md#opt-6-indexed-views) for how that proof
 lowers, and [ahead-of-time.md](../../performance/ahead-of-time/index.md) for what an `@aot`
 kernel retains.
 
+### Native AOT row views
+
+A native CPU `@aot` kernel accepts `borrows rows: soa.Span<T>` for reads or
+`exclusive rows: soa.WriteToken & soa.WriteSpan<T>` for writes. Indexed scalar
+fields address the original columns, including when the caller passes a slice.
+The private native call receives column pointers and a row count; entry and
+exit copy no row payloads.
+
+```nupp
+@aot
+local function advance(exclusive rows: soa.WriteToken & soa.WriteSpan<Particle>, dt: float): nil
+    @simd
+    for i = 1, #rows do
+        rows[i].x += rows[i].dx * dt
+        rows[i].y += rows[i].dy * dt
+    end
+end
+```
+
+Set the build's `aot` policy to `"require"` to require native execution.
+`@simd` requires lane lowering; omit it for a scalar native loop. Ordinary
+length guards can relate separate views, and shared views may overlap. The
+existing ownership rules still reject incompatible exclusive overlaps.
+
+The initial native form requires a visible local struct with numeric storage
+fields supported by AOT spans. It supports row counts, direct field reads, stores, and compound
+updates under the usual AOT bounds proofs. Whole-row values, dynamic field
+selection, constructing views inside the kernel, and passing views through
+native helpers are not admitted. Wasm and GPU row-view entries are also refused;
+their existing span entry forms remain available.
+
 ### Row views without a wrapper
 
 At `-O1`, a row view whose complete use is static and nonescaping is

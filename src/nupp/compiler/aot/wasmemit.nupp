@@ -48,6 +48,11 @@ end
 --- Refuses span surfaces the stock Wasm host cannot bind.
 function wasmemit.validate(programs: {scalarIR.Program}): string?
     for _, program in ipairs(programs) do
+        for _, param in ipairs(program.params) do
+            if param.soa ~= nil then
+                return "SoA row-view parameters are supported only by native CPU AOT"
+            end
+        end
         if program.entryMode == "kernel" then
             for _, param in ipairs(program.params) do
                 if (

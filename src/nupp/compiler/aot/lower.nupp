@@ -51,6 +51,8 @@ record lower.Context
     --- pruned rather than compiled.
     vectors: boolean = true
 
+    nativeCpu: boolean = true
+
     --- Compile-time byte tables named so far, by their contents.
     ---
     --- Shared by every entry in the file rather than held per entry, because
@@ -697,6 +699,34 @@ function lower.spanElement(
     )
 end
 
+--- Resolve only the sealed SoA view identities, including the writer token.
+local function soaElement(resolved: any?): (any?, boolean)
+    local raw = semanticRaw(resolved)
+    local members = raw ~= nil and raw.tag == "intersection" and raw.members or {raw}
+    local element: any? = nil
+    local writable = false
+    local token = false
+    for _, member in ipairs(members) do
+        local view, origin = nominal(member)
+        if origin == nil or origin.moduleName ~= "nupp.mem.soa" then
+            return nil, false
+        end
+        if origin.name == "WriteToken" and not token then
+            token = true
+        elseif (origin.name == "Span" or origin.name == "WriteSpan") and element == nil then
+            element = (view.typeArgs or {})[1]
+            writable = origin.name == "WriteSpan"
+        else
+            return nil, false
+        end
+    end
+    if token and not writable then
+        return nil, false
+    end
+
+    return element, writable
+end
+
 ----------------------------------------------------------------------------
 -- Reading names out of the tree
 ----------------------------------------------------------------------------
@@ -1080,7 +1110,10 @@ local function provenIndex(spanName: string, cursor: string?, node: cst.Node, ke
             ):format(spanName, spanName)
         )
     end
-    if spanName ~= kernel.boundSpan then
+    if spanName ~= kernel.boundSpan and not scalarIR.sameSoaView(
+        kernel.params[spanName],
+        kernel.params[tostring(kernel.boundSpan)]
+    ) then
         context.reject(
             lower.site(node),
             (
@@ -1182,7 +1215,9 @@ local function provedCursor(indexArg: cst.Node?, spanName: string?, kernel: lowe
     local token = index.rhs ~= nil and index.rhs.kind == "number" and (index.rhs as cst.NumberLit).token or nil
     local offset = token ~= nil and tonumber((token as lexer.Token).text) or nil
     local candidate = lower.nameOf(index.lhs)
-    local held = boundRoom(kernel.cursorBounds, candidate, spanName)
+    local param = kernel.params[tostring(spanName)]
+    local counted = param ~= nil and param.soa ~= nil and param.soa.view or spanName
+    local held = boundRoom(kernel.cursorBounds, candidate, counted)
     if written == "+" and offset == 1 and held ~= nil and (room == nil or sameRoom(held as string, room as string)) then
         return candidate
     end
@@ -1257,11 +1292,18 @@ local function spanRead(
     node: cst.BracketIndex,
     environment: {[string]: any},
     activeIndex: string?,
-    kernel: lower.Kernel
+    kernel: lower.Kernel,
+    column: scalarIR.Param?
 ): scalarIR.Expr
     local context = kernel.context
-    local spanName = lower.nameOf(node.obj)
+    local spanName = column ~= nil and column.name or lower.nameOf(node.obj)
     local param = spanName ~= nil and kernel.params[spanName as string] or nil
+    if column == nil and param ~= nil and param.soa ~= nil then
+        context.reject(
+            lower.site(node),
+            "native SoA rows must be accessed through a scalar field; whole-row values are not admitted"
+        )
+    end
     local readable = param ~= nil and (param.kind == "read_span" or param.kind == "write_span")
     if not readable then
         context.reject(lower.site(node), "span reads use input[index] or output[index]")
@@ -1306,6 +1348,33 @@ local function spanRead(
         ),
         lower.site(node)
     )
+end
+
+--- Match checked field identity to its column; generated names never identify fields.
+local function soaColumn(node: cst.Node, kernel: lower.Kernel): scalarIR.Param?
+    if node.kind ~= "dotIndex" or node.soaField == nil then
+        return nil
+    end
+    local indexed = lower.unwrapped((node as cst.DotIndex).obj)
+    if indexed == nil or indexed.kind ~= "bracketIndex" then
+        kernel.context.reject(lower.site(node), "native SoA fields require an indexed row parameter")
+    end
+    local name = lower.nameOf((indexed as cst.BracketIndex).obj)
+    local view = kernel.params[tostring(name)]
+    if view == nil or view.soa == nil then
+        kernel.context.reject(lower.site(node), "native SoA fields require an existing row-view parameter")
+    end
+    for _, param in pairs(kernel.params) do
+        if scalarIR.sameSoaView(
+            view,
+            param
+        ) and param.soa.ordinal == node.soaField.ordinal and param.soa.field == node.soaField.name then
+            return param
+        end
+    end
+    kernel.context.reject(lower.site(node), "native SoA field identity does not match its column layout")
+
+    return nil
 end
 
 --- One field of a struct element.
@@ -4379,6 +4448,10 @@ local function expressionRaw(
         return spanRead(indexed, environment, activeIndex, kernel)
     elseif kind == "dotIndex" and (node as cst.DotIndex).name ~= nil then
         local indexed = node as cst.DotIndex
+        local column = soaColumn(node, kernel)
+        if column ~= nil then
+            return spanRead(lower.unwrapped(indexed.obj) as cst.BracketIndex, environment, activeIndex, kernel, column)
+        end
         local counted = lower.dotCount(indexed)
         local spanParam = counted ~= nil and kernel.params[counted as string] or nil
         if spanParam ~= nil and spanParam.region ~= nil then
@@ -5721,6 +5794,56 @@ local function assignTarget(target: cst.Node, environment: {[string]: any}, kern
     )
 end
 
+--- One checked scalar column store, preserving compound read-before-write order.
+local function soaStore(
+    target: cst.Node,
+    valueNode: cst.Node,
+    out: {scalarIR.Statement},
+    environment: {[string]: any},
+    kernel: lower.Kernel,
+    compound: lexer.Token?
+): boolean
+    local column = soaColumn(target, kernel)
+    if column == nil then
+        return false
+    end
+    if column.kind ~= "write_span" then
+        kernel.context.reject(lower.site(target), "native SoA stores require an exclusive writable view")
+    end
+    local indexed = lower.unwrapped((target as cst.DotIndex).obj) as cst.BracketIndex
+    local loaded = spanRead(indexed, environment, kernel.index, kernel, column)
+    local address = (loaded.op == "widen_f32_f64" and (loaded as scalarIR.Convert).value or loaded) as scalarIR.Load
+    -- The admitted index is an inert loop counter or proved cursor. Capture a
+    -- compound read before evaluating a statementful right-hand side.
+    local changed = assignedNames(valueNode, {})
+    if changed[address.cursor or address.index] then
+        kernel.context.reject(
+            lower.site(valueNode),
+            "a native SoA store cannot change its index while evaluating the value"
+        )
+    end
+    local left = compound ~= nil and temporary(loaded, kernel, out) or loaded
+    local value = lower.expression(valueNode, environment, kernel.index, kernel)
+    if compound ~= nil then
+        local operator = {kind = "binop", op = {text = compound.text:sub(1, -2)}, [1] = target} as cst.Binop
+        value = binary(operator, left, value, kernel)
+    end
+    out[
+        #out + 1
+    ] = new scalarIR.Store(
+        op = "store",
+        span = column.name,
+        index = address.index,
+        indexCName = address.indexCName,
+        cursor = address.cursor,
+        cursorCName = address.cursorCName,
+        value = lower.convert(value, column.type, lower.site(target), kernel.context),
+        source = lower.site(target)
+    )
+
+    return true
+end
+
 --- One assignment, which may write several targets at once.
 local function assignStmt(
     stat: cst.AssignStmt,
@@ -5731,6 +5854,9 @@ local function assignStmt(
     local context = kernel.context
     local exprs = stat.exprs or {}
     local targets = stat.targets or {}
+    if #targets == 1 and #exprs == 1 and soaStore(targets[1], exprs[1], out, environment, kernel) then
+        return
+    end
 
     if #targets == 1 and #exprs == 1 and targets[1].kind == "name" then
         local name = tostring(lower.nameOf(targets[1]))
@@ -6480,6 +6606,18 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
             end
         elseif kind == "assignStmt" then
             assignStmt(stat as cst.AssignStmt, out, environment, kernel)
+        elseif kind == "compoundAssign" then
+            local assignment = stat as cst.CompoundAssign
+            if not soaStore(
+                assignment.target as cst.Node,
+                assignment.value as cst.Node,
+                out,
+                environment,
+                kernel,
+                assignment.op
+            ) then
+                context.reject(lower.site(stat), "native compound assignment requires an indexed SoA scalar field")
+            end
         elseif kind == "ifStmt" then
             local branch = stat as cst.IfStmt
             local clauses: {scalarIR.Clause} = {}
@@ -6897,6 +7035,12 @@ function lower.parameters(
     omitted: {[integer]: boolean}?
 ): lower.Signature
     local signature = new lower.Signature(params = {}, byName = {}, spans = {}, writes = {}, reads = {})
+    local reserved: {[string]: boolean} = {}
+    for _, raw in ipairs(raws) do
+        if raw.name ~= nil then
+            reserved[(raw.name as lexer.Token).text] = true
+        end
+    end
     for position, raw in ipairs(raws) do
         if omitted ~= nil and omitted[position] == true then
             goto continue
@@ -6919,6 +7063,71 @@ function lower.parameters(
         local sourceType = context.checked and sourceSpelling(resolved) or spelling
         local valueType = context.checked and semanticValueType(resolved) or lower.sourceValueType(spelling)
         local at = raw.type or raw
+        local rowType, writable = soaElement(resolved)
+        if rowType ~= nil then
+            if not context.nativeCpu then
+                context.reject(lower.site(raw), "SoA row-view parameters are supported only by native CPU AOT")
+            end
+            if mode ~= (writable and "exclusive" or "borrows") then
+                context.reject(
+                    lower.site(raw),
+                    "a native SoA view must be declared " .. (writable and "exclusive" or "borrows")
+                )
+            end
+            local _, origin = nominal(rowType)
+            if origin == nil or origin.declKind ~= "struct" then
+                context.reject(lower.site(raw), "native SoA rows require a scalar-field struct layout")
+            end
+            local layout = lower.layout(origin.name, rowType, at, declarations, layouts, context)
+            for _, entry in ipairs((declarations[layout.name] as cst.RecordDecl).entries) do
+                if entry.kind == "fieldDecl" and (entry as cst.FieldDecl).bitWidth ~= nil then
+                    context.reject(lower.site(entry), "native SoA columns cannot contain bitfields")
+                end
+            end
+            for ordinal, field in ipairs(layout.fields) do
+                local columnName = name as string
+                if ordinal > 1 then
+                    columnName = "__nuppSoa_" .. tostring(position) .. "_" .. tostring(ordinal)
+                    while reserved[columnName] do
+                        columnName = columnName .. "_"
+                    end
+                    reserved[columnName] = true
+                end
+                local param = new scalarIR.Param(
+                    kind = writable and "write_span" or "read_span",
+                    name = columnName,
+                    type = field.type,
+                    sourceType = field.sourceType,
+                    spanModule = "nupp.mem.soa",
+                    soa = new scalarIR.SoaColumn(
+                        view = name as string,
+                        sourceType = spelling,
+                        layout = layout.name,
+                        field = field.name,
+                        ordinal = ordinal
+                    ),
+                    region = "r" .. tostring(#signature.spans),
+                    access = writable and "readwrite" or "read",
+                    ownership = writable and "exclusive" or "shared",
+                    element = new lower.Element(
+                        kind = "scalar",
+                        type = field.type,
+                        sourceType = field.sourceType,
+                        spanModule = "nupp.mem.soa"
+                    ),
+                    source = lower.site(raw)
+                )
+                signature.params[#signature.params + 1] = param
+                signature.byName[columnName] = param
+                signature.spans[#signature.spans + 1] = param
+                if writable then
+                    signature.writes[#signature.writes + 1] = param
+                else
+                    signature.reads[#signature.reads + 1] = param
+                end
+            end
+            goto continue
+        end
         local writeElement = lower.spanElement(spelling, resolved, "WriteSpan", at, declarations, layouts, context)
         local readElement = lower.spanElement(spelling, resolved, "Span", at, declarations, layouts, context)
         if writeElement ~= nil
@@ -7057,13 +7266,14 @@ function lower.regions(spans: {scalarIR.Param}): ({scalarIR.Region}, {scalarIR.A
     for left = 1, #spans do
         for right = left + 1, #spans do
             local hasWrite = spans[left].kind == "write_span" or spans[right].kind == "write_span"
+            local siblings = scalarIR.sameSoaView(spans[left], spans[right])
             facts[
                 #facts + 1
             ] = new scalarIR.AliasFact(
-                relation = hasWrite and "disjoint" or "may_alias",
+                relation = (hasWrite or siblings) and "disjoint" or "may_alias",
                 left = spans[left].region as string,
                 right = spans[right].region as string,
-                proof = hasWrite and "exclusive_borrow" or "shared_borrows"
+                proof = siblings and "soa_columns" or hasWrite and "exclusive_borrow" or "shared_borrows"
             )
         end
     end
@@ -7689,7 +7899,11 @@ function lower.admitMap(statements: {cst.Node}, signature: lower.Signature): low
         )
     end
 
-    local closure = relations.solve(reading.relations, spanNames(signature), lower.guardTerms(signature))
+    local closure = relations.solve(
+        relations.withSoaCounts(reading.relations, signature.params),
+        spanNames(signature),
+        lower.guardTerms(signature)
+    )
     if closure.contradiction ~= nil then
         -- Everything follows from a contradiction, including the loop's bounds,
         -- so admitting one would admit a kernel whose guards can never pass.
@@ -8082,6 +8296,8 @@ local function loweringEnvironment(signature: lower.Signature, specialization: l
         if param.kind == "uniform" or param.kind == "scalar" then
             if param.kind == "scalar" then
                 (param as any).cName = tostring(position)
+            else
+                param.cName = "p_" .. param.name
             end
             environment[
                 param.name
@@ -8193,6 +8409,15 @@ function lower.program(
         specialization ~= nil,
         specialization ~= nil and (specialization as lower.Specialization).omitted or nil
     )
+    local hasSoa = false
+    for _, param in ipairs(signature.params) do
+        if param.soa ~= nil then
+            hasSoa = true
+        end
+    end
+    if hasSoa and contract.target ~= "cpu" then
+        context.reject(lower.site(body), "SoA row-view parameters are supported only by native CPU AOT")
+    end
     local regions, aliasFacts = lower.regions(signature.spans)
     local sourceName = (fn.name as lexer.Token).text
     local name = specialization ~= nil and (specialization as lower.Specialization).name or sourceName
@@ -8502,6 +8727,9 @@ function lower.program(
         end
 
         local entryMode = kernel.usesLua and "lua-builder" or "kernel"
+        if hasSoa and kernel.usesLua then
+            context.reject(lower.site(body), "SoA row-view parameters require a native kernel without Lua values")
+        end
         local blockProgram = new scalarIR.Program(
             version = scalarIR.VERSION,
             name = name,

@@ -50,6 +50,7 @@ record emit.Context
 
     explicitScalar: boolean
     independentSpanCounts: boolean
+    countRoots: {[string]: string}
     explicitFixedTypes: {[string]: boolean}
     reusableScratchName: string?
     builderEager: boolean
@@ -69,6 +70,7 @@ function emit.context(parent: emit.Context?, program: scalarIR.Program?, scalar:
         vectorCeiling = parent ~= nil and parent.vectorCeiling or 0,
         explicitScalar = scalar == true,
         independentSpanCounts = parent == nil or parent.independentSpanCounts,
+        countRoots = parent ~= nil and parent.countRoots or {},
         explicitFixedTypes = parent ~= nil and parent.explicitFixedTypes or {},
         reusableScratchName = parent ~= nil and parent.reusableScratchName or nil,
         builderEager = parent ~= nil and parent.builderEager,
@@ -83,12 +85,23 @@ function emit.context(parent: emit.Context?, program: scalarIR.Program?, scalar:
         context.explicitWidth = program.simdWidth or 0
         context.vectorCeiling = program.vectorCeiling or 0
         context.independentSpanCounts = scalarIR.independentCounts(program)
+        context.countRoots = {}
+        for _, param in ipairs(program.params) do
+            if param.soa ~= nil then
+                context.countRoots[param.name] = param.soa.view
+            end
+        end
         context.reusableScratchName = program.reusableScratch
         context.builderEager = program.builderMode == "eager"
         context.fpTranscendentals = program.fpTranscendentals == true
     end
 
     return context
+end
+
+--- A row view contributes one count to the private ABI, shared by its columns.
+function emit.spanCount(context: emit.Context, name: string): string
+    return context.independentSpanCounts and "count_" .. (context.countRoots[name] or name) or "count"
 end
 
 --- One of the C headers under `aot/include`, as one text chunk.
@@ -543,7 +556,7 @@ end
 --- The integer under a binary64 promotion, if the operand is one.
 local function comparisonOperand(context: emit.Context, operand: cplan.Operand): string
     local value = operand.count ~= nil and (
-        context.independentSpanCounts and "count_" .. operand.count or "count"
+        emit.spanCount(context, operand.count)
     ) or emit.scalar(context, operand.value as scalarIR.Expr)
     return (operand.cast ~= "" and "(" .. operand.cast .. ")" or "") .. value
 end
@@ -648,7 +661,7 @@ function emit.genericStore(context: emit.Context, store: scalarIR.Simd): string
             store.span
         ) .. " + (size_t)" .. tostring(store.cursorCName) .. ", " .. emit.scalar(context, store.args[3]) .. ")"
     end
-    local count = context.independentSpanCounts and "count_" .. tostring(store.span) or "count"
+    local count = emit.spanCount(context, tostring(store.span))
     local at = "p_" .. tostring(
         store.span
     ) .. ", " .. count .. ", " .. emit.spanFirst(context, store.args[2]) .. ", " .. emit.scalar(context, store.args[3])
@@ -768,7 +781,7 @@ function emit.genericFieldAccess(context: emit.Context, access: scalarIR.Simd, s
             access.span
         ) .. " + (size_t)" .. tostring(access.cursorCName) .. ", " .. place .. value .. ")"
     end
-    local count = context.independentSpanCounts and "count_" .. tostring(access.span) or "count"
+    local count = emit.spanCount(context, tostring(access.span))
     local active = access.args[storing and 4 or 3]
     local mask = active ~= nil and emit.scalar(
         context,
@@ -800,7 +813,7 @@ function emit.indexedSimd(context: emit.Context, node: scalarIR.Simd): string
     local helper = context.explicitScalar and "ks_scalar_exp_" or "ks_exp_"
     local maskType = "simd_mask_" .. vectorType:sub(#"simd_vector_" + 1)
     local active = node.args[reading and 3 or 4]
-    local count = context.independentSpanCounts and "count_" .. tostring(node.span) or "count"
+    local count = emit.spanCount(context, tostring(node.span))
     local parts = {
         "({ " .. emit.cType(
             context,
@@ -993,9 +1006,7 @@ function emit.scalar(context: emit.Context, node: scalarIR.Expr): string
     elseif operation == "uniform" then
         return "p_" .. (node as scalarIR.Name).name
     elseif operation == "span_count" then
-        return context.independentSpanCounts and "((double)count_" .. (
-            node as scalarIR.SpanCount
-        ).span .. ")" or "((double)count)"
+        return "((double)" .. emit.spanCount(context, (node as scalarIR.SpanCount).span) .. ")"
     elseif operation == "reducer_init" then
         local reducer = node as scalarIR.ReducerInit
         local _, _, element = reducers.parse(reducer.type)
@@ -1266,7 +1277,7 @@ function emit.scalar(context: emit.Context, node: scalarIR.Expr): string
                 end
                 local count = rooted ~= nil and "ks_length_" .. tostring(
                     (rooted as scalarIR.Name).cName
-                ) or context.independentSpanCounts and "count_" .. tostring(simd.span) or "count"
+                ) or emit.spanCount(context, tostring(simd.span))
                 local at = pointer .. ", " .. count .. ", " .. emit.spanFirst(context, args[2])
                 if args[3] == nil then
                     return genericHelper .. "load_full_" .. genericSuffix .. "(" .. at .. ")"
@@ -1793,7 +1804,9 @@ function emit.parameters(
     end
     if independentCounts then
         for _, param in ipairs(params) do
-            if param.kind == "write_span" or param.kind == "read_span" then
+            if (
+                param.kind == "write_span" or param.kind == "read_span"
+            ) and (param.soa == nil or param.soa.ordinal == 1) then
                 parts[#parts + 1] = "size_t count_" .. param.name
             end
         end

@@ -28,7 +28,7 @@ local scalarIR = {}
 ---
 --- Carried in the IR and checked when it is read back, so an IR written by an
 --- older compiler is refused rather than half-understood.
-const scalarIR.VERSION = 40
+const scalarIR.VERSION = 41
 
 --- The calling convention selected for one complete AOT entry.
 ---
@@ -1402,12 +1402,21 @@ record scalarIR.RangeGuard
     source: scalarIR.Source?
 end
 
+--- The source view and checked field represented by a private column parameter.
+record scalarIR.SoaColumn
+    --- Authored parameter and type, shared by every column of this view.
+    view: string
+
+    sourceType: string
+    layout: string
+    field: string
+    ordinal: integer
+end
+
 --- One parameter of an admitted signature.
 ---
---- Two types rather than one. `type` is what the value is physically, which the
---- generated C and the foreign declaration agree on; `sourceType` is how the
---- source spelled it, which the generated wrapper's own signature keeps so a
---- caller sees the type it wrote rather than the ABI underneath it.
+--- `type` describes physical storage for C and the foreign declaration;
+--- `sourceType` preserves the authored type in the checked wrapper.
 record scalarIR.Param
     kind: 'write_span' | 'read_span' | 'uniform' | 'scalar'
     name: string
@@ -1419,7 +1428,11 @@ record scalarIR.Param
     --- pointer representation, so the binding must preserve this distinction.
     spanModule: string?
 
-    --- Lua-builder scalar arguments use their positive VM stack index here.
+    --- A scalar column expanded from one authored SoA row-view parameter.
+    soa: scalarIR.SoaColumn?
+
+    --- Uniforms use their C parameter name; Lua-builder scalars use their
+    --- positive VM stack index.
     cName: string?
 
     --- Spans only: the borrow region this parameter is, which alias facts and
@@ -1462,7 +1475,7 @@ record scalarIR.AliasFact
     relation: 'disjoint' | 'may_alias'
     left: string
     right: string
-    proof: 'exclusive_borrow' | 'shared_borrows'
+    proof: 'exclusive_borrow' | 'shared_borrows' | 'soa_columns'
 end
 
 --- A length agreement the source proved between two spans.
@@ -1645,7 +1658,17 @@ record scalarIR.Program
     source: scalarIR.Source?
 end
 
---- Whether the native ABI carries one count per span.
+--- Whether two column parameters originate in the same authored row view.
+function scalarIR.sameSoaView(left: scalarIR.Param?, right: scalarIR.Param?): boolean
+    return left ~= nil
+        and right ~= nil
+        and left.soa ~= nil
+        and right.soa ~= nil
+        and left.soa.view == right.soa.view
+        and left.soa.layout == right.soa.layout
+end
+
+--- Whether the native ABI carries independent span/view counts.
 ---
 --- A block kernel always does. A map kernel may share its primary count only
 --- when guards relate every other span to it; cursor-only spans retain their

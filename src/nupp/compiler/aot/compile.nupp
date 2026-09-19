@@ -279,6 +279,7 @@ function compile.lower(
     local context = new lower.Context(
         checked = parsed ~= nil,
         vectors = compile.vectors(selected),
+        nativeCpu = selected == nil or selected.architecture ~= "wasm32",
         constantNames = {},
         constantValues = {},
         reject = rejection(filename, diagnostics)
@@ -346,6 +347,7 @@ function compile.constSpecializations(
     local context = new lower.Context(
         checked = true,
         vectors = compile.vectors(selected),
+        nativeCpu = selected.architecture ~= "wasm32",
         reject = rejection(filename, diagnostics)
     )
 

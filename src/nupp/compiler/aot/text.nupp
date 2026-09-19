@@ -548,6 +548,14 @@ local function preamble(program: scalarIR.Program): {string}
                 tostring(param.access),
                 at(param.source)
             )
+            if param.soa ~= nil then
+                local column = param.soa
+                lines[
+                    #lines + 1
+                ] = (
+                    "    soa %s:%s layout(%s) field(%d,%s)"
+                ):format(column.view, column.sourceType, column.layout, column.ordinal, column.field)
+            end
         else
             lines[
                 #lines + 1
