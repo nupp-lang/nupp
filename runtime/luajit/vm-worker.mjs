@@ -94,6 +94,7 @@ async function boot(message) {
     const current = line; line = '';
     self.postMessage({type: 'log', log});
     try {
+      if (current.includes('Kernel panic - not syncing:') || current.startsWith('Failed to execute /init')) throw new Error(current);
       if (current === '@@NUPP_SNAPSHOT_READY@@') {
         if (message.captureSnapshot) {
           (async () => {
