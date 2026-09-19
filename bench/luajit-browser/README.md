@@ -318,11 +318,11 @@ See [migration details and limitations](../../runtime/luajit/MIGRATION.md).
 ## Remaining work that can run headlessly
 
 `results/native-aot.json` records the guest-native builder fixture in Chromium,
-Firefox and WebKit. Its generated shared library is about 12 KiB. The fixture
+Firefox and WebKit. Its generated shared library is 8,360 bytes. The fixture
 checks fresh nested tables, arbitrary string bytes, rooted null-sentinel identity,
 100 iterations with collection, rejected arguments, and a scalar FFI function.
-These are local development-overlay results; source-guest CI separately rebuilds
-and runs the same fixture. Native AOT requires an i386/musl cross compiler and
+These final-head packages consume the verified source-built guest; source-guest
+CI separately rebuilds and runs the same fixture. Native AOT requires an i386/musl cross compiler and
 executes through CPU emulation. It does not turn Lua-C-API builders into
 independent Wasm kernels.
 
@@ -345,7 +345,8 @@ to a diagnostic and 9.84 s to output; cached output was 1.88 s with zero asset
 body bytes. The original inflation implementation is retained. No startup or
 memory improvement is claimed from this experiment.
 
-The release workflow now calls the source-guest conformance workflow and adds
+The source-guest workflow runs on matching changes on every branch. The release
+workflow also calls it and adds
 `nupp-luajit-browser-runtime.tar.gz`, carrying the verified guest, snapshots,
 matching sources and notices. The old runtime archive remains for the rollback
 release. A workflow-dispatch rehearsal publishes no release.
