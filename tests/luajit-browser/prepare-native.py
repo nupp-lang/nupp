@@ -2,7 +2,7 @@
 """Make the browser AOT fixture's Clang driver from the guest's pinned musl.
 
 This is a test toolchain, not a general cross-SDK: production native AOT uses
-an i386/musl compiler supplied through NUPP_NATIVE_CC. Needs Python 3.12,
+an i386/musl compiler supplied through NUPP_AOT_CC. Needs Python 3.12,
 Clang with x86 code generation, GNU-flavor LLD, make and sed.
 """
 import gzip

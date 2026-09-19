@@ -51,11 +51,12 @@ would make a benchmark unattributable and a numeric contract unenforceable.
 Selecting `require` is how a project takes on a C compiler as a dependency.
 Nothing else in Nupp makes it one, which is why `off` is the default.
 
-The build looks for `NUPP_NATIVE_CC` first, then `clang`, `cc` and `gcc` in that
+The build looks for `NUPP_AOT_CC` first, then the legacy `NUPP_NATIVE_CC`
+alias, then `clang`, `cc` and `gcc` in that
 order:
 
 ```bash
-NUPP_NATIVE_CC=/usr/bin/clang-18 nupp build
+NUPP_AOT_CC=/usr/bin/clang-18 nupp build
 ```
 
 Clang leads because the emitter's contraction pragma is Clang's; GCC compiles

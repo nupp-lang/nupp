@@ -8,7 +8,7 @@ export function validateNativeLibrary(name, bytes) {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   if (view.getUint32(0, false) !== 0x7f454c46 || bytes[4] !== 1 || bytes[5] !== 1 ||
       view.getUint16(16, true) !== 3 || view.getUint16(18, true) !== 3)
-    throw new Error('Browser native AOT requires an i386 Linux shared library built against musl; select aotTarget = "i686-unknown-linux-gnu" and an i386/musl NUPP_NATIVE_CC');
+    throw new Error('Browser native AOT requires an i386 Linux shared library built against musl; select aotTarget = "i686-unknown-linux-gnu" and an i386/musl NUPP_AOT_CC');
 }
 
 export async function nativeInitialization(records = [], verified) {

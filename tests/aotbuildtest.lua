@@ -5319,6 +5319,27 @@ function M.aNamedCompilerThatCannotBuildThisCIsRefused()
     assert(out:find("emit-c", 1, true), "and what to select instead: " .. out)
 end
 
+function M.anApplicationCompilerDoesNotReplaceTheHostToolchain()
+    local dir = project("require")
+    local pipe = assert(
+        io.popen(
+            (
+                "cd %q && NUPP_AOT_CC=false NO_COLOR= '%s' build --target native 2>&1; echo \"__exit__:$?\""
+            ):format(dir, NUPP)
+        )
+    )
+    local out = pipe:read("*a")
+    pipe:close()
+    local code = assert(tonumber(out:match("__exit__:(%d+)%s*$")))
+
+    test.equal(code, 1, "a toolchain that cannot build the C fails the build\n" .. out)
+    assert(
+        out:find("NUPP_AOT_CC", 1, true),
+        "and says how to name a working one rather than only that it failed: " .. out
+    )
+    assert(out:find("emit-c", 1, true), "and what to select instead: " .. out)
+end
+
 -- Version parsing, checked against banners rather than against whatever
 -- compiler happens to be installed. A machine with only one of the two cannot
 -- exercise the other's path any other way, and getting this wrong means
