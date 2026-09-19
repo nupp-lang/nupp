@@ -39,7 +39,9 @@ All other active Nupp tasks paused CPU-heavy work for the final run. The
 [earlier diagnostic runs](arm64-macos-ownership-diagnostics.json) are separate.
 The runner revision and preserved generated artifacts are identified separately;
 a later narrow capture-write correctness fix does not change these benchmark
-functions. The final compiler validation checks that correspondence.
+functions. The rebuilt module differs only by one blank line: all nonblank Lua
+lines match exactly. The final compiler passes fixpoint and all 80,744
+differentials; direct native-call proof rejects a removed entry registration.
 
 The JSON contains every timing row, native-entry proof, source/library/runtime
 hashes, exact runner, per-process medians, and bootstrap results. The bytecode

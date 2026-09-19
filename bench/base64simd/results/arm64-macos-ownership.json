@@ -413,5 +413,13 @@
     "positive": "ok - 80744 base64 differential checks: vector path, scalar reference and nupp.codec.base64 agree\n",
     "negative": "unregistered encoder correctly rejected\n",
     "method": "Observe a call to the registered entry in the exact loaded base64simd artifact. Removing only that registration must make the guard fail."
+  },
+  "finalCompilerValidation": {
+    "revision": "961ac575f6cb67ba894065806934de254b8dff19",
+    "fixpoint": "nupp: sources changed, building the compiler\nfixpoint ok: /private/tmp/nupp-buffer-lease-cost/build/stage0/15ed8a0432bd4c2df5840c7c8959c54ef4310611f29cae30da57a5f5621ac53b/nupp-f10eb69e49ce7d767081f8135e22662f0dacab4ff1a42d03ad884b4bac240016.lua rebuilds itself byte-identically\n",
+    "differentials": "ok - 80744 base64 differential checks: vector path, scalar reference and nupp.codec.base64 agree\n",
+    "rebuiltModuleSha256": "d2321e16173fe3b0826d4c2391ad49ef1b0210dfa43f504f8740000ff83916a7",
+    "normalizedFunctionTextSha256": "9b75e324d38acf00d4b9efd99b35a7cd2040b02b27be5764bd99eb6d52bea5df",
+    "correspondence": "Rebuilt module and measured candidate differ only by one blank line; all nonblank source lines match exactly. Stripped binary function dumps still differ, so no byte-identical dump claim is made."
   }
 }
