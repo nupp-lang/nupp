@@ -1,0 +1,602 @@
+{
+  "scope": "Installed desktop Safari through Apple safaridriver. Narrow windows are not physical mobile-device validation. Local unthrottled startup timings include WebDriver polling.",
+  "revision": "815220dfcb4077c37976d25c24583399d3e33e50",
+  "host": {
+    "platform": "darwin",
+    "release": "25.6.0",
+    "arch": "arm64",
+    "cpu": "Apple M5 Pro"
+  },
+  "startedAt": "2026-09-19T14:05:37.700Z",
+  "selection": "runtime",
+  "capabilities": {
+    "safari:platformVersion": "26.6",
+    "safari:automaticInspection": false,
+    "webkit:WebRTC": {
+      "DisableICECandidateFiltering": false,
+      "DisableInsecureMediaCapture": false
+    },
+    "webkit:alwaysAllowAutoplay": false,
+    "browserVersion": "26.6",
+    "strictFileInteractability": false,
+    "browserName": "Safari",
+    "safari:useSimulator": false,
+    "safari:automaticProfiling": false,
+    "setWindowRect": true,
+    "acceptInsecureCerts": false,
+    "safari:platformBuildVersion": "25G72",
+    "safari:experimentalWebSocketUrl": false,
+    "platformName": "macOS",
+    "safari:diagnose": false
+  },
+  "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.6 Safari/605.1.15",
+  "crossOriginIsolated": false,
+  "playgroundAssets": {
+    "compiler": "nupp-compiler-7c735766fa8967cc.lua",
+    "compilerSha256": "7c735766fa8967cc3116a29c5509e528cdf46ad1bf58c70f2ccdd87cb220a7db",
+    "hostModule": "nupp-playground.mjs",
+    "hostWasm": "nupp-playground.wasm",
+    "appRuntime": "nupp-app-runtime-72293faf441cd717.lua",
+    "appRuntimeSha256": "72293faf441cd71745b056c15c654cecac658a2ac9897d18af06966427741913",
+    "appHostModule": "nupp-runner.mjs",
+    "appHostWasm": "nupp-runner.wasm",
+    "bytes": {
+      "compiler": 7428395,
+      "hostModule": 12477,
+      "hostWasm": 224538,
+      "appRuntime": 693126,
+      "appHostModule": 33225,
+      "appHostWasm": 322280
+    },
+    "luajit": {
+      "guestManifest": "luajit/140b5611ba31dfb101c21341deee8f10f0725632dda20f5404ff7815d8dc5fa5/guest-manifest.json",
+      "compiler": "nupp-compiler-b47618967051484c.ljbc.gz",
+      "compilerSha256": "b47618967051484cd4e0f44c4ccdb4d8c4acafbeae1d9d94bd8070a64039a297",
+      "compilerBytes": 1634437,
+      "compilerDecodedBytes": 6491652,
+      "appRuntime": "nupp-luajit-app-e915fdacb3afe54d.lua.gz",
+      "appRuntimeSha256": "e915fdacb3afe54d7ec121b4e54d5132ada1ce2a6224028a5cb834d834c4545f",
+      "appRuntimeBytes": 111262,
+      "appRuntimeDecodedBytes": 668938
+    }
+  },
+  "guest": {
+    "buildKey": "140b5611ba31dfb101c21341deee8f10f0725632dda20f5404ff7815d8dc5fa5",
+    "manifestSha256": "ae999f18a9312012f0e66c5dc3b60d56f04253b113cada33d987d99680360cf2"
+  },
+  "ok": true,
+  "completedAt": "2026-09-19T14:07:51.331Z",
+  "results": [
+    {
+      "name": "smoke.html",
+      "ok": true,
+      "elapsedMs": 526.5839999999998,
+      "result": {
+        "ok": true,
+        "crossOriginIsolated": false,
+        "results": [
+          {
+            "wallSeconds": 1789826738,
+            "seed": "508b033c0a3e74d9c1471ea1c43df4c3ab9b7f6d9e6304b69703e3296c1c7866",
+            "kernelRandom": "3015a219f2b42beac3336552f7e4681c897cc62160dc44395a9605bd9f16a11d",
+            "ok": true,
+            "runtime": "LuaJIT 2.1.1785763465",
+            "profile": "runner",
+            "wasmMemoryBytes": 78905344
+          },
+          {
+            "kernelRandom": "93fcc56b7396a5bec3fc524a5db845e9ee0eeaf9ac1b1033cf276b3d56e310b3",
+            "ok": true,
+            "wallSeconds": 1789826738,
+            "seed": "ed0c05df043a23ef8d292c0cdf3110138583eca188d0c0197fdee9ef241a3793",
+            "runtime": "LuaJIT 2.1.1785763465",
+            "profile": "runner",
+            "wasmMemoryBytes": 78970880
+          },
+          {
+            "ok": true,
+            "runtime": "LuaJIT 2.1.1785763465",
+            "wallSeconds": 1789826738,
+            "seed": "44aba0daee1ee130b5fe9e5e009af6afdf57137f8c08a763f841b8c4166907d4",
+            "kernelRandom": "1d7ebe3e44dfa9bd940001c9963dc4cb999487bf8dbac7f8244e72fe6f027c94",
+            "profile": "compiler",
+            "wasmMemoryBytes": 145883136
+          }
+        ]
+      }
+    },
+    {
+      "name": "compiler.html",
+      "ok": true,
+      "elapsedMs": 12062.356084,
+      "result": {
+        "ok": true,
+        "startupMs": 460.00000000000006,
+        "requests": 39,
+        "samples": [
+          {
+            "round": 0,
+            "index": 0,
+            "kind": "check",
+            "durationMs": 2656
+          },
+          {
+            "round": 0,
+            "index": 1,
+            "kind": "hover",
+            "durationMs": 3.0000000000004547
+          },
+          {
+            "round": 0,
+            "index": 2,
+            "kind": "compile",
+            "durationMs": 22.999999999999545
+          },
+          {
+            "round": 0,
+            "index": 3,
+            "kind": "compile",
+            "durationMs": 111
+          },
+          {
+            "round": 0,
+            "index": 4,
+            "kind": "check",
+            "durationMs": 5581
+          },
+          {
+            "round": 0,
+            "index": 5,
+            "kind": "compile",
+            "durationMs": 110
+          },
+          {
+            "round": 0,
+            "index": 6,
+            "kind": "check",
+            "durationMs": 15
+          },
+          {
+            "round": 0,
+            "index": 7,
+            "kind": "check",
+            "durationMs": 15
+          },
+          {
+            "round": 0,
+            "index": 8,
+            "kind": "hover",
+            "durationMs": 3
+          },
+          {
+            "round": 0,
+            "index": 9,
+            "kind": "check",
+            "durationMs": 14
+          },
+          {
+            "round": 0,
+            "index": 10,
+            "kind": "compile",
+            "durationMs": 141
+          },
+          {
+            "round": 0,
+            "index": 11,
+            "kind": "compile",
+            "durationMs": 29
+          },
+          {
+            "round": 0,
+            "index": 12,
+            "kind": "check",
+            "durationMs": 108
+          },
+          {
+            "round": 1,
+            "index": 0,
+            "kind": "check",
+            "durationMs": 15
+          },
+          {
+            "round": 1,
+            "index": 1,
+            "kind": "hover",
+            "durationMs": 2
+          },
+          {
+            "round": 1,
+            "index": 2,
+            "kind": "compile",
+            "durationMs": 24
+          },
+          {
+            "round": 1,
+            "index": 3,
+            "kind": "compile",
+            "durationMs": 21
+          },
+          {
+            "round": 1,
+            "index": 4,
+            "kind": "check",
+            "durationMs": 28
+          },
+          {
+            "round": 1,
+            "index": 5,
+            "kind": "compile",
+            "durationMs": 126
+          },
+          {
+            "round": 1,
+            "index": 6,
+            "kind": "check",
+            "durationMs": 18
+          },
+          {
+            "round": 1,
+            "index": 7,
+            "kind": "check",
+            "durationMs": 107
+          },
+          {
+            "round": 1,
+            "index": 8,
+            "kind": "hover",
+            "durationMs": 2
+          },
+          {
+            "round": 1,
+            "index": 9,
+            "kind": "check",
+            "durationMs": 12
+          },
+          {
+            "round": 1,
+            "index": 10,
+            "kind": "compile",
+            "durationMs": 109
+          },
+          {
+            "round": 1,
+            "index": 11,
+            "kind": "compile",
+            "durationMs": 27.00000000000182
+          },
+          {
+            "round": 1,
+            "index": 12,
+            "kind": "check",
+            "durationMs": 112
+          },
+          {
+            "round": 2,
+            "index": 0,
+            "kind": "check",
+            "durationMs": 18
+          },
+          {
+            "round": 2,
+            "index": 1,
+            "kind": "hover",
+            "durationMs": 3
+          },
+          {
+            "round": 2,
+            "index": 2,
+            "kind": "compile",
+            "durationMs": 22
+          },
+          {
+            "round": 2,
+            "index": 3,
+            "kind": "compile",
+            "durationMs": 117
+          },
+          {
+            "round": 2,
+            "index": 4,
+            "kind": "check",
+            "durationMs": 15
+          },
+          {
+            "round": 2,
+            "index": 5,
+            "kind": "compile",
+            "durationMs": 108
+          },
+          {
+            "round": 2,
+            "index": 6,
+            "kind": "check",
+            "durationMs": 16
+          },
+          {
+            "round": 2,
+            "index": 7,
+            "kind": "check",
+            "durationMs": 15
+          },
+          {
+            "round": 2,
+            "index": 8,
+            "kind": "hover",
+            "durationMs": 2
+          },
+          {
+            "round": 2,
+            "index": 9,
+            "kind": "check",
+            "durationMs": 103
+          },
+          {
+            "round": 2,
+            "index": 10,
+            "kind": "compile",
+            "durationMs": 43
+          },
+          {
+            "round": 2,
+            "index": 11,
+            "kind": "compile",
+            "durationMs": 120
+          },
+          {
+            "round": 2,
+            "index": 12,
+            "kind": "check",
+            "durationMs": 19
+          }
+        ],
+        "compilerBytes": 6491652
+      }
+    },
+    {
+      "name": "application.html",
+      "ok": true,
+      "elapsedMs": 89059.184542,
+      "result": {
+        "ok": true,
+        "results": [
+          {
+            "name": "browser-platform.nupp",
+            "stdout": "c4c390bb-7b98-4504-bb81-ffc8303bd4f6\tef35586dd35fd2378f7ddc3234e73da1d372c44228f8dc86b1cd8e3432670926\n39cbf625ff34d0b79ac73ed4c9d3d3ed498f229bab23c0bd50152ec49313f667"
+          },
+          {
+            "name": "comptime.nupp",
+            "stdout": "NUPP COMPILES THIS ONCE ========\n256\t256\t-151444927"
+          },
+          {
+            "name": "constrained.nupp",
+            "stdout": "50\twidth\t7\t50\n30\theight\tnil"
+          },
+          {
+            "name": "custom-derive.nupp",
+            "stdout": "<User>"
+          },
+          {
+            "name": "generics.nupp",
+            "stdout": "intake\t21.5\nintake\nexhaust\n21.5\n48"
+          },
+          {
+            "name": "narrowing.nupp",
+            "stdout": "text of 5 bytes\tnumber 42\naccount 7\nsavings\n4\t0"
+          },
+          {
+            "name": "optimizer.nupp",
+            "stdout": "3\t86400\tintake exhaust ambient "
+          },
+          {
+            "name": "ownership.nupp",
+            "stdout": "closed\tbrowser resource\nused\tbrowser resource"
+          },
+          {
+            "name": "peg.nupp",
+            "stdout": "8\tred / green / blue\t8\nroom #, floor #"
+          },
+          {
+            "name": "records.nupp",
+            "stdout": "hello, ada\nBEEP. unit-7 ONLINE.\nada\ttrue"
+          },
+          {
+            "name": "serde.nupp",
+            "stdout": "{\"id\":41,\"name\":\"Ada\",\"tags\":[\"admin\"]}\n41\tAda\nno problem\n{\"ok\":true,\"count\":3}"
+          },
+          {
+            "name": "syntax.nupp",
+            "stdout": "batch: 131 (large)\telsewhere\n42\t5\t12\t0\n3\treading 4\ttrue\t3"
+          },
+          {
+            "name": "tour.nupp",
+            "stdout": "pay rent is high priority\nwash the car\nread a book"
+          },
+          {
+            "name": "type-level-dsl.nupp",
+            "stdout": "13\n42"
+          },
+          {
+            "name": "unions.nupp",
+            "stdout": "[inf] started\n[err] 12.5ms"
+          },
+          {
+            "name": "typed-ffi.nupp",
+            "stdout": "42"
+          }
+        ]
+      }
+    },
+    {
+      "name": "recovery.html",
+      "ok": true,
+      "elapsedMs": 8029.84375,
+      "result": {
+        "ok": true,
+        "results": [
+          {
+            "mode": "stale",
+            "fallbacks": [
+              "Snapshot does not match the guest build/profile"
+            ]
+          },
+          {
+            "mode": "corrupt",
+            "fallbacks": [
+              "Guest asset SHA-256 mismatch: assets/snapshot-runner.bin.gz"
+            ]
+          },
+          {
+            "mode": "extent",
+            "fallbacks": [
+              "Snapshot exceeds its declared extent"
+            ]
+          },
+          {
+            "mode": "invalid-state",
+            "fallbacks": [
+              "module code@http://127.0.0.1:8113/assets/libv86.mjs:106:21\n"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "lifecycle.html",
+      "ok": true,
+      "elapsedMs": 5068.425375000006,
+      "result": {
+        "ok": true,
+        "runs": [
+          {
+            "round": 0,
+            "cancelMs": 0
+          },
+          {
+            "round": 1,
+            "cancelMs": 0
+          },
+          {
+            "round": 2,
+            "cancelMs": 0
+          },
+          {
+            "round": 3,
+            "cancelMs": 0
+          },
+          {
+            "round": 4,
+            "cancelMs": 1
+          }
+        ],
+        "pressureError": "Error: @http://127.0.0.1:8113/vm-worker.mjs:108:83\n@http://127.0.0.1:8113/assets/libv86.mjs:67:174\n@http://127.0.0.1:8113/assets/libv86.mjs:354:94\n@http://127.0.0.1:8113/assets/libv86.mjs:348:109\nio_port_write8@http://127.0.0.1:8113/assets/libv86.mjs:299:46\n_RNvNtNtCslOG1uufA09K_3v863cpu3cpu14io_port_write8@v86.wasm:wasm-function[3137]\ninstr_EE@v86.wasm:wasm-function[2526]\n_RNvNtNtCslOG1uufA09K_3v863gen11interpreter3run@v86.wasm:wasm-function[2417]\nmain_loop@v86.wasm:wasm-function[3381]\n@http://127.0.0.1:8113/assets/libv86.mjs:336:283\n@http://127.0.0.1:8113/assets/libv86.mjs:336:472\n@@NUPP_BRIDGE_READY@@\r\n\r\n@@NUPP_MAILBOX@@ 0\r\nluajit invoked oom-killer: gfp_mask=0x140dca(GFP_HIGHUSER_MOVABLE|__GFP_COMP|__GFP_ZERO), order=0, oom_score_adj=0\r\nCPU: 0 UID: 0 PID: 17 Comm: luajit Not tainted 6.12.110-nupp #1\r\nCall Trace:\r\n 0xc1206ddf\r\n 0xc1206dfa\r\n 0xc10a3693\r\n ? 0xc10abec1\r\n 0xc10a3ada\r\n 0xc10a4057\r\n 0xc10d35ee\r\n 0xc10d3c2d\r\n 0xc10bce7b\r\n 0xc1230676\r\n ? 0xc1230500\r\n 0xc12378b5\r\nEIP: 0x0052625e\r\nCode: 00 00 0f 85 c4 02 00 00 f7 c7 02 00 00 00 0f 85 a8 02 00 00 f7 c7 04 00 00 00 0f 85 bc 02 00 00 89 d1 83 e2 03 c1 e9 02 31 c0 <f3> ab f6 c2 04 74 8d eb b9 2e 8d b4 26 00 00 00 00 90 8b 4c 24 28\r\nEAX: 00000000 EBX: b7f20f88 ECX: 00025806 EDX: 00000000\r\nESI: 00000000 EDI: b523b000 EBP: b7f1ed00 ESP: bfc34f60\r\nDS: 007b ES: 007b FS: 0000 GS: 0033 SS: 007b EFLAGS: 00200246\r\n ? 0xc1230500\r\nMem-Info:\r\nactive_anon:2 inactive_anon:10131 isolated_anon:0\r\n active_file:0 inactive_file:0 isolated_file:0\r\n unevictable:403 dirty:0 writeback:0\r\n slab_reclaimable:13 slab_unreclaimable:148\r\n mapped:280 shmem:0 pagetables:21\r\n sec_pagetables:0 bounce:0\r\n kernel_misc_reclaimable:0\r\n free:203 free_pcp:75 free_cma:0\r\nNode 0 active_anon:8kB inactive_anon:40524kB active_file:0kB inactive_file:0kB unevictable:1612kB isolated(anon):0kB isolated(file):0kB mapped:1120kB dirty:0kB writeback:0kB shmem:0kB writeback_tmp:0kB kernel_stack:136kB pagetables:84kB sec_pagetables:0kB all_unreclaimable? yes\r\nNormal free:812kB boost:0kB min:828kB low:1032kB high:1236kB reserved_highatomic:0KB active_anon:8kB inactive_anon:40524kB active_file:0kB inactive_file:0kB unevictable:1612kB writepending:0kB present:48760kB managed:44284kB mlocked:0kB bounce:0kB free_pcp:300kB local_pcp:300kB free_cma:0kB\r\nlowmem_reserve[]: 0 0\r\nNormal: 1*4kB (M) 1*8kB (U) 0*16kB 1*32kB (M) 0*64kB 0*128kB 1*256kB (M) 1*512kB (U) 0*1024kB 0*2048kB 0*4096kB = 812kB\r\n403 total pagecache pages\r\n12190 pages RAM\r\n0 pages HighMem/MovableOnly\r\n1119 pages reserved\r\nTasks state (memory values in pages):\r\n[  pid  ]   uid  tgid total_vm      rss rss_anon rss_file rss_shmem pgtables_bytes swapents oom_score_adj name\r\n[     17]     0    17    12753    10394    10149      245         0    65536        0             0 luajit\r\noom-kill:constraint=CONSTRAINT_NONE,nodemask=(null),task=luajit,pid=17,uid=0\r\nOut of memory: Killed process 17 (luajit) total-vm:51012kB, anon-rss:40596kB, file-rss:980kB, shmem-rss:0kB, UID:0 pgtables:64kB oom_score_adj:0\r\n@@NUPP_GUEST_EXIT@@ 128\r\n"
+      }
+    },
+    {
+      "name": "packaged.html?app=aot",
+      "ok": true,
+      "elapsedMs": 428.3096669999941,
+      "result": {
+        "ok": true,
+        "name": "aot",
+        "elapsedMs": 239,
+        "result": {
+          "ok": true
+        }
+      }
+    },
+    {
+      "name": "packaged.html?app=http",
+      "ok": true,
+      "elapsedMs": 542.8937920000026,
+      "result": {
+        "ok": true,
+        "name": "http",
+        "elapsedMs": 317,
+        "result": {
+          "status": 200,
+          "contentType": "application/json",
+          "body": "{\"message\":\"hello from Nupp over fetch\"}\n"
+        }
+      }
+    },
+    {
+      "name": "packaged.html?app=platform",
+      "ok": true,
+      "elapsedMs": 773.2936250000057,
+      "result": {
+        "ok": true,
+        "name": "platform",
+        "elapsedMs": 632,
+        "result": {
+          "crc32c": true,
+          "uuid4": "faf37759-9bfe-4647-8d56-ec7180213f0d",
+          "uuid7": "01a0b9fe-6ef0-76a6-9b3d-79550a99ed4d",
+          "elapsed": 6.000000000000057,
+          "parallelism": 8,
+          "stored": "persisted",
+          "crc64": true,
+          "randomBytes": 32,
+          "sha256": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+          "md5": "900150983cd24fb0d6963f7d28e17f72",
+          "platform": "browser",
+          "sha512": "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f",
+          "hmac": "9c196e32dc0175f86f4b1cb89289d6619de6bee699e4c378e68309ed97a1a6ab",
+          "architecture": "x86",
+          "endianness": "little",
+          "pointerBits": 32,
+          "sha1": "a9993e364706816aba3e25717850c26c9cd0d89d"
+        }
+      }
+    },
+    {
+      "name": "packaged.html?app=workers",
+      "ok": true,
+      "elapsedMs": 16056.20087500001,
+      "result": {
+        "ok": true,
+        "name": "workers",
+        "elapsedMs": 14233,
+        "result": {
+          "fannedOut": true,
+          "recordCrossed": true,
+          "emptyResultCrossed": true,
+          "scopeWaitedForUnawaited": true,
+          "scopeCleanupMs": 181,
+          "failureObserved": true,
+          "siblingStillRan": true,
+          "failedStatus": "failed",
+          "unobservedFailureRaised": true,
+          "unsendableResultRefused": true,
+          "unsendableArgumentRefusedAtTheCallSite": true,
+          "nestedScopeRefused": true,
+          "cancelRequested": true,
+          "cancelIsIdempotent": true,
+          "queuedCancelled": true,
+          "cancelledStatus": "cancelled",
+          "runningTaskNotInterrupted": true,
+          "queueBound": 1024,
+          "queueRefusedAtBound": true,
+          "checkpointObservedCancellation": true,
+          "coroutineChildrenRan": true,
+          "taskScopeOwnsWorkers": true,
+          "deadlineProblem": "nupp: the task scope was cancelled: its deadline passed",
+          "deadlineOutcome": "cancelled",
+          "deadlineMs": 273
+        }
+      }
+    },
+    {
+      "name": "packaged.html?app=gpu",
+      "ok": true,
+      "elapsedMs": 493.6714169999759,
+      "result": {
+        "ok": true,
+        "name": "gpu",
+        "elapsedMs": 367,
+        "result": {
+          "ok": true
+        }
+      }
+    }
+  ]
+}

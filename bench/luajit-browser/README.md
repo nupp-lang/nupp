@@ -197,6 +197,46 @@ explicitly set. Local overlay evidence is not a replacement for source-build CI.
 
 ## Integrated measurements (2026-09-19)
 
+### Installed Safari
+
+`results/safari-runtime.json` records ten passing packaged groups in the
+installed Safari 26.6 on macOS 26.6, driven by Apple's `safaridriver`. They cover
+FFI callbacks and exception unwinding, bit/buffer/JIT features, 39 compiler
+response comparisons, applications, snapshot recovery, cancellation and memory
+exhaustion, independent Wasm AOT, HTTP, platform services, workers and WebGPU.
+Safari executed the WebGPU fixture; it did not take the unavailable-capability
+path. The guest and playground asset identities are recorded in the result.
+
+This closes the desktop Safari runtime check, not the complete browser/device
+gate. The Mac was locked during the attempted UI run: the compiler loaded and
+checked the initial program, but the Run click did not produce output. Repeat
+the UI checks after unlocking; do not treat this attempt as a UI pass or a
+diagnosed product regression. Physical iPhone/iPad acceptance remains untested.
+
+To repeat with the existing built playground and packaged fixtures served at
+the supplied URLs:
+
+```sh
+/usr/bin/safaridriver -p 4455
+# In another terminal, with the Mac unlocked:
+node editors/playground/test/safari.mjs \
+  http://127.0.0.1:8787/ http://127.0.0.1:8113/ \
+  build/luajit-browser/safari.json
+```
+
+The test creates and closes its own Safari automation session and serves the
+HTTP fixture on loopback port 8791. `NUPP_SAFARI_SCOPE=runtime` selects the ten
+packaged groups; `ui` selects editing, execution, Stop, compatibility, backend
+switches and embedded editors. The default runs both. Narrow desktop windows
+are recorded with their actual dimensions and never counted as mobile devices.
+
+The generated Pages path `/playground/` also passes all eight existing UI
+checks in Chromium, Firefox and Playwright WebKit after correcting the static
+test server's directory-index handling. Previously that URL returned 404, and
+the readiness predicate mistakenly accepted a page without a Run button.
+
+### Existing desktop-engine measurements
+
 The final local playground uses guest `140b5611…`, built from pinned sources in
 CI at `bfdc6a43`, with production package verification enabled. It does not use
 the development-overlay escape hatch. `results/integrated-provenance.json`
