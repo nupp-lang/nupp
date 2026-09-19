@@ -239,6 +239,13 @@ jobs:
           test -f "release/verify-${{ matrix.platform }}/NOTICE.md"
           test -f "release/verify-${{ matrix.platform }}/stub-catalog-record.json"
           "release/verify-${{ matrix.platform }}/nupp" --help
+          gpu_smoke="$PWD/.github/scripts/gpu-costs-smoke.lua"
+          (
+            cd "release/verify-${{ matrix.platform }}"
+            env -u NUPP_NATIVE_LIBRARY -u NUPP_COMPILER_ROOT \
+              ./nupp run --gpu-costs gpu-costs.jsonl "$gpu_smoke"
+            test -f gpu-costs.jsonl && test ! -s gpu-costs.jsonl
+          )
           # A tag is what a user installs and `nupp --version` is what they are told
           # they installed, and nothing but this makes the two agree: the number is a
           # string in the source, set by the commit the tag names. Checked against the
@@ -399,6 +406,18 @@ jobs:
           if ($verified -ne $digest) { throw "release archive checksum mismatch" }
           & release/verify/nupp.exe --help
           if ($LASTEXITCODE -ne 0) { throw "archived Windows compiler did not run" }
+          $gpuSmoke = (Resolve-Path .github/scripts/gpu-costs-smoke.lua).Path
+          Remove-Item Env:NUPP_NATIVE_LIBRARY -ErrorAction SilentlyContinue
+          Remove-Item Env:NUPP_COMPILER_ROOT -ErrorAction SilentlyContinue
+          Push-Location release/verify
+          try {
+            & ./nupp.exe run --gpu-costs gpu-costs.jsonl $gpuSmoke
+            if ($LASTEXITCODE -ne 0) { throw "archived compiler lacks GPU cost support" }
+            if (-not (Test-Path gpu-costs.jsonl) -or
+                (Get-Item gpu-costs.jsonl).Length -ne 0) {
+              throw "device-free GPU cost stream is missing or not empty"
+            }
+          } finally { Pop-Location }
           if ($env:GITHUB_REF_TYPE -eq "tag") {
             $printed = & release/verify/nupp.exe --version
             $expected = "nupp " + ($env:GITHUB_REF_NAME -replace '^v', '')

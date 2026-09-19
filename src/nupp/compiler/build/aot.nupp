@@ -1983,36 +1983,67 @@ function aot.apply(
     end
     report:at("aot")
     local remarks: {any} = {}
+
+    local function appendRemark(filename: string, line: integer, column: integer, code: string, message: string): nil
+        local source = fs.readFile(filename) or ""
+        local offset = 1
+        for _ = 2, line do
+            offset = (source:find("\n", offset, true) or (#source + 1)) + 1
+        end
+        remarks[
+            #remarks + 1
+        ] = {
+            filename = filename,
+            line = line,
+            col = column,
+            offset = offset + column - 1,
+            length = 1,
+            code = code,
+            severity = "note",
+            pass = "aot",
+            status = "fired",
+            hotness = "unknown",
+            msg = message,
+        }
+    end
+
     local remarked: {[string]: boolean} = {}
     for _, one in ipairs(emitted as {aot.Emitted}) do
         local artifact = produced[one.source]
         if artifact ~= nil and not remarked[one.source] then
             remarked[one.source] = true
             for position, program in ipairs(artifact.programs) do
-                for _, loop in ipairs(artifact.loops[position] or {}) do
-                    local source = fs.readFile(one.source) or ""
-                    local offset = 1
-                    for _ = 2, loop.line do
-                        offset = (source:find("\n", offset, true) or (#source + 1)) + 1
+                if program.executionTarget ~= "gpu" then
+                    for _, loop in ipairs(artifact.loops[position] or {}) do
+                        appendRemark(
+                            one.source,
+                            loop.line,
+                            loop.column,
+                            "AOT-LOOP",
+                            program.name .. ": loop " .. tostring(
+                                loop.id
+                            ) .. " " .. loop.outcome .. (loop.reason ~= nil and ("; " .. loop.reason) or "")
+                        )
                     end
-                    offset = offset + loop.column - 1
-                    remarks[
-                        #remarks + 1
-                    ] = {
-                        filename = one.source,
-                        line = loop.line,
-                        col = loop.column,
-                        offset = offset,
-                        length = 1,
-                        code = "AOT-LOOP",
-                        severity = "note",
-                        pass = "aot",
-                        status = "fired",
-                        hotness = "unknown",
-                        msg = program.name .. ": loop " .. tostring(
-                            loop.id
-                        ) .. " " .. loop.outcome .. (loop.reason ~= nil and ("; " .. loop.reason) or ""),
-                    }
+                end
+            end
+        end
+    end
+    for _, sourcePath in ipairs(gpuSources) do
+        local artifacts = produced[sourcePath]
+        if artifacts ~= nil then
+            for _, program in ipairs(artifacts.programs) do
+                local gpu = artifacts.gpu[program.symbol]
+                if gpu ~= nil then
+                    appendRemark(
+                        sourcePath,
+                        gpu.sourceLine or 1,
+                        gpu.sourceColumn or 1,
+                        "GPU-DISPATCH",
+                        program.name .. ": GPU shader emitted; " .. tostring(
+                            gpu.threads
+                        ) .. " threads per workgroup; artifact " .. tostring(gpu.artifactId)
+                    )
                 end
             end
         end

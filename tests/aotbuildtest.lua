@@ -1168,6 +1168,37 @@ function M.gpuCheckStagesTheDefaultProviderTypeSurface()
     )
 end
 
+function M.gpuRemarksNameTheAuthoredDeclarationAndArtifact()
+    local dir = gpuProject()
+    local path = dir .. "/nupp.lua"
+    local manifest = assert(io.open(path, "wb"))
+    manifest:write([[return {include = {"src"}, build = {targets = {native = {
+        kind = "modules", entries = {"gpucheck"}, outDir = "build/native", aot = "emit-c",
+    }}}}]])
+    manifest:close()
+    for _ = 1, 2 do
+        local pipe = assert(io.popen((
+            "cd %q && NUPP_CACHE_DIR=%q '%s' build --target native --remarks-out --json 2>/dev/null"
+        ):format(dir, cacheFor(dir), NUPP)))
+        local text = pipe:read("*a")
+        pipe:close()
+        local report = require("testjson").decode(text)
+        assert(report.ok, text)
+        local remarks = require("testjson").decode(assert(read(dir .. "/build/remarks.json")))
+        local found = 0
+        for _, remark in ipairs(remarks.remarks) do
+            if remark.code == "GPU-DISPATCH" then
+                found = found + 1
+                test.equal(remark.range.start.line, 5)
+                test.equal(remark.range.start.column, 1)
+                test.equal(remark.range.start.offset, assert(read(dir .. "/src/gpucheck.nupp")):find("@aot", 1, true))
+                assert(remark.message:find("artifact ", 1, true), remark.message)
+            end
+        end
+        test.equal(found, 1, "GPU-only modules produce one authored dispatch remark on cold and warm builds")
+    end
+end
+
 function M.portableGpuChecksShareTheGeneratedInterface()
     local dir = gpuProject()
     local path = dir .. "/nupp.lua"

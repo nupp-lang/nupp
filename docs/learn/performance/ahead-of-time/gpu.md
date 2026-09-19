@@ -195,7 +195,18 @@ compute.
 translates that module for Metal internally; Nupp does not ship a second Metal
 artifact or a shader translator. `nupp aot --emit wgsl FILE` prints the browser
 WebGPU artifact when the kernel belongs to the portable profile. The AOT report
-records the GPU family and the compiler's verified resource facts.
+records the GPU family and the compiler's verified resource facts. Its `gpu`
+object names the shader digest, authored source position, entrypoint and
+workgroup width. `nupp build --remarks-out` also records `GPU-DISPATCH` at the
+authored declaration, including that same digest.
+
+For native operation costs, use `nupp run --gpu-costs costs.jsonl PROGRAM`.
+It composes with `--profile` so host samples and device events can be inspected
+together. `nupp bench --gpu-costs DIRECTORY` allocates a separate JSONL file for
+every case, fork and comparison candidate; the benchmark JSON names each file.
+The [profiling guide](../profiling.md#native-gpu-costs) explains the events
+and device timestamp availability. Cost recording adds overhead, so collect
+an instrumented account separately from uninstrumented CPU/GPU comparisons.
 
 GPU kernels cannot allocate Lua values, suspend, call dynamic functions, or use
 unproved storage. Native workgroup and tensor facilities require the native GPU

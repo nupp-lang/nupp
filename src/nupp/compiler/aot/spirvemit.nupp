@@ -1078,14 +1078,23 @@ function spirv.program(
             -- conversions are pass-throughs.
             return expression(value.value)
         elseif op == "numeric_cast" then
-            local input, inputType = expression(value.value)
+            local operand = value.value
+            -- Integer widening is exact in the source contract. Cancelling this
+            -- detour avoids rounding its high bits through the GPU's f32 lane.
+            if (value.type == "u32" or value.type == "i32")
+                and operand.op == "int_to_f64"
+                and (operand.value.type == "u32" or operand.value.type == "i32")
+            then
+                operand = operand.value
+            end
+            local input, inputType = expression(operand)
             local outputType = valueType(value.type)
             if inputType == outputType then
                 return input, outputType
             end
             local converted = id()
-            local opcode = outputType == u32Type and (inputType == f32Type and OP.ConvertFToU or OP.UConvert)
-                or outputType == i32Type and (inputType == f32Type and OP.ConvertFToS or OP.SConvert)
+            local opcode = outputType == u32Type and (inputType == f32Type and OP.ConvertFToU or OP.Bitcast)
+                or outputType == i32Type and (inputType == f32Type and OP.ConvertFToS or OP.Bitcast)
                 or outputType == f32Type and (inputType == i32Type and OP.ConvertSToF or OP.ConvertUToF)
                 or OP.Bitcast
             instruction(functions, opcode, {outputType, converted, input})

@@ -41,6 +41,13 @@ record gpuartifact.Artifact
     --- Whether declaration replacements may publish their generated nominal
     --- surfaces from a declared module.
     exportTypes: boolean?
+
+    --- Authored declaration and shader digest used by execution cost records.
+    sourceFile: string?
+
+    sourceLine: integer?
+    sourceColumn: integer?
+    artifactId: string?
 end
 
 const STORAGE_TYPE: {

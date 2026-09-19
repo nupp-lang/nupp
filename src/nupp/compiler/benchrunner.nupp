@@ -65,6 +65,7 @@ type runner.Options = {
     timeoutMs: integer?,
     list: boolean?,
     profileDir: string?,
+    gpuCostsDir: string?,
     profileIntervalMs: integer?,
     profileZone: string?,
 
@@ -203,8 +204,19 @@ local function profilePath(directory: string, index: integer, name: string): str
     return ("%s/%03d-%s.collapsed"):format(directory:gsub("/+$", ""), index, slug(name))
 end
 
-local function nuppRun(executable: string, path: string, extra: {string}, timeoutMs: integer): (boolean, string?)
-    local args = {executable, "run", "-O1", "--remarks-out", path}
+local function nuppRun(
+    executable: string,
+    path: string,
+    extra: {string},
+    timeoutMs: integer,
+    gpuCostsOut: string?
+): (boolean, string?)
+    local args = {executable, "run", "-O1", "--remarks-out"}
+    if gpuCostsOut ~= nil then
+        args[#args + 1] = "--gpu-costs"
+        args[#args + 1] = gpuCostsOut
+    end
+    args[#args + 1] = path
     for _, entry in ipairs(extra) do
         args[#args + 1] = entry
     end
@@ -590,7 +602,8 @@ local function runCase(
     timeoutMs: integer,
     sampleOut: string?,
     sampleIntervalMs: integer,
-    sampleZone: string?
+    sampleZone: string?,
+    gpuCostsOut: string?
 ): (any?, string?)
     os.remove(RECORD_OUT)
     os.remove(REMARKS_OUT)
@@ -611,7 +624,7 @@ local function runCase(
             extra[#extra + 1] = sampleZone
         end
     end
-    local ok, runProblem = nuppRun(executable, path, extra, timeoutMs)
+    local ok, runProblem = nuppRun(executable, path, extra, timeoutMs, gpuCostsOut)
     local text = readFile(RECORD_OUT)
     if not text then
         return nil, path .. " / " .. name .. ": " .. (runProblem or "wrote no record")
@@ -620,6 +633,7 @@ local function runCase(
     if not parsed then
         return nil, path .. " / " .. name .. ": wrote a record that does not parse"
     end
+    decoded.gpuCosts = gpuCostsOut
     -- Re-read after the child exited. `nupp run` writes the account again once every
     -- module the program required has been compiled, so this is the complete one and
     -- what the child embedded mid-run is only the entry.
@@ -1005,7 +1019,7 @@ local function mergeForks(name: string, path: string, forks: {any}): (any, {stri
 
     local forkEntries: {any} = {}
     for index, fork in ipairs(forks) do
-        forkEntries[#forkEntries + 1] = {index = index, measurement = onlyMeasurement(fork),}
+        forkEntries[#forkEntries + 1] = {index = index, measurement = onlyMeasurement(fork), gpuCosts = fork.gpuCosts,}
     end
 
     return {
@@ -1335,6 +1349,7 @@ function runner.run(options: runner.Options): integer
     local label = options.label
     local timeoutMs = options.timeoutMs or DEFAULT_TIMEOUT_MS
     local profileDir = options.profileDir
+    local gpuCostsDirectory: string? = nil
     local profileIntervalMs = options.profileIntervalMs or 1
     local profileZone = options.profileZone
     local pilot = options.pilot == true
@@ -1438,6 +1453,19 @@ function runner.run(options: runner.Options): integer
         end
     end
 
+    if options.gpuCostsDir ~= nil then
+        if options.gpuCostsDir == "" then
+            io.stderr:write("bench: --gpu-costs needs an output directory\n")
+            return 1
+        end
+        gpuCostsDirectory = options.gpuCostsDir .. "/" .. require("nupp.util").uuid4()
+        local made, problem = files.createDirectory(gpuCostsDirectory)
+        if not made then
+            io.stderr:write("bench: cannot create GPU cost directory: " .. tostring(problem) .. "\n")
+            return 1
+        end
+    end
+
     local executionFailures: {string} = {}
     local regressions: {string} = {}
     local notes: {string} = {}
@@ -1480,6 +1508,17 @@ function runner.run(options: runner.Options): integer
                 end
                 io.stdout:flush()
             end
+            local gpuCostStem = gpuCostsDirectory ~= nil
+                and (
+                    gpuCostsDirectory
+                    .. "/"
+                    .. tostring(round)
+                    .. "-"
+                    .. require("nupp.compiler.build.hash").digest(entry.path .. "\0" .. entry.name):sub(1, 16)
+                    .. "-"
+                    .. slug(entry.name):sub(1, 72)
+                )
+                or nil
             local started = time.now()
             local record, failure = runCase(
                 executable,
@@ -1489,7 +1528,8 @@ function runner.run(options: runner.Options): integer
                 timeoutMs,
                 sampleOut,
                 profileIntervalMs,
-                profileZone
+                profileZone,
+                gpuCostStem ~= nil and gpuCostStem .. "-candidate.jsonl" or nil
             )
             local wallSec = (time.now() - started) / 1000.0
             if failure then
@@ -1535,7 +1575,8 @@ function runner.run(options: runner.Options): integer
                     timeoutMs,
                     nil,
                     profileIntervalMs,
-                    profileZone
+                    profileZone,
+                    gpuCostStem ~= nil and gpuCostStem .. "-against.jsonl" or nil
                 )
                 if otherFailure then
                     executionFailures[#executionFailures + 1] = "against: " .. otherFailure
@@ -1724,6 +1765,7 @@ function runner.run(options: runner.Options): integer
 
     -- Serialize only after comparisons are complete: stdout, the latest record,
     -- history and accepted baselines must retain the same evidence.
+    document.gpuCostsDirectory = gpuCostsDirectory
     local encoded = json.encode(document)
     if not writeFile(MERGED_OUT, encoded) then
         executionFailures[#executionFailures + 1] = "cannot write " .. MERGED_OUT

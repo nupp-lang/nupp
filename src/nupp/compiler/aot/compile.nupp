@@ -872,7 +872,14 @@ function compile.artifacts(
                     new compile.Diagnostic(file = filename, line = line, column = column, message = rule as string)
                 }
             end
-            (artifact as gpuartifact.Artifact).exportTypes = declaredModule
+            local checkedArtifact = artifact as gpuartifact.Artifact
+            checkedArtifact.exportTypes = declaredModule
+            local site = sites[position]
+            local line, column = sitePosition(source, site ~= nil and (site as compile.Site).from or 1)
+            checkedArtifact.sourceFile = require("nupp.compiler.fs").absolute(filename)
+            checkedArtifact.sourceLine = line
+            checkedArtifact.sourceColumn = column
+            checkedArtifact.artifactId = hash.digest(checkedArtifact.spirv)
             gpu[program.symbol] = artifact as gpuartifact.Artifact
         else
             local refusals = compile.lanes(program, filename, selected)

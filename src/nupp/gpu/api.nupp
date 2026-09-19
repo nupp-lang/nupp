@@ -64,6 +64,14 @@ record gpu.ArtifactSet
 
     --- Name of the entry point within the supplied artifacts.
     readonly entrypoint: string
+
+    --- Authored kernel identity carried into optional execution cost records.
+    readonly sourceFile: string?
+
+    readonly sourceLine: integer?
+    readonly artifactId: string?
+    readonly readonlyNames: {string}?
+    readonly writableNames: {string}?
 end
 
 --- Bound kernel invocation retaining its context and attached buffers.

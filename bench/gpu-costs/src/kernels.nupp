@@ -1,0 +1,41 @@
+module kernels
+
+local span = require("nupp.mem.span")
+
+@aot
+local function cpu(exclusive output: span.WriteSpan<uint32>, borrows input: span.Span<uint32>): nil
+    if #output ~= #input then
+        error("length mismatch", 2)
+    end
+    @simd
+    for index = 1, #output do
+        local value = input[index]
+        local round: int32 = 0
+        while round < 64 do
+            value = nupp.math.u32.add(nupp.math.u32.mul(value, 1664525), 1013904223)
+            value = nupp.math.u32.xorBits(value, nupp.math.u32.shiftRightLogical(value, 13))
+            round = nupp.math.i32.add(round, 1)
+        end
+        output[index] = value
+    end
+end
+
+@aot(target = "gpu")
+local function device(exclusive output: span.WriteSpan<uint32>, borrows input: span.Span<uint32>): nil
+    if #output ~= #input then
+        error("length mismatch", 2)
+    end
+    for index = 1, #output do
+        local value = input[index]
+        local round: int32 = 0
+        while round < 64 do
+            value = nupp.math.u32.add(nupp.math.u32.mul(value, 1664525), 1013904223)
+            value = nupp.math.u32.xorBits(value, nupp.math.u32.shiftRightLogical(value, 13))
+            round = nupp.math.i32.add(round, 1)
+        end
+        output[index] = value
+    end
+end
+
+export const cpu = cpu
+export const device = device

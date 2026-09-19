@@ -376,6 +376,42 @@ return {doubled = doubled}
     )
 end
 
+function M.gpuIntegerSignednessUsesBitcastAndJsonBindingIsUtf8()
+    local dir = project({["gpu.nupp"] = [[
+local span = require("nupp.mem.span")
+@aot(target = "gpu")
+local function convert(exclusive output: span.WriteSpan<uint32>, borrows input: span.Span<int32>): nil
+    if #output ~= #input then error("length mismatch", 2) end
+    for i = 1, #output do
+        output[i] = nupp.math.u32.xorBits(nupp.math.u32.fromI32(input[i]), nupp.math.u32.wrap(input[i]))
+    end
+end
+return convert
+]]})
+    local module, code = run(dir, "--emit spirv gpu.nupp")
+    test.equal(code, 0, module)
+    assert(spirvOpcodeCount(module, 124) > 0, "equal-width signedness conversion uses OpBitcast")
+    test.equal(spirvOpcodeCount(module, 113), 0, "OpUConvert requires a change of width")
+    test.equal(spirvOpcodeCount(module, 114), 0, "OpSConvert requires a change of width")
+    test.equal(spirvOpcodeCount(module, 111), 0, "integer wrap must not round through binary32")
+    local raw, jsonCode = run(dir, "--json gpu.nupp")
+    test.equal(jsonCode, 0, raw)
+    local report = require("testjson").decode(raw)
+    for index = 1, #raw do
+        assert(raw:byte(index) < 128, "binary SPIR-V escaped the JSON source literal at byte " .. index)
+    end
+    local shader = assert(report.functions[1].gpu, "GPU identity is structured inspection output")
+    local authored = require("nupp.compiler.fs").readFile(shader.sourceFile)
+    assert(authored and authored:find("local function convert", 1, true), "source identity resolves independently of the invocation directory")
+    test.equal(shader.sourceLine, 2)
+    test.equal(shader.artifactId, require("nupp.compiler.build.hash").digest(module))
+    assert(report.binding:find(shader.artifactId, 1, true), "runtime and inspection share the shader digest")
+    assert(report.binding:find('sourceLine = 2', 1, true), report.binding)
+    assert(report.binding:find('artifactId = "', 1, true), report.binding)
+    assert(report.binding:find('readonlyNames = {"input"}', 1, true), report.binding)
+    assert(report.binding:find('writableNames = {"output"}', 1, true), report.binding)
+end
+
 function M.mandelbrotGpuBenchmarkUsesTheCpuFmaRecurrence()
     for _, path in ipairs({"../bench/simd-mandelbrot/mandelbrot.nupp", "../bench/wgpu-spike/typed/mandelbrot.nupp",}) do
         local handle = assert(io.open(HERE .. "/" .. path, "rb"))

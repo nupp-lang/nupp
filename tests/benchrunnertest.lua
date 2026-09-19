@@ -53,6 +53,30 @@ end
 
 local M = {}
 
+function M.gpuCostFilesAreUniqueAcrossForksAndCandidates()
+    local directory, stdout = os.tmpname(), os.tmpname()
+    os.remove(directory)
+    local fixture = HERE .. "/fixtures/bench_fixed_records.g.nupp"
+    local command = ("%q bench --file %q --case '^fixed$' --forks 2 --against %q --margin 5 --gpu-costs %q --json > %q")
+        :format(NUPP, fixture, NUPP, directory, stdout)
+    assertEq(os.execute(command), 0, "cost routing works without requiring a GPU workload")
+    local report = json.decode(read(stdout))
+    local seen, count = {}, 0
+    for _, side in ipairs({report.benchmarks, report.comparisons[1].baseline.benchmarks}) do
+        for _, benchmark in ipairs(side) do
+            for _, fork in ipairs(benchmark.forks) do
+                local path = assert(fork.gpuCosts, "the fork names its GPU cost record")
+                assertTrue(not seen[path], "forks and candidates must not share a cost file")
+                seen[path], count = true, count + 1
+                assertEq(read(path), "", "CPU-only forks invent no GPU operations")
+            end
+        end
+    end
+    assertEq(count, 4, "both forks of both candidates have separate outputs")
+    os.remove(stdout)
+    os.execute("rm -rf " .. string.format("%q", directory))
+end
+
 function M.comparisonRecordsRetainBothSidesAndVerdicts()
     local stdout, history, baseline = os.tmpname(), os.tmpname(), os.tmpname()
     local fixture = HERE .. "/fixtures/bench_fixed_records.g.nupp"

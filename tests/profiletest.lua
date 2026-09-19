@@ -631,6 +631,21 @@ function M.cliRunStillTakesItsOtherArgumentsAndTheProgramsOwn()
    os.execute("rm -rf '" .. dir .. "'")
 end
 
+function M.cliGpuCostsComposeWithSamplingAndRetainProgramFailures()
+   local dir = tempProject()
+   local out, ok = run(dir,
+      "run --profile=1 --profile-out samples.txt --gpu-costs costs/empty.jsonl work.nupp 1")
+   assert(ok, "GPU cost output composes with CPU sampling: " .. out)
+   local empty = assert(io.open(dir .. "/costs/empty.jsonl", "rb"))
+   assertEq(empty:read("*a"), "", "a CPU-only program invents no GPU events")
+   empty:close()
+   out, ok = run(dir, "run --gpu-costs costs/failed.jsonl fail.nupp")
+   assert(not ok, "the program still fails")
+   assertMatch(out, "program sentinel", "the original program failure survives: " .. out)
+   assert(io.open(dir .. "/costs/failed.jsonl", "rb")):close()
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
 function M.helpDescribesTheProfilingFlags()
    local out, ok = run(HERE .. "/..", "help run")
    assert(ok, "help exits cleanly")

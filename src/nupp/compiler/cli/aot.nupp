@@ -57,6 +57,18 @@ local REPORT_SCHEMA = {
                     builderMode = {type = "string", enum = {"eager", "pull", "serde"}},
                     runtimeAbi = {type = "string"},
                     registrar = {type = "string"},
+                    gpu = {
+                        type = "object",
+                        description = "Shader identity shared with runtime GPU cost records.",
+                        properties = {
+                            artifactId = {type = "string"},
+                            sourceFile = {type = "string"},
+                            sourceLine = {type = "integer"},
+                            sourceColumn = {type = "integer"},
+                            entrypoint = {type = "string"},
+                            threads = {type = "integer"},
+                        },
+                    },
                     optimization = {
                         type = "object",
                         description = "Verified scalar AOT rewrites applied before lane selection.",
@@ -416,7 +428,7 @@ end
 local function inspectionC(artifacts: any, sourceFile: string): string
     local programs = {}
     for _, program in ipairs(artifacts.programs) do
-        if program.target ~= "gpu" then
+        if program.executionTarget ~= "gpu" then
             programs[#programs + 1] = program
         end
     end
@@ -674,10 +686,22 @@ local function run(options: any): integer
         -- here would be a fault rather than a measurement.
         local functions: {any} = {}
         for position, program in ipairs(artifacts.programs) do
+            local shader = artifacts.gpu[program.symbol]
+            local gpu = shader ~= nil
+                and {
+                    artifactId = shader.artifactId,
+                    sourceFile = shader.sourceFile,
+                    sourceLine = shader.sourceLine,
+                    sourceColumn = shader.sourceColumn,
+                    entrypoint = shader.entrypoint,
+                    threads = shader.threads,
+                }
+                or nil
             functions[
                 position
             ] = {
                 name = program.name,
+                gpu = gpu,
                 symbol = program.symbol,
                 entryMode = program.entryMode,
                 builderMode = program.builderMode,

@@ -350,9 +350,9 @@ local RESOURCES = {
     {source = "src/nupp/workers/native.d.nupp", output = "nupp/compiler/nupp/workers/native.d.nupp"},
 }
 
--- The compiler carries the GPU runtime as source for programs that select it,
--- but does not execute it itself. Keep an ordinary compiler build independent
--- of WGPU; an application that reaches `nupp.gpu` still selects the provider.
+-- Bootstrap module builds do not execute GPU programs. Keep those compiler
+-- builds independent of WGPU; the compiler and distribution targets also run
+-- user programs through `run` and `bench`, so they enable GPU support below.
 local COMPILER_NATIVE_FEATURES = {gpu = false, workers = false}
 for _, resource in ipairs({
     "src/nupp/io/net/internal.nupp",
@@ -463,7 +463,7 @@ return {
                 optimize = 2,
                 entries = {"nupp.compiler.main"},
 
-                nativeFeatures = COMPILER_NATIVE_FEATURES,
+                nativeFeatures = {gpu = true, workers = false},
                 resources = RESOURCES,
             },
             testRunner = {
@@ -535,7 +535,7 @@ return {
                 -- claims to have.
                 dependencies = {"lunamark_lpeg", "lunamark_cosmo", "lunamark_getopt", "lunamark", "scintillua",},
 
-                nativeFeatures = COMPILER_NATIVE_FEATURES,
+                nativeFeatures = {gpu = true, workers = false},
                 resources = RESOURCES,
                 stub = "nupp",
                 output = "build/dist/nupp",

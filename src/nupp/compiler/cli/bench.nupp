@@ -19,6 +19,10 @@ local REPORT_SCHEMA = {
         schema = {type = "integer"},
         recordedAt = {type = "string"},
         label = {type = "string"},
+        gpuCostsDirectory = {
+            type = "string",
+            description = "Unique directory containing this run's per-fork GPU cost records."
+        },
         forks = {type = "integer", description = "Processes each benchmark was run in."},
         seed = {type = "integer", description = "Seed for the per-round permutation, so an order can be reproduced."},
         margin = {type = "number", description = "Equivalence margin for duration verdicts, as a fraction."},
@@ -87,6 +91,10 @@ local REPORT_SCHEMA = {
                             type = "object",
                             properties = {
                                 index = {type = "integer"},
+                                gpuCosts = {
+                                    type = "string",
+                                    description = "This fork's GPU JSONL cost record, when requested."
+                                },
                                 measurement = {type = "object", description = "That fork's whole measurement."},
                             },
                             required = {"index", "measurement"},
@@ -135,6 +143,7 @@ local function run(options: any): integer
             or values.label
             or values.geo
             or values.profile
+            or values.gpuCosts
             or values.profileIntervalMs
             or values.profileZone
             or values.forks
@@ -223,6 +232,7 @@ local function run(options: any): integer
             timeoutMs = timeoutMs,
             list = values.list,
             profileDir = values.profile,
+            gpuCostsDir = values.gpuCosts,
             profileIntervalMs = profileIntervalMs,
             profileZone = values.profileZone,
             forks = forks,
@@ -294,6 +304,10 @@ local record Bench
     --- Child deadline in milliseconds.
     @cli(value = "INTEGER")
     timeoutMs: integer?
+
+    --- Write GPU JSONL cost records per case and fork in a unique run directory.
+    @cli(value = "DIR")
+    gpuCosts: string?
 
     --- Write one collapsed-stack profile per case under this directory.
     @cli(value = "DIR")

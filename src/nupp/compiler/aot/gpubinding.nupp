@@ -31,6 +31,23 @@ local function append(lines: {string}, value: string): nil
     lines[#lines + 1] = value
 end
 
+--- A source literal containing binary bytes must itself remain valid UTF-8.
+local function binaryLiteral(value: string): string
+    local quoted = string.format("%q", value)
+    return (quoted:gsub("[\128-\255]", function(byte: string): string
+        return ("\\%03d"):format(byte:byte(1))
+    end))
+end
+
+local function parameterNames(params: {scalarIR.Param}): string
+    local names: {string} = {}
+    for _, param in ipairs(params) do
+        names[#names + 1] = string.format("%q", param.name)
+    end
+
+    return "{" .. table.concat(names, ", ") .. "}"
+end
+
 --- The failed form of one span-count relation in generated binding source.
 local function relationRefusal(relation: scalarIR.Relation): string
     assert(relation.left.kind == "count" and relation.right.kind == "count", "GPU binding relation is not over counts")
@@ -176,8 +193,15 @@ function gpubinding.replacement(program: scalarIR.Program, artifact: gpuartifact
     if browser then
         append(lines, "        wgsl = " .. string.format("%q", artifact.wgsl as string) .. ",")
     else
-        append(lines, "        spirv = " .. string.format("%q", artifact.spirv) .. ",")
+        append(lines, "        spirv = " .. binaryLiteral(artifact.spirv) .. ",")
     end
+    if artifact.sourceFile ~= nil then
+        append(lines, "        sourceFile = " .. string.format("%q", artifact.sourceFile) .. ",")
+        append(lines, "        sourceLine = " .. tostring(artifact.sourceLine) .. ",")
+        append(lines, "        artifactId = " .. string.format("%q", artifact.artifactId) .. ",")
+    end
+    append(lines, "        readonlyNames = " .. parameterNames(artifact.readonly) .. ",")
+    append(lines, "        writableNames = " .. parameterNames(artifact.writable) .. ",")
     append(lines, "        entrypoint = " .. string.format("%q", artifact.entrypoint))
     append(lines, "    )")
     append(

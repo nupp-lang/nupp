@@ -70,6 +70,11 @@ local REPORT_SCHEMA = {
 
 local DEFAULT_INTERVAL_MS: integer = 10
 
+local function configureGpuCosts(path: string?): (boolean, string?)
+    local ok, problem = pcall(require("nupp.runtime.provider.nativegpu").costsOutput, path)
+    return ok, not ok and tostring(problem) or nil
+end
+
 local function run(options: any): integer
     local positional: {string} = {options.file}
     for _, value in ipairs(options.arguments) do
@@ -77,6 +82,9 @@ local function run(options: any): integer
     end
     local values = options
     local profiling = values.profile ~= nil
+    if values.gpuCosts == "" then
+        return usageError("--gpu-costs needs an output path")
+    end
     local intervalMs: integer = DEFAULT_INTERVAL_MS
     if type(values.profile) == "string" then
         local given = tonumber(values.profile)
@@ -190,6 +198,19 @@ local function run(options: any): integer
         end
     end
 
+    if values.gpuCosts ~= nil then
+        local directory = require("nupp.compiler.fs").dirname(values.gpuCosts)
+        local made, makeErr = require("nupp.io.files").createDirectory(directory)
+        if not made then
+            io.stderr:write("nupp: " .. tostring(makeErr) .. "\n")
+            return 1
+        end
+        local configured, configureErr = configureGpuCosts(values.gpuCosts)
+        if not configured then
+            io.stderr:write("nupp: " .. tostring(configureErr) .. "\n")
+            return 1
+        end
+    end
     local removeLoader
     if profiling or tracingAborts then
         removeLoader = runtime.install(projectEnv, compileLoaded, loaded, checkPlain, preparing)
@@ -221,6 +242,13 @@ local function run(options: any): integer
     end
     if sampling then
         sampling:pause()
+    end
+    local gpuCostsError: string? = nil
+    if values.gpuCosts ~= nil then
+        local closed, closeErr = configureGpuCosts(nil)
+        if not closed then
+            gpuCostsError = closeErr
+        end
     end
     _G.__nuppRemarksAvailable = previousRemarksAvailable
     removeLoader()
@@ -303,12 +331,15 @@ local function run(options: any): integer
         )
     end
 
+    if gpuCostsError ~= nil then
+        io.stderr:write("nupp: " .. tostring(gpuCostsError) .. "\n")
+    end
     if not ok then
         io.stderr:write("nupp: " .. tostring(runErr) .. "\n")
         return 1
     end
 
-    return 0
+    return gpuCostsError ~= nil and 1 or 0
 end
 
 --- Compile and run a Nupp or Lua program.
@@ -367,6 +398,10 @@ local record Run
     --- File which receives profiling samples.
     @cli(value = "PATH")
     profileOut: string?
+
+    --- Write GPU operation costs and device timestamps to this JSONL file.
+    @cli(value = "PATH")
+    gpuCosts: string?
 
     --- Record JIT aborts, optionally naming an attached output path.
     @cli(arity = "optionalAttached", constant = "\0", value = "PATH")
