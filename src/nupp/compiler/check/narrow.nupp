@@ -1050,6 +1050,7 @@ function narrow.install(c: state.Checker): narrow.Ops
                             ownershipOrigin = c.ownershipState(entry),
                             functionDepth = entry.functionDepth or c.functionDepth,
                             threadPhase = phase,
+                            runtimeSurfaceRoot = entry.runtimeSurfaceRoot,
                         },
                         entry
                     )
@@ -1090,6 +1091,7 @@ function narrow.install(c: state.Checker): narrow.Ops
                         automaticOwner = entry and entry.automaticOwner or nil,
                         functionDepth = entry and entry.functionDepth or c.functionDepth,
                         threadPhase = entry and entry.threadPhase or nil,
+                        runtimeSurfaceRoot = entry and entry.runtimeSurfaceRoot or nil,
                         wrappedProtocol = entry and entry.wrappedProtocol or nil,
                         wrappedPhase = entry and entry.wrappedPhase or nil,
                     },

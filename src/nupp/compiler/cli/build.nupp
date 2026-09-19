@@ -24,6 +24,7 @@ local REPORT_SCHEMA = {
             .. "build of explicitly named source files."
         },
         platform = {type = "string", description = "The selected binary platform for a one-platform build."},
+        compat = {type = "string", enum = {"lua51"}, description = "The enforced source compatibility profile."},
         dialect = {
             type = "string",
             enum = require("nupp.compiler.dialects").names(),
@@ -250,6 +251,10 @@ end
 local function run(options: any): integer
     local positional: {string} = options.paths
     local values = options
+    local _, compatError = require("nupp.compiler.compat").resolve(values.compat, nil, values.dialect)
+    if compatError then
+        return usageError(compatError)
+    end
     local paths: {string} = positional
     -- `-o` and `--out-dir` both name a directory but answer different questions, so
     -- they are separate keys rather than aliases of one.
@@ -300,6 +305,7 @@ local function run(options: any): integer
                 diagnostics = reportMod.diagnosticValues(diagnostics),
                 target = produced.target,
                 dialect = selectedDialect,
+                compat = produced.compat or settings.compat,
                 platform = produced.platform,
                 platforms = produced.platforms,
                 distributionReady = produced.distributionReady,
@@ -326,6 +332,7 @@ local function run(options: any): integer
             platform = values.platform,
             standalone = values.standalone,
             dialect = values.dialect,
+            compat = values.compat,
             strict = settings.strict,
             optLevel = settings.optLevel,
             remarks = settings.remarks,
@@ -349,7 +356,8 @@ local function run(options: any): integer
         return finish(1, {})
     end
     local envMod = require("nupp.compiler.env")
-    local env = envMod.new(".")
+    local env = envMod.new(".", {compat = values.compat})
+    settings.compat = env.compat
     settings.materializations = materializations
     settings.derives = derives
     settings.specializedBodies = 0
@@ -538,6 +546,10 @@ local record Build
     --- Source-lowering dialect.
     @cli(value = "DIALECT", choices = {"luajit", "luajit-compat", "lua51"})
     dialect: string?
+
+    --- Enforce the stock Lua 5.1 source subset without compatibility lowering.
+    @cli(value = "PROFILE", choices = {"lua51"})
+    compat: string?
 
     --- Optimization level.
     @cli(

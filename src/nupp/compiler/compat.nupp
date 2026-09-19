@@ -1,0 +1,560 @@
+module nupp.compiler.compat
+
+-- Compatibility constrains ordinary emission; it never selects a lowerer.
+local compat = {}
+local lexer = require("nupp.compiler.lexer")
+
+compat.VERSION = "lua51-source-1"
+
+function compat.resolve(value: any, inherited: any?, dialect: string?): string?, string?
+    for _, candidate in ipairs({value == nil and false or value, inherited == nil and false or inherited}) do
+        if candidate ~= false and candidate ~= "lua51" then
+            return nil, 'compat must be "lua51" when present'
+        end
+    end
+    if value == false or inherited == false then
+        return nil, 'compat must be "lua51" when present'
+    end
+    local selected = value or inherited
+    if selected and dialect and dialect ~= "luajit" then
+        return nil, 'compat = "lua51" requires ordinary luajit emission; remove the legacy dialect selection'
+    end
+
+    return selected
+end
+
+local FORBIDDEN = {
+    compoundAssign = "compound assignment",
+    continueStmt = "continue",
+    gotoStmt = "goto",
+    labelStmt = "labels",
+    ternary = "ternary expressions",
+    safeIndex = "safe navigation",
+    safeBracket = "safe navigation",
+    safeCall = "safe calls",
+    shortfn = "short functions",
+    cdefFunc = "C declarations",
+    cdefStruct = "C declarations",
+}
+local OPERATORS = {
+    ["//"] = true,
+    ["&"] = true,
+    ["|"] = true,
+    ["~"] = true,
+    ["<<"] = true,
+    [">>"] = true,
+    ["~>>"] = true,
+    ["??"] = true,
+    ["!"] = true,
+    ["!="] = true,
+    ["&&"] = true,
+    ["||"] = true,
+}
+local ERASED = {typeAlias = true, associatedDecl = true, generics = true, annotationApply = true, comptimeExpr = true,}
+
+-- The output invariant is an allowlist: a new parser extension must not
+-- silently become stock Lua syntax merely because no rejection names it yet.
+local GENERATED_KINDS = {
+    chunk = true,
+    block = true,
+    args = true,
+    assignStmt = true,
+    binop = true,
+    bracketIndex = true,
+    breakStmt = true,
+    call = true,
+    callStmt = true,
+    doStmt = true,
+    dotIndex = true,
+    elseClause = true,
+    elseifClause = true,
+    emptyStmt = true,
+    falseExpr = true,
+    fieldBracket = true,
+    fieldItem = true,
+    fieldNamed = true,
+    forinStmt = true,
+    fornumStmt = true,
+    funcExpr = true,
+    funcStmt = true,
+    funcbody = true,
+    funcname = true,
+    ifClause = true,
+    ifStmt = true,
+    localFuncStmt = true,
+    localStmt = true,
+    methodCall = true,
+    name = true,
+    nilExpr = true,
+    number = true,
+    param = true,
+    paren = true,
+    repeatStmt = true,
+    returnStmt = true,
+    string = true,
+    tableExpr = true,
+    trueExpr = true,
+    unop = true,
+    vararg = true,
+    whileStmt = true,
+}
+
+local function first(node: any): any
+    if node.trivia then
+        return node
+    end
+    for _, child in ipairs(node) do
+        local token = first(child)
+        if token then
+            return token
+        end
+    end
+
+    return node.token or node
+end
+
+local function numericExtension(text: string): boolean
+    local lower = text:lower()
+    return lower:find(
+        "_",
+        1,
+        true
+    ) ~= nil or lower:match(
+        "[li]$"
+    ) ~= nil or lower:match(
+        "^0b"
+    ) ~= nil or lower:match("^0x") ~= nil and (lower:find("p", 1, true) ~= nil or lower:find(".", 1, true) ~= nil)
+end
+
+local function stringExtension(text: string): boolean
+    if text:sub(1, 1) == "[" then
+        return false
+    end
+    local i = 2
+    while i < #text do
+        if text:sub(i, i) == "\\" then
+            local escaped = text:sub(i + 1, i + 1)
+            if escaped == "x" or escaped == "z" or escaped == "u" then
+                return true
+            end
+            i = i + 1
+        end
+        i = i + 1
+    end
+
+    return false
+end
+
+--- Visits runtime syntax before optimization, ignoring erased type/comptime syntax.
+function compat.syntax(result: any, report: function(any, string): nil, generated: boolean?)
+    local function visit(node: any)
+        if node.trivia then
+            if node.kind == "number" and numericExtension(node.text) then
+                report(node, "extended number literals")
+            end
+            if node.kind == "string" and stringExtension(node.text) then
+                report(node, "extended string escapes")
+            end
+            return
+        end
+        local kind = node.kind
+        if not generated and (
+            ERASED[
+                kind
+            ] or kind:sub(
+                1,
+                1
+            ) == "t"
+            and kind ~= "tableExpr"
+            and kind ~= "ternary"
+            or node.comptimeTok
+            or kind == "bindingEntry"
+            and node.typeOnly
+        ) then
+            return
+        end
+        if not generated and kind == "localStmt" and node.pattern then
+            local runtime = false
+            for _, entry in ipairs(node.pattern) do
+                runtime = runtime or not entry.typeOnly
+            end
+            if not runtime then
+                return
+            end
+        end
+        local reason = FORBIDDEN[kind]
+        if generated and not GENERATED_KINDS[kind] then
+            reason = "syntax node " .. kind
+        end
+        if generated and kind == "param" and (node.modeTok or node.namedVararg or node.constTok) then
+            reason = "extended function parameters"
+        end
+        if generated and (node.comptimeTok or node.formatDisabled or node.documentationInternal) then
+            reason = "compiler-only annotations"
+        end
+        if (node.isConst or node.constTok) and first(node).text == "const" then
+            reason = "runtime const bindings"
+        end
+        if kind == "recordDecl" and node.declKind == "struct" then
+            reason = "struct representations"
+        end
+        if (kind == "binop" or kind == "unop") and node.op and OPERATORS[node.op.text] then
+            reason = "operator " .. node.op.text
+        end
+        if node.safeObj or node.safeMethod then
+            reason = "safe method calls"
+        end
+        if generated and kind == "block" then
+            for index, statement in ipairs(node.stats or {}) do
+                if statement.kind == "emptyStmt" and (index == 1 or node.stats[index - 1].kind == "emptyStmt") then
+                    report(first(statement), "empty statements")
+                end
+                if statement.kind == "breakStmt" or statement.kind == "returnStmt" then
+                    local following = node.stats[index + 1]
+                    if following and (following.kind ~= "emptyStmt" or index + 1 < #node.stats) then
+                        report(first(statement), "return and break must end their block on Lua 5.1")
+                    end
+                end
+            end
+        end
+        if reason then
+            report(first(node), reason)
+        end
+        for _, child in ipairs(node) do
+            visit(child)
+        end
+    end
+
+    visit(result.root)
+end
+
+function compat.checkSyntax(checker: any)
+    if checker.opts.compat ~= "lua51" or checker.declarationFile then
+        return
+    end
+    compat.syntax(checker.result, function(at, reason)
+        checker.diag("NUPP3013", at, 'compat = "lua51" does not permit ' .. reason, nil, {
+            help = "use ordinary Lua 5.1 syntax or remove the project compatibility requirement",
+        })
+    end)
+end
+
+--- This guard uses the shared parser and checks its extensions, including in browsers.
+function compat.generated(code: string, filename: string?, sourceTokens: {any}?): {any}
+    local parsed = require("nupp.compiler.parser").parse(code, (filename or "generated") .. ".lua")
+    local diags = {}
+
+    local function report(at, reason)
+        -- Emission preserves source lines, but helper prefixes do not preserve
+        -- columns. Never publish a generated column as an authored location.
+        local origin = at
+        for _, token in ipairs(sourceTokens or {}) do
+            if token.line == at.line then
+                origin = token
+                break
+            end
+        end
+        diags[
+            #diags + 1
+        ] = {
+            code = "NUPP3016",
+            severity = "error",
+            filename = filename,
+            line = origin.line or 1,
+            col = origin.col or 1,
+            offset = origin.offset or 1,
+            length = #(origin.text or ""),
+            msg = 'ordinary emission is outside compat = "lua51": ' .. reason,
+            help = "this construct needs a shared portable implementation; compatibility never invokes the legacy lowerer",
+        }
+    end
+
+    for _, diagnostic in ipairs(parsed.errors) do
+        report(diagnostic, diagnostic.msg)
+    end
+    compat.syntax(parsed, report, true)
+
+    return diags
+end
+
+--- Explain the effect boundary, including dependencies that never yield here.
+function compat.suspensionPath(effects: {[string]: any}): string
+    local native = require("nupp.compiler.native")
+
+    local function path(name, seen)
+        if name == "runtime.suspension" then
+            return name
+        end
+        if seen[name] then
+            return nil
+        end
+        seen[name] = true
+        local feature = native.feature(name)
+        for _, required in ipairs(feature and feature.requires or {}) do
+            local tail = path(required, seen)
+            if tail then
+                return name .. " -> " .. tail
+            end
+        end
+    end
+
+    local names = {}
+    for name in pairs(effects) do
+        names[#names + 1] = name
+    end
+    table.sort(names)
+    for _, name in ipairs(names) do
+        local found = path(name, {})
+        if found then
+            return found
+        end
+    end
+
+    return "runtime.suspension"
+end
+
+local function literalArgument(node: any): any
+    local args = node.args
+    if not args then
+        return nil
+    end
+    if args.str then
+        return args.str
+    end
+    local argument = args.exprs and args.exprs[1]
+    while argument and (argument.kind == "paren" or argument.kind == "castExpr") do
+        argument = argument.expr
+    end
+
+    return argument and argument.kind == "string" and argument.token or nil
+end
+
+--- Verify runtime imports even when the caller obtained require through an alias.
+function compat.dependencies(checker: any)
+    if checker.opts.compat ~= "lua51" or checker.declarationFile then
+        return
+    end
+    local env = checker.env
+    local audited = checker.opts._compatModules or {}
+    checker.opts._compatModules = audited
+
+    local function reject(node, reason)
+        checker.diag("NUPP3015", first(node), reason, nil, {
+            help = "use an inspectable Lua 5.1 source dependency and a literal module name",
+        })
+    end
+
+    -- Namespace and loader identities may be aliased locally, but cannot be
+    -- laundered through containers or unknown higher-order calls. Such flows
+    -- need a dataflow proof this source-export profile does not promise.
+    local sensitive = {
+        _G = true,
+        string = true,
+        table = true,
+        math = true,
+        os = true,
+        io = true,
+        coroutine = true,
+        package = true,
+        debug = true,
+        ["package.loaded"] = true,
+        ["package.preload"] = true,
+        ["package.loaders"] = true,
+        require = true,
+        load = true,
+        loadstring = true,
+        loadfile = true,
+        dofile = true,
+        getfenv = true,
+        ["debug.getfenv"] = true,
+        ["package.loadlib"] = true,
+    }
+    local reflective = {
+        ["debug.getregistry"] = true,
+        ["debug.getlocal"] = true,
+        ["debug.getupvalue"] = true,
+        ["debug.getinfo"] = true,
+    }
+
+    local function visit(node, parent)
+        if node.trivia or ERASED[node.kind] or node.comptimeTok then
+            return
+        end
+        if node.kind == "localStmt" and node.pattern then
+            local runtime = false
+            for _, entry in ipairs(node.pattern) do
+                runtime = runtime or not entry.typeOnly
+            end
+            if not runtime then
+                return
+            end
+        end
+        local surface = require("nupp.compiler.runtimesurface")
+        local identity = surface.identity(node)
+        if identity and (sensitive[identity] or reflective[identity]) and parent then
+            local allowed = (
+                parent.kind == "paren" or parent.kind == "castExpr"
+            ) and parent.expr == node or (
+                parent.kind == "dotIndex" or parent.kind == "bracketIndex"
+            )
+                and parent.obj == node
+                or parent.kind == "call"
+                and parent.obj == node
+                or parent.kind == "methodCall"
+                and parent.obj == node
+            if parent.kind == "localStmt" and not parent.pattern then
+                for _, expr in ipairs(parent.exprs or {}) do
+                    allowed = allowed or expr == node
+                end
+            elseif parent.kind == "assignStmt" then
+                for index, expr in ipairs(parent.rhs or {}) do
+                    local target = parent.lhs and parent.lhs[index]
+                    allowed = allowed or expr == node and target and target.kind == "name"
+                end
+            elseif parent.kind == "args" then
+                local owner = parent._compatCall
+                local callee = owner and surface.identity(owner.obj)
+                allowed = callee == "rawget" or callee == "type" or callee == "tostring" or callee == "rawequal"
+            end
+            if not allowed then
+                reject(node, "compatibility cannot verify escaping runtime identity " .. identity)
+            end
+        end
+        if node.kind == "call" and node.args then
+            node.args._compatCall = node
+        end
+        if node.kind == "methodCall" then
+            local surface = require("nupp.compiler.runtimesurface")
+            surface.requireIdentity(checker, surface.identity(node.obj), node.name and node.name.text, node.name)
+        end
+        if node.kind == "call" then
+            local callee = node.obj
+            local surface = require("nupp.compiler.runtimesurface")
+            local root = node.runtimeLoader or surface.identity(callee)
+            if reflective[root] then
+                reject(node, "compatibility cannot verify reflected runtime values from " .. root)
+            end
+            if root == "rawget" then
+                local args = node.args and node.args.exprs or {}
+                local receiver = surface.identity(args[1])
+                if receiver then
+                    local key = args[2]
+                    local member = key and key.kind == "string" and lexer.stringValue(key.token.text)
+                    if member then
+                        surface.requireIdentity(checker, receiver, member, key)
+                    else
+                        reject(node, "compatibility cannot verify reflective access to " .. receiver)
+                    end
+                end
+            end
+            if root == "require" then
+                local token = literalArgument(node)
+                local name = token and lexer.stringValue(token.text)
+                if not name then
+                    reject(node, 'compat = "lua51" cannot verify a dynamic module name')
+                else
+                    require("nupp.compiler.runtimesurface").requireModule(checker, name, token)
+                    if env and env.resolveModule then
+                        env.resolveModule(env, name)
+                    end
+                    local checked = env and env.compatibilityModule and env.compatibilityModule(env, name)
+                    local path = checked and checked.path or env and env.findModulePath and env.findModulePath(
+                        env,
+                        name
+                    )
+                    local loaded = checked or env and ((env.loaded or {})[name] or (env.bundled or {})[name])
+                    local carried = loaded and loaded.source and not loaded.declarationOnly
+                    if not path and not carried or path and path:match("%.d%.nupp$") then
+                        reject(node, ('compat = "lua51" has no checked runtime source for module %q'):format(name))
+                    elseif loaded then
+                        local diagnostics = loaded.compatDiagnostics or {}
+                        -- API callers can enable compatibility on an environment
+                        -- already used without it. Its cached interface is useful,
+                        -- but its earlier diagnostics cannot certify this closure.
+                        if env.compat ~= "lua51" and loaded.source then
+                            local key = path or name
+                            if not audited[key] then
+                                audited[key] = {}
+                                local parsed = require("nupp.compiler.parser").parse(loaded.source, key)
+                                if #parsed.errors > 0 then
+                                    audited[key] = parsed.errors
+                                else
+                                    audited[key] = require("nupp.compiler.check").check(parsed, key, env, {
+                                        compat = "lua51",
+                                        dialect = "luajit",
+                                        moduleName = name,
+                                        _compatModules = audited,
+                                    })
+                                end
+                            end
+                            diagnostics = audited[key]
+                        end
+                        for _, diagnostic in ipairs(diagnostics) do
+                            if diagnostic.severity == nil or diagnostic.severity == "error" then
+                                checker.diag(
+                                    "NUPP3015",
+                                    token,
+                                    ("module %q violates compatibility: %s"):format(name, diagnostic.msg),
+                                    nil,
+                                    {
+                                        related = {
+                                            {
+                                                filename = diagnostic.filename,
+                                                line = diagnostic.line,
+                                                col = diagnostic.col,
+                                                msg = diagnostic.msg
+                                            }
+                                        },
+                                        help = "make the dependency satisfy the project compatibility requirement"
+                                    }
+                                )
+                                break
+                            end
+                        end
+                    else
+                        reject(node, ("compatibility could not inspect module %q"):format(name))
+                    end
+                end
+            elseif root == "loadstring" then
+                local token = literalArgument(node)
+                local source = token and lexer.stringValue(token.text)
+                local depth = checker.opts._compatLoadDepth or 0
+                if not source or source:byte(1) == 27 or #source > 1048576 or depth >= 16 then
+                    reject(node, 'compat = "lua51" requires bounded literal Lua source for loadstring')
+                else
+                    local name = (checker.filename or "source") .. ":loadstring.lua"
+                    local parsed = require("nupp.compiler.parser").parse(source, name)
+                    local diagnostics: any = parsed.errors
+                    if #diagnostics == 0 then
+                        diagnostics = require("nupp.compiler.check").check(parsed, name, env, {
+                            compat = "lua51",
+                            dialect = "luajit",
+                            strict = false,
+                            _compatLoadDepth = depth + 1,
+                        })
+                    end
+                    for _, diagnostic in ipairs(diagnostics) do
+                        if diagnostic.severity == nil or diagnostic.severity == "error" then
+                            reject(node, "loaded source violates compatibility: " .. diagnostic.msg)
+                            break
+                        end
+                    end
+                end
+            elseif root == "load" or root == "loadfile" or root == "dofile" or root == "package.loadlib" then
+                reject(node, 'compat = "lua51" cannot verify this dynamically loaded code')
+            elseif root == "xpcall" and node.args and #(node.args.exprs or {}) > 2 then
+                reject(node, "Lua 5.1 xpcall takes only a body and an error handler")
+            end
+        end
+        for _, child in ipairs(node) do
+            visit(child, node)
+        end
+        if node.kind == "args" then
+            node._compatCall = nil
+        end
+    end
+
+    visit(checker.result.root)
+end
+
+export = compat

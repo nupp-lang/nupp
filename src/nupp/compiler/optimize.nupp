@@ -3042,7 +3042,8 @@ end
 --- left beside it.
 type optimize.Checked = {
     readonly root: cst.Chunk,
-    readonly analysis: any?
+    readonly analysis: any?,
+    readonly compat: string?
 }
 
 --- What the passes were asked for.
@@ -3092,7 +3093,9 @@ function optimize.run(result: optimize.Checked, opts: optimize.Options?): ({any}
     -- a stock 5.1 host could not load what it produced -- which is the host the
     -- portable compiler is for, and which stopped loading it at all once this
     -- level became the default.
-    if level >= optimize.passes["OPT-5"].level and not disabled["OPT-5"] and opts.dialect ~= "lua51" then
+    if level >= optimize.passes[
+        "OPT-5"
+    ].level and not disabled["OPT-5"] and opts.dialect ~= "lua51" and result.compat ~= "lua51" then
         concatBufferWalk(result, remarks)
     end
     if level >= optimize.passes["OPT-6"].level and not disabled["OPT-6"] then

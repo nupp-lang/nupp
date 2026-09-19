@@ -306,7 +306,7 @@ function index.install(c: state.Checker): state.ExprHandlers
                 local moduleType = c.env.resolveModule(c.env, moduleName)
                 if moduleType then
                     c.infer(target)
-                    runtimeSurface.requireIdentity(c, (target as any).runtimeSurfaceRoot, memberName, member)
+                    runtimeSurface.requireIdentity(c, runtimeSurface.tracked(c, target), memberName, member)
                     node.compilerModule = moduleName
                     node.immutablePath = true
                     node.resolvedType = moduleType
@@ -365,7 +365,7 @@ function index.install(c: state.Checker): state.ExprHandlers
             end
         end
         local trackedObject = c.infer(target)
-        runtimeSurface.requireIdentity(c, (target as any).runtimeSurfaceRoot, memberName, member)
+        runtimeSurface.requireIdentity(c, runtimeSurface.tracked(c, target), memberName, member)
         local intrinsicPath = c.pathKey(node)
         if intrinsicPath then
             local root = target
@@ -825,6 +825,23 @@ function index.install(c: state.Checker): state.ExprHandlers
             return T.any
         end
         local trackedObject = c.infer(target)
+        if c.opts.compat == "lua51" then
+            local root = runtimeSurface.identity(target)
+            if root then
+                local member = key.kind == "string" and key.token and require(
+                    "nupp.compiler.lexer"
+                ).stringValue(key.token.text) or nil
+                if member then
+                    runtimeSurface.requireIdentity(c, root, member, key)
+                else
+                    c.diag(
+                        "NUPP3015",
+                        key,
+                        "compatibility cannot verify dynamic access to the " .. root .. " runtime surface"
+                    )
+                end
+            end
+        end
         local ot = rawType(trackedObject)
         local writing = node.writeContext == true
         if ot.tag == "const" then

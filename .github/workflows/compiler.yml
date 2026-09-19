@@ -431,6 +431,11 @@ jobs:
           scripts/portable-lua-corpus.sh \
             lua5.1 lua5.2 lua5.3 lua5.4 "$luajit/bin/luajit"
 
+      - name: Run the Lua 5.1 compatibility corpus
+        if: runner.os == 'Linux'
+        shell: bash
+        run: scripts/lua51-compat-corpus.sh lua5.1
+
       - name: Build the same library for LuaJIT and Lua 5.1
         if: runner.os == 'Linux'
         shell: bash

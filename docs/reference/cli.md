@@ -655,6 +655,8 @@ Arguments:
 Options:
   --strict           Treat strict checker rules as errors.
   --dialect DIALECT  Source-lowering dialect.
+  --compat PROFILE   Enforce the stock Lua 5.1 source subset without
+                     compatibility lowering.
   --target NAME      Check a named manifest target.
   --platform NAME    Check one configured binary platform, or all.
   --progress[=WHEN], -q, --quiet
@@ -900,6 +902,8 @@ Options:
   -o DIR             Output directory for explicit source-file builds.
   --strict           Treat strict checker rules as errors.
   --dialect DIALECT  Source-lowering dialect.
+  --compat PROFILE   Enforce the stock Lua 5.1 source subset without
+                     compatibility lowering.
   -O0, -O1, -O2      Optimization level.
   --remarks          Report what the optimizer did and what it declined to do.
   --remarks-out      Write the optimizer's account to build/remarks.json.

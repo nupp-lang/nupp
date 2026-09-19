@@ -366,7 +366,7 @@ function bindings.install(c: state.Checker): state.StatHandlers
                     boundEntry.definition.initialized = true
                 end
                 boundEntry.annotationNode = stat.types and stat.types[j] or nil
-                boundEntry.runtimeSurfaceRoot = initNode and (initNode as any).runtimeSurfaceRoot or nil
+                boundEntry.runtimeSurfaceRoot = require("nupp.compiler.runtimesurface").tracked(c, initNode)
                 c.fixedWidth.setBinding(boundEntry, initNode, fixedResultIndex)
             end
             if boundEntry and initNode and (initNode.kind == "funcExpr" or initNode.kind == "shortfn") then
@@ -1048,6 +1048,11 @@ function bindings.install(c: state.Checker): state.StatHandlers
                 -- something. The walk is in source order, so a read that came before
                 -- this one has already been answered.
                 if entry then
+                    if c.opts.compat == "lua51" then
+                        entry.runtimeSurfaceRoot = require(
+                            "nupp.compiler.runtimesurface"
+                        ).identity(written) or entry.runtimeSurfaceRoot
+                    end
                     if entry.definition then
                         if entry.definition.initialized then
                             entry.definition.reassigned = true

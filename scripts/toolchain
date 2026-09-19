@@ -35,6 +35,7 @@ usage: scripts/toolchain COMPONENT...
        scripts/toolchain --prefix
 
 Components: luajit luarocks lpeg lpeg-source stage0
+            browser-sources browser-emulator browser-guest
             native-rust FEATURES
             rust-vendor OUTPUT
             host FEATURES, host-rust, host-library FEATURES
@@ -157,7 +158,7 @@ sha256() { sha256_stdin < "$1"; }
 # than a cache generation.
 pins_digest() {
     grep '^[A-Z][A-Z0-9_]*=' "$ROOT/scripts/toolchain.pins" \
-        | grep -v '^STAGE0_' | sha256_stdin
+        | grep -v -e '^STAGE0_' -e '^BROWSER_' | sha256_stdin
 }
 
 # Public embedding headers are staged beside the Rust libraries rather than
@@ -1405,6 +1406,11 @@ case "$1" in
         shift 3
         link_host "$host_link_features" "$host_link_output" "$@"
         exit 0
+        ;;
+    browser-sources|browser-emulator|browser-guest)
+        browser_component=$1
+        shift
+        exec "${NUPP_PYTHON:-python3}" "$ROOT/scripts/browser-toolchain.py" "$browser_component" "$CACHE" "$@"
         ;;
     -h|--help) usage ;;
 esac

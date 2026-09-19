@@ -188,7 +188,7 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
     local env = envMod.new(rootDir, opts)
     -- Left nil when nothing forced it, so each file's extension decides.
     local strict = opts.strict
-    local dialect = assert(require("nupp.compiler.dialects").resolve(opts.dialect))
+    local dialect = assert(require("nupp.compiler.dialects").resolve(opts.dialect or env.dialect))
     local traceInspection = opts.traceInspection == true
     local q = query.new()
     local activeModules = {}
@@ -599,6 +599,20 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
                     end
 
                     return interface and interface.type or nil
+                end,
+                compatibilityModule = function(_, name)
+                    local target = modulePath(self, name)
+                    if not target or activeModules[target] then
+                        return nil
+                    end
+                    local checked = self:get("checkModule", target)
+
+                    return {
+                        path = target,
+                        compatDiagnostics = checked.diags,
+                        source = checked.result and checked.result.source,
+                        declarationOnly = target:match("%.d%.nupp$") ~= nil
+                    }
                 end,
                 resolveModuleExports = function(_, name)
                     local exports = self:get("moduleExports", name)

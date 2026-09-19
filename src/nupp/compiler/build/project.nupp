@@ -48,6 +48,7 @@ type project.BuildOptions = {
     --- Source-lowering dialect. Overrides the target; absent resolves to its setting
     --- and then to `luajit`.
     dialect: string?,
+    compat: string?,
 
     --- Holds every file to the strict floor whatever its extension, as `--strict`
     --- does. A file's extension decides otherwise; the manifest has no say.
@@ -235,6 +236,16 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         return 1
     end
     target.dialect = dialect
+    local compatibility, compatError = require("nupp.compiler.compat").resolve(opts.compat, config.compat, dialect)
+    if compatError then
+        io.stderr:write("nupp: " .. compatError .. "\n")
+        return 1
+    end
+    config.compat = compatibility
+    config._compatVersion = compatibility and require("nupp.compiler.compat").VERSION or nil
+    if opts.produced then
+        opts.produced.compat = compatibility
+    end
     if opts.produced then
         opts.produced.dialect = dialect
     end

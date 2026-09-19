@@ -186,6 +186,7 @@ type manifest.Generator = {
 --- invalidates the artifacts built under the old value.
 type manifest.Config = {
     include: {string}?,
+    compat: string?,
     fmt: {methodParens: boolean?}?,
     lints: {[string]: string}?,
     dependencies: {[string]: manifest.Dependency}?,
@@ -389,6 +390,7 @@ local GENERATOR_KEYS = {"description", "using", "inputs", "options"}
 -- `nupp.compiler.build.deps` -- so this list is also the inventory of what a manifest
 -- can say.
 local CONFIG_KEYS = {
+    "compat",
     "name",
     "include",
     "fmt",
@@ -1086,6 +1088,10 @@ local function validateEnv(env: any, label: string): (boolean?, string?)
 end
 
 local function validateManifest(config: manifest.Config): boolean?, string?
+    local _, compatError = require("nupp.compiler.compat").resolve(config.compat)
+    if compatError then
+        return nil, compatError
+    end
     local valid, err = validateArray(config.include, "include", "string")
     if not valid then
         return nil, err

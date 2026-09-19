@@ -60,6 +60,8 @@ local rules = {
     -- had been renamed, and stayed broken until an unrelated change to
     -- `scripts/` selected every job.
     {"^tests/browser%-templates/", {"tests", "browser"}},
+    {"^tests/lua51%-compat/", {"tests", "compiler"}},
+    {"^scripts/lua51%-compat%-corpus%.sh$", {"tests", "compiler"}},
     {"^tests/portable%-storage/", {"tests", "browser"}},
     {"^tests/wasm%-aot/", {"tests", "browser"}},
     {"^tests/wasm%-memory/", {"tests", "browser"}},
@@ -156,9 +158,18 @@ function classifier.classify(paths)
 
     -- Every source change gets the fast checker and the in-process suites. That
     -- is the floor, not a judgement about what the change can reach.
-    local source = surfaces.compiler or surfaces.library or surfaces.native or surfaces.browser or surfaces.aot
-        or surfaces.gpu or surfaces.packaging or surfaces.tests or surfaces.cli or surfaces.editors
-        or surfaces.measurement or surfaces.evals
+    local source = surfaces.compiler
+        or surfaces.library
+        or surfaces.native
+        or surfaces.browser
+        or surfaces.aot
+        or surfaces.gpu
+        or surfaces.packaging
+        or surfaces.tests
+        or surfaces.cli
+        or surfaces.editors
+        or surfaces.measurement
+        or surfaces.evals
     if source then
         select(jobs, "fast-checks", "source changed", reasons)
         select(jobs, "linux-integration", "source changed", reasons)

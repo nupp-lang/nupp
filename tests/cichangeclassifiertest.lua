@@ -106,6 +106,11 @@ end
 
 -- `scripts/toolchain` decides what every job is built with, and `.github`
 -- decides what every job is. Neither has a blast radius smaller than all of it.
+function M.compatibilityCorpusSelectsItsStockInterpreterJob()
+    selects("tests/lua51-compat/src/main.g.nupp", {"linux-integration", "portable-compiler"})
+    selects("scripts/lua51-compat-corpus.sh", {"linux-integration", "portable-compiler"})
+end
+
 function M.toolchainAndWorkflowChangesSelectEverything()
     for _, path in ipairs({
         "scripts/toolchain",

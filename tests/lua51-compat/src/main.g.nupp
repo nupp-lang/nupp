@@ -1,0 +1,49 @@
+local values = require("values")
+local closed = {}
+
+local record Guard
+    name: string
+end
+
+local function finish(takes guard: Guard): nil
+    closed[#closed + 1] = guard.name
+end
+
+local function acquire(name: string): affine(Guard, finish)
+    return new Guard(name = name)
+end
+
+local function protectedWork(fail: boolean): string
+    with outer = acquire("outer") do
+        with inner = acquire("inner") do
+            if fail then
+                error("expected")
+            end
+            return inner.name .. outer.name
+        end
+    end
+end
+
+assert(values.first({"ready", "later"}) == "ready")
+assert(values.sum(1, 2, 3) == 6)
+assert(protectedWork(false) == "innerouter")
+assert(table.concat(closed, ",") == "inner,outer")
+local ok = pcall(protectedWork, true)
+assert(not ok)
+assert(table.concat(closed, ",") == "inner,outer,inner,outer")
+local co = coroutine.create(function()
+    coroutine.yield(4)
+    return 5
+end)
+local ready, value = coroutine.resume(co)
+assert(ready and value == 4)
+ready, value = coroutine.resume(co)
+assert(ready and value == 5)
+for index = 1, 3 do
+    with item = acquire("break") do
+        assert(item.name == "break")
+        break
+    end
+end
+assert(closed[#closed] == "break" and #closed == 5)
+print("lua51 compatibility corpus ok")

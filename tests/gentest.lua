@@ -8,8 +8,7 @@ local env = envMod.new(HERE .. "/..")
 
 local function assertEq(got, want, label)
     if got ~= want then
-        error(("%s:\n  want: %s\n  got:  %s"):format(label or "mismatch",
-            tostring(want), tostring(got)), 2)
+        error(("%s:\n  want: %s\n  got:  %s"):format(label or "mismatch", tostring(want), tostring(got)), 2)
     end
 end
 
@@ -20,21 +19,25 @@ local function generate(src)
     -- These generate from a bare parse, where `gen.generate` documents a checked one. A
     -- construct whose lowering reads the checker's annotations -- `new R(field = v)` is
     -- one -- then lowers to Lua that does not parse, which is what NUPP3005 reports and
-    -- is not what any of these are about. Every other diagnostic still has to be absent.
+    -- is not what any of these are about. Every other diagnostic still has to be
+    -- absent.
     local lowering = {}
     for _, d in ipairs(diags) do
-        if d.code ~= "NUPP3005" then lowering[#lowering + 1] = d end
+        if d.code ~= "NUPP3005" then
+            lowering[#lowering + 1] = d
+        end
     end
     assertEq(#lowering, 0, "gen diagnostics for " .. src)
+
     return code
 end
 
 local function generateCoverage(src)
     local result = parser.parse(src, "coverage-test.nupp")
     assertEq(#result.errors, 0, "syntax errors in coverage test source")
-    local code, diags, metadata = gen.generate(result, "coverage-test.nupp",
-        {path = "coverage-test.nupp"})
+    local code, diags, metadata = gen.generate(result, "coverage-test.nupp", {path = "coverage-test.nupp"})
     assertEq(#diags, 0, "coverage gen diagnostics for " .. src)
+
     return code, metadata
 end
 
@@ -54,9 +57,9 @@ local function run(src, ...)
     local code = generate(src)
     local chunk, err = loadstring(code, "@gen_test")
     if not chunk then
-        error("generated code does not load: " .. tostring(err)
-            .. "\n---\n" .. code, 2)
+        error("generated code does not load: " .. tostring(err) .. "\n---\n" .. code, 2)
     end
+
     return chunk(...)
 end
 
@@ -133,7 +136,8 @@ return a.value, b.value, c, d, log
 end
 
 function M.exportedPrimitiveFunctionsPublishPreparedWorkerTransfers()
-    local code = generateChecked([[
+    local code = generateChecked(
+        [[
 module jobs
 
 export type Count = integer
@@ -159,15 +163,25 @@ end
 export function echoPayload(value: Payload): Payload
     return value
 end
-]])
-    assert(code:find('member="identity",captures={values={},count=0},input="number",output="number"', 1, true),
-        "a resolved numeric alias publishes its prepared plan: " .. code)
-    assert(code:find('member="echo",captures={values={},count=0},input="string",output="string"', 1, true),
-        "a string function publishes its prepared plan: " .. code)
-    assert(not code:find('member="dynamic"', 1, true),
-        "a dynamic signature stays on the checked fallback: " .. code)
-    assert(code:find('member="echoPayload",captures={values={},count=0},input={kind="record",schema="jobs\\0Payload\\0id\\0number\\0label\\0string\\0ready\\0boolean",address="jobs\\0Payload",record=Payload,fields={"id","label","ready"},types={"number","string","boolean"}}', 1, true),
-        "an exact primitive-field record publishes its schema: " .. code)
+]]
+    )
+    assert(
+        code:find('member="identity",captures={values={},count=0},input="number",output="number"', 1, true),
+        "a resolved numeric alias publishes its prepared plan: " .. code
+    )
+    assert(
+        code:find('member="echo",captures={values={},count=0},input="string",output="string"', 1, true),
+        "a string function publishes its prepared plan: " .. code
+    )
+    assert(not code:find('member="dynamic"', 1, true), "a dynamic signature stays on the checked fallback: " .. code)
+    assert(
+        code:find(
+            'member="echoPayload",captures={values={},count=0},input={kind="record",schema="jobs\\0Payload\\0id\\0number\\0label\\0string\\0ready\\0boolean",address="jobs\\0Payload",record=Payload,fields={"id","label","ready"},types={"number","string","boolean"}}',
+            1,
+            true
+        ),
+        "an exact primitive-field record publishes its schema: " .. code
+    )
 end
 
 -- An escaped quote inside a backtick string is one escape in the Lua literal too,
@@ -195,9 +209,8 @@ function M.lineCountInvariant()
     }
     for _, src in ipairs(cases) do
         local code = generate(src)
-        assertEq(countLines(code), countLines(src) + 1,
-            "line count changed for:\n" .. src .. "\n---\n" .. code)
-    -- (+1: generated output always ends with a final newline)
+        assertEq(countLines(code), countLines(src) + 1, "line count changed for:\n" .. src .. "\n---\n" .. code)
+        -- (+1: generated output always ends with a final newline)
     end
 end
 
@@ -206,32 +219,35 @@ end
 -- arms: the desugaring holds the value in a temporary and makes NAME a local
 -- of the arm rather than of the chain.
 function M.ifBindingsTakeNonNilValuesOnceAndScopeToTheirArm()
-    local src = table.concat({
-        "local v = 'outer'",
-        "local calls = 0",
-        "local function probe(value)",
-        "   calls = calls + 1",
-        "   return value",
-        "end",
-        "local function classify(value)",
-        "   if v = probe(value) then",
-        "      return 'bound:' .. tostring(v)",
-        "   elseif v == 'outer' then",
-        "      return 'outer seen'",
-        "   else",
-        "      return 'no outer'",
-        "   end",
-        "end",
-        "local function chain(first, second)",
-        "   if a = probe(first) then",
-        "      return 'a' .. tostring(a)",
-        "   elseif b = probe(second) then",
-        "      return 'b' .. tostring(b)",
-        "   end",
-        "   return 'none'",
-        "end",
-        "return classify, chain, function() return calls end",
-    }, "\n")
+    local src = table.concat(
+        {
+            "local v = 'outer'",
+            "local calls = 0",
+            "local function probe(value)",
+            "   calls = calls + 1",
+            "   return value",
+            "end",
+            "local function classify(value)",
+            "   if v = probe(value) then",
+            "      return 'bound:' .. tostring(v)",
+            "   elseif v == 'outer' then",
+            "      return 'outer seen'",
+            "   else",
+            "      return 'no outer'",
+            "   end",
+            "end",
+            "local function chain(first, second)",
+            "   if a = probe(first) then",
+            "      return 'a' .. tostring(a)",
+            "   elseif b = probe(second) then",
+            "      return 'b' .. tostring(b)",
+            "   end",
+            "   return 'none'",
+            "end",
+            "return classify, chain, function() return calls end",
+        },
+        "\n"
+    )
     local classify, chain, callsSoFar = run(src)
     assertEq(classify(1), "bound:1")
     assertEq(classify(false), "bound:false", "false is a value, not nil")
@@ -242,64 +258,72 @@ function M.ifBindingsTakeNonNilValuesOnceAndScopeToTheirArm()
     assertEq(callsSoFar(), 6, "a later arm's expression is evaluated only when reached")
     assertEq(chain(nil, nil), "none")
     local code = generate(src)
-    assert(code:find("do local __nuppT%d+ = probe %( value %) if __nuppT%d+ ~= nil then local v = __nuppT%d+\n"),
-        "the first arm opens a block around its temporary:\n" .. code)
-    assert(code:find("else local __nuppT%d+ = probe %( second %) if __nuppT%d+ ~= nil then local b = __nuppT%d+\n"),
-        "a later binding arm nests under the else of the one before:\n" .. code)
+    assert(
+        code:find("do local __nuppT%d+ = probe %( value %) if __nuppT%d+ ~= nil then local v = __nuppT%d+\n"),
+        "the first arm opens a block around its temporary:\n" .. code
+    )
+    assert(
+        code:find("else local __nuppT%d+ = probe %( second %) if __nuppT%d+ ~= nil then local b = __nuppT%d+\n"),
+        "a later binding arm nests under the else of the one before:\n" .. code
+    )
 end
 
 function M.generatedLinesHaveNoTrailingWhitespace()
-    local code = generate(table.concat({
-        "local record Section",
-        "   title: string",
-        "   codes: {string}",
-        "end",
-        "local sections = {",
-        "   new Section(",
-        "      title = 'Language',",
-        "      codes = {}",
-        "   )",
-        "}",
-        "return sections",
-    }, "\n"))
+    local code = generate(
+        table.concat(
+            {
+                "local record Section",
+                "   title: string",
+                "   codes: {string}",
+                "end",
+                "local sections = {",
+                "   new Section(",
+                "      title = 'Language',",
+                "      codes = {}",
+                "   )",
+                "}",
+                "return sections",
+            },
+            "\n"
+        )
+    )
     assert(not code:find("[ \t]+\n"), "generated Lua has trailing whitespace:\n" .. code)
 end
 
 function M.returnPacksEraseEntirely()
-   -- A return annotation is type material and must leave nothing behind. A pack got
-   -- this wrong in two ways at once: a parenthesized one was spliced into the function
-   -- it annotated, where its `(`, `,` and `)` were indistinguishable from code and were
-   -- emitted as `( , )`; and one with a tail was kept whole as a node kind gen did not
-   -- know to erase, so its `...` was emitted. Both produced Lua that did not parse,
-   -- while the build reported success.
-   local cases = {
-      {"a bare list", "local function f(a: integer): integer, string\n   return a, 'x'\nend\nreturn f(1)"},
-      {"a parenthesized pack", "local function f(a: integer): (integer, string)\n   return a, 'x'\nend\nreturn f(1)"},
-      {"a homogeneous tail", "local function f(a: integer): ...integer\n   return a\nend\nreturn f(1)"},
-      {"a parenthesized single", "local function f(a: integer): (integer)\n   return a\nend\nreturn f(1)"},
-      {"a function-typed return", "local function f(): (function()?)\n   return nil\nend\nreturn f()"},
-      {"an empty pack", "local function f(a: integer): ()\n   return\nend\nf(1)\nreturn 1"},
-   }
-   for _, case in ipairs(cases) do
-      local label, src = case[1], case[2]
-      local code = generate(src)
-      -- The signature this is about is the one in the source, not the runtime
-      -- prologue that shares its line: the prologue is ordinary Lua and joins
-      -- strings with `..`, which is a `)` followed by a `.` and exactly what
-      -- this rejects. Reading the whole line made every case fail as soon as
-      -- something in the prologue concatenated.
-      local signature = code:match("local function f[^\n]*")
-      assert(signature, label .. " emitted no function to inspect:\n" .. code)
-      if signature:find("%)%s*[%(%.]") then
-         error(("%s left type punctuation in the signature: %s"):format(label, signature), 0)
-      end
-      local chunk, err = loadstring(code, "@pack_test")
-      if not chunk then
-         error(("%s generated Lua that does not load: %s\n---\n%s"):format(label, err, code), 0)
-      end
-      assertEq(countLines(code), countLines(src) + 1,
-         label .. " changed the line count:\n" .. code)
-   end
+    -- A return annotation is type material and must leave nothing behind. A pack got
+    -- this wrong in two ways at once: a parenthesized one was spliced into the function
+    -- it annotated, where its `(`, `,` and `)` were indistinguishable from code and
+    -- were emitted as `( , )`; and one with a tail was kept whole as a node kind gen
+    -- did not know to erase, so its `...` was emitted. Both produced Lua that did not
+    -- parse, while the build reported success.
+    local cases = {
+        {"a bare list", "local function f(a: integer): integer, string\n   return a, 'x'\nend\nreturn f(1)"},
+        {"a parenthesized pack", "local function f(a: integer): (integer, string)\n   return a, 'x'\nend\nreturn f(1)"},
+        {"a homogeneous tail", "local function f(a: integer): ...integer\n   return a\nend\nreturn f(1)"},
+        {"a parenthesized single", "local function f(a: integer): (integer)\n   return a\nend\nreturn f(1)"},
+        {"a function-typed return", "local function f(): (function()?)\n   return nil\nend\nreturn f()"},
+        {"an empty pack", "local function f(a: integer): ()\n   return\nend\nf(1)\nreturn 1"},
+    }
+    for _, case in ipairs(cases) do
+        local label, src = case[1], case[2]
+        local code = generate(src)
+        -- The signature this is about is the one in the source, not the runtime
+        -- prologue that shares its line: the prologue is ordinary Lua and joins
+        -- strings with `..`, which is a `)` followed by a `.` and exactly what
+        -- this rejects. Reading the whole line made every case fail as soon as
+        -- something in the prologue concatenated.
+        local signature = code:match("local function f[^\n]*")
+        assert(signature, label .. " emitted no function to inspect:\n" .. code)
+        if signature:find("%)%s*[%(%.]") then
+            error(("%s left type punctuation in the signature: %s"):format(label, signature), 0)
+        end
+        local chunk, err = loadstring(code, "@pack_test")
+        if not chunk then
+            error(("%s generated Lua that does not load: %s\n---\n%s"):format(label, err, code), 0)
+        end
+        assertEq(countLines(code), countLines(src) + 1, label .. " changed the line count:\n" .. code)
+    end
 end
 
 function M.coverageModeLeavesNormalOutputAlone()
@@ -311,17 +335,24 @@ function M.coverageModeLeavesNormalOutputAlone()
 end
 
 function M.coverageModeCountsStatementsFunctionsAndBranches()
-    local code, metadata = generateCoverage(table.concat({
-        "local function choose(value: boolean): integer",
-        "   if value then return 1 end",
-        "   return 2",
-        "end",
-        "return choose(true)",
-    }, "\n"))
+    local code, metadata = generateCoverage(
+        table.concat(
+            {
+                "local function choose(value: boolean): integer",
+                "   if value then return 1 end",
+                "   return 2",
+                "end",
+                "return choose(true)",
+            },
+            "\n"
+        )
+    )
     assertEq(countLines(code), 5, "coverage generation changes line count")
     assert(metadata and metadata.path == "coverage-test.nupp", "coverage manifest path")
     local kinds = {}
-    for _, site in ipairs(metadata.sites) do kinds[site.kind] = (kinds[site.kind] or 0) + 1 end
+    for _, site in ipairs(metadata.sites) do
+        kinds[site.kind] = (kinds[site.kind] or 0) + 1
+    end
     assert((kinds.statement or 0) >= 3, "statement sites are recorded")
     assert((kinds["function"] or 0) >= 1, "function sites are recorded")
     assert((kinds.branch or 0) >= 1, "branch sites are recorded")
@@ -342,8 +373,7 @@ function M.coverageModeCountsStatementsFunctionsAndBranches()
             sawTrue = true
         end
     end
-    assert(sawStatement and sawFunction and sawTrue,
-        "instrumented run records the executed source sites")
+    assert(sawStatement and sawFunction and sawTrue, "instrumented run records the executed source sites")
     _G.__nuppCoverage = nil
 end
 
@@ -352,15 +382,20 @@ end
 -- Declarations are named and spanned here; anonymous bodies stay nameless,
 -- because inventing one would invent the only handle a reader has.
 function M.coverageFunctionSitesCarryNamesAndSpans()
-    local _, metadata = generateCoverage(table.concat({
-        "local function named(value: integer): integer",
-        "   return value",
-        "end",
-        "local anonymous = function(): integer",
-        "   return 1",
-        "end",
-        "return named(1) + anonymous()",
-    }, "\n"))
+    local _, metadata = generateCoverage(
+        table.concat(
+            {
+                "local function named(value: integer): integer",
+                "   return value",
+                "end",
+                "local anonymous = function(): integer",
+                "   return 1",
+                "end",
+                "return named(1) + anonymous()",
+            },
+            "\n"
+        )
+    )
     local byName = {}
     local anonymous = 0
     for _, site in ipairs(metadata.sites) do
@@ -381,16 +416,21 @@ end
 -- A function attached to a table is called by its own name. Naming it by the
 -- table would name every function in the file the same thing.
 function M.coverageFunctionSitesNameQualifiedFunctionsByTheirLeaf()
-    local _, metadata = generateCoverage(table.concat({
-        "local shapes = {}",
-        "function shapes.scaledTotal(values: {number}): number",
-        "   return 1",
-        "end",
-        "function shapes.larger(left: number): number",
-        "   return left",
-        "end",
-        "return shapes",
-    }, "\n"))
+    local _, metadata = generateCoverage(
+        table.concat(
+            {
+                "local shapes = {}",
+                "function shapes.scaledTotal(values: {number}): number",
+                "   return 1",
+                "end",
+                "function shapes.larger(left: number): number",
+                "   return left",
+                "end",
+                "return shapes",
+            },
+            "\n"
+        )
+    )
     local names = {}
     for _, site in ipairs(metadata.sites) do
         if site.kind == "function" and site.name then
@@ -404,15 +444,20 @@ end
 -- A method is called what it is called on the receiver, not the path it hangs
 -- off: the reader is already looking at the record it belongs to.
 function M.coverageFunctionSitesNameMethodsByTheirOwnName()
-    local _, metadata = generateCoverage(table.concat({
-        "local record Point",
-        "   x: integer",
-        "end",
-        "function Point:magnitude(): integer",
-        "   return self.x",
-        "end",
-        "return Point",
-    }, "\n"))
+    local _, metadata = generateCoverage(
+        table.concat(
+            {
+                "local record Point",
+                "   x: integer",
+                "end",
+                "function Point:magnitude(): integer",
+                "   return self.x",
+                "end",
+                "return Point",
+            },
+            "\n"
+        )
+    )
     local names = {}
     for _, site in ipairs(metadata.sites) do
         if site.kind == "function" and site.name then
@@ -434,16 +479,23 @@ end
 function M.coverageModeCountsANamedVarargFunction()
     -- A named vararg binds its pack at the top of the body; the body is still a
     -- function site, recorded and hit like any other.
-    local code, metadata = generateCoverage(table.concat({
-        "local function count(...values: integer): integer",
-        "   return values.n",
-        "end",
-        "return count(1, 2, 3)",
-    }, "\n"))
+    local code, metadata = generateCoverage(
+        table.concat(
+            {
+                "local function count(...values: integer): integer",
+                "   return values.n",
+                "end",
+                "return count(1, 2, 3)",
+            },
+            "\n"
+        )
+    )
     assertEq(countLines(code), 4, "coverage generation changes line count")
     local functions = 0
     for _, site in ipairs(metadata.sites) do
-        if site.kind == "function" then functions = functions + 1 end
+        if site.kind == "function" then
+            functions = functions + 1
+        end
     end
     assertEq(functions, 1, "the vararg function is a function site")
     _G.__nuppCoverage = nil
@@ -471,82 +523,94 @@ function M.erasure()
 end
 
 function M.nestedRecordsAndInlineMethodsRun()
-    assertEq(run(table.concat({
-        "local record namespace",
-        "   record Task",
-        "      value: number",
-        "      function doubled(): number",
-        "         return self.value * 2",
-        "      end",
-        "   end",
-        "end",
-        "local task = setmetatable({value = 21}, namespace.Task)",
-        "return task:doubled()",
-    }, "\n")), 42)
+    assertEq(
+        run(
+            table.concat(
+                {
+                    "local record namespace",
+                    "   record Task",
+                    "      value: number",
+                    "      function doubled(): number",
+                    "         return self.value * 2",
+                    "      end",
+                    "   end",
+                    "end",
+                    "local task = setmetatable({value = 21}, namespace.Task)",
+                    "return task:doubled()",
+                },
+                "\n"
+            )
+        ),
+        42
+    )
 end
 
 function M.tecsStyleLateEventRegistrationRuns()
-    assertEq(run(table.concat({
-        "local interface Event",
-        "   eventId: integer",
-        "   init: function(instance: self, ...: any)",
-        "end",
-        "local record events",
-        "   record OnSpawn is Event",
-        "      entity: integer",
-        "      metamethod __call: function(self, entity: integer): self",
-        "   end",
-        "end",
-        "events.OnSpawn.init = function(instance: events.OnSpawn, entity: integer)",
-        "   instance.entity = entity",
-        "end",
-        "local function newEvent<E is Event>(event: Type<E>)",
-        "   local id = 7",
-        "   local instanceMt = {__index = event}",
-        "   setmetatable(event, {__call = function(_self: E, ...: any): E",
-        "      local instance = setmetatable({eventId = id}, instanceMt) as E",
-        "      event.init(instance, ...)",
-        "      return instance",
-        "   end})",
-        "end",
-        "newEvent(events.OnSpawn)",
-        "local spawned = events.OnSpawn(42)",
-        "return spawned.eventId + spawned.entity",
-    }, "\n")), 49)
+    assertEq(
+        run(
+            table.concat(
+                {
+                    "local interface Event",
+                    "   eventId: integer",
+                    "   init: function(instance: self, ...: any)",
+                    "end",
+                    "local record events",
+                    "   record OnSpawn is Event",
+                    "      entity: integer",
+                    "      metamethod __call: function(self, entity: integer): self",
+                    "   end",
+                    "end",
+                    "events.OnSpawn.init = function(instance: events.OnSpawn, entity: integer)",
+                    "   instance.entity = entity",
+                    "end",
+                    "local function newEvent<E is Event>(event: Type<E>)",
+                    "   local id = 7",
+                    "   local instanceMt = {__index = event}",
+                    "   setmetatable(event, {__call = function(_self: E, ...: any): E",
+                    "      local instance = setmetatable({eventId = id}, instanceMt) as E",
+                    "      event.init(instance, ...)",
+                    "      return instance",
+                    "   end})",
+                    "end",
+                    "newEvent(events.OnSpawn)",
+                    "local spawned = events.OnSpawn(42)",
+                    "return spawned.eventId + spawned.entity",
+                },
+                "\n"
+            )
+        ),
+        49
+    )
 end
 
 function M.constSemantics()
     assertEq(run("const x: number = 42\nreturn x"), 42)
-    assertEq(run("const function f(x: number): number return x * 2 end\nreturn f(21)"),
-        42)
+    assertEq(run("const function f(x: number): number return x * 2 end\nreturn f(21)"), 42)
     local code = generate("const answer: integer = 42\nreturn answer")
-    assert(code:find("const answer = 42", 1, true),
-        "const should survive type erasure: " .. code)
+    assert(code:find("const answer = 42", 1, true), "const should survive type erasure: " .. code)
 end
 
-function M.generatedSingleAssignmentBindingsAreConst()
-    local recordCode = generate(table.concat({
-        "local record Point",
-        "   x: number",
-        "end",
-        "return Point",
-    }, "\n"))
-    assert(recordCode:find("const Point = {}", 1, true), recordCode)
+function M.generatedBindingsPreserveTheSharedRuntimeSubset()
+    local recordCode = generate(table.concat({"local record Point", "   x: number", "end", "return Point",}, "\n"))
+    assert(recordCode:find("local Point = {}", 1, true), recordCode)
 
-    local interfaceCode = generate(table.concat({
-        "local interface Named",
-        "   name: string",
-        "   function getName(): string return self.name end",
-        "end",
-        "return Named",
-    }, "\n"))
-    assert(interfaceCode:find("const Named = {}", 1, true), interfaceCode)
+    local interfaceCode = generate(
+        table.concat(
+            {
+                "local interface Named",
+                "   name: string",
+                "   function getName(): string return self.name end",
+                "end",
+                "return Named",
+            },
+            "\n"
+        )
+    )
+    assert(interfaceCode:find("local Named = {}", 1, true), interfaceCode)
 
-    local compoundCode = generate(table.concat({
-        "local target = {value = 8}",
-        "target['value'] //= 2",
-        "return target.value",
-    }, "\n"))
+    local compoundCode = generate(
+        table.concat({"local target = {value = 8}", "target['value'] //= 2", "return target.value",}, "\n")
+    )
     assert(compoundCode:find("do const __nuppT", 1, true), compoundCode)
     assert(compoundCode:find("const __nuppT2 =", 1, true), compoundCode)
 end
@@ -558,9 +622,7 @@ function M.literalTypeErasure()
     assertEq(run("local t: true = true\nreturn t"), true)
     assertEq(run("local f: false = false\nreturn f"), false)
     assertEq(run("local m: \"read\" = \"read\"\nreturn m"), "read")
-    assertEq(run(
-        "local function mode(x: \"read\"): \"read\" return x end"
-        .. "\nreturn mode(\"read\")"), "read")
+    assertEq(run("local function mode(x: \"read\"): \"read\" return x end" .. "\nreturn mode(\"read\")"), "read")
 end
 
 -- `const T`, the read-only view, is a type node the same way `T?` or `T*` are: erased
@@ -637,9 +699,10 @@ function M.backportedSyntaxIsPassedThrough()
     }
     for _, case in ipairs(cases) do
         local code = generate(case[1])
-        assert(code:find(case[2], 1, true),
-            ("expected %q in the output for %s\n---\n%s")
-            :format(case[2], case[1], code))
+        assert(
+            code:find(case[2], 1, true),
+            ("expected %q in the output for %s\n---\n%s"):format(case[2], case[1], code)
+        )
     end
     -- and no trace of the lowerings these replaced
     local lowered = generate("local t = nil\nreturn t?.a ?? (1 & 2)")
@@ -663,8 +726,7 @@ end
 function M.numberSeparatorSemantics()
     assertEq(run("return 1_234 + 0_x_10 + 1_e_2"), 1350)
     local code = generate("return 1_2_3")
-    assert(code:find("1_2_3", 1, true),
-        "separators survive: the runtime reads them: " .. code)
+    assert(code:find("1_2_3", 1, true), "separators survive: the runtime reads them: " .. code)
 end
 
 function M.continueSemantics()
@@ -704,14 +766,12 @@ return collect("ignored", nil, 3)]]
 
     local code = generate("local function f(...args) return args.n end")
     assert(code:find("...", 1, true), "plain vararg remains in output")
-    assert(code:find("const args = { n = select", 1, true),
-        "named vararg table is lowered")
+    assert(code:find("local args = { n = select", 1, true), "named vararg table is lowered")
     assert(not code:find("...args", 1, true), "named spelling is erased")
 end
 
 function M.istringSemantics()
-    assertEq(run("local n = 6\nreturn `n is ${n}, double ${n * 2}`"),
-        "n is 6, double 12")
+    assertEq(run("local n = 6\nreturn `n is ${n}, double ${n * 2}`"), "n is 6, double 12")
     assertEq(run("return `${1}${2}`"), "12")
     assertEq(run("return `plain`"), "plain")
     assertEq(run("return `quote \" and \\` tick`"), 'quote " and ` tick')
@@ -724,8 +784,7 @@ function M.dedentLongStringSemantics()
     assertEq(run("return dedent [[\n   hello\n   ]]"), "hello\n")
     assertEq(run("return dedent [[\n   outer\n      inner\n   ]]"), "outer\n   inner\n")
     assertEq(run("return dedent [=[\n   ]] remains text\n   ]=]"), "]] remains text\n")
-    assertEq(run("return dedent [[\n    {\n        \"user\": \"foo\"\n    }]]"),
-        "{\n    \"user\": \"foo\"\n}")
+    assertEq(run("return dedent [[\n    {\n        \"user\": \"foo\"\n    }]]"), "{\n    \"user\": \"foo\"\n}")
 end
 
 function M.isSemantics()
