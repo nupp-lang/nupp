@@ -153,6 +153,22 @@ with edits and compatibility switches. The workflow runs them without COOP/COEP.
 The diagnostic result in `results/guest-protocol.json` explicitly uses preserved
 spike binaries: it is separate from source-built package acceptance.
 
+The source-built guest passed normal boot, snapshot restore, callback exception
+propagation, thirty compiler-response comparisons and all four recovery cases
+in [Linux Chromium CI](https://github.com/nupp-lang/nupp/actions/runs/35417207494).
+Guest libraries preserve C frame pointers as well as unwind tables: without
+frame pointers, the callback exception probe also failed on native i386 Linux.
+This is covered by a build gate and browser tests, without a LuaJIT source patch.
+Additional foreign libraries still need their own conformance tests.
+
+`results/source-guest-conformance.json` records the package identity, native
+unwind probes and Linux/local macOS Chromium results. Its compressed snapshots
+are 2,823,190 bytes for the runner and 2,821,881 bytes for the compiler. The
+snapshot smoke test reported about 75 MiB and 139 MiB of Wasm linear memory;
+that excludes JavaScript, decoded snapshots and generated code. These are
+package extents and conformance observations, not production transfer,
+first-frame or memory-pressure acceptance measurements.
+
 ## Remaining migration gates
 
 The transport experiment substantially reduces serialization cost, but a warm
@@ -163,6 +179,7 @@ providers, independent Wasm AOT ABI and platform schema have not migrated.
 Firefox, Safari, mobile, constrained-memory and production delivery acceptance
 remain open. No browser default or legacy lowerer has changed. The release/pin,
 one-release rollback and later cold-checkout deletion gates still apply.
+These remaining gates are tracked in [issue 59](https://github.com/nupp-lang/nupp/issues/59).
 
 The `jit` query parameter enables an exploratory compiler-JIT comparison. A
 five-sample run kept the large-check p50 near 174 ms and increased trivial-check
