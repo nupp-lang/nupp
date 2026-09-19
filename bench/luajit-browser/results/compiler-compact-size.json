@@ -1,0 +1,41 @@
+{
+  "scope": "Current-source production compiler artifacts: capability fast path is present in both; candidate changes only prelude graph encoding and its reader. The bundler uses quoted literals for carriage-return bytes to preserve the compact binary image. Sizes are measured bytes, not network or startup times.",
+  "variants": {
+    "text": [
+      {
+        "path": "build/issue59-capability/preludeimage.bin",
+        "bytes": 2118274,
+        "gzipBytes": 310216,
+        "sha256": "77937bc289ce30842148d264784b36a20d96145d849c5360c78083f181d282a6"
+      },
+      {
+        "path": "build/issue59-capability/candidate.ljbc",
+        "bytes": 6446050,
+        "gzipBytes": 1624291,
+        "sha256": "5d66543e32cca96ba6aac00079710b250fe0022035b758288a590ad900e5fc76"
+      }
+    ],
+    "compact": [
+      {
+        "path": "build/issue59-compact/preludeimage.bin",
+        "bytes": 744757,
+        "gzipBytes": 261721,
+        "sha256": "b22117734935d61366740e72ea1f348f8730b88afda5c76a28d3d0c7c89c81fc"
+      },
+      {
+        "path": "build/issue59-compact/compiler.ljbc",
+        "bytes": 5072684,
+        "gzipBytes": 1574901,
+        "sha256": "30dfa960399d48a764ac93cb93847599b499ecf4b7d7b52d5fd0089ae5b3e49e"
+      }
+    ]
+  },
+  "validation": {
+    "luajitImageRoundtrip": true,
+    "officialLua51ImageRoundtrip": true,
+    "graphTables": 23457,
+    "format": "NUPP-PRELUDE-3",
+    "sameGraph": "All eight roots, table fields, metatables, interning arenas and counters retained; dictionary/varints replace repeated strings and decimal integer encodings. Source and image re-encode byte-identically under each interpreter.",
+    "codecTests": "Binary strings, nil/booleans, signed integers through2^53-1, fractional values, negativezero, infinities, NaN, cycles/tablekeys, live-intern preservation and malformed data rejection."
+  }
+}

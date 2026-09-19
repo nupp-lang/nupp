@@ -64,6 +64,13 @@ const {type ModuleRecord} = require("nupp.compiler.build.cache")
 --- artifact stock 5.1 reads, and a carried source whose pattern spelled `%[[%x:.]+%]`
 --- stopped it loading, while every LuaJIT host had been reading the same bytes.
 local function longString(text: string): string
+    -- Lua normalizes carriage returns inside long strings. Stock Lua's Windows
+    -- text loader also treats raw Ctrl-Z as EOF. Escape both in binary resources;
+    -- unlike LuaJIT, stock Lua's %q may leave Ctrl-Z inside a quoted literal.
+    if text:find("\r", 1, true) or text:find("\026", 1, true) then
+        local quoted = interpolate("%q", text)
+        return (quoted:gsub("\026", "\\026"))
+    end
     local level = 0
     for closing in text:gmatch("%]=*%]") do
         level = math.max(level, #closing - 2 + 1)

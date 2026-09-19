@@ -154,7 +154,7 @@ try {
     await wait("return document.querySelector('#doc-test').shadowRoot.querySelector('.output-main').textContent.includes('reconnected')");
   });
   }
-  const pages=['smoke.html','compiler.html','application.html','recovery.html','lifecycle.html',...['aot','http','platform','workers','gpu'].map(name=>`packaged.html?app=${name}`)];
+  const pages=['smoke.html','compiler.html','application.html','recovery.html','lifecycle.html',...['aot','native','http','platform','workers','gpu'].map(name=>`packaged.html?app=${name}`)];
   if (selection !== 'ui') for(const page of pages) await check(page, async () => {
     await navigate(new URL(page,fixtures).href);
     await wait("return ['passed','failed'].includes(document.querySelector('#result')?.dataset.status)",180000);

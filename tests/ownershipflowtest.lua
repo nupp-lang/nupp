@@ -164,4 +164,45 @@ function M.capabilityFixtureKeepsPayloadAndOrderedDischargeSeparate()
     assert(fixture.cleanup[1] == first.id and fixture.cleanup[2] == second.id)
 end
 
+function M.ordinaryCapabilityKeepsCanonicalIdentityAndIgnoresNonflowFacts()
+    local empty = T.capability(T.string)
+    local facts = {}
+    assert(T.capability(T.integer, facts) == empty)
+    assert(T.capability(T.boolean, {exclusive = false, capturedBorrowRoots = false}) == empty)
+    assert(T.capability(T.any, {loans = {}, roots = {}, anchors = {}, retentions = {}, regionRoot = false,}) == empty)
+    assert(T.interned("capabilities", empty.id) == empty)
+    assert(not empty.obligation and #empty.loans == 0 and #empty.anchors == 0 and #empty.retentions == 0)
+    assert(next(facts) == nil, "reading capability must not add facts")
+end
+
+function M.capabilityRechecksAliasedAndInheritedFlowFacts()
+    local facts, root = {}, {}
+    local alias = facts
+    local empty = T.capability(T.string, facts)
+    alias.roots = {root}
+    local borrowed = T.capability(T.string, facts)
+    assert(borrowed ~= empty and #borrowed.loans == 1)
+    assert(borrowed.loans[1].roots[1] == root)
+    assert(T.capability(T.string, setmetatable({}, {__index = facts})) == borrowed)
+    alias.roots = nil
+    assert(T.capability(T.string, facts) == empty)
+    alias.retention = root
+    local retained = T.capability(T.string, facts)
+    assert(retained ~= empty and retained.retentions[1].identity == root)
+    alias.retention = nil
+    alias.anchors = {{root = root}}
+    assert(T.capability(T.string, facts).anchors[1].root == root)
+    assert(#empty.loans == 0 and #empty.anchors == 0 and #empty.retentions == 0)
+end
+
+function M.emptyFactsPreserveOwnershipQualifiers()
+    local empty = T.capability(T.string)
+    local borrowed = T.capability(T.borrowed(T.string), {})
+    local pinned = T.capability(T.pinned(T.string), {})
+    local owner = T.capability(T.affine(T.string, {T.functionCleanup("flow:close", "close")}), {})
+    assert(borrowed ~= empty and #borrowed.loans == 1)
+    assert(pinned ~= empty and #pinned.anchors == 1)
+    assert(owner ~= empty and owner.obligation)
+end
+
 return M

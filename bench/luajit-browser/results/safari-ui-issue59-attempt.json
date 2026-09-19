@@ -1,0 +1,77 @@
+{
+  "scope": "Installed desktop Safari through Apple safaridriver. Narrow windows are not physical mobile-device validation. Local unthrottled startup timings include WebDriver polling.",
+  "revision": "bdbba9cb3965f510eb9ac5175bd4a8fe27be8f91",
+  "host": {
+    "platform": "darwin",
+    "release": "25.6.0",
+    "arch": "arm64",
+    "cpu": "Apple M5 Pro"
+  },
+  "startedAt": "2026-09-19T17:52:39.929Z",
+  "selection": "ui",
+  "capabilities": {
+    "safari:platformVersion": "26.6",
+    "safari:automaticInspection": false,
+    "webkit:WebRTC": {
+      "DisableICECandidateFiltering": false,
+      "DisableInsecureMediaCapture": false
+    },
+    "webkit:alwaysAllowAutoplay": false,
+    "browserVersion": "26.6",
+    "strictFileInteractability": false,
+    "browserName": "Safari",
+    "safari:useSimulator": false,
+    "safari:automaticProfiling": false,
+    "setWindowRect": true,
+    "acceptInsecureCerts": false,
+    "safari:platformBuildVersion": "25G72",
+    "safari:experimentalWebSocketUrl": false,
+    "platformName": "macOS",
+    "safari:diagnose": false
+  },
+  "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.6 Safari/605.1.15",
+  "crossOriginIsolated": false,
+  "playgroundAssets": {
+    "compiler": "nupp-compiler-7c735766fa8967cc.lua",
+    "compilerSha256": "7c735766fa8967cc3116a29c5509e528cdf46ad1bf58c70f2ccdd87cb220a7db",
+    "hostModule": "nupp-playground.mjs",
+    "hostWasm": "nupp-playground.wasm",
+    "appRuntime": "nupp-app-runtime-72293faf441cd717.lua",
+    "appRuntimeSha256": "72293faf441cd71745b056c15c654cecac658a2ac9897d18af06966427741913",
+    "appHostModule": "nupp-runner.mjs",
+    "appHostWasm": "nupp-runner.wasm",
+    "bytes": {
+      "compiler": 7428395,
+      "hostModule": 12477,
+      "hostWasm": 224538,
+      "appRuntime": 693126,
+      "appHostModule": 33225,
+      "appHostWasm": 322280
+    },
+    "luajit": {
+      "guestManifest": "luajit/51a577cef5a81c62db2447cea8c267fee37b2fbb0c5d4a68dd922237944fc58e/guest-manifest.json",
+      "compiler": "nupp-compiler-42100b77a5bf4504.ljbc.gz",
+      "compilerSha256": "42100b77a5bf4504e1b7c8944695653c5347ce4c710f19089b829e25fcd6f5ce",
+      "compilerBytes": 1634425,
+      "compilerDecodedBytes": 6491652,
+      "appRuntime": "nupp-luajit-app-e915fdacb3afe54d.lua.gz",
+      "appRuntimeSha256": "e915fdacb3afe54d7ec121b4e54d5132ada1ce2a6224028a5cb834d834c4545f",
+      "appRuntimeBytes": 111262,
+      "appRuntimeDecodedBytes": 668938
+    }
+  },
+  "guest": {
+    "buildKey": "140b5611ba31dfb101c21341deee8f10f0725632dda20f5404ff7815d8dc5fa5",
+    "manifestSha256": "ae999f18a9312012f0e66c5dc3b60d56f04253b113cada33d987d99680360cf2"
+  },
+  "ok": false,
+  "results": [
+    {
+      "name": "playground tour",
+      "ok": false,
+      "elapsedMs": 124494.9475,
+      "error": "Error: Timed out: return document.querySelector('#output-summary')?.textContent==='ran'\n\nNupp Playground\n\nOutput\n\nchecked, clean\n\n\nRun\n3162 ms\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n13\n14\n15\n16\n17\n18\n19\n20\n21\n22\n23\n24\n25\n26\n27\n28\n29\n30\n31\n32\n33\n-- A quick tour of Nupp: gradual types over plain LuaJIT Lua.\n\nlocal type Priority = \"low\" | \"normal\" | \"high\"\n\nlocal function describe(name: string, priority: Priority): string\n    return name .. \" is \" .. priority .. \" priority\"\nend\n\nlocal function filter<V>(xs: {V}, keep: function(V): boolean): {V}\n    local out: {V} = {}\n    for _, x in ipairs(xs) do\n        if keep(x) then\n            out[#out + 1] = x\n        end\n    end\n\n    return out\nend\n\nlocal names = {\"wash the car\", \"pay rent\", \"read a book\"}\nlocal long = filter(names, function(n)\n    return #n > 10\nend)\n\nprint(describe(\"pay rent\", \"high\"))\nfor _, n in ipairs(long) do\n    print(n)\nend\n\n-- try breaking it: uncomment this and re-check\n\n-- local bad: Priority = \"urgent\"\n\nRuns the real, self-hosted Nupp compiler client-side \u2014 see how and what it can't do.\n    at wait (file:///private/tmp/nupp-luajit-everywhere/editors/playground/test/safari.mjs:41:9)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async run (file:///private/tmp/nupp-luajit-everywhere/editors/playground/test/safari.mjs:66:3)\n    at async file:///private/tmp/nupp-luajit-everywhere/editors/playground/test/safari.mjs:105:47\n    at async check (file:///private/tmp/nupp-luajit-everywhere/editors/playground/test/safari.mjs:74:21)\n    at async file:///private/tmp/nupp-luajit-everywhere/editors/playground/test/safari.mjs:105:3"
+    }
+  ],
+  "environmentDisposition": "Blocked: macOS screen was locked, as confirmed by contemporaneous ioreg CGSSessionScreenIsLocked=Yes. The initial program checked clean, but the WebDriver Run click did not produce output. This result does not establish a product regression."
+}

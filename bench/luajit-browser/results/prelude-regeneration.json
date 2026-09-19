@@ -1,0 +1,33 @@
+{
+  "scope": "Pre-existing source-image regeneration variability, reproduced using the old text-format generator from bdbba9cb and the current-source control compiler with the new capability fast path removed. This is separate from successful source/image roundtrip and semantic response comparisons.",
+  "artifacts": [
+    {
+      "path": "build/issue59-capability/control-compiler.lua",
+      "bytes": 7469544,
+      "sha256": "6534497e14aef15b5eca860a9a6b1850f96c505d8ea6c7b27974d00fd24170e3"
+    },
+    {
+      "path": "build/issue59-compact/generate-v2.lua",
+      "bytes": 8455,
+      "sha256": "833ceb2bcbd11c28e6732b89222fdfa108a4773a00db1004dc0994ef493e34c0"
+    },
+    {
+      "path": "build/issue59-compact/control-prelude-a.bin",
+      "bytes": 2118274,
+      "sha256": "eb48ceb5e300e3e0be87e53ec7fad1e27964027ca95a745d90dc5922662e118f"
+    },
+    {
+      "path": "build/issue59-compact/control-prelude-b.bin",
+      "bytes": 2118274,
+      "sha256": "78052a28afa69dd725f4acbde27f3b973b7354054a6db53c2cae933355c0cb64"
+    }
+  ],
+  "sameInputFreshProcessesProduceSameBytes": false,
+  "firstDifferenceOffset": 4228,
+  "firstDifferenceContext": {
+    "first": "k(plain:!tt809,plain:t7,plain:!pt830,plain:t653)105\ns5\npackss51\npack(plain:!tt809,plain:t7,plain:!pt836,plain:t653)106\ns5\npac",
+    "second": "k(plain:!tt809,plain:t7,plain:!pt832,plain:t653)105\ns5\npackss51\npack(plain:!tt809,plain:t7,plain:!pt836,plain:t653)106\ns5\npac"
+  },
+  "reproduction": "Run generate-v2.lua CONTROL_COMPILER OUTPUT source luajit twice in fresh pinned LuaJIT processes; compare outputs. The generator is git show bdbba9cb:editors/playground/tools/generate-prelude-image.lua.",
+  "decision": "Keep artifact digests attached to every measurement; do not equate a new package with an earlier measured artifact solely because sources match. Stabilize transient pack identity assignment before claiming byte-reproducible LuaJIT prelude regeneration across fresh builds. This also reproduces when GC is stopped; cause not established."
+}
