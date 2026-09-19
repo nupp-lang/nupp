@@ -201,7 +201,7 @@ export = require("consumer")
 ]],
         ["src/consumer.nupp"] = [[
 module consumer
-export function shift(value: uint32): int32
+export function shift(value: int32): int32
     return value << 3
 end
 ]],
