@@ -40,20 +40,55 @@ for _, input in ipairs({"", "a", "ab", small, large}) do
     assert(encodeControl(input) == expected, "C control disagrees with scalar reference")
     assert(simd.allocOnly(input) == string.char(#input % 256), "lease allocation result changed")
 end
-local cases = {
-    {name = "encode64", run = simd.encode, input = small, iterations = 10000},
-    {name = "alloc64", run = simd.allocOnly, input = small, iterations = 10000},
-    {name = "encode64k", run = simd.encode, input = large, iterations = 100},
-    {name = "control64", run = encodeControl, input = small, iterations = 10000},
-}
 local sink = 0
 
+local function consume(result)
+    sink = sink + #result + (result:byte(#result) or 0)
+end
+
+-- Separate loop prototypes keep one case's tracing failures from blacklisting
+-- another case, especially the colocated C control.
+local cases = {
+    {
+        name = "encode64",
+        iterations = 10000,
+        batch = function()
+            for _ = 1, 10000 do
+                consume(simd.encode(small))
+            end
+        end
+    },
+    {
+        name = "alloc64",
+        iterations = 10000,
+        batch = function()
+            for _ = 1, 10000 do
+                consume(simd.allocOnly(small))
+            end
+        end
+    },
+    {
+        name = "encode64k",
+        iterations = 100,
+        batch = function()
+            for _ = 1, 100 do
+                consume(simd.encode(large))
+            end
+        end
+    },
+    {
+        name = "control64",
+        iterations = 10000,
+        batch = function()
+            for _ = 1, 10000 do
+                consume(encodeControl(small))
+            end
+        end
+    },
+}
+
 local function batch(case)
-    local fn, input = case.run, case.input
-    for _ = 1, case.iterations do
-        local result = fn(input)
-        sink = sink + #result + (result:byte(#result) or 0)
-    end
+    case.batch()
 end
 
 for _, case in ipairs(cases) do
