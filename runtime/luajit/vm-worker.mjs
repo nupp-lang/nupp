@@ -66,7 +66,10 @@ async function boot(message) {
       }
     },
   };
-  if (snapshot) options.initial_state = {buffer: snapshot};
+  if (snapshot) {
+    options.initial_state = {buffer: snapshot};
+    self.postMessage({type: 'snapshot-selected'});
+  }
   else {
     const [bios, vga, kernel, initrd] = await Promise.all(['assets/bios.bin', 'assets/vgabios.bin', 'assets/bzimage.bin', 'assets/initramfs.gz'].map(asset));
     Object.assign(options, {bios: {buffer: bios.buffer}, vga_bios: {buffer: vga.buffer},
