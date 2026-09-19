@@ -26,7 +26,7 @@ http
   .createServer((req, res) => {
     const url = new URL(req.url, "http://localhost");
     let file = path.join(root, decodeURIComponent(url.pathname));
-    if (url.pathname === "/") file = path.join(root, "index.html");
+    if (url.pathname.endsWith("/")) file = path.join(file, "index.html");
     if (!file.startsWith(root)) {
       res.writeHead(403).end("forbidden");
       return;

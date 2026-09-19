@@ -8,7 +8,7 @@ for (const engine of (process.env.NUPP_TEST_BROWSERS || 'chromium,firefox,webkit
     const context = await browser.newContext();
     const page = await context.newPage(), errors=[];
     page.on('pageerror', error=>errors.push(String(error)));
-    const ready = () => page.waitForFunction(()=>!document.querySelector('#compile-button')?.disabled && !document.body.classList.contains('is-busy'),null,{timeout:120000});
+    const ready = () => page.waitForFunction(()=>{const button=document.querySelector('#compile-button');return button && !button.disabled && !document.body.classList.contains('is-busy');},null,{timeout:120000});
     const edit = async source => {
       const content=page.locator('#source-editor .cm-content');
       await content.click(); await page.keyboard.press('ControlOrMeta+A'); await page.keyboard.insertText(source);
@@ -19,7 +19,9 @@ for (const engine of (process.env.NUPP_TEST_BROWSERS || 'chromium,firefox,webkit
       const actual=await page.locator('#output-main, #output-editor .cm-content').innerText();
       if(!actual.includes(expected))throw new Error(`Missing ${expected}: ${actual}`);
     };
-    await page.goto(url); await run('pay rent is high priority');
+    const response = await page.goto(url);
+    if (!response.ok()) throw new Error(`Playground returned HTTP ${response.status()}: ${url}`);
+    await run('pay rent is high priority');
     await page.screenshot({path:output.replace('.json',`-${engine}.png`),fullPage:true});
     await edit('while true do end'); await ready(); await page.locator('#compile-button').click();
     await page.waitForFunction(()=>document.querySelector('#output-summary')?.textContent==='running…');
