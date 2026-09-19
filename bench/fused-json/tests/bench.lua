@@ -90,45 +90,39 @@ local function proveCompiled(decoder, artifactPath)
     proof.builders = builders
     proof.object = object
 
-    -- Follow the measured export itself. An unrelated compiled module in the
-    -- same process cannot establish that this decoder reaches a native entry.
-    local seen, reached = {}, {}
-
-    local function walk(fn)
-        if seen[fn] then
-            return
-        end
-        seen[fn] = true
-        if registry[fn] then
-            reached[fn] = true
-        end
-        for index = 1, 64 do
-            local name, value = debug.getupvalue(fn, index)
-            if not name then
-                break
-            end
-            if type(value) == "function" then
-                walk(value)
-            end
-        end
-    end
-
-    walk(decoder.decodeEager)
+    -- Observe the actual call. Ownership helpers may live in tables, so an
+    -- upvalue walk cannot prove which native entry this export executes.
     local registeredEntry, nativeEntry = false, false
-    for _ in pairs(reached) do
-        registeredEntry = true
-    end
     proof.nativeEntries = {}
+    local nativeFunctions = {}
     for key, registered in pairs(modules) do
         for _, fn in pairs(registered) do
-            if seen[fn] then
-                nativeEntry = true
-                proof.nativeEntries[fn] = true
-                proof.object = tostring(key):match("^(.-)%z") or tostring(key)
-            end
+            nativeFunctions[fn] = tostring(key):match("^(.-)%z") or tostring(key)
         end
     end
-    assert(registeredEntry and nativeEntry, "the measured export does not reach a registered native builder")
+    local wasEnabled = jit.status()
+    jit.off()
+    debug.sethook(
+        function()
+            local frame = debug.getinfo(2, "fS")
+            if frame then
+                registeredEntry = registeredEntry or (registry[frame.func] and frame.source == "@" .. path)
+                if nativeFunctions[frame.func] then
+                    nativeEntry = true
+                    proof.nativeEntries[frame.func] = true
+                    proof.object = nativeFunctions[frame.func]
+                end
+            end
+        end,
+        "c"
+    )
+    local value, status = decoder.decodeEager('["native proof",123]', nil, ARRAY_MARKER, OBJECT_MARKER)
+    debug.sethook()
+    if wasEnabled then
+        jit.on()
+    end
+    assert(status == 0 and value[1] == "native proof" and value[2] == 123, "native proof decode failed")
+    assert(registeredEntry and nativeEntry, "the measured export did not execute its registered native builder")
 
     return proof
 end
@@ -318,21 +312,29 @@ local function batchFor(source, implementation)
     return math.max(1, math.floor(bytes / #source + 0.5))
 end
 
-local function timeOne(run, source, batch)
-    collectgarbage("collect")
-    local sink = 0
-    local started = os.clock()
-    for _ = 1, batch do
-        local value = run(source)
-        -- Consume the result so neither side is excused from building it.
-        sink = sink + (type(value) == "table" and 1 or 0)
-    end
-    local elapsed = os.clock() - started
-    if sink < 0 then
-        error("unreachable", 0)
-    end
-
-    return elapsed
+-- Each implementation gets a separately loaded loop prototype: a tracing
+-- failure in one decoder must not blacklist the others' timing loop.
+local function makeTimer(run)
+    return assert(
+        loadstring(
+            [[
+        local run = ...
+        return function(source, batch)
+            collectgarbage("collect")
+            local sink = 0
+            local started = os.clock()
+            for _ = 1, batch do
+                local value = run(source)
+                sink = sink + (type(value) == "table" and 1 or 0)
+            end
+            local elapsed = os.clock() - started
+            assert(sink == batch, "decoder did not produce the expected arrays or objects")
+            return elapsed
+        end
+    ]],
+            "fused-json-independent-timing-loop"
+        )
+    )(run)
 end
 
 local function median(values)
@@ -399,6 +401,9 @@ if baselineRoot then
     }
     io.write("baseline compiled decoder: " .. baselineProof.artifact .. "\n")
 end
+for _, implementation in ipairs(implementations) do
+    implementation.time = makeTimer(implementation.run)
+end
 io.write("compiled decoder proof\n")
 io.write(string.format("  artifact       %s (%d bytes)\n", proof.artifact, proof.artifactBytes))
 io.write(string.format("  replacements   %d\n", proof.replacements))
@@ -439,7 +444,7 @@ for _, payload in ipairs(corpora) do
     for _ = 1, warmups do
         for _, implementation in ipairs(implementations) do
             local implementationBatch = batchFor(payload.source, implementation.name)
-            timeOne(implementation.run, payload.source, math.max(1, math.floor(implementationBatch / 4)))
+            implementation.time(payload.source, math.max(1, math.floor(implementationBatch / 4)))
         end
     end
 
@@ -453,7 +458,7 @@ for _, payload in ipairs(corpora) do
         for _, position in ipairs(order) do
             local implementation = implementations[position]
             local implementationBatch = batchFor(payload.source, implementation.name)
-            local elapsed = timeOne(implementation.run, payload.source, implementationBatch)
+            local elapsed = implementation.time(payload.source, implementationBatch)
             local rates = times[implementation.name]
             rates[#rates + 1] = implementationBatch * #payload.source / elapsed / 1e6
         end
