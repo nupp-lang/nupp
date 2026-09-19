@@ -5867,4 +5867,75 @@ return whole
     )
 end
 
+
+function M.homogeneousFieldPairsPreserveNativeValuesAndMaskedTails()
+    if not hasToolchain() then return end
+    local dir = project("require")
+    local source = {'local span = require("nupp.mem.span")'}
+    local variants = {
+        {"Float", "float", "float", "vld2q_f32"},
+        {"Double", "number", "double", "vld2q_f64"},
+        {"Signed", "int32", "int32_t", "vld2q_s32"},
+        {"Unsigned", "uint32", "uint32_t", "vld2q_u32"},
+    }
+    for _, variant in ipairs(variants) do
+        local name, element = variant[1], variant[2]
+        source[#source + 1] = ([[
+local struct Pair%s
+    left: %s
+    right: %s
+end
+@aot
+local function pair%s(exclusive output: span.WriteSpan<number>, borrows points: span.Span<Pair%s>): nil
+    assert(#output == #points)
+    @simd
+    for i = 1, #output do
+        local point = points[i]
+        local right = point.right
+        local left = point.left
+        output[i] = left - right
+    end
+end
+]]):format(name, element, element, name, name)
+    end
+    source[#source + 1] = 'return {pairFloat=pairFloat, pairDouble=pairDouble, pairSigned=pairSigned, pairUnsigned=pairUnsigned}'
+    local handle = assert(io.open(dir .. "/src/kernel.nupp", "wb"))
+    handle:write(table.concat(source, "\n")); handle:close()
+    local report, code = build(dir)
+    test.equal(code, 0, report)
+    local ffi = require("ffi")
+    local library = ffi.load(libraryPath(dir))
+    for _, variant in ipairs(variants) do
+        local name, ctype = variant[1], variant[3]
+        local symbol = librarySymbol(library, "ks_pair_" .. name:lower())
+        local oracle = librarySymbol(library, "ks_pair_" .. name:lower() .. "_forced_scalar")
+        ffi.cdef(([[typedef struct { %s left, right; } NuppFieldPair%s;
+void %s(double *, const NuppFieldPair%s *, size_t);
+void %s(double *, const NuppFieldPair%s *, size_t);]]):format(ctype, name, symbol, name, oracle, name))
+        for count = 0, 37 do
+            local points = ffi.new("NuppFieldPair" .. name .. "[?]", math.max(count, 1))
+            local output, scalar = ffi.new("double[?]", count + 4), ffi.new("double[?]", count + 4)
+            for i = 0, count - 1 do
+                points[i].left = name == "Unsigned" and 2147483648 + i or i - 19
+                points[i].right = i * 3 + 7
+            end
+            for i = 0, count + 3 do output[i], scalar[i] = -991, -991 end
+            library[symbol](output, points, count)
+            library[oracle](scalar, points, count)
+            for i = 0, count - 1 do
+                local expected = tonumber(points[i].left) - tonumber(points[i].right)
+                test.equal(output[i], expected, name .. " lane " .. i)
+                test.equal(output[i], scalar[i], name .. " scalar lane " .. i)
+            end
+            for i = count, count + 3 do test.equal(output[i], -991, "tail sentinel") end
+        end
+    end
+    if ffi.arch == "arm64" then
+        local emitted = assert(read(tieredC(dir, "neon")))
+        for _, variant in ipairs(variants) do
+            assert(emitted:find(variant[4], 1, true), "no deinterleaving for " .. variant[1])
+        end
+    end
+end
+
 return M

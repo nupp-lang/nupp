@@ -3109,6 +3109,85 @@ local function localCType(context: emit.Context, typeName: string, mutable: bool
     return emit.cType(context, typeName) .. " "
 end
 
+--- Render a proved whole-vector field pair with a portable gather fallback.
+local function neonFieldPair(context: emit.Context, pair: cplan.FieldPair, prefix: string): {string}?
+    if context.explicitScalar or emit.scalar(
+        context,
+        pair.left.args[2]
+    ) ~= emit.scalar(context, pair.right.args[2]) then
+        return nil
+    end
+    local species = genericSpecies(context, pair.left.type)
+    local neon = pair.neon
+    if species.element ~= neon.element or species.lanes % neon.lanes ~= 0 then
+        return nil
+    end
+    local lines: {string} = {prefix .. "#if defined(__aarch64__) && (defined(__clang__) || defined(__GNUC__))"}
+    local temps: {string} = {}
+    for chunk = 0, species.lanes / neon.lanes - 1 do
+        local name = "ks_pair_" .. pair.first.cName .. "_" .. tostring(chunk)
+        temps[#temps + 1] = name
+        lines[
+            #lines + 1
+        ] = prefix
+            .. neon.tuple
+            .. " "
+            .. name
+            .. " = "
+            .. neon.load
+            .. "((const "
+            .. neon.alias
+            .. " *)(p_"
+            .. tostring(
+                pair.left.span
+            ) .. " + (size_t)" .. tostring(pair.left.cursorCName) .. " + " .. tostring(chunk * neon.lanes) .. "u));"
+    end
+
+    local function binding(statement: scalarIR.Let, member: integer): nil
+        local lanes: {string} = {}
+        for lane = 0, species.lanes - 1 do
+            lanes[
+                #lanes + 1
+            ] = temps[
+                math.floor(lane / neon.lanes) + 1
+            ] .. ".val[" .. tostring(member) .. "][" .. tostring(lane % neon.lanes) .. "]"
+        end
+        local loaded = genericAggregate(context, species, lanes)
+        if statement.value.op == "simd_convert" then
+            local result = genericSpecies(context, statement.type)
+            loaded = simdcast.emit(
+                loaded,
+                species.element,
+                result.element,
+                emit.cType(context, pair.left.type),
+                emit.cType(context, statement.type),
+                species.lanes,
+                false,
+                false,
+                context.vectorCeiling
+            )
+        end
+        lines[
+            #lines + 1
+        ] = prefix .. emit.cType(context, statement.type) .. " " .. statement.cName .. " = " .. loaded .. ";"
+    end
+
+    binding(pair.first, pair.leftIndex)
+    binding(pair.second, pair.rightIndex)
+    lines[#lines + 1] = prefix .. "#else"
+    for _, statement in ipairs({pair.first, pair.second}) do
+        lines[
+            #lines + 1
+        ] = prefix .. emit.cType(
+            context,
+            statement.type
+        ) .. " " .. statement.cName .. " = " .. emit.scalar(context, statement.value) .. ";"
+    end
+    lines[#lines + 1] = prefix .. "#endif"
+
+    return lines
+end
+
 --- One block of statements, scalar or lane, indented by `depth`.
 --- @raises when a multiple-result binding calls a helper the body does not
 ---   declare, which is malformed IR rather than anything about the source
@@ -3122,6 +3201,7 @@ function emit.block(
     body.headerControl = body.headerControl or hasConditionBody(statements)
     local lines: {string} = {}
     local prefix = string.rep("    ", depth)
+    local pairs = cplan.fieldPairs(statements, body.layouts)
 
     local function recursive(inner: cplan.Block, at: integer, parent: emit.Body, continuation: string?): {string}
         return emit.block(context, inner, at, parent, continuation)
@@ -3144,6 +3224,17 @@ function emit.block(
         return switch node.op do
             case "let" -> do
                 local statement = node as scalarIR.Let
+                local pair = pairs[position]
+                if pair ~= nil then
+                    local fused = neonFieldPair(context, pair, prefix)
+                    if fused ~= nil then
+                        append(fused)
+                        yield true
+                    end
+                    pairs[position] = nil
+                elseif pairs[position - 1] ~= nil then
+                    yield true
+                end
                 if statement.type:match("^simd_species_") == nil then
                     lines[
                         #lines + 1

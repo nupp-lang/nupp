@@ -181,4 +181,135 @@ function cplan.expressions(programs: {scalarIR.Program}): cplan.Expressions
     return plans
 end
 
+record cplan.NeonPair
+    lanes: integer
+    element: string
+    tuple: string
+    load: string
+    alias: string
+end
+
+record cplan.FieldPair
+    first: scalarIR.Let
+    second: scalarIR.Let
+    left: scalarIR.Simd
+    right: scalarIR.Simd
+    leftIndex: integer
+    rightIndex: integer
+    neon: cplan.NeonPair
+end
+
+local NEON_PAIR: {
+    [string]: cplan.NeonPair
+} = {
+    float = new cplan.NeonPair(
+        lanes = 4,
+        element = "f32",
+        tuple = "float32x4x2_t",
+        load = "vld2q_f32",
+        alias = "ks_alias_float"
+    ),
+    number = new cplan.NeonPair(
+        lanes = 2,
+        element = "f64",
+        tuple = "float64x2x2_t",
+        load = "vld2q_f64",
+        alias = "ks_alias_double"
+    ),
+    int32 = new cplan.NeonPair(
+        lanes = 4,
+        element = "i32",
+        tuple = "int32x4x2_t",
+        load = "vld2q_s32",
+        alias = "ks_alias_i32"
+    ),
+    uint32 = new cplan.NeonPair(
+        lanes = 4,
+        element = "u32",
+        tuple = "uint32x4x2_t",
+        load = "vld2q_u32",
+        alias = "ks_alias_u32"
+    ),
+}
+local FIELD_SOURCE: {[string]: string} = {f32 = "float", f64 = "number", i32 = "int32", u32 = "uint32"}
+
+local function fieldLoad(value: scalarIR.Expr): scalarIR.Simd?
+    if value.op == "simd_field_load" then
+        return value as scalarIR.Simd
+    elseif value.op == "simd_convert" and (value as scalarIR.Simd).args[1].op == "simd_field_load" then
+        return (value as scalarIR.Simd).args[1] as scalarIR.Simd
+    end
+
+    return nil
+end
+
+--- Adjacent complete cursor loads of the two homogeneous fields can share
+--- one NEON deinterleave. Masked tails and loads separated by effects stay put.
+function cplan.neonFieldPair(
+    first: cplan.Statement,
+    second: cplan.Statement,
+    layouts: {[string]: scalarIR.Layout}
+): cplan.FieldPair?
+    if first.op ~= "let" or second.op ~= "let" then
+        return nil
+    end
+    local a, b = first as scalarIR.Let, second as scalarIR.Let
+    local left, right = fieldLoad(a.value), fieldLoad(b.value)
+    if left == nil or right == nil then
+        return nil
+    end
+    if left.cursor == nil or left.cursor ~= right.cursor or left.cursorCName ~= right.cursorCName or left.args[
+        3
+    ] ~= nil or right.args[
+        3
+    ] ~= nil
+        or left.span ~= right.span
+        or left.layout ~= right.layout
+        or left.field == right.field
+        or left.type ~= right.type then
+        return nil
+    end
+    local layout = layouts[left.layout as string]
+    if layout == nil or #layout.fields ~= 2 then
+        return nil
+    end
+    local fields = layout.fields
+    local source = fields[1].sourceType or FIELD_SOURCE[fields[1].type]
+    local neon = source ~= nil and NEON_PAIR[source] or nil
+    if neon == nil or (fields[2].sourceType or FIELD_SOURCE[fields[2].type]) ~= source then
+        return nil
+    end
+    local li = fields[1].name == left.field and 0 or fields[2].name == left.field and 1 or nil
+    local ri = fields[1].name == right.field and 0 or fields[2].name == right.field and 1 or nil
+    if li == nil or ri == nil or li == ri then
+        return nil
+    end
+
+    return new cplan.FieldPair(
+        first = a,
+        second = b,
+        left = left,
+        right = right,
+        leftIndex = li,
+        rightIndex = ri,
+        neon = neon
+    )
+end
+
+function cplan.fieldPairs(statements: cplan.Block, layouts: {[string]: scalarIR.Layout}): {[integer]: cplan.FieldPair}
+    local selected: {[integer]: cplan.FieldPair} = {}
+    local position: integer = 1
+    while position < #statements do
+        local pair = cplan.neonFieldPair(statements[position], statements[position + 1], layouts)
+        if pair ~= nil then
+            selected[position] = pair
+            position = position + 2
+        else
+            position = position + 1
+        end
+    end
+
+    return selected
+end
+
 export = cplan
