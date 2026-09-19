@@ -7,6 +7,7 @@ on:
       - 'tests/luajit-browser/**'
       - 'bench/luajit-browser/*.mjs'
       - 'scripts/browser-*.py'
+      - 'scripts/browser-*.mjs'
       - 'scripts/toolchain*'
       - 'host/notices/**'
       - '.github/workflows/browser-guest.yml'
@@ -46,11 +47,13 @@ jobs:
           NUPP_BENCH_ISOLATED: '0'
           NUPP_BENCH_CHROME_FLAGS: '["--no-sandbox", "--disable-dev-shm-usage"]'
         run: |
-          cp tests/luajit-browser/features.lua tests/luajit-browser/smoke.* build/browser-guest/
+          cp tests/luajit-browser/features.lua tests/luajit-browser/smoke.* tests/luajit-browser/snapshot.* build/browser-guest/
           node bench/luajit-browser/serve.mjs build/browser-guest 8113 &
           server=$!
           trap 'kill "$server"' EXIT
-          node bench/luajit-browser/run-browser.mjs http://127.0.0.1:8113/smoke.html build/browser-guest/conformance.json
+          node bench/luajit-browser/run-browser.mjs http://127.0.0.1:8113/smoke.html build/browser-guest/normal-boot-conformance.json
+          node scripts/browser-snapshot.mjs build/browser-guest http://127.0.0.1:8113/
+          node bench/luajit-browser/run-browser.mjs http://127.0.0.1:8113/smoke.html build/browser-guest/snapshot-conformance.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:

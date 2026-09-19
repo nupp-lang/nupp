@@ -1,0 +1,26 @@
+{
+  "ok": true,
+  "crossOriginIsolated": false,
+  "results": [
+    {
+      "runtime": "LuaJIT 2.1.1785763465",
+      "ok": true,
+      "seed": "0259aca1b76953e7005f40652f17a09b078500bdcb3f882047d9d225c62158af"
+    },
+    {
+      "ok": true,
+      "runtime": "LuaJIT 2.1.1785763465",
+      "seed": "ee65b8cc62f60abbce49cffe4a817a6bd51fbcc32e69a189319caefafb206e4a"
+    },
+    {
+      "ok": true,
+      "seed": "ab7a81ff9c77820fbfc2020b684b14d09ca23b4b8b8aa6330e72d46886dd3553",
+      "runtime": "LuaJIT 2.1.1785763465"
+    }
+  ],
+  "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+  "isolated": false,
+  "browserErrors": [],
+  "scope": "Protocol and init bring-up using preserved spike kernel/musl/LuaJIT binaries; not source-built guest acceptance.",
+  "revision": "9821704f"
+}

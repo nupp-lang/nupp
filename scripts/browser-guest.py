@@ -37,7 +37,7 @@ def build(root, cache, sources):
     if platform.system() != 'Linux' or platform.machine() not in ('x86_64', 'amd64'):
         raise RuntimeError('building the guest requires Linux x86_64 with gcc-multilib; use the browser-guest CI artifact on other hosts')
     from browser_toolchain import lock
-    recipe = [root / 'scripts/browser-guest.py', root / 'scripts/browser-toolchain.py', root / 'scripts/toolchain.pins', root / 'scripts/toolchain']
+    recipe = [root / 'scripts/browser-guest.py', root / 'scripts/browser-toolchain.py', root / 'scripts/toolchain.pins', root / 'scripts/toolchain', root / 'scripts/browser-snapshot.mjs']
     recipe += sorted(path for path in (root / 'runtime/luajit').rglob('*') if path.is_file())
     identity = {str(path.relative_to(root)): sha(path) for path in recipe}
     identity['inputs'] = {name: record['sha256'] for name, record in sources.items()}
@@ -67,6 +67,9 @@ def build(root, cache, sources):
             # Install the dynamic loader ourselves into the guest root, not /lib on the builder.
             run('make', 'install', 'DESTDIR=' + str(work / 'install'), cwd=trees['musl'], env=environment)
             shutil.move(str(work / 'install' / str(musl).lstrip('/')), musl)
+            # The installed libc link is absolute inside the guest, not the builder.
+            (musl / 'lib/libc.so').unlink()
+            shutil.copyfile(trees['musl'] / 'lib/libc.so', musl / 'lib/libc.so')
             cc = work / 'guest-cc'
             cc.write_text('#!/bin/sh\nexec gcc -m32 -static-libgcc -specs=' + shlex.quote(str(musl / 'lib/musl-gcc.specs')) + ' "$@"\n')
             cc.chmod(0o755)

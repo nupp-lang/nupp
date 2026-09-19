@@ -61,3 +61,21 @@ test('asset bytes and hashes are enforced before they reach the emulator', async
     await assert.rejects(assetsFor(manifest, options.manifestUrl)('../kernel'), /Invalid guest asset/);
   } finally { globalThis.fetch = original; }
 });
+
+test('a restore failure retries normal boot once and ignores the discarded worker', async () => {
+  const progress = [];
+  const guest = createGuest({...options, onProgress: message => progress.push(message)});
+  const first = Worker.instances.at(-1);
+  const received = guest.receive();
+  first.deliver({type: 'snapshot-selected'});
+  first.deliver({type: 'failed', error: 'invalid saved state', log: ''});
+  const replacement = Worker.instances.at(-1);
+  assert.notEqual(first, replacement);
+  assert.equal(first.terminated, true);
+  assert.equal(replacement.sent[0].snapshot, false);
+  assert.equal(progress[0].type, 'snapshot-fallback');
+  first.deliver({type: 'done', sequence: 0, result: {stale: true}});
+  replacement.deliver({type: 'done', sequence: 0, result: {ok: true}});
+  assert.deepEqual((await received).result, {ok: true});
+  guest.close();
+});

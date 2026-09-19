@@ -2,7 +2,7 @@
 export function createGuest({manifestUrl, app, config = {}, profile = 'runner', signal,
   deadlineMs = 30000, snapshot = true, captureSnapshot = false, onProgress = () => {}}) {
   if (!(app instanceof Uint8Array)) throw new Error('Guest code must be bytes');
-  const worker = new Worker(new URL('./vm-worker.mjs', import.meta.url), {type: 'module'});
+  let worker, restored = false, retried = false, ready = false;
   let closed = false, waiting, resultSequence, timer, closedReason;
   const messages = [];
   const close = (reason = new Error('Guest closed')) => {
@@ -10,7 +10,7 @@ export function createGuest({manifestUrl, app, config = {}, profile = 'runner', 
     closed = true;
     closedReason = reason;
     clearTimeout(timer);
-    worker.terminate();
+    worker?.terminate();
     signal?.removeEventListener('abort', abort);
     if (waiting) { waiting.reject(reason); waiting = null; }
   };
@@ -27,24 +27,38 @@ export function createGuest({manifestUrl, app, config = {}, profile = 'runner', 
     else close(new Error('Guest produced unsolicited frames'));
   }
   const arm = () => { clearTimeout(timer); timer = setTimeout(() => close(new Error('Guest request timed out')), deadlineMs); };
-  worker.onmessage = ({data}) => {
-    if (closed) return;
-    if (data.type === 'failed') { close(new Error(data.error + '\n' + data.log)); return; }
-    if (data.type === 'log' || data.type === 'ready' || data.type === 'snapshot-fallback') { onProgress(data); return; }
-    clearTimeout(timer);
-    resultSequence = data.sequence;
-    deliver(data);
-  };
-  worker.onerror = event => close(new Error(event.message));
+  function launch(useSnapshot) {
+    const instance = new Worker(new URL('./vm-worker.mjs', import.meta.url), {type: 'module'});
+    worker = instance;
+    restored = false;
+    const failed = error => {
+      if (worker !== instance || closed) return;
+      if (restored && !ready && !retried && !captureSnapshot) {
+        retried = true;
+        instance.terminate();
+        onProgress({type: 'snapshot-fallback', reason: String(error.message)});
+        launch(false);
+      } else close(error);
+    };
+    instance.onmessage = ({data}) => {
+      if (closed || worker !== instance) return;
+      if (data.type === 'snapshot-selected') { restored = true; return; }
+      if (data.type === 'failed') { failed(new Error(data.error + '\n' + data.log)); return; }
+      if (data.type === 'ready') ready = true;
+      if (data.type === 'log' || data.type === 'ready' || data.type === 'snapshot-fallback') { onProgress(data); return; }
+      clearTimeout(timer);
+      resultSequence = data.sequence;
+      deliver(data);
+    };
+    instance.onerror = event => failed(new Error(event.message));
+    arm();
+    const copy = app.slice();
+    instance.postMessage({type: 'boot', manifestUrl: new URL(manifestUrl, import.meta.url).href,
+      app: copy.buffer, config, profile, snapshot: useSnapshot, captureSnapshot}, [copy.buffer]);
+  }
   if (signal?.aborted) abort();
   else signal?.addEventListener('abort', abort, {once: true});
-  if (!closed) {
-    arm();
-    // Preserve the caller's bytes so a cancelled compiler can restart them.
-    const copy = app.slice();
-    worker.postMessage({type: 'boot', manifestUrl: new URL(manifestUrl, import.meta.url).href,
-      app: copy.buffer, config, profile, snapshot, captureSnapshot}, [copy.buffer]);
-  }
+  if (!closed) launch(snapshot);
   return {
     close, receive,
     respond(response, payload = new Uint8Array()) {
