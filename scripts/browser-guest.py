@@ -64,7 +64,8 @@ def build(root, cache, sources):
                 shutil.copytree(sources[name]['sourcePath'], trees[name], symlinks=True)
             musl = work / 'sysroot'
             run(trees['musl'] / 'configure', '--target=i386-linux-musl', '--prefix=' + str(musl),
-                '--syslibdir=/lib', 'CC=gcc -m32', 'AR=ar', 'RANLIB=ranlib', 'CFLAGS=-funwind-tables', cwd=trees['musl'], env=environment)
+                '--syslibdir=/lib', 'CC=gcc -m32', 'AR=ar', 'RANLIB=ranlib',
+                'CFLAGS=-funwind-tables -fno-omit-frame-pointer', cwd=trees['musl'], env=environment)
             run('make', '-j' + jobs, cwd=trees['musl'], env=environment)
             # Install the dynamic loader ourselves into the guest root, not /lib on the builder.
             run('make', 'install', 'DESTDIR=' + str(work / 'install'), cwd=trees['musl'], env=environment)
@@ -75,7 +76,7 @@ def build(root, cache, sources):
             (musl / 'lib/libc.so').chmod(0o755)
             cc = work / 'guest-cc'
             # musl replaces GCC's link spec, including its -m32 linker selection.
-            cc.write_text('#!/bin/sh\nexec gcc -m32 -Wl,-m,elf_i386,--eh-frame-hdr -static-libgcc -specs=' + shlex.quote(str(musl / 'lib/musl-gcc.specs')) + ' "$@"\n')
+            cc.write_text('#!/bin/sh\nexec gcc -m32 -funwind-tables -fno-omit-frame-pointer -Wl,-m,elf_i386,--eh-frame-hdr -static-libgcc -specs=' + shlex.quote(str(musl / 'lib/musl-gcc.specs')) + ' "$@"\n')
             cc.chmod(0o755)
             run(cc, '-fPIC', '-fno-stack-protector', '-c', root / 'runtime/luajit/guest-ssp.c', '-o', work / 'guest-ssp.o', env=environment)
             run('ar', 'rcs', musl / 'lib/libssp_nonshared.a', work / 'guest-ssp.o', env=environment)
@@ -115,6 +116,8 @@ def build(root, cache, sources):
                                         env=environment, capture_output=True, text=True, timeout=30)
                 probes[name] = {'returncode': result.returncode, 'stdout': result.stdout, 'stderr': result.stderr}
                 print('i386 callback unwind probe: ' + name + ': ' + json.dumps(probes[name]), file=__import__('sys').stderr)
+            if probes['musl']['returncode'] != 0:
+                raise RuntimeError('guest libc cannot unwind an FFI callback error; refusing to package it')
             guest = work / 'guest'
             for directory in ('dev', 'proc', 'sys', 'tmp', 'host', 'nupp', 'lib'):
                 (guest / directory).mkdir(parents=True, exist_ok=True)

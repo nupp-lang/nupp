@@ -24,6 +24,12 @@ end)
 libc.qsort(values, 4, ffi.sizeof("int"), compare)
 compare:free()
 assert(values[0] == 1 and values[3] == 4)
+local failing = ffi.cast("int (*)(const void *, const void *)", function()
+    error("callback unwind probe")
+end)
+local ok, failure = pcall(libc.qsort, values, 4, ffi.sizeof("int"), failing)
+failing:free()
+assert(not ok and tostring(failure):find("callback unwind probe", 1, true))
 local out = buffer.new():put("hello", "\0", "browser")
 assert(out:get() == "hello\0browser")
 local pointer, capacity = out:reserve(4)
@@ -46,10 +52,15 @@ local entropy = assert(io.open("/nupp/entropy.bin", "rb"))
 local seed = entropy:read("*a")
 entropy:close()
 assert(#seed == 32)
-return {
-    ok = true,
-    runtime = jit.version,
-    seed = (seed:gsub(".", function(byte)
+local random = assert(io.open("/dev/urandom", "rb"))
+local kernelRandom = random:read(32)
+random:close()
+assert(#kernelRandom == 32)
+
+local function hex(bytes)
+    return (bytes:gsub(".", function(byte)
         return ("%02x"):format(byte:byte())
     end))
-}
+end
+
+return {ok = true, runtime = jit.version, seed = hex(seed), kernelRandom = hex(kernelRandom), wallSeconds = os.time(),}
