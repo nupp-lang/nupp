@@ -1604,6 +1604,7 @@ mod tests {
 
     #[test]
     fn adapter_compute_round_trip_when_available() {
+        let _costs_guard = costs::TEST_LOCK.lock().unwrap();
         let required = std::env::var_os("NUPP_REQUIRE_GPU").is_some();
         let costs_path =
             std::env::temp_dir().join(format!("nupp-gpu-integration-{}.jsonl", std::process::id()));

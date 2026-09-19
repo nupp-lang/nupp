@@ -8,6 +8,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 static CONFIGURED: AtomicBool = AtomicBool::new(false);
 static ACTIVE: AtomicBool = AtomicBool::new(false);
+#[cfg(test)]
+pub(crate) static TEST_LOCK: Mutex<()> = Mutex::new(());
 use std::time::Instant;
 
 #[derive(Default)]
@@ -33,10 +35,13 @@ fn open(path: &str) -> Result<File, GpuError> {
 }
 
 /// A missing override restores the environment default. Each call closes the
-/// previous output, surfacing any write failure before changing destinations.
+/// previous output, surfacing any write failure before opening a new destination.
 pub fn configure(path: Option<&str>) -> Result<(), GpuError> {
     let mut state = output().lock().unwrap_or_else(|p| p.into_inner());
     if let Some(error) = state.error.take() {
+        ACTIVE.store(false, Ordering::Release);
+        CONFIGURED.store(false, Ordering::Release);
+        *state = Output::default();
         return Err(GpuError::InvalidArgument(error));
     }
     let file = match path {
@@ -125,6 +130,36 @@ pub fn check() -> Result<(), GpuError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn closing_after_a_write_error_preserves_the_error_and_resets_the_sink() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let path =
+            std::env::temp_dir().join(format!("nupp-gpu-cost-close-{}.jsonl", std::process::id()));
+        configure(Some(path.to_str().unwrap())).unwrap();
+        {
+            let mut state = output().lock().unwrap();
+            state.error = Some("injected write failure".to_owned());
+            state.sequence = 7;
+        }
+        let result = configure(None);
+        assert!(
+            matches!(result, Err(GpuError::InvalidArgument(error)) if error == "injected write failure")
+        );
+        {
+            let state = output().lock().unwrap();
+            assert!(
+                state.file.is_none(),
+                "failed close retained the output file"
+            );
+            assert!(state.error.is_none());
+            assert!(!state.initialized);
+            assert_eq!(state.sequence, 0);
+        }
+        assert!(!ACTIVE.load(Ordering::Acquire));
+        assert!(!CONFIGURED.load(Ordering::Acquire));
+        std::fs::remove_file(path).unwrap();
+    }
+
     #[test]
     fn records_are_json_and_keep_host_and_gpu_times_distinct() {
         let bytes = encode_record(
