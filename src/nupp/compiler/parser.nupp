@@ -739,6 +739,16 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             n.token = add(n, advance())
             return n
         end
+        if kind == "-" and tokens[i + 1] and tokens[i + 1].kind == "number" then
+            -- A negative numeral is one literal, not a negation of one: nothing in a
+            -- type is an operand, and a signed bound has no other spelling. The minus
+            -- is kept on the node so the token stream still reads back as written.
+            local n = new cst.Tliteral(kind = "tliteral")
+            n.negated = true
+            add(n, advance())
+            n.token = add(n, advance())
+            return n
+        end
         if kind == "name" or kind == "nil" then
             local n = new cst.Tname(kind = "tname")
             n.base = add(n, advance())

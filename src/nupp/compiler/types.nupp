@@ -536,6 +536,38 @@ record types.Literal
     base: types.Type
 end
 
+--- A base type narrowed by a refinement predicate: a scalar that admits only some of
+--- the values its base admits.
+---
+--- Structurally this is `Literal`'s neighbour -- a base plus the thing that narrows it
+--- -- and it behaves the same way: a subtype of its base, transparent wherever the
+--- narrowing does not matter, and its own type wherever it does. What narrows it is a
+--- `predicate.Node`, the same data a `satisfies` refinement compiles to, so nothing
+--- here has to know how a constraint was spelled.
+---
+--- An alias is not a brand. Two constrained types with the same base and the same
+--- normalized predicate are one interned type however they were declared.
+record types.Constrained
+    id: string = ""
+    tag: 'constrained'
+
+    --- What it behaves as wherever the constraint does not matter.
+    base: types.Type
+
+    --- The refinement, as `predicate.Node` data. Typed `any` because `types` is
+    --- beneath `predicate` in the require order and the node is opaque here: this
+    --- module stores and compares it, and never reads inside it.
+    predicate: any
+
+    --- The normalized spelling the predicate interned under, which is what decides
+    --- identity and what a fingerprint carries.
+    constraintKey: string
+
+    --- The alias name to show, when one was written. Display only: it is not part of
+    --- identity, so two spellings of one constraint stay one type.
+    label: string?
+end
+
 --- A generic parameter, gradual until it is substituted.
 record types.TypeVar
     id: string = ""
@@ -955,6 +987,7 @@ end
 
 --- Any type.
 type types.Type = types.Prim
+    | types.Constrained
     | types.Array
     | types.Map
     | types.Tuple
@@ -3150,6 +3183,50 @@ function types.literal(value: string | number | boolean, base: types.Type?): typ
     return intern(internKey, new types.Literal(tag = "literal", constant = value, base = of))
 end
 
+-- A base narrowed by a refinement. `key` is the predicate's canonical spelling, which
+-- is what decides identity: two aliases that normalize to one constraint over one base
+-- are one type, whatever they were named. The node travels beside it because the
+-- checker proves against it and the generator emits from it, and neither should have
+-- to parse the key back.
+--
+-- `label` is display only. Interning on the key alone is what keeps an alias from
+-- being a brand; the first spelling to reach here supplies the name the rest show.
+function types.constrained(base: types.Type, node: any, key: string, label: string?): types.Type
+    local internKey = "con(" .. base.id .. ":" .. key .. ")"
+
+    local existing = interned(internKey)
+    if existing then
+        return existing
+    end
+
+    return intern(
+        internKey,
+        new types.Constrained(tag = "constrained", base = base, predicate = node, constraintKey = key, label = label)
+    )
+end
+
+--- The refinement narrowing `t`, or nothing when it is not constrained.
+function types.constraintOf(t: types.Type?): any
+    if t and t.tag == "constrained" then
+        return (t as types.Constrained).predicate
+    end
+
+    return nil
+end
+
+--- `t` with any constraint taken off, which is the type it behaves as everywhere the
+--- constraint does not decide the answer.
+---
+--- One level: a constrained type's base is never itself constrained, because narrowing
+--- one conjoins into a single predicate rather than stacking a second wrapper.
+function types.unconstrained(t: types.Type): types.Type
+    if t.tag == "constrained" then
+        return (t as types.Constrained).base
+    end
+
+    return t
+end
+
 -- A contiguous FFI array of `elem`: the layout that makes a struct worth reifying.
 -- Zero-indexed, like the C array it is, and distinct from a Lua table so the two
 -- indexing conventions never blur together. `count` is nil for a variable-length array
@@ -3577,7 +3654,12 @@ end
 --- Renders a type the way a diagnostic should show it.
 function types.tostring(t: types.Type): string
     local tag = t.tag
-    if tag == "nominal" then
+    if tag == "constrained" then
+        -- The alias name, because the interval it stands for is longer than it is and
+        -- says less. Without one, the base and a mark that it is narrowed: a reader
+        -- who needs the bounds asks the declaration, which is where they are written.
+        return (t as types.Constrained).label or types.tostring((t as types.Constrained).base) .. " (constrained)"
+    elseif tag == "nominal" then
         if #(t.typeArgs or {}) > 0 or #(t.packArgs or {}) > 0 or #(t.constArgs or {}) > 0 then
             local parts: {string} = {}
             local typeAt: integer, packAt: integer, constAt: integer = 1, 1, 1

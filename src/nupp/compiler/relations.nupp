@@ -79,7 +79,7 @@ local CDATA_NUM: {
 
 local function runtimeCategory(t: Type): string?
     local tag = t.tag
-    if tag == "literal" then
+    if tag == "literal" or tag == "constrained" then
         return runtimeCategory(t.base)
     end
     if tag == "nil" or tag == "boolean" or tag == "string" then
@@ -153,6 +153,16 @@ disjoint = function(a: Type, b: Type): string?
     end
     if b.tag == "union" then
         return disjoint(b, a)
+    end
+    if a.tag == "constrained" or b.tag == "constrained" then
+        local predicate = require("nupp.compiler.predicate")
+        if a.tag == "constrained" and b.tag == "constrained" and predicate.disjoint(
+            (a as T.Constrained).predicate,
+            (b as T.Constrained).predicate
+        ) then
+            return "constraints that admit nothing in common"
+        end
+        return disjoint(T.unconstrained(a), T.unconstrained(b))
     end
     if a.tag == "literal" and b.tag == "literal" then
         if a.base == b.base and a.constant ~= b.constant then
@@ -781,6 +791,51 @@ local function check(a: Type, b: Type): boolean, string?
     end
     if atag == "any" or btag == "any" then
         return true
+    end
+    -- A constrained type is its base narrowed, so it fits wherever its base fits, and
+    -- nothing fits it that is not already narrowed at least as far.
+    --
+    -- Entering one is admission rather than subtyping: a value the checker cannot
+    -- prove is refused here and the source says so with `nupp.admit`. That is the
+    -- whole reason this answers false instead of widening the way a literal does.
+    if atag == "constrained" or btag == "constrained" then
+        local predicate = require("nupp.compiler.predicate")
+        if atag == "constrained" and btag == "constrained" then
+            local fits, why = isA((a as T.Constrained).base, (b as T.Constrained).base)
+            if not fits then
+                return false, why
+            end
+            if predicate.implies((a as T.Constrained).predicate, (b as T.Constrained).predicate) then
+                return true
+            end
+            return false, ("%s is not established as %s"):format(T.tostring(a), T.tostring(b))
+        end
+        if atag == "constrained" then
+            return isA((a as T.Constrained).base, b)
+        end
+
+        -- A value the compiler holds is decided rather than admitted: the constraint
+        -- is run against it here, and a literal that passes needs nothing written. One
+        -- that fails is refused as a violation, which is a different thing from being
+        -- unproved and reads differently at the use.
+        local constraint = (b as T.Constrained).predicate
+        local into = (b as T.Constrained).base
+        if atag == "literal" and predicate.satisfiedByValue(constraint, (a as T.Literal).constant) == true then
+            -- A proved value establishes the fixed-width fact as well: inside the
+            -- base's own domain `wrap` is the identity, so a bound the value already
+            -- satisfies is strictly the stronger claim. Without this a constrained
+            -- `int32` would need a `wrap` before every bound it already passes.
+            if isA(a.base or T.string, into) then
+                return true
+            end
+            if type(
+                (a as T.Literal).constant
+            ) == "number" and fixedWidth.literalFits((a as T.Literal).constant as number, into) then
+                return true
+            end
+        end
+
+        return false, ("%s is not established as %s"):format(T.tostring(a), T.tostring(b))
     end
     if atag == "neutral" or btag == "neutral" then
         -- A mapped/member/comptime term is neutral only until its inputs become

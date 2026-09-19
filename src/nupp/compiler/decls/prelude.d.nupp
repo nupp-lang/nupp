@@ -320,6 +320,35 @@ local nupp: {
         --- @raises when given any argument
         readonly nonExhaustive: comptime function(): type,
 
+        --- `base` narrowed to the values from `min` through `max`, both included.
+        ---
+        --- A constrained type is a subtype of its base: it goes wherever the base goes.
+        --- Entering one is admission rather than subtyping, so a value the checker
+        --- cannot prove is refused and `nupp.admit` is how the program says it meant
+        --- it. A literal is decided here and needs nothing written.
+        ---
+        --- The base is `integer`, `int32`, `uint32`, or a constrained alias of one,
+        --- which narrows further by intersecting. Representation is unchanged: this
+        --- converts nothing.
+        --- @param base the type being narrowed
+        --- @param min the lowest admitted value
+        --- @param max the highest admitted value
+        --- @return the constrained type
+        --- @raises when the base is unsupported or the bounds are empty or out of range
+        readonly range: comptime function(base: type, min: integer, max: integer): type,
+
+        --- `base` narrowed to the byte lengths from `min` through `max`, both included.
+        ---
+        --- Bytes, matching Nupp's own string length: not code points, not graphemes. An
+        --- embedded NUL counts like any other byte. The base is `string` or a
+        --- constrained alias of it.
+        --- @param base the type being narrowed
+        --- @param min the shortest admitted length in bytes
+        --- @param max the longest admitted length in bytes
+        --- @return the constrained type
+        --- @raises when the base is not a string or the bounds are empty
+        readonly length: comptime function(base: type, min: integer, max: integer): type,
+
         --- The Lua array `{element}`, with integer keys and no fixed length.
         --- @param element the element type
         --- @return the array type

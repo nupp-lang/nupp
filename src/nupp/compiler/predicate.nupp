@@ -30,7 +30,7 @@ local predicate = {}
 --- One node of a refinement. `op` says which of the shapes this is; the fields a shape
 --- does not use are absent.
 record predicate.Node
-    --- `and`, `or`, `not`, `len`, `cmp`, `truthy`, `typeis`, or `const`.
+    --- `and`, `or`, `not`, `len`, `integral`, `cmp`, `truthy`, `typeis`, or `const`.
     op: string
 
     --- Operands, for `and`, `or`, `not` and `len`.
@@ -555,6 +555,11 @@ function predicate.satisfiedByValue(node: predicate.Node?, value: any): boolean?
             return nil
         end
         return predicate.satisfiedByValue(node.a, #(at as string))
+    elseif op == "integral" then
+        if type(at) ~= "number" then
+            return false
+        end
+        return (at as number) % 1 == 0
     elseif op == "typeis" then
         return type(at) == node.luaType
     elseif op == "truthy" then
@@ -688,6 +693,289 @@ function predicate.constant(node: predicate.Node?): boolean?
     return nil
 end
 
+--- The refinement's canonical spelling, which is what decides whether two constraints
+--- are one.
+---
+--- A small s-expression rather than the Lua the generator emits: it has to be stable
+--- under the orders a reader may write a conjunction in, and it has to survive being a
+--- cache key and part of a type fingerprint, neither of which wants Lua's precedence
+--- or spacing in it.
+---
+--- `and` and `or` sort their operands by their own keys, so `a and b` and `b and a`
+--- key alike. That is the whole of the normalization: nothing here rewrites a
+--- comparison into another, intersects two bounds, or decides an implication. Those
+--- are the prover's, and it is allowed to give up where this is not.
+function predicate.key(node: predicate.Node?): string
+    if not node then
+        return "#any"
+    end
+    local op = node.op
+
+    if op == "const" then
+        return node.value and "#t" or "#f"
+    elseif op == "not" then
+        return "(not " .. predicate.key(node.a) .. ")"
+    elseif op == "and" or op == "or" then
+        local parts = {}
+        predicate.flatten(node, op, parts)
+        local keys = {}
+        for j, part in ipairs(parts) do
+            keys[j] = predicate.key(part)
+        end
+        table.sort(keys)
+        -- A conjunct written twice is one conjunct: the test is the same either way and
+        -- the second reading of it decides nothing the first did not.
+        local unique, seen = {}, {} as {[string]: boolean}
+        for _, one in ipairs(keys) do
+            if not seen[one] then
+                seen[one] = true
+                unique[#unique + 1] = one
+            end
+        end
+        if #unique == 1 then
+            return unique[1]
+        end
+        return "(" .. op .. " " .. table.concat(unique, " ") .. ")"
+    end
+
+    local path = "." .. table.concat(node.path or {}, ".")
+    if op == "cmp" then
+        return ("(cmp %s %s %s)"):format(node.cmp or "==", path, node.literal or "nil")
+    elseif op == "typeis" then
+        return ("(typeis %s %s)"):format(path, node.luaType or "nil")
+    elseif op == "len" then
+        return ("(len %s %s)"):format(path, predicate.key(node.a))
+    elseif op == "integral" then
+        return ("(integral %s)"):format(path)
+    end
+
+    return ("(truthy %s)"):format(path)
+end
+
+--- Every operand of one nested run of `op`, so `(a and b) and c` and `a and (b and c)`
+--- present the same three.
+function predicate.flatten(node: predicate.Node?, op: string, out: {predicate.Node}): {predicate.Node}
+    if not node then
+        return out
+    end
+    if node.op == op then
+        predicate.flatten(node.a, op, out)
+        predicate.flatten(node.b, op, out)
+        return out
+    end
+    out[#out + 1] = node
+
+    return out
+end
+
+--- The same refinement with its conjunctions and disjunctions in canonical order, so
+--- the node a type stores is the one its key describes.
+---
+--- Rebuilt right-leaning, which is the shape `build` produces and the one `render`
+--- parenthesises most readably.
+function predicate.normalize(node: predicate.Node?): predicate.Node?
+    if not node then
+        return nil
+    end
+    local op = node.op
+    if op == "not" then
+        return new predicate.Node(op = "not", a = predicate.normalize(node.a))
+    elseif op == "len" then
+        return new predicate.Node(op = "len", path = node.path, a = predicate.normalize(node.a))
+    elseif op ~= "and" and op ~= "or" then
+        return node
+    end
+
+    local parts = {}
+    predicate.flatten(node, op, parts)
+    local keyed: {{
+        key: string,
+        rank: integer,
+        node: predicate.Node
+    }} = {}
+    for _, part in ipairs(parts) do
+        local one = predicate.normalize(part)
+        if one then
+            -- A test of what the subject is comes before anything that reads it. `and`
+            -- stops at the first false, so this is the difference between a refinement
+            -- that answers no for a string and one that raises comparing it to a
+            -- number. Ordering is evaluation, not identity: `key` stays alphabetical,
+            -- so two conjunctions written either way round still key alike.
+            local bare = #(one.path or {}) == 0
+            local rank = bare and one.op == "typeis" and 0 or bare and one.op == "integral" and 1 or 2
+            keyed[#keyed + 1] = {key = predicate.key(one), rank = rank, node = one}
+        end
+    end
+    table.sort(keyed, function(a, b): boolean
+        if a.rank ~= b.rank then
+            return a.rank < b.rank
+        end
+        return a.key < b.key
+    end)
+    local out: predicate.Node?, seen = nil, {} as {[string]: boolean}
+    for j = #keyed, 1, -1 do
+        local entry = keyed[j]
+        if not seen[entry.key] then
+            seen[entry.key] = true
+            if out then
+                out = new predicate.Node(op = op, a = entry.node, b = out)
+            else
+                out = entry.node
+            end
+        end
+    end
+
+    return out
+end
+
+--- What a refinement over the subject says about its value and its length, and what
+--- it says that this cannot read.
+---
+--- Bounds are inclusive, and absent means unbounded on that side. `others` holds every
+--- conjunct the bounds do not account for, keyed canonically, so an implication can ask
+--- whether one refinement's leftovers are among another's without reading them.
+---
+--- Nil for anything that is not a conjunction of things it understands. A disjunction
+--- or a negation is not wrong, it is simply not an interval, and a caller that cannot
+--- prove an implication keeps whatever it would have removed.
+record predicate.Decomposition
+    min: number?
+    max: number?
+    minLength: number?
+    maxLength: number?
+    others: {[string]: boolean}
+end
+
+--- Applies one comparison against `value` to the bounds in `into`, under `field`
+--- (`min`/`max`) naming the pair. Returns false when the comparison is not one that
+--- moves a bound.
+local function narrowBound(
+    into: predicate.Decomposition,
+    low: string,
+    high: string,
+    cmp: string?,
+    value: number
+): boolean
+    local fields = into as {[string]: any}
+    -- A strict bound over the integers is the next one in, but this does not know the
+    -- base is integral, so it declines rather than assuming. The leftover keeps it.
+    if cmp ~= ">=" and cmp ~= "<=" and cmp ~= "==" then
+        return false
+    end
+    if cmp == ">=" or cmp == "==" then
+        local currentLow = fields[low] as number?
+        if not currentLow or value > currentLow then
+            fields[low] = value
+        end
+    end
+    if cmp == "<=" or cmp == "==" then
+        local currentHigh = fields[high] as number?
+        if not currentHigh or value < currentHigh then
+            fields[high] = value
+        end
+    end
+
+    return true
+end
+
+--- The bounds and leftovers of a refinement over the subject itself.
+---
+--- Only the subject: a refinement reaching a field is describing a shape rather than a
+--- scalar, and this is what a scalar constraint is read with.
+function predicate.decompose(node: predicate.Node?): predicate.Decomposition?
+    if not node then
+        return nil
+    end
+    local parts = {}
+    predicate.flatten(node, "and", parts)
+    local out = new predicate.Decomposition(others = {})
+    for _, part in ipairs(parts) do
+        local op = part.op
+        local taken = false
+        if op == "cmp" and #(part.path or {}) == 0 and type(part.constant) == "number" then
+            taken = narrowBound(out, "min", "max", part.cmp, part.constant as number)
+        elseif op == "len" and #(part.path or {}) == 0 then
+            local inner = part.a
+            if inner and inner.op == "cmp" and #(inner.path or {}) == 0 and type(inner.constant) == "number" then
+                taken = narrowBound(out, "minLength", "maxLength", inner.cmp, inner.constant as number)
+            end
+        elseif op == "and" or op == "or" then
+            -- `flatten` already took the conjunctions apart, so this is a disjunction,
+            -- which no interval describes.
+            return nil
+        end
+        -- Everything else, `integral` and a type test included, is a leftover: it is
+        -- not a bound, and an implication has to find it on the narrower side too.
+        if not taken then
+            out.others[predicate.key(part)] = true
+        end
+    end
+
+    return out
+end
+
+--- Whether every value `a` admits `b` admits too, as far as this can tell.
+---
+--- Interval containment and leftover containment, and nothing else: no rewriting of
+--- one comparison into another, no arithmetic on the base's own domain, and no attempt
+--- at general implication. Undecided answers false, because the caller's fallback is to
+--- keep a check, and keeping one it did not need costs less than removing one it did.
+function predicate.implies(a: predicate.Node?, b: predicate.Node?): boolean
+    if predicate.key(a) == predicate.key(b) then
+        return true
+    end
+    local wide = predicate.decompose(b)
+    if not wide then
+        return false
+    end
+    local narrow = predicate.decompose(a)
+    if not narrow then
+        return false
+    end
+    if wide.min and (not narrow.min or narrow.min < wide.min) then
+        return false
+    end
+    if wide.max and (not narrow.max or narrow.max > wide.max) then
+        return false
+    end
+    if wide.minLength and (not narrow.minLength or narrow.minLength < wide.minLength) then
+        return false
+    end
+    if wide.maxLength and (not narrow.maxLength or narrow.maxLength > wide.maxLength) then
+        return false
+    end
+    for key in pairs(wide.others) do
+        if not narrow.others[key] then
+            return false
+        end
+    end
+
+    return true
+end
+
+--- Whether two refinements admit nothing in common, which makes a conversion between
+--- them one that always fails and a conjunction of them uninhabited.
+function predicate.disjoint(a: predicate.Node?, b: predicate.Node?): boolean
+    local left, right = predicate.decompose(a), predicate.decompose(b)
+    if not left or not right then
+        return false
+    end
+    if left.min and right.max and left.min > right.max then
+        return true
+    end
+    if right.min and left.max and right.min > left.max then
+        return true
+    end
+    if left.minLength and right.maxLength and left.minLength > right.maxLength then
+        return true
+    end
+    if right.minLength and left.maxLength and right.minLength > left.maxLength then
+        return true
+    end
+
+    return false
+end
+
 --- The refinement as a Lua expression testing `subject`.
 ---
 --- `subject` is substituted rather than bound, so the caller has already decided that
@@ -731,6 +1019,12 @@ function predicate.render(node: predicate.Node?, subject: string): string
 
     if op == "cmp" then
         return access .. " " .. (node.cmp or "==") .. " " .. (node.literal or "nil")
+    elseif op == "integral" then
+        -- `type(x) == "number"` is the whole of what Lua can say about a number, and
+        -- an integer is less than that. A NaN and an infinity both answer NaN to `% 1`,
+        -- and NaN is not 0, so one test rejects the three values a pair of bounds
+        -- would otherwise let through.
+        return ("%s %% 1 == 0"):format(access)
     elseif op == "typeis" then
         return ("type(%s) == %q"):format(access, node.luaType or "nil")
     end
@@ -740,6 +1034,25 @@ function predicate.render(node: predicate.Node?, subject: string): string
     return access
 end
 
+--- Whether the refinement already decides what `subject` is before reading into it.
+---
+--- A conjunction carrying a `type()` test on the subject guards its own reads, because
+--- `and` stops at the first false. One that does not needs the table check `test` adds,
+--- and a disjunction never counts: either arm may be the one that runs.
+function predicate.guardsType(node: predicate.Node?): boolean
+    if not node then
+        return false
+    end
+    if node.op == "typeis" and #(node.path or {}) == 0 then
+        return true
+    end
+    if node.op ~= "and" then
+        return false
+    end
+
+    return predicate.guardsType(node.a) or predicate.guardsType(node.b)
+end
+
 --- The whole test for `subject`, table check included.
 ---
 --- A refinement reads fields, and `is` is asked about values that may be anything at
@@ -747,7 +1060,7 @@ end
 --- has to remember.
 function predicate.test(node: predicate.Node?, subject: string): string
     local body = predicate.render(node, subject)
-    if predicate.constant(node) ~= nil then
+    if predicate.constant(node) ~= nil or predicate.guardsType(node) then
         return body
     end
 

@@ -17,6 +17,7 @@ exists but is not visible here.
 local T = require("nupp.compiler.types")
 local generics = require("nupp.compiler.generics")
 local consteval = require("nupp.compiler.consteval")
+local predicate = require("nupp.compiler.predicate")
 local relations = require("nupp.compiler.relations")
 local fixedWidth = require("nupp.compiler.fixedwidth")
 local cst = require("nupp.compiler.cst")
@@ -383,6 +384,72 @@ function resolve.install(c: state.Checker): nil
         return reduced
     end
 
+    --- The value domain each base admits, so a bound outside it is refused where it is
+    --- written rather than compiled into a test nothing can pass.
+    local RANGE_DOMAIN: {
+        [string]: {number}
+    } = {integer = {-9007199254740992, 9007199254740992}, int32 = {-2147483648, 2147483647}, uint32 = {0, 4294967295},}
+
+    --- A base narrowed to `low`..`high`, inclusive, either by value or by byte length.
+    ---
+    --- Narrowing something already narrowed conjoins rather than replaces: the reason
+    --- an alias of a constrained alias is a subtype of it is that it carries both
+    --- refinements, and an intersection that admits nothing is a declaration error
+    --- rather than a type no value can have.
+    local function constrainedType(base: Type, low: number, high: number, lengthwise: boolean, at: Node): Type
+        local underlying = T.unconstrained(base)
+        local limits = not lengthwise and RANGE_DOMAIN[underlying.tag] or nil
+        if lengthwise and underlying ~= T.string then
+            c.diag("NUPP2422", at, ("a length constraint needs a string base, got %s"):format(T.tostring(base)))
+            return T.any
+        elseif not lengthwise and not limits then
+            c.diag(
+                "NUPP2422",
+                at,
+                ("a range constraint needs an integer, int32 or uint32 base, got %s"):format(T.tostring(base))
+            )
+            return T.any
+        end
+        if low % 1 ~= 0 or high % 1 ~= 0 then
+            c.diag("NUPP2422", at, "a bound must be a whole number")
+            return T.any
+        end
+        if low > high then
+            c.diag("NUPP2422", at, ("the bounds %d..%d are in descending order"):format(low, high))
+            return T.any
+        end
+        local floor, ceiling = lengthwise and 0 or (
+            limits as {number}
+        )[1], lengthwise and math.huge or (limits as {number})[2]
+        if low < floor or high > ceiling then
+            c.diag("NUPP2422", at, ("the bounds %d..%d leave what %s admits"):format(low, high, T.tostring(underlying)))
+            return T.any
+        end
+        local comparison = new predicate.Node(
+            op = "and",
+            a = new predicate.Node(op = "cmp", cmp = ">=", path = {}, literal = tostring(low), constant = low),
+            b = new predicate.Node(op = "cmp", cmp = "<=", path = {}, literal = tostring(high), constant = high)
+        )
+        local node = lengthwise and new predicate.Node(op = "len", path = {}, a = comparison) or comparison
+        if not lengthwise then
+            -- `type(x) == "number"` is all Lua's own test says, and an integer base
+            -- says more than that. Without this a fraction inside the bounds would
+            -- answer `is`, and so would an infinity once a bound was open.
+            node = new predicate.Node(op = "and", a = new predicate.Node(op = "integral", path = {}), b = node)
+        end
+        local existing = T.constraintOf(base)
+        if existing then
+            if predicate.disjoint(existing, node) then
+                c.diag("NUPP2422", at, ("%d..%d admits nothing %s does"):format(low, high, T.tostring(base)))
+                return T.any
+            end
+            node = new predicate.Node(op = "and", a = existing, b = node)
+        end
+        local normalized = predicate.normalize(node)
+
+        return T.constrained(underlying, normalized, predicate.key(normalized))
+    end
+
     local function aliasArgumentMap(alias, node)
         local map, ordinaryAt, packAt, constAt = {}, 1, 1, 1
         for position, kind in ipairs(alias.paramKinds or {}) do
@@ -738,6 +805,37 @@ function resolve.install(c: state.Checker): nil
                 if terminal.tag == "constLiteral" then
                     c.own.validateCleanups(result, {cleanup}, node, "NUPP2615")
                 end
+                node.resolvedType = result
+                return result
+            elseif name == "nupp.types.range" or name == "nupp.types.length" then
+                -- Two bounds over a base, which is the shape almost every constraint
+                -- has. It resolves here rather than through the comptime worker for the
+                -- same reason `nonExhaustive` does: everything it needs is written at
+                -- the call, so a round trip would only move where the error is
+                -- reported.
+                local lengthwise = name == "nupp.types.length"
+                local argumentCount = #(node.arguments or {})
+                if argumentCount ~= 3 then
+                    c.diag(
+                        "NUPP2421",
+                        node,
+                        ("%s expects a base type and two bounds, got %d arguments"):format(name, argumentCount)
+                    )
+                    return T.any
+                end
+                local base = c.resolveType(node.arguments[1])
+                local bounds: {number} = {}
+                for position = 2, 3 do
+                    local argument = node.arguments[position]
+                    local term = consteval.fromType(c.resolveType(argument))
+                    local reduced = term and (consteval.reduce(term)) or nil
+                    if not reduced or reduced.tag ~= "constLiteral" or reduced.domain ~= "integer" then
+                        c.diag("NUPP2421", argument or node, ("%s needs a compile-time integer bound"):format(name))
+                        return T.any
+                    end
+                    bounds[position - 1] = reduced.value as number
+                end
+                local result = constrainedType(base, bounds[1], bounds[2], lengthwise, node)
                 node.resolvedType = result
                 return result
             elseif name == "nupp.types.nonExhaustive" then
@@ -1390,6 +1488,9 @@ function resolve.install(c: state.Checker): nil
             local text = literal.text
             if literal.kind == "number" then
                 local value = tonumber(text)
+                if value and node.negated then
+                    value = -value
+                end
                 if not value or value ~= math.floor(value) or math.abs(value) > 9007199254740991 then
                     c.diag("NUPP2131", literal, "numeric literal type must be an exactly representable integer")
                     return T.any

@@ -38,6 +38,7 @@ local stable = require("nupp.compiler.stable")
 local fixedWidth = require("nupp.compiler.fixedwidth")
 local capabilities = require("nupp.compiler.capabilities")
 local runtimeSurface = require("nupp.compiler.runtimesurface")
+local predicate = require("nupp.compiler.predicate")
 
 local expr = {}
 
@@ -1307,7 +1308,22 @@ function expr.install(c: state.Checker): nil
             -- both resolve to the same interned type, so the resolved type is asked
             -- too and the answer travels to the generator the way a refinement's does.
             if typeNode and not builtin then
-                typeNode.primitiveTest = T.luaTypeName(target) or target == T.nil_ and "nil" or nil
+                typeNode.primitiveTest = T.luaTypeName(T.unconstrained(target)) or target == T.nil_ and "nil" or nil
+            end
+            -- A constrained type answers `is` with its base test and its refinement,
+            -- and the base test comes first so the refinement reads a value whose shape
+            -- it already knows. Both travel as one predicate, which is the form the
+            -- generator already evaluates once and inlines.
+            local constraint = T.constraintOf(target)
+            if typeNode and constraint and typeNode.primitiveTest then
+                typeNode.wherePredicate = predicate.normalize(
+                    new predicate.Node(
+                        op = "and",
+                        a = new predicate.Node(op = "typeis", path = {}, luaType = typeNode.primitiveTest),
+                        b = constraint
+                    )
+                )
+                typeNode.primitiveTest = nil
             end
             local runtimeIdentity = node.provenStatically
                 or typeNode

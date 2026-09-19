@@ -1669,6 +1669,13 @@ function declare.install(
                 end
             end
             t = t or c.resolveType(stat.value)
+            -- An interval says less about a type than the name somebody gave it, so the
+            -- first alias to name a constraint lends it that name for display. It is
+            -- not identity: two names for one constraint stay one type, and which of
+            -- them shows is settled here rather than at each use.
+            if t.tag == "constrained" and not (t as T.Constrained).label and stat.name then
+                (t as T.Constrained).label = stat.name.text
+            end
             stat.resolvedType = t
             c.bindDeclaredType(stat, t)
             if stat.name and stat.name.definition then

@@ -2382,6 +2382,10 @@ record cst.Tliteral is cst.Hints
 
     --- The literal.
     token: lexer.Token?
+
+    --- Whether a minus sign preceded it. A numeral in a type is not an operand, so a
+    --- signed bound is one literal rather than a negation applied to one.
+    negated: boolean?
 end
 
 --- A named type, possibly dotted and possibly applied.

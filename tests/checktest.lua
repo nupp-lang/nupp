@@ -1897,6 +1897,71 @@ function M.aRefinementIsProvedAgainstDeclaredFields()
     assertClean(numbered .. "\nlocal record Counted is Numbered\n   name: integer\nend")
 end
 
+-- A constrained type is its base narrowed: it goes wherever the base goes, a
+-- narrower one goes where a wider one is wanted, and nothing enters it that is not
+-- already narrowed at least as far. A literal is decided rather than admitted.
+function M.constrainedTypesNarrowTheirBase()
+    local aliases = table.concat({
+        "local type Percent = nupp.types.range(integer, 0, 100)",
+        "local type Digit = nupp.types.range(Percent, 0, 9)",
+        "local type Short = nupp.types.length(string, 1, 4)",
+    }, "\n")
+    assertClean(aliases .. "\nlocal function widen(p: Percent): integer\n   return p\nend\nreturn widen")
+    assertClean(aliases .. "\nlocal function fits(d: Digit): Percent\n   return d\nend\nreturn fits")
+    assertClean(aliases .. "\nlocal ok: Percent = 50\nreturn ok")
+    assertClean(aliases .. "\nlocal ok: Short = 'abcd'\nreturn ok")
+    -- the wider one is not established as the narrower
+    assertEq((diagsOf(aliases .. "\nlocal function no(p: Percent): Digit\n   return p\nend\nreturn no")), "NUPP2002:5")
+    -- nor is the bare base
+    assertEq((diagsOf(aliases .. "\nlocal function no(n: integer): Percent\n   return n\nend\nreturn no")), "NUPP2002:5")
+    -- a literal outside the interval is a violation, not a missing admission
+    assertEq((diagsOf(aliases .. "\nlocal no: Percent = 101\nreturn no")), "NUPP2001:4")
+    assertEq((diagsOf(aliases .. "\nlocal no: Short = 'abcde'\nreturn no")), "NUPP2001:4")
+end
+
+-- An alias is not a brand: one constraint over one base is one type however many
+-- names reach it, and however the bounds were written.
+function M.constrainedTypesAreStructural()
+    assertClean(
+        table.concat(
+            {
+                "local type A = nupp.types.range(integer, 0, 31)",
+                "local type B = nupp.types.range(integer, 0, 31)",
+                "local function pass(a: A): B",
+                "   return a",
+                "end",
+                "return pass",
+            },
+            "\n"
+        )
+    )
+end
+
+-- The bounds are checked where they are written, so a declaration that admits
+-- nothing is reported rather than compiled into a test no value passes.
+function M.constrainedDeclarationsAreValidated()
+    assertEq((diagsOf("local type E = nupp.types.range(integer, 10, 0)\nreturn E")), "NUPP2422:1")
+    assertEq((diagsOf("local type E = nupp.types.length(integer, 0, 4)\nreturn E")), "NUPP2422:1")
+    assertEq((diagsOf("local type E = nupp.types.range(string, 0, 4)\nreturn E")), "NUPP2422:1")
+    assertEq((diagsOf("local type E = nupp.types.range(uint32, -1, 4)\nreturn E")), "NUPP2422:1")
+    -- an intersection that admits nothing
+    assertEq(
+        (
+            diagsOf(
+                table.concat(
+                    {
+                        "local type Small = nupp.types.range(integer, 0, 9)",
+                        "local type None = nupp.types.range(Small, 20, 30)",
+                        "return None",
+                    },
+                    "\n"
+                )
+            )
+        ),
+        "NUPP2422:2"
+    )
+end
+
 -- A record's identity is the metatable `new` stamps and a struct's is its
 -- ctype. A refinement beside either would be a second answer to a settled
 -- question, and which answer `is R` gave would depend on whether a body

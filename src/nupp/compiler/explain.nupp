@@ -1964,6 +1964,18 @@ ENTRIES[
 ENTRIES[
     #ENTRIES + 1
 ] = {
+    code = "NUPP2422",
+    summary = "A constrained type declaration names an unsupported base or empty bounds",
+    rule = "nupp.types.range narrows integer, int32 or uint32, and nupp.types.length narrows string; either may also narrow a constrained alias of one, which intersects the two constraints. Both bounds are inclusive whole numbers in ascending order, and both must lie inside what the base itself admits, so a declaration that admits nothing is reported where it is written rather than compiled into a test no value passes.",
+    wrong = "local type Empty = nupp.types.range(integer, 10, 0)\nlocal value: Empty = 5\nreturn value\n",
+    right = "local type Small = nupp.types.range(integer, 0, 10)\nlocal value: Small = 5\nreturn value\n",
+    related = {"NUPP2013", "NUPP2421"},
+    docs = "docs/reference/diagnostics.md#diagnostic-index",
+}
+
+ENTRIES[
+    #ENTRIES + 1
+] = {
     code = "NUPP2420",
     summary = "A comptime type function rejected its own application",
     rule = "nupp.types.error(message) lets a comptime type function refuse a specific application deliberately, distinct from an evaluator crash or a result of the wrong kind. The authored message is reported at the application together with the bounded comptime call trace, so a computed type contract can say why an argument it inspected does not qualify.",
