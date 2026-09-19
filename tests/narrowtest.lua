@@ -190,6 +190,26 @@ function M.conditionIsCheckedOnce()
    }, "\n"))), "NUPP2101:2 NUPP3001:2")
 end
 
+function M.isTestsAnAliasOfAPrimitiveByItsResolvedType()
+   assertClean(table.concat({
+      "local type Text = string",
+      "local type Count = integer",
+      "local x: any",
+      "if x is Text then",
+      "elseif x is Count then",
+      "end",
+   }, "\n"))
+end
+
+function M.isStillRefusesATypeWithNoRuntimeIdentity()
+   assertEq((diagsOf(table.concat({
+      "local type Pair = {a: string, b: string}",
+      "local x: any",
+      "if x is Pair then",
+      "end",
+   }, "\n"))), "NUPP3001:3")
+end
+
 function M.genericMapIteration()
    assertClean(table.concat({
       "local pairs2: function<K, V>(t: {[K]: V}): function(): (K, V)",

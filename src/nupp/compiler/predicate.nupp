@@ -30,10 +30,15 @@ local predicate = {}
 --- One node of a refinement. `op` says which of the shapes this is; the fields a shape
 --- does not use are absent.
 record predicate.Node
-    --- `and`, `or`, `not`, `cmp`, `truthy`, `typeis`, or `const`.
+    --- `and`, `or`, `not`, `len`, `cmp`, `truthy`, `typeis`, or `const`.
     op: string
 
-    --- Operands, for `and`, `or` and `not`.
+    --- Operands, for `and`, `or`, `not` and `len`.
+    ---
+    --- `len` has one, and applies it to the byte length of what its path names rather
+    --- than to the value there. It is the one accessor in the subset, admitted because
+    --- `#` on a string is total, allocation-free and as cheap to inline as a
+    --- comparison -- the three properties that keep `is` free wherever it is written.
     a: predicate.Node?
 
     b: predicate.Node?
@@ -66,6 +71,17 @@ local COMPARISONS = {
     [">"] = true,
     [">="] = true,
 } as {[string]: boolean}
+
+--- The same comparison read from the other side, for a test written with its literal
+--- first. `64 >= #self` and `#self <= 64` are one refinement, so they normalize to one.
+local FLIPPED = {
+    ["=="] = "==",
+    ["~="] = "~=",
+    ["<"] = ">",
+    ["<="] = ">=",
+    [">"] = "<",
+    [">="] = "<=",
+} as {[string]: string}
 
 --- The Lua type names `type()` can answer, so a comparison against one is a test rather
 --- than a string comparison that can never hold.
@@ -154,6 +170,23 @@ local function literalOf(node: cst.Node?): string?, any
     return nil
 end
 
+--- The path whose byte length `node` takes, when it is `#` applied to one.
+---
+--- `#` is the one accessor the subset admits. It reads a value and answers an integer
+--- without allocating, calling, or reaching outside the subject, which is the bar
+--- everything else here is held to.
+local function lengthPath(node: cst.Node?): {string}?
+    node = unwrap(node)
+    if not node or node.kind ~= "unop" then
+        return nil
+    end
+    if not node.op or node.op.kind ~= "#" then
+        return nil
+    end
+
+    return pathOf(node.operand)
+end
+
 --- `type(x)` applied to a path, when that is what `node` is.
 local function typeCallPath(node: cst.Node?): {string}?
     node = unwrap(node)
@@ -237,6 +270,24 @@ function predicate.build(node: cst.Node?): predicate.Node?, string?
                     return new predicate.Node(op = "not", a = test)
                 end
                 return test
+            end
+            -- `#self <= 64` is a comparison of a length, so it reads as one: the
+            -- accessor is the node and the comparison is what it applies.
+            local lenPath = lengthPath(node.lhs) or lengthPath(node.rhs)
+            if lenPath then
+                local flipped = lengthPath(node.rhs) ~= nil and lengthPath(node.lhs) == nil
+                local text, value = literalOf(flipped and node.lhs or node.rhs)
+                if not text or type(value) ~= "number" then
+                    return nil, "a length compared against something that is not a number"
+                end
+                local inner = new predicate.Node(
+                    op = "cmp",
+                    cmp = flipped and FLIPPED[op] or op,
+                    path = {},
+                    literal = text,
+                    constant = value
+                )
+                return new predicate.Node(op = "len", path = lenPath, a = inner)
             end
             -- otherwise: a field of the subject against a literal, either way round
             local path = pathOf(node.lhs)
@@ -420,6 +471,101 @@ local function truthinessOf(t: any): boolean?
     return nil
 end
 
+--- One comparison between two values the subset can spell, or nothing when the pair is
+--- not ordered by Lua's own rules. Mixed types compare only for equality: `3 < "3"`
+--- raises at run time rather than answering, so it is not something to answer here.
+local function compare(cmp: string?, left: any, right: any): boolean?
+    if cmp == "==" then
+        return left == right
+    elseif cmp == "~=" then
+        return left ~= right
+    end
+    local kind = type(left)
+    if kind ~= type(right) or kind ~= "number" and kind ~= "string" then
+        return nil
+    end
+    if cmp == "<" then
+        return left < right
+    elseif cmp == "<=" then
+        return left <= right
+    elseif cmp == ">" then
+        return left > right
+    elseif cmp == ">=" then
+        return left >= right
+    end
+
+    return nil
+end
+
+--- Whether `value` satisfies the refinement, fails it, or cannot be decided.
+---
+--- This is the same three-valued question `satisfiedBy` asks, against a value instead
+--- of a declaration's field types. It is what decides a literal at its admission: a
+--- value the compiler holds is either proved to fit the constraint, proved not to, or
+--- -- for a refinement reading fields the caller did not supply -- neither.
+---
+--- Reaching a field of a non-table answers nil rather than raising, because this runs
+--- over values that are not of the type yet. That is the whole point of asking.
+function predicate.satisfiedByValue(node: predicate.Node?, value: any): boolean?
+    if not node then
+        return nil
+    end
+    local op = node.op
+
+    if op == "const" then
+        return node.value
+    elseif op == "not" then
+        local inner = predicate.satisfiedByValue(node.a, value)
+        if inner == nil then
+            return nil
+        end
+        return not inner
+    elseif op == "and" or op == "or" then
+        local left = predicate.satisfiedByValue(node.a, value)
+        local right = predicate.satisfiedByValue(node.b, value)
+        if op == "and" then
+            if left == false or right == false then
+                return false
+            end
+            if left == true and right == true then
+                return true
+            end
+            return nil
+        end
+        if left == true or right == true then
+            return true
+        end
+        if left == false and right == false then
+            return false
+        end
+        return nil
+    end
+
+    local at = value
+    for _, segment in ipairs(node.path or {}) do
+        if type(at) ~= "table" then
+            return nil
+        end
+        at = (at as {[string]: any})[segment]
+    end
+
+    if op == "len" then
+        local kind = type(at)
+        if kind ~= "string" and kind ~= "table" then
+            return nil
+        end
+        return predicate.satisfiedByValue(node.a, #(at as string))
+    elseif op == "typeis" then
+        return type(at) == node.luaType
+    elseif op == "truthy" then
+        return at ~= nil and at ~= false
+    elseif op == "cmp" then
+        return compare(node.cmp, at, node.constant)
+    end
+
+    return nil
+end
+
 --- Whether a declaration whose fields `fieldAt` reports must satisfy the refinement,
 --- must fail it, or cannot be told either way.
 ---
@@ -472,6 +618,15 @@ function predicate.satisfiedBy(node: predicate.Node?, fieldAt: function(path: {s
     local t = fieldAt(node.path or {})
     if t == nil then
         return nil
+    end
+
+    if op == "len" then
+        -- A length is known when the value is: a literal string type admits exactly one
+        -- string, so it admits exactly one length.
+        if type(t) ~= "table" or t.tag ~= "literal" or type(t.constant) ~= "string" then
+            return nil
+        end
+        return predicate.satisfiedByValue(node.a, #(t.constant as string))
     end
 
     if op == "typeis" then
@@ -553,6 +708,16 @@ function predicate.render(node: predicate.Node?, subject: string): string
     end
     if op == "and" or op == "or" then
         return "(" .. predicate.render(node.a, subject) .. " " .. op .. " " .. predicate.render(node.b, subject) .. ")"
+    end
+    if op == "len" then
+        -- The accessor reaches its path, then the comparison it carries applies to the
+        -- length rather than to the value. The inner node's own path is empty, so
+        -- rendering it against this subject is what substitutes the length in.
+        local target = subject
+        for j, segment in ipairs(node.path or {}) do
+            target = target .. (j > 1 and "?." or ".") .. segment
+        end
+        return predicate.render(node.a, "#" .. target)
     end
 
     -- Reaching through a field guards the step before it, because the test runs against

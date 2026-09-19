@@ -2916,6 +2916,8 @@ function gen.generate(
             e("(" .. subject .. "==nil)", line)
         elseif t.kind == "tname" and #t == 1 and IS_TYPE[t.base.text] then
             e(('(type(%s)==%q)'):format(subject, IS_TYPE[t.base.text]), line)
+        elseif t.primitiveTest then
+            e(('(type(%s)==%q)'):format(subject, t.primitiveTest), line)
         elseif t.kind == "tfunc" then
             e(('(type(%s)=="function")'):format(subject), line)
         elseif t.wherePredicate then
@@ -6388,6 +6390,12 @@ function gen.generate(
                 e("( type(", firstTok and firstTok.line)
                 emit(x.expr)
                 e(') == "' .. IS_TYPE[t.base.text] .. '" )')
+            elseif t.primitiveTest then
+                -- The same test, for a name that resolved to a primitive without
+                -- spelling one: an alias of `string` is a string at run time.
+                e("( type(", firstTok and firstTok.line)
+                emit(x.expr)
+                e(') == "' .. t.primitiveTest .. '" )')
             elseif t.kind == "tfunc" then
                 e("( type(", firstTok and firstTok.line)
                 emit(x.expr)

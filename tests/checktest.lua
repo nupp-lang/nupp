@@ -1825,6 +1825,53 @@ function M.aBareFieldRefinementIsATruthinessTest()
     assertEq(predicate.render({op = "not", a = {op = "truthy", path = {"off"}}}, "v"), "not (v.off)")
 end
 
+-- `#` is the one accessor the refinement subset admits: it reads one value, answers
+-- an integer, allocates nothing and calls nothing, so it keeps the properties that
+-- let `is` be written anywhere. It reads the same either way round.
+function M.aLengthRefinementIsAdmittedAndNormalised()
+    local predicate = require("nupp.compiler.predicate")
+    assertClean(
+        table.concat(
+            {
+                "local interface Short",
+                "   name: string",
+                "   satisfies |self| -> type(self.name) == 'string' and #self.name <= 4",
+                "end",
+            },
+            "\n"
+        )
+    )
+    local node = {op = "len", path = {"name"}, a = {op = "cmp", cmp = "<=", path = {}, literal = "4", constant = 4}}
+    assertEq(predicate.render(node, "v"), "#v.name <= 4")
+    assertEq(predicate.satisfiedByValue(node, {name = "abcd"}), true)
+    assertEq(predicate.satisfiedByValue(node, {name = "abcde"}), false)
+    assertEq(predicate.satisfiedByValue(node, {name = 7}), nil)
+    assertEq(predicate.satisfiedByValue(node, 7), nil)
+    -- the subject itself, which is what a constrained scalar constrains
+    local bare = {op = "len", path = {}, a = {op = "cmp", cmp = ">=", path = {}, literal = "2", constant = 2}}
+    assertEq(predicate.render(bare, "v"), "#v >= 2")
+    assertEq(predicate.satisfiedByValue(bare, "ab"), true)
+    assertEq(predicate.satisfiedByValue(bare, "a"), false)
+end
+
+-- Three-valued against a value, the way `satisfiedBy` is against declared fields:
+-- proved, refuted, or undecided because the refinement reads what is not there.
+function M.satisfiedByValueAnswersThreeWays()
+    local predicate = require("nupp.compiler.predicate")
+    local inRange = {
+        op = "and",
+        a = {op = "cmp", cmp = ">=", path = {}, literal = "0", constant = 0},
+        b = {op = "cmp", cmp = "<=", path = {}, literal = "31", constant = 31},
+    }
+    assertEq(predicate.satisfiedByValue(inRange, 7), true)
+    assertEq(predicate.satisfiedByValue(inRange, 32), false)
+    assertEq(predicate.satisfiedByValue(inRange, -1), false)
+    -- a string is not ordered against a number, so neither comparison answers
+    assertEq(predicate.satisfiedByValue(inRange, "7"), nil)
+    assertEq(predicate.satisfiedByValue({op = "typeis", path = {}, luaType = "string"}, "x"), true)
+    assertEq(predicate.satisfiedByValue({op = "typeis", path = {}, luaType = "string"}, 1), false)
+end
+
 -- A declaration is held to the refinements of the interfaces it declares, where
 -- its own fields settle the answer: a field typed `false` fails a truthiness test,
 -- and a `string` field fails `type() == "number"`. A `boolean` field settles

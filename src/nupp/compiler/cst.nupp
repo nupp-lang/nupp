@@ -379,6 +379,12 @@ interface cst.Hints
     --- a second time.
     wherePredicate: any
 
+    --- What `type()` must answer for this type node, when the checker resolved it to a
+    --- primitive the spelling did not name. An alias of one is testable for the same
+    --- reason the primitive is, and the generator should not have to resolve a name to
+    --- find that out.
+    primitiveTest: string?
+
     --- Set on an `is` whose answer the subject's own type already settles.
     provenStatically: boolean?
 

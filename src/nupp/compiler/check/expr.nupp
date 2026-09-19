@@ -1302,7 +1302,16 @@ function expr.install(c: state.Checker): nil
                     or typeNode.base.text == "cdata"
                 )
             )
+            -- A primitive is testable however it was spelled. The list above reads the
+            -- name, which answers for `integer` and not for an alias of it even though
+            -- both resolve to the same interned type, so the resolved type is asked
+            -- too and the answer travels to the generator the way a refinement's does.
+            if typeNode and not builtin then
+                typeNode.primitiveTest = T.luaTypeName(target) or target == T.nil_ and "nil" or nil
+            end
             local runtimeIdentity = node.provenStatically
+                or typeNode
+                and typeNode.primitiveTest
                 or node.refutedStatically
                 or builtin
                 or typeNode

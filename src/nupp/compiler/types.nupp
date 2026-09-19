@@ -1400,6 +1400,41 @@ function types.shape(fields: {types.Field}, indexer: types.Indexer?, fresh: bool
     )
 end
 
+--- What `type()` answers for a primitive, or nothing for a type Lua's `type` cannot
+--- decide. The sized numerics all answer `number`, which is why this is the base
+--- membership test and not the whole answer for one of them.
+---
+--- An alias is transparent, so the caller asks the resolved type rather than the
+--- spelling: `local type Count = integer` resolves to the interned `integer` and is
+--- testable for exactly the reason `integer` is.
+local LUA_TYPE_NAME: {
+    [string]: string
+} = {
+    string = "string",
+    number = "number",
+    boolean = "boolean",
+    table = "table",
+    thread = "thread",
+    userdata = "userdata",
+    integer = "number",
+    float = "number",
+    int8 = "number",
+    int16 = "number",
+    int32 = "number",
+    int64 = "number",
+    uint8 = "number",
+    uint16 = "number",
+    uint32 = "number",
+    uint64 = "number",
+}
+
+function types.luaTypeName(t: types.Type?): string?
+    if not t then
+        return nil
+    end
+    return LUA_TYPE_NAME[t.tag]
+end
+
 --- Once a literal is stored, neither it nor a nested literal is a new allocation
 --- at a later use. Clear their contextual conversion privilege together, so reading
 --- an inner array cannot widen a writable alias to an already stored value.
