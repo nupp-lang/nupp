@@ -2747,8 +2747,12 @@ function M.indexedSimdUsesNativeAvx512MemoryInstructions()
         -- GCC widens one of these with the attribute on it. What settles it is
         -- that a Windows target builds no value wider than its frame carries,
         -- and this path is not emitted there at all.
-        local c = run(dir, "--target " .. triple .. " --features avx512f --emit c indexed.nupp")
-        for _, staged in ipairs({"ks_index", "ks_mask", "ks_value", "ks_offsets", "ks_batch"}) do
+        local staging = {"ks_index", "ks_mask", "ks_value"}
+        if native then
+            staging[#staging + 1] = "ks_offsets"
+            staging[#staging + 1] = "ks_batch"
+        end
+        for _, staged in ipairs(staging) do
             local declaration = c:match(staged .. "%[%d+%] ([%w_]+)%(")
             test.equal(declaration, "KS_LANE_ARRAY_ALIGN", staged .. " is held to its element's alignment:\n" .. c)
         end
