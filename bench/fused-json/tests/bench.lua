@@ -244,6 +244,19 @@ do
     }
 end
 
+-- Sparse Unicode: long ASCII runs interrupted by a three-byte scalar.
+-- Lookahead optimizations must not repeatedly rescan these mixed blocks.
+corpora[#corpora + 1] = {
+    name = "sparseUnicode",
+    what = "mostly ASCII string values with periodic UTF-8 scalars",
+    source = repeatTo(
+        function(index)
+            return '"' .. string.rep("abcdefghijklmno ", index % 2 == 0 and 4 or 8) .. "\226\130\172" .. '"'
+        end,
+        TARGET
+    ),
+}
+
 -- Deep nesting: the tape walk crosses a container boundary far more often than
 -- it consumes a scalar, and the builder's frame depth is what is exercised.
 do
