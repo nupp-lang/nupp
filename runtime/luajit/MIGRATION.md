@@ -36,7 +36,7 @@ limited to 2 MiB. Measure the copy and bridge cost before using small kernels.
 Lua-C-API builders use guest-native `aot = "require"`,
 `aotTarget = "i686-unknown-linux-gnu"`, and `aotFeatures = "baseline"`.
 `NUPP_BROWSER_NATIVE_CC` selects an i386/musl cross compiler for packaging;
-direct compiler builds use `NUPP_NATIVE_CC`. Libraries travel as verified hashed
+direct compiler builds use `NUPP_AOT_CC`. Libraries travel as verified hashed
 assets and are installed before application or worker startup. Existing LuaJIT
 FFI and C-API bindings preserve tables, strings and rooted object identity.
 The combined native-library limit is one MiB; escaped initialization and the

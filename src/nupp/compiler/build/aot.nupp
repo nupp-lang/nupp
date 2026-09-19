@@ -493,16 +493,16 @@ end
 
 --- Finds a C compiler that can build the generated C.
 ---
---- `NUPP_NATIVE_CC` names one outright, and naming one that cannot build this C
---- is an error rather than a reason to look elsewhere: a build that quietly
---- used a different compiler than it was told to would produce an artifact
---- nobody could account for.
+--- `NUPP_AOT_CC` selects the application compiler without changing the host toolchain.
+--- `NUPP_NATIVE_CC` remains its legacy alias. Naming one that cannot build this C is an
+--- error rather than a reason to look elsewhere: a build that quietly used a different
+--- compiler than it was told to would produce an artifact nobody could account for.
 ---
 --- @param memo what the last build recorded about the compiler it used, which
 ---   is believed when the machine still looks the way it did
 --- @return the toolchain, or nothing and why there is none
 function aot.toolchain(targetTriple: string?, memo: aot.Remembered?): (aot.Toolchain?, string?)
-    local named = os.getenv("NUPP_NATIVE_CC")
+    local named = os.getenv("NUPP_AOT_CC") or os.getenv("NUPP_NATIVE_CC")
     local pack, packErr = require("nupp.compiler.build.compilerpacks").resolve(targetTriple or targets.hostTriple())
     if packErr ~= nil and named == nil then
         return nil, packErr
@@ -558,7 +558,8 @@ function aot.toolchain(targetTriple: string?, memo: aot.Remembered?): (aot.Toolc
     return nil, "aot = \"require\" needs a C compiler: " .. table.concat(
         refusals,
         "; "
-    ) .. ". Name one with NUPP_NATIVE_CC, or select aot = \"emit-c\" to write the C without building it"
+    )
+        .. ". Name one with NUPP_AOT_CC (or NUPP_NATIVE_CC), or select aot = \"emit-c\" to write the C without building it"
 end
 
 --- Whether a source is worth parsing for `@aot` at all.

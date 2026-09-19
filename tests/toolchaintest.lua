@@ -260,6 +260,18 @@ function M.thePrefixFollowsTheToolchain()
     assert(again == one, "the same toolchain answered two prefixes")
 end
 
+-- An application cross compiler must not change the host LuaJIT/LPeg cache.
+function M.applicationCompilerLeavesTheHostToolchainAlone()
+    local directory = temporary()
+    local environment = {NUPP_TOOLCHAIN_DIR = directory .. "/cache", PATH = "$PATH",}
+    local status, original = run(environment, "--prefix")
+    assert(status == 0, original)
+    environment.NUPP_AOT_CC = "false"
+    local changedStatus, changed = run(environment, "--prefix")
+    assert(changedStatus == 0, changed)
+    assert(changed == original, "the application compiler changed the host toolchain")
+end
+
 function M.legacyNativeProviderComponentIsAbsent()
     local directory = temporary()
     local compiler = fakeCompiler(directory, "fake-cc", "fake")

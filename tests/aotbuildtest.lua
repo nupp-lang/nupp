@@ -2335,14 +2335,16 @@ function M.absoluteIncludeRootsKeepTheirCompiledBindings()
     end
     local dir = project("require")
     local source = assert(io.open(dir .. "/src/kernel.nupp", "wb"))
-    source:write([[
+    source:write(
+        [[
 module kernel
 @aot
 local function boxed(value: number): {value: number}
     return {value = value + 1}
 end
 export = {boxed = boxed}
-]])
+]]
+    )
     source:close()
     local original = assert(read(dir .. "/nupp.lua"))
     local absolute = dir:gsub("\\", "/"):gsub("^/([A-Za-z])/", "%1:/") .. "/src"
@@ -2353,7 +2355,10 @@ export = {boxed = boxed}
             return "include = {" .. string.format("%q", include) .. "}"
         end)
         if scoped then
-            config = config:gsub('outDir = "build/native",', 'outDir = "build/native", sources = {"src/kernel.nupp", "src/plain.nupp"},')
+            config = config:gsub(
+                'outDir = "build/native",',
+                'outDir = "build/native", sources = {"src/kernel.nupp", "src/plain.nupp"},'
+            )
         end
         manifest:write(config)
         manifest:close()
@@ -3003,9 +3008,9 @@ function M.luaBuilderRegistrationReturnsOrdinaryTables()
     local viewText = builderAnswer(
         "require",
         'local b=require("builder");local out={};'
-            .. 'for n=0,40 do local _,vector,scalar=b.punctuation(("ab, .!"):rep(n):sub(1,n),{});'
-            .. 'out[#out+1]=(vector==scalar) and tostring(vector) or ("!"..n..":"..vector.."~"..scalar) end;'
-            .. "print(table.concat(out,','))"
+        .. 'for n=0,40 do local _,vector,scalar=b.punctuation(("ab, .!"):rep(n):sub(1,n),{});'
+        .. 'out[#out+1]=(vector==scalar) and tostring(vector) or ("!"..n..":"..vector.."~"..scalar) end;'
+        .. "print(table.concat(out,','))"
     )
     assert(
         not viewText:find("!", 1, true) and viewText:find("^0,", 1),
@@ -3571,16 +3576,8 @@ function M.scopedPackedBytesHandleEveryTailWithoutOverreading()
         local packed = lib[shapes](source, count)
         trace("tail length " .. count .. " scalar shapes")
         local oracle = lib[shapesScalar](source, count)
-        test.equal(
-            packed.v1,
-            oracle.v1,
-            "packed bits agree with the scalar oracle at length " .. count
-        )
-        test.equal(
-            packed.v2,
-            oracle.v2,
-            "packed tail agrees with the scalar oracle at length " .. count
-        )
+        test.equal(packed.v1, oracle.v1, "packed bits agree with the scalar oracle at length " .. count)
+        test.equal(packed.v2, oracle.v2, "packed tail agrees with the scalar oracle at length " .. count)
         test.equal(
             tonumber(packed.v3),
             tonumber(oracle.v3),
@@ -4602,6 +4599,27 @@ function M.aNamedCompilerThatCannotBuildThisCIsRefused()
     test.equal(code, 1, "a toolchain that cannot build the C fails the build\n" .. out)
     assert(
         out:find("NUPP_NATIVE_CC", 1, true),
+        "and says how to name a working one rather than only that it failed: " .. out
+    )
+    assert(out:find("emit-c", 1, true), "and what to select instead: " .. out)
+end
+
+function M.anApplicationCompilerDoesNotReplaceTheHostToolchain()
+    local dir = project("require")
+    local pipe = assert(
+        io.popen(
+            (
+                "cd %q && NUPP_AOT_CC=false NO_COLOR= '%s' build --target native 2>&1; echo \"__exit__:$?\""
+            ):format(dir, NUPP)
+        )
+    )
+    local out = pipe:read("*a")
+    pipe:close()
+    local code = assert(tonumber(out:match("__exit__:(%d+)%s*$")))
+
+    test.equal(code, 1, "a toolchain that cannot build the C fails the build\n" .. out)
+    assert(
+        out:find("NUPP_AOT_CC", 1, true),
         "and says how to name a working one rather than only that it failed: " .. out
     )
     assert(out:find("emit-c", 1, true), "and what to select instead: " .. out)

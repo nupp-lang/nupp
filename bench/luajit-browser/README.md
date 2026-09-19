@@ -315,13 +315,13 @@ one rollback release, and deleting the old lowerers afterwards remain the
 ordered integration steps in the plan. They are not performed by branch pushes.
 See [migration details and limitations](../../runtime/luajit/MIGRATION.md).
 
-## Remaining work that can run headlessly
+## Headless follow-up evidence
 
 `results/native-aot.json` records the guest-native builder fixture in Chromium,
 Firefox and WebKit. Its generated shared library is 8,360 bytes. The fixture
 checks fresh nested tables, arbitrary string bytes, rooted null-sentinel identity,
 100 iterations with collection, rejected arguments, and a scalar FFI function.
-These final-head packages consume the verified source-built guest; source-guest
+These recorded packages consume the verified source-built guest; source-guest
 CI separately rebuilds and runs the same fixture. Native AOT requires an i386/musl cross compiler and
 executes through CPU emulation. It does not turn Lua-C-API builders into
 independent Wasm kernels.
@@ -350,6 +350,13 @@ workflow also calls it and adds
 `nupp-luajit-browser-runtime.tar.gz`, carrying the verified guest, snapshots,
 matching sources and notices. The old runtime archive remains for the rollback
 release. A workflow-dispatch rehearsal publishes no release.
+
+Fresh Linux CI exposed a host/target compiler collision hidden by this Mac's
+installed LuaJIT: `NUPP_NATIVE_CC` also controls host toolchain provisioning.
+Application cross-compilation now uses `NUPP_AOT_CC`, leaving host `NUPP_CC`
+and the pinned LuaJIT/LPeg cache unchanged. Browser packaging translates
+`NUPP_BROWSER_NATIVE_CC` into that application-only setting. The legacy alias
+remains accepted for existing direct builds.
 
 See [legacy-removal.md](legacy-removal.md) for the deletion units, live provider
 consumers, preserved shared semantic fixtures and the required cold-build gate.
