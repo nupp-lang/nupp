@@ -346,9 +346,10 @@ local function cursorRead(
     end
     local named = index as scalarIR.Name
 
-    return named.name == cursor and named.cName == cursorCName and values[
-        cursor as string
-    ] == "u32" and boundRoom(scope.cursorBounds, cursor, root) ~= nil
+    return named.name == cursor
+        and named.cName == cursorCName
+        and values[cursor as string] == "u32"
+        and boundRoom(scope.cursorBounds, cursor, root) ~= nil
 end
 
 --- The prefix a fixed word buffer's width is recorded under, in the same map
@@ -491,9 +492,8 @@ local function convert(node: scalarIR.Convert, values: {[string]: string}, scope
         holds(node.type == "u32" and from == "f32", "invalid bfloat16 store conversion")
     else
         holds(
-            (
-                node.type == "i32" or node.type == "u32" or node.type == "i64" or node.type == "u64"
-            ) and (from == "f64" or from == "i32" or from == "u32" or from == "i64" or from == "u64"),
+            (node.type == "i32" or node.type == "u32" or node.type == "i64" or node.type == "u64")
+            and (from == "f64" or from == "i32" or from == "u32" or from == "i64" or from == "u64"),
             "invalid numeric cast"
         )
     end
@@ -507,33 +507,27 @@ local function load(node: scalarIR.Load, values: {[string]: string}, scope: veri
 
     local span = root as scalarIR.Param
     holds(
-        (
-            span.kind == "read_span" or span.kind == "write_span"
-        ) and node.type == span.type and node.sourceType == span.sourceType and node.type:match("^struct:") == nil,
+        (span.kind == "read_span" or span.kind == "write_span")
+        and node.type == span.type
+        and node.sourceType == span.sourceType
+        and node.type:match("^struct:") == nil,
         "invalid load root"
     )
     if node.cursor ~= nil then
         holds(
-            node.index == "" and values[
-                node.cursor as string
-            ] == "u32" and boundRoom(
-                scope.cursorBounds,
-                node.cursor,
-                span.soa ~= nil and span.soa.view or node.span
-            ) ~= nil and node.cursorCName ~= nil,
+            node.index == ""
+            and values[node.cursor as string] == "u32"
+            and boundRoom(scope.cursorBounds, node.cursor, span.soa ~= nil and span.soa.view or node.span) ~= nil
+            and node.cursorCName ~= nil,
             "unbounded cursor load"
         )
     else
         holds(
-            node.index == scope.index and (
-                scope.mapIndex == true and (
-                    scope.indexSpans as {[string]: boolean}
-                )[
-                    node.span
-                ] == true or node.span == scope.boundSpan or scalarIR.sameSoaView(
-                    span,
-                    scope.spans[tostring(scope.boundSpan)]
-                )
+            node.index == scope.index
+            and (
+                scope.mapIndex == true and (scope.indexSpans as {[string]: boolean})[node.span] == true
+                or node.span == scope.boundSpan
+                or scalarIR.sameSoaView(span, scope.spans[tostring(scope.boundSpan)])
             ),
             "unbounded load index"
         )
@@ -555,17 +549,17 @@ local function elementRef(node: scalarIR.ElementRef, values: {[string]: string},
         span.type == "struct:" .. tostring(layoutName) and scope.layouts[tostring(layoutName)] ~= nil,
         "invalid struct element root"
     )
-    local bounded = node.cursor ~= nil and node.index == "" and values[
-        node.cursor as string
-    ] == "u32" and boundRoom(
-        scope.cursorBounds,
-        node.cursor,
-        node.span
-    ) ~= nil and node.cursorCName ~= nil or node.cursor == nil and node.index == scope.index and (
-        scope.mapIndex == true and (
-            scope.indexSpans as {[string]: boolean}
-        )[node.span] == true or node.span == scope.boundSpan
-    )
+    local bounded = node.cursor ~= nil
+        and node.index == ""
+        and values[node.cursor as string] == "u32"
+        and boundRoom(scope.cursorBounds, node.cursor, node.span) ~= nil
+        and node.cursorCName ~= nil
+        or node.cursor == nil
+        and node.index == scope.index
+        and (
+            scope.mapIndex == true and (scope.indexSpans as {[string]: boolean})[node.span] == true
+            or node.span == scope.boundSpan
+        )
     holds(node.mutable == (span.kind == "write_span") and bounded, "invalid struct element access")
 end
 
@@ -653,9 +647,9 @@ local function laneBound(
         -- is what a load through a view over it is stated against.
         local bytesName = values[LENGTH_OF .. (right as scalarIR.Name).name] as string
         local root = scope.spans[bytesName]
-        if root == nil or (
-            root as scalarIR.Param
-        ).type ~= "lua_string" and (root as scalarIR.Param).type ~= "lua_bytes" then
+        if root == nil
+            or (root as scalarIR.Param).type ~= "lua_string" and (root as scalarIR.Param).type ~= "lua_bytes"
+        then
             return nil, nil, nil
         end
         spans[1] = bytesName
@@ -691,18 +685,18 @@ local function vectorCursor(access: scalarIR.Simd, values: {[string]: string}, s
         return false
     end
     local added = sum as scalarIR.Fixed
-    local one = added.right.op == "constant_i32" and added.right.type == "u32" and tonumber(
-        (added.right as scalarIR.IntConstant).value
-    ) == 1
+    local one = added.right.op == "constant_i32"
+        and added.right.type == "u32"
+        and tonumber((added.right as scalarIR.IntConstant).value) == 1
     local named = added.left.op == "local" and added.left as scalarIR.Name or nil
 
-    return one and named ~= nil and (
-        named as scalarIR.Name
-    ).name == cursor and (
-        named as scalarIR.Name
-    ).cName == access.cursorCName and access.cursorCName ~= nil and values[
-        cursor
-    ] == "u32" and sameRoom(boundRoom(scope.cursorBounds, cursor, access.span), tostring(access.args[1].type))
+    return one
+        and named ~= nil
+        and (named as scalarIR.Name).name == cursor
+        and (named as scalarIR.Name).cName == access.cursorCName
+        and access.cursorCName ~= nil
+        and values[cursor] == "u32"
+        and sameRoom(boundRoom(scope.cursorBounds, cursor, access.span), tostring(access.args[1].type))
 end
 
 --- Checks one binary64 operation, comparison, or bitwise operation.
@@ -739,11 +733,11 @@ local function binary(node: scalarIR.Binary, values: {[string]: string}, scope: 
         elseif comparison.right.op == "local" then
             bound = scratchLengthSource(comparison.right, values)
         end
-        if cursor ~= nil and values[
-            cursor as string
-        ] == "u32" and bound ~= nil and (
-            op == "and" and node.left.op == "lt" or op == "or" and node.left.op == "ge"
-        ) then
+        if cursor ~= nil
+            and values[cursor as string] == "u32"
+            and bound ~= nil
+            and (op == "and" and node.left.op == "lt" or op == "or" and node.left.op == "ge")
+        then
             local cursorBounds = inheritBounds(scope.cursorBounds)
             withBound(cursorBounds, cursor as string, bound as string, scalarIR.ONE_ELEMENT)
             rightScope = derive(scope, {cursorBounds = cursorBounds})
@@ -885,34 +879,26 @@ local function genericFieldAccess(
     local family, element, shape = genericSimdType(vectorType)
     local maskPosition = 3 + valueCount
     holds(
-        family == "vector" and (
-            #args == maskPosition - 1 or #args == maskPosition
-        ) and access.intrinsic == "field" and args[
-            1
-        ].type == "simd_species_" .. tostring(
-            element
-        ) .. "_" .. tostring(
-            shape
-        ) and args[
-            2
-        ].type == "f64" and (
-            args[
-                maskPosition
-            ] == nil or args[maskPosition].type == "simd_mask_" .. tostring(element) .. "_" .. tostring(shape)
+        family == "vector"
+        and (#args == maskPosition - 1 or #args == maskPosition)
+        and access.intrinsic == "field"
+        and args[1].type == "simd_species_" .. tostring(element) .. "_" .. tostring(shape)
+        and args[2].type == "f64"
+        and (
+            args[maskPosition] == nil
+            or args[maskPosition].type == "simd_mask_" .. tostring(element) .. "_" .. tostring(shape)
         ),
         "generic SIMD field access operands do not match"
     )
     local span = access.span ~= nil and scope.spans[access.span as string] or nil
     holds(
-        span ~= nil and (
-            (
-                span as scalarIR.Param
-            ).kind == rootKind or rootKind == "read_span" and (span as scalarIR.Param).kind == "write_span"
-        ) and (
-            span as scalarIR.Param
-        ).type == "struct:" .. tostring(
-            access.layout
-        ) and genericSimdFieldElement(scope, access.layout, access.field) == element,
+        span ~= nil
+        and (
+            (span as scalarIR.Param).kind == rootKind
+            or rootKind == "read_span" and (span as scalarIR.Param).kind == "write_span"
+        )
+        and (span as scalarIR.Param).type == "struct:" .. tostring(access.layout)
+        and genericSimdFieldElement(scope, access.layout, access.field) == element,
         "invalid generic SIMD field access root"
     )
     if access.cursor ~= nil then
@@ -939,11 +925,9 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
     elseif op == "field_load" then
         local layout = scope.layouts[node.layout]
         holds(
-            layout ~= nil and (
-                layout.fieldTypes or {}
-            )[
-                node.field
-            ] == node.type and (layout.fieldSourceTypes or {})[node.field] == storageSource(node.type, node.sourceType),
+            layout ~= nil
+            and (layout.fieldTypes or {})[node.field] == node.type
+            and (layout.fieldSourceTypes or {})[node.field] == storageSource(node.type, node.sourceType),
             "invalid struct field load"
         )
         scalarWalk(node.object, values, scope)
@@ -993,12 +977,10 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
                 local leftMin, leftMax = indexRange(pair.left)
                 local rightMin, rightMax = indexRange(pair.right)
                 if leftMin ~= nil and leftMax ~= nil and rightMin ~= nil and rightMax ~= nil then
-                    local low = operation == "u32_add" and (
-                        leftMin as number
-                    ) + (rightMin as number) or (leftMin as number) * (rightMin as number)
-                    local high = operation == "u32_add" and (
-                        leftMax as number
-                    ) + (rightMax as number) or (leftMax as number) * (rightMax as number)
+                    local low = operation == "u32_add" and (leftMin as number) + (rightMin as number)
+                        or (leftMin as number) * (rightMin as number)
+                    local high = operation == "u32_add" and (leftMax as number) + (rightMax as number)
+                        or (leftMax as number) * (rightMax as number)
                     if high <= 4294967295 then
                         return low, high
                     end
@@ -1036,17 +1018,17 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
             end
         end
         holds(
-            load.index.op == "local_index" or constant ~= nil and constant >= 0 and constant < counts[
-                load.shared
-            ] or minimum ~= nil and maximum ~= nil and minimum >= 0 and maximum < counts[
-                load.shared
-            ] or offset ~= nil and scope.localReadLimit ~= nil and offset >= 0 and (
-                scope.localReadLimit as integer
-            ) + offset <= counts[
-                load.shared
-            ] or back ~= nil and scope.localReadMinimum ~= nil and back >= 0 and (
-                scope.localReadMinimum as integer
-            ) >= back,
+            load.index.op == "local_index"
+            or constant ~= nil and constant >= 0 and constant < counts[load.shared]
+            or minimum ~= nil and maximum ~= nil and minimum >= 0 and maximum < counts[load.shared]
+            or offset ~= nil
+            and scope.localReadLimit ~= nil
+            and offset >= 0
+            and (scope.localReadLimit as integer) + offset <= counts[load.shared]
+            or back ~= nil
+            and scope.localReadMinimum ~= nil
+            and back >= 0
+            and (scope.localReadMinimum as integer) >= back,
             "workgroup scratch read is not proved in bounds"
         )
         scalarWalk(load.index, values, scope)
@@ -1059,9 +1041,9 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
         if named.lengthOf ~= nil then
             local bytes = scope.spans[named.lengthOf as string]
             holds(
-                bytes ~= nil and (
-                    (bytes as scalarIR.Param).type == "lua_string" or (bytes as scalarIR.Param).type == "lua_bytes"
-                ) and values[LENGTH_OF .. named.name] == named.lengthOf,
+                bytes ~= nil
+                and ((bytes as scalarIR.Param).type == "lua_string" or (bytes as scalarIR.Param).type == "lua_bytes")
+                and values[LENGTH_OF .. named.name] == named.lengthOf,
                 "invalid rooted length alias"
             )
         end
@@ -1082,9 +1064,9 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
             end
         elseif op == "simd_convert" or op == "simd_reinterpret" then
             holds(
-                #args == 1 and simd.intrinsic == (
-                    op == "simd_convert" and "convert" or "reinterpret"
-                ) and simdcast.matches(args[1].type, node.type, op == "simd_reinterpret"),
+                #args == 1
+                and simd.intrinsic == (op == "simd_convert" and "convert" or "reinterpret")
+                and simdcast.matches(args[1].type, node.type, op == "simd_reinterpret"),
                 "invalid generic SIMD conversion"
             )
         elseif op == "simd_tail" then
@@ -1120,9 +1102,9 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
                 -- species calls one over binary64.
                 local carrier = scalar == "f32" and "f64" or scalar
                 holds(
-                    #helper.params == #args and helper.resultType == carrier and (
-                        helper.resultTypes == nil or #(helper.resultTypes as {scalarIR.Type}) == 1
-                    ),
+                    #helper.params == #args
+                    and helper.resultType == carrier
+                    and (helper.resultTypes == nil or #(helper.resultTypes as {scalarIR.Type}) == 1),
                     "generic SIMD lane-wise helper does not take the element"
                 )
                 for _, param in ipairs(helper.params) do
@@ -1146,18 +1128,12 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
             holds(family == "vector" and (#args == 2 or #args == 3), "invalid generic SIMD load")
             holds(simd.intrinsic == "load" or simd.intrinsic == "gather", "invalid SIMD load addressing")
             holds(
-                args[
-                    1
-                ].type == "simd_species_" .. tostring(
-                    element
-                ) .. "_" .. tostring(
-                    shape
-                ) and (
-                    simd.intrinsic == "gather" and simdindices.matches(
-                        args[2].type,
-                        args[1].type
-                    ) or simd.intrinsic == "load" and args[2].type == "f64"
-                ) and (args[3] == nil or args[3].type == "simd_mask_" .. tostring(element) .. "_" .. tostring(shape)),
+                args[1].type == "simd_species_" .. tostring(element) .. "_" .. tostring(shape)
+                and (
+                    simd.intrinsic == "gather" and simdindices.matches(args[2].type, args[1].type)
+                    or simd.intrinsic == "load" and args[2].type == "f64"
+                )
+                and (args[3] == nil or args[3].type == "simd_mask_" .. tostring(element) .. "_" .. tostring(shape)),
                 "generic SIMD load operands do not match"
             )
             local span = simd.span ~= nil and scope.spans[simd.span as string] or nil
@@ -1170,21 +1146,24 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
                 -- is the one a rooted byte read is held to.
                 local rooted = simd.rooted as scalarIR.Name
                 holds(
-                    scope.entryMode == "lua-builder" and element == "u8" and span ~= nil and (
-                        span as scalarIR.Param
-                    ).kind == "scalar" and (
-                        (span as scalarIR.Param).type == "lua_string" or (span as scalarIR.Param).type == "lua_bytes"
-                    ) and rooted.op == "local" and rooted.name == simd.span and rooted.type == (
-                        span as scalarIR.Param
-                    ).type and rooted.cName ~= nil and rooted.cName == (span as scalarIR.Param).cName,
+                    scope.entryMode == "lua-builder"
+                    and element == "u8"
+                    and span ~= nil
+                    and (span as scalarIR.Param).kind == "scalar"
+                    and ((span as scalarIR.Param).type == "lua_string" or (span as scalarIR.Param).type == "lua_bytes")
+                    and rooted.op == "local"
+                    and rooted.name == simd.span
+                    and rooted.type == (span as scalarIR.Param).type
+                    and rooted.cName ~= nil
+                    and rooted.cName == (span as scalarIR.Param).cName,
                     "invalid rooted SIMD load root"
                 )
                 scalarWalk(rooted, values, scope)
             else
                 holds(
-                    span ~= nil and (
-                        (span as scalarIR.Param).kind == "read_span" or (span as scalarIR.Param).kind == "write_span"
-                    ) and genericSimdSpanElement(span as scalarIR.Param) == element,
+                    span ~= nil
+                    and ((span as scalarIR.Param).kind == "read_span" or (span as scalarIR.Param).kind == "write_span")
+                    and genericSimdSpanElement(span as scalarIR.Param) == element,
                     "invalid generic SIMD load root"
                 )
             end
@@ -1196,11 +1175,10 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
             end
         elseif op == "simd_binary" or op == "simd_unary" then
             holds(
-                (
-                    family == "vector" or family == "mask"
-                ) and #args == (
-                    op == "simd_unary" and 1 or 2
-                ) and args[1].type == node.type and (args[2] == nil or args[2].type == node.type),
+                (family == "vector" or family == "mask")
+                and #args == (op == "simd_unary" and 1 or 2)
+                and args[1].type == node.type
+                and (args[2] == nil or args[2].type == node.type),
                 "invalid generic SIMD operator"
             )
         elseif op == "simd_compare" then
@@ -1209,22 +1187,21 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
                 operandFamily, operandElement, operandShape = genericSimdType(args[1].type)
             end
             holds(
-                family == "mask" and #args == 2 and args[
-                    1
-                ].type == args[
-                    2
-                ].type and (
-                    operandFamily == "vector" or operandFamily == "mask"
-                ) and element == operandElement and shape == operandShape,
+                family == "mask"
+                and #args == 2
+                and args[1].type == args[2].type
+                and (operandFamily == "vector" or operandFamily == "mask")
+                and element == operandElement
+                and shape == operandShape,
                 "invalid generic SIMD comparison"
             )
         elseif op == "simd_select" then
             holds(
-                family == "vector" and #args == 3 and args[
-                    1
-                ].type == "simd_mask_" .. tostring(
-                    element
-                ) .. "_" .. tostring(shape) and args[2].type == node.type and args[3].type == node.type,
+                family == "vector"
+                and #args == 3
+                and args[1].type == "simd_mask_" .. tostring(element) .. "_" .. tostring(shape)
+                and args[2].type == node.type
+                and args[3].type == node.type,
                 "invalid generic SIMD select"
             )
         elseif op == "simd_extract" then
@@ -1233,16 +1210,19 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
                 vectorFamily, vectorElement = genericSimdType(args[1].type)
             end
             holds(
-                #args == 2 and vectorFamily == "vector" and node.type == genericSimdScalar(
-                    vectorElement
-                ) and args[2].type == "f64",
+                #args == 2
+                and vectorFamily == "vector"
+                and node.type == genericSimdScalar(vectorElement)
+                and args[2].type == "f64",
                 "invalid generic SIMD extract"
             )
         elseif op == "simd_insert" then
             holds(
-                family == "vector" and #args == 3 and args[
-                    1
-                ].type == node.type and args[2].type == "f64" and args[3].type == genericSimdScalar(element),
+                family == "vector"
+                and #args == 3
+                and args[1].type == node.type
+                and args[2].type == "f64"
+                and args[3].type == genericSimdScalar(element),
                 "invalid generic SIMD insert"
             )
         elseif op == "simd_permute" then
@@ -1258,9 +1238,8 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
             elseif intrinsic == "interleave" or intrinsic == "deinterleave" or intrinsic == "transpose" then
                 local rows = #args - 1
                 local part = args[#args]
-                local index = part ~= nil and part.op == "constant" and tonumber(
-                    (part as scalarIR.Constant).value
-                ) or nil
+                local index = part ~= nil and part.op == "constant" and tonumber((part as scalarIR.Constant).value)
+                    or nil
                 local valid = family == "vector"
                     and index ~= nil
                     and index >= 0
@@ -1293,18 +1272,19 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
             end
         elseif op == "simd_compress" or op == "simd_expand" then
             holds(
-                family == "vector" and #args == 2 and args[
-                    1
-                ].type == node.type and args[2].type == "simd_mask_" .. tostring(element) .. "_" .. tostring(shape),
+                family == "vector"
+                and #args == 2
+                and args[1].type == node.type
+                and args[2].type == "simd_mask_" .. tostring(element) .. "_" .. tostring(shape),
                 "invalid generic SIMD packing operation"
             )
         elseif op == "simd_prefix" then
             holds(
-                family == "vector" and #args == 1 and args[
-                    1
-                ].type == node.type and (
-                    simd.intrinsic == "prefix_sum_ordered" or simd.intrinsic == "prefix_xor"
-                ) and not (simd.intrinsic == "prefix_xor" and tostring(element):sub(1, 1) == "f"),
+                family == "vector"
+                and #args == 1
+                and args[1].type == node.type
+                and (simd.intrinsic == "prefix_sum_ordered" or simd.intrinsic == "prefix_xor")
+                and not (simd.intrinsic == "prefix_xor" and tostring(element):sub(1, 1) == "f"),
                 "invalid generic SIMD prefix operation"
             )
         elseif op == "simd_horizontal" then
@@ -1340,26 +1320,24 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
             local indexed = intrinsic:match("_arg_m[ai][xn]$") ~= nil
             local extremum = indexed or intrinsic:match("^propagating_m") ~= nil or intrinsic:match("^number_m") ~= nil
             holds(
-                vectorFamily == "vector" and #args == (
-                    dot and 2 or 1
-                ) and (
-                    args[2] == nil or args[2].type == args[1].type
-                ) and node.type == (
-                    indexed and "f64" or genericSimdScalar(vectorElement)
-                ) and admittedHorizontal[
-                    intrinsic
-                ] == true and (extremum or vectorElement == "f32" or vectorElement == "f64"),
+                vectorFamily == "vector"
+                and #args == (dot and 2 or 1)
+                and (args[2] == nil or args[2].type == args[1].type)
+                and node.type == (indexed and "f64" or genericSimdScalar(vectorElement))
+                and admittedHorizontal[intrinsic] == true
+                and (extremum or vectorElement == "f32" or vectorElement == "f64"),
                 "invalid generic SIMD horizontal operation"
             )
         else
             local maskFamily = args[1] ~= nil and genericSimdType(args[1].type) or nil
-            local result = (
-                op == "simd_mask_any" or op == "simd_mask_all"
-            ) and "bool" or op == "simd_mask_count" and "u32" or op == "simd_mask_first" and "u32" or nil
+            local result = (op == "simd_mask_any" or op == "simd_mask_all") and "bool"
+                or op == "simd_mask_count" and "u32"
+                or op == "simd_mask_first" and "u32"
+                or nil
             holds(
-                #args == 1 and maskFamily == "mask" and (
-                    node.type == result or op == "simd_mask_bits" and node.type == "u64"
-                ),
+                #args == 1
+                and maskFamily == "mask"
+                and (node.type == result or op == "simd_mask_bits" and node.type == "u64"),
                 "invalid generic SIMD mask query"
             )
         end
@@ -1481,9 +1459,7 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
                 "unsupported fresh-table literal key"
             )
             holds(
-                verify.NUMERIC[
-                    field.value.type
-                ] == true
+                verify.NUMERIC[field.value.type] == true
                 or field.value.type == "bool"
                 or field.value.type == "lua_nil"
                 or field.value.type == "lua_string"
@@ -1495,9 +1471,8 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
         local builder = node as scalarIR.LuaBuilder
         holds(scope.entryMode == "lua-builder" and node.type == "lua_builder", "value stream outside a builder")
         holds(
-            (
-                builder.mode == "eager" or builder.mode == "pull" or builder.mode == "serde"
-            ) and scope.builderMode == builder.mode,
+            (builder.mode == "eager" or builder.mode == "pull" or builder.mode == "serde")
+            and scope.builderMode == builder.mode,
             "unknown or inconsistent value stream mode"
         )
         holds(
@@ -1507,11 +1482,10 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
         scalarWalk(builder.nullValue, values, scope)
         if builder.maxDepth ~= nil or builder.stringCapacity ~= nil then
             holds(
-                builder.maxDepth ~= nil and (
-                    builder.maxDepth as scalarIR.Expr
-                ).type == "u32" and builder.stringCapacity ~= nil and (
-                    builder.stringCapacity as scalarIR.Expr
-                ).type == "u32",
+                builder.maxDepth ~= nil
+                and (builder.maxDepth as scalarIR.Expr).type == "u32"
+                and builder.stringCapacity ~= nil
+                and (builder.stringCapacity as scalarIR.Expr).type == "u32",
                 "sized value stream has invalid bounds"
             )
             scalarWalk(builder.maxDepth as scalarIR.Expr, values, scope)
@@ -1519,9 +1493,10 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
         end
         if builder.arrayMarker ~= nil or builder.objectMarker ~= nil then
             holds(
-                builder.arrayMarker ~= nil and builder.objectMarker ~= nil and (
-                    builder.arrayMarker as scalarIR.Expr
-                ).type == "lua_value" and (builder.objectMarker as scalarIR.Expr).type == "lua_value",
+                builder.arrayMarker ~= nil
+                and builder.objectMarker ~= nil
+                and (builder.arrayMarker as scalarIR.Expr).type == "lua_value"
+                and (builder.objectMarker as scalarIR.Expr).type == "lua_value",
                 "value stream container markers are not rooted"
             )
             scalarWalk(builder.arrayMarker as scalarIR.Expr, values, scope)
@@ -1529,17 +1504,15 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
         end
         if builder.selectionShape ~= nil or builder.arrayShapeMarker ~= nil or builder.serdeMarkers ~= nil then
             holds(
-                builder.selectionShape ~= nil and builder.arrayShapeMarker ~= nil and (
-                    builder.selectionShape as scalarIR.Expr
-                ).type == "lua_value" and (
-                    builder.selectionShape as scalarIR.Expr
-                ).op == "local" and (
-                    builder.arrayShapeMarker as scalarIR.Expr
-                ).type == "lua_value" and (
-                    builder.arrayShapeMarker as scalarIR.Expr
-                ).op == "local" and builder.serdeMarkers ~= nil and (
-                    builder.serdeMarkers as scalarIR.Expr
-                ).type == "lua_value" and (builder.serdeMarkers as scalarIR.Expr).op == "local",
+                builder.selectionShape ~= nil
+                and builder.arrayShapeMarker ~= nil
+                and (builder.selectionShape as scalarIR.Expr).type == "lua_value"
+                and (builder.selectionShape as scalarIR.Expr).op == "local"
+                and (builder.arrayShapeMarker as scalarIR.Expr).type == "lua_value"
+                and (builder.arrayShapeMarker as scalarIR.Expr).op == "local"
+                and builder.serdeMarkers ~= nil
+                and (builder.serdeMarkers as scalarIR.Expr).type == "lua_value"
+                and (builder.serdeMarkers as scalarIR.Expr).op == "local",
                 "pull value stream selection is not rooted"
             )
             scalarWalk(builder.selectionShape as scalarIR.Expr, values, scope)
@@ -1560,7 +1533,8 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
         )
         holds(loaded.index.type == "u32", "scratch read index is not uint32")
         holds(
-            loaded.cursor == nil and loaded.cursorCName == nil or cursorRead(
+            loaded.cursor == nil and loaded.cursorCName == nil
+            or cursorRead(
                 loaded.index,
                 loaded.cursor,
                 loaded.cursorCName,
@@ -1644,9 +1618,8 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
         )
         scalarWalk(finished.builder, values, scope)
         holds(
-            (
-                finished.mode == "eager" or finished.mode == "pull" or finished.mode == "serde"
-            ) and scope.builderMode == finished.mode,
+            (finished.mode == "eager" or finished.mode == "pull" or finished.mode == "serde")
+            and scope.builderMode == finished.mode,
             "unknown or inconsistent finished value stream mode"
         )
     elseif op == "lua_builder_depth"
@@ -1662,9 +1635,8 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
         )
         scalarWalk(query.builder, values, scope)
         holds(
-            (
-                query.mode == "eager" or query.mode == "pull" or query.mode == "serde"
-            ) and scope.builderMode == query.mode,
+            (query.mode == "eager" or query.mode == "pull" or query.mode == "serde")
+            and scope.builderMode == query.mode,
             "unknown or inconsistent queried value stream mode"
         )
     elseif op == "lua_builder_number_token" then
@@ -1675,16 +1647,14 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
             "number token has no local builder"
         )
         holds(
-            (
-                number.sourceBytes.type == "lua_string" or number.sourceBytes.type == "lua_bytes"
-            ) and number.sourceBytes.op == "local",
+            (number.sourceBytes.type == "lua_string" or number.sourceBytes.type == "lua_bytes")
+            and number.sourceBytes.op == "local",
             "number token input is not rooted bytes"
         )
         holds(number.start.type == "u32" and number.limit.type == "u32", "number token bounds are not uint32")
         holds(
-            (
-                number.mode == "eager" or number.mode == "pull" or number.mode == "serde"
-            ) and scope.builderMode == number.mode,
+            (number.mode == "eager" or number.mode == "pull" or number.mode == "serde")
+            and scope.builderMode == number.mode,
             "unknown or inconsistent number token mode"
         )
         scalarWalk(number.builder, values, scope)
@@ -1730,9 +1700,10 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
         local reducer = node as scalarIR.ReducerAdd
         local element = reducers.input(reducer.reducer.type, reducer.order, reducer.operation)
         holds(
-            reducer.reducer.op == "local" and reducer.value.type == element and (
-                reducer.operation == "dot"
-            ) == (reducer.right ~= nil) and (reducer.right == nil or (reducer.right as scalarIR.Expr).type == "f64"),
+            reducer.reducer.op == "local"
+            and reducer.value.type == element
+            and (reducer.operation == "dot") == (reducer.right ~= nil)
+            and (reducer.right == nil or (reducer.right as scalarIR.Expr).type == "f64"),
             "invalid reducer contribution"
         )
         local named = reducer.reducer as scalarIR.Name
@@ -1746,10 +1717,9 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
         local reducer = node as scalarIR.ReducerValue
         local element = reducers.input(reducer.reducer.type, reducer.order, reducer.operation)
         holds(
-            reducer.reducer.op == "local" and element ~= nil and reducer.type == reducers.result(
-                reducer.operation,
-                element as string
-            ),
+            reducer.reducer.op == "local"
+            and element ~= nil
+            and reducer.type == reducers.result(reducer.operation, element as string),
             "invalid reducer finalization"
         )
         local named = reducer.reducer as scalarIR.Name
@@ -1795,15 +1765,12 @@ local function assignment(
         local layout = scope.layouts[tostring(target.layout)]
         local object = target.object
         holds(
-            object ~= nil and (
-                object as scalarIR.ElementRef
-            ).mutable == true and layout ~= nil and (
-                layout as scalarIR.Layout
-            ).fieldTypes ~= nil and (
-                (layout as scalarIR.Layout).fieldTypes or {}
-            )[
-                tostring(target.field)
-            ] == target.type and (
+            object ~= nil
+            and (object as scalarIR.ElementRef).mutable == true
+            and layout ~= nil
+            and (layout as scalarIR.Layout).fieldTypes ~= nil
+            and ((layout as scalarIR.Layout).fieldTypes or {})[tostring(target.field)] == target.type
+            and (
                 (layout as scalarIR.Layout).fieldSourceTypes or {}
             )[tostring(target.field)] == storageSource(tostring(target.type), target.sourceType),
             "invalid field assignment target"
@@ -1829,14 +1796,8 @@ local function provesCursorBound(
 ): boolean
     if condition.op == "and" then
         local binary = condition as scalarIR.Binary
-        return provesCursorBound(
-            binary.left,
-            cursor,
-            spanName,
-            room,
-            values,
-            scope
-        ) or provesCursorBound(binary.right, cursor, spanName, room, values, scope)
+        return provesCursorBound(binary.left, cursor, spanName, room, values, scope)
+            or provesCursorBound(binary.right, cursor, spanName, room, values, scope)
     elseif condition.op == "le" then
         local boundCursor, boundSpans, speciesType = laneBound(condition as scalarIR.Binary, values, scope)
         if boundCursor ~= cursor or speciesType ~= room then
@@ -1854,19 +1815,16 @@ local function provesCursorBound(
     elseif condition.op == "lt" then
         local comparison = condition as scalarIR.Binary
         local right = comparison.right
-        return (
-            comparison.left.op == "local" or comparison.left.op == "uniform"
-        ) and (
-            comparison.left as scalarIR.Name
-        ).name == cursor and (
-            right.op == "span_count" and (
-                right as scalarIR.SpanCount
-            ).span == spanName or right.op == "local" and (
-                values[
-                    LENGTH_OF .. (right as scalarIR.Name).name
-                ] == spanName or values[SCRATCH_LENGTH .. (right as scalarIR.Name).name] == spanName
+        return (comparison.left.op == "local" or comparison.left.op == "uniform")
+            and (comparison.left as scalarIR.Name).name == cursor
+            and (
+                right.op == "span_count" and (right as scalarIR.SpanCount).span == spanName
+                or right.op == "local"
+                and (
+                    values[LENGTH_OF .. (right as scalarIR.Name).name] == spanName
+                    or values[SCRATCH_LENGTH .. (right as scalarIR.Name).name] == spanName
+                )
             )
-        )
     else
         return false
     end
@@ -1903,17 +1861,17 @@ local function proveCursorBounds(
         for spanName, room in pairs(spans) do
             local root = scope.spans[spanName]
             holds(
-                values[
-                    name
-                ] == "u32" and (
-                    root ~= nil and (
-                        (
-                            root as scalarIR.Param
-                        ).region ~= nil or (
-                            root as scalarIR.Param
-                        ).type == "lua_string" or (root as scalarIR.Param).type == "lua_bytes"
-                    ) or values[spanName] == "lua_scratch_u32"
-                ) and provesCursorBound(condition, name, spanName, room, values, scope),
+                values[name] == "u32"
+                and (
+                    root ~= nil
+                    and (
+                        (root as scalarIR.Param).region ~= nil
+                        or (root as scalarIR.Param).type == "lua_string"
+                        or (root as scalarIR.Param).type == "lua_bytes"
+                    )
+                    or values[spanName] == "lua_scratch_u32"
+                )
+                and provesCursorBound(condition, name, spanName, room, values, scope),
                 why .. " for " .. name .. " against " .. spanName
             )
             withBound(cursorBounds, name, spanName, room)
@@ -1958,9 +1916,7 @@ local function nativeSwitch(statement: scalarIR.If, values: {[string]: string}, 
             local test = tests[index]
             local equal = test.op == "eq" and test as scalarIR.Binary or nil
             local left = equal ~= nil and equal.left.op == "local" and equal.left as scalarIR.Name or nil
-            local right = equal ~= nil
-                and equal.right.op == "constant_i32"
-                and equal.right as scalarIR.IntConstant
+            local right = equal ~= nil and equal.right.op == "constant_i32" and equal.right as scalarIR.IntConstant
                 or nil
             holds(
                 label.type == selector.type
@@ -2124,25 +2080,21 @@ local function block(
             end
         elseif statement.op == "store" then
             local param = scope.spans[statement.span]
-            local bounded = statement.cursor ~= nil and statement.index == "" and values[
-                statement.cursor as string
-            ] == "u32" and boundRoom(
-                scope.cursorBounds,
-                statement.cursor,
-                param ~= nil and param.soa ~= nil and param.soa.view or statement.span
-            ) ~= nil
+            local bounded = statement.cursor ~= nil
+                and statement.index == ""
+                and values[statement.cursor as string] == "u32"
+                and boundRoom(
+                    scope.cursorBounds,
+                    statement.cursor,
+                    param ~= nil and param.soa ~= nil and param.soa.view or statement.span
+                ) ~= nil
                 and statement.cursorCName ~= nil
                 or statement.cursor == nil
                 and statement.index == scope.index
                 and (
-                    scope.mapIndex == true and (
-                        scope.indexSpans as {[string]: boolean}
-                    )[
-                        statement.span
-                    ] == true or statement.span == scope.boundSpan or scalarIR.sameSoaView(
-                        param,
-                        scope.spans[tostring(scope.boundSpan)]
-                    )
+                    scope.mapIndex == true and (scope.indexSpans as {[string]: boolean})[statement.span] == true
+                    or statement.span == scope.boundSpan
+                    or scalarIR.sameSoaView(param, scope.spans[tostring(scope.boundSpan)])
                 )
             holds(scope.writes[statement.span] == true and bounded, "invalid store root")
             scalarWalk(statement.value, values, scope)
@@ -2152,9 +2104,11 @@ local function block(
             local write = statement as scalarIR.SharedStore
             local shared = scope.shared or {}
             holds(
-                scope.workgroup == true and scope.inPhase == true and shared[
-                    write.shared
-                ] == write.value.type and write.index.op == "local_index" and write.index.type == "u32",
+                scope.workgroup == true
+                and scope.inPhase == true
+                and shared[write.shared] == write.value.type
+                and write.index.op == "local_index"
+                and write.index.type == "u32",
                 "invalid structurally disjoint workgroup scratch write"
             )
             scalarWalk(write.index, values, scope)
@@ -2243,9 +2197,10 @@ local function block(
                     return nil
                 end
                 local added = right.index as scalarIR.Fixed
-                if added.left.op ~= "local_index" or added.right.op ~= "constant_i32" or (
-                    added.right as scalarIR.IntConstant
-                ).value ~= stride then
+                if added.left.op ~= "local_index"
+                    or added.right.op ~= "constant_i32"
+                    or (added.right as scalarIR.IntConstant).value ~= stride
+                then
                     return nil
                 end
 
@@ -2269,9 +2224,7 @@ local function block(
             scalarWalk(write.value, values, scope)
             holds(verify.NUMERIC[write.key.type] == true or write.key.type == "lua_string", "unsupported Lua table key")
             holds(
-                verify.NUMERIC[
-                    write.value.type
-                ] == true
+                verify.NUMERIC[write.value.type] == true
                 or write.value.type == "bool"
                 or write.value.type == "lua_table"
                 or write.value.type == "lua_string"
@@ -2300,29 +2253,23 @@ local function block(
                 holds(simdindices.unique(store.args[2]), "SIMD scatter lost its index uniqueness proof")
             end
             holds(
-                vectorFamily == "vector" and store.args[
-                    1
-                ].type == "simd_species_" .. tostring(
-                    element
-                ) .. "_" .. tostring(
-                    shape
-                ) and (
-                    store.intrinsic ~= "store" and simdindices.matches(
-                        store.args[2].type,
-                        store.args[1].type
-                    ) or store.intrinsic == "store" and store.args[2].type == "f64"
-                ) and (
-                    store.args[
-                        4
-                    ] == nil or store.args[4].type == "simd_mask_" .. tostring(element) .. "_" .. tostring(shape)
+                vectorFamily == "vector"
+                and store.args[1].type == "simd_species_" .. tostring(element) .. "_" .. tostring(shape)
+                and (
+                    store.intrinsic ~= "store" and simdindices.matches(store.args[2].type, store.args[1].type)
+                    or store.intrinsic == "store" and store.args[2].type == "f64"
+                )
+                and (
+                    store.args[4] == nil
+                    or store.args[4].type == "simd_mask_" .. tostring(element) .. "_" .. tostring(shape)
                 ),
                 "generic SIMD store operands do not match"
             )
             local span = store.span ~= nil and scope.spans[store.span as string] or nil
             holds(
-                span ~= nil and (
-                    span as scalarIR.Param
-                ).kind == "write_span" and genericSimdSpanElement(span as scalarIR.Param) == element,
+                span ~= nil
+                and (span as scalarIR.Param).kind == "write_span"
+                and genericSimdSpanElement(span as scalarIR.Param) == element,
                 "invalid generic SIMD store root"
             )
             if store.cursor ~= nil then
@@ -2347,9 +2294,7 @@ local function block(
             holds(accumulated ~= nil, "a SIMD reducer contribution outside a region accumulating its reducer")
             local entry = accumulated as scalarIR.SimdRegionReducer
             holds(
-                values[
-                    named.name
-                ] == contribution.reducer.type
+                values[named.name] == contribution.reducer.type
                 and entry.order == contribution.order
                 and entry.operation == contribution.operation
                 and entry.element == contribution.element,
@@ -2357,20 +2302,11 @@ local function block(
             )
             local family, element, shape = genericSimdType(entry.vectorType)
             holds(
-                family == (
-                    entry.element == "bool" and "mask" or "vector"
-                )
+                family == (entry.element == "bool" and "mask" or "vector")
                 and contribution.value.type == entry.vectorType
-                and contribution.mask.type == "simd_mask_"
-                .. tostring(
-                    element
-                ) .. "_" .. tostring(
-                    shape
-                ) and (
-                    contribution.operation == "dot"
-                ) == (
-                    contribution.right ~= nil
-                ) and (contribution.right == nil or (contribution.right as scalarIR.Expr).type == entry.vectorType),
+                and contribution.mask.type == "simd_mask_" .. tostring(element) .. "_" .. tostring(shape)
+                and (contribution.operation == "dot") == (contribution.right ~= nil)
+                and (contribution.right == nil or (contribution.right as scalarIR.Expr).type == entry.vectorType),
                 "SIMD reducer contribution operands do not match"
             )
             scalarWalk(contribution.reducer, values, scope)
@@ -2399,11 +2335,8 @@ local function block(
                 -- A predicate reducer takes a mask of whichever element carries
                 -- control; every other one takes a vector of its own element.
                 holds(
-                    (
-                        input == "bool" and family == "mask" or family == "vector" and genericSimdScalar(
-                            element
-                        ) == input
-                    ) and VECTOR_CONTRIBUTIONS[entry.operation] == true,
+                    (input == "bool" and family == "mask" or family == "vector" and genericSimdScalar(element) == input)
+                    and VECTOR_CONTRIBUTIONS[entry.operation] == true,
                     "a SIMD region's reducer takes no vector contribution"
                 )
                 accumulated[entry.name] = entry
@@ -2444,16 +2377,16 @@ local function block(
             )
             scalarWalk(write.scratch, values, scope)
             holds(
-                statement.op ~= "lua_scratch_u8_reset" or values[
-                    FIXED_WIDTH .. tostring((write.scratch as scalarIR.Name).name)
-                ] == nil,
+                statement.op ~= "lua_scratch_u8_reset"
+                or values[FIXED_WIDTH .. tostring((write.scratch as scalarIR.Name).name)] == nil,
                 "a fixed byte scratch cannot be reset"
             )
             if statement.op == "lua_scratch_u8_set" or statement.op == "lua_scratch_u8_set4" then
                 holds(
-                    write.index ~= nil and (
-                        write.index as scalarIR.Expr
-                    ).type == "u32" and write.value ~= nil and (write.value as scalarIR.Expr).type == "u32",
+                    write.index ~= nil
+                    and (write.index as scalarIR.Expr).type == "u32"
+                    and write.value ~= nil
+                    and (write.value as scalarIR.Expr).type == "u32",
                     "invalid byte scratch write"
                 )
                 holds(
@@ -2477,9 +2410,8 @@ local function block(
             )
             scalarWalk(event.builder, values, scope)
             holds(
-                (
-                    event.mode == "eager" or event.mode == "pull" or event.mode == "serde"
-                ) and scope.builderMode == event.mode,
+                (event.mode == "eager" or event.mode == "pull" or event.mode == "serde")
+                and scope.builderMode == event.mode,
                 "unknown or inconsistent value stream event mode"
             )
             if event.op == "lua_builder_open_array" or event.op == "lua_builder_open_object" then
@@ -2490,15 +2422,17 @@ local function block(
                 scalarWalk(event.capacity as scalarIR.Expr, values, scope)
             elseif event.op == "lua_builder_key" or event.op == "lua_builder_string" then
                 holds(
-                    event.sourceBytes ~= nil and (
-                        (
-                            event.sourceBytes as scalarIR.Expr
-                        ).type == "lua_string" or (event.sourceBytes as scalarIR.Expr).type == "lua_bytes"
-                    ) and event.start ~= nil and (
-                        event.start as scalarIR.Expr
-                    ).type == "u32" and event.length ~= nil and (
-                        event.length as scalarIR.Expr
-                    ).type == "u32" and event.escaped ~= nil and (event.escaped as scalarIR.Expr).type == "bool",
+                    event.sourceBytes ~= nil
+                    and (
+                        (event.sourceBytes as scalarIR.Expr).type == "lua_string"
+                        or (event.sourceBytes as scalarIR.Expr).type == "lua_bytes"
+                    )
+                    and event.start ~= nil
+                    and (event.start as scalarIR.Expr).type == "u32"
+                    and event.length ~= nil
+                    and (event.length as scalarIR.Expr).type == "u32"
+                    and event.escaped ~= nil
+                    and (event.escaped as scalarIR.Expr).type == "bool",
                     "invalid value stream string event"
                 )
                 for _, value in ipairs({event.sourceBytes, event.start, event.length, event.escaped}) do
@@ -2506,13 +2440,15 @@ local function block(
                 end
             elseif event.op == "lua_builder_number_slice" or event.op == "lua_builder_integer_slice" then
                 holds(
-                    event.sourceBytes ~= nil and (
-                        (
-                            event.sourceBytes as scalarIR.Expr
-                        ).type == "lua_string" or (event.sourceBytes as scalarIR.Expr).type == "lua_bytes"
-                    ) and event.start ~= nil and (
-                        event.start as scalarIR.Expr
-                    ).type == "u32" and event.length ~= nil and (event.length as scalarIR.Expr).type == "u32",
+                    event.sourceBytes ~= nil
+                    and (
+                        (event.sourceBytes as scalarIR.Expr).type == "lua_string"
+                        or (event.sourceBytes as scalarIR.Expr).type == "lua_bytes"
+                    )
+                    and event.start ~= nil
+                    and (event.start as scalarIR.Expr).type == "u32"
+                    and event.length ~= nil
+                    and (event.length as scalarIR.Expr).type == "u32",
                     "invalid value stream number slice"
                 )
                 for _, value in ipairs({event.sourceBytes, event.start, event.length}) do
@@ -2520,11 +2456,12 @@ local function block(
                 end
             elseif event.op == "lua_builder_key_scratch" or event.op == "lua_builder_string_scratch" then
                 holds(
-                    event.scratch ~= nil and (
-                        event.scratch as scalarIR.Expr
-                    ).type == "lua_scratch_u8" and event.start ~= nil and (
-                        event.start as scalarIR.Expr
-                    ).type == "u32" and event.length ~= nil and (event.length as scalarIR.Expr).type == "u32",
+                    event.scratch ~= nil
+                    and (event.scratch as scalarIR.Expr).type == "lua_scratch_u8"
+                    and event.start ~= nil
+                    and (event.start as scalarIR.Expr).type == "u32"
+                    and event.length ~= nil
+                    and (event.length as scalarIR.Expr).type == "u32",
                     "invalid value stream scratch string event"
                 )
                 scalarWalk(event.scratch as scalarIR.Expr, values, scope)
@@ -2532,19 +2469,21 @@ local function block(
                 scalarWalk(event.length as scalarIR.Expr, values, scope)
             elseif event.op == "lua_builder_key_escapes" or event.op == "lua_builder_string_escapes" then
                 holds(
-                    event.sourceBytes ~= nil and (
-                        (
-                            event.sourceBytes as scalarIR.Expr
-                        ).type == "lua_string" or (event.sourceBytes as scalarIR.Expr).type == "lua_bytes"
-                    ) and event.start ~= nil and (
-                        event.start as scalarIR.Expr
-                    ).type == "u32" and event.length ~= nil and (
-                        event.length as scalarIR.Expr
-                    ).type == "u32" and event.escapeScratch ~= nil and (
-                        event.escapeScratch as scalarIR.Expr
-                    ).type == "lua_scratch_u32" and event.escapeIndex ~= nil and (
-                        event.escapeIndex as scalarIR.Expr
-                    ).type == "u32" and event.escapeCount ~= nil and (event.escapeCount as scalarIR.Expr).type == "u32",
+                    event.sourceBytes ~= nil
+                    and (
+                        (event.sourceBytes as scalarIR.Expr).type == "lua_string"
+                        or (event.sourceBytes as scalarIR.Expr).type == "lua_bytes"
+                    )
+                    and event.start ~= nil
+                    and (event.start as scalarIR.Expr).type == "u32"
+                    and event.length ~= nil
+                    and (event.length as scalarIR.Expr).type == "u32"
+                    and event.escapeScratch ~= nil
+                    and (event.escapeScratch as scalarIR.Expr).type == "lua_scratch_u32"
+                    and event.escapeIndex ~= nil
+                    and (event.escapeIndex as scalarIR.Expr).type == "u32"
+                    and event.escapeCount ~= nil
+                    and (event.escapeCount as scalarIR.Expr).type == "u32",
                     "invalid value stream indexed escape event"
                 )
                 for _, value in ipairs({
@@ -2562,30 +2501,33 @@ local function block(
                 scalarWalk(event.value as scalarIR.Expr, values, scope)
             elseif event.op == "lua_builder_integer64" then
                 holds(
-                    event.value ~= nil and (
-                        event.value as scalarIR.Expr
-                    ).type == "u64" and event.negative ~= nil and (event.negative as scalarIR.Expr).type == "bool",
+                    event.value ~= nil
+                    and (event.value as scalarIR.Expr).type == "u64"
+                    and event.negative ~= nil
+                    and (event.negative as scalarIR.Expr).type == "bool",
                     "invalid streamed uint64 integer"
                 )
                 scalarWalk(event.value as scalarIR.Expr, values, scope)
                 scalarWalk(event.negative as scalarIR.Expr, values, scope)
             elseif event.op == "lua_builder_decimal64" then
                 holds(
-                    event.sourceBytes ~= nil and (
-                        (
-                            event.sourceBytes as scalarIR.Expr
-                        ).type == "lua_string" or (event.sourceBytes as scalarIR.Expr).type == "lua_bytes"
-                    ) and event.start ~= nil and (
-                        event.start as scalarIR.Expr
-                    ).type == "u32" and event.length ~= nil and (
-                        event.length as scalarIR.Expr
-                    ).type == "u32" and event.value ~= nil and (
-                        event.value as scalarIR.Expr
-                    ).type == "u64" and event.exponent ~= nil and (
-                        event.exponent as scalarIR.Expr
-                    ).type == "i32" and event.negative ~= nil and (
-                        event.negative as scalarIR.Expr
-                    ).type == "bool" and event.exact ~= nil and (event.exact as scalarIR.Expr).type == "bool",
+                    event.sourceBytes ~= nil
+                    and (
+                        (event.sourceBytes as scalarIR.Expr).type == "lua_string"
+                        or (event.sourceBytes as scalarIR.Expr).type == "lua_bytes"
+                    )
+                    and event.start ~= nil
+                    and (event.start as scalarIR.Expr).type == "u32"
+                    and event.length ~= nil
+                    and (event.length as scalarIR.Expr).type == "u32"
+                    and event.value ~= nil
+                    and (event.value as scalarIR.Expr).type == "u64"
+                    and event.exponent ~= nil
+                    and (event.exponent as scalarIR.Expr).type == "i32"
+                    and event.negative ~= nil
+                    and (event.negative as scalarIR.Expr).type == "bool"
+                    and event.exact ~= nil
+                    and (event.exact as scalarIR.Expr).type == "bool",
                     "invalid streamed decimal64"
                 )
                 for _, value in ipairs({
@@ -2707,11 +2649,10 @@ local function block(
             nestedScope.indexSpans = nil
             if statement.boundSpan ~= nil then
                 holds(
-                    statement.from.op == "constant_i32" and (
-                        tonumber((statement.from as scalarIR.IntConstant).value) or 0
-                    ) >= 1 and statement.to.op == "span_count" and (
-                        statement.to as scalarIR.SpanCount
-                    ).span == statement.boundSpan,
+                    statement.from.op == "constant_i32"
+                    and (tonumber((statement.from as scalarIR.IntConstant).value) or 0) >= 1
+                    and statement.to.op == "span_count"
+                    and (statement.to as scalarIR.SpanCount).span == statement.boundSpan,
                     "invalid counted span loop proof"
                 )
             end
@@ -2913,17 +2854,15 @@ local function signature(
             )
         elseif param.kind == "scalar" then
             holds(
-                program.entryMode == "lua-builder" and (
-                    param.type == "lua_string" or param.type == "lua_bytes" or param.type == "lua_value"
-                ) and param.region == nil,
+                program.entryMode == "lua-builder"
+                and (param.type == "lua_string" or param.type == "lua_bytes" or param.type == "lua_value")
+                and param.region == nil,
                 "invalid Lua builder scalar"
             )
         else
             local structName = param.type:match("^struct:(.+)$")
-            local element = structName == nil and validStorage(
-                param.type,
-                param.sourceType
-            ) or structName ~= nil and param.sourceType == nil and layouts[tostring(structName)] ~= nil
+            local element = structName == nil and validStorage(param.type, param.sourceType)
+                or structName ~= nil and param.sourceType == nil and layouts[tostring(structName)] ~= nil
             holds(element and param.region ~= nil and byRegion[tostring(param.region)] == nil, "invalid IR span")
             holds(param.access == (param.kind == "write_span" and "readwrite" or "read"), "invalid IR region access")
             byRegion[tostring(param.region)] = param
@@ -2959,11 +2898,12 @@ local function signature(
             else
                 local first = prior[1]
                 holds(
-                    previousView == column.view and column.ordinal == #prior + 1 and column.layout == (
-                        first.soa as scalarIR.SoaColumn
-                    ).layout and column.sourceType == (
-                        first.soa as scalarIR.SoaColumn
-                    ).sourceType and param.kind == first.kind and param.ownership == first.ownership,
+                    previousView == column.view
+                    and column.ordinal == #prior + 1
+                    and column.layout == (first.soa as scalarIR.SoaColumn).layout
+                    and column.sourceType == (first.soa as scalarIR.SoaColumn).sourceType
+                    and param.kind == first.kind
+                    and param.ownership == first.ownership,
                     "inconsistent SoA column mapping"
                 )
             end
@@ -3021,9 +2961,8 @@ local function regions(program: scalarIR.Program, byRegion: {[string]: scalarIR.
         local key = fact.left < fact.right and fact.left .. ":" .. fact.right or fact.right .. ":" .. fact.left
         holds(seen[key] == nil, "duplicate alias fact")
 
-        local hasWrite = (
-            byRegion[fact.left] as scalarIR.Param
-        ).kind == "write_span" or (byRegion[fact.right] as scalarIR.Param).kind == "write_span"
+        local hasWrite = (byRegion[fact.left] as scalarIR.Param).kind == "write_span"
+            or (byRegion[fact.right] as scalarIR.Param).kind == "write_span"
         local siblings = scalarIR.sameSoaView(byRegion[fact.left], byRegion[fact.right])
         holds(fact.relation == ((hasWrite or siblings) and "disjoint" or "may_alias"), "invalid alias relationship")
         holds(
@@ -3121,13 +3060,10 @@ local function bounds(
             "loop range proof mismatch"
         )
         holds(
-            byName[
-                guard.first
-            ] ~= nil and (
-                byName[guard.first] as scalarIR.Param
-            ).sourceType == "integer" and byName[
-                guard.last
-            ] ~= nil and (byName[guard.last] as scalarIR.Param).sourceType == "integer",
+            byName[guard.first] ~= nil
+            and (byName[guard.first] as scalarIR.Param).sourceType == "integer"
+            and byName[guard.last] ~= nil
+            and (byName[guard.last] as scalarIR.Param).sourceType == "integer",
             "range proof does not use integer uniforms"
         )
         local first, last = relations.uniform(guard.first), relations.uniform(guard.last)
@@ -3199,9 +3135,8 @@ local function helperBodies(program: scalarIR.Program, scope: verify.Scope): nil
             values[constant.cName] = "lua_string"
         end
         holds(
-            helper.native == true or #helper.values == #helper.resultTypes and helper.resultType == helper.resultTypes[
-                1
-            ],
+            helper.native == true
+            or #helper.values == #helper.resultTypes and helper.resultType == helper.resultTypes[1],
             "helper result mismatch"
         )
         for position, value in ipairs(helper.values) do
@@ -3419,9 +3354,9 @@ function verify.program(program: scalarIR.Program): scalarIR.Program
     holds(program.entryMode == "kernel" or program.entryMode == "lua-builder", "invalid AOT entry mode")
     if program.entryMode == "lua-builder" then
         holds(
-            program.runtimeAbi == "lua-5.1" and program.registrar ~= nil and (
-                program.registrar as string
-            ):match("^ks_register_[0-9a-f]+$") ~= nil,
+            program.runtimeAbi == "lua-5.1"
+            and program.registrar ~= nil
+            and (program.registrar as string):match("^ks_register_[0-9a-f]+$") ~= nil,
             "invalid Lua builder registration ABI"
         )
         for _, param in ipairs(program.params) do
@@ -3477,9 +3412,7 @@ function verify.program(program: scalarIR.Program): scalarIR.Program
             and phased.size >= 1
             and phased.size <= 256
             and phased.groups.type == "u32"
-            and byName[
-                phased.dispatchSpan
-            ] ~= nil,
+            and byName[phased.dispatchSpan] ~= nil,
             "invalid GPU workgroup contract"
         )
         local scratchTypes: {[string]: scalarIR.Type} = {}
@@ -3506,9 +3439,10 @@ function verify.program(program: scalarIR.Program): scalarIR.Program
     holds(#resultTypes == #sourceResults, "invalid AOT entry results")
     for _, resultType in ipairs(resultTypes) do
         holds(
-            verify.NUMERIC[
-                resultType
-            ] == true or resultType == "bool" or program.entryMode == "lua-builder" and (
+            verify.NUMERIC[resultType] == true
+            or resultType == "bool"
+            or program.entryMode == "lua-builder"
+            and (
                 resultType == "lua_table"
                 or resultType == "lua_string"
                 or resultType == "lua_nil"

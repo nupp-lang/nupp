@@ -278,10 +278,8 @@ local function substringArguments(context: emit.Context, sliced: scalarIR.LuaSub
         context,
         sliced.first
     ) .. ", " .. (
-        sliced.last ~= nil and emit.scalar(
-            context,
-            sliced.last as scalarIR.Expr
-        ) or "(double)ks_length_" .. tostring(bytes.cName)
+        sliced.last ~= nil and emit.scalar(context, sliced.last as scalarIR.Expr)
+        or "(double)ks_length_" .. tostring(bytes.cName)
     )
 end
 
@@ -383,9 +381,9 @@ end
 
 --- Whether an IR type is one general explicit SIMD family application.
 local function genericSimdType(typeName: string): boolean
-    return typeName:match(
-        "^simd_vector_"
-    ) ~= nil or typeName:match("^simd_mask_") ~= nil or typeName:match("^simd_species_") ~= nil
+    return typeName:match("^simd_vector_") ~= nil
+        or typeName:match("^simd_mask_") ~= nil
+        or typeName:match("^simd_species_") ~= nil
 end
 
 --- The C type of one IR type.
@@ -555,9 +553,8 @@ end
 --- value keep the bare operator; the rest compare by value here.
 --- The integer under a binary64 promotion, if the operand is one.
 local function comparisonOperand(context: emit.Context, operand: cplan.Operand): string
-    local value = operand.count ~= nil and (
-        emit.spanCount(context, operand.count)
-    ) or emit.scalar(context, operand.value as scalarIR.Expr)
+    local value = operand.count ~= nil and (emit.spanCount(context, operand.count))
+        or emit.scalar(context, operand.value as scalarIR.Expr)
     return (operand.cast ~= "" and "(" .. operand.cast .. ")" or "") .. value
 end
 
@@ -783,10 +780,8 @@ function emit.genericFieldAccess(context: emit.Context, access: scalarIR.Simd, s
     end
     local count = emit.spanCount(context, tostring(access.span))
     local active = access.args[storing and 4 or 3]
-    local mask = active ~= nil and emit.scalar(
-        context,
-        active
-    ) or species.helper .. "mask_splat_" .. species.suffix .. "(true)"
+    local mask = active ~= nil and emit.scalar(context, active)
+        or species.helper .. "mask_splat_" .. species.suffix .. "(true)"
 
     return species.helper .. verb .. "_" .. species.suffix .. "(p_" .. tostring(
         access.span
@@ -823,10 +818,8 @@ function emit.indexedSimd(context: emit.Context, node: scalarIR.Simd): string
             context,
             maskType
         ) .. " ks_active = " .. (
-            active ~= nil and emit.scalar(
-                context,
-                active
-            ) or helper .. "tail_" .. suffix .. "(" .. tostring(lanes) .. "u)"
+            active ~= nil and emit.scalar(context, active)
+            or helper .. "tail_" .. suffix .. "(" .. tostring(lanes) .. "u)"
         ) .. ";",
         emit.cType(
             context,
@@ -851,9 +844,9 @@ function emit.indexedSimd(context: emit.Context, node: scalarIR.Simd): string
     -- The hardware gather and scatter are AVX-512's, and their address vector
     -- is a 64-byte value. A target whose frame cannot carry one walks its
     -- lanes instead, which is what every narrower tier already does.
-    local native = not context.explicitScalar and context.explicitWidth == 64 and (
-        element:sub(2) == "32" or element:sub(2) == "64"
-    )
+    local native = not context.explicitScalar
+        and context.explicitWidth == 64
+        and (element:sub(2) == "32" or element:sub(2) == "64")
     if native then
         local bits = element:sub(2)
         local register = bits == "32" and "__m256i" or "__m512i"
@@ -955,9 +948,8 @@ function emit.indexedSimd(context: emit.Context, node: scalarIR.Simd): string
     if native then
         parts[#parts + 1] = "\n#endif\n"
     end
-    parts[
-        #parts + 1
-    ] = reading and "__builtin_memcpy(&ks_values, ks_value, sizeof(ks_value)); ks_values; })" or "(void)0; })"
+    parts[#parts + 1] = reading and "__builtin_memcpy(&ks_values, ks_value, sizeof(ks_value)); ks_values; })"
+        or "(void)0; })"
 
     return table.concat(parts, " ")
 end
@@ -1065,12 +1057,9 @@ function emit.scalar(context: emit.Context, node: scalarIR.Expr): string
         or operation == "lua_builder_state"
     then
         local query = node as scalarIR.LuaBuilderQuery
-        local which = operation == "lua_builder_depth"
-            and "0u"
-            or operation == "lua_builder_kind"
-            and "1u"
-            or operation == "lua_builder_count"
-            and "2u"
+        local which = operation == "lua_builder_depth" and "0u"
+            or operation == "lua_builder_kind" and "1u"
+            or operation == "lua_builder_count" and "2u"
             or "3u"
         return "ks_lua_builder_query(L, &" .. tostring((query.builder as scalarIR.Name).cName) .. ", " .. which .. ")"
     elseif operation == "lua_builder_number_token" then
@@ -1090,9 +1079,9 @@ function emit.scalar(context: emit.Context, node: scalarIR.Expr): string
         local loaded = node as scalarIR.LuaScratchU32Get
         if loaded.cursor ~= nil then
             local scratch = tostring((loaded.scratch as scalarIR.Name).cName)
-            local index = operation == "lua_scratch_u32_escape_get" and scratch .. ".capacity - 1u - " .. tostring(
-                loaded.cursorCName
-            ) or tostring(loaded.cursorCName)
+            local index = operation == "lua_scratch_u32_escape_get"
+                and scratch .. ".capacity - 1u - " .. tostring(loaded.cursorCName)
+                or tostring(loaded.cursorCName)
             return "((uint32_t)" .. scratch .. ".words[(size_t)(" .. index .. ")])"
         end
         if operation == "lua_scratch_u32_get" and loaded.fixedBound ~= nil then
@@ -1102,8 +1091,7 @@ function emit.scalar(context: emit.Context, node: scalarIR.Expr): string
         end
 
         return (
-            operation == "lua_scratch_u32_escape_get"
-            and "ks_lua_scratch_u32_escape_get(L, &"
+            operation == "lua_scratch_u32_escape_get" and "ks_lua_scratch_u32_escape_get(L, &"
             or "ks_lua_scratch_u32_get(L, &"
         ) .. tostring((loaded.scratch as scalarIR.Name).cName) .. ", " .. emit.scalar(context, loaded.index) .. ")"
     elseif operation == "lua_scratch_u32_length" or operation == "lua_scratch_u32_escape_length" then
@@ -1131,9 +1119,9 @@ function emit.scalar(context: emit.Context, node: scalarIR.Expr): string
         return "((double)(i + 1u))"
     elseif operation == "load" then
         local loaded = node as scalarIR.Load
-        local index = loaded.cursorCName ~= nil and "((size_t)" .. tostring(
-            loaded.cursorCName
-        ) .. ")" or loaded.indexCName == "i" and "i" or "((size_t)(" .. tostring(loaded.indexCName) .. " - 1))"
+        local index = loaded.cursorCName ~= nil and "((size_t)" .. tostring(loaded.cursorCName) .. ")"
+            or loaded.indexCName == "i" and "i"
+            or "((size_t)(" .. tostring(loaded.indexCName) .. " - 1))"
         local access = "p_" .. loaded.span .. "[" .. index .. "]"
         if loaded.sourceType == "int8" or loaded.sourceType == "int16" then
             return "((int32_t)" .. access .. ")"
@@ -1143,9 +1131,9 @@ function emit.scalar(context: emit.Context, node: scalarIR.Expr): string
         return access
     elseif operation == "element_ref" then
         local referenced = node as scalarIR.ElementRef
-        local index = referenced.cursorCName ~= nil and "((size_t)" .. tostring(
-            referenced.cursorCName
-        ) .. ")" or referenced.indexCName == "i" and "i" or "((size_t)(" .. tostring(referenced.indexCName) .. " - 1))"
+        local index = referenced.cursorCName ~= nil and "((size_t)" .. tostring(referenced.cursorCName) .. ")"
+            or referenced.indexCName == "i" and "i"
+            or "((size_t)(" .. tostring(referenced.indexCName) .. " - 1))"
         return "(&p_" .. referenced.span .. "[" .. index .. "])"
     elseif tostring(operation):match("^simd_") ~= nil then
         local simd = node as scalarIR.Simd
@@ -1267,17 +1255,15 @@ function emit.scalar(context: emit.Context, node: scalarIR.Expr): string
                 -- entry's own parameter arrived with; everything else is the
                 -- same load over the same two operands.
                 local rooted = simd.rooted as scalarIR.Name?
-                local pointer = rooted ~= nil and "ks_bytes_" .. tostring(
-                    (rooted as scalarIR.Name).cName
-                ) or "p_" .. tostring(simd.span)
+                local pointer = rooted ~= nil and "ks_bytes_" .. tostring((rooted as scalarIR.Name).cName)
+                    or "p_" .. tostring(simd.span)
                 if simd.cursor ~= nil and not composite then
                     return genericHelper .. "load_at_" .. genericSuffix .. "(" .. pointer .. " + (size_t)" .. tostring(
                         simd.cursorCName
                     ) .. ")"
                 end
-                local count = rooted ~= nil and "ks_length_" .. tostring(
-                    (rooted as scalarIR.Name).cName
-                ) or emit.spanCount(context, tostring(simd.span))
+                local count = rooted ~= nil and "ks_length_" .. tostring((rooted as scalarIR.Name).cName)
+                    or emit.spanCount(context, tostring(simd.span))
                 local at = pointer .. ", " .. count .. ", " .. emit.spanFirst(context, args[2])
                 if args[3] == nil then
                     return genericHelper .. "load_full_" .. genericSuffix .. "(" .. at .. ")"
@@ -1312,25 +1298,25 @@ function emit.scalar(context: emit.Context, node: scalarIR.Expr): string
                     return genericHelper .. name .. "_" .. genericSuffix .. "(" .. emit.scalar(context, args[1]) .. ")"
                 end
                 return "(" .. (simd.intrinsic == "neg" and "-" or "~") .. emit.scalar(context, args[1]) .. ")"
-            elseif operation == "simd_permute" and (
-                simd.intrinsic == "interleave" or simd.intrinsic == "deinterleave" or simd.intrinsic == "transpose"
-            ) then
+            elseif operation == "simd_permute"
+                and (
+                    simd.intrinsic == "interleave" or simd.intrinsic == "deinterleave" or simd.intrinsic == "transpose"
+                )
+            then
                 return emit.rearrange(context, simd)
             elseif operation == "simd_mask_all" or operation == "simd_mask_count" then
                 local bits = genericHelper .. "bits_" .. genericSuffix .. "(" .. emit.scalar(context, args[1]) .. ")"
                 if operation == "simd_mask_count" then
                     return "((uint32_t)__builtin_popcountll(" .. bits .. "))"
                 end
-                local all = lanes == 64 and "UINT64_MAX" or "((UINT64_C(1) << " .. tostring(
-                    lanes
-                ) .. "u) - UINT64_C(1))"
+                local all = lanes == 64 and "UINT64_MAX"
+                    or "((UINT64_C(1) << " .. tostring(lanes) .. "u) - UINT64_C(1))"
                 return "(" .. bits .. " == " .. all .. ")"
             end
             -- Everything else is one helper call over the arguments in order,
             -- named for the operation or for the intrinsic it carries.
-            local verb = GENERIC_CALLS[
-                tostring(operation)
-            ] or (operation == "simd_horizontal" and "horizontal_" or "") .. tostring(simd.intrinsic)
+            local verb = GENERIC_CALLS[tostring(operation)]
+                or (operation == "simd_horizontal" and "horizontal_" or "") .. tostring(simd.intrinsic)
             local rendered: {string} = {}
             for _, argument in ipairs(args) do
                 rendered[#rendered + 1] = emit.scalar(context, argument)
@@ -1360,12 +1346,9 @@ function emit.scalar(context: emit.Context, node: scalarIR.Expr): string
         return "((double)" .. emit.scalar(context, (node as scalarIR.Convert).value) .. ")"
     elseif operation == "numeric_cast" then
         local converted = (node as scalarIR.Convert).value
-        local target = node.type == "u32"
-            and "uint32_t"
-            or node.type == "i32"
-            and "int32_t"
-            or node.type == "u64"
-            and "uint64_t"
+        local target = node.type == "u32" and "uint32_t"
+            or node.type == "i32" and "int32_t"
+            or node.type == "u64" and "uint64_t"
             or "int64_t"
         -- A wrap of something that was thirty-two bits a moment ago has nothing
         -- to reduce. The promotion to binary64 is written into the IR rather
@@ -1373,11 +1356,11 @@ function emit.scalar(context: emit.Context, node: scalarIR.Expr): string
         -- widened would be undoing work to no purpose. This is the shape a
         -- counted loop index takes on its way into a `uint32` position.
         local widened = converted as any
-        if (
-            node.type == "u32" or node.type == "i32"
-        ) and converted.type == "f64" and widened.op == "int_to_f64" and (
-            (widened.value as scalarIR.Expr).type == "i32" or (widened.value as scalarIR.Expr).type == "u32"
-        ) then
+        if (node.type == "u32" or node.type == "i32")
+            and converted.type == "f64"
+            and widened.op == "int_to_f64"
+            and ((widened.value as scalarIR.Expr).type == "i32" or (widened.value as scalarIR.Expr).type == "u32")
+        then
             return "((" .. target .. ")" .. emit.scalar(context, widened.value as scalarIR.Expr) .. ")"
         end
         -- Between the two views of one thirty-two bit pattern a cast reinterprets
@@ -1788,15 +1771,13 @@ function emit.parameters(
         local name = "p_" .. param.name .. (unused and " KS_UNUSED" or "")
         if param.kind == "write_span" then
             local layout = param.type:match("^struct:(.+)$")
-            local element = layout ~= nil and (
-                "Ks" .. (layout as string)
-            ) or emit.storageC(context, param.type, param.sourceType)
+            local element = layout ~= nil and ("Ks" .. (layout as string))
+                or emit.storageC(context, param.type, param.sourceType)
             parts[position] = element .. " *restrict " .. name
         elseif param.kind == "read_span" then
             local layout = param.type:match("^struct:(.+)$")
-            local element = layout ~= nil and (
-                "Ks" .. (layout as string)
-            ) or emit.storageC(context, param.type, param.sourceType)
+            local element = layout ~= nil and ("Ks" .. (layout as string))
+                or emit.storageC(context, param.type, param.sourceType)
             parts[position] = "const " .. element .. " *" .. name
         else
             parts[position] = emit.cType(context, param.type) .. " " .. name
@@ -1804,9 +1785,9 @@ function emit.parameters(
     end
     if independentCounts then
         for _, param in ipairs(params) do
-            if (
-                param.kind == "write_span" or param.kind == "read_span"
-            ) and (param.soa == nil or param.soa.ordinal == 1) then
+            if (param.kind == "write_span" or param.kind == "read_span")
+                and (param.soa == nil or param.soa.ordinal == 1)
+            then
                 parts[#parts + 1] = "size_t count_" .. param.name
             end
         end
@@ -1945,9 +1926,9 @@ end
 ----------------------------------------------------------------------------
 
 luaSite = function(source: scalarIR.Source?): string
-    return source ~= nil and tostring(
-        (source as scalarIR.Source).line
-    ) .. ":" .. tostring((source as scalarIR.Source).column) or "1:1"
+    return source ~= nil
+        and tostring((source as scalarIR.Source).line) .. ":" .. tostring((source as scalarIR.Source).column)
+        or "1:1"
 end
 
 --- What the compiled object reports about one struct's layout.
@@ -2576,12 +2557,8 @@ local function controlFlow(
                 lines[
                     #lines + 1
                 ] = prefix .. (
-                    body.controlContinue ~= nil
-                    and "goto "
-                    .. body.controlContinue
-                    or repeatContinue ~= nil
-                    and "goto "
-                    .. repeatContinue
+                    body.controlContinue ~= nil and "goto " .. body.controlContinue
+                    or repeatContinue ~= nil and "goto " .. repeatContinue
                     or "continue"
                 ) .. ";"
                 yield nil
@@ -2677,39 +2654,29 @@ function emit.luaBlock(
                     )
                 elseif statement.type == "lua_builder" then
                     local started = statement.value as scalarIR.LuaBuilder
-                    local maxDepth = started.maxDepth ~= nil and emit.scalar(
-                        context,
-                        started.maxDepth as scalarIR.Expr
-                    ) or "UINT32_C(1024)"
-                    local stringCapacity = started.stringCapacity ~= nil and emit.scalar(
-                        context,
-                        started.stringCapacity as scalarIR.Expr
-                    ) or "UINT32_C(0)"
-                    local arrayMarker = started.arrayMarker ~= nil and tostring(
-                        (started.arrayMarker as scalarIR.Name).cName
-                    ) or "0"
-                    local objectMarker = started.objectMarker ~= nil and tostring(
-                        (started.objectMarker as scalarIR.Name).cName
-                    ) or "0"
-                    local selectionShape = started.selectionShape ~= nil and tostring(
-                        (started.selectionShape as scalarIR.Name).cName
-                    ) or "0"
-                    local arrayShapeMarker = started.arrayShapeMarker ~= nil and tostring(
-                        (started.arrayShapeMarker as scalarIR.Name).cName
-                    ) or "0"
-                    local serdeMarkers = started.serdeMarkers ~= nil and tostring(
-                        (started.serdeMarkers as scalarIR.Name).cName
-                    ) or "0"
+                    local maxDepth = started.maxDepth ~= nil and emit.scalar(context, started.maxDepth as scalarIR.Expr)
+                        or "UINT32_C(1024)"
+                    local stringCapacity = started.stringCapacity ~= nil
+                        and emit.scalar(context, started.stringCapacity as scalarIR.Expr)
+                        or "UINT32_C(0)"
+                    local arrayMarker = started.arrayMarker ~= nil
+                        and tostring((started.arrayMarker as scalarIR.Name).cName)
+                        or "0"
+                    local objectMarker = started.objectMarker ~= nil
+                        and tostring((started.objectMarker as scalarIR.Name).cName)
+                        or "0"
+                    local selectionShape = started.selectionShape ~= nil
+                        and tostring((started.selectionShape as scalarIR.Name).cName)
+                        or "0"
+                    local arrayShapeMarker = started.arrayShapeMarker ~= nil
+                        and tostring((started.arrayShapeMarker as scalarIR.Name).cName)
+                        or "0"
+                    local serdeMarkers = started.serdeMarkers ~= nil
+                        and tostring((started.serdeMarkers as scalarIR.Name).cName)
+                        or "0"
                     local constructor = started.mode == "eager" and "ks_lua_eager_builder_new" or "ks_lua_builder_new"
-                    local constructorTail = started.mode == "eager"
-                        and ");"
-                        or ", "
-                        .. selectionShape
-                        .. ", "
-                        .. arrayShapeMarker
-                        .. ", "
-                        .. serdeMarkers
-                        .. ");"
+                    local constructorTail = started.mode == "eager" and ");"
+                        or ", " .. selectionShape .. ", " .. arrayShapeMarker .. ", " .. serdeMarkers .. ");"
                     lines[
                         #lines + 1
                     ] = prefix .. "KsLuaBuilder " .. statement.cName .. " = " .. constructor .. "(L, " .. tostring(
@@ -2917,11 +2884,8 @@ function emit.luaBlock(
                     lines[
                         #lines + 1
                     ] = prefix .. (
-                        event.op == "lua_builder_integer_slice"
-                        and helper
-                        .. "integer_slice(L, "
-                        or helper
-                        .. "number_slice(L, "
+                        event.op == "lua_builder_integer_slice" and helper .. "integer_slice(L, "
+                        or helper .. "number_slice(L, "
                     ) .. builder .. ", ks_bytes_" .. tostring(
                         bytes.cName
                     ) .. ", ks_length_" .. tostring(
@@ -2942,17 +2906,8 @@ function emit.luaBlock(
                         context,
                         event.length as scalarIR.Expr
                     ) .. "); " .. (
-                        event.op == "lua_builder_key_scratch"
-                        and helper
-                        .. "key(L, "
-                        .. builder
-                        .. ");"
-                        or helper
-                        .. "pushed_scalar(L, "
-                        .. builder
-                        .. ", "
-                        .. eager
-                        .. ");"
+                        event.op == "lua_builder_key_scratch" and helper .. "key(L, " .. builder .. ");"
+                        or helper .. "pushed_scalar(L, " .. builder .. ", " .. eager .. ");"
                     )
                 elseif event.op == "lua_builder_key_escapes" or event.op == "lua_builder_string_escapes" then
                     local bytes = event.sourceBytes as scalarIR.Name
@@ -3037,11 +2992,12 @@ function emit.luaBlock(
                     hasLua = hasLua or entry.target.type == "lua_string" or entry.target.type == "lua_nil"
                 end
                 if hasLua then
-                    if #assignment.values ~= 1 or (
-                        assignment.values[
-                            1
-                        ].target.type ~= "lua_string" and assignment.values[1].target.type ~= "lua_nil"
-                    ) then
+                    if #assignment.values ~= 1
+                        or (
+                            assignment.values[1].target.type ~= "lua_string"
+                            and assignment.values[1].target.type ~= "lua_nil"
+                        )
+                    then
                         error("mixed or multiple Lua string assignment reached emission", 0)
                     end
                     append(luaPush(context, assignment.values[1].value, prefix))
@@ -3159,11 +3115,9 @@ function emit.block(
             end
             case "store" -> do
                 local statement = node as scalarIR.Store
-                local index = statement.cursorCName ~= nil and "((size_t)" .. tostring(
-                    statement.cursorCName
-                ) .. ")" or statement.indexCName == "i" and "i" or "((size_t)(" .. tostring(
-                    statement.indexCName
-                ) .. " - 1))"
+                local index = statement.cursorCName ~= nil and "((size_t)" .. tostring(statement.cursorCName) .. ")"
+                    or statement.indexCName == "i" and "i"
+                    or "((size_t)(" .. tostring(statement.indexCName) .. " - 1))"
                 lines[
                     #lines + 1
                 ] = prefix .. scalarIR.cIdentifier(
@@ -3188,12 +3142,11 @@ function emit.block(
                     ) .. " " .. temps[position] .. " = " .. emit.scalar(context, entry.value) .. ";"
                 end
                 for position, entry in ipairs(statement.values) do
-                    local target = entry.target.kind == "local" and (
-                        entry.target.cName as string
-                    ) or "(" .. emit.scalar(
-                        context,
-                        entry.target.object as scalarIR.Expr
-                    ) .. "->" .. (entry.target.field as string) .. ")"
+                    local target = entry.target.kind == "local" and (entry.target.cName as string)
+                        or "(" .. emit.scalar(
+                            context,
+                            entry.target.object as scalarIR.Expr
+                        ) .. "->" .. (entry.target.field as string) .. ")"
                     lines[#lines + 1] = prefix .. target .. " = " .. temps[position] .. ";"
                 end
                 yield true
@@ -3214,10 +3167,8 @@ function emit.block(
                 local species = genericSpecies(context, contribution.value.type)
                 local accumulator = body.simdAccumulators ~= nil and body.simdAccumulators[named.name] or nil
                 local value = emit.scalar(context, contribution.value)
-                local right = contribution.right ~= nil and emit.scalar(
-                    context,
-                    contribution.right as scalarIR.Expr
-                ) or nil
+                local right = contribution.right ~= nil and emit.scalar(context, contribution.right as scalarIR.Expr)
+                    or nil
                 local mask = emit.scalar(context, contribution.mask)
                 if accumulator ~= nil then
                     -- The region keeps one lane-wise accumulator: the active
@@ -3385,13 +3336,12 @@ function emit.block(
                 local statement = node as scalarIR.ReducerAdd
                 local contribution = statement as scalarIR.ReducerAdd
                 local named = contribution.reducer as scalarIR.Name
-                local contributed = contribution.right ~= nil and "(" .. emit.scalar(
-                    context,
-                    contribution.value
-                ) .. " * " .. emit.scalar(
-                    context,
-                    contribution.right as scalarIR.Expr
-                ) .. ")" or emit.scalar(context, contribution.value)
+                local contributed = contribution.right ~= nil
+                    and "(" .. emit.scalar(
+                        context,
+                        contribution.value
+                    ) .. " * " .. emit.scalar(context, contribution.right as scalarIR.Expr) .. ")"
+                    or emit.scalar(context, contribution.value)
                 local stateful = reducerHelper(contribution.order, contribution.operation, contribution.value.type)
                 if stateful ~= nil then
                     lines[
@@ -3596,18 +3546,17 @@ function emit.program(programs: {scalarIR.Program}, tier: string?, sourceFile: s
             ) .. ")) return luaL_error(L, \"AOT builder Lua stack exhausted\");"
             for position, param in ipairs(program.params) do
                 if param.kind == "uniform" then
-                    local read = param.type == "bool" and "lua_toboolean(L, " .. tostring(
-                        position
-                    ) .. ")" or "luaL_checknumber(L, " .. tostring(position) .. ")"
+                    local read = param.type == "bool" and "lua_toboolean(L, " .. tostring(position) .. ")"
+                        or "luaL_checknumber(L, " .. tostring(position) .. ")"
                     lines[
                         #lines + 1
                     ] = "    " .. emit.cType(
                         context,
                         param.type
                     ) .. " p_" .. param.name .. " = (" .. emit.cType(context, param.type) .. ")(" .. read .. ");"
-                elseif param.kind == "scalar" and (
-                    param.type == "lua_string" or param.type == "lua_bytes" or param.type == "lua_value"
-                ) then
+                elseif param.kind == "scalar"
+                    and (param.type == "lua_string" or param.type == "lua_bytes" or param.type == "lua_value")
+                then
                     -- The argument itself is the root. Source uses carry this
                     -- positive absolute stack index; no GC pointer is taken.
                     if param.type == "lua_string" or param.type == "lua_bytes" then
@@ -3629,12 +3578,14 @@ function emit.program(programs: {scalarIR.Program}, tier: string?, sourceFile: s
             visit.program(
                 program,
                 new visit.Visitor(scalarStatement = function(statement: scalarIR.Statement): nil
-                    if statement.op == "let" and (
+                    if statement.op == "let"
+                    and (
                         statement.type == "lua_string"
                         or statement.type == "lua_nil"
                         or statement.type == "lua_table"
                         or statement.type == "lua_value"
-                    ) then
+                    )
+                    then
                         local name = statement.cName
                         if body.luaRootSlots[name] == nil then
                             rootCount = rootCount + 1
@@ -3660,10 +3611,9 @@ function emit.program(programs: {scalarIR.Program}, tier: string?, sourceFile: s
             local touched = emit.pointerSpans(program)
             local independentCounts = scalarIR.independentCounts(program)
             local params = emit.parameters(context, program.params, independentCounts, touched)
-            local cResult = #resultTypes == 0 and "void" or resultStruct ~= nil and resultStruct or emit.cType(
-                context,
-                resultTypes[1]
-            )
+            local cResult = #resultTypes == 0 and "void"
+                or resultStruct ~= nil and resultStruct
+                or emit.cType(context, resultTypes[1])
 
             --- One C definition of the kernel.
             local function implementation(symbol: string, forced: boolean): nil
@@ -3677,9 +3627,10 @@ function emit.program(programs: {scalarIR.Program}, tier: string?, sourceFile: s
                 body.temporarySerial = 0
                 body.headerControl = false
                 body.controlBreak, body.controlContinue = nil, nil
-                if (
-                    forced or not program.usesSimd
-                ) and not general and hasConditionBody((program.loop as scalarIR.Loop).statements) then
+                if (forced or not program.usesSimd)
+                    and not general
+                    and hasConditionBody((program.loop as scalarIR.Loop).statements)
+                then
                     body.headerControl = true
                     body.controlBreak = "ks_map_break"
                     body.controlContinue = "ks_map_continue"

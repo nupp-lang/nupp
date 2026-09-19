@@ -417,6 +417,22 @@ end
 
 -- A union longer than the width reads as one member per line. It used to be left over
 -- the width instead, because a union's `|` was no kind of break point.
+function M.longValueChainsKeepEachOperandTogether()
+    local compact = fmt.new({width = 64})
+    for _, operator in ipairs({"|", "or"}) do
+        local operands = {"(current == leftBrace)", "(current == rightBrace)", "(current == leftBracket)", "(current == rightBracket)"}
+        local source = "local structural = " .. table.concat(operands, " " .. operator .. " ")
+        local expected = "local structural = " .. operands[1] .. "\n"
+        for index = 2, #operands do
+            expected = expected .. "    " .. operator .. " " .. operands[index] .. "\n"
+        end
+        local output = compact:format(source)
+        assertEq(output, expected, "break a mask chain between complete comparisons")
+        assertEq(compact:format(output), output, "value chain layout is stable")
+        assertEq(kinds(output), kinds(source), "operators and parentheses are preserved")
+    end
+end
+
 function M.longUnionsBreakBetweenTheirMembers()
     local src = "local kind: function(v: any): \"nil\" | \"boolean\" | \"number\" | \"string\""
         .. " | \"table\" | \"function\" | \"thread\" | \"userdata\" | \"cdata\"\n"

@@ -139,6 +139,7 @@ local SPREADING_GROUPS = {
 -- hug the call that takes them.
 local BLOCK_CLOSERS = {["end"] = true, ["}"] = true}
 -- Operators a line may break before when it has no breakable group.
+local VALUE_CHAIN_RANK = {['or'] = 1, ['and'] = 2, ['|'] = 3, ['&'] = 4}
 local BREAK_OPS = {
     ["and"] = true,
     ["or"] = true,
@@ -992,13 +993,19 @@ local function buildLines(items)
     local cur = nil
     for _, item in ipairs(items) do
         local forced = item.kind == "token" and item.token.forceBreak
-        local standalone = item.kind == "doc" or item.kind == "plain" or item.kind == "raw" or (
-            item.kind == "comment" and item.nl > 0
-        )
+        local standalone = item.kind == "doc"
+            or item.kind == "plain"
+            or item.kind == "raw"
+            or (item.kind == "comment" and item.nl > 0)
         local previous = cur and cur.items[#cur.items]
-        local afterComment = item.nl > 0 and previous and (
-            previous.kind == "comment" or previous.kind == "doc" or previous.kind == "plain" or previous.kind == "raw"
-        )
+        local afterComment = item.nl > 0
+            and previous
+            and (
+                previous.kind == "comment"
+                or previous.kind == "doc"
+                or previous.kind == "plain"
+                or previous.kind == "raw"
+            )
         if not cur or item.nl >= 2 or forced or standalone or afterComment then
             cur = {items = {}, indent = 0, blankBefore = item.nl >= 2 and #lines > 0}
             lines[#lines + 1] = cur
@@ -1112,9 +1119,11 @@ local function computeIndents(lines)
             -- A chain step continues the line above it wherever the chain sits:
             -- inside a broken group, a step at the group's own indent would read
             -- as an element of it rather than as the rest of one.
-            if (
-                hang == 0 or tok.chainStep
-            ) and not tok.startsStat and not CLOSERS[tok.kind] and not tok.withHeaderClose then
+            if (hang == 0 or tok.chainStep)
+                and not tok.startsStat
+                and not CLOSERS[tok.kind]
+                and not tok.withHeaderClose
+            then
                 depth = depth + 1 -- continuation of the previous line
                 carried = carried + 1
             end
@@ -1245,6 +1254,36 @@ local function splitLine(line)
         return breakBefore(typeOps)
     end
 
+    -- Value chains join whole operands just as type unions join whole types.
+    -- Split their weakest operators before opening a comparison's parentheses.
+    local weakest = 5
+    local valueOps = breakPoints(line, function(tok)
+        local rank = tok.breakOp and VALUE_CHAIN_RANK[tok.kind] or nil
+        if rank ~= nil and rank < weakest then
+            weakest = rank
+        end
+
+        return rank ~= nil
+    end)
+    if #valueOps > 0 then
+        local selected = {}
+        for _, at in ipairs(valueOps) do
+            if VALUE_CHAIN_RANK[line.items[at].token.kind] == weakest then
+                selected[#selected + 1] = at
+            end
+        end
+        local header = lineFirstToken(line)
+        if header and (header.kind == "if" or header.kind == "elseif") then
+            for idx, item in ipairs(line.items) do
+                if item.kind == "token" and item.token.kind == "then" then
+                    selected[#selected + 1] = idx
+                    break
+                end
+            end
+        end
+        return breakBefore(selected)
+    end
+
     local openIdx, closeIdx, group
     -- A generic parameter list is part of a signature's header, the way `is Y` and a
     -- `where` refinement are: `function<A, B>(...)` that does not fit is nearly always
@@ -1263,10 +1302,7 @@ local function splitLine(line)
                     and nextItem.kind == "token"
                     and nextItem.token.kind == "{"
                     and nextItem.token.opensGroup
-                    and indexOfToken(
-                        line.items,
-                        nextItem.token.opensGroup.close
-                    ) == cIdx - 1
+                    and indexOfToken(line.items, nextItem.token.opensGroup.close) == cIdx - 1
                 if wrapsTable then
                     -- the group is a table's parentheses, which break as the table
                 elseif item.token.kind == "<" then
@@ -1420,10 +1456,7 @@ local function spreadListGroups(lines, width)
                         and block
                         and tail.first.lineIdx == g.open.lineIdx
                         and at ~= nil
-                        and prefixWidth(
-                            opening,
-                            at
-                        ) <= width
+                        and prefixWidth(opening, at) <= width
                     if not hugs then
                         for _, element in ipairs(g.elements) do
                             mark(element.first)
@@ -1549,10 +1582,8 @@ local function render(lines)
             push("")
         end
         if doc or plain then
-            local commentLines = doc and renderDoc(
-                doc.rawLines,
-                indentStr
-            ) or renderComment(plain.rawLines, indentStr, "--")
+            local commentLines = doc and renderDoc(doc.rawLines, indentStr)
+                or renderComment(plain.rawLines, indentStr, "--")
             for _, commentLine in ipairs(commentLines) do
                 push(commentLine)
             end
@@ -1698,9 +1729,13 @@ local function canonicalizeSingleValueAnnotations(result, opts)
         end
         local args = application.annotationArgs or {}
         local arg = #args == 1 and args[1] or nil
-        if member and arg and arg.name and arg.name.text == member and triviaIsWhitespace(
-            arg.name
-        ) and triviaIsWhitespace(arg.eq) then
+        if member
+            and arg
+            and arg.name
+            and arg.name.text == member
+            and triviaIsWhitespace(arg.name)
+            and triviaIsWhitespace(arg.eq)
+        then
             arg.name.formatOmit = true
             arg.eq.formatOmit = true
         end

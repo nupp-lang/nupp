@@ -115,20 +115,13 @@ local function encode(
         local out1: uint32 = lanes
         local out2: uint32 = 2 * lanes
         local out3: uint32 = 3 * lanes
-        while at
-            + species.lanes <= #source
-            and at1
-            + species.lanes <= #source
-            and at2
-            + species.lanes <= #source
-            and out
-            + species.lanes <= #output
-            and out1
-            + species.lanes <= #output
-            and out2
-            + species.lanes <= #output
-            and out3
-            + species.lanes <= #output do
+        while at + species.lanes <= #source
+            and at1 + species.lanes <= #source
+            and at2 + species.lanes <= #source
+            and out + species.lanes <= #output
+            and out1 + species.lanes <= #output
+            and out2 + species.lanes <= #output
+            and out3 + species.lanes <= #output do
             local a = species:load(source, at + 1)
             local b = species:load(source, at1 + 1)
             local c = species:load(source, at2 + 1)

@@ -109,19 +109,23 @@ function lower.conversion(value: scalarIR.Expr, targetType: scalarIR.Type, sourc
     end
 
     local op: string? = nil
-    if targetType == "f64" and (
-        value.type == "i32" or value.type == "u32" or value.type == "i64" or value.type == "u64"
-    ) then
+    if targetType == "f64"
+        and (value.type == "i32" or value.type == "u32" or value.type == "i64" or value.type == "u64")
+    then
         op = "int_to_f64"
     elseif targetType == "f64" and value.type == "f32" then
         op = "widen_f32_f64"
     elseif targetType == "f32" and value.type == "f64" then
         op = "narrow_f64_f32"
-    elseif (
-        targetType == "i32" or targetType == "u32" or targetType == "i64" or targetType == "u64"
-    ) and (
-        value.type == "f64" or value.type == "i32" or value.type == "u32" or value.type == "i64" or value.type == "u64"
-    ) then
+    elseif (targetType == "i32" or targetType == "u32" or targetType == "i64" or targetType == "u64")
+        and (
+            value.type == "f64"
+            or value.type == "i32"
+            or value.type == "u32"
+            or value.type == "i64"
+            or value.type == "u64"
+        )
+    then
         op = "numeric_cast"
     end
     if op == nil then
@@ -653,9 +657,13 @@ function lower.spanElement(
 ): lower.Element?
     if context.checked then
         local span, origin = nominal(resolved)
-        if span == nil or origin == nil or (
-            origin.moduleName ~= "nupp.mem.span"
-        ) or origin.name ~= expected or span.typeArgs == nil or span.typeArgs[1] == nil then
+        if span == nil
+            or origin == nil
+            or (origin.moduleName ~= "nupp.mem.span")
+            or origin.name ~= expected
+            or span.typeArgs == nil
+            or span.typeArgs[1] == nil
+        then
             return nil
         end
         local elementType = span.typeArgs[1]
@@ -1119,10 +1127,9 @@ local function provenIndex(spanName: string, cursor: string?, node: cst.Node, ke
             ):format(spanName, spanName)
         )
     end
-    if spanName ~= kernel.boundSpan and not scalarIR.sameSoaView(
-        kernel.params[spanName],
-        kernel.params[tostring(kernel.boundSpan)]
-    ) then
+    if spanName ~= kernel.boundSpan
+        and not scalarIR.sameSoaView(kernel.params[spanName], kernel.params[tostring(kernel.boundSpan)])
+    then
         context.reject(
             lower.site(node),
             (
@@ -1265,9 +1272,8 @@ local function laneBound(
     local cursor = lower.nameOf(added.lhs)
     local cursorBinding = cursor ~= nil and environment[cursor as string] or nil
     local lanes = added.rhs as cst.DotIndex
-    local speciesName = lanes.name ~= nil and (
-        lanes.name as lexer.Token
-    ).text == "lanes" and lower.nameOf(lanes.obj) or nil
+    local speciesName = lanes.name ~= nil and (lanes.name as lexer.Token).text == "lanes" and lower.nameOf(lanes.obj)
+        or nil
     local species = speciesName ~= nil and environment[speciesName as string] or nil
     local speciesType = species ~= nil and tostring(species.type) or ""
     local generic = cursorBinding ~= nil and cursorBinding.type == "u32" and speciesType:match("^simd_species_") ~= nil
@@ -1374,10 +1380,10 @@ local function soaColumn(node: cst.Node, kernel: lower.Kernel): scalarIR.Param?
         kernel.context.reject(lower.site(node), "native SoA fields require an existing row-view parameter")
     end
     for _, param in pairs(kernel.params) do
-        if scalarIR.sameSoaView(
-            view,
-            param
-        ) and param.soa.ordinal == node.soaField.ordinal and param.soa.field == node.soaField.name then
+        if scalarIR.sameSoaView(view, param)
+            and param.soa.ordinal == node.soaField.ordinal
+            and param.soa.field == node.soaField.name
+        then
             return param
         end
     end
@@ -1717,14 +1723,10 @@ local function binary(node: cst.Binop, left: scalarIR.Expr, right: scalarIR.Expr
 
     local arithmetic = admit.ARITHMETIC[written]
     if arithmetic ~= nil then
-        local wide = left.type == "u64"
-            and "u64"
-            or left.type == "i64"
-            and "i64"
-            or right.type == "u64"
-            and "u64"
-            or right.type == "i64"
-            and "i64"
+        local wide = left.type == "u64" and "u64"
+            or left.type == "i64" and "i64"
+            or right.type == "u64" and "u64"
+            or right.type == "i64" and "i64"
             or nil
         if wide ~= nil and (written == "+" or written == "-" or written == "*") then
             left = lower.convert(left, wide as scalarIR.Type, source, context)
@@ -1749,9 +1751,10 @@ local function binary(node: cst.Binop, left: scalarIR.Expr, right: scalarIR.Expr
             -- where it is exact there, so the constant does not widen the sum.
             local narrowedLeft = exactWidthConstant(left, right.type) or left
             local narrowedRight = exactWidthConstant(right, left.type) or right
-            local width = narrowedLeft.type == narrowedRight.type and (
-                narrowedLeft.type == "u32" or narrowedLeft.type == "i32"
-            ) and narrowedLeft.type or nil
+            local width = narrowedLeft.type == narrowedRight.type
+                and (narrowedLeft.type == "u32" or narrowedLeft.type == "i32")
+                and narrowedLeft.type
+                or nil
             if width ~= nil and (not context.checked or node.fixedArithmetic ~= nil) then
                 return new scalarIR.Fixed(
                     op = (
@@ -1827,9 +1830,8 @@ local function binary(node: cst.Binop, left: scalarIR.Expr, right: scalarIR.Expr
         -- exact sum proves the vector access under it. See `laneBound`.
         -- A rooted string or buffer parameter's length is the same bound, held
         -- in the local its length was taken into rather than read off a span.
-        local countedRight = right.op == "span_count" or right.op == "local" and (
-            right as scalarIR.Name
-        ).lengthOf ~= nil
+        local countedRight = right.op == "span_count"
+            or right.op == "local" and (right as scalarIR.Name).lengthOf ~= nil
         local countedLeft = left.op == "span_count" or left.op == "local" and (left as scalarIR.Name).lengthOf ~= nil
         if written == "<=" and countedRight then
             narrowedLeft = exactLaneSum(left, source)
@@ -1920,9 +1922,10 @@ local function fixedCall(
             local literal = argument as scalarIR.Constant
             local number = tonumber(literal.value)
             if fixed.operand == "i32" or fixed.operand == "u32" then
-                local exact = number ~= nil and number % 1 == 0 and number >= (
-                    fixed.operand == "u32" and 0 or lower.INT32_MIN
-                ) and number <= (fixed.operand == "u32" and lower.UINT32_MAX or lower.INT32_MAX)
+                local exact = number ~= nil
+                    and number % 1 == 0
+                    and number >= (fixed.operand == "u32" and 0 or lower.INT32_MIN)
+                    and number <= (fixed.operand == "u32" and lower.UINT32_MAX or lower.INT32_MAX)
                 if not exact then
                     context.reject(source, path .. " needs an exact " .. fixed.operand .. " literal")
                 end
@@ -1935,9 +1938,11 @@ local function fixedCall(
                     source = literal.source
                 )
             elseif fixed.operand == "i64" or fixed.operand == "u64" then
-                if number == nil or number % 1 ~= 0 or number > 9007199254740992 or number < (
-                    fixed.operand == "u64" and 0 or -9007199254740992
-                ) then
+                if number == nil
+                    or number % 1 ~= 0
+                    or number > 9007199254740992
+                    or number < (fixed.operand == "u64" and 0 or -9007199254740992)
+                then
                     context.reject(source, path .. " needs an exact " .. fixed.operand .. " literal")
                 end
                 args[
@@ -2171,13 +2176,12 @@ local function call(
             source = lower.site(node)
         )
     elseif identity == "string.sub" or identity == "@prelude.string.sub" or path == "string.sub" and preludeString then
-        if (
-            #args ~= 2 and #args ~= 3
-        ) or args[
-            1
-        ].type ~= "lua_string" or args[
-            1
-        ].op ~= "local" or args[2].type ~= "f64" or args[3] ~= nil and args[3].type ~= "f64" then
+        if (#args ~= 2 and #args ~= 3)
+            or args[1].type ~= "lua_string"
+            or args[1].op ~= "local"
+            or args[2].type ~= "f64"
+            or args[3] ~= nil and args[3].type ~= "f64"
+        then
             context.reject(lower.site(node), "string.sub in AOT takes a rooted string and numeric bounds")
         end
         markLua(kernel, lower.site(node))
@@ -2199,17 +2203,14 @@ local function call(
                 "an exact reducer needs a concrete element type and its declared initial value"
             )
         end
-        local initial: scalarIR.Expr = element == "bool" and new scalarIR.Bool(
-            op = "bool",
-            value = operation == "all",
-            type = "bool",
-            source = lower.site(node)
-        ) or lower.convert(
-            new scalarIR.Constant(op = "constant", value = "0", type = "f64", source = lower.site(node)),
-            element as string,
-            lower.site(node),
-            context
-        )
+        local initial: scalarIR.Expr = element == "bool"
+            and new scalarIR.Bool(op = "bool", value = operation == "all", type = "bool", source = lower.site(node))
+            or lower.convert(
+                new scalarIR.Constant(op = "constant", value = "0", type = "f64", source = lower.site(node)),
+                element as string,
+                lower.site(node),
+                context
+            )
         if contract.seeded then
             initial = lower.convert(args[1], element as string, lower.site(node), context)
         end
@@ -2313,33 +2314,25 @@ local function call(
     then
         local sized = identity == "nupp.codec.valuebuilder.newSized"
         local pulling = identity == "nupp.codec.valuebuilder.newPull" or identity == "nupp.codec.valuebuilder.newSerde"
-        if (
-            not sized and not pulling and #args ~= 1 or sized and #args ~= 3 and #args ~= 5 or pulling and #args ~= 8
-        ) or args[
-            1
-        ].type ~= "lua_value" or args[
-            1
-        ].op ~= "local" or (
-            sized or pulling
-        ) and (
-            args[
-                2
-            ].type ~= "u32" or args[
-                3
-            ].type ~= "u32" or (
-                sized and #args == 5 or pulling
-            ) and (
-                args[4].type ~= "lua_value" or args[5].type ~= "lua_value"
-            ) or pulling and (
-                args[
-                    6
-                ].type ~= "lua_value" or args[
-                    6
-                ].op ~= "local" or args[
-                    7
-                ].type ~= "lua_value" or args[7].op ~= "local" or args[8].type ~= "lua_value" or args[8].op ~= "local"
+        if (not sized and not pulling and #args ~= 1 or sized and #args ~= 3 and #args ~= 5 or pulling and #args ~= 8)
+            or args[1].type ~= "lua_value"
+            or args[1].op ~= "local"
+            or (sized or pulling)
+            and (
+                args[2].type ~= "u32"
+                or args[3].type ~= "u32"
+                or (sized and #args == 5 or pulling) and (args[4].type ~= "lua_value" or args[5].type ~= "lua_value")
+                or pulling
+                and (
+                    args[6].type ~= "lua_value"
+                    or args[6].op ~= "local"
+                    or args[7].type ~= "lua_value"
+                    or args[7].op ~= "local"
+                    or args[8].type ~= "lua_value"
+                    or args[8].op ~= "local"
+                )
             )
-        ) then
+        then
             context.reject(
                 lower.site(node),
                 pulling
@@ -2422,11 +2415,10 @@ local function call(
         local cursor = args[2].op == "local" and (args[2] as scalarIR.Name).name or nil
         local proved = boundRoom(kernel.cursorBounds, cursor, scratchName) ~= nil
         return new scalarIR.LuaScratchU32Get(
-            fixedBound = identity == "nupp.codec.valuebuilder.scratchWord" and kernel.scratchBounds[
-                (args[1] as scalarIR.Name).name
-            ] or nil,
-            op = identity == "nupp.codec.valuebuilder.scratchEscapeWord"
-            and "lua_scratch_u32_escape_get"
+            fixedBound = identity == "nupp.codec.valuebuilder.scratchWord"
+            and kernel.scratchBounds[(args[1] as scalarIR.Name).name]
+            or nil,
+            op = identity == "nupp.codec.valuebuilder.scratchEscapeWord" and "lua_scratch_u32_escape_get"
             or "lua_scratch_u32_get",
             scratch = args[1],
             index = args[2],
@@ -2443,17 +2435,19 @@ local function call(
         end
         markLua(kernel, lower.site(node))
         return new scalarIR.LuaScratchU32Length(
-            op = identity == "nupp.codec.valuebuilder.scratchEscapeLength"
-            and "lua_scratch_u32_escape_length"
+            op = identity == "nupp.codec.valuebuilder.scratchEscapeLength" and "lua_scratch_u32_escape_length"
             or "lua_scratch_u32_length",
             scratch = args[1],
             type = "u32",
             source = lower.site(node)
         )
     elseif identity == "nupp.codec.valuebuilder.setScratchWord" then
-        if #args ~= 3 or args[
-            1
-        ].type ~= "lua_scratch_u32" or args[1].op ~= "local" or args[2].type ~= "u32" or args[3].type ~= "u32" then
+        if #args ~= 3
+            or args[1].type ~= "lua_scratch_u32"
+            or args[1].op ~= "local"
+            or args[2].type ~= "u32"
+            or args[3].type ~= "u32"
+        then
             context.reject(
                 lower.site(node),
                 "valuebuilder.setScratchWord takes a local scratch buffer, uint32 index, and uint32 value"
@@ -2519,9 +2513,12 @@ local function call(
             source = lower.site(node)
         )
     elseif identity == "nupp.codec.valuebuilder.setScratchByte" then
-        if #args ~= 3 or args[
-            1
-        ].type ~= "lua_scratch_u8" or args[1].op ~= "local" or args[2].type ~= "u32" or args[3].type ~= "u32" then
+        if #args ~= 3
+            or args[1].type ~= "lua_scratch_u8"
+            or args[1].op ~= "local"
+            or args[2].type ~= "u32"
+            or args[3].type ~= "u32"
+        then
             context.reject(lower.site(node), "valuebuilder.setScratchByte takes a local byte scratch, index, and byte")
         end
         markLua(kernel, lower.site(node))
@@ -2535,9 +2532,12 @@ local function call(
             source = lower.site(node)
         )
     elseif identity == "nupp.codec.valuebuilder.setScratchBytes4" then
-        if #args ~= 3 or args[
-            1
-        ].type ~= "lua_scratch_u8" or args[1].op ~= "local" or args[2].type ~= "u32" or args[3].type ~= "u32" then
+        if #args ~= 3
+            or args[1].type ~= "lua_scratch_u8"
+            or args[1].op ~= "local"
+            or args[2].type ~= "u32"
+            or args[3].type ~= "u32"
+        then
             context.reject(
                 lower.site(node),
                 "valuebuilder.setScratchBytes4 takes a local byte scratch, index, and word"
@@ -2576,13 +2576,11 @@ local function call(
         or identity == "nupp.codec.valuebuilder.length"
     then
         local takesIndex = identity ~= "nupp.codec.valuebuilder.length"
-        if #args ~= (
-            takesIndex and 2 or 1
-        ) or args[
-            1
-        ].type ~= "lua_string" and args[
-            1
-        ].type ~= "lua_bytes" or args[1].op ~= "local" or takesIndex and args[2].type ~= "u32" then
+        if #args ~= (takesIndex and 2 or 1)
+            or args[1].type ~= "lua_string" and args[1].type ~= "lua_bytes"
+            or args[1].op ~= "local"
+            or takesIndex and args[2].type ~= "u32"
+        then
             context.reject(lower.site(node), "valuebuilder rooted byte access has an invalid argument")
         end
         markLua(kernel, lower.site(node))
@@ -2593,12 +2591,9 @@ local function call(
             context.reject(lower.site(node), "valuebuilder.byteAt needs offset < length(bytes) to dominate the read")
         end
         return new scalarIR.LuaBytes(
-            op = byteAt
-            and "lua_string_byte_at"
-            or identity == "nupp.codec.valuebuilder.byte"
-            and "lua_string_byte"
-            or identity == "nupp.codec.valuebuilder.word"
-            and "lua_string_u32"
+            op = byteAt and "lua_string_byte_at"
+            or identity == "nupp.codec.valuebuilder.byte" and "lua_string_byte"
+            or identity == "nupp.codec.valuebuilder.word" and "lua_string_u32"
             or "lua_string_length",
             bytes = args[1],
             index = takesIndex and args[2] or nil,
@@ -2629,12 +2624,9 @@ local function call(
         end
         markLua(kernel, lower.site(node))
         return new scalarIR.LuaBuilderQuery(
-            op = identity == "nupp.codec.valuebuilder.depth"
-            and "lua_builder_depth"
-            or identity == "nupp.codec.valuebuilder.kind"
-            and "lua_builder_kind"
-            or identity == "nupp.codec.valuebuilder.count"
-            and "lua_builder_count"
+            op = identity == "nupp.codec.valuebuilder.depth" and "lua_builder_depth"
+            or identity == "nupp.codec.valuebuilder.kind" and "lua_builder_kind"
+            or identity == "nupp.codec.valuebuilder.count" and "lua_builder_count"
             or "lua_builder_state",
             builder = args[1],
             mode = (args[1] as scalarIR.Name).builderMode as any,
@@ -2642,15 +2634,14 @@ local function call(
             source = lower.site(node)
         )
     elseif identity == "nupp.codec.valuebuilder.numberToken" then
-        if #args ~= 4 or args[
-            1
-        ].type ~= "lua_builder" or args[
-            1
-        ].op ~= "local" or args[
-            2
-        ].type ~= "lua_string" and args[
-            2
-        ].type ~= "lua_bytes" or args[2].op ~= "local" or args[3].type ~= "u32" or args[4].type ~= "u32" then
+        if #args ~= 4
+            or args[1].type ~= "lua_builder"
+            or args[1].op ~= "local"
+            or args[2].type ~= "lua_string" and args[2].type ~= "lua_bytes"
+            or args[2].op ~= "local"
+            or args[3].type ~= "u32"
+            or args[4].type ~= "u32"
+        then
             context.reject(
                 lower.site(node),
                 "valuebuilder.numberToken takes a local builder, rooted bytes, uint32 start, and uint32 limit"
@@ -2708,51 +2699,48 @@ local function call(
                 end
                 event.capacity = args[2]
             elseif action == "key" or action == "string" then
-                if #args ~= 5 or args[
-                    2
-                ].type ~= "lua_string" and args[
-                    2
-                ].type ~= "lua_bytes" or args[
-                    2
-                ].op ~= "local" or args[3].type ~= "u32" or args[4].type ~= "u32" or args[5].type ~= "bool" then
+                if #args ~= 5
+                    or args[2].type ~= "lua_string" and args[2].type ~= "lua_bytes"
+                    or args[2].op ~= "local"
+                    or args[3].type ~= "u32"
+                    or args[4].type ~= "u32"
+                    or args[5].type ~= "bool"
+                then
                     context.reject(lower.site(node), "valuebuilder string event has invalid arguments")
                 end
                 event.sourceBytes, event.start, event.length, event.escaped = args[2], args[3], args[4], args[5]
             elseif action == "keyScratch" or action == "stringScratch" then
-                if #args ~= 4 or args[
-                    2
-                ].type ~= "lua_scratch_u8" or args[
-                    2
-                ].op ~= "local" or args[3].type ~= "u32" or args[4].type ~= "u32" then
+                if #args ~= 4
+                    or args[2].type ~= "lua_scratch_u8"
+                    or args[2].op ~= "local"
+                    or args[3].type ~= "u32"
+                    or args[4].type ~= "u32"
+                then
                     context.reject(lower.site(node), "valuebuilder scratch string event has invalid arguments")
                 end
                 event.scratch, event.start, event.length = args[2], args[3], args[4]
             elseif action == "keyEscapes" or action == "stringEscapes" then
-                if #args ~= 7 or args[
-                    2
-                ].type ~= "lua_string" and args[
-                    2
-                ].type ~= "lua_bytes" or args[
-                    2
-                ].op ~= "local" or args[
-                    3
-                ].type ~= "u32" or args[
-                    4
-                ].type ~= "u32" or args[
-                    5
-                ].type ~= "lua_scratch_u32" or args[
-                    5
-                ].op ~= "local" or args[6].type ~= "u32" or args[7].type ~= "u32" then
+                if #args ~= 7
+                    or args[2].type ~= "lua_string" and args[2].type ~= "lua_bytes"
+                    or args[2].op ~= "local"
+                    or args[3].type ~= "u32"
+                    or args[4].type ~= "u32"
+                    or args[5].type ~= "lua_scratch_u32"
+                    or args[5].op ~= "local"
+                    or args[6].type ~= "u32"
+                    or args[7].type ~= "u32"
+                then
                     context.reject(lower.site(node), "valuebuilder indexed escape event has invalid arguments")
                 end
                 event.sourceBytes, event.start, event.length = args[2], args[3], args[4]
                 event.escapeScratch, event.escapeIndex, event.escapeCount = args[5], args[6], args[7]
             elseif action == "numberSlice" or action == "integerSlice" then
-                if #args ~= 4 or args[
-                    2
-                ].type ~= "lua_string" and args[
-                    2
-                ].type ~= "lua_bytes" or args[2].op ~= "local" or args[3].type ~= "u32" or args[4].type ~= "u32" then
+                if #args ~= 4
+                    or args[2].type ~= "lua_string" and args[2].type ~= "lua_bytes"
+                    or args[2].op ~= "local"
+                    or args[3].type ~= "u32"
+                    or args[4].type ~= "u32"
+                then
                     context.reject(lower.site(node), "valuebuilder number slice has invalid arguments")
                 end
                 event.sourceBytes, event.start, event.length = args[2], args[3], args[4]
@@ -2767,19 +2755,16 @@ local function call(
                 end
                 event.value, event.negative = args[2], args[3]
             elseif action == "decimal64" then
-                if #args ~= 8 or args[
-                    2
-                ].type ~= "lua_string" and args[
-                    2
-                ].type ~= "lua_bytes" or args[
-                    2
-                ].op ~= "local" or args[
-                    3
-                ].type ~= "u32" or args[
-                    4
-                ].type ~= "u32" or args[
-                    5
-                ].type ~= "u64" or args[6].type ~= "i32" or args[7].type ~= "bool" or args[8].type ~= "bool" then
+                if #args ~= 8
+                    or args[2].type ~= "lua_string" and args[2].type ~= "lua_bytes"
+                    or args[2].op ~= "local"
+                    or args[3].type ~= "u32"
+                    or args[4].type ~= "u32"
+                    or args[5].type ~= "u64"
+                    or args[6].type ~= "i32"
+                    or args[7].type ~= "bool"
+                    or args[8].type ~= "bool"
+                then
                     context.reject(
                         lower.site(node),
                         "valuebuilder.decimal64 takes a source slice, uint64 magnitude, int32 exponent, sign, and exactness"
@@ -2800,9 +2785,7 @@ local function call(
         end
     end
     if identity == "table.new"
-        or path == "table.new"
-        and kernel.modules.table == "@prelude.table"
-        and environment.table == nil
+        or path == "table.new" and kernel.modules.table == "@prelude.table" and environment.table == nil
     then
         if #args ~= 2 then
             context.reject(lower.site(node), "table.new in an AOT builder takes array and hash capacities")
@@ -2827,9 +2810,9 @@ local function call(
     -- only for the standalone parser harness; production lowering must not
     -- turn `local add = nupp.math.u32.add` into an unrelated helper call.
     local fixedIdentity = (node as any).scalarIntrinsic
-    local fixed = fixedIdentity ~= nil and admit.FIXED[
-        fixedIdentity as string
-    ] or not context.checked and path ~= nil and admit.fixed(path as string) or nil
+    local fixed = fixedIdentity ~= nil and admit.FIXED[fixedIdentity as string]
+        or not context.checked and path ~= nil and admit.fixed(path as string)
+        or nil
     if fixed ~= nil then
         return fixedCall(node, path or tostring(fixedIdentity), fixed as admit.Fixed, args, kernel)
     end
@@ -3245,9 +3228,14 @@ local function simdMethod(
     if exactOrder ~= nil then
         reducerOrder, reducerOperation = exactOrder, exactOperation
     end
-    if reducerOrder ~= nil and (
-        reducerElement ~= nil or reducerOperation == "sum" or reducerOperation == "product" or reducerOperation == "dot"
-    ) then
+    if reducerOrder ~= nil
+        and (
+            reducerElement ~= nil
+            or reducerOperation == "sum"
+            or reducerOperation == "product"
+            or reducerOperation == "dot"
+        )
+    then
         if receiver == nil or (receiver as scalarIR.Expr).op ~= "local" then
             kernel.context.reject(source, "a reducer operation must name its scoped reducer binding")
         end
@@ -3388,8 +3376,7 @@ local function simdMethod(
                 kernel.context.reject(
                     source,
                     "SIMD " .. method .. " requires matching logical lane counts" .. (
-                        method == "reinterpret"
-                        and " and equal element widths"
+                        method == "reinterpret" and " and equal element widths"
                         or "; use Fixed<N> when changing element width"
                     )
                 )
@@ -3433,13 +3420,15 @@ local function simdMethod(
                 type = maskType,
                 source = source
             )
-        elseif genericFamily == "species" and (
-            method == "load"
-            or method == "store"
-            or method == "gather"
-            or method == "scatter"
-            or method == "scatterUnchecked"
-        ) then
+        elseif genericFamily == "species"
+            and (
+                method == "load"
+                or method == "store"
+                or method == "gather"
+                or method == "scatter"
+                or method == "scatterUnchecked"
+            )
+        then
             local reading = method == "load" or method == "gather"
             local indexed = method == "gather" or method == "scatter" or method == "scatterUnchecked"
             local named = not indexed and raw[3] ~= nil and raw[3].kind == "string"
@@ -3486,9 +3475,10 @@ local function simdMethod(
                     kernel
                 )
             end
-            if span == nil or (
-                span.kind ~= wantedKind and not (reading and span.kind == "write_span")
-            ) or genericSimdSpanElement(span as scalarIR.Param) ~= genericElement then
+            if span == nil
+                or (span.kind ~= wantedKind and not (reading and span.kind == "write_span"))
+                or genericSimdSpanElement(span as scalarIR.Param) ~= genericElement
+            then
                 kernel.context.reject(
                     source,
                     "SIMD " .. method .. " needs a matching " .. (
@@ -3524,12 +3514,10 @@ local function simdMethod(
             -- the cursor so the verifier can hold that and the emitter can
             -- copy without checking any lane. A masked one keeps its mask.
             local masked = raw[reading and 3 or 4] ~= nil
-            local cursor = not indexed and not masked and provedCursor(
-                lower.unwrapped(raw[2]),
-                spanName,
-                kernel,
-                tostring(receiverType)
-            ) or nil
+            local cursor = not indexed
+                and not masked
+                and provedCursor(lower.unwrapped(raw[2]), spanName, kernel, tostring(receiverType))
+                or nil
             local cursorBinding = cursor ~= nil and environment[cursor as string] or nil
             local cursorCName = cursorBinding ~= nil and cursorBinding.cName or nil
             if reading then
@@ -4322,9 +4310,9 @@ local function expressionRaw(
         -- emission cannot tell the two apart so nothing looked wrong, but the lane
         -- rewriter decides what varies by exactly this distinction, so an inlined
         -- helper body read as uniform and the loop lost its lanes.
-        local op = bound.kind == "uniform" and "uniform" or (
-            bound.kind == "helper_param" or bound.op == "helper_param"
-        ) and "helper_param" or "local"
+        local op = bound.kind == "uniform" and "uniform"
+            or (bound.kind == "helper_param" or bound.op == "helper_param") and "helper_param"
+            or "local"
 
         return new scalarIR.Name(
             op = op as any,
@@ -4491,12 +4479,10 @@ local function expressionRaw(
                     local leftMin, leftMax = indexRange(pair.left)
                     local rightMin, rightMax = indexRange(pair.right)
                     if leftMin ~= nil and leftMax ~= nil and rightMin ~= nil and rightMax ~= nil then
-                        local low = op == "u32_add" and (
-                            leftMin as number
-                        ) + (rightMin as number) or (leftMin as number) * (rightMin as number)
-                        local high = op == "u32_add" and (
-                            leftMax as number
-                        ) + (rightMax as number) or (leftMax as number) * (rightMax as number)
+                        local low = op == "u32_add" and (leftMin as number) + (rightMin as number)
+                            or (leftMin as number) * (rightMin as number)
+                        local high = op == "u32_add" and (leftMax as number) + (rightMax as number)
+                            or (leftMax as number) * (rightMax as number)
                         if high <= 4294967295 then
                             return low, high
                         end
@@ -4692,13 +4678,12 @@ function lower.expression(
     kernel.expressionFrame, kernel.pending = parent, previous
     if #frame.output > 0 and parent ~= nil then
         for _, operand in ipairs(parent.operands) do
-            if parent.replacements[
-                operand
-            ] == nil
+            if parent.replacements[operand] == nil
                 and operand.op ~= "constant"
                 and operand.op ~= "constant_i32"
                 and operand.op ~= "constant_i64"
-                and operand.op ~= "bool" then
+                and operand.op ~= "bool"
+            then
                 parent.replacements[operand] = temporary(operand, kernel, previous)
             end
         end
@@ -4772,9 +4757,9 @@ function lower.helper(name: string, at: cst.Node?, kernel: lower.Kernel): scalar
     end
 
     local generic = body.generics ~= nil
-    local checkedSignature = context.checked and (
-        generic and at ~= nil and (at as any).signatureType or body.signatureType
-    ) or nil
+    local checkedSignature = context.checked
+        and (generic and at ~= nil and (at as any).signatureType or body.signatureType)
+        or nil
     if context.checked and checkedSignature == nil then
         context.reject(lower.site(body), "the checker did not publish this native helper signature")
     end
@@ -4790,26 +4775,23 @@ function lower.helper(name: string, at: cst.Node?, kernel: lower.Kernel): scalar
         -- call can reach IR or emission.
         -- Boxed int64/uint64 arithmetic becomes an unboxed native operation.
         -- Missing provenance remains conservative, including cached summaries.
-        if effects.allocates == true
-            and effects.allocatesBeyondWideArithmetic ~= false
+        if effects.allocates == true and effects.allocatesBeyondWideArithmetic ~= false
             or effects.yields == true
             or effects.raises == true
             or effects.external == true
-            or next(
-                effects.writes or {}
-            ) ~= nil or next(
-                effects.shapes or {}
-            ) ~= nil or next(effects.metatables or {}) ~= nil or next(effects.escapes or {}) ~= nil then
+            or next(effects.writes or {}) ~= nil
+            or next(effects.shapes or {}) ~= nil
+            or next(effects.metatables or {}) ~= nil
+            or next(effects.escapes or {}) ~= nil
+        then
             context.reject(lower.site(body), "the checker reports side effects in this native helper")
         end
     end
 
     local resultTypes: {scalarIR.Type} = {}
     for position, result in ipairs(body.rets or {}) do
-        local resultType = context.checked and semanticValueType(
-            checkedSignature.rets[position],
-            true
-        ) or lower.helperValueType(lower.compactType(result))
+        local resultType = context.checked and semanticValueType(checkedSignature.rets[position], true)
+            or lower.helperValueType(lower.compactType(result))
         if resultType == nil then
             context.reject(lower.site(result), "native helper results are scalar or SIMD values")
         end
@@ -4826,13 +4808,11 @@ function lower.helper(name: string, at: cst.Node?, kernel: lower.Kernel): scalar
     local environment: {[string]: any} = {}
     for position, raw in ipairs(body.params or {}) do
         local paramName = raw.name ~= nil and (raw.name as lexer.Token).text or nil
-        local paramType = context.checked and semanticValueType(
-            checkedSignature.params[position],
-            true
-        ) or lower.helperValueType(lower.compactType(raw.type))
-        local mode = context.checked and checkedSignature.paramModes[
-            position
-        ] or raw.modeTok ~= nil and (raw.modeTok as lexer.Token).text or nil
+        local paramType = context.checked and semanticValueType(checkedSignature.params[position], true)
+            or lower.helperValueType(lower.compactType(raw.type))
+        local mode = context.checked and checkedSignature.paramModes[position]
+            or raw.modeTok ~= nil and (raw.modeTok as lexer.Token).text
+            or nil
         if paramName == nil or paramType == nil or mode ~= nil and mode ~= "plain" then
             context.reject(lower.site(raw), "native helper parameters are unowned scalar or SIMD values")
         end
@@ -4892,9 +4872,10 @@ function lower.helper(name: string, at: cst.Node?, kernel: lower.Kernel): scalar
 
     local statements = body.body ~= nil and (body.body as cst.Block).stats or {}
     local returned = statements[1]
-    local single = #statements == 1 and returned ~= nil and returned.kind == "returnStmt" and #(
-        (returned as cst.ReturnStmt).exprs or {}
-    ) == #resultTypes
+    local single = #statements == 1
+        and returned ~= nil
+        and returned.kind == "returnStmt"
+        and #((returned as cst.ReturnStmt).exprs or {}) == #resultTypes
     if not single then
         context.reject(lower.site(body.body or body), "a native helper body is one matching return list")
     end
@@ -5166,16 +5147,13 @@ local function switchLocal(
         for _, caseValue in ipairs(arm.values or {}) do
             local constant = switchCaseValue(caseValue, kernel)
             local number = constant.op == "constant" and tonumber((constant as scalarIR.Constant).value) or nil
-            nativeLabelsFit = nativeLabelsFit and number ~= nil and number == math.floor(
-                number as number
-            ) and (
-                selector.type == "i32"
-                and number >= -2147483648
-                and number <= 2147483647
-                or selector.type == "u32"
-                and number >= 0
-                and number <= 4294967295
-            )
+            nativeLabelsFit = nativeLabelsFit
+                and number ~= nil
+                and number == math.floor(number as number)
+                and (
+                    selector.type == "i32" and number >= -2147483648 and number <= 2147483647
+                    or selector.type == "u32" and number >= 0 and number <= 4294967295
+                )
         end
     end
     local otherwise = node.elseCase
@@ -5192,11 +5170,12 @@ local function switchLocal(
         for _, arm in ipairs(node.cases or {}) do
             for _, caseValue in ipairs(arm.values or {}) do
                 local label = switchCaseValue(caseValue, kernel)
-                local matched = staticSelector ~= nil and label.op == "constant" and tonumber(
-                    (label as scalarIR.Constant).value
-                ) == staticSelector or staticPrimitive and label.type == selector.type and (
-                    selector.type == "lua_nil" or (label as any).value == (selector as any).value
-                )
+                local matched = staticSelector ~= nil
+                    and label.op == "constant"
+                    and tonumber((label as scalarIR.Constant).value) == staticSelector
+                    or staticPrimitive
+                    and label.type == selector.type
+                    and (selector.type == "lua_nil" or (label as any).value == (selector as any).value)
                 if chosen == nil and matched then
                     chosen = arm.expr
                 end
@@ -5279,10 +5258,10 @@ local function switchLocal(
         inferredResult = joinedType(inferredResult, elseValue.type, lower.site(otherwise), context)
     end
     inferredResult = inferredResult or "f64"
-    local resultType = annotatedValueType(
-        annotation,
-        context
-    ) or kernel.expectedType or semanticValueType((node as any).inferredType) or inferredResult
+    local resultType = annotatedValueType(annotation, context)
+        or kernel.expectedType
+        or semanticValueType((node as any).inferredType)
+        or inferredResult
     if resultType == nil or resultType == "multi" or resultType:match("^ref:") then
         context.reject(lower.site(stat), "native switch results must be scalar")
     end
@@ -5364,13 +5343,15 @@ local function switchLocal(
                     source = lower.site(caseValue)
                 )
             end
-            condition = condition ~= nil and new scalarIR.Binary(
-                op = "or",
-                left = condition as scalarIR.Expr,
-                right = equal,
-                type = "bool",
-                source = lower.site(caseValue)
-            ) or equal
+            condition = condition ~= nil
+                and new scalarIR.Binary(
+                    op = "or",
+                    left = condition as scalarIR.Expr,
+                    right = equal,
+                    type = "bool",
+                    source = lower.site(caseValue)
+                )
+                or equal
         end
         if not lowered.never then
             local assignment = new scalarIR.Assignment(
@@ -5410,10 +5391,10 @@ local function switchLocal(
     for _, arm in ipairs(arms) do
         expressionArms = expressionArms and #arm.setup == 1
     end
-    local nativeSwitch = expressionArms and nativePlan.tag == "NativeIntegerSwitch" and new scalarIR.NativeSwitch(
-        selector = selectorRef,
-        arms = nativeArms
-    ) or nil
+    local nativeSwitch = expressionArms
+        and nativePlan.tag == "NativeIntegerSwitch"
+        and new scalarIR.NativeSwitch(selector = selectorRef, arms = nativeArms)
+        or nil
     out[
         #out + 1
     ] = new scalarIR.If(
@@ -5507,9 +5488,11 @@ function lower.doExpression(node: cst.DoExpr, environment: {[string]: any}, kern
     for _, assignment in ipairs(frame.assignments) do
         inferred = joinedType(inferred, assignment.value.type, lower.site(node), kernel.context)
     end
-    local valueType = semanticValueType(
-        (node as any).inferredType
-    ) or inferred or kernel.expectedType or kernel.resultTypes[1] or result.type
+    local valueType = semanticValueType((node as any).inferredType)
+        or inferred
+        or kernel.expectedType
+        or kernel.resultTypes[1]
+        or result.type
     result.type = valueType
     for _, assignment in ipairs(frame.assignments) do
         assignment.target.type = valueType
@@ -5663,9 +5646,10 @@ local function localStmt(
     if kernel.phasesName ~= nil and #names == 1 and #exprs == 1 and exprs[1].kind == "methodCall" then
         local call = exprs[1] as cst.MethodCall
         local args = call.args ~= nil and ((call.args as cst.Args).exprs or {}) or {}
-        if lower.nameOf(
-            call.obj
-        ) == kernel.phasesName and call.name ~= nil and (call.name as lexer.Token).text == "scratch" then
+        if lower.nameOf(call.obj) == kernel.phasesName
+            and call.name ~= nil
+            and (call.name as lexer.Token).text == "scratch"
+        then
             if #args ~= 2 then
                 context.reject(lower.site(call), "phases:scratch takes an initial value and a static count")
             end
@@ -5725,12 +5709,11 @@ local function localStmt(
         return switchLocal(stat, exprs[1] as cst.SwitchExpr, out, environment, kernel)
     end
 
-    if #exprs == 1 and exprs[
-        1
-    ].kind == "call" and not context.vectors and calledIdentity(
-        exprs[1] as cst.Call,
-        kernel
-    ) == "nupp.simd.species" then
+    if #exprs == 1
+        and exprs[1].kind == "call"
+        and not context.vectors
+        and calledIdentity(exprs[1] as cst.Call, kernel) == "nupp.simd.species"
+    then
         -- `simd.species` on a tier without vectors: the name is bound to
         -- nothing, and the branch that tests it against nil prunes.
         admitSpecies(exprs[1] as cst.Call, kernel)
@@ -5744,9 +5727,10 @@ local function localStmt(
         return
     end
 
-    if #exprs == 1 and exprs[
-        1
-    ].kind == "call" and calledIdentity(exprs[1] as cst.Call, kernel) == "nupp.codec.valuebuilder.bytes" then
+    if #exprs == 1
+        and exprs[1].kind == "call"
+        and calledIdentity(exprs[1] as cst.Call, kernel) == "nupp.codec.valuebuilder.bytes"
+    then
         -- `valuebuilder.bytes(source)`: the span over a rooted parameter's own
         -- bytes. It is a name for a pointer and a count the entry already has,
         -- so nothing is constructed and no local is emitted -- the binding
@@ -6310,9 +6294,13 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
         local lengthName = lower.nameOf(comparison.rhs)
         local bytesName = lengthName ~= nil and kernel.lengthBounds[lengthName as string] or nil
         local bytes = bytesName ~= nil and kernel.params[bytesName as string] or nil
-        if written == "<" and binding ~= nil and binding.type == "u32" and bytes ~= nil and bytes.kind == "scalar" and (
-            bytes.type == "lua_string" or bytes.type == "lua_bytes"
-        ) then
+        if written == "<"
+            and binding ~= nil
+            and binding.type == "u32"
+            and bytes ~= nil
+            and bytes.kind == "scalar"
+            and (bytes.type == "lua_string" or bytes.type == "lua_bytes")
+        then
             return cursor, bytesName, scalarIR.ONE_ELEMENT
         end
         local scratchName = lengthName ~= nil and kernel.scratchLengthBounds[lengthName as string] or nil
@@ -6401,9 +6389,9 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
         local simdRequired = false
         while stat.kind == "pragmaStmt" do
             local pragma = stat as cst.PragmaStmt
-            simdRequired = simdRequired or pragma.name ~= nil and (
-                pragma.name as lexer.Token
-            ).text == "simd" or (pragma.stat as any).simdRequired == true
+            simdRequired = simdRequired
+                or pragma.name ~= nil and (pragma.name as lexer.Token).text == "simd"
+                or (pragma.stat as any).simdRequired == true
             stat = pragma.stat as cst.Node
         end
         local expressionFrame = new lower.ExpressionFrame(output = out)
@@ -6446,15 +6434,16 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
                 and statement.expr.kind == "methodCall"
                 and statement.expr as cst.MethodCall
                 or nil
-            local phaseMethod = method ~= nil and kernel.phasesName ~= nil and lower.nameOf(
-                (method as cst.MethodCall).obj
-            ) == kernel.phasesName and (
-                method as cst.MethodCall
-            ).name ~= nil and ((method as cst.MethodCall).name as lexer.Token).text or nil
+            local phaseMethod = method ~= nil
+                and kernel.phasesName ~= nil
+                and lower.nameOf((method as cst.MethodCall).obj) == kernel.phasesName
+                and (method as cst.MethodCall).name ~= nil
+                and ((method as cst.MethodCall).name as lexer.Token).text
+                or nil
             if method ~= nil and phaseMethod == "reduceSumF32" then
-                local args = (
-                    method as cst.MethodCall
-                ).args ~= nil and ((((method as cst.MethodCall).args as cst.Args).exprs or {})) or {}
+                local args = (method as cst.MethodCall).args ~= nil
+                    and ((((method as cst.MethodCall).args as cst.Args).exprs or {}))
+                    or {}
                 local sharedName = #args == 1 and lower.nameOf(args[1]) or nil
                 local shared = sharedName ~= nil and environment[sharedName as string] or nil
                 local size = kernel.workgroupSize
@@ -6539,9 +6528,9 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
                     stride = stride // 2
                 end
             elseif method ~= nil and phaseMethod == "inclusiveScanU32" then
-                local args = (
-                    method as cst.MethodCall
-                ).args ~= nil and ((((method as cst.MethodCall).args as cst.Args).exprs or {})) or {}
+                local args = (method as cst.MethodCall).args ~= nil
+                    and ((((method as cst.MethodCall).args as cst.Args).exprs or {}))
+                    or {}
                 local valuesName = #args == 2 and lower.nameOf(args[1]) or nil
                 local temporaryName = #args == 2 and lower.nameOf(args[2]) or nil
                 local values = valuesName ~= nil and environment[valuesName as string] or nil
@@ -6557,9 +6546,12 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
                 then
                     context.reject(lower.site(method), "phases:inclusiveScanU32 takes two distinct u32 scratch arrays")
                 end
-                if size == nil or size < 1 or size & (
-                    size - 1
-                ) ~= 0 or values.count ~= size or temporary.count ~= size then
+                if size == nil
+                    or size < 1
+                    or size & (size - 1) ~= 0
+                    or values.count ~= size
+                    or temporary.count ~= size
+                then
                     context.reject(
                         lower.site(method),
                         "fixed scan needs two power-of-two arrays with one value per lane"
@@ -6677,9 +6669,9 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
                     )
                 end
             elseif method ~= nil and phaseMethod == "run" then
-                local args = (
-                    method as cst.MethodCall
-                ).args ~= nil and ((((method as cst.MethodCall).args as cst.Args).exprs or {})) or {}
+                local args = (method as cst.MethodCall).args ~= nil
+                    and ((((method as cst.MethodCall).args as cst.Args).exprs or {}))
+                    or {}
                 if #args ~= 1 or args[1].kind ~= "funcExpr" then
                     context.reject(lower.site(method), "phases:run takes one immediate function")
                 end
@@ -6892,9 +6884,11 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
 
             local inner = inherit(environment)
             local binding = bind((loop.var as lexer.Token).text, "i32", nil, stat, inner, kernel)
-            local bounding = from.op == "constant_i32" and (
-                tonumber((from as scalarIR.IntConstant).value) or 0
-            ) >= 1 and to.op == "span_count" and (to as scalarIR.SpanCount).span or nil
+            local bounding = from.op == "constant_i32"
+                and (tonumber((from as scalarIR.IntConstant).value) or 0) >= 1
+                and to.op == "span_count"
+                and (to as scalarIR.SpanCount).span
+                or nil
             -- Inside the nested loop only its own bound proves an index access,
             -- whatever the enclosing map's guard prologue related to the map
             -- index: the verifier admits exactly `boundSpan` under a nested
@@ -7177,12 +7171,11 @@ function lower.parameters(
         end
 
         local spelling = lower.compactType(raw.type)
-        local resolved = useSignatureTypes == true and checkedSignature ~= nil and checkedSignature.params[
-            position
-        ] or checkedType(raw.type, context)
-        local mode = context.checked and checkedSignature ~= nil and checkedSignature.paramModes[
-            position
-        ] or raw.modeTok ~= nil and (raw.modeTok as lexer.Token).text or nil
+        local resolved = useSignatureTypes == true and checkedSignature ~= nil and checkedSignature.params[position]
+            or checkedType(raw.type, context)
+        local mode = context.checked and checkedSignature ~= nil and checkedSignature.paramModes[position]
+            or raw.modeTok ~= nil and (raw.modeTok as lexer.Token).text
+            or nil
         local sourceType = context.checked and sourceSpelling(resolved) or spelling
         local valueType = context.checked and semanticValueType(resolved) or lower.sourceValueType(spelling)
         local at = raw.type or raw
@@ -7478,9 +7471,12 @@ function lower.guardForm(stat: cst.Node?): lower.GuardForm?
     local body = clause.body ~= nil and (clause.body as cst.Block).stats or {}
     local first = body[1]
     local call = first ~= nil and first.kind == "callStmt" and (first as cst.CallStmt).expr or nil
-    if #body ~= 1 or call == nil or call.kind ~= "call" or (
-        call as cst.Call
-    ).aotGuardBuiltin ~= "error" or clause.cond == nil then
+    if #body ~= 1
+        or call == nil
+        or call.kind ~= "call"
+        or (call as cst.Call).aotGuardBuiltin ~= "error"
+        or clause.cond == nil
+    then
         return nil
     end
 
@@ -7659,9 +7655,9 @@ local function guardComparison(
     if firstOffset > relations.MAX_OFFSET or firstOffset < -relations.MAX_OFFSET then
         return false
     end
-    if secondOffset ~= nil and (
-        (secondOffset as integer) > relations.MAX_OFFSET or (secondOffset as integer) < -relations.MAX_OFFSET
-    ) then
+    if secondOffset ~= nil
+        and ((secondOffset as integer) > relations.MAX_OFFSET or (secondOffset as integer) < -relations.MAX_OFFSET)
+    then
         return false
     end
     out[#out + 1] = relations.relation(left, right, firstOffset, source)
@@ -7705,12 +7701,8 @@ function lower.guardFacts(
         -- fact about either, so a clause in that position is one that cannot be
         -- read rather than one that may be skipped.
         if text == (polarity and "and" or "or") then
-            return lower.guardFacts(
-                operator.lhs,
-                polarity,
-                signature,
-                out
-            ) or lower.guardFacts(operator.rhs, polarity, signature, out)
+            return lower.guardFacts(operator.lhs, polarity, signature, out)
+                or lower.guardFacts(operator.rhs, polarity, signature, out)
         end
         if NEGATED[text] ~= nil then
             if guardComparison(node, polarity, signature, out) then
@@ -7878,13 +7870,13 @@ function lower.loopShape(loop: cst.Node?, signature: lower.Signature): lower.Loo
     -- a relation without being admitted as a bound.
     local from = signature.byName[startName as string]
     local to = signature.byName[stopName as string]
-    if from == nil or to == nil or (
-        from as scalarIR.Param
-    ).kind ~= "uniform" or (
-        to as scalarIR.Param
-    ).kind ~= "uniform" or (
-        from as scalarIR.Param
-    ).sourceType ~= "integer" or (to as scalarIR.Param).sourceType ~= "integer" then
+    if from == nil
+        or to == nil
+        or (from as scalarIR.Param).kind ~= "uniform"
+        or (to as scalarIR.Param).kind ~= "uniform"
+        or (from as scalarIR.Param).sourceType ~= "integer"
+        or (to as scalarIR.Param).sourceType ~= "integer"
+    then
         return nil
     end
 
@@ -8119,9 +8111,11 @@ function lower.unprovedMessage(admission: lower.MapAdmission): string
         ] = "`" .. relations.text(
             relation
         ) .. "`" .. (
-            at ~= nil and (
+            at ~= nil
+            and (
                 " (" .. tostring((at as scalarIR.Source).line) .. ":" .. tostring((at as scalarIR.Source).column) .. ")"
-            ) or ""
+            )
+            or ""
         )
     end
 
@@ -8213,9 +8207,10 @@ function lower.scan(chunk: cst.Chunk, checked: boolean): lower.Declarations
                     local called = exprs[1] as cst.Call
                     if required == nil and lower.nameOf(called.obj) == "require" and called.args ~= nil then
                         local arguments = (called.args as cst.Args).exprs or {}
-                        local literal = #arguments == 1 and arguments[
-                            1
-                        ].kind == "string" and (arguments[1] as cst.StringLit).token or nil
+                        local literal = #arguments == 1
+                            and arguments[1].kind == "string"
+                            and (arguments[1] as cst.StringLit).token
+                            or nil
                         local written = literal ~= nil and (literal as lexer.Token).text or ""
                         required = written:match('^"(.*)"$') or written:match("^'(.*)'$")
                     end
@@ -8249,20 +8244,18 @@ function lower.scan(chunk: cst.Chunk, checked: boolean): lower.Declarations
                     -- boundary explicit here as well: a partial producer or a tree
                     -- built by a lowering harness must not turn a qualified function's
                     -- absent local-name token into a nil table key below.
-                    local decorated = cursor ~= nil and cursor.kind == "localFuncStmt" and (
-                        cursor as cst.LocalFuncStmt
-                    ) or nil
-                    isAot = decorated ~= nil and (
-                        decorated as cst.LocalFuncStmt
-                    ).body ~= nil and ((decorated as cst.LocalFuncStmt).body as cst.Funcbody).aotRequired == true
+                    local decorated = cursor ~= nil and cursor.kind == "localFuncStmt" and (cursor as cst.LocalFuncStmt)
+                        or nil
+                    isAot = decorated ~= nil
+                        and (decorated as cst.LocalFuncStmt).body ~= nil
+                        and ((decorated as cst.LocalFuncStmt).body as cst.Funcbody).aotRequired == true
                 end
                 if isAot then
                     found.applications[
                         #found.applications + 1
                     ] = new lower.Application(chain = chain, tail = cursor, at = stat as cst.PragmaStmt)
-                    local named = cursor ~= nil and cursor.kind == "localFuncStmt" and (
-                        cursor as cst.LocalFuncStmt
-                    ) or nil
+                    local named = cursor ~= nil and cursor.kind == "localFuncStmt" and (cursor as cst.LocalFuncStmt)
+                        or nil
                     if named ~= nil and (named as cst.LocalFuncStmt).name ~= nil then
                         found.entries[((named as cst.LocalFuncStmt).name as lexer.Token).text] = named
                     end
@@ -8393,8 +8386,7 @@ function lower.kernelBody(
     local declaration = fn as cst.LocalFuncStmt
     local body = declaration.body as cst.Funcbody?
     if body == nil
-        or body.generics ~= nil
-        and specialization == nil
+        or body.generics ~= nil and specialization == nil
         or body.varargParam ~= nil
         or body.captureTakes ~= nil
         or body.captureBorrows ~= nil
@@ -8422,9 +8414,9 @@ local function loweringEnvironment(signature: lower.Signature, specialization: l
             else
                 param.cName = "p_" .. param.name
             end
-            environment[
-                param.name
-            ] = specialization ~= nil and (specialization as lower.Specialization).values[param.name] or param
+            environment[param.name] = specialization ~= nil
+                and (specialization as lower.Specialization).values[param.name]
+                or param
         end
     end
 
@@ -8517,9 +8509,9 @@ function lower.program(
     local contract = lower.contract(application, body, checked, context)
 
     local layouts = new lower.Layouts(ordered = {}, byName = {})
-    local checkedSignature = context.checked and (
-        specialization ~= nil and (specialization as lower.Specialization).signature or body.signatureType
-    ) or nil
+    local checkedSignature = context.checked
+        and (specialization ~= nil and (specialization as lower.Specialization).signature or body.signatureType)
+        or nil
     if context.checked and checkedSignature == nil then
         context.reject(lower.site(body), "the checker did not publish this AOT signature")
     end
@@ -8550,13 +8542,12 @@ function lower.program(
     local resultSourceTypes: {string} = {}
     local rets = body.rets or {}
     local resolvedResults = checkedSignature ~= nil and checkedSignature.rets or nil
-    if #rets == 1 and (
-        context.checked and resolvedResults[
-            1
-        ] ~= nil and semanticRaw(
-            resolvedResults[1]
-        ).tag == "nil" or not context.checked and lower.compactType(rets[1]) == "nil"
-    ) then
+    if #rets == 1
+        and (
+            context.checked and resolvedResults[1] ~= nil and semanticRaw(resolvedResults[1]).tag == "nil"
+            or not context.checked and lower.compactType(rets[1]) == "nil"
+        )
+    then
         rets = {}
     end
     for position, result in ipairs(rets) do
@@ -8610,9 +8601,9 @@ function lower.program(
         if #resultTypes ~= 0 or #signature.writes == 0 then
             context.reject(lower.site(body), "a GPU workgroup entry returns nil and takes a writable span")
         end
-        local args = (
-            workgroupCall as cst.Call
-        ).args ~= nil and ((((workgroupCall as cst.Call).args as cst.Args).exprs or {})) or {}
+        local args = (workgroupCall as cst.Call).args ~= nil
+            and ((((workgroupCall as cst.Call).args as cst.Args).exprs or {}))
+            or {}
         if #args ~= 3 or args[3].kind ~= "funcExpr" then
             context.reject(
                 lower.site(workgroupCall),
@@ -8626,9 +8617,11 @@ function lower.program(
         end
         local controller = (args[3] as cst.FuncExpr).body as cst.Funcbody?
         local controllerParams = controller ~= nil and (controller as cst.Funcbody).params or {}
-        if controller == nil or #controllerParams ~= 2 or (
-            controllerParams[1] as cst.Param
-        ).name == nil or (controllerParams[2] as cst.Param).name == nil then
+        if controller == nil
+            or #controllerParams ~= 2
+            or (controllerParams[1] as cst.Param).name == nil
+            or (controllerParams[2] as cst.Param).name == nil
+        then
             context.reject(lower.site(args[3]), "a workgroup controller takes groupIndex and phases")
         end
         local groupName = ((controllerParams[1] as cst.Param).name as lexer.Token).text
@@ -8667,9 +8660,10 @@ function lower.program(
         while divisor ~= nil and (divisor.op == "numeric_cast" or divisor.op == "int_to_f64") do
             divisor = (divisor as scalarIR.Convert).value
         end
-        local divisorValue = divisor ~= nil and (
-            divisor.op == "constant" or divisor.op == "constant_i32"
-        ) and tonumber((divisor as any).value) or nil
+        local divisorValue = divisor ~= nil
+            and (divisor.op == "constant" or divisor.op == "constant_i32")
+            and tonumber((divisor as any).value)
+            or nil
         if numerator == nil or numerator.op ~= "span_count" or divisorValue ~= size then
             context.reject(lower.site(args[1]), "GPU workgroup count must be u32.div(u32.wrap(#span), workgroupSize)")
         end
@@ -8789,16 +8783,14 @@ function lower.program(
     -- or proved equal to it, while a cursor access carries its dominating bound check
     -- into either backend.
     local candidate = #resultTypes == 0 and #signature.writes > 0 and #signature.reads > 0 and #statements > 0
-    local admission = candidate and lower.admitMap(
-        statements,
-        signature
-    ) or new lower.MapAdmission(
-        relations = {},
-        guards = {},
-        understood = {},
-        declined = "a map kernel writes a span and reads one, and returns nothing",
-        declinedAt = lower.site(body)
-    )
+    local admission = candidate and lower.admitMap(statements, signature)
+        or new lower.MapAdmission(
+            relations = {},
+            guards = {},
+            understood = {},
+            declined = "a map kernel writes a span and reads one, and returns nothing",
+            declinedAt = lower.site(body)
+        )
     if admission.unproved ~= nil then
         context.reject(lower.site(statements[#statements]), lower.unprovedMessage(admission))
     end

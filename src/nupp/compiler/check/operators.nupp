@@ -188,11 +188,10 @@ local function simdIntegerElement(t: Type): boolean
     end
     element = T.unwrapOwnership(element)
 
-    return fixedWidth.isValue(
-        element
-    ) and fixedWidth.widenedName(
-        element
-    ) == "integer" or fixedWidth.isStorageOnly(element) or element.tag == "int64" or element.tag == "uint64"
+    return fixedWidth.isValue(element) and fixedWidth.widenedName(element) == "integer"
+        or fixedWidth.isStorageOnly(element)
+        or element.tag == "int64"
+        or element.tag == "uint64"
 end
 
 --- Reports `customary-operator` when an operator was written in its C spelling. The two
@@ -297,10 +296,13 @@ function operators.install(c: state.Checker): state.ExprHandlers
         if captures then
             return captures
         end
-        if t == T.any or isA(
-            t,
-            T.string
-        ) or isA(t, T.number) or isA(t, T.boolean) or isA(t, T.table_) or t.tag == "func" then
+        if t == T.any
+            or isA(t, T.string)
+            or isA(t, T.number)
+            or isA(t, T.boolean)
+            or isA(t, T.table_)
+            or t.tag == "func"
+        then
             return lpegEmpty
         end
 
@@ -357,12 +359,9 @@ function operators.install(c: state.Checker): state.ExprHandlers
             elseif rt.tag == "func" then
                 return makeLpegPattern(leftOrigin, capturesFromPack(rt.retPack))
             elseif isA(rt, T.table_) or rt.tag == "shape" or rt.tag == "array" or rt.tag == "map" then
-                local value = rt.tag == "array"
-                    and rt.elem
-                    or rt.tag == "map"
-                    and rt.value
-                    or rt.tag == "nominal"
-                    and rt.indexReadValue
+                local value = rt.tag == "array" and rt.elem
+                    or rt.tag == "map" and rt.value
+                    or rt.tag == "nominal" and rt.indexReadValue
                     or T.any
                 return makeLpegPattern(leftOrigin, value == T.any and lpegUnknown or T.tuple({value as Type}))
             end
@@ -441,9 +440,9 @@ function operators.install(c: state.Checker): state.ExprHandlers
         local right = T.unwrapOwnership(rt)
         local leftTag = left.tag
         local rightTag = right.tag
-        local target = (
-            leftTag == "uint32" or rightTag == "uint32"
-        ) and T.uint32 or (leftTag == "int32" or rightTag == "int32") and T.int32 or nil
+        local target = (leftTag == "uint32" or rightTag == "uint32") and T.uint32
+            or (leftTag == "int32" or rightTag == "int32") and T.int32
+            or nil
         if target == nil then
             return nil
         end
@@ -572,9 +571,9 @@ function operators.install(c: state.Checker): state.ExprHandlers
             return false
         end
         local truthy, falsy = narrowing.truthiness(inferred)
-        if truthyOnly == true and (
-            truthy == nil or truthy == T.never
-        ) or truthyOnly == false and (falsy == nil or falsy == T.never) then
+        if truthyOnly == true and (truthy == nil or truthy == T.never)
+            or truthyOnly == false and (falsy == nil or falsy == T.never)
+        then
             return true
         end
         if node.kind == "binop" and node.op and (node.op.kind == "and" or node.op.kind == "or") then
@@ -584,12 +583,11 @@ function operators.install(c: state.Checker): state.ExprHandlers
             if isAnd then
                 selectedLeft, reachesRight = leftFalsy, leftTruthy
             end
-            local leftNeeded = selectedLeft ~= nil and selectedLeft ~= T.never and (
-                truthyOnly == nil or truthyOnly ~= isAnd
-            )
-            return (
-                not leftNeeded or selectedWidth(node.lhs, target, not isAnd)
-            ) and (reachesRight == nil or reachesRight == T.never or selectedWidth(node.rhs, target, truthyOnly))
+            local leftNeeded = selectedLeft ~= nil
+                and selectedLeft ~= T.never
+                and (truthyOnly == nil or truthyOnly ~= isAnd)
+            return (not leftNeeded or selectedWidth(node.lhs, target, not isAnd))
+                and (reachesRight == nil or reachesRight == T.never or selectedWidth(node.rhs, target, truthyOnly))
         end
 
         return c.fixedWidth.established(node, target)
@@ -660,9 +658,9 @@ function operators.install(c: state.Checker): state.ExprHandlers
             end
             -- LuaJIT converts the other operand to the box's width, and to unsigned
             -- when either side is: the result is the wider box, not the left one.
-            local wide = (
-                lt.tag == "uint64" or rt.tag == "uint64"
-            ) and T.uint64 or (lt.tag == "int64" or rt.tag == "int64") and T.int64 or nil
+            local wide = (lt.tag == "uint64" or rt.tag == "uint64") and T.uint64
+                or (lt.tag == "int64" or rt.tag == "int64") and T.int64
+                or nil
             if wide then
                 capabilities.require(c, "int64", opTok)
                 -- The result is a fresh cdata box, which is an allocation however
@@ -737,14 +735,10 @@ function operators.install(c: state.Checker): state.ExprHandlers
                 c.diag("NUPP2003", node, "explicit SIMD bitwise operands need the vector or mask on the left")
                 return T.any
             end
-            local wide = lt.tag == "int64"
-                and lt
-                or lt.tag == "uint64"
-                and lt
-                or rt.tag == "int64"
-                and rt
-                or rt.tag == "uint64"
-                and rt
+            local wide = lt.tag == "int64" and lt
+                or lt.tag == "uint64" and lt
+                or rt.tag == "int64" and rt
+                or rt.tag == "uint64" and rt
                 or nil
             capabilities.require(c, wide and "int64" or "bitops", opTok)
             if wide then
