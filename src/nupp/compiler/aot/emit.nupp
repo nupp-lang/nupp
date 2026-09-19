@@ -41,6 +41,7 @@ record emit.HelperName
 end
 
 record emit.Context
+    sourceFile: string?
     explicitWidth: integer
 
     --- The widest vector a value may be built out of, or zero for no limit.
@@ -63,6 +64,7 @@ end
 --- Creates a context without changing its parent or the semantic IR.
 function emit.context(parent: emit.Context?, program: scalarIR.Program?, scalar: boolean?): emit.Context
     local context = new emit.Context(
+        sourceFile = parent ~= nil and parent.sourceFile or nil,
         explicitWidth = parent ~= nil and parent.explicitWidth or 0,
         vectorCeiling = parent ~= nil and parent.vectorCeiling or 0,
         explicitScalar = scalar == true,
@@ -2637,6 +2639,9 @@ function emit.luaBlock(
     end
 
     local function render(node: scalarIR.Statement, position: integer): boolean
+        if context.sourceFile ~= nil and node.source ~= nil then
+            lines[#lines + 1] = ('#line %d %q'):format(node.source.line, context.sourceFile as string)
+        end
         return switch node.op do
             case "let" -> do
                 local statement = node as scalarIR.Let
@@ -3115,6 +3120,9 @@ function emit.block(
     end
 
     local function render(node: cplan.Statement, position: integer): boolean
+        if context.sourceFile ~= nil and (node as any).source ~= nil then
+            lines[#lines + 1] = ('#line %d %q'):format((node as any).source.line, context.sourceFile as string)
+        end
         return switch node.op do
             case "let" -> do
                 local statement = node as scalarIR.Let
@@ -3459,8 +3467,9 @@ end
 --- keeps the scalar statements and carries a pragma refusing vectorisation --
 --- including whatever the C compiler would have done on its own.
 --- @raises when passed malformed or unverified IR
-function emit.program(programs: {scalarIR.Program}, tier: string?): string
+function emit.program(programs: {scalarIR.Program}, tier: string?, sourceFile: string?): string
     local context = emit.context()
+    context.sourceFile = sourceFile
     context.expressions = cplan.expressions(programs)
     collectExplicitFixed(context, programs)
 
@@ -3640,6 +3649,9 @@ function emit.program(programs: {scalarIR.Program}, tier: string?): string
             --- One C definition of the kernel.
             local function implementation(symbol: string, forced: boolean): nil
                 local context = emit.context(context, nil, forced and program.usesSimd == true)
+                if sourceFile ~= nil then
+                    lines[#lines + 1] = '#line 1 "<nupp-generated>"'
+                end
                 body.forceScalar = forced
                 body.controlUsed = {}
                 body.controlSerial = 0
@@ -3749,6 +3761,22 @@ function emit.program(programs: {scalarIR.Program}, tier: string?): string
         lines[#lines + 1] = "    return 1;"
         lines[#lines + 1] = "}"
         lines[#lines + 1] = ""
+    end
+
+    if sourceFile ~= nil then
+        -- A single authored statement can expand to many C lines. Repeat its
+        -- directive so those lines do not invent subsequent authored positions.
+        local mapped: {string} = {}
+        local location: string? = nil
+        for line in (table.concat(lines, "\n") .. "\n"):gmatch("([^\n]*)\n") do
+            if line:match("^#line ") then
+                location = line
+            elseif location ~= nil and line:sub(1, 1) ~= "#" then
+                mapped[#mapped + 1] = location as string
+            end
+            mapped[#mapped + 1] = line
+        end
+        return table.concat(mapped, "\n") .. "\n"
     end
 
     return table.concat(lines, "\n") .. "\n"

@@ -471,6 +471,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     local aotManifest: string? = nil
     local aotWasmModules: {string} = {}
     local aotGpu = false
+    local aotRemarks: {any} = {}
     if not opts.checkOnly and aotPolicy.POLICIES[target.aot or "off"] and target.aot ~= nil and target.aot ~= "off" then
         report:at("aot")
         report:step(
@@ -514,10 +515,17 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         )
         report:clear()
         if produced == nil then
-            io.stderr:write("nupp: " .. tostring(aotErr) .. "\n")
-
+            require(
+                "nupp.compiler.cli.report"
+            ).fileFailure(
+                fs.join(root, "nupp.lua"),
+                tostring(aotErr),
+                "Inspect the generated AOT unit and the compiler output above.",
+                opts.diagnostics
+            )
             return 1
         end
+        aotRemarks = (produced as any).remarks or {}
         report:addSpecialized((produced as any).specializedBodies or 0)
         local internalTarget = target as any
         internalTarget._constSelection = (produced as any).constSelection
@@ -905,6 +913,9 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         end
     end
     newState.targets[targetKey] = mine
+    for _, note in ipairs(aotRemarks) do
+        result.optimizationRemarks[#result.optimizationRemarks + 1] = note
+    end
     if opts.remarks or opts.produced then
         if (config._optLevel or 0) == 0 then
             result.optimizationRemarks[

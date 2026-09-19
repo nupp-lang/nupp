@@ -5817,4 +5817,31 @@ return {scan = scan}
     end
 end
 
+function M.inspectionFindsNestedProjectAndCarriesSourcePositions()
+    local dir = project{["nested/nupp.lua"] = 'return {include={"src"}}', ["nested/src/compute.nupp"] = COMPUTE}
+    local out, code = run(dir, "--source-locations --json --emit c nested/src/compute.nupp")
+    test.equal(code, 0, out)
+    local decoded = require("testjson").decode(out)
+    assert(decoded.c:find('#line ', 1, true), "inspection C carries authored positions")
+    assert(decoded.c:find('nested/src/compute.nupp', 1, true), "C names the source file")
+    if hasToolchain() then
+        out, code = run(dir, "--json --emit asm nested/src/compute.nupp")
+        test.equal(code, 0, out)
+        local found, attributed = false, false
+        for _, listing in ipairs(require("testjson").decode(out).asm.functions) do
+            if listing.role == "kernel" then
+                for _, instruction in ipairs(listing.instructions) do
+                    if instruction.sourceFile and instruction.sourceFile:find("compute.nupp", 1, true) then
+                        assert(instruction.sourceLine > 0)
+                        found = true
+                        attributed = attributed or #(instruction.loopIds or {}) > 0
+                    end
+                end
+            end
+        end
+        assert(found, "native kernel instructions retain authored locations")
+        assert(attributed, "native instructions identify their originating IR loops")
+    end
+end
+
 return M

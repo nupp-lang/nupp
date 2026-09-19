@@ -5294,4 +5294,19 @@ function M.aDidChangeBurstAppliesTheLastFullText()
     )
 end
 
+function M.artifactDiscoveryNamesAotKernel()
+    local projectDir = tempProject()
+    writeFile(projectDir .. "/nupp.lua", 'return {include = {"."}}\n')
+    local answer = artifactSession(projectDir, "kernel.nupp", [[
+local i32 = require("nupp.math.i32")
+@aot
+local function double(value: int32): int32
+    return i32.add(value, value)
+end
+return double
+]], "$/nupp/artifacts", {position = {line = 3, character = 8}})
+    test.equal(answer["function"].aotSymbol, "ks_double")
+    test.equal(answer["function"].aotSource, "kernel.nupp")
+end
+
 return M

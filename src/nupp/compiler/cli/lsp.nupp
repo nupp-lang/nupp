@@ -363,7 +363,15 @@ local OPERATION_SCHEMAS: {
                 ] = {
                     type = "object",
                     description = "The innermost function the position is in, absent outside one.",
-                    properties = {name = {type = "string"}, range = reportMod.RANGE},
+                    properties = {
+                        name = {type = "string"},
+                        aotSymbol = {
+                            type = "string",
+                            description = "Logical AOT kernel symbol, before static archive qualification or tier suffixes."
+                        },
+                        aotSource = {type = "string"},
+                        range = reportMod.RANGE
+                    },
                 },
             },
             required = {"artifacts"},
@@ -1148,6 +1156,8 @@ local function runArtifacts(client, opts)
             "function"
         ] = enclosing and {
             name = enclosing.name,
+            aotSymbol = enclosing.aotSymbol,
+            aotSource = enclosing.aotSource,
             range = enclosing.range and rangeValue(client, path, enclosing.range) or nil,
         } or nil,
     }
@@ -1158,7 +1168,9 @@ local function runArtifacts(client, opts)
             io.write(("%s: %s (%s)\n"):format(entry.kind, entry.label, entry.scope))
         end
         if enclosing and enclosing.name then
-            io.write("in " .. enclosing.name .. "\n")
+            io.write(
+                "in " .. enclosing.name .. (enclosing.aotSymbol and (" (" .. enclosing.aotSymbol .. ")") or "") .. "\n"
+            )
         end
     end
 

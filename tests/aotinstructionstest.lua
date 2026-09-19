@@ -317,4 +317,27 @@ function M.onlyTheArchitecturesWithRulesAreRead()
     assert(not instructions.reads("wasm32"))
 end
 
+function M.debugLocationsFollowInstructionsAcrossLabels()
+    local parsed = instructions.parse([[
+.file 1 "kernels" "scale.nupp"
+.file 2 "helpers.nupp"
+_ks_scale:
+    .loc 1 12 3
+    ldr s0, [x0]
+Lloop:
+    .loc 1 14 7
+    fmul s0, s0, s1
+    .loc 2 4 2
+    ret
+    .loc 2 0 0
+    nop
+]], "aarch64", "darwin")
+    test.equal(parsed[1].instructions[1].sourceFile, "kernels/scale.nupp")
+    test.equal(parsed[1].instructions[1].sourceLine, 12)
+    test.equal(parsed[1].instructions[2].generatedColumn, 7)
+    test.equal(parsed[1].instructions[3].sourceFile, "helpers.nupp")
+    test.equal(parsed[1].instructions[4].sourceFile, nil)
+    test.equal(parsed[1].instructions[4].sourceLine, nil)
+end
+
 return M

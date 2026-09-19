@@ -212,6 +212,27 @@ make two runs of it comparable rather than something to be re-read by eye. The
 [CLI reference](../../../reference/cli.md#aot) says what the counts mean and where
 they are deliberately coarse.
 
+`--emit c --source-locations` includes `#line` directives for authored statements; assembly is
+compiled with debug line tables and its JSON instructions carry `sourceFile`
+and `sourceLine` when the native compiler retained a location. `generatedColumn`
+is a generated C column; authored loop columns come from `loops`. Compare those
+with the function's `loops` entries to follow a loop from IR into C and assembly.
+Instructions' `loopIds` name every loop whose retained source range contains
+the location, including enclosing loops; these are source attribution, not a
+claim that the native optimizer retained the same control-flow structure.
+Optimization may move, combine, or remove instructions, so absent locations are
+left absent rather than assigned to the nearest loop. Ordinary builds do not
+add these inspection directives or debug flags.
+
+`nupp lsp artifacts --json FILE LINE COLUMN` also reports the enclosing
+function's logical `aotSymbol`. Static archives qualify that symbol and
+multiversion builds suffix it with the selected tier.
+
+`build --remarks` reports each AOT loop's lowering outcome at its authored
+position; `--remarks-out` retains the same notes in `build/remarks.json`.
+Running `nupp aot` from a parent directory uses the nearest manifest above the
+source file, so a benchmark's imports resolve in its own project.
+
 Each symbol is headed by what it is: the compiled body, the forced-scalar oracle
 it is [differentially tested](numeric-semantics.md#verification) against, the Lua wrapper and
 registrar in front of a builder, a layout reporter, or a helper the C compiler

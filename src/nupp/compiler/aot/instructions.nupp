@@ -58,6 +58,11 @@ end
 
 --- One instruction, as the assembler was given it.
 record instructions.Instruction
+    sourceFile: string?
+    sourceLine: integer?
+    generatedColumn: integer?
+    loopIds: {integer}?
+
     --- The label this is the first instruction under, when one precedes it.
     ---
     --- Loop structure is the reason: a back edge names a label, and a listing
@@ -348,6 +353,10 @@ function instructions.parse(assembly: string, architecture: string, system: stri
     local listings: {instructions.Listing} = {}
     local current: instructions.Listing? = nil
     local pending: string? = nil
+    local files: {[integer]: string} = {}
+    local sourceFile: string? = nil
+    local sourceLine: integer? = nil
+    local sourceColumn: integer? = nil
     local underscored = system == "darwin" or system == "windows"
     for raw in (assembly .. "\n"):gmatch("([^\n]*)\n") do
         local line = trim(uncomment(raw, architecture))
@@ -355,7 +364,19 @@ function instructions.parse(assembly: string, architecture: string, system: stri
         -- A label is read before a directive is skipped: an ELF assembler's
         -- private labels begin with `.` too, and `.L2:` is a label rather than
         -- a directive.
-        if line == "" then
+        local fileId, fileName = line:match('^%.file%s+(%d+)%s+"([^"]+)"')
+        local locFile, locLine, locColumn = line:match("^%.loc%s+(%d+)%s+(%d+)%s+(%d+)")
+        if fileId ~= nil then
+            local second = line:match('^%.file%s+%d+%s+"[^"]+"%s+"([^"]+)"')
+            files[
+                tonumber(fileId) as integer
+            ] = second ~= nil and (second:sub(1, 1) == "/" and second or fileName .. "/" .. second) or fileName
+        elseif locFile ~= nil then
+            sourceLine = tonumber(locLine) as integer
+            sourceFile = sourceLine > 0 and files[tonumber(locFile) as integer] or nil
+            sourceColumn = sourceLine > 0 and tonumber(locColumn) as integer or nil
+            sourceLine = sourceLine > 0 and sourceLine or nil
+        elseif line == "" then
             -- Nothing.
         elseif label ~= nil then
             if isLocalLabel(label as string) then
@@ -373,6 +394,7 @@ function instructions.parse(assembly: string, architecture: string, system: stri
                 )
                 listings[#listings + 1] = current
                 pending = nil
+                sourceFile, sourceLine, sourceColumn = nil, nil, nil
             end
         elseif line:sub(1, 1) == "." then
             -- A directive, an alignment or a section. None of them is an
@@ -388,6 +410,9 @@ function instructions.parse(assembly: string, architecture: string, system: stri
             local held = (current as instructions.Listing).instructions
             held[#held + 1] = new instructions.Instruction(
                 label = pending,
+                sourceFile = sourceFile,
+                sourceLine = sourceLine,
+                generatedColumn = sourceColumn,
                 -- Respelled from its two halves rather than kept as written.
                 -- The compiler separates them with a tab, and a listing whose
                 -- text depended on that would diff against itself.

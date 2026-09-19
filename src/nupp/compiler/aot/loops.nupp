@@ -15,6 +15,7 @@ record loops.Report
     id: integer
     kind: 'map' | 'fornum' | 'while' | 'repeat'
     line: integer
+    lastLine: integer
     column: integer
     nodes: integer
     simdOperations: integer
@@ -122,6 +123,22 @@ local function measurements(value: any): loops.Counts
     return answer
 end
 
+local function lastSourceLine(value: any, latest: integer): integer
+    if type(value) ~= "table" then
+        return latest
+    end
+    if value.source ~= nil then
+        latest = math.max(latest, value.source.line or latest)
+    end
+    for key, child in pairs(value) do
+        if key ~= "source" then
+            latest = lastSourceLine(child, latest)
+        end
+    end
+
+    return latest
+end
+
 local function append(
     reports: {loops.Report},
     kind: 'map' | 'fornum' | 'while' | 'repeat',
@@ -137,6 +154,7 @@ local function append(
         id = #reports + 1,
         kind = kind,
         line = source ~= nil and (source as scalarIR.Source).line or 1,
+        lastLine = lastSourceLine(value, source ~= nil and (source as scalarIR.Source).line or 1),
         column = source ~= nil and (source as scalarIR.Source).column or 1,
         nodes = counts.nodes,
         simdOperations = counts.simdOperations,

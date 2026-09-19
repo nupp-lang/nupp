@@ -5507,4 +5507,19 @@ end
 
 require("jit").off(M.crossLaneOperationsAgreeWithTheirScalarExecutableSemantics, true)
 
+function M.cCompilerFailureIsAJsonDiagnostic()
+    if not hasToolchain() then
+        test.skip("requires a C compiler")
+    end
+    local dir = project("require")
+    withKeys(dir, 'aotCflags = {"-DNUPP_ISSUE49_FAILURE=1", "-include", "nupp-issue49-missing-header.h"},')
+    local pipe = assert(io.popen(("cd %q && NUPP_CACHE_DIR=%q NO_COLOR= %q build --target native --json 2>/dev/null"):format(dir, cacheFor(dir), NUPP)))
+    local text = pipe:read("*a")
+    pipe:close()
+    local report = require("testjson").decode(text)
+    test.equal(report.ok, false)
+    assert(#report.diagnostics > 0, text)
+    assert(report.diagnostics[1].message:find("nupp-issue49-missing-header.h", 1, true), text)
+end
+
 return M

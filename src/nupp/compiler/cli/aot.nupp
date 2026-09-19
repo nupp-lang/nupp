@@ -88,8 +88,12 @@ local REPORT_SCHEMA = {
                             type = "object",
                             properties = {
                                 id = {type = "integer"},
-                                kind = {type = "string", enum = {"map", "fornum", "while"}},
+                                kind = {type = "string", enum = {"map", "fornum", "while", "repeat"}},
                                 line = {type = "integer"},
+                                lastLine = {
+                                    type = "integer",
+                                    description = "Last authored position retained in the loop IR."
+                                },
                                 column = {type = "integer"},
                                 nodes = {type = "integer"},
                                 simdOperations = {type = "integer"},
@@ -219,6 +223,17 @@ local REPORT_SCHEMA = {
                                             type = "string",
                                             description = "The label this is the first instruction "
                                             .. "under. Absent when none precedes it.",
+                                        },
+                                        loopIds = {
+                                            type = "array",
+                                            items = {type = "integer"},
+                                            description = "Loops whose authored ranges contain this location; nested loops can share an instruction."
+                                        },
+                                        sourceFile = {type = "string"},
+                                        sourceLine = {type = "integer"},
+                                        generatedColumn = {
+                                            type = "integer",
+                                            description = "Column in generated C; #line maps authored lines only."
                                         },
                                         text = {type = "string"},
                                         mnemonic = {type = "string"},
@@ -397,6 +412,18 @@ local function summarise(path: string, program: any, artifacts: any): string
     return ("%s: %s, %s, %s"):format(path, program.name, program.entryMode, what)
 end
 
+--- Source annotations are inspection-only; production bytes remain unchanged.
+local function inspectionC(artifacts: any, sourceFile: string): string
+    local programs = {}
+    for _, program in ipairs(artifacts.programs) do
+        if program.target ~= "gpu" then
+            programs[#programs + 1] = program
+        end
+    end
+
+    return require("nupp.compiler.aot.emit").program(programs, nil, sourceFile)
+end
+
 --- What every symbol in the generated C compiled to.
 ---
 --- Everything here is the build's: the toolchain it would have used, the flags
@@ -406,7 +433,7 @@ end
 ---
 --- @param wanted one function, named as the source or the symbol spells it
 --- @return the report, or nothing and what stopped it
-local function assembly(artifacts: any, selected: Target, wanted: string?): (any?, string?)
+local function assembly(artifacts: any, selected: Target, wanted: string?, sourceFile: string): (any?, string?)
     local buildAot = require("nupp.compiler.build.aot")
     local instructionsMod = require("nupp.compiler.aot.instructions")
     local targets = require("nupp.compiler.aot.target")
@@ -421,7 +448,9 @@ local function assembly(artifacts: any, selected: Target, wanted: string?): (any
         return nil, tostring(chainErr)
     end
     local selectedChain = chain as Toolchain
-    local text, assembleErr = buildAot.assemble(selectedChain, selected, artifacts.c)
+    local mapped = inspectionC(artifacts, sourceFile)
+    local debugFlags: {string} = {selectedChain.dialect == "clang" and "-gline-tables-only" or "-g"}
+    local text, assembleErr = buildAot.assemble(selectedChain, selected, mapped, debugFlags)
     if text == nil then
         return nil, tostring(assembleErr)
     end
@@ -442,6 +471,25 @@ local function assembly(artifacts: any, selected: Target, wanted: string?): (any
     end
     instructionsMod.claim(listings, claims)
 
+    for _, listing in ipairs(listings) do
+        for index, program in ipairs(artifacts.programs) do
+            if listing.name == program.name then
+                for _, instruction in ipairs(listing.instructions) do
+                    local file = instruction.sourceFile
+                    local line = instruction.sourceLine
+                    if file ~= nil and line ~= nil and file:sub(-#sourceFile) == sourceFile then
+                        local ids: {integer} = {}
+                        for _, loop in ipairs(artifacts.loops[index] or {}) do
+                            if line >= loop.line and line <= loop.lastLine then
+                                ids[#ids + 1] = loop.id
+                            end
+                        end
+                        instruction.loopIds = ids
+                    end
+                end
+            end
+        end
+    end
     local shown = instructionsMod.order(listings)
     if wanted ~= nil then
         -- Narrowed from the ordered listings rather than the emitted ones, so
@@ -461,7 +509,7 @@ local function assembly(artifacts: any, selected: Target, wanted: string?): (any
             version = selectedChain.version,
             dialect = selectedChain.dialect,
         },
-        flags = buildAot.compileFlags(selected, selectedChain),
+        flags = buildAot.compileFlags(selected, selectedChain, debugFlags),
         functions = shown,
     }, nil
 end
@@ -524,7 +572,17 @@ local function run(options: any): integer
     -- here would make `nupp aot` disagree with `nupp build` precisely on the
     -- aliases, ownership modes, effects and resolved layouts it exists to show.
     local envMod = require("nupp.compiler.env")
-    local environment = envMod.new(".")
+    local fs = require("nupp.compiler.fs")
+    local root = fs.dirname(fs.absolute(path))
+    while not fs.exists(fs.join(root, "nupp.lua")) do
+        local parent = fs.dirname(root)
+        if parent == root then
+            root = "."
+            break
+        end
+        root = parent
+    end
+    local environment = envMod.new(root)
     -- The command is an inspection of AOT output even when the manifest's
     -- build policy is off. Keep every other project setting and make only that
     -- question explicit while checking target-specific operations.
@@ -586,7 +644,7 @@ local function run(options: any): integer
     -- of choosing an output format.
     local instructionReport: any = nil
     if emit == "asm" then
-        local built, instructionErr = assembly(artifacts, selected as targets.Target, options.functionName)
+        local built, instructionErr = assembly(artifacts, selected as targets.Target, options.functionName, path)
         if built == nil then
             io.stderr:write("nupp: " .. tostring(instructionErr) .. "\n")
 
@@ -642,7 +700,9 @@ local function run(options: any): integer
                 },
                 functions = functions,
                 ir = (emit == nil or emit == "ir") and artifacts.irText or nil,
-                c = (emit == nil or emit == "c") and artifacts.c or nil,
+                c = (
+                    emit == nil or emit == "c"
+                ) and (options.sourceLocations and inspectionC(artifacts, path) or artifacts.c) or nil,
                 simd = simdText,
                 spirv = spirvHex,
                 wgsl = emit == "wgsl" and wgsl or nil,
@@ -653,7 +713,7 @@ local function run(options: any): integer
     elseif emit == "ir" then
         io.write(artifacts.irText)
     elseif emit == "c" then
-        io.write(artifacts.c)
+        io.write(options.sourceLocations and inspectionC(artifacts, path) or artifacts.c)
     elseif emit == "simd" then
         io.write(simdText as string)
     elseif emit == "spirv" then
@@ -707,6 +767,9 @@ local record Aot
     --- Artifact to print: ir, c, simd, spirv, wgsl, asm, or binding.
     @cli(value = "ARTIFACT", choices = {"ir", "c", "simd", "spirv", "wgsl", "asm", "binding"})
     emit: string?
+
+    --- Include authored #line locations in emitted C (assembly always carries them).
+    sourceLocations: boolean = false
 
     --- Show only this function.
     @cli(name = "function", value = "NAME")

@@ -107,7 +107,7 @@ local function build(dir)
     local pipe = assert(
         io.popen(
             (
-                "cd %q && NUPP_CACHE_DIR=%q NO_COLOR= '%s' build --target native --format json 2>/dev/null"
+                "cd %q && NUPP_CACHE_DIR=%q NO_COLOR= '%s' build --target native --remarks-out --format json 2>/dev/null"
             ):format(dir, cache, NUPP)
         )
     )
@@ -199,6 +199,17 @@ function M.rebuildsOnlyWhatChanged()
     test.equal(coldFacts.compiledObjects, coldFacts.units, "every emitted unit becomes an object")
     test.equal(coldFacts.linked, true, "a cold build links")
     assert(coldFacts.externalCommands > coldFacts.compiledObjects, "a cold build runs a compiler and a linker")
+    local remarks = json.decode(assert(read(dir .. "/build/remarks.json")))
+    local aotNotes = 0
+    for _, note in ipairs(remarks.remarks or {}) do
+        if note.code == "AOT-LOOP" then
+            aotNotes = aotNotes + 1
+            assert(note.range.start.line > 1, "AOT notes use the authored loop position")
+            local source = assert(read(dir .. "/" .. note.file))
+            assert(source:sub(note.range.start.offset, note.range.start.offset + 2) == "for", "AOT note range starts at its loop")
+        end
+    end
+    test.equal(aotNotes, SOURCES, "each source contributes one AOT loop remark")
     local coldObjects = objects(dir)
     test.equal(#names(coldObjects), coldFacts.units, "one object file per unit")
     local library = assert(

@@ -200,12 +200,24 @@ function artifacts.install(s: artifacts.Session): artifacts.Api
     --- analysis the ordinary check already produced, which is what makes this
     --- affordable once per function per viewport.
     local function discover(params: any): any
-        local _, doc, offset = documentFor(params)
+        local uri, doc, offset = documentFor(params)
         if not doc then
             return {artifacts = wire.array({})}
         end
         local analysis = doc.result and doc.result.traceAnalysis or nil
         local selected, from, to = tree.functionAt(analysis and analysis.functions or nil, offset)
+        local aotSymbol: string? = nil
+        local aotSource: string? = nil
+        if selected ~= nil and selected.body ~= nil and selected.body.aotRequired == true then
+            local fs = require("nupp.compiler.fs")
+            local path = uriToPath(uri as string)
+            local root = fs.absolute(s.useRoot(path))
+            local absolute = fs.absolute(path)
+            aotSource = absolute:sub(1, #root + 1) == root .. "/" and absolute:sub(#root + 2) or absolute
+            local name = selected.node and selected.node.name and selected.node.name.text or selected.traceName
+            local symbol = require("nupp.compiler.aot.scalar").privateSymbol(name)
+            aotSymbol = symbol
+        end
         local out = wire.array({})
         for _, kind in ipairs(artifacts.KINDS) do
             out[#out + 1] = {kind = kind, label = LABELS[kind], languageId = LANGUAGES[kind], scope = SCOPES[kind],}
@@ -217,6 +229,8 @@ function artifacts.install(s: artifacts.Session): artifacts.Api
                 "function"
             ] = selected and {
                 name = selected.traceName,
+                aotSymbol = aotSymbol,
+                aotSource = aotSource,
                 range = from and to and spanRange(doc.text, from, to as integer) or nil,
             } or nil,
         }

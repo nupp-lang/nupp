@@ -1691,6 +1691,8 @@ record aot.Result
     --- `emit-c` leaves every module exactly as it was written.
     dispatch: {[string]: string}
 
+    remarks: {any}?
+
     --- Source path -> what reading that source as written said about bindings
     --- nothing uses. The module build reports these instead of what the
     --- rewritten source says, which cannot see the readers the wrapper replaced.
@@ -1986,6 +1988,41 @@ function aot.apply(
         return nil, emitErr
     end
     report:at("aot")
+    local remarks: {any} = {}
+    local remarked: {[string]: boolean} = {}
+    for _, one in ipairs(emitted as {aot.Emitted}) do
+        local artifact = produced[one.source]
+        if artifact ~= nil and not remarked[one.source] then
+            remarked[one.source] = true
+            for position, program in ipairs(artifact.programs) do
+                for _, loop in ipairs(artifact.loops[position] or {}) do
+                    local source = fs.readFile(one.source) or ""
+                    local offset = 1
+                    for _ = 2, loop.line do
+                        offset = (source:find("\n", offset, true) or (#source + 1)) + 1
+                    end
+                    offset = offset + loop.column - 1
+                    remarks[
+                        #remarks + 1
+                    ] = {
+                        filename = one.source,
+                        line = loop.line,
+                        col = loop.column,
+                        offset = offset,
+                        length = 1,
+                        code = "AOT-LOOP",
+                        severity = "note",
+                        pass = "aot",
+                        status = "fired",
+                        hotness = "unknown",
+                        msg = program.name .. ": loop " .. tostring(
+                            loop.id
+                        ) .. " " .. loop.outcome .. (loop.reason ~= nil and ("; " .. loop.reason) or ""),
+                    }
+                end
+            end
+        end
+    end
     local specializedBodies: integer = 0
     local countedSources: {[string]: boolean} = {}
     for _, one in ipairs(emitted as {aot.Emitted}) do
@@ -2133,6 +2170,7 @@ function aot.apply(
             end
         end
         return new aot.Result(
+            remarks = remarks,
             emitted = emitted as {aot.Emitted},
             libraryKey = sideModules.key,
             toolchain = sideModules.toolchain,
@@ -2164,6 +2202,7 @@ function aot.apply(
     end
     if not aot.linksNative(policy) then
         return new aot.Result(
+            remarks = remarks,
             emitted = emitted as {aot.Emitted},
             manifest = manifest,
             dispatch = {},
@@ -2203,6 +2242,7 @@ function aot.apply(
             end
         end
         return new aot.Result(
+            remarks = remarks,
             emitted = emitted as {aot.Emitted},
             manifest = manifest,
             dispatch = dispatch,
@@ -2354,6 +2394,7 @@ function aot.apply(
     end
 
     return new aot.Result(
+        remarks = remarks,
         emitted = emitted as {aot.Emitted},
         library = library,
         libraryKey = key,
