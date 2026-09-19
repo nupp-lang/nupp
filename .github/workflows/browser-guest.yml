@@ -59,6 +59,7 @@ jobs:
       - name: Build the LuaJIT compiler and native response oracle
         run: |
           ./scripts/toolchain --all
+          ./bin/nupp build
           ./bin/nupp build --target bootstrapCompiler
           ./scripts/prelude-image luajit
           ./bin/nupp build --target browserLuaJITApplicationRuntime --host browser

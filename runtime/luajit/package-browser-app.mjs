@@ -7,7 +7,14 @@ import {fileURLToPath} from 'node:url';
 import {build} from '../../editors/playground/node_modules/esbuild/lib/main.js';
 import {copyGuest, digest} from './package-assets.mjs';
 const repo = fileURLToPath(new URL('../../', import.meta.url));
+let compilerPrepared = false;
 export async function packageBrowserApp({project, target, output, guest}) {
+  // A cold checkout otherwise routes build --host through the pinned compiler,
+  // which predates that option. Bootstrap the checkout's compiler first.
+  if (!compilerPrepared) {
+    execFileSync(path.join(repo, 'bin/nupp'), ['build'], {cwd:repo, stdio:'inherit'});
+    compilerPrepared = true;
+  }
   project = path.resolve(project || '.');
   output = path.resolve(output || path.join(project, 'build/browser'));
   const result = JSON.parse(execFileSync(path.join(repo, 'bin/nupp'), ['build', '--target', target || 'browser', '--host', 'browser', '--json'],
