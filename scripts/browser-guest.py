@@ -70,9 +70,15 @@ def build(root, cache, sources):
             # The installed libc link is absolute inside the guest, not the builder.
             (musl / 'lib/libc.so').unlink()
             shutil.copyfile(trees['musl'] / 'lib/libc.so', musl / 'lib/libc.so')
+            (musl / 'lib/libc.so').chmod(0o755)
             cc = work / 'guest-cc'
-            cc.write_text('#!/bin/sh\nexec gcc -m32 -static-libgcc -specs=' + shlex.quote(str(musl / 'lib/musl-gcc.specs')) + ' "$@"\n')
+            # musl replaces GCC's link spec, including its -m32 linker selection.
+            cc.write_text('#!/bin/sh\nexec gcc -m32 -Wl,-m,elf_i386 -static-libgcc -specs=' + shlex.quote(str(musl / 'lib/musl-gcc.specs')) + ' "$@"\n')
             cc.chmod(0o755)
+            probe = work / 'target-probe.c'
+            probe.write_text('int main(void) { return sizeof(void *) != 4; }\n')
+            run(cc, probe, '-o', work / 'target-probe', env=environment)
+            run(musl / 'lib/libc.so', work / 'target-probe', env=environment)
             run('make', '-C', trees['luajit'] / 'src', '-j' + jobs, 'HOST_CC=gcc -m32', 'CC=' + str(cc),
                 'BUILDMODE=static', 'TARGET_SYS=Linux', env=environment)
             guest = work / 'guest'
