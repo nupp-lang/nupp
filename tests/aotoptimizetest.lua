@@ -536,6 +536,34 @@ function M.sameAndReassociationRejectUnavailableOrRaisingHelpers()
    assert(replacement == nil, "reassociation needs an available stable helper body")
 end
 
+function M.floatingCountedLoopsKeepTheirProgressionAndLiteralType()
+   local function loop(first, last)
+      return {
+         op = "fornum", binding = {kind = "local", name = "round", cName = "round", type = "f64"},
+         from = constant(first), to = constant(last), carried = {},
+         body = {assignTo("value", "f64", named("round", "f64"))},
+      }
+   end
+   for _, bounds in ipairs({{"9007199254740992", "9007199254740992"}, {"-0.0", "0.0"}}) do
+      local ir = program({loop(bounds[1], bounds[2])})
+      local stats = optimize.program(ir)
+      assert(stats.unrolledLoops == 0, "unrolling must not change binary64 progression or zero sign")
+      assert(ir.body[1].op == "fornum")
+   end
+   local ir = program({loop("4294967294", "4294967295")})
+   local stats = optimize.program(ir)
+   assert(stats.unrolledLoops == 1 and stats.unrolledIterations == 2)
+   for _, block in ipairs(ir.body) do
+      assert(block.op == "block")
+      for _, statement in ipairs(block.body) do
+         if statement.op == "assign" then
+            local value = statement.values[1].value
+            assert(value.op == "constant" and value.type == "f64", "expanded wide value remains binary64")
+         end
+      end
+   end
+end
+
 function M.unrollsOnlySmallLiteralTripCountsWithinOneGrowthBudget()
    local function loop(last)
       return {

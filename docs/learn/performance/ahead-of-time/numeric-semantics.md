@@ -27,6 +27,17 @@ end
 | `int64` `+`, `-`, `*` in AOT | wrapping int64 | operates as uint64, then converts back |
 | `uint64` `+`, `-`, `*` in AOT | wrapping uint64 | native unsigned modular arithmetic |
 
+Numeric `for` loops evaluate their start and stop once, in source order, before
+entering the loop. Assigning the visible loop variable does not change the next
+iteration. CPU AOT preserves this behavior for the admitted implicit step of
+one, including signed counter limits, `uint32` bounds and binary64 bounds.
+Explicit steps remain a positioned refusal. A loop whose index is assigned
+must use a separately proved cursor for span access. GPU counted loops retain
+their [narrower signed-int32 contract](gpu.md). Loop entry also matches
+LuaJIT's integer-mode conversion: a negative-zero start becomes positive zero
+when the limit is exactly representable as `int32`; other limits retain its
+sign.
+
 Ordinary floating-point arithmetic assumes round-to-nearest-even. Signed zero
 and numeric NaN behavior are preserved. NaN signaling state, payload bits, and
 floating-point exception flags are not observable guarantees. The bit-level

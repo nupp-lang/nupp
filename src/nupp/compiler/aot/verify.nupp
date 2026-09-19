@@ -525,6 +525,7 @@ local function load(node: scalarIR.Load, values: {[string]: string}, scope: veri
     else
         holds(
             node.index == scope.index
+            and values[ASSIGNED .. node.index] == nil
             and (
                 scope.mapIndex == true and (scope.indexSpans as {[string]: boolean})[node.span] == true
                 or node.span == scope.boundSpan
@@ -557,6 +558,7 @@ local function elementRef(node: scalarIR.ElementRef, values: {[string]: string},
         and node.cursorCName ~= nil
         or node.cursor == nil
         and node.index == scope.index
+        and values[ASSIGNED .. node.index] == nil
         and (
             scope.mapIndex == true and (scope.indexSpans as {[string]: boolean})[node.span] == true
             or node.span == scope.boundSpan
@@ -2105,6 +2107,7 @@ local function block(
                 and statement.cursorCName ~= nil
                 or statement.cursor == nil
                 and statement.index == scope.index
+                and values[ASSIGNED .. statement.index] == nil
                 and (
                     scope.mapIndex == true and (scope.indexSpans as {[string]: boolean})[statement.span] == true
                     or statement.span == scope.boundSpan
@@ -2639,11 +2642,11 @@ local function block(
                 holds(bound.type == "i32" or bound.type == "u32" or bound.type == "f64", "non-numeric for bound")
                 scalarWalk(bound, values, scope)
             end
-            holds(statement.binding.type == "i32", "for induction variable type")
+            holds(statement.binding.type == "i32" or statement.binding.type == "f64", "for induction variable type")
 
             local inner = inherit(values)
             enterLoop(statement.carried, inner)
-            inner[statement.binding.name] = "i32"
+            inner[statement.binding.name] = statement.binding.type
             declareLocal(inner, statement.binding.name, statement.binding.assigned)
             -- Only this loop's own bound proves an index under it, so the map's
             -- guarded spans do not carry in.

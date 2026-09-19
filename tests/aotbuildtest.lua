@@ -4622,6 +4622,142 @@ function M.twoAotFunctionsOverOneStructBuild()
     assert(lua:find("ks_shift_both__" .. firstHostTier() .. "_PointLayout", 1, true), "both of them")
 end
 
+function M.countedLoopsPreserveBoundAndInductionSemantics()
+    if not hasToolchain() then return end
+    local answers = {}
+    for _, policy in ipairs({"off", "require"}) do
+        local dir = project(policy)
+        local source = assert(io.open(dir .. "/src/kernel.nupp", "wb"))
+        source:write(assert(read(NATIVE_HERE .. "/fixtures/aot_counted.nupp")))
+        source:close()
+        local out, code = build(dir)
+        test.equal(code, 0, "counted loops at " .. dir .. " under " .. policy .. "\n" .. out)
+        local script = searchPathPrelude() .. ([=[
+-- Keep the oracle and aot=off route interpreted: traced FORI can choose
+-- a different integer/float mode for negative zero after warmup.
+jit.off()
+local ffi = require("ffi")
+local spans = require("nupp.mem.span")
+local m = require("kernel")
+local compiled = rawget(_G, "__nuppAotCompiled") or {}
+for _, name in ipairs({"signed", "general", "unsigned", "indexed", "vector", "scalarVector", "vectorWide", "literal", "negativeZero", "uniformAssigned", "unsignedVector", "signedVector", "signedReadonly", "regions", "liveness"}) do
+    assert((compiled[m[name]] ~= nil) == %s, name .. " compiled route")
+end
+local nativeCalls = {}
+-- FFI tail calls share one VM call hook and erase their Lua caller. Forward
+-- the generated native upvalue itself, recording only a successful C return.
+local function observe(fn, index, native)
+    debug.setupvalue(fn, index, function(...)
+        local result = native(...)
+        nativeCalls[fn] = true
+        return result
+    end)
+end
+for name, fn in pairs(m) do
+    if compiled[fn] then
+        local found = false
+        for index = 1, 32 do
+            local upname, value = debug.getupvalue(fn, index)
+            if not upname then break end
+            if upname:match("^ks_.*_native$") and type(value) == "cdata" then
+                observe(fn, index, value)
+                found = true
+            end
+        end
+        assert(found, name .. " has no generated native entry")
+    end
+end
+local checked = 0
+local function equal(a, b, where)
+    assert(a == b or a ~= a and b ~= b, where .. ": " .. tostring(a) .. " vs " .. tostring(b))
+    if a == 0 and b == 0 then assert(1/a == 1/b, where .. " signed zero") end
+    checked = checked + 1
+end
+local function oracle(first, last, limit)
+    local visits, total, final = 0, 0, 0
+    for i = first, last do
+        visits, total, final = visits + 1, total + i, i
+        if limit and visits == limit then break end
+    end
+    return visits, total, final
+end
+local ranges = {{1,3},{3,2},{-3,-1},{0,0},{2147483645,2147483647},{-2147483648,-2147483646}}
+for _, r in ipairs(ranges) do
+    local n, sum = oracle(r[1],r[2])
+    local a,b = m.signed(r[1],r[2])
+    equal(m.signedReadonly(r[1],r[2]), n, "readonly signed counter"); equal(a, n + 2100, "signed visits/evaluation"); equal(b,sum,"signed values")
+end
+for _, r in ipairs({{0,2},{2147483647,2147483649},{4294967293,4294967295},{9,8}}) do
+    local n,sum = oracle(r[1],r[2])
+    local a,b = m.unsigned(r[1],r[2])
+    equal(a,n,"uint32 visits"); equal(b,sum,"uint32 values")
+end
+local wide = {{0.5,2.5},{-1.5,0.5},{3,2},{2147483647,2147483649},{4294967293,4294967295},{-0.0,0},{-0.0,0.5},{-0.0,2147483648},{-9007199254740994,-9007199254740992},{2^-1074,3},{0/0,3},{1,0/0},{math.huge,math.huge},{-math.huge,0},{9007199254740992,9007199254740992}}
+for _, r in ipairs(wide) do
+    local n,_,last = oracle(r[1],r[2],4)
+    local a,b = m.general(r[1],r[2])
+    equal(a,n,"number visits"); equal(b,last,"number values")
+end
+equal(m.literal(), 2147483647+2147483648+4294967293+4294967294+4294967295+2*4294967296, "literal and visible assignment")
+equal(m.negativeZero(), math.huge, "integer-loop zero normalization")
+local input = ffi.new("uint32_t[3]", 2,3,5)
+equal(m.indexed(spans.fromCarray(input,3)),20,"nested span proof")
+for count = 0, 19 do
+    local first,last,out = ffi.new("int32_t[?]",math.max(count,1)),ffi.new("int32_t[?]",math.max(count,1)),ffi.new("double[?]",math.max(count,1))
+    for i=0,count-1 do local r=ranges[i %% #ranges+1]; first[i],last[i]=r[1],r[2] end
+    for _,name in ipairs({"vector","scalarVector"}) do
+        m[name](spans.writeCarray(out,count),spans.fromCarray(first,count),spans.fromCarray(last,count))
+        for i=0,count-1 do
+            local n,sum = oracle(tonumber(first[i]),tonumber(last[i]),3)
+            equal(tonumber(out[i]),sum+n*1000+math.max(0,n-1)*110+math.max(0,n-2)*100,name)
+        end
+    end
+    local signedOut=ffi.new("uint32_t[?]",math.max(count,1))
+    m.signedVector(spans.writeCarray(signedOut,count),spans.fromCarray(first,count),spans.fromCarray(last,count))
+    for i=0,count-1 do local n=oracle(tonumber(first[i]),tonumber(last[i]));equal(tonumber(signedOut[i]),n,"signed vector counter") end
+    m.uniformAssigned(spans.writeCarray(out,count),spans.fromCarray(first,count),1,2)
+    for i=0,count-1 do equal(tonumber(out[i]),first[i]>0 and 2*4294967296 or 3,"uniform assigned") end
+    local ufirst,ulast,uout=ffi.new("uint32_t[?]",math.max(count,1)),ffi.new("uint32_t[?]",math.max(count,1)),ffi.new("uint32_t[?]",math.max(count,1))
+    for i=0,count-1 do ufirst[i],ulast[i]=4294967293+i%%3,4294967295 end
+    m.unsignedVector(spans.writeCarray(uout,count),spans.fromCarray(ufirst,count),spans.fromCarray(ulast,count))
+    for i=0,count-1 do equal(tonumber(uout[i]),3-i%%3,"unsigned vector") end
+    for i=0,count-1 do signedOut[i]=i%%5 end
+    m.regions(spans.writeCarray(signedOut,count),2)
+    for i=0,count-1 do
+        local expected=0
+        for j=i%%5,3 do expected=expected+1;if expected==2 then break end end
+        for outer=1,2 do
+            for j=expected,3 do expected=expected+1;if j==2 then break end end
+        end
+        equal(tonumber(signedOut[i]),expected,"sibling and nested regions")
+    end
+    for mode=0,4 do
+        for i=0,count-1 do out[i]=i%%2 end
+        m.liveness(spans.writeCarray(out,count),2,mode)
+        local expected=({100,3,7,3,6})[mode+1]
+        for i=0,count-1 do equal(tonumber(out[i]),expected,"loop condition and backedge liveness mode " .. mode) end
+    end
+    local lo,hi = ffi.new("double[?]",math.max(count,1)),ffi.new("double[?]",math.max(count,1))
+    for i=0,count-1 do local r=wide[i %% #wide+1];lo[i],hi[i]=r[1],r[2] end
+    m.vectorWide(spans.writeCarray(out,count),spans.fromCarray(lo,count),spans.fromCarray(hi,count))
+    for i=0,count-1 do local n,_,v=oracle(tonumber(lo[i]),tonumber(hi[i]),4);equal(tonumber(out[i]),v==0 and 1/v or n+v,"wide vector") end
+end
+for name, fn in pairs(m) do
+    if compiled[fn] then assert(nativeCalls[fn], name .. " did not execute its native C entry") end
+end
+print("COUNTED-OK " .. checked)
+]=]):format(tostring(policy == "require"))
+        local runner = assert(io.open(dir .. "/compare.lua", "wb"))
+        runner:write(script)
+        runner:close()
+        local pipe = assert(io.popen(("cd %q && luajit compare.lua 2>&1"):format(dir)))
+        answers[policy] = pipe:read("*a")
+        pipe:close()
+        assert(answers[policy]:find("COUNTED-OK", 1, true), "counted oracle " .. policy .. " at " .. dir .. "\n" .. answers[policy])
+    end
+    test.equal(answers.require, answers.off, "native and interpreted counted loops agree with independent oracle")
+end
+
 function M.theDispatchedModuleAnswersWhatTheInterpretedOneDoes()
     if not hasToolchain() then
         return

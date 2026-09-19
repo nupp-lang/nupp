@@ -673,11 +673,34 @@ optimizeBlock = function(statements: {scalarIR.Statement}, state: optimize.State
                 local last = fold.exactInteger(loop.to)
                 local trips = first ~= nil and last ~= nil and math.max((last as number) - (first as number) + 1, 0)
                     or nil
-                if trips ~= nil and trips <= optimize.MAX_UNROLL_TRIPS and not containsLoopExit(loop.body) then
+                -- A binary64 counter at 2^53 can stop advancing. Expanding a
+                -- mathematical trip count would turn that loop into a finite
+                -- one; also retain the sign of an authored negative zero.
+                local exactProgress = loop.binding.type ~= "f64"
+                    or first ~= nil
+                    and last ~= nil
+                    and (first as number) >= -9007199254740992
+                    and (last as number) < 9007199254740992
+                    and not (first == 0 and 1 / (first as number) < 0)
+                if trips ~= nil
+                    and trips <= optimize.MAX_UNROLL_TRIPS
+                    and exactProgress
+                    and not containsLoopExit(loop.body)
+                then
                     local expanded: {scalarIR.Statement} = {}
                     local growth = -specialize.nodes(loop)
                     for offset = 0, (trips as number) - 1 do
-                        local value = fold.integerConstant((first as number) + offset, loop.binding.type, loop)
+                        local value: scalarIR.Expr
+                        if loop.binding.type == "f64" then
+                            value = new scalarIR.Constant(
+                                op = "constant",
+                                value = ("%.0f"):format((first as number) + offset),
+                                type = "f64",
+                                source = loop.source
+                            )
+                        else
+                            value = fold.integerConstant((first as number) + offset, loop.binding.type, loop)
+                        end
                         local body = specialize.copy(loop.body, {}) as {scalarIR.Statement}
                         local iterationBody: {
                             scalarIR.Statement

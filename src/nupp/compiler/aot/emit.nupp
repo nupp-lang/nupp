@@ -2464,23 +2464,96 @@ local function controlFlow(
         end
     end
 
-    if body.headerControl == true and (node.op == "while" or node.op == "repeat" or node.op == "fornum") then
+    -- A numeric for has private control state. The visible local is rebound
+    -- on entry to each iteration, so assigning it never changes progression.
+    -- int64 leaves room for the terminating increment past INT32_MAX; general
+    -- numeric bounds retain binary64 rather than narrowing their values.
+    if node.op == "fornum" then
+        local loop = node as scalarIR.Fornum
+        body.controlSerial = body.controlSerial + 1
+        local suffix = tostring(body.controlSerial)
+        local counter, last = "ks_for_counter_" .. suffix, "ks_for_last_" .. suffix
+        local controlType = loop.from.type == "i32" and loop.to.type == "i32" and "int64_t" or "double"
+        local valueType = loop.binding.type == "i32" and "int32_t" or "double"
+        local breakLabel, continueLabel = "ks_loop_break_" .. suffix, "ks_loop_continue_" .. suffix
+        local outerBreak, outerContinue = body.controlBreak, body.controlContinue
+        lines[#lines + 1] = prefix .. "{"
+        lines[#lines + 1] = prefix .. "    " .. controlType .. " " .. counter .. " = " .. expression(loop.from) .. ";"
+        lines[#lines + 1] = prefix .. "    const " .. controlType .. " " .. last .. " = " .. expression(loop.to) .. ";"
+        if controlType == "double" and loop.from.type == "f64" then
+            -- LuaJIT FORI narrows all three controls together when they are
+            -- int32. For an implicit +1 step, only the sign of a zero start
+            -- differs from binary64 progression; retain it for other limits.
+            lines[
+                #lines + 1
+            ] = prefix
+                .. "    if ("
+                .. counter
+                .. " == 0.0 && "
+                .. last
+                .. " == (double)nupp_wrap_i32("
+                .. last
+                .. ")) "
+                .. counter
+                .. " = 0.0;"
+        end
+        lines[#lines + 1] = prefix .. "    for (; " .. counter .. " <= " .. last .. "; ++" .. counter .. ") {"
+        lines[
+            #lines + 1
+        ] = prefix
+            .. "        "
+            .. valueType
+            .. " "
+            .. loop.binding.cName
+            .. " KS_UNUSED = ("
+            .. valueType
+            .. ")"
+            .. counter
+            .. ";"
+        body.controlBreak, body.controlContinue = breakLabel, continueLabel
+        for _, line in ipairs(block(loop.body, depth + 2, body, nil)) do
+            lines[#lines + 1] = line
+        end
+        body.controlBreak, body.controlContinue = outerBreak, outerContinue
+        if body.controlUsed[continueLabel] then
+            lines[#lines + 1] = prefix .. "        " .. continueLabel .. ":;"
+        end
+        lines[#lines + 1] = prefix .. "    }"
+        if body.controlUsed[breakLabel] then
+            lines[#lines + 1] = prefix .. "    " .. breakLabel .. ":;"
+        end
+        lines[#lines + 1] = prefix .. "}"
+        return lines
+    end
+
+    if node.op == "while" or node.op == "repeat" then
+        -- Keep the ordinary C shape when no enclosing labeled loop or
+        -- statementful condition requires explicit exit targets.
+        if body.headerControl ~= true and body.controlBreak == nil then
+            if node.op == "while" then
+                local statement = node as scalarIR.While
+                lines[#lines + 1] = prefix .. "while (" .. expression(statement.condition) .. ") {"
+                nested(statement.body, nil)
+                lines[#lines + 1] = prefix .. "}"
+            else
+                local statement = node as scalarIR.Repeat
+                body.repeatSerial = (body.repeatSerial or 0) + 1
+                local label = "ks_repeat_continue_" .. tostring(body.repeatSerial)
+                lines[#lines + 1] = prefix .. "while (true) {"
+                nested(statement.body, label)
+                lines[#lines + 1] = prefix .. "    " .. label .. ":"
+                lines[#lines + 1] = prefix .. "    if (" .. expression(statement.condition) .. ") break;"
+                lines[#lines + 1] = prefix .. "}"
+            end
+            return lines
+        end
         body.controlSerial = body.controlSerial + 1
         local suffix = tostring(body.controlSerial)
         local breakLabel, continueLabel = "ks_loop_break_" .. suffix, "ks_loop_continue_" .. suffix
         local outerBreak, outerContinue = body.controlBreak, body.controlContinue
         local loop = node as any
         local header = loop.conditionBody
-        if node.op == "fornum" then
-            local counter = loop.binding.cName
-            lines[
-                #lines + 1
-            ] = prefix .. "for (int32_t " .. counter .. " = " .. expression(
-                loop.from
-            ) .. "; " .. counter .. " <= (int32_t)" .. expression(loop.to) .. "; ++" .. counter .. ") {"
-        else
-            lines[#lines + 1] = prefix .. "while (true) {"
-        end
+        lines[#lines + 1] = prefix .. "while (true) {"
         if node.op == "while" then
             if header ~= nil then
                 nested(header, repeatContinue)
@@ -2552,36 +2625,6 @@ local function controlFlow(
                         lines[#lines + 1] = prefix .. "}"
                     end
                 end
-                yield nil
-            end
-            case "fornum" -> do
-                local statement = node as scalarIR.Fornum
-                local counter = statement.binding.cName
-                lines[
-                    #lines + 1
-                ] = prefix .. "for (int32_t " .. counter .. " = " .. expression(
-                    statement.from
-                ) .. "; " .. counter .. " <= (int32_t)" .. expression(statement.to) .. "; ++" .. counter .. ") {"
-                nested(statement.body, nil)
-                lines[#lines + 1] = prefix .. "}"
-                yield nil
-            end
-            case "while" -> do
-                local statement = node as scalarIR.While
-                lines[#lines + 1] = prefix .. "while (" .. expression(statement.condition) .. ") {"
-                nested(statement.body, nil)
-                lines[#lines + 1] = prefix .. "}"
-                yield nil
-            end
-            case "repeat" -> do
-                local statement = node as scalarIR.Repeat
-                body.repeatSerial = (body.repeatSerial or 0) + 1
-                local label = "ks_repeat_continue_" .. tostring(body.repeatSerial)
-                lines[#lines + 1] = prefix .. "while (true) {"
-                nested(statement.body, label)
-                lines[#lines + 1] = prefix .. "    " .. label .. ":"
-                lines[#lines + 1] = prefix .. "    if (" .. expression(statement.condition) .. ") break;"
-                lines[#lines + 1] = prefix .. "}"
                 yield nil
             end
             case "block" -> do
@@ -3444,9 +3487,15 @@ function emit.block(
                     forceScalar = body.forceScalar,
                     algebraicReducers = body.algebraicReducers,
                     repeatSerial = body.repeatSerial,
+                    controlSerial = body.controlSerial,
+                    controlUsed = body.controlUsed,
+                    controlBreak = body.controlBreak,
+                    controlContinue = body.controlContinue,
                     simdAccumulators = accumulators
                 )
                 append(emit.block(context, region.body, depth + 1, inner, repeatContinue))
+                body.controlSerial = inner.controlSerial
+                body.repeatSerial = inner.repeatSerial
                 for _, reducer in ipairs(parallel) do
                     local accumulator = accumulators[reducer.name] as string
                     local species = genericSpecies(context, reducer.vectorType)

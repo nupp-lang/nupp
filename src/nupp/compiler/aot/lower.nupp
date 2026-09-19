@@ -969,6 +969,9 @@ record lower.Kernel
 
     indexCName: string
 
+    --- Assignment severs the visible index from the loop's bounds proof.
+    indexAssigned: boolean = false
+
     --- In a block body, the span whose count bounds the enclosing counted loop.
     --- Set only where the loop was written as `for i = 1, #span`, and only in a
     --- block kernel: a map-loop entry proves every span's length in its guard
@@ -1124,6 +1127,9 @@ local function provenIndex(spanName: string, cursor: string?, node: cst.Node, ke
         return
     end
     local context = kernel.context
+    if kernel.indexAssigned then
+        context.reject(lower.site(node), "an assigned counted-loop index does not prove span access bounds")
+    end
     if kernel.boundSpan == nil then
         context.reject(
             lower.site(node),
@@ -6307,7 +6313,7 @@ end
 local function forBound(bound: scalarIR.Expr, at: cst.Node?, kernel: lower.Kernel): scalarIR.Expr
     local literal = bound
     local sign = 1
-    if kernel.gpuTarget and literal.op == "neg" then
+    if literal.op == "neg" then
         literal = (literal as scalarIR.Unary).value
         sign = -1
     end
@@ -6316,14 +6322,18 @@ local function forBound(bound: scalarIR.Expr, at: cst.Node?, kernel: lower.Kerne
         if number ~= nil then
             number = number * sign
         end
+        if not kernel.gpuTarget and number == 0 and 1 / (number as number) < 0 then
+            return bound
+        end
         if number ~= nil and number == math.floor(number as number) then
-            -- The C loop counts in int32, so a literal the counter cannot reach
-            -- is refused here rather than narrowed into a bound that means
-            -- something else. Spelled with %.0f: tostring writes 2^53 as
-            -- 9.007e+15, which is not a C integer.
+            -- Signed literals can use integer control. Wider CPU literals
+            -- retain binary64; the GPU profile requires signed-int32 bounds.
             local spelling = ("%.0f"):format(number as number)
             if number < lower.INT32_MIN or number > lower.INT32_MAX then
-                kernel.context.reject(lower.site(at), "native for bound " .. spelling .. " is outside int32")
+                if kernel.gpuTarget then
+                    kernel.context.reject(lower.site(at), "native for bound " .. spelling .. " is outside int32")
+                end
+                return bound
             end
             return new scalarIR.IntConstant(op = "constant_i32", value = spelling, type = "i32", source = bound.source)
         end
@@ -6996,19 +7006,14 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
                 end
             end
         elseif kind == "fornumStmt" then
-            -- A bounded nested loop with an integer induction variable. The
-            -- outer row loop already counts in an integer; a `while` over a
-            -- number local does the same job with a double, which is a worse
-            -- lowering of the same intent.
+            -- Numeric for owns its bounds and private progression. Its
+            -- authored variable is a fresh value on every iteration.
             local loop = stat as cst.FornumStmt
             if loop.step ~= nil then
                 context.reject(lower.site(stat), "a native nested for loop takes no explicit step")
             end
 
             local function bound(node: cst.Node): scalarIR.Expr
-                if not kernel.gpuTarget then
-                    return forBound(lower.expression(node, environment, kernel.index, kernel), stat, kernel)
-                end
                 -- Each bound is a complete evaluation. Isolate its expression
                 -- frame so later setup cannot rewrite this snapshot to a
                 -- capture declared after it.
@@ -7017,7 +7022,14 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
                     out[#out + 1] = statement
                 end
 
-                return temporary(forBound(value, node, kernel), kernel, out)
+                value = forBound(value, kernel.gpuTarget and node or stat, kernel)
+                -- Constants and span counts cannot change during another bound
+                -- or the loop body. Keep them visible to the bounds verifier.
+                if not kernel.gpuTarget and (value.op == "constant_i32" or value.op == "span_count") then
+                    return value
+                end
+
+                return temporary(value, kernel, out)
             end
 
             local from = bound(loop.start as cst.Node)
@@ -7027,7 +7039,16 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
             end
 
             local inner = inherit(environment)
-            local binding = bind((loop.var as lexer.Token).text, "i32", nil, stat, inner, kernel)
+            -- Signed bounds retain an integer body value. Other admitted
+            -- numeric bounds use binary64, exactly as ordinary numeric for:
+            -- in particular uint32 and span lengths must not narrow to int32.
+            local reassigned = assignedNames(loop.body, {})
+            local counterType = from.type == "i32"
+                and to.type == "i32"
+                and (kernel.gpuTarget or reassigned[(loop.var as lexer.Token).text] ~= true)
+                and "i32"
+                or "f64"
+            local binding = bind((loop.var as lexer.Token).text, counterType, nil, stat, inner, kernel)
             local bounding = from.op == "constant_i32"
                 and (tonumber((from as scalarIR.IntConstant).value) or 0) >= 1
                 and to.op == "span_count"
@@ -7039,13 +7060,14 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
             -- `fornum`, so lowering proves the same thing and refuses the rest
             -- at its line.
             local previousIndex, previousCName = kernel.index, kernel.indexCName
+            local previousAssigned = kernel.indexAssigned
             local previousBound, previousMapEntry = kernel.boundSpan, kernel.mapEntry
             kernel.index = binding.name
             kernel.indexCName = binding.cName
+            kernel.indexAssigned = reassigned[binding.name] == true
             kernel.boundSpan = bounding
             kernel.mapEntry = false
             local previousBounds = kernel.cursorBounds
-            local reassigned = assignedNames(loop.body, {})
             local loopBounds: scalarIR.CursorBounds = {}
             for name, spans in pairs(previousBounds) do
                 if reassigned[name] ~= true then
@@ -7077,6 +7099,7 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
             kernel.cursorBounds = previousBounds
             kernel.index = previousIndex
             kernel.indexCName = previousCName
+            kernel.indexAssigned = previousAssigned
             kernel.boundSpan = previousBound
             kernel.mapEntry = previousMapEntry
             out[

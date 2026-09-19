@@ -420,6 +420,16 @@ function M.aCountedLoopSaysWhetherItsBodyAssignsTheCounter()
     refuses(program, "assignment to a local its binding did not declare assigned")
 end
 
+function M.anAssignedInductionVariableDoesNotProveSpanAccess()
+    local program = lowered(COUNTED, "counted.nupp")
+    local loop = find(program.body, function(statement)
+        return statement.op == "fornum" and statement.boundSpan ~= nil
+    end)
+    assert(loop, "the span-counted loop")
+    loop.binding.assigned = true
+    refuses(program, "invalid store root")
+end
+
 function M.anAndBoundsItsRightSpanReadByItsLeftAlone()
     -- `cursor < #cps and cps[cursor + 1] > 0xF` reads under the comparison
     -- the left side makes. The right side is the only place that bound holds,

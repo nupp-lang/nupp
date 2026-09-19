@@ -3722,8 +3722,8 @@ function M.aVaryingNestedLoopWithAPerLaneBreakPrintsAsNuppThatLowersToTheSame()
     -- break inside it, which is the live mask, the execution mask and the
     -- iota-derived bound all at once.
     local printed = roundTrip({["required.nupp"] = REQUIRED_VARYING_FOR}, "required.nupp", "ks_varying", "varying")
-    assert(printed:find("s_i32_x4:iota(", 1, true), "the loop index is an iota:\n" .. printed)
-    assert(printed:find("s_f64_x4:mask(", 1, true), "the i32 comparison converts to the control mask:\n" .. printed)
+    assert(printed:find("s_f64_x4:iota(", 1, true), "the loop index retains its numeric range in an iota:\n" .. printed)
+    assert(printed:find("local live%d+ = for_counter%d+ <= for_last%d+"), "the f64 comparison is the control mask:\n" .. printed)
 end
 
 function M.twoReducerRegionsInOneBodyPrintAsNuppThatLowersToTheSame()
@@ -4234,19 +4234,14 @@ function M.aCountedLoopIndexReachesAnEntryConversion()
 
     local ir = decoded.ir
     assert(
-        ir:find("store offsets[written+1] = numeric_cast(int_to_f64(local:i32 i))", 1, true),
-        "the promotion is written into the IR rather than left to the emitter: " .. ir
+        ir:find("store offsets[written+1] = numeric_cast(local:f64 i)", 1, true),
+        "the span-counted induction retains its numeric range before explicit wrapping: " .. ir
     )
 
-    -- And the emitter collapses it, because a widen immediately narrowed back
-    -- to the width it came from is the value. The reduction the conversion
-    -- otherwise carries -- `wrap` is modular, and a C cast is not -- has
-    -- nothing to reduce here, so paying for it would be undoing the promotion's
-    -- own work.
+    -- Span counts retain binary64 induction values rather than narrowing to
+    -- int32. Explicit wrap therefore keeps its modular conversion in C.
     local c = decoded.c
-    assert(c:find("((uint32_t)v", 1, true), "and the C narrows the index directly: " .. c)
-    assert(not c:find("((uint32_t)((double)v", 1, true), "without a round trip through binary64: " .. c)
-    assert(not c:find("nupp_wrap_u32(((double)v", 1, true), "and without reducing what cannot need it: " .. c)
+    assert(c:find("nupp_wrap_u32(v", 1, true), "the C preserves the requested modular conversion: " .. c)
 end
 
 -- Narrowing is the direction that would invent establishment the source never
@@ -5106,14 +5101,51 @@ function M.aFileWithNoAotFunctionIsAnError()
     assert(out:find("no @aot function", 1, true), "which says so: " .. out)
 end
 
-function M.aForBoundOutsideInt32IsRefusedRatherThanNarrowed()
-    -- The generated loop counts in int32. A literal past that used to be
-    -- narrowed into whatever the C cast made of it, so the loop ran a different
-    -- number of times than the source said, or not at all.
-    local dir = project{
-        [
-            "bigbound.nupp"
-        ] = [[
+function M.assignedCountedIndicesDoNotKeepTheirSpanProof()
+    local dir = project{["changed.nupp"] = [[
+local span = require("nupp.mem.span")
+@aot
+local function acc(borrows input: span.Span<uint32>): number
+    local total = 0
+    for outer = 1, 2 do
+        for cursor = 1, #input do
+            cursor = 0
+            total = total + input[cursor]
+        end
+    end
+    return total
+end
+return {acc = acc}
+]]}
+    local out, code = run(dir, "changed.nupp")
+    test.equal(code, 1, out)
+    assert(out:find("changed.nupp:8:", 1, true), out)
+    assert(out:find("an assigned counted-loop index does not prove span access bounds", 1, true), out)
+    assert(not out:find("stack traceback", 1, true), out)
+end
+
+function M.cpuCountedLoopsRefuseExplicitStepsAtTheLoop()
+    for _, step in ipairs({"1", "0", "-1"}) do
+        local dir = project{["step.nupp"] = ([=[
+@aot
+local function acc(): number
+    local total = 0
+    for cursor = 1, 3, %s do
+        total = total + cursor
+    end
+    return total
+end
+return {acc = acc}
+]=]):format(step)}
+        local out, code = run(dir, "step.nupp")
+        test.equal(code, 1, out)
+        assert(out:find("step.nupp:4:5: aot: a native nested for loop takes no explicit step", 1, true), out)
+        assert(not out:find("stack traceback", 1, true), out)
+    end
+end
+
+function M.aForBoundOutsideInt32RetainsItsNumericValue()
+    local dir = project{["bigbound.nupp"] = [[
 @aot
 local function acc(value: number): number
     local total = value
@@ -5122,16 +5154,12 @@ local function acc(value: number): number
     end
     return total
 end
-
 return {acc = acc}
-]],
-    }
-    local out, code = run(dir, "bigbound.nupp")
-    test.equal(code, 1, "a bound the counter cannot reach is refused\n" .. out)
-    assert(
-        out:find("bigbound.nupp:4:5: aot: native for bound 3000000000 is outside int32", 1, true),
-        "the refusal names the bound in full at its line: " .. out
-    )
+]]}
+    local out, code = run(dir, "--emit c bigbound.nupp")
+    test.equal(code, 0, "a binary64 counted bound is not narrowed\n" .. out)
+    assert(out:find("3000000000.0", 1, true), out)
+    assert(out:find("double ks_for_counter_", 1, true), out)
 end
 
 function M.aLengthAliasDoesNotOutliveItsScope()

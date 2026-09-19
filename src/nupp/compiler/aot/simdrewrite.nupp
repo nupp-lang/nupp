@@ -336,13 +336,16 @@ function simdrewrite.markVarying(statements: {any}, state: simdrewrite.Analysis)
                 -- Header effects belong to individual live lanes, including
                 -- the final false test. A retired lane must keep its value.
                 mark(statement.conditionBody or {}, controlled or statement.conditionBody ~= nil)
-                local diverges = simdrewrite.varying(statement.condition, state) or divergentExit(statement.body, false)
-                mark(statement.body, controlled or diverges)
+                -- Rewriting represents every loop exit with masks, even when
+                -- all lanes agree. Its assignments therefore need carriers
+                -- that can preserve the lanes retired earlier in this body.
+                local masked = simdrewrite.varying(statement.condition, state) or divergentExit(statement.body, true)
+                mark(statement.body, controlled or masked)
             elseif op == "block" then
                 mark(statement.body, controlled)
             elseif op == "fornum" then
                 local bounds = simdrewrite.varying(statement.from, state) or simdrewrite.varying(statement.to, state)
-                mark(statement.body, controlled or bounds)
+                mark(statement.body, controlled or bounds or divergentExit(statement.body, true))
             end
         end
     end
@@ -711,6 +714,11 @@ local function scalarAs(node: scalarIR.Expr, element: string, state: simdrewrite
         return node
     end
     if element == "f64" then
+        if node.op == "constant_i32" and (from == "i32" or from == "u32") then
+            -- Exact widening has one literal form in both the rewrite and
+            -- its printed/reparsed source.
+            return constant((node as scalarIR.IntConstant).value, node.source)
+        end
         if from == "f32" then
             return convert("widen_f32_f64", node, "f64")
         elseif from == "i32" or from == "u32" or from == "i64" or from == "u64" then
@@ -1358,9 +1366,9 @@ local function maySpeculate(name: string, mask: scalarIR.Expr?, loop: simdrewrit
         and context.observable[name] ~= true
 end
 
---- Names a produced block assigns that it did not declare: what a loop around
---- it has to carry.
-local function carriedOf(statements: {scalarIR.Statement}, state: simdrewrite.State): {scalarIR.Carried}
+--- Names declared and assigned anywhere in a block. Lowering refuses lexical
+--- shadowing, so a nested declaration cannot hide an enclosing binding here.
+local function blockBindings(statements: {scalarIR.Statement}): ({[string]: boolean}, {string})
     local declared: {[string]: boolean} = {}
     local assigned: {string} = {}
     local seen: {[string]: boolean} = {}
@@ -1395,6 +1403,44 @@ local function carriedOf(statements: {scalarIR.Statement}, state: simdrewrite.St
     end
 
     walk(statements)
+
+    return declared, assigned
+end
+
+--- Values read across a loop backedge or by its next test are observable to
+--- nested loops, even when nothing reads them after the enclosing loop exits.
+local function loopFollowing(statement: any, following: {[string]: boolean}): {[string]: boolean}
+    local observed: {[string]: boolean} = {}
+    for name in pairs(following) do
+        observed[name] = true
+    end
+    local declared = blockBindings(statement.body)
+    if statement.op == "fornum" then
+        declared[statement.binding.name] = true
+    end
+    local reads: {[string]: boolean} = {}
+    for _, child in ipairs(statement.body as {scalarIR.Statement}) do
+        statementReads(child, reads)
+    end
+    for name in pairs(reads) do
+        if declared[name] ~= true then
+            observed[name] = true
+        end
+    end
+    -- A repeat test may read a local declared in its body: that value is live
+    -- through the current test, though not through the next iteration.
+    exprReads(statement.condition, observed)
+    for _, child in ipairs(statement.conditionBody or {}) do
+        statementReads(child, observed)
+    end
+
+    return observed
+end
+
+--- Names a produced block assigns that it did not declare: what a loop around
+--- it has to carry.
+local function carriedOf(statements: {scalarIR.Statement}, state: simdrewrite.State): {scalarIR.Carried}
+    local declared, assigned = blockBindings(statements)
     local carried: {scalarIR.Carried} = {}
     for _, name in ipairs(assigned) do
         if declared[name] == nil then
@@ -1604,7 +1650,7 @@ local function maskedLoop(
     if header ~= nil then
         conditionBody = header()
     end
-    for _, statement in ipairs(block(body, executing, loop, nil, state)) do
+    for _, statement in ipairs(block(body, executing, loop, observable, state)) do
         inner[#inner + 1] = statement
     end
     for _, statement in ipairs(bottom(loop)) do
@@ -1685,6 +1731,9 @@ block = function(
         bindings["$mask"] = statementMask
         local op = statement.op
         local source = statement.source
+        if op == "fornum" or op == "while" or op == "repeat" then
+            readsAfter[position] = loopFollowing(statement, readsAfter[position] or {})
+        end
         if op == "let" then
             local let = statement as scalarIR.Let
             local value = let.value
@@ -1948,8 +1997,11 @@ block = function(
             local counted = statement as scalarIR.Fornum
             local varyingBounds = simdrewrite.varying(counted.from, state.inner)
                 or simdrewrite.varying(counted.to, state.inner)
-            if not varyingBounds and not simdrewrite.containsExit(counted.body as {any}) then
-                state.types[counted.binding.name] = "i32"
+            if not varyingBounds
+                and not simdrewrite.containsExit(counted.body as {any})
+                and state.inner.varyingLocals[counted.binding.name] ~= true
+            then
+                state.types[counted.binding.name] = counted.binding.type
                 state.loopDepth = state.loopDepth + 1
                 local body = block(counted.body, statementMask, loop, readsAfter[position], state)
                 state.loopDepth = state.loopDepth - 1
@@ -1967,35 +2019,58 @@ block = function(
                 )
             else
                 local binding = counted.binding
+                local bodyReads: {[string]: boolean} = {}
+                for _, child in ipairs(counted.body) do
+                    statementReads(child, bodyReads)
+                end
+                local needsVisible = binding.assigned == true or bodyReads[binding.name] == true
                 local varying = state.inner.varyingLocals as any
                 local previous = varying[binding.name]
                 varying[binding.name] = true
-                local counter = new scalarIR.Name(
+                local element = binding.type
+                local visible = new scalarIR.Name(
                     op = "local",
                     name = binding.name,
                     cName = binding.cName,
-                    type = vectorType("i32", state),
+                    type = vectorType(element, state),
                     source = source
                 )
-                state.types[binding.name] = counter.type
-                emit(letOf(counter, vec(counted.from, "i32", state), true))
-
-                local function inRange(): scalarIR.Expr
-                    return maskAs(
-                        simd(
-                            "simd_compare",
-                            "le",
-                            {counter, vec(counted.to, "i32", state)},
-                            maskType("i32", state),
+                local counter = fresh("for_counter", visible.type, state, source)
+                local last = fresh("for_last", visible.type, state, source)
+                state.types[binding.name] = visible.type
+                state.types[counter.name] = counter.type
+                state.types[last.name] = last.type
+                emit(letOf(counter, vec(counted.from, element, state), true))
+                emit(letOf(last, vec(counted.to, element, state)))
+                if element == "f64" and counted.from.type == "f64" then
+                    local zero = splat(constant("0", source), element, state)
+                    local zeroStart = simd("simd_compare", "eq", {counter, zero}, maskType(element, state), source)
+                    local integerLast = simd(
+                        "simd_compare",
+                        "eq",
+                        {last, convertTo(convertTo(last, "i32", state), "f64", state)},
+                        maskType(element, state),
+                        source
+                    )
+                    emit(
+                        assignTo(
+                            counter,
+                            selected(maskAnd(zeroStart, integerLast, source), zero, counter, state),
                             source
-                        ),
+                        )
+                    )
+                end
+
+                local function inRange(operation: string): scalarIR.Expr
+                    return maskAs(
+                        simd("simd_compare", operation, {counter, last}, maskType(element, state), source),
                         state.control,
                         state
                     )
                 end
 
                 local live = fresh("live", maskType(state.control, state), state, source)
-                local condition = inRange()
+                local condition = inRange("le")
                 local initial = statementMask ~= nil and maskAnd(statementMask as scalarIR.Expr, condition, source)
                     or condition
                 append(
@@ -2007,25 +2082,41 @@ block = function(
                         initial,
                         function(_: simdrewrite.Loop): {scalarIR.Statement}
                             local bottom: {scalarIR.Statement} = {}
-                            local stepped = simd(
-                                "simd_binary",
-                                "add",
-                                {counter, splat(intConstant("1", "i32", source), "i32", state)},
-                                counter.type,
-                                source
-                            )
-                            bottom[#bottom + 1] = assignTo(counter, selected(live, stepped, counter, state), source)
-                            local again = inRange()
-                            for _, pending in ipairs(state.pending) do
-                                bottom[#bottom + 1] = pending
+
+                            local function add(statement: scalarIR.Statement): nil
+                                for _, pending in ipairs(state.pending) do
+                                    bottom[#bottom + 1] = pending
+                                end
+                                state.pending = {}
+                                bottom[#bottom + 1] = statement
                             end
-                            state.pending = {}
-                            bottom[#bottom + 1] = assignTo(live, maskAnd(live, again, source), source)
+
+                            -- Retire a signed counter before its last increment;
+                            -- inactive lanes add zero, so INT32_MAX never wraps.
+                            if element == "i32" then
+                                add(assignTo(live, maskAnd(live, inRange("lt"), source), source))
+                            end
+                            local one = element == "i32" and intConstant("1", "i32", source) or constant("1", source)
+                            local zero = element == "i32" and intConstant("0", "i32", source) or constant("0", source)
+                            local step = selected(live, splat(one, element, state), splat(zero, element, state), state)
+                            local stepped = simd("simd_binary", "add", {counter, step}, counter.type, source)
+                            add(assignTo(counter, stepped, source))
+                            if element ~= "i32" then
+                                -- Binary64 progression includes its ordinary
+                                -- rounding, NaN and infinity behavior.
+                                add(assignTo(live, maskAnd(live, inRange("le"), source), source))
+                            end
 
                             return bottom
                         end,
                         source,
-                        state
+                        state,
+                        function(): {scalarIR.Statement}
+                            if not needsVisible then
+                                return {}
+                            end
+                            return {letOf(visible, counter, binding.assigned)}
+                        end
                     )
                 )
                 varying[binding.name] = previous
@@ -2243,6 +2334,14 @@ local function wide(statements: {scalarIR.Statement}, state: simdrewrite.State):
                 walkExpr((statement as scalarIR.While).condition)
                 walk((statement as scalarIR.While).body)
             elseif op == "fornum" then
+                local counted = statement as scalarIR.Fornum
+                if simdrewrite.varying(counted.from, state.inner)
+                    or simdrewrite.varying(counted.to, state.inner)
+                    or simdrewrite.containsExit(counted.body as {any})
+                    or state.inner.varyingLocals[counted.binding.name] == true
+                then
+                    note(counted.binding.type)
+                end
                 walkExpr((statement as scalarIR.Fornum).from)
                 walkExpr((statement as scalarIR.Fornum).to)
                 walk((statement as scalarIR.Fornum).body)
@@ -2575,7 +2674,7 @@ function simdrewrite.region(
         if #region.carried > 0 then
             reject("a @simd region assigns a local declared outside it")
         end
-        local state = newState(program, region.binding.name, "i32", ordinal, reject)
+        local state = newState(program, region.binding.name, region.binding.type, ordinal, reject)
 
         return loopBody(
             region.body,
