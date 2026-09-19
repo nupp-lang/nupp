@@ -1,7 +1,7 @@
 name: LuaJIT browser guest candidate
 on:
   push:
-    branches: ['codex/luajit-everywhere']
+    branches: ['**']
     paths:
       - 'runtime/luajit/**'
       - 'runtime/wasm/app-runtime.mjs'
@@ -83,7 +83,8 @@ jobs:
           node bench/luajit-browser/run-browser.mjs http://127.0.0.1:8113/compiler.html build/browser-guest/compiler-conformance.json
           node tests/luajit-browser/prepare-recovery.mjs build/browser-guest
           node bench/luajit-browser/run-browser.mjs http://127.0.0.1:8113/recovery.html build/browser-guest/recovery-conformance.json
-          export NUPP_BROWSER_NATIVE_CC=$(python3 tests/luajit-browser/prepare-native.py build/browser-guest build/browser-native-toolchain)
+          NUPP_BROWSER_NATIVE_CC=$(python3 tests/luajit-browser/prepare-native.py build/browser-guest build/browser-native-toolchain)
+          export NUPP_BROWSER_NATIVE_CC
           node tests/luajit-browser/prepare-packaged.mjs build/browser-guest
           node editors/playground/test/browser-matrix.mjs http://127.0.0.1:8113/ build/browser-guest/browser-matrix.json
       - name: Package the verified LuaJIT runtime and matching sources

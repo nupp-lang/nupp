@@ -1,36 +1,37 @@
 {
-  "scope": "Guest-native C API and scalar FFI bindings, local interpreted-code development overlay; production source-build CI remains separate",
-  "guestBuildKey": "51a577cef5a81c62db2447cea8c267fee37b2fbb0c5d4a68dd922237944fc58e",
+  "scope": "Final-head package built after rebase, consuming the verified source-built guest",
+  "head": "8a0dec4241c41c6fd7c3fa717921d84a5fb26c27",
+  "guestBuildKey": "140b5611ba31dfb101c21341deee8f10f0725632dda20f5404ff7815d8dc5fa5",
   "libraries": [
     {
-      "file": "native/libapp_aot.so",
+      "file": "native/c40ce682ed4352d4/libapp_aot.so",
       "name": "libapp_aot.so"
     }
   ],
   "assets": {
-    "guest/51a577cef5a81c62db2447cea8c267fee37b2fbb0c5d4a68dd922237944fc58e/guest-manifest.json": {
-      "bytes": 12270,
-      "sha256": "893d27ba6a6f36c176cad1d13d165a936166cca352b33df26cb54455772724d3"
+    "guest/140b5611ba31dfb101c21341deee8f10f0725632dda20f5404ff7815d8dc5fa5/guest-manifest.json": {
+      "bytes": 11397,
+      "sha256": "28a67220e3b2d8b03cd5057535fb4f7dff27528631498819c9b3fe2faa2a2bf8"
     },
-    "app-33f9ca73452c1f0e.lua": {
-      "bytes": 193873,
-      "sha256": "33f9ca73452c1f0e7e4abd4ec97f9658412020d8981a91f159c84e0af2b0edf1"
+    "app-39510d9c164763b1.lua": {
+      "bytes": 192965,
+      "sha256": "39510d9c164763b17a923f98aba0f4ca9b65a6772db5bb0d9358ad253f5167ca"
     },
-    "native/libapp_aot.so": {
+    "native/c40ce682ed4352d4/libapp_aot.so": {
       "bytes": 8360,
       "sha256": "c40ce682ed4352d454977df1a812fec4ad8a72e08358021d959b44e7832be5bf"
     },
     "app-runtime.mjs": {
-      "bytes": 56841,
-      "sha256": "8fdbd932b465ef96429cc7967f3dcacb77f8c563b7cb35718d3b629a13669062"
+      "bytes": 56946,
+      "sha256": "b7e4eb4b212ef36788512877482ea047db3a01474e4bf72895c23d9c87215d65"
     },
     "worker-lane.mjs": {
-      "bytes": 59920,
-      "sha256": "2aee13640b75329dbff9df10177ecdc1c90b7f224f2b2280a9f46d59baf5228e"
+      "bytes": 60025,
+      "sha256": "c7a9ddf122591ee51317a6388d3b19cf9195f159640190932fec92f76e415cc1"
     },
     "browser-worker.mjs": {
-      "bytes": 57808,
-      "sha256": "c2cd0a1598a6e7cdc37b0d07b00dd3a36e7212bed5f61c150a3ee9940ef87a7a"
+      "bytes": 57913,
+      "sha256": "be83d81297910fd2145afc3c30e72cd653400ada2cf3cb9290de18b136605333"
     }
   },
   "results": [
@@ -39,7 +40,7 @@
       "version": "152.0.7977.77",
       "ok": true,
       "name": "native",
-      "elapsedMs": 336.19000005722046,
+      "elapsedMs": 346.60000002384186,
       "result": {
         "bytes": 4,
         "ok": true,
@@ -51,11 +52,11 @@
       "version": "155.0",
       "ok": true,
       "name": "native",
-      "elapsedMs": 369.16,
+      "elapsedMs": 377.62,
       "result": {
-        "bytes": 4,
         "ok": true,
-        "iterations": 100
+        "iterations": 100,
+        "bytes": 4
       }
     },
     {
@@ -63,11 +64,11 @@
       "version": "26.6",
       "ok": true,
       "name": "native",
-      "elapsedMs": 342.6,
+      "elapsedMs": 336.42,
       "result": {
-        "iterations": 100,
+        "bytes": 4,
         "ok": true,
-        "bytes": 4
+        "iterations": 100
       }
     }
   ]
