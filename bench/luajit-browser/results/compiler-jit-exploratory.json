@@ -1,0 +1,163 @@
+{
+  "ok": true,
+  "backend": "luajit",
+  "jit": true,
+  "direct": true,
+  "compilerTransport": true,
+  "startup": {
+    "loadedMs": 263.961
+  },
+  "summary": [
+    {
+      "key": "noop/1/0",
+      "p50Ms": 1.3350000381469727,
+      "p95Ms": 3.9199999570846558,
+      "msPerOperation": 1.8140000104904175,
+      "zeroGuestTimerSamples": 5,
+      "sampledWallP50Ms": 0
+    },
+    {
+      "key": "noop/1/4096",
+      "p50Ms": 5.300000071525574,
+      "p95Ms": 7.309999942779541,
+      "msPerOperation": 5.15400002002716,
+      "zeroGuestTimerSamples": 5,
+      "sampledWallP50Ms": 0
+    },
+    {
+      "key": "noop/1/65536",
+      "p50Ms": 4.5299999713897705,
+      "p95Ms": 5.0899999141693115,
+      "msPerOperation": 3.772999978065491,
+      "zeroGuestTimerSamples": 5,
+      "sampledWallP50Ms": 0
+    },
+    {
+      "key": "noop/16/0",
+      "p50Ms": 1.934999942779541,
+      "p95Ms": 6.235000014305115,
+      "msPerOperation": 0.1821250006556511,
+      "zeroGuestTimerSamples": 4,
+      "sampledWallP50Ms": 0
+    },
+    {
+      "key": "noop/16/4096",
+      "p50Ms": 2.3899999856948853,
+      "p95Ms": 11.414999961853027,
+      "msPerOperation": 0.2485624998807907,
+      "zeroGuestTimerSamples": 5,
+      "sampledWallP50Ms": 0
+    },
+    {
+      "key": "noop/16/65536",
+      "p50Ms": 1.5499999523162842,
+      "p95Ms": 1.5800000429153442,
+      "msPerOperation": 0.0958749994635582,
+      "zeroGuestTimerSamples": 5,
+      "sampledWallP50Ms": 0
+    },
+    {
+      "key": "check/1/0",
+      "p50Ms": 15.394999980926514,
+      "p95Ms": 20.90000009536743,
+      "msPerOperation": 16.54300000667572,
+      "zeroGuestTimerSamples": 0,
+      "sampledWallP50Ms": 7.976000000000113
+    },
+    {
+      "key": "check/16/0",
+      "p50Ms": 84.90499997138977,
+      "p95Ms": 97.82499992847443,
+      "msPerOperation": 5.321125000715256,
+      "zeroGuestTimerSamples": 0,
+      "sampledWallP50Ms": 77.87000000000035
+    },
+    {
+      "key": "compile/1/0",
+      "p50Ms": 9.464999914169312,
+      "p95Ms": 12.59500002861023,
+      "msPerOperation": 10.017000007629395,
+      "zeroGuestTimerSamples": 0,
+      "sampledWallP50Ms": 4.054999999999836
+    },
+    {
+      "key": "compile/16/0",
+      "p50Ms": 100.24500000476837,
+      "p95Ms": 160.00499999523163,
+      "msPerOperation": 6.841750000417233,
+      "zeroGuestTimerSamples": 0,
+      "sampledWallP50Ms": 88.86000000000058
+    },
+    {
+      "key": "hover/1/0",
+      "p50Ms": 0.7750000953674316,
+      "p95Ms": 1.409999966621399,
+      "msPerOperation": 0.9579999923706055,
+      "zeroGuestTimerSamples": 5,
+      "sampledWallP50Ms": 0
+    },
+    {
+      "key": "hover/16/0",
+      "p50Ms": 1.8350000381469727,
+      "p95Ms": 5.75,
+      "msPerOperation": 0.16743750125169754,
+      "zeroGuestTimerSamples": 5,
+      "sampledWallP50Ms": 0
+    },
+    {
+      "key": "edit/1/0",
+      "p50Ms": 4.505000114440918,
+      "p95Ms": 5.350000023841858,
+      "msPerOperation": 4.650999999046325,
+      "zeroGuestTimerSamples": 3,
+      "sampledWallP50Ms": 0
+    },
+    {
+      "key": "edit/16/0",
+      "p50Ms": 60.139999985694885,
+      "p95Ms": 66.18500006198883,
+      "msPerOperation": 3.895687499642372,
+      "zeroGuestTimerSamples": 0,
+      "sampledWallP50Ms": 53.034999999999854
+    },
+    {
+      "key": "large-check/1/0",
+      "p50Ms": 173.8049999475479,
+      "p95Ms": 250.00999999046326,
+      "msPerOperation": 185.04400000572204,
+      "zeroGuestTimerSamples": 0,
+      "sampledWallP50Ms": 172.3800000000001
+    },
+    {
+      "key": "large-check/4/0",
+      "p50Ms": 640.0499999523163,
+      "p95Ms": 670.4650000333786,
+      "msPerOperation": 153.64675000309944,
+      "zeroGuestTimerSamples": 0,
+      "sampledWallP50Ms": 635.1350000000002
+    },
+    {
+      "key": "import-check/1/0",
+      "p50Ms": 12.68500006198883,
+      "p95Ms": 15.34500002861023,
+      "msPerOperation": 12.71600000858307,
+      "zeroGuestTimerSamples": 0,
+      "sampledWallP50Ms": 7.040999999999258
+    },
+    {
+      "key": "import-check/4/0",
+      "p50Ms": 26.980000019073486,
+      "p95Ms": 47.58500003814697,
+      "msPerOperation": 7.516250002384186,
+      "zeroGuestTimerSamples": 0,
+      "sampledWallP50Ms": 20.299999999999272
+    }
+  ],
+  "phaseMarkers": [],
+  "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+  "isolated": true,
+  "browserErrors": [],
+  "scope": "One exploratory fresh Chromium run with five samples per cell and two warmups; preserved benchmark assets, not the rebased compiler. No confidence interval or acceptance verdict.",
+  "inputProvenance": "request-latency.json; only latency.mjs changed to enable the existing guest JIT setting",
+  "harnessSha256": "49b6879ecc43c595c9f5d53d96b92b2306ae78b3225274071f7b2091036b3fc6"
+}
