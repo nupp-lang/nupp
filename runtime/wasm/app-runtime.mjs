@@ -836,10 +836,14 @@ export async function runNuppWasmApp({
   const sideStacks = [];
   for (const side of sideModules) {
     const stackSize = side.stackSize || 1024 * 1024;
-    const stack = module._malloc(stackSize);
+    // malloc promises only 8-byte alignment on this host; the Wasm C ABI
+    // requires a 16-byte stack. Keep the original allocation for ownership,
+    // and retain at least stackSize usable bytes below the aligned top.
+    const stack = module._malloc(stackSize + 15);
     if (!stack) throw new Error("cannot allocate the Wasm AOT side-module stack");
     sideStacks.push(stack);
-    module.nuppSetSideStackPointer(stack + stackSize);
+    const stackTop = Math.floor((stack + stackSize + 15) / 16) * 16;
+    module.nuppSetSideStackPointer(stackTop);
     const scope = {};
     await module.loadDynamicLibrary(side.url, {
       loadAsync: true,

@@ -8,11 +8,38 @@ import { fileURLToPath } from "node:url";
 import {
   handleBrowserEffects,
   runPackagedNuppWasmApp,
+  runNuppWasmApp,
 } from "../../runtime/wasm/app-runtime.mjs";
 import { runtimeSourceDigest } from "../../runtime/wasm/build-runtime-package.mjs";
 import { createWorkerPool } from "../../runtime/wasm/worker-pool.mjs";
 
 globalThis.crypto ||= webcrypto;
+
+test("side-module stacks preserve the Wasm ABI alignment and capacity", async () => {
+  for (const [base, stackSize] of [[0x10008, 1024 * 1024], [0x10010, 35], [0x10008, 1]]) {
+    const stop = new Error("registered aligned stack");
+    let allocated = 0;
+    let top = 0;
+    const host = {
+      _nupp_app_boot: () => 1,
+      _malloc: (bytes) => { allocated = bytes; return base; },
+      nuppSetSideStackPointer: (pointer) => { top = pointer; },
+      loadDynamicLibrary: async (_url, _options, scope) => {
+        scope.register = () => {
+          assert.equal(top % 16, 0, "side-module stack top must be aligned to 16 bytes");
+          assert.ok(top >= base + stackSize, "alignment must retain the requested usable capacity");
+          assert.ok(top <= base + allocated, "aligned stack top must remain inside its allocation");
+          throw stop;
+        };
+      },
+    };
+    await assert.rejects(runNuppWasmApp({
+      createHost: async () => host,
+      app: new Uint8Array(),
+      sideModules: [{url: "fixture.wasm", registrar: "register", stackSize}],
+    }), (error) => error === stop);
+  }
+});
 
 test("browser system effects report usable parallelism", async () => {
   const result = await handleBrowserEffects({
