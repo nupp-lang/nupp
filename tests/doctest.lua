@@ -1271,7 +1271,7 @@ function M.standardLibraryBackingRecordsStayInternal()
     )
     assert(module, errors and errors[1] and errors[1].msg)
 
-    local expected = {["nupp.math.vec2"] = "add", ["nupp.peg"] = "compile",}
+    local expected = {["nupp.math.vec2"] = "add", ["nupp.math.quat"] = "multiply", ["nupp.peg"] = "compile",}
     for _, child in ipairs(extra or {}) do
         local member = expected[child.name]
         if member then
@@ -1327,10 +1327,10 @@ function M.standardLibraryBackingRecordsStayInternal()
             end
         end
     end
-    -- Math, Vec2 and the four fixed-width namespaces retain private top-level backing
-    -- records. Nothing nests one any more: Files.Library was the last, and it left with
-    -- io.
-    assert(topLevelLibraries == 6, "private docs lost top-level backing records")
+    -- Math, Vec2, Quat and the four fixed-width namespaces retain private top-level
+    -- backing records. Nothing nests one any more: Files.Library was the last, and it
+    -- left with io.
+    assert(topLevelLibraries == 7, "private docs lost top-level backing records")
     assert(nestedLibraries == 0, "private docs grew a nested backing record")
 end
 
@@ -1343,7 +1343,7 @@ function M.standardMathApiHasCompleteDocumentation()
     )
     assert(module, errors and errors[1] and errors[1].msg)
 
-    local mathModule, vec2Module
+    local mathModule, vec2Module, quatModule
     for _, candidate in ipairs(extra or {}) do
         if candidate.name == "nupp.math" then
             mathModule = candidate
@@ -1351,10 +1351,15 @@ function M.standardMathApiHasCompleteDocumentation()
         if candidate.name == "nupp.math.vec2" then
             vec2Module = candidate
         end
+        if candidate.name == "nupp.math.quat" then
+            quatModule = candidate
+        end
     end
     assert(mathModule, "the prelude did not synthesize nupp.math")
     assert(vec2Module, "the prelude did not synthesize nupp.math.vec2")
     assert(#vec2Module.items > 0, "nupp.math.vec2 has no operations")
+    assert(quatModule, "the prelude did not synthesize nupp.math.quat")
+    assert(#quatModule.items > 0, "nupp.math.quat has no operations")
 
     local function assertDocumented(documentedModule)
         for _, item in ipairs(documentedModule.items) do
@@ -1376,12 +1381,14 @@ function M.standardMathApiHasCompleteDocumentation()
 
     assertDocumented(mathModule)
     assertDocumented(vec2Module)
+    assertDocumented(quatModule)
     for _, item in ipairs(mathModule.items) do
         assert(item.name ~= "vec2", "vec2 must be a nested module, not a value")
+        assert(item.name ~= "quat", "quat must be a nested module, not a value")
     end
     for _, item in ipairs(module.items) do
         assert(
-            item.name ~= "MathLibrary" and item.name ~= "Vec2Library",
+            item.name ~= "MathLibrary" and item.name ~= "Vec2Library" and item.name ~= "QuatLibrary",
             "math implementation library types must stay out of public docs"
         )
     end
