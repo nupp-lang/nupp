@@ -71,7 +71,8 @@ export async function packageBrowserApp({project, target, output, guest, nativeC
     record(`${name}.mjs`);
   }
   copyFileSync(path.join(repo,'runtime/wasm/browser-entry.mjs'), path.join(output,'nupp-browser-app.mjs'));
-  const workers = (result.services || []).some(x => x.service === 'host.workers');
+  // The emitted worker facade determines whether this application needs a pool.
+  const workers = (result.written || []).some(file => /(?:^|[\\/])nupp[\\/]workers\.lua$/.test(file));
   const manifest = {schema:1, runtime:'luajit-v86', app, guest:guestName, guestBuildKey:guestManifest.buildKey, assets, kernels, nativeLibraries,
     build:{target, dialect:result.dialect, host:'browser'},
     ...(workers ? {workers:{lane:'worker-lane.mjs', maxLanes:2}} : {}),
