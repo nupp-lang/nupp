@@ -86,5 +86,52 @@
     "kind": "check",
     "filename": "ffi.g.nupp",
     "source": "local ffi = require(\"ffi\"); local value = ffi.new(\"int[3]\"); return value"
+  },
+  {
+    "kind": "compile",
+    "filename": "unsafe-ffi.nupp",
+    "source": "local ffi = require(\"ffi\")\nlocal values = ffi.new<int32[3]>()\n@unsafe do values[0] = 41; print(values[0] + 1) end",
+    "expect": {
+      "errorCodes": [],
+      "generatedCode": true
+    },
+    "options": {
+      "strict": true
+    }
+  },
+  {
+    "kind": "compile",
+    "filename": "unsafe-portable.nupp",
+    "source": "local function pair(): (number, number) return 4, 5 end\nlocal left, right = @unsafe pair()\nreturn left + right",
+    "expect": {
+      "errorCodes": [],
+      "generatedCode": true
+    },
+    "options": {
+      "strict": true,
+      "compat": "lua51"
+    }
+  },
+  {
+    "kind": "check",
+    "filename": "unsafe-literal.g.nupp",
+    "source": "return @unsafe 2ULL",
+    "expect": {
+      "errorCodes": ["NUPP3013"]
+    },
+    "options": {
+      "compat": "lua51"
+    }
+  },
+  {
+    "kind": "check",
+    "filename": "unsafe-import.g.nupp",
+    "source": "return @unsafe require(\"ffi\")",
+    "expect": {
+      "errorCodes": ["NUPP3014", "NUPP3015"]
+    },
+    "options": {
+      "compat": "lua51"
+    }
   }
 ]

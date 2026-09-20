@@ -21,14 +21,38 @@ local requests = decode(fixture)
 local Browser = assert(loadfile(bundle))()
 local session = Browser.new()
 local expected = {}
-for _, request in ipairs(requests) do
+for index, request in ipairs(requests) do
+    local response
     if request.kind == "hover" then
-        expected[#expected + 1] = session:hover(request.offset)
+        response = session:hover(request.offset)
     else
         local options = request.options or {}
         options.dialect = options.dialect or "luajit"
-        expected[#expected + 1] = session[request.kind](session, request.source, request.filename, options)
+        response = session[request.kind](session, request.source, request.filename, options)
     end
+    if request.expect then
+        local codes, seen = {}, {}
+        for _, diagnostic in ipairs(response.diagnostics or {}) do
+            if diagnostic.severity == nil or diagnostic.severity == "error" then
+                if not seen[diagnostic.code] then
+                    seen[diagnostic.code] = true
+                    codes[#codes + 1] = diagnostic.code
+                end
+            end
+        end
+        table.sort(codes)
+        local wanted = request.expect.errorCodes
+        table.sort(wanted)
+        local label = ("request %d (%s)"):format(index, request.filename or request.kind)
+        assert(
+            table.concat(codes, ",") == table.concat(wanted, ","),
+            label .. ": expected error codes " .. encode(wanted) .. ", got " .. encode(codes)
+        )
+        if request.expect.generatedCode then
+            assert(type(response.code) == "string" and response.code:match("%S"), label .. ": expected generated code")
+        end
+    end
+    expected[#expected + 1] = response
 end
 local bytecode = string.dump(assert(loadfile(bundle, "tW")), "sd")
 assert(#bytecode <= 7 * 1024 * 1024, "compiler exceeds startup mailbox")
