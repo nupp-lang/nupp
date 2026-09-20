@@ -603,7 +603,13 @@ function emit.rearrange(context: emit.Context, node: scalarIR.Simd): string
         elseif composite then
             selected[
                 i + 1
-            ] = value .. ".chunk[" .. tostring(math.floor(index / native)) .. "][" .. tostring(index % native) .. "]"
+            ] = "ks_exp_extract_" .. tostring(
+                element
+            ) .. "x" .. tostring(
+                native
+            ) .. "(" .. value .. ".chunk[" .. tostring(
+                math.floor(index / native)
+            ) .. "], " .. tostring(index % native + 1) .. ")"
         else
             selected[i + 1] = value .. "[" .. tostring(index) .. "]"
         end
@@ -770,10 +776,26 @@ end
 --- Lane `index` of one rendered value, in whichever of the three
 --- representations the species has: a native vector indexes directly, the
 --- oracle's struct through `lane`, and a composite through its chunk.
-local function genericLane(context: emit.Context, species: emit.Species, rendered: string, index: integer): string
+local function genericLane(
+    context: emit.Context,
+    species: emit.Species,
+    rendered: string,
+    index: integer,
+    mask: boolean?
+): string
     if context.explicitScalar then
         return rendered .. ".lane[" .. tostring(index) .. "]"
     elseif species.composite then
+        if not mask then
+            -- Keep each native vector whole at the helper boundary. GCC's SRA
+            -- otherwise splits aggregate subfields into undefined intermediate
+            -- vectors and diagnoses initialized inputs as uninitialized.
+            return "ks_exp_extract_" .. species.element .. "x" .. tostring(
+                species.nativeLanes
+            ) .. "(" .. rendered .. ".chunk[" .. tostring(
+                math.floor(index / species.nativeLanes)
+            ) .. "], " .. tostring(index % species.nativeLanes + 1) .. ")"
+        end
         return rendered .. ".chunk[" .. tostring(
             math.floor(index / species.nativeLanes)
         ) .. "][" .. tostring(index % species.nativeLanes) .. "]"
@@ -3431,7 +3453,13 @@ function emit.block(
                     .. ");"
                 local stateful = reducerHelper(contribution.order, contribution.operation, contribution.element)
                 for index = 0, species.lanes - 1 do
-                    local laneValue = genericLane(context, species, "simd_value_" .. serial, index)
+                    local laneValue = genericLane(
+                        context,
+                        species,
+                        "simd_value_" .. serial,
+                        index,
+                        contribution.element == "bool"
+                    )
                     if contribution.element == "bool" then
                         -- A predicate lane is a mask lane, all bits or none.
                         laneValue = "(bool)" .. laneValue
