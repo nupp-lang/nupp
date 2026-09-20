@@ -1400,8 +1400,8 @@ may not contribute competing terminals.
 
 A known affine local is dropped at scope exit. `drop owner` invokes its selected
 terminal now, `takes` parameters and affine returns transfer it, and
-`unsafe adopt raw as SomeAffine` asserts a fresh obligation while
-`unsafe release owner` consumes one without cleanup.
+`@unsafe adopt raw as SomeAffine` asserts a fresh obligation while
+`@unsafe release owner` consumes one without cleanup.
 
 Parameter modes describe what a call does with an owner: `takes` consumes it,
 `borrows` is call-scoped, `exclusive` also requires sole access, and
@@ -1418,7 +1418,7 @@ Affine nominal fields have path-sensitive state, so a field is
 tracked apart from the record holding it, and suspension cannot strand an
 obligation.
 
-Direct pointer or variable-length C-array indexing requires `unsafe`; use a span
+Direct pointer or variable-length C-array indexing requires `@unsafe`; use a span
 for checked bounds. Fixed arrays reject bad literals and guard dynamic indexes.
 A capability cannot disappear into `any`.
 
@@ -1552,7 +1552,7 @@ and a variadic C call reports `jit-boundary`; disable the cold function with
 `jit.off`. `@jit` makes avoiding both boundaries a checked contract
 (`NUPP2707`).
 
-Reconstructing a raw pointer is confined to `unsafe do` blocks.
+Reconstructing a raw pointer is confined to `@unsafe` statements or expressions.
 ]=],
         example = [=[
 local m = {}

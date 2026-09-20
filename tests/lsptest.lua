@@ -881,9 +881,7 @@ function M.hoverAndInspectExposeAutomaticCleanup()
         inspected.automaticCleanup
         and inspected.automaticCleanup.status == "automatic"
         and inspected.automaticCleanup.line == 11
-        and inspected.automaticCleanup.cleanups[
-            1
-        ] == "close_handle",
+        and inspected.automaticCleanup.cleanups[1] == "close_handle",
         "inspect returns the structured cleanup boundary"
     )
 end
@@ -1489,14 +1487,16 @@ function M.contractSyntaxSemanticTokens()
     assert(at["6:22"] == "nuppKeyword", "resumes is keyword")
 end
 
-function M.unsafeAndNosuspendAreSemanticKeywords()
+function M.unsafeAnnotationsAndNosuspendHaveDistinctSemanticKinds()
     local uri = "file://" .. scratchRoot() .. "/safety-keywords.nupp"
     local source = table.concat(
         {
-            "unsafe do end",
+            "@unsafe do end",
             "nosuspend do end",
             "local callback: nosuspend function(): nil = function() end",
             "local value: string = nil as any",
+            "local unsafe = 1",
+            "local expression = @unsafe unsafe",
         },
         "\n"
     )
@@ -1520,7 +1520,10 @@ function M.unsafeAndNosuspendAreSemanticKeywords()
         character = data[index] == 0 and character + data[index + 1] or data[index + 1]
         at[line .. ":" .. character] = types[data[index + 3] + 1]
     end
-    assert(at["0:0"] == "nuppKeyword", "unsafe is a keyword")
+    assert(at["0:1"] == "decorator", "unsafe is an annotation")
+    assert(at["4:6"] == "variable", "ordinary unsafe remains a variable")
+    assert(at["5:20"] == "decorator", "expression annotations are decorators")
+    assert(at["5:27"] == "variable", "expression operands retain their symbol")
     assert(at["1:0"] == "nuppKeyword", "nosuspend block is a keyword")
     assert(at["2:16"] == "nuppKeyword", "nosuspend function type is a keyword")
     assert(at["3:26"] == "nuppKeyword", "as cast is a keyword")
@@ -1790,6 +1793,48 @@ function M.builtinAnnotationHoverLinksToDocsWithNoFabricatedDefinition()
     assertContains(
         hover.contents.value,
         "https://nupp.org/guides/ahead-of-time",
+        "builtin annotation hover links to nupp.org"
+    )
+
+    local definition = responseWithId(out, 11).result
+    assert(
+        definition == nil or definition == json.NULL,
+        "builtin annotation reports no fabricated definition location: " .. json.encode(definition)
+    )
+end
+
+function M.unsafeExpressionHoverLinksToDocsWithNoFabricatedDefinition()
+    local uri = "file://" .. scratchRoot() .. "/unsafe-expression.nupp"
+    local source = table.concat({"local value = @unsafe 1", "return value"}, "\n") .. "\n"
+    local out = runSession({
+        {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
+        {
+            jsonrpc = "2.0",
+            method = "textDocument/didOpen",
+            params = {textDocument = {uri = uri, languageId = "nupp", version = 1, text = source}}
+        },
+        {
+            jsonrpc = "2.0",
+            id = 10,
+            method = "textDocument/hover",
+            params = {textDocument = {uri = uri}, position = {line = 0, character = 16},}
+        },
+        {
+            jsonrpc = "2.0",
+            id = 11,
+            method = "textDocument/definition",
+            params = {textDocument = {uri = uri}, position = {line = 0, character = 16},}
+        },
+        {jsonrpc = "2.0", id = 2, method = "shutdown"},
+        {jsonrpc = "2.0", method = "exit"},
+    })
+
+    local hover = responseWithId(out, 10).result
+    assert(hover and hover.contents, "builtin annotation hover missing")
+    assertContains(hover.contents.value, "one statement or operand", "builtin annotation hover blurb")
+    assertContains(
+        hover.contents.value,
+        "https://nupp.org/reference/annotations#unsafe-operations",
         "builtin annotation hover links to nupp.org"
     )
 
@@ -3970,9 +4015,8 @@ function M.selectionRangesExpandOutward()
     while cursor.parent do
         local outer = cursor.parent.range
         assert(
-            outer.start.line < inner.start.line or (
-                outer.start.line == inner.start.line and outer.start.character <= inner.start.character
-            ),
+            outer.start.line < inner.start.line
+            or (outer.start.line == inner.start.line and outer.start.character <= inner.start.character),
             "each parent starts no later than its child"
         )
         cursor = cursor.parent
@@ -4202,11 +4246,10 @@ return restored, why, codec, shown
         children[child.name] = true
     end
     assert(
-        children[
-            "debug (generated)"
-        ] and children[
-            "writeJSON (generated)"
-        ] and children["fromJSON (generated, static)"] and children["fieldCodec (generated, static)"],
+        children["debug (generated)"]
+        and children["writeJSON (generated)"]
+        and children["fromJSON (generated, static)"]
+        and children["fieldCodec (generated, static)"],
         "document symbols expose generated members without source ranges"
     )
 
@@ -4538,18 +4581,21 @@ end
 -- the check that has already happened; resolution lowers the buffer, which is
 -- why every case here opens a document whose text is not what is on disk.
 
-local ARTIFACT_SOURCE = table.concat({
-    "local function scale(values: {number}, by: number): number",
-    "    local total = 0",
-    "    for _, value in ipairs(values) do",
-    "        total = total + value * by",
-    "    end",
-    "",
-    "    return total",
-    "end",
-    "",
-    "return scale",
-}, "\n") .. "\n"
+local ARTIFACT_SOURCE = table.concat(
+    {
+        "local function scale(values: {number}, by: number): number",
+        "    local total = 0",
+        "    for _, value in ipairs(values) do",
+        "        total = total + value * by",
+        "    end",
+        "",
+        "    return total",
+        "end",
+        "",
+        "return scale",
+    },
+    "\n"
+) .. "\n"
 
 --- Opens `source` as `name` and asks one artifact question about it.
 local function artifactSession(projectDir, name, source, method, params, clientOptions)
@@ -4558,17 +4604,20 @@ local function artifactSession(projectDir, name, source, method, params, clientO
     for key, value in pairs(params or {}) do
         request[key] = value
     end
-    local out = runSession({
-        {jsonrpc = "2.0", id = 1, method = "initialize", params = {initializationOptions = clientOptions},},
+    local out = runSession(
         {
-            jsonrpc = "2.0",
-            method = "textDocument/didOpen",
-            params = {textDocument = {uri = uri, languageId = "nupp", version = 7, text = source}},
+            {jsonrpc = "2.0", id = 1, method = "initialize", params = {initializationOptions = clientOptions},},
+            {
+                jsonrpc = "2.0",
+                method = "textDocument/didOpen",
+                params = {textDocument = {uri = uri, languageId = "nupp", version = 7, text = source}},
+            },
+            {jsonrpc = "2.0", id = 2, method = method, params = request},
+            {jsonrpc = "2.0", id = 3, method = "shutdown"},
+            {jsonrpc = "2.0", method = "exit"},
         },
-        {jsonrpc = "2.0", id = 2, method = method, params = request},
-        {jsonrpc = "2.0", id = 3, method = "shutdown"},
-        {jsonrpc = "2.0", method = "exit"},
-    }, projectDir)
+        projectDir
+    )
 
     return responseWithId(out, 2).result, uri
 end
@@ -4619,14 +4668,9 @@ end
 function M.codeLensesCarryTheCommandTheClientNamed()
     local projectDir = tempProject()
     writeFile(projectDir .. "/nupp.lua", 'return {include = {"."}}\n')
-    local lenses = artifactSession(
-        projectDir,
-        "named.nupp",
-        ARTIFACT_SOURCE,
-        "textDocument/codeLens",
-        {},
-        {artifacts = {inspectCommand = "demo.inspect"}}
-    )
+    local lenses = artifactSession(projectDir, "named.nupp", ARTIFACT_SOURCE, "textDocument/codeLens", {}, {
+        artifacts = {inspectCommand = "demo.inspect"}
+    })
     os.execute("rm -rf '" .. projectDir .. "'")
     assert(#lenses > 0, "a client that asked gets lenses")
     for _, lens in ipairs(lenses) do
@@ -4646,13 +4690,9 @@ end
 function M.artifactDiscoveryNamesTheFunctionTheCursorIsIn()
     local projectDir = tempProject()
     writeFile(projectDir .. "/nupp.lua", 'return {include = {"."}}\n')
-    local result = artifactSession(
-        projectDir,
-        "inspect.nupp",
-        ARTIFACT_SOURCE,
-        "$/nupp/artifacts",
-        {position = positionOf(ARTIFACT_SOURCE, "total = total")}
-    )
+    local result = artifactSession(projectDir, "inspect.nupp", ARTIFACT_SOURCE, "$/nupp/artifacts", {
+        position = positionOf(ARTIFACT_SOURCE, "total = total")
+    })
     os.execute("rm -rf '" .. projectDir .. "'")
     local kinds = {}
     for _, entry in ipairs(result.artifacts) do
@@ -4669,13 +4709,9 @@ end
 function M.artifactDiscoveryOutsideAFunctionStillOffersTheFile()
     local projectDir = tempProject()
     writeFile(projectDir .. "/nupp.lua", 'return {include = {"."}}\n')
-    local result = artifactSession(
-        projectDir,
-        "outside.nupp",
-        ARTIFACT_SOURCE,
-        "$/nupp/artifacts",
-        {position = positionOf(ARTIFACT_SOURCE, "return scale")}
-    )
+    local result = artifactSession(projectDir, "outside.nupp", ARTIFACT_SOURCE, "$/nupp/artifacts", {
+        position = positionOf(ARTIFACT_SOURCE, "return scale")
+    })
     os.execute("rm -rf '" .. projectDir .. "'")
     assert(#result.artifacts == 2, "the file's artifacts are still offered")
     test.equal(result["function"], nil)
@@ -4727,13 +4763,7 @@ end
 function M.bytecodeArtifactMapsItsLinesBackToSource()
     local projectDir = tempProject()
     writeFile(projectDir .. "/nupp.lua", 'return {include = {"."}}\n')
-    local result = artifactSession(
-        projectDir,
-        "listing.nupp",
-        ARTIFACT_SOURCE,
-        "$/nupp/artifact",
-        {kind = "bytecode"}
-    )
+    local result = artifactSession(projectDir, "listing.nupp", ARTIFACT_SOURCE, "$/nupp/artifact", {kind = "bytecode"})
     os.execute("rm -rf '" .. projectDir .. "'")
     assert(result.available, "the file compiles: " .. json.encode(result.unavailable or {}))
     test.equal(result.mapping.kind, "lines-collapsible")
@@ -4788,8 +4818,9 @@ function M.foldingTheListingLeavesOneRowPerSourceLine()
             test.equal(
                 visibleAt[entry.generatedLine],
                 entry.sourceLine,
-                "folded row " .. tostring(visibleAt[entry.generatedLine])
-                .. " should be source line " .. tostring(entry.sourceLine)
+                "folded row " .. tostring(
+                    visibleAt[entry.generatedLine]
+                ) .. " should be source line " .. tostring(entry.sourceLine)
             )
         end
     end
@@ -4801,13 +4832,9 @@ end
 function M.anUnresolvableArtifactSaysWhyRatherThanComingBackEmpty()
     local projectDir = tempProject()
     writeFile(projectDir .. "/nupp.lua", 'return {include = {"."}}\n')
-    local result = artifactSession(
-        projectDir,
-        "broken.nupp",
-        "local value: integer = \n",
-        "$/nupp/artifact",
-        {kind = "lua"}
-    )
+    local result = artifactSession(projectDir, "broken.nupp", "local value: integer = \n", "$/nupp/artifact", {
+        kind = "lua"
+    })
     os.execute("rm -rf '" .. projectDir .. "'")
     test.equal(result.available, false)
     test.equal(result.unavailable.reason, "not-lowered")
@@ -4830,13 +4857,10 @@ function M.artifactIdentityCarriesTheOptimizationLevel()
     local projectDir = tempProject()
     writeFile(projectDir .. "/nupp.lua", 'return {include = {"."}}\n')
     local plain = artifactSession(projectDir, "levels.nupp", ARTIFACT_SOURCE, "$/nupp/artifact", {kind = "lua"})
-    local optimized = artifactSession(
-        projectDir,
-        "levels.nupp",
-        ARTIFACT_SOURCE,
-        "$/nupp/artifact",
-        {kind = "lua", optLevel = 1}
-    )
+    local optimized = artifactSession(projectDir, "levels.nupp", ARTIFACT_SOURCE, "$/nupp/artifact", {
+        kind = "lua",
+        optLevel = 1
+    })
     os.execute("rm -rf '" .. projectDir .. "'")
     test.equal(plain.metadata.optLevel, 0)
     test.equal(optimized.metadata.optLevel, 1)
@@ -4846,13 +4870,10 @@ end
 function M.anUnknownOptimizationLevelIsRefused()
     local projectDir = tempProject()
     writeFile(projectDir .. "/nupp.lua", 'return {include = {"."}}\n')
-    local result = artifactSession(
-        projectDir,
-        "level.nupp",
-        ARTIFACT_SOURCE,
-        "$/nupp/artifact",
-        {kind = "lua", optLevel = 9}
-    )
+    local result = artifactSession(projectDir, "level.nupp", ARTIFACT_SOURCE, "$/nupp/artifact", {
+        kind = "lua",
+        optLevel = 9
+    })
     os.execute("rm -rf '" .. projectDir .. "'")
     test.equal(result.available, false)
     test.equal(result.unavailable.reason, "unknown-opt-level")
@@ -4867,14 +4888,9 @@ function M.codeLensesOfferOneInspectPerFunction()
         "return scale\n",
         "local function second(): integer\n    return 1\nend\n\nreturn scale, second\n"
     )
-    local lenses = artifactSession(
-        projectDir,
-        "lenses.nupp",
-        source,
-        "textDocument/codeLens",
-        {},
-        {artifacts = {inspectCommand = "nupp.inspectCompiledFunction"}}
-    )
+    local lenses = artifactSession(projectDir, "lenses.nupp", source, "textDocument/codeLens", {}, {
+        artifacts = {inspectCommand = "nupp.inspectCompiledFunction"}
+    })
     os.execute("rm -rf '" .. projectDir .. "'")
     local names = {}
     for _, lens in ipairs(lenses) do
@@ -4959,9 +4975,8 @@ local function playRecording(recording, mode)
 
     local messages = {{jsonrpc = "2.0", id = 1, method = "initialize", params = {}},}
     for _, name in ipairs(recording.open) do
-        local text = name == recording.document and (
-            mode == "settled" and final or recording.states[1]
-        ) or recording.files[name]
+        local text = name == recording.document and (mode == "settled" and final or recording.states[1])
+            or recording.files[name]
         messages[
             #messages + 1
         ] = {
@@ -5297,14 +5312,20 @@ end
 function M.artifactDiscoveryNamesAotKernel()
     local projectDir = tempProject()
     writeFile(projectDir .. "/nupp.lua", 'return {include = {"."}}\n')
-    local answer = artifactSession(projectDir, "kernel.nupp", [[
+    local answer = artifactSession(
+        projectDir,
+        "kernel.nupp",
+        [[
 local i32 = require("nupp.math.i32")
 @aot
 local function double(value: int32): int32
     return i32.add(value, value)
 end
 return double
-]], "$/nupp/artifacts", {position = {line = 3, character = 8}})
+]],
+        "$/nupp/artifacts",
+        {position = {line = 3, character = 8}}
+    )
     test.equal(answer["function"].aotSymbol, "ks_double")
     test.equal(answer["function"].aotSource, "kernel.nupp")
 end

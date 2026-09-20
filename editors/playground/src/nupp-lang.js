@@ -10,7 +10,7 @@ const NUPP_KEYWORDS = new Set([
   "each", "exclusive", "from", "global", "handle", "infer", "interface", "is",
   "keyof", "match", "matches", "metamethod", "new", "out", "preserves",
   "readonly", "record", "releases", "resumes", "retains", "scoped", "struct",
-  "suspension", "takes", "type", "typeerror", "unpackof", "unsafe", "when",
+  "suspension", "takes", "type", "typeerror", "unpackof", "when",
   "where", "with", "writekeyof", "writeof", "writeonly", "yields",
 ]);
 
@@ -103,6 +103,7 @@ const nuppMode = {
       const previous = state.nuppPrevious;
       let style = "variable";
       if (LITERAL_KEYWORDS.has(word)) style = "bool";
+      else if (previous === "@unsafe" && (word === "adopt" || word === "release")) style = "keyword";
       else if (DIRECTIVE_KEYWORDS.has(word)) style = "meta";
       else if (LUA_KEYWORDS.has(word) || NUPP_KEYWORDS.has(word)) style = "keyword";
       else if (NUPP_TYPES.has(word) || /^[A-Z][A-Za-z0-9_]*$/.test(word)

@@ -1188,19 +1188,19 @@ function expr.install(c: state.Checker): nil
             local valueT = value and c.infer(value) or T.any
             if node.operation == "release" then
                 if c.ownershipKind(valueT) ~= "affine" then
-                    c.diag("NUPP2602", value or node, "unsafe release expects an affine value")
+                    c.diag("NUPP2602", value or node, "@unsafe release expects an affine value")
                 end
-                c.moveExpression(value or node, valueT, "unsafe release")
+                c.moveExpression(value or node, valueT, "@unsafe release")
                 node.ownershipIntrinsic = "release"
                 return rawType(valueT)
             else
                 local target = c.resolveType(node.type)
                 if target.tag ~= "affine" then
-                    c.diag("NUPP2602", node.type or node, "unsafe adopt target must be an affine type")
+                    c.diag("NUPP2602", node.type or node, "@unsafe adopt target must be an affine type")
                     return target
                 end
                 if c.ownershipKind(valueT) then
-                    c.diag("NUPP2602", value or node, "unsafe adopt expects an unmanaged value")
+                    c.diag("NUPP2602", value or node, "@unsafe adopt expects an unmanaged value")
                 end
                 local representation = rawType(target)
                 if valueT ~= T.any and not isA(valueT, representation) then
@@ -2007,6 +2007,21 @@ function expr.install(c: state.Checker): nil
     -- covered operand the same scope used by every other expression, without
     -- changing the CST's ordinary operator precedence.
     local pendingUnsafe: {[Node]: boolean?} = {}
+    local validatedAnnotations: {[Node]: {
+        definition: any,
+        valid: boolean
+    }} = {}
+
+    local function validateExpressionAnnotation(application: Node, target: Node): any, boolean
+        local cached = validatedAnnotations[application]
+        if cached then
+            return cached.definition, cached.valid
+        end
+        local definition, valid = c.marks.validateAnnotation(application, target)
+        validatedAnnotations[application] = {definition = definition, valid = valid}
+
+        return definition, valid
+    end
 
     c.infer = function(node: Node): Type
         if not node.expressionAnnotations and not pendingUnsafe[node] then
@@ -2014,7 +2029,7 @@ function expr.install(c: state.Checker): nil
         end
         local authorized = pendingUnsafe[node] == true
         for _, application in ipairs(node.expressionAnnotations or {}) do
-            local definition, valid = c.marks.validateAnnotation(application, node)
+            local definition, valid = validateExpressionAnnotation(application, node)
             authorized = authorized or (valid and definition and definition.name == "unsafe")
         end
         if authorized and node.expressionPermissionOperand then
@@ -2049,6 +2064,11 @@ function expr.install(c: state.Checker): nil
             expectedShortfns[node] = nil
             return inferred
         elseif node.kind == "funcExpr" and node.body then
+            -- Contextual function checking bypasses infer, but its annotations
+            -- still have to satisfy the same attachment rules.
+            for _, application in ipairs(node.expressionAnnotations or {}) do
+                validateExpressionAnnotation(application, node)
+            end
             if rawType(expected).tag == "func" and (rawType(expected) as T.Func).sendable then
                 node.sendableContext = true
             end

@@ -1218,7 +1218,7 @@ Options:
 ```
 
 The report is the list of places where the checker is trusting something it
-cannot see: a foreign declaration's contract, and every `unsafe do` region.
+cannot see: a foreign declaration's contract, and every `@unsafe` statement or expression.
 Given `src/block.nupp`:
 
 ```nupp [src/block.nupp]
@@ -1235,7 +1235,7 @@ local function blockNew(size: integer): affine(block*, blockFree)
 end
 
 local function sizeOf(borrows b: block*): integer
-    unsafe do
+    @unsafe do
         return b.size
     end
 end

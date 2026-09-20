@@ -25,7 +25,8 @@ function FfiArena:append(kind: integer, offset: integer, length: integer, line: 
         self.capacity = grown
     end
     local at = self.count * STRIDE
-    unsafe do
+    @unsafe
+    do
         self.words[at] = kind
         self.words[at + 1] = offset
         self.words[at + 2] = length
@@ -44,7 +45,8 @@ function FfiArena:record(index: integer): (integer, integer, integer, integer, i
         error("nupp: trivia record " .. index .. " is outside 1.." .. self.count, 2)
     end
     local at = (index - 1) * STRIDE
-    unsafe do
+    @unsafe
+    do
         return self.words[
             at
         ] as integer, self.words[

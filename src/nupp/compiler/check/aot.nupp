@@ -65,7 +65,7 @@ local DECLINED: {
     safeBracket = "an optional index",
     newExpr = "a constructor call",
     handleStmt = "suspension handling",
-    unsafeStmt = "an `unsafe` region",
+    unsafeStmt = "an `@unsafe` construct",
     unsafeOwnershipExpr = "an unsafe memory operation",
 }
 

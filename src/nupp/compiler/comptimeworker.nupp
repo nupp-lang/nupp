@@ -532,7 +532,7 @@ local function startService(executable: string): any, worker.Failure?
     if child.stderr ~= nil then
         child.stderr:setTimeout(5)
     end
-    service = unsafe release child
+    service = @unsafe release child
     serviceExecutable = executable
 
     return service, nil

@@ -262,7 +262,7 @@ local record Scalars is ScalarReader
     end
 
     function close(takes self): (boolean, string?)
-        local state = unsafe release self
+        local state = @unsafe release self
         local reader = state._reader
         state._reader = nil
         state._queue = nil
@@ -445,7 +445,7 @@ local record ScalarSink is ScalarWriter
     end
 
     function close(takes self): (boolean, string?)
-        local state = unsafe release self
+        local state = @unsafe release self
         local writer = state._writer
         local buffer = state._buffer
         local ownsBuffer = state._ownsBuffer
@@ -466,7 +466,7 @@ local record ScalarSink is ScalarWriter
 end
 
 function Scalars.drop(takes self: Scalars): nil
-    local state = unsafe release self
+    local state = @unsafe release self
     local reader = state._reader
     state._closed = true
     state._pending = ""
@@ -478,7 +478,7 @@ function Scalars.drop(takes self: Scalars): nil
 end
 
 function ScalarSink.drop(takes self: ScalarSink): nil
-    local state = unsafe release self
+    local state = @unsafe release self
     local writer = state._writer
     local buffer = state._buffer
     local ownsBuffer = state._ownsBuffer
@@ -606,7 +606,7 @@ local function openScalarWriter(destination: any): ScalarWriter
     if destination == nil then
         -- The scalar writer owns this buffer. `buffer()` only borrows it, and scalar
         -- teardown discharges the buffer obligation with the writer's own.
-        state._buffer = unsafe release newBuffer(nil)
+        state._buffer = @unsafe release newBuffer(nil)
         state._ownsBuffer = true
     elseif type(destination) == "table" and destination.write ~= nil then
         state._writer = destination

@@ -1476,7 +1476,8 @@ local spawnSurface: function<F is workers.Submittable>(
     F,
     ...: unpackof contracts.Submitted(F)
 ): workers.Job<F>
-unsafe do
+@unsafe
+do
     spawnSurface = spawnImpl as any
 end
 
@@ -1635,7 +1636,7 @@ local function closeScope(borrows self: workers.Scope): nil
 end
 
 local function dropScope(takes self: workers.Scope): nil
-    local state = unsafe release self
+    local state = @unsafe release self
     closeScope(state)
 end
 

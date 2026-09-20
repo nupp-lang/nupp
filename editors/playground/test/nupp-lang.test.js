@@ -72,3 +72,13 @@ test("token categories match documentation highlighting", () => {
     [["end", "keyword"]],
   ]);
 });
+
+
+test("unsafe annotations keep ordinary names available", () => {
+  const lines = tokenize(["@unsafe release owner", "local unsafe = 1", "adopt(value)"]);
+  assert.deepEqual(lines[0].filter(([, style]) => style), [
+    ["@unsafe", "meta"], ["release", "keyword"], ["owner", "variable"],
+  ]);
+  assert(lines[1].some(([word, style]) => word === "unsafe" && style === "variable"));
+  assert(lines[2].some(([word, style]) => word === "adopt" && style === "builtin"));
+});

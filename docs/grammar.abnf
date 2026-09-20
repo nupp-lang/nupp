@@ -307,9 +307,6 @@ annotationarg  = [Name "="] exp
 ; borrowed provenance in their parameter
 ; type and conditional initialization in the C status return type.
 
-stat           =/ unsafestat
-unsafestat     = %s"unsafe" "do" block "end"  ; permit unproved FFI operations;
-                                                ; affine checks remain active
 stat           =/ effectregionstat
 effectregionstat = (%s"noalloc" / %s"noraise") "do" block "end"
                                                 ; erased checked effect regions

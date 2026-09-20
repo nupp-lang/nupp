@@ -436,7 +436,7 @@ function gpu.Context.bindKernel(
 end
 
 function gpu.Context.drop(takes self: gpu.Context): nil
-    local state = unsafe release self
+    local state = @unsafe release self
     state._destroy(state)
 end
 

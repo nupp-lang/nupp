@@ -40,7 +40,8 @@ local function slice(text: string): any
     -- The slice points into the Lua string; every caller hands it to C and returns
     -- while `text` is still a live argument of its own, so the string outlives the
     -- call.
-    unsafe do
+    @unsafe
+    do
         value.data = text
     end
     value.length = #text

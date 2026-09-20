@@ -3,46 +3,51 @@ local check = require("fragment")
 local gen = require("nupp.compiler.gen")
 
 local function assertEq(got, want, label)
-   if got ~= want then
-      error(("%s:\n  want: %s\n  got:  %s"):format(label or "mismatch",
-         tostring(want), tostring(got)), 2)
-   end
+    if got ~= want then
+        error(("%s:\n  want: %s\n  got:  %s"):format(label or "mismatch", tostring(want), tostring(got)), 2)
+    end
 end
 
 -- Full pipeline: parse, check (for reified hints), generate.
 local function compile(src)
-   local result = parser.parse(src, "test.g.nupp")
-   assertEq(#result.errors, 0, "syntax errors")
-   local diags = check.check(result, "test.g.nupp")
-   local code, genDiags = gen.generate(result, "test")
-   return code, diags, genDiags
+    local result = parser.parse(src, "test.g.nupp")
+    assertEq(#result.errors, 0, "syntax errors")
+    local diags = check.check(result, "test.g.nupp")
+    local code, genDiags = gen.generate(result, "test")
+
+    return code, diags, genDiags
 end
 
 local function diagsOf(src)
-   local _, diags = compile(src)
-   local out = {}
-   for j, d in ipairs(diags) do out[j] = d.code .. ":" .. d.line end
-   return table.concat(out, " "), diags
+    local _, diags = compile(src)
+    local out = {}
+    for j, d in ipairs(diags) do
+        out[j] = d.code .. ":" .. d.line
+    end
+
+    return table.concat(out, " "), diags
 end
 
 local function assertClean(src)
-   local got, diags = diagsOf(src)
-   assertEq(got, "", "expected clean check:\n" .. src
-      .. ((diags and diags[1]) and ("\nfirst: " .. diags[1].msg) or ""))
+    local got, diags = diagsOf(src)
+    assertEq(
+        got,
+        "",
+        "expected clean check:\n" .. src .. ((diags and diags[1]) and ("\nfirst: " .. diags[1].msg) or "")
+    )
 end
 
 -- Compile a clean program and execute it.
 local function run(src)
-   local code, diags, genDiags = compile(src)
-   assertEq(#diags, 0, "check diagnostics"
-      .. (diags[1] and (": " .. diags[1].msg) or ""))
-   assertEq(#genDiags, 0, "gen diagnostics")
-   local chunk, err = loadstring(code, "@struct_test")
-   if not chunk then
-      error("generated code does not load: " .. tostring(err)
-         .. "\n---\n" .. code, 2)
-   end
-   return chunk()
+    local code, diags, genDiags = compile(src)
+    assertEq(#diags, 0, "check diagnostics" .. (diags[1] and (": " .. diags[1].msg) or ""))
+    assertEq(#genDiags, 0, "gen diagnostics")
+    local chunk, err = loadstring(code, "@struct_test")
+    if not chunk then
+        error("generated code does not load: " .. tostring(err) .. "\n---\n" .. code, 2)
+    end
+
+    return chunk()
 end
 
 local VEC = "local struct Vec2\n   x: float\n   y: float\nend\n"
@@ -50,113 +55,136 @@ local VEC = "local struct Vec2\n   x: float\n   y: float\nend\n"
 local M = {}
 
 function M.groupedFieldsRejected()
-   -- every field states its own type; "x, y: float" is not grammar
-   local result = require("nupp.compiler.parser").parse(
-      "local struct V\n   x, y: float\nend", "test")
-   assert(#result.errors > 0, "grouped fields must be a syntax error")
-   assert(result.errors[1].msg:find("own explicit type", 1, true),
-      "targeted message: " .. result.errors[1].msg)
+    -- every field states its own type; "x, y: float" is not grammar
+    local result = require("nupp.compiler.parser").parse("local struct V\n   x, y: float\nend", "test")
+    assert(#result.errors > 0, "grouped fields must be a syntax error")
+    assert(result.errors[1].msg:find("own explicit type", 1, true), "targeted message: " .. result.errors[1].msg)
 end
 
 function M.fieldValidation()
-   assertClean("local struct S\n   a: number\n   b: int64\n   c: boolean\nend")
-   assertEq((diagsOf("local struct S\n   name: string\nend")), "NUPP2201:2")
-   assertEq((diagsOf("local struct S\n   t: {number}\nend")), "NUPP2201:2")
-   assertEq((diagsOf("local struct S\n   f: function(): nil\nend")), "NUPP2201:2")
-   assertEq((diagsOf("local struct S\n   o: number?\nend")), "NUPP2201:2")
-   -- structs by value and (nullable) pointers are fine
-   assertClean(VEC .. "local struct Body\n   pos: Vec2\n   vel: Vec2\nend")
-   assertClean(VEC .. "local struct Node\n   v: number\n   next: Node*?\nend")
-   -- no nested declarations inside struct bodies
-   assertEq((diagsOf(
-      "local struct S\n   record R\n      x: number\n   end\nend")), "NUPP2201:2")
+    assertClean("local struct S\n   a: number\n   b: int64\n   c: boolean\nend")
+    assertEq((diagsOf("local struct S\n   name: string\nend")), "NUPP2201:2")
+    assertEq((diagsOf("local struct S\n   t: {number}\nend")), "NUPP2201:2")
+    assertEq((diagsOf("local struct S\n   f: function(): nil\nend")), "NUPP2201:2")
+    assertEq((diagsOf("local struct S\n   o: number?\nend")), "NUPP2201:2")
+    -- structs by value and (nullable) pointers are fine
+    assertClean(VEC .. "local struct Body\n   pos: Vec2\n   vel: Vec2\nend")
+    assertClean(VEC .. "local struct Node\n   v: number\n   next: Node*?\nend")
+    -- no nested declarations inside struct bodies
+    assertEq((diagsOf("local struct S\n   record R\n      x: number\n   end\nend")), "NUPP2201:2")
 end
 
 function M.constructionChecking()
-   assertClean(VEC .. "local v = new Vec2(1, 2)")
-   assertClean(VEC .. "local v = new Vec2()")
-   assertEq((diagsOf(VEC .. "local v = new Vec2 {x = 1, y = 2}")), "NUPP2202:5")
-   assertEq((diagsOf(VEC .. "local v = new Vec2(x = 1, y = 2)")), "NUPP2202:5 NUPP2202:5")
-   assertEq((diagsOf(VEC .. "local v = new Vec2('no')")), "NUPP2202:5")
-   assertEq((diagsOf(VEC .. "local v = new Vec2(1, 2, 3)")), "NUPP2202:5")
-   assertEq((diagsOf(VEC .. "local v = new Vec2('a', 2)")), "NUPP2202:5")
-   -- the instance types as the nominal
-   assertClean(VEC .. "local v: Vec2 = new Vec2(1, 2)")
-   assertEq((diagsOf(VEC .. "local n: number = new Vec2(1)")), "NUPP2001:5")
+    assertClean(VEC .. "local v = new Vec2(1, 2)")
+    assertClean(VEC .. "local v = new Vec2()")
+    assertEq((diagsOf(VEC .. "local v = new Vec2 {x = 1, y = 2}")), "NUPP2202:5")
+    assertEq((diagsOf(VEC .. "local v = new Vec2(x = 1, y = 2)")), "NUPP2202:5 NUPP2202:5")
+    assertEq((diagsOf(VEC .. "local v = new Vec2('no')")), "NUPP2202:5")
+    assertEq((diagsOf(VEC .. "local v = new Vec2(1, 2, 3)")), "NUPP2202:5")
+    assertEq((diagsOf(VEC .. "local v = new Vec2('a', 2)")), "NUPP2202:5")
+    -- the instance types as the nominal
+    assertClean(VEC .. "local v: Vec2 = new Vec2(1, 2)")
+    assertEq((diagsOf(VEC .. "local n: number = new Vec2(1)")), "NUPP2001:5")
 end
 
 function M.runtimeStructSemantics()
-   assertEq(run(VEC .. [[
+    assertEq(run(VEC .. [[
 local v = new Vec2(3, 4)
 v.x = v.x + 1
 return v.x + v.y]]), 8)
-   -- positional construction
-   assertEq(run(VEC .. "local v = new Vec2(3, 4)\nreturn v.y"), 4)
-   -- float storage really is float-width (not a Lua table)
-   assertEq(run(VEC .. [[
+    -- positional construction
+    assertEq(run(VEC .. "local v = new Vec2(3, 4)\nreturn v.y"), 4)
+    -- float storage really is float-width (not a Lua table)
+    assertEq(run(VEC .. [[
 local v = new Vec2(0.1, 0)
 return v.x == 0.1]]), false) -- 0.1 is not representable in float32
 end
 
 function M.structConstructionUsesTrailingFieldDefaults()
-   local src = table.concat({
-      "local struct Vec2",
-      "   x: float = 3",
-      "   y: float = 4",
-      "end",
-      "local origin = new Vec2()",
-      "local moved = new Vec2(10)",
-      "return origin.x + origin.y + moved.x + moved.y",
-   }, "\n")
-   assertEq(run(src), 21)
+    local src = table.concat(
+        {
+            "local struct Vec2",
+            "   x: float = 3",
+            "   y: float = 4",
+            "end",
+            "local origin = new Vec2()",
+            "local moved = new Vec2(10)",
+            "return origin.x + origin.y + moved.x + moved.y",
+        },
+        "\n"
+    )
+    assertEq(run(src), 21)
 end
 
 function M.generatedStructBindingsAreConst()
-   local code, diags, genDiags = compile(VEC .. "return Vec2")
-   assertEq(#diags, 0, "check diagnostics")
-   assertEq(#genDiags, 0, "gen diagnostics")
-   assert(code:find("const __nuppMt_Vec2", 1, true), code)
-   assert(code:find("const Vec2 = __nuppFfi.metatype", 1, true), code)
-   assert(code:find('const __nuppFfi = require("ffi")', 1, true), code)
+    local code, diags, genDiags = compile(VEC .. "return Vec2")
+    assertEq(#diags, 0, "check diagnostics")
+    assertEq(#genDiags, 0, "gen diagnostics")
+    assert(code:find("const __nuppMt_Vec2", 1, true), code)
+    assert(code:find("const Vec2 = __nuppFfi.metatype", 1, true), code)
+    assert(code:find('const __nuppFfi = require("ffi")', 1, true), code)
 end
 
 function M.inlineStructMethodsUseTheFfiMetatypeNamespace()
-   assertEq(run(table.concat({
-      "local struct Vec",
-      "   x: float",
-      "   function doubled(): number",
-      "      return self.x * 2",
-      "   end",
-      "end",
-      "local v = new Vec(21)",
-      "return v:doubled()",
-   }, "\n")), 42)
-   assertEq((diagsOf(table.concat({
-      "local struct Vec",
-      "   x: float",
-      "   metamethod __add: function(self, other: self): self",
-      "end",
-   }, "\n"))), "NUPP2118:3")
+    assertEq(
+        run(
+            table.concat(
+                {
+                    "local struct Vec",
+                    "   x: float",
+                    "   function doubled(): number",
+                    "      return self.x * 2",
+                    "   end",
+                    "end",
+                    "local v = new Vec(21)",
+                    "return v:doubled()",
+                },
+                "\n"
+            )
+        ),
+        42
+    )
+    assertEq(
+        (
+            diagsOf(
+                table.concat(
+                    {
+                        "local struct Vec",
+                        "   x: float",
+                        "   metamethod __add: function(self, other: self): self",
+                        "end",
+                    },
+                    "\n"
+                )
+            )
+        ),
+        "NUPP2118:3"
+    )
 end
 
 function M.methodsOnADottedStructAttachToItsMetatable()
-   -- The metatable local is named by the struct's own name; a method declared on
-   -- the dotted path has to reach the same local rather than a global spelled
-   -- with the path's first component.
-   local m, len = run(table.concat({
-      "local m = {}",
-      "struct m.Vec",
-      "   x: number",
-      "   y: number",
-      "end",
-      "function m.Vec:len(): number",
-      "   return self.x + self.y",
-      "end",
-      "local v = new m.Vec(1, 2)",
-      "return m, v:len()",
-   }, "\n"))
-   assert(type(m) == "table", "the dotted owner is the authored table")
-   assertEq(len, 3)
+    -- The metatable local is named by the struct's own name; a method declared on
+    -- the dotted path has to reach the same local rather than a global spelled
+    -- with the path's first component.
+    local m, len = run(
+        table.concat(
+            {
+                "local m = {}",
+                "struct m.Vec",
+                "   x: number",
+                "   y: number",
+                "end",
+                "function m.Vec:len(): number",
+                "   return self.x + self.y",
+                "end",
+                "local v = new m.Vec(1, 2)",
+                "return m, v:len()",
+            },
+            "\n"
+        )
+    )
+    assert(type(m) == "table", "the dotted owner is the authored table")
+    assertEq(len, 3)
 end
 
 -- A struct binding used to construct one where it was declared, which was a
@@ -164,28 +192,34 @@ end
 -- value in it, and reading it before that is reported rather than silently
 -- given a zeroed struct.
 function M.aStructBindingHoldsNothingUntilAssigned()
-   assertEq((diagsOf(VEC .. "local v: Vec2\nreturn v.x + v.y")), "NUPP2207:6")
-   assertEq(run(VEC .. "local v = new Vec2()\nreturn v.x + v.y"), 0)
-   -- assigning first is the whole of what it asks for
-   assertEq(run(VEC .. "local v: Vec2\nv = new Vec2(3, 4)\nreturn v.x + v.y"), 7)
-   -- explicitly initializing a struct binding with nil is a type error
-   -- (struct bindings are never nil; use Vec2? if nil is meaningful)
-   assertEq((diagsOf(VEC .. "local v: Vec2 = nil")), "NUPP2001:5")
-   assertClean(VEC .. "local v: Vec2? = nil")
+    assertEq((diagsOf(VEC .. "local v: Vec2\nreturn v.x + v.y")), "NUPP2207:6")
+    assertEq(run(VEC .. "local v = new Vec2()\nreturn v.x + v.y"), 0)
+    -- assigning first is the whole of what it asks for
+    assertEq(run(VEC .. "local v: Vec2\nv = new Vec2(3, 4)\nreturn v.x + v.y"), 7)
+    -- explicitly initializing a struct binding with nil is a type error
+    -- (struct bindings are never nil; use Vec2? if nil is meaningful)
+    assertEq((diagsOf(VEC .. "local v: Vec2 = nil")), "NUPP2001:5")
+    assertClean(VEC .. "local v: Vec2? = nil")
 end
 
 function M.referenceSemantics()
-   assertEq(run(VEC .. [[
+    assertEq(
+        run(VEC .. [[
 local function bump(v: Vec2)
    v.x = v.x + 10
 end
 local v = new Vec2(1, 0)
 bump(v)
-return v.x]]), 11)
+return v.x]]),
+        11
+    )
 end
 
 function M.nestedStructsByValue()
-   assertEq(run(VEC .. [[
+    assertEq(
+        run(
+            VEC
+            .. [[
 local struct Body
    pos: Vec2
    vel: Vec2
@@ -193,29 +227,32 @@ end
 local b = new Body()
 b.pos.x = 5
 b.vel = new Vec2(1, 2)
-return b.pos.x + b.vel.y]]), 7)
+return b.pos.x + b.vel.y]]
+        ),
+        7
+    )
 end
 
 function M.istypeNarrowingAtRuntime()
-   assertEq(run(VEC .. [[
+    assertEq(run(VEC .. [[
 local v: any = new Vec2(1, 2)
 return v is Vec2]]), true)
-   assertEq(run(VEC .. [[
+    assertEq(run(VEC .. [[
 local v: any = {x = 1}
 return v is Vec2]]), false)
 end
 
 function M.structFieldAccessChecked()
-   assertEq((diagsOf(VEC .. "local v = new Vec2()\nlocal z = v.z")), "NUPP2004:6")
-   assertClean(VEC .. "local v = new Vec2()\nlocal x: number = v.x")
+    assertEq((diagsOf(VEC .. "local v = new Vec2()\nlocal z = v.z")), "NUPP2004:6")
+    assertClean(VEC .. "local v = new Vec2()\nlocal x: number = v.x")
 end
 
 function M.lineCountInvariantWithStructs()
-   local src = VEC .. "local v: Vec2\nreturn v.x"
-   local code = compile(src)
-   local _, srcN = src:gsub("\n", "")
-   local _, codeN = code:gsub("\n", "")
-   assertEq(codeN, srcN + 1, "line count changed:\n" .. code)
+    local src = VEC .. "local v: Vec2\nreturn v.x"
+    local code = compile(src)
+    local _, srcN = src:gsub("\n", "")
+    local _, codeN = code:gsub("\n", "")
+    assertEq(codeN, srcN + 1, "line count changed:\n" .. code)
 end
 
 -- A field may state a bit width, which is the C bitfield it lowers to. Twenty-three
@@ -229,20 +266,19 @@ end
 ]]
 
 function M.bitWidthReachesTheCdecl()
-   local code = compile(FLAGS .. "local m: Marks\nreturn m.offset")
-   assert(code:find("missing : 1", 1, true),
-      "the width belongs in the emitted cdecl:\n" .. code)
+    local code = compile(FLAGS .. "local m: Marks\nreturn m.offset")
+    assert(code:find("missing : 1", 1, true), "the width belongs in the emitted cdecl:\n" .. code)
 end
 
 function M.bitWidthKeepsTheDeclaredType()
-   -- a one-bit boolean reads back true, not 1: packing changes the layout only
-   assertEq(run(FLAGS .. [[
+    -- a one-bit boolean reads back true, not 1: packing changes the layout only
+    assertEq(run(FLAGS .. [[
 local m = new Marks(7, true, false, true)
 return m.missing]]), true)
-   assertEq(run(FLAGS .. [[
+    assertEq(run(FLAGS .. [[
 local m = new Marks(7, true, false, true)
 return m.typeColon]]), false)
-   assertEq(run(FLAGS .. [[
+    assertEq(run(FLAGS .. [[
 local m = new Marks(7, false, false, false)
 m.breakOp = true
 return m.breakOp]]), true)
@@ -253,228 +289,284 @@ end
 local MANY = {"local struct Wide\n   offset: uint32\n"}
 local MANYPACKED = {"local struct Packed\n   offset: uint32\n"}
 for j = 1, 23 do
-   MANY[#MANY + 1] = ("   f%d: boolean\n"):format(j)
-   MANYPACKED[#MANYPACKED + 1] = ("   f%d: boolean : 1\n"):format(j)
+    MANY[#MANY + 1] = ("   f%d: boolean\n"):format(j)
+    MANYPACKED[#MANYPACKED + 1] = ("   f%d: boolean : 1\n"):format(j)
 end
 MANY[#MANY + 1] = "end\n"
 MANYPACKED[#MANYPACKED + 1] = "end\n"
 
 function M.bitWidthPacks()
-   local wide = compile(table.concat(MANY) .. "local w: Wide")
-   local packed = compile(table.concat(MANYPACKED) .. "local p: Packed")
-   local ffi = require("ffi")
-   local function sizeOf(code)
-      return ffi.sizeof(ffi.typeof(code:match('typeof%("(struct { [^"]*})"')))
-   end
-   local wideSize, packedSize = sizeOf(wide), sizeOf(packed)
-   assert(packedSize < wideSize,
-      ("23 one-bit fields should pack: %d vs %d bytes"):format(packedSize, wideSize))
-   assertEq(packedSize, 8, "one word of flags beside the uint32")
+    local wide = compile(table.concat(MANY) .. "local w: Wide")
+    local packed = compile(table.concat(MANYPACKED) .. "local p: Packed")
+    local ffi = require("ffi")
+
+    local function sizeOf(code)
+        return ffi.sizeof(ffi.typeof(code:match('typeof%("(struct { [^"]*})"')))
+    end
+
+    local wideSize, packedSize = sizeOf(wide), sizeOf(packed)
+    assert(packedSize < wideSize, ("23 one-bit fields should pack: %d vs %d bytes"):format(packedSize, wideSize))
+    assertEq(packedSize, 8, "one word of flags beside the uint32")
 end
 
 function M.bitWidthCheckedLikeAnyField()
-   assertClean(FLAGS .. "local m = new Marks(1, true, false, true)\nlocal b: boolean = m.missing")
-   assertEq(diagsOf(FLAGS .. "local m = new Marks(1, true, false, true)\nlocal n: number = m.missing"),
-      "NUPP2001:8")
+    assertClean(FLAGS .. "local m = new Marks(1, true, false, true)\nlocal b: boolean = m.missing")
+    assertEq(diagsOf(FLAGS .. "local m = new Marks(1, true, false, true)\nlocal n: number = m.missing"), "NUPP2001:8")
 end
 
 -- A width is the C bitfield the field lowers to, so it needs a layout to sit in and
 -- a base C allows one on. All four of these used to parse and be discarded.
 function M.bitWidthNeedsAnIntegerBase()
-   assertEq(diagsOf("local struct S\n   f: float : 1\nend"), "NUPP2201:2")
-   assertEq(diagsOf("local struct S\n   n: number : 4\nend"), "NUPP2201:2")
-   assertClean("local struct S\n   a: uint32 : 1\n   b: boolean : 1\nend")
+    assertEq(diagsOf("local struct S\n   f: float : 1\nend"), "NUPP2201:2")
+    assertEq(diagsOf("local struct S\n   n: number : 4\nend"), "NUPP2201:2")
+    assertClean("local struct S\n   a: uint32 : 1\n   b: boolean : 1\nend")
 end
 
 function M.bitWidthNeedsAScalar()
-   assertEq(diagsOf("local struct S\n   a: uint8[4] : 2\nend"), "NUPP2201:2")
+    assertEq(diagsOf("local struct S\n   a: uint8[4] : 2\nend"), "NUPP2201:2")
 end
 
 function M.bitWidthNeedsAStructToLiveIn()
-   -- a record is a table; there is no layout for a width to describe
-   assertEq(diagsOf("local record R\n   f: uint32 : 1\nend"), "NUPP2201:2")
+    -- a record is a table; there is no layout for a width to describe
+    assertEq(diagsOf("local record R\n   f: uint32 : 1\nend"), "NUPP2201:2")
 end
 
 -- A struct may declare a constructor the way a record does, and `new` then runs
 -- it. The checker already routed the call to the minted member; the struct branch
 -- of the emitter never wrote that member, so the call failed at run time with
 -- the ctype reporting it had no such name.
-local SCALED = table.concat({
-   "local struct S",
-   "   x: float",
-   "   y: float = 2.0",
-   "   constructor(self, x: float)",
-   "      self.x = x * 2",
-   "   end",
-   "end",
-}, "\n")
+local SCALED = table.concat(
+    {
+        "local struct S",
+        "   x: float",
+        "   y: float = 2.0",
+        "   constructor(self, x: float)",
+        "      self.x = x * 2",
+        "   end",
+        "end",
+    },
+    "\n"
+)
 
 function M.structConstructorRunsUnderNew()
-   assertClean(SCALED .. "\nlocal s = new S(1.5)\nlocal n: number = s.x + s.y")
-   local x, y = run(SCALED .. "\nlocal s = new S(1.5)\nreturn s.x, s.y")
-   assertEq(x, 3, "the body ran on the allocated instance")
-   assertEq(y, 2, "a field default is seeded before the body")
+    assertClean(SCALED .. "\nlocal s = new S(1.5)\nlocal n: number = s.x + s.y")
+    local x, y = run(SCALED .. "\nlocal s = new S(1.5)\nreturn s.x, s.y")
+    assertEq(x, 3, "the body ran on the allocated instance")
+    assertEq(y, 2, "a field default is seeded before the body")
 end
 
 function M.structConstructorReturnsTheCdata()
-   local isCdata, sizeMatches = run(SCALED .. table.concat({
-      "",
-      "local s = new S(4)",
-      "local ffi = require(\"ffi\")",
-      "return type(s) == \"cdata\", ffi.sizeof(s) == ffi.sizeof(S)",
-   }, "\n"))
-   assertEq(isCdata, true, "the constructor hands back the ctype's allocation")
-   assertEq(sizeMatches, true, "and it is an instance of that struct")
+    local isCdata, sizeMatches = run(
+        SCALED .. table.concat(
+            {
+                "",
+                "local s = new S(4)",
+                "local ffi = require(\"ffi\")",
+                "return type(s) == \"cdata\", ffi.sizeof(s) == ffi.sizeof(S)",
+            },
+            "\n"
+        )
+    )
+    assertEq(isCdata, true, "the constructor hands back the ctype's allocation")
+    assertEq(sizeMatches, true, "and it is an instance of that struct")
 end
 
 function M.structConstructorAttachesToTheMetatypeIndex()
-   local code = compile(SCALED .. "\nreturn new S(1)")
-   assert(code:find("function __nuppMt_S.__index.__nuppCtor1(x) local self = S() self.y = 2", 1, true),
-      code)
-   assert(code:find("S .__nuppCtor1 ( 1 )", 1, true), code)
-   assert(not code:find("setmetatable", 1, true), "a struct constructor allocates no table")
+    local code = compile(SCALED .. "\nreturn new S(1)")
+    assert(code:find("function __nuppMt_S.__index.__nuppCtor1(x) local self = S() self.y = 2", 1, true), code)
+    assert(code:find("S .__nuppCtor1 ( 1 )", 1, true), code)
+    assert(not code:find("setmetatable", 1, true), "a struct constructor allocates no table")
 end
 
 function M.dottedStructConstructorReachesItsMetatable()
-   local m, x = run(table.concat({
-      "local m = {}",
-      "struct m.Vec",
-      "   x: number",
-      "   constructor(self, x: number)",
-      "      self.x = x + 1",
-      "   end",
-      "end",
-      "local v = new m.Vec(1)",
-      "return m, v.x",
-   }, "\n"))
-   assert(type(m) == "table", "the dotted owner is the authored table")
-   assertEq(x, 2)
+    local m, x = run(
+        table.concat(
+            {
+                "local m = {}",
+                "struct m.Vec",
+                "   x: number",
+                "   constructor(self, x: number)",
+                "      self.x = x + 1",
+                "   end",
+                "end",
+                "local v = new m.Vec(1)",
+                "return m, v.x",
+            },
+            "\n"
+        )
+    )
+    assert(type(m) == "table", "the dotted owner is the authored table")
+    assertEq(x, 2)
 end
 
 function M.structConstructorClosesPositionalConstruction()
-   -- Declaring a constructor is declaring how the struct is built, so the
-   -- positional form has to match the constructor's parameters rather than the
-   -- fields.
-   local got = diagsOf(SCALED .. "\nlocal s = new S(1.5, 2.5)")
-   assert(got:find("NUPP2", 1, true), "two arguments to a one-parameter constructor: " .. got)
+    -- Declaring a constructor is declaring how the struct is built, so the
+    -- positional form has to match the constructor's parameters rather than the
+    -- fields.
+    local got = diagsOf(SCALED .. "\nlocal s = new S(1.5, 2.5)")
+    assert(got:find("NUPP2", 1, true), "two arguments to a one-parameter constructor: " .. got)
 end
 
 function M.structConstructorMustFillEveryField()
-   assertEq(diagsOf(table.concat({
-      "local struct S",
-      "   x: float",
-      "   y: float",
-      "   constructor(self, x: float)",
-      "      self.x = x",
-      "   end",
-      "end",
-   }, "\n")), "NUPP2208:4")
+    assertEq(
+        diagsOf(
+            table.concat(
+                {
+                    "local struct S",
+                    "   x: float",
+                    "   y: float",
+                    "   constructor(self, x: float)",
+                    "      self.x = x",
+                    "   end",
+                    "end",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2208:4"
+    )
 end
 
 function M.nestedStructReadBorrowsItsParent()
-   -- LuaJIT hands back a reference cdata for a by-value struct field, and nothing
-   -- anchors the parent to it: the read is a borrow of the parent.
-   local NESTED = table.concat({
-      "local struct Inner",
-      "   v: int32",
-      "end",
-      "local struct Outer",
-      "   inner: Inner",
-      "   n: int32",
-      "end",
-   }, "\n") .. "\n"
-   assertEq(diagsOf(NESTED .. table.concat({
-      "local function grab(): Inner",
-      "   local o = new Outer(new Inner(1), 2)",
-      "   return o.inner",
-      "end",
-   }, "\n")), "NUPP2608:10")
-   assertEq(diagsOf(NESTED .. table.concat({
-      "local kept: {Inner} = {}",
-      "local o = new Outer(new Inner(1), 2)",
-      "kept[1] = o.inner",
-   }, "\n")), "NUPP2603:10")
-   -- in place, through a local view, copied into another struct, or handed to a
-   -- borrows parameter, the reference never outlives the parent
-   assertClean(NESTED .. table.concat({
-      "local function bump(borrows i: Inner): nil",
-      "   i.v = i.v + 1",
-      "end",
-      "local o = new Outer(new Inner(1), 2)",
-      "o.inner.v = 5",
-      "local view = o.inner",
-      "view.v = 6",
-      "bump(o.inner)",
-      "local other = new Outer(o.inner, 3)",
-      "other.inner = o.inner",
-      "print(o.inner.v, other.inner.v)",
-   }, "\n"))
-   -- a temporary parent has no lifetime for the reference to borrow
-   assertEq(diagsOf(NESTED .. table.concat({
-      "local function make(): Outer",
-      "   return new Outer(new Inner(1), 2)",
-      "end",
-      "local view = make().inner",
-   }, "\n")), "NUPP2619:11")
-   -- the reference is a live view of the parent, not a copy
-   assertEq(run(NESTED .. table.concat({
-      "local o = new Outer(new Inner(1), 2)",
-      "local view = o.inner",
-      "view.v = 6",
-      "return o.inner.v",
-   }, "\n")), 6)
+    -- LuaJIT hands back a reference cdata for a by-value struct field, and nothing
+    -- anchors the parent to it: the read is a borrow of the parent.
+    local NESTED = table.concat(
+        {"local struct Inner", "   v: int32", "end", "local struct Outer", "   inner: Inner", "   n: int32", "end",},
+        "\n"
+    ) .. "\n"
+    assertEq(
+        diagsOf(
+            NESTED .. table.concat(
+                {
+                    "local function grab(): Inner",
+                    "   local o = new Outer(new Inner(1), 2)",
+                    "   return o.inner",
+                    "end",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2608:10"
+    )
+    assertEq(
+        diagsOf(
+            NESTED .. table.concat(
+                {"local kept: {Inner} = {}", "local o = new Outer(new Inner(1), 2)", "kept[1] = o.inner",},
+                "\n"
+            )
+        ),
+        "NUPP2603:10"
+    )
+    -- in place, through a local view, copied into another struct, or handed to a
+    -- borrows parameter, the reference never outlives the parent
+    assertClean(
+        NESTED .. table.concat(
+            {
+                "local function bump(borrows i: Inner): nil",
+                "   i.v = i.v + 1",
+                "end",
+                "local o = new Outer(new Inner(1), 2)",
+                "o.inner.v = 5",
+                "local view = o.inner",
+                "view.v = 6",
+                "bump(o.inner)",
+                "local other = new Outer(o.inner, 3)",
+                "other.inner = o.inner",
+                "print(o.inner.v, other.inner.v)",
+            },
+            "\n"
+        )
+    )
+    -- a temporary parent has no lifetime for the reference to borrow
+    assertEq(
+        diagsOf(
+            NESTED .. table.concat(
+                {
+                    "local function make(): Outer",
+                    "   return new Outer(new Inner(1), 2)",
+                    "end",
+                    "local view = make().inner",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2619:11"
+    )
+    -- the reference is a live view of the parent, not a copy
+    assertEq(
+        run(
+            NESTED .. table.concat(
+                {"local o = new Outer(new Inner(1), 2)", "local view = o.inner", "view.v = 6", "return o.inner.v",},
+                "\n"
+            )
+        ),
+        6
+    )
 end
 
 function M.structStoredIntoAPointerFieldIsReadBackAsAPointer()
-   -- the store takes the struct's address and anchors nothing, so what the
-   -- field holds afterwards is a raw pointer and dereferencing it is unsafe
-   local NODE = "local struct Node\n   next: Node*?\n   value: int32\nend\n"
-   local LINK = NODE .. table.concat({
-      "local head = new Node(nil, 1)",
-      "local tail = new Node(nil, 2)",
-      "head.next = tail",
-   }, "\n") .. "\n"
-   assertEq(diagsOf(LINK .. "print(head.next.value)"), "NUPP2604:8")
-   assertEq(diagsOf(LINK .. "local nx = head.next\nprint(nx.value)"), "NUPP2604:9")
-   assertClean(LINK .. "unsafe do\n   print(head.next.value)\nend")
-   assertClean(LINK .. table.concat({
-      "local nx = head.next",
-      "if nx then",
-      "   unsafe do",
-      "      print(nx.value)",
-      "   end",
-      "end",
-   }, "\n"))
-   -- an optional struct source leaves an optional pointer behind
-   assertEq(diagsOf(NODE .. table.concat({
-      "local head = new Node(nil, 1)",
-      "local tail: Node? = new Node(nil, 2)",
-      "head.next = tail",
-      "if head.next then",
-      "   print(head.next.value)",
-      "end",
-   }, "\n")), "NUPP2604:9")
-   -- writing nil still narrows the path to nil
-   assertEq(diagsOf(LINK .. "head.next = nil\nprint(head.next.value)"), "NUPP2004:9")
+    -- the store takes the struct's address and anchors nothing, so what the
+    -- field holds afterwards is a raw pointer and dereferencing it is unsafe
+    local NODE = "local struct Node\n   next: Node*?\n   value: int32\nend\n"
+    local LINK = NODE .. table.concat(
+        {"local head = new Node(nil, 1)", "local tail = new Node(nil, 2)", "head.next = tail",},
+        "\n"
+    ) .. "\n"
+    assertEq(diagsOf(LINK .. "print(head.next.value)"), "NUPP2604:8")
+    assertEq(diagsOf(LINK .. "local nx = head.next\nprint(nx.value)"), "NUPP2604:9")
+    assertClean(LINK .. "@unsafe do\n   print(head.next.value)\nend")
+    assertClean(
+        LINK .. table.concat(
+            {"local nx = head.next", "if nx then", "   @unsafe do", "      print(nx.value)", "   end", "end",},
+            "\n"
+        )
+    )
+    -- an optional struct source leaves an optional pointer behind
+    assertEq(
+        diagsOf(
+            NODE .. table.concat(
+                {
+                    "local head = new Node(nil, 1)",
+                    "local tail: Node? = new Node(nil, 2)",
+                    "head.next = tail",
+                    "if head.next then",
+                    "   print(head.next.value)",
+                    "end",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2604:9"
+    )
+    -- writing nil still narrows the path to nil
+    assertEq(diagsOf(LINK .. "head.next = nil\nprint(head.next.value)"), "NUPP2004:9")
 end
 
 function M.fixedArrayFieldReadBorrowsItsParent()
-   local ARRAYED = "local struct V\n   pos: float[3]\nend\n"
-   assertEq(diagsOf(ARRAYED .. table.concat({
-      "local function grab(): float[3]",
-      "   local v = new V()",
-      "   return v.pos",
-      "end",
-   }, "\n")), "NUPP2608:6")
-   assertClean(ARRAYED .. table.concat({
-      "local v = new V()",
-      "v.pos[0] = 1.5",
-      "local pos = v.pos",
-      "pos[1] = 2.5",
-      "local w = new V()",
-      "w.pos = v.pos",
-      "print(v.pos[0], w.pos[1])",
-   }, "\n"))
+    local ARRAYED = "local struct V\n   pos: float[3]\nend\n"
+    assertEq(
+        diagsOf(
+            ARRAYED .. table.concat(
+                {"local function grab(): float[3]", "   local v = new V()", "   return v.pos", "end",},
+                "\n"
+            )
+        ),
+        "NUPP2608:6"
+    )
+    assertClean(
+        ARRAYED .. table.concat(
+            {
+                "local v = new V()",
+                "v.pos[0] = 1.5",
+                "local pos = v.pos",
+                "pos[1] = 2.5",
+                "local w = new V()",
+                "w.pos = v.pos",
+                "print(v.pos[0], w.pos[1])",
+            },
+            "\n"
+        )
+    )
 end
 
 return M

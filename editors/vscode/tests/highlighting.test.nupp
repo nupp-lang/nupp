@@ -287,8 +287,10 @@ cdef function allocate(out result: voidptr*, size: uint64): int32
 local handle: pinned<cstring>
 --            ^^^^^^ support.type.builtin.nupp
 
-unsafe do
--- <- keyword.control.nupp
+@unsafe do
+-- <- punctuation.definition.annotation.nupp
+-- <~------ entity.name.tag.nupp
+--      ^^ keyword.control.nupp
    local restored: owned<voidptr>
 --                 ^^^^^ support.type.builtin.nupp
 end
@@ -401,12 +403,14 @@ local function releaseSpan(writable: WriteSpan): nil
 -- ^^^^ keyword.control.nupp
 end
 
-local x = unsafe release writable
---        ^^^^^^ keyword.control.nupp
---               ^^^^^^^ storage.modifier.ownership.nupp
-local y = unsafe adopt raw as Owner
---        ^^^^^^ keyword.control.nupp
---               ^^^^^ storage.modifier.ownership.nupp
+local x = @unsafe release writable
+--        ^ punctuation.definition.annotation.nupp
+--         ^^^^^^ entity.name.tag.nupp
+--                ^^^^^^^ storage.modifier.ownership.nupp
+local y = @unsafe adopt raw as Owner
+--        ^ punctuation.definition.annotation.nupp
+--         ^^^^^^ entity.name.tag.nupp
+--                ^^^^^ storage.modifier.ownership.nupp
 
 cdef function fill(out data: voidptr countedBy(n), n: uint64): int32
 --                                   ^^^^^^^^^ storage.modifier.ownership.nupp
@@ -481,3 +485,8 @@ export affine interface Writer
 -- <- storage.modifier.export.nupp
 --     ^^^^^^ storage.modifier.ownership.nupp
 end
+
+local unsafe, adopt, release = f, g, h
+--    ^^^^^^ source.nupp - keyword.control.nupp
+--            ^^^^^ source.nupp - storage.modifier.ownership.nupp
+--                   ^^^^^^^ source.nupp - storage.modifier.ownership.nupp

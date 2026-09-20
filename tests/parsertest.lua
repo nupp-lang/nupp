@@ -146,7 +146,7 @@ function M.ownershipWordsStayContextual()
         {
             "local takes, borrows, exclusive, retains, releases, unsafe, owned, borrowed, pinned = 1, 2, 3, 4, 5, 6, 7, 8, 9",
             "function transfer(takes value: voidptr, borrows view: voidptr, exclusive changed: voidptr, retains held: voidptr, releases done: voidptr) end",
-            "unsafe do print(takes, borrows, exclusive, retains, releases) end",
+            "@unsafe do print(takes, borrows, exclusive, retains, releases) end",
             "unsafe()",
         },
         "\n"
@@ -159,7 +159,8 @@ function M.ownershipWordsStayContextual()
     assertEq(transfer.body.params[3].modeTok.text, "exclusive")
     assertEq(transfer.body.params[4].modeTok.text, "retains")
     assertEq(transfer.body.params[5].modeTok.text, "releases")
-    assertEq(result.root.blocks[1].stats[3].kind, "unsafeStmt")
+    assertEq(result.root.blocks[1].stats[3].kind, "pragmaStmt")
+    assertEq(result.root.blocks[1].stats[3].stat.kind, "doStmt")
     assertEq(result.root.blocks[1].stats[4].kind, "callStmt")
 end
 
@@ -780,6 +781,66 @@ function M.ifClausesBindANameFollowedByEquals()
     assertEq(clauses[3].cond.kind, "binop")
     assertEq(clauses[4].binding, nil, "a bare name is a condition")
     assertEq(clauses[4].cond.kind, "name")
+end
+
+function M.legacyUnsafeFormsHaveCompleteTokenRangeFixes()
+    local source = [[
+local unsafe, adopt, release = print, print, print
+unsafe(1) adopt(2) release(3)
+local text = 'unsafe do; unsafe release owner; unsafe adopt raw as Owner'
+-- unsafe do is text here, too.
+unsafe -- keep this comment
+ do
+    local raw = unsafe release (owner)
+    local restored = unsafe adopt (raw or fallback) as Owner
+end
+]]
+    local result = parser.parse(source, 'legacy.g.nupp')
+    assertEq(#result.errors, 3)
+    local edits = {}
+    for _, diagnostic in ipairs(result.errors) do
+        assertEq(diagnostic.code, 'NUPP1005')
+        assert(diagnostic.msg:find('@unsafe', 1, true))
+        assertEq(#diagnostic.fixes, 1)
+        assertEq(#diagnostic.fixes[1].edits, 1)
+        local edit = diagnostic.fixes[1].edits[1]
+        assertEq(edit.length, 0)
+        assertEq(edit.newText, '@')
+        assertEq(source:sub(edit.offset, edit.offset + 5), 'unsafe')
+        edits[#edits + 1] = edit
+    end
+    table.sort(edits, function(a, b)
+        return a.offset > b.offset
+    end)
+    local fixed = source
+    for _, edit in ipairs(edits) do
+        fixed = fixed:sub(1, edit.offset - 1) .. edit.newText .. fixed:sub(edit.offset)
+    end
+    local accepted = parser.parse(fixed, 'new.g.nupp')
+    assertEq(#accepted.errors, 0)
+    assert(fixed:find("local text = 'unsafe do; unsafe release owner; unsafe adopt raw as Owner'", 1, true))
+    assert(fixed:find('-- unsafe do is text here, too.', 1, true))
+    assert(fixed:find('@unsafe -- keep this comment\n do', 1, true))
+    local wrapper = accepted.root.blocks[1].stats[6]
+    assertEq(wrapper.kind, 'pragmaStmt')
+    assertEq(wrapper.stat.kind, 'doStmt')
+    local ownership = wrapper.stat.body.stats
+    assertEq(ownership[1].exprs[1].kind, 'unsafeOwnershipExpr')
+    assertEq(ownership[1].exprs[1].expr.kind, 'paren')
+    assertEq(ownership[2].exprs[1].expr.kind, 'paren')
+    assertEq(require('nupp.compiler.cst').textOf(accepted.root), fixed)
+end
+
+function M.unsafeOwnershipAlwaysNeedsItsExplicitMarker()
+    for _, source in ipairs({
+        'local value = release owner',
+        'local value = adopt raw as Owner',
+        '@unsafe do local value = release owner end',
+        '@unsafe do local value = adopt raw as Owner end',
+    }) do
+        assert(#parser.parse(source).errors > 0, source)
+    end
+    assertEq(#parser.parse('local unsafe, release, adopt = f, g, h; unsafe() release() adopt()').errors, 0)
 end
 
 return M

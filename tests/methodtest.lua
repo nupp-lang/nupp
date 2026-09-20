@@ -935,7 +935,7 @@ function M.aTerminalTakesItsReceiverTheWayTheContractSays()
                 "local record Taking is Closer",
                 "   open: boolean",
                 "   function close(takes self): nil",
-                "      local state = unsafe release self",
+                "      local state = @unsafe release self",
                 "      state.open = false",
                 "   end",
                 "end",

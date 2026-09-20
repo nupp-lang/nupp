@@ -73,7 +73,6 @@ local CONTEXTUAL_KEYWORDS = {
     resumes = true,
     struct = true,
     type = true,
-    unsafe = true,
     writeonly = true,
     yields = true,
 }

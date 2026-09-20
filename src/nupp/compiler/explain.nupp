@@ -927,10 +927,10 @@ local ENTRIES: {any} = {
         rule = "A value carrying an obligation, root, exclusive loan, pin, or "
         .. "foreign retention cannot be converted to any or passed to untyped Lua. "
         .. "Keep the boundary typed, move a self-contained owner into "
-        .. "nupp.manage, or use an explicit unsafe release.",
+        .. "nupp.manage, or use an explicit @unsafe release.",
         wrong = "local function erase(value: affine(table)): any\n    return value\nend\nreturn erase\n",
         right = "local function erase(takes value: affine(table)): any\n"
-        .. "    return unsafe release value\nend\nreturn erase\n",
+        .. "    return @unsafe release value\nend\nreturn erase\n",
         related = {"NUPP2603", "NUPP2608", "NUPP2612"},
         docs = "docs/learn/runtime/ownership/borrowing.md#dynamic-boundaries",
     },
@@ -983,7 +983,7 @@ local ENTRIES: {any} = {
         code = "NUPP2603",
         summary = "An ownership obligation is not discharged or cannot escape",
         rule = "An affine value must be consumed, dropped, returned under a "
-        .. "matching ownership contract, or explicitly released in unsafe. "
+        .. "matching ownership contract, or explicitly released with @unsafe release. "
         .. "Borrows likewise stay within the lifetime and suspension boundaries "
         .. "their provenance permits.",
         wrong = "cdef function begin_request(): affine(voidptr)\n" .. "local request = begin_request()\nreturn 0\n",
@@ -2024,9 +2024,9 @@ ENTRIES[
 ] = {
     code = "NUPP2502",
     summary = "A Lua function is cast to a C callback",
-    rule = "The `jit-callback` lint reports an `unsafe` cast of a Lua function to a C-derived callback type. The cast is legal only inside `unsafe` with an explicit retained owner, but LuaJIT registers the function as a permanent C callback once it happens, and no trace can compile through that call boundary for as long as it stays registered. Call `jit.off` on the registering function when the callback is intentional, or pass a plain pointer instead. Default level is `warning`, and a project may reconfigure or suppress it like any other lint.",
-    wrong = "unsafe do\n    local callback = function()\n    end\n    local pointer = ffi.cast<voidptr>(callback)\n    local handle = nupp.pin(pointer, callback)\nend\n",
-    right = "unsafe do\n    local pointer = ffi.cast<voidptr>(8)\n    print(pointer)\nend\n",
+    rule = "The `jit-callback` lint reports a cast of a Lua function to a C-derived callback type. The cast requires `@unsafe` permission and an explicit retained owner, but LuaJIT registers the function as a permanent C callback once it happens, and no trace can compile through that call boundary for as long as it stays registered. Call `jit.off` on the registering function when the callback is intentional, or pass a plain pointer instead. Default level is `warning`, and a project may reconfigure or suppress it like any other lint.",
+    wrong = "@unsafe do\n    local callback = function()\n    end\n    local pointer = ffi.cast<voidptr>(callback)\n    local handle = nupp.pin(pointer, callback)\nend\n",
+    right = "@unsafe do\n    local pointer = ffi.cast<voidptr>(8)\n    print(pointer)\nend\n",
     related = {"NUPP2604", "NUPP2603"},
     docs = "docs/reference/lints.md#jit-callback",
 }
@@ -2106,9 +2106,9 @@ ENTRIES[
 ] = {
     code = "NUPP2604",
     summary = "Raw pointer arithmetic lacks proof or an unsafe boundary",
-    rule = "Offsetting a raw C pointer with `+` or `-` needs a borrowed, rooted pointer to charge the access to, and needs an explicit `unsafe do` acknowledging that nothing checks the resulting address against a bound. Use a checked span instead when the bound should be proven rather than asserted.",
+    rule = "Offsetting a raw C pointer with `+` or `-` needs a borrowed, rooted pointer and an explicit `@unsafe (base + offset)` acknowledging that nothing checks the resulting address against a bound. The parentheses include the arithmetic in the annotation. Use a checked span when the bound should be checked.",
     wrong = "cdef struct resource\n    value: int32\nend\n\nlocal function advance(borrows base: resource*): resource*\n    return base + 1\nend\n\nreturn advance\n",
-    right = "cdef struct resource\n    value: int32\nend\n\nlocal function advance(borrows base: resource*): resource* borrows (base)\n    unsafe do\n        return base + 1\n    end\nend\n\nreturn advance\n",
+    right = "cdef struct resource\n    value: int32\nend\n\nlocal function advance(borrows base: resource*): resource* borrows (base)\n    return @unsafe (base + 1)\nend\n\nreturn advance\n",
     related = {"NUPP2001", "NUPP2004", "NUPP2602"},
     docs = "docs/reference/diagnostics.md#diagnostic-index",
 }

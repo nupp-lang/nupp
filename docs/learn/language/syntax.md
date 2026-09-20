@@ -293,11 +293,11 @@ local function readOnce(): nil
 end
 ```
 
-`unsafe do` is where an operation the checker cannot prove is written down.
-See [ownership.md](../runtime/ownership/index.md) for the obligations a scope carries, and
-[Unsafe representation
-boundaries](../runtime/ownership/index.md#unsafe-representation-boundaries) for what the block
-suspends.
+`@unsafe` marks operations whose validity the author must establish. It can
+cover an expression, a statement, or a `do` block. See
+[annotations](../../reference/annotations.md#unsafe-operations) for its boundaries
+and [ownership](../runtime/ownership/index.md#unsafe-representation-boundaries)
+for the obligations that remain checked.
 
 ### Assertions and tests
 
@@ -382,7 +382,7 @@ Types are built from a fixed set of forms.
 ## Keywords are contextual
 
 None of the level-1 introducers is reserved. `type`, `record`, `interface`,
-`struct`, `const`, `cdef`, `from`, `unsafe`, `continue`, `module`, `export`,
+`struct`, `const`, `cdef`, `from`, `continue`, `module`, `export`,
 `global`, `with`, `as`, `is`, `new`, `comptime`, `metamethod`, `takes`,
 `borrows`, `exclusive`, `retains`, `releases`, `out`, `switch`, `case`, and
 `yield` all keep their Lua meaning wherever a declaration cannot start.
@@ -492,7 +492,7 @@ the level-1 `is` test.
 | `` `a is ${a}` `` | `("a is " .. tostring(a))` |
 | `v is Point` | a `type()` comparison, with nil compared directly |
 
-The rest of level 1 erases: annotations, `as`, generics, `unsafe do` (which
+The rest of level 1 erases: annotations, `as`, generics, `@unsafe do` (which
 becomes `do`), and the `interface` and `type` declarations, which have no
 runtime value at all. A `struct` and a `switch` are the other two constructs
 with output of their own.

@@ -69,7 +69,7 @@ end
 --- Allocates zeroed storage with the struct witness's physical layout.
 function array.new<T>(takes witness: T, count: integer): array.Array<T>
     local storage = require("nupp.runtime.storage")
-    local raw = unsafe release witness
+    local raw = @unsafe release witness
     local element = storage.descriptor(raw)
     return new array.Array(pointer = storage.allocateArray(element, count) as T[?], count = count) as array.Array<T>
 end

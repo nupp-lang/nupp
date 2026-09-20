@@ -1958,6 +1958,18 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         return n
     end
 
+    -- Legacy forms are recognized only to recover their tree and offer a
+    -- token-range migration. The diagnostic makes them invalid source.
+    local function rejectLegacyUnsafe(token: Token, operation: string)
+        errAt(
+            token,
+            "'unsafe " .. operation .. "' was replaced by '@unsafe " .. operation .. "'",
+            "NUPP1005",
+            "replace the marker with @unsafe; its operand and scope stay unchanged",
+            {{title = "replace unsafe with @unsafe", edits = {{offset = token.offset, length = 0, newText = "@"}}}}
+        )
+    end
+
     parseOwnership = function(prefix): Node
         local operation = cur().text as 'adopt' | 'release'
         local n = new cst.UnsafeOwnershipExpr(kind = "unsafeOwnershipExpr", operation = operation)
@@ -2018,6 +2030,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             and (tokens[i + 1].text == "adopt" or tokens[i + 1].text == "release")
         then
             local prefix = advance()
+            rejectLegacyUnsafe(prefix, cur().text)
             return parseOwnership(prefix)
         elseif kind == "name"
             and cur().text == "dedent"
@@ -3047,6 +3060,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         elseif kind == "name" and cur().text == "unsafe" and tokens[i + 1] and tokens[i + 1].kind == "do" then
             local n = new cst.UnsafeStmt(kind = "unsafeStmt")
             n.unsafeTok = add(n, advance())
+            rejectLegacyUnsafe(n.unsafeTok, "do")
             n.doTok = add(n, advance())
             n.body = add(n, parseBlock())
             n.endTok = add(n, expect("end", "to close 'unsafe do'"))

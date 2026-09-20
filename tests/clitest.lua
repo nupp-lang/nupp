@@ -788,7 +788,7 @@ function M.ownershipAuditEnumeratesForeignContractsAndUnsafeSites()
                 "cdef function lookup(borrows key: const char*,",
                 "   out value: voidptr* borrows (key)): int32",
                 "cdef function visit(borrows values: const int32* countedBy(count), count: uint64)",
-                "unsafe do",
+                "@unsafe do",
                 "   local _, raw = lookup('key')",
                 "   print(raw)",
                 "   local text = 'key'",
@@ -822,13 +822,9 @@ function M.ownershipAuditEnumeratesForeignContractsAndUnsafeSites()
     assert(report.foreign[1].parameters[1].contract == "borrows", "the pointer parameter contract survives checking")
     assert(#report.foreign[1].results == 1, "the derived pointer result is included")
     assert(
-        report.foreign[
-            2
-        ].countedBy[
-            1
-        ].pointer == "values" and report.foreign[
-            2
-        ].countedBy[1].count == "count" and report.foreign[2].countedBy[1].access == "read",
+        report.foreign[2].countedBy[1].pointer == "values"
+        and report.foreign[2].countedBy[1].count == "count"
+        and report.foreign[2].countedBy[1].access == "read",
         "counted pointer relationships survive checking"
     )
     assert(report.foreign[2].zeroCount:find("calls once", 1, true), "the audit reports the foreign zero-count promise")
@@ -848,13 +844,9 @@ function M.ownershipAuditEnumeratesForeignContractsAndUnsafeSites()
     ).regions
     assert(#regions == 1 and regions[1].owners[1].name == "value", "automatic cleanup sites are enumerable")
     assert(
-        regions[
-            1
-        ].id:find(
-            "function:",
-            1,
-            true
-        ) and regions[1].activationOrder[1] == "value" and regions[1].cleanupOrder[1] == "value",
+        regions[1].id:find("function:", 1, true)
+        and regions[1].activationOrder[1] == "value"
+        and regions[1].cleanupOrder[1] == "value",
         "region identity and ordering are semantic and deterministic"
     )
     assert(regions[1].lowering == "general", "the audit reports the selected protected lowering")
@@ -899,9 +891,9 @@ function M.ownershipAuditFindsInlineAssertionsAndAffineCResults()
         "the affine result is described"
     )
     assert(
-        #report.unsafe == 4 and report.unsafe[
-            1
-        ].kind == "ownership assertion: adopt" and report.unsafe[2].kind == "ownership assertion: release",
+        #report.unsafe == 4
+        and report.unsafe[1].kind == "ownership assertion: adopt"
+        and report.unsafe[2].kind == "ownership assertion: release",
         "inline ownership assertions are listed outside unsafe-do regions"
     )
     assert(report.unsafe[3].kind == "unchecked C memory indexing", "expression permission includes the read")

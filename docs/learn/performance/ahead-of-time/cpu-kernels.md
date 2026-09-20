@@ -407,14 +407,14 @@ local function mandelbrot(
     if native_pointsCount ~= native_escapesCount then
         error("native spans have incompatible lengths", 2)
     end
-    unsafe do
+    @unsafe do
         ks_mandelbrot(native_escapes as voidptr, native_points as voidptr,
             first, last, maxIterations, native_escapesCount)
     end
 end
 ```
 
-The range check and the length agreement are ordinary checked Nupp; `unsafe do`
+The range check and the length agreement are ordinary checked Nupp; `@unsafe do`
 holds the foreign call and nothing else.
 
 ### Calling another entry

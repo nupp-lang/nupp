@@ -167,6 +167,11 @@ function Registry:define(spec)
 end
 
 function Registry:removeSource(source)
+    -- Anonymous checks have no source definitions to refresh. Built-ins and
+    -- programmatic registrations also have no source, so nil cannot select them.
+    if source == nil then
+        return
+    end
     for name, definition in pairs(self.byname) do
         if sameSource(definition.source, source) then
             self.byname[name] = nil

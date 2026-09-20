@@ -149,7 +149,8 @@ local function materializeNode(document: Document, nullValue: any, nodeId: integ
         if tonumber(node.flags) == 1 then
             return tonumber(node.number)
         end
-        unsafe do
+        @unsafe
+        do
             local first = tonumber(node.start) as integer
             return tonumber(ffi.C.strtod(ffi.cast("const char *", ffi.cast<uint8*>(document.source) + first), nil))
         end

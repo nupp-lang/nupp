@@ -58,7 +58,8 @@ local struct Link
     samples: int32[3]
 end
 local links: Link[?] = carray(Link, 2)
-unsafe do
+@unsafe
+do
     links[0].value = 91
     links[1].next = links
     links[0].next = links

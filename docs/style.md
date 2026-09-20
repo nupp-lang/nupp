@@ -242,7 +242,7 @@ code that compiles. Keep the running example's names stable down the page so a
 reader tracks the change, not the cast.
 
 Order sections so a reader can stop early and still be correct. The common case
-comes first, the escape hatch last. `unsafe do` is at the bottom of the
+comes first, the escape hatch last. `@unsafe do` is at the bottom of the
 ownership page for a reason.
 
 ## Section length

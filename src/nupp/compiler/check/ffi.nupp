@@ -208,7 +208,7 @@ function ffi.install(c: state.Checker): ffi.Intrinsic
                         c.diag(
                             "NUPP2604",
                             node,
-                            "creating an FFI callback requires unsafe do and " .. "an explicit retained owner"
+                            "creating an FFI callback requires @unsafe on the cast and " .. "an explicit retained owner"
                         )
                     else
                         -- Inside `unsafe` the callback is permitted, and what is left
@@ -229,7 +229,7 @@ function ffi.install(c: state.Checker): ffi.Intrinsic
                     c.diag(
                         "NUPP2603",
                         node,
-                        "casting an affine value or borrow requires explicit unsafe release or borrowFrom"
+                        "casting an affine value or borrow requires explicit @unsafe release or borrowFrom"
                     )
                 end
                 return argT

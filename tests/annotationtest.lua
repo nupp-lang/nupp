@@ -887,6 +887,33 @@ local a = @marker 1
     assertEq(checked("local a = @allow(unused-binding) 1"), "NUPP2112")
 end
 
+function M.anonymousChecksKeepUnsafeBuiltinAndImmutable()
+    local registry = annotations.new()
+    local builtin = registry:get("unsafe")
+    for _, source in ipairs({"@unsafe do end", "local value = @unsafe 1", "@unsafe local value = 1"}) do
+        local parsed = parser.parse(source)
+        assertEq(#parsed.errors, 0, source)
+        local diagnostics = check.check(parsed, nil, nil, {annotations = registry, strict = false})
+        assertEq(#diagnostics, 0, source)
+        assertEq(registry:get("unsafe"), builtin, "anonymous checks preserve the built-in definition")
+    end
+    local replacement = registry:define({name = "unsafe", arguments = "none", targets = {"statement"}})
+    assertEq(replacement, nil, "a user definition still cannot replace unsafe")
+end
+
+function M.contextualFunctionTypesStillValidateExpressionAnnotations()
+    for _, source in ipairs({
+        "local f: function(): integer = @unsafe function() return 1 end",
+        "local f: function(): integer = @unsafe || -> 1",
+        "local function take(f: function(): integer) end; take(@unsafe function() return 1 end)",
+        "local function take(f: function(): integer) end; take(@unsafe || -> 1)",
+    }) do
+        local codes, _, diagnostics = checked(source)
+        assertEq(codes, "NUPP2112", source)
+        assertEq(diagnostics[1].col, assert(source:find("@unsafe", 1, true)) + 1)
+    end
+end
+
 function M.unsafePreservesOtherRegionRestrictionsAndExits()
     assertEq(checked('nosuspend do @unsafe coroutine.yield() end'), 'NUPP2701')
     assertEq(checked('noalloc do @unsafe local value = {} end'), 'NUPP2710')
@@ -932,6 +959,23 @@ local chosen = @unsafe switch one(1) do
 end
 local lazy = false and @unsafe one(98)
 local other = true or @unsafe one(97)
+local absent: any = nil
+local skipped = @unsafe absent?.(one(96))
+assert(skipped == nil)
+local present: any = one
+local called = @unsafe present?.(6)
+assert(called == 6)
+local target: {integer} = {}
+local function destination(): {integer}
+    one(7)
+    return target
+end
+@unsafe destination()[one(8)] = one(9)
+assert(target[8] == 9)
+local function join(a: integer, b: integer): integer
+    return a * 10 + b
+end
+assert(join(@unsafe pair()) == 45)
 local function forward(): integer, integer
     return @unsafe pair()
 end
@@ -940,7 +984,7 @@ return a, b, values[1], values[2], chosen, c, d, table.concat(log, ',')
 ]]
     local codes_, result = checked(source)
     assertEq(codes_, "")
-    local expected = "4|5|4|5|2|4|5|4,5,4,5,1,2,4,5"
+    local expected = "4|5|4|5|2|4|5|4,5,4,5,1,2,6,7,8,9,4,5,4,5"
     for _, dialect in ipairs({"luajit", "lua51"}) do
         for _, level in ipairs({0, 1, 2}) do
             local fresh = parser.parse(source, "test.g.nupp")

@@ -216,7 +216,7 @@ end
 --- @export
 function soa.destroyWriteSpan<T is soa.WriteToken>(takes self: T): nil
     nosuspend do
-        local _raw = unsafe release self
+        local _raw = @unsafe release self
     end
 end
 
@@ -294,7 +294,8 @@ local record SpanImpl<T> is soa.Span<T>
 
     function fieldBySlot(borrows self, ordinal: integer): span.Span<any> borrows (self)
         local pointer = (self.columns[ordinal] as any) + self.offset
-        unsafe do
+        @unsafe
+        do
             local rooted = borrowFrom(pointer as voidptr, self)
             return span.fromCarray(rooted as any, self.count)
         end
@@ -403,7 +404,8 @@ local record WriteSpanImpl<T> is soa.WriteToken, soa.WriteSpan<T>
 
     function fieldBySlot(exclusive self, ordinal: integer): span.Writable<any> borrows (self)
         local pointer = (self.columns[ordinal] as any) + self.offset
-        unsafe do
+        @unsafe
+        do
             local rooted = borrowFrom(pointer as voidptr, self)
             return span.writeCarray(rooted as any, self.count)
         end
@@ -474,7 +476,7 @@ end
 
 function WriteSpanImpl.drop<T>(takes self: WriteSpanImpl<T>): nil
     nosuspend do
-        local _raw = unsafe release self
+        local _raw = @unsafe release self
     end
 end
 
@@ -538,8 +540,8 @@ end
 
 local function finishArray(takes self: any): nil
     nosuspend do
-        local raw = unsafe release self
-        local pointer = unsafe adopt raw.raw as affine(voidptr, free_nosuspend)
+        local raw = @unsafe release self
+        local pointer = @unsafe adopt raw.raw as affine(voidptr, free_nosuspend)
         free_nosuspend(pointer)
     end
 end
@@ -575,7 +577,8 @@ function soa._allocate<T>(element: ctype<T>, count: integer, rawLayout: table): 
     end
 
     local columns: {any} = {}
-    unsafe do
+    @unsafe
+    do
         local rawAddress = tonumber(ffi.cast<uint64>(raw)) as integer
         local adjustment = (alignment - (rawAddress % alignment)) % alignment
         local allocation = borrowFrom(ffi.cast<uint8*>(raw), raw)

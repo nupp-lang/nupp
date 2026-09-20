@@ -147,7 +147,7 @@ compilation through that call path. Use `jit.off(callback)` when intentional.
 
 ::: code-group
 ```nupp [src/jit-callback.nupp]
-unsafe do
+@unsafe do
     local callback = function()
     end
     local pointer = ffi.cast<voidptr>(callback)

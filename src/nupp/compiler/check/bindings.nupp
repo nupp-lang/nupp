@@ -271,7 +271,7 @@ function bindings.install(c: state.Checker): state.StatHandlers
                         erased and "a value of type any cannot become an owner by annotation"
                         or ("%s cannot become an owner by annotation"):format(T.tostring(init)),
                         nil,
-                        {help = "obtain the owner from a typed producer, or adopt it with unsafe adopt"}
+                        {help = "obtain the owner from a typed producer, or adopt it with @unsafe adopt"}
                     )
                 end
             end

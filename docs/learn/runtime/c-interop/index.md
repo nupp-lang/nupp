@@ -680,7 +680,7 @@ and structured control flow.
 
 Use `borrows` when C only observes a resource for the duration of a call, and
 `exclusive` when the call needs sole access for its duration. Use `retains` and
-`releases` for a pointer C stores beyond a call. Do not reach for `unsafe` to
+`releases` for a pointer C stores beyond a call. Do not reach for `@unsafe` to
 silence a contract error; use it only where the program must state a fact the
 checker cannot prove.
 

@@ -1,3 +1,5 @@
+const utf8 = require("nupp.text.utf8")
+
 local scanner = require("simd_json.scanner")
 local arena = require("simd_json.arena")
 local span = require("nupp.mem.span")
@@ -30,7 +32,8 @@ local function decode(source: string): unknown
         if at < 1 or at > length then
             fail("internal classifier index out of bounds")
         end
-        unsafe do
+        @unsafe
+        do
             return flagStorage[at - 1]
         end
     end
@@ -156,7 +159,7 @@ local function decode(source: string): unknown
                     elseif codepoint >= 0xDC00 and codepoint <= 0xDFFF then
                         fail("low surrogate without a high surrogate")
                     end
-                    parts[#parts + 1] = nupp.text.utf8.encode(codepoint)
+                    parts[#parts + 1] = utf8.encode(codepoint)
                 else
                     fail("unknown escape")
                 end

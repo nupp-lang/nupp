@@ -266,7 +266,7 @@ the function itself, as `local pause = coroutine.yield` is. A helper this file
 can see is judged by its body, so a call that reaches a raw yield through one or
 several visible functions is refused at the call while the obligation is live. A
 callee reached through a type is answered by that type, as `nosuspend` is. A
-yield written inside `unsafe do` is the author's to answer for -- the shape a
+yield written inside `@unsafe do` is the author's to answer for -- the shape a
 driver takes when it forwards a nested coroutine's park to whoever resumes it --
 and is not counted.
 

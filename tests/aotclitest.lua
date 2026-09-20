@@ -125,6 +125,7 @@ local function neonAsm(dir, file)
     end
     local asm, code = run(dir, "--target aarch64-apple-darwin --features neon --emit asm " .. file)
     test.equal(code, 0, asm)
+
     return asm
 end
 
@@ -377,7 +378,10 @@ return {doubled = doubled}
 end
 
 function M.gpuIntegerSignednessUsesBitcastAndJsonBindingIsUtf8()
-    local dir = project({["gpu.nupp"] = [[
+    local dir = project({
+        [
+            "gpu.nupp"
+        ] = [[
 local span = require("nupp.mem.span")
 @aot(target = "gpu")
 local function convert(exclusive output: span.WriteSpan<uint32>, borrows input: span.Span<int32>): nil
@@ -387,7 +391,8 @@ local function convert(exclusive output: span.WriteSpan<uint32>, borrows input: 
     end
 end
 return convert
-]]})
+]]
+    })
     local module, code = run(dir, "--emit spirv gpu.nupp")
     test.equal(code, 0, module)
     assert(spirvOpcodeCount(module, 124) > 0, "equal-width signedness conversion uses OpBitcast")
@@ -402,7 +407,10 @@ return convert
     end
     local shader = assert(report.functions[1].gpu, "GPU identity is structured inspection output")
     local authored = require("nupp.compiler.fs").readFile(shader.sourceFile)
-    assert(authored and authored:find("local function convert", 1, true), "source identity resolves independently of the invocation directory")
+    assert(
+        authored and authored:find("local function convert", 1, true),
+        "source identity resolves independently of the invocation directory"
+    )
     test.equal(shader.sourceLine, 2)
     test.equal(shader.artifactId, require("nupp.compiler.build.hash").digest(module))
     assert(report.binding:find(shader.artifactId, 1, true), "runtime and inspection share the shader digest")
@@ -472,12 +480,17 @@ function M.gpuCountedLoopsEmitNativeAndBrowserControlFlow()
         test.equal(moduleCode, 0, module)
         assertSpirvStructure(module)
         assert(spirvOpcodeCount(module, 246) > 0, "counted loops require structured loop control")
-        local shader, shaderCode = run(dir, "--emit wgsl --target wasm32-unknown-emscripten --function " .. name .. " counted.nupp")
+        local shader, shaderCode = run(
+            dir,
+            "--emit wgsl --target wasm32-unknown-emscripten --function " .. name .. " counted.nupp"
+        )
         test.equal(shaderCode, 0, shader)
         assert(shader:find("continuing {", 1, true), shader)
         assert(shader:find("break if ", 1, true), shader)
-        assert(not shader:find("let __", 1, true) and not shader:find("var __", 1, true),
-            "WGSL forbids the C temporary identifier prefix\n" .. shader)
+        assert(
+            not shader:find("let __", 1, true) and not shader:find("var __", 1, true),
+            "WGSL forbids the C temporary identifier prefix\n" .. shader
+        )
     end
 end
 
@@ -2149,19 +2162,9 @@ function M.requiredSimdRegionsKeepScalarSetupTeardownAndOrder()
     local _, regions = ir:gsub("simd vector", "")
     test.equal(regions, 2, where .. ": both authored regions have vector bodies\n" .. ir)
     assert(
-        ir:find(
-            "let adjusted",
-            1,
-            true
-        ) < ir:find(
-            "@simd for",
-            1,
-            true
-        ) and ir:find(
-            "let result",
-            1,
-            true
-        ) > ir:find("simd vector", 1, true) and ir:find("return local:f64 result", 1, true) > ir:match(".*()simd vector"),
+        ir:find("let adjusted", 1, true) < ir:find("@simd for", 1, true)
+        and ir:find("let result", 1, true) > ir:find("simd vector", 1, true)
+        and ir:find("return local:f64 result", 1, true) > ir:match(".*()simd vector"),
         where .. ": scalar setup, between-region work, and teardown remain ordered\n" .. ir
     )
     local _, loops = decoded.c:gsub("_base1 = UINT32_C%(0%);", "")
@@ -2241,11 +2244,9 @@ return {refine = refine}
     local scalarOracle = decoded.c:match("ks_refine_forced_scalar.-\n}\n")
     assert(scalarOracle ~= nil, where .. ": repeat retains an independent scalar oracle")
     assert(
-        scalarOracle:find(
-            "goto ks_repeat_continue_",
-            1,
-            true
-        ) and scalarOracle:find("ks_repeat_continue_", 1, true) and scalarOracle:find("if (v2_done) break;", 1, true),
+        scalarOracle:find("goto ks_repeat_continue_", 1, true)
+        and scalarOracle:find("ks_repeat_continue_", 1, true)
+        and scalarOracle:find("if (v2_done) break;", 1, true),
         where .. ": scalar continue evaluates a body-local trailing condition\n" .. scalarOracle
     )
 end
@@ -2503,7 +2504,14 @@ function M.genericExplicitSimdPrefersSixteenLanesAtAvx512f()
     assert(asm:find(register, 1, true), ("the multiply lives in a %d-byte register: "):format(width) .. asm)
     -- Byte and float vectors share the tier width even when byte operations
     -- need decomposition into instructions supported by AVX-512F.
-    local both = project{["mixed.nupp"] = SCOPED_SIMD:gsub("return {quotes = quotes}", "") .. [[
+    local both = project{
+        [
+            "mixed.nupp"
+        ] = SCOPED_SIMD:gsub(
+            "return {quotes = quotes}",
+            ""
+        )
+        .. [[
 
 @aot
 local function twice(exclusive output: span.WriteSpan<float>, borrows input: span.Span<float>): nil
@@ -2513,7 +2521,8 @@ local function twice(exclusive output: span.WriteSpan<float>, borrows input: spa
 end
 
 return {quotes = quotes, twice = twice}
-]]}
+]]
+    }
     local mixed, mixedCode = run(both, "--target " .. triple .. " --features avx512f --emit c mixed.nupp")
     test.equal(mixedCode, 0, mixed)
     local scanner = ("ks_exp_u8x%d"):format(width)
@@ -2603,9 +2612,12 @@ return {nibbles = nibbles}
         assert(asm:find("tbl.16b", 1, true), "and the nibble indexes a table: " .. asm)
     end
 
-    local mismatched = source:gsub("local low = entries:swizzle%(%(bytes & 15%) %+ 1%)", [[
+    local mismatched = source:gsub(
+        "local low = entries:swizzle%(%(bytes & 15%) %+ 1%)",
+        [[
     local words = assert(simd.species(array.uint32))
-    local low = entries:swizzle((bytes & words:splat(15)) + 1)]])
+    local low = entries:swizzle((bytes & words:splat(15)) + 1)]]
+    )
     local refused = project{["mismatched.nupp"] = mismatched}
     local out, refusedCode = run(refused, "--target aarch64-apple-darwin --features neon mismatched.nupp")
     assert(refusedCode ~= 0, "a byte vector against a word vector is refused: " .. out)
@@ -2616,7 +2628,11 @@ end
 -- Keep the unsupported source as a diagnostic regression, not a larger vector.
 function M.fixedSpeciesRejectUnsupportedLaneCountsAtTheSource()
     for _, lanes in ipairs({0, 1, 65}) do
-        local dir = project{["fixed-count.nupp"] = ([[
+        local dir = project{
+            [
+                "fixed-count.nupp"
+            ] = (
+                [[
 local array = require("nupp.mem.array")
 local simd = require("nupp.simd")
 @aot
@@ -2625,7 +2641,9 @@ local function count(): uint32
     return species.lanes
 end
 return {count = count}
-]]):format(lanes)}
+]]
+            ):format(lanes)
+        }
         local out, code = run(dir, "--target aarch64-apple-darwin --features neon --emit c fixed-count.nupp")
         test.equal(code, 1, out)
         assert(out:find("fixed-count.nupp:5:", 1, true), out)
@@ -2686,7 +2704,10 @@ return {transform = transform}
 
     local asm = neonAsm(dir, "structural.nupp")
     if asm ~= nil then
-        assert(asm:match("kernel: [^\n]* [1-9]%d* vector"), "fixed structural operations retain real vector work: " .. asm)
+        assert(
+            asm:match("kernel: [^\n]* [1-9]%d* vector"),
+            "fixed structural operations retain real vector work: " .. asm
+        )
     end
 end
 
@@ -2966,6 +2987,7 @@ return {ordered = ordered, pairwise = pairwise, algebraic = algebraic}
 
         return
     end
+
     local function fusedIn(name)
         local asm, code = run(
             dir,
@@ -3095,11 +3117,8 @@ return {joined = joined}
         where .. ": the paired form is its own intrinsic\n" .. decoded.ir
     )
     assert(
-        decoded.c:find(
-            "ks_exp_swizzle_pair_u8x16",
-            1,
-            true
-        ) and decoded.c:find("ks_scalar_exp_swizzle_pair_u8x16", 1, true),
+        decoded.c:find("ks_exp_swizzle_pair_u8x16", 1, true)
+        and decoded.c:find("ks_scalar_exp_swizzle_pair_u8x16", 1, true),
         where .. ": production and oracle bodies are both emitted"
     )
     assert(
@@ -3197,22 +3216,27 @@ return {extrema = extrema, counted = counted, ignoringMissing = ignoringMissing}
         "a fixed species takes its extrema from the shared bodies"
     )
     assert(
-        header:find("ks_##P##_propagating_min2_##ELEM(CTYPE left, CTYPE right) { if (left != left || right != right) { return ks_##P##_nan_##ELEM(); }", 1, true),
+        header:find(
+            "ks_##P##_propagating_min2_##ELEM(CTYPE left, CTYPE right) { if (left != left || right != right) { return ks_##P##_nan_##ELEM(); }",
+            1,
+            true
+        ),
         "the propagating contract answers a canonical NaN"
     )
     assert(
-        header:find("ks_##P##_number_min2_##ELEM(CTYPE left, CTYPE right) { if (left != left) { return right != right ? ks_##P##_nan_##ELEM() : right; }", 1, true)
-            and header:find("KS_EXP_FOLD(P, ELEM, CTYPE, LANES, VIA, number, min)", 1, true)
-            and decoded.c:find("ks_exp_number_min_f32x8(", 1, true),
+        header:find(
+            "ks_##P##_number_min2_##ELEM(CTYPE left, CTYPE right) { if (left != left) { return right != right ? ks_##P##_nan_##ELEM() : right; }",
+            1,
+            true
+        )
+        and header:find("KS_EXP_FOLD(P, ELEM, CTYPE, LANES, VIA, number, min)", 1, true)
+        and decoded.c:find("ks_exp_number_min_f32x8(", 1, true),
         "the number-preferring contract is a separate body"
     )
     assert(header:find("signbit", 1, true), "both contracts order the two zeros by sign")
     assert(
-        decoded.ir:find(
-            "simd_horizontal.propagating_min",
-            1,
-            true
-        ) and decoded.c:find("ks_exp_propagating_min_i32x", 1, true),
+        decoded.ir:find("simd_horizontal.propagating_min", 1, true)
+        and decoded.c:find("ks_exp_propagating_min_i32x", 1, true),
         where .. ": an extremum is defined at an integer element a sum is refused at\n" .. decoded.c
     )
     assert(
@@ -3220,8 +3244,12 @@ return {extrema = extrema, counted = counted, ignoringMissing = ignoringMissing}
         where .. ": the i32x8 helpers are instantiated\n" .. decoded.c
     )
     assert(
-        header:find("ks_##P##_##contract##_##which##2_##ELEM(CTYPE left, CTYPE right) { return left op right ? left : right; }", 1, true)
-            and not decoded.c:find("ks_exp_nan_i32x", 1, true),
+        header:find(
+            "ks_##P##_##contract##_##which##2_##ELEM(CTYPE left, CTYPE right) { return left op right ? left : right; }",
+            1,
+            true
+        )
+        and not decoded.c:find("ks_exp_nan_i32x", 1, true),
         where .. ": an integer extremum carries no NaN case"
     )
 end
@@ -3654,7 +3682,11 @@ function M.aReadModifyWriteRegionPrintsThroughThePublicWriteSpanLoad()
 end
 
 function M.aScalarWriteSpanReadPrintsThroughThePublicLoad()
-    roundTrip({["update.nupp"] = [[
+    roundTrip(
+        {
+            [
+                "update.nupp"
+            ] = [[
 local span = require("nupp.mem.span")
 @aot
 local function update(exclusive values: span.WriteSpan<number>): nil
@@ -3664,11 +3696,20 @@ local function update(exclusive values: span.WriteSpan<number>): nil
     end
 end
 return {update = update}
-]]}, "update.nupp", "ks_update", "scalar write span")
+]]
+        },
+        "update.nupp",
+        "ks_update",
+        "scalar write span"
+    )
 end
 
 function M.aStatementfulConditionPrintsAsNuppThatLowersToTheSameVectorC()
-    local printed = roundTrip({["condition.nupp"] = [[
+    local printed = roundTrip(
+        {
+            [
+                "condition.nupp"
+            ] = [[
 local span = require("nupp.mem.span")
 @aot
 local function condition(exclusive values: span.WriteSpan<number>): nil
@@ -3686,7 +3727,12 @@ local function condition(exclusive values: span.WriteSpan<number>): nil
     end
 end
 return {condition = condition}
-]]}, "condition.nupp", "ks_condition", "condition block")
+]]
+        },
+        "condition.nupp",
+        "ks_condition",
+        "condition block"
+    )
     assert(printed:find("while true do", 1, true), printed)
 end
 
@@ -3723,7 +3769,10 @@ function M.aVaryingNestedLoopWithAPerLaneBreakPrintsAsNuppThatLowersToTheSame()
     -- iota-derived bound all at once.
     local printed = roundTrip({["required.nupp"] = REQUIRED_VARYING_FOR}, "required.nupp", "ks_varying", "varying")
     assert(printed:find("s_f64_x4:iota(", 1, true), "the loop index retains its numeric range in an iota:\n" .. printed)
-    assert(printed:find("local live%d+ = for_counter%d+ <= for_last%d+"), "the f64 comparison is the control mask:\n" .. printed)
+    assert(
+        printed:find("local live%d+ = for_counter%d+ <= for_last%d+"),
+        "the f64 comparison is the control mask:\n" .. printed
+    )
 end
 
 function M.twoReducerRegionsInOneBodyPrintAsNuppThatLowersToTheSame()
@@ -4085,7 +4134,7 @@ function M.emitPrintsTheIrAndTheBinding()
         binding:find("layoutof(Escape)", 1, true),
         where .. ": the wrapper checks the struct layout rather than trusting it: " .. binding
     )
-    assert(binding:find("unsafe do", 1, true), where .. ": the foreign call is the only unsafe part: " .. binding)
+    assert(binding:find("@unsafe do", 1, true), where .. ": the foreign call is the only unsafe part: " .. binding)
 end
 
 function M.narrowScalarSpansKeepTheirStorageAndUseLanes()
@@ -4113,10 +4162,7 @@ function M.narrowScalarSpansKeepTheirStorageAndUseLanes()
     local c = decoded.c
     assert(c:find("uint8_t *restrict p_flags", 1, true), where .. ": the output pointer retains byte storage: " .. c)
     assert(c:find("const uint8_t *p_bytes", 1, true), where .. ": the input pointer retains const byte storage: " .. c)
-    assert(
-        c:find("ks_exp_store_full_u8x8(p_flags", 1, true),
-        where .. ": lane values narrow only when stored: " .. c
-    )
+    assert(c:find("ks_exp_store_full_u8x8(p_flags", 1, true), where .. ": lane values narrow only when stored: " .. c)
 
     local binding, bindingCode = run(dir, "--emit binding bytes.nupp")
     test.equal(bindingCode, 0, binding)
@@ -5102,7 +5148,10 @@ function M.aFileWithNoAotFunctionIsAnError()
 end
 
 function M.assignedCountedIndicesDoNotKeepTheirSpanProof()
-    local dir = project{["changed.nupp"] = [[
+    local dir = project{
+        [
+            "changed.nupp"
+        ] = [[
 local span = require("nupp.mem.span")
 @aot
 local function acc(borrows input: span.Span<uint32>): number
@@ -5116,7 +5165,8 @@ local function acc(borrows input: span.Span<uint32>): number
     return total
 end
 return {acc = acc}
-]]}
+]]
+    }
     local out, code = run(dir, "changed.nupp")
     test.equal(code, 1, out)
     assert(out:find("changed.nupp:8:", 1, true), out)
@@ -5126,7 +5176,11 @@ end
 
 function M.cpuCountedLoopsRefuseExplicitStepsAtTheLoop()
     for _, step in ipairs({"1", "0", "-1"}) do
-        local dir = project{["step.nupp"] = ([=[
+        local dir = project{
+            [
+                "step.nupp"
+            ] = (
+                [=[
 @aot
 local function acc(): number
     local total = 0
@@ -5136,7 +5190,9 @@ local function acc(): number
     return total
 end
 return {acc = acc}
-]=]):format(step)}
+]=]
+            ):format(step)
+        }
         local out, code = run(dir, "step.nupp")
         test.equal(code, 1, out)
         assert(out:find("step.nupp:4:5: aot: a native nested for loop takes no explicit step", 1, true), out)
@@ -5145,7 +5201,10 @@ return {acc = acc}
 end
 
 function M.aForBoundOutsideInt32RetainsItsNumericValue()
-    local dir = project{["bigbound.nupp"] = [[
+    local dir = project{
+        [
+            "bigbound.nupp"
+        ] = [[
 @aot
 local function acc(value: number): number
     local total = value
@@ -5155,7 +5214,8 @@ local function acc(value: number): number
     return total
 end
 return {acc = acc}
-]]}
+]]
+    }
     local out, code = run(dir, "--emit c bigbound.nupp")
     test.equal(code, 0, "a binary64 counted bound is not narrowed\n" .. out)
     assert(out:find("3000000000.0", 1, true), out)
@@ -5346,7 +5406,9 @@ function M.anAnnotatedLoopMovingACursorRetiresTheEnclosingProof()
     -- proof through lowering and the verifier crashed on the read instead of
     -- the lowerer refusing it at its line.
     local dir = project{
-        ["annotated.nupp"] = [[
+        [
+            "annotated.nupp"
+        ] = [[
 local span = require("nupp.mem.span")
 
 @aot
@@ -5528,12 +5590,18 @@ function M.aSpeciesBindingIsDecidedPerTier()
         local decoded, raw, code = lowered(dir, tier.args .. " --json scan.nupp")
         test.equal(code, 0, raw)
         local body = scanBody(decoded.c)
-        assert(body:find("ks_exp_load_at_u32x" .. tier.lanes .. "(p_cps + (size_t)v1_cursor)", 1, true), tier.args .. ": the arm is the vector loop\n" .. body)
+        assert(
+            body:find("ks_exp_load_at_u32x" .. tier.lanes .. "(p_cps + (size_t)v1_cursor)", 1, true),
+            tier.args .. ": the arm is the vector loop\n" .. body
+        )
         assert(
             body:find("<= (uint64_t)count_cps)", 1, true) and body:find("UINT32_C(" .. tier.lanes .. "))", 1, true),
             tier.args .. ": species.lanes is the tier's constant\n" .. body
         )
-        assert(body:find("uint32_t v3_first = ks_exp_first_u32x" .. tier.lanes .. "(", 1, true), tier.args .. ": first() is a uint32\n" .. body)
+        assert(
+            body:find("uint32_t v3_first = ks_exp_first_u32x" .. tier.lanes .. "(", 1, true),
+            tier.args .. ": first() is a uint32\n" .. body
+        )
         assert(body:find(tail, 1, true), tier.args .. ": the scalar tail follows\n" .. body)
     end
 
@@ -5588,53 +5656,92 @@ return {add = add}
     assert(loop, "the vector loop\n" .. body)
     assert(
         loop:find("+ (uint64_t)(((uint64_t)UINT32_C(16)))) <= (uint64_t)count_input)", 1, true)
-            and loop:find("+ (uint64_t)(((uint64_t)UINT32_C(16)))) <= (uint64_t)count_output)", 1, true),
+        and loop:find("+ (uint64_t)(((uint64_t)UINT32_C(16)))) <= (uint64_t)count_output)", 1, true),
         "the guard is exact and compares the count as an integer\n" .. body
     )
     assert(
         loop:find("ks_exp_store_at_u8x16(p_output + (size_t)v2_cursor, ", 1, true)
-            and loop:find("ks_exp_load_at_u8x16(p_input + (size_t)v2_cursor)", 1, true),
+        and loop:find("ks_exp_load_at_u8x16(p_input + (size_t)v2_cursor)", 1, true),
         "the proven load and store are bare copies\n" .. body
     )
     assert(not loop:find("(double)", 1, true), "nothing in the loop goes through a double\n" .. body)
     assert(loop:find("<= UINT32_MAX)", 1, true), "the unchecked path proves its index does not wrap\n" .. body)
-    assert(loop:find("ks_exp_load_full_u8x16(p_input, count_input, nupp_first", 1, true),
-        "wrapping indices keep the original checked access\n" .. body)
-    assert(body:find("ks_exp_load_u8x16(p_input, count_input, nupp_first_u64(", 1, true), "the masked tail load is checked\n" .. body)
-    assert(body:find("ks_exp_store_u8x16(p_output, count_output, nupp_first_u64(", 1, true), "and so is the masked tail store\n" .. body)
+    assert(
+        loop:find("ks_exp_load_full_u8x16(p_input, count_input, nupp_first", 1, true),
+        "wrapping indices keep the original checked access\n" .. body
+    )
+    assert(
+        body:find("ks_exp_load_u8x16(p_input, count_input, nupp_first_u64(", 1, true),
+        "the masked tail load is checked\n" .. body
+    )
+    assert(
+        body:find("ks_exp_store_u8x16(p_output, count_output, nupp_first_u64(", 1, true),
+        "and so is the masked tail store\n" .. body
+    )
 
     -- The helpers themselves are authored C, carried as ks_simd.h and
     -- instantiated per element by macro, so their shape is read from the
     -- header rather than from the emitted text.
     local header = assert(io.open(HERE .. "/../src/nupp/compiler/aot/include/ks_simd.h", "rb")):read("*a")
-    assert(c:find("KS_EXP_ELEMENT(16, u8x16, uint8_t, int8_t, 16, 1, INT)", 1, true), "the u8x16 helpers are instantiated\n" .. c)
     assert(
-        header:find("ks_exp_load_at_##ELEM(const CTYPE *source) { ks_exp_##ELEM out; memcpy(&out, source, sizeof out); return out; }", 1, true)
-            and header:find("ks_exp_store_at_##ELEM(CTYPE *destination, ks_exp_##ELEM value) { memcpy(destination, &value, sizeof value); }", 1, true),
+        c:find("KS_EXP_ELEMENT(16, u8x16, uint8_t, int8_t, 16, 1, INT)", 1, true),
+        "the u8x16 helpers are instantiated\n" .. c
+    )
+    assert(
+        header:find(
+            "ks_exp_load_at_##ELEM(const CTYPE *source) { ks_exp_##ELEM out; memcpy(&out, source, sizeof out); return out; }",
+            1,
+            true
+        )
+        and header:find(
+            "ks_exp_store_at_##ELEM(CTYPE *destination, ks_exp_##ELEM value) { memcpy(destination, &value, sizeof value); }",
+            1,
+            true
+        ),
         "a proven vector is one copy"
     )
     assert(
         header:find("ks_exp_load_full_##ELEM(const CTYPE *source, size_t count, size_t first) {", 1, true)
-            and header:find("if (room >= LANES##u) { memcpy(&out, source + first, sizeof out); return out; }", 1, true),
+        and header:find("if (room >= LANES##u) { memcpy(&out, source + first, sizeof out); return out; }", 1, true),
         "a checked whole vector is still one copy"
     )
     assert(
         header:find("#if KS_WORD_TAIL", 1, true)
-            and header:find("switch (n >> 3u) { case 0u: w0 |= ks_gather_word(p + 0u, n & 7u); break; case 1u: w1 |= ks_gather_word(p + 8u, n & 7u); break; default: break; }", 1, true),
+        and header:find(
+            "switch (n >> 3u) { case 0u: w0 |= ks_gather_word(p + 0u, n & 7u); break; case 1u: w1 |= ks_gather_word(p + 8u, n & 7u); break; default: break; }",
+            1,
+            true
+        ),
         "a partial vector gathers into words"
     )
     assert(
-        header:find("case 0u: ks_scatter_word(p + 0u, n & 7u, w0); break; case 1u: ks_scatter_word(p + 8u, n & 7u, w1); break;", 1, true)
-            and header:find("static __attribute__((noinline, cold, unused)) void ks_exp_store_masked_part_##ELEM(", 1, true),
+        header:find(
+            "case 0u: ks_scatter_word(p + 0u, n & 7u, w0); break; case 1u: ks_scatter_word(p + 8u, n & 7u, w1); break;",
+            1,
+            true
+        )
+        and header:find(
+            "static __attribute__((noinline, cold, unused)) void ks_exp_store_masked_part_##ELEM(",
+            1,
+            true
+        ),
         "and scatters from them, with the lane loop cold"
     )
     assert(
-        header:find("bool ks_exp_full_##ELEM(ks_exp_mask_##ELEM active) { ks_exp_mask_##ELEM inactive = (ks_exp_mask_##ELEM)(active == (ks_exp_mask_##ELEM){0});", 1, true),
+        header:find(
+            "bool ks_exp_full_##ELEM(ks_exp_mask_##ELEM active) { ks_exp_mask_##ELEM inactive = (ks_exp_mask_##ELEM)(active == (ks_exp_mask_##ELEM){0});",
+            1,
+            true
+        ),
         "all-active is a vector compare"
     )
     assert(
-        header:find("ks_exp_mask_##ELEM ks_exp_tail_##ELEM(uint32_t active) { if (active > LANES##u) active = LANES##u;", 1, true)
-            and header:find("return (ks_exp_mask_##ELEM)(lane < limit); }", 1, true),
+        header:find(
+            "ks_exp_mask_##ELEM ks_exp_tail_##ELEM(uint32_t active) { if (active > LANES##u) active = LANES##u;",
+            1,
+            true
+        )
+        and header:find("return (ks_exp_mask_##ELEM)(lane < limit); }", 1, true),
         "and so is a tail mask"
     )
 
@@ -5650,13 +5757,17 @@ return {add = add}
     -- what it reads by pointer; a declared object is aligned correctly where
     -- an argument temporary is not.
     assert(
-        header:find("void ks_exp_store_masked_part_##ELEM(CTYPE *destination, size_t room, const ks_exp_##ELEM *value, const ks_exp_mask_##ELEM *active)", 1, true)
-            and header:find("ks_exp_store_masked_part_##ELEM(destination, room, &value, &active);", 1, true),
+        header:find(
+            "void ks_exp_store_masked_part_##ELEM(CTYPE *destination, size_t room, const ks_exp_##ELEM *value, const ks_exp_mask_##ELEM *active)",
+            1,
+            true
+        )
+        and header:find("ks_exp_store_masked_part_##ELEM(destination, room, &value, &active);", 1, true),
         "the cold lane loop takes its vector and its mask by pointer"
     )
     assert(
         header:find("typedef struct { CTYPE lane[LANES]; } ks_scalar_exp_##ELEM;", 1, true)
-            and not header:find("aligned(", 1, true),
+        and not header:find("aligned(", 1, true),
         "and no type in the prelude asks for an alignment a caller does not give it"
     )
 
@@ -5669,7 +5780,11 @@ return {add = add}
     -- here says its alignment is one there, which is what leaves the compiler
     -- no aligned move to reach for; every other target keeps the natural one.
     assert(
-        header:find("#if defined(_WIN32) || defined(_WIN64)\n#define KS_VECTOR_ABI_ALIGN , __aligned__(1)\n#else\n#define KS_VECTOR_ABI_ALIGN\n#endif", 1, true),
+        header:find(
+            "#if defined(_WIN32) || defined(_WIN64)\n#define KS_VECTOR_ABI_ALIGN , __aligned__(1)\n#else\n#define KS_VECTOR_ABI_ALIGN\n#endif",
+            1,
+            true
+        ),
         "the Windows calling convention caps what a vector claims about its address"
     )
     for _, vector in ipairs({
@@ -5734,13 +5849,28 @@ return {other = other, masked = masked, moved = moved}
     test.equal(code, 0, raw)
     local c = decoded.c
     local other = c:match("KS_API void ks_other%(.-\n}\n")
-    assert(other and other:find("ks_exp_store_full_u8x16(p_output, count_output, nupp_first_u64(", 1, true), "the unguarded span is checked\n" .. c)
-    assert(other:find("ks_exp_load_at_u8x16(p_input + (size_t)v2_cursor)", 1, true), "while the guarded one is proven\n" .. c)
+    assert(
+        other and other:find("ks_exp_store_full_u8x16(p_output, count_output, nupp_first_u64(", 1, true),
+        "the unguarded span is checked\n" .. c
+    )
+    assert(
+        other:find("ks_exp_load_at_u8x16(p_input + (size_t)v2_cursor)", 1, true),
+        "while the guarded one is proven\n" .. c
+    )
     local masked = c:match("KS_API uint32_t ks_masked%(.-\n}\n")
-    assert(masked and masked:find("ks_exp_load_u8x16(p_input, count_input, nupp_first_u64(", 1, true), "a masked access keeps its checks\n" .. c)
+    assert(
+        masked and masked:find("ks_exp_load_u8x16(p_input, count_input, nupp_first_u64(", 1, true),
+        "a masked access keeps its checks\n" .. c
+    )
     local moved = c:match("KS_API uint32_t ks_moved%(.-\n}\n")
-    assert(moved and moved:find("ks_exp_load_full_u8x16(p_input, count_input, nupp_first_u64(", 1, true), "a moved cursor loses the proof\n" .. c)
-    assert(not moved:find("load_at_", 1, true) and not masked:find("load_at_", 1, true), "no bare copy without a proof\n" .. c)
+    assert(
+        moved and moved:find("ks_exp_load_full_u8x16(p_input, count_input, nupp_first_u64(", 1, true),
+        "a moved cursor loses the proof\n" .. c
+    )
+    assert(
+        not moved:find("load_at_", 1, true) and not masked:find("load_at_", 1, true),
+        "no bare copy without a proof\n" .. c
+    )
 end
 
 function M.aSpeciesBindingIsTheOnlyPlaceItsSpeciesLives()
@@ -5806,7 +5936,7 @@ return {lanes = lanes}
     assert(
         out:find(
             "outside.nupp:11:12: aot: this tier has no vectors, so species is nil here; "
-                .. "keep the vector path inside the branch that tested it against nil",
+            .. "keep the vector path inside the branch that tested it against nil",
             1,
             true
         ),
@@ -5857,7 +5987,10 @@ return {total = total}
     }) do
         local decoded, raw, code = lowered(dir, tier.args .. " --json required.nupp")
         test.equal(code, 0, raw)
-        assert(decoded.ir:find("simd_species_f32_preferred", 1, true), tier.args .. ": the preferred shape\n" .. decoded.ir)
+        assert(
+            decoded.ir:find("simd_species_f32_preferred", 1, true),
+            tier.args .. ": the preferred shape\n" .. decoded.ir
+        )
         assert(decoded.ir:find("simd_vector_f32_fixed8", 1, true), tier.args .. ": the fixed shape\n" .. decoded.ir)
         assert(
             decoded.c:find("KS_EXP_ELEMENT(" .. tier.lanes * 4 .. ", f32x" .. tier.lanes .. ", float", 1, true),
@@ -5871,7 +6004,7 @@ return {total = total}
     assert(
         out:find(
             "required.nupp:7:25: aot: this tier has no vectors, so simd.species is nil here and the assert "
-                .. "would always fail; test it against nil and keep the vector path inside that branch",
+            .. "would always fail; test it against nil and keep the vector path inside that branch",
             1,
             true
         ),
@@ -5919,7 +6052,7 @@ return {scan = scan}
         test.equal(code, 1, case[1] .. " is not the proof\n" .. out)
         assert(
             out:find(case[1] .. ".nupp:6:", 1, true)
-                and out:find("span loads need a counted-loop index or cursor + 1 under cursor < #span", 1, true),
+            and out:find("span loads need a counted-loop index or cursor + 1 under cursor < #span", 1, true),
             case[1] .. ": " .. out
         )
     end

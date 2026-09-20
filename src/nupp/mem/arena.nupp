@@ -78,7 +78,8 @@ end
 local function addPage<S>(exclusive self: arena.Arena<S>, index: integer): nil
     local page = storage.allocateArray(self.element, self.pageSize) as S[?]
     local cached: {S} = {}
-    unsafe do
+    @unsafe
+    do
         for offset = 0, self.pageSize - 1 do
             cached[offset + 1] = page[offset]
         end

@@ -330,7 +330,8 @@ local record HeapBuffer is Buffer
         local wanted = integer_(length, "io.Buffer length", 2)
         if wanted > self._length then
             reserve(self, wanted)
-            unsafe do
+            @unsafe
+            do
                 local root = borrowFrom(self._data as voidptr, self)
                 physical.fill((root as uint8*) + self._length, wanted - self._length, 0)
             end
@@ -353,13 +354,15 @@ local record HeapBuffer is Buffer
         local ending = from + #bytes
         reserve(self, ending)
         if from > self._length then
-            unsafe do
+            @unsafe
+            do
                 local root = borrowFrom(self._data as voidptr, self)
                 physical.fill((root as uint8*) + self._length, from - self._length, 0)
             end
         end
         if #bytes > 0 then
-            unsafe do
+            @unsafe
+            do
                 local root = borrowFrom(self._data as voidptr, self)
                 physical.copy((root as uint8*) + from, bytes, #bytes)
             end
@@ -432,12 +435,13 @@ local record WriteLease is BufferWriteLease
         if used > self.count then
             error("nupp: io.Buffer committed byte count exceeds its lease", 2)
         end
-        local raw = unsafe release self
+        local raw = @unsafe release self
         local target = raw.state
         opened(target._closed, "io.Buffer", 2)
         if used > 0 then
             if raw.offset > target._length then
-                unsafe do
+                @unsafe
+                do
                     local root = borrowFrom(target._data as voidptr, target)
                     physical.fill(
                         (root as uint8*) + (target._length as integer),
@@ -567,7 +571,8 @@ local function copyString(
     count: integer
 ): nil
     local pointer = destination:ref()
-    unsafe do
+    @unsafe
+    do
         local source = physical.borrowString(bytes)
         physical.copy(pointer, (source as const uint8*) + offset, count)
     end
@@ -784,13 +789,13 @@ end
 ----------------------------------------------------------------------------
 
 function Snapshot.drop(takes self: Snapshot): nil
-    local state = unsafe release self
+    local state = @unsafe release self
     state._closed = true
     state._bytes = ""
 end
 
 function HeapBuffer.drop(takes self: HeapBuffer): nil
-    local state = unsafe release self
+    local state = @unsafe release self
     state._closed = true
     state._length = 0
     state._capacity = 0
@@ -800,23 +805,23 @@ end
 
 function WriteLease.drop(takes self: WriteLease): nil
     nosuspend do
-        local _raw = unsafe release self
+        local _raw = @unsafe release self
     end
 end
 
 function BufferWriter.drop(takes self: BufferWriter): nil
-    local state = unsafe release self
+    local state = @unsafe release self
     state._closed = true
 end
 
 function StringReader.drop(takes self: StringReader): nil
-    local state = unsafe release self
+    local state = @unsafe release self
     state._closed = true
     state._bytes = ""
 end
 
 function QueueReader.drop(takes self: QueueReader): nil
-    local state = unsafe release self
+    local state = @unsafe release self
     state._closed = true
     state._source = nil
 end

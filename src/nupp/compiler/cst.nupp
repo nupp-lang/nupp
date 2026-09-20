@@ -119,7 +119,7 @@ interface cst.Hints
     --- Contextual permission for affine elements in an ephemeral table literal.
     affineAggregateContext: boolean?
 
-    --- A raw memory operation admitted only because it is inside `unsafe do`.
+    --- A raw memory operation admitted by `@unsafe`.
     --- The ownership audit consumes this after checking.
     unsafeOwnershipOperation: string?
 
@@ -567,7 +567,7 @@ interface cst.Hints
     --- handler is responsible for.
     rawYield: boolean?
 
-    --- Set instead of `rawYield` on the same call written inside `unsafe do`: the
+    --- Set instead of `rawYield` on the same call covered by `@unsafe`: the
     --- author has taken responsibility for the continuation, as a handler would.
     trustedYield: boolean?
 
@@ -932,7 +932,7 @@ record cst.EffectRegionStmt is cst.Hints
     endTok: lexer.Token?
 end
 
---- `unsafe do ... end`, where raw pointer use is permitted.
+--- Recovery for rejected `unsafe do ... end`; valid regions use annotated DoStmt.
 record cst.UnsafeStmt is cst.Hints
     {cst.Node | lexer.Token}
 
@@ -1874,7 +1874,7 @@ record cst.NewExpr is cst.Hints
     call: cst.Node?
 end
 
---- `unsafe adopt value as Owner` or `unsafe release owner`.
+--- `@unsafe adopt value as Owner` or `@unsafe release owner`.
 ---
 --- Both forms are explicit capability-boundary assertions and erase at runtime. The
 --- checker proves the representation agrees with the affine target on adoption and

@@ -17,7 +17,7 @@ that laid the struct out differently is a load error rather than a silent
 misread of memory.
 
 The unsafe call and immediate unpacking are one block wide. Everything around it -- the range check,
-the length agreement between spans -- is ordinary checked Nupp, and the `unsafe
+the length agreement between spans -- is ordinary checked Nupp, and the `@unsafe
 do` block holds the foreign call and nothing else.
 
 The wrapper's own signature is spelled the way the source spelled it, over
@@ -393,7 +393,7 @@ function binding.wrapper(program: scalarIR.Program, nativeSymbol: string?): {str
     for _, line in ipairs(taken) do
         lines[#lines + 1] = line
     end
-    lines[#lines + 1] = "    unsafe do"
+    lines[#lines + 1] = "    @unsafe do"
     if #resultSourceTypes > 1 then
         lines[
             #lines + 1
@@ -765,7 +765,7 @@ end
 ---
 --- This is ordinary Nupp. It goes through the checker like anything else, which
 --- is what makes substituting it safe: the ownership annotations, the range
---- guard and the narrow `unsafe do` are all checked rather than trusted.
+--- guard and the narrow `@unsafe do` are all checked rather than trusted.
 --- @raises when passed malformed or unverified IR
 function binding.replacement(
     program: scalarIR.Program,

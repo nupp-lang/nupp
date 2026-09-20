@@ -401,6 +401,7 @@ function M.genericWrappersPreserveTheirCallbacksResultArms()
         "local ok, value, text = protect(pair)",
         "if ok == true then",
     }
+
     local function inArm(...)
         local lines = {}
         for j, line in ipairs(wrapper) do
@@ -956,7 +957,7 @@ function M.unsafeYieldAliasesKeepTheirValueProtocol()
             [[
 local pause = coroutine.yield
 local function leaf(): nil yields(number) resumes(boolean)
-    unsafe do
+    @unsafe do
         pause('wrong')
     end
 end

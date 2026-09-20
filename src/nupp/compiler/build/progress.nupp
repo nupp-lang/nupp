@@ -114,7 +114,8 @@ local function makeClock(): function(): number
     local function read(): number
         -- Handing C a pointer is what this is; there is nothing for the checker to
         -- prove about a two-word buffer the platform fills in.
-        unsafe do
+        @unsafe
+        do
             ffi.C.gettimeofday(buffer, nil)
         end
 

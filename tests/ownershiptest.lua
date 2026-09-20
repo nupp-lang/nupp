@@ -865,7 +865,7 @@ function M.aQualifiedMethodOwnsTheParameterItTakes()
     )
 end
 
--- `unsafe release` lowers to its argument, so using it for the assertion rather than
+-- `@unsafe release` lowers to its argument, so using it for the assertion rather than
 -- the value left an expression where Lua wants a statement. The check and the build
 -- both passed and the output would not load.
 function M.aDiscardedOwnershipIntrinsicEmitsLoadableLua()
@@ -873,8 +873,8 @@ function M.aDiscardedOwnershipIntrinsicEmitsLoadableLua()
         {
             RESOURCE,
             "local function spend(takes value: resource*): nil",
-            "   unsafe do",
-            "      local _raw = unsafe release value",
+            "   @unsafe do",
+            "      local _raw = @unsafe release value",
             "   end",
             "end",
             "return spend",
@@ -1107,7 +1107,7 @@ function M.checkedRegionIntervalsProveOnlyActualDisjointness()
         {
             "local function together(exclusive left: int32[?], exclusive right: int32[?]): nil end",
             "local values = ffi.new<int32[4]>()",
-            "unsafe do",
+            "@unsafe do",
         },
         "\n"
     )
@@ -2599,7 +2599,7 @@ function M.affineUsesItsExactCleanupFunction()
             "local function closeFile(takes file: File): nil",
             "   calls = calls .. 'close'",
             "   file.closed = true",
-            "   unsafe do local _raw = unsafe release file end",
+            "   @unsafe do local _raw = @unsafe release file end",
             "end",
             "local function openFile(): affine(File, closeFile)",
             "   return new File(closed = false)",
@@ -2626,7 +2626,7 @@ function M.anExplicitDropAfterACallIsASeparateStatement()
             "local record File",
             "   function drop(takes self): nil calls = calls .. 'stop' end",
             "end",
-            "local function closeFile(takes file: File): nil unsafe do local _raw = unsafe release file end end",
+            "local function closeFile(takes file: File): nil @unsafe do local _raw = @unsafe release file end end",
             "local function openFile(): affine(File, closeFile) return new File() end",
             "local file = openFile()",
             "print('before')",
@@ -2673,7 +2673,7 @@ function M.ownedFieldsApplyToEveryOverload()
                 "local record File",
                 "   function drop(takes self): nil end",
                 "end",
-                "local function closeFile(takes file: File): nil unsafe do local _raw = unsafe release file end end",
+                "local function closeFile(takes file: File): nil @unsafe do local _raw = @unsafe release file end end",
                 "local record Library",
                 "   open: function(name: string): affine(File, closeFile) & function(id: integer): affine(File, closeFile)",
                 "end",
@@ -3277,7 +3277,7 @@ function M.rawReconstructionRequiresUnsafe()
             {
                 "",
                 "local raw: resource*",
-                "local value = unsafe adopt raw as affine(resource*, resource_free)",
+                "local value = @unsafe adopt raw as affine(resource*, resource_free)",
                 "resource_free(value)",
             },
             "\n"
@@ -3289,8 +3289,8 @@ function M.rawReconstructionRequiresUnsafe()
             {
                 "",
                 "local raw: resource*",
-                "unsafe do",
-                "   local value = unsafe adopt raw as affine(resource*, resource_free)",
+                "@unsafe do",
+                "   local value = @unsafe adopt raw as affine(resource*, resource_free)",
                 "   drop(value)",
                 "end",
             },
@@ -3303,8 +3303,8 @@ function M.rawReconstructionRequiresUnsafe()
                 {
                     "local raw: voidptr",
                     "local function wrong(takes value: string): nil end",
-                    "unsafe do",
-                    "   local value = unsafe adopt raw as affine(voidptr, wrong)",
+                    "@unsafe do",
+                    "   local value = @unsafe adopt raw as affine(voidptr, wrong)",
                     "end",
                 },
                 "\n"
@@ -3317,7 +3317,7 @@ end
 function M.rawAbandonmentRequiresUnsafe()
     assertClean(
         RESOURCE .. table.concat(
-            {"", "local value = resource_new()", "local raw = unsafe release value", "print(raw)",},
+            {"", "local value = resource_new()", "local raw = @unsafe release value", "print(raw)",},
             "\n"
         )
     )
@@ -3330,7 +3330,7 @@ function M.unsafeDoesNotSuppressOwnershipObligations()
                 {
                     "",
                     "local value = resource_new()",
-                    "unsafe do",
+                    "@unsafe do",
                     "   local box = {value = value}",
                     "end",
                     "resource_free(value)",
@@ -3347,7 +3347,7 @@ function M.unsafeDoesNotSuppressOwnershipObligations()
                 {
                     "",
                     "local value = resource_new()",
-                    "unsafe do",
+                    "@unsafe do",
                     "   ffi.cast<voidptr>(value)",
                     "end",
                     "resource_free(value)",
@@ -3383,7 +3383,7 @@ function M.borrowFromRestoresOpaqueProvenanceExplicitly()
             {
                 "",
                 "local function recover(borrows source: resource*, raw: resource*): resource* borrows (source)",
-                "   unsafe do",
+                "   @unsafe do",
                 "      return borrowFrom(raw, source)",
                 "   end",
                 "end",
@@ -3590,7 +3590,7 @@ function M.contextualCleanupUsesExplicitOwnerFields()
             "end",
             "local function releaseAllocation(takes allocation: Allocation): nil",
             "   released = allocation.arena.name .. ':' .. allocation.value",
-            "   unsafe do local _raw = unsafe release allocation end",
+            "   @unsafe do local _raw = @unsafe release allocation end",
             "end",
             "local function allocate(arena: Arena, value: string): affine(Allocation, releaseAllocation)",
             "   return new Allocation(arena = arena, value = value)",
@@ -3750,7 +3750,7 @@ function M.aHandledSuspensionThroughAHelperIsAllowed()
 end
 
 function M.aYieldWrittenUnderUnsafeIsTheAuthorsToAnswerFor()
-    -- `unsafe do` is where the author takes over a guarantee the checker cannot
+    -- `@unsafe do` is where the author takes over a guarantee the checker cannot
     -- see: a driver that forwards a nested thread's park to whoever resumes it
     -- yields raw because that is what forwarding is, and its callers keep their
     -- borrows across it.
@@ -3759,14 +3759,14 @@ function M.aYieldWrittenUnderUnsafeIsTheAuthorsToAnswerFor()
             {
                 "",
                 "local function forward()",
-                "   unsafe do",
+                "   @unsafe do",
                 "      coroutine.yield()",
                 "   end",
                 "end",
                 "local function pause()",
                 "   local value = resource_new()",
                 "   forward()",
-                "   unsafe do",
+                "   @unsafe do",
                 "      coroutine.yield()",
                 "   end",
                 "   resource_free(value)",
@@ -4060,7 +4060,7 @@ function M.onlyTheFinalAttemptAllOperationMayTakeTheValue()
                 "local record Resource id: integer end",
                 "local function first(value: Resource): nil end",
                 "local function second(takes value: Resource): nil",
-                "   unsafe do local _raw = unsafe release value end",
+                "   @unsafe do local _raw = @unsafe release value end",
                 "end",
                 "local function finish(takes value: Resource): nil",
                 "   nupp.attemptAll(value, first, second)",
@@ -4278,7 +4278,7 @@ function M.callbackPointersRequireUnsafe()
     -- is advice, so it is a lint and a project may wave it away.
     local permitted = table.concat(
         {
-            "unsafe do",
+            "@unsafe do",
             "   local callback = function() end",
             "   local cb = ffi.cast<voidptr>(callback)",
             "   local handle = pin(cb, callback)",
@@ -4296,7 +4296,7 @@ function M.rawPointerAccessRequiresUnsafe()
         "\n"
     )
     assertEq(codes(declarations .. "\nprint(pointer.value)"), "NUPP2604")
-    assertClean(declarations .. table.concat({"", "unsafe do", "   print(pointer.value)", "end",}, "\n"))
+    assertClean(declarations .. table.concat({"", "@unsafe do", "   print(pointer.value)", "end",}, "\n"))
 end
 
 function M.rawPointerCallsRequireUnsafeOrAContract()
@@ -4305,7 +4305,7 @@ function M.rawPointerCallsRequireUnsafeOrAContract()
         "\n"
     )
     assertEq(codes(source .. "\nopaque_use(pointer)"), "NUPP2604")
-    assertClean(source .. table.concat({"", "unsafe do", "   opaque_use(pointer)", "end",}, "\n"))
+    assertClean(source .. table.concat({"", "@unsafe do", "   opaque_use(pointer)", "end",}, "\n"))
     assertClean(
         table.concat(
             {
@@ -4432,9 +4432,9 @@ function M.rawTransferAndDropAreStaticAndDeterministic()
             "end",
             "local value = ownedMalloc(8)",
             "local raw",
-            "unsafe do",
-            "   raw = unsafe release value",
-            "   local restored = unsafe adopt raw as affine(voidptr, free)",
+            "@unsafe do",
+            "   raw = @unsafe release value",
+            "   local restored = @unsafe adopt raw as affine(voidptr, free)",
             "   drop(restored)",
             "end",
             "return true",
@@ -4516,9 +4516,9 @@ function M.ownershipLoweringEmitsLoadableTransparentValues()
             "end",
             "local value = ownedMalloc(8)",
             "local raw",
-            "unsafe do",
-            "   raw = unsafe release value",
-            "   local restored = unsafe adopt raw as affine(voidptr, free)",
+            "@unsafe do",
+            "   raw = @unsafe release value",
+            "   local restored = @unsafe adopt raw as affine(voidptr, free)",
             "   drop(restored)",
             "end",
         },
@@ -4588,7 +4588,7 @@ local MIGRATABLE_SESSION = table.concat(
         "      print(self.id)",
         "   end",
         "end",
-        "local function closeSession(takes session: Session): nil unsafe do local _raw = unsafe release session end end",
+        "local function closeSession(takes session: Session): nil @unsafe do local _raw = @unsafe release session end end",
     },
     "\n"
 )
@@ -4680,9 +4680,9 @@ function M.remainingOwnershipHelpersAnswerToTheirQualifiedSpelling()
                 "   return malloc(size)",
                 "end",
                 "local value = ownedMalloc(8)",
-                "unsafe do",
-                "   local raw = unsafe release value",
-                "   local owner = unsafe adopt raw as affine(voidptr, free)",
+                "@unsafe do",
+                "   local raw = @unsafe release value",
+                "   local owner = @unsafe adopt raw as affine(voidptr, free)",
                 "   do",
                 "      local view = nupp.borrowFrom(raw, owner)",
                 "   end",
@@ -4746,7 +4746,7 @@ function M.bothSpellingsOfDropLowerTheSameWay()
                 "end",
                 "local function closeFile(takes file: File): nil",
                 "   calls = calls .. 'close'",
-                "   unsafe do local _raw = unsafe release file end",
+                "   @unsafe do local _raw = @unsafe release file end",
                 "end",
                 "local function openFile(): affine(File, closeFile)",
                 "   return new File(closed = false)",
@@ -5309,11 +5309,11 @@ local DROPPING_RECORD = table.concat(
         "   drop: nosuspend function(takes self: Session): nil",
         "end",
         "function Session.drop(takes self): nil",
-        "   unsafe do",
-        "      local _raw = unsafe release self",
+        "   @unsafe do",
+        "      local _raw = @unsafe release self",
         "   end",
         "end",
-        "local function closeSession(takes session: Session): nil unsafe do local _raw = unsafe release session end end",
+        "local function closeSession(takes session: Session): nil @unsafe do local _raw = @unsafe release session end end",
     },
     "\n"
 )
@@ -5347,7 +5347,7 @@ function M.anOwnedResultUsesALaterQualifiedStructuralDropOperation()
             "record m.Factory",
             "end",
             "function m.Session.drop(takes self): nil",
-            "   local _raw = unsafe release self",
+            "   local _raw = @unsafe release self",
             "end",
             "function m.closeSession(takes session: m.Session): nil session:drop() end",
             "record m.Pool",
@@ -5394,8 +5394,8 @@ function M.anOwnedResultCanNameAQualifiedFreeTerminal()
             "end",
             "function m.closeSession(takes session: m.Session): nil",
             "   m.closed = m.closed + 1",
-            "   unsafe do",
-            "      local _raw = unsafe release session",
+            "   @unsafe do",
+            "      local _raw = @unsafe release session",
             "   end",
             "end",
             "record m.Pool",
@@ -5427,7 +5427,7 @@ function M.aTransferFieldDoesNotInvokeItsValuesStructuralDropOperation()
             {
                 "local record Session",
                 "   function drop(takes self): nil",
-                "      local _raw = unsafe release self",
+                "      local _raw = @unsafe release self",
                 "   end",
                 "end",
                 "local record Box",
@@ -5438,8 +5438,8 @@ function M.aTransferFieldDoesNotInvokeItsValuesStructuralDropOperation()
                 "end",
                 "local function box(takes value: Session): nil",
                 "   local stored = new Box(value = value)",
-                "   unsafe do",
-                "      local _raw = unsafe release stored",
+                "   @unsafe do",
+                "      local _raw = @unsafe release stored",
                 "   end",
                 "end",
                 "box(open())",
@@ -5468,8 +5468,8 @@ function M.anAffineResultNeedsOneCleanupOrExplicitTransferOnlyPolicy()
                 "   return nil as any",
                 "end",
                 "local value = allocate()",
-                "unsafe do",
-                "   local _raw = unsafe release value",
+                "@unsafe do",
+                "   local _raw = @unsafe release value",
                 "end",
             },
             "\n"
@@ -5601,8 +5601,8 @@ local record Resource
     id: integer
     function destroy(takes self): nil
         assert(self.id == 7)
-        unsafe do
-            local _self = unsafe release self
+        @unsafe do
+            local _self = @unsafe release self
         end
     end
 end
@@ -5642,8 +5642,8 @@ local closed = 0
 local record Resource
     function destroy(takes self): nil
         closed = closed + 1
-        unsafe do
-            local _self = unsafe release self
+        @unsafe do
+            local _self = @unsafe release self
         end
     end
 end
@@ -5672,8 +5672,8 @@ record resource.Value
 end
 function resource.release(takes value: resource.Value): nil
     resource.closed = resource.closed + 1
-    unsafe do
-        local _value = unsafe release value
+    @unsafe do
+        local _value = @unsafe release value
     end
 end
 export = resource
@@ -6099,7 +6099,7 @@ function M.takesParameterDischargedOnEveryPathIsAccepted()
                 "   if flag then drop r else r:close() end",
                 "end",
                 "local function released(takes r: Res): integer",
-                "   local raw = unsafe release r",
+                "   local raw = @unsafe release r",
                 "   return raw.id",
                 "end",
                 "sink(open(1), true)",
@@ -6245,7 +6245,7 @@ function M.anOwnedTemporaryThatIsBoundMovedOrReturnedIsAccepted()
                 "drop open(9)",
                 "sink(make(10))",
                 "sink(pick(true))",
-                "local raw = unsafe release open(11)",
+                "local raw = @unsafe release open(11)",
                 "print(raw.id)",
                 "with w = open(12) do print(w.id) end",
                 "drop a",
@@ -7304,22 +7304,22 @@ local xp, count = xs:ref()
 local yp, otherCount = ys:ref()
 ]]
     assertClean(prelude .. [[
-unsafe do update(xp as float*, yp as float*) end
+@unsafe do update(xp as float*, yp as float*) end
 print(count, otherCount)
 ]])
     local bad = codes(prelude .. [[
 local other = xp
-unsafe do one(xp as float*) end
+@unsafe do one(xp as float*) end
 print(other)
 ]])
     assert(bad:find("NUPP2607", 1, true), "a same-column sibling must still conflict: " .. bad)
     bad = codes(prelude .. [[
-unsafe do update(xp as float*, xp as float*) end
+@unsafe do update(xp as float*, xp as float*) end
 ]])
     assert(bad:find("NUPP2607", 1, true), "exclusive native arguments must not overlap: " .. bad)
     bad = codes(prelude .. [[
 drop xs
-unsafe do one(xp as float*) end
+@unsafe do one(xp as float*) end
 ]])
     assert(bad:find("NUPP2602", 1, true), "a pointer keeps its column owner alive: " .. bad)
 end

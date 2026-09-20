@@ -250,7 +250,7 @@ end
 function sharedbytes.Builder.freeze(takes self: sharedbytes.Builder): sharedbytes.Region
     -- Sealing spends the builder: the engine hands its bytes to the region, and
     -- the builder's own terminal has nothing left to release.
-    local builder = unsafe release self
+    local builder = @unsafe release self
     local handle, length = native.builderFreeze(builder._handle)
     if handle == nil then
         if length == "open" then

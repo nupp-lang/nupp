@@ -134,7 +134,7 @@ the end of the body and cannot be moved or ended early.
 `affine(T)` selects `T`'s inherent terminal when `T` is an affine interface or
 `nupp.Closeable` nominal type. Otherwise it is deliberately terminal-less: it may be
 forwarded to another owner or consuming parameter, returned, or released in
-`unsafe`, but it cannot be dropped locally because there is no function to call.
+`@unsafe`, but it cannot be dropped locally because there is no function to call.
 
 ## Borrowing
 
@@ -220,14 +220,14 @@ Fresh function and C results introduce ownership normally. At an audited raw
 boundary, use the explicit operators:
 
 ```nupp
-unsafe do
-    local raw = unsafe release owner
-    local restored = unsafe adopt raw as affine(voidptr, free)
+@unsafe do
+    local raw = @unsafe release owner
+    local restored = @unsafe adopt raw as affine(voidptr, free)
     drop restored
 end
 ```
 
-`unsafe` authorizes that representation assertion; it does not suppress move,
+`@unsafe` authorizes that representation assertion; it does not suppress move,
 borrow, or discharge checking.
 
 ## User-defined affine policy

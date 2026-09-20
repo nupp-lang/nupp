@@ -45,8 +45,8 @@ local free_nosuspend = free as nosuspend function(takes pointer: voidptr): nil
 
 local function finish_array(takes self: any): nil
     nosuspend do
-        local raw = unsafe release self
-        local pointer = unsafe adopt raw.pointer as affine(voidptr, free_nosuspend)
+        local raw = @unsafe release self
+        local pointer = @unsafe adopt raw.pointer as affine(voidptr, free_nosuspend)
         -- The husk outlives the free wherever a dynamic reference still sees
         -- it, and a nil pointer is what marks the allocation gone.
         raw.pointer = nil
@@ -158,7 +158,8 @@ function heap.allocate<T>(element: ctype<T>, count: integer): affine(heap.Array<
     -- records the relationship already established by the ctype<T> argument.
     local pointerSpec = "$ *"
     local pointerType = ffi.typeof(pointerSpec, element)
-    unsafe do
+    @unsafe
+    do
         local pointer = ffi.cast(pointerType, raw) as T[?]
         local array = new heap.Array(pointer = pointer, count = count) as heap.Array<T>
         return array
@@ -189,9 +190,9 @@ local getmetatable_nosuspend = getmetatable as nosuspend function(any): any
 local movedProbe = heap.allocate(ffi.typeof<int32>(), 0)
 local arrayMetatable: any = nil
 nosuspend do
-    local raw = unsafe release movedProbe
+    local raw = @unsafe release movedProbe
     arrayMetatable = getmetatable_nosuspend(raw)
-    local pointer = unsafe adopt raw.pointer as affine(voidptr, free_nosuspend)
+    local pointer = @unsafe adopt raw.pointer as affine(voidptr, free_nosuspend)
     free_nosuspend(pointer)
 end
 
@@ -241,7 +242,7 @@ rawset(heap as table, "__heapArrayFree", function(pointer: any): nil
         raw = (ffi.cast("void * const *", pointer) as any)[0]
     end
     nosuspend do
-        local owned = unsafe adopt(ffi.cast("void *", raw)) as affine(voidptr, free_nosuspend)
+        local owned = @unsafe adopt(ffi.cast("void *", raw)) as affine(voidptr, free_nosuspend)
         free_nosuspend(owned)
     end
 end)

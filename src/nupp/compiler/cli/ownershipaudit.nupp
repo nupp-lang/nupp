@@ -213,8 +213,8 @@ local function run(options: any): integer
                 kind = "unsafe assertion region",
             }
             inUnsafe = true
-            -- `unsafe adopt` and `unsafe release` are expressions, legal outside any
-            -- `unsafe do` block, and are assertion sites wherever they are spelled.
+            -- `@unsafe adopt` and `@unsafe release` are expressions, legal outside
+            -- an annotated block, and are assertion sites wherever they appear.
             -- The other intrinsics are ordinary helpers, worth listing only inside a
             -- declared unsafe region.
         elseif node.ownershipIntrinsic

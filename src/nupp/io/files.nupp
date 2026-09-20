@@ -376,7 +376,8 @@ local function slice(text: string): any
     -- The slice points into the Lua string; every caller hands it to C and returns
     -- while `text` is still a live argument of its own, so the string outlives the
     -- call.
-    unsafe do
+    @unsafe
+    do
         value.data = text
     end
     value.length = #text
@@ -720,7 +721,7 @@ export record File
 end
 
 function File.drop(takes self: File): nil
-    local state = unsafe release self
+    local state = @unsafe release self
     if state._closed then
         return
     end
@@ -1005,7 +1006,7 @@ export record TemporaryPath
     --- @param self this temporary path, spent by the call
     --- @return whether the removal succeeded
     function close(takes self): boolean
-        local state = unsafe release self
+        local state = @unsafe release self
         if state._closed then
             return true
         end
@@ -1022,7 +1023,7 @@ end
 ----------------------------------------------------------------------------
 
 function TemporaryPath.drop(takes self: TemporaryPath): nil
-    local state = unsafe release self
+    local state = @unsafe release self
     if state._closed then
         return
     end
@@ -1036,14 +1037,14 @@ end
 end
 
 function FileReader.drop(takes self: FileReader): nil
-    local state = unsafe release self
+    local state = @unsafe release self
     state._closed = true
     state._scratch = nil
     state._capacity = 0
 end
 
 function FileWriter.drop(takes self: FileWriter): nil
-    local state = unsafe release self
+    local state = @unsafe release self
     state._closed = true
 end
 
@@ -1115,7 +1116,8 @@ local function described(path: string | paths.Path, follow: boolean, level: inte
     -- element handed back: an element is an interior reference that does not anchor
     -- its array, so returning one would let the storage it points into be collected
     -- under the caller.
-    unsafe do
+    @unsafe
+    do
         found = {
             kind = record[0].kind,
             readOnly = record[0].read_only ~= 0,

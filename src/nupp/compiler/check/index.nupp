@@ -421,7 +421,7 @@ function index.install(c: state.Checker): state.ExprHandlers
                 c.diag(
                     "NUPP2604",
                     node,
-                    "dereferencing a raw pointer requires unsafe do; use an "
+                    "dereferencing a raw pointer requires @unsafe on the access; use an "
                     .. "owned or borrowed value in checked code"
                 )
             else
@@ -895,7 +895,8 @@ function index.install(c: state.Checker): state.ExprHandlers
                 c.diag(
                     "NUPP2604",
                     node,
-                    "indexing C memory requires unsafe do; use a checked span " .. "when a runtime bound is available"
+                    "indexing C memory requires @unsafe on the access; use a checked span "
+                    .. "when a runtime bound is available"
                 )
             else
                 node.unsafeOwnershipOperation = "unchecked C memory indexing"

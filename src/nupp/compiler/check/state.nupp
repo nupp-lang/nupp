@@ -198,7 +198,7 @@ record state.Checker
     --- Cleanup contracts already validated, so one is not re-reported.
     validatedCleanupContracts: any
 
-    --- How deep inside `unsafe do` the walk is; raw pointer use needs it above zero.
+    --- The active `@unsafe` permission depth; raw pointer use needs it above zero.
     unsafeDepth: integer
 
     withUnsafe: function(enabled: boolean, action: function(): any): any

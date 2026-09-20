@@ -169,7 +169,7 @@ local function scale(exclusive samples: span.WriteSpan<Sample>, ...): nil
     end
     local native_samples, native_samplesCount = samples:ref()
     ...
-    unsafe do
+    @unsafe do
         ks_scale(native_samples as voidptr, ..., native_samplesCount)
     end
 end
@@ -177,7 +177,7 @@ end
 
 Because it is Nupp rather than generated Lua, it goes through the checker like
 anything else: the ownership annotations, the precondition checks and the
-one-statement-wide `unsafe do` are all checked, not trusted. Those checks are
+one-statement-wide `@unsafe do` are all checked, not trusted. Those checks are
 the relations the source's own guards stated, so the wrapper holds a caller to
 what the function was written to require and not to a weaker restatement of it. A substitution
 cannot smuggle in something the language would refuse.

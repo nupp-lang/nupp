@@ -405,6 +405,15 @@
           }
         },
         {
+          "comment": "Explicit ownership transfers keep their operation contextual after @unsafe.",
+          "match": "(@)(unsafe)([ \\t]+)(adopt|release)\\b",
+          "captures": {
+            "1": { "name": "punctuation.definition.annotation.nupp" },
+            "2": { "name": "entity.name.tag.nupp" },
+            "4": { "name": "storage.modifier.ownership.nupp" }
+          }
+        },
+        {
           "match": "(@)([A-Za-z_][A-Za-z0-9_]*)",
           "captures": {
             "1": { "name": "punctuation.definition.annotation.nupp" },
@@ -433,14 +442,6 @@
           "comment": "drop is a bare ownership-drop statement, not a call to a name spelled the same way.",
           "name": "keyword.control.nupp",
           "match": "(?<![.:])\\bdrop\\b(?=[ \\t]*[A-Za-z_(])"
-        },
-        {
-          "comment": "unsafe adopt/release are the affine escape hatches; adopt takes a required 'as' cast.",
-          "match": "\\b(unsafe)([ \\t]+)(adopt|release)\\b",
-          "captures": {
-            "1": { "name": "keyword.control.nupp" },
-            "3": { "name": "storage.modifier.ownership.nupp" }
-          }
         },
         {
           "comment": "countedBy(param) relates a cdef pointer parameter's length to another parameter.",
@@ -527,7 +528,7 @@
         },
         {
           "name": "keyword.control.nupp",
-          "match": "\\b(?:break|do|else|elseif|end|for|goto|if|in|repeat|return|sealed|then|unsafe|until|while)\\b"
+          "match": "\\b(?:break|do|else|elseif|end|for|goto|if|in|repeat|return|sealed|then|until|while)\\b"
         },
         {
           "name": "storage.modifier.ownership.nupp",

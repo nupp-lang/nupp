@@ -183,7 +183,7 @@ function fixedCheck.install(c: state.Checker): Ops
                     c.diag(
                         "NUPP2604",
                         node,
-                        "storing a Lua string's pointer in C memory requires unsafe do; the slot outlives "
+                        "storing a Lua string's pointer in C memory requires @unsafe on the assignment; the slot outlives "
                         .. "the conversion and nothing keeps the string alive for it",
                         nil,
                         {help = "copy the bytes into C memory the struct's owner also holds"}

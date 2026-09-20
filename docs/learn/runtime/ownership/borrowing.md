@@ -371,7 +371,7 @@ source is refused with NUPP2621, and every other result stays owned as it was.
 pointer under declared `retains` and `releases` contracts:
 
 ```nupp
-unsafe do
+@unsafe do
     local callback = function()
     end
     local pointer = ffi.cast<voidptr>(callback)
@@ -420,7 +420,7 @@ return m
 automatic cleanup into the callee. A consuming parameter whose type names a
 terminal is an owner inside the body like any other: every path out of the
 body — each `return`, and the fall-through end — must have dropped it, moved it
-on, returned it, or released it with `unsafe release`, and a branch that
+on, returned it, or released it with `@unsafe release`, and a branch that
 discharges it on only some of its arms is reported (NUPP2603). A consuming
 parameter whose type names no terminal is the endpoint of the obligation: the
 body of a cleanup function written over the plain payload, a record's own
@@ -490,7 +490,7 @@ After validating runtime bounds, audited unsafe library code can attach an exact
 interval to a child view:
 
 ```nupp
-unsafe do
+@unsafe do
     local left = nupp.region(storage, leftView, 1, 8)
     local right = nupp.region(storage, rightView, 9, 16)
     writeBoth(left, right)
@@ -498,7 +498,7 @@ end
 ```
 
 `nupp.region(parent, child, first, last)` erases to `child`. It grants no bounds
-check of its own and therefore requires `unsafe do`, and dynamic bounds produce
+check of its own and therefore requires `@unsafe`, and dynamic bounds produce
 an unknown overlapping interval. `nupp.mem.span` splitting uses the same algebra
 rather than receiving ownership privilege from method names.
 
@@ -636,22 +636,22 @@ Audited adoption is reserved for boundaries where no typed producer can state
 the policy:
 
 ```nupp
-unsafe do
-    local owner = unsafe adopt raw as affine(voidptr, free)
+@unsafe do
+    local owner = @unsafe adopt raw as affine(voidptr, free)
 end
 ```
 
 The reverse operation is also explicit:
 
 ```nupp
-unsafe do
-    local raw = unsafe release owner
+@unsafe do
+    local raw = @unsafe release owner
 end
 ```
 
-`unsafe` grants only the representation assertion. The resulting affine value
+`@unsafe` grants only the representation assertion. The resulting affine value
 still participates in normal move, borrow, and lexical-destruction checks, and
-`unsafe release` consumes an obligation without running its terminal, which
+`@unsafe release` consumes an obligation without running its terminal, which
 makes the caller responsible for the resource from that line on.
 
 ## FAQ

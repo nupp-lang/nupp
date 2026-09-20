@@ -1761,7 +1761,7 @@ function calls.install(c: state.Checker): calls.Ops
                             "NUPP2611",
                             arg,
                             "a live capability cannot cross an untyped call; "
-                            .. "use unsafe release explicitly to abandon tracking"
+                            .. "use @unsafe release explicitly to abandon tracking"
                         )
                     end
                 end
@@ -2761,7 +2761,7 @@ function calls.install(c: state.Checker): calls.Ops
                     c.diag(
                         "NUPP2604",
                         argNodes[j] or node,
-                        "passing a raw pointer to C requires unsafe do or a "
+                        "passing a raw pointer to C requires @unsafe on the call or a "
                         .. "borrows, exclusive, takes, retains, or releases contract"
                     )
                 else

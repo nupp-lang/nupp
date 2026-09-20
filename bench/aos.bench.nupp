@@ -21,7 +21,8 @@ local DT = 1 / 60
 local function structs(_: any, _: Invocation): number
     local ps = carray(Particle, N)
     local sink = 0.0
-    unsafe do
+    @unsafe
+    do
         -- N is both the allocation bound and the loop bound. The unsafe boundary
         -- records that invariant without adding a checked-view cost to this arm.
         for i = 0, N - 1 do

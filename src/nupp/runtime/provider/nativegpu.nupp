@@ -509,7 +509,8 @@ function gpu.Binding.dispatchPacked(borrows self: gpu.Binding, uniforms: any, un
         error("nupp: generated GPU uniform block has the wrong size", 2)
     end
     local spans = #self._spanCounts
-    unsafe do
+    @unsafe
+    do
         local words = ffi.cast<uint32[?]>(uniforms)
         words[0] = self.count
         for index = 1, spans do
@@ -642,7 +643,7 @@ function gpu.Context.bindKernel(
 end
 
 function gpu.Context.drop(takes self: gpu.Context): nil
-    local state = unsafe release self
+    local state = @unsafe release self
     state._destroy(state)
 end
 

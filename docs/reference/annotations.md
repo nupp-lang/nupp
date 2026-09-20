@@ -200,13 +200,15 @@ On statements it supports `do`, `if`, numeric and generic `for`, `while`,
 conditions, loop setup, assignment destinations and initializers, as well as
 bodies. An annotated binding keeps its ordinary scope.
 
-```nupp
-local pointer: int32* = nil as any
-@unsafe local first = pointer[0]
-print(first)
+These helpers assume the caller supplies the elements they access.
 
-@unsafe if first > 0 then
-    pointer[0] = first
+```nupp
+local function readAndClear(exclusive pointer: int32*): integer
+    @unsafe local first = pointer[0]
+    @unsafe if first > 0 then
+        pointer[0] = 0
+    end
+    return first
 end
 ```
 
@@ -219,19 +221,21 @@ precedence is unchanged: `@unsafe -x ^ y` still means `-(x ^ y)`, while
 permission ends before `^`.
 
 ```nupp
-local pointer: int32* = nil as any
-local first = @unsafe pointer[0]
-local sum = @unsafe (pointer[0] + pointer[1])
-local chosen = @unsafe do
-    if first > 0 then
-        yield pointer[0]
+local function combine(borrows pointer: int32*): integer
+    local first = @unsafe pointer[0]
+    local sum = @unsafe (pointer[0] + pointer[1])
+    local chosen = @unsafe do
+        if first > 0 then
+            yield pointer[0]
+        end
+        yield 0
     end
-    yield 0
+    return sum + chosen
 end
 ```
 
 For example, `@unsafe pointer[0] + other[0]` authorizes only the first read,
-and `(@unsafe pointer)[0]` authorizes neither index operation. A `switch`
+and `(@unsafe pointer)[0]` does not authorize indexing. A `switch`
 expression includes its selector, guards and arms, retaining lazy execution.
 
 Permission ends with the annotated construct and resets in every nested
@@ -246,6 +250,18 @@ affine obligation without cleanup, and `@unsafe adopt raw as Owner` creates
 one with the target's cleanup policy. These forms are required even inside an
 annotated block. Their operands keep the full expression grammar; release and
 adoption introduce no extra grouping or function.
+
+The former contextual forms are rejected with a fix that inserts `@` at the
+old marker. Comments, strings, grouping and ordinary identifiers are preserved.
+
+| Rejected form | Replacement |
+| --- | --- |
+| `unsafe do ... end` | `@unsafe do ... end` |
+| `unsafe release owner` | `@unsafe release owner` |
+| `unsafe adopt raw as Owner` | `@unsafe adopt raw as Owner` |
+
+Names such as `unsafe`, `adopt` and `release` remain ordinary identifiers
+outside these annotation forms.
 
 ## File-level directives
 

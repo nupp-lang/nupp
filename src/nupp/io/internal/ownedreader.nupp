@@ -26,7 +26,8 @@ local record MemoryReader is Reader
         local wanted = positive(count, "Reader:read count", 2)
         local taking = math.min(wanted, self._length - self._at) as integer
         local bytes: string
-        unsafe do
+        @unsafe
+        do
             local root = borrowFrom(self._data as voidptr, self)
             bytes = physical.string((root as uint8*) + self._at, taking)
         end
@@ -46,7 +47,8 @@ local record MemoryReader is Reader
         end
         local taking = math.min(wanted, self._length - self._at) as integer
         local pointer = destination:ref()
-        unsafe do
+        @unsafe
+        do
             local root = borrowFrom(self._data as voidptr, self)
             physical.copy(pointer, (root as uint8*) + self._at, taking)
         end
@@ -103,7 +105,7 @@ local record MemoryReader is Reader
     end
 
     function drop(takes self): nil
-        local state = unsafe release self
+        local state = @unsafe release self
         state._closed = true
         state._length = 0
         (state as any)._data = nil
@@ -111,7 +113,7 @@ local record MemoryReader is Reader
 end
 
 export function newOwnedReader(takes buffer: bytes.OwnedBuffer): Reader
-    local state = unsafe release buffer
+    local state = @unsafe release buffer
     assert(not (state as any)._closed, "nupp: io.Buffer is closed")
     return new MemoryReader(_data = (state as any)._data, _length = (state as any)._length, _at = 0, _closed = false)
 end

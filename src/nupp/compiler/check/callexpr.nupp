@@ -1042,7 +1042,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                     c.diag("NUPP2602", node, "borrowFrom expects a raw pointer and a named source")
                 end
                 if c.unsafeDepth == 0 then
-                    c.diag("NUPP2604", node, "borrowFrom requires an unsafe do block")
+                    c.diag("NUPP2604", node, "borrowFrom requires @unsafe on the call")
                 end
                 node.ownershipIntrinsic = "borrowFrom"
                 c.own.capabilityFacts(node).roots = {c.borrowRoot(source)}
@@ -1072,7 +1072,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                     c.diag("NUPP2602", node, "partition children must have the same type")
                 end
                 if c.unsafeDepth == 0 then
-                    c.diag("NUPP2604", node, "partition requires an unsafe do block")
+                    c.diag("NUPP2604", node, "partition requires @unsafe on the call")
                 end
                 node.ownershipIntrinsic = "partition"
                 local partitionRoot = root or c.borrowRoot(parent)
@@ -1124,7 +1124,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                     c.diag("NUPP2602", node, "region range ends before it begins")
                 end
                 if c.unsafeDepth == 0 then
-                    c.diag("NUPP2604", node, "region requires an unsafe do block after runtime bounds validation")
+                    c.diag("NUPP2604", node, "region requires @unsafe on the call after runtime bounds validation")
                 end
                 node.ownershipIntrinsic = "region"
                 local regionFacts = c.own.capabilityFacts(node, 1)
@@ -1153,7 +1153,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                             "NUPP2604",
                             node,
                             "pin must prove the pointer derives from its anchor; "
-                            .. "use unsafe do for an opaque derivation"
+                            .. "use @unsafe on the call for an opaque derivation"
                         )
                     end
                 end
@@ -1537,9 +1537,10 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             end
         end
         if isCoroutine and c.unsafeDepth > 0 then
-            -- Written inside `unsafe do`: the author answers for the continuation,
-            -- the way a handler does for a handled suspension. A driver that forwards
-            -- a nested thread's park to whoever resumes it is the shape this is for.
+            -- Written inside an `@unsafe` construct: the author answers for the
+            -- continuation, the way a handler does for a handled suspension. A driver
+            -- that forwards a nested thread's park to whoever resumes it is the shape
+            -- this is for.
             node.trustedYield = true
         elseif isCoroutine then
             node.rawYield = true

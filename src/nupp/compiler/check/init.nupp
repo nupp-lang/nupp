@@ -1326,7 +1326,7 @@ function checkMod.check(
                     entry.definition and entry.definition.token or entry.assignedAt,
                     (
                         "owned value %q leaves scope without being consumed, "
-                        .. "dropped, returned, or released with unsafe release"
+                        .. "dropped, returned, or released with @unsafe release"
                     ):format(name)
                 )
             elseif not entry.ownershipOrigin
