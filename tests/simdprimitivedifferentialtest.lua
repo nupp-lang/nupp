@@ -1,16 +1,11 @@
 -- The complete species/operation corpus is also consumed by CI's exact-tier
 -- native/Wasm matrix. This focused suite exercises representative boundaries.
 local M = {}
-local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
-if not HERE:match("^/") and not HERE:match("^%a:") then
-    local cwd = assert(io.popen("pwd"))
-    HERE = assert(cwd:read("*l")) .. "/" .. HERE
-    cwd:close()
-end
-local generator = assert(loadfile(HERE .. "/simd/primitives.lua"))()
+local generator = require("tests.simd.primitives")
+local runner = require("tests.simd.runner")
+local HERE = runner.root() .. "/tests"
 
 function M.explicitPrimitivesMatchIndependentScalarSemantics()
-    local runner = assert(loadfile(HERE .. "/simd/runner.lua"))()
     local report = runner.native(generator.generate{lanes = {2, 3, 17, 64, "preferred"}})
     assert(report.cases > 0 and report.nativeCalls >= report.probes)
     local vm = os.getenv("NUPP_SIMD_LUA") or "luajit"
