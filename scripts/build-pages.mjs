@@ -10,33 +10,18 @@ import {
 } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { verifyGuest } from "../runtime/luajit/package-assets.mjs";
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const docs = path.join(root, "build/docs");
-const playground = path.join(root, "editors/playground/dist");
-const output = path.join(root, "build/pages");
-
 function run(command, args, cwd = root) {
   execFileSync(command, args, { cwd, stdio: "inherit" });
 }
 
-function htmlFiles(directory) {
-  return readdirSync(directory, { recursive: true, withFileTypes: true })
+function htmlFiles(directory, recursive = true) {
+  return readdirSync(directory, { recursive, withFileTypes: true })
     .filter((entry) => entry.isFile() && entry.name.endsWith(".html"))
     .map((entry) => path.join(entry.parentPath, entry.name));
 }
-
-run(path.join(root, "bin/nupp"), ["doc", "site"]);
-if (process.env.NUPP_PLAYGROUND_ALREADY_BUILT !== "1") {
-  run(process.execPath, ["build.mjs"], path.join(root, "editors/playground"));
-}
-
-rmSync(output, { force: true, recursive: true });
-mkdirSync(path.join(output, "playground"), { recursive: true });
-cpSync(docs, output, { recursive: true });
-cpSync(playground, path.join(output, "playground"), { recursive: true });
-writeFileSync(path.join(output, ".nojekyll"), "");
-writeFileSync(path.join(output, "CNAME"), "nupp.org\n");
 
 const socialMetadata = [
   '<meta property="og:type" content="website">',
@@ -49,9 +34,42 @@ const socialMetadata = [
   '<meta name="twitter:image" content="https://nupp.org/images/og.png">',
 ].join("");
 
-for (const file of htmlFiles(output)) {
-  const html = readFileSync(file, "utf8");
-  writeFileSync(file, html.replace("</head>", `${socialMetadata}</head>`));
+function addSocialMetadata(files) {
+  for (const file of files) {
+    const html = readFileSync(file, "utf8");
+    writeFileSync(file, html.replace("</head>", `${socialMetadata}</head>`));
+  }
 }
 
-console.log(`Built ${path.relative(root, output)}`);
+export function assemblePages({ docs, playground, output }) {
+  rmSync(output, { force: true, recursive: true });
+  mkdirSync(output, { recursive: true });
+  cpSync(docs, output, { recursive: true });
+  addSocialMetadata(htmlFiles(output));
+
+  const packagedPlayground = path.join(output, "playground");
+  cpSync(playground, packagedPlayground, { recursive: true });
+  // Only entry pages are ours to decorate. Nested runtime packages include
+  // hashed HTML licence notices that must retain their original bytes.
+  addSocialMetadata(htmlFiles(packagedPlayground, false));
+  writeFileSync(path.join(output, ".nojekyll"), "");
+  writeFileSync(path.join(output, "CNAME"), "nupp.org\n");
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  run(path.join(root, "bin/nupp"), ["doc", "site"]);
+  if (process.env.NUPP_PLAYGROUND_ALREADY_BUILT !== "1") {
+    run(process.execPath, ["build.mjs"], path.join(root, "editors/playground"));
+  }
+  const output = path.join(root, "build/pages");
+  assemblePages({
+    docs: path.join(root, "build/docs"),
+    playground: path.join(root, "editors/playground/dist"),
+    output,
+  });
+  const assets = JSON.parse(readFileSync(path.join(output, "playground/nupp-playground-assets.json"), "utf8"));
+  if (assets.luajit?.guestManifest) {
+    verifyGuest(root, path.dirname(path.join(output, "playground", assets.luajit.guestManifest)));
+  }
+  console.log(`Built ${path.relative(root, output)}`);
+}
