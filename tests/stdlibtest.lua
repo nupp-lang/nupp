@@ -636,6 +636,7 @@ function M.nativeFeaturesAreResolvedEffects()
         ["nupp.io.newBuffer('hello')"] = "stdlib.io",
         ["nupp.math.lerp(10, 20, 0.25)"] = "stdlib.math",
         ["nupp.math.vec2.length(3, 4)"] = "stdlib.math",
+        ["nupp.math.quat.length(0, 0, 0, 1)"] = "stdlib.math",
         ["nupp.io.path.separator()"] = "runtime.path",
         ["nupp.io.uri.newURI('https://example.com')"] = "runtime.uri",
         ["nupp.util.uuid7()"] = "runtime.uuid",
@@ -853,6 +854,9 @@ function M.compilerProvidedPureLibraries()
       assert(not pcall(function() reader:read(0) end))
       local x, y = nupp.math.vec2.normalize(3, 4)
       assert(math.abs(x - 0.6) < 0.000001 and math.abs(y - 0.8) < 0.000001)
+      local qx, qy, qz, qw = nupp.math.quat.fromAxisAngle(0, 0, 2, math.pi / 2)
+      assert(math.abs(qz - math.sqrt(0.5)) < 0.000001 and math.abs(qw - math.sqrt(0.5)) < 0.000001)
+      assert(qx == 0 and qy == 0)
       assert(nupp.math.lerp(10, 20, 0) == 10)
       assert(nupp.math.lerp(10, 20, 0.25) == 12.5)
       assert(nupp.math.lerp(10, 20, 1) == 20)

@@ -1046,35 +1046,12 @@ function quat.multiply(
     bz: number,
     bw: number
 ): number, number, number, number
-    return aw
-        * bx
-        + ax
-        * bw
-        + ay
-        * bz
-        - az
-        * by, aw
-        * by
-        - ax
-        * bz
-        + ay
-        * bw
-        + az
-        * bx, aw
-        * bz
-        + ax
-        * by
-        - ay
-        * bx
-        + az
-        * bw, aw
-        * bw
-        - ax
-        * bx
-        - ay
-        * by
-        - az
-        * bz
+    local x = aw * bx + ax * bw + ay * bz - az * by
+    local y = aw * by - ax * bz + ay * bw + az * bx
+    local z = aw * bz + ax * by - ay * bx + az * bw
+    local w = aw * bw - ax * bx - ay * by - az * bz
+
+    return x, y, z, w
 end
 
 --- Turns a vector by a unit rotation.
@@ -1268,11 +1245,11 @@ function quat.basis(
     local xy, xz, yz = x * y, x * z, y * z
     local wx, wy, wz = w * x, w * y, w * z
 
-    return 1 - 2 * (
-        yy + zz
-    ), 2 * (
-        xy + wz
-    ), 2 * (xz - wy), 2 * (xy - wz), 1 - 2 * (xx + zz), 2 * (yz + wx), 2 * (xz + wy), 2 * (yz - wx), 1 - 2 * (xx + yy)
+    local m00, m10, m20 = 1 - 2 * (yy + zz), 2 * (xy + wz), 2 * (xz - wy)
+    local m01, m11, m21 = 2 * (xy - wz), 1 - 2 * (xx + zz), 2 * (yz + wx)
+    local m02, m12, m22 = 2 * (xz + wy), 2 * (yz - wx), 1 - 2 * (xx + yy)
+
+    return m00, m10, m20, m01, m11, m21, m02, m12, m22
 end
 
 --- Writes a unit rotation as a four-by-four column-major matrix with no translation.
