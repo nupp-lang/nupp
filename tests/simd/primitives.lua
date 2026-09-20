@@ -292,7 +292,21 @@ local function run(): number
     end
     source[#source + 1] = "    return cases\nend\nreturn {run = run, " .. table.concat(exports, ", ") .. "}\n"
 
-    return table.concat(source):gsub("PATTERNS", (ty == "float" or ty == "number") and "5" or "3"), names, ops
+    local generated = table.concat(source):gsub("PATTERNS", (ty == "float" or ty == "number") and "5" or "3")
+    if ty == "int64" or ty == "uint64" then
+        -- These lanes are bounded small integers. Wide wrapping comparisons
+        -- stay exact; this only transports the numeric scalar oracle on Lua5.1.
+        generated = [[local function smallNumber(value: any): number
+    local numeric = assert(tonumber(tostring(value):match("^%-?%d+")))
+    assert(numeric >= -9007199254740991 and numeric <= 9007199254740991, "small wide oracle value exceeds exact numeric range")
+    return numeric
+end
+]]
+            .. generated:gsub("tonumber%(readable", "smallNumber(readable")
+            :gsub("tonumber%(writable", "smallNumber(writable")
+    end
+
+    return generated, names, ops
 end
 
 local function generateLanes(options)
