@@ -798,7 +798,9 @@ function aot.wasmDispatch(
     local rewritten = source
     local replacements: {any} = {}
     for _, family in ipairs(constFamilies or {}) do
-        replacements[#replacements + 1] = {site = family.site, text = wasmBinding.familyReplacement(family, unit, independent)}
+        replacements[
+            #replacements + 1
+        ] = {site = family.site, text = wasmBinding.familyReplacement(family, unit, independent)}
     end
     for position, program in ipairs(programs) do
         local site = sites[position]
