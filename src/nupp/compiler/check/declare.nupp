@@ -180,6 +180,36 @@ local function inheritMembers(n: any, super: any, selfMap: {[any]: any}): nil
     end
 end
 
+--- Whether following declared interface parents from `from` reaches `target`.
+---
+--- Generic applications are views of one declaration graph, so the origin is the
+--- identity that closes a cycle. The visited set is keyed the same way: changing type
+--- arguments does not turn a declaration cycle into a valid hierarchy.
+local function inheritsDeclaration(from: Type, target: T.Nominal, seen: {[string]: boolean}?): boolean
+    from = T.unwrapOwnership(from)
+    if from.tag ~= "nominal" then
+        return false
+    end
+    local nominal = from as T.Nominal
+    local origin = (nominal.origin or nominal) as T.Nominal
+    local targetOrigin = (target.origin or target) as T.Nominal
+    if origin == targetOrigin or origin.id == targetOrigin.id then
+        return true
+    end
+    seen = seen or {}
+    if seen[origin.id] then
+        return false
+    end
+    seen[origin.id] = true
+    for _, parent in ipairs(nominal.supertypes or {}) do
+        if inheritsDeclaration(parent, targetOrigin, seen) then
+            return true
+        end
+    end
+
+    return false
+end
+
 --- The same member with no suspension guarantee asked of it.
 ---
 --- A declaration's own methods are qualified only once the file's effects have
@@ -911,6 +941,37 @@ function declare.install(
         for _, super in ipairs(n.supertypes or {}) do
             if super.defaultEntries and super.defaultEntries[member] then
                 return super.name
+            end
+        end
+
+        return nil
+    end
+
+    --- The interface whose inherited method slot a local method replaces, if any.
+    --- Overloads replace one slot at a time; a new parameter pack is an addition and
+    --- therefore neither needs nor accepts `@override`.
+    local function inheritedMethod(n: any, name: string, signature: T.Func, member: string): string?
+        local localCallable = dropSelf(signature) as T.Func
+        local positionalKey = methodslots.unlabeledParameters(localCallable)
+        for _, super in ipairs(n.supertypes or {}) do
+            local inheritedEntries = super.methodDispatchEntries and super.methodDispatchEntries[name] or {}
+            if #inheritedEntries > 0 then
+                for _, inherited in ipairs(inheritedEntries) do
+                    local inheritedCallable = dropSelf(inherited.signature) as T.Func
+                    if inherited.member == member
+                        or (
+                            methodslots.unlabeledParameters(inheritedCallable) == positionalKey
+                            and implementationLabelsFit(localCallable, inheritedCallable)
+                        )
+                    then
+                        return T.tostring(super)
+                    end
+                end
+            else
+                local inherited = super.byname and super.byname[name] or nil
+                if inherited and isCallable(inherited) then
+                    return T.tostring(super)
+                end
             end
         end
 
@@ -1807,6 +1868,19 @@ function declare.install(
                         superNode,
                         ("%s may inherit contracts only from interfaces"):format(stat.declKind)
                     )
+                elseif n.declKind == "interface" and inheritsDeclaration(super, n) then
+                    local superOrigin = (super.origin or super) as T.Nominal
+                    if superOrigin == n or superOrigin.id == n.id then
+                        c.diag("NUPP2117", superNode, ("interface %s cannot implement itself"):format(n.name))
+                    else
+                        c.diag(
+                            "NUPP2117",
+                            superNode,
+                            (
+                                "interface %s cannot implement %s because that would create an interface cycle"
+                            ):format(n.name, T.tostring(super))
+                        )
+                    end
                 else
                     if super.affineInterface then
                         n.affineInterface = true
@@ -2462,32 +2536,33 @@ function declare.install(
                         }
                     end
                     e.overridesDefault = receiver and inheritedDefault(n, memberName) or nil
+                    local overrides = e.overridesDefault
+                    if receiver and stat.declKind == "interface" then
+                        overrides = inheritedMethod(n, name, ft as T.Func, memberName)
+                    end
                     if not receiver and isOverride then
-                        c.diag("NUPP2118", e.name, "a static function cannot override an instance default", nil, {
+                        c.diag("NUPP2118", e.name, "a static function cannot override an instance method", nil, {
                             help = "add `self` as the first parameter, or remove @override"
                         })
-                    elseif e.overridesDefault and not isOverride then
+                    elseif overrides and not isOverride then
                         c.diag(
                             "NUPP2118",
                             e.name,
                             (
-                                "%q replaces the matching default %s declares, which " .. "has to be said"
-                            ):format(name, e.overridesDefault),
+                                "%q replaces the matching method %s declares, which " .. "has to be said"
+                            ):format(name, overrides),
                             nil,
                             {help = "write @override above it"}
                         )
-                    elseif isOverride and not e.overridesDefault then
+                    elseif isOverride and not overrides then
                         c.diag(
                             "NUPP2118",
                             e.name,
                             (
-                                "%q overrides nothing: no interface this declares " .. "provides that parameter pack"
+                                "%q overrides nothing: no interface this declares " .. "has that parameter pack"
                             ):format(name),
                             nil,
-                            {
-                                help = "remove @override, or declare the interface "
-                                .. "that provides the matching default"
-                            }
+                            {help = "remove @override, or declare the interface " .. "that has the matching method"}
                         )
                     end
                     if receiver then

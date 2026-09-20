@@ -441,8 +441,10 @@ local ENTRIES: {any} = {
         summary = "A declaration contains an invalid or conflicting member",
         rule = "A declaration has one member of a given name and capability. "
         .. "Duplicate fields, methods with the same parameter pack, conflicting "
-        .. "static and instance members, and unknown metamethods cannot describe "
-        .. "one coherent contract.",
+        .. "static and instance members, unknown metamethods, and incompatible "
+        .. "interface overrides cannot describe one coherent contract. A method "
+        .. "overriding a child interface's inherited slot must say @override; a "
+        .. "concrete implementor needs it when replacing inherited default behavior.",
         wrong = "local record Pair\n    first: string\n    first: integer\nend\n\n" .. "return Pair\n",
         right = "local record Pair\n    first: string\n    second: integer\nend\n\n" .. "return Pair\n",
         related = {"NUPP2004", "NUPP2123"},
@@ -1687,8 +1689,8 @@ ENTRIES[
     #ENTRIES + 1
 ] = {
     code = "NUPP2117",
-    summary = "A declaration names something other than an interface after `is`",
-    rule = "Only an interface may appear after `is` on a record or struct declaration, because that is the only declaration kind able to state a contract for another to inherit. A record, struct, alias, or any other named value is refused there, even when its shape happens to match.",
+    summary = "A declaration names an invalid interface after `is`",
+    rule = "Only an interface may appear after `is` on a record, struct, or interface declaration, because that is the only declaration kind able to state a contract for another to inherit. An interface cannot implement itself, directly or through other interfaces: the declared hierarchy must be acyclic. A record, struct, alias, or any other named value is refused there even when its shape happens to match.",
     wrong = "local record Other\nend\n\nlocal record Bad is Other\nend\n\nreturn Bad\n",
     right = "local interface Other\nend\n\nlocal record Bad is Other\nend\n\nreturn Bad\n",
     related = {"NUPP2116", "NUPP2136"},

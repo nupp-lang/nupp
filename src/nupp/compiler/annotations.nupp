@@ -277,7 +277,7 @@ local BUILTINS = {
         name = "override",
         arguments = "none",
         targets = {"function"},
-        doc = "Marks a member that replaces an interface's default implementation; an error both on a misspelled override and on one that replaces nothing.",
+        doc = "Marks a method that replaces an inherited interface method; required on child-interface overrides and on implementations replacing a default, and an error when no matching method exists.",
         docsPath = "reference/annotations#built-in-annotations",
     },
     {

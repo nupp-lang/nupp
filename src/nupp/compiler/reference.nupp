@@ -705,7 +705,7 @@ return m
 
     new reference.Section(
         title = "Interfaces",
-        codes = {"NUPP2001", "NUPP2136"},
+        codes = {"NUPP2001", "NUPP2117", "NUPP2136"},
         body = [=[
 An interface declares a shape without a body. `record X is Y` states that X
 includes Y. The checker holds every member X writes to Y's own, and trusts X for
@@ -714,6 +714,9 @@ the members it leaves to be installed at run time.
 `sealed interface` instead requires an explicit `is` declaration in its owning
 module. The modifier follows visibility: `local sealed interface Token`. It adds
 no wrapper, dispatch, or runtime check.
+
+An interface cannot implement itself, and interface inheritance cannot contain
+a cycle. `NUPP2117` reports the `is` edge that would close one.
 ]=],
         example = [=[
 local m = {}
@@ -743,10 +746,11 @@ is written rather than looked up at run time.
 This is the one thing that gives an interface a runtime presence: one that
 declares only signatures still emits nothing.
 
-`@override` is required on a member replacing an inherited default, and is an
-error on one replacing nothing. Two interfaces providing the same name are two
-implementations and no reason to prefer either, so the declaration writes the
-member itself to say which behavior it means. Both are `NUPP2118`.
+`@override` is required on a child interface method replacing any inherited
+method, and on a concrete implementation replacing an inherited default. It is
+an error on one replacing no matching method. Two interfaces providing the same
+name are two implementations and no reason to prefer either, so the declaration
+writes the member itself to say which behavior it means. These are `NUPP2118`.
 ]=],
         example = [=[
 local m = {}

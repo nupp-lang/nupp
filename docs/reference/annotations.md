@@ -354,9 +354,10 @@ not a judgement: naming one reports `NUPP2108` and the error stands.
 
 ### `@override`
 
-`@override` marks a member that replaces a default implementation an interface
-provides. It is required there, and equally an error on a member that replaces
-nothing:
+`@override` marks a method that replaces an inherited interface method. It is
+required on every method override in a child interface, and on a concrete
+implementor that replaces an inherited default. It is equally an error when no
+matching inherited parameter pack exists:
 
 ```nupp
 local interface Greeter

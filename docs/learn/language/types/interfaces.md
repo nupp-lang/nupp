@@ -118,7 +118,8 @@ A struct is held to one more thing. Its layout is closed, so a parent member no
 struct field can hold, such as `name: string`, cannot be installed later either,
 and the claim is refused where a record's would be trusted.
 
-Only interfaces may be named after `is`, and anything else is reported.
+Only interfaces may be named after `is`, and anything else is reported. An
+interface cannot name itself, directly or through a cycle of other interfaces.
 Multiple parents are allowed:
 
 ```nupp
@@ -264,10 +265,10 @@ Two interfaces providing the same name is refused. They are two implementations
 and no reason to prefer either, so the declaration writes the member itself to
 say which behavior it means.
 
-### Replacing a default
+### Explicit overrides
 
-`@override` is required on a member that replaces an inherited default, and is
-equally an error on one that replaces nothing:
+`@override` is required on a concrete method that replaces an inherited default,
+and is equally an error on one that replaces nothing:
 
 ```nupp
 local record Shouter is Greeter
@@ -282,6 +283,24 @@ end
 
 That catches a misspelled name that would define a new method and a later
 interface default that would shadow an implementor's method.
+
+A child interface is a subtype rather than a concrete implementor, so every
+method body replacing an inherited method uses `@override` even when the parent
+declared only a signature. The replacement is checked against the inherited
+signature, with ordinary parameter and result variance:
+
+```nupp
+local interface Named
+    render: function(self, prefix: string): string
+end
+
+local interface Labeled is Named
+    @override
+    function render(self, prefix: string): "label"
+        return "label"
+    end
+end
+```
 
 For an overloaded default, replacement is matched by parameter pack rather than
 source name alone. Each repeated method body is a separate entry, so a record

@@ -904,6 +904,60 @@ function M.aDeclaredMemberMustFitTheClaimedContract()
     )
 end
 
+function M.subtypeMethodOverridesAreExplicitAndCompatible()
+    local parent = table.concat(
+        {"local interface Parent", "   convert: function(self, value: string): string", "end",},
+        "\n"
+    )
+    assertEq(
+        diagsOf(
+            parent .. table.concat(
+                {
+                    "",
+                    "local interface Child is Parent",
+                    "   function convert(self, value: string): string",
+                    "      return value",
+                    "   end",
+                    "end",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2118:5"
+    )
+    assertClean(
+        parent .. table.concat(
+            {
+                "",
+                "local interface Child is Parent",
+                "   @override",
+                "   function convert(self, value: string): 'child'",
+                "      return 'child'",
+                "   end",
+                "end",
+            },
+            "\n"
+        )
+    )
+    assertEq(
+        diagsOf(
+            parent .. table.concat(
+                {
+                    "",
+                    "local interface Child is Parent",
+                    "   @override",
+                    "   function convert(self, value: integer): string",
+                    "      return tostring(value)",
+                    "   end",
+                    "end",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2118:6"
+    )
+end
+
 -- An affine contract's terminal consumes its receiver. Implementing it with a
 -- borrowing receiver would run as the terminal without taking anything.
 function M.aTerminalTakesItsReceiverTheWayTheContractSays()

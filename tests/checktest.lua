@@ -1003,6 +1003,24 @@ function M.inheritedContractsBoundsAndSelf()
     )
 end
 
+function M.interfaceInheritanceRejectsCycles()
+    assertEq(diagsOf("local interface Self is Self\nend"), "NUPP2117:1")
+    assertEq(
+        diagsOf(table.concat({"local interface A is B", "end", "local interface B is A", "end",}, "\n")),
+        "NUPP2117:3"
+    )
+    assertEq(
+        diagsOf(
+            table.concat(
+                {"local interface A is B", "end", "local interface B is C", "end", "local interface C is A", "end",},
+                "\n"
+            )
+        ),
+        "NUPP2117:5"
+    )
+    assertEq(diagsOf("local interface Recursive<T> is Recursive<{T}>\nend"), "NUPP2117:1")
+end
+
 function M.genericIndexContracts()
     assertClean(
         table.concat(
@@ -1082,14 +1100,10 @@ function M.operatorContracts()
         local contract = (
             "   metamethod %s: function(left: %s, right: %s): boolean"
         ):format(metamethod, contractOnRight and "Right" or "Left", contractOnRight and "Left" or "Right")
-        local left = contractOnRight and "local record Left end" or table.concat(
-            {"local record Left", contract, "end",},
-            "\n"
-        )
-        local right = contractOnRight and table.concat(
-            {"local record Right", contract, "end",},
-            "\n"
-        ) or "local record Right end"
+        local left = contractOnRight and "local record Left end"
+            or table.concat({"local record Left", contract, "end",}, "\n")
+        local right = contractOnRight and table.concat({"local record Right", contract, "end",}, "\n")
+            or "local record Right end"
         assertClean(
             table.concat(
                 {
@@ -1901,11 +1915,14 @@ end
 -- narrower one goes where a wider one is wanted, and nothing enters it that is not
 -- already narrowed at least as far. A literal is decided rather than admitted.
 function M.constrainedTypesNarrowTheirBase()
-    local aliases = table.concat({
-        "local type Percent = nupp.types.range(integer, 0, 100)",
-        "local type Digit = nupp.types.range(Percent, 0, 9)",
-        "local type Short = nupp.types.length(string, 1, 4)",
-    }, "\n")
+    local aliases = table.concat(
+        {
+            "local type Percent = nupp.types.range(integer, 0, 100)",
+            "local type Digit = nupp.types.range(Percent, 0, 9)",
+            "local type Short = nupp.types.length(string, 1, 4)",
+        },
+        "\n"
+    )
     assertClean(aliases .. "\nlocal function widen(p: Percent): integer\n   return p\nend\nreturn widen")
     assertClean(aliases .. "\nlocal function fits(d: Digit): Percent\n   return d\nend\nreturn fits")
     assertClean(aliases .. "\nlocal ok: Percent = 50\nreturn ok")
@@ -1913,7 +1930,10 @@ function M.constrainedTypesNarrowTheirBase()
     -- the wider one is not established as the narrower
     assertEq((diagsOf(aliases .. "\nlocal function no(p: Percent): Digit\n   return p\nend\nreturn no")), "NUPP2002:5")
     -- nor is the bare base
-    assertEq((diagsOf(aliases .. "\nlocal function no(n: integer): Percent\n   return n\nend\nreturn no")), "NUPP2002:5")
+    assertEq(
+        (diagsOf(aliases .. "\nlocal function no(n: integer): Percent\n   return n\nend\nreturn no")),
+        "NUPP2002:5"
+    )
     -- a literal outside the interval is a violation, not a missing admission
     assertEq((diagsOf(aliases .. "\nlocal no: Percent = 101\nreturn no")), "NUPP2001:4")
     assertEq((diagsOf(aliases .. "\nlocal no: Short = 'abcde'\nreturn no")), "NUPP2001:4")
