@@ -2685,8 +2685,9 @@ record nupp.QuatLibrary
     --- Interpolates between two unit rotations the short way around, blending
     --- components rather than the arc.
     ---
-    --- Cheaper than `slerp` and not constant in angular speed. The endpoints are
-    --- answered rather than computed, so `nlerp(a, b, 1)` is `b`.
+    --- Cheaper than `slerp` and not constant in angular speed. If the short route ends
+    --- at `-b`, that spelling is kept through `t == 1` so the four components stay
+    --- continuous.
     --- @param ax the starting rotation's x component
     --- @param ay the starting rotation's y component
     --- @param az the starting rotation's z component
@@ -2716,8 +2717,9 @@ record nupp.QuatLibrary
     --- angular speed.
     ---
     --- Nearly parallel endpoints fall back to `nlerp`, whose answer they agree on
-    --- where the arc the spherical form divides by has vanished. The endpoints are
-    --- answered rather than computed, so `slerp(a, b, 1)` is `b`.
+    --- where the arc the spherical form divides by has vanished. If the short route
+    --- ends at `-b`, that spelling is kept through `t == 1` so the four components
+    --- stay continuous.
     --- @param ax the starting rotation's x component
     --- @param ay the starting rotation's y component
     --- @param az the starting rotation's z component

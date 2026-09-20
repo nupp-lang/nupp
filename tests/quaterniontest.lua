@@ -262,17 +262,22 @@ function M.interpolationReachesTheHalfAngle()
     end
 end
 
-function M.interpolationAnswersItsEndpoints()
-    -- As `vec2.lerp` does: the endpoint is answered rather than computed, so it is the
-    -- number that was passed in and not one a blend happened to land on.
-    local ax, ay, az, aw = quat.normalize(0.3, -0.7, 0.2, 0.9)
-    local bx, by, bz, bw = quat.normalize(-0.1, 0.4, 0.8, 0.2)
+function M.interpolationKeepsItsEndpointHemisphere()
+    local ax, ay, az, aw = quat.identity()
+    local bx, by, bz, bw = quat.fromAxisAngle(0, 0, 1, math.pi / 2)
+    bx, by, bz, bw = -bx, -by, -bz, -bw
     for _, name in ipairs({"slerp", "nlerp"}) do
         local blend = quat[name]
         local x, y, z, w = blend(ax, ay, az, aw, bx, by, bz, bw, 0)
         assertRotation(name .. " at zero", nil, rotationOf(x, y, z, w), {ax, ay, az, aw})
+
+        local nearX, nearY, nearZ, nearW = blend(ax, ay, az, aw, bx, by, bz, bw, 1 - 1e-9)
         x, y, z, w = blend(ax, ay, az, aw, bx, by, bz, bw, 1)
-        assertRotation(name .. " at one", nil, rotationOf(x, y, z, w), {bx, by, bz, bw})
+        assertRotation(name .. " keeps the short endpoint", 1e-12, rotationOf(x, y, z, w), {-bx, -by, -bz, -bw})
+        assert(
+            quat.dot(nearX, nearY, nearZ, nearW, x, y, z, w) > 0,
+            name .. " must not flip component signs at the endpoint"
+        )
     end
 end
 

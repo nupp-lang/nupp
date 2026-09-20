@@ -1168,8 +1168,8 @@ end
 --- Interpolates between two unit rotations along the short way around, blending the
 --- components rather than the arc.
 ---
---- Cheaper than `slerp` and not constant in angular speed. The endpoints are answered
---- rather than computed, so `nlerp(a, b, 1)` is `b`.
+--- Cheaper than `slerp` and not constant in angular speed. If the short route ends at
+--- `-b`, that spelling is kept through `t == 1` so the four components stay continuous.
 function quat.nlerp(
     ax: number,
     ay: number,
@@ -1183,8 +1183,6 @@ function quat.nlerp(
 ): number, number, number, number
     if t == 0 then
         return ax, ay, az, aw
-    elseif t == 1 then
-        return bx, by, bz, bw
     end
     local sign = ax * bx + ay * by + az * bz + aw * bw < 0 and -1 or 1
     local u = 1 - t
@@ -1201,8 +1199,9 @@ end
 --- angular speed.
 ---
 --- Nearly parallel endpoints fall back to `nlerp`, because the arc the spherical form
---- divides by vanishes there while the answer it is converging on does not. The
---- endpoints are answered rather than computed, so `slerp(a, b, 1)` is `b`.
+--- divides by vanishes there while the answer it is converging on does not. If the
+--- short route ends at `-b`, that spelling is kept through `t == 1` so the four
+--- components stay continuous.
 function quat.slerp(
     ax: number,
     ay: number,
@@ -1216,8 +1215,6 @@ function quat.slerp(
 ): number, number, number, number
     if t == 0 then
         return ax, ay, az, aw
-    elseif t == 1 then
-        return bx, by, bz, bw
     end
     local d = ax * bx + ay * by + az * bz + aw * bw
     local sign = 1
