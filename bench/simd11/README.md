@@ -232,3 +232,12 @@ and an LF-only fence reader in the SPI documentation test. The reader now
 accepts CRLF, with both LF and CRLF examples building and selecting the provider
 and fallback. The original failed run is retained as historical evidence, not
 a final-head Windows pass.
+
+The [complete GCC16 NEON matrix](results/native-gcc-neon-7e32e50a.json)
+also passes all 24 canonical rows at the same `7e32e50a` source, with no
+failed or unavailable rows. Its selection and comparison/probe/call counts
+match the Clang record. Every formerly failing GCC primitive row now has
+full-width execution on both routes, with strict warnings retained. All 57
+required corpus regions have artifact proof. These are local correctness
+results; execution elapsed time is not a performance measurement, and
+platforms still awaiting CI are not counted as passed.
