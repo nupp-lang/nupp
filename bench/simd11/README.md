@@ -87,6 +87,35 @@ for the named optimization, not fresh measurements of the final SIMD-11 head.
 
 ## Acceptance ledger
 
-The completed ledger will link executable correctness, actual feature-tier
-execution, malformed-IR refusals, assembly contracts, platform/compiler runs,
-and measurements. A compile-only result does not count as executing a tier.
+| Requirement | Permanent evidence |
+| --- | --- |
+| Primitive types, species, tails, masks and input classes | [Shared corpus inventory](../../tests/simd/coverage.md) |
+| Exact and algebraic reducer contracts | [Reducer corpus](../../tests/simd/reducers.lua), [numerical rules](../../docs/learn/performance/ahead-of-time/numeric-semantics.md) |
+| Actual native and Wasm entry execution | [Shared runners and retained proof](../../tests/simd/README.md) |
+| Clang/GCC, operating systems and exact feature tiers | [CI matrix](../../.github/workflows/simd-conformance.yml), [platform inventory](../../.github/simd-platforms.json) |
+| Malformed regions, reducers, masks, vectors and lane indices | [Verifier fixtures](../../tests/aotverifytest.lua) |
+| Ordered, pairwise, algebraic and FMA assembly contracts | [AOT CLI checks](../../tests/aotclitest.lua) |
+| Native arithmetic versus a separate optimized no-vector control | Preparation checks and saved assembly in [the measurement harness](measure.py) |
+| Complete-function duration comparisons | New measurements below and the separately identified historical comparisons above |
+
+Every execution report records its selection, source and artifact identities,
+compiler, tier, assertion count and completed native calls. A compile-only result
+does not count as executing a tier. Unavailable hardware remains missing
+acceptance evidence even when all executable rows pass; modeled layouts outside
+the provisioned runtime matrix are listed in
+[runtime boundaries](../../tests/simd/runtime-boundaries.json).
+
+## New complete-function measurements
+
+The [qualified NEON result](results/arm64-macos-20260919-3.md) has eleven
+improved cases and five slower cases against the optimized no-vector control.
+The colocated control's process-median CV is 2.07%. The slower cases are
+refinement at both sizes, cross-lane processing at both sizes, and 63-byte ASCII
+UTF-8. [Artifact analysis](results/arm64-macos-20260919-notes.md) identifies
+their additional work without assigning an unmeasured share of the duration to
+individual instructions.
+
+The [rejected launch](results/arm64-macos-20260919.md) collected no samples
+because another compiler task was active. The [first full run](results/arm64-macos-20260919-2.md)
+failed the frozen 5% control-CV gate at 5.88%. Both remain recorded alongside
+the qualified repeat; inputs, thresholds and statistical rules were unchanged.

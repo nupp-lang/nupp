@@ -1,0 +1,290 @@
+{
+  "metadata": {
+    "revision": "9d7b176efc89d89f6ff43e8b7ea52daea33c6f9c",
+    "dirtyDiff": "diff --git a/bench/simd11/README.md b/bench/simd11/README.md\nindex c653df50..46d5b289 100644\n--- a/bench/simd11/README.md\n+++ b/bench/simd11/README.md\n@@ -87,6 +87,20 @@ for the named optimization, not fresh measurements of the final SIMD-11 head.\n \n ## Acceptance ledger\n \n-The completed ledger will link executable correctness, actual feature-tier\n-execution, malformed-IR refusals, assembly contracts, platform/compiler runs,\n-and measurements. A compile-only result does not count as executing a tier.\n+| Requirement | Permanent evidence |\n+| --- | --- |\n+| Primitive types, species, tails, masks and input classes | [Shared corpus inventory](../../tests/simd/coverage.md) |\n+| Exact and algebraic reducer contracts | [Reducer corpus](../../tests/simd/reducers.lua), [numerical rules](../../docs/learn/performance/ahead-of-time/numeric-semantics.md) |\n+| Actual native and Wasm entry execution | [Shared runners and retained proof](../../tests/simd/README.md) |\n+| Clang/GCC, operating systems and exact feature tiers | [CI matrix](../../.github/workflows/simd-conformance.yml), [platform inventory](../../.github/simd-platforms.json) |\n+| Malformed regions, reducers, masks, vectors and lane indices | [Verifier fixtures](../../tests/aotverifytest.lua) |\n+| Ordered, pairwise, algebraic and FMA assembly contracts | [AOT CLI checks](../../tests/aotclitest.lua) |\n+| Native arithmetic versus a separate optimized no-vector control | Preparation checks and saved assembly in [the measurement harness](measure.py) |\n+| Complete-function duration comparisons | New measurements below and the separately identified historical comparisons above |\n+\n+Every execution report records its selection, source and artifact identities,\n+compiler, tier, assertion count and completed native calls. A compile-only result\n+does not count as executing a tier. Unavailable hardware remains missing\n+acceptance evidence even when all executable rows pass; modeled layouts outside\n+the provisioned runtime matrix are listed in\n+[runtime boundaries](../../tests/simd/runtime-boundaries.json).\n",
+    "sourceSha256": "321ce2f318c5638015cf5a5e69782437cb2e25a0035f176f9cb3b7b1fc79c052",
+    "compiler": "Apple clang version 21.0.0 (clang-2100.3.34.2)\nTarget: arm64-apple-darwin25.6.0\nThread model: posix\nInstalledDir: /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin\n",
+    "host": "macOS-26.6-arm64-arm-64bit",
+    "target": {
+      "triple": "aarch64-apple-darwin",
+      "architecture": "aarch64",
+      "tier": "neon"
+    },
+    "artifacts": {
+      "native": {
+        "path": "/private/tmp/nupp-simd11-performance/bench/simd11/build/native.dylib",
+        "sha256": "88cd5ad5c934c0d8e34009351384734e49c5ccfbfd6bbf9c9c85d3f468df4461",
+        "sourceSha256": "15b4cc6371b9dc6622ea783b6bacbfb5516159f6a63a9f127c25bf583c0e56f0",
+        "assemblySha256": "58131bb08723e91d8df2ccb3f8192d3e2fc6ffe43156854a8f0df43c2250d7fa",
+        "command": [
+          "clang",
+          "-std=c11",
+          "-O3",
+          "-ffp-contract=off",
+          "-fno-fast-math",
+          "-fPIC",
+          "-D_POSIX_C_SOURCE=200809L",
+          "-Wall",
+          "-Wextra",
+          "-Werror",
+          "-Wno-parentheses-equality",
+          "-dynamiclib",
+          "/private/tmp/nupp-simd11-performance/bench/simd11/build/native.c",
+          "-lm",
+          "-o",
+          "/private/tmp/nupp-simd11-performance/bench/simd11/build/native.dylib"
+        ]
+      },
+      "no_vector": {
+        "path": "/private/tmp/nupp-simd11-performance/bench/simd11/build/no_vector.dylib",
+        "sha256": "7c6523c3b71a99ec010e7d1856485fd3bf7a2030a8c3d63069fdc72e1c4f48d0",
+        "sourceSha256": "8edf8651568c8100db39db56f2fd8487b29a8f4cdf2a9bb631375557eeacce7f",
+        "assemblySha256": "302cf0a5e3a7af75f336d38e9f14413f9391ea02e699a07ac91407e167c0c499",
+        "command": [
+          "clang",
+          "-std=c11",
+          "-O3",
+          "-ffp-contract=off",
+          "-fno-fast-math",
+          "-fPIC",
+          "-D_POSIX_C_SOURCE=200809L",
+          "-Wall",
+          "-Wextra",
+          "-Werror",
+          "-Wno-parentheses-equality",
+          "-fno-vectorize",
+          "-fno-slp-vectorize",
+          "-dynamiclib",
+          "/private/tmp/nupp-simd11-performance/bench/simd11/build/no_vector.c",
+          "-lm",
+          "-o",
+          "/private/tmp/nupp-simd11-performance/bench/simd11/build/no_vector.dylib"
+        ]
+      }
+    },
+    "declarations": {
+      "map": {
+        "symbol": "ks_map",
+        "result": "void",
+        "params": "double *restrict p_output, const double *p_input, double p_scale, double p_bias, size_t count",
+        "arguments": [
+          "p_output",
+          "p_input",
+          "p_scale",
+          "p_bias",
+          "count"
+        ]
+      },
+      "refine": {
+        "symbol": "ks_refine",
+        "result": "void",
+        "params": "double *restrict p_output, const double *p_input, size_t count",
+        "arguments": [
+          "p_output",
+          "p_input",
+          "count"
+        ]
+      },
+      "ordered": {
+        "symbol": "ks_ordered",
+        "result": "double",
+        "params": "const double *p_left, const double *p_right, size_t count_left, size_t count_right",
+        "arguments": [
+          "p_left",
+          "p_right",
+          "count_left",
+          "count_right"
+        ]
+      },
+      "pairwise": {
+        "symbol": "ks_pairwise",
+        "result": "double",
+        "params": "const double *p_left, const double *p_right, size_t count_left, size_t count_right",
+        "arguments": [
+          "p_left",
+          "p_right",
+          "count_left",
+          "count_right"
+        ]
+      },
+      "algebraic": {
+        "symbol": "ks_algebraic",
+        "result": "double",
+        "params": "const double *p_left, const double *p_right, size_t count_left, size_t count_right",
+        "arguments": [
+          "p_left",
+          "p_right",
+          "count_left",
+          "count_right"
+        ]
+      },
+      "crossLane": {
+        "symbol": "ks_cross_lane",
+        "result": "void",
+        "params": "int32_t *restrict p_output, const int32_t *p_input, size_t count_output, size_t count_input",
+        "arguments": [
+          "p_output",
+          "p_input",
+          "count_output",
+          "count_input"
+        ]
+      },
+      "crossWidth": {
+        "symbol": "ks_cross_width",
+        "result": "uint32_t",
+        "params": "",
+        "arguments": []
+      }
+    },
+    "controlTransformation": "Only KS_SCALAR_ORACLE attributes removed; optimization O3, auto-vectorization disabled",
+    "scope": "Complete exported C entry, including setup/tails/finalization; Lua checked wrapper and input construction outside timer",
+    "assemblyContracts": {
+      "native": {
+        "ks_map": 15,
+        "ks_refine": 35,
+        "ks_ordered": 12,
+        "ks_pairwise": 12,
+        "ks_algebraic": 8,
+        "ks_cross_lane": 8
+      },
+      "no_vector": {
+        "ks_map_forced_scalar": 0,
+        "ks_refine_forced_scalar": 0,
+        "ks_ordered_forced_scalar": 0,
+        "ks_pairwise_forced_scalar": 0,
+        "ks_algebraic_forced_scalar": 0,
+        "ks_cross_lane_forced_scalar": 0
+      }
+    },
+    "oracle": {
+      "sourceSha256": "5b9ccf64054b7b7089c461700b0716ed857491611dd5827c731511c35b24f1af",
+      "librarySha256": "88cd5ad5c934c0d8e34009351384734e49c5ccfbfd6bbf9c9c85d3f468df4461",
+      "symbols": [
+        "ks_map_forced_scalar",
+        "ks_refine_forced_scalar",
+        "ks_ordered_forced_scalar",
+        "ks_pairwise_forced_scalar",
+        "ks_algebraic_forced_scalar",
+        "ks_cross_lane_forced_scalar",
+        "ks_cross_width_forced_scalar"
+      ],
+      "timed": false
+    }
+  },
+  "utf8Metadata": {
+    "revision": "9d7b176efc89d89f6ff43e8b7ea52daea33c6f9c",
+    "dirtyDiff": "diff --git a/bench/simd11/README.md b/bench/simd11/README.md\nindex c653df50..46d5b289 100644\n--- a/bench/simd11/README.md\n+++ b/bench/simd11/README.md\n@@ -87,6 +87,20 @@ for the named optimization, not fresh measurements of the final SIMD-11 head.\n \n ## Acceptance ledger\n \n-The completed ledger will link executable correctness, actual feature-tier\n-execution, malformed-IR refusals, assembly contracts, platform/compiler runs,\n-and measurements. A compile-only result does not count as executing a tier.\n+| Requirement | Permanent evidence |\n+| --- | --- |\n+| Primitive types, species, tails, masks and input classes | [Shared corpus inventory](../../tests/simd/coverage.md) |\n+| Exact and algebraic reducer contracts | [Reducer corpus](../../tests/simd/reducers.lua), [numerical rules](../../docs/learn/performance/ahead-of-time/numeric-semantics.md) |\n+| Actual native and Wasm entry execution | [Shared runners and retained proof](../../tests/simd/README.md) |\n+| Clang/GCC, operating systems and exact feature tiers | [CI matrix](../../.github/workflows/simd-conformance.yml), [platform inventory](../../.github/simd-platforms.json) |\n+| Malformed regions, reducers, masks, vectors and lane indices | [Verifier fixtures](../../tests/aotverifytest.lua) |\n+| Ordered, pairwise, algebraic and FMA assembly contracts | [AOT CLI checks](../../tests/aotclitest.lua) |\n+| Native arithmetic versus a separate optimized no-vector control | Preparation checks and saved assembly in [the measurement harness](measure.py) |\n+| Complete-function duration comparisons | New measurements below and the separately identified historical comparisons above |\n+\n+Every execution report records its selection, source and artifact identities,\n+compiler, tier, assertion count and completed native calls. A compile-only result\n+does not count as executing a tier. Unavailable hardware remains missing\n+acceptance evidence even when all executable rows pass; modeled layouts outside\n+the provisioned runtime matrix are listed in\n+[runtime boundaries](../../tests/simd/runtime-boundaries.json).\n",
+    "sourceSha256": "275470802474353916e1ed24dfe9404b8001db8dce574b8f909dafa62b22cd09",
+    "compiler": "Apple clang version 21.0.0 (clang-2100.3.34.2)\nTarget: arm64-apple-darwin25.6.0\nThread model: posix\nInstalledDir: /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin\n",
+    "host": "macOS-26.6-arm64-arm-64bit",
+    "target": {
+      "triple": "aarch64-apple-darwin",
+      "architecture": "aarch64",
+      "tier": "neon"
+    },
+    "artifacts": {
+      "native": {
+        "path": "/private/tmp/nupp-simd11-performance/bench/simd11/build/utf8/native.dylib",
+        "sha256": "0c76381e7e127b42dc6273d237b01bbeb731fc50a2cd9945a55d3fd31604cfb5",
+        "sourceSha256": "3be9c77de899293f4856996f6e88c6ff585e34fada945403c824be373b86743f",
+        "assemblySha256": "9c66125d1aba8d463b373e50d776e752e102594f90ed884545e59e86a86b2954",
+        "command": [
+          "clang",
+          "-std=c11",
+          "-O3",
+          "-ffp-contract=off",
+          "-fno-fast-math",
+          "-fPIC",
+          "-D_POSIX_C_SOURCE=200809L",
+          "-Wall",
+          "-Wextra",
+          "-Werror",
+          "-Wno-parentheses-equality",
+          "-dynamiclib",
+          "/private/tmp/nupp-simd11-performance/bench/simd11/build/utf8/native.c",
+          "-lm",
+          "-o",
+          "/private/tmp/nupp-simd11-performance/bench/simd11/build/utf8/native.dylib"
+        ]
+      },
+      "no_vector": {
+        "path": "/private/tmp/nupp-simd11-performance/bench/simd11/build/utf8/no_vector.dylib",
+        "sha256": "0f0db752ef0b3970cee3c73f5fe3a9e28677d14dfa02b070f0e1e7c53d259985",
+        "sourceSha256": "2d506f4f60068140902afbc9a731a8aca2b98be9b64f9b14bda05249f50a89c6",
+        "assemblySha256": "8034af25b50f8cc1cd879772bf0f81529da14cff49d859d6d7040289419a6e03",
+        "command": [
+          "clang",
+          "-std=c11",
+          "-O3",
+          "-ffp-contract=off",
+          "-fno-fast-math",
+          "-fPIC",
+          "-D_POSIX_C_SOURCE=200809L",
+          "-Wall",
+          "-Wextra",
+          "-Werror",
+          "-Wno-parentheses-equality",
+          "-fno-vectorize",
+          "-fno-slp-vectorize",
+          "-dynamiclib",
+          "/private/tmp/nupp-simd11-performance/bench/simd11/build/utf8/no_vector.c",
+          "-lm",
+          "-o",
+          "/private/tmp/nupp-simd11-performance/bench/simd11/build/utf8/no_vector.dylib"
+        ]
+      }
+    },
+    "declarations": {
+      "validPrefix": {
+        "symbol": "ks_valid_prefix",
+        "result": "uint32_t",
+        "params": "const uint8_t *p_source, size_t count_source",
+        "arguments": [
+          "p_source",
+          "count_source"
+        ]
+      }
+    },
+    "controlTransformation": "Only KS_SCALAR_ORACLE attributes removed; optimization O3, auto-vectorization disabled",
+    "scope": "Complete exported C entry, including setup/tails/finalization; Lua checked wrapper and input construction outside timer",
+    "assemblyContracts": {
+      "native": {
+        "ks_valid_prefix": 9
+      },
+      "no_vector": {
+        "ks_valid_prefix_forced_scalar": 0
+      }
+    },
+    "oracle": {
+      "sourceSha256": "e3ee83dd66126ea6512fe885c05abbb27db56af42582418eb057b5afaf207068",
+      "librarySha256": "0c76381e7e127b42dc6273d237b01bbeb731fc50a2cd9945a55d3fd31604cfb5",
+      "symbols": [
+        "ks_valid_prefix_forced_scalar"
+      ],
+      "timed": false
+    }
+  },
+  "started": 1789873477.1299388,
+  "processes": [],
+  "environmentSamples": [
+    {
+      "time": 1789873477.162189,
+      "competing": [
+        {
+          "pid": 23115,
+          "parent": 23114,
+          "cpu": 79.8,
+          "command": "luajit /private/tmp/nupp-interface-cycle-guard/build/stage0/307e8ceef7a6d6e001c59510f3b60fcc1abd3ec85c7f9022fa8926e61b2c5295/nupp-f10eb69e49ce7d767081f8135e22662f0dacab4ff1a42d03ad884b4bac240016.lua build --out-dir _stage1 --target compiler"
+        },
+        {
+          "pid": 23116,
+          "parent": 23115,
+          "cpu": 20.8,
+          "command": "luajit /private/tmp/nupp-interface-cycle-guard/build/stage0/307e8ceef7a6d6e001c59510f3b60fcc1abd3ec85c7f9022fa8926e61b2c5295/nupp-f10eb69e49ce7d767081f8135e22662f0dacab4ff1a42d03ad884b4bac240016.lua __comptime-worker-service"
+        }
+      ]
+    }
+  ],
+  "qualified": false,
+  "exclusion": "competing activity before timing"
+}
