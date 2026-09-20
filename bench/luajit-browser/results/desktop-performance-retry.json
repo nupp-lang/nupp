@@ -1,0 +1,4739 @@
+{
+  "startedUtc": "2026-09-20T01:23:02.784357+00:00",
+  "revision": "f697aae596e5b75e0160129f9e09369a88551b45",
+  "previousAttempt": "/private/tmp/nupp-browser-quiet-retry-20260920/result.json (aborted after independent compiler activity was sampled; retained unchanged)",
+  "protocol": {
+    "scope": "Desktop browser performance retry after unrelated build completed; current branch bundle and verified ce7 rehearsal guest archive. Does not accept release budgets or physical devices.",
+    "comparison": "Within each fresh browser process alternate LuaJIT and legacy Lua 5.1 backends; no claim of improvement against older busy-host measurements.",
+    "workloads": [
+      "3 modeled 10 Mbps cold/cached delivery pairs in separate Chromium processes",
+      "3 fresh-process Chromium rounds for small/large edits and hover",
+      "3 fresh-process Chromium rounds for imported scoreboard check/compile/hover",
+      "1 fresh Chromium process family per backend for footprint"
+    ],
+    "primaryMetrics": [
+      "first diagnostic/output",
+      "warm edit p50/p95",
+      "first imported check",
+      "whole browser footprint above blank"
+    ],
+    "correctness": "Existing harnesses reject error diagnostics and runtime page errors; imported harness requires current edited output, hover type, and identical complete invalid-call diagnostics.",
+    "timingQualification": "Process sampler records all foreign compiler processes once per second. Keep all observations; any compiler overlap invalidates a quiet-host label. Per-run percentiles are samples, not confidence intervals.",
+    "timeoutSeconds": 480,
+    "hardStopUtc": "2026-09-20T01:29:00Z"
+  },
+  "assetHashes": {
+    "README.md": {
+      "bytes": 5650,
+      "sha256": "d83f008559a7115debfa212feb50e52a8c16270024e68c146a6d9d6edb2a4a82"
+    },
+    "app-worker.js": {
+      "bytes": 41368,
+      "sha256": "146eafd32b73153e7dc404ed1bde97e93ea71da3ffec00ea01a606c53b2694e7"
+    },
+    "app-worker.js.map": {
+      "bytes": 97893,
+      "sha256": "bd857b5761cb7952a52c92facbcfc8bb7f7311607e22b4feed585b765f0e41e4"
+    },
+    "app.js": {
+      "bytes": 882516,
+      "sha256": "1c79ffecf436ba9e64c51a6c7fc332b488cf738bc1bdd250e4baa3123cacd5ce"
+    },
+    "app.js.map": {
+      "bytes": 1851314,
+      "sha256": "313626dbd6a85a973de4c01434f2c884843b4b54413c69fccea8d6b49ee87b76"
+    },
+    "doc-app.js": {
+      "bytes": 883561,
+      "sha256": "cd62a3b4fdc71cae05889b354f6c86ed6ea325b4849ed3882761d1925adbbb13"
+    },
+    "doc-app.js.map": {
+      "bytes": 1839134,
+      "sha256": "391d8df8b45678e35291b14da2f5a122f96b381c1989cdf56688766f4738f328"
+    },
+    "embed.html": {
+      "bytes": 2294,
+      "sha256": "c843ed3e9299951edc74b6f3a3df53c9c90c7a91664b202df1213c987c8fb6a3"
+    },
+    "index.html": {
+      "bytes": 4265,
+      "sha256": "3d8fe18f6a4bbca84d89a06cd14cb3b5ae8079880e6d6d04a8db1805bc7f141d"
+    },
+    "legacy-app-worker.js": {
+      "bytes": 35339,
+      "sha256": "7fc35fb608302c337ad5321e45c729c14e9fcf6873ad792fdd2a93a6ca9a8897"
+    },
+    "legacy-app-worker.js.map": {
+      "bytes": 67219,
+      "sha256": "e536d55de1bb60fae9db3042b509e4da07f47d49b82143b276f4d202bed194a6"
+    },
+    "legacy-worker.js": {
+      "bytes": 5350,
+      "sha256": "b6c0960f98b0d8b75ee335aa3497e0e2afbf0e9ed945ee65c0eb2e78d9915f60"
+    },
+    "legacy-worker.js.map": {
+      "bytes": 10131,
+      "sha256": "8d07e77e77a221a45bea2de854c2f9f6aceca734e961b19628799cc00d8780c6"
+    },
+    "luajit/25ac4dcdb02ba761641be35ce90b9c40f8bd1dc6d4c61f0b3e65aed1f073be87/aot.mjs": {
+      "bytes": 6740,
+      "sha256": "7ea3bde6ac41dd57ca113246ba8e22fa65f55c5ac26b6ad924c85dcd2eed6cb5"
+    },
+    "luajit/25ac4dcdb02ba761641be35ce90b9c40f8bd1dc6d4c61f0b3e65aed1f073be87/app-runtime.mjs": {
+      "bytes": 6877,
+      "sha256": "f340bd57a6ee4683c6ff5c14e5fe5b17833b76d7fbedd43e97f4eee7f80af444"
+    },
+    "luajit/25ac4dcdb02ba761641be35ce90b9c40f8bd1dc6d4c61f0b3e65aed1f073be87/assets/bios.bin": {
+      "bytes": 131072,
+      "sha256": "9d6a8e5e31511ccc8370cd7001b34502d41af4db145db4ff3dbc88cd587737c3"
+    },
+    "luajit/25ac4dcdb02ba761641be35ce90b9c40f8bd1dc6d4c61f0b3e65aed1f073be87/assets/bzimage.bin": {
+      "bytes": 1593856,
+      "sha256": "75322a337194196cd392ee472d5656f9c160dea4bdad3041374857fafc3b7ac3"
+    },
+    "luajit/25ac4dcdb02ba761641be35ce90b9c40f8bd1dc6d4c61f0b3e65aed1f073be87/assets/initramfs.gz": {
+      "bytes": 849752,
+      "sha256": "6bcae6e1511a8ff4df7820c0ff796863207b8c385c72b78cb011bdae67925f6d"
+    },
+    "luajit/25ac4dcdb02ba761641be35ce90b9c40f8bd1dc6d4c61f0b3e65aed1f073be87/assets/libv86.mjs": {
+      "bytes": 359552,
+      "sha256": "a07d5f6d3276fabde989194a84be5f4266cb65a0e7000c84c2ff69c09fb5a4c2"
+    },
+    "luajit/25ac4dcdb02ba761641be35ce90b9c40f8bd1dc6d4c61f0b3e65aed1f073be87/assets/snapshot-compiler.bin.gz": {
+      "bytes": 2822873,
+      "sha256": "ff51e0e3de882032c612464fdd177e0552c3287fdd8a2db886fa817b436865d9"
+    },
+    "luajit/25ac4dcdb02ba761641be35ce90b9c40f8bd1dc6d4c61f0b3e65aed1f073be87/assets/snapshot-runner.bin.gz": {
+      "bytes": 2835009,
+      "sha256": "a8814b37d80d3816548ecca77daa7aa9bbf5f8739fb575c850aa35ecd2beccd0"
+    },
+    "luajit/25ac4dcdb02ba761641be35ce90b9c40f8bd1dc6d4c61f0b3e65aed1f073be87/assets/v86-fallback.wasm": {
+      "bytes": 2130381,
+      "sha256": "ea95aff75edd5136576026dc5a2d3350b333530d647df3dc3798daf3f30022b9"
+    },
+    "luajit/25ac4dcdb02ba761641be35ce90b9c40f8bd1dc6d4c61f0b3e65aed1f073be87/assets/v86-fallback.wasm.gz": {
+      "bytes": 406226,
+      "sha256": "bc718773660eca5c78d49974fdaf89655678944e3c5d6e4fe648d2da140aec7b"
+    },
+    "luajit/25ac4dcdb02ba761641be35ce90b9c40f8bd1dc6d4c61f0b3e65aed1f073be87/assets/v86.wasm": {
+      "bytes": 2101621,
+      "sha256": "aa0d0e149d6b60063b85de4871e78505637ce92821e14a9f9802c4008ba2336e"
+    },
+    "luajit/25ac4dcdb02ba761641be35ce90b9c40f8bd1dc6d4c61f0b3e65aed1f073be87/assets/v86.wasm.gz": {
+      "bytes": 400216,
+      "sha256": "48c053bc44ecd03812d564a7a09f09209f00e9517af8a91b48dbba406ce1c65c"
+    },
+    "luajit/25ac4dcdb02ba761641be35ce90b9c40f8bd1dc6d4c61f0b3e65aed1f073be87/assets/vgabios.bin": {
+      "bytes": 36352,
+      "sha256": "a4bc0d80cc3ca028c73dafa8fee396b8d054ce87ebd8abfbd31b06b437607880"
+    },
+    "luajit/25ac4dcdb02ba761641be35ce90b9c40f8bd1dc6d4c61f0b3e65aed1f073be87/assets.mjs": {
+      "bytes": 4053,
+      "sha256": "a19f44d79db9fb7e212628ea68ae45bcee7882e63840bff27a389c3aa1e21e08"
+    },
+    "luajit/25ac4dcdb02ba761641be35ce90b9c40f8bd1dc6d4c61f0b3e65aed1f073be87/browser-worker.mjs": {
+      "bytes": 1075,
+      "sha256": "3ea8ac314d4549bfa2c1c2af7f4434f15d679bb625f70e2a71b469830f442faa"
+    },
+    "luajit/25ac4dcdb02ba761641be35ce90b9c40f8bd1dc6d4c61f0b3e65aed1f073be87/build-runtime-package.mjs": {
+      "bytes": 726,
+      "sha256": "47e881765cdb5d69d6f1b15a10ca06747124d148254019ad38f1f6d3b3bab8ff"
+    },
+    "luajit/25ac4dcdb02ba761641be35ce90b9c40f8bd1dc6d4c61f0b3e65aed1f073be87/guest-manifest.json": {
+      "bytes": 11890,
+      "sha256": "f054be850fb0a8e03d9ed5226dac0a6bfda9e62dc144e2783cae41dcbad8fc01"
+    },
+    "luajit/25ac4dcdb02ba761641be35ce90b9c40f8bd1dc6d4c61f0b3e65aed1f073be87/host.mjs": {
+      "bytes": 4565,
+      "sha256": "5ec429f7e63d82f0a70338526e9d3cb394fd1f00da5205e3dc4958961104f878"
+    },
+    "luajit/25ac4dcdb02ba761641be35ce90b9c40f8bd1dc6d4c61f0b3e65aed1f073be87/matching-source.tar.gz": {
+      "bytes": 155637015,
+      "sha256": "d25b9e06f1a785ca835dcf375de9658707af217fb1098f7f9913020f969ac6e5"
+    },
+    "luajit/25ac4dcdb02ba761641be35ce90b9c40f8bd1dc6d4c61f0b3e65aed1f073be87/native-unwind-probes.json": {
+      "bytes": 312,
+      "sha256": "fd2f67375e1b30c947ee47f4f9468a519ef84d735bea33efabb936097b356aee"
+    },
+    "luajit/25ac4dcdb02ba761641be35ce90b9c40f8bd1dc6d4c61f0b3e65aed1f073be87/native.mjs": {
+      "bytes": 1937,
+      "sha256": "d92cc0859704e24f262a7d636045d07ad65ffd8834fa6b21dd727d8b4fee4510"
+    },
+    "luajit/25ac4dcdb02ba761641be35ce90b9c40f8bd1dc6d4c61f0b3e65aed1f073be87/notices/LLVM-libunwind-LICENSE.txt": {
+      "bytes": 16706,
+      "sha256": "b5efebcaca80879234098e52d1725e6d9eb8fb96a19fce625d39184b705f7b6d"
+    },
+    "luajit/25ac4dcdb02ba761641be35ce90b9c40f8bd1dc6d4c61f0b3e65aed1f073be87/notices/LPeg-LICENSE.txt": {
+      "bytes": 1066,
+      "sha256": "a8408ecebe46d02a7cced733491e34b3a50a273030d5a5b6397cf5f0411cc5dd"
+    },
+    "luajit/25ac4dcdb02ba761641be35ce90b9c40f8bd1dc6d4c61f0b3e65aed1f073be87/notices/Linux-COPYING.txt": {
+      "bytes": 496,
+      "sha256": "fb5a425bd3b3cd6071a3a9aff9909a859e7c1158d54d32e07658398cd67eb6a0"
+    },
+    "luajit/25ac4dcdb02ba761641be35ce90b9c40f8bd1dc6d4c61f0b3e65aed1f073be87/notices/Linux-GPL-2.0.txt": {
+      "bytes": 18729,
+      "sha256": "f6b78c087c3ebdf0f3c13415070dd480a3f35d8fc76f3d02180a407c1c812f79"
+    },
+    "luajit/25ac4dcdb02ba761641be35ce90b9c40f8bd1dc6d4c61f0b3e65aed1f073be87/notices/Linux-syscall-note.txt": {
+      "bytes": 1258,
+      "sha256": "8e378ab93586eb55135d3bc119cce787f7324f48394777d00c34fa3d0be3303f"
+    },
+    "luajit/25ac4dcdb02ba761641be35ce90b9c40f8bd1dc6d4c61f0b3e65aed1f073be87/notices/LuaJIT-COPYRIGHT.txt": {
+      "bytes": 2935,
+      "sha256": "6cda3076a8c09b31bb1f90da614ea89e7ee194589626eeac613e522849604e47"
+    },
+    "luajit/25ac4dcdb02ba761641be35ce90b9c40f8bd1dc6d4c61f0b3e65aed1f073be87/notices/Rust-dependencies.html": {
+      "bytes": 373377,
+      "sha256": "fd5d494c24150775b26ffaed1e33066fdfab54fe49566f9892819973aeabb535"
+    },
+    "luajit/25ac4dcdb02ba761641be35ce90b9c40f8bd1dc6d4c61f0b3e65aed1f073be87/notices/SeaBIOS-COPYING.LESSER.txt": {
+      "bytes": 7639,
+      "sha256": "a853c2ffec17057872340eee242ae4d96cbf2b520ae27d903e1b2fef1a5f9d1c"
+    },
+    "luajit/25ac4dcdb02ba761641be35ce90b9c40f8bd1dc6d4c61f0b3e65aed1f073be87/notices/SeaBIOS-COPYING.txt": {
+      "bytes": 35147,
+      "sha256": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903"
+    },
+    "luajit/25ac4dcdb02ba761641be35ce90b9c40f8bd1dc6d4c61f0b3e65aed1f073be87/notices/lunajson-LICENSE.txt": {
+      "bytes": 1096,
+      "sha256": "7caaf803b0496776697d3456c53a0207bb5ea4a314ef34114039a896def9a7e8"
+    },
+    "luajit/25ac4dcdb02ba761641be35ce90b9c40f8bd1dc6d4c61f0b3e65aed1f073be87/notices/musl-COPYRIGHT.txt": {
+      "bytes": 6196,
+      "sha256": "b870108ec5e7790e9f9919064f1b9421d62d5f9b0e6c230c6adf7ea2da62e97b"
+    },
+    "luajit/25ac4dcdb02ba761641be35ce90b9c40f8bd1dc6d4c61f0b3e65aed1f073be87/notices/v86-LICENSE.txt": {
+      "bytes": 1306,
+      "sha256": "3f61ba65e3215b09ef264ba8d777d73c19644309fbb705967634eb5147e500a0"
+    },
+    "luajit/25ac4dcdb02ba761641be35ce90b9c40f8bd1dc6d4c61f0b3e65aed1f073be87/package-assets.mjs": {
+      "bytes": 2223,
+      "sha256": "3b71902b8d97879c3344181179d6de12fdab206b12ca8bf1710b98034a3cf431"
+    },
+    "luajit/25ac4dcdb02ba761641be35ce90b9c40f8bd1dc6d4c61f0b3e65aed1f073be87/package-browser-app.mjs": {
+      "bytes": 5490,
+      "sha256": "f375a1db1aa3156118e2b004e3389c9ee3275de338de38bf4b5030d30573e04e"
+    },
+    "luajit/25ac4dcdb02ba761641be35ce90b9c40f8bd1dc6d4c61f0b3e65aed1f073be87/prepare-guest.mjs": {
+      "bytes": 2595,
+      "sha256": "059e2ff3188367f154f47c44fc4ad4397984c9ae6f762b6c39b35a48d1b828ab"
+    },
+    "luajit/25ac4dcdb02ba761641be35ce90b9c40f8bd1dc6d4c61f0b3e65aed1f073be87/transfers.mjs": {
+      "bytes": 2069,
+      "sha256": "298d9722b82e9592eba87feb1cd73e1ede940a3f36b20b0ced935228a2bda3ec"
+    },
+    "luajit/25ac4dcdb02ba761641be35ce90b9c40f8bd1dc6d4c61f0b3e65aed1f073be87/vm-worker.mjs": {
+      "bytes": 7804,
+      "sha256": "8c431f6edc4f8fd3153e2918ed02311d81450fbebbf29e0a5eef4e6d043607e4"
+    },
+    "luajit/25ac4dcdb02ba761641be35ce90b9c40f8bd1dc6d4c61f0b3e65aed1f073be87/worker-lane.mjs": {
+      "bytes": 4262,
+      "sha256": "8bc4f852fdb732f0e6d71aa72d720e8d317377f501607c3a16e0c67f7fbd69ed"
+    },
+    "nupp-app-runtime-49ade50321b457fa.lua": {
+      "bytes": 692372,
+      "sha256": "49ade50321b457fae50c7e4fc0bcc74e3a4a9aa8d8fbc5fee9031a7c2effb92e"
+    },
+    "nupp-compiler-0b219091f49768ba.ljbc.gz": {
+      "bytes": 1575061,
+      "sha256": "0b219091f49768ba40766ce2a569f382e9296b17ddebf34d6fd44886527a5223"
+    },
+    "nupp-compiler-480868648b74a9fd.lua": {
+      "bytes": 6311218,
+      "sha256": "480868648b74a9fd7dce617ad41c847186fe035fb460f8679758313425ea3880"
+    },
+    "nupp-luajit-app-7848b586565dbc7c.lua.gz": {
+      "bytes": 111148,
+      "sha256": "7848b586565dbc7cdc48651f7df50db1bb8d67c36311575373bbfe839a7dc535"
+    },
+    "nupp-playground-assets.json": {
+      "bytes": 1185,
+      "sha256": "f5ceb59d195742548078986df53888f0dc58fb3c6ddb8362a0bf75dd278b05de"
+    },
+    "nupp-playground.mjs": {
+      "bytes": 12477,
+      "sha256": "a797b191987af4ed5adcc48a64c6a7b79e5ee6df370c0d6b45b5646292c10319"
+    },
+    "nupp-playground.wasm": {
+      "bytes": 224538,
+      "sha256": "3c160a241cecdd3ab89550be8c5f98b94c0020b33e8fc0cf6fe43319ea5f6089"
+    },
+    "nupp-runner.mjs": {
+      "bytes": 33225,
+      "sha256": "e64e7325443d4aff81e298e2093519ef26987b610581d1b0ff89afad8331ca28"
+    },
+    "nupp-runner.wasm": {
+      "bytes": 322280,
+      "sha256": "dc43b74d103348a4ab3f5ff218dbb6b53066c084395b31acff7d4d5a9294a5d4"
+    },
+    "nupp.svg": {
+      "bytes": 7093,
+      "sha256": "9bb91fd30c07baf49ebc54c70dc8955d4683877c11025d4ccddf8abac651419a"
+    },
+    "performance-empty.html": {
+      "bytes": 51,
+      "sha256": "510d19fed31fb12d849642202bbb956caa87099062a87943c9390052d4ffa394"
+    },
+    "style.css": {
+      "bytes": 17253,
+      "sha256": "aa6905e3fc47d8dac8c4fe98dc9a9c8caec87ea8fd0bd37d86bc4d3f14906ffb"
+    },
+    "wasm-smoke.html": {
+      "bytes": 252,
+      "sha256": "d914a1bda9b111a0c8fd62f7e2021ef9e002be3e5142860d4ae12a2d44ab2e8e"
+    },
+    "wasm-smoke.js": {
+      "bytes": 3451,
+      "sha256": "47aeaa6a6e32f2653a62844c018e3061b0abb69180f944e4b604a53f196b67de"
+    },
+    "wasm-smoke.js.map": {
+      "bytes": 6192,
+      "sha256": "a4fc8fde17a3abe074dd4bacd3ef9bf9b5849f5e0faa91f51fe17bfa2e0b9df5"
+    },
+    "worker.js": {
+      "bytes": 10924,
+      "sha256": "49ebe3001f97c129893da58c2122a333939d26ea01ef478d8f55f6cef94a5888"
+    },
+    "worker.js.map": {
+      "bytes": 19385,
+      "sha256": "c8d3f99874e9929c7630e8d6a64d9e5669b5dff9dae50fea021090fcddd820b6"
+    }
+  },
+  "drivers": {
+    "delivery.mjs": "2b411bce699872e0629647e85c45522bc14fd58a04192c440827eeb14e17302a",
+    "compiler-performance.mjs": "077529c5523854354881cf1b89d17b6adb813ab539419b39f290c27018423f6b",
+    "imported-performance.mjs": "8d2f9e0e90543a092fa64aee438e12f82d4be23b2fe390ecbec0519fd545bcc0",
+    "process-memory.mjs": "6055707e40e67086136f9e01f26ad8753e3abfdbe1b2965a3c966a700b8cf2fb"
+  },
+  "ok": true,
+  "finishedUtc": "2026-09-20T01:25:29.291538+00:00",
+  "elapsedSeconds": 146.415071416,
+  "sampling": {
+    "samples": 141,
+    "foreignCompilerSamples": [],
+    "method": "Once-per-second ps snapshot, process names and CPU. No competing compiler activity means no foreign compiler process at >=1% CPU was sampled; this does not establish an entirely idle host or detect every subsecond job. Raw snapshots remain in the local evidence directory.",
+    "maxGapSeconds": 1.0664329528808594,
+    "rawSha256": "4d1ebde8d4470d3115c5bf5f7a192889fc8a191de1f1e0fbd179fb42e76ea098",
+    "rawPath": "/private/tmp/nupp-browser-quiet-repeat-20260920/processes.jsonl",
+    "peakOtherCpu": {
+      "corespotlightd": 184.8,
+      "biomesyncd": 90.9,
+      "sysmond": 39.2,
+      "WindowServer": 20.3,
+      "launchd": 27.6,
+      "WeatherWidget": 41.2
+    }
+  },
+  "quietCompilerWindow": true,
+  "driverCommands": [
+    {
+      "name": "delivery-0",
+      "args": [
+        "node",
+        "editors/playground/test/delivery.mjs",
+        "/private/tmp/nupp-luajit-everywhere/editors/playground/dist",
+        "/private/tmp/nupp-browser-quiet-repeat-20260920/delivery-0.json"
+      ],
+      "startedUtc": "2026-09-20T01:23:03.388654+00:00",
+      "finishedUtc": "2026-09-20T01:23:15.240304+00:00",
+      "exitCode": 0
+    },
+    {
+      "name": "delivery-1",
+      "args": [
+        "node",
+        "editors/playground/test/delivery.mjs",
+        "/private/tmp/nupp-luajit-everywhere/editors/playground/dist",
+        "/private/tmp/nupp-browser-quiet-repeat-20260920/delivery-1.json"
+      ],
+      "startedUtc": "2026-09-20T01:23:15.240805+00:00",
+      "finishedUtc": "2026-09-20T01:23:26.986669+00:00",
+      "exitCode": 0
+    },
+    {
+      "name": "delivery-2",
+      "args": [
+        "node",
+        "editors/playground/test/delivery.mjs",
+        "/private/tmp/nupp-luajit-everywhere/editors/playground/dist",
+        "/private/tmp/nupp-browser-quiet-repeat-20260920/delivery-2.json"
+      ],
+      "startedUtc": "2026-09-20T01:23:26.987155+00:00",
+      "finishedUtc": "2026-09-20T01:23:38.829268+00:00",
+      "exitCode": 0
+    },
+    {
+      "name": "compiler",
+      "args": [
+        "node",
+        "editors/playground/test/compiler-performance.mjs",
+        "http://127.0.0.1:8839/",
+        "/private/tmp/nupp-browser-quiet-repeat-20260920/compiler.json"
+      ],
+      "startedUtc": "2026-09-20T01:23:38.829849+00:00",
+      "finishedUtc": "2026-09-20T01:23:57.911199+00:00",
+      "exitCode": 0
+    },
+    {
+      "name": "imported",
+      "args": [
+        "node",
+        "editors/playground/test/imported-performance.mjs",
+        "http://127.0.0.1:8839/",
+        "/private/tmp/nupp-browser-quiet-repeat-20260920/imported.json"
+      ],
+      "startedUtc": "2026-09-20T01:23:57.911647+00:00",
+      "finishedUtc": "2026-09-20T01:25:15.942802+00:00",
+      "exitCode": 0
+    },
+    {
+      "name": "memory",
+      "args": [
+        "node",
+        "editors/playground/test/process-memory.mjs",
+        "http://127.0.0.1:8839/",
+        "/private/tmp/nupp-browser-quiet-repeat-20260920/memory.json"
+      ],
+      "startedUtc": "2026-09-20T01:25:15.943296+00:00",
+      "finishedUtc": "2026-09-20T01:25:29.286447+00:00",
+      "exitCode": 0
+    }
+  ],
+  "assetsScope": "Current f697aae5 browser bundle built using the verified extracted ce7 rehearsal archive. Guest build key 25ac4dcdb02ba761641be35ce90b9c40f8bd1dc6d4c61f0b3e65aed1f073be87. This is not a new guest build or a measurement of newer main.",
+  "localEvidenceDirectory": "/private/tmp/nupp-browser-quiet-repeat-20260920",
+  "compiler": {
+    "scope": "Production compiler workers; alternating backend order across fresh browser contexts; 30 samples after 3 warmups per request kind; edits change every request; host performance.now round trip. Large edit is a 2048-element literal, not a large project import.",
+    "commit": "f697aae596e5b75e0160129f9e09369a88551b45",
+    "host": {
+      "platform": "darwin",
+      "arch": "arm64",
+      "cpu": "Apple M5 Pro",
+      "memoryBytes": 51539607552
+    },
+    "repetitions": 3,
+    "results": [
+      {
+        "engine": "chromium",
+        "round": 0,
+        "version": "152.0.7977.77",
+        "backend": "luajit",
+        "startupMs": 446.2999999523163,
+        "summary": [
+          {
+            "kind": "check",
+            "firstRequestMs": 682.7999999523163,
+            "samples": [
+              2.5,
+              4.599999904632568,
+              2.5999999046325684,
+              2.5,
+              2.799999952316284,
+              2.5999999046325684,
+              2.6000001430511475,
+              2.3999998569488525,
+              2.5,
+              2.5,
+              2.4000000953674316,
+              2.5,
+              2.5,
+              2.5999999046325684,
+              2.4000000953674316,
+              2.5,
+              2.5999999046325684,
+              2.5,
+              2.6000001430511475,
+              2.700000047683716,
+              2.5999999046325684,
+              2.4000000953674316,
+              2.6999998092651367,
+              2.4000000953674316,
+              2.200000047683716,
+              2.3999998569488525,
+              2.4000000953674316,
+              2.200000047683716,
+              2.299999952316284,
+              2.200000047683716
+            ],
+            "p50Ms": 2.5,
+            "p95Ms": 2.799999952316284
+          },
+          {
+            "kind": "compile",
+            "firstRequestMs": 4.599999904632568,
+            "samples": [
+              6.8999998569488525,
+              4.799999952316284,
+              3.8000001907348633,
+              3.1999998092651367,
+              3.3000001907348633,
+              3.1999998092651367,
+              3.1000001430511475,
+              3.0999999046325684,
+              3.200000047683716,
+              4.400000095367432,
+              5,
+              3.5,
+              3.299999952316284,
+              3.3999998569488525,
+              3.3000001907348633,
+              3.3999998569488525,
+              3.200000047683716,
+              3.4000000953674316,
+              3.299999952316284,
+              3.299999952316284,
+              3.299999952316284,
+              3.4000000953674316,
+              3.200000047683716,
+              3.3999998569488525,
+              3.5,
+              3.6000001430511475,
+              3.5999999046325684,
+              3.700000047683716,
+              3.5999999046325684,
+              3.5
+            ],
+            "p50Ms": 3.3999998569488525,
+            "p95Ms": 5
+          },
+          {
+            "kind": "hover",
+            "firstRequestMs": 0.7000000476837158,
+            "samples": [
+              0.5,
+              0.5,
+              0.7000000476837158,
+              0.5,
+              0.5,
+              0.6000001430511475,
+              0.6999998092651367,
+              0.5,
+              0.6000001430511475,
+              0.5999999046325684,
+              0.40000009536743164,
+              0.8999998569488525,
+              0.5,
+              0.6000001430511475,
+              0.5,
+              0.5999999046325684,
+              0.5,
+              0.6000001430511475,
+              0.39999985694885254,
+              0.5,
+              0.6000001430511475,
+              0.5,
+              0.5,
+              0.39999985694885254,
+              0.6000001430511475,
+              0.5,
+              0.5,
+              0.5,
+              0.5,
+              0.5
+            ],
+            "p50Ms": 0.5,
+            "p95Ms": 0.7000000476837158
+          },
+          {
+            "kind": "edit",
+            "firstRequestMs": 2.0999999046325684,
+            "samples": [
+              2.200000047683716,
+              1.9000000953674316,
+              2,
+              2,
+              2,
+              2.200000047683716,
+              1.8999998569488525,
+              2,
+              2.1000001430511475,
+              2,
+              2,
+              1.8999998569488525,
+              2.200000047683716,
+              3.4000000953674316,
+              4.799999952316284,
+              2.299999952316284,
+              2.299999952316284,
+              2.200000047683716,
+              2.200000047683716,
+              3,
+              2.200000047683716,
+              2,
+              2.0999999046325684,
+              2.0999999046325684,
+              2.200000047683716,
+              2.299999952316284,
+              2.3000001907348633,
+              2.1999998092651367,
+              2.4000000953674316,
+              2
+            ],
+            "p50Ms": 2.1999998092651367,
+            "p95Ms": 3.4000000953674316
+          },
+          {
+            "kind": "large-edit",
+            "firstRequestMs": 176.09999990463257,
+            "samples": [
+              147.70000004768372,
+              109.20000004768372,
+              111.5,
+              112.59999990463257,
+              113.5,
+              113.60000014305115,
+              125.79999995231628,
+              129.60000014305115,
+              141.79999995231628,
+              107,
+              110.5,
+              106.5,
+              106.5,
+              108,
+              114.79999995231628,
+              160,
+              109.10000014305115,
+              107.79999995231628,
+              106.79999995231628,
+              107.90000009536743,
+              110.29999995231628,
+              111.70000004768372,
+              117.60000014305115,
+              152.39999985694885,
+              108,
+              106.29999995231628,
+              106.80000019073486,
+              107.29999995231628,
+              109,
+              112.20000004768372
+            ],
+            "p50Ms": 110.29999995231628,
+            "p95Ms": 152.39999985694885
+          }
+        ]
+      },
+      {
+        "engine": "chromium",
+        "round": 0,
+        "version": "152.0.7977.77",
+        "backend": "lua51",
+        "startupMs": 71.60000014305115,
+        "summary": [
+          {
+            "kind": "check",
+            "firstRequestMs": 95.20000004768372,
+            "samples": [
+              0.3000001907348633,
+              0.09999990463256836,
+              0.2999999523162842,
+              0.20000004768371582,
+              0.2999999523162842,
+              0.20000004768371582,
+              0.2999999523162842,
+              0.20000004768371582,
+              0.20000004768371582,
+              0.2999999523162842,
+              0.40000009536743164,
+              0.2999999523162842,
+              0.20000004768371582,
+              0.39999985694885254,
+              0.2999999523162842,
+              0.20000004768371582,
+              0.2999999523162842,
+              0.20000004768371582,
+              0.2999999523162842,
+              0.3000001907348633,
+              0.2999999523162842,
+              0.2999999523162842,
+              0.2999999523162842,
+              0.2999999523162842,
+              0.20000004768371582,
+              0.20000004768371582,
+              0.2999999523162842,
+              0.2999999523162842,
+              0.20000004768371582,
+              0.2999999523162842
+            ],
+            "p50Ms": 0.2999999523162842,
+            "p95Ms": 0.39999985694885254
+          },
+          {
+            "kind": "compile",
+            "firstRequestMs": 0.6000001430511475,
+            "samples": [
+              0.5,
+              0.5,
+              0.40000009536743164,
+              0.5,
+              0.5,
+              0.39999985694885254,
+              0.6000001430511475,
+              0.5999999046325684,
+              0.5,
+              0.6000001430511475,
+              0.8999998569488525,
+              0.7999999523162842,
+              0.9000000953674316,
+              0.5999999046325684,
+              0.7000000476837158,
+              0.40000009536743164,
+              0.39999985694885254,
+              0.5,
+              0.5,
+              0.5,
+              0.5,
+              0.40000009536743164,
+              0.40000009536743164,
+              0.39999985694885254,
+              0.40000009536743164,
+              0.39999985694885254,
+              0.40000009536743164,
+              0.40000009536743164,
+              0.39999985694885254,
+              0.40000009536743164
+            ],
+            "p50Ms": 0.5,
+            "p95Ms": 0.8999998569488525
+          },
+          {
+            "kind": "hover",
+            "firstRequestMs": 0.09999990463256836,
+            "samples": [
+              0,
+              0,
+              0,
+              0.09999990463256836,
+              0.09999990463256836,
+              0.10000014305114746,
+              0,
+              0,
+              0,
+              0.09999990463256836,
+              0,
+              0,
+              0,
+              0.10000014305114746,
+              0.09999990463256836,
+              0,
+              0.09999990463256836,
+              0,
+              0,
+              0.10000014305114746,
+              0,
+              0,
+              0.09999990463256836,
+              0.10000014305114746,
+              0,
+              0.09999990463256836,
+              0,
+              0,
+              0,
+              0
+            ],
+            "p50Ms": 0,
+            "p95Ms": 0.10000014305114746
+          },
+          {
+            "kind": "edit",
+            "firstRequestMs": 0.2999999523162842,
+            "samples": [
+              0.20000004768371582,
+              0.2999999523162842,
+              0.20000004768371582,
+              0.19999980926513672,
+              0.20000004768371582,
+              0.20000004768371582,
+              0.20000004768371582,
+              0.20000004768371582,
+              0.19999980926513672,
+              0.20000004768371582,
+              0.20000004768371582,
+              0.20000004768371582,
+              0.20000004768371582,
+              0.2999999523162842,
+              0.09999990463256836,
+              0.20000004768371582,
+              0.2999999523162842,
+              0.20000004768371582,
+              0.2999999523162842,
+              0.20000004768371582,
+              0.09999990463256836,
+              0.20000004768371582,
+              0.20000004768371582,
+              0.2999999523162842,
+              0.10000014305114746,
+              0.19999980926513672,
+              0.3000001907348633,
+              0.09999990463256836,
+              0.20000004768371582,
+              0.20000004768371582
+            ],
+            "p50Ms": 0.20000004768371582,
+            "p95Ms": 0.2999999523162842
+          },
+          {
+            "kind": "large-edit",
+            "firstRequestMs": 17.09999990463257,
+            "samples": [
+              16.799999952316284,
+              20.799999952316284,
+              15.400000095367432,
+              14.700000047683716,
+              14.699999809265137,
+              14.900000095367432,
+              15.099999904632568,
+              15.899999856948853,
+              15.899999856948853,
+              20.59999990463257,
+              14.799999952316284,
+              14.700000047683716,
+              14.799999952316284,
+              14.5,
+              14.5,
+              15.099999904632568,
+              15.900000095367432,
+              21.90000009536743,
+              15,
+              14.5,
+              14.5,
+              14.399999856948853,
+              14.399999856948853,
+              14.799999952316284,
+              15.700000047683716,
+              15.700000047683716,
+              21,
+              14.799999952316284,
+              14.599999904632568,
+              14.599999904632568
+            ],
+            "p50Ms": 14.799999952316284,
+            "p95Ms": 21
+          }
+        ]
+      },
+      {
+        "engine": "chromium",
+        "round": 1,
+        "version": "152.0.7977.77",
+        "backend": "lua51",
+        "startupMs": 78.40000009536743,
+        "summary": [
+          {
+            "kind": "check",
+            "firstRequestMs": 96.59999990463257,
+            "samples": [
+              0.2999999523162842,
+              0.20000004768371582,
+              0.20000004768371582,
+              0.20000004768371582,
+              0.20000004768371582,
+              0.2999999523162842,
+              0.20000004768371582,
+              0.2999999523162842,
+              0.20000004768371582,
+              0.39999985694885254,
+              0.3000001907348633,
+              0.19999980926513672,
+              0.40000009536743164,
+              0.2999999523162842,
+              0.20000004768371582,
+              0.40000009536743164,
+              0.19999980926513672,
+              0.3000001907348633,
+              0.2999999523162842,
+              0.20000004768371582,
+              0.2999999523162842,
+              0.2999999523162842,
+              0.20000004768371582,
+              0.2999999523162842,
+              0.2999999523162842,
+              0.2999999523162842,
+              0.3000001907348633,
+              0.19999980926513672,
+              0.20000004768371582,
+              0.40000009536743164
+            ],
+            "p50Ms": 0.2999999523162842,
+            "p95Ms": 0.40000009536743164
+          },
+          {
+            "kind": "compile",
+            "firstRequestMs": 0.5,
+            "samples": [
+              0.5,
+              0.5,
+              0.5,
+              0.5,
+              0.5,
+              0.5,
+              0.5,
+              0.39999985694885254,
+              0.5,
+              0.6000001430511475,
+              0.8999998569488525,
+              0.9000000953674316,
+              0.7999999523162842,
+              0.7999999523162842,
+              0.7000000476837158,
+              0.40000009536743164,
+              0.39999985694885254,
+              0.40000009536743164,
+              0.5999999046325684,
+              0.6000001430511475,
+              0.5,
+              0.39999985694885254,
+              0.40000009536743164,
+              0.39999985694885254,
+              0.40000009536743164,
+              0.40000009536743164,
+              0.2999999523162842,
+              0.5,
+              0.39999985694885254,
+              0.40000009536743164
+            ],
+            "p50Ms": 0.5,
+            "p95Ms": 0.8999998569488525
+          },
+          {
+            "kind": "hover",
+            "firstRequestMs": 0.20000004768371582,
+            "samples": [
+              0,
+              0.09999990463256836,
+              0,
+              0.10000014305114746,
+              0,
+              0,
+              0.19999980926513672,
+              0,
+              0,
+              0,
+              0,
+              0.10000014305114746,
+              0,
+              0.09999990463256836,
+              0,
+              0,
+              0.10000014305114746,
+              0,
+              0,
+              0,
+              0.09999990463256836,
+              0,
+              0.09999990463256836,
+              0,
+              0.10000014305114746,
+              0,
+              0,
+              0,
+              0,
+              0.09999990463256836
+            ],
+            "p50Ms": 0,
+            "p95Ms": 0.10000014305114746
+          },
+          {
+            "kind": "edit",
+            "firstRequestMs": 0.20000004768371582,
+            "samples": [
+              0.20000004768371582,
+              0.20000004768371582,
+              0.2999999523162842,
+              0.09999990463256836,
+              0.2999999523162842,
+              0.20000004768371582,
+              0.20000004768371582,
+              0.09999990463256836,
+              0.3000001907348633,
+              0.19999980926513672,
+              0.10000014305114746,
+              0.2999999523162842,
+              0.09999990463256836,
+              0.3000001907348633,
+              0.19999980926513672,
+              0.20000004768371582,
+              0.20000004768371582,
+              0.20000004768371582,
+              0.20000004768371582,
+              0.2999999523162842,
+              0.2999999523162842,
+              0.20000004768371582,
+              0.20000004768371582,
+              0.2999999523162842,
+              0.20000004768371582,
+              0.2999999523162842,
+              0.20000004768371582,
+              0.19999980926513672,
+              0.20000004768371582,
+              0.2999999523162842
+            ],
+            "p50Ms": 0.20000004768371582,
+            "p95Ms": 0.3000001907348633
+          },
+          {
+            "kind": "large-edit",
+            "firstRequestMs": 17.399999856948853,
+            "samples": [
+              17.300000190734863,
+              20,
+              14.900000095367432,
+              14.900000095367432,
+              14.700000047683716,
+              14.700000047683716,
+              15,
+              16.299999952316284,
+              16,
+              21.09999990463257,
+              14.900000095367432,
+              15.200000047683716,
+              14.799999952316284,
+              14.800000190734863,
+              14.5,
+              15.200000047683716,
+              15.700000047683716,
+              21.90000009536743,
+              15.099999904632568,
+              14.700000047683716,
+              14.5,
+              14.600000143051147,
+              14.5,
+              14.299999952316284,
+              15.700000047683716,
+              15.599999904632568,
+              21.299999952316284,
+              16.100000143051147,
+              14.599999904632568,
+              14.699999809265137
+            ],
+            "p50Ms": 14.900000095367432,
+            "p95Ms": 21.299999952316284
+          }
+        ]
+      },
+      {
+        "engine": "chromium",
+        "round": 1,
+        "version": "152.0.7977.77",
+        "backend": "luajit",
+        "startupMs": 441,
+        "summary": [
+          {
+            "kind": "check",
+            "firstRequestMs": 683.7000000476837,
+            "samples": [
+              2.5,
+              3.5,
+              3.8999998569488525,
+              2.5,
+              2.4000000953674316,
+              2.5999999046325684,
+              2.6000001430511475,
+              2.5,
+              2.5,
+              2.5,
+              2.3999998569488525,
+              2.5,
+              2.6000001430511475,
+              2.3999998569488525,
+              2.4000000953674316,
+              2.3999998569488525,
+              2.6000001430511475,
+              2.299999952316284,
+              2.4000000953674316,
+              2.5,
+              2.299999952316284,
+              2.5,
+              2.3999998569488525,
+              6.200000047683716,
+              2.5,
+              3.700000047683716,
+              2.700000047683716,
+              2.700000047683716,
+              2.5999999046325684,
+              2.700000047683716
+            ],
+            "p50Ms": 2.5,
+            "p95Ms": 3.8999998569488525
+          },
+          {
+            "kind": "compile",
+            "firstRequestMs": 5.400000095367432,
+            "samples": [
+              7.3999998569488525,
+              5.400000095367432,
+              4.200000047683716,
+              3.5999999046325684,
+              3.299999952316284,
+              3.6000001430511475,
+              3.3999998569488525,
+              3.8000001907348633,
+              3.5999999046325684,
+              4.900000095367432,
+              3.5,
+              3.5999999046325684,
+              3.700000047683716,
+              3.299999952316284,
+              3.0999999046325684,
+              3.1000001430511475,
+              3.200000047683716,
+              3.1999998092651367,
+              3,
+              3,
+              3.1000001430511475,
+              2.8999998569488525,
+              2.9000000953674316,
+              2.9000000953674316,
+              3.1999998092651367,
+              3.1000001430511475,
+              3.299999952316284,
+              3.200000047683716,
+              3.3999998569488525,
+              3.200000047683716
+            ],
+            "p50Ms": 3.299999952316284,
+            "p95Ms": 5.400000095367432
+          },
+          {
+            "kind": "hover",
+            "firstRequestMs": 0.6000001430511475,
+            "samples": [
+              0.6000001430511475,
+              0.5,
+              0.5,
+              0.5,
+              0.5999999046325684,
+              0.6000001430511475,
+              0.5,
+              0.5,
+              0.5999999046325684,
+              0.40000009536743164,
+              0.5,
+              0.5999999046325684,
+              0.5,
+              0.5999999046325684,
+              0.5,
+              0.5,
+              0.6000001430511475,
+              0.5999999046325684,
+              0.5,
+              0.6000001430511475,
+              0.5999999046325684,
+              0.5,
+              0.5,
+              0.5999999046325684,
+              0.5,
+              0.40000009536743164,
+              0.5999999046325684,
+              0.6000001430511475,
+              0.39999985694885254,
+              0.5
+            ],
+            "p50Ms": 0.5,
+            "p95Ms": 0.6000001430511475
+          },
+          {
+            "kind": "edit",
+            "firstRequestMs": 2.200000047683716,
+            "samples": [
+              2,
+              2,
+              2.1000001430511475,
+              2,
+              1.8999998569488525,
+              2,
+              1.9000000953674316,
+              1.8999998569488525,
+              2,
+              1.9000000953674316,
+              1.9000000953674316,
+              2,
+              1.8999998569488525,
+              3.5,
+              3,
+              4.299999952316284,
+              2.200000047683716,
+              2.1000001430511475,
+              2,
+              2.1999998092651367,
+              2.1000001430511475,
+              2.200000047683716,
+              2.0999999046325684,
+              2,
+              2,
+              2.200000047683716,
+              2.0999999046325684,
+              2,
+              2.0999999046325684,
+              2
+            ],
+            "p50Ms": 2,
+            "p95Ms": 3.5
+          },
+          {
+            "kind": "large-edit",
+            "firstRequestMs": 174.40000009536743,
+            "samples": [
+              157.70000004768372,
+              112,
+              114.29999995231628,
+              116.29999995231628,
+              114.70000004768372,
+              119.70000004768372,
+              131.79999995231628,
+              139.20000004768372,
+              145.29999995231628,
+              110.59999990463257,
+              109.30000019073486,
+              109.19999980926514,
+              110,
+              110.89999985694885,
+              122.89999985694885,
+              165.79999995231628,
+              111.09999990463257,
+              110.29999995231628,
+              109.80000019073486,
+              109.79999995231628,
+              110.59999990463257,
+              117.29999995231628,
+              125.89999985694885,
+              147.20000004768372,
+              110.40000009536743,
+              110.69999980926514,
+              110.5,
+              109.80000019073486,
+              109.70000004768372,
+              116
+            ],
+            "p50Ms": 111.09999990463257,
+            "p95Ms": 157.70000004768372
+          }
+        ]
+      },
+      {
+        "engine": "chromium",
+        "round": 2,
+        "version": "152.0.7977.77",
+        "backend": "luajit",
+        "startupMs": 429.2999999523163,
+        "summary": [
+          {
+            "kind": "check",
+            "firstRequestMs": 665.2999999523163,
+            "samples": [
+              2.6000001430511475,
+              5.200000047683716,
+              2.5999999046325684,
+              2.4000000953674316,
+              2.6999998092651367,
+              2.4000000953674316,
+              2.5,
+              2.200000047683716,
+              2.3999998569488525,
+              2.4000000953674316,
+              2.4000000953674316,
+              2.3999998569488525,
+              2.700000047683716,
+              2.4000000953674316,
+              2.1999998092651367,
+              2.3000001907348633,
+              2.5,
+              2.3999998569488525,
+              2.4000000953674316,
+              2.299999952316284,
+              2.200000047683716,
+              2.700000047683716,
+              2.3999998569488525,
+              2.4000000953674316,
+              2.3999998569488525,
+              2.3000001907348633,
+              2.5,
+              2.799999952316284,
+              2.299999952316284,
+              2.299999952316284
+            ],
+            "p50Ms": 2.4000000953674316,
+            "p95Ms": 2.799999952316284
+          },
+          {
+            "kind": "compile",
+            "firstRequestMs": 4.3999998569488525,
+            "samples": [
+              6,
+              4.5,
+              3.5,
+              3.200000047683716,
+              3.1000001430511475,
+              3.1999998092651367,
+              3,
+              3,
+              3.200000047683716,
+              4.299999952316284,
+              4.900000095367432,
+              3.299999952316284,
+              3.299999952316284,
+              3.200000047683716,
+              3.200000047683716,
+              3.200000047683716,
+              3.200000047683716,
+              3.1999998092651367,
+              3.200000047683716,
+              3.1000001430511475,
+              3.0999999046325684,
+              3.200000047683716,
+              3.0999999046325684,
+              3.1000001430511475,
+              3.1999998092651367,
+              3.5,
+              3.4000000953674316,
+              3.4000000953674316,
+              3.3999998569488525,
+              3.5
+            ],
+            "p50Ms": 3.200000047683716,
+            "p95Ms": 4.900000095367432
+          },
+          {
+            "kind": "hover",
+            "firstRequestMs": 0.5,
+            "samples": [
+              0.5999999046325684,
+              0.5,
+              0.5999999046325684,
+              0.5,
+              0.5,
+              0.5,
+              0.6000001430511475,
+              0.5,
+              0.39999985694885254,
+              0.6000001430511475,
+              0.5999999046325684,
+              0.5,
+              0.5,
+              0.6000001430511475,
+              0.39999985694885254,
+              0.6000001430511475,
+              0.5,
+              0.5,
+              0.5999999046325684,
+              0.5999999046325684,
+              0.5,
+              0.7000000476837158,
+              0.40000009536743164,
+              0.5,
+              0.5,
+              0.5,
+              0.5,
+              0.5999999046325684,
+              0.40000009536743164,
+              0.5999999046325684
+            ],
+            "p50Ms": 0.5,
+            "p95Ms": 0.6000001430511475
+          },
+          {
+            "kind": "edit",
+            "firstRequestMs": 2,
+            "samples": [
+              2,
+              1.9000000953674316,
+              2.0999999046325684,
+              2,
+              1.7999999523162842,
+              2,
+              2,
+              2,
+              1.9000000953674316,
+              2,
+              1.9000000953674316,
+              2,
+              1.8999998569488525,
+              4.200000047683716,
+              1.9000000953674316,
+              2.0999999046325684,
+              2.0999999046325684,
+              2,
+              2,
+              2.1000001430511475,
+              2.0999999046325684,
+              2,
+              2.6000001430511475,
+              2.1999998092651367,
+              2,
+              2,
+              2,
+              1.9000000953674316,
+              2.0999999046325684,
+              3.4000000953674316
+            ],
+            "p50Ms": 2,
+            "p95Ms": 3.4000000953674316
+          },
+          {
+            "kind": "large-edit",
+            "firstRequestMs": 179.40000009536743,
+            "samples": [
+              136.70000004768372,
+              96.5,
+              101.79999995231628,
+              95.59999990463257,
+              95.89999985694885,
+              98.89999985694885,
+              115.5,
+              131.90000009536743,
+              116.5,
+              93.20000004768372,
+              93.5,
+              94.29999995231628,
+              94.20000004768372,
+              95,
+              99.5,
+              148,
+              93.70000004768372,
+              93.5,
+              93.90000009536743,
+              94.29999995231628,
+              93.79999995231628,
+              101.90000009536743,
+              129.10000014305115,
+              112.70000004768372,
+              94.59999990463257,
+              93.79999995231628,
+              95.90000009536743,
+              94.39999985694885,
+              94.5,
+              99.5
+            ],
+            "p50Ms": 95.59999990463257,
+            "p95Ms": 136.70000004768372
+          }
+        ]
+      },
+      {
+        "engine": "chromium",
+        "round": 2,
+        "version": "152.0.7977.77",
+        "backend": "lua51",
+        "startupMs": 70.70000004768372,
+        "summary": [
+          {
+            "kind": "check",
+            "firstRequestMs": 96.29999995231628,
+            "samples": [
+              0.20000004768371582,
+              0.2999999523162842,
+              0.20000004768371582,
+              0.19999980926513672,
+              0.3000001907348633,
+              0.2999999523162842,
+              0.2999999523162842,
+              0.09999990463256836,
+              0.3000001907348633,
+              0.2999999523162842,
+              0.39999985694885254,
+              0.20000004768371582,
+              0.2999999523162842,
+              0.3000001907348633,
+              0.39999985694885254,
+              0.40000009536743164,
+              0.2999999523162842,
+              0.2999999523162842,
+              0.2999999523162842,
+              0.3000001907348633,
+              0.2999999523162842,
+              0.20000004768371582,
+              0.2999999523162842,
+              0.2999999523162842,
+              0.20000004768371582,
+              0.2999999523162842,
+              0.40000009536743164,
+              0.19999980926513672,
+              0.20000004768371582,
+              0.2999999523162842
+            ],
+            "p50Ms": 0.2999999523162842,
+            "p95Ms": 0.40000009536743164
+          },
+          {
+            "kind": "compile",
+            "firstRequestMs": 0.7000000476837158,
+            "samples": [
+              0.5,
+              0.5,
+              0.5,
+              0.5,
+              0.39999985694885254,
+              0.5,
+              0.7000000476837158,
+              0.5999999046325684,
+              0.5,
+              0.6000001430511475,
+              0.8999998569488525,
+              0.8000001907348633,
+              0.8999998569488525,
+              0.7999999523162842,
+              0.8000001907348633,
+              0.39999985694885254,
+              0.40000009536743164,
+              0.5,
+              0.39999985694885254,
+              0.40000009536743164,
+              0.40000009536743164,
+              0.5999999046325684,
+              0.40000009536743164,
+              0.5,
+              0.39999985694885254,
+              0.40000009536743164,
+              0.39999985694885254,
+              0.5,
+              0.40000009536743164,
+              0.40000009536743164
+            ],
+            "p50Ms": 0.5,
+            "p95Ms": 0.8999998569488525
+          },
+          {
+            "kind": "hover",
+            "firstRequestMs": 0.09999990463256836,
+            "samples": [
+              0.10000014305114746,
+              0,
+              0,
+              0.09999990463256836,
+              0,
+              0,
+              0,
+              0,
+              0.10000014305114746,
+              0,
+              0.09999990463256836,
+              0.09999990463256836,
+              0,
+              0,
+              0.10000014305114746,
+              0,
+              0,
+              0,
+              0.09999990463256836,
+              0.10000014305114746,
+              0,
+              0,
+              0.09999990463256836,
+              0,
+              0.09999990463256836,
+              0,
+              0,
+              0,
+              0.10000014305114746,
+              0
+            ],
+            "p50Ms": 0,
+            "p95Ms": 0.10000014305114746
+          },
+          {
+            "kind": "edit",
+            "firstRequestMs": 0.2999999523162842,
+            "samples": [
+              0.09999990463256836,
+              0.2999999523162842,
+              0.2999999523162842,
+              0.10000014305114746,
+              0.20000004768371582,
+              0.2999999523162842,
+              0.09999990463256836,
+              0.2999999523162842,
+              0.20000004768371582,
+              0.20000004768371582,
+              0.20000004768371582,
+              0.2999999523162842,
+              0.09999990463256836,
+              0.3000001907348633,
+              0.09999990463256836,
+              0.2999999523162842,
+              0.2999999523162842,
+              0.20000004768371582,
+              0.2999999523162842,
+              0.10000014305114746,
+              0.20000004768371582,
+              0.2999999523162842,
+              0.09999990463256836,
+              0.2999999523162842,
+              0.10000014305114746,
+              0.20000004768371582,
+              0.19999980926513672,
+              0.20000004768371582,
+              0.20000004768371582,
+              0.20000004768371582
+            ],
+            "p50Ms": 0.20000004768371582,
+            "p95Ms": 0.2999999523162842
+          },
+          {
+            "kind": "large-edit",
+            "firstRequestMs": 17.200000047683716,
+            "samples": [
+              16.299999952316284,
+              19.200000047683716,
+              14.799999952316284,
+              15,
+              14.700000047683716,
+              14.699999809265137,
+              14.799999952316284,
+              15.899999856948853,
+              16,
+              20.700000047683716,
+              14.900000095367432,
+              14.700000047683716,
+              14.700000047683716,
+              14.5,
+              14.5,
+              14.799999952316284,
+              15.600000143051147,
+              21.59999990463257,
+              15.100000143051147,
+              14.700000047683716,
+              14.400000095367432,
+              14.5,
+              14.5,
+              14.799999952316284,
+              15.5,
+              15.700000047683716,
+              20.90000009536743,
+              14.900000095367432,
+              14.5,
+              14.599999904632568
+            ],
+            "p50Ms": 14.799999952316284,
+            "p95Ms": 20.90000009536743
+          }
+        ]
+      }
+    ]
+  },
+  "imported": {
+    "scope": "Production retained compiler workers: changing application edits with six bundled-library imports. Browser memoryOnly sessions accept one source and lazily check bundled modules; they cannot load arbitrary project files. This is not a multi-file incremental-project benchmark, UI responsiveness budget, physical mobile test, or network-delivery measurement.",
+    "timing": "Page performance.now immediately before worker.postMessage until the matching response: includes structured clone, queue, raw-source guest bridge, compiler execution, and response. Worker boot excluded from edit timing. Fresh first check includes lazy imported-module checking; warm check and compile reuse the same worker/environment. Hover follows each changed check and is timed separately.",
+    "hostConditions": "Coordinated quiet window; see independent processes.jsonl and final qualification, not assumed idle.",
+    "commit": "f697aae596e5b75e0160129f9e09369a88551b45",
+    "host": {
+      "platform": "darwin",
+      "arch": "arm64",
+      "cpu": "Apple M5 Pro",
+      "memoryBytes": 51539607552
+    },
+    "repetitions": 3,
+    "samples": 30,
+    "warmups": 3,
+    "fixture": {
+      "path": "bench/luajit-browser/imported-scoreboard.nupp",
+      "sha256": "a22e79bbc4553fd4f5181fed5a5fc3b2127f7a9a6fddb932309ef04b7aa11aaa",
+      "bytes": 2200,
+      "source": "local json = require(\"nupp.codec.json\")\nlocal hex = require(\"nupp.codec.hex\")\nlocal text = require(\"nupp.text\")\nlocal utf8 = require(\"nupp.text.utf8\")\nlocal path = require(\"nupp.io.path\")\nlocal uri = require(\"nupp.io.uri\")\n\nlocal type Player = {\n    name: string,\n    score: integer,\n    connected: boolean\n}\nlocal type Snapshot = {\n    round: integer,\n    names: {string},\n    total: integer,\n    payload: string\n}\n\nlocal function scorePlayers(players: {Player}, round: integer): Snapshot\n    local names: {string} = {}\n    local total: integer = 0\n    for _, player in ipairs(players) do\n        if player.connected then\n            names[#names + 1] = utf8.truncate(player.name, 24)\n            total = total + player.score\n        end\n    end\n    table.sort(names)\n    local payload = json.encode({round = round, players = names, total = total})\n\n    return {round = round, names = names, total = total, payload = payload}\nend\n\nlocal function describe(snapshot: Snapshot): string\n    local out = text.newBuffer()\n    out:put(\"round=\", tostring(snapshot.round), \"\\n\")\n    out:put(\"players=\", table.concat(snapshot.names, \", \"), \"\\n\")\n    out:put(\"total=\", tostring(snapshot.total), \"\\n\")\n    out:put(\"payload=\", hex.encode(snapshot.payload), \"\\n\")\n\n    return out:get()\nend\n\nlocal function destination(round: integer): (string, string)\n    local localFile = path.newPath(\"scores\", \"round-\" .. tostring(round)):withExtension(\"json\")\n    local endpoint = assert(uri.newURI(\"https://game.example/scores/\"))\n    local remoteFile = assert(endpoint:resolve(assert(localFile:fileName())))\n    return localFile:toString(), remoteFile:toString()\nend\n\nlocal players: {\n    Player\n} = {\n    {name = \"Ada\", score = 120, connected = true},\n    {name = \"Lin\", score = 90, connected = true},\n    {name = \"Grace\", score = 140, connected = false},\n}\nlocal round: integer = 5\nlocal snapshot = scorePlayers(players, round)\nlocal localFile, remoteFile = destination(round)\nlocal report = describe(snapshot)\nlocal wire = hex.encode(\"scoreboard-edit-5\")\nassert(hex.decode(wire) == \"scoreboard-edit-5\")\nassert(snapshot.total == 210)\nassert(utf8.length(snapshot.names[1]) == 3)\nreturn report, localFile, remoteFile, wire\n"
+    },
+    "imports": [
+      "nupp.codec.json",
+      "nupp.codec.hex",
+      "nupp.text",
+      "nupp.text.utf8",
+      "nupp.io.path",
+      "nupp.io.uri"
+    ],
+    "edits": "Replace round integer 5 and both scoreboard-edit-5 string literals with trial+5 on every request. Each compile must contain its current changed string. Every check/compile must return zero errors; every hover must identify wire as string. After timing, each imported API must reject a wrong argument with NUPP2006.",
+    "manifest": {
+      "compiler": "nupp-compiler-480868648b74a9fd.lua",
+      "compilerSha256": "480868648b74a9fd7dce617ad41c847186fe035fb460f8679758313425ea3880",
+      "hostModule": "nupp-playground.mjs",
+      "hostWasm": "nupp-playground.wasm",
+      "appRuntime": "nupp-app-runtime-49ade50321b457fa.lua",
+      "appRuntimeSha256": "49ade50321b457fae50c7e4fc0bcc74e3a4a9aa8d8fbc5fee9031a7c2effb92e",
+      "appHostModule": "nupp-runner.mjs",
+      "appHostWasm": "nupp-runner.wasm",
+      "bytes": {
+        "compiler": 6311218,
+        "hostModule": 12477,
+        "hostWasm": 224538,
+        "appRuntime": 692372,
+        "appHostModule": 33225,
+        "appHostWasm": 322280
+      },
+      "luajit": {
+        "guestManifest": "luajit/25ac4dcdb02ba761641be35ce90b9c40f8bd1dc6d4c61f0b3e65aed1f073be87/guest-manifest.json",
+        "compiler": "nupp-compiler-0b219091f49768ba.ljbc.gz",
+        "compilerSha256": "0b219091f49768ba40766ce2a569f382e9296b17ddebf34d6fd44886527a5223",
+        "compilerBytes": 1575061,
+        "compilerDecodedBytes": 5072750,
+        "appRuntime": "nupp-luajit-app-7848b586565dbc7c.lua.gz",
+        "appRuntimeSha256": "7848b586565dbc7cdc48651f7df50db1bb8d67c36311575373bbfe839a7dc535",
+        "appRuntimeBytes": 111148,
+        "appRuntimeDecodedBytes": 668184
+      }
+    },
+    "guestManifest": {
+      "schema": 1,
+      "guestAbi": 1,
+      "architecture": "i386-linux-musl",
+      "buildKey": "25ac4dcdb02ba761641be35ce90b9c40f8bd1dc6d4c61f0b3e65aed1f073be87",
+      "inputs": {
+        "scripts/browser-guest.py": "fb55b0a34b0aed1808df0a73c804d3d6eb18f88a5c4199638a8793d66438b91b",
+        "scripts/browser-toolchain.py": "b39442718704d4655fd7b82f16e80ba962b193711b01f6b1c169459f90a649eb",
+        "scripts/toolchain.pins": "738edd26e71de2cc027090ab37d08b5bbf74ae054dd01b15bda40500ae4adb39",
+        "scripts/toolchain": "359dcac8dc78ed3e0d491dd89fd8c3a3b7e4bcb842888db3a0f401dc2d784bad",
+        "scripts/browser-snapshot.mjs": "746b48b4146570f2fd94a7f2c32d45b578d82d236c2766945eae363bc35db1eb",
+        "runtime/luajit/MIGRATION.md": "0abc2a459270c862175b055b3e84a53be573a565790d81fae8c1e5f836780866",
+        "runtime/luajit/README.md": "c7790cc93bbd1141f266e0306c1b9fb390f8a7d52da844547facd3b81abc2519",
+        "runtime/luajit/aot.mjs": "7ea3bde6ac41dd57ca113246ba8e22fa65f55c5ac26b6ad924c85dcd2eed6cb5",
+        "runtime/luajit/app-runtime.mjs": "f340bd57a6ee4683c6ff5c14e5fe5b17833b76d7fbedd43e97f4eee7f80af444",
+        "runtime/luajit/assets.mjs": "a19f44d79db9fb7e212628ea68ae45bcee7882e63840bff27a389c3aa1e21e08",
+        "runtime/luajit/bridge.lua": "ecb28c9d838410f81c7a29a69aacd4f4279851a1824b1d448683156340b46da1",
+        "runtime/luajit/browser-worker.mjs": "3ea8ac314d4549bfa2c1c2af7f4434f15d679bb625f70e2a71b469830f442faa",
+        "runtime/luajit/build-runtime-package.mjs": "47e881765cdb5d69d6f1b15a10ca06747124d148254019ad38f1f6d3b3bab8ff",
+        "runtime/luajit/guest-clock.c": "8ee84949f41a0ea53d1511a74ebfa5821757651290b5db324c8187c7cc45cbc9",
+        "runtime/luajit/guest-init.c": "34a875d27dcde65e9315f3c79aaed2d2aa7e0cea634a71116fe4c6f2f54b63d4",
+        "runtime/luajit/guest-ssp.c": "1360efc09dd0886ff646bdcf4429a2621bd42f06d9e134883583371efbe61b7f",
+        "runtime/luajit/host.mjs": "5ec429f7e63d82f0a70338526e9d3cb394fd1f00da5205e3dc4958961104f878",
+        "runtime/luajit/linux.config": "34e3ae169b082b4be9fa555bfd34ba278cdd39f88f830938932ef1305ecfc277",
+        "runtime/luajit/native.mjs": "d92cc0859704e24f262a7d636045d07ad65ffd8834fa6b21dd727d8b4fee4510",
+        "runtime/luajit/package-assets.mjs": "3b71902b8d97879c3344181179d6de12fdab206b12ca8bf1710b98034a3cf431",
+        "runtime/luajit/package-browser-app.mjs": "f375a1db1aa3156118e2b004e3389c9ee3275de338de38bf4b5030d30573e04e",
+        "runtime/luajit/prepare-guest.mjs": "059e2ff3188367f154f47c44fc4ad4397984c9ae6f762b6c39b35a48d1b828ab",
+        "runtime/luajit/seabios.config": "28672dabbaa31367b75622efc0f7faae0965818d2aa70ed4bcd58dd1547feb17",
+        "runtime/luajit/transfers.mjs": "298d9722b82e9592eba87feb1cd73e1ede940a3f36b20b0ced935228a2bda3ec",
+        "runtime/luajit/unwind-probe.lua": "61bdc5ace597fa3c2489c4ae94ff58a5e08835a089334eccc14b8d7dd2ceb8b8",
+        "runtime/luajit/vm-worker.mjs": "8c431f6edc4f8fd3153e2918ed02311d81450fbebbf29e0a5eef4e6d043607e4",
+        "runtime/luajit/worker-lane.mjs": "8bc4f852fdb732f0e6d71aa72d720e8d317377f501607c3a16e0c67f7fbd69ed",
+        "src/nupp/runtime/vendor/lunajson/decoder.lua": "1fa60fc074413fffe28914c328494909aae6c3d32717e4c822bc54bc4cffcdac",
+        "src/nupp/runtime/vendor/lunajson/encoder.lua": "1b2a4d57177745f38f07f2bc0f6a461c78ad5cabdfcf3c356fb9ba3844a659ee",
+        "host/notices/LLVM-libunwind-LICENSE.txt": "b5efebcaca80879234098e52d1725e6d9eb8fb96a19fce625d39184b705f7b6d",
+        "host/notices/LPeg-LICENSE.txt": "a8408ecebe46d02a7cced733491e34b3a50a273030d5a5b6397cf5f0411cc5dd",
+        "host/notices/Linux-COPYING.txt": "fb5a425bd3b3cd6071a3a9aff9909a859e7c1158d54d32e07658398cd67eb6a0",
+        "host/notices/Linux-GPL-2.0.txt": "f6b78c087c3ebdf0f3c13415070dd480a3f35d8fc76f3d02180a407c1c812f79",
+        "host/notices/Linux-syscall-note.txt": "8e378ab93586eb55135d3bc119cce787f7324f48394777d00c34fa3d0be3303f",
+        "host/notices/LuaJIT-COPYRIGHT.txt": "6cda3076a8c09b31bb1f90da614ea89e7ee194589626eeac613e522849604e47",
+        "host/notices/Rust-dependencies.html": "fd5d494c24150775b26ffaed1e33066fdfab54fe49566f9892819973aeabb535",
+        "host/notices/SeaBIOS-COPYING.LESSER.txt": "a853c2ffec17057872340eee242ae4d96cbf2b520ae27d903e1b2fef1a5f9d1c",
+        "host/notices/SeaBIOS-COPYING.txt": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903",
+        "host/notices/lunajson-LICENSE.txt": "7caaf803b0496776697d3456c53a0207bb5ea4a314ef34114039a896def9a7e8",
+        "host/notices/musl-COPYRIGHT.txt": "b870108ec5e7790e9f9919064f1b9421d62d5f9b0e6c230c6adf7ea2da62e97b",
+        "host/notices/v86-LICENSE.txt": "3f61ba65e3215b09ef264ba8d777d73c19644309fbb705967634eb5147e500a0",
+        "inputs": {
+          "linux": "8cee19e1839bb6ff4d5254d761933ae6ab670492d5ed030e09a80538320d5c4c",
+          "musl": "d585fd3b613c66151fc3249e8ed44f77020cb5e6c1e635a616d3f9f82460512a",
+          "seabios": "fcb12b790971dd9918b1c631b34677f996bd283f0f8ee5c57aa98ab90645f5c0",
+          "v86": "1e180db36a808c2e1c0056efe419f5b5530dd17328c26a9981fd00cd9f8f4328",
+          "libunwind": "0bced9d701e300f8fe6599523367e214c1f928ac559afceece58f47018e9c4a7",
+          "luajit": "85497ea149d136afbe2d7ef222e08849248e52cecc6dc8deefd8588e551e4e00",
+          "lpeg": "4b155d67d2246c1ffa7ad7bc466c1ea899bbc40fef0257cc9c03cecbaed4352a"
+        },
+        "gcc": "gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0\nCopyright (C) 2023 Free Software Foundation, Inc.\nThis is free software; see the source for copying conditions.  There is NO\nwarranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n\n",
+        "binutils": "GNU ld (GNU Binutils for Ubuntu) 2.42\nCopyright (C) 2024 Free Software Foundation, Inc.\nThis program is free software; you may redistribute it under the terms of\nthe GNU General Public License version 3 or (at your option) a later version.\nThis program has absolutely no warranty.\n"
+      },
+      "profiles": {
+        "runner": {
+          "memoryMiB": 64
+        },
+        "compiler": {
+          "memoryMiB": 128
+        }
+      },
+      "assets": {
+        "aot.mjs": {
+          "sha256": "7ea3bde6ac41dd57ca113246ba8e22fa65f55c5ac26b6ad924c85dcd2eed6cb5",
+          "bytes": 6740
+        },
+        "app-runtime.mjs": {
+          "sha256": "f340bd57a6ee4683c6ff5c14e5fe5b17833b76d7fbedd43e97f4eee7f80af444",
+          "bytes": 6877
+        },
+        "assets/bios.bin": {
+          "sha256": "9d6a8e5e31511ccc8370cd7001b34502d41af4db145db4ff3dbc88cd587737c3",
+          "bytes": 131072
+        },
+        "assets/bzimage.bin": {
+          "sha256": "75322a337194196cd392ee472d5656f9c160dea4bdad3041374857fafc3b7ac3",
+          "bytes": 1593856
+        },
+        "assets/initramfs.gz": {
+          "sha256": "6bcae6e1511a8ff4df7820c0ff796863207b8c385c72b78cb011bdae67925f6d",
+          "bytes": 849752
+        },
+        "assets/libv86.mjs": {
+          "sha256": "a07d5f6d3276fabde989194a84be5f4266cb65a0e7000c84c2ff69c09fb5a4c2",
+          "bytes": 359552
+        },
+        "assets/v86-fallback.wasm": {
+          "sha256": "ea95aff75edd5136576026dc5a2d3350b333530d647df3dc3798daf3f30022b9",
+          "bytes": 2130381
+        },
+        "assets/v86.wasm": {
+          "sha256": "aa0d0e149d6b60063b85de4871e78505637ce92821e14a9f9802c4008ba2336e",
+          "bytes": 2101621
+        },
+        "assets/vgabios.bin": {
+          "sha256": "a4bc0d80cc3ca028c73dafa8fee396b8d054ce87ebd8abfbd31b06b437607880",
+          "bytes": 36352
+        },
+        "assets.mjs": {
+          "sha256": "a19f44d79db9fb7e212628ea68ae45bcee7882e63840bff27a389c3aa1e21e08",
+          "bytes": 4053
+        },
+        "browser-worker.mjs": {
+          "sha256": "3ea8ac314d4549bfa2c1c2af7f4434f15d679bb625f70e2a71b469830f442faa",
+          "bytes": 1075
+        },
+        "build-runtime-package.mjs": {
+          "sha256": "47e881765cdb5d69d6f1b15a10ca06747124d148254019ad38f1f6d3b3bab8ff",
+          "bytes": 726
+        },
+        "host.mjs": {
+          "sha256": "5ec429f7e63d82f0a70338526e9d3cb394fd1f00da5205e3dc4958961104f878",
+          "bytes": 4565
+        },
+        "matching-source.tar.gz": {
+          "sha256": "d25b9e06f1a785ca835dcf375de9658707af217fb1098f7f9913020f969ac6e5",
+          "bytes": 155637015
+        },
+        "native-unwind-probes.json": {
+          "sha256": "fd2f67375e1b30c947ee47f4f9468a519ef84d735bea33efabb936097b356aee",
+          "bytes": 312
+        },
+        "native.mjs": {
+          "sha256": "d92cc0859704e24f262a7d636045d07ad65ffd8834fa6b21dd727d8b4fee4510",
+          "bytes": 1937
+        },
+        "notices/LLVM-libunwind-LICENSE.txt": {
+          "sha256": "b5efebcaca80879234098e52d1725e6d9eb8fb96a19fce625d39184b705f7b6d",
+          "bytes": 16706
+        },
+        "notices/LPeg-LICENSE.txt": {
+          "sha256": "a8408ecebe46d02a7cced733491e34b3a50a273030d5a5b6397cf5f0411cc5dd",
+          "bytes": 1066
+        },
+        "notices/Linux-COPYING.txt": {
+          "sha256": "fb5a425bd3b3cd6071a3a9aff9909a859e7c1158d54d32e07658398cd67eb6a0",
+          "bytes": 496
+        },
+        "notices/Linux-GPL-2.0.txt": {
+          "sha256": "f6b78c087c3ebdf0f3c13415070dd480a3f35d8fc76f3d02180a407c1c812f79",
+          "bytes": 18729
+        },
+        "notices/Linux-syscall-note.txt": {
+          "sha256": "8e378ab93586eb55135d3bc119cce787f7324f48394777d00c34fa3d0be3303f",
+          "bytes": 1258
+        },
+        "notices/LuaJIT-COPYRIGHT.txt": {
+          "sha256": "6cda3076a8c09b31bb1f90da614ea89e7ee194589626eeac613e522849604e47",
+          "bytes": 2935
+        },
+        "notices/Rust-dependencies.html": {
+          "sha256": "fd5d494c24150775b26ffaed1e33066fdfab54fe49566f9892819973aeabb535",
+          "bytes": 373377
+        },
+        "notices/SeaBIOS-COPYING.LESSER.txt": {
+          "sha256": "a853c2ffec17057872340eee242ae4d96cbf2b520ae27d903e1b2fef1a5f9d1c",
+          "bytes": 7639
+        },
+        "notices/SeaBIOS-COPYING.txt": {
+          "sha256": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903",
+          "bytes": 35147
+        },
+        "notices/lunajson-LICENSE.txt": {
+          "sha256": "7caaf803b0496776697d3456c53a0207bb5ea4a314ef34114039a896def9a7e8",
+          "bytes": 1096
+        },
+        "notices/musl-COPYRIGHT.txt": {
+          "sha256": "b870108ec5e7790e9f9919064f1b9421d62d5f9b0e6c230c6adf7ea2da62e97b",
+          "bytes": 6196
+        },
+        "notices/v86-LICENSE.txt": {
+          "sha256": "3f61ba65e3215b09ef264ba8d777d73c19644309fbb705967634eb5147e500a0",
+          "bytes": 1306
+        },
+        "package-assets.mjs": {
+          "sha256": "3b71902b8d97879c3344181179d6de12fdab206b12ca8bf1710b98034a3cf431",
+          "bytes": 2223
+        },
+        "package-browser-app.mjs": {
+          "sha256": "f375a1db1aa3156118e2b004e3389c9ee3275de338de38bf4b5030d30573e04e",
+          "bytes": 5490
+        },
+        "prepare-guest.mjs": {
+          "sha256": "059e2ff3188367f154f47c44fc4ad4397984c9ae6f762b6c39b35a48d1b828ab",
+          "bytes": 2595
+        },
+        "transfers.mjs": {
+          "sha256": "298d9722b82e9592eba87feb1cd73e1ede940a3f36b20b0ced935228a2bda3ec",
+          "bytes": 2069
+        },
+        "vm-worker.mjs": {
+          "sha256": "8c431f6edc4f8fd3153e2918ed02311d81450fbebbf29e0a5eef4e6d043607e4",
+          "bytes": 7804
+        },
+        "worker-lane.mjs": {
+          "sha256": "8bc4f852fdb732f0e6d71aa72d720e8d317377f501607c3a16e0c67f7fbd69ed",
+          "bytes": 4262
+        },
+        "assets/snapshot-runner.bin.gz": {
+          "bytes": 2835009,
+          "sha256": "a8814b37d80d3816548ecca77daa7aa9bbf5f8739fb575c850aa35ecd2beccd0"
+        },
+        "assets/snapshot-compiler.bin.gz": {
+          "bytes": 2822873,
+          "sha256": "ff51e0e3de882032c612464fdd177e0552c3287fdd8a2db886fa817b436865d9"
+        },
+        "assets/v86.wasm.gz": {
+          "bytes": 400216,
+          "sha256": "48c053bc44ecd03812d564a7a09f09209f00e9517af8a91b48dbba406ce1c65c"
+        },
+        "assets/v86-fallback.wasm.gz": {
+          "bytes": 406226,
+          "sha256": "bc718773660eca5c78d49974fdaf89655678944e3c5d6e4fe648d2da140aec7b"
+        }
+      },
+      "snapshots": {
+        "runner": {
+          "asset": "assets/snapshot-runner.bin.gz",
+          "buildKey": "25ac4dcdb02ba761641be35ce90b9c40f8bd1dc6d4c61f0b3e65aed1f073be87",
+          "guestAbi": 1,
+          "memoryMiB": 64,
+          "uncompressedBytes": 8242508
+        },
+        "compiler": {
+          "asset": "assets/snapshot-compiler.bin.gz",
+          "buildKey": "25ac4dcdb02ba761641be35ce90b9c40f8bd1dc6d4c61f0b3e65aed1f073be87",
+          "guestAbi": 1,
+          "memoryMiB": 128,
+          "uncompressedBytes": 8731980
+        }
+      },
+      "delivery": {
+        "assets/v86.wasm": "assets/v86.wasm.gz",
+        "assets/v86-fallback.wasm": "assets/v86-fallback.wasm.gz"
+      }
+    },
+    "assets": [
+      {
+        "name": "worker.js",
+        "bytes": 10924,
+        "sha256": "49ebe3001f97c129893da58c2122a333939d26ea01ef478d8f55f6cef94a5888"
+      },
+      {
+        "name": "legacy-worker.js",
+        "bytes": 5350,
+        "sha256": "b6c0960f98b0d8b75ee335aa3497e0e2afbf0e9ed945ee65c0eb2e78d9915f60"
+      },
+      {
+        "name": "nupp-compiler-480868648b74a9fd.lua",
+        "bytes": 6311218,
+        "sha256": "480868648b74a9fd7dce617ad41c847186fe035fb460f8679758313425ea3880"
+      },
+      {
+        "name": "nupp-playground.mjs",
+        "bytes": 12477,
+        "sha256": "a797b191987af4ed5adcc48a64c6a7b79e5ee6df370c0d6b45b5646292c10319"
+      },
+      {
+        "name": "nupp-playground.wasm",
+        "bytes": 224538,
+        "sha256": "3c160a241cecdd3ab89550be8c5f98b94c0020b33e8fc0cf6fe43319ea5f6089"
+      },
+      {
+        "name": "nupp-compiler-0b219091f49768ba.ljbc.gz",
+        "bytes": 1575061,
+        "sha256": "0b219091f49768ba40766ce2a569f382e9296b17ddebf34d6fd44886527a5223"
+      }
+    ],
+    "results": [
+      {
+        "engine": "chromium",
+        "round": 0,
+        "version": "152.0.7977.77",
+        "backend": "luajit",
+        "startupMs": 448.19999980926514,
+        "summary": [
+          {
+            "kind": "check-edit",
+            "firstRequestMs": 5183.300000190735,
+            "samples": [
+              29.299999952316284,
+              29.200000047683716,
+              29.600000143051147,
+              29.199999809265137,
+              29.299999952316284,
+              29.59999990463257,
+              32.700000047683716,
+              33.69999980926514,
+              31.100000143051147,
+              31.40000009536743,
+              29.700000047683716,
+              29.59999990463257,
+              29.5,
+              29.299999952316284,
+              29.100000143051147,
+              29.299999952316284,
+              28.899999856948853,
+              29,
+              30.700000047683716,
+              30.799999952316284,
+              32,
+              32.09999990463257,
+              33,
+              32.10000014305115,
+              32.40000009536743,
+              34.200000047683716,
+              34.299999952316284,
+              33.89999985694885,
+              31.799999952316284,
+              33.19999980926514
+            ],
+            "p50Ms": 30.700000047683716,
+            "p95Ms": 34.200000047683716
+          },
+          {
+            "kind": "hover",
+            "samples": [
+              0.6000001430511475,
+              0.6999998092651367,
+              0.7000000476837158,
+              0.7000000476837158,
+              0.6000001430511475,
+              0.7000000476837158,
+              0.7000000476837158,
+              0.7000000476837158,
+              0.6999998092651367,
+              0.7000000476837158,
+              0.5999999046325684,
+              0.6000001430511475,
+              0.5999999046325684,
+              0.7000000476837158,
+              0.5999999046325684,
+              0.6000001430511475,
+              0.7000000476837158,
+              0.5,
+              0.7000000476837158,
+              0.5999999046325684,
+              0.6000001430511475,
+              0.5999999046325684,
+              0.7000000476837158,
+              0.6999998092651367,
+              0.7000000476837158,
+              0.7999999523162842,
+              0.5999999046325684,
+              0.7000000476837158,
+              0.8000001907348633,
+              0.7000000476837158
+            ],
+            "p50Ms": 0.6999998092651367,
+            "p95Ms": 0.7999999523162842
+          },
+          {
+            "kind": "compile-edit",
+            "firstRequestMs": 73.59999990463257,
+            "samples": [
+              55.200000047683716,
+              51.299999952316284,
+              50.5,
+              51.200000047683716,
+              50.5,
+              49.89999985694885,
+              49.40000009536743,
+              50.59999990463257,
+              51.200000047683716,
+              50,
+              50,
+              49.60000014305115,
+              50.299999952316284,
+              55,
+              50.5,
+              50.299999952316284,
+              52.799999952316284,
+              52,
+              51.200000047683716,
+              50.5,
+              50.5,
+              50.700000047683716,
+              50.5,
+              50.90000009536743,
+              52.799999952316284,
+              52.299999952316284,
+              52,
+              52.299999952316284,
+              54.5,
+              52.799999952316284
+            ],
+            "p50Ms": 50.700000047683716,
+            "p95Ms": 55
+          }
+        ],
+        "hoverResponse": {
+          "found": true,
+          "name": "wire",
+          "signature": "wire: string"
+        },
+        "importedTypeChecks": [
+          {
+            "call": "json.decode(false)",
+            "diagnostics": [
+              {
+                "offset": 2170,
+                "severity": "error",
+                "msg": "argument 1: boolean is not a string",
+                "code": "NUPP2006",
+                "related": [
+                  {
+                    "offset": 13579,
+                    "length": 6,
+                    "filename": "nupp.codec.json",
+                    "message": "called function is declared here",
+                    "col": 17,
+                    "line": 400
+                  }
+                ],
+                "help": "compare the call with the declared parameter list",
+                "length": 5,
+                "col": 13,
+                "line": 67
+              }
+            ]
+          },
+          {
+            "call": "hex.encode(false)",
+            "diagnostics": [
+              {
+                "offset": 2169,
+                "severity": "error",
+                "msg": "argument 1: boolean is not a string",
+                "code": "NUPP2006",
+                "related": [
+                  {
+                    "offset": 370,
+                    "length": 6,
+                    "filename": "nupp.codec.hex",
+                    "message": "called function is declared here",
+                    "col": 17,
+                    "line": 18
+                  }
+                ],
+                "help": "compare the call with the declared parameter list",
+                "length": 5,
+                "col": 12,
+                "line": 67
+              }
+            ]
+          },
+          {
+            "call": "text.newBuffer(false)",
+            "diagnostics": [
+              {
+                "offset": 2173,
+                "severity": "error",
+                "msg": "argument 1: false is not a integer | nil | table",
+                "code": "NUPP2006",
+                "related": [
+                  {
+                    "offset": 1300,
+                    "length": 9,
+                    "filename": "nupp.text",
+                    "message": "called function is declared here",
+                    "col": 14,
+                    "line": 39
+                  }
+                ],
+                "help": "compare the call with the declared parameter list",
+                "length": 5,
+                "col": 16,
+                "line": 67
+              }
+            ]
+          },
+          {
+            "call": "utf8.truncate(false, 24)",
+            "diagnostics": [
+              {
+                "offset": 2172,
+                "severity": "error",
+                "msg": "argument 1: boolean is not a string",
+                "code": "NUPP2006",
+                "related": [
+                  {
+                    "offset": 13337,
+                    "length": 8,
+                    "filename": "nupp.text.utf8",
+                    "message": "called function is declared here",
+                    "col": 15,
+                    "line": 407
+                  }
+                ],
+                "help": "compare the call with the declared parameter list",
+                "length": 5,
+                "col": 15,
+                "line": 67
+              }
+            ]
+          },
+          {
+            "call": "path.newPath(false)",
+            "diagnostics": [
+              {
+                "offset": 2171,
+                "severity": "error",
+                "msg": "argument 1: false is not a Path | string",
+                "code": "NUPP2006",
+                "related": [
+                  {
+                    "offset": 13244,
+                    "length": 7,
+                    "filename": "nupp.io.path",
+                    "message": "called function is declared here",
+                    "col": 17,
+                    "line": 389
+                  }
+                ],
+                "help": "compare the call with the declared parameter list",
+                "length": 5,
+                "col": 14,
+                "line": 67
+              }
+            ]
+          },
+          {
+            "call": "uri.newURI(false)",
+            "diagnostics": [
+              {
+                "offset": 2169,
+                "severity": "error",
+                "msg": "argument 1: false is not a Components | string",
+                "code": "NUPP2006",
+                "related": [
+                  {
+                    "offset": 21588,
+                    "length": 6,
+                    "filename": "nupp.io.uri",
+                    "message": "called function is declared here",
+                    "col": 17,
+                    "line": 633
+                  }
+                ],
+                "help": "compare the call with the declared parameter list",
+                "length": 5,
+                "col": 12,
+                "line": 67
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "engine": "chromium",
+        "round": 0,
+        "version": "152.0.7977.77",
+        "backend": "lua51",
+        "startupMs": 69.5,
+        "summary": [
+          {
+            "kind": "check-edit",
+            "firstRequestMs": 16263.399999856949,
+            "samples": [
+              5.200000047683716,
+              5.1000001430511475,
+              5.700000047683716,
+              5.700000047683716,
+              5.299999952316284,
+              5.299999952316284,
+              5.400000095367432,
+              5.200000047683716,
+              5.300000190734863,
+              7.700000047683716,
+              9.100000143051147,
+              10.299999952316284,
+              4.700000047683716,
+              4.700000047683716,
+              4.800000190734863,
+              4.700000047683716,
+              4.799999952316284,
+              4.700000047683716,
+              4.700000047683716,
+              4.700000047683716,
+              4.799999952316284,
+              4.5,
+              4.599999904632568,
+              4.599999904632568,
+              4.5,
+              4.5,
+              4.599999904632568,
+              4.5,
+              4.5,
+              4.5
+            ],
+            "p50Ms": 4.700000047683716,
+            "p95Ms": 9.100000143051147
+          },
+          {
+            "kind": "hover",
+            "samples": [
+              0.09999990463256836,
+              0.09999990463256836,
+              0.09999990463256836,
+              0.10000014305114746,
+              0.20000004768371582,
+              0.09999990463256836,
+              0.09999990463256836,
+              0.09999990463256836,
+              0.09999990463256836,
+              0.09999990463256836,
+              0.09999990463256836,
+              0.20000004768371582,
+              0.09999990463256836,
+              0.09999990463256836,
+              0.09999990463256836,
+              0,
+              0.09999990463256836,
+              0,
+              0.09999990463256836,
+              0,
+              0,
+              0.10000014305114746,
+              0.10000014305114746,
+              0.09999990463256836,
+              0.10000014305114746,
+              0,
+              0.20000004768371582,
+              0,
+              0,
+              0.20000004768371582
+            ],
+            "p50Ms": 0.09999990463256836,
+            "p95Ms": 0.20000004768371582
+          },
+          {
+            "kind": "compile-edit",
+            "firstRequestMs": 8,
+            "samples": [
+              7.8999998569488525,
+              7.900000095367432,
+              7.900000095367432,
+              7.8999998569488525,
+              8,
+              7.799999952316284,
+              7.900000095367432,
+              8.700000047683716,
+              8.5,
+              8.5,
+              8.899999856948853,
+              8.900000095367432,
+              8.700000047683716,
+              8.899999856948853,
+              8.5,
+              10.899999856948853,
+              14.300000190734863,
+              14.899999856948853,
+              8.200000047683716,
+              7.900000095367432,
+              8,
+              7.8999998569488525,
+              8.100000143051147,
+              8,
+              8,
+              7.8999998569488525,
+              7.900000095367432,
+              8,
+              7.8999998569488525,
+              7.8999998569488525
+            ],
+            "p50Ms": 8,
+            "p95Ms": 14.300000190734863
+          }
+        ],
+        "hoverResponse": {
+          "found": true,
+          "name": "wire",
+          "signature": "wire: string"
+        },
+        "importedTypeChecks": [
+          {
+            "call": "json.decode(false)",
+            "diagnostics": [
+              {
+                "offset": 2170,
+                "code": "NUPP2006",
+                "severity": "error",
+                "msg": "argument 1: boolean is not a string",
+                "line": 67,
+                "help": "compare the call with the declared parameter list",
+                "col": 13,
+                "length": 5,
+                "related": [
+                  {
+                    "message": "called function is declared here",
+                    "line": 400,
+                    "filename": "nupp.codec.json",
+                    "col": 17,
+                    "length": 6,
+                    "offset": 13579
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "call": "hex.encode(false)",
+            "diagnostics": [
+              {
+                "offset": 2169,
+                "code": "NUPP2006",
+                "severity": "error",
+                "msg": "argument 1: boolean is not a string",
+                "line": 67,
+                "help": "compare the call with the declared parameter list",
+                "col": 12,
+                "length": 5,
+                "related": [
+                  {
+                    "message": "called function is declared here",
+                    "line": 18,
+                    "filename": "nupp.codec.hex",
+                    "col": 17,
+                    "length": 6,
+                    "offset": 370
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "call": "text.newBuffer(false)",
+            "diagnostics": [
+              {
+                "offset": 2173,
+                "code": "NUPP2006",
+                "severity": "error",
+                "msg": "argument 1: false is not a integer | nil | table",
+                "line": 67,
+                "help": "compare the call with the declared parameter list",
+                "col": 16,
+                "length": 5,
+                "related": [
+                  {
+                    "message": "called function is declared here",
+                    "line": 39,
+                    "filename": "nupp.text",
+                    "col": 14,
+                    "length": 9,
+                    "offset": 1300
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "call": "utf8.truncate(false, 24)",
+            "diagnostics": [
+              {
+                "offset": 2172,
+                "code": "NUPP2006",
+                "severity": "error",
+                "msg": "argument 1: boolean is not a string",
+                "line": 67,
+                "help": "compare the call with the declared parameter list",
+                "col": 15,
+                "length": 5,
+                "related": [
+                  {
+                    "message": "called function is declared here",
+                    "line": 407,
+                    "filename": "nupp.text.utf8",
+                    "col": 15,
+                    "length": 8,
+                    "offset": 13337
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "call": "path.newPath(false)",
+            "diagnostics": [
+              {
+                "offset": 2171,
+                "code": "NUPP2006",
+                "severity": "error",
+                "msg": "argument 1: false is not a Path | string",
+                "line": 67,
+                "help": "compare the call with the declared parameter list",
+                "col": 14,
+                "length": 5,
+                "related": [
+                  {
+                    "message": "called function is declared here",
+                    "line": 389,
+                    "filename": "nupp.io.path",
+                    "col": 17,
+                    "length": 7,
+                    "offset": 13244
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "call": "uri.newURI(false)",
+            "diagnostics": [
+              {
+                "offset": 2169,
+                "code": "NUPP2006",
+                "severity": "error",
+                "msg": "argument 1: false is not a Components | string",
+                "line": 67,
+                "help": "compare the call with the declared parameter list",
+                "col": 12,
+                "length": 5,
+                "related": [
+                  {
+                    "message": "called function is declared here",
+                    "line": 633,
+                    "filename": "nupp.io.uri",
+                    "col": 17,
+                    "length": 6,
+                    "offset": 21588
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "engine": "chromium",
+        "round": 1,
+        "version": "152.0.7977.77",
+        "backend": "lua51",
+        "startupMs": 75.70000004768372,
+        "summary": [
+          {
+            "kind": "check-edit",
+            "firstRequestMs": 16666.799999952316,
+            "samples": [
+              5.200000047683716,
+              5.1000001430511475,
+              5.6000001430511475,
+              5.599999904632568,
+              5.5,
+              5.200000047683716,
+              5.300000190734863,
+              5.299999952316284,
+              5.1000001430511475,
+              7.5,
+              9.099999904632568,
+              10.599999904632568,
+              4.6000001430511475,
+              4.700000047683716,
+              4.700000047683716,
+              4.700000047683716,
+              4.799999952316284,
+              4.699999809265137,
+              4.700000047683716,
+              4.599999904632568,
+              4.5,
+              4.6000001430511475,
+              4.599999904632568,
+              4.6000001430511475,
+              4.700000047683716,
+              4.700000047683716,
+              4.6000001430511475,
+              4.5,
+              4.6000001430511475,
+              4.6000001430511475
+            ],
+            "p50Ms": 4.700000047683716,
+            "p95Ms": 9.099999904632568
+          },
+          {
+            "kind": "hover",
+            "samples": [
+              0.09999990463256836,
+              0.09999990463256836,
+              0.09999990463256836,
+              0.10000014305114746,
+              0.09999990463256836,
+              0.09999990463256836,
+              0,
+              0.09999990463256836,
+              0.19999980926513672,
+              0.10000014305114746,
+              0.10000014305114746,
+              0.09999990463256836,
+              0.09999990463256836,
+              0,
+              0.09999990463256836,
+              0,
+              0,
+              0.10000014305114746,
+              0.09999990463256836,
+              0.20000004768371582,
+              0,
+              0.09999990463256836,
+              0,
+              0.09999990463256836,
+              0,
+              0.09999990463256836,
+              0.09999990463256836,
+              0.09999990463256836,
+              0.09999990463256836,
+              0
+            ],
+            "p50Ms": 0.09999990463256836,
+            "p95Ms": 0.19999980926513672
+          },
+          {
+            "kind": "compile-edit",
+            "firstRequestMs": 7.800000190734863,
+            "samples": [
+              7.800000190734863,
+              7.699999809265137,
+              7.900000095367432,
+              7.700000047683716,
+              7.8999998569488525,
+              7.800000190734863,
+              7.799999952316284,
+              8.599999904632568,
+              8.600000143051147,
+              8.299999952316284,
+              8.799999952316284,
+              8.900000095367432,
+              8.599999904632568,
+              8.900000095367432,
+              8.599999904632568,
+              10.599999904632568,
+              14.200000047683716,
+              15.5,
+              8,
+              8,
+              8,
+              7.8999998569488525,
+              8,
+              7.799999952316284,
+              7.900000095367432,
+              8,
+              7.900000095367432,
+              7.799999952316284,
+              7.900000095367432,
+              7.8999998569488525
+            ],
+            "p50Ms": 8,
+            "p95Ms": 14.200000047683716
+          }
+        ],
+        "hoverResponse": {
+          "found": true,
+          "name": "wire",
+          "signature": "wire: string"
+        },
+        "importedTypeChecks": [
+          {
+            "call": "json.decode(false)",
+            "diagnostics": [
+              {
+                "offset": 2170,
+                "code": "NUPP2006",
+                "severity": "error",
+                "msg": "argument 1: boolean is not a string",
+                "line": 67,
+                "help": "compare the call with the declared parameter list",
+                "col": 13,
+                "length": 5,
+                "related": [
+                  {
+                    "message": "called function is declared here",
+                    "line": 400,
+                    "filename": "nupp.codec.json",
+                    "col": 17,
+                    "length": 6,
+                    "offset": 13579
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "call": "hex.encode(false)",
+            "diagnostics": [
+              {
+                "offset": 2169,
+                "code": "NUPP2006",
+                "severity": "error",
+                "msg": "argument 1: boolean is not a string",
+                "line": 67,
+                "help": "compare the call with the declared parameter list",
+                "col": 12,
+                "length": 5,
+                "related": [
+                  {
+                    "message": "called function is declared here",
+                    "line": 18,
+                    "filename": "nupp.codec.hex",
+                    "col": 17,
+                    "length": 6,
+                    "offset": 370
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "call": "text.newBuffer(false)",
+            "diagnostics": [
+              {
+                "offset": 2173,
+                "code": "NUPP2006",
+                "severity": "error",
+                "msg": "argument 1: false is not a integer | nil | table",
+                "line": 67,
+                "help": "compare the call with the declared parameter list",
+                "col": 16,
+                "length": 5,
+                "related": [
+                  {
+                    "message": "called function is declared here",
+                    "line": 39,
+                    "filename": "nupp.text",
+                    "col": 14,
+                    "length": 9,
+                    "offset": 1300
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "call": "utf8.truncate(false, 24)",
+            "diagnostics": [
+              {
+                "offset": 2172,
+                "code": "NUPP2006",
+                "severity": "error",
+                "msg": "argument 1: boolean is not a string",
+                "line": 67,
+                "help": "compare the call with the declared parameter list",
+                "col": 15,
+                "length": 5,
+                "related": [
+                  {
+                    "message": "called function is declared here",
+                    "line": 407,
+                    "filename": "nupp.text.utf8",
+                    "col": 15,
+                    "length": 8,
+                    "offset": 13337
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "call": "path.newPath(false)",
+            "diagnostics": [
+              {
+                "offset": 2171,
+                "code": "NUPP2006",
+                "severity": "error",
+                "msg": "argument 1: false is not a Path | string",
+                "line": 67,
+                "help": "compare the call with the declared parameter list",
+                "col": 14,
+                "length": 5,
+                "related": [
+                  {
+                    "message": "called function is declared here",
+                    "line": 389,
+                    "filename": "nupp.io.path",
+                    "col": 17,
+                    "length": 7,
+                    "offset": 13244
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "call": "uri.newURI(false)",
+            "diagnostics": [
+              {
+                "offset": 2169,
+                "code": "NUPP2006",
+                "severity": "error",
+                "msg": "argument 1: false is not a Components | string",
+                "line": 67,
+                "help": "compare the call with the declared parameter list",
+                "col": 12,
+                "length": 5,
+                "related": [
+                  {
+                    "message": "called function is declared here",
+                    "line": 633,
+                    "filename": "nupp.io.uri",
+                    "col": 17,
+                    "length": 6,
+                    "offset": 21588
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "engine": "chromium",
+        "round": 1,
+        "version": "152.0.7977.77",
+        "backend": "luajit",
+        "startupMs": 427.7000000476837,
+        "summary": [
+          {
+            "kind": "check-edit",
+            "firstRequestMs": 4845.900000095367,
+            "samples": [
+              27.59999990463257,
+              32.59999990463257,
+              28.700000047683716,
+              27.899999856948853,
+              27.700000047683716,
+              27.59999990463257,
+              29.40000009536743,
+              27.40000009536743,
+              27.899999856948853,
+              28.199999809265137,
+              27.5,
+              28.799999952316284,
+              30.5,
+              27.299999952316284,
+              27.100000143051147,
+              27.40000009536743,
+              27,
+              27.59999990463257,
+              28.59999990463257,
+              29.799999952316284,
+              33.40000009536743,
+              32.60000014305115,
+              30.899999856948853,
+              30.700000047683716,
+              30.799999952316284,
+              30.700000047683716,
+              33.40000009536743,
+              32.799999952316284,
+              32,
+              31.09999990463257
+            ],
+            "p50Ms": 28.700000047683716,
+            "p95Ms": 33.40000009536743
+          },
+          {
+            "kind": "hover",
+            "samples": [
+              0.7000000476837158,
+              1,
+              0.7999999523162842,
+              0.7000000476837158,
+              0.7000000476837158,
+              0.7000000476837158,
+              0.6999998092651367,
+              0.7000000476837158,
+              0.8000001907348633,
+              0.6000001430511475,
+              0.7000000476837158,
+              0.7000000476837158,
+              0.7999999523162842,
+              0.7999999523162842,
+              0.6999998092651367,
+              0.7000000476837158,
+              0.7000000476837158,
+              0.7000000476837158,
+              0.7000000476837158,
+              0.7999999523162842,
+              0.7999999523162842,
+              0.7999999523162842,
+              0.7000000476837158,
+              0.6000001430511475,
+              0.5999999046325684,
+              0.6999998092651367,
+              0.7999999523162842,
+              0.7000000476837158,
+              0.6000001430511475,
+              0.7000000476837158
+            ],
+            "p50Ms": 0.7000000476837158,
+            "p95Ms": 0.8000001907348633
+          },
+          {
+            "kind": "compile-edit",
+            "firstRequestMs": 73.79999995231628,
+            "samples": [
+              48.299999952316284,
+              47.10000014305115,
+              46.89999985694885,
+              50.10000014305115,
+              49.59999990463257,
+              48.90000009536743,
+              47.09999990463257,
+              46.40000009536743,
+              46.5,
+              46.299999952316284,
+              46.200000047683716,
+              46.19999980926514,
+              46.10000014305115,
+              57.5,
+              49.89999985694885,
+              46.90000009536743,
+              46.5,
+              48.700000047683716,
+              48.299999952316284,
+              47.200000047683716,
+              47.799999952316284,
+              51.5,
+              48.09999990463257,
+              47.80000019073486,
+              48.299999952316284,
+              48.5,
+              49.200000047683716,
+              48,
+              48,
+              50.200000047683716
+            ],
+            "p50Ms": 48,
+            "p95Ms": 51.5
+          }
+        ],
+        "hoverResponse": {
+          "found": true,
+          "name": "wire",
+          "signature": "wire: string"
+        },
+        "importedTypeChecks": [
+          {
+            "call": "json.decode(false)",
+            "diagnostics": [
+              {
+                "help": "compare the call with the declared parameter list",
+                "code": "NUPP2006",
+                "severity": "error",
+                "offset": 2170,
+                "length": 5,
+                "related": [
+                  {
+                    "message": "called function is declared here",
+                    "length": 6,
+                    "filename": "nupp.codec.json",
+                    "col": 17,
+                    "line": 400,
+                    "offset": 13579
+                  }
+                ],
+                "col": 13,
+                "line": 67,
+                "msg": "argument 1: boolean is not a string"
+              }
+            ]
+          },
+          {
+            "call": "hex.encode(false)",
+            "diagnostics": [
+              {
+                "help": "compare the call with the declared parameter list",
+                "code": "NUPP2006",
+                "severity": "error",
+                "offset": 2169,
+                "length": 5,
+                "related": [
+                  {
+                    "message": "called function is declared here",
+                    "length": 6,
+                    "filename": "nupp.codec.hex",
+                    "col": 17,
+                    "line": 18,
+                    "offset": 370
+                  }
+                ],
+                "col": 12,
+                "line": 67,
+                "msg": "argument 1: boolean is not a string"
+              }
+            ]
+          },
+          {
+            "call": "text.newBuffer(false)",
+            "diagnostics": [
+              {
+                "help": "compare the call with the declared parameter list",
+                "code": "NUPP2006",
+                "severity": "error",
+                "offset": 2173,
+                "length": 5,
+                "related": [
+                  {
+                    "message": "called function is declared here",
+                    "length": 9,
+                    "filename": "nupp.text",
+                    "col": 14,
+                    "line": 39,
+                    "offset": 1300
+                  }
+                ],
+                "col": 16,
+                "line": 67,
+                "msg": "argument 1: false is not a integer | nil | table"
+              }
+            ]
+          },
+          {
+            "call": "utf8.truncate(false, 24)",
+            "diagnostics": [
+              {
+                "help": "compare the call with the declared parameter list",
+                "code": "NUPP2006",
+                "severity": "error",
+                "offset": 2172,
+                "length": 5,
+                "related": [
+                  {
+                    "message": "called function is declared here",
+                    "length": 8,
+                    "filename": "nupp.text.utf8",
+                    "col": 15,
+                    "line": 407,
+                    "offset": 13337
+                  }
+                ],
+                "col": 15,
+                "line": 67,
+                "msg": "argument 1: boolean is not a string"
+              }
+            ]
+          },
+          {
+            "call": "path.newPath(false)",
+            "diagnostics": [
+              {
+                "help": "compare the call with the declared parameter list",
+                "code": "NUPP2006",
+                "severity": "error",
+                "offset": 2171,
+                "length": 5,
+                "related": [
+                  {
+                    "message": "called function is declared here",
+                    "length": 7,
+                    "filename": "nupp.io.path",
+                    "col": 17,
+                    "line": 389,
+                    "offset": 13244
+                  }
+                ],
+                "col": 14,
+                "line": 67,
+                "msg": "argument 1: false is not a Path | string"
+              }
+            ]
+          },
+          {
+            "call": "uri.newURI(false)",
+            "diagnostics": [
+              {
+                "help": "compare the call with the declared parameter list",
+                "code": "NUPP2006",
+                "severity": "error",
+                "offset": 2169,
+                "length": 5,
+                "related": [
+                  {
+                    "message": "called function is declared here",
+                    "length": 6,
+                    "filename": "nupp.io.uri",
+                    "col": 17,
+                    "line": 633,
+                    "offset": 21588
+                  }
+                ],
+                "col": 12,
+                "line": 67,
+                "msg": "argument 1: false is not a Components | string"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "engine": "chromium",
+        "round": 2,
+        "version": "152.0.7977.77",
+        "backend": "luajit",
+        "startupMs": 435.7999999523163,
+        "summary": [
+          {
+            "kind": "check-edit",
+            "firstRequestMs": 5246.5,
+            "samples": [
+              29.699999809265137,
+              29.700000047683716,
+              30,
+              29.59999990463257,
+              29.40000009536743,
+              29.600000143051147,
+              31.5,
+              29.300000190734863,
+              32.5,
+              30.399999856948853,
+              30,
+              29.399999856948853,
+              29.5,
+              29.700000047683716,
+              29.399999856948853,
+              29.40000009536743,
+              29.59999990463257,
+              29.300000190734863,
+              29.700000047683716,
+              30.59999990463257,
+              33.90000009536743,
+              34.09999990463257,
+              33.200000047683716,
+              33.59999990463257,
+              33.299999952316284,
+              33.5,
+              39.799999952316284,
+              38.200000047683716,
+              33.39999985694885,
+              31.5
+            ],
+            "p50Ms": 30,
+            "p95Ms": 38.200000047683716
+          },
+          {
+            "kind": "hover",
+            "samples": [
+              0.7000000476837158,
+              0.5999999046325684,
+              0.6000001430511475,
+              0.7000000476837158,
+              0.6999998092651367,
+              0.7000000476837158,
+              0.6999998092651367,
+              0.6999998092651367,
+              0.6000001430511475,
+              0.7000000476837158,
+              0.6000001430511475,
+              0.6000001430511475,
+              0.7999999523162842,
+              0.7999999523162842,
+              0.7000000476837158,
+              0.7000000476837158,
+              0.5999999046325684,
+              0.5999999046325684,
+              0.7000000476837158,
+              0.5999999046325684,
+              0.7000000476837158,
+              0.6000001430511475,
+              0.7000000476837158,
+              0.7000000476837158,
+              0.7999999523162842,
+              0.6000001430511475,
+              0.8999998569488525,
+              0.9000000953674316,
+              0.7000000476837158,
+              0.6000001430511475
+            ],
+            "p50Ms": 0.7000000476837158,
+            "p95Ms": 0.8999998569488525
+          },
+          {
+            "kind": "compile-edit",
+            "firstRequestMs": 70.79999995231628,
+            "samples": [
+              53.299999952316284,
+              50,
+              50.299999952316284,
+              48.59999990463257,
+              48.299999952316284,
+              47.200000047683716,
+              47.5,
+              47.299999952316284,
+              47.5,
+              49.5,
+              48.30000019073486,
+              48.299999952316284,
+              47.799999952316284,
+              51.90000009536743,
+              48.59999990463257,
+              48.30000019073486,
+              48,
+              48.19999980926514,
+              48.40000009536743,
+              48.299999952316284,
+              49.5,
+              53,
+              50.10000014305115,
+              49.19999980926514,
+              50.200000047683716,
+              50,
+              50.299999952316284,
+              49.700000047683716,
+              49.60000014305115,
+              49.89999985694885
+            ],
+            "p50Ms": 48.59999990463257,
+            "p95Ms": 53
+          }
+        ],
+        "hoverResponse": {
+          "found": true,
+          "name": "wire",
+          "signature": "wire: string"
+        },
+        "importedTypeChecks": [
+          {
+            "call": "json.decode(false)",
+            "diagnostics": [
+              {
+                "severity": "error",
+                "msg": "argument 1: boolean is not a string",
+                "code": "NUPP2006",
+                "offset": 2170,
+                "length": 5,
+                "col": 13,
+                "line": 67,
+                "help": "compare the call with the declared parameter list",
+                "related": [
+                  {
+                    "col": 17,
+                    "message": "called function is declared here",
+                    "offset": 13579,
+                    "line": 400,
+                    "filename": "nupp.codec.json",
+                    "length": 6
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "call": "hex.encode(false)",
+            "diagnostics": [
+              {
+                "severity": "error",
+                "msg": "argument 1: boolean is not a string",
+                "code": "NUPP2006",
+                "offset": 2169,
+                "length": 5,
+                "col": 12,
+                "line": 67,
+                "help": "compare the call with the declared parameter list",
+                "related": [
+                  {
+                    "col": 17,
+                    "message": "called function is declared here",
+                    "offset": 370,
+                    "line": 18,
+                    "filename": "nupp.codec.hex",
+                    "length": 6
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "call": "text.newBuffer(false)",
+            "diagnostics": [
+              {
+                "severity": "error",
+                "msg": "argument 1: false is not a integer | nil | table",
+                "code": "NUPP2006",
+                "offset": 2173,
+                "length": 5,
+                "col": 16,
+                "line": 67,
+                "help": "compare the call with the declared parameter list",
+                "related": [
+                  {
+                    "col": 14,
+                    "message": "called function is declared here",
+                    "offset": 1300,
+                    "line": 39,
+                    "filename": "nupp.text",
+                    "length": 9
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "call": "utf8.truncate(false, 24)",
+            "diagnostics": [
+              {
+                "severity": "error",
+                "msg": "argument 1: boolean is not a string",
+                "code": "NUPP2006",
+                "offset": 2172,
+                "length": 5,
+                "col": 15,
+                "line": 67,
+                "help": "compare the call with the declared parameter list",
+                "related": [
+                  {
+                    "col": 15,
+                    "message": "called function is declared here",
+                    "offset": 13337,
+                    "line": 407,
+                    "filename": "nupp.text.utf8",
+                    "length": 8
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "call": "path.newPath(false)",
+            "diagnostics": [
+              {
+                "severity": "error",
+                "msg": "argument 1: false is not a Path | string",
+                "code": "NUPP2006",
+                "offset": 2171,
+                "length": 5,
+                "col": 14,
+                "line": 67,
+                "help": "compare the call with the declared parameter list",
+                "related": [
+                  {
+                    "col": 17,
+                    "message": "called function is declared here",
+                    "offset": 13244,
+                    "line": 389,
+                    "filename": "nupp.io.path",
+                    "length": 7
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "call": "uri.newURI(false)",
+            "diagnostics": [
+              {
+                "severity": "error",
+                "msg": "argument 1: false is not a Components | string",
+                "code": "NUPP2006",
+                "offset": 2169,
+                "length": 5,
+                "col": 12,
+                "line": 67,
+                "help": "compare the call with the declared parameter list",
+                "related": [
+                  {
+                    "col": 17,
+                    "message": "called function is declared here",
+                    "offset": 21588,
+                    "line": 633,
+                    "filename": "nupp.io.uri",
+                    "length": 6
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "engine": "chromium",
+        "round": 2,
+        "version": "152.0.7977.77",
+        "backend": "lua51",
+        "startupMs": 70.79999995231628,
+        "summary": [
+          {
+            "kind": "check-edit",
+            "firstRequestMs": 16442.800000190735,
+            "samples": [
+              5.299999952316284,
+              5.200000047683716,
+              5.5,
+              5.700000047683716,
+              5.400000095367432,
+              5.400000095367432,
+              5.5,
+              5.1000001430511475,
+              5.200000047683716,
+              7.599999904632568,
+              9.099999904632568,
+              10.399999856948853,
+              4.799999952316284,
+              4.700000047683716,
+              4.700000047683716,
+              4.800000190734863,
+              4.799999952316284,
+              4.799999952316284,
+              4.799999952316284,
+              4.700000047683716,
+              4.700000047683716,
+              4.6000001430511475,
+              4.700000047683716,
+              4.599999904632568,
+              4.5,
+              4.700000047683716,
+              4.599999904632568,
+              4.599999904632568,
+              4.5,
+              4.5
+            ],
+            "p50Ms": 4.799999952316284,
+            "p95Ms": 9.099999904632568
+          },
+          {
+            "kind": "hover",
+            "samples": [
+              0.09999990463256836,
+              0.10000014305114746,
+              0.09999990463256836,
+              0.09999990463256836,
+              0.09999990463256836,
+              0,
+              0,
+              0.09999990463256836,
+              0,
+              0.20000004768371582,
+              0.10000014305114746,
+              0.10000014305114746,
+              0,
+              0.09999990463256836,
+              0.09999990463256836,
+              0.09999990463256836,
+              0.10000014305114746,
+              0,
+              0,
+              0.09999990463256836,
+              0.09999990463256836,
+              0.09999990463256836,
+              0,
+              0.20000004768371582,
+              0,
+              0,
+              0.10000014305114746,
+              0.10000014305114746,
+              0.09999990463256836,
+              0
+            ],
+            "p50Ms": 0.09999990463256836,
+            "p95Ms": 0.20000004768371582
+          },
+          {
+            "kind": "compile-edit",
+            "firstRequestMs": 7.799999952316284,
+            "samples": [
+              8,
+              7.8999998569488525,
+              7.800000190734863,
+              8,
+              7.8999998569488525,
+              7.900000095367432,
+              8,
+              8.599999904632568,
+              8.599999904632568,
+              8.5,
+              9,
+              8.900000095367432,
+              8.899999856948853,
+              9,
+              8.900000095367432,
+              10.799999952316284,
+              14.300000190734863,
+              15.599999904632568,
+              8.100000143051147,
+              8.099999904632568,
+              8,
+              8,
+              7.900000095367432,
+              8,
+              7.799999952316284,
+              8,
+              7.799999952316284,
+              8,
+              7.8999998569488525,
+              7.8999998569488525
+            ],
+            "p50Ms": 8,
+            "p95Ms": 14.300000190734863
+          }
+        ],
+        "hoverResponse": {
+          "found": true,
+          "name": "wire",
+          "signature": "wire: string"
+        },
+        "importedTypeChecks": [
+          {
+            "call": "json.decode(false)",
+            "diagnostics": [
+              {
+                "offset": 2170,
+                "code": "NUPP2006",
+                "severity": "error",
+                "msg": "argument 1: boolean is not a string",
+                "line": 67,
+                "help": "compare the call with the declared parameter list",
+                "col": 13,
+                "length": 5,
+                "related": [
+                  {
+                    "message": "called function is declared here",
+                    "line": 400,
+                    "filename": "nupp.codec.json",
+                    "col": 17,
+                    "length": 6,
+                    "offset": 13579
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "call": "hex.encode(false)",
+            "diagnostics": [
+              {
+                "offset": 2169,
+                "code": "NUPP2006",
+                "severity": "error",
+                "msg": "argument 1: boolean is not a string",
+                "line": 67,
+                "help": "compare the call with the declared parameter list",
+                "col": 12,
+                "length": 5,
+                "related": [
+                  {
+                    "message": "called function is declared here",
+                    "line": 18,
+                    "filename": "nupp.codec.hex",
+                    "col": 17,
+                    "length": 6,
+                    "offset": 370
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "call": "text.newBuffer(false)",
+            "diagnostics": [
+              {
+                "offset": 2173,
+                "code": "NUPP2006",
+                "severity": "error",
+                "msg": "argument 1: false is not a integer | nil | table",
+                "line": 67,
+                "help": "compare the call with the declared parameter list",
+                "col": 16,
+                "length": 5,
+                "related": [
+                  {
+                    "message": "called function is declared here",
+                    "line": 39,
+                    "filename": "nupp.text",
+                    "col": 14,
+                    "length": 9,
+                    "offset": 1300
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "call": "utf8.truncate(false, 24)",
+            "diagnostics": [
+              {
+                "offset": 2172,
+                "code": "NUPP2006",
+                "severity": "error",
+                "msg": "argument 1: boolean is not a string",
+                "line": 67,
+                "help": "compare the call with the declared parameter list",
+                "col": 15,
+                "length": 5,
+                "related": [
+                  {
+                    "message": "called function is declared here",
+                    "line": 407,
+                    "filename": "nupp.text.utf8",
+                    "col": 15,
+                    "length": 8,
+                    "offset": 13337
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "call": "path.newPath(false)",
+            "diagnostics": [
+              {
+                "offset": 2171,
+                "code": "NUPP2006",
+                "severity": "error",
+                "msg": "argument 1: false is not a Path | string",
+                "line": 67,
+                "help": "compare the call with the declared parameter list",
+                "col": 14,
+                "length": 5,
+                "related": [
+                  {
+                    "message": "called function is declared here",
+                    "line": 389,
+                    "filename": "nupp.io.path",
+                    "col": 17,
+                    "length": 7,
+                    "offset": 13244
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "call": "uri.newURI(false)",
+            "diagnostics": [
+              {
+                "offset": 2169,
+                "code": "NUPP2006",
+                "severity": "error",
+                "msg": "argument 1: false is not a Components | string",
+                "line": 67,
+                "help": "compare the call with the declared parameter list",
+                "col": 12,
+                "length": 5,
+                "related": [
+                  {
+                    "message": "called function is declared here",
+                    "line": 633,
+                    "filename": "nupp.io.uri",
+                    "col": 17,
+                    "length": 6,
+                    "offset": 21588
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "responseEquivalence": "Successful sessions have identical hover types and complete imported-argument diagnostics within each engine; all valid changed checks/compiles passed, and compiled output retained the current source literal.",
+    "failedSessions": 0
+  },
+  "memory": {
+    "scope": "Each backend uses a fresh headless Chromium process tree sampled every 100 ms. RSS sums shared pages more than once. On macOS footprintBytes is the footprint tool total for that process family. Includes browser overhead, compiler and transient application VM. Teardown is one second after closing the page. This is desktop memory accounting, not mobile acceptance or a VM-size limit.",
+    "host": {
+      "platform": "darwin",
+      "arch": "arm64",
+      "cpu": "Apple M5 Pro"
+    },
+    "results": [
+      {
+        "backend": "luajit",
+        "version": "152.0.7977.77",
+        "baseline": {
+          "phase": "baseline",
+          "elapsedMs": 736.624,
+          "rssBytes": 958087168,
+          "processes": 7,
+          "footprintBytes": 552755816
+        },
+        "compilerReady": {
+          "phase": "compiler-startup",
+          "elapsedMs": 2831.038542,
+          "rssBytes": 1658044416,
+          "processes": 7,
+          "footprintBytes": 856353136
+        },
+        "afterRun": {
+          "phase": "first-run",
+          "elapsedMs": 6129.432,
+          "rssBytes": 1699086336,
+          "processes": 7,
+          "footprintBytes": 849979760
+        },
+        "afterTeardown": {
+          "phase": "teardown",
+          "elapsedMs": 8306.837333,
+          "rssBytes": 985317376,
+          "processes": 7,
+          "footprintBytes": 480649976
+        },
+        "peakRssBytes": 1810890752,
+        "peakFootprintBytes": 1142188160,
+        "samples": [
+          {
+            "phase": "baseline",
+            "elapsedMs": 121.49479199999996,
+            "rssBytes": 897646592,
+            "processes": 8,
+            "footprintBytes": 451813920
+          },
+          {
+            "phase": "baseline",
+            "elapsedMs": 237.866583,
+            "rssBytes": 936558592,
+            "processes": 7,
+            "footprintBytes": 547250768
+          },
+          {
+            "phase": "baseline",
+            "elapsedMs": 339.69058299999995,
+            "rssBytes": 945831936,
+            "processes": 7,
+            "footprintBytes": 547512912
+          },
+          {
+            "phase": "baseline",
+            "elapsedMs": 439.3456249999999,
+            "rssBytes": 945864704,
+            "processes": 7,
+            "footprintBytes": 548823632
+          },
+          {
+            "phase": "baseline",
+            "elapsedMs": 540.92575,
+            "rssBytes": 952958976,
+            "processes": 7,
+            "footprintBytes": 552493672
+          },
+          {
+            "phase": "baseline",
+            "elapsedMs": 639.680292,
+            "rssBytes": 958070784,
+            "processes": 7,
+            "footprintBytes": 552706664
+          },
+          {
+            "phase": "baseline",
+            "elapsedMs": 736.624,
+            "rssBytes": 958087168,
+            "processes": 7,
+            "footprintBytes": 552755816
+          },
+          {
+            "phase": "compiler-startup",
+            "elapsedMs": 832.121042,
+            "rssBytes": 958136320,
+            "processes": 7,
+            "footprintBytes": 552755816
+          },
+          {
+            "phase": "compiler-startup",
+            "elapsedMs": 934.6955,
+            "rssBytes": 958545920,
+            "processes": 7,
+            "footprintBytes": 592175936
+          },
+          {
+            "phase": "compiler-startup",
+            "elapsedMs": 1041.316875,
+            "rssBytes": 1017118720,
+            "processes": 7,
+            "footprintBytes": 621487032
+          },
+          {
+            "phase": "compiler-startup",
+            "elapsedMs": 1144.570958,
+            "rssBytes": 1047625728,
+            "processes": 7,
+            "footprintBytes": 804726168
+          },
+          {
+            "phase": "compiler-startup",
+            "elapsedMs": 1251.43725,
+            "rssBytes": 1250082816,
+            "processes": 7,
+            "footprintBytes": 854500880
+          },
+          {
+            "phase": "compiler-startup",
+            "elapsedMs": 1389.484833,
+            "rssBytes": 1443856384,
+            "processes": 7,
+            "footprintBytes": 1142188160
+          },
+          {
+            "phase": "compiler-startup",
+            "elapsedMs": 1544.275042,
+            "rssBytes": 1630420992,
+            "processes": 7,
+            "footprintBytes": 1070983512
+          },
+          {
+            "phase": "compiler-startup",
+            "elapsedMs": 1692.646833,
+            "rssBytes": 1687240704,
+            "processes": 7,
+            "footprintBytes": 1016146264
+          },
+          {
+            "phase": "compiler-startup",
+            "elapsedMs": 1818.463875,
+            "rssBytes": 1647624192,
+            "processes": 7,
+            "footprintBytes": 864889176
+          },
+          {
+            "phase": "compiler-startup",
+            "elapsedMs": 1934.56975,
+            "rssBytes": 1647247360,
+            "processes": 7,
+            "footprintBytes": 855845208
+          },
+          {
+            "phase": "compiler-startup",
+            "elapsedMs": 2048.849375,
+            "rssBytes": 1647460352,
+            "processes": 7,
+            "footprintBytes": 856074584
+          },
+          {
+            "phase": "compiler-startup",
+            "elapsedMs": 2162.497125,
+            "rssBytes": 1652244480,
+            "processes": 7,
+            "footprintBytes": 831089008
+          },
+          {
+            "phase": "compiler-startup",
+            "elapsedMs": 2278.2639169999998,
+            "rssBytes": 1655455744,
+            "processes": 7,
+            "footprintBytes": 855779696
+          },
+          {
+            "phase": "compiler-startup",
+            "elapsedMs": 2393.092083,
+            "rssBytes": 1657290752,
+            "processes": 7,
+            "footprintBytes": 856205680
+          },
+          {
+            "phase": "compiler-startup",
+            "elapsedMs": 2501.86525,
+            "rssBytes": 1657339904,
+            "processes": 7,
+            "footprintBytes": 856238448
+          },
+          {
+            "phase": "compiler-startup",
+            "elapsedMs": 2613.166292,
+            "rssBytes": 1657946112,
+            "processes": 7,
+            "footprintBytes": 856254832
+          },
+          {
+            "phase": "compiler-startup",
+            "elapsedMs": 2721.358083,
+            "rssBytes": 1657995264,
+            "processes": 7,
+            "footprintBytes": 856303984
+          },
+          {
+            "phase": "compiler-startup",
+            "elapsedMs": 2831.038542,
+            "rssBytes": 1658044416,
+            "processes": 7,
+            "footprintBytes": 856353136
+          },
+          {
+            "phase": "first-run",
+            "elapsedMs": 2940.87675,
+            "rssBytes": 1658060800,
+            "processes": 7,
+            "footprintBytes": 856402288
+          },
+          {
+            "phase": "first-run",
+            "elapsedMs": 3070.0815,
+            "rssBytes": 1658241024,
+            "processes": 7,
+            "footprintBytes": 856484208
+          },
+          {
+            "phase": "first-run",
+            "elapsedMs": 3188.626917,
+            "rssBytes": 1658142720,
+            "processes": 7,
+            "footprintBytes": 856451440
+          },
+          {
+            "phase": "first-run",
+            "elapsedMs": 3298.813083,
+            "rssBytes": 1658421248,
+            "processes": 7,
+            "footprintBytes": 857713008
+          },
+          {
+            "phase": "first-run",
+            "elapsedMs": 3410.087167,
+            "rssBytes": 1658896384,
+            "processes": 7,
+            "footprintBytes": 857745776
+          },
+          {
+            "phase": "first-run",
+            "elapsedMs": 3517.161833,
+            "rssBytes": 1659125760,
+            "processes": 7,
+            "footprintBytes": 858220912
+          },
+          {
+            "phase": "first-run",
+            "elapsedMs": 3625.671042,
+            "rssBytes": 1659404288,
+            "processes": 7,
+            "footprintBytes": 858712432
+          },
+          {
+            "phase": "first-run",
+            "elapsedMs": 3735.9265,
+            "rssBytes": 1660370944,
+            "processes": 7,
+            "footprintBytes": 860793200
+          },
+          {
+            "phase": "first-run",
+            "elapsedMs": 3845.763667,
+            "rssBytes": 1660895232,
+            "processes": 7,
+            "footprintBytes": 860825968
+          },
+          {
+            "phase": "first-run",
+            "elapsedMs": 3954.1767499999996,
+            "rssBytes": 1661239296,
+            "processes": 7,
+            "footprintBytes": 861088112
+          },
+          {
+            "phase": "first-run",
+            "elapsedMs": 4060.1012499999997,
+            "rssBytes": 1661517824,
+            "processes": 7,
+            "footprintBytes": 861448560
+          },
+          {
+            "phase": "first-run",
+            "elapsedMs": 4168.609042,
+            "rssBytes": 1661321216,
+            "processes": 7,
+            "footprintBytes": 839772528
+          },
+          {
+            "phase": "first-run",
+            "elapsedMs": 4278.594625,
+            "rssBytes": 1661419520,
+            "processes": 7,
+            "footprintBytes": 839887216
+          },
+          {
+            "phase": "first-run",
+            "elapsedMs": 4385.917208,
+            "rssBytes": 1661714432,
+            "processes": 7,
+            "footprintBytes": 672164208
+          },
+          {
+            "phase": "first-run",
+            "elapsedMs": 4495.23275,
+            "rssBytes": 1661911040,
+            "processes": 7,
+            "footprintBytes": 672491888
+          },
+          {
+            "phase": "first-run",
+            "elapsedMs": 4601.873583,
+            "rssBytes": 1662320640,
+            "processes": 7,
+            "footprintBytes": 672557424
+          },
+          {
+            "phase": "first-run",
+            "elapsedMs": 4709.242917,
+            "rssBytes": 1664630784,
+            "processes": 7,
+            "footprintBytes": 893200848
+          },
+          {
+            "phase": "first-run",
+            "elapsedMs": 4824.184125,
+            "rssBytes": 1670807552,
+            "processes": 7,
+            "footprintBytes": 871950920
+          },
+          {
+            "phase": "first-run",
+            "elapsedMs": 4934.390708,
+            "rssBytes": 1676181504,
+            "processes": 7,
+            "footprintBytes": 980413240
+          },
+          {
+            "phase": "first-run",
+            "elapsedMs": 5048.233583,
+            "rssBytes": 1788526592,
+            "processes": 7,
+            "footprintBytes": 1077816144
+          },
+          {
+            "phase": "first-run",
+            "elapsedMs": 5203.632083,
+            "rssBytes": 1810890752,
+            "processes": 7,
+            "footprintBytes": 1142139728
+          },
+          {
+            "phase": "first-run",
+            "elapsedMs": 5358.67175,
+            "rssBytes": 1805467648,
+            "processes": 7,
+            "footprintBytes": 864758128
+          },
+          {
+            "phase": "first-run",
+            "elapsedMs": 5476.416417,
+            "rssBytes": 1698545664,
+            "processes": 7,
+            "footprintBytes": 864708976
+          },
+          {
+            "phase": "first-run",
+            "elapsedMs": 5586.035792,
+            "rssBytes": 1698562048,
+            "processes": 7,
+            "footprintBytes": 864741744
+          },
+          {
+            "phase": "first-run",
+            "elapsedMs": 5693.826917,
+            "rssBytes": 1698938880,
+            "processes": 7,
+            "footprintBytes": 864774512
+          },
+          {
+            "phase": "first-run",
+            "elapsedMs": 5802.683292,
+            "rssBytes": 1698988032,
+            "processes": 7,
+            "footprintBytes": 864807280
+          },
+          {
+            "phase": "first-run",
+            "elapsedMs": 5912.637583,
+            "rssBytes": 1698988032,
+            "processes": 7,
+            "footprintBytes": 864790896
+          },
+          {
+            "phase": "first-run",
+            "elapsedMs": 6021.94475,
+            "rssBytes": 1699053568,
+            "processes": 7,
+            "footprintBytes": 864889200
+          },
+          {
+            "phase": "first-run",
+            "elapsedMs": 6129.432,
+            "rssBytes": 1699086336,
+            "processes": 7,
+            "footprintBytes": 849979760
+          },
+          {
+            "phase": "teardown",
+            "elapsedMs": 6238.867625,
+            "rssBytes": 1699135488,
+            "processes": 7,
+            "footprintBytes": 850061680
+          },
+          {
+            "phase": "teardown",
+            "elapsedMs": 6346.824042,
+            "rssBytes": 1699250176,
+            "processes": 7,
+            "footprintBytes": 850159984
+          },
+          {
+            "phase": "teardown",
+            "elapsedMs": 6457.681875,
+            "rssBytes": 1699250176,
+            "processes": 7,
+            "footprintBytes": 850225520
+          },
+          {
+            "phase": "teardown",
+            "elapsedMs": 6570.889708,
+            "rssBytes": 1699414016,
+            "processes": 7,
+            "footprintBytes": 686762352
+          },
+          {
+            "phase": "teardown",
+            "elapsedMs": 6679.348083,
+            "rssBytes": 1699512320,
+            "processes": 7,
+            "footprintBytes": 686811504
+          },
+          {
+            "phase": "teardown",
+            "elapsedMs": 6788.524667,
+            "rssBytes": 1699282944,
+            "processes": 7,
+            "footprintBytes": 686696816
+          },
+          {
+            "phase": "teardown",
+            "elapsedMs": 6902.523583,
+            "rssBytes": 1698119680,
+            "processes": 7,
+            "footprintBytes": 188224288
+          },
+          {
+            "phase": "teardown",
+            "elapsedMs": 7000.447708,
+            "rssBytes": 571228160,
+            "processes": 5,
+            "footprintBytes": 416028864
+          },
+          {
+            "phase": "teardown",
+            "elapsedMs": 7102.004167,
+            "rssBytes": 982056960,
+            "processes": 7,
+            "footprintBytes": 553018104
+          },
+          {
+            "phase": "teardown",
+            "elapsedMs": 7200.595542,
+            "rssBytes": 983531520,
+            "processes": 7,
+            "footprintBytes": 553018104
+          },
+          {
+            "phase": "teardown",
+            "elapsedMs": 7302.945542,
+            "rssBytes": 983531520,
+            "processes": 7,
+            "footprintBytes": 554328824
+          },
+          {
+            "phase": "teardown",
+            "elapsedMs": 7404.303083,
+            "rssBytes": 983547904,
+            "processes": 7,
+            "footprintBytes": 554345208
+          },
+          {
+            "phase": "teardown",
+            "elapsedMs": 7504.293625,
+            "rssBytes": 983547904,
+            "processes": 7,
+            "footprintBytes": 554345208
+          },
+          {
+            "phase": "teardown",
+            "elapsedMs": 7604.262375,
+            "rssBytes": 983547904,
+            "processes": 7,
+            "footprintBytes": 554345208
+          },
+          {
+            "phase": "teardown",
+            "elapsedMs": 7704.406625,
+            "rssBytes": 983564288,
+            "processes": 7,
+            "footprintBytes": 554345208
+          },
+          {
+            "phase": "teardown",
+            "elapsedMs": 7805.644958,
+            "rssBytes": 983564288,
+            "processes": 7,
+            "footprintBytes": 554345208
+          },
+          {
+            "phase": "teardown",
+            "elapsedMs": 7907.109874999999,
+            "rssBytes": 983564288,
+            "processes": 7,
+            "footprintBytes": 554345208
+          },
+          {
+            "phase": "teardown",
+            "elapsedMs": 8007.7858750000005,
+            "rssBytes": 983580672,
+            "processes": 7,
+            "footprintBytes": 554377976
+          },
+          {
+            "phase": "teardown",
+            "elapsedMs": 8108.534000000001,
+            "rssBytes": 983957504,
+            "processes": 7,
+            "footprintBytes": 555361016
+          },
+          {
+            "phase": "teardown",
+            "elapsedMs": 8210.381582999998,
+            "rssBytes": 985317376,
+            "processes": 7,
+            "footprintBytes": 555361016
+          },
+          {
+            "phase": "teardown",
+            "elapsedMs": 8306.837333,
+            "rssBytes": 985317376,
+            "processes": 7,
+            "footprintBytes": 480649976
+          }
+        ]
+      },
+      {
+        "backend": "lua51",
+        "version": "152.0.7977.77",
+        "baseline": {
+          "phase": "baseline",
+          "elapsedMs": 430.23404200000004,
+          "rssBytes": 950353920,
+          "processes": 7,
+          "footprintBytes": 497115704
+        },
+        "compilerReady": {
+          "phase": "compiler-startup",
+          "elapsedMs": 1342.4515420000007,
+          "rssBytes": 1086210048,
+          "processes": 7,
+          "footprintBytes": 617620552
+        },
+        "afterRun": {
+          "phase": "first-run",
+          "elapsedMs": 2547.799499999999,
+          "rssBytes": 1113391104,
+          "processes": 7,
+          "footprintBytes": 643081312
+        },
+        "afterTeardown": {
+          "phase": "teardown",
+          "elapsedMs": 4261.822709,
+          "rssBytes": 981909504,
+          "processes": 7,
+          "footprintBytes": 365421304
+        },
+        "peakRssBytes": 1113391104,
+        "peakFootprintBytes": 643081312,
+        "samples": [
+          {
+            "phase": "baseline",
+            "elapsedMs": 122.83487500000047,
+            "rssBytes": 932544512,
+            "processes": 8,
+            "footprintBytes": 483123720
+          },
+          {
+            "phase": "baseline",
+            "elapsedMs": 231.38045899999997,
+            "rssBytes": 937820160,
+            "processes": 7,
+            "footprintBytes": 493036040
+          },
+          {
+            "phase": "baseline",
+            "elapsedMs": 332.51029200000085,
+            "rssBytes": 941588480,
+            "processes": 7,
+            "footprintBytes": 496886328
+          },
+          {
+            "phase": "baseline",
+            "elapsedMs": 430.23404200000004,
+            "rssBytes": 950353920,
+            "processes": 7,
+            "footprintBytes": 497115704
+          },
+          {
+            "phase": "compiler-startup",
+            "elapsedMs": 525.0597089999992,
+            "rssBytes": 950452224,
+            "processes": 7,
+            "footprintBytes": 497148472
+          },
+          {
+            "phase": "compiler-startup",
+            "elapsedMs": 626.3115419999995,
+            "rssBytes": 964050944,
+            "processes": 7,
+            "footprintBytes": 536503080
+          },
+          {
+            "phase": "compiler-startup",
+            "elapsedMs": 734.7919170000005,
+            "rssBytes": 1005764608,
+            "processes": 7,
+            "footprintBytes": 583771184
+          },
+          {
+            "phase": "compiler-startup",
+            "elapsedMs": 841.2193750000006,
+            "rssBytes": 1076527104,
+            "processes": 7,
+            "footprintBytes": 583345200
+          },
+          {
+            "phase": "compiler-startup",
+            "elapsedMs": 942.7563339999997,
+            "rssBytes": 1076772864,
+            "processes": 7,
+            "footprintBytes": 583803952
+          },
+          {
+            "phase": "compiler-startup",
+            "elapsedMs": 1041.6868749999994,
+            "rssBytes": 1077968896,
+            "processes": 7,
+            "footprintBytes": 584508464
+          },
+          {
+            "phase": "compiler-startup",
+            "elapsedMs": 1143.7882090000003,
+            "rssBytes": 1082769408,
+            "processes": 7,
+            "footprintBytes": 585196592
+          },
+          {
+            "phase": "compiler-startup",
+            "elapsedMs": 1242.9907500000008,
+            "rssBytes": 1085816832,
+            "processes": 7,
+            "footprintBytes": 617604168
+          },
+          {
+            "phase": "compiler-startup",
+            "elapsedMs": 1342.4515420000007,
+            "rssBytes": 1086210048,
+            "processes": 7,
+            "footprintBytes": 617620552
+          },
+          {
+            "phase": "first-run",
+            "elapsedMs": 1438.8547500000004,
+            "rssBytes": 1086226432,
+            "processes": 7,
+            "footprintBytes": 617636936
+          },
+          {
+            "phase": "first-run",
+            "elapsedMs": 1538.3043749999997,
+            "rssBytes": 1086898176,
+            "processes": 7,
+            "footprintBytes": 620192840
+          },
+          {
+            "phase": "first-run",
+            "elapsedMs": 1639.042125,
+            "rssBytes": 1087307776,
+            "processes": 7,
+            "footprintBytes": 620651592
+          },
+          {
+            "phase": "first-run",
+            "elapsedMs": 1739.4911670000001,
+            "rssBytes": 1091436544,
+            "processes": 7,
+            "footprintBytes": 630187152
+          },
+          {
+            "phase": "first-run",
+            "elapsedMs": 1841.4781669999993,
+            "rssBytes": 1097039872,
+            "processes": 7,
+            "footprintBytes": 638362696
+          },
+          {
+            "phase": "first-run",
+            "elapsedMs": 1943.7733339999995,
+            "rssBytes": 1107738624,
+            "processes": 7,
+            "footprintBytes": 638362696
+          },
+          {
+            "phase": "first-run",
+            "elapsedMs": 2044.0268749999996,
+            "rssBytes": 1107755008,
+            "processes": 7,
+            "footprintBytes": 638362696
+          },
+          {
+            "phase": "first-run",
+            "elapsedMs": 2144.4211670000004,
+            "rssBytes": 1109032960,
+            "processes": 7,
+            "footprintBytes": 639951968
+          },
+          {
+            "phase": "first-run",
+            "elapsedMs": 2247.0938750000005,
+            "rssBytes": 1112129536,
+            "processes": 7,
+            "footprintBytes": 643081312
+          },
+          {
+            "phase": "first-run",
+            "elapsedMs": 2347.573875,
+            "rssBytes": 1113391104,
+            "processes": 7,
+            "footprintBytes": 643081312
+          },
+          {
+            "phase": "first-run",
+            "elapsedMs": 2447.989917000001,
+            "rssBytes": 1113391104,
+            "processes": 7,
+            "footprintBytes": 643081312
+          },
+          {
+            "phase": "first-run",
+            "elapsedMs": 2547.799499999999,
+            "rssBytes": 1113391104,
+            "processes": 7,
+            "footprintBytes": 643081312
+          },
+          {
+            "phase": "teardown",
+            "elapsedMs": 2649.228792,
+            "rssBytes": 1113391104,
+            "processes": 7,
+            "footprintBytes": 643081312
+          },
+          {
+            "phase": "teardown",
+            "elapsedMs": 2753.7714589999996,
+            "rssBytes": 1113391104,
+            "processes": 7,
+            "footprintBytes": 643081312
+          },
+          {
+            "phase": "teardown",
+            "elapsedMs": 2856.9235420000005,
+            "rssBytes": 851050496,
+            "processes": 7,
+            "footprintBytes": 393483040
+          },
+          {
+            "phase": "teardown",
+            "elapsedMs": 2956.4153750000005,
+            "rssBytes": 573341696,
+            "processes": 5,
+            "footprintBytes": 442423536
+          },
+          {
+            "phase": "teardown",
+            "elapsedMs": 3056.6643750000003,
+            "rssBytes": 974798848,
+            "processes": 7,
+            "footprintBytes": 558588640
+          },
+          {
+            "phase": "teardown",
+            "elapsedMs": 3156.1080839999995,
+            "rssBytes": 980729856,
+            "processes": 7,
+            "footprintBytes": 563176184
+          },
+          {
+            "phase": "teardown",
+            "elapsedMs": 3255.222917000001,
+            "rssBytes": 980975616,
+            "processes": 7,
+            "footprintBytes": 563176184
+          },
+          {
+            "phase": "teardown",
+            "elapsedMs": 3355.074917,
+            "rssBytes": 980975616,
+            "processes": 7,
+            "footprintBytes": 563225336
+          },
+          {
+            "phase": "teardown",
+            "elapsedMs": 3458.793125,
+            "rssBytes": 980992000,
+            "processes": 7,
+            "footprintBytes": 563225336
+          },
+          {
+            "phase": "teardown",
+            "elapsedMs": 3559.306834000001,
+            "rssBytes": 981008384,
+            "processes": 7,
+            "footprintBytes": 563225336
+          },
+          {
+            "phase": "teardown",
+            "elapsedMs": 3660.5498750000006,
+            "rssBytes": 981008384,
+            "processes": 7,
+            "footprintBytes": 563225336
+          },
+          {
+            "phase": "teardown",
+            "elapsedMs": 3760.680375,
+            "rssBytes": 981008384,
+            "processes": 7,
+            "footprintBytes": 563225336
+          },
+          {
+            "phase": "teardown",
+            "elapsedMs": 3862.282209000001,
+            "rssBytes": 981008384,
+            "processes": 7,
+            "footprintBytes": 563225336
+          },
+          {
+            "phase": "teardown",
+            "elapsedMs": 3963.218417,
+            "rssBytes": 981024768,
+            "processes": 7,
+            "footprintBytes": 563258104
+          },
+          {
+            "phase": "teardown",
+            "elapsedMs": 4063.881375000001,
+            "rssBytes": 981090304,
+            "processes": 7,
+            "footprintBytes": 563716856
+          },
+          {
+            "phase": "teardown",
+            "elapsedMs": 4164.794167,
+            "rssBytes": 981909504,
+            "processes": 7,
+            "footprintBytes": 563503864
+          },
+          {
+            "phase": "teardown",
+            "elapsedMs": 4261.822709,
+            "rssBytes": 981909504,
+            "processes": 7,
+            "footprintBytes": 365421304
+          }
+        ]
+      }
+    ]
+  },
+  "summary": {
+    "revision": "f697aae596e5b75e0160129f9e09369a88551b45",
+    "ok": true,
+    "quietCompilerWindow": true,
+    "startedUtc": "2026-09-20T01:23:02.784357+00:00",
+    "finishedUtc": "2026-09-20T01:25:29.291538+00:00",
+    "elapsedSeconds": 146.415071416,
+    "processSamples": 141,
+    "foreignCompilerSampleCount": 0,
+    "scope": "Apple M5 Pro desktop Chromium only; three independent browser processes per timing workload. Median of per-run observations, not a confidence interval or accepted release budget.",
+    "delivery": {
+      "cold": {
+        "checkedMs": 6301.037084,
+        "firstOutputMs": 9585.804750000001,
+        "compilerBytes": 5132818,
+        "assetBodyBytes": 8089484
+      },
+      "cached": {
+        "checkedMs": 1172.2926669999997,
+        "firstOutputMs": 1622.8080840000002,
+        "compilerBytes": 0,
+        "assetBodyBytes": 0
+      }
+    },
+    "compiler": {
+      "luajit": {
+        "runs": 3,
+        "startupMs": 441,
+        "cases": {
+          "check": {
+            "firstRequestMs": 682.7999999523163,
+            "p50Ms": 2.5,
+            "p95Ms": 2.799999952316284
+          },
+          "compile": {
+            "firstRequestMs": 4.599999904632568,
+            "p50Ms": 3.299999952316284,
+            "p95Ms": 5
+          },
+          "hover": {
+            "firstRequestMs": 0.6000001430511475,
+            "p50Ms": 0.5,
+            "p95Ms": 0.6000001430511475
+          },
+          "edit": {
+            "firstRequestMs": 2.0999999046325684,
+            "p50Ms": 2,
+            "p95Ms": 3.4000000953674316
+          },
+          "large-edit": {
+            "firstRequestMs": 176.09999990463257,
+            "p50Ms": 110.29999995231628,
+            "p95Ms": 152.39999985694885
+          }
+        }
+      },
+      "lua51": {
+        "runs": 3,
+        "startupMs": 71.60000014305115,
+        "cases": {
+          "check": {
+            "firstRequestMs": 96.29999995231628,
+            "p50Ms": 0.2999999523162842,
+            "p95Ms": 0.40000009536743164
+          },
+          "compile": {
+            "firstRequestMs": 0.6000001430511475,
+            "p50Ms": 0.5,
+            "p95Ms": 0.8999998569488525
+          },
+          "hover": {
+            "firstRequestMs": 0.09999990463256836,
+            "p50Ms": 0,
+            "p95Ms": 0.10000014305114746
+          },
+          "edit": {
+            "firstRequestMs": 0.2999999523162842,
+            "p50Ms": 0.20000004768371582,
+            "p95Ms": 0.2999999523162842
+          },
+          "large-edit": {
+            "firstRequestMs": 17.200000047683716,
+            "p50Ms": 14.799999952316284,
+            "p95Ms": 21
+          }
+        }
+      }
+    },
+    "imported": {
+      "luajit": {
+        "runs": 3,
+        "startupMs": 435.7999999523163,
+        "cases": {
+          "check-edit": {
+            "firstRequestMs": 5183.300000190735,
+            "p50Ms": 30,
+            "p95Ms": 34.200000047683716
+          },
+          "hover": {
+            "p50Ms": 0.7000000476837158,
+            "p95Ms": 0.8000001907348633
+          },
+          "compile-edit": {
+            "firstRequestMs": 73.59999990463257,
+            "p50Ms": 48.59999990463257,
+            "p95Ms": 53
+          }
+        }
+      },
+      "lua51": {
+        "runs": 3,
+        "startupMs": 70.79999995231628,
+        "cases": {
+          "check-edit": {
+            "firstRequestMs": 16442.800000190735,
+            "p50Ms": 4.700000047683716,
+            "p95Ms": 9.099999904632568
+          },
+          "hover": {
+            "p50Ms": 0.09999990463256836,
+            "p95Ms": 0.20000004768371582
+          },
+          "compile-edit": {
+            "firstRequestMs": 7.800000190734863,
+            "p50Ms": 8,
+            "p95Ms": 14.300000190734863
+          }
+        }
+      }
+    },
+    "memory": {
+      "luajit": {
+        "baselineMiB": 527.1490249633789,
+        "readyMiB": 816.6819915771484,
+        "peakMiB": 1089.2755126953125,
+        "readyAboveBlankMiB": 289.53296661376953,
+        "peakAboveBlankMiB": 562.1264877319336,
+        "footprintErrorCount": 0
+      },
+      "lua51": {
+        "baselineMiB": 474.0864791870117,
+        "readyMiB": 589.0088577270508,
+        "peakMiB": 613.2901306152344,
+        "readyAboveBlankMiB": 114.92237854003906,
+        "peakAboveBlankMiB": 139.20365142822266,
+        "footprintErrorCount": 0
+      }
+    }
+  },
+  "delivery": [
+    {
+      "scope": "Actual playground tour; shared 10 Mbps response budget, 25 ms response delay; gzip text delivery; cached run opens a fresh page in the same browser context",
+      "results": [
+        {
+          "mode": "cold",
+          "checkedMs": 6301.037084,
+          "compilerBytes": 5132818,
+          "firstOutputMs": 9585.804750000001,
+          "assetBodyBytes": 8089484,
+          "errors": []
+        },
+        {
+          "mode": "cached",
+          "checkedMs": 1137.8992499999986,
+          "compilerBytes": 0,
+          "firstOutputMs": 1588.8482919999988,
+          "assetBodyBytes": 0,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "scope": "Actual playground tour; shared 10 Mbps response budget, 25 ms response delay; gzip text delivery; cached run opens a fresh page in the same browser context",
+      "results": [
+        {
+          "mode": "cold",
+          "checkedMs": 6254.099292,
+          "compilerBytes": 5132818,
+          "firstOutputMs": 9538.784916999999,
+          "assetBodyBytes": 8089484,
+          "errors": []
+        },
+        {
+          "mode": "cached",
+          "checkedMs": 1189.131958,
+          "compilerBytes": 0,
+          "firstOutputMs": 1640.1254579999986,
+          "assetBodyBytes": 0,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "scope": "Actual playground tour; shared 10 Mbps response budget, 25 ms response delay; gzip text delivery; cached run opens a fresh page in the same browser context",
+      "results": [
+        {
+          "mode": "cold",
+          "checkedMs": 6340.499792,
+          "compilerBytes": 5132818,
+          "firstOutputMs": 9640.577209,
+          "assetBodyBytes": 8089484,
+          "errors": []
+        },
+        {
+          "mode": "cached",
+          "checkedMs": 1172.2926669999997,
+          "compilerBytes": 0,
+          "firstOutputMs": 1622.8080840000002,
+          "assetBodyBytes": 0,
+          "errors": []
+        }
+      ]
+    }
+  ],
+  "disposition": "Complete repeat using unchanged production assets and workload protocol. Desktop observations, not release-budget or physical-device acceptance. Three process repetitions support reported medians, not a formal confidence interval or a causal comparison with older shared-host runs."
+}

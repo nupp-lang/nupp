@@ -313,6 +313,44 @@ shared pages more than once. These measurements do not establish mobile memory
 acceptance. See `results/playground-memory.json` and reproduce with
 `editors/playground/test/process-memory.mjs` on macOS.
 
+### Chromium retry without sampled compiler overlap (2026-09-20)
+
+`results/desktop-performance-retry.json` records the rebuilt `f697aae5`
+playground using the verified extracted guest archive (`25ac4dcd…`). On this
+Apple M5 Pro, all three fresh-process timing rounds passed their response
+checks. The once-per-second process sampler found no competing compiler at
+1% CPU or above in 141 samples. This does not establish a completely idle host
+or rule out subsecond activity. The interrupted preceding attempt is retained
+in `results/desktop-performance-interrupted.json` and excluded from these
+results; the complete repeat uses unchanged production assets.
+
+The figures below are medians of three per-process observations, not confidence
+intervals. First imported check excludes worker startup; warm values are p50 /
+p95 in milliseconds. The same six-library scoreboard and 2,048-element literal
+from the earlier harnesses are used.
+
+| Workload | LuaJIT browser | Legacy Lua 5.1 |
+| --- | --- | --- |
+| First imported check | 5.18 s | 16.44 s |
+| Small changing check | 2.0 / 3.4 ms | 0.2 / 0.3 ms |
+| Large changing check | 110.3 / 152.4 ms | 14.8 / 21.0 ms |
+| Imported changing check | 30.0 / 34.2 ms | 4.7 / 9.1 ms |
+| Imported changing compile | 48.6 / 53.0 ms | 8.0 / 14.3 ms |
+
+Three modeled 10 Mbps delivery pairs give medians of **6.30 s to a diagnostic**
+and **9.59 s to output** with a cold cache, transferring 8,089,484 asset body
+bytes. Cached pages use zero asset body bytes and take **1.17 s / 1.62 s**
+respectively. These are the complete playground tour, not game-only first-frame
+measurements. They do not establish a speedup caused by a code change against
+the earlier shared-host runs.
+
+In the separate one-run-per-backend memory check, LuaJIT's browser process family
+used 527 MiB at blank, 817 MiB at compiler-ready and a sampled peak of 1,089 MiB
+(562 MiB above blank). Legacy used 474 / 589 / 613 MiB respectively. These are
+macOS physical-footprint measurements, including browser overhead, sampled at
+100 ms; they are neither guest RAM sizes nor hard upper bounds. No mobile
+memory or shipping latency budget is accepted by this desktop retry.
+
 ## Release acceptance still required
 
 Desktop-engine conformance does not establish physical mobile or shipping Safari
