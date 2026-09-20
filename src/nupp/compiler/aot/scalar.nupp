@@ -20,6 +20,20 @@ storage and establishment facts, so a physical load widens and a physical store
 narrows, and neither is an operator's business. The `f32_` and `i32_` operations
 are the released fixed-width surface, where the source asked for a width
 explicitly and the answer changes accordingly.
+
+Six fields are a pass boundary rather than part of the vocabulary above, and
+are worth reading together because no one record shows the whole of it. The
+checker records `@simd` as `Fornum.simdRequired` and `Program.simdRequired`,
+and a body that wrote the explicit vocabulary itself as `Program.usesSimd`.
+`nupp.compiler.aot.simdrewrite` is the only writer of `Fornum.vector` and
+`Program.vector`; `nupp.compiler.aot.compile` is its only caller, and sets
+`Program.simdWidth` and `Program.vectorCeiling` from the selected target
+around that call before handing the result to `nupp.compiler.aot.verify`.
+Everything after that reads those fields and writes none of them, which is
+what lets a marked loop and a hand-written one reach the emitter in one
+shape. A required lowering that left `vector` empty is a compilation failure
+and never a scalar fallback, and a width on a program with no vector work is
+a verifier error rather than a harmless leftover.
 ]]
 
 local scalarIR = {}
@@ -1634,8 +1648,19 @@ record scalarIR.Program
     resultTypes: {scalarIR.Type}?
 
     resultSourceTypes: {string}?
+
+    --- Whether the source used the explicit SIMD vocabulary itself, as opposed
+    --- to `simdRequired` below, which is a `@simd` loop the rewrite produced
+    --- that vocabulary for. Either one puts vector values in the program, so
+    --- both select the same emission and the same width rules.
     usesSimd: boolean?
+
     usesNumberToken: boolean?
+
+    --- How many bytes of iterations a lane region groups at a time: 16, 32 or
+    --- 64, whichever the selected feature tier carries. The lane count is this
+    --- over the widest element the body holds, so it is the width rather than
+    --- the count that travels with the program.
     simdWidth: integer?
 
     --- The widest vector any value in this program may be built out of, when
