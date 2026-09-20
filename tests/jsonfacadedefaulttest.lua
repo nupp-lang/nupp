@@ -105,4 +105,21 @@ function M.theJsonProviderModuleIsLunajson()
     assert(provider.encode == lunajson.encode, "the assembled JSON provider is not Lunajson")
 end
 
+-- Run this same function under stock Lua 5.1 as well as the native suite: its
+-- constant table historically coalesced literal -0.0 with positive zero.
+function M.theVendoredDecoderPreservesBothZeroSigns()
+    local decode = assert(loadfile(HERE .. "/../src/nupp/runtime/vendor/lunajson/decoder.lua"))()()
+    for _, magnitude in ipairs({"0", "0e1", "0.0", "0.0e1", "0E-9", "0.000"}) do
+        for _, sign in ipairs({"", "-"}) do
+            local text = sign .. magnitude
+            local reciprocal = sign == "-" and -math.huge or math.huge
+            local value = decode(text)
+            assert(value == 0 and 1 / value == reciprocal, "JSON zero sign changed: " .. text)
+            local values = decode("[" .. text .. ",{" .. '\"zero\":' .. text .. "}]")
+            assert(1 / values[1] == reciprocal, "array JSON zero sign changed: " .. text)
+            assert(1 / values[2].zero == reciprocal, "object JSON zero sign changed: " .. text)
+        end
+    end
+end
+
 return M
