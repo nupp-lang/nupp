@@ -1,0 +1,324 @@
+{
+  "schemaVersion": 1,
+  "revision": "149863329bca992644e6aff2bcb80e6f31c2229a",
+  "full_wasm_algorithm_inventory_complete": true,
+  "rows": [
+    {
+      "schemaVersion": 1,
+      "algorithm": "utf8simd",
+      "revision": "149863329bca992644e6aff2bcb80e6f31c2229a",
+      "oracleSources": [
+        {
+          "path": "tests/simd/corpusmath.lua",
+          "sha256": "e25edef3a30d8651e99b1d48ab6555c3ac1591cfd7b8bdce5c4b0043aa5e5684"
+        },
+        {
+          "path": "bench/utf8simd/tests/run.lua",
+          "sha256": "93052f102e61b45d4a5ade5f5fb9ad7af87f0377cd6d10228e6b1729a611d503"
+        }
+      ],
+      "compiler": "/private/tmp/nupp-simd11-matrix/bin/nupp",
+      "execution": {
+        "ok": true,
+        "hostArtifacts": [
+          {
+            "name": "nupp-app.mjs",
+            "sha256": "6621f09847bb658755c9309a9b3a627fd09136e2eb8f8cf7186305e54e788f47"
+          },
+          {
+            "name": "nupp-app.wasm",
+            "sha256": "18b5ea997848b98205fc905b291494df28d5c507136b20282366c44fde70007c"
+          }
+        ],
+        "executionPath": "simd",
+        "scalarSelection": null,
+        "appSha256": "81c7b9dab83f9d4fad2f65627497a3f1f13fb88b45135d67b22483353a9e4682",
+        "tier": "simd128",
+        "runtime": "existing Lua 5.1 Wasm host / Node",
+        "cases": 199082,
+        "nativeCalls": 398164,
+        "probes": 1,
+        "randomFingerprint": "park-miller:31:9704630:1254652296",
+        "symbols": {
+          "utf8simd.validPrefix": "ks_3e4bacfa451cf66d_valid_prefix"
+        },
+        "entries": [
+          {
+            "key": "utf8simd.validPrefix",
+            "symbol": "ks_3e4bacfa451cf66d_valid_prefix",
+            "unit": "u326215eefd0d555c",
+            "entryMode": "kernel"
+          }
+        ],
+        "coverage": [
+          {
+            "family": "owned-algorithm",
+            "contract": "shared scalar expectations with portable correctness PRNG",
+            "algorithm": "utf8simd"
+          }
+        ],
+        "artifacts": [
+          {
+            "detector": false,
+            "tier": "simd128",
+            "unit": "u326215eefd0d555c",
+            "source": "src/utf8simd.simd128.c",
+            "cflags": [
+              "-msimd128"
+            ],
+            "registrar": "nupp_wasm_register_u326215eefd0d555c",
+            "wasm": "src/utf8simd.simd128.7f953afd2ad90766.wasm",
+            "sha256": "005902e9743779e55e4cc74622bd956aa163911400293e75cb0695afcbf2e8f5"
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "algorithm": "base64simd",
+      "revision": "149863329bca992644e6aff2bcb80e6f31c2229a",
+      "oracleSources": [
+        {
+          "sha256": "e25edef3a30d8651e99b1d48ab6555c3ac1591cfd7b8bdce5c4b0043aa5e5684",
+          "path": "tests/simd/corpusmath.lua"
+        },
+        {
+          "sha256": "fae4bbdc634e2cc23d587393815516eb70104623c1474be2ce3ee10ef77bb066",
+          "path": "bench/base64simd/tests/run.lua"
+        }
+      ],
+      "compiler": "/private/tmp/nupp-simd11-matrix/bin/nupp",
+      "execution": {
+        "ok": true,
+        "hostArtifacts": [
+          {
+            "name": "nupp-app.mjs",
+            "sha256": "6621f09847bb658755c9309a9b3a627fd09136e2eb8f8cf7186305e54e788f47"
+          },
+          {
+            "name": "nupp-app.wasm",
+            "sha256": "18b5ea997848b98205fc905b291494df28d5c507136b20282366c44fde70007c"
+          }
+        ],
+        "executionPath": "simd",
+        "scalarSelection": null,
+        "appSha256": "d77698e886df010a63afd5d2b7b77319eb17161f139e852d78f686c1bfc1818c",
+        "tier": "simd128",
+        "runtime": "existing Lua 5.1 Wasm host / Node",
+        "cases": 80744,
+        "nativeCalls": 80744,
+        "probes": 1,
+        "randomFingerprint": "park-miller:20260917:4493157:2096655930",
+        "symbols": {
+          "base64simd.encode": "ks_b371abdd89c91e7d_encode"
+        },
+        "entries": [
+          {
+            "key": "base64simd.encode",
+            "symbol": "ks_b371abdd89c91e7d_encode",
+            "unit": "u7f4d93034a8f66aa",
+            "entryMode": "kernel"
+          }
+        ],
+        "coverage": [
+          {
+            "algorithm": "base64simd",
+            "family": "owned-algorithm",
+            "contract": "shared scalar expectations with portable correctness PRNG"
+          }
+        ],
+        "artifacts": [
+          {
+            "cflags": [
+              "-msimd128"
+            ],
+            "wasm": "absolute/90c54aef49c657df9a9d4c1c7accc126/nupp/codec/base64.simd128.1470d125ac124595.wasm",
+            "detector": false,
+            "tier": "simd128",
+            "unit": "uff6f19dd849c8e9c",
+            "source": "absolute/90c54aef49c657df9a9d4c1c7accc126/nupp/codec/base64.simd128.c",
+            "registrar": "nupp_wasm_register_uff6f19dd849c8e9c",
+            "sha256": "8f38ec169001f56ca00f3ea016257f5a4e87af038f1e655c5b404365021abe94"
+          },
+          {
+            "cflags": [
+              "-msimd128"
+            ],
+            "wasm": "src/base64simd.simd128.718d51699b25e534.wasm",
+            "detector": false,
+            "tier": "simd128",
+            "unit": "u7f4d93034a8f66aa",
+            "source": "src/base64simd.simd128.c",
+            "registrar": "nupp_wasm_register_u7f4d93034a8f66aa",
+            "sha256": "77966ad7a7e5b785d48c1b20221d8e39503b1c639688167e02ad7dcbbd697146"
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "algorithm": "simd-json",
+      "revision": "149863329bca992644e6aff2bcb80e6f31c2229a",
+      "oracleSources": [
+        {
+          "path": "tests/simd/corpusmath.lua",
+          "sha256": "e25edef3a30d8651e99b1d48ab6555c3ac1591cfd7b8bdce5c4b0043aa5e5684"
+        },
+        {
+          "path": "bench/simd-json/tests/index.lua",
+          "sha256": "8e42b1fb1d0940c50b2d793e5bf00565cbeb7c7794e99d14fd8e61186ec6f7a6"
+        }
+      ],
+      "compiler": "/private/tmp/nupp-simd11-matrix/bin/nupp",
+      "execution": {
+        "ok": true,
+        "hostArtifacts": [
+          {
+            "name": "nupp-app.mjs",
+            "sha256": "6621f09847bb658755c9309a9b3a627fd09136e2eb8f8cf7186305e54e788f47"
+          },
+          {
+            "name": "nupp-app.wasm",
+            "sha256": "18b5ea997848b98205fc905b291494df28d5c507136b20282366c44fde70007c"
+          }
+        ],
+        "executionPath": "simd",
+        "scalarSelection": null,
+        "appSha256": "101577bcf5e785b10268d8f841d416fad5649fbfa12b1212de75520a9b83a763",
+        "tier": "simd128",
+        "runtime": "existing Lua 5.1 Wasm host / Node",
+        "cases": 223519,
+        "nativeCalls": 223519,
+        "probes": 1,
+        "randomFingerprint": "park-miller:20260917:453616:447386101",
+        "symbols": {
+          "simd_json/indexer.index": "ks_e8b22f8b44ac550b_index"
+        },
+        "entries": [
+          {
+            "key": "simd_json/indexer.index",
+            "symbol": "ks_e8b22f8b44ac550b_index",
+            "unit": "u28d286038104765d",
+            "entryMode": "kernel"
+          }
+        ],
+        "coverage": [
+          {
+            "contract": "shared scalar expectations with portable correctness PRNG",
+            "family": "owned-algorithm",
+            "algorithm": "simd-json"
+          }
+        ],
+        "artifacts": [
+          {
+            "cflags": [
+              "-msimd128"
+            ],
+            "registrar": "nupp_wasm_register_u28d286038104765d",
+            "wasm": "src/simd_json/indexer.simd128.032358aec8e178f6.wasm",
+            "detector": false,
+            "source": "src/simd_json/indexer.simd128.c",
+            "unit": "u28d286038104765d",
+            "tier": "simd128",
+            "sha256": "642a88bb4cc920adcc86c3857e453bc7cf4e294ae327ac2805d51ed22cb01b51"
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "algorithm": "fused-json",
+      "revision": "149863329bca992644e6aff2bcb80e6f31c2229a",
+      "oracleSources": [
+        {
+          "sha256": "2a83782c7b22ac57337c54095f0d9d3331f7587c17e3f43aa1c25ba9f04f6192",
+          "path": "bench/fused-json/tests/differential.lua"
+        },
+        {
+          "sha256": "ba8bd17899c52e33eea38329b189917702f1a524faeb9f042e0d095ee3509a0e",
+          "path": "src/nupp/runtime/vendor/lunajson/decoder.lua"
+        },
+        {
+          "sha256": "85496eb2809f69b7f195f4cffa080f799844b5740a991f0f0cf5b0e97486c70a",
+          "path": "src/nupp/runtime/provider/lunajson.nupp"
+        },
+        {
+          "sha256": "950ee59b831af96f84a66ca5bc4cee17b840c65c4b6cce584cd24d323875ad1c",
+          "path": "src/nupp/codec/json/internal/decoder/eager.nupp"
+        },
+        {
+          "sha256": "e864815b399aa39e2403e036f8af62ccc8d66905a0681199c7742c34a9e65f09",
+          "path": "src/nupp/codec/json/aot.nupp"
+        },
+        {
+          "sha256": "1cf6d4af36c78eb705c920b73253697ecdeff5299cfba99f7ba63ef09bba52f1",
+          "path": "tests/jsonfuseddifferentialtest.lua"
+        }
+      ],
+      "compiler": "/private/tmp/nupp-simd11-matrix/bin/nupp",
+      "logical": "decodeEager",
+      "variant": 2,
+      "execution": {
+        "ok": true,
+        "hostArtifacts": [
+          {
+            "name": "nupp-app.mjs",
+            "sha256": "6621f09847bb658755c9309a9b3a627fd09136e2eb8f8cf7186305e54e788f47"
+          },
+          {
+            "name": "nupp-app.wasm",
+            "sha256": "18b5ea997848b98205fc905b291494df28d5c507136b20282366c44fde70007c"
+          }
+        ],
+        "executionPath": "simd",
+        "scalarSelection": null,
+        "appSha256": "de70d264775c7ccd021288d0211cf2b6c654c8af103303fd7f5cecb50579506c",
+        "tier": "simd128",
+        "runtime": "existing Lua 5.1 Wasm host / Node",
+        "cases": 9,
+        "nativeCalls": 98669,
+        "probes": 1,
+        "symbols": {
+          "nupp/codec/json/internal/decoder/fusedbench.__nuppConst_decodeFused_b0dbcb1cd6741022": "ks_8a9e031a9200ab5b___nupp_const_decode_fused_b0dbcb1cd6741022"
+        },
+        "entries": [
+          {
+            "key": "nupp/codec/json/internal/decoder/fusedbench.__nuppConst_decodeFused_b0dbcb1cd6741022",
+            "symbol": "ks_8a9e031a9200ab5b___nupp_const_decode_fused_b0dbcb1cd6741022",
+            "unit": "udd923e141cd1abd4",
+            "entryMode": "builder"
+          }
+        ],
+        "coverage": [
+          {
+            "family": "owned-algorithm",
+            "contract": "shared fused decoder expectations through the exact provider decode body",
+            "algorithm": "fused-json"
+          }
+        ],
+        "artifacts": [
+          {
+            "registrar": "nupp_wasm_register_udd923e141cd1abd4",
+            "cflags": [
+              "-msimd128"
+            ],
+            "source": "src/nupp/codec/json/internal/decoder/fusedbench.simd128.c",
+            "wasm": "src/nupp/codec/json/internal/decoder/fusedbench.simd128.904d77772269ce38.wasm",
+            "tier": "simd128",
+            "detector": false,
+            "unit": "udd923e141cd1abd4",
+            "sha256": "f6ed277a74241d7bfdef0518eebd4231eed2ca5afde03ff1301ae9ee0deaba90"
+          }
+        ]
+      }
+    }
+  ],
+  "archivalProvenance": {
+    "sourceSummaryPath": "/private/tmp/nupp-simd11-owned-common-14986332/summary.json",
+    "sourceSummarySha256": "948f5bfcf7fdc169400cb9b99dd747312ff6496018895718ff97f8868742c51e",
+    "compilerIdentityPath": "/private/tmp/nupp-simd11-owned-common-14986332/compiler.txt",
+    "compilerIdentitySha256": "9be0afd669c41e268162bf6f336fb4809be5e110f63b7edb75aa46cae086de25",
+    "compilerIdentity": "emcc (Emscripten gcc/clang-like replacement + linker emulating GNU ld) 6.0.8-git\nCopyright (C) 2026 the Emscripten authors (see AUTHORS.txt)\nThis is free and open source software under the MIT license.\nThere is NO warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n\n",
+    "scope": "Correctness execution through the existing Lua 5.1 Wasm SIMD128 host; no timing and no browser LuaJIT migration claim."
+  }
+}

@@ -85,6 +85,30 @@ for the named optimization, not fresh measurements of the final SIMD-11 head.
 | Base64 | Full ownership wrapper before/after, with the same compiled encoder; 51.9% lower latency at 64 bytes and 6.7% at 64 KiB | [Report](../base64simd/results/arm64-macos-ownership.md), [raw evidence](../base64simd/results/arm64-macos-ownership.json) |
 | Fused JSON | Event/carry scan versus the prior scan; process CPU duration lower by 4.13% ASCII, 2.38% dense Unicode, 7.07% sparse Unicode | [Report](../fused-json/results/arm64-macos-mask-any-events.md), [raw evidence](../fused-json/results/arm64-macos-mask-any-events.json) |
 
+## Owned algorithm execution in Wasm
+
+The [complete execution record](results/wasm-owned-algorithms-20260920.json)
+was produced from clean revision `149863329bca992644e6aff2bcb80e6f31c2229a`
+with Emscripten 6.0.8-git and the existing Lua 5.1 SIMD128 host. It retains
+compiler identity, host/unit/app hashes, original corpus hashes, random-stream
+fingerprints, and exact registered entries. These are correctness results,
+not timings or evidence for the browser LuaJIT migration.
+
+| Corpus | Checks | Returned Wasm calls |
+| --- | ---: | ---: |
+| UTF-8 | 199,082 | 398,164 |
+| Base64 | 80,744 | 80,744 |
+| Structural JSON | 223,519 | 223,519 |
+| Fused JSON | 9 corpus functions | 98,669 |
+
+The run exposed and fixed test-reader corruption of raw Lua byte literals,
+Lua 5.1 signed-zero constant coalescing in the vendored JSON oracle, omitted
+const-specialized family bindings, and missing host imports (`strtod`, `memcmp`,
+`memchr`, `__multi3`). The fused test uses the original provider decode/error
+body and eager alias through a narrow test adapter: it verifies the eager
+builder, not portability of the native-only provider. Earlier failing bundles
+and logs remain preserved; the accepted report retains this source revision.
+
 ## Acceptance ledger
 
 | Requirement | Permanent evidence |
