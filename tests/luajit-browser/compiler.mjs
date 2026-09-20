@@ -23,8 +23,9 @@ try {
   const samples = [];
   for (let round = 0; round < 3; round++) {
     for (const [index, request] of requests.entries()) {
+      const {expect, ...compilerRequest} = request;
       const start = performance.now();
-      const response = await compiler.request(request);
+      const response = await compiler.request(compilerRequest);
       samples.push({round, index, kind: request.kind, durationMs: performance.now() - start});
       equivalent(response, expected[index], `round ${round} request ${index}`);
     }
