@@ -75,6 +75,11 @@ jobs:
           NUPP_SIMD_COMPILER_FAMILY: ${{ matrix.compiler }}
         run: .github/scripts/prepare-simd-compilers.sh
 
+      - name: Verify Windows compiler argument boundaries
+        if: runner.os == 'Windows'
+        shell: bash
+        run: python3 tests/simd/test-clang-mingw.py
+
       - name: Execute the full shared SIMD corpus at this tier
         shell: bash
         env:
