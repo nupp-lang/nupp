@@ -20,7 +20,7 @@ revisions and scope; a historical result is not relabeled as a new-head run.
 New kernel comparisons distinguish three artifacts: the independent
 scalar-source correctness oracle, the optimized native vector function, and
 an optimized scalar-source control with automatic vectorization disabled.
-The unoptimized correctness oracle is never a performance baseline. Algebraic
+The original correctness oracle is never a performance baseline. Algebraic
 answers are checked against their declared numerical envelope rather than
 forced to equal a particular association.
 
@@ -56,7 +56,7 @@ python3 bench/simd11/measure.py --report /private/tmp/simd11-measurement.json
 Preparation records generated C, IR, checked bindings, native assembly, flags,
 compiler identity, target and SHA-256 digests. It checks vector arithmetic in
 native entries and its absence in the corresponding no-vector control entries.
-The original O0 scalar oracle is retained for correctness and is not timed.
+The original scalar-source oracle is retained for correctness and is not timed.
 `--check` performs correctness checks without collecting timing samples.
 
 The new matrix has 63 and 65,539 elements, so both sizes exercise tails. Map
@@ -119,3 +119,10 @@ The [rejected launch](results/arm64-macos-20260919.md) collected no samples
 because another compiler task was active. The [first full run](results/arm64-macos-20260919-2.md)
 failed the frozen 5% control-CV gate at 5.88%. Both remain recorded alongside
 the qualified repeat; inputs, thresholds and statistical rules were unchanged.
+
+At the measured revision, the map and refinement scalar-source twins lacked
+the no-optimization annotation present on the other twins. They could therefore
+be optimized by Clang. These original twins were used only for correctness;
+the timed control was separately compiled with optimization and automatic
+vectorization disabled, with its assembly checked. The raw timing evidence and
+its source revision remain unchanged.

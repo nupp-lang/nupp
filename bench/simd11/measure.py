@@ -65,7 +65,7 @@ def prepare_group(source_path, names, build):
     (build / "kernel.ir").write_text(artifact["ir"])
     (build / "binding.nupp").write_text(artifact["binding"])
     # Preserve the unmodified oracle. Only the separate performance control
-    # removes its O0/optnone attribute; its global flags forbid auto-vectorizing.
+    # removes any O0/optnone attributes; its global flags forbid auto-vectorizing.
     optimized = re.sub(r"^#define KS_SCALAR_ORACLE.*$", "#define KS_SCALAR_ORACLE", source, flags=re.M)
     assert optimized != source, "oracle attribute transformation matched nothing"
     declarations = {}
@@ -323,7 +323,7 @@ def report(source):
         low, high = row["confidence95"]
         lines.append("| %s | %d | %.5f | [%.5f, %.5f] | %s |" % (row["name"], row["elements"], row["ratio"], low, high, row["verdict"]))
     lines += ["", "Compiler revision: `" + metadata["revision"] + "`. Target: `" + metadata["target"]["triple"] + "` / `" + metadata["target"]["tier"] + "`. Host: " + metadata["host"] + ".", "",
-              "The comparison uses the complete exported C entry and an optimized scalar-source control with automatic vectorization disabled. Original O0 scalar oracles are correctness checks only. Lua span wrappers and cold loading are outside this timing scope. Independent formulas and UTF-8 decoding also check answers before timing.", "",
+              "The comparison uses the complete exported C entry and an optimized scalar-source control with automatic vectorization disabled. Original scalar-source oracles are correctness checks only. Lua span wrappers and cold loading are outside this timing scope. Independent formulas and UTF-8 decoding also check answers before timing.", "",
               "[Raw samples, compiler/flags, artifact hashes, assembly contracts and environment observations](" + source.name + ") are retained. Historical Mandelbrot, Base64 and fused JSON comparisons remain separately identified in the parent README.", ""]
     destination = source.with_suffix(".md")
     destination.write_text("\n".join(lines))
