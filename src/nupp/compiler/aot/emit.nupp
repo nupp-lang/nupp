@@ -56,6 +56,7 @@ record emit.Context
     reusableScratchName: string?
     builderEager: boolean
     fpTranscendentals: boolean
+    lua51Math: boolean
     serials: emit.Serials
     types: {[string]: string}
     expressions: cplan.Expressions
@@ -76,6 +77,7 @@ function emit.context(parent: emit.Context?, program: scalarIR.Program?, scalar:
         reusableScratchName = parent ~= nil and parent.reusableScratchName or nil,
         builderEager = parent ~= nil and parent.builderEager,
         fpTranscendentals = parent ~= nil and parent.fpTranscendentals,
+        lua51Math = parent ~= nil and parent.lua51Math,
         serials = parent ~= nil and parent.serials or new emit.Serials(luaTemporary = 0),
         types = {},
         helperNames = parent ~= nil and program == nil and parent.helperNames or {},
@@ -95,6 +97,7 @@ function emit.context(parent: emit.Context?, program: scalarIR.Program?, scalar:
         context.reusableScratchName = program.reusableScratch
         context.builderEager = program.builderMode == "eager"
         context.fpTranscendentals = program.fpTranscendentals == true
+        context.lua51Math = program.numericForRuntime == "lua51"
     end
 
     return context
@@ -158,7 +161,7 @@ const MATH_C = {
     ["abs"] = "fabs",
     ["floor"] = "floor",
     ["ceil"] = "ceil",
-    ["sin"] = "sin",
+    ["sin"] = "nupp_sin",
     ["cos"] = "cos",
     ["tan"] = "tan",
     ["asin"] = "asin",
@@ -1701,9 +1704,10 @@ end
 --- @raises when the intrinsic is outside the closed set
 function emit.mathFrom(context: emit.Context, intrinsic: string, parts: {string}): string
     if intrinsic == "min" or intrinsic == "max" then
-        local call = "nupp_" .. intrinsic .. "2(" .. parts[1] .. ", " .. parts[2] .. ")"
+        local helper = "nupp_" .. intrinsic .. "2" .. (context.lua51Math and "_lua51" or "")
+        local call = helper .. "(" .. parts[1] .. ", " .. parts[2] .. ")"
         for position = 3, #parts do
-            call = "nupp_" .. intrinsic .. "2(" .. call .. ", " .. parts[position] .. ")"
+            call = helper .. "(" .. call .. ", " .. parts[position] .. ")"
         end
 
         return call

@@ -30,6 +30,24 @@ await runNuppWasmApp({
       assert.equal(runtime[name](-Infinity), Infinity);
       assert.ok(Number.isNaN(runtime[name](NaN)));
     }
+    // Every portable admitted map must link through real host math, including
+    // scalar-C twins where Wasm instructions do not replace libm calls.
+    for (const name of ["sqrt", "sqrtf", "floor", "floorf", "ceil", "ceilf", "sin", "cos", "tan",
+      "asin", "acos", "atan", "exp", "log", "pow", "fmod", "fmodf"]) {
+      assert.equal(typeof runtime["_" + name], "function", `missing math map export ${name}`);
+    }
+    for (const name of ["sin", "tan", "asin", "atan", "sqrt", "sqrtf", "floor", "floorf", "ceil", "ceilf"]) {
+      assert.ok(Object.is(runtime["_" + name](-0), -0), `${name} preserves negative zero`);
+    }
+    assert.equal(runtime._cos(0), 1);
+    assert.equal(runtime._acos(1), 0);
+    assert.equal(runtime._exp(0), 1);
+    assert.equal(runtime._log(1), 0);
+    assert.equal(runtime._pow(2, 3), 8);
+    assert.ok(Object.is(runtime._fmod(-0, 3), -0));
+    assert.ok(Object.is(runtime._fmodf(-0, 3), -0));
+    assert.ok(Number.isNaN(runtime._sqrt(-1)));
+    assert.equal(runtime._exp(Infinity), Infinity);
     // Fused decimal parsing uses libc conversion/byte routines and the
     // compiler runtime's wide multiplication helper through the same linker.
     for (const name of ["_strtod", "_memcmp", "_memchr", "___multi3"]) {

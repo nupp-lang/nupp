@@ -44,6 +44,12 @@ LuaJIT mode, including custom dual-number x64 builds, and include it in the AOT
 cache key. Native counted-loop artifacts check that mode before binding and
 refuse to load into an incompatible LuaJIT; this does not silently fall back.
 
+Ordinary `math.min` and `math.max` also follow the selected runtime: LuaJIT
+chooses the second operand on ties or unordered comparisons; the stock Lua 5.1
+Wasm host retains the first. Variadic calls apply that rule from left to right.
+The corrected `nupp.math.f32` operations have their own target-independent
+contract below.
+
 Ordinary floating-point arithmetic assumes round-to-nearest-even. Signed zero
 and numeric NaN behavior are preserved. NaN signaling state, payload bits, and
 floating-point exception flags are not observable guarantees. The bit-level

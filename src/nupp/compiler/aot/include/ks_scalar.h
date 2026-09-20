@@ -232,6 +232,20 @@ static inline __attribute__((unused)) double ks_compensated_f64_value(KsCompensa
     return state.total + state.compensation;
 }
 
+/* GCC can combine sin/cos into Darwin cexp, whose imaginary -0 is +0.
+ * Preserve the authored odd-function zero before that library rewrite. */
+static inline __attribute__((unused)) double nupp_sin(double value) {
+    return value == 0.0 ? value : sin(value);
+}
+/* Stock Lua 5.1 retains the first operand on ties and unordered comparisons.
+ * LuaJIT's min/max instructions select the second; keep both target contracts. */
+static inline __attribute__((unused)) double nupp_min2_lua51(double left, double right) {
+    return right < left ? right : left;
+}
+static inline __attribute__((unused)) double nupp_max2_lua51(double left, double right) {
+    return right > left ? right : left;
+}
+
 static inline __attribute__((unused)) double nupp_min2(double left, double right) {
     return left < right ? left : right;
 }
