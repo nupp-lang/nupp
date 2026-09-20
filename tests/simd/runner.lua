@@ -1,6 +1,7 @@
 -- Shared execution boundary for generated SIMD semantic corpora.
 -- Every run requests exactly one tier and proves the named probes enter C.
 local M = {}
+local regionProof = require("tests.simd.regionproof")
 local source = assert(debug.getinfo(1, "S").source:match("^@(.*)$")):gsub("\\", "/")
 local root = source:match("^(.*)/tests/simd/runner.lua$") or "."
 if root:sub(1, 1) ~= "/" and not root:match("^%a:") then
@@ -109,6 +110,7 @@ function M.prepare(generated, options)
         probes = generated.probes,
         coverage = generated.coverage,
         entries = entries,
+        requiredRegions = regionProof.inventory(generated.files),
     })
 
     return dir, entries
@@ -168,6 +170,10 @@ aotFeatures={minimum=%q,maximum=%q},
         end
     end
     assert(actual > 0, "no native SIMD translation units were emitted")
+    local regions = regionProof.verify(regionProof.inventory(generated.files), units, tier, function(path)
+        return M.read(dir .. "/build/native/aot/" .. path)
+    end)
+    M.writeJson(dir .. "/regions.json", regions)
     M.writeJson(dir .. "/execution.json", {root = nativeRoot, directory = dir:gsub("^/(%a)/", "%1:/"), tier = tier})
     local vm = options.lua or os.getenv("NUPP_SIMD_LUA") or "luajit"
     local run = "cd " .. M.quote(
@@ -191,6 +197,15 @@ aotFeatures={minimum=%q,maximum=%q},
         "scalar C did not execute the same probe inventory"
     )
     result.scalarC = scalar
+    for _, region in ipairs(regions.functions) do
+        local module = region.source:gsub("^src/", ""):gsub("%.g%.nupp$", ""):gsub("%.nupp$", "")
+        local key = module .. "." .. region.name
+        assert(
+            (result.calls[key] or 0) > 0 and (scalar.calls[key] or 0) > 0,
+            "required region did not execute on both routes: " .. key
+        )
+    end
+    result.requiredRegions = regions
     result.directory = dir
     result.host = {os = jit.os, arch = jit.arch, capabilities = capabilities}
     local digestCommand = "if command -v sha256sum >/dev/null 2>&1; then digest=sha256sum; flags=; "
@@ -243,6 +258,19 @@ dialect="lua51",aot="require-wasm",aotFeatures={minimum="simd128",maximum="simd1
             compiler
         ) .. " " .. M.quote(options.nupp or root .. "/bin/nupp") .. " build --target app",
         dir .. "/build.log"
+    )
+
+    local units = M.json(dir .. "/build/app/aot/units.json")
+    M.writeJson(
+        dir .. "/regions.json",
+        regionProof.verify(
+            regionProof.inventory(generated.files),
+            units,
+            "simd128",
+            function(path)
+                return M.read(dir .. "/build/app/aot/" .. path)
+            end
+        )
     )
 
     return dir

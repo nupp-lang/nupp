@@ -38,6 +38,30 @@ if (!probes.length) throw new Error("empty Wasm native probe inventory");
 const digest = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const selectionPath = path.join(project, "scalar-selection.json");
 const scalarSelection = existsSync(selectionPath) ? JSON.parse(readFileSync(selectionPath, "utf8")) : null;
+let requiredRegions = null;
+if (corpus.requiredRegions) {
+  requiredRegions = JSON.parse(readFileSync(path.join(project, "regions.json"), "utf8"));
+  // The shared Lua encoder represents an empty table as an object.
+  if (!Array.isArray(requiredRegions.functions) && requiredRegions.functions &&
+      Object.keys(requiredRegions.functions).length === 0) requiredRegions.functions = [];
+  const expected = Object.entries(corpus.requiredRegions).flatMap(([source, functions]) =>
+    Object.entries(functions).map(([name, annotations]) => ({ source, name, annotations })));
+  if (requiredRegions.tier !== "simd128" || requiredRegions.functions.length !== expected.length ||
+      requiredRegions.regions !== expected.reduce((count, entry) => count + entry.annotations.length, 0)) {
+    throw new Error("Missing required-region artifact inventory");
+  }
+  for (const entry of expected) {
+    const matches = requiredRegions.functions.filter((item) => item.source === entry.source && item.name === entry.name);
+    if (matches.length !== 1 || matches[0].regions !== entry.annotations.length ||
+        JSON.stringify(matches[0].annotations) !== JSON.stringify(entry.annotations) ||
+        !manifest.units.some((unit) => unit.source === matches[0].artifact) ||
+        !probes.some((probe) => `${probe.symbol}__simd128` === matches[0].symbol)) {
+      throw new Error(`Missing required-region artifact for ${entry.source}.${entry.name}`);
+    }
+    const originalProject = scalarSelection ? scalarSelection.originalProject : project;
+    matches[0].artifactSha256 = digest(readFileSync(path.join(originalProject, "build/app/aot", matches[0].artifact)));
+  }
+}
 let scalarReference = null;
 if (scalarSelection) {
   if (scalarSelection.executionPath !== "scalar-c" || scalarSelection.units.length !== manifest.units.length) {
@@ -128,6 +152,6 @@ const report = { ok: true, hostArtifacts, executionPath: scalarSelection ? "scal
   appSha256: createHash("sha256").update(sourceBytes).digest("hex"), tier: "simd128", runtime: "existing Lua 5.1 Wasm host / Node",
   ...result, symbols: Object.fromEntries(probes.map((probe) => [probe.key, probe.symbol])),
   entries: probes.map(({ key, symbol, unit, entryMode }) => ({ key, symbol, unit, entryMode })),
-  coverage: corpus.coverage, artifacts };
+  coverage: corpus.coverage, requiredRegions, artifacts };
 writeFileSync(path.join(project, "result.json"), JSON.stringify(report, null, 2) + "\n");
 console.log(JSON.stringify(report));

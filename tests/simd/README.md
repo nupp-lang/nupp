@@ -59,6 +59,14 @@ A second process forwards those same probe wrappers to the emitted unoptimized
 scalar-C twins and runs the unchanged oracle again; its calls and result are
 recorded separately.
 
+For generated required-loop probes, `regions.json` associates each authored
+`@simd` annotation with its emitted C function. The build checks every region's
+whole-group counter, vector-width increment and masked tail, and requires the
+independent scalar twin to contain none of that vector lowering. The execution
+report retains the region inventory alongside the compiled artifact hashes.
+This is lowering evidence; it does not infer a particular machine instruction
+from the presence of C vector operations.
+
 `run-wasm.sh` consumes the **same** generated sources through the existing
 Lua 5.1 Wasm application host and Emscripten 6.0.8. It requires the same Lua 5.1
 source setup as `tests/wasm-aot/run.sh`. `NUPP_LUA51_SOURCE`, `NUPP_WASM_CC` and
