@@ -1,7 +1,7 @@
 // Execute the same generated semantic corpus through the existing Wasm host.
 // Wrap registrar-installed entries before any authored module loads, proving
 // that every named probe calls the native side module rather than Lua fallback.
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -39,6 +39,36 @@ for (const [module, names] of Object.entries(corpus.probes)) {
   }
 }
 if (!probes.length) throw new Error("empty Wasm native probe inventory");
+const digest = (bytes) => createHash("sha256").update(bytes).digest("hex");
+const selectionPath = path.join(project, "scalar-selection.json");
+const scalarSelection = existsSync(selectionPath) ? JSON.parse(readFileSync(selectionPath, "utf8")) : null;
+let scalarReference = null;
+if (scalarSelection) {
+  if (scalarSelection.executionPath !== "scalar-c" || scalarSelection.units.length !== manifest.units.length) {
+    throw new Error("Invalid scalar-C selection inventory");
+  }
+  const referenceText = readFileSync(path.join(scalarSelection.originalProject, "result.json"), "utf8");
+  if (digest(referenceText) !== scalarSelection.referenceExecutionSha256) throw new Error("Scalar-C reference proof changed");
+  scalarReference = JSON.parse(referenceText);
+  if (!scalarReference.ok || !(scalarReference.nativeCalls > 0) || scalarReference.scalarSelection ||
+      (scalarReference.executionPath && scalarReference.executionPath !== "simd")) throw new Error("Scalar-C reference did not execute SIMD");
+  for (const unit of manifest.units) {
+    const selected = scalarSelection.units.filter((item) => item.unit === unit.unit);
+    if (selected.length !== 1) throw new Error(`Missing unique scalar-C unit: ${unit.unit}`);
+    const item = selected[0];
+    if (item.wasm !== unit.wasm || digest(readFileSync(path.join(project, "dist/aot", unit.wasm))) !== item.wasmSha256 ||
+        digest(readFileSync(path.join(project, item.source))) !== item.sourceSha256) {
+      throw new Error(`Scalar-C compiled identity changed: ${unit.unit}`);
+    }
+  }
+  for (const probe of probes) {
+    const unit = scalarSelection.units.find((item) => item.unit === probe.unit);
+    if (unit.symbols[probe.symbol] !== `${probe.symbol}_forced_scalar__simd128`) {
+      throw new Error(`Missing exact scalar-C target selection for ${probe.key}`);
+    }
+  }
+}
+
 const declarations = probes.map(({ key, unit, symbol }) =>
   `observe(${JSON.stringify(unit)}, ${JSON.stringify(symbol)}, ${JSON.stringify(key)})`).join("\n");
 const prefix = `
@@ -92,7 +122,10 @@ const artifacts = manifest.units.map((unit) => ({
 const hostArtifacts = ["nupp-app.mjs", "nupp-app.wasm"].map((name) => ({
   name, sha256: createHash("sha256").update(readFileSync(path.join(host, name))).digest("hex"),
 }));
-const report = { ok: true, hostArtifacts,
+if (scalarReference && (result.cases !== scalarReference.cases || result.probes !== scalarReference.probes)) {
+  throw new Error("Scalar-C and SIMD did not execute the same corpus inventory");
+}
+const report = { ok: true, hostArtifacts, executionPath: scalarSelection ? "scalar-c" : "simd", scalarSelection,
   appSha256: createHash("sha256").update(source).digest("hex"), tier: "simd128", runtime: "existing Lua 5.1 Wasm host / Node",
   ...result, symbols: Object.fromEntries(probes.map((probe) => [probe.key, probe.symbol])),
   coverage: corpus.coverage, artifacts };

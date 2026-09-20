@@ -8,10 +8,7 @@ local HERE = runner.root() .. "/tests"
 function M.explicitPrimitivesMatchIndependentScalarSemantics()
     local report = runner.native(generator.generate{lanes = {2, 3, 17, 64, "preferred"}})
     assert(report.cases > 0 and report.nativeCalls >= report.probes)
-    local vm = os.getenv("NUPP_SIMD_LUA") or "luajit"
-    runner.command("cd " .. runner.quote(report.directory) .. " && " .. runner.quote(vm)
-        .. " " .. runner.quote(HERE .. "/simd/execute-scalar.lua"), report.directory .. "/scalar-execution.log")
-    local scalar = runner.json(report.directory .. "/scalar-result.json")
+    local scalar = report.scalarC
     assert(scalar.cases == report.cases and scalar.probes == report.probes and scalar.nativeCalls > 0)
 end
 

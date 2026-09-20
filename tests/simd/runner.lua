@@ -176,6 +176,21 @@ aotFeatures={minimum=%q,maximum=%q},
     M.command(run, dir .. "/execution.log")
     local result = M.json(dir .. "/result.json")
     assert(result.ok and result.nativeCalls > 0 and result.probes > 0, "no native calls proved")
+    M.command(
+        "cd " .. M.quote(dir) .. " && " .. M.quote(vm) .. " " .. M.quote(root .. "/tests/simd/execute-scalar.lua"),
+        dir .. "/scalar-execution.log"
+    )
+    local scalar = M.json(dir .. "/scalar-result.json")
+    assert(
+        scalar.ok
+        and scalar.tier == tier
+        and scalar.route == "scalar-C"
+        and scalar.nativeCalls > 0
+        and scalar.cases == result.cases
+        and scalar.probes == result.probes,
+        "scalar C did not execute the same probe inventory"
+    )
+    result.scalarC = scalar
     result.directory = dir
     result.host = {os = jit.os, arch = jit.arch, capabilities = capabilities}
     local digestCommand = "if command -v sha256sum >/dev/null 2>&1; then digest=sha256sum; flags=; "

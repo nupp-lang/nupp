@@ -12,14 +12,30 @@ for (const family of ["primitives", "reducers"]) {
     if (!execution.ok || execution.tier !== "simd128" || !(execution.nativeCalls > 0)) {
       throw new Error(`Incomplete Wasm execution proof: ${result}`);
     }
-    rows.push({ family, element, evidence: result, execution });
+    const scalarPath = path.join(directory, family, element, "scalar-c/result.json");
+    const scalarC = JSON.parse(readFileSync(scalarPath, "utf8"));
+    if (!scalarC.ok || scalarC.executionPath !== "scalar-c" || !(scalarC.nativeCalls > 0) ||
+        scalarC.cases !== execution.cases || scalarC.probes !== execution.probes) {
+      throw new Error(`Incomplete scalar-C Wasm proof: ${scalarPath}`);
+    }
+    rows.push({ family, element, evidence: result, execution, scalarEvidence: scalarPath, scalarC });
   }
 }
 if (!rows.length) throw new Error("No Wasm SIMD128 cases executed");
-const report = { schemaVersion: 1,
+const csv = (name) => readFileSync(path.join(directory, name), "utf8").trim().split(",");
+const selectedLanes = csv("lanes.txt");
+const selection = { types: csv("types.txt"), families: csv("families.txt"),
+  lanes: selectedLanes[0] === "all" ? [...Array.from({ length: 63 }, (_, i) => i + 2), "preferred"]
+    : selectedLanes.map((value) => value === "preferred" ? value : Number(value)) };
+if (rows.length !== selection.types.length * selection.families.length ||
+    selection.types.some((element) => selection.families.some((family) =>
+      rows.filter((row) => row.element === element && row.family === family).length !== 1))) {
+  throw new Error("Wasm execution rows do not match the requested selection");
+}
+const report = { schemaVersion: 1, selection,
   revision: readFileSync(path.join(directory, "revision.txt"), "utf8").trim(),
   compilerVersion: readFileSync(path.join(directory, "compiler.txt"), "utf8").trim(),
   runtime: process.version, requested_wasm_matrix_complete: true, rows,
   scope: "The explicitly selected SIMD corpus; native platform/tier coverage is reported separately." };
 writeFileSync(path.join(directory, "summary.json"), JSON.stringify(report, null, 2) + "\n");
-console.log(`Wasm SIMD128 matrix: ${rows.length} batches executed`);
+console.log(`Wasm SIMD128 and scalar-C matrix: ${rows.length} batches executed`);

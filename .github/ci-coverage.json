@@ -27,6 +27,10 @@
           "guarantees": ["a selected SIMD or other correctness job cannot pass by being skipped or absent"]
         },
         {
+          "name": "Validate SIMD inventory aggregation",
+          "guarantees": ["missing, duplicate, wrong-head or unexecuted Wasm shards cannot claim the full inventory"]
+        },
+        {
           "name": "Validate the workflow against the classifier",
           "guarantees": ["the classifier, this map and the workflow name the same jobs"]
         }
@@ -61,7 +65,9 @@
         "shared primitives and reducers execute through observed C entries under Clang and GCC",
         "exact baseline, AVX2 and AVX512 tiers on capable x64 hosts, or NEON on arm64",
         "Intel macOS and both Windows images have explicit execution rows",
-        "unavailable hardware produces missing acceptance evidence, never an execution pass"
+        "unavailable hardware produces missing acceptance evidence, never an execution pass",
+        "all ten element types and every Fixed2..64 plus Preferred execute through SIMD128 and scalar-C Wasm routes",
+        "disjoint Wasm shards aggregate only when the complete requested inventory has proof"
       ]
     },
     "integration": {
@@ -208,7 +214,6 @@
       "guarantees": [
         "the portable compiler runs in Lua 5.1 compiled to Wasm",
         "browser applications and templates run in Chromium",
-        "the shared native semantic corpus executes through Wasm SIMD128 entries",
         "the generated Pages artifact builds"
       ]
     },

@@ -31,6 +31,7 @@ esac
 printf '%s\n' "${NUPP_SIMD_LANES:-all}" > "$output/lanes.txt"
 IFS=, read -r -a compilers <<< "${NUPP_SIMD_COMPILERS:-clang,gcc}"
 IFS=, read -r -a families <<< "${NUPP_SIMD_FAMILIES:-primitives,reducers}"
+IFS=, read -r -a algorithms <<< "${NUPP_SIMD_ALGORITHMS:-utf8simd,base64simd,simd-json,fused-json}"
 IFS=, read -r -a types <<< "${NUPP_SIMD_TYPES:-float,number,int8,uint8,int16,uint16,int32,uint32,int64,uint64}"
 case $(uname -m) in
   arm64|aarch64) tiers=(neon) ;;
@@ -76,6 +77,22 @@ for compiler in "${compilers[@]}"; do
           status=1
         fi
       done
+    done
+    for algorithm in "${algorithms[@]}"; do
+      [[ "$algorithm" == none ]] && continue
+      directory="$compiler_dir/$tier/algorithms/$algorithm"
+      mkdir -p "$directory"
+      echo "$compiler / $tier / algorithm / $algorithm"
+      if NUPP_NATIVE_CC="$compiler" NUPP_SIMD_TIER="$tier" \
+          luajit tests/simd/run-algorithm.lua "$algorithm" "$directory" > "$directory/driver.log" 2>&1; then
+        printf '%s\t%s\talgorithms\t%s\texecuted\t%s\n' "$index" "$tier" "$algorithm" \
+          "$directory/matrix-result.json" >> "$output/matrix.tsv"
+      else
+        printf '%s\t%s\talgorithms\t%s\tfailed\t%s\n' "$index" "$tier" "$algorithm" \
+          "$directory/driver.log" >> "$output/matrix.tsv"
+        cat "$directory/driver.log" >&2
+        status=1
+      fi
     done
   done
 done

@@ -16,6 +16,9 @@ if [[ -e "$output/revision.txt" ]]; then
 fi
 mkdir -p "$output/host"
 git rev-parse HEAD > "$output/revision.txt"
+printf '%s\n' "${NUPP_SIMD_TYPES:-float,number,int8,uint8,int16,uint16,int32,uint32,int64,uint64}" > "$output/types.txt"
+printf '%s\n' "${NUPP_SIMD_FAMILIES:-primitives,reducers}" > "$output/families.txt"
+printf '%s\n' "${NUPP_SIMD_LANES:-all}" > "$output/lanes.txt"
 "$emcc_command" --version > "$output/compiler.txt"
 lpeg_source=$(./scripts/toolchain lpeg-source)
 EMCC="$emcc_command" runtime/wasm/build-app-host.sh "$output/host/nupp-app.mjs" "$lua_source" "$lpeg_source"
@@ -32,7 +35,9 @@ for family in "${families[@]}"; do
     NUPP_WASM_CC="$emcc_command" NUPP_SIMD_TYPES="$element" \
       luajit tests/simd/run.lua wasm "$family" "$directory" > "$directory/driver.log" 2>&1
     node tests/simd/run-wasm.mjs "$directory" "$output/host" > "$directory/execution.log" 2>&1
-    echo "Wasm SIMD128 / $family / $element passed"
+    NUPP_WASM_CC="$emcc_command" node tests/simd/prepare-wasm-scalar.mjs "$directory" "$directory/scalar-c" > "$directory/scalar-build.log" 2>&1
+    node tests/simd/run-wasm.mjs "$directory/scalar-c" "$output/host" > "$directory/scalar-execution.log" 2>&1
+    echo "Wasm SIMD128 and scalar C / $family / $element passed"
   done
 done
 

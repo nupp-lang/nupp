@@ -295,4 +295,30 @@ function M.gatingTheRunnerSuiteDoesNotGateTheRestOfTheBenchSurface()
     )
 end
 
+
+function M.wasmSimdShardsCoverEveryTypeAndWidthExactlyOnce()
+    local decode = assert(loadfile("src/nupp/runtime/vendor/lunajson/decoder.lua"))()()
+    local file = assert(io.open(".github/simd-wasm-shards.json", "rb"))
+    local shards = decode(file:read("*a"))
+    file:close()
+    local types = {float=true, number=true, int8=true, uint8=true, int16=true,
+        uint16=true, int32=true, uint32=true, int64=true, uint64=true}
+    local seen = {}
+    for _, shard in ipairs(shards) do
+        test.assert(types[shard.element], "known SIMD element type")
+        seen[shard.element] = seen[shard.element] or {}
+        for lane in shard.lanes:gmatch("[^,]+") do
+            local width = tonumber(lane)
+            test.assert(lane == "preferred" or (width and width >= 2 and width <= 64 and width % 1 == 0))
+            test.assert(not seen[shard.element][lane], "Wasm widths must be disjoint")
+            seen[shard.element][lane] = true
+        end
+    end
+    for element in pairs(types) do
+        test.assert(seen[element] and seen[element].preferred, "Preferred execution requested")
+        for width = 2, 64 do test.assert(seen[element][tostring(width)], "every legal Fixed width requested") end
+    end
+    test.assert(#shards == 40, "ten element types times four width batches")
+end
+
 return M

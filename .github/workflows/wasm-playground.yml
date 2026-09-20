@@ -16,7 +16,7 @@ jobs:
   candidate:
     name: Portable compiler in Lua 5.1 Wasm
     runs-on: ubuntu-latest
-    timeout-minutes: 150
+    timeout-minutes: 30
     steps:
       - name: Check out the repository
         uses: actions/checkout@v4
@@ -45,26 +45,6 @@ jobs:
 
       - name: Test Lua 5.1 Wasm struct AOT
         run: tests/wasm-aot/run.sh
-
-      - name: Execute the shared SIMD corpus in Wasm SIMD128
-        run: tests/simd/run-wasm.sh
-
-      - name: Retain Wasm SIMD128 execution evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: simd-execution-wasm-${{ github.sha }}
-          path: |
-            build/simd-wasm/**/*.json
-            build/simd-wasm/**/*.log
-            build/simd-wasm/**/*.txt
-            build/simd-wasm/**/*.nupp
-            build/simd-wasm/**/*.lua
-            build/simd-wasm/**/*.c
-            build/simd-wasm/**/*.mjs
-            build/simd-wasm/**/*.wasm
-          if-no-files-found: warn
-          retention-days: 7
 
       - name: Test ordinary storage and I/O in Lua 5.1 Wasm
         run: tests/portable-storage/run.sh wasm
