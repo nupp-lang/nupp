@@ -788,18 +788,29 @@ function aot.wasmDispatch(
     programs: {scalarIR.Program},
     sites: {compile.Site},
     unit: string,
-    gpuArtifacts: {[string]: any}
+    gpuArtifacts: {[string]: any},
+    constFamilies: {any}?
 ): string
     local rewritten = source
-    for position = #programs, 1, -1 do
+    local replacements: {any} = {}
+    for _, family in ipairs(constFamilies or {}) do
+        replacements[#replacements + 1] = {site = family.site, text = wasmBinding.familyReplacement(family, unit)}
+    end
+    for position, program in ipairs(programs) do
         local site = sites[position]
         if site ~= nil then
-            local program = programs[position]
             local replacement = program.executionTarget == "gpu"
                 and gpuBinding.replacement(program, gpuArtifacts[program.symbol], true)
                 or wasmBinding.replacement(program, unit)
-            rewritten = rewritten:sub(1, site.from - 1) .. replacement .. rewritten:sub(site.to + 1)
+            replacements[#replacements + 1] = {site = site, text = replacement}
         end
+    end
+    table.sort(replacements, function(a, b): boolean
+        return a.site.from > b.site.from
+    end)
+    for _, replacement in ipairs(replacements) do
+        local site = replacement.site
+        rewritten = rewritten:sub(1, site.from - 1) .. replacement.text .. rewritten:sub(site.to + 1)
     end
 
     return rewritten
@@ -2173,7 +2184,8 @@ function aot.apply(
                         (artifacts as compile.Artifacts).programs,
                         (artifacts as compile.Artifacts).sites,
                         one.unit as string,
-                        (artifacts as compile.Artifacts).gpu
+                        (artifacts as compile.Artifacts).gpu,
+                        (artifacts as compile.Artifacts).constFamilies
                     )
                 end
             end
@@ -2189,7 +2201,8 @@ function aot.apply(
                             (artifacts as compile.Artifacts).programs,
                             (artifacts as compile.Artifacts).sites,
                             "",
-                            (artifacts as compile.Artifacts).gpu
+                            (artifacts as compile.Artifacts).gpu,
+                            (artifacts as compile.Artifacts).constFamilies
                         )
                     end
                 end

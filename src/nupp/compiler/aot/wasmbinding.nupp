@@ -25,6 +25,8 @@ local function logical(param: scalarIR.Param): string
         return "exclusive " .. param.name .. ": nupp.mem.span.WriteSpan<" .. tostring(element) .. ">"
     elseif param.kind == "read_span" then
         return "borrows " .. param.name .. ": nupp.mem.span.Span<" .. tostring(element) .. ">"
+    elseif param.type == "lua_bytes" then
+        return "borrows " .. param.name .. ": " .. sourceType(param)
     else
         return param.name .. ": " .. sourceType(param)
     end
@@ -163,7 +165,7 @@ function wasmbinding.replacement(program: scalarIR.Program, unit: string): strin
             counts[#counts + 1] = count
         else
             arguments[#arguments + 1] = param.name
-            physicalParams[#physicalParams + 1] = param.name .. ": " .. sourceType(param)
+            physicalParams[#physicalParams + 1] = logical(param)
         end
     end
     if program.body ~= nil then
@@ -202,6 +204,17 @@ function wasmbinding.replacement(program: scalarIR.Program, unit: string): strin
     end
 
     return table.concat(lines, "\n")
+end
+
+--- Replaces a const declaration with checked wrappers for each emitted Wasm body.
+function wasmbinding.familyReplacement(family: any, unit: string): string
+    local lines: {string} = {}
+    for _, program in ipairs(family.programs) do
+        lines[#lines + 1] = wasmbinding.replacement(program, unit)
+    end
+    lines[#lines + 1] = binding.familyDispatch(family)
+
+    return table.concat(lines, "\n\n")
 end
 
 export = wasmbinding

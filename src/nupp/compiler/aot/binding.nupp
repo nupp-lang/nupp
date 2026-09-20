@@ -912,6 +912,14 @@ function binding.familyReplacement(
         lines[#lines + 1] = ""
     end
 
+    lines[#lines + 1] = binding.familyDispatch(family)
+
+    return table.concat(lines, "\n")
+end
+
+--- The authored const signature dispatching to already-declared private wrappers.
+function binding.familyDispatch(family: any): string
+    local lines: {string} = {}
     lines[#lines + 1] = family.header
     for position, specialization in ipairs(family.specializations) do
         local conditions: {string} = {}

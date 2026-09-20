@@ -2246,6 +2246,91 @@ function M.wasmRegistersLuaBuildersWithoutAPointerWrapper()
     assert(not source:find("ks_wasm_call_ks_copy", 1, true), source)
 end
 
+function M.wasmConstFamiliesReplaceBothKernelAndBorrowedBuilderBodies()
+    local source = [=[
+module wasmconst
+local valueBuilder = require("nupp.codec.valuebuilder")
+local {type Buffer} = require("nupp.text")
+@aot
+local function first(value: number): number return value + 1 end
+@aot
+local function scaled<const Factor: integer>(value: number, factor: Factor): number
+    return value * (factor as integer)
+end
+@aot
+local function middle(value: number): number return value + 2 end
+@aot
+local function measured<const Bump: integer>(borrows source: string | Buffer, bump: Bump): uint32
+    return nupp.math.u32.add(valueBuilder.length(source), nupp.math.u32.wrap(bump as integer))
+end
+@aot
+local function last(value: number): number return value + 3 end
+local function apply(value: number, borrows source: string | Buffer): (number, uint32)
+    return scaled(value, 2), measured(source, 1)
+end
+export = {first=first, middle=middle, last=last, apply=apply, scaled=scaled, measured=measured}
+]=]
+    local environment = envMod.new(HERE .. "/..")
+    local tree = parser.parse(source, "wasmconst.nupp")
+    local checked = compilerCheck.check(tree, "wasmconst.nupp", environment)
+    for _, problem in ipairs(checked) do
+        assert(not diagnosticMod.isFatal(problem), problem.msg or problem.message)
+    end
+    local selected = assert(targets.select("wasm32-unknown-emscripten", "simd128"))
+    local artifacts, problems = aotCompile.artifacts(source, "wasmconst.nupp", tree, nil, selected)
+    assert(artifacts, problems[1] and aotCompile.renderDiagnostic(problems[1]))
+    test.equal(#artifacts.constFamilies, 2)
+    local rewritten = aot.wasmDispatch(source, artifacts.programs, artifacts.sites, "unit", artifacts.gpu,
+        artifacts.constFamilies)
+    local modes = {}
+    for _, family in ipairs(artifacts.constFamilies) do
+        for _, program in ipairs(family.programs) do
+            modes[program.entryMode] = true
+            assert(rewritten:find('Unit["' .. program.symbol .. '"]', 1, true),
+                "each emitted specialization must be bound: " .. rewritten)
+            assert(rewritten:find("return " .. program.name .. "(", 1, true), rewritten)
+        end
+    end
+    assert(modes.kernel and modes["lua-builder"], "fixture must exercise both Wasm entry ABIs")
+    assert(not rewritten:find("return value *", 1, true), "the generic kernel body must not remain interpreted")
+    assert(not rewritten:find("valueBuilder.length(source)", 1, true), "the generic builder body must not remain interpreted")
+    for _, name in ipairs({"first", "middle", "last"}) do
+        assert(rewritten:find("local function " .. name .. "(", 1, true), "mixed declaration offsets preserved")
+    end
+    local generated = parser.parse(rewritten, "wasmconst.nupp")
+    test.equal(#generated.errors, 0)
+    for _, problem in ipairs(compilerCheck.check(generated, "wasmconst.nupp", envMod.new(HERE .. "/.."), {
+        generatedSource = true
+    })) do
+        assert(not diagnosticMod.isFatal(problem), (problem.msg or problem.message) .. "\n" .. rewritten)
+    end
+    local lua, errors = require("nupp.compiler.gen").generate(generated, "wasmconst.nupp")
+    test.equal(#errors, 0)
+    local registered, completed = {}, {}
+    for _, program in ipairs(artifacts.programs) do
+        local symbol, value = program.symbol, program.entryMode == "lua-builder" and 55 or 44
+        registered[symbol] = function(...)
+            completed[symbol] = (completed[symbol] or 0) + 1
+            return value
+        end
+    end
+    local globals = setmetatable({__nuppWasmAot = {unit = registered}}, {__index = _G})
+    globals._G = globals
+    local loaded = assert(loadstring(lua, "@wasmconst.lua"))
+    setfenv(loaded, globals)
+    local mod = loaded()
+    local kernel, builder = mod.apply(3, "abc")
+    test.equal(kernel, 44, "the generic kernel routes through the registered closure")
+    test.equal(tonumber(builder), 55, "the generic builder routes through the registered closure")
+    for _, family in ipairs(artifacts.constFamilies) do
+        for _, program in ipairs(family.programs) do
+            test.equal(completed[program.symbol], 1)
+        end
+    end
+    local ok, why = pcall(mod.scaled, 3, 7)
+    assert(not ok and tostring(why):find("no compiled const application exists", 1, true), tostring(why))
+end
+
 function M.wasmReplacementRecordsItsCompiledClosure()
     local wasmbinding = require("nupp.compiler.aot.wasmbinding")
     local source = wasmbinding.replacement(
