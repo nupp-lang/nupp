@@ -302,15 +302,17 @@ for _, row in ipairs({
     memory.store(pointer, 0, row[1], unsigned("18446744073709551615"))
     assert(memory.load(pointer, 0, row[1]) == row[2], row[1] .. " wide maximum")
 end
--- Direct integer-to-float rounding must not round through a double first.
+-- Match scalar LuaJIT FFI storage: wide integers round to double, then float.
+-- These exact halfway-adjacent inputs distinguish that contract from a direct
+-- C integer-to-float cast; the native FFI oracle was checked independently.
 for _, row in ipairs({
-    {unsigned("9223372586610589697"), 9223373136366403584},
-    {signed("4611686293305294849"), 4611686568183201792},
-    {signed("-4611686293305294849"), -4611686568183201792},
+    {unsigned("9223372586610589697"), 9223372036854775808},
+    {signed("4611686293305294849"), 4611686018427387904},
+    {signed("-4611686293305294849"), -4611686018427387904},
     {signed("-1"), -1}
 }) do
     memory.store(pointer, 0, "float", row[1])
-    assert(memory.load(pointer, 0, "float") == row[2], "direct wide float conversion")
+    assert(memory.load(pointer, 0, "float") == row[2], "wide float conversion matches scalar FFI")
 end
 memory.store(pointer, 0, "number", signed("-9223372036854775808"))
 assert(memory.load(pointer, 0, "number") == -9223372036854775808)

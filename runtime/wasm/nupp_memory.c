@@ -566,8 +566,11 @@ static int store_scalar(lua_State *state, const char *kind, unsigned char *desti
         memcpy(destination, &value, sizeof(value));
     } else if (strcmp(kind, "float") == 0) {
         struct nupp_wide *wide = test_wide(state, value_index);
-        float value = wide == NULL ? (float)luaL_checknumber(state, value_index)
-            : wide->unsign ? (float)wide->bits : (float)(int64_t)wide->bits;
+        /* Scalar LuaJIT FFI first converts a wide integer to double. Keep
+         * that intermediate rounding, as the SIMD conversion contract does. */
+        double number = wide == NULL ? (double)luaL_checknumber(state, value_index)
+            : wide->unsign ? (double)wide->bits : (double)(int64_t)wide->bits;
+        float value = (float)number;
         memcpy(destination, &value, sizeof(value));
     } else if (strcmp(kind, "number") == 0) {
         struct nupp_wide *wide = test_wide(state, value_index);
