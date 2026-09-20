@@ -47,11 +47,12 @@ jobs:
           ./bin/nupp build
           . ./scripts/luajit.sh
           select_luajit "$PWD"
-          mkdir -p build/simd-avx2-diagnostic
+          diagnostic="$PWD/build/simd-avx2-diagnostic"
+          mkdir -p "$diagnostic"
           NUPP_NATIVE_CC="$NUPP_SIMD_COMPILERS" \
             NUPP_SIMD_TIER=avx2 \
             luajit tests/simd/run-algorithm.lua base64simd \
-              build/simd-avx2-diagnostic
+              "$diagnostic"
       - name: Retain the diagnostic
         if: always()
         uses: actions/upload-artifact@v4
