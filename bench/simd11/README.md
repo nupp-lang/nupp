@@ -116,6 +116,7 @@ and logs remain preserved; the accepted report retains this source revision.
 | Primitive types, species, tails, masks and input classes | [Shared corpus inventory](../../tests/simd/coverage.md) |
 | Exact and algebraic reducer contracts | [Reducer corpus](../../tests/simd/reducers.lua), [numerical rules](../../docs/learn/performance/ahead-of-time/numeric-semantics.md) |
 | Actual native and Wasm entry execution | [Shared runners and retained proof](../../tests/simd/README.md) |
+| Every authored corpus region has vector artifact evidence | [Region proof](../../tests/simd/regionproof.lua), retained `regions.json`, and executed-entry checks in both runners |
 | Clang/GCC, operating systems and exact feature tiers | [CI matrix](../../.github/workflows/simd-conformance.yml), [platform inventory](../../.github/simd-platforms.json) |
 | Malformed regions, reducers, masks, vectors and lane indices | [Verifier fixtures](../../tests/aotverifytest.lua) |
 | Ordered, pairwise, algebraic and FMA assembly contracts | [AOT CLI checks](../../tests/aotclitest.lua) |
@@ -151,8 +152,26 @@ the timed control was separately compiled with optimization and automatic
 vectorization disabled, with its assembly checked. The raw timing evidence and
 its source revision remain unchanged.
 
-After the oracle correction, all sixteen correctness cases pass on `f5ba41d9`.
+After the GCC and math fixes, all sixteen correctness cases pass on `01ba97eb`.
 [Exact function-body comparison](results/arm64-macos-final-function-equivalence.json)
 finds identical assembly for all fourteen timed native/control functions.
 This compares each complete entry through its end directive; it does not claim
 whole-library identity or constitute another timing run.
+
+## Expanded-corpus findings
+
+The GCC NEON run exposed a tree-SRA warning when scalar indexing split a
+composite vector into separate lane writes. Constructing native rearrangements
+from complete arrays and using native extraction for composite lanes preserves
+whole vectors; the strict warning flags remain enabled. The corrected source
+passed 3,143,424 primitive comparisons on each route at the affected physical
+widths, followed by 172 focused tests and byte-identical fixpoint. The original
+full-run failures remain retained; this boundary replay is not a completed full
+GCC matrix.
+
+The math corpus also found GCC's Darwin `sin`/`cos` combination losing the sign
+of `sin(-0)`, stock Lua 5.1 extrema choosing a different operand from LuaJIT on
+ties and NaNs, and missing Wasm host math imports. The fixes preserve those
+selected-runtime contracts and validate the actual linked host. Full platform
+acceptance still requires execution of the expanded inventory on every declared
+platform and tier.
