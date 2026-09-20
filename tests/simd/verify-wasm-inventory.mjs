@@ -27,7 +27,9 @@ export function verifyWasmInventory(execution, family, element, requested) {
     } else throw new Error(`Unknown corpus family: ${family}`);
   }
   const expected = family === 'primitives'
-    ? { probe: [lanes, 1], fields: [lanes, 1], indexed: [lanes, 1], convert: [lanes, 1],
+    ? { probe: [lanes, 1], fields: [lanes, 1],
+        indexed: [lanes.filter((lane) => lane !== 'preferred' || !['int8', 'uint8', 'int16', 'uint16'].includes(element)), 1],
+        convert: [lanes, 1],
         transpose: [lanes.filter((lane) => lane !== 'preferred'), 1],
         ...(!['float', 'number'].includes(element) ? { edges: [lanes, 1] } : {}) }
     : { horizontal: [lanes, 1],

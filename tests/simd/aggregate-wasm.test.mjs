@@ -15,7 +15,8 @@ function execution(shard, family, route) {
   for (const lane of shard.lanes.split(',')) {
     const type = shard.element;
     if (family === 'primitives') {
-      for (const [module, name] of [['primitives', 'probe'], ['memory', 'fields'], ['memory', 'indexed'], ['conversions', 'convert'],
+      for (const [module, name] of [['primitives', 'probe'], ['memory', 'fields'], ['conversions', 'convert'],
+        ...(lane !== 'preferred' || !['int8', 'uint8', 'int16', 'uint16'].includes(type) ? [['memory', 'indexed']] : []),
         ...(lane !== 'preferred' ? [['transpose', 'transpose']] : []),
         ...(!['float', 'number'].includes(type) ? [['integeredges', 'edges']] : [])]) {
         add(`simd_${module}_${type}_1`, `${name}_${lane}`);
