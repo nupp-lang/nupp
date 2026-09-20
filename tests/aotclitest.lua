@@ -3012,6 +3012,52 @@ return {ordered = ordered, pairwise = pairwise, algebraic = algebraic}
     assert(fused > 0, "algebraicDot did not contract, which is the one place it may:\n" .. asm)
 end
 
+function M.loopScalarOraclesRemainUnoptimizedAndUnvectorized()
+    local chain = require("nupp.compiler.build.aot").toolchain()
+    local host = require("nupp.compiler.aot.target").hostTriple()
+    if chain == nil or (chain.dialect ~= "clang" and host ~= "aarch64-apple-darwin") then
+        test.skip("reading NEON oracle instructions needs Clang or an aarch64 host")
+        return
+    end
+    local source = [[
+local span = require("nupp.mem.span")
+@aot
+local function scale(exclusive output: span.WriteSpan<float>, borrows input: span.Span<float>): nil
+    if #output ~= #input then error("length mismatch") end
+    @simd
+    for index = 1, #input do output[index] = input[index] * 2 end
+end
+return {scale = scale}
+]]
+    local dir = project{["oracle.nupp"] = source}
+    local emitted, emitCode = run(dir, "--target aarch64-apple-darwin --features neon --emit c oracle.nupp")
+    test.equal(emitCode, 0, emitted)
+    local out, code = run(dir, "--target aarch64-apple-darwin --features neon --json --emit asm oracle.nupp")
+    test.equal(code, 0, out)
+    local report = require("testjson").decode(out)
+    assert(emitted:match("KS_SCALAR_ORACLE%s+__attribute__%(%(noinline%)%)%s+KS_API void ks_scale_forced_scalar"),
+        "loop-shaped scalar oracle must retain the same unoptimized marker as general blocks")
+    local kernel, oracle
+    for _, listing in ipairs(report.asm.functions) do
+        if listing.symbol == "ks_scale" then kernel = listing end
+        if listing.symbol == "ks_scale_forced_scalar" then oracle = listing end
+    end
+    assert(kernel and oracle, "both actual assembly routes must exist")
+    test.equal(oracle.role, "oracle")
+    local packed = 0
+    for _, instruction in ipairs(kernel.instructions) do
+        if instruction.mnemonic:match("^fadd") or instruction.mnemonic:match("^fmul") then
+            if instruction.text:find(".4s", 1, true) then packed = packed + 1 end
+        end
+    end
+    assert(packed > 0, "production loop must execute packed arithmetic")
+    for _, instruction in ipairs(oracle.instructions) do
+        if instruction.mnemonic:match("^fadd") or instruction.mnemonic:match("^fmul") then
+            assert(not instruction.text:find(".4s", 1, true), "scalar oracle was revectorized: " .. instruction.text)
+        end
+    end
+end
+
 function M.reductionOrdersRetainTheirAssemblyDependencyShapes()
     local chain = require("nupp.compiler.build.aot").toolchain()
     local host = require("nupp.compiler.aot.target").hostTriple()

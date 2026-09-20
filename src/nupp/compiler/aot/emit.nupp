@@ -3863,10 +3863,10 @@ function emit.program(programs: {scalarIR.Program}, tier: string?, sourceFile: s
                     body.controlBreak = "ks_map_break"
                     body.controlContinue = "ks_map_continue"
                 end
-                if forced and general then
-                    -- The block may declare locals before its first loop, so a
-                    -- loop pragma cannot be placed at function entry. Keep this
-                    -- test-only oracle wholly scalar instead.
+                if forced then
+                    -- Both loop and block forms are independent, unoptimized
+                    -- test oracles. A loop pragma alone still permits other
+                    -- optimizations that obscure the scalar-source route.
                     lines[#lines + 1] = "KS_SCALAR_ORACLE"
                 end
                 lines[#lines + 1] = "__attribute__((noinline))"
