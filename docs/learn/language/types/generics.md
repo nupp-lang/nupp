@@ -244,6 +244,16 @@ for what those six do.
 cache is populated before members are filled in, so a self-referential generic
 terminates.
 
+An application writes as many arguments as the declaration binds parameters.
+Fewer or more is `NUPP2146`, reported where the name is written rather than
+left to surface as a mismatch between two types that print the same. A trailing
+parameter the declaration defaulted may be left out, and `Type<Box>` and
+`metatable<Box>` name the declaration itself and so take none.
+
+The one other place a generic name stands alone is inside its own declaration,
+where it means that declaration applied to its own parameters -- `Node` in
+`record Node<T>` is the `Node<T>` being described.
+
 Two applications of one generic compare member by member, with the usual
 read and write variance: `Box<integer>` is accepted where `Box<number>` is
 wanted only as far as a writable `value` field lets it, which is not at all,

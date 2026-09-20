@@ -783,6 +783,45 @@ local ENTRIES: {any} = {
         docs = "docs/learn/language/types/generics.md#parameter-positions",
     },
     {
+        code = "NUPP2146",
+        summary = "A generic declaration is applied to the wrong number of type arguments",
+        rule = "An application writes as many arguments as the declaration binds "
+        .. "parameters. A trailing parameter the declaration defaulted may be left out; "
+        .. "nothing past the last parameter may be written, and a bare name is an "
+        .. "application with none. Left unchecked the result was a type whose parameters "
+        .. "nothing had bound, which fits no value the program can build and surfaces "
+        .. "instead as a mismatch between two types that print the same. `Type<Box>` and "
+        .. "`metatable<Box>` name the declaration rather than one of its values and so "
+        .. "take no arguments, and inside its own body a declaration means itself "
+        .. "applied to its own parameters.",
+        wrong = "local record Pair<A, B>\n    a: A\n    b: B\nend\n\n"
+        .. "local half: Pair<integer> = nil as any\n\nreturn half\n",
+        right = "local record Pair<A, B>\n    a: A\n    b: B\nend\n\n"
+        .. "local both: Pair<integer, string> = nil as any\n\nreturn both\n",
+        related = {"NUPP2101", "NUPP2116", "NUPP2121"},
+        docs = "docs/learn/language/types/generics.md#instantiation",
+    },
+    {
+        code = "NUPP2147",
+        summary = "An `is` test's subject can never hold the type it tests",
+        rule = "A test whose subject and its target share no value can only ever answer "
+        .. "false, so the branch it guards is one no run reaches. It is refused where it "
+        .. "is written rather than compiled. Only what can be settled for certain counts: "
+        .. "a gradual type, a type parameter, and a structural fit the checker could not "
+        .. "decide all leave the test alone, and `as` remains the way to say the value is "
+        .. "something its declaration does not admit. `is` sits at the comparison level, "
+        .. "below unary `not`, so `not v is T` is `(not v) is T` -- a boolean tested for "
+        .. "the identity of something else -- and `not (v is T)` is the test that narrows.",
+        wrong = "local record Box\n    value: integer\nend\n\n"
+        .. "local function held(v: Box | string): boolean\n    return not v is Box\nend\n\n"
+        .. "return held\n",
+        right = "local record Box\n    value: integer\nend\n\n"
+        .. "local function held(v: Box | string): boolean\n    return not (v is Box)\nend\n\n"
+        .. "return held\n",
+        related = {"NUPP2110", "NUPP3001"},
+        docs = "docs/learn/language/types/narrowing.md#type-tests",
+    },
+    {
         code = "NUPP2511",
         summary = "An associated type was erased because inference did not reach its head",
         rule = "A projection is checked as `any` when inference never worked out what "

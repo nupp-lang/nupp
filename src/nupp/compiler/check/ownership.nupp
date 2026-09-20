@@ -391,6 +391,40 @@ function ownership.install(c: state.Checker): ownership.Ops
         return key, entry
     end
 
+    --- Whether two types are the same value to a terminal: the same type, or one
+    --- declaration reached twice -- once as the declaration and once applied to its own
+    --- binders, which is what its name means inside its own body. `affine(Box,
+    --- Box.destroy)` written in `record Box<T>` reaches both spellings of one thing.
+    local function sameDeclaredValue(a, b)
+        if a.id == b.id then
+            return true
+        end
+        if a.tag ~= "nominal" or b.tag ~= "nominal" then
+            return false
+        end
+        local declaration = (a.origin or a) as T.Nominal
+        if declaration ~= ((b.origin or b) as T.Nominal) then
+            return false
+        end
+        -- Only the declaration standing for itself. Any other application is a
+        -- different value and a terminal written for one is not a terminal for the
+        -- other.
+        local applied = a.typeArgs and a or b.typeArgs and b or nil
+        if not applied or not declaration.typeParams then
+            return false
+        end
+        if #(applied.typeArgs or {}) ~= #declaration.typeParams then
+            return false
+        end
+        for j, binder in ipairs(declaration.typeParams) do
+            if applied.typeArgs[j] ~= binder then
+                return false
+            end
+        end
+
+        return true
+    end
+
     local function resolvedFunctionCleanup(name, at, registrationNode, after, knownType)
         local entry = declaredFunctionEntry(name)
         local definition = entry and entry.definition or nil
@@ -518,7 +552,7 @@ function ownership.install(c: state.Checker): ownership.Ops
                         c.diag(code, at, ("terminal %q must take exactly one consuming argument"):format(cleanup.name))
                     elseif cleanupFunc
                         and not genericBound
-                        and (not firstParam or firstParam.id ~= cleanupValue.id)
+                        and (not firstParam or not sameDeclaredValue(firstParam, cleanupValue))
                     then
                         c.diag(
                             code,

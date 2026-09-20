@@ -54,6 +54,49 @@ An `elseif` chain subtracts as it goes, so each branch sees only what the
 earlier ones left. See [unions.md](unions.md#exhaustiveness) for what the
 checker reports when such a chain leaves a member unhandled.
 
+### Type tests
+
+`is` answers whether a value is one of a type's values, so a test whose subject
+and target share none of them can only answer false. That is `NUPP2147`,
+reported where the test is written rather than compiled into a branch nothing
+reaches:
+
+```nupp
+local record Circle
+    radius: number
+end
+
+local record Square
+    side: number
+end
+
+local function wrong(shape: Circle): boolean
+    return shape is Square -- NUPP2147
+end
+```
+
+Only what can be settled counts. A gradual type, a type parameter, and a
+structural fit the checker could not decide all leave the test alone, and `as`
+remains the way to say a value is something its declaration does not admit.
+
+`is` sits at the comparison level, below unary `not`, so `not v is T` groups as
+`(not v) is T` -- a boolean tested for the identity of something else, which is
+the same report. `not (v is T)` is the test that narrows, on both sides:
+
+```nupp
+local record Box
+    value: integer
+end
+
+local function held(v: Box | string): string
+    if not (v is Box) then
+        return v
+    end
+
+    return tostring(v.value)
+end
+```
+
 ### `assert`
 
 `assert` narrows in both positions. Its signature subtracts `nil` from the

@@ -91,6 +91,125 @@ function narrowing.subtract(t: Type, rem: Type): Type
     return T.union(out)
 end
 
+--- What `type()` answers for every value a type admits, when one answer covers them
+--- all. Nil where the type spans more than one answer, or where nothing here can say:
+--- a caller reads that as "could be anything" and stays quiet.
+---
+--- Narrower than the primitive test the generator emits, on purpose. This is asked to
+--- rule a test out, so a tag it does not recognize has to mean "no answer" rather than
+--- an answer that happens to be wrong.
+local RUNTIME_KIND: {
+    [string]: string
+} = {
+    ["nil"] = "nil",
+    string = "string",
+    number = "number",
+    integer = "number",
+    float = "number",
+    int8 = "number",
+    int16 = "number",
+    int32 = "number",
+    int64 = "number",
+    uint8 = "number",
+    uint16 = "number",
+    uint32 = "number",
+    uint64 = "number",
+    boolean = "boolean",
+    thread = "thread",
+    userdata = "userdata",
+    table = "table",
+    array = "table",
+    map = "table",
+    shape = "table",
+    tuple = "table",
+    func = "function",
+    ctype = "cdata",
+    carray = "cdata",
+    ptr = "cdata",
+}
+
+local function runtimeKind(t: Type): string?
+    local bare = T.unwrapOwnership(t)
+    if bare.tag == "const" then
+        bare = (bare as any).inner
+    end
+    if bare.tag == "constrained" then
+        bare = (bare as any).base or bare
+    end
+    if bare.tag == "literal" then
+        return bare.base and runtimeKind(bare.base) or nil
+    end
+    if bare.tag == "nominal" then
+        local kind = (bare as any).declKind
+        -- A record's values are the tables it stamps. An interface is conformance and
+        -- says nothing about what carries it, so it has no answer here.
+        return kind == "record" and "table" or kind == "struct" and "cdata" or nil
+    end
+
+    return RUNTIME_KIND[bare.tag]
+end
+
+--- Whether any value fits both types: the question `is` asks, answered only where it
+--- can be answered for certain.
+---
+--- Member by member, because a union overlaps when any of its alternatives does. A
+--- pair is ruled out only two ways: `type()` cannot answer for both of them, or both
+--- are declarations with runtime identity of their own and neither includes the other.
+--- Anything else -- a gradual type, a binder, a shape structural fitting did not
+--- settle -- counts as overlapping, because a test this cannot rule out is a test the
+--- program is entitled to write.
+---
+--- @param a one type
+--- @param b the other
+--- @return whether some value could be both
+function narrowing.overlaps(a: Type, b: Type): boolean
+    local function alternatives(t: Type): {Type}
+        local bare = T.unwrapOwnership(t)
+        return bare.tag == "union" and (bare as any).members or {bare}
+    end
+
+    local function opaque(t: Type): boolean
+        local bare = T.unwrapOwnership(t)
+        return bare == T.any
+            or bare == T.unknown
+            or bare == T.never
+            or bare.tag == "typevar"
+            or bare.tag == "neutral"
+            or bare.tag == "projection"
+            or bare.tag == "intersection"
+            or bare.tag == "typeobject"
+            or bare.tag == "metatable"
+            or bare.tag == "genericAlias"
+    end
+
+    local function stamped(t: Type): boolean
+        local bare = T.unwrapOwnership(t)
+        return bare.tag == "nominal"
+            and ((bare as any).declKind == "record" or (bare as any).declKind == "struct")
+            and (bare as any).predicate == nil
+    end
+
+    for _, m in ipairs(alternatives(a)) do
+        for _, t in ipairs(alternatives(b)) do
+            if opaque(m) or opaque(t) then
+                return true
+            end
+            local mKind, tKind = runtimeKind(m), runtimeKind(t)
+            local ruledOutByKind = mKind ~= nil and tKind ~= nil and mKind ~= tKind
+            if not ruledOutByKind then
+                if isA(m, t) or isA(t, m) then
+                    return true
+                end
+                if not (stamped(m) and stamped(t)) then
+                    return true
+                end
+            end
+        end
+    end
+
+    return false
+end
+
 --- The values a type admits, when they can be counted: a single literal, or a union of
 --- literals. Anything else has no finite set to speak of and yields nil, which is what
 --- keeps exhaustiveness from guessing.

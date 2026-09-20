@@ -435,6 +435,25 @@ function resolve.install(c: state.Checker): nil
     -- Applying type arguments
     ---------------------------------------------------------------------
 
+    --- Whether the name being resolved sits in the body of the declaration it names.
+    ---
+    --- A declaration binds `self` to a binder bounded by itself when it opens its own
+    --- type scope, so the scopes between here and the file say which declarations are
+    --- open. Every one of them, not only the innermost: a declaration nested in another
+    --- names its owner the same way it names itself.
+    local function insideDeclarationOf(t)
+        local s = c.scope
+        while s do
+            local binder = s.types and s.types.self
+            if binder and binder.tag == "typevar" and binder.bound == t then
+                return true
+            end
+            s = s.parent
+        end
+
+        return false
+    end
+
     -- A generic application means the same thing however the name was reached, so every
     -- way of resolving a type name ends here rather than only the unqualified one.
     local function applyTypeArgs(t, node)
@@ -467,6 +486,75 @@ function resolve.install(c: state.Checker): nil
                 c.own.validateCleanups(reduced, cleanups, node, "NUPP2615")
             end
             return reduced
+        end
+        -- A name that already stands for an instantiation, which is what a
+        -- declaration's own name means inside its body, is applied through the
+        -- declaration behind it: `Node<integer>` written inside `record Node<T>` is
+        -- that application and not the `Node<T>` the name alone would be.
+        if t and t.tag == "nominal" and node.typeArgs and not t.typeParams and t.origin then
+            local origin = t.origin as T.Nominal
+            if origin.typeParams then
+                t = origin
+            end
+        end
+        -- Inside its own body a declaration answers to its simple name, and a generic
+        -- one means itself applied to its own binders: `Node` in `record Node<T>` is
+        -- the `Node<T>` being described, which is what its recursive field is for.
+        -- Left as the bare declaration it was a type whose parameters nothing had
+        -- bound, so the field could hold no value the program could build and the only
+        -- sign of it was a mismatch between two types that print the same.
+        --
+        -- Resolved here rather than bound where the declaration opens its scope,
+        -- because an instantiation snapshots the members it is built from and the
+        -- declaration is still filling them in at that point. Reaching it where the
+        -- name is written is the same moment the spelled-out `Node<T>` reaches it.
+        if t
+            and t.tag == "nominal"
+            and t.typeParams
+            and #t.typeParams > 0
+            and not t.typeArgs
+            and not node.typeArgs
+            and not node.namesADeclaration
+            and insideDeclarationOf(t)
+        then
+            local map = {}
+            for _, binder in ipairs(t.typeParams) do
+                map[binder] = binder
+            end
+
+            return instantiateNominal(t, map)
+        end
+        -- However many the declaration binds is however many an application writes.
+        -- A trailing position the declaration defaulted may be left out and nothing
+        -- past the last one may be written, and the count is the whole check: what
+        -- each argument has to be is the bound beside it, which is asked below.
+        if t and t.tag == "nominal" and t.typeParams and not t.typeArgs and not node.namesADeclaration then
+            local expected = #(t.paramKinds or {})
+            if expected == 0 then
+                expected = #t.typeParams + #(t.packParams or {}) + #(t.constParams or {})
+            end
+            local defaults = t.paramDefaults or {}
+            local required = expected
+            while required > 0 and defaults[required] do
+                required = required - 1
+            end
+            local given = #(node.typeArgs or {})
+            if expected > 0 and (given > expected or given < required) then
+                c.diag(
+                    "NUPP2146",
+                    node,
+                    (
+                        "%s takes %s, given %d"
+                    ):format(
+                        t.name,
+                        required == expected and ("%d type argument%s"):format(expected, expected == 1 and "" or "s")
+                        or ("%d to %d type arguments"):format(required, expected),
+                        given
+                    ),
+                    nil,
+                    {help = given == 0 and "write the arguments in angle brackets after the name" or nil}
+                )
+            end
         end
         if not (t and t.tag == "nominal" and t.typeParams and node.typeArgs) then
             return t
@@ -1297,12 +1385,14 @@ function resolve.install(c: state.Checker): nil
                 return T.typeHandle(c.resolveType(node.typeArgs[1]))
             end
             if name == "metatable" and node.typeArgs and node.typeArgs[1] then
+                node.typeArgs[1].namesADeclaration = true
                 return T.metatable(c.resolveType(node.typeArgs[1]))
             end
             if name == "Type" and node.typeArgs and node.typeArgs[1] then
                 if #node.typeArgs ~= 1 then
                     c.diag("NUPP2121", node, "Type<T> needs exactly one type argument")
                 end
+                node.typeArgs[1].namesADeclaration = true
                 return T.typeObject(c.resolveType(node.typeArgs[1]))
             end
             if name == "thread" and node.typeArgs then

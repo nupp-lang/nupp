@@ -201,6 +201,57 @@ function M.isTestsAnAliasOfAPrimitiveByItsResolvedType()
    }, "\n"))
 end
 
+-- A test whose subject and target share no value answers false on every run, so the
+-- branch it guards is one nothing reaches. `is` sits at the comparison level and `not`
+-- binds tighter, which makes `not v is T` one of the ways to write one.
+function M.isRefusesATestNoValueCouldPass()
+   assertEq((diagsOf(table.concat({
+      "local record Box",
+      "   value: integer",
+      "end",
+      "local function settled(v: Box | string): boolean return not v is Box end",
+   }, "\n"))), "NUPP2147:4")
+   assertEq((diagsOf(table.concat({
+      "local record Circle",
+      "   radius: number",
+      "end",
+      "local record Square",
+      "   side: number",
+      "end",
+      "local function test(shape: Circle): boolean return shape is Square end",
+   }, "\n"))), "NUPP2147:7")
+   assertEq((diagsOf(table.concat({
+      "local function test(count: integer): boolean return count is string end",
+   }, "\n"))), "NUPP2147:1")
+end
+
+-- And leaves alone every test whose answer is not settled: a downcast, an alternative
+-- of the union the subject already is, a gradual subject, an unsubstituted binder, and
+-- a target whose runtime test is coarser than the type written.
+function M.isLeavesATestItCannotRuleOut()
+   assertClean(table.concat({
+      "local interface Named",
+      "   name: string",
+      "end",
+      "local record Circle",
+      "   name: string",
+      "   radius: number",
+      "end",
+      "local record Square",
+      "   name: string",
+      "   side: number",
+      "end",
+      "local function downcast(v: Named): boolean return v is Circle end",
+      "local function alternative(v: Circle | Square): boolean return v is Circle end",
+      "local function gradual(v: any): boolean return v is Circle end",
+      "local function binder<T>(v: T): boolean return v is string end",
+      "local function coarse(v: {integer}): boolean return v is table end",
+      "local function optional(v: string?): boolean return v is nil end",
+      "local function grouped(v: Circle | Square): boolean return not (v is Circle) end",
+      "print(downcast, alternative, gradual, binder, coarse, optional, grouped)",
+   }, "\n"))
+end
+
 function M.isStillRefusesATypeWithNoRuntimeIdentity()
    assertEq((diagsOf(table.concat({
       "local type Pair = {a: string, b: string}",

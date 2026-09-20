@@ -518,4 +518,84 @@ function M.aContainerElementFixesTheBinder()
     clean(body .. 'local either: integer | string = first(ints, "none")\nreturn either\n')
 end
 
+-- An application writes as many arguments as the declaration binds parameters. Left
+-- unchecked, a short one produced a type whose remaining parameters nothing had bound,
+-- which fits no value the program can build and surfaced only as a mismatch between
+-- two types that print the same.
+function M.anApplicationWritesAsManyArgumentsAsTheDeclarationBinds()
+    local pair = table.concat({"local record Pair<A, B>", "   a: A", "   b: B", "end",}, "\n") .. "\n"
+    reports(pair .. "local short: Pair<integer> = nil as any\nreturn short\n", "NUPP2146")
+    reports(pair .. "local long: Pair<integer, string, boolean> = nil as any\nreturn long\n", "NUPP2146")
+    reports(pair .. "local bare: Pair = nil as any\nreturn bare\n", "NUPP2146")
+    clean(pair .. "local exact: Pair<integer, string> = nil as any\nreturn exact\n")
+end
+
+-- A trailing parameter the declaration defaulted may be left out, and the two
+-- spellings that name a declaration rather than one of its values take none at all.
+function M.anApplicationMayLeaveOutADefaultedParameter()
+    clean(
+        table.concat(
+            {
+                "local record Tagged<A, B = string>",
+                "   a: A",
+                "   b: B",
+                "end",
+                "local one: Tagged<integer> = nil as any",
+                "local both: Tagged<integer, boolean> = nil as any",
+                "return one, both",
+            },
+            "\n"
+        ) .. "\n"
+    )
+    clean(
+        table.concat(
+            {
+                "local record Box<T>",
+                "   value: T",
+                "end",
+                "local function witness(w: Type<Box>): nil end",
+                "local shape: metatable<Box> = nil as any",
+                "return witness, shape",
+            },
+            "\n"
+        ) .. "\n"
+    )
+end
+
+-- Inside its own body a generic declaration means itself applied to its own
+-- parameters, so the recursive field its reference documents carries the argument the
+-- construction inferred rather than losing it.
+function M.aGenericDeclarationStandsForItsOwnInstantiationInItsBody()
+    local node = table.concat({
+        "local record Node<T>",
+        "   value: T",
+        "   next: Node?",
+        "end",
+    }, "\n") .. "\n"
+    clean(
+        node
+        .. "local tail: Node<integer> = new Node(value = 2)\n"
+        .. "local head: Node<integer> = new Node(value = 1, next = tail)\n"
+        .. "return head\n"
+    )
+    reports(
+        node
+        .. "local function link(head: Node<integer>, tail: Node<string>): nil\n"
+        .. "   head.next = tail\n"
+        .. "end\n"
+        .. "return link\n",
+        "NUPP2001"
+    )
+    reports(
+        node
+        .. "local function valueOf(head: Node<integer>): string\n"
+        .. "   local rest = head.next\n"
+        .. "   if rest ~= nil then return rest.value end\n"
+        .. "   return 'none'\n"
+        .. "end\n"
+        .. "return valueOf\n",
+        "NUPP2002"
+    )
+end
+
 return M

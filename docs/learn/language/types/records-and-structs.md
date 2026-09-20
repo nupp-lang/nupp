@@ -242,6 +242,24 @@ local record Path
 end
 ```
 
+A generic one answers to it applied to its own parameters, so the recursive
+field is the instantiation the body is describing rather than a bare
+declaration nothing has bound:
+
+```nupp
+local record Node<T>
+    value: T
+    next: Node?
+end
+
+local tail: Node<integer> = new Node(value = 2)
+local head: Node<integer> = new Node(value = 1, next = tail)
+```
+
+`next: Node<T>?` says the same thing. Everywhere else the parameters are
+written out, and an application that writes the wrong number of them reports
+[NUPP2146](#).
+
 Records may nest other declarations, which reach through the table their owner
 sits on:
 

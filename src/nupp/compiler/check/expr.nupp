@@ -1364,7 +1364,36 @@ function expr.install(c: state.Checker): nil
                 )
                 typeNode.primitiveTest = nil
             end
-            local runtimeIdentity = node.provenStatically
+            -- A test no value can pass is a branch no run reaches, and a program
+            -- almost never means to write one. The checker already settled one such
+            -- pairing quietly -- a declaration's own table against the type it stamps,
+            -- where `as` is the documented override -- so that one is left alone and
+            -- every other disjoint pairing is reported.
+            --
+            -- This is what reads `not v is Box` for what it is. `not` is a unary
+            -- operator and binds tighter than the level `is` sits at, so that tests a
+            -- boolean for the metatable of a record; `not (v is Box)` is the test it
+            -- was meant to be.
+            local disjoint = false
+            if from
+                and target
+                and not node.provenStatically
+                and not node.refutedStatically
+                and not narrowing.overlaps(from, target)
+            then
+                disjoint = true
+                c.diag(
+                    "NUPP2147",
+                    node,
+                    (
+                        "%s and %s share no value, so this test can never hold"
+                    ):format(T.tostring(from), T.tostring(target)),
+                    nil,
+                    {help = "test a type the subject can hold, or cast with `as` first"}
+                )
+            end
+            local runtimeIdentity = disjoint
+                or node.provenStatically
                 or typeNode and typeNode.primitiveTest
                 or node.refutedStatically
                 or builtin

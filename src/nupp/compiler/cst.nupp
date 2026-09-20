@@ -400,6 +400,11 @@ interface cst.Hints
     --- a second time.
     wherePredicate: any
 
+    --- Set where a type name stands for the declaration itself rather than for one of
+    --- its values -- the argument of `Type<...>` or `metatable<...>` -- so a generic
+    --- one written there is not asked for the arguments an instantiation needs.
+    namesADeclaration: boolean?
+
     --- What `type()` must answer for this type node, when the checker resolved it to a
     --- primitive the spelling did not name. An alias of one is testable for the same
     --- reason the primitive is, and the generator should not have to resolve a name to

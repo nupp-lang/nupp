@@ -1651,6 +1651,13 @@ local function fillInstantiationMembers(inst: T.Nominal, declaration: T.Nominal,
     for name, ft in pairs(declaration.metamethods or {}) do
         inst.metamethods[name] = substWith(ft, map, PRESERVE)
     end
+    -- What the declaration includes is filled in as it is checked, the same as its
+    -- members, so an instantiation made before the `is` list was read carried none of
+    -- it. A declaration standing for itself is made at exactly that point.
+    inst.supertypes = {}
+    for j, parent in ipairs(declaration.supertypes or {}) do
+        inst.supertypes[j] = substWith(parent, map, PRESERVE)
+    end
 end
 
 --- The nominal `n` stands for once its parameters hold `map`.
@@ -1728,9 +1735,6 @@ function generics.instantiate(n: T.Nominal, map: Bindings): T.Nominal
     inst.derivedContracts = n.derivedContracts
     inst.selfType = n.selfType
     inst.supertypes = {}
-    for j, parent in ipairs(n.supertypes or {}) do
-        inst.supertypes[j] = substWith(parent, map, PRESERVE)
-    end
     -- cached before the members are filled in, so a declaration that names itself finds
     -- the instantiation under way rather than recurring
     instantiations[key] = inst
