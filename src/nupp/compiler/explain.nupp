@@ -772,6 +772,17 @@ local ENTRIES: {any} = {
         docs = "docs/learn/language/modules.md#internal-modules",
     },
     {
+        code = "NUPP2145",
+        summary = "A type parameter conflicts with a builtin type name",
+        rule = "Builtin type names always denote their primitive types in a type position. "
+        .. "Using one for an ordinary generic parameter would create a parameter the "
+        .. "declaration cannot refer to. Choose a name that is not a builtin type.",
+        wrong = "local record Box<string>\n    value: string\nend\n\nreturn Box\n",
+        right = "local record Box<T>\n    value: T\nend\n\nreturn Box\n",
+        related = {"NUPP2101", "NUPP2121"},
+        docs = "docs/learn/language/types/generics.md#parameter-positions",
+    },
+    {
         code = "NUPP2511",
         summary = "An associated type was erased because inference did not reach its head",
         rule = "A projection is checked as `any` when inference never worked out what "
@@ -1305,7 +1316,8 @@ local ENTRIES: {any} = {
         .. "says the test outright, for a shape no tag describes. And a subject "
         .. "whose own type declares the interface needs no test at all: the "
         .. "declaration already answered, so the `is` compiles to `true`. "
-        .. "An alias has none of these and never will.",
+        .. "An alias has none of these and never will. An erased generic parameter "
+        .. "also carries no runtime identity, even when its bound does.",
         wrong = "local interface Drawable\n    width: number\nend\n\n"
         .. "local record Sprite is Drawable\n    width: number\nend\n\n"
         .. "local unknown: any = new Sprite(width = 1)\n\n"

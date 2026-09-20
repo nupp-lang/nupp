@@ -1285,7 +1285,8 @@ function expr.install(c: state.Checker): nil
             -- it, whatever the interface can or cannot test at run time.
             --
             -- Gradual types prove nothing: `any` and an unsubstituted parameter fit
-            -- everything, so eliding on them would turn every test true.
+            -- everything, so eliding on either side would turn every test true. A
+            -- generic target is erased and has no runtime identity to test instead.
             --
             -- Only a subject that is a name or a path of them: anything computed has to
             -- run whether or not its answer was already known, and a test that stands
@@ -1298,6 +1299,7 @@ function expr.install(c: state.Checker): nil
                 and from.tag ~= "typevar"
                 and from ~= T.never
                 and target ~= T.any
+                and target.tag ~= "typevar"
             then
                 -- The nil an optional admits is the only part its declaration does not
                 -- settle, so it is taken off before asking and put back as the one
@@ -1370,7 +1372,8 @@ function expr.install(c: state.Checker): nil
                 c.diag(
                     "NUPP3001",
                     typeNode or node,
-                    target
+                    target and target.tag == "typevar" and "a generic type parameter has no runtime identity to test"
+                    or target
                     and target.tag == "nominal"
                     and target.declKind == "interface"
                     and "an interface without a refinement has no runtime identity to test"

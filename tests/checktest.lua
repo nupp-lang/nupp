@@ -716,6 +716,30 @@ function M.unreifiedInterfaceTestsFailDuringCheck()
     )
 end
 
+function M.erasedGenericTypeTestsFailDuringCheck()
+    local codes, diagnostics = diagsOf(
+        table.concat(
+            {
+                "local interface Named",
+                "   name: string",
+                "end",
+                "local function recognizes<T is Named>(value: Named): boolean",
+                "   return value is T",
+                "end",
+            },
+            "\n"
+        )
+    )
+    assertEq(codes, "NUPP3001:5")
+    assertEq(diagnostics[1].msg, "a generic type parameter has no runtime identity to test")
+end
+
+function M.builtinTypeNamesCannotBindGenericParameters()
+    local codes, diagnostics = diagsOf(table.concat({"local record Box<string>", "   value: string", "end",}, "\n"))
+    assertEq(codes, "NUPP2145:1")
+    assertEq(diagnostics[1].msg, 'type parameter "string" conflicts with the builtin type of the same name')
+end
+
 function M.constArraysRemainReadableViews()
     assertClean(
         table.concat(

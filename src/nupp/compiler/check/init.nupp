@@ -1737,6 +1737,15 @@ function checkMod.check(
                 if sawPack then
                     c.diag("NUPP2121", nameTok, "an ordinary type parameter cannot follow a pack parameter")
                 end
+                if T.builtins[nameTok.text] then
+                    c.diag(
+                        "NUPP2145",
+                        nameTok,
+                        ("type parameter %q conflicts with the builtin type of the same name"):format(nameTok.text),
+                        nil,
+                        {help = "choose a parameter name such as T or Element"}
+                    )
+                end
                 local tv = predeclared and predeclared.typeParams and predeclared.typeParams[#params + 1]
                     or c.typevarAt(nameTok, role)
                 params[#params + 1] = tv

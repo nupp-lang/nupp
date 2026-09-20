@@ -6,7 +6,8 @@ order: 320
 
 A type parameter stands in for a type the caller supplies. It is written in
 angle brackets after the name it belongs to, and it goes on functions, function
-types, and declarations.
+types, and declarations. Builtin type names keep their primitive meaning and
+cannot be used as type parameter names.
 
 ```nupp:playground
 local function firstOr<T>(items: {T}, fallback: T): T
