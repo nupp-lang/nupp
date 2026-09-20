@@ -2303,28 +2303,41 @@ export = {first=first, middle=middle, last=last, apply=apply, scaled=scaled, mea
     local artifacts, problems = aotCompile.artifacts(source, "wasmconst.nupp", tree, nil, selected)
     assert(artifacts, problems[1] and aotCompile.renderDiagnostic(problems[1]))
     test.equal(#artifacts.constFamilies, 2)
-    local rewritten = aot.wasmDispatch(source, artifacts.programs, artifacts.sites, "unit", artifacts.gpu,
-        artifacts.constFamilies)
+    local rewritten = aot.wasmDispatch(
+        source,
+        artifacts.programs,
+        artifacts.sites,
+        "unit",
+        artifacts.gpu,
+        artifacts.constFamilies
+    )
     local modes = {}
     for _, family in ipairs(artifacts.constFamilies) do
         for _, program in ipairs(family.programs) do
             modes[program.entryMode] = true
-            assert(rewritten:find('Unit["' .. program.symbol .. '"]', 1, true),
-                "each emitted specialization must be bound: " .. rewritten)
+            assert(
+                rewritten:find('Unit["' .. program.symbol .. '"]', 1, true),
+                "each emitted specialization must be bound: " .. rewritten
+            )
             assert(rewritten:find("return " .. program.name .. "(", 1, true), rewritten)
         end
     end
     assert(modes.kernel and modes["lua-builder"], "fixture must exercise both Wasm entry ABIs")
     assert(not rewritten:find("return value *", 1, true), "the generic kernel body must not remain interpreted")
-    assert(not rewritten:find("valueBuilder.length(source)", 1, true), "the generic builder body must not remain interpreted")
+    assert(
+        not rewritten:find("valueBuilder.length(source)", 1, true),
+        "the generic builder body must not remain interpreted"
+    )
     for _, name in ipairs({"first", "middle", "last"}) do
         assert(rewritten:find("local function " .. name .. "(", 1, true), "mixed declaration offsets preserved")
     end
     local generated = parser.parse(rewritten, "wasmconst.nupp")
     test.equal(#generated.errors, 0)
-    for _, problem in ipairs(compilerCheck.check(generated, "wasmconst.nupp", envMod.new(HERE .. "/.."), {
-        generatedSource = true
-    })) do
+    for _, problem in ipairs(
+        compilerCheck.check(generated, "wasmconst.nupp", envMod.new(HERE .. "/.."), {
+            generatedSource = true
+        })
+    ) do
         assert(not diagnosticMod.isFatal(problem), (problem.msg or problem.message) .. "\n" .. rewritten)
     end
     local lua, errors = require("nupp.compiler.gen").generate(generated, "wasmconst.nupp")

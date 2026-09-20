@@ -41,7 +41,7 @@ jobs:
       - uses: actions/cache/restore@v4
         with:
           path: .nupp-cache/toolchain
-          key: browser-guest-${{ runner.os }}-${{ hashFiles('scripts/toolchain.pins', 'scripts/browser-*.py', 'runtime/luajit/**') }}
+          key: browser-guest-${{ runner.os }}-${{ hashFiles('scripts/toolchain', 'scripts/toolchain.pins', 'scripts/browser-*.py', 'scripts/browser-*.mjs', 'runtime/luajit/**', 'src/nupp/runtime/vendor/lunajson/**', 'host/notices/**') }}
       - name: Install browser engines
         run: |
           npm ci --prefix editors/playground

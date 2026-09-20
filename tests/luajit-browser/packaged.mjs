@@ -10,7 +10,13 @@ try {
   if (name === 'aot') {
     expect(result.numericLoops?.cases === 9 && result.numericLoops.scalar === 9 && result.numericLoops.simd === 9,
       'Independent Wasm numeric-loop differential assertions did not complete');
+    expect(result.constFamily?.bindings === 2 && result.constFamily.calls === 2 &&
+      result.constFamily.unmatchedRejected === true,
+    'Const-generic AOT must invoke both independent Wasm entries and reject an unmatched tuple');
     const manifest = await (await fetch(new URL('./aot-app/nupp-browser-app.json', location.href))).json();
+    expect(manifest.kernels.flatMap(kernel => kernel.entries)
+      .filter(entry => entry.symbol.includes('_const_family_scale_')).length === 2,
+    'The package must contain both const-family kernels');
     expect(manifest.kernels.some(kernel => kernel.tier === 'simd128' &&
       kernel.entries.some(entry => entry.symbol.endsWith('_first_loop_values'))),
     'The numeric-loop differential fixture must contain its SIMD kernel');

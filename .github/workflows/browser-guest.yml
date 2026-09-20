@@ -13,6 +13,7 @@ on:
       - 'scripts/toolchain*'
       - 'host/notices/**'
       - 'src/nupp/compiler/**'
+      - 'src/nupp/runtime/vendor/lunajson/**'
       - 'scripts/prelude-image'
       - 'nupp.lua'
       - '.github/workflows/browser-guest.yml'
@@ -51,7 +52,7 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: .nupp-cache/toolchain
-          key: browser-guest-${{ runner.os }}-${{ hashFiles('scripts/toolchain.pins', 'scripts/browser-*.py', 'runtime/luajit/**') }}
+          key: browser-guest-${{ runner.os }}-${{ hashFiles('scripts/toolchain', 'scripts/toolchain.pins', 'scripts/browser-*.py', 'scripts/browser-*.mjs', 'runtime/luajit/**', 'src/nupp/runtime/vendor/lunajson/**', 'host/notices/**') }}
           restore-keys: browser-guest-${{ runner.os }}-
       - name: Build the pinned guest and matching sources
         run: |

@@ -222,4 +222,45 @@ for index = 1, #ranges do
     simdLoopChecks = simdLoopChecks + 1
 end
 
-return {ok = true, numericLoops = {cases = #ranges, scalar = scalarLoopChecks, simd = simdLoopChecks}}
+-- A const family must call its independent Wasm entries, even though leaving
+-- the ordinary Lua body in place would produce the same numeric answers.
+local familyHost: any = assert(rawget(_G, "__nuppBrowser"))
+local registerFamilyKernel: any = familyHost.kernel
+local familyBindings, familyCalls = 0, 0
+local familySymbols: {[string]: boolean} = {}
+familyHost.kernel = function(unit: string, symbol: string, descriptor: any): any
+    assert(symbol:find("_const_family_scale_", 1, true) ~= nil, "unexpected const-family binding")
+    assert(not familySymbols[symbol], "each const-family body is bound once")
+    familySymbols[symbol] = true
+    familyBindings = familyBindings + 1
+    local invoke: any = registerFamilyKernel(unit, symbol, descriptor)
+
+    return function(value: number): number
+        familyCalls = familyCalls + 1
+        return invoke(value) as number
+    end
+end
+
+@aot
+local function constFamilyScale<const Factor: integer>(value: number, factor: Factor): number
+    return value * (factor as integer)
+end
+
+-- The generated wrappers have captured the counted callables by this point.
+familyHost.kernel = registerFamilyKernel
+assert(constFamilyScale(5, 2) == 10)
+assert(constFamilyScale(5, 3) == 15)
+assert(familyBindings == 2, "both const-family Wasm bodies must be bound")
+assert(familyCalls == 2, "both const-family calls must enter independent Wasm")
+
+-- Erase the signature at this unchecked call so it does not demand another
+-- compiled tuple. The public family must fail instead of falling back to Lua.
+local unmatched, why = pcall(constFamilyScale as any, 5, 7)
+assert(not unmatched and tostring(why):find("no compiled const application exists", 1, true) ~= nil)
+assert(familyCalls == 2, "an unmatched tuple must not invoke a compiled body")
+
+return {
+    ok = true,
+    numericLoops = {cases = #ranges, scalar = scalarLoopChecks, simd = simdLoopChecks},
+    constFamily = {bindings = familyBindings, calls = familyCalls, unmatchedRejected = not unmatched}
+}
