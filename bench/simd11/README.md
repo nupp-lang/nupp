@@ -152,8 +152,7 @@ the timed control was separately compiled with optimization and automatic
 vectorization disabled, with its assembly checked. The raw timing evidence and
 its source revision remain unchanged.
 
-After the GCC and portable math fixes, all sixteen correctness cases pass on
-`7e32e50a`.
+After final integration, all sixteen correctness cases pass on `b2904c7f`.
 [Exact function-body comparison](results/arm64-macos-final-function-equivalence.json)
 finds identical assembly for all fourteen timed native/control functions.
 This compares each complete entry through its end directive; it does not claim
@@ -212,3 +211,24 @@ intersection excludes four unsupported host functions with positioned refusals;
 it does not silently shrink a declared target's admitted operations. The record
 retains the predefined transcendental tolerance and exact signed-zero/FMA
 contracts, source and artifact identities, and original failure evidence.
+
+The [typed-library boundary proof](results/portable-log-structural-boundary-20260920.json)
+covers the additional case where the math table passes through a typed parameter
+or return value. The portable selector recognizes the exact callable contract
+and preserves custom functions, table identity, mutations, safe nil reads and
+single evaluation. It does not change AOT admission or the native host table.
+Post-integration checks pass 108 focused tests and byte-identical fixpoint.
+
+The [complete Clang NEON matrix](results/native-clang-neon-7e32e50a.json)
+executes all 24 canonical rows at `7e32e50a`, with no failed or unavailable rows.
+Its expanded inventory covers every legal width for all ten primitive/reducer
+types and all four owned algorithms: 1,017,158,254 native and 1,016,654,900
+scalar-C checks. The record retains actual source identities, region proofs,
+compiled artifacts and completed calls; later portable-only and unrelated
+language changes are not relabeled as this execution.
+
+The earlier Windows run at `628d1f02` exposed the already-fixed vector warning
+and an LF-only fence reader in the SPI documentation test. The reader now
+accepts CRLF, with both LF and CRLF examples building and selecting the provider
+and fallback. The original failed run is retained as historical evidence, not
+a final-head Windows pass.
