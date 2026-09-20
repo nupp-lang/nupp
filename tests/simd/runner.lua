@@ -17,14 +17,24 @@ function M.quote(value)
     return "'" .. tostring(value):gsub("'", "'\\''") .. "'"
 end
 
+local function nativePath(path)
+    if package.config:sub(1, 1) == "\\" then
+        return path:gsub("^/(%a)/", "%1:/")
+    end
+    return path
+end
+
 function M.read(path)
+    path = nativePath(path)
     local handle = assert(io.open(path, "rb"), "cannot read " .. path)
     local text = handle:read("*a")
     handle:close()
+
     return text
 end
 
 function M.write(path, text)
+    path = nativePath(path)
     local handle = assert(io.open(path, "wb"), "cannot write " .. path)
     handle:write(text)
     handle:close()
@@ -65,7 +75,7 @@ function M.writeJson(path, value)
 end
 
 function M.root()
-    return root
+    return nativeRoot
 end
 
 local function directory(path)
@@ -74,7 +84,7 @@ end
 
 function M.prepare(generated, options)
     options = options or {}
-    local dir = (options.directory or os.tmpname()):gsub("\\", "/")
+    local dir = nativePath((options.directory or os.tmpname()):gsub("\\", "/"))
     if not options.directory then
         os.remove(dir)
     end
