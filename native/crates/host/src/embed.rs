@@ -394,6 +394,19 @@ pub unsafe extern "C" fn nupp_runtime_add_feature(
         status_boundary(error, || {
             let runtime = runtime_mut(runtime)?;
             let feature = utf8(feature, "a host feature", ERROR_CONFIGURATION)?;
+            // The generated payload gate reads this table and nothing else, so
+            // declaring `workers` here would satisfy a component the embedding
+            // ABI cannot actually run: enablement also installs the adapter
+            // modules and the worker-host pointer, and this ABI exposes no way
+            // to ask for that. Refuse the claim rather than let it fail later
+            // as a missing `nupp.workers.native`.
+            if feature == "workers" {
+                return Err(Failure::invalid(
+                    ERROR_CONFIGURATION,
+                    "the Nupp embedding ABI does not start workers, so a host cannot \
+                     declare the workers feature",
+                ));
+            }
             runtime
                 .add_feature(feature)
                 .map_err(|error| Failure::runtime(ERROR_CONFIGURATION, error))
@@ -1456,6 +1469,38 @@ return {
             nupp_error_free(error);
             assert_eq!(
                 nupp_runtime_add_feature(runtime, c"after-error".as_ptr(), ptr::null_mut()),
+                STATUS_OK
+            );
+            nupp_runtime_free(runtime);
+        }
+    }
+
+    #[test]
+    fn the_workers_feature_cannot_be_declared_through_the_abi() {
+        unsafe {
+            let runtime = new_runtime();
+            let mut error = ptr::null_mut();
+            // The payload gate a component carries reads this table alone, so
+            // accepting the claim would load a component whose first call into
+            // nupp.workers.native fails as a missing module. The ABI installs
+            // no worker adapter, so the honest answer is at the declaration.
+            assert_eq!(
+                nupp_runtime_add_feature(runtime, c"workers".as_ptr(), &mut error),
+                STATUS_INVALID_ARGUMENT
+            );
+            assert!(!error.is_null());
+            assert_eq!(nupp_error_category(error), ERROR_CONFIGURATION);
+            let text = CStr::from_ptr(nupp_error_message(error))
+                .to_string_lossy()
+                .into_owned();
+            assert!(
+                text.contains("cannot declare the workers feature"),
+                "{text}"
+            );
+            nupp_error_free(error);
+            // A neighbouring name is not the reserved one.
+            assert_eq!(
+                nupp_runtime_add_feature(runtime, c"workers-extra".as_ptr(), ptr::null_mut()),
                 STATUS_OK
             );
             nupp_runtime_free(runtime);

@@ -213,6 +213,13 @@ the call returns. Host resources are for runtime and provider glue; component
 resources declared in `nupp.lua` remain available through the ordinary
 `nupp.embedded` module.
 
+`workers` is the one name `nupp_runtime_add_feature` refuses. A component's
+generated gate reads the feature table alone, so declaring it would admit a
+component this ABI cannot run: starting native workers also installs the
+adapter modules and the worker host behind them, and nothing here asks for
+that. The refusal arrives at the declaration rather than later, as a component
+failing to find `nupp.workers.native`.
+
 A registration attempted after component loading returns
 `NUPP_STATUS_RUNTIME`. Configure every provider before loading any component,
 including a library component whose entry will never start.
@@ -555,10 +562,26 @@ keeps its kernels and the reload target is the same program in Lua. An `@aot`
 annotation with no policy asking for it is inert, and the function it marks
 patches like any other.
 
-A commit reaches the Lua state the session is attached to and no other. Worker
-tasks need a stamped `binary` target or a browser package, and this ABI has no
-way to start one, so nothing else in the process is running a generation for a
-session to keep in step with.
+A commit reaches the Lua state the session is attached to and no other: it
+replaces functions in that state's slot arrays, and a worker task runs its own
+state built from the stamped payload it was spawned with. A patch therefore
+never reaches a worker, whether the worker was already running or starts
+afterwards.
+
+Today the two do not meet, and that is enforced rather than merely unreachable.
+Opening a session in a state that carries the native worker adapter is refused,
+and so is installing the adapter while a session is open — the exclusion holds
+whichever order a host tries, and whether the adapter was installed by this
+runtime or by the stamped binary whose state it attached to.
+
+If the two are ever deliberately allowed together, the policy is already
+settled by the same reasoning. A commit stays confined to the session's state
+rather than being refused or queued while tasks are outstanding, since refusing
+would buy nothing a worker could observe. A worker keeps running the artifact
+it was spawned from and reports the generation stamped into that artifact, not
+the one the session last published. Outstanding worker tasks are not a reason a
+safe point is unsafe, so `nupp_reload_apply` goes on leaving the safe point
+entirely to the host.
 
 ### Closing
 
@@ -584,7 +607,8 @@ The current embedding release has these deliberate limits:
 - the in-process compiler is reachable only through a reload session, and not as
   a general compile-this-source API;
 - a reload session is development-only, and needs the project's source tree and a
-  compiler beside the running process.
+  compiler beside the running process;
+- a reload session and native workers are mutually exclusive in one Lua state.
 
 The current C header remains the authority for the implemented ABI.
 

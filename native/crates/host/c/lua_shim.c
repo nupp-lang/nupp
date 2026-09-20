@@ -104,6 +104,11 @@ typedef struct WorkerContextCall {
     const void *tasks;
 } WorkerContextCall;
 
+typedef struct WorkerHostQuery {
+    ProtectedCall call;
+    int installed;
+} WorkerHostQuery;
+
 typedef struct ComponentCall {
     ProtectedCall call;
     const char *chunk;
@@ -395,6 +400,18 @@ static int install_worker_modules(lua_State *state) {
     preload_opener(state, "nupp.mem.sharedbytes.native", nupp_luaopen_sharedbytes);
     lua_pushlightuserdata(state, (void *)context->host);
     lua_setfield(state, LUA_GLOBALSINDEX, "__nuppWorkerHost");
+    return 0;
+}
+
+/* Whether the worker adapter has been installed in this state, by this runtime
+ * or by whatever else built the state. Raw, so a globals metatable cannot
+ * answer for a marker that is not there. */
+static int worker_host_installed(lua_State *state) {
+    WorkerHostQuery *context = (WorkerHostQuery *)lua_touserdata(state, 1);
+    lua_pushliteral(state, "__nuppWorkerHost");
+    lua_rawget(state, LUA_GLOBALSINDEX);
+    context->installed = lua_isnil(state, -1) ? 0 : 1;
+    lua_pop(state, 1);
     return 0;
 }
 
@@ -799,6 +816,14 @@ int nupp_lua_install_worker_modules(lua_State *state, const void *host,
     char *error, size_t error_capacity) {
     WorkerModulesCall context = {{error, error_capacity, 0}, host};
     return protect(state, install_worker_modules, &context.call);
+}
+
+int nupp_lua_worker_host_installed(lua_State *state, int *installed,
+    char *error, size_t error_capacity) {
+    WorkerHostQuery context = {{error, error_capacity, 0}, 0};
+    int status = protect(state, worker_host_installed, &context.call);
+    if (status == 0) *installed = context.installed;
+    return status;
 }
 
 int nupp_lua_set_worker_context(lua_State *state, const void *inbox,

@@ -221,6 +221,12 @@ unsafe extern "C" {
         error: *mut c_char,
         error_capacity: usize,
     ) -> c_int;
+    fn nupp_lua_worker_host_installed(
+        state: *mut LuaState,
+        installed: *mut c_int,
+        error: *mut c_char,
+        error_capacity: usize,
+    ) -> c_int;
     fn nupp_lua_set_worker_context(
         state: *mut LuaState,
         inbox: *const c_void,
@@ -451,6 +457,19 @@ impl Lua {
         self.protected(|error, capacity| unsafe {
             nupp_lua_install_worker_modules(self.state.as_ptr(), host, error, capacity)
         })
+    }
+
+    /// Whether this state already carries the worker adapter, whoever put it
+    /// there. A runtime attached to a state a stamped binary built finds it
+    /// installed without having installed it.
+    pub(crate) fn worker_host_installed(&self) -> Result<bool, String> {
+        let mut installed: c_int = 0;
+        // SAFETY: `installed` is written only on success, below a protected
+        // frame that performs a raw globals read and nothing else.
+        self.protected(|error, capacity| unsafe {
+            nupp_lua_worker_host_installed(self.state.as_ptr(), &raw mut installed, error, capacity)
+        })?;
+        Ok(installed != 0)
     }
 
     pub(crate) fn set_worker_context(

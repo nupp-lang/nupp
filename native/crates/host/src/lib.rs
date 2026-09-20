@@ -389,6 +389,17 @@ impl HostRuntime {
                 "the Nupp worker adapter is already installed".to_owned(),
             ));
         }
+        // The other half of the exclusion `reload_session` states. A worker
+        // runs its own state from the stamped payload, so a commit into this
+        // state never reaches one; refusing both orders keeps that from being
+        // something a caller can arrange by sequencing.
+        if !self.reloads.is_empty() {
+            return Err(HostError::Lua(
+                "a Nupp reload session is open: a commit reaches this state only, so \
+                 worker tasks would keep running the payload they started from"
+                    .to_owned(),
+            ));
+        }
         let host = Box::new(worker_adapter::WorkersHost::new(payload, None));
         let context = (&*host as *const worker_adapter::WorkersHost).cast();
         self.worker_host = Some(host);
@@ -566,6 +577,25 @@ impl HostRuntime {
         opener: &CStr,
         arguments: &[ReloadArgument],
     ) -> Result<Reload, HostError> {
+        // Both ways in land here, so the exclusion is stated once. A commit
+        // replaces functions in this state's slot arrays and nowhere else,
+        // while every worker runs its own state from the stamped payload it
+        // was spawned with. Coexisting would mean a session reporting a
+        // generation that part of the process is not running, so a state with
+        // the worker adapter installed -- by this runtime or by the stamped
+        // binary whose state it attached to -- does not get a session.
+        if self
+            .lua()?
+            .worker_host_installed()
+            .map_err(HostError::Lua)?
+        {
+            return Err(HostError::Lua(
+                "this Lua state runs native workers: a reload session commits into one \
+                 state, and worker tasks would keep running the payload they \
+                 started from"
+                    .to_owned(),
+            ));
+        }
         if let Some(compiler) = compiler {
             let directory = CString::new(compiler).map_err(|_| HostError::InvalidChunkName)?;
             self.lua()?
@@ -1131,6 +1161,71 @@ return setmetatable({}, {__index=function() error('descriptor trap') end})"#,
         runtime.release_handle(answer).unwrap();
         runtime.release_handle(read).unwrap();
         runtime.shutdown().unwrap();
+    }
+
+    // A session double: the exclusion is about session bookkeeping, not about
+    // compiling anything, so this stands in for the compiler's hostreload
+    // module and keeps the test off the build tree.
+    const STUB_SESSION: &[u8] = br#"
+package.preload["nupp.compiler.hostreload"] = function()
+  local function step() return "no-change", 0 end
+  local session = {
+    member = function() return nil end,
+    prepare = step,
+    apply = step,
+    poll = step,
+    close = function() end,
+  }
+  return {open = function() return session end, attach = function() return session end}
+end
+"#;
+
+    #[test]
+    fn a_reload_session_and_native_workers_exclude_each_other() {
+        let mut runtime = HostRuntime::owned(true, None).unwrap();
+        runtime.run_buffer(STUB_SESSION, "=stub", &[]).unwrap();
+        let reload = runtime.reload_open(None, None, "app.main", false).unwrap();
+
+        // A worker runs the payload it was spawned from, so enabling one under
+        // an open session would leave part of the process on a generation the
+        // session never published.
+        let refused = runtime.enable_workers(b"return nil").unwrap_err();
+        assert!(
+            refused.to_string().contains("only, so worker tasks"),
+            "{refused}"
+        );
+
+        // Closing the session reopens the door, which is what makes this an
+        // exclusion rather than a one-way latch.
+        runtime.reload_close(reload, true).unwrap();
+        runtime.enable_workers(b"return nil").unwrap();
+        let refused = runtime
+            .reload_open(None, None, "app.main", false)
+            .unwrap_err();
+        assert!(
+            refused.to_string().contains("commits into one state"),
+            "{refused}"
+        );
+        runtime.shutdown().unwrap();
+    }
+
+    #[test]
+    fn a_reload_session_sees_workers_installed_by_another_runtime() {
+        // The reachable case: a stamped binary's state, attached to through the
+        // embedding ABI. This runtime installed no adapter itself, so only the
+        // state's own marker can answer for it.
+        let mut owner = HostRuntime::owned(true, None).unwrap();
+        owner.enable_workers(b"return nil").unwrap();
+        let state = owner.lua_state();
+        let mut attached = unsafe { HostRuntime::attach(state, false) }.unwrap();
+        attached.run_buffer(STUB_SESSION, "=stub", &[]).unwrap();
+        let refused = attached
+            .reload_attach(None, None, false)
+            .unwrap_err()
+            .to_string();
+        assert!(refused.contains("commits into one state"), "{refused}");
+        attached.shutdown().unwrap();
+        owner.shutdown().unwrap();
     }
 
     #[test]

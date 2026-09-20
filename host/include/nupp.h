@@ -109,6 +109,9 @@ NUPP_API nupp_status nupp_runtime_attach(
 
 NUPP_API lua_State *nupp_runtime_lua_state(nupp_runtime *runtime);
 
+/* Declares a deployment capability a component may require. `workers` is
+ * refused: this ABI installs no worker adapter, so the name would satisfy a
+ * component's gate without the modules behind it. */
 NUPP_API nupp_status nupp_runtime_add_feature(
     nupp_runtime *runtime,
     const char *feature,
@@ -202,7 +205,9 @@ NUPP_API void nupp_reload_config_init(nupp_reload_config *config);
 
 /* Builds `entry` in watch mode, runs its chunk, and leaves the session open.
  * Development only: a watch build is -O0 and dispatches every named function
- * through a slot. */
+ * through a slot. A commit reaches this state alone, so a state running native
+ * workers -- whose tasks keep running the payload they were spawned from -- is
+ * refused a session, as is installing workers while one is open. */
 NUPP_API nupp_status nupp_reload_open(
     nupp_runtime *runtime,
     const nupp_reload_config *config,
@@ -214,7 +219,9 @@ NUPP_API nupp_status nupp_reload_open(
  * `reload = true`. `entry` is not read: a component named its own modules when
  * it installed them, and attaching recompiles each one to prove the source in
  * `root` is still what it is running. Load the component before the compiler,
- * because a component refuses to install a module the state already has. */
+ * because a component refuses to install a module the state already has. The
+ * worker exclusion on `nupp_reload_open` applies here too, and reaches a state
+ * whose workers some other runtime installed. */
 NUPP_API nupp_status nupp_reload_attach(
     nupp_runtime *runtime,
     const nupp_reload_config *config,
