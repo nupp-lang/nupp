@@ -145,7 +145,7 @@ const ELEMENTS = {
 }
 
 --- The element a scalar type names, when it names one.
-function simdrewrite.asElement(scalarType: scalarIR.Type): simdrewrite.Element?
+local function asElement(scalarType: scalarIR.Type): simdrewrite.Element?
     if ELEMENTS[scalarType] == true then
         return scalarType as simdrewrite.Element
     end
@@ -159,7 +159,7 @@ end
 --- this holds; otherwise the literal stays binary64 and takes the loop with it.
 --- The round trip is the test rather than a range check, because the question is
 --- representability and not magnitude.
-function simdrewrite.constantFits(node: scalarIR.Expr, element: simdrewrite.Element): boolean
+local function constantFits(node: scalarIR.Expr, element: simdrewrite.Element): boolean
     if node.op ~= "constant" then
         return false
     end
@@ -186,16 +186,16 @@ end
 --- the operands. Mixed ones were widened by the front end; a literal on one side
 --- adopts the other's width when it is exactly representable there, which is
 --- what keeps `zxSquared + zySquared > 4.0` in binary32 lanes.
-function simdrewrite.comparisonElement(left: scalarIR.Expr, right: scalarIR.Expr): simdrewrite.Element
-    local leftElement = simdrewrite.asElement(left.type)
-    local rightElement = simdrewrite.asElement(right.type)
+local function comparisonElement(left: scalarIR.Expr, right: scalarIR.Expr): simdrewrite.Element
+    local leftElement = asElement(left.type)
+    local rightElement = asElement(right.type)
     if leftElement == nil or rightElement == nil then
         return "f64"
     elseif leftElement == rightElement then
         return leftElement
-    elseif simdrewrite.constantFits(right, leftElement) then
+    elseif constantFits(right, leftElement) then
         return leftElement
-    elseif simdrewrite.constantFits(left, rightElement) then
+    elseif constantFits(left, rightElement) then
         return rightElement
     end
 
@@ -206,14 +206,14 @@ end
 --- verb each becomes. Comparisons are separate because their result is a mask
 --- whatever they compare, so the width comes from the operands rather than the
 --- operation.
-const simdrewrite.ARITHMETIC = {["add"] = "add", ["sub"] = "sub", ["mul"] = "mul", ["div"] = "div",}
+const ARITHMETIC = {["add"] = "add", ["sub"] = "sub", ["mul"] = "mul", ["div"] = "div",}
 
 --- Whether an expression's value depends on which iteration this is.
 ---
 --- The whole rewrite turns on this. A varying value becomes a vector; a uniform
 --- one stays scalar and broadcasts where it meets one, which is what keeps a
 --- loop-invariant subexpression out of every lane.
-function simdrewrite.varying(node: scalarIR.Expr, state: simdrewrite.Analysis): boolean
+local function varying(node: scalarIR.Expr, state: simdrewrite.Analysis): boolean
     if node == nil then
         return false
     end
@@ -236,20 +236,20 @@ function simdrewrite.varying(node: scalarIR.Expr, state: simdrewrite.Analysis): 
     then
         return false
     elseif operation == "field_load" then
-        return simdrewrite.varying((node as scalarIR.FieldLoad).object, state)
+        return varying((node as scalarIR.FieldLoad).object, state)
     end
 
     -- Anything else varies exactly when one of its operands does.
     local binary = node as scalarIR.Binary
     if binary.left ~= nil or binary.right ~= nil then
-        return simdrewrite.varying(binary.left, state) or simdrewrite.varying(binary.right, state)
+        return varying(binary.left, state) or varying(binary.right, state)
     end
     local unary = node as scalarIR.Unary
     if unary.value ~= nil then
-        return simdrewrite.varying(unary.value, state)
+        return varying(unary.value, state)
     end
     for _, argument in ipairs((node as scalarIR.Math).args or {}) do
-        if simdrewrite.varying(argument, state) then
+        if varying(argument, state) then
             return true
         end
     end
@@ -266,7 +266,7 @@ end
 --- Runs to a fixed point. A local assigned a varying value inside a loop is
 --- varying on every iteration, including the ones already walked before the
 --- assignment was seen.
-function simdrewrite.markVarying(statements: {any}, state: simdrewrite.Analysis): nil
+local function markVarying(statements: {any}, state: simdrewrite.Analysis): nil
     --- Whether this block leaves its loop early under a condition that varies.
     ---
     --- Nested loops are not descended into: their `break` is theirs. A `break`
@@ -281,7 +281,7 @@ function simdrewrite.markVarying(statements: {any}, state: simdrewrite.Analysis)
             elseif op == "if" then
                 local branchControlled = controlled
                 for _, clause in ipairs(statement.clauses) do
-                    branchControlled = branchControlled or simdrewrite.varying(clause.condition, state)
+                    branchControlled = branchControlled or varying(clause.condition, state)
                     if divergentExit(clause.body, branchControlled) then
                         return true
                     end
@@ -304,7 +304,7 @@ function simdrewrite.markVarying(statements: {any}, state: simdrewrite.Analysis)
         for _, statement in ipairs(body) do
             local op = statement.op
             if op == "let" then
-                if controlled or simdrewrite.varying(statement.value, state) then
+                if controlled or varying(statement.value, state) then
                     state.varyingLocals[statement.name] = true
                 end
             elseif op == "multi_let" then
@@ -312,21 +312,21 @@ function simdrewrite.markVarying(statements: {any}, state: simdrewrite.Analysis)
                 -- whole, so if any argument varies then all of its results do.
                 -- Decided here rather than while rewriting, because a later read
                 -- of one of these names is rewritten on the answer.
-                if controlled or simdrewrite.varying(statement.call, state) then
+                if controlled or varying(statement.call, state) then
                     for _, bound in ipairs(statement.bindings) do
                         state.varyingLocals[bound.name] = true
                     end
                 end
             elseif op == "assign" then
                 for _, entry in ipairs(statement.values) do
-                    if entry.target.kind == "local" and (controlled or simdrewrite.varying(entry.value, state)) then
+                    if entry.target.kind == "local" and (controlled or varying(entry.value, state)) then
                         state.varyingLocals[entry.target.name] = true
                     end
                 end
             elseif op == "if" then
                 local branchControlled = controlled
                 for _, clause in ipairs(statement.clauses) do
-                    branchControlled = branchControlled or simdrewrite.varying(clause.condition, state)
+                    branchControlled = branchControlled or varying(clause.condition, state)
                     mark(clause.body, branchControlled)
                 end
                 if statement.elseBody ~= nil then
@@ -339,12 +339,12 @@ function simdrewrite.markVarying(statements: {any}, state: simdrewrite.Analysis)
                 -- Rewriting represents every loop exit with masks, even when
                 -- all lanes agree. Its assignments therefore need carriers
                 -- that can preserve the lanes retired earlier in this body.
-                local masked = simdrewrite.varying(statement.condition, state) or divergentExit(statement.body, true)
+                local masked = varying(statement.condition, state) or divergentExit(statement.body, true)
                 mark(statement.body, controlled or masked)
             elseif op == "block" then
                 mark(statement.body, controlled)
             elseif op == "fornum" then
-                local bounds = simdrewrite.varying(statement.from, state) or simdrewrite.varying(statement.to, state)
+                local bounds = varying(statement.from, state) or varying(statement.to, state)
                 mark(statement.body, controlled or bounds or divergentExit(statement.body, true))
             end
         end
@@ -373,7 +373,7 @@ end
 --- reference itself has no vector form -- four elements are four addresses --
 --- but every use of it does, so the binding is resolved at each use rather than
 --- emitted.
-function simdrewrite.resolveRef(node: scalarIR.Expr?, state: simdrewrite.Analysis): scalarIR.ElementRef?
+local function resolveRef(node: scalarIR.Expr?, state: simdrewrite.Analysis): scalarIR.ElementRef?
     if node == nil then
         return nil
     end
@@ -460,7 +460,7 @@ end
 --- @param statements one block of scalar IR
 --- @param following names read after the block itself
 --- @return one read set per position
-function simdrewrite.readsAfter(statements: {any}, following: {[string]: boolean}): {{[string]: boolean}}
+local function readsAfter(statements: {any}, following: {[string]: boolean}): {{[string]: boolean}}
     local suffix: {[string]: boolean} = {}
     for name in pairs(following or {}) do
         suffix[name] = true
@@ -488,23 +488,23 @@ end
 --- arguably belongs to them rather than to this loop. Nothing turns on it today
 --- because a nested loop is refused before this runs, and narrowing it would be
 --- a change of behaviour rather than a move of it.
-function simdrewrite.containsContinue(statements: {any}): boolean
+local function containsContinue(statements: {any}): boolean
     for _, statement in ipairs(statements) do
-        if statement.conditionBody ~= nil and simdrewrite.containsContinue(statement.conditionBody) then
+        if statement.conditionBody ~= nil and containsContinue(statement.conditionBody) then
             return true
         end
         if statement.op == "continue" then
             return true
         elseif statement.op == "if" then
             for _, clause in ipairs(statement.clauses) do
-                if simdrewrite.containsContinue(clause.body) then
+                if containsContinue(clause.body) then
                     return true
                 end
             end
-            if statement.elseBody ~= nil and simdrewrite.containsContinue(statement.elseBody) then
+            if statement.elseBody ~= nil and containsContinue(statement.elseBody) then
                 return true
             end
-        elseif statement.body ~= nil and simdrewrite.containsContinue(statement.body) then
+        elseif statement.body ~= nil and containsContinue(statement.body) then
             return true
         end
     end
@@ -520,23 +520,23 @@ end
 --- masks, and one with any needs them whether or not lanes disagree about when.
 ---
 --- Nested loops are not descended into: their exits are theirs.
-function simdrewrite.containsExit(statements: {any}): boolean
+local function containsExit(statements: {any}): boolean
     for _, statement in ipairs(statements) do
         local op = statement.op
         if op == "break" or op == "continue" then
             return true
         elseif op == "if" then
             for _, clause in ipairs(statement.clauses) do
-                if simdrewrite.containsExit(clause.body) then
+                if containsExit(clause.body) then
                     return true
                 end
             end
-            if statement.elseBody ~= nil and simdrewrite.containsExit(statement.elseBody) then
+            if statement.elseBody ~= nil and containsExit(statement.elseBody) then
                 return true
             end
-        elseif op == "block" and simdrewrite.containsExit(statement.body) then
+        elseif op == "block" and containsExit(statement.body) then
             return true
-        elseif (op == "while" or op == "repeat") and simdrewrite.containsExit(statement.conditionBody or {}) then
+        elseif (op == "while" or op == "repeat") and containsExit(statement.conditionBody or {}) then
             return true
         end
     end
@@ -727,11 +727,11 @@ local function scalarAs(node: scalarIR.Expr, element: string, state: simdrewrite
             return convert("int_to_f64", node, "f64")
         end
     elseif element == "f32" then
-        if simdrewrite.constantFits(node, "f32") then
+        if constantFits(node, "f32") then
             return convert("narrow_f64_f32", node, "f32")
         end
     elseif element == "i32" or element == "u32" then
-        if simdrewrite.constantFits(node, element as simdrewrite.Element) then
+        if constantFits(node, element as simdrewrite.Element) then
             return intConstant((node as scalarIR.Constant).value, element, node.source)
         end
         if node.op == "constant_i32" then
@@ -869,7 +869,7 @@ local function vec(node: scalarIR.Expr, element: string, state: simdrewrite.Stat
     if inner ~= nil then
         return vec(inner as scalarIR.Expr, element, state)
     end
-    if not simdrewrite.varying(node, state.inner) then
+    if not varying(node, state.inner) then
         if node.type == "bool" then
             state.reject("a boolean has no numeric lanes")
         end
@@ -886,7 +886,7 @@ end
 
 --- One condition, as the mask of lanes that satisfy it, in the control element.
 local function conditionMask(node: scalarIR.Expr, state: simdrewrite.State): scalarIR.Expr
-    if not simdrewrite.varying(node, state.inner) then
+    if not varying(node, state.inner) then
         return maskSplat(node, state.control, state)
     end
     local value = expression(node, state)
@@ -1042,7 +1042,7 @@ local function inlineHelper(node: scalarIR.HelperCall, state: simdrewrite.State)
     local bound: {[string]: scalarIR.Expr} = {}
     local saved: {[string]: any} = {}
     for position, param in ipairs(helper.params as {scalarIR.Name}) do
-        local element = simdrewrite.asElement(param.type)
+        local element = asElement(param.type)
         if element == nil or element == "bool" then
             state.reject("a lane-parallel helper takes numbers only")
         end
@@ -1104,7 +1104,7 @@ expression = function(node: scalarIR.Expr, state: simdrewrite.State): scalarIR.E
         end
         local param = root as scalarIR.Param
         local element = PHYSICAL[param.sourceType or ""] or tostring(param.type)
-        local carrier = simdrewrite.asElement(node.type)
+        local carrier = asElement(node.type)
         if carrier == nil or carrier == "bool" or carrierOf(element) ~= carrier then
             state.reject("a lane-parallel span load reads admitted scalar elements only")
         end
@@ -1127,13 +1127,13 @@ expression = function(node: scalarIR.Expr, state: simdrewrite.State): scalarIR.E
         state.reject("a span element reference is read only through its fields")
     elseif op == "field_load" then
         local field = node as scalarIR.FieldLoad
-        local object = simdrewrite.resolveRef(field.object, state.inner)
+        local object = resolveRef(field.object, state.inner)
         if object == nil or (object as scalarIR.ElementRef).index ~= state.inner.index then
             state.reject("a lane-parallel field load reads consecutive elements only")
         end
         local ref = object as scalarIR.ElementRef
         local element = fieldElement(ref.layout, field.field, state)
-        local carrier = simdrewrite.asElement(node.type)
+        local carrier = asElement(node.type)
         if carrier == nil or carrier == "bool" or carrierOf(element) ~= carrier then
             state.reject("a lane-parallel field load reads admitted scalar elements only")
         end
@@ -1153,7 +1153,7 @@ expression = function(node: scalarIR.Expr, state: simdrewrite.State): scalarIR.E
 
         return convertTo(loaded, carrier as string, state)
     elseif op == "widen_f32_f64" or op == "int_to_f64" or op == "narrow_f64_f32" or op == "numeric_cast" then
-        local element = simdrewrite.asElement(node.type)
+        local element = asElement(node.type)
         if element == nil then
             state.reject("a conversion to a type no lane carries")
         end
@@ -1175,7 +1175,7 @@ expression = function(node: scalarIR.Expr, state: simdrewrite.State): scalarIR.E
     elseif op == "not" then
         return maskNot(conditionMask((node as scalarIR.Unary).value, state), source)
     elseif op == "neg" then
-        local element = simdrewrite.asElement(node.type) or "f64"
+        local element = asElement(node.type) or "f64"
         local value = vec((node as scalarIR.Unary).value, element, state)
 
         return simd("simd_unary", "neg", {value}, tostring(value.type), source)
@@ -1218,7 +1218,7 @@ expression = function(node: scalarIR.Expr, state: simdrewrite.State): scalarIR.E
         return simd("simd_call", op, args, vectorType("f32", state), source)
     elseif COMPARISONS[op] == true then
         local binary = node as scalarIR.Binary
-        local element = simdrewrite.comparisonElement(binary.left, binary.right)
+        local element = comparisonElement(binary.left, binary.right)
         local compared = simd(
             "simd_compare",
             op,
@@ -1274,9 +1274,9 @@ expression = function(node: scalarIR.Expr, state: simdrewrite.State): scalarIR.E
             source
         )
     end
-    if BINARY_VERBS[op] ~= nil and simdrewrite.ARITHMETIC[op] ~= nil then
+    if BINARY_VERBS[op] ~= nil and ARITHMETIC[op] ~= nil then
         local binary = node as scalarIR.Binary
-        local element_ = simdrewrite.asElement(node.type) or "f64"
+        local element_ = asElement(node.type) or "f64"
 
         return simd(
             "simd_binary",
@@ -1473,7 +1473,7 @@ local function assignment(
 ): scalarIR.Assignment
     local target = entry.target
     if (target.kind as string) == "field" then
-        local object = simdrewrite.resolveRef(target.object, state.inner)
+        local object = resolveRef(target.object, state.inner)
         if object == nil or (object as scalarIR.ElementRef).index ~= state.inner.index then
             state.reject("a lane-parallel field store writes consecutive elements only")
         end
@@ -1509,7 +1509,7 @@ local function assignment(
     end
     local name = target.name as string
     if state.inner.varyingLocals[name] ~= true then
-        if simdrewrite.varying(entry.value, state.inner) then
+        if varying(entry.value, state.inner) then
             state.reject("a varying value is assigned to a uniform local")
         end
 
@@ -1710,7 +1710,7 @@ block = function(
     state: simdrewrite.State
 ): {scalarIR.Statement}
     local out: {scalarIR.Statement} = {}
-    local readsAfter = simdrewrite.readsAfter(statements as {any}, following or {})
+    local reads = readsAfter(statements as {any}, following or {})
 
     --- Appends one statement, after the lets its expressions introduced.
     local function emit(statement: scalarIR.Statement): nil
@@ -1734,7 +1734,7 @@ block = function(
         local op = statement.op
         local source = statement.source
         if op == "fornum" or op == "while" or op == "repeat" then
-            readsAfter[position] = loopFollowing(statement, readsAfter[position] or {})
+            reads[position] = loopFollowing(statement, reads[position] or {})
         end
         if op == "let" then
             local let = statement as scalarIR.Let
@@ -1744,8 +1744,8 @@ block = function(
                     state.reject("a lane-parallel element reference is at the loop index only")
                 end
                 state.inner.refBindings[let.name] = value
-            elseif state.inner.varyingLocals[let.name] == true or simdrewrite.varying(value, state.inner) then
-                local element = simdrewrite.asElement(let.type)
+            elseif state.inner.varyingLocals[let.name] == true or varying(value, state.inner) then
+                local element = asElement(let.type)
                 if element == nil then
                     state.reject("a varying local of a type no lane carries")
                 end
@@ -1776,7 +1776,7 @@ block = function(
             end
         elseif op == "multi_let" then
             local multi = statement as any
-            if not simdrewrite.varying(multi.call, state.inner) then
+            if not varying(multi.call, state.inner) then
                 for _, bound in ipairs(multi.bindings as {scalarIR.Binding}) do
                     state.types[bound.name] = tostring(bound.type)
                 end
@@ -1823,7 +1823,7 @@ block = function(
             end
             local param = root as scalarIR.Param
             local element = PHYSICAL[param.sourceType or ""] or tostring(param.type)
-            local carrier = simdrewrite.asElement(param.type)
+            local carrier = asElement(param.type)
             if carrier == nil or carrier == "bool" or carrierOf(element) ~= carrier then
                 state.reject("a lane-parallel scalar store writes admitted scalar elements only")
             end
@@ -1860,7 +1860,7 @@ block = function(
                 if #clause.body > 0 then
                     emit(letOf(arm, entry))
                     chosen = arm
-                    append(block(clause.body, arm, loop, readsAfter[position], state))
+                    append(block(clause.body, arm, loop, reads[position], state))
                 end
                 local excluded = maskNot(chosen, clause.source)
                 remaining = remaining ~= nil and maskAnd(remaining as scalarIR.Expr, excluded, clause.source)
@@ -1870,13 +1870,13 @@ block = function(
                 local rest = fresh("else", maskType(state.control, state), state, source)
                 state.types[rest.name] = rest.type
                 emit(letOf(rest, remaining as scalarIR.Expr))
-                append(block(branch.elseBody as {scalarIR.Statement}, rest, loop, readsAfter[position], state))
+                append(block(branch.elseBody as {scalarIR.Statement}, rest, loop, reads[position], state))
             end
         elseif op == "block" then
             emit(
                 new scalarIR.Block(
                     op = "block",
-                    body = block((statement as scalarIR.Block).body, statementMask, loop, readsAfter[position], state),
+                    body = block((statement as scalarIR.Block).body, statementMask, loop, reads[position], state),
                     source = source
                 )
             )
@@ -1889,7 +1889,7 @@ block = function(
                     maskedLoop(
                         live,
                         loop_.body,
-                        readsAfter[position] or {},
+                        reads[position] or {},
                         false,
                         initial,
                         noLoopBottom,
@@ -1902,7 +1902,7 @@ block = function(
                                 loop_.conditionBody as {scalarIR.Statement},
                                 live,
                                 loop,
-                                readsAfter[position],
+                                reads[position],
                                 state
                             )
                             local active = activeMask(live, loop) as scalarIR.Expr
@@ -1918,11 +1918,9 @@ block = function(
                         end
                     )
                 )
-            elseif not simdrewrite.varying(loop_.condition, state.inner)
-                and not simdrewrite.containsExit(loop_.body as {any})
-            then
+            elseif not varying(loop_.condition, state.inner) and not containsExit(loop_.body as {any}) then
                 state.loopDepth = state.loopDepth + 1
-                local body = block(loop_.body, mask, loop, readsAfter[position], state)
+                local body = block(loop_.body, mask, loop, reads[position], state)
                 state.loopDepth = state.loopDepth - 1
                 emit(
                     new scalarIR.While(
@@ -1943,8 +1941,8 @@ block = function(
                     maskedLoop(
                         live,
                         loop_.body,
-                        readsAfter[position] or {},
-                        not simdrewrite.containsContinue(loop_.body as {any}),
+                        reads[position] or {},
+                        not containsContinue(loop_.body as {any}),
                         initial,
                         function(_: simdrewrite.Loop): {scalarIR.Statement}
                             -- Continuing lanes still evaluate the next test.
@@ -1973,13 +1971,13 @@ block = function(
                 maskedLoop(
                     live,
                     repeated.body,
-                    readsAfter[position] or {},
-                    not simdrewrite.containsContinue(repeated.body as {any}),
+                    reads[position] or {},
+                    not containsContinue(repeated.body as {any}),
                     initial,
                     function(_: simdrewrite.Loop): {scalarIR.Statement}
                         -- Continue reaches the condition; break does not. Use
                         -- live, not the body's per-iteration executing mask.
-                        local bottom = block(repeated.conditionBody or {}, live, loop, readsAfter[position], state)
+                        local bottom = block(repeated.conditionBody or {}, live, loop, reads[position], state)
                         local active = activeMask(live, loop) as scalarIR.Expr
                         bindings["$mask"] = active
                         local until_ = conditionMask(repeated.condition, state)
@@ -1997,15 +1995,14 @@ block = function(
             )
         elseif op == "fornum" then
             local counted = statement as scalarIR.Fornum
-            local varyingBounds = simdrewrite.varying(counted.from, state.inner)
-                or simdrewrite.varying(counted.to, state.inner)
+            local varyingBounds = varying(counted.from, state.inner) or varying(counted.to, state.inner)
             if not varyingBounds
-                and not simdrewrite.containsExit(counted.body as {any})
+                and not containsExit(counted.body as {any})
                 and state.inner.varyingLocals[counted.binding.name] ~= true
             then
                 state.types[counted.binding.name] = counted.binding.type
                 state.loopDepth = state.loopDepth + 1
-                local body = block(counted.body, statementMask, loop, readsAfter[position], state)
+                local body = block(counted.body, statementMask, loop, reads[position], state)
                 state.loopDepth = state.loopDepth - 1
                 emit(
                     new scalarIR.Fornum(
@@ -2087,8 +2084,8 @@ block = function(
                     maskedLoop(
                         live,
                         counted.body,
-                        readsAfter[position] or {},
-                        not simdrewrite.containsContinue(counted.body as {any}),
+                        reads[position] or {},
+                        not containsContinue(counted.body as {any}),
                         initial,
                         function(_: simdrewrite.Loop): {scalarIR.Statement}
                             local bottom: {scalarIR.Statement} = {}
@@ -2261,8 +2258,8 @@ local function wide(statements: {scalarIR.Statement}, state: simdrewrite.State):
 
             return
         end
-        if simdrewrite.varying(expr, state.inner) then
-            local element = simdrewrite.asElement(expr.type)
+        if varying(expr, state.inner) then
+            local element = asElement(expr.type)
             if element ~= nil and element ~= "bool" then
                 note(element)
             end
@@ -2309,7 +2306,7 @@ local function wide(statements: {scalarIR.Statement}, state: simdrewrite.State):
                     walkExpr(entry.value)
                     walkExpr(entry.target.object)
                     if entry.target.kind == "field" then
-                        local ref = simdrewrite.resolveRef(entry.target.object, state.inner)
+                        local ref = resolveRef(entry.target.object, state.inner)
                         if ref ~= nil then
                             local layout = state.layouts[(ref as scalarIR.ElementRef).layout]
                             if layout ~= nil then
@@ -2345,9 +2342,9 @@ local function wide(statements: {scalarIR.Statement}, state: simdrewrite.State):
                 walk((statement as scalarIR.While).body)
             elseif op == "fornum" then
                 local counted = statement as scalarIR.Fornum
-                if simdrewrite.varying(counted.from, state.inner)
-                    or simdrewrite.varying(counted.to, state.inner)
-                    or simdrewrite.containsExit(counted.body as {any})
+                if varying(counted.from, state.inner)
+                    or varying(counted.to, state.inner)
+                    or containsExit(counted.body as {any})
                     or state.inner.varyingLocals[counted.binding.name] == true
                 then
                     note(counted.binding.type)
@@ -2408,7 +2405,7 @@ local function loopBody(
     state: simdrewrite.State,
     source: scalarIR.Source?
 ): {scalarIR.Statement}
-    simdrewrite.markVarying(statements as {any}, state.inner)
+    markVarying(statements as {any}, state.inner)
     checkContributions(statements, state)
     local wide_, seen = wide(statements, state)
     state.lanes = (wide_ and width / 8 or width / 4) as integer
