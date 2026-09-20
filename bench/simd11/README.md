@@ -175,3 +175,11 @@ ties and NaNs, and missing Wasm host math imports. The fixes preserve those
 selected-runtime contracts and validate the actual linked host. Full platform
 acceptance still requires execution of the expanded inventory on every declared
 platform and tier.
+
+The [completed historical native sweep](results/native-neon-historical-20260920.json)
+retains the earlier corpus at `52358dca`: all 24 Clang rows executed; GCC
+executed 17 rows and failed seven primitive compilations on the SRA warning
+above. Its overall outcome remains **failed**. It predates the added raw-bit,
+mask-conversion, raw-memory and closed-math families, and is not relabeled as
+expanded-inventory acceptance. Both completed routes retain their actual probe
+inventories and artifact hashes.
