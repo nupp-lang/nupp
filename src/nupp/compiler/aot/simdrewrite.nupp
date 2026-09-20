@@ -1702,6 +1702,481 @@ local function maskedLoop(
     return out
 end
 
+----------------------------------------------------------------------------
+-- One statement at a time
+----------------------------------------------------------------------------
+
+--- Where one statement sits: the block's emitters, and the masks in force.
+---
+--- `block` below walks a run of statements and hands each one to whichever of
+--- the four rewrites that follow covers its kind. Everything that differs
+--- between one statement and the next is here, so a rewrite takes only the
+--- statement, its site, and the pass state.
+record simdrewrite.Site
+    --- Appends one statement, after the lets its expressions introduced.
+    emit: function(scalarIR.Statement): nil
+
+    --- Appends a produced run of statements, each through `emit`.
+    append: function({scalarIR.Statement}): nil
+
+    --- The executing mask where this statement sits, already narrowed by any
+    --- enclosing masked loop. Nil where every lane runs it.
+    mask: scalarIR.Expr?
+
+    --- The block's own mask, before that narrowing. A `while` whose condition
+    --- is uniform and whose body cannot exit keeps its scalar shape and
+    --- rewrites its body against this one, because no lane retires inside it.
+    outer: scalarIR.Expr?
+
+    --- The enclosing masked loop, which `break` and `continue` retire lanes
+    --- from. Nil outside one.
+    loop: simdrewrite.Loop?
+
+    --- What the statements after this one read, which decides what a masked
+    --- loop has to keep observable across its iterations.
+    following: {[string]: boolean}
+
+    --- The reference bindings `$mask` is rebound in as nested masks come into
+    --- force: the same table as `state.inner.refBindings`, named here because
+    --- a masked loop's bottom rebinds it around evaluating its own condition.
+    bindings: any
+end
+
+--- What one statement kind's rewrite is: it appends through the site rather
+--- than returning, because a statement may produce several and some of them
+--- are the lets its own expressions introduced.
+type simdrewrite.Rewrite = function(scalarIR.Statement, simdrewrite.Site, simdrewrite.State): nil
+
+--- Rewriting a statement that binds a value or writes one to memory.
+local function bindingStatement(statement: scalarIR.Statement, site: simdrewrite.Site, state: simdrewrite.State): nil
+    local op = statement.op
+    local source = statement.source
+    if op == "let" then
+        local let = statement as scalarIR.Let
+        local value = let.value
+        if value.op == "element_ref" then
+            if (value as scalarIR.ElementRef).index ~= state.inner.index then
+                state.reject("a lane-parallel element reference is at the loop index only")
+            end
+            state.inner.refBindings[let.name] = value
+        elseif state.inner.varyingLocals[let.name] == true or varying(value, state.inner) then
+            local element = asElement(let.type)
+            if element == nil then
+                state.reject("a varying local of a type no lane carries")
+            end
+            local lanes: scalarIR.Expr
+            if element == "bool" then
+                lanes = conditionMask(value, state)
+            else
+                lanes = vec(value, element as string, state)
+            end
+            state.types[let.name] = tostring(lanes.type)
+            site.emit(
+                new scalarIR.Let(
+                    op = "let",
+                    name = let.name,
+                    cName = let.cName,
+                    value = lanes,
+                    type = lanes.type,
+                    assigned = let.assigned,
+                    source = source
+                )
+            )
+        else
+            if tostring(let.type):match("^simd_") ~= nil then
+                state.reject("an explicit SIMD value inside a @simd loop")
+            end
+            state.types[let.name] = tostring(let.type)
+            site.emit(statement)
+        end
+    elseif op == "multi_let" then
+        local multi = statement as any
+        if not varying(multi.call, state.inner) then
+            for _, bound in ipairs(multi.bindings as {scalarIR.Binding}) do
+                state.types[bound.name] = tostring(bound.type)
+            end
+            site.emit(statement)
+        else
+            local values = inlineHelper(multi.call as scalarIR.HelperCall, state)
+            for index, bound in ipairs(multi.bindings as {scalarIR.Binding}) do
+                local value = values[index]
+                state.types[bound.name] = tostring(value.type)
+                site.emit(
+                    new scalarIR.Let(
+                        op = "let",
+                        name = bound.name,
+                        cName = bound.cName,
+                        value = value,
+                        type = value.type,
+                        assigned = bound.assigned,
+                        source = source
+                    )
+                )
+            end
+        end
+    elseif op == "assign" then
+        local assign = statement as scalarIR.Assign
+        local values: {scalarIR.Assignment} = {}
+        local stores: {scalarIR.Statement} = {}
+        for _, entry in ipairs(assign.values) do
+            local produced = assignment(entry, site.mask, site.loop, state)
+            if produced.target.kind == "field" then
+                stores[#stores + 1] = produced.value as any
+            else
+                values[#values + 1] = produced
+            end
+        end
+        if #values > 0 then
+            site.emit(new scalarIR.Assign(op = "assign", values = values, source = source))
+        end
+        site.append(stores)
+    elseif op == "store" then
+        local store = statement as scalarIR.Store
+        local root = state.inner.spans[store.span]
+        if root == nil or root.kind ~= "write_span" or store.cursor ~= nil or store.index ~= state.inner.index then
+            state.reject("a lane-parallel scalar store writes consecutive admitted elements only")
+        end
+        local param = root as scalarIR.Param
+        local element = PHYSICAL[param.sourceType or ""] or tostring(param.type)
+        local carrier = asElement(param.type)
+        if carrier == nil or carrier == "bool" or carrierOf(element) ~= carrier then
+            state.reject("a lane-parallel scalar store writes admitted scalar elements only")
+        end
+        local value = convertTo(vec(store.value, carrier as string, state), element, state)
+        site.emit(
+            access("simd_store", "store", element, store.span, site.mask, value, nil, nil, "lua_effect", source, state)
+        )
+    elseif op == "reducer_add" then
+        site.emit(contribution(statement as scalarIR.ReducerAdd, site.mask, state))
+    end
+end
+
+--- Rewriting a conditional, or a plain nested block.
+local function branchStatement(statement: scalarIR.Statement, site: simdrewrite.Site, state: simdrewrite.State): nil
+    local op = statement.op
+    local source = statement.source
+    if op == "if" then
+        local branch = statement as scalarIR.If
+        local remaining = site.mask
+        for _, clause in ipairs(branch.clauses) do
+            local condition = conditionMask(clause.condition, state)
+            local entry = remaining ~= nil and maskAnd(remaining as scalarIR.Expr, condition, clause.source)
+                or condition
+            local arm = fresh("if", maskType(state.control, state), state, clause.source)
+            state.types[arm.name] = arm.type
+            -- An empty arm needs no named mask. Value-block lowering can
+            -- leave one after its final yield.
+            local chosen: scalarIR.Expr = entry
+            if #clause.body > 0 then
+                site.emit(letOf(arm, entry))
+                chosen = arm
+                site.append(block(clause.body, arm, site.loop, site.following, state))
+            end
+            local excluded = maskNot(chosen, clause.source)
+            remaining = remaining ~= nil and maskAnd(remaining as scalarIR.Expr, excluded, clause.source) or excluded
+        end
+        if branch.elseBody ~= nil then
+            local rest = fresh("else", maskType(state.control, state), state, source)
+            state.types[rest.name] = rest.type
+            site.emit(letOf(rest, remaining as scalarIR.Expr))
+            site.append(block(branch.elseBody as {scalarIR.Statement}, rest, site.loop, site.following, state))
+        end
+    elseif op == "block" then
+        site.emit(
+            new scalarIR.Block(
+                op = "block",
+                body = block((statement as scalarIR.Block).body, site.mask, site.loop, site.following, state),
+                source = source
+            )
+        )
+    end
+end
+
+--- Rewriting an inner loop, whether it keeps its scalar shape or becomes a masked one.
+--- Rewriting a `while`, which keeps its scalar shape only when no lane can retire
+--- inside it.
+local function whileStatement(statement: scalarIR.Statement, site: simdrewrite.Site, state: simdrewrite.State): nil
+    local source = statement.source
+    local loop_ = statement as scalarIR.While
+    if loop_.conditionBody ~= nil then
+        local live = fresh("live", maskType(state.control, state), state, source)
+        local initial = site.mask or maskSplat(boolConstant(true, source), state.control, state)
+        site.append(
+            maskedLoop(live, loop_.body, site.following, false, initial, noLoopBottom, source, state, function(): {
+                scalarIR.Statement
+            }
+                -- A header's exits target the enclosing loop. Its
+                -- effects run only for lanes still testing this loop.
+                local header = block(
+                    loop_.conditionBody as {scalarIR.Statement},
+                    live,
+                    site.loop,
+                    site.following,
+                    state
+                )
+                local active = activeMask(live, site.loop) as scalarIR.Expr
+                site.bindings["$mask"] = active
+                local condition = conditionMask(loop_.condition, state)
+                for _, pending in ipairs(state.pending) do
+                    header[#header + 1] = pending
+                end
+                state.pending = {}
+                header[#header + 1] = assignTo(live, maskAnd(active, condition, source), source)
+
+                return header
+            end)
+        )
+    elseif not varying(loop_.condition, state.inner) and not containsExit(loop_.body as {any}) then
+        state.loopDepth = state.loopDepth + 1
+        local body = block(loop_.body, site.outer, site.loop, site.following, state)
+        state.loopDepth = state.loopDepth - 1
+        site.emit(
+            new scalarIR.While(
+                op = "while",
+                condition = loop_.condition,
+                body = body,
+                carried = carriedOf(body, state),
+                cursorBounds = loop_.cursorBounds,
+                source = source
+            )
+        )
+    else
+        local live = fresh("live", maskType(state.control, state), state, source)
+        local condition = conditionMask(loop_.condition, state)
+        local initial = site.mask ~= nil and maskAnd(site.mask as scalarIR.Expr, condition, source) or condition
+        site.append(
+            maskedLoop(
+                live,
+                loop_.body,
+                site.following,
+                not containsContinue(loop_.body as {any}),
+                initial,
+                function(_: simdrewrite.Loop): {scalarIR.Statement}
+                    -- Continuing lanes still evaluate the next test.
+                    site.bindings["$mask"] = live
+                    local again = conditionMask(loop_.condition, state)
+                    local bottom: {scalarIR.Statement} = {}
+                    for _, pending in ipairs(state.pending) do
+                        bottom[#bottom + 1] = pending
+                    end
+                    state.pending = {}
+                    bottom[#bottom + 1] = assignTo(live, maskAnd(live, again, source), source)
+
+                    return bottom
+                end,
+                source,
+                state
+            )
+        )
+    end
+end
+
+--- Rewriting a `repeat`, whose condition every continuing lane still reaches.
+local function repeatStatement(statement: scalarIR.Statement, site: simdrewrite.Site, state: simdrewrite.State): nil
+    local source = statement.source
+    local repeated = statement as scalarIR.Repeat
+    local live = fresh("live", maskType(state.control, state), state, source)
+    local initial = site.mask ~= nil and site.mask as scalarIR.Expr
+        or maskSplat(boolConstant(true, source), state.control, state)
+    site.append(
+        maskedLoop(
+            live,
+            repeated.body,
+            site.following,
+            not containsContinue(repeated.body as {any}),
+            initial,
+            function(_: simdrewrite.Loop): {scalarIR.Statement}
+                -- Continue reaches the condition; break does not. Use
+                -- live, not the body's per-iteration executing mask.
+                local bottom = block(repeated.conditionBody or {}, live, site.loop, site.following, state)
+                local active = activeMask(live, site.loop) as scalarIR.Expr
+                site.bindings["$mask"] = active
+                local until_ = conditionMask(repeated.condition, state)
+                for _, pending in ipairs(state.pending) do
+                    bottom[#bottom + 1] = pending
+                end
+                state.pending = {}
+                bottom[#bottom + 1] = assignTo(live, maskAnd(active, maskNot(until_, source), source), source)
+
+                return bottom
+            end,
+            source,
+            state
+        )
+    )
+end
+
+--- Rewriting a nested counted loop, expanded in lanes when its bounds or its body vary.
+local function fornumStatement(statement: scalarIR.Statement, site: simdrewrite.Site, state: simdrewrite.State): nil
+    local source = statement.source
+    local counted = statement as scalarIR.Fornum
+    local varyingBounds = varying(counted.from, state.inner) or varying(counted.to, state.inner)
+    if not varyingBounds
+        and not containsExit(counted.body as {any})
+        and state.inner.varyingLocals[counted.binding.name] ~= true
+    then
+        state.types[counted.binding.name] = counted.binding.type
+        state.loopDepth = state.loopDepth + 1
+        local body = block(counted.body, site.mask, site.loop, site.following, state)
+        state.loopDepth = state.loopDepth - 1
+        site.emit(
+            new scalarIR.Fornum(
+                op = "fornum",
+                binding = counted.binding,
+                from = counted.from,
+                to = counted.to,
+                body = body,
+                boundSpan = counted.boundSpan,
+                carried = carriedOf(body, state),
+                source = source
+            )
+        )
+    else
+        local binding = counted.binding
+        local bodyReads: {[string]: boolean} = {}
+        for _, child in ipairs(counted.body) do
+            statementReads(child, bodyReads)
+        end
+        local needsVisible = binding.assigned == true or bodyReads[binding.name] == true
+        local varying = state.inner.varyingLocals as any
+        local previous = varying[binding.name]
+        varying[binding.name] = true
+        local element = binding.type
+        local visible = new scalarIR.Name(
+            op = "local",
+            name = binding.name,
+            cName = binding.cName,
+            type = vectorType(element, state),
+            source = source
+        )
+        local counter = fresh("for_counter", visible.type, state, source)
+        local last = fresh("for_last", visible.type, state, source)
+        state.types[binding.name] = visible.type
+        state.types[counter.name] = counter.type
+        state.types[last.name] = last.type
+        site.emit(letOf(counter, vec(counted.from, element, state), true))
+        site.emit(letOf(last, vec(counted.to, element, state)))
+        if state.numericForRuntime == "luajit-dual" and element == "f64" and counted.from.type == "f64" then
+            local zero = splat(constant("0", source), element, state)
+            local zeroStart = simd("simd_compare", "eq", {counter, zero}, maskType(element, state), source)
+            local integerLast = simd(
+                "simd_compare",
+                "eq",
+                {last, convertTo(convertTo(last, "i32", state), "f64", state)},
+                maskType(element, state),
+                source
+            )
+            site.emit(
+                assignTo(counter, selected(maskAnd(zeroStart, integerLast, source), zero, counter, state), source)
+            )
+        end
+
+        if state.numericForRuntime == "lua51" and element == "f64" then
+            local one = splat(constant("1", source), element, state)
+            -- Stock Lua 5.1 subtracts the step in FORPREP, then adds it
+            -- in FORLOOP before even the first condition and body.
+            local prepared = simd("simd_binary", "sub", {counter, one}, counter.type, source)
+            site.emit(assignTo(counter, simd("simd_binary", "add", {prepared, one}, counter.type, source)))
+        end
+
+        local function inRange(operation: string): scalarIR.Expr
+            return maskAs(
+                simd("simd_compare", operation, {counter, last}, maskType(element, state), source),
+                state.control,
+                state
+            )
+        end
+
+        local live = fresh("live", maskType(state.control, state), state, source)
+        local condition = inRange("le")
+        local initial = site.mask ~= nil and maskAnd(site.mask as scalarIR.Expr, condition, source) or condition
+        site.append(
+            maskedLoop(
+                live,
+                counted.body,
+                site.following,
+                not containsContinue(counted.body as {any}),
+                initial,
+                function(_: simdrewrite.Loop): {scalarIR.Statement}
+                    local bottom: {scalarIR.Statement} = {}
+
+                    local function add(statement: scalarIR.Statement): nil
+                        for _, pending in ipairs(state.pending) do
+                            bottom[#bottom + 1] = pending
+                        end
+                        state.pending = {}
+                        bottom[#bottom + 1] = statement
+                    end
+
+                    -- Retire a signed counter before its last increment;
+                    -- inactive lanes add zero, so INT32_MAX never wraps.
+                    if element == "i32" then
+                        add(assignTo(live, maskAnd(live, inRange("lt"), source), source))
+                    end
+                    local one = element == "i32" and intConstant("1", "i32", source) or constant("1", source)
+                    local zero = element == "i32" and intConstant("0", "i32", source) or constant("0", source)
+                    local step = selected(live, splat(one, element, state), splat(zero, element, state), state)
+                    local stepped = simd("simd_binary", "add", {counter, step}, counter.type, source)
+                    add(assignTo(counter, stepped, source))
+                    if element ~= "i32" then
+                        -- Binary64 progression includes its ordinary
+                        -- rounding, NaN and infinity behavior.
+                        add(assignTo(live, maskAnd(live, inRange("le"), source), source))
+                    end
+
+                    return bottom
+                end,
+                source,
+                state,
+                function(): {scalarIR.Statement}
+                    if not needsVisible then
+                        return {}
+                    end
+                    return {letOf(visible, counter, binding.assigned)}
+                end
+            )
+        )
+        varying[binding.name] = previous
+    end
+end
+
+--- Rewriting `break` or `continue`, which retire lanes from the enclosing masked loop.
+local function exitStatement(statement: scalarIR.Statement, site: simdrewrite.Site, state: simdrewrite.State): nil
+    local op = statement.op
+    local source = statement.source
+    if site.loop == nil then
+        state.reject(tostring(op) .. " applies to the outer map loop and is not admitted")
+    end
+    local context = site.loop as simdrewrite.Loop
+    local retired = maskNot(site.mask as scalarIR.Expr, source)
+    if op == "break" then
+        site.emit(assignTo(context.live, maskAnd(context.live, retired, source), source))
+    end
+    site.emit(assignTo(context.executing, maskAnd(context.executing, retired, source), source))
+end
+
+--- Which rewrite covers each statement kind.
+---
+--- A kind this does not name has no lane-parallel form, which is the whole of
+--- what `block` decides: every statement is one table lookup and one call, and
+--- adding a kind is adding a row and a function rather than an arm in a chain.
+local REWRITES: {
+    [string]: simdrewrite.Rewrite
+} = {
+    ["let"] = bindingStatement,
+    ["multi_let"] = bindingStatement,
+    ["assign"] = bindingStatement,
+    ["store"] = bindingStatement,
+    ["reducer_add"] = bindingStatement,
+    ["if"] = branchStatement,
+    ["block"] = branchStatement,
+    ["while"] = whileStatement,
+    ["repeat"] = repeatStatement,
+    ["fornum"] = fornumStatement,
+    ["break"] = exitStatement,
+    ["continue"] = exitStatement,
+}
+
 block = function(
     statements: {scalarIR.Statement},
     mask: scalarIR.Expr?,
@@ -1732,414 +2207,23 @@ block = function(
         local bindings = state.inner.refBindings as any
         bindings["$mask"] = statementMask
         local op = statement.op
-        local source = statement.source
         if op == "fornum" or op == "while" or op == "repeat" then
             reads[position] = loopFollowing(statement, reads[position] or {})
         end
-        if op == "let" then
-            local let = statement as scalarIR.Let
-            local value = let.value
-            if value.op == "element_ref" then
-                if (value as scalarIR.ElementRef).index ~= state.inner.index then
-                    state.reject("a lane-parallel element reference is at the loop index only")
-                end
-                state.inner.refBindings[let.name] = value
-            elseif state.inner.varyingLocals[let.name] == true or varying(value, state.inner) then
-                local element = asElement(let.type)
-                if element == nil then
-                    state.reject("a varying local of a type no lane carries")
-                end
-                local lanes: scalarIR.Expr
-                if element == "bool" then
-                    lanes = conditionMask(value, state)
-                else
-                    lanes = vec(value, element as string, state)
-                end
-                state.types[let.name] = tostring(lanes.type)
-                emit(
-                    new scalarIR.Let(
-                        op = "let",
-                        name = let.name,
-                        cName = let.cName,
-                        value = lanes,
-                        type = lanes.type,
-                        assigned = let.assigned,
-                        source = source
-                    )
-                )
-            else
-                if tostring(let.type):match("^simd_") ~= nil then
-                    state.reject("an explicit SIMD value inside a @simd loop")
-                end
-                state.types[let.name] = tostring(let.type)
-                emit(statement)
-            end
-        elseif op == "multi_let" then
-            local multi = statement as any
-            if not varying(multi.call, state.inner) then
-                for _, bound in ipairs(multi.bindings as {scalarIR.Binding}) do
-                    state.types[bound.name] = tostring(bound.type)
-                end
-                emit(statement)
-            else
-                local values = inlineHelper(multi.call as scalarIR.HelperCall, state)
-                for index, bound in ipairs(multi.bindings as {scalarIR.Binding}) do
-                    local value = values[index]
-                    state.types[bound.name] = tostring(value.type)
-                    emit(
-                        new scalarIR.Let(
-                            op = "let",
-                            name = bound.name,
-                            cName = bound.cName,
-                            value = value,
-                            type = value.type,
-                            assigned = bound.assigned,
-                            source = source
-                        )
-                    )
-                end
-            end
-        elseif op == "assign" then
-            local assign = statement as scalarIR.Assign
-            local values: {scalarIR.Assignment} = {}
-            local stores: {scalarIR.Statement} = {}
-            for _, entry in ipairs(assign.values) do
-                local produced = assignment(entry, statementMask, loop, state)
-                if produced.target.kind == "field" then
-                    stores[#stores + 1] = produced.value as any
-                else
-                    values[#values + 1] = produced
-                end
-            end
-            if #values > 0 then
-                emit(new scalarIR.Assign(op = "assign", values = values, source = source))
-            end
-            append(stores)
-        elseif op == "store" then
-            local store = statement as scalarIR.Store
-            local root = state.inner.spans[store.span]
-            if root == nil or root.kind ~= "write_span" or store.cursor ~= nil or store.index ~= state.inner.index then
-                state.reject("a lane-parallel scalar store writes consecutive admitted elements only")
-            end
-            local param = root as scalarIR.Param
-            local element = PHYSICAL[param.sourceType or ""] or tostring(param.type)
-            local carrier = asElement(param.type)
-            if carrier == nil or carrier == "bool" or carrierOf(element) ~= carrier then
-                state.reject("a lane-parallel scalar store writes admitted scalar elements only")
-            end
-            local value = convertTo(vec(store.value, carrier as string, state), element, state)
-            emit(
-                access(
-                    "simd_store",
-                    "store",
-                    element,
-                    store.span,
-                    statementMask,
-                    value,
-                    nil,
-                    nil,
-                    "lua_effect",
-                    source,
-                    state
-                )
-            )
-        elseif op == "reducer_add" then
-            emit(contribution(statement as scalarIR.ReducerAdd, statementMask, state))
-        elseif op == "if" then
-            local branch = statement as scalarIR.If
-            local remaining = statementMask
-            for _, clause in ipairs(branch.clauses) do
-                local condition = conditionMask(clause.condition, state)
-                local entry = remaining ~= nil and maskAnd(remaining as scalarIR.Expr, condition, clause.source)
-                    or condition
-                local arm = fresh("if", maskType(state.control, state), state, clause.source)
-                state.types[arm.name] = arm.type
-                -- An empty arm needs no named mask. Value-block lowering can
-                -- leave one after its final yield.
-                local chosen: scalarIR.Expr = entry
-                if #clause.body > 0 then
-                    emit(letOf(arm, entry))
-                    chosen = arm
-                    append(block(clause.body, arm, loop, reads[position], state))
-                end
-                local excluded = maskNot(chosen, clause.source)
-                remaining = remaining ~= nil and maskAnd(remaining as scalarIR.Expr, excluded, clause.source)
-                    or excluded
-            end
-            if branch.elseBody ~= nil then
-                local rest = fresh("else", maskType(state.control, state), state, source)
-                state.types[rest.name] = rest.type
-                emit(letOf(rest, remaining as scalarIR.Expr))
-                append(block(branch.elseBody as {scalarIR.Statement}, rest, loop, reads[position], state))
-            end
-        elseif op == "block" then
-            emit(
-                new scalarIR.Block(
-                    op = "block",
-                    body = block((statement as scalarIR.Block).body, statementMask, loop, reads[position], state),
-                    source = source
-                )
-            )
-        elseif op == "while" then
-            local loop_ = statement as scalarIR.While
-            if loop_.conditionBody ~= nil then
-                local live = fresh("live", maskType(state.control, state), state, source)
-                local initial = statementMask or maskSplat(boolConstant(true, source), state.control, state)
-                append(
-                    maskedLoop(
-                        live,
-                        loop_.body,
-                        reads[position] or {},
-                        false,
-                        initial,
-                        noLoopBottom,
-                        source,
-                        state,
-                        function(): {scalarIR.Statement}
-                            -- A header's exits target the enclosing loop. Its
-                            -- effects run only for lanes still testing this loop.
-                            local header = block(
-                                loop_.conditionBody as {scalarIR.Statement},
-                                live,
-                                loop,
-                                reads[position],
-                                state
-                            )
-                            local active = activeMask(live, loop) as scalarIR.Expr
-                            bindings["$mask"] = active
-                            local condition = conditionMask(loop_.condition, state)
-                            for _, pending in ipairs(state.pending) do
-                                header[#header + 1] = pending
-                            end
-                            state.pending = {}
-                            header[#header + 1] = assignTo(live, maskAnd(active, condition, source), source)
-
-                            return header
-                        end
-                    )
-                )
-            elseif not varying(loop_.condition, state.inner) and not containsExit(loop_.body as {any}) then
-                state.loopDepth = state.loopDepth + 1
-                local body = block(loop_.body, mask, loop, reads[position], state)
-                state.loopDepth = state.loopDepth - 1
-                emit(
-                    new scalarIR.While(
-                        op = "while",
-                        condition = loop_.condition,
-                        body = body,
-                        carried = carriedOf(body, state),
-                        cursorBounds = loop_.cursorBounds,
-                        source = source
-                    )
-                )
-            else
-                local live = fresh("live", maskType(state.control, state), state, source)
-                local condition = conditionMask(loop_.condition, state)
-                local initial = statementMask ~= nil and maskAnd(statementMask as scalarIR.Expr, condition, source)
-                    or condition
-                append(
-                    maskedLoop(
-                        live,
-                        loop_.body,
-                        reads[position] or {},
-                        not containsContinue(loop_.body as {any}),
-                        initial,
-                        function(_: simdrewrite.Loop): {scalarIR.Statement}
-                            -- Continuing lanes still evaluate the next test.
-                            bindings["$mask"] = live
-                            local again = conditionMask(loop_.condition, state)
-                            local bottom: {scalarIR.Statement} = {}
-                            for _, pending in ipairs(state.pending) do
-                                bottom[#bottom + 1] = pending
-                            end
-                            state.pending = {}
-                            bottom[#bottom + 1] = assignTo(live, maskAnd(live, again, source), source)
-
-                            return bottom
-                        end,
-                        source,
-                        state
-                    )
-                )
-            end
-        elseif op == "repeat" then
-            local repeated = statement as scalarIR.Repeat
-            local live = fresh("live", maskType(state.control, state), state, source)
-            local initial = statementMask ~= nil and statementMask as scalarIR.Expr
-                or maskSplat(boolConstant(true, source), state.control, state)
-            append(
-                maskedLoop(
-                    live,
-                    repeated.body,
-                    reads[position] or {},
-                    not containsContinue(repeated.body as {any}),
-                    initial,
-                    function(_: simdrewrite.Loop): {scalarIR.Statement}
-                        -- Continue reaches the condition; break does not. Use
-                        -- live, not the body's per-iteration executing mask.
-                        local bottom = block(repeated.conditionBody or {}, live, loop, reads[position], state)
-                        local active = activeMask(live, loop) as scalarIR.Expr
-                        bindings["$mask"] = active
-                        local until_ = conditionMask(repeated.condition, state)
-                        for _, pending in ipairs(state.pending) do
-                            bottom[#bottom + 1] = pending
-                        end
-                        state.pending = {}
-                        bottom[#bottom + 1] = assignTo(live, maskAnd(active, maskNot(until_, source), source), source)
-
-                        return bottom
-                    end,
-                    source,
-                    state
-                )
-            )
-        elseif op == "fornum" then
-            local counted = statement as scalarIR.Fornum
-            local varyingBounds = varying(counted.from, state.inner) or varying(counted.to, state.inner)
-            if not varyingBounds
-                and not containsExit(counted.body as {any})
-                and state.inner.varyingLocals[counted.binding.name] ~= true
-            then
-                state.types[counted.binding.name] = counted.binding.type
-                state.loopDepth = state.loopDepth + 1
-                local body = block(counted.body, statementMask, loop, reads[position], state)
-                state.loopDepth = state.loopDepth - 1
-                emit(
-                    new scalarIR.Fornum(
-                        op = "fornum",
-                        binding = counted.binding,
-                        from = counted.from,
-                        to = counted.to,
-                        body = body,
-                        boundSpan = counted.boundSpan,
-                        carried = carriedOf(body, state),
-                        source = source
-                    )
-                )
-            else
-                local binding = counted.binding
-                local bodyReads: {[string]: boolean} = {}
-                for _, child in ipairs(counted.body) do
-                    statementReads(child, bodyReads)
-                end
-                local needsVisible = binding.assigned == true or bodyReads[binding.name] == true
-                local varying = state.inner.varyingLocals as any
-                local previous = varying[binding.name]
-                varying[binding.name] = true
-                local element = binding.type
-                local visible = new scalarIR.Name(
-                    op = "local",
-                    name = binding.name,
-                    cName = binding.cName,
-                    type = vectorType(element, state),
-                    source = source
-                )
-                local counter = fresh("for_counter", visible.type, state, source)
-                local last = fresh("for_last", visible.type, state, source)
-                state.types[binding.name] = visible.type
-                state.types[counter.name] = counter.type
-                state.types[last.name] = last.type
-                emit(letOf(counter, vec(counted.from, element, state), true))
-                emit(letOf(last, vec(counted.to, element, state)))
-                if state.numericForRuntime == "luajit-dual" and element == "f64" and counted.from.type == "f64" then
-                    local zero = splat(constant("0", source), element, state)
-                    local zeroStart = simd("simd_compare", "eq", {counter, zero}, maskType(element, state), source)
-                    local integerLast = simd(
-                        "simd_compare",
-                        "eq",
-                        {last, convertTo(convertTo(last, "i32", state), "f64", state)},
-                        maskType(element, state),
-                        source
-                    )
-                    emit(
-                        assignTo(
-                            counter,
-                            selected(maskAnd(zeroStart, integerLast, source), zero, counter, state),
-                            source
-                        )
-                    )
-                end
-
-                if state.numericForRuntime == "lua51" and element == "f64" then
-                    local one = splat(constant("1", source), element, state)
-                    -- Stock Lua 5.1 subtracts the step in FORPREP, then adds it
-                    -- in FORLOOP before even the first condition and body.
-                    local prepared = simd("simd_binary", "sub", {counter, one}, counter.type, source)
-                    emit(assignTo(counter, simd("simd_binary", "add", {prepared, one}, counter.type, source)))
-                end
-
-                local function inRange(operation: string): scalarIR.Expr
-                    return maskAs(
-                        simd("simd_compare", operation, {counter, last}, maskType(element, state), source),
-                        state.control,
-                        state
-                    )
-                end
-
-                local live = fresh("live", maskType(state.control, state), state, source)
-                local condition = inRange("le")
-                local initial = statementMask ~= nil and maskAnd(statementMask as scalarIR.Expr, condition, source)
-                    or condition
-                append(
-                    maskedLoop(
-                        live,
-                        counted.body,
-                        reads[position] or {},
-                        not containsContinue(counted.body as {any}),
-                        initial,
-                        function(_: simdrewrite.Loop): {scalarIR.Statement}
-                            local bottom: {scalarIR.Statement} = {}
-
-                            local function add(statement: scalarIR.Statement): nil
-                                for _, pending in ipairs(state.pending) do
-                                    bottom[#bottom + 1] = pending
-                                end
-                                state.pending = {}
-                                bottom[#bottom + 1] = statement
-                            end
-
-                            -- Retire a signed counter before its last increment;
-                            -- inactive lanes add zero, so INT32_MAX never wraps.
-                            if element == "i32" then
-                                add(assignTo(live, maskAnd(live, inRange("lt"), source), source))
-                            end
-                            local one = element == "i32" and intConstant("1", "i32", source) or constant("1", source)
-                            local zero = element == "i32" and intConstant("0", "i32", source) or constant("0", source)
-                            local step = selected(live, splat(one, element, state), splat(zero, element, state), state)
-                            local stepped = simd("simd_binary", "add", {counter, step}, counter.type, source)
-                            add(assignTo(counter, stepped, source))
-                            if element ~= "i32" then
-                                -- Binary64 progression includes its ordinary
-                                -- rounding, NaN and infinity behavior.
-                                add(assignTo(live, maskAnd(live, inRange("le"), source), source))
-                            end
-
-                            return bottom
-                        end,
-                        source,
-                        state,
-                        function(): {scalarIR.Statement}
-                            if not needsVisible then
-                                return {}
-                            end
-                            return {letOf(visible, counter, binding.assigned)}
-                        end
-                    )
-                )
-                varying[binding.name] = previous
-            end
-        elseif op == "break" or op == "continue" then
-            if loop == nil then
-                state.reject(tostring(op) .. " applies to the outer map loop and is not admitted")
-            end
-            local context = loop as simdrewrite.Loop
-            local retired = maskNot(statementMask as scalarIR.Expr, source)
-            if op == "break" then
-                emit(assignTo(context.live, maskAnd(context.live, retired, source), source))
-            end
-            emit(assignTo(context.executing, maskAnd(context.executing, retired, source), source))
-        else
+        local site = new simdrewrite.Site(
+            emit = emit,
+            append = append,
+            mask = statementMask,
+            outer = mask,
+            loop = loop,
+            following = reads[position] or {},
+            bindings = bindings
+        )
+        local rewrite = REWRITES[op]
+        if rewrite == nil then
             state.reject("statement " .. tostring(op) .. " has no lane-parallel form")
+        else
+            rewrite(statement, site, state)
         end
     end
     for _, pending in ipairs(state.pending) do
