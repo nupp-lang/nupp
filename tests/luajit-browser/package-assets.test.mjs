@@ -1,12 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {execFileSync} from 'node:child_process';
-import {mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync} from 'node:fs';
+import childProcess, {execFileSync} from 'node:child_process';
+import {syncBuiltinESMExports} from 'node:module';
+import {mkdtempSync, mkdirSync, readFileSync, readdirSync, writeFileSync, rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
+import {fileURLToPath} from 'node:url';
 import {gunzipSync} from 'node:zlib';
 import {copyGuest, digest, verifyGuest} from '../../runtime/luajit/package-assets.mjs';
 import {prepareArchive} from './prepare-archive.mjs';
+import {packageBrowserApp} from '../../runtime/luajit/package-browser-app.mjs';
 
 function fixture(t) {
   const root = mkdtempSync(path.join(tmpdir(), 'nupp-runtime-package-'));
@@ -138,4 +141,52 @@ test('autocrlf consumer checkouts preserve the Linux runtime input hashes', t =>
   mkdirSync(consumer);
   execFileSync('git', [...git, '-c', 'core.autocrlf=true', 'checkout-index', '--all', `--prefix=${consumer}/`]);
   assert.equal(verifyGuest(consumer, f.guest).buildKey, f.manifest.buildKey);
+});
+
+test('packaged worker pools follow emitted modules across build summary formats', async t => {
+  const f = fixture(t), project = path.join(f.root, 'project');
+  const repo = fileURLToPath(new URL('../../', import.meta.url));
+  for (const name of Object.keys(f.manifest.inputs).filter(name => name.startsWith('runtime/luajit/')))
+    f.manifest.inputs[name] = digest(readFileSync(path.join(repo, name)));
+  for (const name of readdirSync(path.join(repo, 'host/notices')))
+    f.asset(`notices/${name}`, readFileSync(path.join(repo, 'host/notices', name)));
+  f.save();
+  f.write(project, 'dist/app.lua', 'return true\n');
+
+  let result;
+  const compiler = path.join(repo, 'bin/nupp'), originalExec = childProcess.execFileSync;
+  childProcess.execFileSync = (command, args) => {
+    assert.equal(command, compiler, 'only the compiler process is replaced');
+    if (args.length === 1 && args[0] === 'build') return '';
+    assert.deepEqual(args, ['build', '--target', 'app', '--host', 'browser', '--json']);
+    return JSON.stringify(result)+'\n';
+  };
+  syncBuiltinESMExports();
+  try {
+    const cases = [
+      {name:'services', written:['build/app/nupp/workers.lua'], services:[{service:'host.workers'}], workers:true},
+      {name:'spi', written:['/project/build/app/nupp/workers.lua'], spi:[], workers:true},
+      {name:'windows', written:['C:\\project\\build\\app\\nupp\\workers.lua'], spi:[], workers:true},
+      {name:'root-module', written:['nupp/workers.lua'], workers:true},
+      {name:'unreached', written:['build/not-nupp/workers.lua', 'build/nupp/workers.lua.map', 'build/nupp/workers/builder.lua'],
+        services:[{service:'host.workers'}], spi:[], workers:false},
+      {name:'no-modules', workers:false},
+    ];
+    for (const {name, workers, ...summary} of cases) {
+      result = {ok:true, dialect:'luajit', artifact:'dist/app.lua', ...summary};
+      const output = path.join(f.root, name);
+      const manifest = await packageBrowserApp({project, target:'app', output, guest:f.guest});
+      assert.deepEqual(manifest.workers, workers ? {lane:'worker-lane.mjs', maxLanes:2} : undefined, name);
+      assert.deepEqual(manifest.limits, {
+        maxEffects:workers ? 262144 : 256,
+        maxEffectBytes:workers ? 268435456 : 4194304,
+        maxResponseBytes:workers ? 268435456 : 8388608,
+        maxStorageValueBytes:1048576, deadlineMs:30000,
+      }, name);
+      assert.deepEqual(JSON.parse(readFileSync(path.join(output, 'nupp-browser-app.json'), 'utf8')), manifest, name);
+    }
+  } finally {
+    childProcess.execFileSync = originalExec;
+    syncBuiltinESMExports();
+  }
 });
