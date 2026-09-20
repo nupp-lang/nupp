@@ -557,6 +557,8 @@ record simdrewrite.Loop
 end
 
 record simdrewrite.State
+    numericForRuntime: string?
+
     --- The lane pass's own state, for what varies and what a name is bound to.
     inner: simdrewrite.Analysis
 
@@ -2042,7 +2044,7 @@ block = function(
                 state.types[last.name] = last.type
                 emit(letOf(counter, vec(counted.from, element, state), true))
                 emit(letOf(last, vec(counted.to, element, state)))
-                if element == "f64" and counted.from.type == "f64" then
+                if state.numericForRuntime == "luajit-dual" and element == "f64" and counted.from.type == "f64" then
                     local zero = splat(constant("0", source), element, state)
                     local zeroStart = simd("simd_compare", "eq", {counter, zero}, maskType(element, state), source)
                     local integerLast = simd(
@@ -2059,6 +2061,14 @@ block = function(
                             source
                         )
                     )
+                end
+
+                if state.numericForRuntime == "lua51" and element == "f64" then
+                    local one = splat(constant("1", source), element, state)
+                    -- Stock Lua 5.1 subtracts the step in FORPREP, then adds it
+                    -- in FORLOOP before even the first condition and body.
+                    local prepared = simd("simd_binary", "sub", {counter, one}, counter.type, source)
+                    emit(assignTo(counter, simd("simd_binary", "add", {prepared, one}, counter.type, source)))
                 end
 
                 local function inRange(operation: string): scalarIR.Expr
@@ -2572,6 +2582,7 @@ local function newState(
     )
 
     return new simdrewrite.State(
+        numericForRuntime = program.numericForRuntime,
         inner = inner,
         lanes = 2,
         control = "f64",

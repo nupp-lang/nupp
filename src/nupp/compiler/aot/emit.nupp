@@ -2254,6 +2254,8 @@ end
 
 --- What a block needs from the program around it.
 record emit.Body
+    numericForRuntime: string?
+
     --- Labels are emitted only when an edge names them.
     controlUsed: {[string]: boolean} = {}
 
@@ -2493,8 +2495,8 @@ local function controlFlow(
         lines[#lines + 1] = prefix .. "{"
         lines[#lines + 1] = prefix .. "    " .. controlType .. " " .. counter .. " = " .. expression(loop.from) .. ";"
         lines[#lines + 1] = prefix .. "    const " .. controlType .. " " .. last .. " = " .. expression(loop.to) .. ";"
-        if controlType == "double" and loop.from.type == "f64" then
-            -- LuaJIT FORI narrows all three controls together when they are
+        if body.numericForRuntime == "luajit-dual" and controlType == "double" and loop.from.type == "f64" then
+            -- Dual-number LuaJIT FORI narrows all three controls when they are
             -- int32. For an implicit +1 step, only the sign of a zero start
             -- differs from binary64 progression; retain it for other limits.
             lines[
@@ -2509,6 +2511,9 @@ local function controlFlow(
                 .. ")) "
                 .. counter
                 .. " = 0.0;"
+        end
+        if body.numericForRuntime == "lua51" and controlType == "double" then
+            lines[#lines + 1] = prefix .. "    " .. counter .. " = (" .. counter .. " - 1.0) + 1.0;"
         end
         lines[#lines + 1] = prefix .. "    for (; " .. counter .. " <= " .. last .. "; ++" .. counter .. ") {"
         lines[
@@ -3500,6 +3505,7 @@ function emit.block(
                     end
                 end
                 local inner = new emit.Body(
+                    numericForRuntime = body.numericForRuntime,
                     layouts = body.layouts,
                     resultStruct = body.resultStruct,
                     forceScalar = body.forceScalar,
@@ -3747,7 +3753,11 @@ function emit.program(programs: {scalarIR.Program}, tier: string?, sourceFile: s
         for _, layout in ipairs(program.layouts or {}) do
             layouts[layout.name] = layout
         end
-        local body = new emit.Body(layouts = layouts, resultStruct = resultStruct)
+        local body = new emit.Body(
+            layouts = layouts,
+            resultStruct = resultStruct,
+            numericForRuntime = program.numericForRuntime
+        )
         local general = program.body ~= nil
         if program.entryMode == "lua-builder" then
             local byteRoots = 0

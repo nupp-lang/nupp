@@ -4771,7 +4771,9 @@ for _, r in ipairs(wide) do
     equal(a,n,"number visits"); equal(b,last,"number values")
 end
 equal(m.literal(), 2147483647+2147483648+4294967293+4294967294+4294967295+2*4294967296, "literal and visible assignment")
-equal(m.negativeZero(), math.huge, "integer-loop zero normalization")
+local zeroReciprocal
+for cursor = -0.0, 0 do zeroReciprocal = 1 / cursor; break end
+equal(m.negativeZero(), zeroReciprocal, "runtime-specific integer-loop zero normalization")
 local input = ffi.new("uint32_t[3]", 2,3,5)
 equal(m.indexed(spans.fromCarray(input,3)),20,"nested span proof")
 for count = 0, 19 do
@@ -4826,6 +4828,25 @@ print("COUNTED-OK " .. checked)
         answers[policy] = pipe:read("*a")
         pipe:close()
         assert(answers[policy]:find("COUNTED-OK", 1, true), "counted oracle " .. policy .. " at " .. dir .. "\n" .. answers[policy])
+        if policy == "require" then
+            local authored = assert(read(dir .. "/build/native/kernel.lua"))
+            local changed, count = authored:gsub("(ks_[%w_]+_loop_runtime%s*%(%s*%)%s*~=%s*)(%a+)", function(prefix, expected)
+                assert(expected == "true" or expected == "false")
+                return prefix .. (expected == "true" and "false" or "true")
+            end, 1)
+            assert(count == 1, "a counted artifact records its runtime-mode guard at " .. dir)
+            local mismatch = assert(io.open(dir .. "/mismatch.lua", "wb")); mismatch:write(changed); mismatch:close()
+            local probe = assert(io.open(dir .. "/reject-mode.lua", "wb"))
+            probe:write(searchPathPrelude() .. [[
+local ok, message = pcall(dofile, "mismatch.lua")
+assert(not ok and tostring(message):find("AOT numeric-for runtime mismatch", 1, true), tostring(message))
+print("MODE-REFUSED")
+]])
+            probe:close()
+            local process = assert(io.popen(("cd %q && luajit reject-mode.lua 2>&1"):format(dir)))
+            local rejected = process:read("*a"); process:close()
+            assert(rejected:find("MODE-REFUSED", 1, true), "incompatible artifact must fail before binding\n" .. rejected)
+        end
     end
     test.equal(answers.require, answers.off, "native and interpreted counted loops agree with independent oracle")
 end

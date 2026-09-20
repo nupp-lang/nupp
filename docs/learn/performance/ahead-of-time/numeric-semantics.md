@@ -34,9 +34,15 @@ one, including signed counter limits, `uint32` bounds and binary64 bounds.
 Explicit steps remain a positioned refusal. A loop whose index is assigned
 must use a separately proved cursor for span access. GPU counted loops retain
 their [narrower signed-int32 contract](gpu.md). Loop entry also matches
-LuaJIT's integer-mode conversion: a negative-zero start becomes positive zero
-when the limit is exactly representable as `int32`; other limits retain its
-sign.
+the selected runtime. The pinned ARM64 LuaJIT uses dual numbers: a negative-zero
+start becomes positive zero when the limit is exactly representable as `int32`;
+other limits retain its sign. The pinned x86/x64 LuaJIT uses single numbers and
+retains that sign. The stock Lua 5.1 Wasm host prepares the first value as
+`(start - 1) + 1`, preserving its rounding, including positive zero from a
+negative-zero or sufficiently small start. Same-host builds observe the local
+LuaJIT mode, including custom dual-number x64 builds, and include it in the AOT
+cache key. Native counted-loop artifacts check that mode before binding and
+refuse to load into an incompatible LuaJIT; this does not silently fall back.
 
 Ordinary floating-point arithmetic assumes round-to-nearest-even. Signed zero
 and numeric NaN behavior are preserved. NaN signaling state, payload bits, and

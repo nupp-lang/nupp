@@ -106,6 +106,35 @@ function target.system(triple: string): string
     return "linux"
 end
 
+local function dualNumberLoops(): boolean
+    for cursor = -0.0, 0 do
+        return 1 / cursor > 0
+    end
+    return false
+end
+
+local hostJit: any = rawget(_G, "jit")
+if hostJit ~= nil then
+    -- A trace may specialize FORI differently. Inspect only the interpreter's
+    -- mode, without disabling tracing anywhere else in the compiler.
+    hostJit.off(dualNumberLoops, true)
+end
+
+--- Numeric-loop entry follows the runtime provisioned for the target.
+--- The pinned LuaJIT defaults to dual numbers on ARM64 and single numbers
+--- on x86; the current Wasm application host runs stock Lua 5.1.
+function target.numericForRuntime(selected: target.Target): string
+    if selected.architecture == "wasm32" then
+        return "lua51"
+    elseif hostJit ~= nil and selected.triple == target.hostTriple() then
+        return dualNumberLoops() and "luajit-dual" or "luajit-single"
+    elseif selected.architecture == "aarch64" then
+        return "luajit-dual"
+    end
+
+    return "luajit-single"
+end
+
 --- The tiers an architecture may select, widest last.
 function target.tiers(architecture: string): {string}
     if architecture == "wasm32" then

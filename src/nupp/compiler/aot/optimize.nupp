@@ -48,6 +48,8 @@ record optimize.Stats
 end
 
 record optimize.State
+    numericForRuntime: string?
+
     statementFolds: integer
     specializationBudget: integer
     unrollBudget: integer
@@ -680,6 +682,7 @@ optimizeBlock = function(statements: {scalarIR.Statement}, state: optimize.State
                     or first ~= nil
                     and last ~= nil
                     and (first as number) >= -9007199254740992
+                    and (state.numericForRuntime ~= "lua51" or (first as number) > -9007199254740992)
                     and (last as number) < 9007199254740992
                     and not (first == 0 and 1 / (first as number) < 0)
                 if trips ~= nil
@@ -1040,6 +1043,7 @@ function optimize.program(program: scalarIR.Program): optimize.Stats
         helpers[helper.name] = helper
     end
     local state = new optimize.State(
+        numericForRuntime = program.numericForRuntime,
         statementFolds = 0,
         specializationBudget = math.max(math.floor(before / 10), 1),
         unrollBudget = optimize.MAX_UNROLL_GROWTH,

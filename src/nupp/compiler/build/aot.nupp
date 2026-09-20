@@ -186,6 +186,7 @@ function aot.key(irText: string, selected: targets.Target): string
             ir = irText,
             irVersion = scalarIR.VERSION,
             numericContract = scalarIR.NUMERIC_CONTRACT,
+            numericForRuntime = targets.numericForRuntime(selected),
             triple = selected.triple,
             tier = selected.tier,
             backend = aot.BACKEND,

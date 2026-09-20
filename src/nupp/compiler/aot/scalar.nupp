@@ -1559,6 +1559,13 @@ end
 --- verifier -- is written from this and only this, so none of them can disagree
 --- about what the function is.
 record scalarIR.Program
+    --- Target runtime semantics for numeric-for entry. Absent generic IR uses
+    --- binary64 progression without LuaJIT dual-number normalization.
+    numericForRuntime: string?
+
+    --- Captured before unrolling or SIMD rewriting can erase authored loops.
+    numericForRuntimeRequired: boolean?
+
     --- Bumped when the shape changes, so an IR written by an older compiler is
     --- refused rather than half-understood.
     version: integer

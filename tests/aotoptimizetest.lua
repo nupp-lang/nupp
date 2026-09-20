@@ -550,6 +550,11 @@ function M.floatingCountedLoopsKeepTheirProgressionAndLiteralType()
       assert(stats.unrolledLoops == 0, "unrolling must not change binary64 progression or zero sign")
       assert(ir.body[1].op == "fornum")
    end
+   local prepared = program({loop("-9007199254740992", "-9007199254740991")})
+   prepared.numericForRuntime = "lua51"
+   local preparedStats = optimize.program(prepared)
+   assert(preparedStats.unrolledLoops == 0, "Lua 5.1 entry rounds (start - 1) + 1 before its first body")
+   assert(prepared.body[1].op == "fornum")
    local ir = program({loop("4294967294", "4294967295")})
    local stats = optimize.program(ir)
    assert(stats.unrolledLoops == 1 and stats.unrolledIterations == 2)

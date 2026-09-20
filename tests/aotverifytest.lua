@@ -67,6 +67,21 @@ local function find(body, predicate)
     return nil
 end
 
+function M.unknownNumericLoopRuntimeIsRefused()
+    local program = lowered([[
+@aot
+local function identity(value: number): number
+    return value
+end
+return {identity = identity}
+]], "runtime.nupp")
+    program.numericForRuntime = "future-runtime"
+    refuses(program, "unknown numeric-for runtime")
+    program.numericForRuntime = nil
+    program.numericForRuntimeRequired = true
+    refuses(program, "numeric-for runtime dependency has no model")
+end
+
 local CURSOR_READ = [[
 local builder = require("nupp.codec.valuebuilder")
 @aot

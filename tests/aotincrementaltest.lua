@@ -347,6 +347,22 @@ end
 --- A build can only show that two keys differed by recompiling, which needs two
 --- of whatever differed installed on the machine. These are the dimensions the
 --- key claims to cover, checked directly.
+function M.numericLoopRuntimeIsPartOfTheArtifactKey()
+    local aot = require("nupp.compiler.build.aot")
+    local targets = require("nupp.compiler.aot.target")
+    local original = targets.numericForRuntime
+    local ok, failure = pcall(function()
+        local selected = assert(targets.select("x86_64-unknown-linux-gnu", "baseline"))
+        targets.numericForRuntime = function() return "luajit-single" end
+        local single = aot.key("same verified source", selected)
+        targets.numericForRuntime = function() return "luajit-dual" end
+        assert(aot.key("same verified source", selected) ~= single,
+            "changing only the local LuaJIT number mode invalidates the compiled artifact")
+    end)
+    targets.numericForRuntime = original
+    assert(ok, failure)
+end
+
 function M.objectKeysCoverWhatChangesTheirBytes()
     local aot = require("nupp.compiler.build.aot")
     local clang = {command = "cc", version = "clang 17", dialect = "clang"}

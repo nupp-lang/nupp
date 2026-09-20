@@ -326,6 +326,20 @@ function compile.lower(
     return lowered as {scalarIR.Program}, diagnostics, sites
 end
 
+local function numericForRuntime(program: scalarIR.Program, selected: targets.Target): nil
+    program.numericForRuntime = targets.numericForRuntime(selected)
+    if program.numericForRuntimeRequired == nil then
+        local counted = program.loop ~= nil
+        visit.program(
+            program,
+            new visit.Visitor(scalarStatement = function(statement: scalarIR.Statement): nil
+                counted = counted or statement.op == "fornum"
+            end)
+        )
+        program.numericForRuntimeRequired = counted
+    end
+end
+
 --- Lowers the closed const tuples collected for generic `@aot` declarations.
 ---
 --- The deliverable planner supplies semantic demands from every checked module.
@@ -676,6 +690,7 @@ function compile.constSpecializations(
         local optimizations: {aotOptimize.Stats} = {}
         local loopReports: {{loopAnalysis.Report}} = {}
         for position, program in ipairs(programs) do
+            numericForRuntime(program, selected)
             optimizations[position] = aotOptimize.program(program)
             verify.program(program)
             local refusals = compile.lanes(program, filename, selected)
@@ -721,6 +736,7 @@ end
 --- @return the refusals when a required loop produced no vector code, which
 ---   fails the build; nothing when every required loop did
 function compile.lanes(program: scalarIR.Program, filename: string, selected: targets.Target): {compile.Diagnostic}?
+    numericForRuntime(program, selected)
     -- Preferred resolves only once the program's actual width is selected.
     -- Required loops use the region width; ordinary explicit code uses the
     -- preferred width, which can be narrower than the target's register ceiling.
@@ -896,6 +912,7 @@ function compile.artifacts(
     local browser = selected.triple:match("^wasm") ~= nil
     step("optimize")
     for position, program in ipairs(programs) do
+        numericForRuntime(program, selected)
         optimizations[position] = aotOptimize.program(program)
         -- Every optimized body is checked, whether or not lane lowering will
         -- later be requested or accepted.

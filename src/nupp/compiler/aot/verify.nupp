@@ -3403,6 +3403,17 @@ end
 function verify.program(program: scalarIR.Program): scalarIR.Program
     loopFrames = {}
     holds(program.version == scalarIR.VERSION, "unknown native C IR version")
+    holds(
+        program.numericForRuntime == nil
+        or program.numericForRuntime == "luajit-single"
+        or program.numericForRuntime == "luajit-dual"
+        or program.numericForRuntime == "lua51",
+        "unknown numeric-for runtime"
+    )
+    holds(
+        program.numericForRuntimeRequired ~= true or program.numericForRuntime ~= nil,
+        "numeric-for runtime dependency has no model"
+    )
     holds(program.symbol == scalarIR.privateSymbol(program.name), "private symbol does not match function identity")
     holds(program.entryMode == "kernel" or program.entryMode == "lua-builder", "invalid AOT entry mode")
     if program.entryMode == "lua-builder" then

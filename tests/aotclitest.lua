@@ -5260,6 +5260,49 @@ return {acc = acc}
     end
 end
 
+function M.countedLoopEntryUsesTheSelectedRuntime()
+    local dir = project{["entry.nupp"] = [[
+@aot
+local function entry(first: number, last: number): number
+    for cursor = first, last do
+        return 1 / cursor
+    end
+    return 0
+end
+return {entry = entry}
+]]}
+    for _, selection in ipairs({
+        {"x86_64-unknown-linux-gnu", "baseline", "luajit-single"},
+        {"aarch64-apple-darwin", "neon", "luajit-dual"},
+        {"wasm32-unknown-emscripten", "simd128", "lua51"},
+    }) do
+        local out, code = run(dir, "--target " .. selection[1] .. " --features " .. selection[2] .. " --emit c entry.nupp")
+        test.equal(code, 0, out)
+        local normalized = out:find("== (double)nupp_wrap_i32(ks_for_last_", 1, true) ~= nil
+        test.equal(normalized, selection[3] == "luajit-dual", selection[1] .. " dual-number entry")
+        local prepared = out:match("ks_for_counter_%d+ = %(ks_for_counter_%d+ %- 1%.0%) %+ 1%.0;") ~= nil
+        test.equal(prepared, selection[3] == "lua51", selection[1] .. " Lua 5.1 entry")
+    end
+end
+
+function M.unrolledCountedLoopsRetainRuntimeCompatibilityGuards()
+    local dir = project{["unrolled.nupp"] = [[
+@aot
+local function total(value: number): number
+    local result = value
+    for cursor = 1, 2 do result = result + cursor end
+    return result
+end
+return {total = total}
+]]}
+    local c, code = run(dir, "--target x86_64-unknown-linux-gnu --features baseline --emit c unrolled.nupp")
+    test.equal(code, 0, c)
+    assert(not c:find("ks_for_counter_", 1, true), "the fixture really unrolls its counted loop")
+    local out, bindingCode = run(dir, "--target x86_64-unknown-linux-gnu --features baseline --emit binding unrolled.nupp")
+    test.equal(bindingCode, 0, out)
+    assert(out:find("AOT numeric-for runtime mismatch", 1, true), "unrolling retains original runtime dependency")
+end
+
 function M.aForBoundOutsideInt32RetainsItsNumericValue()
     local dir = project{
         [

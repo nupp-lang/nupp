@@ -755,6 +755,36 @@ function binding.multiversion(
     return lines, native
 end
 
+--- Refuse a moved native artifact before binding if its numeric-for entry
+--- disagrees with this LuaJIT. This is a load-time check of a tiny interpreted
+--- function, not a process-wide JIT setting or a per-call check.
+function binding.numericForGuard(program: scalarIR.Program): {string}
+    local mode = program.numericForRuntime
+    if mode ~= "luajit-single" and mode ~= "luajit-dual" then
+        return {}
+    end
+    if program.numericForRuntimeRequired ~= true then
+        return {}
+    end
+    local probe = program.symbol .. "_loop_runtime"
+    local expected = mode == "luajit-dual" and "true" or "false"
+
+    return {
+        "do",
+        "    local function " .. probe .. "(): boolean",
+        "        for cursor = -0.0, 0 do return 1 / cursor > 0 end",
+        "        return false",
+        "    end",
+        "    local loopVm: any = rawget(_G, \"jit\")",
+        "    if loopVm == nil then error(\"AOT numeric-for runtime requires LuaJIT\", 0) end",
+        "    loopVm.off(" .. probe .. ", true)",
+        "    if " .. probe .. "() ~= " .. expected .. " then",
+        "        error(\"AOT numeric-for runtime mismatch (expected " .. (mode as string) .. ")\", 0)",
+        "    end",
+        "end",
+    }
+end
+
 --- What stands in for one `@aot` declaration in the source it was written in.
 ---
 --- Everything `binding.module` emits for one program except the struct
@@ -774,7 +804,7 @@ function binding.replacement(
     includeDetector: boolean?,
     archive: binding.Archive?
 ): string
-    local lines: {string} = {}
+    local lines: {string} = binding.numericForGuard(program)
     -- Whether this replacement is the one carrying the module's feature query.
     -- It is emitted from inside the tier declarations below rather than here,
     -- so that the declaration's doc comment lands on something that has its
@@ -951,6 +981,7 @@ function binding.module(programs: {scalarIR.Program}, library: string?): string
     end
 
     for _, program in ipairs(programs) do
+        append(binding.numericForGuard(program))
         if program.entryMode == "lua-builder" then
             append(binding.builderLoader(program, library))
             lines[#lines + 1] = ""
