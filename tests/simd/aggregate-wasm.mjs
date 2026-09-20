@@ -1,7 +1,7 @@
 // A green subset is not full SIMD-11 coverage: require every declared shard.
 import { readFileSync, readdirSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
-import { verifyWasmInventory } from './verify-wasm-inventory.mjs';
+import { verifyWasmInventory, verifyCountedRuntime } from './verify-wasm-inventory.mjs';
 const directory = path.resolve(process.argv[2]);
 const expected = JSON.parse(readFileSync(process.argv[3], 'utf8'));
 const revision = process.argv[4];
@@ -54,6 +54,7 @@ for (const child of existsSync(directory) ? readdirSync(directory) : []) {
     continue;
   }
   try {
+    verifyCountedRuntime(summary.counted?.execution, summary.counted?.scalarC);
     for (const row of summary.rows) {
       verifyWasmInventory(row.execution, row.family, row.element, selection.lanes);
       verifyWasmInventory(row.scalarC, row.family, row.element, selection.lanes);

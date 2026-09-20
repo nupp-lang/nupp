@@ -34,7 +34,10 @@ function execution(shard, family, route) {
 function run(change) {
   const directory = mkdtempSync(path.join(tmpdir(), 'nupp-simd-aggregate-'));
   try {
+    const counted = (route) => ({ ok: true, tier: "simd128", executionPath: route, cases: 100, probes: 3, nativeCalls: 100,
+      symbols: { 'simdcounted.counted': 'a', 'simdcounted.literal': 'b', 'simdcounted.vector': 'c' } });
     const summaries = shards.map((shard) => ({ revision, requested_wasm_matrix_complete: true,
+      counted: { execution: counted('simd'), scalarC: counted('scalar-c') },
       selection: { types: [shard.element], families: ['primitives', 'reducers'], lanes: shard.lanes.split(',') },
       rows: ['primitives', 'reducers'].map((family) => ({ family, element: shard.element,
         execution: execution(shard, family, 'simd'),
@@ -56,6 +59,9 @@ test('all disjoint shards at one revision complete the inventory', () => {
   assert.equal(result.report.executedShards, 40);
 });
 for (const [name, change] of [
+  ['a wrong counted-runtime tier', (rows) => { rows[0].counted.execution.tier = 'scalar'; }],
+  ['missing counted-runtime evidence', (rows) => { delete rows[0].counted; }],
+  ['an unexecuted counted scalar route', (rows) => { rows[0].counted.scalarC.nativeCalls = 0; }],
   ['a missing shard', (rows) => rows.pop()],
   ['a duplicate selection', (rows) => { rows[1] = rows[0]; }],
   ['a different revision', (rows) => { rows[0].revision = 'old-revision'; }],

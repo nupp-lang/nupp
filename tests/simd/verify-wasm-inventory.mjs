@@ -45,3 +45,16 @@ export function verifyWasmInventory(execution, family, element, requested) {
   if (groups.size) throw new Error('Unexpected executed probe group');
   return { family, element, lanes, probes: symbols.length };
 }
+
+export function verifyCountedRuntime(execution, scalarC) {
+  const expected = ['simdcounted.counted', 'simdcounted.literal', 'simdcounted.vector'];
+  for (const [result, route] of [[execution, 'simd'], [scalarC, 'scalar-c']]) {
+    const names = Object.keys(result?.symbols ?? {});
+    if (!result?.ok || result.tier !== "simd128" || result.executionPath !== route || result.probes !== 3 ||
+        !(result.cases > 0) || !(result.nativeCalls >= expected.length) || names.length !== 3 ||
+        expected.some((name) => !names.includes(name))) {
+      throw new Error(`Incomplete counted-runtime ${route} execution`);
+    }
+  }
+  if (execution.cases !== scalarC.cases) throw new Error('Counted-runtime routes ran different cases');
+}

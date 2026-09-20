@@ -83,7 +83,10 @@ families through SIMD128 and scalar C. The final aggregation rejects missing,
 duplicated, wrong-revision, or partial shards before claiming the complete
 inventory. It derives each type and width from the emitted probe identities that
 returned on each route, so selection metadata cannot turn a smaller corpus into
-complete coverage. These jobs are separate from browser application tests.
+complete coverage. Each shard also runs the counted-loop runtime corpus on both routes, covering
+Lua 5.1 loop-entry rounding independently of the type/width inventory. Missing
+counted-loop execution evidence also fails aggregation. These jobs are separate
+from browser application tests.
 
 These are semantic tests, not benchmarks. The reports do not measure speed or
 claim that a compiler chose a particular machine instruction for every operation.

@@ -1,6 +1,6 @@
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { verifyWasmInventory } from "./verify-wasm-inventory.mjs";
+import { verifyWasmInventory, verifyCountedRuntime } from "./verify-wasm-inventory.mjs";
 const directory = path.resolve(process.argv[2]);
 const rows = [];
 for (const family of ["primitives", "reducers"]) {
@@ -37,7 +37,12 @@ for (const row of rows) {
   row.executedInventory = verifyWasmInventory(row.execution, row.family, row.element, selection.lanes);
   verifyWasmInventory(row.scalarC, row.family, row.element, selection.lanes);
 }
-const report = { schemaVersion: 1, selection,
+const counted = {
+  execution: JSON.parse(readFileSync(path.join(directory, "counted/result.json"), "utf8")),
+  scalarC: JSON.parse(readFileSync(path.join(directory, "counted/scalar-c/result.json"), "utf8")),
+};
+verifyCountedRuntime(counted.execution, counted.scalarC);
+const report = { schemaVersion: 1, selection, counted,
   revision: readFileSync(path.join(directory, "revision.txt"), "utf8").trim(),
   compilerVersion: readFileSync(path.join(directory, "compiler.txt"), "utf8").trim(),
   runtime: process.version, requested_wasm_matrix_complete: true, rows,
