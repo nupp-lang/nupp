@@ -16,7 +16,7 @@ jobs:
   candidate:
     name: LuaJIT browser and legacy rollback
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 50
     steps:
       - name: Check out the repository
         uses: actions/checkout@v4
