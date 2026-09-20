@@ -52,9 +52,13 @@ before timing; they share the same patched LuaJIT executable and byte-identical
 Lua wrappers. Final comment-only source cleanup emitted byte-identical C. Rebuilding after
 the CPU counted-loop fix and concurrent host-reload integration also produced
 byte-identical C, and all nine compiled differentials passed again. The final
-fixpoint passed on `0d3107ec` (compiler base `9f9d2f78`). Its rebase to
-`874b8cda` adds only a manifest refusal for reload targets, which this benchmark
-does not enable; independent source review found no affected execution path.
+integration (`d73d7009`, compiler base `c4edc459`) was rebuilt after the
+`@unsafe` migration and stage-zero pin advance to 0.0.10. Its C still matches
+the measured candidate byte-for-byte, direct native-C entry was observed,
+nine native and nine portable differentials passed, formatting is clean,
+and the new-pin compiler fixpoint is byte-identical. Earlier integration
+checks and the initial declaration-refresh notice are preserved in the record.
+
 
 The frozen practical margin is 1%: the ASCII candidate/baseline throughput
 interval must lie above `1 / 0.99`, and both Unicode lower bounds must exceed
