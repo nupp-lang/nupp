@@ -243,6 +243,12 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         io.stderr:write("nupp: host must be native or browser\n")
         return 1
     end
+    if target.host == "browser" and target.platforms ~= nil then
+        io.stderr:write(
+            "nupp: platforms selects native binary hosts and cannot be combined with host = \"browser\" or --host browser\n"
+        )
+        return 1
+    end
     if target.host == "browser" and dialect ~= "lua51" then
         if target.layoutTarget ~= nil and target.layoutTarget ~= "i686-unknown-linux-gnu" then
             io.stderr:write("nupp: the LuaJIT browser guest requires layoutTarget i686-unknown-linux-gnu\n")

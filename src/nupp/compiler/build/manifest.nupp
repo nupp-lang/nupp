@@ -824,6 +824,9 @@ local function validateTarget(target, label, dependencies)
     if target.host ~= nil and target.host ~= "native" and target.host ~= "browser" then
         return nil, label .. ".host must be \"native\" or \"browser\""
     end
+    if target.host == "browser" and target.platforms ~= nil then
+        return nil, label .. ".platforms selects native binary hosts and cannot be combined with host = \"browser\""
+    end
     local _, dialectErr = dialects.resolve(target.dialect, label .. ".dialect")
     if dialectErr then
         return nil, dialectErr
