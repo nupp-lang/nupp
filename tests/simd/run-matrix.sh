@@ -12,7 +12,7 @@ fi
 ./bin/nupp build
 output=${NUPP_SIMD_OUTPUT:-$repo/build/simd-matrix}
 mkdir -p "$output"
-if [[ -f "$output/matrix.tsv" ]]; then
+if [[ -f "$output/matrix.tsv" || -f "$output/selection.json" ]]; then
   echo "Refusing to overwrite SIMD matrix evidence: $output/matrix.tsv" >&2
   exit 2
 fi
@@ -44,6 +44,12 @@ if [[ -n ${NUPP_SIMD_TIERS:-} ]]; then
     case "$tier" in baseline|avx2|avx512f|neon) ;; *) echo "Unknown tier: $tier" >&2; exit 2 ;; esac
   done
 fi
+# Freeze the request before capability probing or any corpus can fail.
+join_csv() { local IFS=,; printf '%s' "$*"; }
+luajit tests/simd/select-native.lua "$output" "$(join_csv "${compilers[@]}")" \
+  "$(join_csv "${tiers[@]}")" "$(join_csv "${families[@]}")" \
+  "$(join_csv "${types[@]}")" "$(join_csv "${algorithms[@]}")" "${NUPP_SIMD_LANES:-all}"
+: > "$output/matrix.tsv"
 status=0
 index=0
 for compiler in "${compilers[@]}"; do
@@ -51,10 +57,18 @@ for compiler in "${compilers[@]}"; do
   compiler_dir="$output/compiler-$index"
   mkdir -p "$compiler_dir"
   printf '%s\n' "$compiler" > "$compiler_dir/command.txt"
-  "$compiler" --version > "$compiler_dir/version.txt"
-  "$compiler" -dumpmachine > "$compiler_dir/target.txt"
-  "$compiler" -std=c11 -O2 -Wall -Wextra -Werror tests/simd/capabilities.c -o "$compiler_dir/capabilities.exe"
-  "$compiler_dir/capabilities.exe" | tr -d '\r' > "$compiler_dir/tiers.txt"
+  if ! {
+    "$compiler" --version > "$compiler_dir/version.txt" &&
+    "$compiler" -dumpmachine > "$compiler_dir/target.txt" &&
+    "$compiler" -std=c11 -O2 -Wall -Wextra -Werror tests/simd/capabilities.c -o "$compiler_dir/capabilities.exe" &&
+    "$compiler_dir/capabilities.exe" | tr -d '\r' > "$compiler_dir/tiers.txt"
+  } > "$compiler_dir/setup.log" 2>&1; then
+    for tier in "${tiers[@]}"; do
+      printf '%s\t%s\t-\t-\tfailed\t%s\n' "$index" "$tier" "$compiler_dir/setup.log" >> "$output/matrix.tsv"
+    done
+    status=1
+    continue
+  fi
   for tier in "${tiers[@]}"; do
     if ! grep -Fxq "$tier" "$compiler_dir/tiers.txt"; then
       printf '%s\t%s\t-\t-\tnot-executed\t%s\n' "$index" "$tier" "$compiler_dir/tiers.txt" >> "$output/matrix.tsv"
