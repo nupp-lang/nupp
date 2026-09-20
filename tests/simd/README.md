@@ -78,7 +78,9 @@ CI shards Wasm by all ten element types and four disjoint width batches:
 2–17, 18–33, 34–49, and 50–64 plus Preferred. Every shard runs both corpus
 families through SIMD128 and scalar C. The final aggregation rejects missing,
 duplicated, wrong-revision, or partial shards before claiming the complete
-inventory. These jobs are separate from browser application tests.
+inventory. It derives each type and width from the emitted probe identities that
+returned on each route, so selection metadata cannot turn a smaller corpus into
+complete coverage. These jobs are separate from browser application tests.
 
 These are semantic tests, not benchmarks. The reports do not measure speed or
 claim that a compiler chose a particular machine instruction for every operation.

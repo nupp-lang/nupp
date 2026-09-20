@@ -1,5 +1,6 @@
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { verifyWasmInventory } from "./verify-wasm-inventory.mjs";
 const directory = path.resolve(process.argv[2]);
 const rows = [];
 for (const family of ["primitives", "reducers"]) {
@@ -31,6 +32,10 @@ if (rows.length !== selection.types.length * selection.families.length ||
     selection.types.some((element) => selection.families.some((family) =>
       rows.filter((row) => row.element === element && row.family === family).length !== 1))) {
   throw new Error("Wasm execution rows do not match the requested selection");
+}
+for (const row of rows) {
+  row.executedInventory = verifyWasmInventory(row.execution, row.family, row.element, selection.lanes);
+  verifyWasmInventory(row.scalarC, row.family, row.element, selection.lanes);
 }
 const report = { schemaVersion: 1, selection,
   revision: readFileSync(path.join(directory, "revision.txt"), "utf8").trim(),
