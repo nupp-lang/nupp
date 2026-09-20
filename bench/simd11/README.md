@@ -50,6 +50,7 @@ From the repository root:
 python3 bench/simd11/measure.py --prepare
 python3 bench/simd11/measure.py --check
 python3 bench/simd11/measure.py --measure /private/tmp/simd11-measurement.json
+python3 bench/simd11/measure.py --report /private/tmp/simd11-measurement.json
 ```
 
 Preparation records generated C, IR, checked bindings, native assembly, flags,

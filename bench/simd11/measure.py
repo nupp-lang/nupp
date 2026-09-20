@@ -308,6 +308,28 @@ def measure(destination):
     print(json.dumps({"controlCV": cv, "qualified": result["qualified"], "summary": summaries}, indent=2))
 
 
+def report(source):
+    data = json.loads(source.read_text())
+    metadata = data["metadata"]
+    if "summary" not in data:
+        destination = source.with_suffix(".md")
+        destination.write_text("# Excluded SIMD measurement attempt\n\nNo timing verdict. " + data.get("exclusion", "The run did not complete.") + "\n\n[Preserved attempt](" + source.name + ")\n")
+        print(destination)
+        return
+    lines = ["# Complete-function SIMD measurements", "", "Qualified: **" + str(data["qualified"]).lower() + "**. Colocated control CV: **%.2f%%**." % (100 * data["controlCV"]), "",
+             "Nine fresh processes, fifteen alternating pairs per process, three warmups. Ratios are native/no-vector elapsed durations; lower is faster. The 95% Student-t interval uses process-level median paired log ratios, with a 1% practical margin.", "",
+             "| Function | Elements | Duration ratio | 95% interval | Verdict |", "| --- | ---: | ---: | --- | --- |"]
+    for row in data["summary"]:
+        low, high = row["confidence95"]
+        lines.append("| %s | %d | %.5f | [%.5f, %.5f] | %s |" % (row["name"], row["elements"], row["ratio"], low, high, row["verdict"]))
+    lines += ["", "Compiler revision: `" + metadata["revision"] + "`. Target: `" + metadata["target"]["triple"] + "` / `" + metadata["target"]["tier"] + "`. Host: " + metadata["host"] + ".", "",
+              "The comparison uses the complete exported C entry and an optimized scalar-source control with automatic vectorization disabled. Original O0 scalar oracles are correctness checks only. Lua span wrappers and cold loading are outside this timing scope. Independent formulas and UTF-8 decoding also check answers before timing.", "",
+              "[Raw samples, compiler/flags, artifact hashes, assembly contracts and environment observations](" + source.name + ") are retained. Historical Mandelbrot, Base64 and fused JSON comparisons remain separately identified in the parent README.", ""]
+    destination = source.with_suffix(".md")
+    destination.write_text("\n".join(lines))
+    print(destination)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     group = parser.add_mutually_exclusive_group(required=True)
@@ -315,8 +337,10 @@ if __name__ == "__main__":
     group.add_argument("--check", action="store_true")
     group.add_argument("--worker", type=int)
     group.add_argument("--measure", type=Path)
+    group.add_argument("--report", type=Path)
     args = parser.parse_args()
     if args.prepare: prepare()
     elif args.check: worker(0, True)
     elif args.worker is not None: worker(args.worker)
+    elif args.report: report(args.report)
     else: measure(args.measure)
