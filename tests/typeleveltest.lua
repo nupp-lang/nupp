@@ -1964,6 +1964,25 @@ function M.simdSpeciesIdentityIsInvariantAndComparisonsReturnMasks()
     )
 end
 
+function M.simdMaskEqualityReturnsLaneMasksAndRejectsOrdering()
+    local prefix = [[
+local simd = require("nupp.simd")
+local left: simd.Mask<uint8, simd.Fixed<3>> = nil as any
+local right: simd.Mask<uint8, simd.Fixed<3>> = nil as any
+]]
+    clean(prefix .. [[
+local same: simd.Mask<uint8, simd.Fixed<3>> = left == right
+local different: simd.Mask<uint8, simd.Fixed<3>> = left ~= right
+return same:select(4, 2), different:any()
+]])
+    assertEq(codes(prefix .. "return left < right"), "NUPP2003")
+    assertEq(codes(prefix .. "return left == true"), "NUPP2003")
+    assertEq(codes(prefix .. [[
+local other: simd.Mask<uint8, simd.Fixed<4>> = nil as any
+return left == other
+]]), "NUPP2006")
+end
+
 function M.narrowStorageWidthsAreValidOnlyInsideCompilerOwnedSimdFamilies()
     clean(
         table.concat(
