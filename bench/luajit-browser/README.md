@@ -80,7 +80,7 @@ consumers. It is a textual search and does not certify deletion eligibility.
 | `dialects`, `gen`, portable branches in checker | Keep through rollback release; preserve shared semantics before deleting only alternate lowering |
 | `capabilities`, `runtimesurface`, `standardsurface` | Separate source compatibility from runtime/platform requirements |
 | manifest Wasm validation, AOT emission, Wasm side modules | Migrate platform schema and Lua-C-API binding before removing legacy host |
-| services catalog and representation selection | Keep native/browser service boundaries; audit each provider's consumers |
+| SPI discovery, facade fallbacks and representation selection | Keep native/browser provider boundaries; audit each provider's consumers |
 | browser compiler, prelude images and three portable targets | Build and test LuaJIT candidates; retain portable guards during rollback release |
 | playground workers, settings, URLs, doc examples | Migrate together after packaged runtime and latency acceptance |
 | release, packaging, notices and toolchain pins | Source-built guest and matching-source distribution required before publication |
@@ -88,8 +88,8 @@ consumers. It is a textual search and does not certify deletion eligibility.
 Automatic bitops, int64 and structvalue lowering is deliberately absent from
 `compat=lua51`. `scalarbitops.nupp` is an ordinary arithmetic implementation;
 the compatibility test checks a public library using that actual source.
-`int64.nupp` is a service facade, not a portable integer implementation.
-`representation.nupp` selects native or Wasm storage; `wasmstoragefactory.nupp`
+`int64.nupp` is an SPI provider facade, not a portable integer implementation.
+`representation/init.nupp` selects native or Wasm storage; `wasmstoragefactory.nupp`
 requires a memory host and takes its integer operations from that host.
 `tablestruct.nupp` is the table implementation. These files have live consumers
 through the legacy compiler/runtime and cannot yet be deleted. An internal
