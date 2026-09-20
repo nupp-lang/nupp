@@ -2655,7 +2655,7 @@ return {triangular = triangular}
     -- kernel `cdef` binds eagerly too and would raise LuaJIT's own message first.
     local module = assert(read(dir .. "/out/main.lua"))
     local at = module:find(probe, 1, true)
-    local kernel = module:find("ks_[0-9a-f]+_triangular")
+    local kernel = module:find("ks_[0-9a-f]+_triangular__")
     assert(at and kernel and at < kernel, "the archive probe is checked first")
     assert(module:find("was not linked into the host", 1, true), "a missing probe says the archive was not linked")
     assert(
