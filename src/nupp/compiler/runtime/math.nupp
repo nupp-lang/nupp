@@ -1094,12 +1094,12 @@ end
 ---
 --- The angle lands in `[0, 2pi]` and is not folded into `[0, pi]`, because `q` and
 --- `-q` are the same rotation reached the two opposite ways around and which one was
---- passed is the caller's to keep. The identity answers the x axis and a zero angle,
---- so the result always names a real axis.
+--- passed is the caller's to keep. The positive and negative identities answer the x
+--- axis with zero and `2pi` respectively, so the result always names a real axis.
 function quat.toAxisAngle(x: number, y: number, z: number, w: number): number, number, number, number
     local length = math.sqrt(x * x + y * y + z * z)
     if length == 0 then
-        return 1, 0, 0, 0
+        return 1, 0, 0, w < 0 and 2 * pi or 0
     end
     local clamped = w < -1 and -1 or (w > 1 and 1 or w)
 
@@ -1127,26 +1127,38 @@ function quat.fromTo(
     local ux, uy, uz = ax / alength, ay / alength, az / alength
     local vx, vy, vz = bx / blength, by / blength, bz / blength
     local d = ux * vx + uy * vy + uz * vz
-    if d < -0.999999 then
-        -- Opposed. Any axis across the direction turns it onto the other, so take the
-        -- cross with whichever principal axis it leans on least, which is the one
-        -- choice that cannot itself be parallel to it.
-        local px, py, pz = 0.0, 0.0, 0.0
-        if math.abs(ux) <= math.abs(uy) and math.abs(ux) <= math.abs(uz) then
-            px = 1.0
-        elseif math.abs(uy) <= math.abs(uz) then
-            py = 1.0
-        else
-            pz = 1.0
-        end
-        local cx, cy, cz = uy * pz - uz * py, uz * px - ux * pz, ux * py - uy * px
-        local clength = math.sqrt(cx * cx + cy * cy + cz * cz)
+    local cx, cy, cz = uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx
+    local clength = math.sqrt(cx * cx + cy * cy + cz * cz)
+    if d < 0 then
+        if clength == 0 then
+            -- Opposed. Any axis across the direction turns it onto the other, so take
+            -- the cross with whichever principal axis it leans on least, which is the
+            -- one choice that cannot itself be parallel to it.
+            local px, py, pz = 0.0, 0.0, 0.0
+            if math.abs(ux) <= math.abs(uy) and math.abs(ux) <= math.abs(uz) then
+                px = 1.0
+            elseif math.abs(uy) <= math.abs(uz) then
+                py = 1.0
+            else
+                pz = 1.0
+            end
+            cx, cy, cz = uy * pz - uz * py, uz * px - ux * pz, ux * py - uy * px
+            clength = math.sqrt(cx * cx + cy * cy + cz * cz)
 
-        return cx / clength, cy / clength, cz / clength, 0
+            return cx / clength, cy / clength, cz / clength, 0
+        end
+
+        -- Near opposition, `1 + d` loses the small scalar component before the cross
+        -- product loses the angle. Recover that component through the stable
+        -- half-angle identity, including when the dot product rounded to minus one.
+        local clamped = d < -1 and -1 or d
+        local sinHalf = math.sqrt((1 - clamped) / 2)
+        local factor = sinHalf / clength
+
+        return cx * factor, cy * factor, cz * factor, clength / (2 * sinHalf)
     end
     -- The half-way form: the cross product with `1 + d` in the scalar part names the
     -- rotation of twice the angle, and normalizing halves it back.
-    local cx, cy, cz = uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx
     local sw = 1 + d
     local length = math.sqrt(cx * cx + cy * cy + cz * cz + sw * sw)
 

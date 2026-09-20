@@ -2655,7 +2655,8 @@ record nupp.QuatLibrary
     --- @return the axis's x component, or one for the identity
     --- @return the axis's y component, or zero for the identity
     --- @return the axis's z component, or zero for the identity
-    --- @return the turn about the axis in radians, or zero for the identity
+    --- @return the turn about the axis in radians, zero for positive identity or `2pi`
+    ---     for negative identity
     toAxisAngle: function(x: number, y: number, z: number, w: number): (number, number, number, number)
 
     --- Returns the shortest rotation carrying one direction onto another.

@@ -195,6 +195,12 @@ function M.axisAngleRoundTrips()
     local negatedAxisX, _, _, negatedAngle = quat.toAxisAngle(-unitX, -unitY, -unitZ, -unitW)
     assertNear(negatedAngle, 2 * math.pi - 1.0, "the negated spelling turns the long way")
     assertNear(negatedAxisX, 0, "the negated spelling keeps an x-free axis")
+
+    local identityAxisX, identityAxisY, identityAxisZ, identityAngle = quat.toAxisAngle(0, 0, 0, -1)
+    assertNear(identityAxisX, 1, "negative identity names the x axis")
+    assertNear(identityAxisY, 0, "negative identity has no y axis component")
+    assertNear(identityAxisZ, 0, "negative identity has no z axis component")
+    assertNear(identityAngle, 2 * math.pi, "negative identity keeps the full turn")
 end
 
 function M.fromToCarriesOneDirectionOntoAnother()
@@ -230,6 +236,17 @@ function M.fromToHandlesOpposedDirections()
         assertNear(rx, -direction[1], "the opposed turn reverses x", 1e-11)
         assertNear(ry, -direction[2], "the opposed turn reverses y", 1e-11)
         assertNear(rz, -direction[3], "the opposed turn reverses z", 1e-11)
+    end
+end
+
+function M.fromToDoesNotSnapNearOpposedDirections()
+    for _, angle in ipairs({0.001, 1e-9}) do
+        local bx, by = -math.cos(angle), math.sin(angle)
+        local x, y, z, w = quat.fromTo(1, 0, 0, bx, by, 0)
+        local rx, ry, rz = quat.rotate(x, y, z, w, 1, 0, 0)
+        assertNear(rx, bx, "a near-opposed turn reaches x", 1e-12)
+        assertNear(ry, by, "a near-opposed turn reaches y", 1e-12)
+        assertNear(rz, 0, "a near-opposed turn reaches z", 1e-12)
     end
 end
 
