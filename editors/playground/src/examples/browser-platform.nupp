@@ -2,7 +2,6 @@
 -- one suspension boundary to the application Worker and its browser APIs.
 
 local random = require("nupp.random")
-local storage = require("nupp.io.storage")
 local time = require("nupp.time")
 local mac = require("nupp.mac")
 local digests = require("nupp.digest")
@@ -11,10 +10,8 @@ local uuid = require("nupp.util")
 time.sleep(10)
 local key = uuid.uuid4()
 local digest = digests.hexDigest("sha256", random.randomBytes(32))
-storage.set(key, digest)
-print(key, storage.get(key))
+print(key, digest)
 print(mac.hexDigest("hmac-sha256", "key", "browser message"))
-storage.remove(key)
 
--- try breaking it: pass a negative count to randomBytes, or an empty storage
--- key, and read the checked provider error
+-- try breaking it: pass a negative count to randomBytes and read the checked
+-- provider error

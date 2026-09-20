@@ -46,10 +46,8 @@ self.addEventListener("message", async (event) => {
         maxEffects: 128,
         maxEffectBytes: 2 * 1024 * 1024,
         maxResponseBytes: 4 * 1024 * 1024,
-        maxStorageValueBytes: 512 * 1024,
         deadlineMs: 5000,
       },
-      storageName: `nupp-playground-${programDigest.slice(0, 24)}`,
     });
     self.postMessage({ok: true, result});
   } catch (error) {

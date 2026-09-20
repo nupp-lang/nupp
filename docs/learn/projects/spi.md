@@ -131,7 +131,6 @@ target and host conditions.
 | `nupp.random.spi` | `CryptoProvider` |
 | `nupp.io.path.spi` | `PathProvider` |
 | `nupp.io.uri.spi` | `UriTextProvider` |
-| `nupp.io.storage.spi` | `StorageProvider` |
 | `nupp.time.spi` | `TimeProvider` |
 | `nupp.runtime.bitops.spi` | `BitopsProvider` |
 | `nupp.runtime.uuid.spi` | `UuidProvider` |

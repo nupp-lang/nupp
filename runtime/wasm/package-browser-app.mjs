@@ -228,7 +228,6 @@ export function packageBrowserApp(options) {
       maxEffects: reachedWorkers ? 262144 : 256,
       maxEffectBytes: reachedWorkers ? 268435456 : 4194304,
       maxResponseBytes: reachedWorkers ? 268435456 : 8388608,
-      maxStorageValueBytes: 1048576,
       deadlineMs: 30000,
     },
   };

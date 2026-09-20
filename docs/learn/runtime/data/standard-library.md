@@ -74,8 +74,6 @@ intrinsic namespaces and the declared modules:
   a host provider.
 - [](nupp.system) reports execution platform, architecture, endianness, pointer
   width and available parallelism, independently of the worker scheduler.
-- [](nupp.io.storage) provides persistent key-value storage through the require-time
-  provider.
 - [](nupp.io) owns byte buffers, readers, writers, and typed scalar reads and
   writes over them.
 - [](nupp.io.files) owns filesystem metadata and directories.

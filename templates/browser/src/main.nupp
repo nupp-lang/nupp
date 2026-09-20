@@ -1,22 +1,17 @@
 local random = require("nupp.random")
 local digests = require("nupp.digest")
 local uuid = require("nupp.util")
-local storage = require("nupp.io.storage")
 local time = require("nupp.time")
 local json = require("nupp.codec.json")
 
 local started = time.now()
 time.sleep(10)
 
-local key = uuid.uuid4()
 local digest = digests.hexDigest("sha256", random.randomBytes(32))
-storage.set(key, digest)
-local stored = storage.get(key)
-storage.remove(key)
 
 return json.encode({
     project = "${name}",
     elapsedMilliseconds = time.now() - started,
     digest = digest,
-    persisted = stored == digest,
+    identifier = uuid.uuid4(),
 })

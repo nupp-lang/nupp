@@ -39,7 +39,6 @@ export function run(options = {}) {
     type: "run",
     manifest: new URL("./nupp-browser-app.json", import.meta.url).href,
     limits: options.limits,
-    storageName: options.storageName,
   });
   launchedPromise = result;
   return result;

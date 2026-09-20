@@ -52,14 +52,6 @@ local FEATURES: {[string]: native.Feature} = {
         "runtime.crypto"
     ] = {name = "crypto_runtime", module = "nupp.random", runtimeModule = "nupp.random", portableRuntime = true},
     [
-        "runtime.storage"
-    ] = {
-        name = "storage_runtime",
-        module = "nupp.io.storage",
-        runtimeModule = "nupp.io.storage",
-        portableRuntime = true
-    },
-    [
         "runtime.http"
     ] = {
         name = "http_runtime",

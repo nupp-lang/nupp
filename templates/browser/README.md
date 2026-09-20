@@ -2,8 +2,8 @@
 
 A Nupp browser application. Ordinary code lowers to Lua 5.1 and runs in a
 WebAssembly-hosted Lua VM. Checked providers use Web Crypto, browser timers,
-randomness, and IndexedDB at suspension boundaries. The selected browser
-catalog also carries the standard HTTP provider for applications that need it.
+and randomness at suspension boundaries. The selected browser catalog also
+carries the standard HTTP provider for applications that need it.
 
 ```sh
 nupp check
@@ -26,6 +26,6 @@ nupp task serve
 ```
 
 Open <http://127.0.0.1:8787>. The page executes the packaged Lua bundle in a
-Worker, hashes random bytes with Web Crypto, waits on a browser timer, and
-round-trips a value through IndexedDB. `dist/browser/nupp-browser-app.json`
-records the verified, content-addressed assets and runtime limits.
+Worker, hashes random bytes with Web Crypto, and waits on a browser timer.
+`dist/browser/nupp-browser-app.json` records the verified, content-addressed
+assets and runtime limits.

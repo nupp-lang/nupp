@@ -442,23 +442,6 @@ test("browser WebGPU effects reject invalid uint32 input before opening a device
   assert.match(result.responses[0].error, /input must be a uint32/);
 });
 
-test("browser storage effects preserve values through the provider contract", async () => {
-  const values = new Map();
-  const storage = {
-    get: async (key) => values.get(key),
-    set: async (key, value) => values.set(key, value),
-    remove: async (key) => values.delete(key),
-    clear: async () => values.clear(),
-  };
-  const run = (requests) => handleBrowserEffects({kind: "effects", requests}, {storage});
-  await run([{id: 1, kind: "storage", operation: "set", key: "answer", value: "42"}]);
-  const found = await run([{id: 2, kind: "storage", operation: "get", key: "answer"}]);
-  assert.deepEqual(found.responses[0], {id: 2, ok: true, value: {found: true, value: "42"}});
-  await run([{id: 3, kind: "storage", operation: "remove", key: "answer"}]);
-  const missing = await run([{id: 4, kind: "storage", operation: "get", key: "answer"}]);
-  assert.deepEqual(missing.responses[0], {id: 4, ok: true, value: {found: false}});
-});
-
 test("browser effect quotas fail before host work begins", async () => {
   const requests = Array.from({length: 3}, (_, index) => ({
     id: index + 1, kind: "time", operation: "now",

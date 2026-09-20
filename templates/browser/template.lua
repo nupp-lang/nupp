@@ -2,7 +2,7 @@
 -- host. Packaging needs the Nupp source distribution because that is where the
 -- pinned Emscripten host builder currently lives.
 return {
-    description = "A browser application using crypto, timers, and storage",
+    description = "A browser application using crypto and timers",
 
     variables = {
         name = {

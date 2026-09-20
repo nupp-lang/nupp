@@ -24,7 +24,6 @@ self.addEventListener("message", async (event) => {
     const result = await runPackagedNuppWasmApp(message.manifest, {
       signal: controller.signal,
       limits: message.limits,
-      storageName: message.storageName,
     });
     self.postMessage({id: message.id, ok: true, result});
   } catch (error) {

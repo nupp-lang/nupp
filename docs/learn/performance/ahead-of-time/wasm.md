@@ -179,20 +179,17 @@ through an HTTP server.
 
 ## Browser platform services
 
-Browser facades select implementations during module initialization for HTTP, URI,
-suspension, time, random bytes, UUIDs, and persistent string storage when
-required. SHA-256 and HMAC-SHA256 are ordinary portable functions:
+Browser facades select implementations during module initialization for HTTP,
+URI, suspension, time, random bytes, and UUIDs when required. SHA-256 and
+HMAC-SHA256 are ordinary portable functions:
 
 ```nupp
 local random = nupp.random
-local storage = nupp.io.storage
 local time = nupp.time
 
 time.sleep(10)
 local token = random.randomBytes(32)
-storage.set("session", token)
-local restored = storage.get("session")
-print(restored and #restored or 0)
+print(#token)
 ```
 
 A browser target uses ordinary entry modules:
@@ -207,9 +204,8 @@ app = {
 
 Facades resolve compatible providers while requiring their modules. The checked
 Lua provider suspends the application and sends one effect to the Worker. The
-Worker uses `fetch`, `setTimeout`, Worker clocks, Web Crypto, or IndexedDB and
-resumes Lua with the result. Pure Lua work and AOT kernels do not cross the
-effect boundary.
+Worker uses `fetch`, `setTimeout`, Worker clocks, or Web Crypto and resumes Lua
+with the result. Pure Lua work and AOT kernels do not cross the effect boundary.
 
 `nupp.runtime.browser.workers` implements `nupp.workers.spi.Provider`, so a browser application runs
 [worker tasks](../../runtime/concurrency/workers.md) on a bounded pool of lane Workers. Each
@@ -228,10 +224,6 @@ print(digest.hexDigest("sha256", "payload"))
 print(mac.hexDigest("hmac-sha256", "key", "payload"))
 print(nupp.util.uuid4(), nupp.util.uuid7())
 ```
-
-Persistent storage maps string keys to string values. Each application package
-uses an IndexedDB database derived from its content digest; callers embedding
-the runtime can provide another database name or a storage adapter.
 
 ## WebGPU
 

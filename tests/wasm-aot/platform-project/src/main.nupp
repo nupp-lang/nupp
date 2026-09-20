@@ -1,5 +1,4 @@
 local browserRandom = require("nupp.random")
-local browserStorage = require("nupp.io.storage")
 local browserTime = require("nupp.time")
 local digest = require("nupp.digest")
 local mac = require("nupp.mac")
@@ -11,9 +10,6 @@ local system = require("nupp.system")
 local started = browserTime.now()
 browserTime.sleep(1)
 local elapsed = browserTime.now() - started
-browserStorage.set("browser-platform-smoke", "persisted")
-local stored = browserStorage.get("browser-platform-smoke")
-browserStorage.remove("browser-platform-smoke")
 
 return json.encode({
     platform = system.platform,
@@ -32,5 +28,4 @@ return json.encode({
     hmac = mac.hexDigest("hmac-sha256", "key", "abc"),
     uuid4 = uuid.uuid4(),
     uuid7 = uuid.uuid7(),
-    stored = stored,
 })

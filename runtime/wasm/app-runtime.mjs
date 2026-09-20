@@ -15,7 +15,6 @@ const DEFAULT_LIMITS = Object.freeze({
   maxEffects: 256,
   maxEffectBytes: 4 * 1024 * 1024,
   maxResponseBytes: 8 * 1024 * 1024,
-  maxStorageValueBytes: 1024 * 1024,
   deadlineMs: 30_000,
 });
 
@@ -449,81 +448,6 @@ async function performGpuEffect(effect, options) {
   }
 }
 
-function openStorage(name, indexedDB = globalThis.indexedDB) {
-  if (!indexedDB) throw new Error("IndexedDB is unavailable in this Worker");
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open(name, 1);
-    request.onupgradeneeded = () => request.result.createObjectStore("values");
-    request.onerror = () => reject(request.error || new Error("cannot open browser storage"));
-    request.onsuccess = () => resolve(request.result);
-  });
-}
-
-function idbRequest(request) {
-  return new Promise((resolve, reject) => {
-    request.onerror = () => reject(request.error || new Error("browser storage request failed"));
-    request.onsuccess = () => resolve(request.result);
-  });
-}
-
-async function defaultStorage(options) {
-  if (!options.storagePromise) {
-    options.storagePromise = openStorage(
-      options.storageName || "nupp-browser-application", options.indexedDB,
-    );
-  }
-  const database = await options.storagePromise;
-  return {
-    async get(key) {
-      const value = await idbRequest(database.transaction("values").objectStore("values").get(key));
-      return value === undefined ? undefined : String(value);
-    },
-    async set(key, value) {
-      await idbRequest(database.transaction("values", "readwrite").objectStore("values").put(value, key));
-    },
-    async remove(key) {
-      await idbRequest(database.transaction("values", "readwrite").objectStore("values").delete(key));
-    },
-    async clear() {
-      await idbRequest(database.transaction("values", "readwrite").objectStore("values").clear());
-    },
-  };
-}
-
-async function performStorageEffect(effect, options) {
-  const storage = options.storage || await defaultStorage(options);
-  // A cancelled run was told its turn never completed, so it must stop
-  // committing. Best-effort: an abort landing mid-transaction still lands,
-  // but one that already happened does not go on writing.
-  if (options.signal?.aborted) {
-    throw options.signal.reason || new DOMException("The operation was aborted", "AbortError");
-  }
-  if (effect.operation === "clear") {
-    await storage.clear();
-    return null;
-  }
-  if (typeof effect.key !== "string" || effect.key.length === 0 ||
-      textEncoder.encode(effect.key).length > 1024) {
-    throw new Error("browser storage keys must contain 1 through 1024 UTF-8 bytes");
-  }
-  if (effect.operation === "get") {
-    const value = await storage.get(effect.key);
-    return value === undefined || value === null ? {found: false} : {found: true, value: String(value)};
-  }
-  if (effect.operation === "remove") {
-    await storage.remove(effect.key);
-    return null;
-  }
-  if (effect.operation === "set" && typeof effect.value === "string") {
-    if (textEncoder.encode(effect.value).length > options.limits.maxStorageValueBytes) {
-      throw new Error(`browser storage value exceeded ${options.limits.maxStorageValueBytes} bytes`);
-    }
-    await storage.set(effect.key, effect.value);
-    return null;
-  }
-  throw new Error("invalid browser storage operation");
-}
-
 async function performHttpEffect(effect, options) {
   if (effect.operation === "read-body") {
     const saved = options.httpBodies?.get(effect.body);
@@ -652,7 +576,6 @@ export async function handleBrowserEffects(message, options = {}) {
       }
       else if (effect.kind === "sha256") value = await performSha256Effect(effect, options);
       else if (effect.kind === "hmac-sha256") value = await performHmacEffect(effect, options);
-      else if (effect.kind === "storage") value = await performStorageEffect(effect, options);
       else if (effect.kind === "gpu") value = await performGpuEffect(effect, options);
       else throw new Error(`unsupported browser effect ${effect.kind}`);
       return {id: effect.id, ok: true, value};
@@ -817,8 +740,6 @@ export async function runNuppWasmApp({
   fetch,
   signal,
   limits,
-  storage,
-  storageName,
   initialize,
   managed,
 }) {
@@ -862,7 +783,7 @@ export async function runNuppWasmApp({
   const source = app instanceof Uint8Array ? app : new Uint8Array(app);
   return driveApplication(module, source, {
     effects, effectHandlers, resetLimits, fetch, signal,
-    limitOverrides: limits, storage, storageName, managed,
+    limitOverrides: limits, managed,
   });
 }
 
@@ -933,8 +854,6 @@ export async function runPackagedNuppWasmApp(manifestUrl, options = {}) {
       fetch: fetchAsset,
       signal: options.signal,
       limits: options.limits || manifest.limits,
-      storage: options.storage,
-      storageName: options.storageName || `nupp-${manifest.app.sha256.slice(0, 24)}`,
     });
   } finally {
     pool?.close();
