@@ -2027,7 +2027,7 @@ end
 --- instantiation of it per species the program mentions, after the header's
 --- width block has defined the native species it is built from.
 --- @raises when a fixed species has fewer than two or more than 64 lanes
-local function fixedSimdPrelude(context: emit.Context, width: integer): {string}
+local function fixedSimdPrelude(context: emit.Context, width: integer, nativeWidths: {[integer]: boolean}): {string}
     local lines: {string} = {}
     local keys: {string} = {}
     for key in pairs(context.explicitFixedTypes) do
@@ -2057,7 +2057,7 @@ local function fixedSimdPrelude(context: emit.Context, width: integer): {string}
         end
         lanes = lanes as integer
         local nativeLanes = width / element.bytes
-        if lanes ~= nativeLanes then
+        if nativeWidths[(lanes * element.bytes) as integer] ~= true then
             local chunks = math.ceil(lanes / nativeLanes) as integer
             lines[
                 #lines + 1
@@ -2088,14 +2088,10 @@ end
 --- helpers exactly once. `KS_LUA_BUILDER`, when the Lua prelude defined it,
 --- selects the scratch stores that name `lua_State`. The fixed species follow
 --- because they depend on which `Fixed<N>` types the program mentions.
-function emit.simdPrelude(context: emit.Context, width: integer): {string}
+function emit.simdPrelude(width: integer): {string}
     local lines: {string} = {"#define KS_SIMD_WIDTH " .. tostring(width)}
     lines[#lines + 1] = emit.carried("ks_simd.h")
     lines[#lines + 1] = "#undef KS_SIMD_WIDTH"
-    for _, line in ipairs(fixedSimdPrelude(context, width)) do
-        lines[#lines + 1] = line
-    end
-
     return lines
 end
 
@@ -3673,12 +3669,23 @@ function emit.program(programs: {scalarIR.Program}, tier: string?, sourceFile: s
     lines[#lines + 1] = emit.carried("ks_scalar.h")
 
     local simdWidths: {[integer]: boolean} = {}
+    local widest: integer = 0
     for _, program in ipairs(programs) do
         if program.simdWidth ~= nil and not simdWidths[program.simdWidth as integer] then
             simdWidths[program.simdWidth as integer] = true
-            for _, line in ipairs(emit.simdPrelude(context, program.simdWidth as integer)) do
+            widest = math.max(widest, program.simdWidth as integer) as integer
+            for _, line in ipairs(emit.simdPrelude(program.simdWidth as integer)) do
                 lines[#lines + 1] = line
             end
+        end
+    end
+
+    -- Native helpers are shared across the whole translation unit. Define all
+    -- requested native widths first, then each remaining logical species once.
+    -- Otherwise a later width redefines an earlier native type as an aggregate.
+    if widest > 0 then
+        for _, line in ipairs(fixedSimdPrelude(context, widest, simdWidths)) do
+            lines[#lines + 1] = line
         end
     end
 
