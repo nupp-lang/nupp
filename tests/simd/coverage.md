@@ -32,16 +32,19 @@ cross-target execution record.
 | compress/expand/ordered prefix sum | `primitives.lua`, every element/species |
 | integer and/or/xor/shifts/prefix xor/swizzle/paired swizzle | `primitives.lua`, all eight integer elements/species; `integeredges.lua` adds signed/wrapping boundaries, exact 64-bit values and count edges for all three shifts |
 | transpose and bit-preserving reinterpretation | `transpose.lua`, all ten elements and every Fixed width 2..64; raw words include signed zero and NaN payloads |
+| floating bit-preserving movement, memory and select | `bitpatterns.lua`, both floating elements at every species; raw-word oracle for zeros, infinities, subnormals and signed quiet/signaling NaN payloads, every tail |
+| raw-bit floating indexed/strided memory and write canaries | `bitmemory.lua`, both floating elements at every species, all admitted index types, independently seeded read/write spans and record fields; all 64 logical lanes plus 64 prefix and 64 suffix guard lanes checked after every write |
+| cross-element `Species.mask` | `masks.lua`, all 100 Fixed element pairs and same-width Preferred pairs, every tail and four independent boolean patterns |
 | numeric conversion | `conversions.lua`, all 100 numeric pairs at every Fixed width, same-width Preferred pairs, every tail; independent ordinary scalar storage conversions |
 | indexed load/store and strided fields | `memory.lua`, all elements/species, four admitted index types, every tail, zero/out-of-range indices and scalar address oracle |
-| scalar helper and closed math map | `primitives.lua`, scalar helper for every element/species and floating absolute value; `aotbuildtest` retains square-root plus binary32 helper-rounding differential |
+| scalar helper and closed math map | `primitives.lua` covers scalar helpers for every element/species; `maps.lua` covers all 22 admitted native math identities and arities on float/number, plus corrected f32 min/max/fma, at every species; Wasm executes the 18 identities admitted by the shared Lua 5.1–5.4 surface, with explicit positioned refusals for atan2/sinh/cosh/tanh |
 | horizontal reductions and exact reducers | `reducers.lua`, maintained separately from primitive lane operations |
 
 Every generator reports the actual selected cases in its coverage record.
 Preferred indexed memory requires index and value elements of the same physical
 width; narrow 8/16-bit values consequently have no admitted Preferred index
 species. Square transpose requires Fixed. The refusal suite covers these
-restrictions, incompatible conversion/reinterpretation, floating integer-only
+restrictions, incompatible conversion/reinterpretation/mask lane counts, floating integer-only
 operations and invalid literal lane indices. Alignment requires a nonnegative
 literal offset: zero, one, the species boundary and a clamped larger offset are
 compared; a species-property expression retains its positioned refusal.
@@ -54,8 +57,11 @@ and shifts at counts -1, 0, 1, 2, width-1, width and width+1. Narrow shift
 references explicitly use physical lane bits rather than promoted int32 values.
 Conversion uses full integer boundaries and a shared finite floating domain; existing `aotbuildtest`
 conversion regressions retain host-specific out-of-range float-to-integer
-behavior. Bit-preserving transpose compares raw storage words, including NaN
-payloads, rather than converting them through binary64.
+behavior. Transpose and the floating movement family compare raw storage words,
+including NaN payloads, rather than converting them through binary64. Floating
+arithmetic retains its numerical contract; raw NaN payload identity is required
+only for bit-preserving operations. Completed-entry inventory validation requires
+the bit-pattern, raw-memory, mask-conversion and math-map probes separately on both routes.
 
 ## Migrated algorithms and independent references
 

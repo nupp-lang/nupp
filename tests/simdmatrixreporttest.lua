@@ -98,6 +98,24 @@ function M.rejectsMissingReducerContractsAndPrimitiveFamilies()
     end
 end
 
+function M.rejectsMissingFloatBitMapsAndCrossElementMasks()
+    for _, family in ipairs({"bitpatterns", "bitmemory", "masks", "maps"}) do
+        for _, route in ipairs({"execution", "scalarC"}) do
+            local selected=selection(); selected.families={"primitives"}
+            local actual=row("primitives","number")
+            local execution=route=="execution" and actual.execution or actual.execution.scalarC
+            for key in pairs(execution.calls) do
+                if key:find("simd_" .. family .. "_",1,true) then
+                    execution.nativeCalls=execution.nativeCalls-execution.calls[key]
+                    execution.probes=execution.probes-1
+                    execution.calls[key]=nil
+                end
+            end
+            rejects({actual},selected)
+        end
+    end
+end
+
 function M.keepsAvailableSuccessSeparateFromMissingHardware()
     local selected=selection(); selected.tiers={"neon","avx2"}
     local unavailable={compiler="1",tier="avx2",family="-",element="-",status="not-executed",evidence="tiers.txt"}

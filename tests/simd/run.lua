@@ -1,5 +1,5 @@
 -- A single generated corpus batch. Matrix orchestration chooses the compiler
--- and exact tier; Wasm packaging consumes these identical generated files.
+-- and exact tier; both targets share generators and scalar expectations.
 local runner = require("tests.simd.runner")
 local mode, family, output = assert(arg[1]), assert(arg[2]), assert(arg[3])
 assert(mode == "native" or mode == "wasm", "mode must be native or wasm")
@@ -17,7 +17,11 @@ local function list(value, numeric)
     return values
 end
 
-local options = {types = list(os.getenv("NUPP_SIMD_TYPES")), lanes = list(os.getenv("NUPP_SIMD_LANES"), true),}
+local options = {
+    target = mode,
+    types = list(os.getenv("NUPP_SIMD_TYPES")),
+    lanes = list(os.getenv("NUPP_SIMD_LANES"), true),
+}
 local generated = require("tests.simd." .. family).generate(options)
 if mode == "native" then
     local report = runner.native(generated, {directory = output})

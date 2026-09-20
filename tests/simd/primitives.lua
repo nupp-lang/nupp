@@ -365,16 +365,24 @@ function M.generate(options)
         types = options.types or M.types,
         lanes = options.lanes or M.lanes,
         batchSize = options.batchSize or 8,
+        target = options.target,
     }
     local combined = {files = {}, probes = {}, coverage = {}, entry = "simd_primitives"}
     local entries = {}
-    for _, family in ipairs(options.families or {"lanes", "memory", "transpose", "conversions", "integeredges"}) do
+    for _, family in ipairs(
+        options.families
+        or {"lanes", "memory", "transpose", "conversions", "integeredges", "bitpatterns", "bitmemory", "masks", "maps"}
+    ) do
         assert(
             family == "lanes"
             or family == "memory"
             or family == "transpose"
             or family == "conversions"
-            or family == "integeredges",
+            or family == "integeredges"
+            or family == "bitpatterns"
+            or family == "bitmemory"
+            or family == "masks"
+            or family == "maps",
             "unknown primitive family " .. tostring(family)
         )
         local generated = family == "lanes" and generateLanes(selection)

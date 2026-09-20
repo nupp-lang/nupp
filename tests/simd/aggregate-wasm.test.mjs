@@ -15,10 +15,10 @@ function execution(shard, family, route) {
   for (const lane of shard.lanes.split(',')) {
     const type = shard.element;
     if (family === 'primitives') {
-      for (const [module, name] of [['primitives', 'probe'], ['memory', 'fields'], ['conversions', 'convert'],
+      for (const [module, name] of [['primitives', 'probe'], ['memory', 'fields'], ['conversions', 'convert'], ['masks', 'masks'],
         ...(lane !== 'preferred' || !['int8', 'uint8', 'int16', 'uint16'].includes(type) ? [['memory', 'indexed']] : []),
         ...(lane !== 'preferred' ? [['transpose', 'transpose']] : []),
-        ...(!['float', 'number'].includes(type) ? [['integeredges', 'edges']] : [])]) {
+        ...(!['float', 'number'].includes(type) ? [['integeredges', 'edges']] : [['bitpatterns', 'bits'], ['bitmemory', 'memorybits'], ['maps', 'mapmath']])]) {
         add(`simd_${module}_${type}_1`, `${name}_${lane}`);
       }
     } else {
@@ -58,6 +58,22 @@ test('all disjoint shards at one revision complete the inventory', () => {
   assert.equal(result.report.full_wasm_inventory_complete, true);
   assert.equal(result.report.executedShards, 40);
 });
+for (const family of ['bitpatterns', 'bitmemory', 'masks', 'maps']) {
+  for (const route of ['execution', 'scalarC']) {
+    test(`missing ${family} ${route} is incomplete`, () => {
+      const result = run((rows) => {
+        const row = rows.find((summary) => summary.selection.types[0] === 'number').rows[0];
+        const execution = row[route];
+        for (const key of Object.keys(execution.symbols)) {
+          if (key.startsWith(`simd_${family}_`)) delete execution.symbols[key];
+        }
+        execution.probes = Object.keys(execution.symbols).length;
+      });
+      assert.notEqual(result.status, 0);
+      assert.equal(result.report.full_wasm_inventory_complete, false);
+    });
+  }
+}
 for (const [name, change] of [
   ['a wrong counted-runtime tier', (rows) => { rows[0].counted.execution.tier = 'scalar'; }],
   ['missing counted-runtime evidence', (rows) => { delete rows[0].counted; }],

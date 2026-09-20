@@ -65,7 +65,11 @@ function M.execution(execution, family, element, requested)
                 memory = {fields = true, indexed = true},
                 transpose = {transpose = true},
                 conversions = {convert = true},
-                integeredges = {edges = true}
+                integeredges = {edges = true},
+                bitpatterns = {bits = true},
+                bitmemory = {memorybits = true},
+                masks = {masks = true},
+                maps = {mapmath = true}
             }
             assert(module and valid[module] and valid[module][group], "unexpected primitive probe: " .. key)
         else
@@ -107,10 +111,15 @@ function M.execution(execution, family, element, requested)
                 1
             },
             convert = {widths, 1},
-            transpose = {fixed, 1}
+            transpose = {fixed, 1},
+            masks = {widths, 1}
         }
         if element ~= "float" and element ~= "number" then
             expected.edges = {widths, 1}
+        else
+            expected.bits = {widths, 1}
+            expected.memorybits = {widths, 1}
+            expected.mapmath = {widths, 1}
         end
     else
         expected = {horizontal = {widths, 1}}

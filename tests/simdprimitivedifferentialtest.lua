@@ -6,7 +6,7 @@ local runner = require("tests.simd.runner")
 local HERE = runner.root() .. "/tests"
 
 function M.explicitPrimitivesMatchIndependentScalarSemantics()
-    local report = runner.native(generator.generate{lanes = {2, 3, 17, 64, "preferred"}})
+    local report = runner.native(generator.generate{lanes = {2, 3, 4, 8, 17, 24, 32, 64, "preferred"}})
     assert(report.cases > 0 and report.nativeCalls >= report.probes)
     local scalar = report.scalarC
     assert(scalar.cases == report.cases and scalar.probes == report.probes and scalar.nativeCalls > 0)
@@ -25,6 +25,8 @@ function M.unsupportedPrimitiveDomainsHavePositionedRefusals()
         {"floatPrefixXor", "local s = assert(simd.species(array.float, 4)); return s:splat(1):prefixXor():extract(1)", "integer"},
         {"reinterpretWidth", "local s = assert(simd.species(array.float, 4)); local t = assert(simd.species(array.number, 4)); return s:reinterpret(t:splat(1)):extract(1)", "width"},
         {"convertSpecies", "local s = assert(simd.species(array.float, 4)); local t = assert(simd.species(array.number, 3)); return s:convert(t:splat(1)):extract(1)", "Fixed"},
+        {"maskSpecies", "local s = assert(simd.species(array.float, 4)); local t = assert(simd.species(array.number, 3)); return s:mask(t:mask(true)):select(1, 0):extract(1)", "Fixed"},
+        {"preferredMaskWidth", "local s = assert(simd.species(array.float)); local t = assert(simd.species(array.number)); return s:mask(t:mask(true)):select(1, 0):extract(1)", "lane counts"},
         {"alignSpeciesCount", "local s = assert(simd.species(array.float, 4)); return s:splat(1):align(s:splat(2), s.lanes):extract(1)", "compile-time"},
         {"extractZero", "local s = assert(simd.species(array.float, 4)); return s:splat(1):extract(0)", "lane"},
         {"extractPastEnd", "local s = assert(simd.species(array.float, 4)); return s:splat(1):extract(5)", "lane"},
@@ -32,6 +34,7 @@ function M.unsupportedPrimitiveDomainsHavePositionedRefusals()
         {"preferredExtractPastEnd", "local s = assert(simd.species(array.float)); return s:splat(1):extract(5)", "lane"},
         {"preferredInsertPastEnd", "local s = assert(simd.species(array.float)); return s:splat(1):insert(5, 2):extract(1)", "lane"},
         {"preferredTranspose", "local s = assert(simd.species(array.float)); local a, b = simd.transpose(s:splat(1), s:splat(2)); return a:extract(1) + b:extract(1)", "fixed-width", 7},
+        {"preferredGatherWidth", "local s = assert(simd.species(array.float)); local t = assert(simd.species(array.uint64)); return s:gather(input, t:iota(1, 1)):extract(1)", "same logical lane count"},
         {"narrowGatherIndices", "local s = assert(simd.species(array.float, 4)); local t = assert(simd.species(array.uint8, 4)); return s:gather(input, t:iota(1, 1)):extract(1)", "indices"},
     }
     for _, case in ipairs(cases) do
