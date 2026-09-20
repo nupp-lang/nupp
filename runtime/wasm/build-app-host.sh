@@ -52,6 +52,8 @@ done
 # only the small registration subset; Lua-builder entries additionally allocate
 # strings, userdata and tables while keeping every unfinished value rooted on
 # the VM stack.
+# SIMD fused reductions call libm from side modules. MAIN_MODULE=2 otherwise
+# strips these exports because the Lua host itself does not call them.
 exported_functions='[
   "_nupp_app_boot",
   "_nupp_app_initialize",
@@ -109,6 +111,8 @@ exported_functions='[
   "_lua_call",
   "_lua_equal",
   "_luaL_error",
+  "_fma",
+  "_fmaf",
   "_malloc",
   "_free"
 ]'

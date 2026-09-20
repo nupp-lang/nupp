@@ -1,5 +1,6 @@
 -- Run against the actual C memory service, on stock Lua and in Wasm.
 local memory = assert(__nuppWasmHost)
+
 local function fails(body, message)
     local ok, reason = pcall(body)
     assert(not ok and tostring(reason):find(message, 1, true), tostring(reason))
@@ -66,6 +67,7 @@ assert(memory.pointer(memory.allocate(0), 0, 1))
 print("PASS bounded zeroed memory, overlapping copy, scalar and empty boundaries")
 
 local weak = setmetatable({}, {__mode = "v"})
+
 local function acquire()
     local owner = memory.allocate(16)
     local view = memory.pointer(owner, 0, 1)
@@ -246,6 +248,11 @@ assert(render(wide.rshift(unsigned("18446744073709551615"), 63)) == "1")
 assert(render(wide.arshift(signed("-2"), 1)) == "-1")
 assert(render(wide.lshift(unsigned("1"), 63)) == "9223372036854775808")
 assert(render(wide.lshift(unsigned("1"), 64)) == "1")
+-- Generated portable operations carry their established wide shift-count type.
+assert(render(wide.rshift(unsigned("18446744073709551615"), unsigned("63"))) == "1")
+assert(render(wide.arshift(signed("-2"), signed("1"))) == "-1")
+assert(render(wide.lshift(unsigned("1"), unsigned("9223372036854775809"))) == "2")
+assert(render(wide.lshift(unsigned("1"), signed("-1"))) == "9223372036854775808")
 assert(render(wide.bnot(unsigned("0"))) == "18446744073709551615")
 assert(render(wide.band(unsigned("0xffff0000ffff0000"), unsigned("0x00ff00ff00ff00ff"))) == "71776119077928960")
 assert(render(wide.pow(signed("3"), signed("20"))) == "3486784401")

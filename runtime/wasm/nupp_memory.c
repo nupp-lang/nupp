@@ -427,11 +427,19 @@ static int wide_not(lua_State *state) {
 }
 static int wide_shift(lua_State *state) {
     struct nupp_wide value = wide_value(state, 1);
-    lua_Number count = luaL_checknumber(state, 2);
-    if (!isfinite(count)) return luaL_error(state, "wide shift count must be finite");
+    struct nupp_wide *wide_count = test_wide(state, 2);
+    unsigned shift;
+    if (wide_count) {
+        /* Do not round a wide count through double: only its low six bits
+         * select the shift, including negative two's-complement counts. */
+        shift = (unsigned)(wide_count->bits & 63);
+    } else {
+        lua_Number count = luaL_checknumber(state, 2);
+        if (!isfinite(count)) return luaL_error(state, "wide shift count must be finite");
+        int signed_count = (int)fmod(trunc(count), 64.0);
+        shift = (unsigned)(signed_count < 0 ? signed_count + 64 : signed_count);
+    }
     int operation = (int)lua_tointeger(state, lua_upvalueindex(1));
-    int signed_count = (int)fmod(trunc(count), 64.0);
-    unsigned shift = (unsigned)(signed_count < 0 ? signed_count + 64 : signed_count);
     uint64_t out = operation == 0 ? value.bits << shift : value.bits >> shift;
     if (operation == 2 && shift && (value.bits >> 63)) out |= UINT64_MAX << (64 - shift);
     return push_wide(state, out, value.unsign);
