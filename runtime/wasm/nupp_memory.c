@@ -549,6 +549,14 @@ static double modulo(lua_State *state, lua_Number value, double modulus) {
     return wrapped < 0.0 ? wrapped + modulus : wrapped;
 }
 
+/* A wide value must narrow before crossing the Lua-number boundary: a
+ * double round trip would discard low bits above 2^53. */
+static uint64_t store_integer(lua_State *state, int index, double modulus) {
+    struct nupp_wide *wide = test_wide(state, index);
+    if (wide != NULL) return wide->bits;
+    return (uint64_t)modulo(state, luaL_checknumber(state, index), modulus);
+}
+
 static int store_scalar(lua_State *state, const char *kind, unsigned char *destination, int value_index) {
     if (strcmp(kind, "int64") == 0 || strcmp(kind, "uint64") == 0) {
         struct nupp_wide value = wide_value(state, value_index);
@@ -557,28 +565,32 @@ static int store_scalar(lua_State *state, const char *kind, unsigned char *desti
         uint8_t value = (uint8_t)(lua_toboolean(state, value_index) != 0);
         memcpy(destination, &value, sizeof(value));
     } else if (strcmp(kind, "float") == 0) {
-        float value = (float)luaL_checknumber(state, value_index);
+        struct nupp_wide *wide = test_wide(state, value_index);
+        float value = wide == NULL ? (float)luaL_checknumber(state, value_index)
+            : wide->unsign ? (float)wide->bits : (float)(int64_t)wide->bits;
         memcpy(destination, &value, sizeof(value));
     } else if (strcmp(kind, "number") == 0) {
-        double value = (double)luaL_checknumber(state, value_index);
+        struct nupp_wide *wide = test_wide(state, value_index);
+        double value = wide == NULL ? (double)luaL_checknumber(state, value_index)
+            : wide->unsign ? (double)wide->bits : (double)(int64_t)wide->bits;
         memcpy(destination, &value, sizeof(value));
     } else if (strcmp(kind, "int8") == 0) {
-        int8_t value = (int8_t)(uint8_t)modulo(state, luaL_checknumber(state, value_index), 256.0);
+        int8_t value = (int8_t)(uint8_t)store_integer(state, value_index, 256.0);
         memcpy(destination, &value, sizeof(value));
     } else if (strcmp(kind, "uint8") == 0) {
-        uint8_t value = (uint8_t)modulo(state, luaL_checknumber(state, value_index), 256.0);
+        uint8_t value = (uint8_t)store_integer(state, value_index, 256.0);
         memcpy(destination, &value, sizeof(value));
     } else if (strcmp(kind, "int16") == 0) {
-        int16_t value = (int16_t)(uint16_t)modulo(state, luaL_checknumber(state, value_index), 65536.0);
+        int16_t value = (int16_t)(uint16_t)store_integer(state, value_index, 65536.0);
         memcpy(destination, &value, sizeof(value));
     } else if (strcmp(kind, "uint16") == 0) {
-        uint16_t value = (uint16_t)modulo(state, luaL_checknumber(state, value_index), 65536.0);
+        uint16_t value = (uint16_t)store_integer(state, value_index, 65536.0);
         memcpy(destination, &value, sizeof(value));
     } else if (strcmp(kind, "integer") == 0 || strcmp(kind, "int32") == 0) {
-        int32_t value = (int32_t)(uint32_t)modulo(state, luaL_checknumber(state, value_index), 4294967296.0);
+        int32_t value = (int32_t)(uint32_t)store_integer(state, value_index, 4294967296.0);
         memcpy(destination, &value, sizeof(value));
     } else {
-        uint32_t value = (uint32_t)modulo(state, luaL_checknumber(state, value_index), 4294967296.0);
+        uint32_t value = (uint32_t)store_integer(state, value_index, 4294967296.0);
         memcpy(destination, &value, sizeof(value));
     }
     return 0;

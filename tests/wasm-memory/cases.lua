@@ -283,6 +283,41 @@ memory.store(pointer, 0, "uint64", unsigned("18446744073709551615"))
 assert(render(memory.load(pointer, 0, "uint64")) == "18446744073709551615")
 print("PASS exact signed and unsigned 64-bit arithmetic and unaligned storage")
 
+-- Narrowing consumes the low bits before any floating conversion. These inputs
+-- distinguish exact wide storage from a lossy tonumber round trip.
+for _, kind in ipairs({"int8", "uint8", "int16", "uint16", "integer", "int32", "uint32"}) do
+    memory.store(pointer, 0, kind, unsigned("9223372036854775809"))
+    assert(memory.load(pointer, 0, kind) == 1, kind .. " exact wide narrowing")
+    assert(memory.decode(kind, memory.encode(kind, signed("-9007199254740991"))) == 1)
+end
+for _, row in ipairs({
+    {"int8", -1},
+    {"uint8", 255},
+    {"int16", -1},
+    {"uint16", 65535},
+    {"integer", -1},
+    {"int32", -1},
+    {"uint32", 4294967295}
+}) do
+    memory.store(pointer, 0, row[1], unsigned("18446744073709551615"))
+    assert(memory.load(pointer, 0, row[1]) == row[2], row[1] .. " wide maximum")
+end
+-- Direct integer-to-float rounding must not round through a double first.
+for _, row in ipairs({
+    {unsigned("9223372586610589697"), 9223373136366403584},
+    {signed("4611686293305294849"), 4611686568183201792},
+    {signed("-4611686293305294849"), -4611686568183201792},
+    {signed("-1"), -1}
+}) do
+    memory.store(pointer, 0, "float", row[1])
+    assert(memory.load(pointer, 0, "float") == row[2], "direct wide float conversion")
+end
+memory.store(pointer, 0, "number", signed("-9223372036854775808"))
+assert(memory.load(pointer, 0, "number") == -9223372036854775808)
+memory.store(pointer, 0, "number", unsigned("18446744073709551615"))
+assert(memory.load(pointer, 0, "number") == 18446744073709551616)
+print("PASS exact wide conversion into narrow and floating storage")
+
 for _, row in ipairs({
     {"uint8", 255},
     {"int8", -128},
