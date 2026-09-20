@@ -3845,6 +3845,18 @@ function emit.program(programs: {scalarIR.Program}, tier: string?, sourceFile: s
                         lines[#lines + 1] = line
                     end
                 end
+                if general and independentCounts then
+                    -- A guarded block may use one span's count for several
+                    -- inputs. Keep the independent-count ABI even when this
+                    -- particular implementation never reads one of them.
+                    for _, param in ipairs(program.params) do
+                        if (param.kind == "write_span" or param.kind == "read_span")
+                            and (param.soa == nil or param.soa.ordinal == 1)
+                        then
+                            lines[#lines + 1] = "    (void)count_" .. param.name .. ";"
+                        end
+                    end
+                end
                 if not general then
                     for _, line in ipairs(emit.bounds(program.rangeGuard)) do
                         lines[#lines + 1] = line

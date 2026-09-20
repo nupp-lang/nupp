@@ -817,7 +817,7 @@ function compile.artifacts(
     selected: targets.Target,
     symbolTier: string?,
     constPlans: {any}?,
-    staticLinkage: boolean?,
+    qualifyLinkage: boolean?,
     at: (function(step: string): nil)?
 ): (compile.Artifacts?, {compile.Diagnostic})
     local step = at or function(_: string): nil
@@ -909,13 +909,12 @@ function compile.artifacts(
         end
     end
 
-    -- The checker identifies a private declaration by its logical symbol, so
-    -- that name must survive lowering and verification. C has one process-wide
-    -- namespace, however, and separate component archives can otherwise both
-    -- export `ks_main`. Change the ABI spelling only after those checks; the
-    -- emitted C and generated binding then agree on the qualified name. Shared
-    -- libraries already have their own linker namespace; an archive does not.
-    if staticLinkage then
+    -- Logical names survive lowering and verification. A project can then
+    -- link several source files into one library or archive, so both forms
+    -- need distinct C symbols for identically named private declarations.
+    -- Inspection artifacts retain readable names unless linkage asks for
+    -- qualification; the emitted C and binding always change together.
+    if qualifyLinkage then
         qualifySymbols(cpuPrograms, filename)
     end
 

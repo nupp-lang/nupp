@@ -1502,7 +1502,7 @@ function aot.emitC(
                     tierTarget,
                     tierTarget.tier,
                     constPlans,
-                    staticLinkage,
+                    true,
                     at
                 )
                 if artifacts == nil then
@@ -1527,7 +1527,7 @@ function aot.emitC(
                                             candidate as targets.Target,
                                             tier,
                                             constPlans,
-                                            staticLinkage
+                                            true
                                         )
                                         if probe ~= nil then
                                             rendered = rendered

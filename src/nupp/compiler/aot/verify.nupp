@@ -95,9 +95,9 @@ record verify.Scope
     localReadLimit: integer?
     localReadMinimum: integer?
 
-    --- Integer uniforms the guard relations prove non-negative and at most a
-    --- span's count, by uniform and then by span. A whole-vector guard may
-    --- compare against such a uniform instead of the span count itself.
+    --- Integer uniforms or span counts proved non-negative and at most another
+    --- span's count, keyed by parameter and then by bounded span. These facts
+    --- justify cursor guards and counted-loop accesses to another span.
     countBounds: {[string]: {[string]: boolean}}?
 
     --- The `simd_region` this block runs inside, if any.
@@ -529,6 +529,7 @@ local function load(node: scalarIR.Load, values: {[string]: string}, scope: veri
             and (
                 scope.mapIndex == true and (scope.indexSpans as {[string]: boolean})[node.span] == true
                 or node.span == scope.boundSpan
+                or ((scope.countBounds or {})[tostring(scope.boundSpan)] or {})[node.span] == true
                 or scalarIR.sameSoaView(span, scope.spans[tostring(scope.boundSpan)])
             ),
             "unbounded load index"
@@ -562,6 +563,7 @@ local function elementRef(node: scalarIR.ElementRef, values: {[string]: string},
         and (
             scope.mapIndex == true and (scope.indexSpans as {[string]: boolean})[node.span] == true
             or node.span == scope.boundSpan
+            or ((scope.countBounds or {})[tostring(scope.boundSpan)] or {})[node.span] == true
         )
     holds(node.mutable == (span.kind == "write_span") and bounded, "invalid struct element access")
 end
@@ -2111,6 +2113,7 @@ local function block(
                 and (
                     scope.mapIndex == true and (scope.indexSpans as {[string]: boolean})[statement.span] == true
                     or statement.span == scope.boundSpan
+                    or ((scope.countBounds or {})[tostring(scope.boundSpan)] or {})[statement.span] == true
                     or scalarIR.sameSoaView(param, scope.spans[tostring(scope.boundSpan)])
                 )
             holds(scope.writes[statement.span] == true and bounded, "invalid store root")
@@ -3041,13 +3044,7 @@ local function bounds(
     local pool = program.relations or {}
     if program.loop == nil then
         holds(program.rangeGuard == nil and #program.guards == 0, "a block kernel carried map-loop bounds")
-        holds(#pool == 0, "a block kernel carried guard relations")
-
-        return nil
     end
-    local loop = program.loop as scalarIR.Loop
-    holds(primary ~= nil, "a map loop has no primary output")
-    local primary_ = primary as scalarIR.Param
 
     holds(#pool <= relations.BUDGET, "more guard relations than the budget admits")
     for _, relation in ipairs(pool) do
@@ -3067,6 +3064,44 @@ local function bounds(
     local terms, spans = termUniverse(program.params)
     local closure = relations.solve(relations.withSoaCounts(pool, program.params), spans, terms)
     holds(closure.contradiction == nil, "guard relations that cannot all hold")
+
+    -- Every integer uniform the relations hold between zero and a span's
+    -- count, so a whole-vector guard written against the uniform bounds a
+    -- cursor against that span.
+    local countBounds: {[string]: {[string]: boolean}} = {}
+    for _, param in ipairs(program.params) do
+        if param.kind == "uniform" and param.sourceType == "integer" then
+            local uniform = relations.uniform(param.name)
+            if relations.proves(closure, relations.zero(), uniform, 0) ~= nil then
+                local proved: {[string]: boolean} = {}
+                for _, spanName in ipairs(spans) do
+                    if relations.proves(closure, uniform, relations.count(spanName), 0) ~= nil then
+                        proved[spanName] = true
+                    end
+                end
+                if next(proved) ~= nil then
+                    countBounds[param.name] = proved
+                end
+            end
+        end
+    end
+
+    for _, from in ipairs(spans) do
+        local proved: {[string]: boolean} = {}
+        for _, to in ipairs(spans) do
+            if relations.proves(closure, relations.count(from), relations.count(to), 0) ~= nil then
+                proved[to] = true
+            end
+        end
+        countBounds[from] = proved
+    end
+
+    if program.loop == nil then
+        return countBounds
+    end
+    local loop = program.loop as scalarIR.Loop
+    holds(primary ~= nil, "a map loop has no primary output")
+    local primary_ = primary as scalarIR.Param
 
     local count = relations.count(primary_.name)
     local rangeGuard = program.rangeGuard
@@ -3103,27 +3138,6 @@ local function bounds(
     -- unguarded. What keeps that sound is the access rule: the body walk accepts
     -- the loop index only against `indexSpans`, so an unguarded span is
     -- reachable through proved cursors alone.
-
-    -- Every integer uniform the relations hold between zero and a span's
-    -- count, so a whole-vector guard written against the uniform bounds a
-    -- cursor against that span.
-    local countBounds: {[string]: {[string]: boolean}} = {}
-    for _, param in ipairs(program.params) do
-        if param.kind == "uniform" and param.sourceType == "integer" then
-            local uniform = relations.uniform(param.name)
-            if relations.proves(closure, relations.zero(), uniform, 0) ~= nil then
-                local proved: {[string]: boolean} = {}
-                for _, spanName in ipairs(spans) do
-                    if relations.proves(closure, uniform, relations.count(spanName), 0) ~= nil then
-                        proved[spanName] = true
-                    end
-                end
-                if next(proved) ~= nil then
-                    countBounds[param.name] = proved
-                end
-            end
-        end
-    end
 
     return countBounds
 end

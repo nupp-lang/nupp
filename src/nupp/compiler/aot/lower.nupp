@@ -975,10 +975,8 @@ record lower.Kernel
     --- In a block body, the span whose count bounds the enclosing counted loop.
     --- Set only where the loop was written as `for i = 1, #span`, and only in a
     --- block kernel: a map-loop entry proves every span's length in its guard
-    --- prologue instead. A read of a different span under this index has nothing
-    --- proving it in bounds, and refusing it here is the difference between a
-    --- refusal naming the line and an IR verifier assertion escaping as a
-    --- traceback.
+    --- prologue instead. Another span is in bounds only when the entry guards
+    --- prove its count is at least this span's count.
     boundSpan: string?
 
     --- Whether this kernel is the admitted map-loop shape, whose guard prologue
@@ -992,6 +990,9 @@ record lower.Kernel
     --- and every span the guard prologue holds to it. A GPU map's guard may be
     --- partial, so an index access outside this set is refused at its line.
     indexSpans: {[string]: boolean}?
+
+    --- Guard-proved upper bounds between span counts in block kernels.
+    spanBounds: {[string]: {[string]: boolean}}?
 
     --- Results the top-level AOT entry promises. Helpers keep their own result
     --- list; this is only for `return` statements in a general block body.
@@ -1139,6 +1140,7 @@ local function provenIndex(spanName: string, cursor: string?, node: cst.Node, ke
         )
     end
     if spanName ~= kernel.boundSpan
+        and ((kernel.spanBounds or {})[tostring(kernel.boundSpan)] or {})[spanName] ~= true
         and not scalarIR.sameSoaView(kernel.params[spanName], kernel.params[tostring(kernel.boundSpan)])
     then
         context.reject(
@@ -7054,11 +7056,9 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
                 and to.op == "span_count"
                 and (to as scalarIR.SpanCount).span
                 or nil
-            -- Inside the nested loop only its own bound proves an index access,
-            -- whatever the enclosing map's guard prologue related to the map
-            -- index: the verifier admits exactly `boundSpan` under a nested
-            -- `fornum`, so lowering proves the same thing and refuses the rest
-            -- at its line.
+            -- A nested loop uses its own bound, together with any entry-guard
+            -- facts relating that count to other spans. The enclosing loop's
+            -- index proof does not transfer to this induction variable.
             local previousIndex, previousCName = kernel.index, kernel.indexCName
             local previousAssigned = kernel.indexAssigned
             local previousBound, previousMapEntry = kernel.boundSpan, kernel.mapEntry
@@ -8985,6 +8985,39 @@ function lower.program(
     local mapShape = admission.shape ~= nil
 
     if not mapShape then
+        -- Leading guards run in the checked wrapper before any native work,
+        -- including for reducers and explicit-vector block bodies. Consume
+        -- only the leading prefix: a later guard cannot move across effects.
+        local guardCount: integer = 0
+        while guardCount < #statements and lower.guardForm(statements[guardCount + 1]) ~= nil do
+            guardCount = guardCount + 1
+        end
+        local reading = lower.readGuards(statements, guardCount, signature)
+        if reading.reason ~= nil then
+            context.reject(reading.at or lower.site(body), reading.reason as string)
+        end
+        local closure = relations.solve(
+            relations.withSoaCounts(reading.relations, signature.params),
+            spanNames(signature),
+            lower.guardTerms(signature)
+        )
+        if closure.contradiction ~= nil then
+            context.reject(lower.site(statements[1]), "these guards cannot all hold at once")
+        end
+        local spanBounds: {[string]: {[string]: boolean}} = {}
+        for _, from in ipairs(signature.spans) do
+            local proved: {[string]: boolean} = {}
+            for _, to in ipairs(signature.spans) do
+                if relations.proves(closure, relations.count(from.name), relations.count(to.name), 0) ~= nil then
+                    proved[to.name] = true
+                end
+            end
+            spanBounds[from.name] = proved
+        end
+        local blockStatements: {cst.Node} = {}
+        for position = guardCount + 1, #statements do
+            blockStatements[#blockStatements + 1] = statements[position]
+        end
         local kernel = newKernel(signature, declarations, layouts, symbol, context, {
             gpuTarget = contract.target == "gpu",
             reassignedNames = assignedNames(body.body, {}),
@@ -9005,8 +9038,9 @@ function lower.program(
                 return false
             end)(),
         })
+        kernel.spanBounds = spanBounds
         local environment = loweringEnvironment(signature, specialization)
-        local lowered = lower.block(statements, environment, kernel)
+        local lowered = lower.block(blockStatements, environment, kernel)
         validateReducers(kernel)
         if #lowered == 0 then
             context.reject(lower.site(body.body or body), "an AOT block body may not be empty")
@@ -9032,6 +9066,7 @@ function lower.program(
             layouts = layouts.ordered,
             regions = regions,
             aliasFacts = aliasFacts,
+            relations = reading.relations,
             guards = {},
             helpers = kernel.helperOrder,
             constants = kernel.constantOrder,
