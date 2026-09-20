@@ -173,6 +173,67 @@ return true
     end
 end
 
+function M.typedLogFieldsKeepTheirContractAcrossParametersAndReturns()
+    local source = [[
+local type Log = nosuspend function(number, number?): number
+local type Library = {log: Log}
+local function through(library: Library): Library return library end
+local function read(library: Library): Log return library.log end
+local function safe(library: Library?): Log? return library?.log end
+local visits = 0
+local trace = ""
+local function receiver(): Library visits = visits + 1; return math end
+local function argument(value: number): number trace = trace .. tostring(value); return value end
+local function invoke(library: Library): number return library.log(argument(8), argument(2)) end
+assert(math.abs(invoke(receiver()) - 3) < 1e-12, "typed parameter honors the optional base")
+assert(visits == 1 and trace == "82", "receiver and operands evaluate once in order")
+assert(math.abs(through(math).log(8, 2) - 3) < 1e-12, "typed return honors the optional base")
+assert(through(math) == math, "table identity is unchanged")
+assert(read(math) == math.log and safe(math) == math.log, "field views preserve adapter identity")
+assert(safe(nil) == nil, "safe reads preserve nil")
+local type CustomLog = function(number, number?): number
+local type CustomLibrary = {log: CustomLog}
+local function readCustom(library: CustomLibrary): CustomLog return library.log end
+local function custom(value: number, base: number?): number return value + (base or 0) end
+local library: CustomLibrary = {log=custom}
+assert(readCustom(library) == custom)
+assert(readCustom(library)(8, 2) == 10, "custom functions are not normalized")
+local function replacement(_value: number, _base: number?): number return 43 end
+library.log = replacement
+assert(readCustom(library) == replacement and readCustom(library)(8, 2) == 43, "mutations stay visible")
+return true
+]]
+    for _, level in ipairs({0, 2}) do
+        local code = generated(source, "lua51", level)
+        local original, cached = math.log, package.loaded["nupp.runtime.portablemath"]
+        -- Stock Lua 5.1 ignores the second argument. Reproduce that contract in
+        -- the shared LuaJIT suite; the portable corpus also runs on real stock Lua.
+        local host = function(value) return original(value) end
+        math.log = host
+        package.loaded["nupp.runtime.portablemath"] = nil
+        local ok, answer = pcall(assert(loadstring(code)))
+        local unchanged = math.log == host
+        math.log = original
+        package.loaded["nupp.runtime.portablemath"] = cached
+        assert(ok and answer == true, tostring(answer))
+        assert(unchanged, "portable lowering never writes the shared host library")
+        local native, included = generated(source, "luajit", level)
+        assert(not included and assert(loadstring(native))())
+        assert(math.log == original, "native library identity is unchanged")
+    end
+end
+
+function M.unrelatedTypedLogFieldsDoNotAcquireTheNumericAdapter()
+    for _, signature in ipairs({"function(string): string", "function(number): number", "function(number, string?): number"}) do
+        local source = "local type Log = " .. signature .. "\n"
+            .. "local function read(library: {log: Log}): Log return library.log end\nreturn read\n"
+        for _, level in ipairs({0, 2}) do
+            local _, included = generated(source, "lua51", level)
+            assert(not included, "an unrelated log field keeps its declared behavior")
+        end
+    end
+end
+
 function M.literalIndexingRemainsAPositionedTypedSurfaceRefusal()
     for _, access in ipairs({'math["log"]', 'library["log"]'}) do
         local source = "local library = math\nreturn " .. access .. "(8, 2)\n"

@@ -773,13 +773,42 @@ function index.install(c: state.Checker): state.ExprHandlers
     -- Field access
     ---------------------------------------------------------------------
 
+    -- A structural receiver loses the prelude root across parameters and returns.
+    -- This exact public contract still needs the value-based portable adapter;
+    -- its runtime selector leaves every application function unchanged.
+    local function portableLogContract(value: Type): boolean
+        local t = rawType(value)
+        if t.tag == "union" then
+            local found = false
+            for _, member in ipairs(t.members) do
+                if member ~= T.nil_ then
+                    if not portableLogContract(member) then
+                        return false
+                    end
+                    found = true
+                end
+            end
+            return found
+        end
+
+        return t.tag == "func"
+            and #t.params == 2
+            and t.params[1] == T.number
+            and t.params[2] == T.optional(T.number)
+            and not t.vararg
+            and #t.rets == 1
+            and t.rets[1] == T.number
+            and not t.retPack.tail
+            and not t.retPack.alternatives
+    end
+
     local function resolvedField(node: cst.DotIndex | cst.SafeIndex): Type
         local out = fieldOf(node)
         node.portableMathLog = c.opts.dialect == "lua51"
             and node.obj ~= nil
-            and (node.obj as any).runtimeSurfaceRoot == "math"
             and node.name ~= nil
             and node.name.text == "log"
+            and ((node.obj as any).runtimeSurfaceRoot == "math" or portableLogContract(out))
             or nil
         node.portableMathLogWrite = node.portableMathLog and node.writeContext or nil
 

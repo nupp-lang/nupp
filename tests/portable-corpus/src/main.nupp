@@ -16,6 +16,24 @@ local simd = require("nupp.simd")
 
 local function main(): string
     do
+        local type Log = nosuspend function(number, number?): number
+        local type Library = {log: Log}
+
+        local function consume(library: Library): number
+            return library.log(8, 2)
+        end
+
+        local function through(library: Library): Library
+            return library
+        end
+
+        local function safe(library: Library?): Log?
+            return library?.log
+        end
+
+        assert(math.abs(consume(math) - 3) < 1e-12)
+        assert(math.abs(through(math).log(8, 2) - 3) < 1e-12)
+        assert(through(math) == math and safe(math) == math.log and safe(nil) == nil)
         local library = math
         local logarithm = library.log
         local calls = ""

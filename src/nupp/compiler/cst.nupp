@@ -351,7 +351,7 @@ interface cst.Hints
     --- A resolved portable math binding, evaluated or overwritten by authored code.
     portableMathLibrary: boolean?
 
-    --- A resolved portable math.log field, including reads, writes and aliases.
+    --- A portable math.log identity or its exact structural callable field contract.
     portableMathLog: boolean?
 
     portableMathLogWrite: boolean?

@@ -1,0 +1,79 @@
+{
+  "schemaVersion": 1,
+  "scope": "Ordinary portable Lua semantic follow-up. The complete SIMD map matrix remains recorded against7e32e50a in math-map-execution-20260920.json; no repeated matrix or performance claim is made here.",
+  "sourceBase": "955bb9b088c65b623fa056e2b4b0ba29040d79a5",
+  "sourceSha256": {
+    "src/nupp/compiler/check/index.nupp": "a616efd1ee3b3510dcdb47a6be0cb50a94f296791b4f9fcfce148e566a8479a6",
+    "src/nupp/compiler/cst.nupp": "a37b688b6aefeff8f26efc69215d0724601b0c4fad4985db4e9476013ca592a3",
+    "tests/portablemathloweringtest.lua": "640a205ab081b917b82341c5b673ed2a9fd0ffe0ccc64dc4ae8530385098b810",
+    "tests/portable-corpus/src/main.nupp": "4bc8d2d4ab90f599f8ed8983bc2f374299ced376d6e317273126b5e0102b25e5"
+  },
+  "finding": "An admitted {log: nosuspend function(number, number?): number} parameter or return lost the prelude identity; stock Lua5.1 ignored the promised base and returned log(8) instead of3.",
+  "fix": "Use the existing function-identity selector for the exact structural numeric/optional-base/one-numeric-result field contract, including nullable safe reads. Custom functions, table identity, mutation visibility, native-dialect output and AOT closed-math admission are unchanged.",
+  "host": {
+    "runtime": "Stock Lua5.1 Wasm",
+    "node": "v26.7.0",
+    "artifacts": {
+      "nupp-app.mjs": "63cb5950eb105b6447d70b8774db35606cdf6554a1f6003b058f6d34eedb39e2",
+      "nupp-app.wasm": "6f538e75eee987b095641641cf9af30999f2009dd91c76f728aa01658890e87e"
+    }
+  },
+  "execution": [
+    {
+      "label": "before",
+      "project": "/private/tmp/simd11-portable-log-typed-before-json",
+      "sourceSha256": "2ae469190454e2b12dcb619e89acca345e8d2303de44ee7640b85a8b3b495d5b",
+      "bundleSha256": "f08f65b4f8cff5c766ee9843b5e65f0fbff3ca181f7a7a6e63628d1f8753431e",
+      "executionLog": "/private/tmp/simd11-portable-log-typed-before-json-execution.log",
+      "executionLogSha256": "e1efa84240efd9ce548e0f32c0f7ae764e71d215d63fdc1aca12a2854bf7cb1a",
+      "computedParameterAndReturnValues": [
+        2.0794415416798,
+        2.0794415416798
+      ]
+    },
+    {
+      "label": "after",
+      "project": "/private/tmp/simd11-portable-log-typed-after-values",
+      "sourceSha256": "d300eb01c7b00e5caf339f17cb87616e6bf6edc6834cfa4e485a0110f9be8aa7",
+      "bundleSha256": "a843d0ea0c317a24aa2edbc2c6cfb052f638c38af315d6ec265c79511689c815",
+      "executionLog": "/private/tmp/simd11-portable-log-typed-after-values-execution.log",
+      "executionLogSha256": "62b045baa14bfb85cb738741451c2bde36820ed1241238e686f43fdb5bd3a24d",
+      "computedParameterAndReturnValues": [
+        3,
+        3
+      ]
+    }
+  ],
+  "coveredSemantics": [
+    "typed parameters and returns",
+    "safe reads and nil short circuit",
+    "stable function and table identity",
+    "receiver/operand evaluation once in source order",
+    "custom function preservation",
+    "field mutation visibility",
+    "unchanged native host math library",
+    "unrelated typed log fields avoid the adapter",
+    "existing untyped shadow avoids the adapter"
+  ],
+  "validation": [
+    {
+      "scope": "portable semantics/corpus/packages",
+      "tests": 33,
+      "passed": 33,
+      "log": "/private/tmp/simd11-portable-log-typed-focused.log",
+      "logSha256": "432ea1298616219dd56253aacfbc1a414edbe545ffc361edb1ee30f4aac66dce"
+    },
+    {
+      "scope": "final focused adapter semantics and exact-contract negatives",
+      "tests": 11,
+      "passed": 11,
+      "log": "/private/tmp/simd11-portable-log-typed-final.log",
+      "logSha256": "442cb3950f997658f4c290fd5f38a0e22f1bb2144128cc57f43253dae26ea987"
+    },
+    {
+      "scope": "byte-identical compiler fixpoint",
+      "log": "/private/tmp/simd11-portable-log-typed-fixpoint.log",
+      "logSha256": "fdb33039c705bed378b00f53a6e303a900695556d7d035e53420849b92fe6906"
+    }
+  ]
+}
