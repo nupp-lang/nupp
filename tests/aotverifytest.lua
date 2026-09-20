@@ -1024,6 +1024,65 @@ function M.aMaskedContributionBelongsToTheRegionAccumulatingItsReducer()
     verify.program(program)
 end
 
+function M.laneIndicesAreRecheckedAgainstLogicalSpecies()
+    local source = [[
+local array = require("nupp.mem.array")
+local simd = require("nupp.simd")
+@aot
+local function lanes(value: number): (number, number)
+    local species = assert(simd.species(array.number, 4))
+    local vector = species:splat(value)
+    return vector:extract(4), vector:insert(4, value):extract(1)
+end
+return {lanes = lanes}
+]]
+    for _, preferred in ipairs({false, true}) do
+        local program = lowered(preferred and source:gsub('array.number, 4', 'array.number') or source,
+            "damaged-lane-index.nupp")
+        local extract = assert(findExpr(program.body, function(node) return node.op == "simd_extract" end))
+        local insert = assert(findExpr(program.body, function(node) return node.op == "simd_insert" end))
+        -- Preferred is unresolved during initial lowering; the selected tier
+        -- later fixes its logical width independently of physical packing.
+        if preferred then
+            program.simdWidth = 32
+            program.vectorCeiling = 16
+        end
+        local returned = program.body[#program.body]
+        program.body[#program.body] = {op = "block", body = {returned}}
+        verify.program(program)
+        for _, node in ipairs({extract, insert}) do
+            local original = node.args[2]
+            for _, value in ipairs({"0", "-1", "1.5", "1e309", "5"}) do
+                node.args[2] = {op = "constant", type = "f64", value = value}
+                refuses(program, "invalid SIMD lane index")
+                node.args[2] = original
+                verify.program(program)
+            end
+            node.args[2] = {op = "uniform", type = "f64", name = "value"}
+            refuses(program, "invalid SIMD lane index")
+            node.args[2] = original
+        end
+        local helperIndex = {op = "constant", type = "f64", value = "4"}
+        program.helpers[#program.helpers + 1] = {
+            name = "laneHelper", cName = "ks_lane_helper", params = {},
+            resultType = "f64", resultTypes = {"f64"}, values = {{
+                op = "simd_extract", type = "f64", args = {{
+                    op = "simd_splat", type = extract.args[1].type,
+                    args = {{op = "constant", type = "f64", value = "1"}},
+                }, helperIndex},
+            }},
+        }
+        verify.program(program)
+        helperIndex.value = "5"
+        refuses(program, "invalid SIMD lane index")
+        helperIndex.value = "4"
+        if preferred then
+            program.simdWidth = 16
+            refuses(program, "invalid SIMD lane index")
+        end
+    end
+end
+
 function M.reducerRegionsRecheckSpeciesMasksArityAndNesting()
     local program = lowered(REGION, "damaged-reducer-region.nupp")
     local region = assert(find(program.body, function(s) return s.op == "simd_region" end))

@@ -100,6 +100,9 @@ record verify.Scope
     --- justify cursor guards and counted-loop accesses to another span.
     countBounds: {[string]: {[string]: boolean}}?
 
+    --- Resolved logical vector width; physical packing may use narrower chunks.
+    simdWidth: integer?
+
     --- The `simd_region` this block runs inside, if any.
     region: verify.Region?
 end
@@ -137,6 +140,7 @@ local function derive(scope: verify.Scope, overrides: {[string]: any}): verify.S
         localReadLimit = scope.localReadLimit,
         localReadMinimum = scope.localReadMinimum,
         countBounds = scope.countBounds,
+        simdWidth = scope.simdWidth,
         region = scope.region
     )
     for field, value in pairs(overrides) do
@@ -824,6 +828,21 @@ local function genericSimdScalar(element: string?): string?
     return element
 end
 
+--- Extract/insert address logical lanes, not the padded physical carrier.
+local function laneIndex(operation: scalarIR.Simd, width: integer?): nil
+    local index = operation.args[2]
+    local value = index.op == "constant" and tonumber((index as scalarIR.Constant).value) or nil
+    holds(value ~= nil and (value as number) >= 1 and (value as number) % 1 == 0, "invalid SIMD lane index")
+    local _, element, shape = genericSimdType(operation.args[1].type)
+    local lanes = tonumber(tostring(shape):match("^fixed(%d+)$"))
+    if shape == "preferred" and width ~= nil then
+        local bits = tonumber(tostring(element):match("%d+")) or 0
+        holds(bits > 0, "invalid SIMD lane element")
+        lanes = (width as integer) * 8 / bits
+    end
+    holds(lanes == nil or (value as number) <= (lanes as number), "invalid SIMD lane index")
+end
+
 --- The packed element identity retained by physical span storage.
 local function genericSimdSpanElement(param: scalarIR.Param): string
     local physical: {
@@ -1234,6 +1253,7 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
                 and args[2].type == "f64",
                 "invalid generic SIMD extract"
             )
+            laneIndex(simd, scope.simdWidth)
         elseif op == "simd_insert" then
             holds(
                 family == "vector"
@@ -1243,6 +1263,7 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
                 and args[3].type == genericSimdScalar(element),
                 "invalid generic SIMD insert"
             )
+            laneIndex(simd, scope.simdWidth)
         elseif op == "simd_permute" then
             local intrinsic = tostring(simd.intrinsic)
             holds(family == "vector", "invalid generic SIMD permutation result")
@@ -2795,7 +2816,8 @@ local function regionVectorBlocks(
                     inPhase = scope.inPhase,
                     shared = scope.shared,
                     sharedCounts = scope.sharedCounts,
-                    countBounds = scope.countBounds
+                    countBounds = scope.countBounds,
+                    simdWidth = scope.simdWidth
                 )
                 block(region.vector as {scalarIR.Statement}, values, nested, {})
             end
@@ -3523,7 +3545,8 @@ function verify.program(program: scalarIR.Program): scalarIR.Program
         inPhase = false,
         shared = sharedTypes,
         sharedCounts = sharedCounts,
-        countBounds = countBounds
+        countBounds = countBounds,
+        simdWidth = program.simdWidth
     )
     helperBodies(program, scope)
 
@@ -3584,7 +3607,8 @@ function verify.program(program: scalarIR.Program): scalarIR.Program
                 inPhase = false,
                 shared = sharedTypes,
                 sharedCounts = sharedCounts,
-                countBounds = countBounds
+                countBounds = countBounds,
+                simdWidth = program.simdWidth
             ),
             {}
         )
