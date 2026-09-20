@@ -3928,6 +3928,16 @@ return {build = {kind = "component", entries = {"main"}, reload = true, optimize
     assertEq(config, nil, "watch generation is development generation")
     assert(err:find("reload builds at optimize = 0", 1, true), err)
     remove(optimized)
+
+    local compiled = tempProject({
+        ["nupp.lua"] = [[
+return {build = {kind = "component", entries = {"main"}, reload = true, aot = "require"}}
+]]
+    })
+    config, err = project.loadManifest(compiled)
+    assertEq(config, nil, "a patched Lua body is not a rebuilt kernel")
+    assert(err:find("reload cannot be combined with aot", 1, true), err)
+    remove(compiled)
 end
 
 return M

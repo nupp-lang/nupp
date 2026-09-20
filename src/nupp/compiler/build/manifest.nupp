@@ -704,6 +704,14 @@ local function validateTarget(target, label, dependencies)
         if target.optimize ~= nil and target.optimize ~= 0 then
             return nil, label .. ".reload builds at optimize = 0"
         end
+        -- An `@aot` policy rewrites a body into a call to compiled machine code,
+        -- and reload replaces Lua bodies. Patching the wrapper would report a
+        -- committed generation the kernel behind it knows nothing about, so the
+        -- two are refused together rather than one quietly doing nothing.
+        if target.aot ~= nil and target.aot ~= "off" then
+            return nil, label
+                .. ".reload cannot be combined with aot; hot reload replaces Lua bodies, not compiled kernels"
+        end
     end
     if target.platforms ~= nil then
         if kind ~= "binary" then

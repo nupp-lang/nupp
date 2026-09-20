@@ -545,8 +545,15 @@ What survives a commit and what reports `NUPP_RELOAD_RESTART_REQUIRED` is watch
 mode's own account, in [hot-reload.md](hot-reload.md): bodies of named functions
 are replaceable, and a changed declaration, layout, capture set or native
 artifact is not. Nupp does not replace native machine code in a live process, so
-a changed C library is a restart however the host asks, and so is a changed
-`@aot` entry: a patched Lua body is not a rebuilt kernel.
+a changed C library is a restart however the host asks.
+
+For the same reason a reload component cannot be built under an `@aot` policy:
+that policy rewrites a body into a call to compiled machine code, and a patch
+replacing the wrapper would report a committed generation the kernel behind it
+knows nothing about. The build refuses the two together, so the shipping target
+keeps its kernels and the reload target is the same program in Lua. An `@aot`
+annotation with no policy asking for it is inert, and the function it marks
+patches like any other.
 
 A commit reaches the state the session is attached to and no other. A worker
 task runs in its own LuaJIT state with its own copy of the module code, so a

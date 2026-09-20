@@ -473,7 +473,9 @@ build = {
 
 `reload` is only valid for a component, and it builds at `-O0`: watch generation
 is development generation, and a target that also named an optimization level is
-refused rather than quietly demoted. Ship the ordinary target; hand the reload
+refused rather than quietly demoted. It is refused beside an `@aot` policy too,
+which replaces a body with a call into compiled machine code that a Lua patch
+cannot reach. Ship the ordinary target; hand the reload
 one to a host that opens a session over it with `nupp_reload_attach`. See
 [embedding.md](embedding.md#hot-reload) for the session and
 [hot-reload.md](hot-reload.md) for which edits it accepts.
