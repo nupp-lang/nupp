@@ -30,6 +30,26 @@ await runNuppWasmApp({
       assert.equal(runtime[name](-Infinity), Infinity);
       assert.ok(Number.isNaN(runtime[name](NaN)));
     }
+    // Fused decimal parsing uses libc conversion/byte routines and the
+    // compiler runtime's wide multiplication helper through the same linker.
+    for (const name of ["_strtod", "_memcmp", "_memchr", "___multi3"]) {
+      assert.equal(typeof runtime[name], "function", `missing side-module runtime export ${name}`);
+    }
+    const bytes = runtime._malloc(64);
+    try {
+      runtime.HEAPU8.set(Buffer.from("-0\0-12.5x\0"), bytes);
+      assert.ok(Object.is(runtime._strtod(bytes, 0), -0));
+      assert.equal(runtime._strtod(bytes + 3, 0), -12.5);
+      assert.equal(runtime._memchr(bytes, 120, 10), bytes + 8);
+      assert.equal(runtime._memchr(bytes, 122, 10), 0);
+      assert.equal(runtime._memcmp(bytes, bytes, 10), 0);
+      assert.ok(runtime._memcmp(bytes + 1, bytes + 4, 1) < 0);
+      // (2^64 + 3) * (2^64 + 5), modulo the helper's 128-bit result.
+      runtime.___multi3(bytes + 16, 3n, 1n, 5n, 1n);
+      const result = new DataView(runtime.HEAPU8.buffer);
+      assert.equal(result.getBigUint64(bytes + 16, true), 15n);
+      assert.equal(result.getBigUint64(bytes + 24, true), 8n);
+    } finally { runtime._free(bytes); }
     return runtime;
   },
   locateFile: (name) => path.isAbsolute(name) ? name : path.join(host, name),

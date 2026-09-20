@@ -6,6 +6,7 @@ import { createHash } from "node:crypto";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { runNuppWasmApp } from "../../runtime/wasm/app-runtime.mjs";
+import { wasmBindings, instrumentWasmSource } from "./wasm-bindings.mjs";
 
 const project = path.resolve(process.argv[2]);
 const host = path.resolve(process.argv[3]);
@@ -15,17 +16,12 @@ if (manifest.schemaVersion !== 3 || manifest.target !== "wasm32-unknown-emscript
     !manifest.units.length || manifest.units.some((unit) => unit.tier !== "simd128")) {
   throw new Error("SIMD conformance requires actual simd128 side modules");
 }
-const source = readFileSync(path.join(project, "dist/app.lua"), "utf8");
+const sourceBytes = readFileSync(path.join(project, "dist/app.lua"));
+// Only binding metadata is text. Lua string literals may contain arbitrary bytes.
+const source = sourceBytes.toString("utf8");
 // Read the emitted binding's actual symbol and unit, including module-private
 // qualification and the compiler's camel-case conversion. Do not recreate it.
-const bindings = [];
-const bindingPattern = /\b(__nuppWasm_[A-Za-z0-9_]+)Native\s*=\s*assert\s*\(\s*\1Unit\s*\[\s*"([^"]+)"\s*\]\s*,\s*"Wasm AOT kernel ([^"]+) is not registered"\s*\)/g;
-for (const match of source.matchAll(bindingPattern)) {
-  const unitPattern = new RegExp(`\\b${match[1]}Unit\\s*=\\s*assert\\s*\\(\\s*${match[1]}Registry\\s*\\[\\s*"([^"]+)"`);
-  const unit = source.match(unitPattern)?.[1];
-  if (!unit) throw new Error(`Missing emitted unit binding for ${match[3]}`);
-  bindings.push({ symbol: match[2], name: match[3], unit });
-}
+const bindings = wasmBindings(source);
 const probes = [];
 for (const [module, names] of Object.entries(corpus.probes)) {
   const suffixes = [`/${module}.simd128.c`, `/${module}.g.simd128.c`];
@@ -99,10 +95,13 @@ for key, count in pairs(calls) do
   assert(count > 0, "probe never called its Wasm native entry: " .. key)
   total, probes = total + count, probes + 1
 end
-return string.format('{"cases":%.0f,"nativeCalls":%.0f,"probes":%.0f}', checked, total, probes)
+local fingerprint = entry.randomFingerprint and entry.randomFingerprint()
+assert(fingerprint == nil or (type(fingerprint) == "string" and fingerprint:match("^[%w:.-]+$")), "invalid corpus fingerprint")
+return string.format('{"cases":%.0f,"nativeCalls":%.0f,"probes":%.0f%s}', checked, total, probes,
+  fingerprint and ',"randomFingerprint":"' .. fingerprint .. '"' or "")
 `;
 const createHost = (await import(pathToFileURL(path.join(host, "nupp-app.mjs")).href)).default;
-const app = Buffer.from(prefix + source + suffix);
+const app = instrumentWasmSource(sourceBytes, prefix, suffix);
 const result = await runNuppWasmApp({
   createHost,
   locateFile: (name) => path.isAbsolute(name) ? name : path.join(host, name),
@@ -126,8 +125,9 @@ if (scalarReference && (result.cases !== scalarReference.cases || result.probes 
   throw new Error("Scalar-C and SIMD did not execute the same corpus inventory");
 }
 const report = { ok: true, hostArtifacts, executionPath: scalarSelection ? "scalar-c" : "simd", scalarSelection,
-  appSha256: createHash("sha256").update(source).digest("hex"), tier: "simd128", runtime: "existing Lua 5.1 Wasm host / Node",
+  appSha256: createHash("sha256").update(sourceBytes).digest("hex"), tier: "simd128", runtime: "existing Lua 5.1 Wasm host / Node",
   ...result, symbols: Object.fromEntries(probes.map((probe) => [probe.key, probe.symbol])),
+  entries: probes.map(({ key, symbol, unit, entryMode }) => ({ key, symbol, unit, entryMode })),
   coverage: corpus.coverage, artifacts };
 writeFileSync(path.join(project, "result.json"), JSON.stringify(report, null, 2) + "\n");
 console.log(JSON.stringify(report));

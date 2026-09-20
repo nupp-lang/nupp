@@ -90,3 +90,19 @@ from browser application tests.
 
 These are semantic tests, not benchmarks. The reports do not measure speed or
 claim that a compiler chose a particular machine instruction for every operation.
+
+The dedicated `Wasm / Owned algorithms` job runs UTF-8, Base64, structural JSON
+and fused JSON once, separately from the forty type/width shards. It reuses the
+shared differential corpora, archives their source hashes, and counts calls
+only after the registered Wasm kernel or builder returns. Its summary requires
+all four independently matched native/Wasm case counts, the three randomized
+corpora's stream fingerprints, and emitted entry identities at the tested commit;
+a missing algorithm, smaller corpus or interpreted-only run cannot pass.
+
+Correctness random inputs use a shared Park–Miller generator whose integer
+products are exact in binary64. This replaces VM-specific `math.random` only
+for the differential corpora; timing streams are unchanged. Expectations and
+exhaustive cases remain the same. The resulting structural-JSON corpus has
+223,519 checks on both native and Wasm execution; its former VM-specific stream
+had 223,585. Lua app bytes are retained when adding proof wrappers, including
+non-UTF-8 string literals.

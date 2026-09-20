@@ -67,7 +67,8 @@
         "Intel macOS and both Windows images have explicit execution rows",
         "unavailable hardware produces missing acceptance evidence, never an execution pass",
         "all ten element types and every Fixed2..64 plus Preferred execute through SIMD128 and scalar-C Wasm routes",
-        "disjoint Wasm shards aggregate only when the complete requested inventory has proof"
+        "disjoint Wasm shards aggregate only when the complete requested inventory has proof",
+        "UTF-8, Base64, structural JSON and fused JSON differentials execute once through returned Wasm registrar calls"
       ]
     },
     "integration": {

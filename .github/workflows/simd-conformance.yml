@@ -177,6 +177,67 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
+  wasm-algorithms:
+    name: Wasm / Owned algorithms
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: emscripten-core/setup-emsdk@v15
+        with:
+          version: 6.0.8
+          actions-cache-folder: emsdk-cache
+      - uses: actions/cache@v4
+        with:
+          path: .nupp-cache/toolchain
+          key: >-
+            nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('scripts/toolchain.pins', 'scripts/toolchain') }}
+          restore-keys: |
+            nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-
+      - uses: actions/cache/restore@v4
+        with:
+          path: build/cache
+          key: >-
+            nupp-buildcache-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('src/**', 'nupp.lua', 'scripts/toolchain.pins') }}
+          restore-keys: |
+            nupp-buildcache-${{ runner.os }}-${{ runner.arch }}-
+      - name: Provision the pinned toolchain
+        run: ./scripts/toolchain --all
+      - name: Fetch verified Lua 5.1.5 sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/nupp-portable-compiler"
+          archive="$RUNNER_TEMP/nupp-portable-compiler/lua-5.1.5.tar.gz"
+          curl -fsSL https://www.lua.org/ftp/lua-5.1.5.tar.gz -o "$archive"
+          printf '%s  %s\n' \
+            2640fc56a795f29d28ef15e13c34a47e223960b0240e8cb0a82d9b0738695333 \
+            "$archive" | sha256sum -c -
+          tar -xzf "$archive" -C "$RUNNER_TEMP/nupp-portable-compiler"
+      - name: Execute all four owned algorithm differentials
+        run: tests/simd/run-wasm-algorithms.sh
+      - name: Retain algorithm execution and failure evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: simd-wasm-algorithms-${{ github.sha }}
+          path: |
+            build/simd-wasm-algorithms/**/*.json
+            build/simd-wasm-algorithms/**/*.log
+            build/simd-wasm-algorithms/**/*.txt
+            build/simd-wasm-algorithms/**/*.nupp
+            build/simd-wasm-algorithms/**/*.lua
+            build/simd-wasm-algorithms/**/*.c
+            build/simd-wasm-algorithms/**/*.mjs
+            build/simd-wasm-algorithms/**/*.wasm
+          if-no-files-found: warn
+          retention-days: 7
+
   wasm-complete:
     name: Complete Wasm inventory
     needs: wasm
