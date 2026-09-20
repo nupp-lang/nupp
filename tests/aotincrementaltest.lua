@@ -206,16 +206,19 @@ function M.rebuildsOnlyWhatChanged()
             aotNotes = aotNotes + 1
             assert(note.range.start.line > 1, "AOT notes use the authored loop position")
             local source = assert(read(dir .. "/" .. note.file))
-            assert(source:sub(note.range.start.offset, note.range.start.offset + 2) == "for", "AOT note range starts at its loop")
+            assert(
+                source:sub(note.range.start.offset, note.range.start.offset + 2) == "for",
+                "AOT note range starts at its loop"
+            )
         end
     end
     test.equal(aotNotes, SOURCES, "each source contributes one AOT loop remark")
     local coldObjects = objects(dir)
     test.equal(#names(coldObjects), coldFacts.units, "one object file per unit")
     local library = assert(
-        read(
-            dir .. "/build/native/lib/libnative_aot.dylib"
-        ) or read(dir .. "/build/native/lib/libnative_aot.so") or read(dir .. "/build/native/lib/native_aot.dll"),
+        read(dir .. "/build/native/lib/libnative_aot.dylib")
+        or read(dir .. "/build/native/lib/libnative_aot.so")
+        or read(dir .. "/build/native/lib/native_aot.dll"),
         "no linked library"
     )
 
@@ -257,9 +260,9 @@ function M.rebuildsOnlyWhatChanged()
         "only the edited unit's objects were rewritten"
     )
     local relinked = assert(
-        read(
-            dir .. "/build/native/lib/libnative_aot.dylib"
-        ) or read(dir .. "/build/native/lib/libnative_aot.so") or read(dir .. "/build/native/lib/native_aot.dll")
+        read(dir .. "/build/native/lib/libnative_aot.dylib")
+        or read(dir .. "/build/native/lib/libnative_aot.so")
+        or read(dir .. "/build/native/lib/native_aot.dll")
     )
     assert(relinked ~= library, "the relinked library differs from the one before the edit")
 
@@ -353,14 +356,51 @@ function M.numericLoopRuntimeIsPartOfTheArtifactKey()
     local original = targets.numericForRuntime
     local ok, failure = pcall(function()
         local selected = assert(targets.select("x86_64-unknown-linux-gnu", "baseline"))
-        targets.numericForRuntime = function() return "luajit-single" end
+        targets.numericForRuntime = function()
+            return "luajit-single"
+        end
         local single = aot.key("same verified source", selected)
-        targets.numericForRuntime = function() return "luajit-dual" end
-        assert(aot.key("same verified source", selected) ~= single,
-            "changing only the local LuaJIT number mode invalidates the compiled artifact")
+        targets.numericForRuntime = function()
+            return "luajit-dual"
+        end
+        assert(
+            aot.key("same verified source", selected) ~= single,
+            "changing only the local LuaJIT number mode invalidates the compiled artifact"
+        )
     end)
     targets.numericForRuntime = original
     assert(ok, failure)
+end
+
+function M.wasmCallerDialectChangesNumericLoopArtifactKey()
+    local aot = require("nupp.compiler.build.aot")
+    local targets = require("nupp.compiler.aot.target")
+    local triple = "wasm32-unknown-emscripten"
+    local source = "same verified Wasm source"
+    for _, tier in ipairs({"scalar", "simd128"}) do
+        local legacy = assert(targets.select(triple, tier, "lua51"))
+        local guest = assert(targets.select(triple, tier, "luajit"))
+        local unspecified = assert(targets.select(triple, tier))
+        test.equal(targets.numericForRuntime(legacy), "lua51")
+        test.equal(targets.numericForRuntime(guest), "luajit-single")
+        test.equal(targets.numericForRuntime(unspecified), "lua51", "direct Wasm AOT retains its default")
+        assert(
+            aot.key(source, legacy) ~= aot.key(source, guest),
+            "changing only the calling VM invalidates an artifact for the same Wasm target"
+        )
+        test.equal(aot.key(source, legacy), aot.key(source, unspecified))
+    end
+    local tiers = assert(targets.buildTiers(triple, {minimum = "scalar", maximum = "simd128"}, "luajit"))
+    test.equal(#tiers, 2)
+    for _, selected in ipairs(tiers) do
+        test.equal(
+            targets.numericForRuntime(selected),
+            "luajit-single",
+            "every project tier retains the guest's numeric-loop contract"
+        )
+        local explicit = assert(targets.select(triple, selected.tier, "luajit"))
+        test.equal(aot.key(source, selected), aot.key(source, explicit))
+    end
 end
 
 function M.objectKeysCoverWhatChangesTheirBytes()

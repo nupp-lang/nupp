@@ -73,6 +73,9 @@ record target.Target
 
     --- The CPU feature tier this build promises.
     tier: string
+
+    --- The calling Lua VM, independent of the generated machine code target.
+    dialect: string?
 end
 
 --- The architecture one triple names.
@@ -122,10 +125,13 @@ end
 
 --- Numeric-loop entry follows the runtime provisioned for the target.
 --- The pinned LuaJIT defaults to dual numbers on ARM64 and single numbers
---- on x86; the current Wasm application host runs stock Lua 5.1.
+--- on x86. Independent browser Wasm kernels are called by the i686 LuaJIT
+--- guest; the retained Lua 5.1 backend uses its own loop-entry contract.
 function target.numericForRuntime(selected: target.Target): string
-    if selected.architecture == "wasm32" then
+    if selected.dialect == "lua51" then
         return "lua51"
+    elseif selected.architecture == "wasm32" then
+        return selected.dialect == "luajit" and "luajit-single" or "lua51"
     elseif hostJit ~= nil and selected.triple == target.hostTriple() then
         return dualNumberLoops() and "luajit-dual" or "luajit-single"
     elseif selected.architecture == "aarch64" then
@@ -160,8 +166,8 @@ end
 --- The string form names a maximum and keeps the x86-64 ceiling semantics it
 --- has always had, every tier below it included; other architectures read it as
 --- one exact tier.
-function target.buildTiers(triple: string?, features: any): ({target.Target}?, string?)
-    local base, baseErr = target.select(triple, nil)
+function target.buildTiers(triple: string?, features: any, dialect: string?): ({target.Target}?, string?)
+    local base, baseErr = target.select(triple, nil, dialect)
     if base == nil then
         return nil, baseErr
     end
@@ -169,7 +175,7 @@ function target.buildTiers(triple: string?, features: any): ({target.Target}?, s
     local actual = base as target.Target
     local architecture = actual.architecture
     if type(features) ~= "table" and architecture ~= "x86_64" then
-        local selected, selectedErr = target.select(actual.triple, features as string?)
+        local selected, selectedErr = target.select(actual.triple, features as string?, dialect)
         if selected == nil then
             return nil, selectedErr
         end
@@ -186,11 +192,11 @@ function target.buildTiers(triple: string?, features: any): ({target.Target}?, s
         first = (features.minimum or first) as string
         last = (features.maximum or last) as string
     end
-    local _, firstErr = target.select(actual.triple, first)
+    local _, firstErr = target.select(actual.triple, first, dialect)
     if firstErr ~= nil then
         return nil, firstErr
     end
-    local _, lastErr = target.select(actual.triple, last)
+    local _, lastErr = target.select(actual.triple, last, dialect)
     if lastErr ~= nil then
         return nil, lastErr
     end
@@ -210,7 +216,7 @@ function target.buildTiers(triple: string?, features: any): ({target.Target}?, s
 
     local selected: {target.Target} = {}
     for index = firstIndex as integer, lastIndex as integer do
-        local one = target.select(actual.triple, known[index])
+        local one = target.select(actual.triple, known[index], dialect)
         if one ~= nil then
             selected[#selected + 1] = one as target.Target
         end
@@ -240,7 +246,7 @@ end
 --- @param triple the target triple, or nothing for the host's
 --- @param tier the CPU feature tier, or nothing for the architecture's default
 --- @return the target, or nothing and what was wrong with the request
-function target.select(triple: string?, tier: string?): (target.Target?, string?)
+function target.select(triple: string?, tier: string?, dialect: string?): (target.Target?, string?)
     local named = triple or targetLayout.hostKey()
     if named == nil then
         return nil, "this host is not a modeled target; name one with --target"
@@ -268,7 +274,12 @@ function target.select(triple: string?, tier: string?): (target.Target?, string?
         ):format(architecture, tostring(selected), table.concat(available, ", "))
     end
 
-    return new target.Target(triple = named as string, architecture = architecture, tier = selected as string), nil
+    return new target.Target(
+        triple = named as string,
+        architecture = architecture,
+        tier = selected as string,
+        dialect = dialect
+    ), nil
 end
 
 --- The widest vector a target's frame can carry, keyed by operating system.

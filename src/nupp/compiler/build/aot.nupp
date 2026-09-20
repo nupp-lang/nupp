@@ -1462,7 +1462,7 @@ function aot.emitC(
     -- Kept for every source read here, and used only for the ones that end up
     -- rewritten, since only those are checked again as something else.
     local authoredUnused: {[string]: {any}} = {}
-    local selected, targetErr = targets.buildTiers(triple, features)
+    local selected, targetErr = targets.buildTiers(triple, features, session.inc.env.dialect)
     if selected == nil then
         return nil, tostring(targetErr), produced, authoredUnused, nil, gpuSources
     end
@@ -1571,7 +1571,7 @@ function aot.emitC(
                             local afterFailure = false
                             for _, tier in ipairs(known) do
                                 if afterFailure then
-                                    local candidate = targets.select(tierTarget.triple, tier)
+                                    local candidate = targets.select(tierTarget.triple, tier, tierTarget.dialect)
                                     if candidate ~= nil then
                                         local probe = compile.artifacts(
                                             text,
@@ -2115,7 +2115,7 @@ function aot.apply(
             end
         end
     end
-    local selectedForManifest, selectedErr = targets.buildTiers(triple, features)
+    local selectedForManifest, selectedErr = targets.buildTiers(triple, features, session.inc.env.dialect)
     if selectedForManifest == nil then
         return nil, tostring(selectedErr)
     end

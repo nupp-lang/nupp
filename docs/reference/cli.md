@@ -456,6 +456,7 @@ Options:
   --function NAME     Show only this function.
   --target TRIPLE     Target triple to compile for.
   --features TIER     CPU feature tier to promise.
+  --dialect DIALECT   Calling Lua VM and source-checking dialect.
   --library PATH      Compiled object path used by a generated binding.
   --format FORMAT, --json, --text
                       Select the report representation.
@@ -479,6 +480,14 @@ beside the scalar loop it was rewritten from, `c` is the generated C, `spirv` is
 native GPU module, `wgsl` is the browser WebGPU integer artifact, `asm` is the
 instructions that C became, and `binding` is the Nupp module that stands in
 front of it.
+
+`--dialect luajit` or `--dialect lua51` selects the calling VM's numeric-loop
+semantics and the dialect used to check the source. For independent Wasm kernels
+called by the LuaJIT browser guest, use `--target wasm32-unknown-emscripten
+--dialect luajit`. Omitting `--dialect` preserves the existing inspection defaults:
+Wasm uses Lua 5.1 numeric-loop semantics, native targets use their LuaJIT number
+mode, and source checking uses its LuaJIT default. Other project settings remain
+in effect.
 
 `--emit asm` compiles the generated C with the flags a build compiles this
 tier's translation unit with, and stops one step before the assembler encodes

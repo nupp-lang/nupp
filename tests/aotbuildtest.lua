@@ -1149,6 +1149,7 @@ local function emittedSymbol(c, logical, tier)
         c:match("KS_API%s+[%w_%*]+%s+(ks_[0-9a-f]+_" .. suffix .. ")%s*%("),
         "missing qualified native entry " .. suffix
     )
+
     return symbol
 end
 
@@ -2535,6 +2536,7 @@ local function executableLibrarySymbols(dir, lib, logical)
             names[#names + 1] = emittedSymbol(assert(read(tieredC(dir, tier.tier))), logical, tier.tier)
         end
     end
+
     return names
 end
 
@@ -4267,12 +4269,18 @@ end
     end
 
     for _, operation in ipairs({"Sum", "Product", "Dot"}) do
-        add("algebraic_" .. operation:lower(), "number", "double",
+        add(
+            "algebraic_" .. operation:lower(),
+            "number",
+            "double",
             "local fold = simd.reducer.algebraic" .. operation .. "(seed)",
-            operation == "Product" and "multiply" or "add", "number", "double",
-            operation == "Dot" and "input[i], input[i]" or nil, nil,
-            {{0.5, -0.5, 1.25, -1.25, 0.75, 1.5, -1.0, 1.0},
-             {0.0, -0.0, math.huge, -math.huge, 0 / 0, 1.0, -1.0}})
+            operation == "Product" and "multiply" or "add",
+            "number",
+            "double",
+            operation == "Dot" and "input[i], input[i]" or nil,
+            nil,
+            {{0.5, -0.5, 1.25, -1.25, 0.75, 1.5, -1.0, 1.0}, {0.0, -0.0, math.huge, -math.huge, 0 / 0, 1.0, -1.0}}
+        )
     end
 
     source[#source + 1] = "return {" .. table.concat(exports, ", ") .. "}"
@@ -4369,9 +4377,13 @@ end
                             level = nextLevel
                         end
                         local independent = level[1]
-                        assert((expected ~= expected and independent ~= independent) or expected == independent,
-                            case.name .. " ordinary reducer violates adjacent-pair tree at " .. count)
-                        if independent == 0 then test.equal(1 / expected, 1 / independent, "pairwise tree signed zero") end
+                        assert(
+                            (expected ~= expected and independent ~= independent) or expected == independent,
+                            case.name .. " ordinary reducer violates adjacent-pair tree at " .. count
+                        )
+                        if independent == 0 then
+                            test.equal(1 / expected, 1 / independent, "pairwise tree signed zero")
+                        end
                         expected = independent
                     end
                     for _, name in ipairs(names) do
@@ -4379,17 +4391,24 @@ end
                         local label = case.name .. " offset=" .. offset .. " count=" .. count .. " " .. name
                         if case.resultC == "double" and expected ~= expected then
                             assert(actual ~= actual, label .. " expected NaN")
-                        elseif case.name:match("^algebraic_") and count > 0
-                            and expected ~= math.huge and expected ~= -math.huge then
+                        elseif case.name:match("^algebraic_")
+                            and count > 0
+                            and expected ~= math.huge
+                            and expected ~= -math.huge
+                        then
                             local scale = math.abs(seed)
                             for i = 0, count - 1 do
                                 local value = tonumber(input[i])
                                 scale = scale + math.abs(case.name == "algebraic_dot" and value * value or value)
                             end
-                            if case.name == "algebraic_product" then scale = math.abs(expected) end
+                            if case.name == "algebraic_product" then
+                                scale = math.abs(expected)
+                            end
                             local nu = (4 * count + 4) * 1.1102230246251565e-16
-                            assert(actual == actual and math.abs(actual - expected) <= nu / (1 - nu) * scale + 5e-324,
-                                label .. " algebraic finite error envelope")
+                            assert(
+                                actual == actual and math.abs(actual - expected) <= nu / (1 - nu) * scale + 5e-324,
+                                label .. " algebraic finite error envelope"
+                            )
                             if case.name == "algebraic_product" and expected == 0 then
                                 test.equal(1 / actual, 1 / expected, label .. " product signed zero")
                             end
@@ -4795,10 +4814,29 @@ function M.twoAotFunctionsOverOneStructBuild()
     assert(lua:match("ks_[0-9a-f]+_scale_both_native"), "the first wrapper calls the selected symbol")
     assert(lua:match("ks_[0-9a-f]+_shift_both_native"), "and so does the second")
     assert(
-        lua:find(emittedSymbol(assert(read(tieredC(dir, firstHostTier()))), "ks_scale_both", firstHostTier()) .. "_PointLayout", 1, true),
+        lua:find(
+            emittedSymbol(
+                assert(read(tieredC(dir, firstHostTier()))),
+                "ks_scale_both",
+                firstHostTier()
+            ) .. "_PointLayout",
+            1,
+            true
+        ),
         "each checks the struct under its own name, which is what used to collide"
     )
-    assert(lua:find(emittedSymbol(assert(read(tieredC(dir, firstHostTier()))), "ks_shift_both", firstHostTier()) .. "_PointLayout", 1, true), "both of them")
+    assert(
+        lua:find(
+            emittedSymbol(
+                assert(read(tieredC(dir, firstHostTier()))),
+                "ks_shift_both",
+                firstHostTier()
+            ) .. "_PointLayout",
+            1,
+            true
+        ),
+        "both of them"
+    )
 end
 
 function M.countedLoopsPreserveBoundAndInductionSemantics()
@@ -4938,25 +4976,41 @@ print("COUNTED-OK " .. checked)
         local pipe = assert(io.popen(("cd %q && luajit compare.lua 2>&1"):format(dir)))
         answers[policy] = pipe:read("*a")
         pipe:close()
-        assert(answers[policy]:find("COUNTED-OK", 1, true), "counted oracle " .. policy .. " at " .. dir .. "\n" .. answers[policy])
+        assert(
+            answers[policy]:find("COUNTED-OK", 1, true),
+            "counted oracle " .. policy .. " at " .. dir .. "\n" .. answers[policy]
+        )
         if policy == "require" then
             local authored = assert(read(dir .. "/build/native/kernel.lua"))
-            local changed, count = authored:gsub("(ks_[%w_]+_loop_runtime%s*%(%s*%)%s*~=%s*)(%a+)", function(prefix, expected)
-                assert(expected == "true" or expected == "false")
-                return prefix .. (expected == "true" and "false" or "true")
-            end, 1)
+            local changed, count = authored:gsub(
+                "(ks_[%w_]+_loop_runtime%s*%(%s*%)%s*~=%s*)(%a+)",
+                function(prefix, expected)
+                    assert(expected == "true" or expected == "false")
+                    return prefix .. (expected == "true" and "false" or "true")
+                end,
+                1
+            )
             assert(count == 1, "a counted artifact records its runtime-mode guard at " .. dir)
-            local mismatch = assert(io.open(dir .. "/mismatch.lua", "wb")); mismatch:write(changed); mismatch:close()
+            local mismatch = assert(io.open(dir .. "/mismatch.lua", "wb"));
+            mismatch:write(changed);
+            mismatch:close()
             local probe = assert(io.open(dir .. "/reject-mode.lua", "wb"))
-            probe:write(searchPathPrelude() .. [[
+            probe:write(
+                searchPathPrelude()
+                .. [[
 local ok, message = pcall(dofile, "mismatch.lua")
 assert(not ok and tostring(message):find("AOT numeric-for runtime mismatch", 1, true), tostring(message))
 print("MODE-REFUSED")
-]])
+]]
+            )
             probe:close()
             local process = assert(io.popen(("cd %q && luajit reject-mode.lua 2>&1"):format(dir)))
-            local rejected = process:read("*a"); process:close()
-            assert(rejected:find("MODE-REFUSED", 1, true), "incompatible artifact must fail before binding\n" .. rejected)
+            local rejected = process:read("*a");
+            process:close()
+            assert(
+                rejected:find("MODE-REFUSED", 1, true),
+                "incompatible artifact must fail before binding\n" .. rejected
+            )
         end
     end
     test.equal(answers.require, answers.off, "native and interpreted counted loops agree with independent oracle")
@@ -5212,7 +5266,10 @@ function M.requireCrossCompilesToAnotherMachine()
             wrapper:find("ks_aot_feature_tier", 1, true),
             "the cross-built wrapper asks the destination rather than the build host"
         )
-        assert(wrapper:find(emittedSymbol(assert(read(tieredC(dir, "baseline"))), "ks_scale", "baseline"), 1, true), wrapper)
+        assert(
+            wrapper:find(emittedSymbol(assert(read(tieredC(dir, "baseline"))), "ks_scale", "baseline"), 1, true),
+            wrapper
+        )
         assert(wrapper:find(emittedSymbol(assert(read(tieredC(dir, "avx2"))), "ks_scale", "avx2"), 1, true), wrapper)
         assert(wrapper:match("ks_[0-9a-f]+_scale_native"), wrapper)
     end
@@ -5520,7 +5577,9 @@ end
 ]]
                 ):format(name, ty[1], ty[1], ty[1], n, table.concat(names, ", "), call, table.concat(stores, "\n    "))
                 exports[#exports + 1] = name .. " = " .. name
-                cases[#cases + 1] = {name = name, ctype = ty[2], stem = "rearrange_" .. ty[1], n = n, rows = rows, op = op}
+                cases[
+                    #cases + 1
+                ] = {name = name, ctype = ty[2], stem = "rearrange_" .. ty[1], n = n, rows = rows, op = op}
             end
         end
         source[#source + 1] = "return {" .. table.concat(exports, ", ") .. "}"
@@ -5867,7 +5926,9 @@ function M.genericVocabularyOperationsAgreeAcrossLuaScalarAndLaneExecution()
     local lib = ffi.load(libraryPath(dir))
     local symbols = {}
     for _, name in ipairs({"masks", "preferred_masks", "swap_fields", "mapped", "sums", "dot", "exact"}) do
-        symbols[name] = {librarySymbol(dir, lib, "ks_" .. name), librarySymbol(dir, lib, "ks_" .. name .. "_forced_scalar")}
+        symbols[
+            name
+        ] = {librarySymbol(dir, lib, "ks_" .. name), librarySymbol(dir, lib, "ks_" .. name .. "_forced_scalar")}
     end
     ffi.cdef("typedef struct { float x; float y; } NuppAotPoint;")
     ffi.cdef("typedef struct { double v1, v2, v3, v4; } NuppAotSums;")

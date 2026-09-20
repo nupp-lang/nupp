@@ -572,7 +572,7 @@ local function run(options: any): integer
     -- A placeholder rather than a guess: where the object lands is a build
     -- decision this command does not make, and a binding printed for reading
     -- says so rather than naming a path nobody will produce.
-    local selected, targetErr = targets.select(options.target, options.features)
+    local selected, targetErr = targets.select(options.target, options.features, options.dialect)
     if selected == nil then
         io.stderr:write("nupp: " .. tostring(targetErr) .. "\n")
 
@@ -593,13 +593,15 @@ local function run(options: any): integer
         end
         root = parent
     end
-    local environment = envMod.new(root)
+    local environment = envMod.new(root, {dialect = options.dialect})
     -- The command is an inspection of AOT output even when the manifest's
     -- build policy is off. Keep every other project setting and make only that
     -- question explicit while checking target-specific operations.
     environment.config._target = environment.config._target or {}
     environment.config._target.aot = "emit-c"
-    local tree, source = require("nupp.compiler.cli.compile").check(path, environment as {[string]: any})
+    local tree, source = require("nupp.compiler.cli.compile").check(path, environment as {[string]: any}, {
+        dialect = options.dialect
+    })
     if tree == nil then
         return 1
     end
@@ -804,6 +806,10 @@ local record Aot
     --- CPU feature tier to promise.
     @cli(value = "TIER")
     features: string?
+
+    --- Calling Lua VM and source-checking dialect.
+    @cli(value = "DIALECT", choices = {"luajit", "lua51"})
+    dialect: string?
 
     --- Compiled object path used by a generated binding.
     @cli(value = "PATH")

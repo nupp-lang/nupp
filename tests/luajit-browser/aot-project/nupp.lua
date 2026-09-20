@@ -11,6 +11,7 @@ return {
                 dialect = "luajit",
                 host = "browser",
                 aot = "require-wasm",
+                aotFeatures = {minimum = "simd128"},
             }
         }
     },
