@@ -41,4 +41,15 @@ for family in "${families[@]}"; do
   done
 done
 
+# Numeric-for setup is a runtime contract, separate from the species matrix.
+# Reuse the same stock Lua 5.1 host and require both native routes to agree.
+counted="$output/counted"
+NUPP_WASM_CC="$emcc_command" NUPP_SIMD_COUNTED_OUTPUT="$counted" \
+  luajit -e 'require("tests.simd.runner").wasm(require("tests.simd.counted").generate(), {directory=os.getenv("NUPP_SIMD_COUNTED_OUTPUT")})' \
+  > "$output/counted-build.log" 2>&1
+node tests/simd/run-wasm.mjs "$counted" "$output/host" > "$counted/execution.log" 2>&1
+NUPP_WASM_CC="$emcc_command" node tests/simd/prepare-wasm-scalar.mjs "$counted" "$counted/scalar-c" > "$counted/scalar-build.log" 2>&1
+node tests/simd/run-wasm.mjs "$counted/scalar-c" "$output/host" > "$counted/scalar-execution.log" 2>&1
+echo "Wasm counted-loop runtime semantics and scalar C passed"
+
 node tests/simd/summarize-wasm.mjs "$output"
