@@ -555,9 +555,10 @@ keeps its kernels and the reload target is the same program in Lua. An `@aot`
 annotation with no policy asking for it is inert, and the function it marks
 patches like any other.
 
-A commit reaches the state the session is attached to and no other. A worker
-task runs in its own LuaJIT state with its own copy of the module code, so a
-worker keeps running the generation it started with until it is replaced.
+A commit reaches the Lua state the session is attached to and no other. Worker
+tasks need a stamped `binary` target or a browser package, and this ABI has no
+way to start one, so nothing else in the process is running a generation for a
+session to keep in step with.
 
 ### Closing
 
