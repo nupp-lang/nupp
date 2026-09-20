@@ -12,6 +12,7 @@
 -- random strings up to a few kilobytes.
 --
 -- `--time` adds a timing run over the encoder and the reference.
+local math = arg[1] == "--time" and _G.math or assert(loadfile("../../tests/simd/corpusmath.lua"))()
 local simd = require("base64simd")
 local reference = require("base64reference")
 local shipped = require("nupp.codec.base64")
@@ -95,6 +96,9 @@ end
 print(("ok - %d base64 differential checks: vector path, scalar reference and nupp.codec.base64 agree"):format(checks))
 
 print("SIMD_CHECKS=" .. checks)
+if math.fingerprint then
+    print("SIMD_CORPUS_RANDOM=" .. math.fingerprint())
+end
 
 if arg[1] == "--time" then
     local clock = os.clock

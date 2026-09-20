@@ -12,6 +12,7 @@
 -- in event bytes cover what that enumeration did not think of.
 --
 -- `--time` adds a timing run over the indexer and the reference.
+local math = arg[1] == "--time" and _G.math or assert(loadfile("../../tests/simd/corpusmath.lua"))()
 local ffi = require("ffi")
 local span = require("nupp.mem.span")
 local indexer = require("simd_json.indexer")
@@ -243,6 +244,9 @@ end
 print(("ok - %d structural index differential checks: vector path and byte-at-a-time reference agree"):format(checks))
 
 print("SIMD_CHECKS=" .. checks)
+if math.fingerprint then
+    print("SIMD_CORPUS_RANDOM=" .. math.fingerprint())
+end
 
 if arg[1] == "--time" then
     local clock = os.clock

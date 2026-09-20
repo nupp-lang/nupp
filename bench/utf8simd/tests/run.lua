@@ -10,13 +10,14 @@
 -- end of a vector followed by ASCII, every tail length after the last whole
 -- vector, and every kind of malformed byte at every position of a string
 -- long enough to reach every one of those paths.
+local math = assert(loadfile("../../tests/simd/corpusmath.lua"))()
 local simd = require("utf8simd")
 local reference = require("utf8reference")
 local shipped = require("nupp.text.utf8")
 
 local proveNative = assert(loadfile("../../tests/simd/nativeproof.lua"))()
 proveNative("utf8simd", function()
-    local input = ("ASCII with \xc3\xa9 and \xe6\x97\xa5"):rep(8)
+    local input = ("ASCII with \195\169 and \230\151\165"):rep(8)
     assert(simd.validPrefix(input) == reference.validPrefix(input))
 end)
 
@@ -44,40 +45,40 @@ end
 -- U+10FFFF, bytes that lead nothing, and continuations without a lead.
 local valid = {
     "a",
-    "\x7f",
-    "\xc2\x80",
-    "\xdf\xbf",
-    "\xe0\xa0\x80",
-    "\xed\x9f\xbf",
-    "\xee\x80\x80",
-    "\xef\xbf\xbf",
-    "\xf0\x90\x80\x80",
-    "\xf3\xbf\xbf\xbf",
-    "\xf4\x8f\xbf\xbf",
+    "\127",
+    "\194\128",
+    "\223\191",
+    "\224\160\128",
+    "\237\159\191",
+    "\238\128\128",
+    "\239\191\191",
+    "\240\144\128\128",
+    "\243\191\191\191",
+    "\244\143\191\191",
 }
 local invalid = {
-    "\x80",
-    "\xbf",
-    "\xc0\x80",
-    "\xc1\xbf",
-    "\xc2\x7f",
-    "\xc2\xc0",
-    "\xe0\x80\x80",
-    "\xe0\x9f\xbf",
-    "\xed\xa0\x80",
-    "\xed\xbf\xbf",
-    "\xe1\x80\x41",
-    "\xe1\xc0\x80",
-    "\xf0\x80\x80\x80",
-    "\xf0\x8f\xbf\xbf",
-    "\xf4\x90\x80\x80",
-    "\xf5\x80\x80\x80",
-    "\xf8\x88\x80\x80\x80",
-    "\xfc\x84\x80\x80\x80\x80",
-    "\xfe",
-    "\xff",
-    "\xf1\x80\x80\x41",
-    "\xf1\x80\x41",
+    "\128",
+    "\191",
+    "\192\128",
+    "\193\191",
+    "\194\127",
+    "\194\192",
+    "\224\128\128",
+    "\224\159\191",
+    "\237\160\128",
+    "\237\191\191",
+    "\225\128\065",
+    "\225\192\128",
+    "\240\128\128\128",
+    "\240\143\191\191",
+    "\244\144\128\128",
+    "\245\128\128\128",
+    "\248\136\128\128\128",
+    "\252\132\128\128\128\128",
+    "\254",
+    "\255",
+    "\241\128\128\065",
+    "\241\128\065",
 }
 
 for _, value in ipairs(valid) do
@@ -117,11 +118,11 @@ end
 -- Multibyte text with no ASCII in it keeps every vector on the lookup path,
 -- so a corruption here is found by the tables rather than the ladder, and a
 -- truncation is a scalar the last vector could not finish.
-local cjk = ("\xe6\x97\xa5\xe6\x9c\xac\xe8\xaa\x9e\xf0\x9f\x8d\xb0\xc3\xa9"):rep(12)
+local cjk = ("\230\151\165\230\156\172\232\170\158\240\159\141\176\195\169"):rep(12)
 agree(cjk, "multibyte text")
 for at = 1, #cjk do
     agree(cjk:sub(1, at), "multibyte text truncated at " .. at)
-    for _, bad in ipairs({"\xff", "\x80", "\xc0", "\xf5", "\x41", "\xed\xa0\x80"}) do
+    for _, bad in ipairs({"\255", "\128", "\192", "\245", "\065", "\237\160\128"}) do
         agree(cjk:sub(1, at - 1) .. bad .. cjk:sub(at + #bad), "multibyte text corrupted at " .. at)
     end
 end
@@ -129,7 +130,7 @@ end
 -- A lead left dangling at the end of one vector with ASCII in the next is
 -- the one error the ASCII fast path has to remember from the vector before.
 for edge = 14, 66 do
-    for _, lead in ipairs({"\xc3", "\xe2", "\xe2\x82", "\xf0", "\xf0\x9f", "\xf0\x9f\x8d"}) do
+    for _, lead in ipairs({"\195", "\226", "\226\130", "\240", "\240\159", "\240\159\141"}) do
         agree(("a"):rep(edge) .. lead .. ("b"):rep(40), "a dangling lead before ASCII at " .. edge)
         agree(("a"):rep(edge) .. lead, "a dangling lead at the end at " .. edge)
     end
@@ -160,3 +161,6 @@ end
 print(("ok - %d UTF-8 differential checks: vector path, scalar reference and nupp.text.utf8 agree"):format(checks))
 
 print("SIMD_CHECKS=" .. checks)
+if math.fingerprint then
+    print("SIMD_CORPUS_RANDOM=" .. math.fingerprint())
+end

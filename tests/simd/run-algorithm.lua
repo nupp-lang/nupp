@@ -35,6 +35,8 @@ runner.command(
 )
 runner.command("mkdir -p " .. q(workspace .. "/tests/simd"), directory .. "/helper-directory.log")
 runner.write(workspace .. "/tests/simd/nativeproof.lua", runner.read(root .. "/tests/simd/nativeproof.lua"))
+runner.write(workspace .. "/tests/simd/corpusmath.lua", runner.read(root .. "/tests/simd/corpusmath.lua"))
+runner.write(project .. "/" .. selected.script, runner.read(root .. "/bench/" .. name .. "/" .. selected.script))
 if name == "fused-json" then
     local source = "/src/nupp/codec/json/internal/decoder/fused.nupp"
     runner.command(
@@ -110,6 +112,7 @@ local report = {
     tier = tier,
     algorithm = name,
     nativeCalls = calls,
+    randomFingerprint = output:match("SIMD_CORPUS_RANDOM=([^\r\n]+)"),
     cases = checks,
     units = units,
     compiler = compiler,
