@@ -126,3 +126,9 @@ be optimized by Clang. These original twins were used only for correctness;
 the timed control was separately compiled with optimization and automatic
 vectorization disabled, with its assembly checked. The raw timing evidence and
 its source revision remain unchanged.
+
+After the oracle correction, all sixteen correctness cases pass on `f5ba41d9`.
+[Exact function-body comparison](results/arm64-macos-final-function-equivalence.json)
+finds identical assembly for all fourteen timed native/control functions.
+This compares each complete entry through its end directive; it does not claim
+whole-library identity or constitute another timing run.

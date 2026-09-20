@@ -1,0 +1,204 @@
+{
+  "measuredRevision": "9d7b176efc89d89f6ff43e8b7ea52daea33c6f9c",
+  "verifiedRevision": "f5ba41d93501175496bdfb0f105dc0304d0df0e0",
+  "scope": "Exact assembly text of complete timed function bodies, including labels and directives, from the entry label through cfi_endproc. Does not establish whole-library identity or new duration measurements.",
+  "checks": [
+    {
+      "group": "kernels",
+      "role": "native",
+      "symbol": "ks_map",
+      "measuredAssemblySha256": "bab05db937ba66403e95caeab51ee597ab3784271bf6f9231dfe3e596672d92a",
+      "currentAssemblySha256": "bab05db937ba66403e95caeab51ee597ab3784271bf6f9231dfe3e596672d92a",
+      "identical": true
+    },
+    {
+      "group": "kernels",
+      "role": "native",
+      "symbol": "ks_refine",
+      "measuredAssemblySha256": "ebaf33e706ebd28715d08d99b7030c55ff05dedb1270c17db705e41b536f3181",
+      "currentAssemblySha256": "ebaf33e706ebd28715d08d99b7030c55ff05dedb1270c17db705e41b536f3181",
+      "identical": true
+    },
+    {
+      "group": "kernels",
+      "role": "native",
+      "symbol": "ks_ordered",
+      "measuredAssemblySha256": "e266806c86ce1b451b12728435ca48fe042a88a4ad9f35a931a1fa0bf0a9d0d9",
+      "currentAssemblySha256": "e266806c86ce1b451b12728435ca48fe042a88a4ad9f35a931a1fa0bf0a9d0d9",
+      "identical": true
+    },
+    {
+      "group": "kernels",
+      "role": "native",
+      "symbol": "ks_pairwise",
+      "measuredAssemblySha256": "3c60f38aff69268147768c85a4f19d28376c06d907e8219b6d13f10d61debdbb",
+      "currentAssemblySha256": "3c60f38aff69268147768c85a4f19d28376c06d907e8219b6d13f10d61debdbb",
+      "identical": true
+    },
+    {
+      "group": "kernels",
+      "role": "native",
+      "symbol": "ks_algebraic",
+      "measuredAssemblySha256": "9249ff30811b6d7e656b49d20265bcf05a6c1ce606a3c7eac43df95e79101915",
+      "currentAssemblySha256": "9249ff30811b6d7e656b49d20265bcf05a6c1ce606a3c7eac43df95e79101915",
+      "identical": true
+    },
+    {
+      "group": "kernels",
+      "role": "native",
+      "symbol": "ks_cross_lane",
+      "measuredAssemblySha256": "2231e06ba9c5c097ea84f2b096a6649385e7f1a6d2c0e5d9abe18dc6a2242aa4",
+      "currentAssemblySha256": "2231e06ba9c5c097ea84f2b096a6649385e7f1a6d2c0e5d9abe18dc6a2242aa4",
+      "identical": true
+    },
+    {
+      "group": "kernels",
+      "role": "no_vector",
+      "symbol": "ks_map_forced_scalar",
+      "measuredAssemblySha256": "bcd9c5fbfb8034e31877c1ccfd13a596cc325875ff73c30e978cceaa1f215212",
+      "currentAssemblySha256": "bcd9c5fbfb8034e31877c1ccfd13a596cc325875ff73c30e978cceaa1f215212",
+      "identical": true
+    },
+    {
+      "group": "kernels",
+      "role": "no_vector",
+      "symbol": "ks_refine_forced_scalar",
+      "measuredAssemblySha256": "58ed5f172031fb540596129cdce0177027d01add7451a400106c61ef540439c0",
+      "currentAssemblySha256": "58ed5f172031fb540596129cdce0177027d01add7451a400106c61ef540439c0",
+      "identical": true
+    },
+    {
+      "group": "kernels",
+      "role": "no_vector",
+      "symbol": "ks_ordered_forced_scalar",
+      "measuredAssemblySha256": "72d24e8b1876a3fef4dcef26d2841da54f26e2191659fa7d925fa886feae0242",
+      "currentAssemblySha256": "72d24e8b1876a3fef4dcef26d2841da54f26e2191659fa7d925fa886feae0242",
+      "identical": true
+    },
+    {
+      "group": "kernels",
+      "role": "no_vector",
+      "symbol": "ks_pairwise_forced_scalar",
+      "measuredAssemblySha256": "4f63b4dcd1e5423ecca99967f59d67f02252de602d64611f92a5162676ba653e",
+      "currentAssemblySha256": "4f63b4dcd1e5423ecca99967f59d67f02252de602d64611f92a5162676ba653e",
+      "identical": true
+    },
+    {
+      "group": "kernels",
+      "role": "no_vector",
+      "symbol": "ks_algebraic_forced_scalar",
+      "measuredAssemblySha256": "3af89eaad95983e2228ac4fe9f0c1c29c5b8c1585f2c7bb918dbe5417a7a3650",
+      "currentAssemblySha256": "3af89eaad95983e2228ac4fe9f0c1c29c5b8c1585f2c7bb918dbe5417a7a3650",
+      "identical": true
+    },
+    {
+      "group": "kernels",
+      "role": "no_vector",
+      "symbol": "ks_cross_lane_forced_scalar",
+      "measuredAssemblySha256": "70a32e3c0413772661ed216ee6cbe251c06a48cb18d63c568969af2ece26bf77",
+      "currentAssemblySha256": "70a32e3c0413772661ed216ee6cbe251c06a48cb18d63c568969af2ece26bf77",
+      "identical": true
+    },
+    {
+      "group": "utf8",
+      "role": "native",
+      "symbol": "ks_valid_prefix",
+      "measuredAssemblySha256": "bf03fa230d76f3ba5098b15390f9ad3178e2855eee46906c427fa57cb7dd24dc",
+      "currentAssemblySha256": "bf03fa230d76f3ba5098b15390f9ad3178e2855eee46906c427fa57cb7dd24dc",
+      "identical": true
+    },
+    {
+      "group": "utf8",
+      "role": "no_vector",
+      "symbol": "ks_valid_prefix_forced_scalar",
+      "measuredAssemblySha256": "f0caed9f493f06c731cdee47181127614d2f79018c250465d7103e58184b834e",
+      "currentAssemblySha256": "f0caed9f493f06c731cdee47181127614d2f79018c250465d7103e58184b834e",
+      "identical": true
+    }
+  ],
+  "correctness": {
+    "rows": [
+      {
+        "name": "map",
+        "elements": 63,
+        "checked": true
+      },
+      {
+        "name": "map",
+        "elements": 65539,
+        "checked": true
+      },
+      {
+        "name": "refine",
+        "elements": 63,
+        "checked": true
+      },
+      {
+        "name": "refine",
+        "elements": 65539,
+        "checked": true
+      },
+      {
+        "name": "ordered",
+        "elements": 63,
+        "checked": true
+      },
+      {
+        "name": "ordered",
+        "elements": 65539,
+        "checked": true
+      },
+      {
+        "name": "pairwise",
+        "elements": 63,
+        "checked": true
+      },
+      {
+        "name": "pairwise",
+        "elements": 65539,
+        "checked": true
+      },
+      {
+        "name": "algebraic",
+        "elements": 63,
+        "checked": true
+      },
+      {
+        "name": "algebraic",
+        "elements": 65539,
+        "checked": true
+      },
+      {
+        "name": "crossLane",
+        "elements": 63,
+        "checked": true
+      },
+      {
+        "name": "crossLane",
+        "elements": 65539,
+        "checked": true
+      },
+      {
+        "name": "utf8-ascii",
+        "elements": 63,
+        "checked": true
+      },
+      {
+        "name": "utf8-ascii",
+        "elements": 65539,
+        "checked": true
+      },
+      {
+        "name": "utf8-unicode",
+        "elements": 63,
+        "checked": true
+      },
+      {
+        "name": "utf8-unicode",
+        "elements": 65539,
+        "checked": true
+      }
+    ],
+    "checked": true
+  }
+}
