@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -18,7 +19,19 @@ if (!manifest.units.every((unit) => /^[a-z0-9/_.-]+\.[0-9a-f]{16}\.wasm$/.test(u
 }
 
 await runNuppWasmApp({
-  createHost,
+  createHost: async (options) => {
+    const runtime = await createHost(options);
+    // Unoptimized side modules retain these libc calls instead of Wasm abs
+    // instructions. Check the actual linked host, including signed zero.
+    for (const name of ["_fabs", "_fabsf"]) {
+      assert.equal(typeof runtime[name], "function", `missing side-module libm export ${name}`);
+      assert.equal(runtime[name](-3.5), 3.5);
+      assert.ok(Object.is(runtime[name](-0), 0));
+      assert.equal(runtime[name](-Infinity), Infinity);
+      assert.ok(Number.isNaN(runtime[name](NaN)));
+    }
+    return runtime;
+  },
   locateFile: (name) => path.isAbsolute(name) ? name : path.join(host, name),
   app: readFileSync(path.join(project, "dist/app.lua")),
   sideModules: manifest.units.map((unit) => ({
