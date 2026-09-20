@@ -10,6 +10,7 @@ import {gunzipSync} from 'node:zlib';
 import {copyGuest, digest, verifyGuest} from '../../runtime/luajit/package-assets.mjs';
 import {prepareArchive} from './prepare-archive.mjs';
 import {packageBrowserApp} from '../../runtime/luajit/package-browser-app.mjs';
+import {assemblePages} from '../../scripts/build-pages.mjs';
 
 function fixture(t) {
   const root = mkdtempSync(path.join(tmpdir(), 'nupp-runtime-package-'));
@@ -62,6 +63,30 @@ test('runtime packages preserve assets and add verified gzip delivery', t => {
     assert.deepEqual(gunzipSync(readFileSync(path.join(destination, result.delivery[name]))), readFileSync(path.join(f.guest, name)));
   }
   assert.deepEqual(readFileSync(path.join(destination, 'matching-source.tar.gz')), readFileSync(path.join(f.guest, 'matching-source.tar.gz')));
+});
+
+test('Pages assembly preserves hashed runtime notices while decorating site pages', t => {
+  const f = fixture(t), docs = path.join(f.root, 'docs'), playground = path.join(f.root, 'playground');
+  const output = path.join(f.root, 'pages'), guestPath = path.join('luajit', f.manifest.buildKey);
+  const html = '<!doctype html><html><head><title>Fixture</title></head><body>Fixture</body></html>\n';
+  f.asset('notices/Rust-dependencies.html', html); f.save();
+  const packagedGuest = path.join(playground, guestPath);
+  const manifest = copyGuest(f.repo, f.guest, packagedGuest);
+  for (const name of ['index.html', 'guide/nested.html']) f.write(docs, name, html);
+  for (const name of ['index.html', 'lua51.html']) f.write(playground, name, html);
+
+  assemblePages({docs, playground, output});
+
+  const publishedGuest = path.join(output, 'playground', guestPath);
+  assert.deepEqual(verifyGuest(f.repo, publishedGuest), manifest);
+  for (const name of ['guest-manifest.json', ...Object.keys(manifest.assets)]) {
+    assert.deepEqual(readFileSync(path.join(publishedGuest, name)), readFileSync(path.join(packagedGuest, name)), name);
+  }
+  for (const name of ['index.html', 'guide/nested.html', 'playground/index.html', 'playground/lua51.html']) {
+    const published = readFileSync(path.join(output, name), 'utf8');
+    assert.match(published, /<meta property="og:site_name" content="Nupp">/, name);
+    assert.match(published, /<meta name="twitter:card" content="summary_large_image">/, name);
+  }
 });
 
 test('runtime verification rejects missing notices, matching sources and snapshot assets', t => {

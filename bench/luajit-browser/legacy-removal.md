@@ -2,7 +2,9 @@
 
 The default switch and deletion remain separate releases. This branch does not
 remove the rollback backend. Delete it only after the default release ships and
-Safari UI, physical mobile/device budgets, and field validation are accepted.
+Safari UI, the accepted desktop performance targets, and field validation pass.
+Physical mobile testing is deferred because hardware is unavailable; mobile
+support remains unverified and is not a desktop release prerequisite.
 The stage-zero pin must first name a published release that accepts `compat` and
 `host`; no version, tag or pin moves as part of this preparation.
 
@@ -59,7 +61,8 @@ claim that a stock interpreter must still run Nupp's own compiler.
    exact branch head. Inspect archives and execute packaged programs. This
    cold-build check catches stage-zero file-by-name accesses that fixpoint alone
    does not exercise.
-5. Execute the packaged desktop/device matrix before publishing deletion.
+5. Execute the packaged supported-desktop matrix before publishing deletion.
+   Record physical-device coverage separately when hardware becomes available.
 
 Rollback during the first release is explicit legacy selection. After deletion,
 rollback is a known prior release. No failure silently selects another VM.
@@ -79,4 +82,5 @@ overrides. It retains command logs, asset identities, UI results and screenshots
 failed source trees remain available for diagnosis. Application builds here
 check cold packaging. The separate archive-consumer browser matrix executes
 the packaged programs on Chromium, Firefox and WebKit. Neither gate substitutes
-for installed Safari UI, physical-device or performance acceptance.
+for installed Safari UI or desktop performance validation. They also do not
+establish physical-device support.
