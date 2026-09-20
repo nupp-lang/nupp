@@ -19,11 +19,12 @@ The stage-zero pin must first name a published release that accepts `compat` and
 | `scalarbitops`, `tablebuffer`, `tablestruct`, storage/representation facades | Audit individual branches, not whole filenames | These providers still appear in the **new guest-native application build's written outputs**; current names do not imply exclusive legacy use |
 | Legacy browser release artifact and CI jobs | Remove after the rollback release; keep the source-built LuaJIT runtime archive with matching sources/notices | `browser-guest.yml`, independent Wasm and guest-native AOT, fresh-checkout packaging |
 
-`results/dialect-boundaries.json` is the existing searchable source inventory.
-`results/compatibility-inventory.json` records effect closures, including the
-cleanup/suspension restriction; it is not a list of safe file deletions.
-`results/legacy-consumers.json` adds literal importers for the runtime providers
-and shared browser files. Dynamic import/provider selection still requires review.
+`results/dialect-boundaries.json`, `results/compatibility-inventory.json` and
+`results/legacy-consumers.json` are historical snapshots that predate the SPI
+migration. Refresh their source paths, importers and effect closures on the
+deletion branch before deciding what can be removed. Dynamic SPI selection
+requires separate review. The old services catalog and service test suites are
+already gone; retain their successors in `spitest` and `spipackagetest`.
 
 ## Tests that must survive
 
