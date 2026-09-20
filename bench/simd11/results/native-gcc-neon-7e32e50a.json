@@ -1,0 +1,2267 @@
+{
+  "schemaVersion": 1,
+  "scope": "Current7e32e50a local GCC16/NEON correctness only, with final expanded corpus. This is independent of historical Clang evidence; no hosted x86, Windows or Wasm execution is implied. Algorithms have native route only.",
+  "revision": "7e32e50a2d611b1ffd57f4821ab0c58b2886da70",
+  "host": "Darwin Michaels-MBP.localdomain 25.6.0 Darwin Kernel Version 25.6.0: Sat Jul 11 15:27:04 PDT 2026; root:xnu-12377.161.13~4/RELEASE_ARM64_T6050 arm64",
+  "cpu": "Apple M5 Pro\n",
+  "vm": "LuaJIT 2.1.1785763465 -- Copyright (C) 2005-2026 Mike Pall. https://luajit.org/\n",
+  "selection": {
+    "tiers": [
+      "neon"
+    ],
+    "families": [
+      "primitives",
+      "reducers"
+    ],
+    "lanes": [
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31,
+      32,
+      33,
+      34,
+      35,
+      36,
+      37,
+      38,
+      39,
+      40,
+      41,
+      42,
+      43,
+      44,
+      45,
+      46,
+      47,
+      48,
+      49,
+      50,
+      51,
+      52,
+      53,
+      54,
+      55,
+      56,
+      57,
+      58,
+      59,
+      60,
+      61,
+      62,
+      63,
+      64,
+      "preferred"
+    ],
+    "types": [
+      "float",
+      "number",
+      "int8",
+      "uint8",
+      "int16",
+      "uint16",
+      "int32",
+      "uint32",
+      "int64",
+      "uint64"
+    ],
+    "compilers": [
+      "gcc-16"
+    ],
+    "algorithms": [
+      "utf8simd",
+      "base64simd",
+      "simd-json",
+      "fused-json"
+    ]
+  },
+  "complete": true,
+  "summarySha256": "415d8a660475718a379818be3785d70ac3fbdb572393d2166f0dc06425e210dc",
+  "rawDirectory": "/private/tmp/nupp-simd11-gcc-full-final-7e32e50a",
+  "actualSpeciesSets": {
+    "species1": [
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "7",
+      "8",
+      "9",
+      "10",
+      "11",
+      "12",
+      "13",
+      "14",
+      "15",
+      "16",
+      "17",
+      "18",
+      "19",
+      "20",
+      "21",
+      "22",
+      "23",
+      "24",
+      "25",
+      "26",
+      "27",
+      "28",
+      "29",
+      "30",
+      "31",
+      "32",
+      "33",
+      "34",
+      "35",
+      "36",
+      "37",
+      "38",
+      "39",
+      "40",
+      "41",
+      "42",
+      "43",
+      "44",
+      "45",
+      "46",
+      "47",
+      "48",
+      "49",
+      "50",
+      "51",
+      "52",
+      "53",
+      "54",
+      "55",
+      "56",
+      "57",
+      "58",
+      "59",
+      "60",
+      "61",
+      "62",
+      "63",
+      "64",
+      "preferred"
+    ],
+    "species2": [
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "7",
+      "8",
+      "9",
+      "10",
+      "11",
+      "12",
+      "13",
+      "14",
+      "15",
+      "16",
+      "17",
+      "18",
+      "19",
+      "20",
+      "21",
+      "22",
+      "23",
+      "24",
+      "25",
+      "26",
+      "27",
+      "28",
+      "29",
+      "30",
+      "31",
+      "32",
+      "33",
+      "34",
+      "35",
+      "36",
+      "37",
+      "38",
+      "39",
+      "40",
+      "41",
+      "42",
+      "43",
+      "44",
+      "45",
+      "46",
+      "47",
+      "48",
+      "49",
+      "50",
+      "51",
+      "52",
+      "53",
+      "54",
+      "55",
+      "56",
+      "57",
+      "58",
+      "59",
+      "60",
+      "61",
+      "62",
+      "63",
+      "64"
+    ],
+    "species3": [
+      "scalar"
+    ]
+  },
+  "rows": [
+    {
+      "compiler": "1",
+      "command": "gcc-16",
+      "compilerVersion": "gcc-16 (Homebrew GCC 16.2.0) 16.2.0",
+      "target": "aarch64-apple-darwin25",
+      "tier": "neon",
+      "family": "primitives",
+      "element": "float",
+      "status": "executed",
+      "rowProofSha256": "bd83bee890340a942fc796cf3629d9ac17283f55beb5fd54550b29fb61877a46",
+      "executionProofSha256": "fd90fae59f99658e1d6524dc33298903873a39c9a06f2e0c1aeb8b6cc32ae28d",
+      "rawExecutionSha256": "602021103c9e041ab51ba64daeb54d53a065c38997e00e9963b9d7fdbbe16dba",
+      "artifactManifestSha256": "36dd8abef2fa00147ef413ce15c9893893b78c3afecb94ff20176bfcb949c93c",
+      "compiledUnitManifestSha256": "d40bbbe96e6b860407bccc99eadd7ed0b0f19d753fafdde36c544babf3b9c1ba",
+      "requiredRegionProofSha256": "4c9d623487ef5d9d5b9f3373d18ae7d3763c9ffbeb93d234addeb1f710906434",
+      "requiredRegions": 0,
+      "native": {
+        "ok": true,
+        "cases": 316930777,
+        "probes": 575,
+        "nativeCalls": 1343838,
+        "completedCallProofSha256": "1c9075fd0cfe39f4d7b767f6e8084ffb2814382fc5bd6ed2e65fc30ab147e192",
+        "actualInventory": {
+          "bits": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 24321
+          },
+          "convert": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 28743
+          },
+          "fields": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 2211
+          },
+          "indexed": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 34376
+          },
+          "mapmath": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 3213
+          },
+          "masks": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 8844
+          },
+          "memorybits": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 1228612
+          },
+          "probe": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 13266
+          },
+          "transpose": {
+            "speciesSet": "species2",
+            "probes": 63,
+            "probesPerSpecies": 1,
+            "completedCalls": 252
+          }
+        }
+      },
+      "scalarC": {
+        "ok": true,
+        "cases": 316930777,
+        "probes": 575,
+        "nativeCalls": 1343838,
+        "route": "scalar-C",
+        "completedCallProofSha256": "1c9075fd0cfe39f4d7b767f6e8084ffb2814382fc5bd6ed2e65fc30ab147e192",
+        "symbolSelectionSha256": "35be2f871765a997f333ca2527255df496b5241d28d0e55284e919ba6dc6b814",
+        "actualInventory": {
+          "bits": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 24321
+          },
+          "convert": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 28743
+          },
+          "fields": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 2211
+          },
+          "indexed": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 34376
+          },
+          "mapmath": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 3213
+          },
+          "masks": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 8844
+          },
+          "memorybits": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 1228612
+          },
+          "probe": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 13266
+          },
+          "transpose": {
+            "speciesSet": "species2",
+            "probes": 63,
+            "probesPerSpecies": 1,
+            "completedCalls": 252
+          }
+        }
+      }
+    },
+    {
+      "compiler": "1",
+      "command": "gcc-16",
+      "compilerVersion": "gcc-16 (Homebrew GCC 16.2.0) 16.2.0",
+      "target": "aarch64-apple-darwin25",
+      "tier": "neon",
+      "family": "primitives",
+      "element": "number",
+      "status": "executed",
+      "rowProofSha256": "c90b0d4764e215a080e7996295d99ab4f8d0ea2988ccada00f2a3ee5537dc509",
+      "executionProofSha256": "138d4a262d24543ab2483ecd875a29a5aed8fe03c2e771f083aa5560ee9353c9",
+      "rawExecutionSha256": "30094b9f9f1cd8bec4b9c1de175221276368e528c18157e706d7362699ecbfcd",
+      "artifactManifestSha256": "b13aa889418c0248fbdd7e21377f3af29005db808db4a1f24a7f9b2dd897c061",
+      "compiledUnitManifestSha256": "924c93fd27a8f3433f8ee3742d974248eb6d592096d48d53141f8065f67a3fc0",
+      "requiredRegionProofSha256": "4c9d623487ef5d9d5b9f3373d18ae7d3763c9ffbeb93d234addeb1f710906434",
+      "requiredRegions": 0,
+      "native": {
+        "ok": true,
+        "cases": 316140360,
+        "probes": 575,
+        "nativeCalls": 1342966,
+        "completedCallProofSha256": "7307ae534777de792fe19b4cb6be728c30fca28191ccc8b066cdb4e923921f29",
+        "actualInventory": {
+          "bits": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 24299
+          },
+          "convert": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 28717
+          },
+          "fields": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 2209
+          },
+          "indexed": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 34360
+          },
+          "mapmath": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 3219
+          },
+          "masks": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 8836
+          },
+          "memorybits": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 1227820
+          },
+          "probe": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 13254
+          },
+          "transpose": {
+            "speciesSet": "species2",
+            "probes": 63,
+            "probesPerSpecies": 1,
+            "completedCalls": 252
+          }
+        }
+      },
+      "scalarC": {
+        "ok": true,
+        "cases": 316140360,
+        "probes": 575,
+        "nativeCalls": 1342966,
+        "route": "scalar-C",
+        "completedCallProofSha256": "7307ae534777de792fe19b4cb6be728c30fca28191ccc8b066cdb4e923921f29",
+        "symbolSelectionSha256": "c6f8d2b53cc14823e946b12d9277fed8da05f5d8e0275f30e2327f73cb226cb1",
+        "actualInventory": {
+          "bits": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 24299
+          },
+          "convert": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 28717
+          },
+          "fields": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 2209
+          },
+          "indexed": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 34360
+          },
+          "mapmath": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 3219
+          },
+          "masks": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 8836
+          },
+          "memorybits": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 1227820
+          },
+          "probe": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 13254
+          },
+          "transpose": {
+            "speciesSet": "species2",
+            "probes": 63,
+            "probesPerSpecies": 1,
+            "completedCalls": 252
+          }
+        }
+      }
+    },
+    {
+      "compiler": "1",
+      "command": "gcc-16",
+      "compilerVersion": "gcc-16 (Homebrew GCC 16.2.0) 16.2.0",
+      "target": "aarch64-apple-darwin25",
+      "tier": "neon",
+      "family": "primitives",
+      "element": "int8",
+      "status": "executed",
+      "rowProofSha256": "b316617f71bf2741c044649d7029905833315c09a67987a37298dd2e9f26eeb2",
+      "executionProofSha256": "221fe50e540ca0edc056b71d2c3c972e5916c854c2e7b645b220f6f65fe64423",
+      "rawExecutionSha256": "0ad1a7dd1bd8ad9eceaa78402baf8cad7cf007d1ee44674fa54ef134fdcbee0d",
+      "artifactManifestSha256": "e0f73cb19dde250fc93bc32de610134942fd1fa870925a77dfe97476c00a7e47",
+      "compiledUnitManifestSha256": "4213e4e751d82b24421c00609a6dc7d88b1ced3fd14f347792a323f639c23d6f",
+      "requiredRegionProofSha256": "4c9d623487ef5d9d5b9f3373d18ae7d3763c9ffbeb93d234addeb1f710906434",
+      "requiredRegions": 0,
+      "native": {
+        "ok": true,
+        "cases": 47296752,
+        "probes": 446,
+        "nativeCalls": 82294,
+        "completedCallProofSha256": "95a91b644b92ea342ecaf686cda9add4343ae2151cb2f296c67c1f7926aa7710",
+        "actualInventory": {
+          "convert": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 26676
+          },
+          "edges": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 1024
+          },
+          "fields": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 2223
+          },
+          "indexed": {
+            "speciesSet": "species2",
+            "probes": 63,
+            "probesPerSpecies": 1,
+            "completedCalls": 34335
+          },
+          "masks": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 8892
+          },
+          "probe": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 8892
+          },
+          "transpose": {
+            "speciesSet": "species2",
+            "probes": 63,
+            "probesPerSpecies": 1,
+            "completedCalls": 252
+          }
+        }
+      },
+      "scalarC": {
+        "ok": true,
+        "cases": 47296752,
+        "probes": 446,
+        "nativeCalls": 82294,
+        "route": "scalar-C",
+        "completedCallProofSha256": "95a91b644b92ea342ecaf686cda9add4343ae2151cb2f296c67c1f7926aa7710",
+        "symbolSelectionSha256": "b4d52f309158acaf77370beff810ba059b54555cf6811e99373ef6c6afcb7445",
+        "actualInventory": {
+          "convert": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 26676
+          },
+          "edges": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 1024
+          },
+          "fields": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 2223
+          },
+          "indexed": {
+            "speciesSet": "species2",
+            "probes": 63,
+            "probesPerSpecies": 1,
+            "completedCalls": 34335
+          },
+          "masks": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 8892
+          },
+          "probe": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 8892
+          },
+          "transpose": {
+            "speciesSet": "species2",
+            "probes": 63,
+            "probesPerSpecies": 1,
+            "completedCalls": 252
+          }
+        }
+      }
+    },
+    {
+      "compiler": "1",
+      "command": "gcc-16",
+      "compilerVersion": "gcc-16 (Homebrew GCC 16.2.0) 16.2.0",
+      "target": "aarch64-apple-darwin25",
+      "tier": "neon",
+      "family": "primitives",
+      "element": "uint8",
+      "status": "executed",
+      "rowProofSha256": "5d52dee8ecb3c47db9a7328bd4e697f8c45b55a73809a28e7d90f35c1a13610a",
+      "executionProofSha256": "f86aee87a2f973fd6fa764b6820b47485042635b1a2eb219eafb53f833f4ae54",
+      "rawExecutionSha256": "f14edd8ab45ad58493a23cfc4e3d1603c4d8f534af37ba7a611bb1fe659e8fad",
+      "artifactManifestSha256": "80d08c9562746746cfcf0d6e86582ba401e54db0b04aaa73b83ec4b936d494c4",
+      "compiledUnitManifestSha256": "4c866414d0a5fabad116a07ceede3dc1fe2a6e1c584558fad8ccf0b271e68826",
+      "requiredRegionProofSha256": "4c9d623487ef5d9d5b9f3373d18ae7d3763c9ffbeb93d234addeb1f710906434",
+      "requiredRegions": 0,
+      "native": {
+        "ok": true,
+        "cases": 47296752,
+        "probes": 446,
+        "nativeCalls": 82294,
+        "completedCallProofSha256": "34062c683ce9713a17a921d16d9a7a7dbba2816a5305a60dc13d0de0cc24995d",
+        "actualInventory": {
+          "convert": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 26676
+          },
+          "edges": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 1024
+          },
+          "fields": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 2223
+          },
+          "indexed": {
+            "speciesSet": "species2",
+            "probes": 63,
+            "probesPerSpecies": 1,
+            "completedCalls": 34335
+          },
+          "masks": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 8892
+          },
+          "probe": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 8892
+          },
+          "transpose": {
+            "speciesSet": "species2",
+            "probes": 63,
+            "probesPerSpecies": 1,
+            "completedCalls": 252
+          }
+        }
+      },
+      "scalarC": {
+        "ok": true,
+        "cases": 47296752,
+        "probes": 446,
+        "nativeCalls": 82294,
+        "route": "scalar-C",
+        "completedCallProofSha256": "34062c683ce9713a17a921d16d9a7a7dbba2816a5305a60dc13d0de0cc24995d",
+        "symbolSelectionSha256": "f6e89f336e012dbc8fc861052ea5bc2219b22b7cb85f1309c14241eef911c265",
+        "actualInventory": {
+          "convert": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 26676
+          },
+          "edges": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 1024
+          },
+          "fields": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 2223
+          },
+          "indexed": {
+            "speciesSet": "species2",
+            "probes": 63,
+            "probesPerSpecies": 1,
+            "completedCalls": 34335
+          },
+          "masks": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 8892
+          },
+          "probe": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 8892
+          },
+          "transpose": {
+            "speciesSet": "species2",
+            "probes": 63,
+            "probesPerSpecies": 1,
+            "completedCalls": 252
+          }
+        }
+      }
+    },
+    {
+      "compiler": "1",
+      "command": "gcc-16",
+      "compilerVersion": "gcc-16 (Homebrew GCC 16.2.0) 16.2.0",
+      "target": "aarch64-apple-darwin25",
+      "tier": "neon",
+      "family": "primitives",
+      "element": "int16",
+      "status": "executed",
+      "rowProofSha256": "1959138a4e5e9e426d676e191f0b2d836b863273a3b5df9515dcdd2369998ea5",
+      "executionProofSha256": "3e4c082eed1f320869324d46f6c582109d7e0c3d71f4247d7f3d194cb01c7499",
+      "rawExecutionSha256": "0928e8d186665a18b83e20c2e3885078e9df5e084dcf8b5e99ef2bf12b067220",
+      "artifactManifestSha256": "aa9f0668a2c8aee5d633b7d31934edfbe45446c369f9d1486b8e69e6e58283e5",
+      "compiledUnitManifestSha256": "a3ab23cd0eeece6c11b7df773242f1e2ea3979a5361c1200578601eae3c9d928",
+      "requiredRegionProofSha256": "4c9d623487ef5d9d5b9f3373d18ae7d3763c9ffbeb93d234addeb1f710906434",
+      "requiredRegions": 0,
+      "native": {
+        "ok": true,
+        "cases": 47184032,
+        "probes": 446,
+        "nativeCalls": 82126,
+        "completedCallProofSha256": "fbb09edb51a82545126736071f133fa782f8fcee2777cab3a818208fd7f6754a",
+        "actualInventory": {
+          "convert": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 26580
+          },
+          "edges": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 1024
+          },
+          "fields": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 2215
+          },
+          "indexed": {
+            "speciesSet": "species2",
+            "probes": 63,
+            "probesPerSpecies": 1,
+            "completedCalls": 34335
+          },
+          "masks": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 8860
+          },
+          "probe": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 8860
+          },
+          "transpose": {
+            "speciesSet": "species2",
+            "probes": 63,
+            "probesPerSpecies": 1,
+            "completedCalls": 252
+          }
+        }
+      },
+      "scalarC": {
+        "ok": true,
+        "cases": 47184032,
+        "probes": 446,
+        "nativeCalls": 82126,
+        "route": "scalar-C",
+        "completedCallProofSha256": "fbb09edb51a82545126736071f133fa782f8fcee2777cab3a818208fd7f6754a",
+        "symbolSelectionSha256": "3db1ba5f899d372c441ad0e5868ae5b51ad7fdb9709865ff8df7ea4e93e28361",
+        "actualInventory": {
+          "convert": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 26580
+          },
+          "edges": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 1024
+          },
+          "fields": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 2215
+          },
+          "indexed": {
+            "speciesSet": "species2",
+            "probes": 63,
+            "probesPerSpecies": 1,
+            "completedCalls": 34335
+          },
+          "masks": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 8860
+          },
+          "probe": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 8860
+          },
+          "transpose": {
+            "speciesSet": "species2",
+            "probes": 63,
+            "probesPerSpecies": 1,
+            "completedCalls": 252
+          }
+        }
+      }
+    },
+    {
+      "compiler": "1",
+      "command": "gcc-16",
+      "compilerVersion": "gcc-16 (Homebrew GCC 16.2.0) 16.2.0",
+      "target": "aarch64-apple-darwin25",
+      "tier": "neon",
+      "family": "primitives",
+      "element": "uint16",
+      "status": "executed",
+      "rowProofSha256": "ebfa39547357e735c2df5cf777bec1d09d0b26bc0633d353760547e8056bd799",
+      "executionProofSha256": "5a78520fe1b70d504e98b01438d349244e79d0a0ec75fac40d04837e7efb2b8e",
+      "rawExecutionSha256": "2fdb8daa698b4bc37fc65353daa2e69175d2c4af4111ad54a9ed497e97b51b2a",
+      "artifactManifestSha256": "c92a22fdbc7bb2f6d1fcbf45f7d63a318701421c893f4e1c034ebd0c2f0cebc6",
+      "compiledUnitManifestSha256": "707a006310f5524b790b91667d22d103167b980245dec2dc9086f9e2f0d5110c",
+      "requiredRegionProofSha256": "4c9d623487ef5d9d5b9f3373d18ae7d3763c9ffbeb93d234addeb1f710906434",
+      "requiredRegions": 0,
+      "native": {
+        "ok": true,
+        "cases": 47184032,
+        "probes": 446,
+        "nativeCalls": 82126,
+        "completedCallProofSha256": "ea36f20802910587799901630f437529e814c500a7aa526d286c8c285cd8b37d",
+        "actualInventory": {
+          "convert": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 26580
+          },
+          "edges": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 1024
+          },
+          "fields": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 2215
+          },
+          "indexed": {
+            "speciesSet": "species2",
+            "probes": 63,
+            "probesPerSpecies": 1,
+            "completedCalls": 34335
+          },
+          "masks": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 8860
+          },
+          "probe": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 8860
+          },
+          "transpose": {
+            "speciesSet": "species2",
+            "probes": 63,
+            "probesPerSpecies": 1,
+            "completedCalls": 252
+          }
+        }
+      },
+      "scalarC": {
+        "ok": true,
+        "cases": 47184032,
+        "probes": 446,
+        "nativeCalls": 82126,
+        "route": "scalar-C",
+        "completedCallProofSha256": "ea36f20802910587799901630f437529e814c500a7aa526d286c8c285cd8b37d",
+        "symbolSelectionSha256": "2d20a439e935ace96d8c6d3ef09d9d8ff12ed1f667f2528b6e0a2c6b949824eb",
+        "actualInventory": {
+          "convert": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 26580
+          },
+          "edges": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 1024
+          },
+          "fields": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 2215
+          },
+          "indexed": {
+            "speciesSet": "species2",
+            "probes": 63,
+            "probesPerSpecies": 1,
+            "completedCalls": 34335
+          },
+          "masks": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 8860
+          },
+          "probe": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 8860
+          },
+          "transpose": {
+            "speciesSet": "species2",
+            "probes": 63,
+            "probesPerSpecies": 1,
+            "completedCalls": 252
+          }
+        }
+      }
+    },
+    {
+      "compiler": "1",
+      "command": "gcc-16",
+      "compilerVersion": "gcc-16 (Homebrew GCC 16.2.0) 16.2.0",
+      "target": "aarch64-apple-darwin25",
+      "tier": "neon",
+      "family": "primitives",
+      "element": "int32",
+      "status": "executed",
+      "rowProofSha256": "42ccd9ce2901708c6ff71c992d749b7610a6db85f684765890c4c8ddc58d5278",
+      "executionProofSha256": "ae1531c2963402ff7e56fc9f258f19e08ab158049fe9b20a6e25c8c8bae767f1",
+      "rawExecutionSha256": "604dfb563aa9a80f0d2dfba0211765272db6b0df175eb6077c5750ff952671b9",
+      "artifactManifestSha256": "0a3e58dfdd3eca5629e3364a9465ffabe7f8b4f093ddaccb5cb03c04125e4467",
+      "compiledUnitManifestSha256": "a0306ecb649385b7f44ddaaebdff122ee64ef37537b19f2907af072100eb7e5b",
+      "requiredRegionProofSha256": "4c9d623487ef5d9d5b9f3373d18ae7d3763c9ffbeb93d234addeb1f710906434",
+      "requiredRegions": 0,
+      "native": {
+        "ok": true,
+        "cases": 47139628,
+        "probes": 447,
+        "nativeCalls": 82083,
+        "completedCallProofSha256": "cf6d034ebf270d3ab3779d3056f866d2cc66ba5346b0548143d1a350b504df7e",
+        "actualInventory": {
+          "convert": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 26532
+          },
+          "edges": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 1024
+          },
+          "fields": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 2211
+          },
+          "indexed": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 34376
+          },
+          "masks": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 8844
+          },
+          "probe": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 8844
+          },
+          "transpose": {
+            "speciesSet": "species2",
+            "probes": 63,
+            "probesPerSpecies": 1,
+            "completedCalls": 252
+          }
+        }
+      },
+      "scalarC": {
+        "ok": true,
+        "cases": 47139628,
+        "probes": 447,
+        "nativeCalls": 82083,
+        "route": "scalar-C",
+        "completedCallProofSha256": "cf6d034ebf270d3ab3779d3056f866d2cc66ba5346b0548143d1a350b504df7e",
+        "symbolSelectionSha256": "32937bf7bffbeb9a5d34a9788e41dcf6eb711acb452df49a1b85fc4d6b91dca3",
+        "actualInventory": {
+          "convert": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 26532
+          },
+          "edges": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 1024
+          },
+          "fields": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 2211
+          },
+          "indexed": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 34376
+          },
+          "masks": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 8844
+          },
+          "probe": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 8844
+          },
+          "transpose": {
+            "speciesSet": "species2",
+            "probes": 63,
+            "probesPerSpecies": 1,
+            "completedCalls": 252
+          }
+        }
+      }
+    },
+    {
+      "compiler": "1",
+      "command": "gcc-16",
+      "compilerVersion": "gcc-16 (Homebrew GCC 16.2.0) 16.2.0",
+      "target": "aarch64-apple-darwin25",
+      "tier": "neon",
+      "family": "primitives",
+      "element": "uint32",
+      "status": "executed",
+      "rowProofSha256": "2dc1963547ca53224bdc0d2f3e5ac203d717bb862eae26d63c063b6d9f763bef",
+      "executionProofSha256": "15b2554f54927b44e9d80cd3cf17962450066ddb8d792891b20660757b2610f2",
+      "rawExecutionSha256": "e34bb42d8de88fc6fd2301efc0d6e3af0e8fb7c738de5635daf5c06420f9f748",
+      "artifactManifestSha256": "98487e87f5c33037cb615188026bd36d289bf8ab051e70ff17a8e4fa2304b8e0",
+      "compiledUnitManifestSha256": "5220b28f43f80038e5dd57e508780d0a8531fc129038645c11fdc8e476398498",
+      "requiredRegionProofSha256": "4c9d623487ef5d9d5b9f3373d18ae7d3763c9ffbeb93d234addeb1f710906434",
+      "requiredRegions": 0,
+      "native": {
+        "ok": true,
+        "cases": 47139628,
+        "probes": 447,
+        "nativeCalls": 82083,
+        "completedCallProofSha256": "4420cd0962e100328e3df67a2056d24737c6bad258ebe8e75f389a5b296522e9",
+        "actualInventory": {
+          "convert": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 26532
+          },
+          "edges": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 1024
+          },
+          "fields": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 2211
+          },
+          "indexed": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 34376
+          },
+          "masks": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 8844
+          },
+          "probe": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 8844
+          },
+          "transpose": {
+            "speciesSet": "species2",
+            "probes": 63,
+            "probesPerSpecies": 1,
+            "completedCalls": 252
+          }
+        }
+      },
+      "scalarC": {
+        "ok": true,
+        "cases": 47139628,
+        "probes": 447,
+        "nativeCalls": 82083,
+        "route": "scalar-C",
+        "completedCallProofSha256": "4420cd0962e100328e3df67a2056d24737c6bad258ebe8e75f389a5b296522e9",
+        "symbolSelectionSha256": "2b884d0670855206413545d67dbe59de7aa9c5e2db3daa0747da0ac8a7751360",
+        "actualInventory": {
+          "convert": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 26532
+          },
+          "edges": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 1024
+          },
+          "fields": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 2211
+          },
+          "indexed": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 34376
+          },
+          "masks": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 8844
+          },
+          "probe": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 8844
+          },
+          "transpose": {
+            "speciesSet": "species2",
+            "probes": 63,
+            "probesPerSpecies": 1,
+            "completedCalls": 252
+          }
+        }
+      }
+    },
+    {
+      "compiler": "1",
+      "command": "gcc-16",
+      "compilerVersion": "gcc-16 (Homebrew GCC 16.2.0) 16.2.0",
+      "target": "aarch64-apple-darwin25",
+      "tier": "neon",
+      "family": "primitives",
+      "element": "int64",
+      "status": "executed",
+      "rowProofSha256": "e6d7a04fd1d6a5150dfcedbd4446871cadbc1d4403ba16a5a992db7f4cdd441d",
+      "executionProofSha256": "21de4b277c47fb739fa6bbd5e69466a95bd0dc9031078870f6cf92f279c0a975",
+      "rawExecutionSha256": "ac946b3e52a372f1806b0b2efedde7c505f229b92e93b9c20298fd265b51e03f",
+      "artifactManifestSha256": "25fb7b18d54b46db54716a14f76f086bfd1854eeba60310a6e037aecc7a0e877",
+      "compiledUnitManifestSha256": "4f05f65d7e7973f4b2f4a50b815ec1f0349092a2680b7ff7980bbb0aefce2e8a",
+      "requiredRegionProofSha256": "4c9d623487ef5d9d5b9f3373d18ae7d3763c9ffbeb93d234addeb1f710906434",
+      "requiredRegions": 0,
+      "native": {
+        "ok": true,
+        "cases": 47119928,
+        "probes": 447,
+        "nativeCalls": 82025,
+        "completedCallProofSha256": "3a896faa14d6fd8764cb6c37122392f2bcc2c150c8aa0cf868cc0e8552af8499",
+        "actualInventory": {
+          "convert": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 26508
+          },
+          "edges": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 1024
+          },
+          "fields": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 2209
+          },
+          "indexed": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 34360
+          },
+          "masks": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 8836
+          },
+          "probe": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 8836
+          },
+          "transpose": {
+            "speciesSet": "species2",
+            "probes": 63,
+            "probesPerSpecies": 1,
+            "completedCalls": 252
+          }
+        }
+      },
+      "scalarC": {
+        "ok": true,
+        "cases": 47119928,
+        "probes": 447,
+        "nativeCalls": 82025,
+        "route": "scalar-C",
+        "completedCallProofSha256": "3a896faa14d6fd8764cb6c37122392f2bcc2c150c8aa0cf868cc0e8552af8499",
+        "symbolSelectionSha256": "3cb62d46ef96777ed9952d9e01cdf0fb0bf9cf9194ce214aee05a69f4eaeb126",
+        "actualInventory": {
+          "convert": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 26508
+          },
+          "edges": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 1024
+          },
+          "fields": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 2209
+          },
+          "indexed": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 34360
+          },
+          "masks": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 8836
+          },
+          "probe": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 8836
+          },
+          "transpose": {
+            "speciesSet": "species2",
+            "probes": 63,
+            "probesPerSpecies": 1,
+            "completedCalls": 252
+          }
+        }
+      }
+    },
+    {
+      "compiler": "1",
+      "command": "gcc-16",
+      "compilerVersion": "gcc-16 (Homebrew GCC 16.2.0) 16.2.0",
+      "target": "aarch64-apple-darwin25",
+      "tier": "neon",
+      "family": "primitives",
+      "element": "uint64",
+      "status": "executed",
+      "rowProofSha256": "9401ad238063d53d66f32e7c99b6db85a2a2ad446050e24ce4d8ebdd19d094f7",
+      "executionProofSha256": "a246aab5f74b6bf615b0b13f6517cc5ea4f9be3b0ecb148fb06fd53119a8c0e3",
+      "rawExecutionSha256": "1bcd4276d685e6d9c4bc19118f9ab2f7e4e141931f313af1eb18c415235f5028",
+      "artifactManifestSha256": "8804242b265cad93c6b23b306735a32089ae0b8ea36ed752214c82a46b7feefe",
+      "compiledUnitManifestSha256": "6b5a2f5b1af88b75bcb7b3294ca1dc7403052b6249a4a92b5ebe677fc86c6bb8",
+      "requiredRegionProofSha256": "4c9d623487ef5d9d5b9f3373d18ae7d3763c9ffbeb93d234addeb1f710906434",
+      "requiredRegions": 0,
+      "native": {
+        "ok": true,
+        "cases": 47119928,
+        "probes": 447,
+        "nativeCalls": 82025,
+        "completedCallProofSha256": "52a5702471fcb91bbde37fda9e205c50acbb0a5e882177dab4f899de9228a005",
+        "actualInventory": {
+          "convert": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 26508
+          },
+          "edges": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 1024
+          },
+          "fields": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 2209
+          },
+          "indexed": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 34360
+          },
+          "masks": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 8836
+          },
+          "probe": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 8836
+          },
+          "transpose": {
+            "speciesSet": "species2",
+            "probes": 63,
+            "probesPerSpecies": 1,
+            "completedCalls": 252
+          }
+        }
+      },
+      "scalarC": {
+        "ok": true,
+        "cases": 47119928,
+        "probes": 447,
+        "nativeCalls": 82025,
+        "route": "scalar-C",
+        "completedCallProofSha256": "52a5702471fcb91bbde37fda9e205c50acbb0a5e882177dab4f899de9228a005",
+        "symbolSelectionSha256": "26305f6c2e4631e90a59ba88f088a873bfb3d0ecd2301ada2832364a98b521a9",
+        "actualInventory": {
+          "convert": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 26508
+          },
+          "edges": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 1024
+          },
+          "fields": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 2209
+          },
+          "indexed": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 34360
+          },
+          "masks": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 8836
+          },
+          "probe": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 8836
+          },
+          "transpose": {
+            "speciesSet": "species2",
+            "probes": 63,
+            "probesPerSpecies": 1,
+            "completedCalls": 252
+          }
+        }
+      }
+    },
+    {
+      "compiler": "1",
+      "command": "gcc-16",
+      "compilerVersion": "gcc-16 (Homebrew GCC 16.2.0) 16.2.0",
+      "target": "aarch64-apple-darwin25",
+      "tier": "neon",
+      "family": "reducers",
+      "element": "float",
+      "status": "executed",
+      "rowProofSha256": "069afb6b38c020b53fc4365cc1c1ecefe2e799dc38bb6f1dca25d6b5c01473d5",
+      "executionProofSha256": "7b87dd0042d0edda2765a1b60f94c4e20c326a79a57383b3dafb2366df10ab89",
+      "rawExecutionSha256": "3705ca861672fc15104b7d589604b87fecb6775f8cc1ad64ef6df05ad446b3e8",
+      "artifactManifestSha256": "1d45969242b529064103f076b1e38d883dac05aa8f313f78d972ba9d8a425c65",
+      "compiledUnitManifestSha256": "d3b060c4f699685366f64b93e6105c7683d3861ccb9fe8c1eef0975a9756bb53",
+      "requiredRegionProofSha256": "4c9d623487ef5d9d5b9f3373d18ae7d3763c9ffbeb93d234addeb1f710906434",
+      "requiredRegions": 0,
+      "native": {
+        "ok": true,
+        "cases": 547485,
+        "probes": 64,
+        "nativeCalls": 33165,
+        "completedCallProofSha256": "1d07f61e673116c6ce1cc0dbe26af43ec39b66d2493011d098e9fa3e5521738f",
+        "actualInventory": {
+          "horizontal": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 33165
+          }
+        }
+      },
+      "scalarC": {
+        "ok": true,
+        "cases": 547485,
+        "probes": 64,
+        "nativeCalls": 33165,
+        "route": "scalar-C",
+        "completedCallProofSha256": "1d07f61e673116c6ce1cc0dbe26af43ec39b66d2493011d098e9fa3e5521738f",
+        "symbolSelectionSha256": "991a5ce41a590535545e8ed828204a54b55b6d08c6a012e7b872a18f35132416",
+        "actualInventory": {
+          "horizontal": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 33165
+          }
+        }
+      }
+    },
+    {
+      "compiler": "1",
+      "command": "gcc-16",
+      "compilerVersion": "gcc-16 (Homebrew GCC 16.2.0) 16.2.0",
+      "target": "aarch64-apple-darwin25",
+      "tier": "neon",
+      "family": "reducers",
+      "element": "number",
+      "status": "executed",
+      "rowProofSha256": "f0f2f0d266103e310c888b38276e842e54953dd2c9cdd0915c5a1e6e13f154c5",
+      "executionProofSha256": "6f4f47cb23003dc3422880d1b0bcc99e0604626f4c0a98b549506d50268c53c0",
+      "rawExecutionSha256": "100b56a659b4d846d8a655d6fd75509a1369f689cc24110343e69e2b5178f7a0",
+      "artifactManifestSha256": "fb06d4f21e0f43af6ce3c288e1f3861553ae3b630cc1add41c862f958340e9a7",
+      "compiledUnitManifestSha256": "d70c8dc3213ac0f659c1e5eba38b152413c330673169f214ea741f9807b0773c",
+      "requiredRegionProofSha256": "34a2b5aad2f5ed483673b8ee39f79f251c8dd2757ac078945d3bb29ef119aa33",
+      "requiredRegions": 21,
+      "native": {
+        "ok": true,
+        "cases": 3544830,
+        "probes": 981,
+        "nativeCalls": 3030990,
+        "completedCallProofSha256": "d1ee3ad75716a1aa64869e040ee3f09bf9c2469f7f602bc1b9e39b2e0a342fec",
+        "actualInventory": {
+          "horizontal": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 33135
+          },
+          "loop": {
+            "speciesSet": "species3",
+            "probes": 21,
+            "probesPerSpecies": 21,
+            "completedCalls": 12915
+          },
+          "masked": {
+            "speciesSet": "species1",
+            "probes": 896,
+            "probesPerSpecies": 14,
+            "completedCalls": 2984940
+          }
+        }
+      },
+      "scalarC": {
+        "ok": true,
+        "cases": 3544830,
+        "probes": 981,
+        "nativeCalls": 3030990,
+        "route": "scalar-C",
+        "completedCallProofSha256": "d1ee3ad75716a1aa64869e040ee3f09bf9c2469f7f602bc1b9e39b2e0a342fec",
+        "symbolSelectionSha256": "a88fb3eb91f9114d176f6f9e828267d76f045e7002d8474c811e6cd420535c15",
+        "actualInventory": {
+          "horizontal": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 33135
+          },
+          "loop": {
+            "speciesSet": "species3",
+            "probes": 21,
+            "probesPerSpecies": 21,
+            "completedCalls": 12915
+          },
+          "masked": {
+            "speciesSet": "species1",
+            "probes": 896,
+            "probesPerSpecies": 14,
+            "completedCalls": 2984940
+          }
+        }
+      }
+    },
+    {
+      "compiler": "1",
+      "command": "gcc-16",
+      "compilerVersion": "gcc-16 (Homebrew GCC 16.2.0) 16.2.0",
+      "target": "aarch64-apple-darwin25",
+      "tier": "neon",
+      "family": "reducers",
+      "element": "int8",
+      "status": "executed",
+      "rowProofSha256": "696d985d72fa53afd6add0054de09989416d23c5da7ad3f9fcc6039c70a6a6b5",
+      "executionProofSha256": "97894e8c4931d68d5e429703802f6b56564f84c485bc527ad7a9d5c4fafd3f59",
+      "rawExecutionSha256": "d7eee9441e712af7192c5f76cd6852c9a4475caa076b0111b4714495550883a5",
+      "artifactManifestSha256": "03b40f98fa74568a50133a01e3741db325da1bbf60c307081f5dee75bee34e49",
+      "compiledUnitManifestSha256": "03ccc5fcb9ecebbfb98f8227c974cc22f5b7c9d1af3abeaa3c8e51325875b82c",
+      "requiredRegionProofSha256": "4c9d623487ef5d9d5b9f3373d18ae7d3763c9ffbeb93d234addeb1f710906434",
+      "requiredRegions": 0,
+      "native": {
+        "ok": true,
+        "cases": 51816,
+        "probes": 64,
+        "nativeCalls": 6669,
+        "completedCallProofSha256": "83e636432a9da8acf581239e2b8df238624bbae13a7ba86746f6ede1fc518681",
+        "actualInventory": {
+          "horizontal": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 6669
+          }
+        }
+      },
+      "scalarC": {
+        "ok": true,
+        "cases": 51816,
+        "probes": 64,
+        "nativeCalls": 6669,
+        "route": "scalar-C",
+        "completedCallProofSha256": "83e636432a9da8acf581239e2b8df238624bbae13a7ba86746f6ede1fc518681",
+        "symbolSelectionSha256": "b62c25448f15d3bf24a970af020444fc28b261d9fc560e3676357a8b25e07395",
+        "actualInventory": {
+          "horizontal": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 6669
+          }
+        }
+      }
+    },
+    {
+      "compiler": "1",
+      "command": "gcc-16",
+      "compilerVersion": "gcc-16 (Homebrew GCC 16.2.0) 16.2.0",
+      "target": "aarch64-apple-darwin25",
+      "tier": "neon",
+      "family": "reducers",
+      "element": "uint8",
+      "status": "executed",
+      "rowProofSha256": "4278ae04432ebe5795ca4001cf66b06981b9fa40f50f71574cf8a7b197abcef6",
+      "executionProofSha256": "ae2b1b59f369c90208918983ab5d96829eb2f4107b3f05497a9059748486e18e",
+      "rawExecutionSha256": "8eae842dac7e03de393e681a0b8e607bc9f7a8ea7c09bf78aacb76eb644b94a1",
+      "artifactManifestSha256": "15f8ed3e967fc43147ebcc36eab750d0e32d30505acc43c3dfbb6d87a261f161",
+      "compiledUnitManifestSha256": "30dcfa0cd2d64b3bd25c87baa29de96249fa55a1ad7ee586d50a7ee61e46fe4d",
+      "requiredRegionProofSha256": "4c9d623487ef5d9d5b9f3373d18ae7d3763c9ffbeb93d234addeb1f710906434",
+      "requiredRegions": 0,
+      "native": {
+        "ok": true,
+        "cases": 51816,
+        "probes": 64,
+        "nativeCalls": 6669,
+        "completedCallProofSha256": "ef2ff21e570fbc9785c62e3518a7fec4b12f95e31c24c971109d810016ac0852",
+        "actualInventory": {
+          "horizontal": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 6669
+          }
+        }
+      },
+      "scalarC": {
+        "ok": true,
+        "cases": 51816,
+        "probes": 64,
+        "nativeCalls": 6669,
+        "route": "scalar-C",
+        "completedCallProofSha256": "ef2ff21e570fbc9785c62e3518a7fec4b12f95e31c24c971109d810016ac0852",
+        "symbolSelectionSha256": "4699e8a6983890d0651b0f88170ab9977399620ab88fe4eca3bdde940627218a",
+        "actualInventory": {
+          "horizontal": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 6669
+          }
+        }
+      }
+    },
+    {
+      "compiler": "1",
+      "command": "gcc-16",
+      "compilerVersion": "gcc-16 (Homebrew GCC 16.2.0) 16.2.0",
+      "target": "aarch64-apple-darwin25",
+      "tier": "neon",
+      "family": "reducers",
+      "element": "int16",
+      "status": "executed",
+      "rowProofSha256": "90adcb6e5e78b4c0c9fbfc2fa4df120447dfdf63b3c6c738e1d59362f8fafc68",
+      "executionProofSha256": "0c147b1c7a3de7d6fc100dbcc7a56b6e101d5ed091c1980f99bb5b5f6b62065a",
+      "rawExecutionSha256": "81d316aabb5635f0752198d27bd728a6a93fd43ec00eb0c447e59a8ed21b106f",
+      "artifactManifestSha256": "c36b3be291c094abe9bcca281233b91ad626d4dfaad06562353509dd06970022",
+      "compiledUnitManifestSha256": "f302fac7d6ee656c89a69ed4ccca12d7b92118e1db16a380460b68aad53413af",
+      "requiredRegionProofSha256": "4c9d623487ef5d9d5b9f3373d18ae7d3763c9ffbeb93d234addeb1f710906434",
+      "requiredRegions": 0,
+      "native": {
+        "ok": true,
+        "cases": 51624,
+        "probes": 64,
+        "nativeCalls": 6645,
+        "completedCallProofSha256": "968371cfbce52b8b942b3c97f2927020b3ea777f6cfce320d90c1ca362fd2ec1",
+        "actualInventory": {
+          "horizontal": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 6645
+          }
+        }
+      },
+      "scalarC": {
+        "ok": true,
+        "cases": 51624,
+        "probes": 64,
+        "nativeCalls": 6645,
+        "route": "scalar-C",
+        "completedCallProofSha256": "968371cfbce52b8b942b3c97f2927020b3ea777f6cfce320d90c1ca362fd2ec1",
+        "symbolSelectionSha256": "352c3a51233d3f84c5b4bc78d4a02bd6789beb3526306cb07544bf715c1662bb",
+        "actualInventory": {
+          "horizontal": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 6645
+          }
+        }
+      }
+    },
+    {
+      "compiler": "1",
+      "command": "gcc-16",
+      "compilerVersion": "gcc-16 (Homebrew GCC 16.2.0) 16.2.0",
+      "target": "aarch64-apple-darwin25",
+      "tier": "neon",
+      "family": "reducers",
+      "element": "uint16",
+      "status": "executed",
+      "rowProofSha256": "ec0e27cad45a5536ce530712afdf81dc2e10d603b7275c7e9cdc8a447fa8587a",
+      "executionProofSha256": "68f7a293e0c12ab02e1dc87be24121739cbfeeb5d6086bfaf1e5b4a10bc6c167",
+      "rawExecutionSha256": "24a37b7e372ed9b2c98ae2737d48e40d9b818358e9771c900780cdf67aac6cce",
+      "artifactManifestSha256": "125cb49342fc91dc53573f05db111cf4eec53175ecb2d57015078347b342bd57",
+      "compiledUnitManifestSha256": "e15438732f97d7a563cac4aacba05c98d2163bbc0df5933a8bcdb667d185b436",
+      "requiredRegionProofSha256": "4c9d623487ef5d9d5b9f3373d18ae7d3763c9ffbeb93d234addeb1f710906434",
+      "requiredRegions": 0,
+      "native": {
+        "ok": true,
+        "cases": 51624,
+        "probes": 64,
+        "nativeCalls": 6645,
+        "completedCallProofSha256": "f9d7ce977a7b473b403736b9f6a5b923f474023f8f31e0c32a259e4f8e70281f",
+        "actualInventory": {
+          "horizontal": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 6645
+          }
+        }
+      },
+      "scalarC": {
+        "ok": true,
+        "cases": 51624,
+        "probes": 64,
+        "nativeCalls": 6645,
+        "route": "scalar-C",
+        "completedCallProofSha256": "f9d7ce977a7b473b403736b9f6a5b923f474023f8f31e0c32a259e4f8e70281f",
+        "symbolSelectionSha256": "40c875d1551cc7866ea8879a2360cd69ca72befc00250e838e790c709b50a8b1",
+        "actualInventory": {
+          "horizontal": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 6645
+          }
+        }
+      }
+    },
+    {
+      "compiler": "1",
+      "command": "gcc-16",
+      "compilerVersion": "gcc-16 (Homebrew GCC 16.2.0) 16.2.0",
+      "target": "aarch64-apple-darwin25",
+      "tier": "neon",
+      "family": "reducers",
+      "element": "int32",
+      "status": "executed",
+      "rowProofSha256": "445a0992a917f01dff62bb9872e8c26062ce0da17e139aba775706578157a2fb",
+      "executionProofSha256": "5d3645ebb61a41b50ddccf97a2fc81571b75242af2ba681e56bcd4cde1bdd253",
+      "rawExecutionSha256": "70465289656f459e81473806733fd427d85bd18bf8fae02ff90f0da011f40cd1",
+      "artifactManifestSha256": "23722dde18881c4961175fdcda0927a98e3e6b8a663e518dd5f7fbdfd9705221",
+      "compiledUnitManifestSha256": "321ee38968d8c0f8507a91571dcd51e079d086560a7d1eb64ccaf55b5afc2bfa",
+      "requiredRegionProofSha256": "cdf9aa554975164d4e1d5c4bea92e5273908793b81e1105a002a2263fda1c696",
+      "requiredRegions": 9,
+      "native": {
+        "ok": true,
+        "cases": 450996,
+        "probes": 521,
+        "nativeCalls": 406101,
+        "completedCallProofSha256": "ec5823745a936d6ae319198b3dac38e98e6a38000b0a0fd992f1af7108cfc1cc",
+        "actualInventory": {
+          "horizontal": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 6633
+          },
+          "loop": {
+            "speciesSet": "species3",
+            "probes": 9,
+            "probesPerSpecies": 9,
+            "completedCalls": 1476
+          },
+          "masked": {
+            "speciesSet": "species1",
+            "probes": 448,
+            "probesPerSpecies": 7,
+            "completedCalls": 397992
+          }
+        }
+      },
+      "scalarC": {
+        "ok": true,
+        "cases": 450996,
+        "probes": 521,
+        "nativeCalls": 406101,
+        "route": "scalar-C",
+        "completedCallProofSha256": "ec5823745a936d6ae319198b3dac38e98e6a38000b0a0fd992f1af7108cfc1cc",
+        "symbolSelectionSha256": "20cf573d5988073b95de6ea8a29a086660ea6eaacc5fda75827e88406192f15e",
+        "actualInventory": {
+          "horizontal": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 6633
+          },
+          "loop": {
+            "speciesSet": "species3",
+            "probes": 9,
+            "probesPerSpecies": 9,
+            "completedCalls": 1476
+          },
+          "masked": {
+            "speciesSet": "species1",
+            "probes": 448,
+            "probesPerSpecies": 7,
+            "completedCalls": 397992
+          }
+        }
+      }
+    },
+    {
+      "compiler": "1",
+      "command": "gcc-16",
+      "compilerVersion": "gcc-16 (Homebrew GCC 16.2.0) 16.2.0",
+      "target": "aarch64-apple-darwin25",
+      "tier": "neon",
+      "family": "reducers",
+      "element": "uint32",
+      "status": "executed",
+      "rowProofSha256": "61eef39800e71e358ce9caa8c78403e24774e06b7d37cb659287d2715bc19124",
+      "executionProofSha256": "0976b468544f5c7abd3b2d5eacefa2a36df4bdd6d7ca226980549a0bc2a5c0f7",
+      "rawExecutionSha256": "4816cf427a946d54d89b10867ed4acbf2efabb82f2c33889b5fdc9f3fd44540d",
+      "artifactManifestSha256": "56fe97c627f668dc3db948b13fbf8a85504dcaaf4f05371721c0208d3796455a",
+      "compiledUnitManifestSha256": "99c1db4ab79bafd1874b63d72449057d3873bce897853443452c3bdac9967d13",
+      "requiredRegionProofSha256": "db33d9abd77ce6c952f9b436c0a3a0453cfcfbe26ac6b5492d755609a4f22f7b",
+      "requiredRegions": 9,
+      "native": {
+        "ok": true,
+        "cases": 450996,
+        "probes": 521,
+        "nativeCalls": 406101,
+        "completedCallProofSha256": "2f8c82f0b32bd24d4ce25a939cd6d6a092b91880bcaa41b475150f5412d9f99b",
+        "actualInventory": {
+          "horizontal": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 6633
+          },
+          "loop": {
+            "speciesSet": "species3",
+            "probes": 9,
+            "probesPerSpecies": 9,
+            "completedCalls": 1476
+          },
+          "masked": {
+            "speciesSet": "species1",
+            "probes": 448,
+            "probesPerSpecies": 7,
+            "completedCalls": 397992
+          }
+        }
+      },
+      "scalarC": {
+        "ok": true,
+        "cases": 450996,
+        "probes": 521,
+        "nativeCalls": 406101,
+        "route": "scalar-C",
+        "completedCallProofSha256": "2f8c82f0b32bd24d4ce25a939cd6d6a092b91880bcaa41b475150f5412d9f99b",
+        "symbolSelectionSha256": "3ae4e3b83646b50690b810cf56a8bd90cfff92a4ce6f68241ca79a767ad70bab",
+        "actualInventory": {
+          "horizontal": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 6633
+          },
+          "loop": {
+            "speciesSet": "species3",
+            "probes": 9,
+            "probesPerSpecies": 9,
+            "completedCalls": 1476
+          },
+          "masked": {
+            "speciesSet": "species1",
+            "probes": 448,
+            "probesPerSpecies": 7,
+            "completedCalls": 397992
+          }
+        }
+      }
+    },
+    {
+      "compiler": "1",
+      "command": "gcc-16",
+      "compilerVersion": "gcc-16 (Homebrew GCC 16.2.0) 16.2.0",
+      "target": "aarch64-apple-darwin25",
+      "tier": "neon",
+      "family": "reducers",
+      "element": "int64",
+      "status": "executed",
+      "rowProofSha256": "78a46a47ddd8be0b50bc04bd91f361175b2331aeb89f4fa9e93b7d6b75f11210",
+      "executionProofSha256": "50d5f9809af7ebd49a6dc95c36f873feb8ca293d41336d69d0a77a477f9ed17f",
+      "rawExecutionSha256": "b7c730b4b0857e9967632573ece8970f71dd51860520af52b6fce4e894c1e856",
+      "artifactManifestSha256": "689f0d0a03d5688d2b3de7cc7d9d3ba8a6bd5af8a3f285c010c6a2e146afed3c",
+      "compiledUnitManifestSha256": "6a1649cef39d407099f48cefe9cb3dd7febdcb8ae52245c58933dc0d639e2a64",
+      "requiredRegionProofSha256": "bdb3eb8a1d0dd343a44f82f0b3fc140736b24787b1edaeb6b089a777e168e933",
+      "requiredRegions": 9,
+      "native": {
+        "ok": true,
+        "cases": 450948,
+        "probes": 521,
+        "nativeCalls": 406095,
+        "completedCallProofSha256": "858ba8899949187cf2a15a75664a8062770a348f15e70a281a666ca63e2df1b4",
+        "actualInventory": {
+          "horizontal": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 6627
+          },
+          "loop": {
+            "speciesSet": "species3",
+            "probes": 9,
+            "probesPerSpecies": 9,
+            "completedCalls": 1476
+          },
+          "masked": {
+            "speciesSet": "species1",
+            "probes": 448,
+            "probesPerSpecies": 7,
+            "completedCalls": 397992
+          }
+        }
+      },
+      "scalarC": {
+        "ok": true,
+        "cases": 450948,
+        "probes": 521,
+        "nativeCalls": 406095,
+        "route": "scalar-C",
+        "completedCallProofSha256": "858ba8899949187cf2a15a75664a8062770a348f15e70a281a666ca63e2df1b4",
+        "symbolSelectionSha256": "2546ca9a0239997d55eb94edf9f7a279de5ca91f48bf8eed8a5d127ee81d5ac5",
+        "actualInventory": {
+          "horizontal": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 6627
+          },
+          "loop": {
+            "speciesSet": "species3",
+            "probes": 9,
+            "probesPerSpecies": 9,
+            "completedCalls": 1476
+          },
+          "masked": {
+            "speciesSet": "species1",
+            "probes": 448,
+            "probesPerSpecies": 7,
+            "completedCalls": 397992
+          }
+        }
+      }
+    },
+    {
+      "compiler": "1",
+      "command": "gcc-16",
+      "compilerVersion": "gcc-16 (Homebrew GCC 16.2.0) 16.2.0",
+      "target": "aarch64-apple-darwin25",
+      "tier": "neon",
+      "family": "reducers",
+      "element": "uint64",
+      "status": "executed",
+      "rowProofSha256": "9ff2d6f23053f571e1f867ec0e2ab673e3d3983fb23cf075dcb07643ba1c486a",
+      "executionProofSha256": "7b5aed644a50250734afe019427d4f80f6fbd7fa1b6fc725d99a551b291e8a3e",
+      "rawExecutionSha256": "fe2b9c055b1fae5f05e4f7abc373ee880323652ebab0c55b3e6473684492c170",
+      "artifactManifestSha256": "54eed67bc5790a8e611cfb2c5cecbd90698844ccf4445605f48756e9563dcc59",
+      "compiledUnitManifestSha256": "bc8293f4ec16056adebfb295f06604f37635ce0a6c8ad092ec71d5e1dc72a782",
+      "requiredRegionProofSha256": "a53444d6627825c05184d5edccbefeba75d26d39389388c72f1b02f13affb686",
+      "requiredRegions": 9,
+      "native": {
+        "ok": true,
+        "cases": 450948,
+        "probes": 521,
+        "nativeCalls": 406095,
+        "completedCallProofSha256": "bee43dff3ee33b0ceacb0d870dfd3f86987971092e7560593292a0b2dd76a3e7",
+        "actualInventory": {
+          "horizontal": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 6627
+          },
+          "loop": {
+            "speciesSet": "species3",
+            "probes": 9,
+            "probesPerSpecies": 9,
+            "completedCalls": 1476
+          },
+          "masked": {
+            "speciesSet": "species1",
+            "probes": 448,
+            "probesPerSpecies": 7,
+            "completedCalls": 397992
+          }
+        }
+      },
+      "scalarC": {
+        "ok": true,
+        "cases": 450948,
+        "probes": 521,
+        "nativeCalls": 406095,
+        "route": "scalar-C",
+        "completedCallProofSha256": "bee43dff3ee33b0ceacb0d870dfd3f86987971092e7560593292a0b2dd76a3e7",
+        "symbolSelectionSha256": "489019b206a6ec9ab7121e97c3cb1eee9506e019fc573a951ccb94e543bc059f",
+        "actualInventory": {
+          "horizontal": {
+            "speciesSet": "species1",
+            "probes": 64,
+            "probesPerSpecies": 1,
+            "completedCalls": 6627
+          },
+          "loop": {
+            "speciesSet": "species3",
+            "probes": 9,
+            "probesPerSpecies": 9,
+            "completedCalls": 1476
+          },
+          "masked": {
+            "speciesSet": "species1",
+            "probes": 448,
+            "probesPerSpecies": 7,
+            "completedCalls": 397992
+          }
+        }
+      }
+    },
+    {
+      "compiler": "1",
+      "command": "gcc-16",
+      "compilerVersion": "gcc-16 (Homebrew GCC 16.2.0) 16.2.0",
+      "target": "aarch64-apple-darwin25",
+      "tier": "neon",
+      "family": "algorithms",
+      "element": "utf8simd",
+      "status": "executed",
+      "rowProofSha256": "8a107838fa2daabe22b207e3d645ebc119c4634618c9414dd30275a352cc0c33",
+      "executionProofSha256": "3e01bcc9f1be2a037f615e4804daed8e78ce7c435f9ca8e64131765740ad07db",
+      "rawExecutionSha256": "eb312a881b8b370aed99af86d0a4587da9356ff42fbffa0f089c8447097e8203",
+      "artifactManifestSha256": "c6b7f6d548f2d72def785b934b4d9f97a807e7c03a7d15afda51aba764488fa5",
+      "compiledUnitManifestSha256": "0714640fa1ffb0873ccbbca03d3fd8a28f9c501f16a913c6cbbaacc9215f9989",
+      "requiredRegionProofSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+      "requiredRegions": 0,
+      "native": {
+        "ok": true,
+        "cases": 199082,
+        "nativeCalls": 1,
+        "completedCallProofSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+        "actualInventory": {}
+      },
+      "algorithm": "utf8simd",
+      "scalarC": "not part of this algorithm route",
+      "artifactManifestFileSha256": "68cf43e4a369f289fcceb29476cc01e62df6cede90c7c2b6ef13c0c0f9351949"
+    },
+    {
+      "compiler": "1",
+      "command": "gcc-16",
+      "compilerVersion": "gcc-16 (Homebrew GCC 16.2.0) 16.2.0",
+      "target": "aarch64-apple-darwin25",
+      "tier": "neon",
+      "family": "algorithms",
+      "element": "base64simd",
+      "status": "executed",
+      "rowProofSha256": "05a7076f81f23577a00210c9a72739c40ff3bdbcab929c2665e46bc604047efa",
+      "executionProofSha256": "c983787a0c2fe5a2daf86971f65c7eccef83e49b7f2b991c2c67690204e6ea5f",
+      "rawExecutionSha256": "8a2d6e498561d5d22e834d9f827e6d7510a270f020b021f8c5df25618499e7bf",
+      "artifactManifestSha256": "ea7d204c88452cea298b9badcfed294e95d5516df32a9f542886bfb6e531d7d8",
+      "compiledUnitManifestSha256": "cfa99834ea14a54cd0abd2eb0a7c18f45d4ee36d7c1163881bedead8e3b437a0",
+      "requiredRegionProofSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+      "requiredRegions": 0,
+      "native": {
+        "ok": true,
+        "cases": 80744,
+        "nativeCalls": 1,
+        "completedCallProofSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+        "actualInventory": {}
+      },
+      "algorithm": "base64simd",
+      "scalarC": "not part of this algorithm route",
+      "artifactManifestFileSha256": "d2fbc6fd9520a35c971d94e47e17d766d5ce476d1be5b9bee834d6108b1064d9"
+    },
+    {
+      "compiler": "1",
+      "command": "gcc-16",
+      "compilerVersion": "gcc-16 (Homebrew GCC 16.2.0) 16.2.0",
+      "target": "aarch64-apple-darwin25",
+      "tier": "neon",
+      "family": "algorithms",
+      "element": "simd-json",
+      "status": "executed",
+      "rowProofSha256": "f7bde98d4266c09cca1074b08681fe3091301a38e29bdc245a801a17fd3a9ea5",
+      "executionProofSha256": "f031dee2a50bdcacc2178b36af73cb31cbfd1bdb32a0a6db549a90d8efb8080a",
+      "rawExecutionSha256": "5eb4e9aa33e388fb40e8bf73eb0a7a3d0ac4ab075fcec1b98598aad5de3d22aa",
+      "artifactManifestSha256": "d07e672df131a4d43af68ed37fc03a1fa62a839dac1a5753e0d27e1fb5cde791",
+      "compiledUnitManifestSha256": "4578acd1554b7617a2ca4eb74ddcdf7e9223d2c9b7af11e8207b975900e486b6",
+      "requiredRegionProofSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+      "requiredRegions": 0,
+      "native": {
+        "ok": true,
+        "cases": 223519,
+        "nativeCalls": 1,
+        "completedCallProofSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+        "actualInventory": {}
+      },
+      "algorithm": "simd-json",
+      "scalarC": "not part of this algorithm route",
+      "artifactManifestFileSha256": "cd55b8aa56b78f5847d409ecc745f2cceb3c92b35dd183f5e946cec155694a20"
+    },
+    {
+      "compiler": "1",
+      "command": "gcc-16",
+      "compilerVersion": "gcc-16 (Homebrew GCC 16.2.0) 16.2.0",
+      "target": "aarch64-apple-darwin25",
+      "tier": "neon",
+      "family": "algorithms",
+      "element": "fused-json",
+      "status": "executed",
+      "rowProofSha256": "37dbeee4f8729c5819ba783ec953faf12b6bd766f19ee6d1db3be9d25d63ea10",
+      "executionProofSha256": "1d70d296ca94d26928df51dc5e74e957647cd33d8de902bc82437d9eafb9f118",
+      "rawExecutionSha256": "c25af30662ddf8e200a7708e87b19a2c0bce4e879295148a0be7ea5339f59702",
+      "artifactManifestSha256": "674c762b24b9f5aa951150058a870b40cc342d8d94741c8b3d673858f640f400",
+      "compiledUnitManifestSha256": "f0a29fdca003527971f5e7658945524f7221ca5fde3ef243d8cf88375cc07da4",
+      "requiredRegionProofSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+      "requiredRegions": 0,
+      "native": {
+        "ok": true,
+        "cases": 9,
+        "nativeCalls": 1,
+        "completedCallProofSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+        "actualInventory": {}
+      },
+      "algorithm": "fused-json",
+      "scalarC": "not part of this algorithm route",
+      "artifactManifestFileSha256": "d10a03da4a557e6fe5b56f82339934652470a1625c2b6932d2630c29b90fd8cc"
+    }
+  ],
+  "validatorSources": {
+    "tests/simd/native-summary.lua": "9953fe61fae1d67c4c928d3c46ca148bef21f7bf1060e99201966bf64fa1e603",
+    "tests/simd/native-inventory.lua": "a2cb39ed7fbcc3af349a13fc3bd4fe53bde93fa1f71a9387111b207141ad6c47"
+  },
+  "exporterSha256": "adb861ba35a697aaece53ba790009fa4054e7730ce408729036b59574370fb23",
+  "executionLifecycle": {
+    "schemaVersion": 1,
+    "revision": "7e32e50a2d611b1ffd57f4821ab0c58b2886da70",
+    "sourceTreeGitObject": "2d85dabfaf3f6211ca80654549d2f4b5a035e473",
+    "startedAt": "2026-09-20T07:52:54.195841+00:00",
+    "command": [
+      "tests/simd/run-matrix.sh"
+    ],
+    "cwd": "/private/tmp/nupp-simd11-gcc-full-replay",
+    "environment": {
+      "NUPP_CC": "clang",
+      "NUPP_SIMD_COMPILERS": "gcc-16",
+      "NUPP_SIMD_TIERS": "neon",
+      "NUPP_SIMD_OUTPUT": "/private/tmp/nupp-simd11-gcc-full-final-7e32e50a"
+    },
+    "selection": "Unchanged canonical defaults: all ten element types, Fixed2..64 and Preferred, primitives and reducers, four owned algorithms, native and forced scalar-C routes.",
+    "scope": "Correctness execution and operational CI capacity metadata, not performance measurement. GCC only at current revision; does not relabel historical Clang evidence.",
+    "runnerSha256": "997d445ed92343742cd050c941e3bb083ff418e755e1f92efeef9a3ae6e9471d",
+    "wrapperSha256": "07dedef7efddfbd760e52c16731fc7ce0ead08987d3dfb46d487529e5d196396",
+    "endedAt": "2026-09-20T08:38:22.007768+00:00",
+    "elapsedSeconds": 2727.829,
+    "exitCode": 0,
+    "endingRevision": "7e32e50a2d611b1ffd57f4821ab0c58b2886da70",
+    "endingWorktreeStatus": "",
+    "summarySha256": "415d8a660475718a379818be3785d70ac3fbdb572393d2166f0dc06425e210dc"
+  },
+  "executionLifecycleSha256": "1da208fa116693d49c460b77140f43c421e79bbb9a82c40006d18b6fa3c57f1e",
+  "canonicalRunnerSha256": "997d445ed92343742cd050c941e3bb083ff418e755e1f92efeef9a3ae6e9471d",
+  "totals": {
+    "native": {
+      "cases": 1017158254,
+      "probes": 8107,
+      "nativeCalls": 8059039
+    },
+    "scalarC": {
+      "cases": 1016654900,
+      "probes": 8107,
+      "nativeCalls": 8059035
+    }
+  },
+  "algorithmExecutions": 4
+}
