@@ -348,6 +348,14 @@ interface cst.Hints
     --- A checker-recognized call to the stable prelude `ipairs` binding.
     builtinIpairs: any
 
+    --- A resolved portable math binding, evaluated or overwritten by authored code.
+    portableMathLibrary: boolean?
+
+    --- A resolved portable math.log field, including reads, writes and aliases.
+    portableMathLog: boolean?
+
+    portableMathLogWrite: boolean?
+
     --- A call to a stable LuaJIT table builtin, lowered to one module-local binding.
     tableIntrinsic: string?
 

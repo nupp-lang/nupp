@@ -773,8 +773,21 @@ function index.install(c: state.Checker): state.ExprHandlers
     -- Field access
     ---------------------------------------------------------------------
 
-    handlers.dotIndex = function(node: cst.DotIndex | cst.SafeIndex): Type
+    local function resolvedField(node: cst.DotIndex | cst.SafeIndex): Type
         local out = fieldOf(node)
+        node.portableMathLog = c.opts.dialect == "lua51"
+            and node.obj ~= nil
+            and (node.obj as any).runtimeSurfaceRoot == "math"
+            and node.name ~= nil
+            and node.name.text == "log"
+            or nil
+        node.portableMathLogWrite = node.portableMathLog and node.writeContext or nil
+
+        return out
+    end
+
+    handlers.dotIndex = function(node: cst.DotIndex | cst.SafeIndex): Type
+        local out = resolvedField(node)
         if node.kind ~= "dotIndex" or node.writeContext or out.tag ~= "func" then
             return out
         end
@@ -787,7 +800,7 @@ function index.install(c: state.Checker): state.ExprHandlers
         return T.withSendable(out)
     end
 
-    handlers.safeIndex = fieldOf
+    handlers.safeIndex = resolvedField
 
     ---------------------------------------------------------------------
     -- Bracket access

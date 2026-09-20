@@ -15,6 +15,32 @@ end
 local simd = require("nupp.simd")
 
 local function main(): string
+    do
+        local library = math
+        local logarithm = library.log
+        local calls = ""
+
+        local function argument(value: number): number
+            calls = calls .. tostring(value)
+            return value
+        end
+
+        local function invoke(callback: function(number, number?): number, value: number, base: number?): number
+            return callback(value, base)
+        end
+
+        assert(logarithm == math.log)
+        assert(math.abs(logarithm(argument(8), argument(2)) - 3) < 1e-12)
+        assert(calls == "82", "log operands evaluate once in source order")
+        assert(math.abs(invoke(math.log, 8, 2) - 3) < 1e-12)
+        assert(logarithm(1) == 0 and logarithm(1, nil) == 0)
+        local math = {
+            log = function(_value: number, _base: number?): number
+                return 42
+            end
+        }
+        assert(math.log(8, 2) == 42, "application math tables retain their definition")
+    end
     const settings = {const label = "portable"}
     local present: {value: integer}? = {value = 4}
     local absent: {value: integer}? = nil

@@ -48,7 +48,8 @@ Ordinary `math.min` and `math.max` also follow the selected runtime: LuaJIT
 chooses the second operand on ties or unordered comparisons; the stock Lua 5.1
 Wasm host retains the first. Variadic calls apply that rule from left to right.
 The corrected `nupp.math.f32` operations have their own target-independent
-contract below.
+contract below. `math.log(value, base)` honors its optional base in ordinary
+portable code and AOT alike, computing `log(value) / log(base)`.
 
 Ordinary floating-point arithmetic assumes round-to-nearest-even. Signed zero
 and numeric NaN behavior are preserved. NaN signaling state, payload bits, and

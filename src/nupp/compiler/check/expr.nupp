@@ -1099,6 +1099,7 @@ function expr.install(c: state.Checker): nil
             local runtimeRoot = runtimeSurface.resolvedRoot(c, nameTok) or entry and entry.runtimeSurfaceRoot
             local runtimeNode = node as any
             runtimeNode.runtimeSurfaceRoot = runtimeRoot
+            node.portableMathLibrary = c.opts.dialect == "lua51" and runtimeRoot == "math" or nil
             runtimeSurface.requireIdentity(c, runtimeRoot, nil, nameTok)
             if not entry then
                 -- An unknown name is `any` and says nothing, which is right for a name

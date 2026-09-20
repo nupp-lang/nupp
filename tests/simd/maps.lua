@@ -48,9 +48,8 @@ for _, name in ipairs({'min', 'max'}) do
     add(name .. '3', 'math.' .. name, 'a, b, c', 'math.' .. name .. '(left, right, third)', true)
     add(name .. '4', 'math.' .. name, 'a, b, c, a', 'math.' .. name .. '(left, right, third, left)', true)
 end
--- Lua5.1 math.log ignores its second argument. The Nupp two-argument contract
--- is log(value)/log(base), so the portable oracle states that arithmetic.
-add('logBase', 'math.log', 'a, b', 'math.log(left) / math.log(right)', false)
+-- The portable ordinary call also tests the declared optional-base adapter.
+add('logBase', 'math.log', 'a, b', 'math.log(left, right)', false)
 add('f32min', 'nupp.math.f32.min', 'a, b', 'minimum32(left, right)', true, true)
 add('f32max', 'nupp.math.f32.max', 'a, b', 'maximum32(left, right)', true, true)
 add('f32fma', 'nupp.math.f32.fma', 'a, b, c', 'fmaReference(left, right, third, pattern)', true, true)

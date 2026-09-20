@@ -387,7 +387,7 @@ local function run(options: any): integer
             return false
         end
         for _, name in ipairs(gen.runtimeModules(code)) do
-            if name == "nupp.runtime.managed" then
+            if name == "nupp.runtime.managed" or name == "nupp.runtime.portablemath" then
                 runtimeNames[name] = true
             end
         end
@@ -437,7 +437,7 @@ local function run(options: any): integer
                 reached[#reached + 1] = record.path
             end
         end
-        -- The ownership installer is emitted even for a file with no imports.
+        -- Compiler-injected runtime modules are emitted even without imports.
         -- Carry it without staging unrelated standard-library Lua into the source
         -- roots, where it would shadow their checked compiler declarations.
         local runtime: {string} = {}

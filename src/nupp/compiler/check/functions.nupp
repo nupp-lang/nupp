@@ -16,6 +16,7 @@ local cst = require("nupp.compiler.cst")
 local state = require("nupp.compiler.check.state")
 local comptimeFunction = require("nupp.compiler.check.comptimefunction")
 local preferComptime = require("nupp.compiler.check.prefercomptime")
+local runtimeSurface = require("nupp.compiler.runtimesurface")
 
 local isA = relations.isA
 local rawType = T.unwrapOwnership
@@ -1760,6 +1761,17 @@ function functions.install(c: state.Checker): state.StatHandlers
         local fname, body = stat.name, stat.body
         if not fname or fname.kind ~= "funcname" or not body then
             return
+        end
+        if fname.base then
+            local entry = c.lookupEntry(fname.base.text)
+            c.markToken(
+                fname.base,
+                entry and entry.definition,
+                entry and entry.t or T.any,
+                entry and entry.definition and entry.definition.kind or "variable"
+            )
+            local runtimeRoot = runtimeSurface.resolvedRoot(c, fname.base) or entry and entry.runtimeSurfaceRoot
+            stat.portableMathLibrary = c.opts.dialect == "lua51" and runtimeRoot == "math" or nil
         end
         local selfType = nil
         -- `function R:m()` / `function R.m()` attach a member to the record (or struct)

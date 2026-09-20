@@ -20,6 +20,7 @@ local mutation = require("nupp.compiler.check.mutation")
 local fixedWidth = require("nupp.compiler.fixedwidth")
 local indexedViews = require("nupp.compiler.indexedviews")
 local state = require("nupp.compiler.check.state")
+local runtimeSurface = require("nupp.compiler.runtimesurface")
 
 local isA = relations.isA
 local rawType = T.unwrapOwnership
@@ -1058,6 +1059,8 @@ function bindings.install(c: state.Checker): state.StatHandlers
                     entry and entry.t or T.any,
                     entry and entry.definition and entry.definition.kind or "variable"
                 )
+                local runtimeRoot = runtimeSurface.resolvedRoot(c, targetTok) or entry and entry.runtimeSurfaceRoot
+                target.portableMathLibrary = c.opts.dialect == "lua51" and runtimeRoot == "math" or nil
                 -- Whatever else the assignment turns out to be, the binding now holds
                 -- something. The walk is in source order, so a read that came before
                 -- this one has already been answered.

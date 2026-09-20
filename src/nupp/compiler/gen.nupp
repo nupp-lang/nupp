@@ -5043,6 +5043,11 @@ function gen.generate(
         end
 
         local kind = x.kind
+        if pluck.portable and x.portableMathLibrary then
+            -- Capture the host function before authored code can pass or replace
+            -- the library, even when this module never reads its log field.
+            compilerModuleName("nupp.runtime.portablemath")
+        end
         if kind == "assignmentTemporary" then
             e(x.name);
             return
@@ -5562,10 +5567,14 @@ function gen.generate(
         if pluck.portable and kind == "safeIndex" and x.obj then
             -- A member read has no operand of its own to defer, so one helper per
             -- member name serves every site.
+            local field = "__nuppV." .. x.name.text
+            if x.portableMathLog then
+                field = compilerModuleName("nupp.runtime.portablemath") .. ".logFunction(" .. field .. ")"
+            end
             local helper = pluck.declareHelper(
                 "__nuppSafeIndex",
                 "__nuppV",
-                ("if __nuppV==nil then return nil end return __nuppV.%s"):format(x.name.text)
+                "if __nuppV==nil then return nil end return " .. field
             )
             e(helper .. "(", sourceLine(x))
             emit(x.obj)
@@ -5958,6 +5967,17 @@ function gen.generate(
         end
         for _, effect in ipairs(x.compilerFeatureEffects or {}) do
             pluck.needRuntimeEffect(effect)
+        end
+        if kind == "dotIndex" and x.portableMathLog and pluck.portable then
+            -- A write also loads the adapter before authored statements, so a
+            -- first module replacing math.log cannot redefine its host baseline.
+            local adapter = compilerModuleName("nupp.runtime.portablemath")
+            if not x.portableMathLogWrite then
+                e(adapter .. ".logFunction(", sourceLine(x))
+                emit(x.obj)
+                e(".log)")
+                return
+            end
         end
         if kind == "dotIndex" and x.overloadMember then
             emit(x.obj)

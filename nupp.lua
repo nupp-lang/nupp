@@ -399,6 +399,7 @@ for _, resource in ipairs({
     "src/nupp/runtime/provider/tablebuffer.nupp",
     "src/nupp/runtime/storage.nupp",
     "src/nupp/runtime/managed.g.nupp",
+    "src/nupp/runtime/portablemath.nupp",
     "src/nupp/runtime/vendor/lunajson/decoder.lua",
     "src/nupp/runtime/vendor/lunajson/encoder.lua",
 }) do
