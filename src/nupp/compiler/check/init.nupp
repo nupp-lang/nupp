@@ -901,8 +901,7 @@ function checkMod.check(
     -- The checker and every later lowering read the same resolved build axis. No
     -- dialect-specific rule is implied merely by recording it here.
     result.dialect = selectedDialect
-    local target = env and env.config and env.config._target
-    result.host = target and target.host or (selectedDialect == "lua51" and "browser" or "native")
+    result.host = env and env.artifactHost or (selectedDialect == "lua51" and "browser" or "native")
     result.preludeRuntime = env and env.preludeRuntime or nil
     result.moduleName = opts and opts.moduleName
         or env and env.moduleNameForPath and env.moduleNameForPath(env, filename)

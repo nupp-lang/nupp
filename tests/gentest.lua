@@ -70,6 +70,50 @@ end
 
 local M = {}
 
+function M.targetFactsResolveTheHostAfterSelectingTheCheckDialect()
+    local environments = {{value = env}}
+    for _, host in ipairs({"native", "browser"}) do
+        environments[#environments + 1] = {
+            value = envMod.new(HERE .. "/..", {
+                cache = false,
+                config = {build = {host = host}}
+            }),
+            host = host,
+        }
+    end
+    for _, environment in ipairs(environments) do
+        for _, dialect in ipairs({"lua51", "luajit"}) do
+            local expectedHost = environment.host or (dialect == "lua51" and "browser" or "native")
+            local parsed = parser.parse("return true", "target-facts.g.nupp")
+            local diagnostics = check.check(parsed, "target-facts.g.nupp", environment.value, {
+                dialect = dialect,
+                moduleName = "nupp.runtime.target",
+            })
+            assertEq(#diagnostics, 0, "target fact checking")
+            local code, generated = gen.generate(parsed, "target-facts.g.nupp")
+            assertEq(#generated, 0, "target fact generation")
+            local facts = assert(loadstring(code))()
+            assertEq(facts.dialect, dialect, "the current check chooses the dialect")
+            assertEq(facts.host, expectedHost, "only an explicit host overrides the dialect's default")
+
+            local imported = parser.parse('return require("nupp.runtime.browser.time")', "host-import.g.nupp")
+            local admission = check.check(imported, "host-import.g.nupp", environment.value, {
+                dialect = dialect,
+                moduleName = "nupp.fixture.host",
+            })
+            local rejected = false
+            for _, diagnostic in ipairs(admission) do
+                if diagnostic.code == "NUPP3006" then
+                    rejected = true
+                else
+                    assert(diagnostic.severity ~= "error", diagnostic.code .. ": " .. diagnostic.msg)
+                end
+            end
+            assertEq(rejected, expectedHost ~= "browser", "browser module admission follows the resolved host")
+        end
+    end
+end
+
 function M.returnedRecordsKeepTheCallersTraceFrame()
     local source = [[
 local record Token value: integer end

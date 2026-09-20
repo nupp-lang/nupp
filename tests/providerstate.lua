@@ -15,9 +15,12 @@ local function filename(name)
     error("no Lua source for " .. name)
 end
 
-local function instance(owned, replacements, preloads)
+local function instance(owned, replacements, preloads, globals)
     local loaded = {}
     local environment = setmetatable({}, {__index = _G})
+    for name, value in pairs(globals or {}) do
+        environment[name] = value
+    end
     environment._G = environment
     environment.package = {loaded = loaded, preload = preloads or {}, path = package.path, cpath = package.cpath}
     environment.require = function(name)
