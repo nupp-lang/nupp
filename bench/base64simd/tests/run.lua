@@ -20,7 +20,9 @@ local shipped = require("nupp.codec.base64")
 local proveNative = assert(loadfile("../../tests/simd/nativeproof.lua"))()
 proveNative("base64simd", function()
     local source = ("native proof"):rep(16)
-    assert(simd.encode(source) == reference.encode(source))
+    local got = simd.encode(source)
+    local want = reference.encode(source)
+    assert(got == want, ("native proof mismatch:\n  got  %q\n  want %q"):format(got, want))
 end)
 
 local checks = 0
