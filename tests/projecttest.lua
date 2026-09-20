@@ -735,6 +735,56 @@ function M.manifestValidatesCrossTargetBinaryPlatforms()
     end
 end
 
+function M.browserHostsCannotSelectNativeDistributionPlatforms()
+    local dir = tempProject({
+        [
+            "nupp.lua"
+        ] = [[return {include = {"src"}, build = {kind = "binary", stub = "nupp",
+            host = "browser", entries = {"main"}, outDir = "out",
+            platforms = {"aarch64-apple-darwin"}}}]],
+        ["src/main.nupp"] = "return 42\n",
+    })
+    local rejected, why = project.loadManifest(dir)
+    assertEq(rejected, nil, "a browser host cannot use native distribution stubs")
+    assert(why:find('platforms selects native binary hosts', 1, true), why)
+    write(dir .. "/nupp.lua", read(dir .. "/nupp.lua"):gsub('host = "browser"', 'host = "native"'))
+    local accepted, problem = project.loadManifest(dir)
+    assert(accepted, problem)
+    assertEq(
+        project.check(dir, {
+            host = "browser"
+        }),
+        1,
+        "a check rejects the resolved host before applying a native layout"
+    )
+
+    local root = assert(require("nupp.io.files").currentDirectory())
+    local status, output = process.capture({root .. "/bin/nupp", "build", "--host", "browser"}, {cwd = dir})
+    assertEq(status, 1, "the command-line host override is also rejected\n" .. output)
+    assert(output:find('platforms selects native binary hosts', 1, true), output)
+    assert(not require("nupp.io.files").isDirectory(dir .. "/out"), "rejection writes no build output")
+    remove(dir)
+end
+
+function M.browserBundlesKeepWasmAndGuestNativeAotPolicies()
+    for _, policy in ipairs({"require-wasm", "require"}) do
+        local dir = tempProject({
+            [
+                "nupp.lua"
+            ] = (
+                [[return {include = {"src"}, build = {kind = "bundle",
+                dialect = "luajit", host = "browser", entries = {"main"}, outDir = "out",
+                output = "out/app.lua", aot = %q}}]]
+            ):format(policy),
+            ["src/main.nupp"] = "return 42\n",
+        })
+        local config, problem = project.loadManifest(dir)
+        assert(config, problem)
+        assertEq(project.check(dir), 0, "a browser bundle still accepts " .. policy)
+        remove(dir)
+    end
+end
+
 function M.manifestRestrictsPortablePayloadOutputsToBinaryTargets()
     local validDir = tempProject({
         [
