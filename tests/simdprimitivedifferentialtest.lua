@@ -25,6 +25,7 @@ function M.unsupportedPrimitiveDomainsHavePositionedRefusals()
         {"floatPrefixXor", "local s = assert(simd.species(array.float, 4)); return s:splat(1):prefixXor():extract(1)", "integer"},
         {"reinterpretWidth", "local s = assert(simd.species(array.float, 4)); local t = assert(simd.species(array.number, 4)); return s:reinterpret(t:splat(1)):extract(1)", "width"},
         {"convertSpecies", "local s = assert(simd.species(array.float, 4)); local t = assert(simd.species(array.number, 3)); return s:convert(t:splat(1)):extract(1)", "Fixed"},
+        {"alignSpeciesCount", "local s = assert(simd.species(array.float, 4)); return s:splat(1):align(s:splat(2), s.lanes):extract(1)", "compile-time"},
         {"extractZero", "local s = assert(simd.species(array.float, 4)); return s:splat(1):extract(0)", "lane"},
         {"extractPastEnd", "local s = assert(simd.species(array.float, 4)); return s:splat(1):extract(5)", "lane"},
         {"insertPastEnd", "local s = assert(simd.species(array.float, 4)); return s:splat(1):insert(5, 2):extract(1)", "lane"},

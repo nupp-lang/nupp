@@ -42,7 +42,9 @@ Preferred indexed memory requires index and value elements of the same physical
 width; narrow 8/16-bit values consequently have no admitted Preferred index
 species. Square transpose requires Fixed. The refusal suite covers these
 restrictions, incompatible conversion/reinterpretation, floating integer-only
-operations and invalid literal lane indices.
+operations and invalid literal lane indices. Alignment requires a nonnegative
+literal offset: zero, one, the species boundary and a clamped larger offset are
+compared; a species-property expression retains its positioned refusal.
 
 The main lane family uses small exact inputs, all-zero/all-selected/mixed masks,
 and floating signed zero, NaN and infinities. The unsigned 64-bit operations

@@ -33,6 +33,9 @@ local operations = {
     {"rotateLeft", "a:rotateLeft(3)", "a[(i + 2) % n + 1]"},
     {"rotateRight", "a:rotateRight(3)", "a[(i - 4) % n + 1]"},
     {"align", "a:align(b, 1)", "i == 1 and 2 or a[i - 1]"},
+    {"alignZero", "a:align(b, 0)", "a[i]"},
+    {"alignWhole", "a:align(b, ALIGN_COUNT)", "2"},
+    {"alignPastEnd", "a:align(b, ALIGN_PAST_COUNT)", "2"},
     {"insert", "a:insert(2, 6)", "i == 2 and 6 or a[i]"},
     {"extract", "s:splat(a:extract(2))", "a[2]"},
     {"interleaveFirst", "interleaved1", "i % 2 == 0 and 2 or a[math.floor(i / 2) + 1]"},
@@ -149,7 +152,12 @@ local function %s(exclusive output: span.WriteSpan<%s>, borrows input: span.Span
 ]]
         end
         for i, op in ipairs(ops) do
-            source[#source + 1] = ("    s:store(output, %d, %s%s)\n"):format((i - 1) * 64 + 1, op[2], op[4] or "")
+            -- Align admits literal counts. Preferred may use up to 64 lanes,
+            -- so that boundary tests clamping on every narrower target too.
+            local boundary = n == "preferred" and 64 or n
+            local expression = op[2]:gsub("ALIGN_COUNT", tostring(boundary))
+                :gsub("ALIGN_PAST_COUNT", tostring(boundary + 1))
+            source[#source + 1] = ("    s:store(output, %d, %s%s)\n"):format((i - 1) * 64 + 1, expression, op[4] or "")
         end
         source[
             #source + 1
