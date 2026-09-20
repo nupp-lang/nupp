@@ -55,6 +55,27 @@ function M.aotChangeSelectsAotAndFixpoint()
     selects("src/nupp/compiler/aot/lower.nupp", {"fast-checks", "linux-integration", "fixpoint"})
 end
 
+function M.simdMatrixRetainsBothMacArchitecturesAndWindowsImages()
+    local decode = assert(loadfile("src/nupp/runtime/vendor/lunajson/decoder.lua"))()()
+    local handle = assert(io.open(".github/simd-platforms.json", "rb"))
+    local rows = decode(handle:read("*a"))
+    handle:close()
+    local found = {}
+    for _, row in ipairs(rows) do
+        local key = row.os .. "/" .. row.tier
+        test.assert(not found[key], "duplicate SIMD platform tier " .. key)
+        found[key] = true
+    end
+    test.assert(found["macos-15/neon"])
+    test.assert(found["ubuntu-24.04-arm/neon"])
+    for _, host in ipairs({"ubuntu-24.04", "macos-15-intel", "windows-2022", "windows-2025"}) do
+        for _, tier in ipairs({"baseline", "avx2", "avx512f"}) do
+            test.assert(found[host .. "/" .. tier], "missing SIMD execution row " .. host .. "/" .. tier)
+        end
+    end
+    test.equal(#rows, 14)
+end
+
 function M.runtimeChangeSelectsBrowserAndNativeCoverage()
     selects("src/nupp/runtime/tasks.nupp", {"fast-checks", "linux-integration", "portable-compiler", "fixpoint"})
 end
@@ -70,6 +91,10 @@ end
 function M.wasmOnlyFixturesSelectTheJobThatRunsThem()
     selects("tests/portable-storage/project/src/main.nupp", {"browser-wasm"})
     selects("tests/wasm-aot/run.sh", {"browser-wasm"})
+    selects("tests/simd/primitives.lua", {"browser-wasm", "simd-conformance", "linux-integration", "macos-integration", "windows-integration"})
+    selects("src/nupp/compiler/aot/simdrewrite.nupp", {"browser-wasm", "simd-conformance"})
+    selects("src/nupp/compiler/build/aot.nupp", {"browser-wasm"})
+    selects("src/nupp/simd.nupp", {"browser-wasm"})
     selects("tests/wasm-memory/run.sh", {"browser-wasm"})
 end
 

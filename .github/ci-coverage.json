@@ -23,6 +23,10 @@
           "guarantees": ["every change selects the jobs that can observe it"]
         },
         {
+          "name": "Validate selected-job aggregation",
+          "guarantees": ["a selected SIMD or other correctness job cannot pass by being skipped or absent"]
+        },
+        {
           "name": "Validate the workflow against the classifier",
           "guarantees": ["the classifier, this map and the workflow name the same jobs"]
         }
@@ -46,6 +50,18 @@
           "lane": "shared",
           "guarantees": ["every suite a Nupp worker can share a process with"]
         }
+      ]
+    },
+    "simd-conformance": {
+      "platforms": ["linux", "macos", "windows"],
+      "selectedBy": "simd-conformance",
+      "callsWorkflow": ".github/workflows/simd-conformance.yml",
+      "steps": [],
+      "guarantees": [
+        "shared primitives and reducers execute through observed C entries under Clang and GCC",
+        "exact baseline, AVX2 and AVX512 tiers on capable x64 hosts, or NEON on arm64",
+        "Intel macOS and both Windows images have explicit execution rows",
+        "unavailable hardware produces missing acceptance evidence, never an execution pass"
       ]
     },
     "integration": {
@@ -192,6 +208,7 @@
       "guarantees": [
         "the portable compiler runs in Lua 5.1 compiled to Wasm",
         "browser applications and templates run in Chromium",
+        "the shared native semantic corpus executes through Wasm SIMD128 entries",
         "the generated Pages artifact builds"
       ]
     },

@@ -1,0 +1,86 @@
+[
+  {
+    "os": "ubuntu-24.04",
+    "name": "Linux x64",
+    "artifact": "linux-x64",
+    "tier": "baseline"
+  },
+  {
+    "os": "ubuntu-24.04",
+    "name": "Linux x64",
+    "artifact": "linux-x64",
+    "tier": "avx2"
+  },
+  {
+    "os": "ubuntu-24.04",
+    "name": "Linux x64",
+    "artifact": "linux-x64",
+    "tier": "avx512f"
+  },
+  {
+    "os": "ubuntu-24.04-arm",
+    "name": "Linux arm64",
+    "artifact": "linux-arm64",
+    "tier": "neon"
+  },
+  {
+    "os": "macos-15",
+    "name": "macOS arm64",
+    "artifact": "macos-arm64",
+    "tier": "neon"
+  },
+  {
+    "os": "macos-15-intel",
+    "name": "macOS x64",
+    "artifact": "macos-x64",
+    "tier": "baseline"
+  },
+  {
+    "os": "macos-15-intel",
+    "name": "macOS x64",
+    "artifact": "macos-x64",
+    "tier": "avx2"
+  },
+  {
+    "os": "macos-15-intel",
+    "name": "macOS x64",
+    "artifact": "macos-x64",
+    "tier": "avx512f"
+  },
+  {
+    "os": "windows-2022",
+    "name": "Windows 2022 x64",
+    "artifact": "windows-2022-x64",
+    "tier": "baseline"
+  },
+  {
+    "os": "windows-2022",
+    "name": "Windows 2022 x64",
+    "artifact": "windows-2022-x64",
+    "tier": "avx2"
+  },
+  {
+    "os": "windows-2022",
+    "name": "Windows 2022 x64",
+    "artifact": "windows-2022-x64",
+    "tier": "avx512f"
+  },
+  {
+    "os": "windows-2025",
+    "name": "Windows 2025 x64",
+    "artifact": "windows-2025-x64",
+    "tier": "baseline"
+  },
+  {
+    "os": "windows-2025",
+    "name": "Windows 2025 x64",
+    "artifact": "windows-2025-x64",
+    "tier": "avx2"
+  },
+  {
+    "os": "windows-2025",
+    "name": "Windows 2025 x64",
+    "artifact": "windows-2025-x64",
+    "tier": "avx512f"
+  }
+]

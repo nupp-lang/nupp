@@ -1,0 +1,30 @@
+[
+  {
+    "target": "aarch64-pc-windows-msvc",
+    "status": "unsupported-native-toolchain",
+    "reason": "The layout is modeled, but scripts/toolchain selects and accepts only x86_64-pc-windows-gnu or x86_64-pc-windows-gnullvm Rust hosts. This is not an executed ARM64 row.",
+    "evidence": [
+      "scripts/toolchain:539",
+      "scripts/toolchain:586",
+      "src/nupp/compiler/targetlayout.nupp:69"
+    ]
+  },
+  {
+    "target": "i686-pc-windows-msvc",
+    "status": "unsupported-native-toolchain",
+    "reason": "The Windows native toolchain rejects non-x86_64 Rust hosts; the layout model alone does not supply a runnable Windows32 host.",
+    "evidence": [
+      "scripts/toolchain:586",
+      "src/nupp/compiler/targetlayout.nupp:74"
+    ]
+  },
+  {
+    "target": "i686-unknown-linux-gnu",
+    "status": "not-executed",
+    "reason": "The layout and baseline vector target are modeled. This matrix does not provision a 32-bit LuaJIT/Rust/compiler host; no 32-bit runtime execution is claimed.",
+    "evidence": [
+      "src/nupp/compiler/targetlayout.nupp:73",
+      "tests/simd/run-matrix.sh"
+    ]
+  }
+]

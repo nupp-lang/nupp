@@ -1377,6 +1377,8 @@ local PROCESS_ISOLATED = {
     loggingtest = true,
     runtimereflectiontest = true,
     serdetest = true,
+    simdprimitivedifferentialtest = true,
+    simdreducerdifferentialtest = true,
     typeleveltest = true,
     -- Imports cheadertest as a fixture; its top level asks the shell for an
     -- absolute checkout path on hosts where debug information is relative.

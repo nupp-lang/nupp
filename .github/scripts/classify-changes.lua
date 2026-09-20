@@ -23,8 +23,8 @@ local rules = {
     {"^scripts/docs%-serve%.mjs$", {"docs"}},
     {"^scripts/rust%-dependency%-notices", {"docs", "packaging"}},
 
-    {"^src/nupp/compiler/aot/", {"compiler", "aot"}},
-    {"^src/nupp/compiler/build/aot%.nupp$", {"compiler", "aot"}},
+    {"^src/nupp/compiler/aot/", {"compiler", "aot", "browser"}},
+    {"^src/nupp/compiler/build/aot%.nupp$", {"compiler", "aot", "browser"}},
     {"^src/nupp/compiler/browser%.nupp$", {"compiler", "browser"}},
     {"^src/nupp/compiler/capabilities%.nupp$", {"compiler", "browser", "aot"}},
     {"^src/nupp/compiler/preludeimage", {"compiler", "browser"}},
@@ -32,6 +32,8 @@ local rules = {
     {"^src/nupp/compiler/cli/bench%.nupp$", {"compiler", "cli", "measurement"}},
     {"^src/nupp/compiler/cli/", {"compiler", "cli"}},
     {"^src/nupp/compiler/", {"compiler"}},
+    {"^src/nupp/simd%.nupp$", {"library", "aot", "browser"}},
+    {"^src/nupp/simd/", {"library", "aot", "browser"}},
     {"^src/nupp/gpu/", {"library", "gpu"}},
     {"^src/nupp/bench/", {"library", "measurement"}},
     {"^src/nupp/runtime/", {"library", "browser", "native"}},
@@ -61,6 +63,7 @@ local rules = {
     -- `scripts/` selected every job.
     {"^tests/browser%-templates/", {"tests", "browser"}},
     {"^tests/portable%-storage/", {"tests", "browser"}},
+    {"^tests/simd/", {"tests", "aot", "browser"}},
     {"^tests/wasm%-aot/", {"tests", "browser"}},
     {"^tests/wasm%-memory/", {"tests", "browser"}},
     {"^tests/acceptance/", {"tests"}},
@@ -90,6 +93,7 @@ classifier.jobs = {
     "windows-integration",
     "portable-compiler",
     "browser-wasm",
+    "simd-conformance",
     "gpu-linux",
     "gpu-windows",
     "fixpoint",
@@ -156,9 +160,18 @@ function classifier.classify(paths)
 
     -- Every source change gets the fast checker and the in-process suites. That
     -- is the floor, not a judgement about what the change can reach.
-    local source = surfaces.compiler or surfaces.library or surfaces.native or surfaces.browser or surfaces.aot
-        or surfaces.gpu or surfaces.packaging or surfaces.tests or surfaces.cli or surfaces.editors
-        or surfaces.measurement or surfaces.evals
+    local source = surfaces.compiler
+        or surfaces.library
+        or surfaces.native
+        or surfaces.browser
+        or surfaces.aot
+        or surfaces.gpu
+        or surfaces.packaging
+        or surfaces.tests
+        or surfaces.cli
+        or surfaces.editors
+        or surfaces.measurement
+        or surfaces.evals
     if source then
         select(jobs, "fast-checks", "source changed", reasons)
         select(jobs, "linux-integration", "source changed", reasons)
@@ -172,6 +185,9 @@ function classifier.classify(paths)
         select(jobs, "windows-integration", why, reasons)
     end
 
+    if surfaces.compiler or surfaces.aot or surfaces.library or surfaces.native then
+        select(jobs, "simd-conformance", "SIMD compiler, runtime or shared corpus changed", reasons)
+    end
     if surfaces.compiler or surfaces.aot or surfaces.library or surfaces.native then
         select(jobs, "fixpoint", "the compiler's own inputs changed", reasons)
     end

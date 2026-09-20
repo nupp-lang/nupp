@@ -1,0 +1,101 @@
+name: SIMD execution conformance
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  platforms:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      targets: ${{ steps.targets.outputs.targets }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: targets
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          print("targets=" + json.dumps(json.load(open(".github/simd-platforms.json"))))
+          PY
+
+  execute:
+    name: ${{ matrix.target.name }} / ${{ matrix.compiler }} / ${{ matrix.target.tier }}
+    needs: platforms
+    runs-on: ${{ matrix.target.os }}
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        target: ${{ fromJSON(needs.platforms.outputs.targets) }}
+        compiler: [clang, gcc]
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v5
+
+      - name: Restore the provisioned toolchain
+        uses: actions/cache@v4
+        with:
+          path: .nupp-cache/toolchain
+          key: >-
+            nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('scripts/toolchain.pins', 'scripts/toolchain') }}
+          restore-keys: |
+            nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Restore the content-validated compiler cache
+        uses: actions/cache/restore@v4
+        with:
+          path: build/cache
+          key: >-
+            nupp-buildcache-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('src/**', 'nupp.lua', 'scripts/toolchain.pins') }}
+          restore-keys: |
+            nupp-buildcache-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Install the ABI-compatible Windows Rust toolchain
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          channel=$(sed -n 's/^channel = "\([^"]*\)"$/\1/p' rust-toolchain.toml)
+          rustup toolchain install "${channel}-x86_64-pc-windows-gnu" --profile minimal
+
+      - name: Provision the pinned toolchain
+        shell: bash
+        run: ./scripts/toolchain --all
+
+      - name: Select the real compiler dialect
+        shell: bash
+        env:
+          NUPP_SIMD_COMPILER_FAMILY: ${{ matrix.compiler }}
+        run: .github/scripts/prepare-simd-compilers.sh
+
+      - name: Execute the full shared SIMD corpus at this tier
+        shell: bash
+        env:
+          NUPP_SIMD_TIERS: ${{ matrix.target.tier }}
+        run: tests/simd/run-matrix.sh
+
+      # Keep the source, executable identities and actual execution proof. Object
+      # files and rebuildable compiler caches add volume without new evidence.
+      - name: Retain execution or unavailable-hardware evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: simd-${{ matrix.target.artifact }}-${{ matrix.compiler }}-${{ matrix.target.tier }}-${{ github.sha }}
+          path: |
+            build/simd-matrix/**/*.json
+            build/simd-matrix/**/*.log
+            build/simd-matrix/**/*.txt
+            build/simd-matrix/**/*.tsv
+            build/simd-matrix/**/*.sha256
+            build/simd-matrix/**/*.nupp
+            build/simd-matrix/**/*.c
+            build/simd-matrix/**/*.so
+            build/simd-matrix/**/*.dylib
+            build/simd-matrix/**/*.dll
+          if-no-files-found: warn
+          retention-days: 7
