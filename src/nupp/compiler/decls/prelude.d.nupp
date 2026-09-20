@@ -2433,6 +2433,355 @@ record nupp.Vec2Library
     reflect: function(x: number, y: number, normalX: number, normalY: number): (number, number)
 end
 
+--- Three-dimensional rotation operations on `(x, y, z, w)` number quadruples.
+--- @internal
+record nupp.QuatLibrary
+    --- Returns the rotation that turns nothing.
+    --- @return the identity x component, zero
+    --- @return the identity y component, zero
+    --- @return the identity z component, zero
+    --- @return the identity w component, one
+    identity: function(): (number, number, number, number)
+
+    --- Adds two rotations componentwise.
+    --- @param ax the first rotation's x component
+    --- @param ay the first rotation's y component
+    --- @param az the first rotation's z component
+    --- @param aw the first rotation's w component
+    --- @param bx the second rotation's x component
+    --- @param by the second rotation's y component
+    --- @param bz the second rotation's z component
+    --- @param bw the second rotation's w component
+    --- @return the sum's x component
+    --- @return the sum's y component
+    --- @return the sum's z component
+    --- @return the sum's w component
+    add: function(
+        ax: number,
+        ay: number,
+        az: number,
+        aw: number,
+        bx: number,
+        by: number,
+        bz: number,
+        bw: number
+    ): (number, number, number, number)
+
+    --- Subtracts the second rotation from the first componentwise.
+    --- @param ax the first rotation's x component
+    --- @param ay the first rotation's y component
+    --- @param az the first rotation's z component
+    --- @param aw the first rotation's w component
+    --- @param bx the second rotation's x component
+    --- @param by the second rotation's y component
+    --- @param bz the second rotation's z component
+    --- @param bw the second rotation's w component
+    --- @return the difference's x component
+    --- @return the difference's y component
+    --- @return the difference's z component
+    --- @return the difference's w component
+    subtract: function(
+        ax: number,
+        ay: number,
+        az: number,
+        aw: number,
+        bx: number,
+        by: number,
+        bz: number,
+        bw: number
+    ): (number, number, number, number)
+
+    --- Multiplies every component by a factor.
+    --- @param x the rotation's x component
+    --- @param y the rotation's y component
+    --- @param z the rotation's z component
+    --- @param w the rotation's w component
+    --- @param factor the scaling factor
+    --- @return the scaled x component
+    --- @return the scaled y component
+    --- @return the scaled z component
+    --- @return the scaled w component
+    scale: function(x: number, y: number, z: number, w: number, factor: number): (number, number, number, number)
+
+    --- Returns the four-component dot product, the cosine of half the angle between
+    --- two unit rotations.
+    --- @param ax the first rotation's x component
+    --- @param ay the first rotation's y component
+    --- @param az the first rotation's z component
+    --- @param aw the first rotation's w component
+    --- @param bx the second rotation's x component
+    --- @param by the second rotation's y component
+    --- @param bz the second rotation's z component
+    --- @param bw the second rotation's w component
+    --- @return the dot product
+    dot: function(
+        ax: number,
+        ay: number,
+        az: number,
+        aw: number,
+        bx: number,
+        by: number,
+        bz: number,
+        bw: number
+    ): number
+
+    --- Returns the squared length, which is one for a unit rotation.
+    --- @param x the rotation's x component
+    --- @param y the rotation's y component
+    --- @param z the rotation's z component
+    --- @param w the rotation's w component
+    --- @return the squared length
+    lengthSquared: function(x: number, y: number, z: number, w: number): number
+
+    --- Returns the length, which is one for a unit rotation.
+    --- @param x the rotation's x component
+    --- @param y the rotation's y component
+    --- @param z the rotation's z component
+    --- @param w the rotation's w component
+    --- @return the length
+    length: function(x: number, y: number, z: number, w: number): number
+
+    --- Returns a unit rotation in the same direction, or the identity for zero.
+    ---
+    --- The sign is left alone: `q` and `-q` are the same rotation, and which one
+    --- arrived is not canonicalized away.
+    --- @param x the rotation's x component
+    --- @param y the rotation's y component
+    --- @param z the rotation's z component
+    --- @param w the rotation's w component
+    --- @return the normalized x component, or zero for a zero rotation
+    --- @return the normalized y component, or zero for a zero rotation
+    --- @return the normalized z component, or zero for a zero rotation
+    --- @return the normalized w component, or one for a zero rotation
+    normalize: function(x: number, y: number, z: number, w: number): (number, number, number, number)
+
+    --- Returns the rotation undoing a unit one.
+    --- @param x the rotation's x component
+    --- @param y the rotation's y component
+    --- @param z the rotation's z component
+    --- @param w the rotation's w component
+    --- @return the conjugate's x component
+    --- @return the conjugate's y component
+    --- @return the conjugate's z component
+    --- @return the conjugate's w component
+    conjugate: function(x: number, y: number, z: number, w: number): (number, number, number, number)
+
+    --- Returns the rotation undoing any non-zero one, or the identity for zero.
+    ---
+    --- `conjugate` is this for a unit rotation and is cheaper; this one is also
+    --- correct for a rotation whose length has drifted from one.
+    --- @param x the rotation's x component
+    --- @param y the rotation's y component
+    --- @param z the rotation's z component
+    --- @param w the rotation's w component
+    --- @return the inverse's x component, or zero for a zero rotation
+    --- @return the inverse's y component, or zero for a zero rotation
+    --- @return the inverse's z component, or zero for a zero rotation
+    --- @return the inverse's w component, or one for a zero rotation
+    inverse: function(x: number, y: number, z: number, w: number): (number, number, number, number)
+
+    --- Composes two rotations, applying the second one first.
+    ---
+    --- The order matches column-major matrix multiplication, so the matrix of
+    --- `multiply(a, b)` is the matrix of `a` times the matrix of `b`.
+    --- @param ax the second-applied rotation's x component
+    --- @param ay the second-applied rotation's y component
+    --- @param az the second-applied rotation's z component
+    --- @param aw the second-applied rotation's w component
+    --- @param bx the first-applied rotation's x component
+    --- @param by the first-applied rotation's y component
+    --- @param bz the first-applied rotation's z component
+    --- @param bw the first-applied rotation's w component
+    --- @return the composition's x component
+    --- @return the composition's y component
+    --- @return the composition's z component
+    --- @return the composition's w component
+    multiply: function(
+        ax: number,
+        ay: number,
+        az: number,
+        aw: number,
+        bx: number,
+        by: number,
+        bz: number,
+        bw: number
+    ): (number, number, number, number)
+
+    --- Turns a vector by a unit rotation.
+    ---
+    --- Cheaper than building a matrix for a handful of vectors and dearer for many,
+    --- where `basis` amortizes its nine products across every vector after the first.
+    --- @param qx the rotation's x component
+    --- @param qy the rotation's y component
+    --- @param qz the rotation's z component
+    --- @param qw the rotation's w component
+    --- @param x the vector's x component
+    --- @param y the vector's y component
+    --- @param z the vector's z component
+    --- @return the turned x component
+    --- @return the turned y component
+    --- @return the turned z component
+    rotate: function(
+        qx: number,
+        qy: number,
+        qz: number,
+        qw: number,
+        x: number,
+        y: number,
+        z: number
+    ): (number, number, number)
+
+    --- Builds a rotation of an angle about an axis.
+    ---
+    --- The axis is normalized here, so it need not arrive as a unit vector.
+    --- @param x the axis's x component
+    --- @param y the axis's y component
+    --- @param z the axis's z component
+    --- @param radians the turn about the axis, counter-clockwise looking down it
+    --- @return the rotation's x component, or zero for a zero axis
+    --- @return the rotation's y component, or zero for a zero axis
+    --- @return the rotation's z component, or zero for a zero axis
+    --- @return the rotation's w component, or one for a zero axis
+    fromAxisAngle: function(x: number, y: number, z: number, radians: number): (number, number, number, number)
+
+    --- Recovers the axis and angle of a unit rotation.
+    ---
+    --- The angle lands in `[0, 2pi]` rather than being folded into `[0, pi]`, so `q`
+    --- and `-q` answer the two opposite ways around the same rotation.
+    --- @param x the rotation's x component
+    --- @param y the rotation's y component
+    --- @param z the rotation's z component
+    --- @param w the rotation's w component
+    --- @return the axis's x component, or one for the identity
+    --- @return the axis's y component, or zero for the identity
+    --- @return the axis's z component, or zero for the identity
+    --- @return the turn about the axis in radians, or zero for the identity
+    toAxisAngle: function(x: number, y: number, z: number, w: number): (number, number, number, number)
+
+    --- Returns the shortest rotation carrying one direction onto another.
+    ---
+    --- Neither direction has to be a unit vector. Opposed directions have no shortest
+    --- rotation, so one half turn across them is chosen.
+    --- @param ax the starting direction's x component
+    --- @param ay the starting direction's y component
+    --- @param az the starting direction's z component
+    --- @param bx the target direction's x component
+    --- @param by the target direction's y component
+    --- @param bz the target direction's z component
+    --- @return the rotation's x component, or zero for a zero direction
+    --- @return the rotation's y component, or zero for a zero direction
+    --- @return the rotation's z component, or zero for a zero direction
+    --- @return the rotation's w component, or one for a zero direction
+    fromTo: function(
+        ax: number,
+        ay: number,
+        az: number,
+        bx: number,
+        by: number,
+        bz: number
+    ): (number, number, number, number)
+
+    --- Interpolates between two unit rotations the short way around, blending
+    --- components rather than the arc.
+    ---
+    --- Cheaper than `slerp` and not constant in angular speed. The endpoints are
+    --- answered rather than computed, so `nlerp(a, b, 1)` is `b`.
+    --- @param ax the starting rotation's x component
+    --- @param ay the starting rotation's y component
+    --- @param az the starting rotation's z component
+    --- @param aw the starting rotation's w component
+    --- @param bx the ending rotation's x component
+    --- @param by the ending rotation's y component
+    --- @param bz the ending rotation's z component
+    --- @param bw the ending rotation's w component
+    --- @param t the interpolation factor
+    --- @return the interpolated x component
+    --- @return the interpolated y component
+    --- @return the interpolated z component
+    --- @return the interpolated w component
+    nlerp: function(
+        ax: number,
+        ay: number,
+        az: number,
+        aw: number,
+        bx: number,
+        by: number,
+        bz: number,
+        bw: number,
+        t: number
+    ): (number, number, number, number)
+
+    --- Interpolates between two unit rotations the short way around at a constant
+    --- angular speed.
+    ---
+    --- Nearly parallel endpoints fall back to `nlerp`, whose answer they agree on
+    --- where the arc the spherical form divides by has vanished. The endpoints are
+    --- answered rather than computed, so `slerp(a, b, 1)` is `b`.
+    --- @param ax the starting rotation's x component
+    --- @param ay the starting rotation's y component
+    --- @param az the starting rotation's z component
+    --- @param aw the starting rotation's w component
+    --- @param bx the ending rotation's x component
+    --- @param by the ending rotation's y component
+    --- @param bz the ending rotation's z component
+    --- @param bw the ending rotation's w component
+    --- @param t the interpolation factor
+    --- @return the interpolated x component
+    --- @return the interpolated y component
+    --- @return the interpolated z component
+    --- @return the interpolated w component
+    slerp: function(
+        ax: number,
+        ay: number,
+        az: number,
+        aw: number,
+        bx: number,
+        by: number,
+        bz: number,
+        bw: number,
+        t: number
+    ): (number, number, number, number)
+
+    --- Returns a unit rotation's three-by-three matrix in column-major order.
+    ---
+    --- Answered rather than written, for the caller folding a rotation into something
+    --- larger. `toMatrix` is the form for storage.
+    --- @param x the rotation's x component
+    --- @param y the rotation's y component
+    --- @param z the rotation's z component
+    --- @param w the rotation's w component
+    --- @return the first column's x component
+    --- @return the first column's y component
+    --- @return the first column's z component
+    --- @return the second column's x component
+    --- @return the second column's y component
+    --- @return the second column's z component
+    --- @return the third column's x component
+    --- @return the third column's y component
+    --- @return the third column's z component
+    basis: function(
+        x: number,
+        y: number,
+        z: number,
+        w: number
+    ): (number, number, number, number, number, number, number, number, number)
+
+    --- Writes a unit rotation as a four-by-four column-major matrix without
+    --- translation.
+    ---
+    --- The sixteen numbers start at `offset`, which indexes the first of them. The
+    --- layout is the one a GPU expects, so an uploaded destination is written in place
+    --- rather than repacked.
+    --- @param x the rotation's x component
+    --- @param y the rotation's y component
+    --- @param z the rotation's z component
+    --- @param w the rotation's w component
+    --- @param out the destination the sixteen numbers are written to
+    --- @param offset the index the first number is written at
+    --- @return The operation returns no value.
+    toMatrix: function(x: number, y: number, z: number, w: number, out: {number}, offset: integer): nil
+end
+
 --- Scalar angle helpers and two-dimensional vector operations.
 --- @internal
 --- Explicit wrapping signed 32-bit arithmetic and bit operations.
@@ -2538,6 +2887,10 @@ record nupp.MathLibrary
     --- Two-dimensional vector operations over `(x, y)` number pairs.
     --- @namespace
     vec2: nupp.Vec2Library
+
+    --- Three-dimensional rotation operations over `(x, y, z, w)` number quadruples.
+    --- @namespace
+    quat: nupp.QuatLibrary
 
     --- Signed 32-bit wrapping arithmetic.
     --- @namespace

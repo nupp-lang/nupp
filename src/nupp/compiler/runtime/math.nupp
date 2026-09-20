@@ -927,6 +927,367 @@ function vec2.reflect(x: number, y: number, nx: number, ny: number): number, num
     return x - nx * factor, y - ny * factor
 end
 
+--- Rotations in three dimensions, carried as four loose numbers in `(x, y, z, w)`
+--- order rather than a table.
+---
+--- Like `vec2`, every operation takes and answers components, so a rotation never has
+--- to be allocated to be worked with and a caller keeping its own storage -- a pose
+--- array, an SoA column, a struct of four `float` fields -- can use these against it
+--- directly. That also means the storage width is the caller's to choose: these
+--- compute in binary64 whatever the rotation was loaded from.
+---
+--- `multiply` composes in the same direction as column-major matrices, so
+--- `multiply(a, b)` applies `b` first. `basis` and `toMatrix` produce column-major
+--- output, and they, along with `rotate`, want a unit rotation: `normalize` is the
+--- caller's to place, because a hidden square root inside a per-joint loop is not a
+--- cost this module gets to decide to pay.
+local quat = {}
+
+--- The rotation that turns nothing.
+function quat.identity(): number, number, number, number
+    return 0, 0, 0, 1
+end
+
+function quat.add(
+    ax: number,
+    ay: number,
+    az: number,
+    aw: number,
+    bx: number,
+    by: number,
+    bz: number,
+    bw: number
+): number, number, number, number
+    return ax + bx, ay + by, az + bz, aw + bw
+end
+
+function quat.subtract(
+    ax: number,
+    ay: number,
+    az: number,
+    aw: number,
+    bx: number,
+    by: number,
+    bz: number,
+    bw: number
+): number, number, number, number
+    return ax - bx, ay - by, az - bz, aw - bw
+end
+
+function quat.scale(x: number, y: number, z: number, w: number, factor: number): number, number, number, number
+    return x * factor, y * factor, z * factor, w * factor
+end
+
+function quat.dot(
+    ax: number,
+    ay: number,
+    az: number,
+    aw: number,
+    bx: number,
+    by: number,
+    bz: number,
+    bw: number
+): number
+    return ax * bx + ay * by + az * bz + aw * bw
+end
+
+function quat.lengthSquared(x: number, y: number, z: number, w: number): number
+    return x * x + y * y + z * z + w * w
+end
+
+function quat.length(x: number, y: number, z: number, w: number): number
+    return math.sqrt(x * x + y * y + z * z + w * w)
+end
+
+--- Returns a unit rotation in the same direction, or the identity for a zero input.
+---
+--- The sign is left alone. A rotation has two spellings, `q` and `-q`, and which one
+--- arrived is information the caller may be relying on -- `slerp` reads it to pick
+--- the short way around -- so this does not quietly canonicalize to one of them.
+function quat.normalize(x: number, y: number, z: number, w: number): number, number, number, number
+    local length = math.sqrt(x * x + y * y + z * z + w * w)
+    if length == 0 then
+        return 0, 0, 0, 1
+    end
+
+    return x / length, y / length, z / length, w / length
+end
+
+--- The rotation undoing a unit one.
+function quat.conjugate(x: number, y: number, z: number, w: number): number, number, number, number
+    return -x, -y, -z, w
+end
+
+--- The rotation undoing any non-zero one, or the identity for a zero input.
+---
+--- `conjugate` is this for a unit rotation and is the one to reach for in a loop that
+--- has already normalized; this one divides by the squared length as well, so it is
+--- also correct for a rotation that has drifted.
+function quat.inverse(x: number, y: number, z: number, w: number): number, number, number, number
+    local squared = x * x + y * y + z * z + w * w
+    if squared == 0 then
+        return 0, 0, 0, 1
+    end
+
+    return -x / squared, -y / squared, -z / squared, w / squared
+end
+
+--- Composes two rotations, applying the second one first.
+---
+--- The order matches column-major matrix multiplication, so the matrix of
+--- `multiply(a, b)` is the matrix of `a` times the matrix of `b`.
+function quat.multiply(
+    ax: number,
+    ay: number,
+    az: number,
+    aw: number,
+    bx: number,
+    by: number,
+    bz: number,
+    bw: number
+): number, number, number, number
+    return aw
+        * bx
+        + ax
+        * bw
+        + ay
+        * bz
+        - az
+        * by, aw
+        * by
+        - ax
+        * bz
+        + ay
+        * bw
+        + az
+        * bx, aw
+        * bz
+        + ax
+        * by
+        - ay
+        * bx
+        + az
+        * bw, aw
+        * bw
+        - ax
+        * bx
+        - ay
+        * by
+        - az
+        * bz
+end
+
+--- Turns a vector by a unit rotation.
+---
+--- Cheaper than building a matrix for a handful of vectors and dearer for many, which
+--- is where `basis` earns its place: the nine products it computes once are what a
+--- matrix amortizes across every vector that follows.
+function quat.rotate(
+    qx: number,
+    qy: number,
+    qz: number,
+    qw: number,
+    x: number,
+    y: number,
+    z: number
+): number, number, number
+    local tx = 2 * (qy * z - qz * y)
+    local ty = 2 * (qz * x - qx * z)
+    local tz = 2 * (qx * y - qy * x)
+
+    return x + qw * tx + qy * tz - qz * ty, y + qw * ty + qz * tx - qx * tz, z + qw * tz + qx * ty - qy * tx
+end
+
+--- Builds a rotation of an angle in radians about an axis.
+---
+--- The axis is normalized here, so it need not arrive as a unit vector; a zero axis
+--- answers the identity rather than a division by zero.
+function quat.fromAxisAngle(x: number, y: number, z: number, radians: number): number, number, number, number
+    local length = math.sqrt(x * x + y * y + z * z)
+    if length == 0 then
+        return 0, 0, 0, 1
+    end
+    local half = radians / 2
+    local factor = math.sin(half) / length
+
+    return x * factor, y * factor, z * factor, math.cos(half)
+end
+
+--- Recovers the axis and angle of a unit rotation.
+---
+--- The angle lands in `[0, 2pi]` and is not folded into `[0, pi]`, because `q` and
+--- `-q` are the same rotation reached the two opposite ways around and which one was
+--- passed is the caller's to keep. The identity answers the x axis and a zero angle,
+--- so the result always names a real axis.
+function quat.toAxisAngle(x: number, y: number, z: number, w: number): number, number, number, number
+    local length = math.sqrt(x * x + y * y + z * z)
+    if length == 0 then
+        return 1, 0, 0, 0
+    end
+    local clamped = w < -1 and -1 or (w > 1 and 1 or w)
+
+    return x / length, y / length, z / length, 2 * math.acos(clamped)
+end
+
+--- The shortest rotation carrying one direction onto another.
+---
+--- Neither direction has to be a unit vector. Opposed directions have no shortest
+--- rotation -- every half turn about an axis across them does it -- so one such axis
+--- is chosen, and a zero direction answers the identity.
+function quat.fromTo(
+    ax: number,
+    ay: number,
+    az: number,
+    bx: number,
+    by: number,
+    bz: number
+): number, number, number, number
+    local alength = math.sqrt(ax * ax + ay * ay + az * az)
+    local blength = math.sqrt(bx * bx + by * by + bz * bz)
+    if alength == 0 or blength == 0 then
+        return 0, 0, 0, 1
+    end
+    local ux, uy, uz = ax / alength, ay / alength, az / alength
+    local vx, vy, vz = bx / blength, by / blength, bz / blength
+    local d = ux * vx + uy * vy + uz * vz
+    if d < -0.999999 then
+        -- Opposed. Any axis across the direction turns it onto the other, so take the
+        -- cross with whichever principal axis it leans on least, which is the one
+        -- choice that cannot itself be parallel to it.
+        local px, py, pz = 0.0, 0.0, 0.0
+        if math.abs(ux) <= math.abs(uy) and math.abs(ux) <= math.abs(uz) then
+            px = 1.0
+        elseif math.abs(uy) <= math.abs(uz) then
+            py = 1.0
+        else
+            pz = 1.0
+        end
+        local cx, cy, cz = uy * pz - uz * py, uz * px - ux * pz, ux * py - uy * px
+        local clength = math.sqrt(cx * cx + cy * cy + cz * cz)
+
+        return cx / clength, cy / clength, cz / clength, 0
+    end
+    -- The half-way form: the cross product with `1 + d` in the scalar part names the
+    -- rotation of twice the angle, and normalizing halves it back.
+    local cx, cy, cz = uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx
+    local sw = 1 + d
+    local length = math.sqrt(cx * cx + cy * cy + cz * cz + sw * sw)
+
+    return cx / length, cy / length, cz / length, sw / length
+end
+
+--- Interpolates between two unit rotations along the short way around, blending the
+--- components rather than the arc.
+---
+--- Cheaper than `slerp` and not constant in angular speed. The endpoints are answered
+--- rather than computed, so `nlerp(a, b, 1)` is `b`.
+function quat.nlerp(
+    ax: number,
+    ay: number,
+    az: number,
+    aw: number,
+    bx: number,
+    by: number,
+    bz: number,
+    bw: number,
+    t: number
+): number, number, number, number
+    if t == 0 then
+        return ax, ay, az, aw
+    elseif t == 1 then
+        return bx, by, bz, bw
+    end
+    local sign = ax * bx + ay * by + az * bz + aw * bw < 0 and -1 or 1
+    local u = 1 - t
+
+    return quat.normalize(
+        ax * u + bx * sign * t,
+        ay * u + by * sign * t,
+        az * u + bz * sign * t,
+        aw * u + bw * sign * t
+    )
+end
+
+--- Interpolates between two unit rotations along the short way around at a constant
+--- angular speed.
+---
+--- Nearly parallel endpoints fall back to `nlerp`, because the arc the spherical form
+--- divides by vanishes there while the answer it is converging on does not. The
+--- endpoints are answered rather than computed, so `slerp(a, b, 1)` is `b`.
+function quat.slerp(
+    ax: number,
+    ay: number,
+    az: number,
+    aw: number,
+    bx: number,
+    by: number,
+    bz: number,
+    bw: number,
+    t: number
+): number, number, number, number
+    if t == 0 then
+        return ax, ay, az, aw
+    elseif t == 1 then
+        return bx, by, bz, bw
+    end
+    local d = ax * bx + ay * by + az * bz + aw * bw
+    local sign = 1
+    if d < 0 then
+        d, sign = -d, -1
+    end
+    if d > 1 then
+        d = 1
+    end
+    local u, v = 1 - t, t
+    if d < 0.9995 then
+        local angle = math.acos(d)
+        local inverse = 1 / math.sin(angle)
+        u, v = math.sin(u * angle) * inverse, math.sin(t * angle) * inverse
+    end
+
+    return quat.normalize(
+        ax * u + bx * sign * v,
+        ay * u + by * sign * v,
+        az * u + bz * sign * v,
+        aw * u + bw * sign * v
+    )
+end
+
+--- The nine entries of a unit rotation's three-by-three matrix, in column-major order.
+---
+--- Answered rather than written, because the caller that wants these usually wants
+--- them as names to fold into something larger -- a projection, a scaled basis -- and
+--- not as a matrix it then reads back. `toMatrix` is the form for storage.
+function quat.basis(
+    x: number,
+    y: number,
+    z: number,
+    w: number
+): number, number, number, number, number, number, number, number, number
+    local xx, yy, zz = x * x, y * y, z * z
+    local xy, xz, yz = x * y, x * z, y * z
+    local wx, wy, wz = w * x, w * y, w * z
+
+    return 1 - 2 * (
+        yy + zz
+    ), 2 * (
+        xy + wz
+    ), 2 * (xz - wy), 2 * (xy - wz), 1 - 2 * (xx + zz), 2 * (yz + wx), 2 * (xz + wy), 2 * (yz - wx), 1 - 2 * (xx + yy)
+end
+
+--- Writes a unit rotation as a four-by-four column-major matrix with no translation.
+---
+--- Sixteen numbers go to `out` starting at `offset`, which is the index of the first
+--- of them rather than a count before it. The layout is the one a GPU expects, so a
+--- destination that is uploaded is written in place rather than repacked.
+function quat.toMatrix(x: number, y: number, z: number, w: number, out: {number}, offset: integer): nil
+    local m00, m10, m20, m01, m11, m21, m02, m12, m22 = quat.basis(x, y, z, w)
+    out[offset], out[offset + 1], out[offset + 2], out[offset + 3] = m00, m10, m20, 0
+    out[offset + 4], out[offset + 5], out[offset + 6], out[offset + 7] = m01, m11, m21, 0
+    out[offset + 8], out[offset + 9], out[offset + 10], out[offset + 11] = m02, m12, m22, 0
+    out[offset + 12], out[offset + 13], out[offset + 14], out[offset + 15] = 0, 0, 0, 1
+end
+
 --- Interpolates between two numbers.
 ---
 --- The endpoints are answered rather than computed, so `lerp(a, b, 1)` is `b` and not
@@ -966,4 +1327,5 @@ export function install(namespace: any): nil
     namespace.u64 = u64
     namespace.f32 = f32
     namespace.vec2 = vec2
+    namespace.quat = quat
 end
