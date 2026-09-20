@@ -507,9 +507,8 @@ across process failure, and jobs that outlive the caller belong to a broker or
 
 ## Browser lanes
 
-A browser application selects
-[browser platform services](../../performance/ahead-of-time/wasm.md#browser-platform-services),
-which supplies `nupp.workers.spi.Provider`, so everything above is written the same way there.
+The [browser implementation](../../performance/ahead-of-time/wasm.md#browser-platform-services)
+satisfies `nupp.workers.spi.Provider`, so everything above is written the same way there.
 A lane is a module Web Worker holding its own Lua 5.1 Wasm state, booted from the
 same verified application package the page loaded; the packaging step ships the
 lane entry point beside the content-addressed runtime. Nothing is shared between

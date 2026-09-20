@@ -407,4 +407,48 @@ export = {apply = apply}
     remove(dir)
 end
 
+function M.documentedSpiModulesSelectAnImplementationAndFallBack()
+    local page = read("docs/learn/projects/spi.md")
+    local files = {
+        [
+            "nupp.lua"
+        ] = [[return {include = {"src"}, build = {
+            kind = "bundle", dialect = "lua51", outDir = "out",
+            output = "out/app.lua", entries = {"main"}
+        }}]],
+        [
+            "src/main.nupp"
+        ] = [[local codec = require("example.codec")
+assert(codec.encode("hello") == "hello")
+return codec.encode == require("example.fastcodec").encode and "provider" or "fallback"
+]],
+    }
+    local moduleCount = 0
+    for language, source in page:gmatch("```([%w]+)\n(.-)\n```") do
+        if language == "nupp" then
+            local name = assert(source:match("^module ([%w.]+)"), "the guide example needs a module name")
+            local suffix = name == "example.codec" and "/init.nupp" or ".nupp"
+            files["src/" .. name:gsub("%.", "/") .. suffix] = source .. "\n"
+            moduleCount = moduleCount + 1
+        elseif language == "json" then
+            files["nupp/spi.json"] = source .. "\n"
+        end
+    end
+    assertEq(moduleCount, 4, "the guide's interface, implementations, and consumer")
+    assert(files["nupp/spi.json"], "the guide includes a discovery descriptor")
+    local dir = tempProject(files)
+    for _, expected in ipairs({"provider", "fallback"}) do
+        assertEq(project.build(dir), 0, "the documented SPI example builds")
+        local status, output = process.capture({
+            "luajit",
+            "-e",
+            "io.write(assert(loadfile(" .. string.format("%q", dir .. "/out/app.lua") .. "))())",
+        })
+        assertEq(status, 0, output)
+        assertEq(output, expected, "the documented consumer chooses its implementation")
+        write(dir .. "/nupp/spi.json", "{}\n")
+    end
+    remove(dir)
+end
+
 return M

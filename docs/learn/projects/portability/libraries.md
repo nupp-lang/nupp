@@ -107,7 +107,7 @@ in `nupp/spi.json`. The build checks ordinary assignment compatibility, includin
 generic signatures, ownership, and suspension. Lua implementations need a matching
 `.d.nupp` declaration or typed adapter. Discovery never executes provider code.
 
-Only target runtime dependencies contribute implementations. Native adapters are
+Only target runtime dependencies contribute implementations. Built-in native adapters are
 excluded from portable payloads. See [SPI](../spi.md) for metadata and examples.
 
 ## Workers

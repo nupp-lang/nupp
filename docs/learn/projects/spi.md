@@ -31,6 +31,18 @@ export function encode(value: string): string
 end
 ```
 
+The fallback is another ordinary implementation module:
+
+```nupp
+module example.defaultcodec
+
+export function encode(value: string): string
+    return value
+end
+```
+
+Both implementations return their input unchanged in this minimal example.
+
 The application or provider package advertises it in `nupp/spi.json`:
 
 ```json
@@ -48,6 +60,10 @@ generic functions, borrowing, ownership, and suspension.
 ## Choosing an implementation
 
 This module chooses the unique highest priority, then binds the function it uses:
+
+Save it as `src/example/codec/init.nupp`, with the interface in
+`src/example/codec/spi.nupp` and the implementation modules beside the `codec`
+directory.
 
 ```nupp
 module example.codec

@@ -211,7 +211,7 @@ Worker uses `fetch`, `setTimeout`, Worker clocks, Web Crypto, or IndexedDB and
 resumes Lua with the result. Pure Lua work and AOT kernels do not cross the
 effect boundary.
 
-The host also supplies `nupp.workers.spi.Provider`, so a browser application runs
+`nupp.runtime.browser.workers` implements `nupp.workers.spi.Provider`, so a browser application runs
 [worker tasks](../../runtime/concurrency/workers.md) on a bounded pool of lane Workers. Each
 lane boots this same verified manifest in its own Lua 5.1 Wasm state, including
 the packaged AOT side modules, and receives work through the same effect
