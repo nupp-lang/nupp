@@ -354,4 +354,208 @@ error("provider initialization failed")]]
     end)
 end
 
+local TARGET_PROFILES = {
+    {dialect = "luajit", host = "native"},
+    {dialect = "luajit", host = "browser", marker = "__nuppBrowser"},
+    {dialect = "lua51", host = "browser", marker = "__nuppWasmHost"},
+}
+
+function M.hostAndVmFallbacksRetainSpiOverrides()
+    local instances = require("providerstate")
+    local cases = {
+        {
+            module = "nupp.time",
+            interface = "nupp.time.spi.TimeProvider",
+            native = "nupp.runtime.provider.nativetime",
+            browser = "nupp.runtime.browser.time",
+            member = "now",
+            cache = "nupp.runtime.timeprovider"
+        },
+        {
+            module = "nupp.workers",
+            interface = "nupp.workers.spi.Provider",
+            native = "nupp.runtime.provider.workers",
+            browser = "nupp.runtime.browser.workers",
+            member = "scope",
+            cache = "nupp.runtime.workersprovider"
+        },
+        {
+            module = "nupp.system",
+            interface = "nupp.system.spi.Provider",
+            native = "nupp.runtime.provider.nativesystem",
+            browser = "nupp.runtime.browser.system",
+            member = "availableParallelism"
+        },
+        {
+            module = "nupp.io.path.provider",
+            interface = "nupp.io.path.spi.PathProvider",
+            native = "nupp.runtime.provider.nativepath",
+            browser = "nupp.runtime.browser.path"
+        },
+        {
+            module = "nupp.io.uri.provider",
+            interface = "nupp.io.uri.spi.UriTextProvider",
+            native = "nupp.runtime.provider.nativeuri",
+            browser = "nupp.runtime.browser.uri"
+        },
+        {
+            module = "nupp.runtime.uuid",
+            interface = "nupp.runtime.uuid.spi.UuidProvider",
+            native = "nupp.runtime.provider.nativeuuid",
+            browser = "nupp.runtime.browser.crypto"
+        },
+        {
+            module = "nupp.random",
+            interface = "nupp.random.spi.CryptoProvider",
+            native = "nupp.runtime.provider.nativecrypto",
+            browser = "nupp.runtime.browser.crypto",
+            member = "randomBytes"
+        },
+        {
+            module = "nupp.suspension",
+            interface = "nupp.suspension.spi.Provider",
+            native = "nupp.runtime.provider.suspension",
+            browser = "nupp.runtime.browser.suspension",
+            member = "source"
+        },
+        {
+            module = "nupp.text",
+            interface = "nupp.text.spi.TextBufferProvider",
+            native = "nupp.runtime.provider.nativebuffer",
+            browser = "nupp.runtime.provider.tablebuffer",
+            member = "new",
+            exported = "newBuffer",
+            vm = true
+        },
+        {
+            module = "nupp.runtime.bitops",
+            interface = "nupp.runtime.bitops.spi.BitopsProvider",
+            native = "bit",
+            browser = "nupp.runtime.provider.scalarbitops",
+            vm = true
+        },
+        {
+            module = "nupp.runtime.representation",
+            interface = "nupp.runtime.representation.spi.CstorageProvider",
+            native = "nupp.runtime.provider.nativestorage",
+            browser = "nupp.runtime.provider.wasmstorage",
+            storage = true,
+            vm = true
+        },
+    }
+    for _, profile in ipairs(TARGET_PROFILES) do
+        for _, case in ipairs(cases) do
+            for _, override in ipairs({false, true}) do
+                local loaded, preloads, providers = {}, {}, {}
+
+                local function provide(name, priority)
+                    local provider = {priority = priority}
+                    if case.member then
+                        provider[case.member] = function()
+                            return name
+                        end
+                    end
+                    if case.module == "nupp.system" then
+                        provider.platform, provider.architecture = "fixture", "fixture"
+                        provider.pointerBits, provider.endianness = 32, "little"
+                    elseif case.storage then
+                        provider.representation = profile.dialect == "lua51" and "linear32" or "native"
+                        provider.layout, provider.reference = {}, function()
+                        end
+                        provider.integers, provider.structs, provider.host = {}, {referenceValued = true}, {}
+                    end
+                    providers[name] = provider
+                    preloads[name] = function()
+                        loaded[name] = (loaded[name] or 0) + 1
+                        return provider
+                    end
+                end
+
+                provide(case.native)
+                provide(case.browser)
+                provide("fixture.lower", 1)
+                provide("fixture.chosen", 2)
+                -- Native workers require an installed host bridge before choosing
+                -- their fallback, but discovery must still win when it is present.
+                preloads["nupp.workers.native"] = function()
+                    error("the fixture must not execute a host bridge")
+                end
+                local owned = {["nupp.spi"] = true, [case.module] = true}
+                if case.cache then
+                    owned[case.cache] = true
+                end
+                local globals = {}
+                if profile.marker then
+                    globals[profile.marker] = {}
+                end
+                local load = instances.instance(
+                    owned,
+                    {
+                        ["nupp.runtime.target"] = profile,
+                        [
+                            "nupp.spi.index"
+                        ] = {[case.interface] = override and {"fixture.lower", "fixture.chosen"} or {}},
+                    },
+                    preloads,
+                    globals
+                )
+                local usesNative = case.vm and profile.dialect ~= "lua51" or not case.vm and profile.host == "native"
+                local selectedName = override and "fixture.chosen" or usesNative and case.native or case.browser
+                local expected = providers[selectedName]
+                local facade = load(case.module)
+                local label = profile.host .. "/" .. profile.dialect .. ": " .. case.module
+                if case.storage then
+                    assert(facade.storage == expected, label)
+                elseif case.member then
+                    local call = facade[case.exported or case.member]
+                    assert(call == expected[case.member], label)
+                    assert(call() == selectedName and call() == selectedName, label)
+                else
+                    assert(facade == expected, label)
+                end
+                assert(load(case.module) == facade, label .. ": facade identity changed")
+                assert(loaded[selectedName] == 1, label .. ": provider initialized more than once")
+                assert(loaded[case.native] == (not override and usesNative and 1 or nil), label .. ": native fallback")
+                assert(
+                    loaded[case.browser] == (not override and not usesNative and 1 or nil),
+                    label .. ": browser fallback"
+                )
+                if case.cache then
+                    assert(
+                        load(case.cache).provider == expected,
+                        label .. ": optional consumers chose another provider"
+                    )
+                end
+            end
+        end
+    end
+end
+
+function M.moduleStagingDistinguishesTheHostFromTheVm()
+    local surface = require("nupp.compiler.standardsurface")
+    local expectations = {
+        {"nupp.runtime.provider.nativebuffer", true, true, false},
+        {"nupp.runtime.provider.nativestorage", true, true, false},
+        {"bit", true, true, false},
+        {"nupp.runtime.provider.wasmstorage", false, false, true},
+        {"nupp.runtime.provider.nativetime", true, false, false},
+        {"nupp.runtime.provider.workers", true, false, false},
+        {"nupp.runtime.provider.nativeprocess", true, false, false},
+        {"nupp.runtime.provider.nativecompression", true, false, false},
+        {"nupp.runtime.browser.time", false, true, true},
+        {"nupp.runtime.browser.workers", false, true, true},
+        -- The compiler may carry the transport helper without selecting a browser
+        -- provider.
+        {"nupp.runtime.browser.memory", true, true, true},
+    }
+    for _, case in ipairs(expectations) do
+        for index, profile in ipairs(TARGET_PROFILES) do
+            assert(
+                surface.supports(case[1], profile.dialect, profile.host) == case[index + 1],
+                profile.host .. "/" .. profile.dialect .. ": " .. case[1]
+            )
+        end
+    end
+end
+
 return M

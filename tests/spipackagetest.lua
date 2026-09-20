@@ -35,6 +35,78 @@ local function remove(dir)
     assert(require("nupp.io.files").remove(dir, true))
 end
 
+function M.namedManifestTargetsCarryTheSelectedHostAndVm()
+    local source = [[
+local text = require("nupp.text")
+local time = require("nupp.time")
+local representation = require("nupp.runtime.representation")
+return {newBuffer = text.newBuffer, now = time.now, storage = representation.storage}
+]]
+    local dir = tempProject({
+        [
+            "nupp.lua"
+        ] = [[return {include = {"src"}, build = {
+            kind = "modules", entries = {"main"}, default = "browser",
+            targets = {
+                browser = {dialect = "luajit", host = "browser", outDir = "out/browser"},
+                legacy = {dialect = "lua51", host = "browser", outDir = "out/legacy"},
+                native = {dialect = "luajit", host = "native", outDir = "out/native"},
+            }
+        }}]],
+        ["src/main.g.nupp"] = source,
+    })
+    local ok, why = pcall(function()
+        -- An editor opens the manifest directly, without build's private _target.
+        local environment = require("nupp.compiler.env").new(dir, {cache = false})
+        local path = dir .. "/src/main.g.nupp"
+        local parsed = require("nupp.compiler.parser").parse(source, path)
+        assert(#parsed.errors == 0)
+        local diagnostics = require("fragment").check(parsed, path, environment)
+        for _, diagnostic in ipairs(diagnostics) do
+            assert(diagnostic.severity ~= "error", diagnostic.code .. ": " .. diagnostic.msg)
+        end
+        assertEq(parsed.host, "browser", "the editor honors the named default target")
+        assertEq(parsed.dialect, "luajit")
+        assertEq(project.check(dir), 0, "the default browser target checks")
+        for _, target in ipairs({
+            {name = "browser", host = "browser", dialect = "luajit"},
+            {name = "legacy", host = "browser", dialect = "lua51"},
+            {name = "native", host = "native", dialect = "luajit"},
+        }) do
+            local options = target.name == "browser" and {} or {target = target.name}
+            assertEq(project.build(dir, options), 0, target.name .. " target builds")
+            local output = dir .. "/out/" .. target.name
+            local facts = assert(loadfile(output .. "/nupp/runtime/target.lua"))()
+            assertEq(facts.host, target.host, "generated host")
+            assertEq(facts.dialect, target.dialect, "generated dialect")
+            for _, name in ipairs({"nativebuffer", "nativestorage"}) do
+                assertEq(
+                    exists(output .. "/nupp/runtime/provider/" .. name .. ".lua"),
+                    target.dialect == "luajit",
+                    target.name .. " carries " .. name
+                )
+            end
+            assertEq(
+                exists(output .. "/nupp/runtime/provider/wasmstorage.lua"),
+                target.dialect == "lua51",
+                target.name .. " carries linear storage"
+            )
+            assertEq(
+                exists(output .. "/nupp/runtime/provider/nativetime.lua"),
+                target.host == "native",
+                target.name .. " carries native clocks"
+            )
+            assertEq(
+                exists(output .. "/nupp/runtime/browser/time.lua"),
+                target.host == "browser",
+                target.name .. " carries browser clocks"
+            )
+        end
+    end)
+    remove(dir)
+    assert(ok, why)
+end
+
 function M.fixedHostLibrariesRemainOrdinaryBundleImports()
     local dir = tempProject({
         [

@@ -114,6 +114,44 @@ return bit.bor(1, 2), jit.status(), table.new()
     assert(errors(diags) == "", errors(diags))
 end
 
+function M.unsafePermissionDoesNotRelaxCompatibility()
+    for _, case in ipairs({
+        {"return @unsafe 1ULL", "NUPP3013"},
+        {"@unsafe do if false then local value = 2ULL end end", "NUPP3013"},
+        {"return @unsafe require('ffi')", "NUPP3014"},
+        {"local b: any = @unsafe bit; return b.bor(1, 2)", "NUPP3014"},
+        {"local name: any = ...; return @unsafe require(name)", "NUPP3015"},
+        {[[return @unsafe loadstring("return 2ULL")]], "NUPP3015"},
+    }) do
+        local _, diags = checked(case[1])
+        local found = errors(diags)
+        assert(found:find(case[2], 1, true), case[1] .. "\n" .. found)
+    end
+end
+
+function M.unsafeAnnotationsPreserveCompatibleApplicationValuesAndEmission()
+    local source = [[
+@unsafe local bit = {bor = function(a: number, b: number): number return a + b end}
+local jit = {status = function(): string return "application" end}
+local function pair(): (number, number) return 4, 5 end
+local a, b = @unsafe pair()
+return @unsafe bit.bor(a, b), @unsafe jit.status()
+]]
+    for level = 0, 2 do
+        local result, diags = checked(source)
+        assert(errors(diags) == "", errors(diags))
+        optimize.run(result, {level = level})
+        local code, generated = gen.generate(result, "compat.g.nupp")
+        assert(errors(generated) == "", errors(generated))
+        local ordinary, ordinaryDiags = checked(source, {dialect = "luajit"})
+        assert(errors(ordinaryDiags) == "", errors(ordinaryDiags))
+        optimize.run(ordinary, {level = level})
+        assert(code == gen.generate(ordinary, "compat.g.nupp"), "unsafe permission must not select alternate emission")
+        local sum, label = assert(loadstring(code))()
+        assert(sum == 9 and label == "application")
+    end
+end
+
 function M.stock51SurfaceIsNotTheOldIntersection()
     local _, diags = checked(
         "local environment = getfenv(); local loaders = package.loaders; return unpack, setfenv, math.ldexp, table.maxn, io.stdout.write"
@@ -269,6 +307,42 @@ function M.apiCompatibilityDoesNotTrustAnUnrestrictedDependencyCache()
         local diags = check.check(parser.parse(source, path), path, projectEnv, {compat = "lua51"})
         assert(errors(diags):find("NUPP3015", 1, true), errors(diags))
     end)
+end
+
+function M.multipleOwnersUseTheStock51ProtectedCallContract()
+    local source = [[
+local closed = {}
+local record Guard value: number end
+local function close(takes guard: Guard): nil
+    closed[#closed + 1] = guard.value
+end
+local function acquire(value: number, fail: boolean): affine(Guard, close)
+    if fail then error("acquisition failed") end
+    return new Guard(value = value)
+end
+local function work(fail: boolean): number
+    local first = acquire(1, false)
+    local second = acquire(2, fail)
+    return first.value + second.value
+end
+local answer = work(false)
+local ok = pcall(work, true)
+return answer, ok, table.concat(closed, ",")
+]]
+    local result, diags = checked(source)
+    assert(errors(diags) == "", errors(diags))
+    local code, generated = gen.generate(result, "compat.g.nupp")
+    assert(errors(generated) == "", errors(generated))
+    local environment = setmetatable({}, {__index = _G})
+    environment._G = environment
+    environment.xpcall = function(body, handler, ...)
+        assert(select("#", ...) == 0, "compatible cleanup forwarded LuaJIT-only xpcall arguments")
+        return xpcall(body, handler)
+    end
+    local chunk = assert(loadstring(code))
+    setfenv(chunk, environment)
+    local answer, ok, closed = chunk()
+    assert(answer == 3 and ok == false and closed == "2,1,1", tostring(closed))
 end
 
 function M.cleanupRejectsTransitiveSuspensionWithoutAnAuthoredYield()
