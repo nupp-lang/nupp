@@ -60,6 +60,7 @@ Every lint has a name and a stable code.
 | `jit-boundary` | `NUPP2514` | suspicious | warning |
 | `jit-loop-closure` | `NUPP2515` | performance | off |
 | `private-export-type` | `NUPP2516` | suspicious | warning |
+| `exit-suffix-binding` | `NUPP2517` | suspicious | warning |
 | `prefer-comptime` | `NUPP2518` | performance | off |
 
 The name is what you write in configuration and suppressions; the code is what
@@ -587,6 +588,46 @@ An exported alias for the nominal also gives callers a public name and silences
 the lint. Transparent aliases such as `local type Coordinate = number` carry no
 nominal identity and do not report it. Private record fields stay outside the
 public surface and are not traversed.
+
+### `exit-suffix-binding`
+
+An exit suffix supplies its operand's first result and nothing else, however
+wide the operand is. A binding list that takes a second name from one therefore
+always binds nil, which reads as a pair of results and is not:
+
+::: code-group
+```nupp [src/exit-suffix-binding.nupp]
+function pair(): (integer?, integer?)
+    return 1, 2
+end
+
+function both(): (integer?, integer?)
+    local left, right = pair() or return
+
+    return left, right
+end
+```
+
+```text [nupp check output]
+src/exit-suffix-binding.nupp:6:17: warning: NUPP2517 exit-suffix-binding: "right" is always nil: an exit suffix supplies only its first result
+ 6 |     local left, right = pair() or return
+   |                 ^~~~~
+help: bind the operand's results first, then test the one that decides
+```
+:::
+
+Bind the operand's results and test the one that decides when both are wanted:
+
+```nupp
+function both(): (integer?, integer?)
+    local left, right = pair()
+    if left == nil then
+        return nil, nil
+    end
+
+    return left, right
+end
+```
 
 ### `prefer-comptime`
 

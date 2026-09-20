@@ -111,7 +111,12 @@ condexp        = orexp ["?" exp ":" condexp]
 ; project turns off; it is not a restriction. [CS-19]
 ; Nil-coalescing (LJ 3.0): yields the left unless it is nil, so unlike
 ; "or" it keeps a false value. Binds at the same tier as "or".
-orexp          = andexp *(("or" / "||" / "??") andexp)
+orexp          = andexp *(("or" / "||" / "??") andexp) [orexit]
+
+; Contextual exit suffix at the "or" tier: the operand's first result decides,
+; and is the whole value when it is truthy. The exit word sits on the "or"'s own
+; line and takes no operand. [CS-26]
+orexit         = ("or" / "||") (%s"return" / %s"break" / %s"continue")
 andexp         = cmpexp *(("and" / "&&") cmpexp)
 cmpexp         = borexp *(cmpop borexp)
 cmpop          = "<" / ">" / "<=" / ">=" / "~=" / "!=" / "=="
@@ -734,6 +739,18 @@ packunion      = typepack 1*("|" typepack)
 ;   inside its nested statement blocks but never across a function boundary, only
 ;   when the operand starts on the same line, and not when it starts with `(`,
 ;   `{`, or LiteralString. Those three forms remain ordinary Lua call sugar.
+;
+; [CS-26] Exit suffixes. `or return`, `or break` and `or continue` are read at
+;   the "or" tier, so `x + f() or return` groups as `(x + f()) or return`, and
+;   the exit word must begin on the same line as the `or` that introduces it.
+;   `return` and `break` are reserved words, so neither pair can be an ordinary
+;   disjunction. `continue` is a soft keyword [CS-13] and remains an ordinary
+;   Name everywhere else, including as an operand; only the exact `or continue`
+;   pair is the suffix, so a program holding a variable named `continue` and
+;   writing `a or continue` means the suffix rather than the disjunction it
+;   meant before. The suffix takes no expression after the exit word and does
+;   not chain, and only one may apply to an expression; parentheses say when it
+;   applies to a whole ternary.
 ;
 ; Associativity summary: "..", "^", and the ternary condexp are
 ; right-associative; every other binary layer is left-associative. Precedence from

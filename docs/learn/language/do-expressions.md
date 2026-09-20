@@ -42,7 +42,8 @@ falling through is `NUPP2141`.
 `yield` exits the nearest enclosing **do expression**, including from a nested
 loop or ordinary `do` statement. A nested do expression has its own result.
 `return` exits the enclosing function. `break` and `continue` retain their
-ordinary loop targets. Cleanup runs when any of these exits leaves its region.
+ordinary loop targets, and an [exit suffix](exit-suffixes.md) inside a do
+expression takes the same targets the written statements would. Cleanup runs when any of these exits leaves its region.
 A nested function cannot yield to a surrounding expression.
 
 ```nupp

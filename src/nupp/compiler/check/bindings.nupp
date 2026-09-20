@@ -744,6 +744,20 @@ function bindings.install(c: state.Checker): state.StatHandlers
         end
         local exprCount = #initializers
         local expanded = exprCount > 0 and initializers[exprCount] or nil
+        -- An exit suffix supplies one value however wide its operand is, so a second
+        -- name bound from one always takes nil. A reader who wrote two names wanted
+        -- two results, which is what the explicit conditional is for.
+        if expanded and expanded.kind == "orExitExpr" and #stat.names > exprCount then
+            c.diag(
+                "exit-suffix-binding",
+                stat.names[exprCount + 1],
+                (
+                    "%q is always nil: an exit suffix supplies only its first result"
+                ):format(stat.names[exprCount + 1].text),
+                nil,
+                {help = "bind the operand's results first, then test the one that decides"}
+            )
+        end
         local correlated = expanded and expanded.valuePack
         if correlated and correlated.alternatives then
             local group = {pack = correlated, names = {}}

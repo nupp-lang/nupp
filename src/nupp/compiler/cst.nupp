@@ -2303,6 +2303,29 @@ record cst.IsExpr is cst.Hints
     type: cst.Node?
 end
 
+--- `e or return`, `e or break`, `e or continue`: a contextual suffix at the `or`
+--- tier that leaves when `e`'s first result is falsy and yields that result
+--- otherwise.
+record cst.OrExitExpr is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'orExitExpr'
+
+    --- The expression whose first result decides, and whose first result the
+    --- whole expression yields when it is truthy.
+    operand: cst.Node?
+
+    --- The `or`, whichever of the two spellings was written.
+    orToken: lexer.Token?
+
+    --- The exit word.
+    exitToken: lexer.Token?
+
+    --- Which exit the suffix takes.
+    exitKind: 'return' | 'break' | 'continue'
+end
+
 --- One directly destructured field in a switch type pattern.
 record cst.SwitchField is cst.Hints
     {cst.Node | lexer.Token}
@@ -2875,6 +2898,7 @@ type cst.Node = cst.Chunk
     | cst.Binop
     | cst.CastExpr
     | cst.IsExpr
+    | cst.OrExitExpr
     | cst.SwitchField
     | cst.SwitchCase
     | cst.SwitchElse

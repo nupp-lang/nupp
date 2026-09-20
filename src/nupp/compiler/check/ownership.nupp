@@ -602,8 +602,8 @@ function ownership.install(c: state.Checker): ownership.Ops
     ---------------------------------------------------------------------
 
     function own.ownershipEntry(expr)
-        while expr and (expr.kind == "paren" or expr.kind == "castExpr") do
-            expr = expr.expr
+        while expr and (expr.kind == "paren" or expr.kind == "castExpr" or expr.kind == "orExitExpr") do
+            expr = expr.kind == "orExitExpr" and expr.operand or expr.expr
         end
         if expr and expr.kind == "name" then
             return own.ownershipState(c.lookupEntry(expr.token.text)), expr
@@ -616,6 +616,8 @@ function ownership.install(c: state.Checker): ownership.Ops
         while expr do
             if expr.kind == "paren" or expr.kind == "castExpr" then
                 expr = expr.expr
+            elseif expr.kind == "orExitExpr" then
+                expr = expr.operand
             elseif expr.kind == "dotIndex"
                 or expr.kind == "safeIndex"
                 or expr.kind == "bracketIndex"
@@ -760,8 +762,8 @@ function ownership.install(c: state.Checker): ownership.Ops
     end
 
     function own.regionOf(expr)
-        while expr and (expr.kind == "paren" or expr.kind == "castExpr") do
-            expr = expr.expr
+        while expr and (expr.kind == "paren" or expr.kind == "castExpr" or expr.kind == "orExitExpr") do
+            expr = expr.kind == "orExitExpr" and expr.operand or expr.expr
         end
         if not expr then
             return nil, nil
@@ -857,8 +859,8 @@ function ownership.install(c: state.Checker): ownership.Ops
         if t and own.ownershipKind(t) == "borrowed" then
             return true
         end
-        while expr and (expr.kind == "paren" or expr.kind == "castExpr") do
-            expr = expr.expr
+        while expr and (expr.kind == "paren" or expr.kind == "castExpr" or expr.kind == "orExitExpr") do
+            expr = expr.kind == "orExitExpr" and expr.operand or expr.expr
         end
         local roots = expr and own.capabilityFacts(expr, nil, false).roots or nil
 
@@ -866,8 +868,11 @@ function ownership.install(c: state.Checker): ownership.Ops
     end
 
     function own.rootsOf(expr)
-        while expr and (expr.kind == "paren" or expr.kind == "castExpr" or expr.kind == "newExpr") do
-            expr = expr.kind == "newExpr" and expr.call or expr.expr
+        while expr
+            and (
+                expr.kind == "paren" or expr.kind == "castExpr" or expr.kind == "newExpr" or expr.kind == "orExitExpr"
+            ) do
+            expr = expr.kind == "newExpr" and expr.call or expr.kind == "orExitExpr" and expr.operand or expr.expr
         end
         local out, seen = {}, {}
         if not expr or cst.isToken(expr) then
@@ -907,8 +912,11 @@ function ownership.install(c: state.Checker): ownership.Ops
         -- `new` wraps the construction it decides, and provenance is about where a
         -- value came from rather than how it was written, so it reads through the word
         -- exactly as it reads through a paren or a cast.
-        while expr and (expr.kind == "paren" or expr.kind == "castExpr" or expr.kind == "newExpr") do
-            expr = expr.kind == "newExpr" and expr.call or expr.expr
+        while expr
+            and (
+                expr.kind == "paren" or expr.kind == "castExpr" or expr.kind == "newExpr" or expr.kind == "orExitExpr"
+            ) do
+            expr = expr.kind == "newExpr" and expr.call or expr.kind == "orExitExpr" and expr.operand or expr.expr
         end
         if not expr then
             return nil
@@ -1075,8 +1083,11 @@ function ownership.install(c: state.Checker): ownership.Ops
     --- The node a temporary is tracked under: parentheses and casts add nothing,
     --- and `new` is the construction call underneath it.
     local function temporaryNode(node)
-        while node and (node.kind == "paren" or node.kind == "castExpr" or node.kind == "newExpr") do
-            node = node.kind == "newExpr" and node.call or node.expr
+        while node
+            and (
+                node.kind == "paren" or node.kind == "castExpr" or node.kind == "newExpr" or node.kind == "orExitExpr"
+            ) do
+            node = node.kind == "newExpr" and node.call or node.kind == "orExitExpr" and node.operand or node.expr
         end
 
         return node

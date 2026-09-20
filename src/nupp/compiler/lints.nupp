@@ -113,6 +113,13 @@ lints.all = {
         summary = "an associated type was erased because inference did not reach its head"
     ),
     new lints.Lint(
+        name = "exit-suffix-binding",
+        code = "NUPP2517",
+        category = "suspicious",
+        level = "warning",
+        summary = "a binding list takes more than one value from an exit suffix"
+    ),
+    new lints.Lint(
         name = "else-if",
         code = "NUPP2510",
         category = "style",

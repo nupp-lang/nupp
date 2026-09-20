@@ -294,6 +294,12 @@ function semantic.syntaxKinds(result: semantic.Parse): {[lexer.Token]: string}
             mark(node.comptimeTok, keywordType)
         elseif kind == "continueStmt" then
             mark(node[1], keywordType)
+        elseif kind == "orExitExpr" then
+            -- `return` and `break` are already keywords to the lexer; `continue` is a
+            -- name everywhere but here, so the suffix is what makes it read as one.
+            if node.exitToken and node.exitToken.kind == "name" then
+                mark(node.exitToken, keywordType)
+            end
         elseif kind == "labelStmt" or kind == "gotoStmt" then
             mark(node.name, "label")
         elseif kind == "param" or kind == "tfuncParam" then

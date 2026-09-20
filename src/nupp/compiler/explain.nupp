@@ -746,6 +746,44 @@ local ENTRIES: {any} = {
         docs = "docs/learn/language/do-expressions.md#do-expressions",
     },
     {
+        code = "NUPP2146",
+        summary = "An operand's results cannot be read by an exit suffix",
+        rule = "`or return`, `or break` and `or continue` read the operand's first "
+        .. "result as both the discriminator and the value. That needs a fixed "
+        .. "result count, results that are not a correlated pack union, and a first "
+        .. "result that can be nil or false and can also be a value. `pcall` and "
+        .. "`xpcall` are refused by the union rule, because they lead with the "
+        .. "discriminator rather than with a result; `nupp.util.pcallse` and "
+        .. "`nupp.util.xpcallse` answer the conventional order instead.",
+        wrong = "local function name(): string\n    return \"x\"\nend\n"
+        .. "local function first(): string?\n    local value = name() or return\n"
+        .. "    return value\nend\nreturn first()\n",
+        right = "local function name(): string?\n    return \"x\"\nend\n"
+        .. "local function first(): string?\n    local value = name() or return\n"
+        .. "    return value\nend\nreturn first()\n",
+        related = {"NUPP2002", "NUPP2605"},
+        docs = "docs/learn/language/exit-suffixes.md#exit-suffixes",
+    },
+    {
+        code = "NUPP2517",
+        summary = "A binding list takes more than one value from an exit suffix",
+        rule = "An exit suffix supplies its operand's first result and nothing else, "
+        .. "however wide the operand is. A second name bound from one is therefore "
+        .. "always nil. Bind the operand's results first and test the one that "
+        .. "decides when the other results are wanted.",
+        wrong = "local function pair(): (integer?, integer?)\n    return 1, 2\nend\n"
+        .. "local function both(): (integer?, integer?)\n"
+        .. "    local left, right = pair() or return\n    return left, right\nend\n"
+        .. "return both()\n",
+        right = "local function pair(): (integer?, integer?)\n    return 1, 2\nend\n"
+        .. "local function both(): (integer?, integer?)\n"
+        .. "    local left, right = pair()\n    if left == nil then\n"
+        .. "        return nil, nil\n    end\n    return left, right\nend\n"
+        .. "return both()\n",
+        related = {"NUPP2146"},
+        docs = "docs/learn/language/exit-suffixes.md#exit-suffixes",
+    },
+    {
         code = "NUPP2143",
         summary = "An export carrying a runtime value sits beside `export =`",
         rule = "A module either exports its declarations, and the compiler builds the "

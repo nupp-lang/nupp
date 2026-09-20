@@ -113,6 +113,16 @@ for _, x in ipairs({1, 2, 3}) do
 end
 ```
 
+`or return`, `or break` and `or continue` leave when an expression's first
+result is falsy, and are that result when it is not.
+
+```nupp
+local text = files.read(path) or return
+```
+
+See [exit-suffixes.md](exit-suffixes.md) for what the operand must look like and
+what `or return` forwards.
+
 ### Numerals and named varargs
 
 Underscores separate digits, the `LL`, `ULL`, and `i` suffixes make a cdata
@@ -408,9 +418,11 @@ Position replaces reservation instead: an introducer introduces a declaration
 only where one can start, and only when what follows it on the same line
 agrees.
 
-That costs one deliberate overlap, `local type Alias = 5`. Every other name is
-recovered from where it appears. See [Plain Lua is valid
-Nupp](#plain-lua-is-valid-nupp) for the overlap and how to write around it.
+That costs one deliberate overlap, `local type Alias = 5`, and one more that
+came later: `a or continue` is the [exit suffix](exit-suffixes.md) rather than a
+disjunction with a variable named `continue`. Every other name is recovered from
+where it appears. See [Plain Lua is valid
+Nupp](#plain-lua-is-valid-nupp) for the overlaps and how to write around them.
 :::
 
 ## Compatibility with Lua and LuaJIT

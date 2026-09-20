@@ -1,0 +1,31 @@
+local m = {}
+
+function m.pair(source: {[string]: string}): (string?, string?)
+    local left  =  source.left   or   return
+    local right = source.right ||return
+
+    return left .. "/" .. right, nil
+end
+
+function m.lefts(sources: {{[string]: string}}): {string}
+    local found: {string} = {}
+    for _, source in ipairs(sources) do
+        local left = source.left
+            or continue
+        found[#found + 1] = left
+    end
+    for _, source in ipairs(sources) do
+        local left = source.left or break
+        found[#found + 1] = left
+    end
+
+    return found
+end
+
+function m.wide(alpha: integer, beta: integer, gamma: integer, delta: integer): integer?
+    local total = alpha + beta + gamma + delta + alpha + beta + gamma + delta + alpha + beta + gamma + delta + alpha + beta or return
+
+    return total
+end
+
+return m

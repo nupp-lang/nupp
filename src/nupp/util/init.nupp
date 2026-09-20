@@ -25,7 +25,9 @@ Each member is one type and the few functions that hand it out, reached by the
 type's name rather than by a module of its own. [](Bitset) is a set of bit
 positions, [](Store) is a bag of values indexed by typed [](Key)s, and [](Pool)
 leases cleared record instances from a free list. [](uuid4) and [](uuid7)
-generate identifiers, and [](fnv1a64) hashes bytes.
+generate identifiers, and [](fnv1a64) hashes bytes. [](pcallse) and [](xpcallse)
+run a function protected and answer `(result, reason)`, which is the layout the
+`or return` suffix reads and `pcall`'s own is not.
 
 Unlike [](nupp.mem), which keeps every member a module of its own, these are
 re-exported here, so reaching one loads them all -- affordable, because they are
@@ -42,6 +44,7 @@ local hash = require("nupp.util.internal.hash")
 local pool = require("nupp.util.internal.pool")
 local uuid = require("nupp.util.internal.uuid")
 local store = require("nupp.util.internal.store")
+local protected = require("nupp.util.internal.protected")
 
 --- A growable set of bit positions counting from 0.
 export type Bitset = bitset.Bitset
@@ -75,6 +78,13 @@ export const newStore = store.newStore
 
 --- Hashes bytes with FNV-1a over 64 bits, as sixteen hexadecimal digits.
 export const fnv1a64 = hash.fnv1a64
+
+--- Runs a function under `pcall`, answering `(result, raised)` rather than
+--- `(ok, ...)`, which is the layout `or return` reads.
+export const pcallse = protected.pcallse
+
+--- The same for `xpcall`: the handler runs pre-unwind and its result is the reason.
+export const xpcallse = protected.xpcallse
 
 --- Generates a random version 4 UUID, hyphenated and lowercase.
 export const uuid4: function(): string = uuid.uuid4

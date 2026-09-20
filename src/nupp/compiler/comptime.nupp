@@ -1051,6 +1051,29 @@ evalExpr = function(state, node)
         else
             answer = evalExpr(state, node.ifFalse)
         end
+    elseif kind == "orExitExpr" then
+        -- The same branch the generator lowers: the operand runs once, and a falsy
+        -- first result takes the exit. A comptime block returns exactly one value,
+        -- so a wider operand is refused here rather than forwarded and truncated.
+        local value = evalExpr(state, node.operand)
+        if value ~= nil and value ~= false then
+            answer = value
+        elseif node.exitKind == "break" then
+            error(BREAK, 0)
+        elseif node.exitKind == "continue" then
+            unsupported(node, "continue")
+        elseif (node.orExitWidth or 1) > 1 then
+            fail(
+                "NUPP2411",
+                node,
+                "a comptime block returns exactly one value",
+                "return a table holding them, until multi-value results are specified"
+            )
+        else
+            state.result = value
+            state.returned = true
+            error(RETURN, 0)
+        end
     elseif kind == "doExpr" then
         local ok, completion = pcall(execBlock, state, node.body)
         if not ok then

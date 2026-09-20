@@ -248,6 +248,22 @@ local lintFixtures = {
          "export record Point coordinate: Coordinate end"),
       opts = {moduleName = "fixture"},
    },
+   NUPP2517 = {
+      reports = source(
+         "local function pair(): (integer?, integer?) return 1, 2 end",
+         "local function both(): (integer?, integer?)",
+         "   local left, right = pair() or return",
+         "   return left, right",
+         "end",
+         "return both"),
+      quiet = source(
+         "local function pair(): (integer?, integer?) return 1, 2 end",
+         "local function both(): (integer?, integer?)",
+         "   local left = pair() or return",
+         "   return left, nil",
+         "end",
+         "return both"),
+   },
    NUPP2518 = {
       reports = source(
          "local m = {}",

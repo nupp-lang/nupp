@@ -1202,6 +1202,11 @@ local function foldExpr(node, current)
         for _, part in ipairs(node.parts or {}) do
             foldExpr(part, current)
         end
+    elseif kind == "orExitExpr" then
+        -- The operand is folded, the suffix is not: its value is one arm of a branch
+        -- whose other arm leaves, so replacing the whole expression with a constant
+        -- would delete the exit along with the cleanup it runs.
+        foldExpr(node.operand, current)
     elseif kind == "doExpr" then
         foldBlock(node.body, scope(current))
     elseif kind == "switchExpr" then
@@ -2703,7 +2708,7 @@ local function hasInlineScope(node)
     if not node or isToken(node) then
         return false
     end
-    if node.kind == "doExpr" or node.kind == "funcExpr" or node.kind == "shortfn" then
+    if node.kind == "doExpr" or node.kind == "funcExpr" or node.kind == "shortfn" or node.kind == "orExitExpr" then
         return true
     end
     for _, child in ipairs(node) do

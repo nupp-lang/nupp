@@ -1073,6 +1073,103 @@ return m
     ),
 
     new reference.Section(
+        title = "Exit suffixes",
+        codes = {"NUPP1005", "NUPP2002", "NUPP2146", "NUPP2208", "NUPP2517", "NUPP2605"},
+        body = [=[
+`e or return`, `e or break` and `e or continue` are a contextual suffix at the
+`or` tier. The operand runs once; its first result both decides and is the
+value. `nil` or `false` takes the exit, and anything else is what the expression
+yields, narrowed by the same truthiness that selected it: `string?` becomes
+`string`, and `boolean` becomes `true`.
+
+```nupp
+local text = files.read(path) or return
+```
+
+`or return` forwards the operand's whole pack with its first slot narrowed to
+the falsy part, so a `(T?, E?)` helper forwards `(nil, E?)` and a
+`(boolean, E?)` one forwards `(false, E?)`. The enclosing function's declared
+results judge that pack the way they judge a written `return`, which is what
+lets a wrapper forward a reason whose successful type differs.
+
+Only the first result is the value, whatever the operand's width. A second name
+bound from a suffix is always nil, which the `exit-suffix-binding` lint reports;
+a caller wanting the other results writes the explicit conditional.
+
+The operand's result count must be fixed and must not be a pack union, and its
+first result must admit both a falsy and a successful value, or `NUPP2146`
+reports. A direct `pcall` or `xpcall` is refused by that rule: they lead with a
+discriminator rather than a result. [](nupp.util.pcallse) and
+[](nupp.util.xpcallse) answer the conventional layout instead. No slot after the
+first may be ownership-bearing, since the successful path discards every one of
+them.
+
+A safe call is admitted: the alternative it adds is the single nil an absent
+receiver answers with, so that arm takes the exit and the rest is the pack the
+policy reads. `obj?.read() or return` cannot tell an absent receiver from a
+failed read, which is the conflation an explicit `if` over a safe call has too.
+
+The suffix sits at the `or` tier, so `x + f() or return` groups as
+`(x + f()) or return` and `cond ? a : b or return` puts the suffix on `b`.
+Parentheses say when it applies to a whole ternary. The exit word begins on the
+`or`'s own line, takes no operand and does not chain, and `||` is accepted
+wherever `or` is.
+
+`break` and `continue` target the nearest enclosing loop and never cross a
+function boundary. A loop condition is lexically outside its own loop, so a
+suffix written in one targets the loop around it; `or continue` in a `repeat`
+condition is refused, because that condition is what `continue` jumps to.
+Cleanup runs on every exit exactly as it does for the written statement.
+
+`continue` is a soft keyword everywhere else. Only the exact `or continue` pair
+reads it as the exit word, so a program holding a variable named `continue` and
+writing `a or continue` now means the suffix.
+]=],
+        example = [=[
+local m = {}
+
+--- Reads one field, or nothing and why not.
+---
+--- @param source where to look
+--- @param name which field
+--- @return the value, or nil
+--- @return why not, or nil
+local function field(source: {[string]: string}, name: string): (string?, string?)
+    local found = source[name]
+    if found == nil then
+        return nil, "missing " .. name
+    end
+
+    return found, nil
+end
+
+--- @param source the fields to read
+--- @return the joined pair, or nil
+--- @return why not, or nil
+function m.pair(source: {[string]: string}): (string?, string?)
+    local left = field(source, "left") or return
+    local right = field(source, "right") or return
+
+    return left .. "/" .. right, nil
+end
+
+--- @param sources the field sets to read
+--- @return every set that had a left field
+function m.lefts(sources: {{[string]: string}}): {string}
+    local found: {string} = {}
+    for _, source in ipairs(sources) do
+        local left = field(source, "left") or continue
+        found[#found + 1] = left
+    end
+
+    return found
+end
+
+return m
+]=]
+    ),
+
+    new reference.Section(
         title = "Switch expressions",
         codes = {"NUPP2137", "NUPP2138", "NUPP2139", "NUPP2140", "NUPP2141", "NUPP2142", "NUPP3001"},
         body = [=[

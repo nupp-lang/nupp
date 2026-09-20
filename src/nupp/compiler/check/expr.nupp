@@ -584,6 +584,263 @@ function expr.install(c: state.Checker): nil
         return c.alwaysExits(block)
     end
 
+    ---------------------------------------------------------------------
+    -- Exit suffixes
+    ---------------------------------------------------------------------
+
+    local FALSE_T = T.literal(false, T.boolean)
+
+    --- What the operand's first result still admits where the suffix did not exit.
+    ---
+    --- Lua truthiness is what selects, so the successful projection is the type less
+    --- nil and less `false`: `string?` becomes `string`, and `boolean` becomes the
+    --- literal `true`. `never` is the answer when nothing is left, which is what makes
+    --- an operand that can only fail report rather than check.
+    local function truthyPart(t: Type): Type
+        if t == T.any or t == T.unknown or t.tag == "typevar" then
+            return t
+        end
+        if isA(t, T.nil_) or isA(t, FALSE_T) then
+            return T.never
+        end
+        local rest = subtract(t, T.nil_)
+        if isA(rest, T.nil_) or isA(rest, FALSE_T) then
+            return T.never
+        end
+
+        return subtract(rest, FALSE_T)
+    end
+
+    --- What it admits where the suffix did exit: whichever of nil and `false` it held.
+    local function falsyPart(t: Type): Type
+        if t == T.any or t == T.unknown or t.tag == "typevar" then
+            return T.union({T.nil_, FALSE_T})
+        end
+        local parts: {Type} = {}
+        if isA(T.nil_, t) then
+            parts[#parts + 1] = T.nil_
+        end
+        if isA(FALSE_T, t) then
+            parts[#parts + 1] = FALSE_T
+        end
+        if #parts == 0 then
+            return T.never
+        end
+
+        return T.union(parts)
+    end
+
+    --- Which protected built-in a call names directly, when it names one.
+    ---
+    --- Only consulted to word the pack-union refusal, so a project's own `pcall` never
+    --- reaches it: that one answers an ordinary pack and is never refused.
+    local function protectedBuiltin(operand: Node): string?
+        local callee = operand.kind == "call" and (operand as cst.Call).obj or nil
+        local token = callee and callee.kind == "name" and (callee as cst.NameExpr).token or nil
+        local text = token and token.text or nil
+        if text == "pcall" or text == "xpcall" then
+            return text
+        end
+
+        return nil
+    end
+
+    --- An explicit conditional standing for the suffix, for a diagnostic's `help`.
+    local function explicitForm(exitKind: string): string
+        return (
+            "write `local value, reason = ...` and `%s` under `if value == nil then`"
+        ):format(exitKind == "return" and "return value, reason" or exitKind)
+    end
+
+    --- Checks the pack `or return` forwards against the enclosing function's results.
+    ---
+    --- It is the operand's own pack with the first slot narrowed to the falsy part,
+    --- which is what makes a wrapper fit without inventing values: a `(boolean, E?)`
+    --- helper forwards `(false, E?)`, where a literal nil would not have fitted.
+    local function checkExitReturn(node: cst.OrExitExpr, pack: any, failure: Type): nil
+        local at: any = node.exitToken or node
+        local dynamic: any = node
+        if c.result.declaredModuleName and #c.retStack == 0 then
+            c.diag("NUPP1002", at, "a declared module exports declarations and has no top-level return")
+            return
+        end
+        if c.constructorFieldStack[#c.constructorFieldStack] then
+            c.diag("NUPP2208", at, "a constructor returns the instance it builds", nil, {
+                help = "write the explicit conditional, and return after initializing the required fields"
+            })
+            return
+        end
+        local head: {Type} = {failure}
+        for index = 2, #pack.head do
+            head[index] = pack.head[index]
+        end
+        local forwarded = T.pack(head)
+        dynamic.orExitReturnPack = forwarded
+        local annotated = c.retPackStack[#c.retPackStack]
+        local observed = c.observedReturnStack[#c.observedReturnStack]
+        if observed and not annotated then
+            observed[#observed + 1] = forwarded
+        end
+        if not annotated then
+            return
+        end
+        if annotated.alternatives then
+            local ok, why = relations.packIsA(forwarded, annotated)
+            if not ok then
+                c.diag(
+                    "NUPP2002",
+                    at,
+                    "the forwarded failure pack does not match a declared alternative: " .. (
+                        why or "incompatible packs"
+                    )
+                )
+            end
+            return
+        end
+        for index, expected in ipairs(annotated.head) do
+            local got = T.packAt(forwarded, index) or T.nil_
+            local ok, why, reported = c.fixedWidth.fits(got, expected, at)
+            if not ok and not reported then
+                c.diag("NUPP2002", at, ("forwarded result %d: %s"):format(index, why), nil, {
+                    help = got == T.unknown
+                    and "`unknown` fits nowhere until it is narrowed; declare this result `unknown` too, "
+                    .. "or supply a handler through `nupp.util.xpcallse`"
+                    or explicitForm("return"),
+                })
+            end
+        end
+        if not annotated.tail and #forwarded.head > #annotated.head then
+            c.diag(
+                "NUPP2002",
+                at,
+                ("too many forwarded results (expected %d, got %d)"):format(#annotated.head, #forwarded.head),
+                nil,
+                {help = explicitForm("return")}
+            )
+        elseif annotated.tail and annotated.tail.kind == "homogeneous" then
+            for index = #annotated.head + 1, #forwarded.head do
+                local ok, why, reported = c.fixedWidth.fits(forwarded.head[index], annotated.tail.type, at)
+                if not ok and not reported then
+                    c.diag("NUPP2002", at, ("forwarded result %d: %s"):format(index, why))
+                end
+            end
+        end
+    end
+
+    --- `e or return`, `e or break`, `e or continue`.
+    ---
+    --- The operand runs once and its first result both decides and is the value: falsy
+    --- takes the exit, anything else is what the expression yields, narrowed by the
+    --- same truthiness that selected it. Every other slot is read only by `or return`,
+    --- which forwards the whole pack, and is discarded on the successful path.
+    local function inferOrExit(node: cst.OrExitExpr): Type
+        local operand = node.operand
+        local exitKind = node.exitKind
+        if not operand then
+            return T.any
+        end
+        local first = c.infer(operand)
+        local dynamicOperand: any = operand
+        local pack = dynamicOperand.valuePack or T.pack({first})
+        local at: any = node.exitToken or node
+        local dynamic: any = node
+        dynamic.orExitPack = pack
+
+        -- A layout the policy cannot read. Each of these would otherwise have to guess
+        -- which slot discriminates, and guessing is what the explicit conditional is
+        -- for.
+        -- Safe navigation adds one alternative to the operand's own pack: the
+        -- single nil an absent receiver answers with. That arm is falsy, so it
+        -- takes the exit, and what is left is the pack the policy reads.
+        -- `obj?.read() or return` cannot tell an absent receiver from a failed
+        -- read, which is the conflation an explicit `if` over a safe call has too.
+        if pack.alternatives then
+            local remaining: any = nil
+            local absent = false
+            for _, arm in ipairs(pack.alternatives) do
+                if #arm.head == 1 and not arm.tail and arm.head[1] == T.nil_ then
+                    absent = true
+                elseif remaining then
+                    remaining = nil
+                    break
+                else
+                    remaining = arm
+                end
+            end
+            if absent and remaining then
+                pack = remaining
+            end
+        end
+        if pack.alternatives then
+            local builtin = protectedBuiltin(operand)
+            c.diag(
+                "NUPP2146",
+                at,
+                "this operand's results are a correlated pack union, which the suffix cannot read",
+                nil,
+                {
+                    help = builtin
+                    and (
+                        "`%s` leads with a discriminator rather than a result; use `nupp.util.%sse`, "
+                        .. "which answers the conventional (value, reason) layout"
+                    ):format(builtin, builtin)
+                    or explicitForm(exitKind),
+                }
+            )
+            return T.any
+        end
+        if #pack.head == 0 and not pack.tail then
+            c.diag("NUPP2146", at, "this operand produces no value to test", nil, {help = explicitForm(exitKind)})
+            return T.any
+        end
+        if pack.tail then
+            c.diag("NUPP2146", at, "this operand's result count is not fixed", nil, {help = explicitForm(exitKind)})
+            return T.any
+        end
+
+        local primary = pack.head[1] as Type
+        local success = truthyPart(primary)
+        local failure = falsyPart(primary)
+        if failure == T.never then
+            c.diag(
+                "NUPP2146",
+                at,
+                ("this operand's first result is %s, which is never nil or false"):format(T.tostring(primary)),
+                nil,
+                {help = "the suffix would never exit; drop it, or return an optional result"}
+            )
+            return success
+        end
+        if success == T.never then
+            c.diag(
+                "NUPP2146",
+                at,
+                ("this operand's first result is %s, which is never a value"):format(T.tostring(primary)),
+                nil,
+                {help = "the suffix would always exit; write the exit statement instead"}
+            )
+            return T.never
+        end
+        -- Every slot but the first is dropped on the successful path, so an owner in
+        -- one of them is abandoned there whatever the failure path does with it.
+        c.checkPackDiscard(pack, 2, operand)
+
+        if exitKind == "return" then
+            checkExitReturn(node, pack, failure)
+        end
+        dynamic.orExitSuccess = success
+        dynamic.orExitFailure = failure
+        dynamic.orExitWidth = #pack.head
+        -- The value is the operand's, so provenance and rooting read through the
+        -- suffix the way they read through a paren.
+        local roots = c.own.capabilityFacts(operand, nil, false).roots
+        if roots and roots[1] then
+            c.own.capabilityFacts(node).roots = roots
+        end
+
+        return success
+    end
+
     --- Shares the block-result contract with switch arms.
     local function inferDo(node: cst.DoExpr): Type
         local yielded: any = {
@@ -1417,6 +1674,8 @@ function expr.install(c: state.Checker): nil
                 )
             end
             return T.boolean
+        elseif kind == "orExitExpr" then
+            return inferOrExit(node as cst.OrExitExpr)
         elseif kind == "doExpr" then
             return inferDo(node as cst.DoExpr)
         elseif kind == "switchExpr" then

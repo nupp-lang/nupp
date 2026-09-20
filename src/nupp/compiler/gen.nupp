@@ -2944,13 +2944,16 @@ function gen.generate(
     -- Block expressions and nested plucks both need statements at their evaluation
     -- point. A direct pluck can retain its existing statement-level emission.
     local function switchContains(node, direct: any?): boolean
-        if not node or cst.isToken(node) or node.folded then
+        -- A comptime block's body is not emitted: the work happened while
+        -- compiling and the node stands for its result. Lifting a statement out of
+        -- one would run at runtime what the block already answered.
+        if not node or cst.isToken(node) or node.folded or node.comptimeValue then
             return false
         end
         if node.foldedExpression then
             return switchContains(node.foldedExpression, direct)
         end
-        if node.kind == "switchExpr" or node.kind == "doExpr" then
+        if node.kind == "switchExpr" or node.kind == "doExpr" or node.kind == "orExitExpr" then
             return true
         end
         if node ~= direct and pluck.needsBindings(node) then
@@ -3149,6 +3152,7 @@ function gen.generate(
         if not node
             or cst.isToken(node)
             or node.folded
+            or node.comptimeValue
             or emitDepth.switchValueTemps[node]
             or emitDepth.switchTemps[node]
             or pluck.loweredPlans[node]
@@ -3168,6 +3172,9 @@ function gen.generate(
             return
         elseif kind == "switchExpr" then
             lowerSwitch(node)
+            return
+        elseif kind == "orExitExpr" then
+            emitDepth.lowerOrExit(node)
             return
         end
         if not switchContains(node) then
@@ -3946,6 +3953,76 @@ function gen.generate(
         end
     end
 
+    -- The exit a suffix takes is the statement it stands for, so it is emitted as
+    -- one. A synthesized `return` carrying the captured results reaches the same
+    -- cleanup packing, region encoding and construction paths a written return does,
+    -- which is what makes an exit out of a `with` scope or a lowered region discharge
+    -- what it is leaving. On `emitDepth` rather than on a local: `gen.generate` is at
+    -- Lua's two hundred locals, and one more stops the file generating at all.
+    function emitDepth.orExitReturn(node, temps)
+        local line = sourceLine(node) or 0
+        local first = cst.firstToken(node)
+        local token: any = {
+            kind = "return",
+            text = "return",
+            trivia = {},
+            triviaFirst = 1,
+            triviaCount = 0,
+            offset = first and first.offset or 0,
+            line = line,
+            col = first and first.col or 1,
+        }
+        local stat: any = {token, kind = "returnStmt", exprs = {}}
+        for index, temp in ipairs(temps) do
+            local value: any = {kind = "assignmentTemporary", name = temp, line = line}
+            stat.exprs[index] = value
+            if index > 1 then
+                stat[#stat + 1] = {kind = "assignmentTemporary", name = ",", line = line}
+            end
+            stat[#stat + 1] = value
+        end
+
+        return stat
+    end
+
+    --- Lowers `e or return`, `e or break` and `e or continue` to straight-line
+    --- statements: the operand runs once into fixed temporaries, the first decides,
+    --- and the expression's value is that first temporary.
+    ---
+    --- No pack table is built. The operand's result count is fixed -- the checker
+    --- refuses it otherwise -- so one temporary per slot forwards the failure pack
+    --- without the allocation `__nuppBlockPack` would make on every evaluation. Only
+    --- `or return` reads past the first slot, so the loop exits capture just the one.
+    function emitDepth.lowerOrExit(node)
+        local operand = node.operand
+        local line = sourceLine(node)
+        lowerSwitches(operand)
+        local width = node.exitKind == "return" and math.max(node.orExitWidth or 1, 1) or 1
+        local temps = {}
+        for index = 1, width do
+            temps[index] = nextTemp()
+        end
+        e("local " .. table.concat(temps, ",") .. "=", line)
+        emit(operand)
+        e(";if ")
+        local branch = coverageOn and coverageSite("branch", node) or nil
+        if branch then
+            e(("%s.branch(%q,%d,"):format(coverageRuntime(), coveragePath, branch))
+        end
+        e("not " .. temps[1])
+        if branch then
+            e(")")
+        end
+        e(" then ")
+        if node.exitKind == "return" then
+            emit(emitDepth.orExitReturn(node, temps))
+        else
+            emitDepth.valueControl(node.exitKind, line)
+        end
+        e(" end;")
+        emitDepth.switchTemps[node] = temps[1]
+    end
+
     function emitDepth.lowerDo(node)
         local result, done, action = nextTemp(), nextTemp(), nextTemp()
         emitDepth.switchTemps[node] = result
@@ -4716,8 +4793,8 @@ function gen.generate(
     end
 
     ownershipMoveOf = function(expr)
-        while expr and (expr.kind == "paren" or expr.kind == "castExpr") do
-            expr = expr.expr
+        while expr and (expr.kind == "paren" or expr.kind == "castExpr" or expr.kind == "orExitExpr") do
+            expr = expr.kind == "orExitExpr" and expr.operand or expr.expr
         end
         return expr and expr.automaticOwnerMove or nil
     end
@@ -5166,7 +5243,7 @@ function gen.generate(
             return
         elseif kind == "callStmt" and emitDepth.switchValueTemps[x.expr] then
             return
-        elseif kind == "switchExpr" or kind == "doExpr" then
+        elseif kind == "switchExpr" or kind == "doExpr" or kind == "orExitExpr" then
             local temporary = emitDepth.switchTemps[x]
             if temporary then
                 e(temporary, sourceLine(x))
@@ -5174,7 +5251,7 @@ function gen.generate(
                 emitDepth.diag(
                     cst.firstToken(x),
                     "NUPP2142",
-                    "this block or switch expression cannot be lifted from its placement",
+                    "this expression cannot be lifted from its placement",
                     "assign it to a local in a statement before using it here"
                 )
                 e("nil", sourceLine(x))

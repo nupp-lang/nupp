@@ -251,6 +251,7 @@ local TYPED_LAYER: {
     ternary = "a type annotation",
     switchExpr = "a switch expression",
     doExpr = "a do expression",
+    orExitExpr = "an exit suffix",
 }
 
 --- Reports the typed layer wherever it appears in a plain Lua file.
@@ -2109,7 +2110,7 @@ function checkMod.check(
             return false
         end
         local kind = x.kind
-        if kind == "breakStmt" then
+        if kind == "breakStmt" or (kind == "orExitExpr" and (x as cst.OrExitExpr).exitKind == "break") then
             return true
         end
         if kind == "funcbody"

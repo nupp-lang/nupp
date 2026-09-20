@@ -138,6 +138,12 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     -- loop. Function bodies reset this depth because a loop outside a closure cannot be
     -- continued from inside it.
     local loopDepth = 0
+
+    -- A `repeat` condition is read after the body's loop depth is given back, so the
+    -- exit suffix sees the loop it is written inside the way `continue` does. The
+    -- condition is also the statement `continue` jumps to, which is why one written
+    -- there has no target of its own.
+    local repeatConditionDepth = 0
     -- A contextual `yield value` belongs to the nearest enclosing do expression.
     -- Function bodies reset this depth, just as they reset loop depth.
     local valueBlockDepth = 0
@@ -674,9 +680,11 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     --- come back.
     local function parseFunctionBlock(): Node
         local savedLoopDepth, savedValueBlockDepth = loopDepth, valueBlockDepth
-        loopDepth, valueBlockDepth = 0, 0
+        local savedRepeatCondition = repeatConditionDepth
+        loopDepth, valueBlockDepth, repeatConditionDepth = 0, 0, 0
         local body = parseBlock()
         loopDepth, valueBlockDepth = savedLoopDepth, savedValueBlockDepth
+        repeatConditionDepth = savedRepeatCondition
 
         return body
     end
@@ -1741,9 +1749,11 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             add(n, expect("end", "to close short function"))
         else
             local savedLoopDepth, savedValueBlockDepth = loopDepth, valueBlockDepth
-            loopDepth, valueBlockDepth = 0, 0
+            local savedRepeatCondition = repeatConditionDepth
+            loopDepth, valueBlockDepth, repeatConditionDepth = 0, 0, 0
             n.expr = add(n, parseExp())
             loopDepth, valueBlockDepth = savedLoopDepth, savedValueBlockDepth
+            repeatConditionDepth = savedRepeatCondition
         end
 
         return n
@@ -2096,6 +2106,31 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     -- position AND on the same line as the preceding token, so that level-0 statement
     -- sequences like "x = a\nis(b)" keep their meaning.
 
+    --- Which exit word `or` at the cursor introduces, if any.
+    ---
+    --- `return` and `break` are reserved, so the pair cannot overlap a program that
+    --- checks today. `continue` is a name everywhere else and stays one; only this
+    --- exact pair reads it as the exit word. The word must be on the `or`'s own line,
+    --- which leaves an `or` opening a continuation line free to carry an operand.
+    local function orExitWord(): string?
+        local op = cur()
+        if op.kind ~= "or" then
+            return nil
+        end
+        local word = tokens[i + 1]
+        if not word or word.line ~= op.line then
+            return nil
+        end
+        if word.kind == "return" or word.kind == "break" then
+            return word.kind
+        end
+        if word.kind == "name" and word.text == "continue" then
+            return "continue"
+        end
+
+        return nil
+    end
+
     --- Which contextual operator (`as`, `is`) is at the cursor, if any.
     local function contextualOp(prevLine: integer): string?
         local tok = cur()
@@ -2140,6 +2175,72 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         return operand, operand
     end
 
+    -- What may not follow an exit word, because the suffix takes no operand and no
+    -- second exit. `do` and `|` are left out: they open a loop body and a short
+    -- function's parameters, both of which legitimately follow a condition.
+    local AFTER_EXIT_REFUSED = {
+        ["@"] = true,
+        ["number"] = true,
+        ["string"] = true,
+        ["nil"] = true,
+        ["true"] = true,
+        ["false"] = true,
+        ["..."] = true,
+        ["function"] = true,
+        ["{"] = true,
+        ["["] = true,
+        ["name"] = true,
+        ["("] = true,
+        ["istringOpen"] = true,
+        ["not"] = true,
+        ["#"] = true,
+        ["-"] = true,
+        ["~"] = true,
+    }
+
+    --- Builds the `or return` / `or break` / `or continue` suffix over `operand`.
+    local function parseOrExit(operand: Node, exitKind: string): Node
+        local n = new cst.OrExitExpr(kind = "orExitExpr", exitKind = exitKind as any)
+        n.operand = add(n, operand)
+        n.orToken = add(n, advance())
+        n.exitToken = add(n, advance())
+        if exitKind ~= "return" and loopDepth == 0 then
+            errAt(
+                n.exitToken,
+                "no loop to " .. exitKind,
+                "NUPP1005",
+                "a loop exit does not cross a function boundary; use `or return` to leave the function"
+            )
+        elseif exitKind == "continue" and repeatConditionDepth > 0 then
+            errAt(
+                n.exitToken,
+                "a repeat condition is what `continue` jumps to, so it has no target here",
+                "NUPP1005",
+                "use `or break`, or move the test into the body"
+            )
+        end
+        if operand.kind == "orExitExpr" then
+            errAt(
+                n.exitToken,
+                "one exit suffix applies to an expression",
+                "NUPP1005",
+                "remove the second `or " .. exitKind .. "`"
+            )
+        end
+        local following = cur()
+        if AFTER_EXIT_REFUSED[following.kind] and following.line == n.exitToken.line then
+            errAt(
+                following,
+                ("'%s' takes no value"):format(exitKind),
+                "NUPP1005",
+                exitKind == "return" and "write the explicit conditional when the failure path needs its own results"
+                or "the suffix names no label"
+            )
+        end
+
+        return n
+    end
+
     --- Operator-precedence parsing down to `limit`.
     parseBinexp = function(limit: integer): Node
         local left
@@ -2171,11 +2272,16 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 if not (pri and pri[1] > limit) then
                     break
                 end
-                local n = new cst.Binop(kind = "binop")
-                n.lhs = add(n, left)
-                n.op = add(n, advance())
-                n.rhs = add(n, parseBinexp(pri[2]))
-                left = n
+                local exitKind = orExitWord()
+                if exitKind then
+                    left = parseOrExit(left, exitKind)
+                else
+                    local n = new cst.Binop(kind = "binop")
+                    n.lhs = add(n, left)
+                    n.op = add(n, advance())
+                    n.rhs = add(n, parseBinexp(pri[2]))
+                    left = n
+                end
             end
         end
 
@@ -3007,7 +3113,9 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             n.body = add(n, parseBlock())
             loopDepth = loopDepth - 1
             add(n, expect("until", "to close 'repeat'"))
+            repeatConditionDepth = repeatConditionDepth + 1
             n.cond = add(n, parseExp())
+            repeatConditionDepth = repeatConditionDepth - 1
             return n
 
         elseif kind == "name"

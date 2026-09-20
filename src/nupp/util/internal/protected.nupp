@@ -1,0 +1,55 @@
+module nupp.util.internal.protected
+
+--[[Protected calls in the conventional result order.
+
+`pcall` and `xpcall` answer `(ok, ...)`: a discriminator first and the protected
+function's results after it. Everything else in this language answers
+`(value, reason)`, which is the layout `or return` reads. These two wrap the
+built-ins so a protected call joins that convention.]]
+
+--- Runs `f` under `pcall` and answers the conventional layout.
+---
+--- The raised value is passed through exactly as raised, with no stringification:
+--- what to make of it belongs to the code that reports the error, and `debug` is
+--- not reachable on every target. A caller that wants a typed reason supplies the
+--- handler that produces one, which is what [](xpcallse) is for.
+---
+--- A protected function that succeeds returning nil is indistinguishable from one
+--- that failed, because nil is what the failure answers with too. That is the limit
+--- of the conventional layout rather than of this wrapper; the explicit
+--- `local ok, value = pcall(f)` remains the form that tells them apart.
+---
+--- @param f the function to run protected
+--- @param ... its arguments
+--- @return its result, or nil when it raised
+--- @return the raised value, or nil when it did not
+--- @export
+export function pcallse<R, A...>(f: function(A...): R, ...: A...): (R?, unknown)
+    const ok, value = pcall(f, ...)
+    if ok then
+        return value, nil
+    end
+
+    return nil, value
+end
+
+--- Runs `f` under `xpcall` and answers the conventional layout.
+---
+--- `handler` runs before the stack unwinds, so it can still reach a traceback, and
+--- whatever it returns is the reason. Neither this nor [](pcallse) ships a default
+--- handler: the error type is the caller's to choose.
+---
+--- @param handler what to make of a raised value
+--- @param f the function to run protected
+--- @param ... its arguments
+--- @return its result, or nil when it raised
+--- @return what `handler` made of the raised value, or nil when it did not raise
+--- @export
+export function xpcallse<R, E, A...>(handler: function(any): E, f: function(A...): R, ...: A...): (R?, E?)
+    const ok, value = xpcall(f, handler, ...)
+    if ok then
+        return value, nil
+    end
+
+    return nil, value
+end

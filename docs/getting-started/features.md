@@ -23,8 +23,9 @@ print(pending.name)
 - [Gradual typing](../learn/language/gradual-typing.md) moves annotated `.lua` into
   `.g.nupp`, then raises the strict floor with `.nupp`.
 - [Modules](../learn/language/modules.md),
-  [named arguments](../learn/language/named-arguments.md), and
-  [switch expressions](../learn/language/switch-expressions.md) cover the main
+  [named arguments](../learn/language/named-arguments.md),
+  [switch expressions](../learn/language/switch-expressions.md), and
+  [exit suffixes](../learn/language/exit-suffixes.md) cover the main
   source-level additions.
 - [Comptime](../learn/language/comptime.md),
   [comptime types](../learn/language/types/comptime-types.md), and
