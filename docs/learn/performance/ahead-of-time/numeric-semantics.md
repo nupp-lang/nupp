@@ -169,6 +169,35 @@ zero as bits.
 
 ## Verification
 
+The reducer corpus in `tests/simd/reducers.lua` runs through the same native and
+Wasm harness as the explicit primitive corpus. Ordered and compensated folds
+match ordinary Nupp, including signed zero. Pairwise folds also match an
+independent level-by-level adjacent-pair tree, including unpaired leaves. The
+seed is the first leaf: seven leaves combine as `block4 + (block2 + leaf1)`,
+not `(block4 + block2) + leaf1`. Integer wrapping, bitwise, predicate, extremum,
+and first-position contracts are exact. NaNs compare by the observable policy
+above, not by unspecified payload bits. Required-loop probes cover empty
+inputs and every tail through forty elements. Explicit vector reducer probes
+cover Fixed2 through Fixed64 and Preferred with two complete groups and every
+tail, including positive-only holes and all-false masks. Authored reducers retain their
+one-unconditional-contribution rule. Arg-position and predicate reducers expose
+scalar contributions only, so their complete contracts are tested through those
+authored loops rather than an unprovided explicit-mask overload.
+
+Algebraic checks use a different contract. For finite inputs whose intermediate
+values neither overflow nor underflow, the corpus compares two rounded paths
+with `gamma(4n + 4) = (4n + 4)u / (1 - (4n + 4)u)`, where `u` is `2^-24` for
+binary32 and `2^-53` for binary64. The absolute envelope scales by the sum of
+absolute contributing inputs for a sum, the sum of absolute contributing
+products for a dot, and the absolute reference result for a product. One smallest subnormal accommodates
+the final boundary. This is a comparison envelope, not a promise of one
+association or one target's low bits.
+
+Separate exceptional fixtures check NaN propagation, infinities, signed zeros,
+empty seeds and first-index ties. Those fixtures select cases where association
+cannot change the expected classification; a reassociation that overflows an
+intermediate is not silently compared as a small finite rounding error.
+
 Generated C is a backend representation and not the safety boundary. Every span
 access, region relationship, conversion and lane operation is verified in the IR
 before anything is emitted, so a rewrite that produced something invalid is a
