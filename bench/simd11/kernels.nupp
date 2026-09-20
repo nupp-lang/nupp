@@ -1,0 +1,111 @@
+local span = require("nupp.mem.span")
+local simd = require("nupp.simd")
+local array = require("nupp.mem.array")
+
+@aot
+local function map(
+    exclusive output: span.WriteSpan<number>,
+    borrows input: span.Span<number>,
+    scale: number,
+    bias: number
+): nil
+    if #output ~= #input then
+        error("length mismatch", 2)
+    end
+    @simd
+    for i = 1, #input do
+        output[i] = input[i] * scale + bias
+    end
+end
+
+@aot
+local function refine(exclusive output: span.WriteSpan<number>, borrows input: span.Span<number>): nil
+    if #output ~= #input then
+        error("length mismatch", 2)
+    end
+    @simd
+    for i = 1, #input do
+        local value = input[i]
+        local rounds = 0
+        while value > 1 and rounds < 32 do
+            value = value * 0.5
+            rounds = rounds + 1
+        end
+        output[i] = value + rounds
+    end
+end
+
+@aot
+local function ordered(borrows left: span.Span<number>, borrows right: span.Span<number>): number
+    if #left ~= #right then
+        error("length mismatch", 2)
+    end
+    local result = simd.reducer.orderedDot(0.0)
+    @simd
+    for i = 1, #left do
+        result:add(left[i], right[i])
+    end
+
+    return result:value()
+end
+
+@aot
+local function pairwise(borrows left: span.Span<number>, borrows right: span.Span<number>): number
+    if #left ~= #right then
+        error("length mismatch", 2)
+    end
+    local result = simd.reducer.pairwiseDot(0.0)
+    @simd
+    for i = 1, #left do
+        result:add(left[i], right[i])
+    end
+
+    return result:value()
+end
+
+@aot
+local function algebraic(borrows left: span.Span<number>, borrows right: span.Span<number>): number
+    if #left ~= #right then
+        error("length mismatch", 2)
+    end
+    local result = simd.reducer.algebraicDot(0.0)
+    @simd
+    for i = 1, #left do
+        result:add(left[i], right[i])
+    end
+
+    return result:value()
+end
+
+@aot
+local function crossLane(exclusive output: span.WriteSpan<int32>, borrows input: span.Span<int32>): nil
+    if #output ~= #input then
+        error("length mismatch", 2)
+    end
+    local s = assert(simd.species(array.int32))
+    local cursor: uint32 = 0
+    while cursor + s.lanes <= #input do
+        local value = s:load(input, cursor + 1):reverse():prefixSumOrdered()
+        s:store(output, cursor + 1, value:compress(value > 0))
+        cursor = cursor + s.lanes
+    end
+    local rest = s:tail(#input - cursor)
+    local value = s:load(input, cursor + 1, rest):reverse():prefixSumOrdered()
+    s:store(output, cursor + 1, value:compress(value > 0), rest)
+end
+
+@aot
+local function crossWidth(): uint32
+    local s = assert(simd.species(array.int32))
+    return s.lanes
+end
+
+return {
+    map = map,
+    refine = refine,
+    ordered = ordered,
+    pairwise = pairwise,
+    algebraic = algebraic,
+    crossLane = crossLane,
+    crossWidth = crossWidth
+}
