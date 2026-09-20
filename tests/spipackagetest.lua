@@ -407,8 +407,7 @@ export = {apply = apply}
     remove(dir)
 end
 
-function M.documentedSpiModulesSelectAnImplementationAndFallBack()
-    local page = read("docs/learn/projects/spi.md")
+local function checkDocumentedSpi(page)
     local files = {
         [
             "nupp.lua"
@@ -424,7 +423,7 @@ return codec.encode == require("example.fastcodec").encode and "provider" or "fa
 ]],
     }
     local moduleCount = 0
-    for language, source in page:gmatch("```([%w]+)\n(.-)\n```") do
+    for language, source in page:gmatch("```([%w]+)\r?\n(.-)\r?\n```") do
         if language == "nupp" then
             local name = assert(source:match("^module ([%w.]+)"), "the guide example needs a module name")
             local suffix = name == "example.codec" and "/init.nupp" or ".nupp"
@@ -449,6 +448,15 @@ return codec.encode == require("example.fastcodec").encode and "provider" or "fa
         write(dir .. "/nupp/spi.json", "{}\n")
     end
     remove(dir)
+end
+
+function M.documentedSpiModulesSelectAnImplementationAndFallBack()
+    checkDocumentedSpi(read("docs/learn/projects/spi.md"))
+end
+
+function M.documentedSpiModulesAcceptWindowsLineEndings()
+    local page = read("docs/learn/projects/spi.md"):gsub("\r\n", "\n"):gsub("\n", "\r\n")
+    checkDocumentedSpi(page)
 end
 
 return M
