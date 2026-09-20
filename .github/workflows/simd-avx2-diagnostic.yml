@@ -1,0 +1,62 @@
+name: SIMD AVX2 diagnostic
+
+on:
+  push:
+    branches:
+      - codex/luajit-everywhere
+
+permissions:
+  contents: read
+
+jobs:
+  base64:
+    name: Linux x64 / ${{ matrix.compiler }} / AVX2 Base64
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [clang, gcc]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/cache@v4
+        with:
+          path: .nupp-cache/toolchain
+          key: >-
+            nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('scripts/toolchain.pins', 'scripts/toolchain') }}
+          restore-keys: |
+            nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-
+      - uses: actions/cache/restore@v4
+        with:
+          path: build/cache
+          key: >-
+            nupp-buildcache-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('src/**', 'nupp.lua', 'scripts/toolchain.pins') }}
+          restore-keys: |
+            nupp-buildcache-${{ runner.os }}-${{ runner.arch }}-
+      - run: ./scripts/toolchain --all
+      - name: Select the native compiler
+        env:
+          NUPP_SIMD_COMPILER_FAMILY: ${{ matrix.compiler }}
+        run: .github/scripts/prepare-simd-compilers.sh
+      - name: Execute the AVX2 Base64 corpus
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./bin/nupp build
+          . ./scripts/luajit.sh
+          select_luajit "$PWD"
+          mkdir -p build/simd-avx2-diagnostic
+          NUPP_NATIVE_CC="$NUPP_SIMD_COMPILERS" \
+            NUPP_SIMD_TIER=avx2 \
+            luajit tests/simd/run-algorithm.lua base64simd \
+              build/simd-avx2-diagnostic
+      - name: Retain the diagnostic
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: simd-avx2-base64-${{ matrix.compiler }}-${{ github.sha }}
+          path: build/simd-avx2-diagnostic/**
+          if-no-files-found: warn
+          retention-days: 7
