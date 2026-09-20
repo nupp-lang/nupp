@@ -4884,6 +4884,132 @@ function gen.generate(
         end
     end
 
+    -- A storage setter cannot occur on Lua's assignment left-hand side. Freeze
+    -- locations first, then let an ordinary local tuple perform Lua's RHS
+    -- adjustment, and commit stores right-to-left (including aliased targets).
+    function pluck.multiIndexedAssignment(statement): boolean
+        local targets, expressions = statement.targets or {}, statement.exprs or {}
+        if #targets == 1 and #expressions == 1 then
+            return false
+        end
+        local needed = false
+        for _, target in ipairs(targets) do
+            if target.indexedAccess or target.indexedField or target.soaRow or target.soaField then
+                needed = true
+            end
+        end
+        if not needed then
+            return false
+        end
+
+        local function temporary(origin, name)
+            return {cst.firstToken(origin), kind = "assignmentTemporary", name = name}
+        end
+
+        local function replace(node, before, after)
+            local copy = {}
+            for key, value in pairs(node) do
+                copy[key] = value == before and after or value
+            end
+
+            return copy
+        end
+
+        local function capture(expression)
+            local name = nextTemp()
+            e("local " .. name .. "=")
+            emit(expression)
+            e(";")
+
+            return temporary(expression, name)
+        end
+
+        local frozen, values = {}, {}
+        e("do ", sourceLine(statement))
+        for index, target in ipairs(targets) do
+            local row = soaFieldTarget(target)
+            if target.kind == "dotIndex" and target.indexedField and target.indexedField.adapter == "span" then
+                local access, name = target.obj, nextTemp()
+                local virtual = emitDepth.view.info(access.obj)
+                local object = virtual and access.obj or capture(access.obj)
+                local key = capture(access.expr)
+                e("local " .. name .. "=")
+                if virtual then
+                    emitDepth.view.spanSlot(object, key, nil, not access.indexedDirectAccess)
+                elseif access.indexedDirectAccess then
+                    emit(object);
+                    e(".pointer[");
+                    emit(object);
+                    e(".offset+");
+                    emit(key);
+                    e("-1]")
+                else
+                    emit(object);
+                    e(":getMut(");
+                    emit(key);
+                    e(")")
+                end
+                e(";")
+                target = replace(target, access, temporary(access, name))
+                target.indexedField = nil
+            elseif row then
+                local object = emitDepth.view.info(row.obj) and row.obj or capture(row.obj)
+                local key = capture(row.expr)
+                local copied = replace(replace(row, row.obj, object), row.expr, key)
+                target = replace(target, row, copied)
+            elseif target.obj then
+                local object = emitDepth.view.info(target.obj) and target.obj or capture(target.obj)
+                target = replace(target, target.obj, object)
+                if target.expr then
+                    local key
+                    if target.kind == "safeBracket" then
+                        local name = nextTemp()
+                        e("local " .. name .. ";if ");
+                        emit(object);
+                        e("~=nil then " .. name .. "=")
+                        emit(target.expr);
+                        e(" end;")
+                        key = temporary(target.expr, name)
+                    else
+                        key = capture(target.expr)
+                    end
+                    target = replace(target, target.expr, key)
+                end
+            end
+            frozen[index] = target
+            values[index] = temporary(statement, nextTemp())
+        end
+        e("local ")
+        for index, value in ipairs(values) do
+            if index > 1 then
+                e(",")
+            end
+            emit(value)
+        end
+        e("=")
+        for index, expression in ipairs(expressions) do
+            if index > 1 then
+                e(",")
+            end
+            emit(expression)
+        end
+        for index = #frozen, 1, -1 do
+            e(";")
+            local target, value = frozen[index], values[index]
+            emit({
+                target,
+                {kind = "assignmentTemporary", name = "="},
+                value,
+                kind = "assignStmt",
+                targets = {target},
+                exprs = {value}
+            })
+        end
+        e(" end")
+
+        return true
+    end
+
     ---------------------------------------------------------------------
     -- The emitter
     ---------------------------------------------------------------------
@@ -4917,6 +5043,10 @@ function gen.generate(
         end
 
         local kind = x.kind
+        if kind == "assignmentTemporary" then
+            e(x.name);
+            return
+        end
         if x.deadScalarLocal and not emitDepth.implicitGlobal(x.names[1].text) then
             return
         end
@@ -5060,6 +5190,9 @@ function gen.generate(
             return
         elseif kind == "statementCleanupStateExpr" then
             e("{}", sourceLine(x))
+            return
+        end
+        if kind == "assignStmt" and pluck.multiIndexedAssignment(x) then
             return
         end
         if pluck.portable
