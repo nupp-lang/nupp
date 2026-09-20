@@ -574,6 +574,12 @@ no vectors, and it raises in a body that runs as ordinary Lua, where
 local eight = assert(simd.species(array.float, 8))
 ```
 
+Integer vector shifts use each element's physical width. `>>` fills with zero,
+`~>>` copies the high bit, and `<<` discards bits above the lane width. Shift
+counts are reduced modulo that width. This matters for narrow storage: shifting
+an `int8` lane uses eight bits, while reading that lane into an ordinary scalar
+first gives an `int32` carrier.
+
 ### Interleave, deinterleave, and transpose
 
 `interleave` alternates the lanes of two vectors and returns both halves.

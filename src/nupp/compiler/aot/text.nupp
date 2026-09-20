@@ -729,6 +729,7 @@ const text.SIMD_OPERATOR = {
     ["xor"] = "~",
     ["shl"] = "<<",
     ["shr"] = ">>",
+    ["sar"] = "~>>",
     ["lt"] = "<",
     ["le"] = "<=",
     ["gt"] = ">",

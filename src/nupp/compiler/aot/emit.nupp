@@ -1250,7 +1250,7 @@ function emit.scalar(context: emit.Context, node: scalarIR.Expr): string
                 for position, argument in ipairs(args) do
                     operands[position] = emit.scalar(context, argument)
                 end
-                local elementC = emit.cType(context, element)
+                local elementC = emit.VECTOR_ELEMENT_C[element]
                 local perLane: {string} = {}
                 for index = 0, lanes - 1 do
                     local parts: {string} = {}
@@ -1327,6 +1327,23 @@ function emit.scalar(context: emit.Context, node: scalarIR.Expr): string
                 -- defines for its lanes rather than only the two that call a
                 -- helper for everything.
                 local named = tostring(simd.intrinsic)
+                if not context.explicitScalar
+                    and not composite
+                    and (named == "shl" or named == "shr" or named == "sar")
+                then
+                    -- Reinterpret signedness without changing lane bits. Counts
+                    -- wrap at the physical element width, including narrow lanes.
+                    local prefix = named == "sar" and "i" or "u"
+                    local vector = "ks_exp_" .. prefix .. tostring(elementBits) .. "x" .. tostring(lanes)
+                    local counts = "ks_exp_u" .. tostring(elementBits) .. "x" .. tostring(lanes)
+                    local left = "((" .. vector .. ")" .. emit.scalar(context, args[1]) .. ")"
+                    local right = "(((" .. counts .. ")" .. emit.scalar(
+                        context,
+                        args[2]
+                    ) .. ") & " .. tostring(elementBits - 1) .. ")"
+                    local operator = named == "shl" and " << " or " >> "
+                    return "((" .. emit.cType(context, simd.type) .. ")(" .. left .. operator .. right .. "))"
+                end
                 local extremum = named:match("_min$") ~= nil or named:match("_max$") ~= nil
                 if context.explicitScalar or composite or extremum then
                     local family = explicitType(context, args[1].type)

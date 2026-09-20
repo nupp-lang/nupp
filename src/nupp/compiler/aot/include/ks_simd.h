@@ -414,14 +414,20 @@ static inline __attribute__((unused)) ks_scalar_exp_##ELEM ks_scalar_exp_field_l
 static inline __attribute__((unused)) void ks_scalar_exp_field_store_##ELEM(void *base, size_t count, size_t first, size_t stride, size_t offset, ks_scalar_exp_##ELEM value, ks_scalar_exp_mask_##ELEM active) { if (first >= count) return; for (uint32_t i = 0u; i < LANES##u; ++i) if (active.lane[i] && i < count - first) memcpy((char *)base + (first + i) * stride + offset, &value.lane[i], sizeof value.lane[i]); } \
 static inline __attribute__((unused)) void ks_scalar_exp_field_store_at_##ELEM(void *base, size_t stride, size_t offset, ks_scalar_exp_##ELEM value) { for (uint32_t i = 0u; i < LANES##u; ++i) memcpy((char *)base + i * stride + offset, &value.lane[i], sizeof value.lane[i]); }
 
+/* Scalar executable semantics for physical-width integer vector shifts. */
+static inline __attribute__((unused)) uint64_t ks_exp_shl_lane(uint64_t value, uint64_t count, uint32_t bits) { return value << (count & (bits - 1u)); }
+static inline __attribute__((unused)) uint64_t ks_exp_shr_lane(uint64_t value, uint64_t count, uint32_t bits) { return (value & (UINT64_MAX >> (64u - bits))) >> (count & (bits - 1u)); }
+static inline __attribute__((unused)) uint64_t ks_exp_sar_lane(uint64_t value, uint64_t count, uint32_t bits) { uint64_t sign = UINT64_C(1) << (bits - 1u); int64_t signed_value = (int64_t)(((value & (UINT64_MAX >> (64u - bits))) ^ sign) - sign); return (uint64_t)(signed_value >> (count & (bits - 1u))); }
+
 /* What an integer element has that a float does not, over the oracle. */
 #define KS_EXP_INT_SCALAR(ELEM, CTYPE, LANES) \
 static inline __attribute__((unused)) ks_scalar_exp_##ELEM ks_scalar_exp_prefix_xor_##ELEM(ks_scalar_exp_##ELEM value) { for (uint32_t i = 1u; i < LANES##u; ++i) value.lane[i] = value.lane[i - 1u] ^ value.lane[i]; return value; } \
 static inline __attribute__((unused)) ks_scalar_exp_##ELEM ks_scalar_exp_and_##ELEM(ks_scalar_exp_##ELEM left, ks_scalar_exp_##ELEM right) { for (uint32_t i = 0u; i < LANES##u; ++i) left.lane[i] = left.lane[i] & right.lane[i]; return left; } \
 static inline __attribute__((unused)) ks_scalar_exp_##ELEM ks_scalar_exp_or_##ELEM(ks_scalar_exp_##ELEM left, ks_scalar_exp_##ELEM right) { for (uint32_t i = 0u; i < LANES##u; ++i) left.lane[i] = left.lane[i] | right.lane[i]; return left; } \
 static inline __attribute__((unused)) ks_scalar_exp_##ELEM ks_scalar_exp_xor_##ELEM(ks_scalar_exp_##ELEM left, ks_scalar_exp_##ELEM right) { for (uint32_t i = 0u; i < LANES##u; ++i) left.lane[i] = left.lane[i] ^ right.lane[i]; return left; } \
-static inline __attribute__((unused)) ks_scalar_exp_##ELEM ks_scalar_exp_shl_##ELEM(ks_scalar_exp_##ELEM left, ks_scalar_exp_##ELEM right) { for (uint32_t i = 0u; i < LANES##u; ++i) left.lane[i] = left.lane[i] << right.lane[i]; return left; } \
-static inline __attribute__((unused)) ks_scalar_exp_##ELEM ks_scalar_exp_shr_##ELEM(ks_scalar_exp_##ELEM left, ks_scalar_exp_##ELEM right) { for (uint32_t i = 0u; i < LANES##u; ++i) left.lane[i] = left.lane[i] >> right.lane[i]; return left; } \
+static inline __attribute__((unused)) ks_scalar_exp_##ELEM ks_scalar_exp_shl_##ELEM(ks_scalar_exp_##ELEM left, ks_scalar_exp_##ELEM right) { for (uint32_t i = 0u; i < LANES##u; ++i) left.lane[i] = (CTYPE)ks_exp_shl_lane((uint64_t)left.lane[i], (uint64_t)right.lane[i], sizeof(CTYPE) * 8u); return left; } \
+static inline __attribute__((unused)) ks_scalar_exp_##ELEM ks_scalar_exp_shr_##ELEM(ks_scalar_exp_##ELEM left, ks_scalar_exp_##ELEM right) { for (uint32_t i = 0u; i < LANES##u; ++i) left.lane[i] = (CTYPE)ks_exp_shr_lane((uint64_t)left.lane[i], (uint64_t)right.lane[i], sizeof(CTYPE) * 8u); return left; } \
+static inline __attribute__((unused)) ks_scalar_exp_##ELEM ks_scalar_exp_sar_##ELEM(ks_scalar_exp_##ELEM left, ks_scalar_exp_##ELEM right) { for (uint32_t i = 0u; i < LANES##u; ++i) left.lane[i] = (CTYPE)ks_exp_sar_lane((uint64_t)left.lane[i], (uint64_t)right.lane[i], sizeof(CTYPE) * 8u); return left; } \
 static inline __attribute__((unused)) ks_scalar_exp_##ELEM ks_scalar_exp_not_##ELEM(ks_scalar_exp_##ELEM value) { for (uint32_t i = 0u; i < LANES##u; ++i) value.lane[i] = ~value.lane[i]; return value; }
 #define KS_EXP_FLOAT_SCALAR(ELEM, CTYPE, LANES)
 
@@ -571,14 +577,32 @@ static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_field_load_at_##ELEM(
 static inline __attribute__((unused)) void ks_exp_field_store_##ELEM(void *base, size_t count, size_t first, size_t stride, size_t offset, ks_exp_##ELEM value, ks_exp_mask_##ELEM active) { if (first >= count) return; uint64_t bits = ks_exp_bits_##ELEM(active); for (uint32_t i = 0u; i < LANES##u; ++i) if (((bits >> i) & UINT64_C(1)) && i < count - first) { CTYPE lane = ks_exp_extract_##ELEM(value, (double)(i + 1u)); memcpy((char *)base + (first + i) * stride + offset, &lane, sizeof lane); } } \
 static inline __attribute__((unused)) void ks_exp_field_store_at_##ELEM(void *base, size_t stride, size_t offset, ks_exp_##ELEM value) { for (uint32_t i = 0u; i < LANES##u; ++i) { CTYPE lane = ks_exp_extract_##ELEM(value, (double)(i + 1u)); memcpy((char *)base + i * stride + offset, &lane, sizeof lane); } }
 
+#define KS_UNSIGNED_int8_t uint8_t
+#define KS_SIGNED_int8_t int8_t
+#define KS_UNSIGNED_uint8_t uint8_t
+#define KS_SIGNED_uint8_t int8_t
+#define KS_UNSIGNED_int16_t uint16_t
+#define KS_SIGNED_int16_t int16_t
+#define KS_UNSIGNED_uint16_t uint16_t
+#define KS_SIGNED_uint16_t int16_t
+#define KS_UNSIGNED_int32_t uint32_t
+#define KS_SIGNED_int32_t int32_t
+#define KS_UNSIGNED_uint32_t uint32_t
+#define KS_SIGNED_uint32_t int32_t
+#define KS_UNSIGNED_int64_t uint64_t
+#define KS_SIGNED_int64_t int64_t
+#define KS_UNSIGNED_uint64_t uint64_t
+#define KS_SIGNED_uint64_t int64_t
+
 /* What an integer fixed species has that a float one does not. */
 #define KS_EXP_FIXED_INT(ELEM, CTYPE, LANES, CHUNKS) \
 static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_prefix_xor_##ELEM(ks_exp_##ELEM value) { for (uint32_t i = 1u; i < LANES##u; ++i) value = ks_exp_insert_##ELEM(value, (double)(i + 1u), ks_exp_extract_##ELEM(value, (double)i) ^ ks_exp_extract_##ELEM(value, (double)(i + 1u))); return value; } \
 static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_and_##ELEM(ks_exp_##ELEM left, ks_exp_##ELEM right) { for (uint32_t c = 0u; c < CHUNKS##u; ++c) left.chunk[c] = left.chunk[c] & right.chunk[c]; return left; } \
 static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_or_##ELEM(ks_exp_##ELEM left, ks_exp_##ELEM right) { for (uint32_t c = 0u; c < CHUNKS##u; ++c) left.chunk[c] = left.chunk[c] | right.chunk[c]; return left; } \
 static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_xor_##ELEM(ks_exp_##ELEM left, ks_exp_##ELEM right) { for (uint32_t c = 0u; c < CHUNKS##u; ++c) left.chunk[c] = left.chunk[c] ^ right.chunk[c]; return left; } \
-static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_shl_##ELEM(ks_exp_##ELEM left, ks_exp_##ELEM right) { for (uint32_t c = 0u; c < CHUNKS##u; ++c) left.chunk[c] = left.chunk[c] << right.chunk[c]; return left; } \
-static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_shr_##ELEM(ks_exp_##ELEM left, ks_exp_##ELEM right) { for (uint32_t c = 0u; c < CHUNKS##u; ++c) left.chunk[c] = left.chunk[c] >> right.chunk[c]; return left; } \
+static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_shl_##ELEM(ks_exp_##ELEM left, ks_exp_##ELEM right) { typedef KS_UNSIGNED_##CTYPE shifted_chunk __attribute__((vector_size(sizeof(left.chunk[0])))); typedef KS_UNSIGNED_##CTYPE count_chunk __attribute__((vector_size(sizeof(left.chunk[0])))); for (uint32_t c = 0u; c < CHUNKS##u; ++c) left.chunk[c] = (__typeof__(left.chunk[c]))(((shifted_chunk)left.chunk[c]) << (((count_chunk)right.chunk[c]) & (sizeof(CTYPE) * 8u - 1u))); return left; } \
+static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_shr_##ELEM(ks_exp_##ELEM left, ks_exp_##ELEM right) { typedef KS_UNSIGNED_##CTYPE shifted_chunk __attribute__((vector_size(sizeof(left.chunk[0])))); typedef KS_UNSIGNED_##CTYPE count_chunk __attribute__((vector_size(sizeof(left.chunk[0])))); for (uint32_t c = 0u; c < CHUNKS##u; ++c) left.chunk[c] = (__typeof__(left.chunk[c]))(((shifted_chunk)left.chunk[c]) >> (((count_chunk)right.chunk[c]) & (sizeof(CTYPE) * 8u - 1u))); return left; } \
+static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_sar_##ELEM(ks_exp_##ELEM left, ks_exp_##ELEM right) { typedef KS_SIGNED_##CTYPE shifted_chunk __attribute__((vector_size(sizeof(left.chunk[0])))); typedef KS_UNSIGNED_##CTYPE count_chunk __attribute__((vector_size(sizeof(left.chunk[0])))); for (uint32_t c = 0u; c < CHUNKS##u; ++c) left.chunk[c] = (__typeof__(left.chunk[c]))(((shifted_chunk)left.chunk[c]) >> (((count_chunk)right.chunk[c]) & (sizeof(CTYPE) * 8u - 1u))); return left; } \
 static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_not_##ELEM(ks_exp_##ELEM value) { for (uint32_t c = 0u; c < CHUNKS##u; ++c) value.chunk[c] = ~value.chunk[c]; return value; }
 #define KS_EXP_FIXED_FLOAT(ELEM, CTYPE, LANES, CHUNKS)
 

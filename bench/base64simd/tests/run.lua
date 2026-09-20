@@ -16,32 +16,11 @@ local simd = require("base64simd")
 local reference = require("base64reference")
 local shipped = require("nupp.codec.base64")
 
--- The public wrapper must reach this build's registered native encoder.
--- An unrelated compiled module does not prove the vector path under test.
-local compiled = assert(rawget(_G, "__nuppAotCompiled"), "no compiled entries were loaded")
--- Ownership helpers may be cached in tables, so following function upvalues
--- alone does not describe the executed call path. Observe that path directly
--- and require the registered entry from this encoder's loaded artifact.
-local artifact = assert(package.searchpath("base64simd", package.path))
-local reached = false
-local jitEnabled = jit.status()
-jit.off()
-debug.sethook(
-    function()
-        local frame = debug.getinfo(2, "fS")
-        if frame and compiled[frame.func] and frame.source == "@" .. artifact then
-            reached = true
-        end
-    end,
-    "c"
-)
-local proof = simd.encode("native proof")
-debug.sethook()
-if jitEnabled then
-    jit.on()
-end
-assert(proof == reference.encode("native proof"))
-assert(reached, "the tested encoder did not call its registered native replacement")
+local proveNative = assert(loadfile("../../tests/simd/nativeproof.lua"))()
+proveNative("base64simd", function()
+    local source = ("native proof"):rep(16)
+    assert(simd.encode(source) == reference.encode(source))
+end)
 
 local checks = 0
 
@@ -114,6 +93,8 @@ for _ = 1, 2000 do
 end
 
 print(("ok - %d base64 differential checks: vector path, scalar reference and nupp.codec.base64 agree"):format(checks))
+
+print("SIMD_CHECKS=" .. checks)
 
 if arg[1] == "--time" then
     local clock = os.clock

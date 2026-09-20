@@ -36,6 +36,7 @@ local targets = require("nupp.compiler.aot.target")
 local text = require("nupp.compiler.aot.text")
 local types = require("nupp.compiler.types")
 local verify = require("nupp.compiler.aot.verify")
+local visit = require("nupp.compiler.aot.visit")
 
 local compile = {}
 
@@ -720,6 +721,42 @@ end
 --- @return the refusals when a required loop produced no vector code, which
 ---   fails the build; nothing when every required loop did
 function compile.lanes(program: scalarIR.Program, filename: string, selected: targets.Target): {compile.Diagnostic}?
+    -- Preferred resolves only once the program's actual width is selected.
+    -- Required loops use the region width; ordinary explicit code uses the
+    -- preferred width, which can be narrower than the target's register ceiling.
+    local resolvedWidth = program.simdRequired == true and targets.simdRegionWidth(selected)
+        or targets.simdWidth(selected)
+    local indexRefusals: {compile.Diagnostic} = {}
+    if program.usesSimd == true then
+        visit.program(
+            program,
+            new visit.Visitor(scalarExpression = function(node: scalarIR.Expr): nil
+                if node.op == "simd_extract" or node.op == "simd_insert" then
+                    local operation = node as scalarIR.Simd
+                    local element = operation.args[1].type:match("^simd_vector_([fiu]%d+)_preferred$")
+                    local index = operation.args[2]
+                    if element ~= nil and index.op == "constant" then
+                        local bits = tonumber((element as string):match("%d+")) or 0
+                        local lane = tonumber((index as scalarIR.Constant).value) or 0
+                        if bits > 0 and lane > math.floor(resolvedWidth * 8 / bits) then
+                            local at = node.source
+                            indexRefusals[
+                                #indexRefusals + 1
+                            ] = new compile.Diagnostic(
+                                file = filename,
+                                line = at ~= nil and (at as scalarIR.Source).line or 1,
+                                column = at ~= nil and (at as scalarIR.Source).column or 1,
+                                message = "SIMD lane index exceeds the logical species lanes for the selected tier"
+                            )
+                        end
+                    end
+                end
+            end)
+        )
+    end
+    if #indexRefusals > 0 then
+        return indexRefusals
+    end
     if program.usesSimd == true then
         program.simdWidth = targets.simdWidth(selected)
         program.vectorCeiling = targets.vectorCeiling(selected)

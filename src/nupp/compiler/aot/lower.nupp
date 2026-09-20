@@ -1774,7 +1774,7 @@ local function binary(node: cst.Binop, left: scalarIR.Expr, right: scalarIR.Expr
         end
         right = simdOperand(right, left.type, source, kernel)
         local arithmeticOps = {['+'] = "add", ['-'] = "sub", ['*'] = "mul", ['/'] = "div"}
-        local bitOps = {['&'] = "and", ['|'] = "or", ['~'] = "xor", ['<<'] = "shl", ['>>'] = "shr"}
+        local bitOps = {['&'] = "and", ['|'] = "or", ['~'] = "xor", ['<<'] = "shl", ['>>'] = "shr", ['~>>'] = "sar"}
         local comparisonOps = {['<'] = "lt", ['<='] = "le", ['>'] = "gt", ['>='] = "ge", ['=='] = "eq", ['~='] = "ne",}
         local intrinsic = arithmeticOps[written] or bitOps[written] or comparisonOps[written]
         if intrinsic == nil then
@@ -3683,6 +3683,10 @@ local function simdMethod(
             if constantLane == nil or constantLane < 1 or constantLane % 1 ~= 0 then
                 kernel.context.reject(source, "SIMD lane extraction needs a positive compile-time lane index")
             end
+            local fixedLanes = tonumber(tostring(genericShape):match("^fixed(%d+)$"))
+            if fixedLanes ~= nil and (constantLane as number) > fixedLanes then
+                kernel.context.reject(source, "SIMD lane extraction index exceeds the logical species lanes")
+            end
             return new scalarIR.Simd(
                 op = "simd_extract",
                 args = {receiver as scalarIR.Expr, laneIndex},
@@ -3700,6 +3704,10 @@ local function simdMethod(
             local constantLane = laneIndex.op == "constant" and tonumber((laneIndex as scalarIR.Constant).value) or nil
             if constantLane == nil or constantLane < 1 or constantLane % 1 ~= 0 then
                 kernel.context.reject(source, "SIMD lane insertion needs a positive compile-time lane index")
+            end
+            local fixedLanes = tonumber(tostring(genericShape):match("^fixed(%d+)$"))
+            if fixedLanes ~= nil and (constantLane as number) > fixedLanes then
+                kernel.context.reject(source, "SIMD lane insertion index exceeds the logical species lanes")
             end
             return new scalarIR.Simd(
                 op = "simd_insert",

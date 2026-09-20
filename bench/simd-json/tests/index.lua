@@ -32,6 +32,15 @@ local function indexed(source, capacity)
     return positions, tonumber(status), tonumber(position)
 end
 
+local proveNative = assert(loadfile("../../tests/simd/nativeproof.lua"))()
+proveNative("simd_json.indexer", function()
+    local input = '{"proof":[1,true,"\\u1234"],"unicode":"é"}'
+    local actual, status, position = indexed(input, #input)
+    local expected, expectedStatus, expectedPosition = reference.index(input, #input)
+    assert(status == expectedStatus and position == expectedPosition)
+    assert(table.concat(actual, ",") == table.concat(expected, ","))
+end)
+
 local function describe(source)
     return (source:gsub("[^%w%p ]", function(c)
         return ("\\%03d"):format(c:byte())
@@ -52,11 +61,25 @@ local function agree(source, capacity, what)
         end
     end
     if not same then
-        error(("vector indexer disagrees on %s (%d bytes, capacity %d): %s\n  got  status %d at %d, %d offsets: %s\n  want status %d at %d, %d offsets: %s"):format(
-            what, #source, capacity, describe(source),
-            gotStatus, gotPosition, #gotTape, table.concat(gotTape, ","),
-            wantStatus, wantPosition, #wantTape, table.concat(wantTape, ",")
-        ), 0)
+        error(
+            (
+                "vector indexer disagrees on %s (%d bytes, capacity %d): %s\n  got  status %d at %d, %d offsets: %s\n  want status %d at %d, %d offsets: %s"
+            ):format(
+                what,
+                #source,
+                capacity,
+                describe(source),
+                gotStatus,
+                gotPosition,
+                #gotTape,
+                table.concat(gotTape, ","),
+                wantStatus,
+                wantPosition,
+                #wantTape,
+                table.concat(wantTape, ",")
+            ),
+            0
+        )
     end
     checks = checks + 1
     if #wantTape > 0 and capacity == #source then
@@ -73,8 +96,16 @@ local SPAN = 70
 for position = 0, SPAN - 1 do
     for byte = 0, 255 do
         local c = string.char(byte)
-        agree((" "):rep(position) .. c .. (" "):rep(SPAN - 1 - position), nil, ("byte %d at %d outside a string"):format(byte, position))
-        agree('"' .. ("a"):rep(position) .. c .. ("a"):rep(SPAN - 1 - position) .. '"', nil, ("byte %d at %d inside a string"):format(byte, position))
+        agree(
+            (" "):rep(position) .. c .. (" "):rep(SPAN - 1 - position),
+            nil,
+            ("byte %d at %d outside a string"):format(byte, position)
+        )
+        agree(
+            '"' .. ("a"):rep(position) .. c .. ("a"):rep(SPAN - 1 - position) .. '"',
+            nil,
+            ("byte %d at %d inside a string"):format(byte, position)
+        )
     end
 end
 
@@ -82,9 +113,21 @@ end
 for position = 0, SPAN - 1 do
     for run = 1, 4 do
         local slashes = ("\\"):rep(run)
-        agree('"' .. ("a"):rep(position) .. slashes .. '"' .. ("b"):rep(3) .. '"', nil, ("%d backslashes at %d inside a string"):format(run, position))
-        agree((" "):rep(position) .. slashes .. '"', nil, ("%d backslashes at %d outside a string"):format(run, position))
-        agree('"' .. ("a"):rep(position) .. slashes .. 'x"', nil, ("%d backslashes then a letter at %d"):format(run, position))
+        agree(
+            '"' .. ("a"):rep(position) .. slashes .. '"' .. ("b"):rep(3) .. '"',
+            nil,
+            ("%d backslashes at %d inside a string"):format(run, position)
+        )
+        agree(
+            (" "):rep(position) .. slashes .. '"',
+            nil,
+            ("%d backslashes at %d outside a string"):format(run, position)
+        )
+        agree(
+            '"' .. ("a"):rep(position) .. slashes .. 'x"',
+            nil,
+            ("%d backslashes then a letter at %d"):format(run, position)
+        )
     end
 end
 
@@ -114,8 +157,10 @@ local function utf8Cases(position)
     end
     cases[#cases + 1] = {pad .. "\128", "a stray continuation"}
     cases[#cases + 1] = {pad .. "\191\128", "two stray continuations"}
+
     return cases
 end
+
 for position = 0, SPAN - 1 do
     for _, case in ipairs(utf8Cases(position)) do
         agree(case[1], nil, case[2] .. " at " .. position)
@@ -152,9 +197,40 @@ end
 -- Random documents over an alphabet heavy in event bytes.
 math.randomseed(20260917)
 local alphabet = {
-    '"', '"', '"', "\\", "\\", "{", "}", "[", "]", ":", ",", " ", "\n", "\t", "a", "b", "1",
-    "\1", "\127", "\128", "\191", "\192", "\194", "\223", "\224", "\237", "\239", "\240", "\244", "\245", "\255",
-    "é", "日", "😀",
+    '"',
+    '"',
+    '"',
+    "\\",
+    "\\",
+    "{",
+    "}",
+    "[",
+    "]",
+    ":",
+    ",",
+    " ",
+    "\n",
+    "\t",
+    "a",
+    "b",
+    "1",
+    "\1",
+    "\127",
+    "\128",
+    "\191",
+    "\192",
+    "\194",
+    "\223",
+    "\224",
+    "\237",
+    "\239",
+    "\240",
+    "\244",
+    "\245",
+    "\255",
+    "é",
+    "日",
+    "😀",
 }
 for _ = 1, 3000 do
     local parts = {}
@@ -166,8 +242,11 @@ end
 
 print(("ok - %d structural index differential checks: vector path and byte-at-a-time reference agree"):format(checks))
 
+print("SIMD_CHECKS=" .. checks)
+
 if arg[1] == "--time" then
     local clock = os.clock
+
     local function measure(fn, seconds)
         local runs = 0
         local started = clock()
@@ -175,8 +254,10 @@ if arg[1] == "--time" then
             fn()
             runs = runs + 1
         until clock() - started >= seconds
+
         return (clock() - started) / runs
     end
+
     print("")
     print(("%10s %12s %12s"):format("bytes", "nupp-simd", "reference"))
     local record = '{"id":12345,"name":"user name","active":true,"tags":["one","two","three"],"score":98.6}'
@@ -185,12 +266,18 @@ if arg[1] == "--time" then
         local storage = ffi.new("uint32_t[?]", size)
         local input = span.fromString(source)
         local writable = span.writeCarray(storage, size)
-        local vec = measure(function()
-            indexer.index(input, writable)
-        end, 0.5) / size * 1e9
-        local ref = measure(function()
-            reference.index(source, size)
-        end, 0.5) / size * 1e9
+        local vec = measure(
+            function()
+                indexer.index(input, writable)
+            end,
+            0.5
+        ) / size * 1e9
+        local ref = measure(
+            function()
+                reference.index(source, size)
+            end,
+            0.5
+        ) / size * 1e9
         writable:drop()
         print(("%10d %9.3f ns/B %9.3f ns/B"):format(size, vec, ref))
     end
