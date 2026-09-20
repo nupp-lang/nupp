@@ -144,7 +144,9 @@ simpleexp      = Numeral
 ; following expression leaves the required `do` at the cursor. [CS-25]
 simpleexp      =/ switchexp / doexp
 switchexp      = %s"switch" exp "do" *switchcase [switchelse] "end"
-switchcase     = %s"case" (staticpattern / typepattern) "->" switchresult
+switchcase     = %s"case" (staticpattern / typepattern) [caseguard]
+                 "->" switchresult
+caseguard      = %s"where" exp                   ; contextual [CS-25]
 switchelse     = "else" "->" switchresult
 staticpattern  = staticvalue *("," staticvalue)
 staticvalue    = ["-"] Numeral / LiteralString / "nil" / "true" / "false"
@@ -721,7 +723,14 @@ packunion      = typepack 1*("|" typepack)
 ;   finite scalar literals, parentheses, optional numeric minus, or a Name whose
 ;   checked type is one exact scalar. Type cases use the same runtime-testable
 ;   types as `is`; `as` binds the narrowed whole value and braces bind direct
-;   fields. `yield exp` supplies the nearest do expression's result, including
+;   fields. `where` after a pattern is contextual and introduces a guard the arm
+;   must also satisfy; it is spelled `where` rather than `and` because case
+;   values are read by the ordinary expression parser, which would fold `and`
+;   into the pattern. The guard's own arrow is suppressed so a bare Name in
+;   front of `->` reads as the guard rather than a short function's parameter,
+;   and restored inside brackets, where a lambda is still a lambda. A guarded
+;   arm is excluded from exhaustiveness and never makes a later arm
+;   unreachable. `yield exp` supplies the nearest do expression's result, including
 ;   inside its nested statement blocks but never across a function boundary, only
 ;   when the operand starts on the same line, and not when it starts with `(`,
 ;   `{`, or LiteralString. Those three forms remain ordinary Lua call sugar.

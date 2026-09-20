@@ -273,6 +273,11 @@ elseif kind == __nuppSwitchNil2 then kind = nil end
 
 Maps are allocated once per module.
 
+A [guarded case](../language/switch-expressions.md#guarded-cases) forfeits every
+map plan. A map answers from the key alone, so it has nowhere to put a predicate
+and no way to reach the next arm after one declines; a switch with any `where`
+guard is always lowered to ordered branches that jump to a shared exit label.
+
 AOT can emit a native C `switch` for exact-width selectors. See [scalar switches
 and do
 blocks](ahead-of-time/numeric-semantics.md#scalar-switch-expressions-and-do-blocks).

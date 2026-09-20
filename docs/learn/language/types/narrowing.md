@@ -280,6 +280,12 @@ introduces const locals for direct fields; those names exist only in that arm.
 The original selector remains narrowed too. Type cases are ordered, so a broad
 case before a narrower one can make the latter unreachable.
 
+A [`where` guard](../switch-expressions.md#guarded-cases) is checked in the
+arm's own scope, so its predicate already sees the narrowed selector and the
+bindings the pattern introduced. A guarded arm subtracts nothing from the
+residue, because it may decline a value it matched; the arms after it are
+checked against the same type they would have seen had it not been written.
+
 See [switch
 expressions](../switch-expressions.md#type-cases-binding-and-destructuring)
 for runtime-testable types and block arms.

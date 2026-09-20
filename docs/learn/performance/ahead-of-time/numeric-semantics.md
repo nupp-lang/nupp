@@ -277,7 +277,11 @@ initializers, assignments, arguments, return values, and loop conditions, when:
 - every case is a static primitive value;
 - each completing arm produces an admitted scalar value; and
 - the checker has proved the switch exhaustive, either from its cases or an
-  `else` arm.
+  `else` arm; and
+- no case carries a
+  [`where` guard](../../language/switch-expressions.md#guarded-cases), which
+  the native lowering refuses outright rather than commit to an arm whose
+  predicate it never evaluated.
 
 ```nupp
 local span = nupp.mem.span

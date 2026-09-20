@@ -190,6 +190,60 @@ reported as unreachable. See
 [narrowing.md](types/narrowing.md#switch-arm-narrowing) for the facts
 an arm may rely on.
 
+## Guarded cases
+
+`where predicate` narrows an arm with a condition its pattern cannot state. The
+arm runs only when its pattern matches and the guard holds; when the guard is
+false the value falls through to the arms below it. The guard is checked in the
+arm's own scope, so it reads the bindings a type case introduced and sees the
+selector already narrowed by the pattern:
+
+::: code-group
+```nupp [Nupp]
+local reading = switch sample do
+    case is Measurement as m where m.celsius > 100 -> "boiling"
+    case is Measurement as m -> `${m.celsius} degrees`
+    else -> "no sample"
+end
+```
+
+```lua [Generated Lua]
+local __nuppT1 = sample
+local __nuppT2
+if (getmetatable(__nuppT1)?.__index == Measurement) then
+    local m = __nuppT1
+    if m.celsius > 100 then __nuppT2 = "boiling" goto __nuppS1 end
+end
+if (getmetatable(__nuppT1)?.__index == Measurement) then
+    local m = __nuppT1
+    __nuppT2 = (tostring(m.celsius) .. " degrees")
+    goto __nuppS1
+end
+do __nuppT2 = "no sample" end
+::__nuppS1::
+local reading = __nuppT2
+```
+:::
+
+The word is `where` rather than `and` because case values are read as ordinary
+expressions, and `and` is an expression operator: `case "foo" and ready -> ...`
+would parse as the single value `"foo" and ready` and quietly match the operand
+to its right. `where` cannot continue an expression, so it ends the pattern
+unambiguously.
+
+A guarded arm is lowered to an ordered branch that jumps out of the taken arm to
+a shared label, which is why the chain above is separate `if` statements rather
+than one `if`/`elseif`: an arm that declines its guard has to reach the next
+test, and jumping rather than wrapping the arms in a loop is what keeps an arm's
+own `break` bound to the loop around the switch.
+
+Guards cost the map plans. A dense integer, sparse integer, or string switch
+answers from the key alone and has nowhere to put a predicate, so a switch with
+any guarded arm is always lowered to ordered branches. See
+[performance.md](../performance/index.md#switch-dispatch) for the plans a switch
+chooses between. Native `@aot` switches refuse a guard outright rather than
+commit to an arm whose predicate they cannot evaluate.
+
 ## Expression and block arms
 
 An expression arm produces its expression directly:
@@ -331,6 +385,12 @@ local area = __nuppT4
 ```
 :::
 
+A guarded arm proves nothing about coverage, because it may decline any value it
+matches. It subtracts nothing from the residue the remaining arms must handle,
+so a switch whose only arm for a value is guarded still needs `else`, and a
+guarded arm never makes a later arm unreachable. A value repeated after an
+*unguarded* arm is still a duplicate, since that arm did consume it.
+
 An open selector such as `string`, `integer`, or `any` requires `else` unless
 the arms already cover its type. A missing alternative is reported, and so is a
 value outside the selector type, a case after the remaining type is empty, or an
@@ -443,9 +503,10 @@ is the cost of having the shape carry meaning.
 
 ### Can a case carry a guard condition?
 
-No. A case is a static scalar or a type test, and a condition that depends on
-anything beyond the selector belongs in the arm body or in an `if`. See [Static
-cases](#static-cases) for the values a case accepts.
+Yes, written `case V where predicate`. The pattern itself stays a static scalar
+or a type test, and the guard is the condition that pattern cannot state. A
+guarded arm proves nothing about coverage, so the switch still needs whatever
+`else` it needed without the guard. See [Guarded cases](#guarded-cases).
 
 ### Does an arm allocate a closure?
 
