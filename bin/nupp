@@ -20,6 +20,17 @@ STAMP="$ROOT/build/.nupp-complete"
 LUA_BUILT="$LUA_ROOT/build/nupp/compiler/main.lua"
 LUAPATH="package.path=\"$LUA_ROOT/build/?.lua;\" .. package.path"
 
+# Worked out once per process tree. The check is a `test` in a provisioned
+# checkout and costs a `git rev-parse` only where there is no tree to find,
+# but the suites run this launcher thousands of times and an answer that
+# cannot change should be reached for once.
+if [ "${NUPP_LAUNCHER_ROCKS_ROOT:-}" != "$ROOT" ]; then
+    . "$ROOT/scripts/rocks.sh"
+    link_development_rocks "$ROOT"
+    NUPP_LAUNCHER_ROCKS_ROOT=$ROOT
+    export NUPP_LAUNCHER_ROCKS_ROOT
+fi
+
 # The project's own rock tree, written by a build that declares a luarocks
 # dependency -- `nupp build --target bootstrapCompiler` and `--target docs`
 # between them install every rock this repository develops against. Exported

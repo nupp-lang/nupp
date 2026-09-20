@@ -6,6 +6,10 @@ LUA_ROOT="$ROOT"
 case "$(uname -s 2>/dev/null)" in
     MINGW*|MSYS*|CYGWIN*) LUA_ROOT="$(cygpath -m "$ROOT")" ;;
 esac
+# `tests/run` is started directly as well as through `bin/nupp`, so it links
+# the tree itself rather than relying on a launcher having run first.
+. "$ROOT/scripts/rocks.sh"
+link_development_rocks "$ROOT"
 ROCKS="$ROOT/.rocks"
 LUA_ROCKS="$LUA_ROOT/.rocks"
 LUA_PATH="$LUA_ROCKS/share/lua/5.1/?.lua;$LUA_ROCKS/share/lua/5.1/?/init.lua;${LUA_PATH:-;}"

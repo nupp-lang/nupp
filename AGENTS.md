@@ -59,14 +59,22 @@ modules. Two builds write it, which is what CI runs:
 LuaRocks itself comes from `scripts/toolchain luarocks` and `bin/nupp` finds it
 there, so nothing has to be installed on the machine first.
 
-A worktree made by the helper below links the originating checkout's tree
-instead of building its own, so provision the checkout rather than the worktree.
+A worktree never builds its own: `bin/nupp` and `tests/run` link the
+originating checkout's tree on first use, whether the worktree came from the
+helper below or from a bare `git worktree add`. So provision the checkout, and
+a worktree is provisioned by the same act. An existing `.rocks` is never
+replaced, a link that is dangling included.
+
+That leaves one case where the twenty-eight suites still fail as missing
+modules: a main checkout nobody has run the two builds in. It is the case the
+builds above answer, and linking is deliberately declined there rather than
+reaching for whatever a parent directory holds.
 
 ### Worktree setup
 
-Use the repository helper so a new worktree links the ignored `.rocks`
-dependencies, seeds the content-validated compiler cache and test timings, and
-reuses the repository-wide toolchain cache:
+Use the repository helper so a new worktree seeds the content-validated
+compiler cache and test timings, reuses the repository-wide toolchain cache,
+and turns the formatting hook on:
 
 ```sh
 ./scripts/worktree example-task /private/tmp/nupp-example-task main
