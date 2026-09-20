@@ -3897,7 +3897,9 @@ end
 
 function M.manifestValidatesReloadComponents()
     local valid = tempProject({
-        ["nupp.lua"] = [[
+        [
+            "nupp.lua"
+        ] = [[
 return {build = {kind = "component", entries = {"main"}, exports = {"main.run"}, reload = true}}
 ]]
     })
