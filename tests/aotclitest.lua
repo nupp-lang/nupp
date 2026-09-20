@@ -3012,6 +3012,66 @@ return {ordered = ordered, pairwise = pairwise, algebraic = algebraic}
     assert(fused > 0, "algebraicDot did not contract, which is the one place it may:\n" .. asm)
 end
 
+function M.reductionOrdersRetainTheirAssemblyDependencyShapes()
+    local chain = require("nupp.compiler.build.aot").toolchain()
+    local host = require("nupp.compiler.aot.target").hostTriple()
+    if chain == nil or (chain.dialect ~= "clang" and host ~= "aarch64-apple-darwin") then
+        test.skip("reading NEON reduction instructions needs Clang or an aarch64 host")
+        return
+    end
+    local source = [[
+local array = require("nupp.mem.array")
+local span = require("nupp.mem.span")
+local simd = require("nupp.simd")
+@aot
+local function ordered(borrows input: span.Span<number>): number
+    local species = assert(simd.species(array.number, 8))
+    return simd.horizontal.orderedSum(species:load(input, 1))
+end
+@aot
+local function pairwise(borrows input: span.Span<number>): number
+    local species = assert(simd.species(array.number, 8))
+    return simd.horizontal.pairwiseSum(species:load(input, 1))
+end
+@aot
+local function algebraic(borrows input: span.Span<number>, seed: number): number
+    local fold = simd.reducer.algebraicSum(seed)
+    @simd
+    for i = 1, #input do fold:add(input[i]) end
+    return fold:value()
+end
+return {ordered = ordered, pairwise = pairwise, algebraic = algebraic}
+]]
+    local dir = project{["orders.nupp"] = source}
+    local out, code = run(dir, "--target aarch64-apple-darwin --features neon --json --emit asm orders.nupp")
+    test.equal(code, 0, out)
+    local report = require("testjson").decode(out)
+    local listings = {}
+    for _, listing in ipairs(report.asm.functions) do listings[listing.symbol] = listing end
+    local function additions(name)
+        local listing = assert(listings["ks_" .. name], "missing kernel " .. name)
+        local scalar = assert(listings["ks_" .. name .. "_forced_scalar"], "missing independent scalar-source artifact")
+        test.equal(listing.role, "kernel")
+        test.equal(scalar.role, "oracle")
+        local count, packed = 0, 0
+        for _, instruction in ipairs(listing.instructions) do
+            assert(not instruction.mnemonic:match("^fmadd") and not instruction.mnemonic:match("^fmla"),
+                name .. " sum contracted a multiply-add: " .. instruction.text)
+            if instruction.mnemonic:match("^fadd") then
+                count = count + 1
+                if instruction.text:find(".2d", 1, true) then packed = packed + 1 end
+            end
+        end
+        return count, packed
+    end
+    local ordered = additions("ordered")
+    local pairwise = additions("pairwise")
+    assert(ordered >= 7, "ordered sum lost its eight-lane addition chain: " .. out)
+    assert(pairwise > 0 and pairwise < ordered, "pairwise tree did not group independent adjacent pairs: " .. out)
+    local _, packed = additions("algebraic")
+    assert(packed > 0, "algebraic loop did not retain independent lane accumulators: " .. out)
+end
+
 function M.bitwiseOperatorsKeepASixtyFourBitOperandAtItsWidth()
     local source = [[
 @aot

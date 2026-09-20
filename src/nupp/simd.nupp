@@ -166,24 +166,22 @@ record reducer.PairwiseSum
 
     function value(self): number
         local result: number? = nil
-        -- The partials table has holes, so its length is not the top level;
-        -- the count's bit width is.
-        local level: integer = 0
+        -- The trailing partial is carried into the next larger left subtree.
+        -- Folding largest-first would change the adjacent-pair tree whenever
+        -- three or more partial levels remain occupied.
+        local level: integer = 1
         local remaining = self.count
         while remaining > 0 do
-            remaining = (remaining // 2) as integer
-            level = level + 1
-        end
-        while level >= 1 do
             local partial = self.partials[level]
             if partial ~= nil then
                 if result == nil then
                     result = partial
                 else
-                    result = (result as number) + partial
+                    result = partial + (result as number)
                 end
             end
-            level = level - 1
+            level = level + 1
+            remaining = (remaining // 2) as integer
         end
 
         return result as number
@@ -311,24 +309,22 @@ record reducer.PairwiseProduct
 
     function value(self): number
         local result: number? = nil
-        -- The partials table has holes, so its length is not the top level;
-        -- the count's bit width is.
-        local level: integer = 0
+        -- The trailing partial is carried into the next larger left subtree.
+        -- Folding largest-first would change the adjacent-pair tree whenever
+        -- three or more partial levels remain occupied.
+        local level: integer = 1
         local remaining = self.count
         while remaining > 0 do
-            remaining = (remaining // 2) as integer
-            level = level + 1
-        end
-        while level >= 1 do
             local partial = self.partials[level]
             if partial ~= nil then
                 if result == nil then
                     result = partial
                 else
-                    result = (result as number) * partial
+                    result = partial * (result as number)
                 end
             end
-            level = level - 1
+            level = level + 1
+            remaining = (remaining // 2) as integer
         end
 
         return result as number

@@ -214,6 +214,29 @@ function M.mapBoundsAndLengthClaimsAreReprovedFromRelations()
     refuses(program, "an IR guard the relations do not prove")
 end
 
+function M.aGuardedBlockCannotKeepCrossSpanLoadsWithoutItsRelations()
+    local program = lowered([[
+local span = require("nupp.mem.span")
+local simd = require("nupp.simd")
+@aot
+local function orderedDot(borrows left: span.Span<number>, borrows right: span.Span<number>): number
+    assert(#left == #right, "length mismatch")
+    local fold = simd.reducer.orderedDot(0.0)
+    @simd
+    for i = 1, #left do
+        fold:add(left[i], right[i])
+    end
+    return fold:value()
+end
+return {orderedDot = orderedDot}
+]], "guarded-dot.nupp")
+    verify.program(program)
+    assert(#program.relations > 0, "the entry guard contributes span-length relations")
+    program.relations = {}
+    program.guards = {}
+    refuses(program, "unbounded load index")
+end
+
 function M.gpuRelationsAreReverifiedAsSpanFacts()
     local source = [[
 local span = require("nupp.mem.span")
@@ -998,6 +1021,42 @@ function M.aMaskedContributionBelongsToTheRegionAccumulatingItsReducer()
     contribution.order = "pairwise"
     refuses(program, "SIMD reducer contribution does not match its region's reducer")
     contribution.order = order
+    verify.program(program)
+end
+
+function M.reducerRegionsRecheckSpeciesMasksArityAndNesting()
+    local program = lowered(REGION, "damaged-reducer-region.nupp")
+    local region = assert(find(program.body, function(s) return s.op == "simd_region" end))
+    local contribution = assert(find(region.body, function(s) return s.op == "simd_reducer_add" end))
+    local entry = region.reducers[1]
+    local function changed(object, key, value, reason)
+        local saved = object[key]
+        object[key] = value
+        refuses(program, reason)
+        object[key] = saved
+        verify.program(program)
+    end
+    changed(entry, "order", "invented", "a SIMD region's reducer does not match its binding")
+    changed(entry, "element", "u32", "a SIMD region's reducer does not match its binding")
+    changed(entry, "vectorType", "simd_mask_f64_fixed4", "a SIMD region's reducer takes no vector contribution")
+    changed(entry, "vectorType", "simd_vector_f32_fixed4", "a SIMD region's reducer takes no vector contribution")
+    changed(contribution.reducer, "type", "simd_reducer_pairwise_sum", "SIMD reducer contribution does not match")
+    changed(contribution.value, "type", "simd_vector_f64_fixed8", "SIMD reducer contribution operands do not match")
+    changed(contribution.mask, "type", "simd_mask_f64_fixed8", "SIMD reducer contribution operands do not match")
+    changed(contribution.mask, "type", "simd_vector_f64_fixed4", "SIMD reducer contribution operands do not match")
+    changed(contribution, "right", contribution.value, "SIMD reducer contribution operands do not match")
+    region.reducers[2] = entry
+    refuses(program, "a SIMD region names a reducer twice or not in scope")
+    region.reducers[2] = nil
+    table.insert(region.body, 1, {op = "simd_region", reducers = {}, body = {}})
+    refuses(program, "a SIMD region inside another")
+    table.remove(region.body, 1)
+    verify.program(program)
+    local result = assert(findExpr(program.body, function(node) return node.op == "reducer_value" end))
+    changed(result, "order", "invented", "invalid reducer finalization")
+    table.insert(region.body, 1, {op = "let", name = "$premature", type = result.type, value = result})
+    refuses(program, "reducer finalized inside the region accumulating it")
+    table.remove(region.body, 1)
     verify.program(program)
 end
 

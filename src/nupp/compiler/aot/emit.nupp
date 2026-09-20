@@ -3457,6 +3457,11 @@ function emit.block(
                             parallel[#parallel + 1] = reducer
                             local accType = simdAccumulatorType(reducer.order, reducer.element, reducer.vectorType)
                             local accSpecies = genericSpecies(context, accType)
+                            -- Under nearest-even, -0 is the additive identity
+                            -- that preserves both zero signs. +0 would change
+                            -- an empty reducer's -0 seed during finalization.
+                            local identity = reducer.order == "algebraic" and reducer.operation ~= "product" and "-0.0"
+                                or reducers.identity(reducer.operation)
                             lines[
                                 #lines + 1
                             ] = prefix .. "    " .. emit.cType(
@@ -3473,7 +3478,7 @@ function emit.block(
                                 .. emit.cType(
                                     context,
                                     accSpecies.element
-                                ) .. ")" .. reducers.identity(reducer.operation) .. ");"
+                                ) .. ")" .. identity .. ");"
                         end
                     end
                 end

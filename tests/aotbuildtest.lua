@@ -1141,6 +1141,17 @@ local function tieredC(dir, tier, stem)
     return dir .. "/build/native/aot/src/" .. (stem or "kernel") .. "." .. tier .. ".c"
 end
 
+-- Discover the build-qualified entry from the actual translation unit rather
+-- than duplicating the build's module identity calculation in the test.
+local function emittedSymbol(c, logical, tier)
+    local suffix = logical:gsub("^ks_", "") .. "__" .. tier
+    local symbol = assert(
+        c:match("KS_API%s+[%w_%*]+%s+(ks_[0-9a-f]+_" .. suffix .. ")%s*%("),
+        "missing qualified native entry " .. suffix
+    )
+    return symbol
+end
+
 local function firstHostTier()
     return buildTiers(nil, nil)[1].tier
 end
@@ -1380,15 +1391,16 @@ function M.emitCWritesTheCBesideTheBuild()
     local c = read(tieredC(dir, tier))
     assert(c, "the C was written where the build is writing")
     assert(
-        c:find("void ks_scale__" .. tier .. "(", 1, true),
+        c:find("void " .. emittedSymbol(c, "ks_scale", tier) .. "(", 1, true),
         "and it defines the tiered exported symbol: " .. c:sub(1, 200)
     )
     assert(
-        c:find("void ks_scale_forced_scalar__" .. tier .. "(", 1, true),
+        c:find("void " .. emittedSymbol(c, "ks_scale_forced_scalar", tier) .. "(", 1, true),
         "beside the oracle the lane body is diffed against"
     )
+    local sum = emittedSymbol(c, "ks_sum_bytes", tier)
     assert(
-        c:find("KsResult_ks_sum_bytes ks_sum_bytes__" .. tier .. "(", 1, true),
+        c:find("KsResult_" .. sum:gsub("__" .. tier .. "$", "") .. " " .. sum .. "(", 1, true),
         "a block kernel keeps its scalar result pack in the native ABI"
     )
     assert(
@@ -1411,7 +1423,7 @@ function M.constGenericEmitCOmitsTheCarrierAndUnrollsTheBody()
     local out, code = build(dir)
     test.equal(code, 0, out)
     local c = assert(read(tieredC(dir, firstHostTier(), "constkernel")))
-    assert(c:find("ks___nupp_const_doubled_", 1, true), "the canonical private key reaches the native symbol")
+    assert(c:match("ks_[0-9a-f]+___nupp_const_doubled_"), "the canonical private key reaches the native symbol")
     assert(not c:find("p_count", 1, true), "the const carrier is absent from the private native ABI")
     assert(
         c:find("answer = answer *", 1, true) or c:find("answer * 2", 1, true),
@@ -1486,12 +1498,12 @@ function M.constGenericSelectsValueStreamModePerVariant()
     )
     local c = assert(read(tieredC(dir, firstHostTier(), "constkernel")))
     local bodies = {}
-    for suffix in c:gmatch("static int ks___nupp_const_build_([0-9a-f]+)_lua") do
-        bodies[#bodies + 1] = suffix
+    for symbol in c:gmatch("static int (ks_[0-9a-f]+___nupp_const_build_[0-9a-f]+)_lua") do
+        bodies[#bodies + 1] = symbol
     end
     test.equal(#bodies, 2, "each demanded variant compiles its own body")
-    for _, suffix in ipairs(bodies) do
-        local marker = "static int ks___nupp_const_build_" .. suffix .. "_lua"
+    for _, symbol in ipairs(bodies) do
+        local marker = "static int " .. symbol .. "_lua"
         local from = assert(c:find(marker, 1, true))
         local to = c:find("\nstatic ", from, true) or #c
         local body = c:sub(from, to)
@@ -1528,7 +1540,7 @@ function M.constGenericAotCapCountsCoalescedBodiesNotKeys()
     test.equal(code, 0, out)
     local c = assert(read(tieredC(dir, firstHostTier(), "constkernel")))
     local bodies = {}
-    for suffix in c:gmatch("ks___nupp_const_tag_([0-9a-f]+)") do
+    for suffix in c:gmatch("ks_[0-9a-f]+___nupp_const_tag_([0-9a-f]+)") do
         bodies[suffix] = true
     end
     local count = 0
@@ -1581,7 +1593,7 @@ function M.checkedAliasesFeedTypesOwnershipLayoutsAndIntrinsics()
     local tier = firstHostTier()
     local c = assert(read(tieredC(dir, tier)))
     assert(
-        c:find("void ks_aliased__" .. tier .. "(", 1, true),
+        c:find("void " .. emittedSymbol(c, "ks_aliased", tier) .. "(", 1, true),
         "resolved span aliases still produce the compiled entry"
     )
     assert(
@@ -1868,7 +1880,7 @@ function M.x86BuildCarriesEveryTierAndItsDetector()
 
     for _, tier in ipairs({"baseline", "avx2", "avx512f"}) do
         local c = assert(read(tieredC(dir, tier)), "missing " .. tier .. " translation unit")
-        assert(c:find("ks_scale__" .. tier, 1, true), tier .. " exports its own physical symbol")
+        assert(c:find(emittedSymbol(c, "ks_scale", tier), 1, true), tier .. " exports its own physical symbol")
     end
     local detector = assert(read(dir .. "/build/native/aot/features.c"))
     assert(detector:find('__builtin_cpu_supports("avx2")', 1, true), detector)
@@ -2401,8 +2413,22 @@ local function libraryTier(lib)
     return selected
 end
 
-local function librarySymbol(lib, logical)
-    return require("nupp.compiler.aot.target").symbol(logical, libraryTier(lib))
+local function librarySymbol(dir, lib, logical, stem)
+    local tier = libraryTier(lib)
+    return emittedSymbol(assert(read(tieredC(dir, tier, stem))), logical, tier)
+end
+
+-- Call every executable tier directly. Dispatching the best symbol alone does
+-- not test the lower tiers shipped in the same library.
+local function executableLibrarySymbols(dir, lib, logical)
+    local ceiling = targets.rank(libraryTier(lib))
+    local names = {}
+    for _, tier in ipairs(buildTiers(nil, nil)) do
+        if targets.rank(tier.tier) <= ceiling then
+            names[#names + 1] = emittedSymbol(assert(read(tieredC(dir, tier.tier))), logical, tier.tier)
+        end
+    end
+    return names
 end
 
 --- The key the linked library was recorded under, or nothing.
@@ -2812,7 +2838,7 @@ return {width=width, read=read, readBase=readBase, write=write, readFields=readF
     local lib = ffi.load(libraryPath(dir))
     local names = {}
     for _, name in ipairs({"width", "read", "read_base", "write", "read_fields", "write_field"}) do
-        names[name] = librarySymbol(lib, "ks_" .. name)
+        names[name] = librarySymbol(dir, lib, "ks_" .. name)
     end
     -- Explicit scalar arguments precede the ABI's appended span counts.
     ffi.cdef(
@@ -3503,12 +3529,10 @@ function M.theBuiltLibraryLoadsAndComputes()
     -- checked is the object, not the wrapper.
     local ffi = require("ffi")
     local lib = ffi.load(libraryPath(dir))
-    local tier = libraryTier(lib)
-    local targets = require("nupp.compiler.aot.target")
-    local scale = targets.symbol("ks_scale", tier)
-    local forced = targets.symbol("ks_scale_forced_scalar", tier)
-    local sum = targets.symbol("ks_sum_bytes", tier)
-    local layout = targets.symbol("ks_scale", tier) .. "_layout_Sample_size"
+    local scale = librarySymbol(dir, lib, "ks_scale")
+    local forced = librarySymbol(dir, lib, "ks_scale_forced_scalar")
+    local sum = librarySymbol(dir, lib, "ks_sum_bytes")
+    local layout = librarySymbol(dir, lib, "ks_scale") .. "_layout_Sample_size"
     ffi.cdef(
         (
             [=[
@@ -3721,8 +3745,8 @@ function M.correctedBinary32OperationsMatchTheRuntimeBitForBit()
 
     local ffi = require("ffi")
     local lib = ffi.load(libraryPath(dir))
-    local corrected = librarySymbol(lib, "ks_corrected")
-    local forced = librarySymbol(lib, "ks_corrected_forced_scalar")
+    local corrected = librarySymbol(dir, lib, "ks_corrected")
+    local forced = librarySymbol(dir, lib, "ks_corrected_forced_scalar")
     ffi.cdef(
         (
             [=[
@@ -3890,13 +3914,13 @@ function M.scopedPackedBytesHandleEveryTailWithoutOverreading()
     local lib = ffi.load(libraryPath(dir))
     trace("tier " .. libraryTier(lib))
     trace("select symbols")
-    local countQuotes = librarySymbol(lib, "ks_count_quotes")
-    local countQuotesScalar = librarySymbol(lib, "ks_count_quotes_forced_scalar")
-    local maskOps = librarySymbol(lib, "ks_mask_ops")
-    local lookup = librarySymbol(lib, "ks_lookup_aligned")
-    local lookupScalar = librarySymbol(lib, "ks_lookup_aligned_forced_scalar")
-    local shapes = librarySymbol(lib, "ks_mask_shapes")
-    local shapesScalar = librarySymbol(lib, "ks_mask_shapes_forced_scalar")
+    local countQuotes = librarySymbol(dir, lib, "ks_count_quotes")
+    local countQuotesScalar = librarySymbol(dir, lib, "ks_count_quotes_forced_scalar")
+    local maskOps = librarySymbol(dir, lib, "ks_mask_ops")
+    local lookup = librarySymbol(dir, lib, "ks_lookup_aligned")
+    local lookupScalar = librarySymbol(dir, lib, "ks_lookup_aligned_forced_scalar")
+    local shapes = librarySymbol(dir, lib, "ks_mask_shapes")
+    local shapesScalar = librarySymbol(dir, lib, "ks_mask_shapes_forced_scalar")
     trace("declare symbols")
     ffi.cdef(
         (
@@ -3921,7 +3945,7 @@ function M.scopedPackedBytesHandleEveryTailWithoutOverreading()
             lookupScalar,
             shapes,
             shapesScalar,
-            librarySymbol(lib, "ks_mask_add")
+            librarySymbol(dir, lib, "ks_mask_add")
         )
     )
     trace("tail comparisons")
@@ -3967,7 +3991,7 @@ function M.scopedPackedBytesHandleEveryTailWithoutOverreading()
     -- A 64-bit mask add is only worth having if it carries between the words,
     -- which is the whole reason run parity is stated as an addition.
     trace("mask addition")
-    local add = librarySymbol(lib, "ks_mask_add")
+    local add = librarySymbol(dir, lib, "ks_mask_add")
     local carried = lib[add](0xFFFFFFFF, 0, 1)
     test.equal(tonumber(carried.v1), 0, "the low word wraps")
     test.equal(tonumber(carried.v2), 1, "and carries into the high word")
@@ -4135,6 +4159,15 @@ end
         )
     end
 
+    for _, operation in ipairs({"Sum", "Product", "Dot"}) do
+        add("algebraic_" .. operation:lower(), "number", "double",
+            "local fold = simd.reducer.algebraic" .. operation .. "(seed)",
+            operation == "Product" and "multiply" or "add", "number", "double",
+            operation == "Dot" and "input[i], input[i]" or nil, nil,
+            {{0.5, -0.5, 1.25, -1.25, 0.75, 1.5, -1.0, 1.0},
+             {0.0, -0.0, math.huge, -math.huge, 0 / 0, 1.0, -1.0}})
+    end
+
     source[#source + 1] = "return {" .. table.concat(exports, ", ") .. "}"
     source = table.concat(source, "\n")
     local ordinary, native
@@ -4191,9 +4224,11 @@ end
     }
     local floatValues = {0, -0.0, 7, -7, math.huge, -math.huge, 0 / 0, 7, -7, 0 / 0}
     for _, case in ipairs(cases) do
-        local actualName = librarySymbol(lib, "ks_" .. case.name)
-        local scalarName = librarySymbol(lib, "ks_" .. case.name .. "_forced_scalar")
-        for _, name in ipairs({actualName, scalarName}) do
+        local names = executableLibrarySymbols(native, lib, "ks_" .. case.name)
+        for _, name in ipairs(executableLibrarySymbols(native, lib, "ks_" .. case.name .. "_forced_scalar")) do
+            names[#names + 1] = name
+        end
+        for _, name in ipairs(names) do
             ffi.cdef(("%s %s(const %s *, %s, size_t);"):format(case.resultC, name, case.ctype, case.ctype))
         end
         local corpora = case.corpora or {case.element == "number" and floatValues or integerValues}
@@ -4209,11 +4244,48 @@ end
                 end
                 for count = 0, 39 do
                     local expected = reference[case.name](spans.fromCarray(input, count), seed)
-                    for _, name in ipairs({actualName, scalarName}) do
+                    if case.name:match("^pairwise_") then
+                        -- Literal adjacent-pair levels are independent of the
+                        -- online partial stack shared by Lua and scalar C.
+                        local level = {seed}
+                        for i = 0, count - 1 do
+                            local value = tonumber(input[i])
+                            level[#level + 1] = case.name == "pairwise_dot" and value * value or value
+                        end
+                        while #level > 1 do
+                            local nextLevel = {}
+                            for i = 1, #level, 2 do
+                                local right = level[i + 1]
+                                nextLevel[#nextLevel + 1] = right == nil and level[i]
+                                    or (case.name == "pairwise_product" and level[i] * right or level[i] + right)
+                            end
+                            level = nextLevel
+                        end
+                        local independent = level[1]
+                        assert((expected ~= expected and independent ~= independent) or expected == independent,
+                            case.name .. " ordinary reducer violates adjacent-pair tree at " .. count)
+                        if independent == 0 then test.equal(1 / expected, 1 / independent, "pairwise tree signed zero") end
+                        expected = independent
+                    end
+                    for _, name in ipairs(names) do
                         local actual = lib[name](input, seed, count)
                         local label = case.name .. " offset=" .. offset .. " count=" .. count .. " " .. name
                         if case.resultC == "double" and expected ~= expected then
                             assert(actual ~= actual, label .. " expected NaN")
+                        elseif case.name:match("^algebraic_") and count > 0
+                            and expected ~= math.huge and expected ~= -math.huge then
+                            local scale = math.abs(seed)
+                            for i = 0, count - 1 do
+                                local value = tonumber(input[i])
+                                scale = scale + math.abs(case.name == "algebraic_dot" and value * value or value)
+                            end
+                            if case.name == "algebraic_product" then scale = math.abs(expected) end
+                            local nu = (4 * count + 4) * 1.1102230246251565e-16
+                            assert(actual == actual and math.abs(actual - expected) <= nu / (1 - nu) * scale + 5e-324,
+                                label .. " algebraic finite error envelope")
+                            if case.name == "algebraic_product" and expected == 0 then
+                                test.equal(1 / actual, 1 / expected, label .. " product signed zero")
+                            end
                         else
                             assert(
                                 actual == expected,
@@ -4326,8 +4398,8 @@ end
         9223372586610589697ULL
     }
     for _, case in ipairs(cases) do
-        local native = librarySymbol(lib, "ks_" .. case.name)
-        local scalar = librarySymbol(lib, "ks_" .. case.name .. "_forced_scalar")
+        local native = librarySymbol(dir, lib, "ks_" .. case.name, "casts_" .. case.from.name)
+        local scalar = librarySymbol(dir, lib, "ks_" .. case.name .. "_forced_scalar", "casts_" .. case.from.name)
         for _, symbol in ipairs({native, scalar}) do
             ffi.cdef(("void %s(%s *, const %s *, size_t, size_t);"):format(symbol, case.to.c, case.from.c))
         end
@@ -4426,7 +4498,7 @@ return {indexed = indexed, gather = gather}
     local lib = ffi.load(libraryPath(dir))
     local names = {}
     for _, name in ipairs({"ks_indexed", "ks_indexed_forced_scalar", "ks_gather", "ks_gather_forced_scalar"}) do
-        local symbol = librarySymbol(lib, name)
+        local symbol = librarySymbol(dir, lib, name)
         ffi.cdef(("void %s(float *, const float *, const int64_t *, size_t, size_t, size_t);"):format(symbol))
         names[name] = symbol
     end
@@ -4613,13 +4685,13 @@ function M.twoAotFunctionsOverOneStructBuild()
     test.equal(code, 0, "two @aot functions sharing a struct compile\n" .. out)
     local lua = assert(read(dir .. "/build/native/kernel.lua"))
     -- The C symbol is the snake_cased name, which is what the wrapper calls.
-    assert(lua:find("ks_scale_both_native", 1, true), "the first wrapper calls the selected symbol")
-    assert(lua:find("ks_shift_both_native", 1, true), "and so does the second")
+    assert(lua:match("ks_[0-9a-f]+_scale_both_native"), "the first wrapper calls the selected symbol")
+    assert(lua:match("ks_[0-9a-f]+_shift_both_native"), "and so does the second")
     assert(
-        lua:find("ks_scale_both__" .. firstHostTier() .. "_PointLayout", 1, true),
+        lua:find(emittedSymbol(assert(read(tieredC(dir, firstHostTier()))), "ks_scale_both", firstHostTier()) .. "_PointLayout", 1, true),
         "each checks the struct under its own name, which is what used to collide"
     )
-    assert(lua:find("ks_shift_both__" .. firstHostTier() .. "_PointLayout", 1, true), "both of them")
+    assert(lua:find(emittedSymbol(assert(read(tieredC(dir, firstHostTier()))), "ks_shift_both", firstHostTier()) .. "_PointLayout", 1, true), "both of them")
 end
 
 function M.countedLoopsPreserveBoundAndInductionSemantics()
@@ -4784,9 +4856,9 @@ function M.theDispatchedModuleAnswersWhatTheInterpretedOneDoes()
     assert(os.execute(("cp -r %q %q"):format(dir .. "/build/native", dir .. "/dispatched")) == 0)
 
     local dispatched = assert(read(dir .. "/dispatched/kernel.lua"))
-    assert(dispatched:find("ks_scale_native", 1, true), "the first build calls the selected symbol")
+    assert(dispatched:match("ks_[0-9a-f]+_scale_native"), "the first build calls the selected symbol")
     assert(
-        not read(dir .. "/ordinary/kernel.lua"):find("ks_scale_native", 1, true),
+        not read(dir .. "/ordinary/kernel.lua"):match("ks_[0-9a-f]+_scale_native"),
         "and the second does not, so the two are really different programs"
     )
 
@@ -5008,9 +5080,9 @@ function M.requireCrossCompilesToAnotherMachine()
             wrapper:find("ks_aot_feature_tier", 1, true),
             "the cross-built wrapper asks the destination rather than the build host"
         )
-        assert(wrapper:find("ks_scale__baseline", 1, true), wrapper)
-        assert(wrapper:find("ks_scale__avx2", 1, true), wrapper)
-        assert(wrapper:find("ks_scale_native", 1, true), wrapper)
+        assert(wrapper:find(emittedSymbol(assert(read(tieredC(dir, "baseline"))), "ks_scale", "baseline"), 1, true), wrapper)
+        assert(wrapper:find(emittedSymbol(assert(read(tieredC(dir, "avx2"))), "ks_scale", "avx2"), 1, true), wrapper)
+        assert(wrapper:match("ks_[0-9a-f]+_scale_native"), wrapper)
     end
 end
 
@@ -5295,7 +5367,7 @@ end
 ]]
                 ):format(name, ty[1], ty[1], ty[1], n, table.concat(names, ", "), call, table.concat(stores, "\n    "))
                 exports[#exports + 1] = name .. " = " .. name
-                cases[#cases + 1] = {name = name, ctype = ty[2], n = n, rows = rows, op = op}
+                cases[#cases + 1] = {name = name, ctype = ty[2], stem = "rearrange_" .. ty[1], n = n, rows = rows, op = op}
             end
         end
         source[#source + 1] = "return {" .. table.concat(exports, ", ") .. "}"
@@ -5351,7 +5423,7 @@ end
             expected[active] = table.concat(pieces)
         end
         for _, suffix in ipairs({"", "_forced_scalar"}) do
-            local symbol = librarySymbol(lib, "ks_" .. case.name .. suffix)
+            local symbol = librarySymbol(dir, lib, "ks_" .. case.name .. suffix, case.stem)
             ffi.cdef(("void %s(%s *, const %s *, size_t, size_t);"):format(symbol, case.ctype, case.ctype))
             for _, active in ipairs({0, 1, count - 1, count}) do
                 local actual = ffi.new(case.ctype .. "[?]", count)
@@ -5642,7 +5714,7 @@ function M.genericVocabularyOperationsAgreeAcrossLuaScalarAndLaneExecution()
     local lib = ffi.load(libraryPath(dir))
     local symbols = {}
     for _, name in ipairs({"masks", "preferred_masks", "swap_fields", "mapped", "sums", "dot", "exact"}) do
-        symbols[name] = {librarySymbol(lib, "ks_" .. name), librarySymbol(lib, "ks_" .. name .. "_forced_scalar")}
+        symbols[name] = {librarySymbol(dir, lib, "ks_" .. name), librarySymbol(dir, lib, "ks_" .. name .. "_forced_scalar")}
     end
     ffi.cdef("typedef struct { float x; float y; } NuppAotPoint;")
     ffi.cdef("typedef struct { double v1, v2, v3, v4; } NuppAotSums;")
@@ -5895,9 +5967,9 @@ function M.crossLaneOperationsAgreeWithTheirScalarExecutableSemantics()
     ffi.cdef("typedef struct { double v1, v2; } NuppAotExtrema;")
     local crossLane, horizontals, extrema = {}, {}, {}
     for _, suffix in ipairs({"", "_forced_scalar"}) do
-        local packing = librarySymbol(lib, "ks_cross_lane" .. suffix)
-        local reducing = librarySymbol(lib, "ks_horizontals" .. suffix)
-        local extreme = librarySymbol(lib, "ks_extrema" .. suffix)
+        local packing = librarySymbol(dir, lib, "ks_cross_lane" .. suffix)
+        local reducing = librarySymbol(dir, lib, "ks_horizontals" .. suffix)
+        local extreme = librarySymbol(dir, lib, "ks_extrema" .. suffix)
         ffi.cdef(("void %s(int32_t *, const int32_t *, size_t, size_t);"):format(packing))
         ffi.cdef(("NuppAotHorizontals %s(const double *, size_t);"):format(reducing))
         ffi.cdef(("NuppAotExtrema %s(const double *, size_t);"):format(extreme))
@@ -6058,8 +6130,8 @@ function M.entryOnlyAotTargetsCheckOnlyTheirDependencyClosure()
     for _, file in ipairs(require("nupp.compiler.fs").listFiles(dir .. "/build/native/aot")) do
         if file:match("%.c$") then
             local source = assert(read(file))
-            assert(not source:find("ks_unused", 1, true), "an unreachable AOT body is not emitted")
-            reached = reached or source:find("ks_needed", 1, true) ~= nil
+            assert(not source:match("ks_[0-9a-f]+_unused"), "an unreachable AOT body is not emitted")
+            reached = reached or source:match("ks_[0-9a-f]+_needed") ~= nil
         end
     end
     assert(reached, "AOT bodies reached through an entry dependency are emitted")
@@ -6185,8 +6257,8 @@ end
     local library = ffi.load(libraryPath(dir))
     for _, variant in ipairs(variants) do
         local name, ctype = variant[1], variant[3]
-        local symbol = librarySymbol(library, "ks_pair_" .. name:lower())
-        local oracle = librarySymbol(library, "ks_pair_" .. name:lower() .. "_forced_scalar")
+        local symbol = librarySymbol(dir, library, "ks_pair_" .. name:lower())
+        local oracle = librarySymbol(dir, library, "ks_pair_" .. name:lower() .. "_forced_scalar")
         ffi.cdef(
             (
                 [[typedef struct { %s left, right; } NuppFieldPair%s;

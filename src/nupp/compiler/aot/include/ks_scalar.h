@@ -187,8 +187,8 @@ static inline __attribute__((unused)) KsPairwiseF64 ks_pairwise_f64_init(double 
 }
 static inline __attribute__((unused)) double ks_pairwise_f64_value(KsPairwiseF64 state) {
     double result = 0.0; bool have = false;
-    for (int32_t level = 63; level >= 0; --level) if (((state.count >> level) & UINT64_C(1)) != 0u) {
-        result = have ? result + state.partial[level] : state.partial[level]; have = true;
+    for (uint32_t level = 0u; level < 64u; ++level) if (((state.count >> level) & UINT64_C(1)) != 0u) {
+        result = have ? state.partial[level] + result : state.partial[level]; have = true;
     }
     return result;
 }
@@ -202,8 +202,8 @@ static inline __attribute__((unused)) KsPairwiseF64 ks_pairwise_f64_product_init
 }
 static inline __attribute__((unused)) double ks_pairwise_f64_product_value(KsPairwiseF64 state) {
     double result = 1.0; bool have = false;
-    for (int32_t level = 63; level >= 0; --level) if (((state.count >> level) & UINT64_C(1)) != 0u) {
-        result = have ? result * state.partial[level] : state.partial[level]; have = true;
+    for (uint32_t level = 0u; level < 64u; ++level) if (((state.count >> level) & UINT64_C(1)) != 0u) {
+        result = have ? state.partial[level] * result : state.partial[level]; have = true;
     }
     return result;
 }
