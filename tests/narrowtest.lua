@@ -210,6 +210,35 @@ function M.isStillRefusesATypeWithNoRuntimeIdentity()
    }, "\n"))), "NUPP3001:3")
 end
 
+-- `cond and value or fallback` reaches the fallback only when the conjunction was
+-- falsy, and when the second conjunct is something no run can find falsy that leaves
+-- the first as the only way there. The fallback then knows what the test ruled out,
+-- which is the difference between this reading as `string` and as the union it
+-- started from.
+function M.aConjunctionThatCannotBeFalsyOnTheRightNarrowsItsFallback()
+   assertClean(table.concat({
+      "local record Wrapped",
+      "   text: string",
+      "end",
+      "local value: Wrapped | string = 'plain'",
+      "local through: string = value is Wrapped and value.text or value",
+      "local literal: string = value is Wrapped and 'wrapped' or value",
+      "local built: string = value is Wrapped and `w:${value.text}` or value",
+   }, "\n"))
+end
+
+-- And leaves it alone when the second conjunct could have been the one that failed:
+-- an optional field says nothing about the test beside it.
+function M.aConjunctionWithAFalsyRightSideLeavesItsFallbackAlone()
+   assertEq((diagsOf(table.concat({
+      "local record Wrapped",
+      "   text: string?",
+      "end",
+      "local value: Wrapped | string = 'plain'",
+      "local through: string = value is Wrapped and value.text or value",
+   }, "\n"))), "NUPP2001:5")
+end
+
 function M.genericMapIteration()
    assertClean(table.concat({
       "local pairs2: function<K, V>(t: {[K]: V}): function(): (K, V)",

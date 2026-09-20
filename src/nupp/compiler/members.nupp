@@ -196,6 +196,83 @@ local function intersectionEntry(t: T.Intersection, name: string): members.Entry
     }
 end
 
+--- One method standing for the same method on each alternative of a union.
+---
+--- A method is reached through the value itself, so the alternative a union turns out
+--- to be is the alternative whose method runs and the receiver it runs on. That makes
+--- the union callable where the union of the signatures is not: `r:unwrap()` on
+--- `Ok | Err` is a call whichever one `r` is.
+---
+--- The receiver widens to the whole union for that reason. Every other parameter
+--- narrows to what all the alternatives accept, since the call has to suit whichever
+--- one is selected, and the result is the union of what they return. Anything the
+--- rule does not cover in full -- a vararg, its own binders, differing arity -- is
+--- left to the union it already was.
+---
+--- @param owner the union the method was read from
+--- @param signatures one alternative's method per alternative
+--- @return the single method, or nil when they do not join
+local function joinedMethod(owner: T.Type, signatures: {T.Type}): T.Type?
+    local first = signatures[1] as T.Func?
+    if not first or first.tag ~= "func" or first.vararg or first.typeParams or #first.params < 1 then
+        return nil
+    end
+    if not (first.paramNames and first.paramNames[1] == "self") then
+        return nil
+    end
+    for _, signature in ipairs(signatures) do
+        local one = signature as T.Func
+        if one.tag ~= "func"
+            or one.vararg
+            or one.typeParams
+            or #one.params ~= #first.params
+            or #one.rets ~= #first.rets
+            or not (one.paramNames and one.paramNames[1] == "self")
+        then
+            return nil
+        end
+    end
+    local params: {T.Type} = {owner}
+    local rets: {T.Type} = {}
+    for j = 2, #first.params do
+        local alternatives: {T.Type} = {}
+        for _, signature in ipairs(signatures) do
+            alternatives[#alternatives + 1] = (signature as T.Func).params[j]
+        end
+        params[j] = T.intersection(alternatives)
+    end
+    for j = 1, #first.rets do
+        local alternatives: {T.Type} = {}
+        for _, signature in ipairs(signatures) do
+            alternatives[#alternatives + 1] = (signature as T.Func).rets[j]
+        end
+        rets[j] = T.union(alternatives)
+    end
+
+    return T.func(
+        params,
+        rets,
+        nil,
+        nil,
+        nil,
+        nil,
+        nil,
+        nil,
+        nil,
+        nil,
+        nil,
+        nil,
+        nil,
+        T.pack(params),
+        T.pack(rets),
+        nil,
+        nil,
+        nil,
+        nil,
+        first.paramNames
+    )
+end
+
 --- A union has a member only where every alternative has it, which is what makes
 --- reading it safe. `mergeUnion` takes its candidates from the first alternative, so a
 --- name the first one lacks is not a member however the rest are spelled; that is
@@ -228,9 +305,11 @@ local function unionEntry(t: T.Union, name: string): members.Entry?
         return nil
     end
 
+    local joined = allRead and #reads == #t.members and joinedMethod(t, reads) or nil
+
     return {
         name = name,
-        readType = allRead and T.union(reads) or nil,
+        readType = joined or (allRead and T.union(reads) or nil),
         writeType = allWrite and T.intersection(writes) or nil,
         declarationKind = "union",
         definition = defs[1],

@@ -803,6 +803,34 @@ function M.isSemantics()
     assertEq(run("local f = print\nreturn f is function(): nil"), true)
 end
 
+-- A test whose answer the subject's declared type already settles compiles into the
+-- one question left, and `nil` is the answer to that question as much as any other
+-- value is. On a subject narrowing has already reduced to nil, `is nil` is simply
+-- true, and asking whether the value is present would answer it backwards.
+function M.isSemanticsWhereTheTestAdmitsNil()
+    local source = table.concat({
+        "local function classify(v: string | nil): integer",
+        "    if v is string then",
+        "        return 1",
+        "    elseif v is nil then",
+        "        return 2",
+        "    end",
+        "    return 3",
+        "end",
+        "local function settled(v: string | nil): boolean",
+        "    if v is string then",
+        "        return false",
+        "    end",
+        "    return v is string | nil",
+        "end",
+        "return classify, settled",
+    }, "\n")
+    local classify, settled = assert(loadstring(generateChecked(source), "@gen_nil_test"))()
+    assertEq(classify(nil), 2, "a nil subject takes the nil arm")
+    assertEq(classify("text"), 1, "a string subject takes the string arm")
+    assertEq(settled(nil), true, "a target that admits nil is satisfied by nil")
+end
+
 function M.bitAndFloordivSemantics()
     assertEq(run("return 5 & 3"), 1)
     assertEq(run("return 5 | 2"), 7)

@@ -33,6 +33,67 @@ local function constSelf(explicitSelf: any): boolean
     return annotation ~= nil and annotation.kind == "tconst"
 end
 
+--- Whether a definition fills the member its declaration described, compared on the
+--- shape alone: how many values go in and out, and what each of them is once ownership
+--- is set aside.
+---
+--- Set aside on purpose. A declaration states what a member is for; the definition is
+--- where the obligations it carries are settled, so a terminal declared `takes self: T`
+--- and defined `takes self: affine(T, close)`, or a borrow relation a result gains, is
+--- the definition being precise rather than the two disagreeing. So is a parameter the
+--- definition adds that admits nil, or a result it returns beyond the ones the
+--- declaration promised: a caller written against the declaration still calls it
+--- correctly and still reads what it was told to expect.
+---
+--- What is left is the disagreement that makes the declaration a lie: a parameter the
+--- definition could not hold what the declaration says may arrive in, one it requires
+--- that no caller knows to pass, or a result the declaration promises that never comes.
+---
+--- Binders are compared by counting only. A declaration and the definition that fills
+--- it reach the same types through binders that stand for the same thing without being
+--- the same binder -- the definition may restate the owner's parameters, or introduce
+--- its own -- and telling an honest restatement from a mistake needs an alignment
+--- neither signature carries. How many values cross the boundary is still the
+--- declaration's to state, and that much is answered without one.
+---
+--- @param supplied what the definition is
+--- @param declared what the member was declared as
+--- @param from the first parameter to compare, past a receiver the owner already fixes
+--- @param generic whether either side binds type parameters
+--- @return why they differ, or nil when the definition fills the declaration
+local function declarationMismatch(supplied: T.Func, declared: T.Func, from: integer, generic: boolean): string?
+    local want, got = declared.params, supplied.params
+    if #got < #want and not supplied.vararg then
+        return ("takes %d parameters where the declaration passes %d"):format(#got, #want)
+    end
+    for j = #want + 1, #got do
+        if not isA(T.nil_, rawType(got[j])) then
+            return ("parameter %d is required and the declaration passes only %d"):format(j, #want)
+        end
+    end
+    local wantRets, gotRets = declared.rets, supplied.rets
+    if #gotRets < #wantRets and not supplied.varargType then
+        return ("returns %d results where the declaration promises %d"):format(#gotRets, #wantRets)
+    end
+    if generic then
+        return nil
+    end
+    for j = from, #want do
+        -- Contravariant: whatever the declaration says may arrive has to be something
+        -- the definition accepts.
+        if got[j] and not isA(rawType(want[j]), rawType(got[j])) then
+            return ("parameter %d: %s is not a %s"):format(j, T.tostring(got[j]), T.tostring(want[j]))
+        end
+    end
+    for j = 1, #wantRets do
+        if gotRets[j] and not isA(rawType(gotRets[j]), rawType(wantRets[j])) then
+            return ("result %d: %s is not a %s"):format(j, T.tostring(gotRets[j]), T.tostring(wantRets[j]))
+        end
+    end
+
+    return nil
+end
+
 --- Installs the function statements on one run.
 ---
 --- @param c the run's state
@@ -1789,6 +1850,47 @@ function functions.install(c: state.Checker): state.StatHandlers
             stat.memberName = member
         end
         if owner and member and ft.tag == "func" then
+            -- What the declaration already said this member is. A definition written
+            -- after the body fills that member rather than replacing it, so it is held
+            -- to what was declared the way `R.m = value` already was. Overwriting the
+            -- entry unchecked left the declaration saying one thing and every call site
+            -- held to another.
+            --
+            -- The instance entry first: a field declared `f: function(...)` is the slot
+            -- `R.f = value` writes, and `function R.f(...)` writes the same one.
+            -- Hoisting parks an undeclared definition under the static entry, so asking
+            -- that first would only ever compare it against itself.
+            local declaredMember = owner.byname[member] or not fname.method and owner.staticByname[member] or nil
+            if declaredMember and declaredMember.tag == "func" then
+                local supplied = fname.method
+                    and require("nupp.compiler.generics").addSelf(ft, selfType, body.receiverMode)
+                    or ft
+                -- Past the receiver, however it was written. `function R:m()` and
+                -- `function R.m(self: R)` both name one, and what it is the owner
+                -- already fixes: the declaration and the definition reach the same
+                -- declaration by instantiations of it that are equal without being
+                -- identical.
+                local receiverNames = (declaredMember as T.Func).paramNames
+                local suppliedNames = (supplied as T.Func).paramNames
+                local receiver = fname.method
+                    or receiverNames and receiverNames[1] == "self"
+                    or suppliedNames and suppliedNames[1] == "self"
+                local declaredFunc, suppliedFunc = declaredMember as T.Func, supplied as T.Func
+                local generic = (owner.typeParams and #owner.typeParams > 0)
+                    or (declaredFunc.typeParams and #declaredFunc.typeParams > 0)
+                    or (suppliedFunc.typeParams and #suppliedFunc.typeParams > 0)
+                    or false
+                local why = declarationMismatch(suppliedFunc, declaredFunc, receiver and 2 or 1, generic)
+                if why then
+                    c.diag(
+                        "NUPP2118",
+                        memberTok or fname,
+                        ("%s does not match what %s declares: %s"):format(member, owner.name, why),
+                        nil,
+                        {help = ("the declaration is %s"):format(T.tostring(declaredMember))}
+                    )
+                end
+            end
             local stored
             if fname.method then
                 -- stored with the receiver as the first parameter, the shape

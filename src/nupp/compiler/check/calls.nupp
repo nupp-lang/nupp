@@ -1437,6 +1437,13 @@ function calls.install(c: state.Checker): calls.Ops
                     c.infer(value)
                     return
                 end
+                -- `self` inside a field's type stands for the value being built, the
+                -- same way it does for a member read off one. Left unbound it is the
+                -- declaration's own binder, which fits everything, so a field declared
+                -- `self` accepted any value a construction put there. What it stands
+                -- for is the declaration applied to its own binders, so the
+                -- substitution below carries the construction's type arguments into it.
+                ft = specializeSelf(calleeT, ft, generics.ownInstance(calleeT))
                 bound[fname] = true
                 bindings[#bindings + 1] = {name = fname, node = value}
                 local vt = c.infer(value)

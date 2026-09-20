@@ -1136,4 +1136,62 @@ function M.ifBindingsHoldTheNonNilValueForTheirArmOnly()
     )
 end
 
+-- A method is reached through the value itself, so a union offers the method its
+-- alternatives share as one method: whichever alternative the value turns out to be
+-- is the one whose body runs, on itself. The receiver is the whole union for that
+-- reason, the result is what any of them may return, and every other parameter has to
+-- suit whichever one is selected.
+function M.aUnionOffersTheMethodItsAlternativesShare()
+    assertClean(
+        table.concat(
+            {
+                "local record Present",
+                "    value: integer",
+                "    function describe(self): string",
+                "        return tostring(self.value)",
+                "    end",
+                "end",
+                "local record Absent",
+                "    reason: string",
+                "    function describe(self): string",
+                "        return self.reason",
+                "    end",
+                "end",
+                "local function report(either: Present | Absent): string",
+                "    return either:describe()",
+                "end",
+                "return report",
+            },
+            "\n"
+        )
+    )
+end
+
+function M.aUnionMethodTakesOnlyWhatEveryAlternativeAccepts()
+    assertEq(
+        diagsOf(
+            table.concat(
+                {
+                    "local record Counted",
+                    "    function at(self, index: integer): integer",
+                    "        return index",
+                    "    end",
+                    "end",
+                    "local record Named",
+                    "    function at(self, index: string): integer",
+                    "        return #index",
+                    "    end",
+                    "end",
+                    "local function read(either: Counted | Named): integer",
+                    "    return either:at(1)",
+                    "end",
+                    "return read",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2006:12"
+    )
+end
+
 return M

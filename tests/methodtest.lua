@@ -2327,6 +2327,112 @@ return r.x + closed
     )
 end
 
+-- A member declared as a field and defined by a later statement is one member, not
+-- two: the statement fills the slot the declaration described. Replacing the entry
+-- unchecked left the declaration saying one thing and every call site held to the
+-- other, which is a declaration that cannot be read.
+function M.aDefinitionIsHeldToWhatTheDeclarationSaidTheMemberIs()
+    assertEq(diagsOf([[
+local record R
+    step: function(self, at: integer): integer
+end
+function R:step(at: string): string
+    return at
+end
+return R
+]]), "NUPP2118:4")
+    assertEq(diagsOf([[
+local record R
+    make: function(at: integer): integer
+end
+function R.make(at: string): string
+    return at
+end
+return R
+]]), "NUPP2118:4")
+end
+
+-- Counted rather than compared where the two reach a type through binders that stand
+-- for the same thing without being the same binder. How many values cross the
+-- boundary is still the declaration's to state.
+function M.aDefinitionMayNotAskForMoreThanTheDeclarationPasses()
+    assertEq(diagsOf([[
+local record Ledger
+    entry: string
+end
+local record R
+    post: function(to: Ledger): Ledger
+end
+function R.post(to: Ledger, also: Ledger): Ledger
+    return also
+end
+return R
+]]), "NUPP2118:7")
+    assertEq(diagsOf([[
+local record R
+    read: function(): (integer, string)
+end
+function R.read(): integer
+    return 1
+end
+return R
+]]), "NUPP2118:4")
+end
+
+-- What the definition adds beyond the declaration is the definition being precise:
+-- a parameter that admits nil no caller has to pass, a result beyond the ones the
+-- declaration promised, and the ownership a terminal settles.
+function M.aDefinitionMaySayMoreThanItsDeclarationDid()
+    assertClean([[
+local record R
+    parse: function(text: string): integer
+    close: function(takes self: R): nil
+end
+function R.parse(text: string, base: integer?): (integer, string)
+    return 1, text
+end
+function R:close(): nil
+end
+return R
+]])
+end
+
+-- A field declared `self` is the declaration standing for the value being built, so
+-- construction holds what fills it to that and not to the binder `self` is before it
+-- is bound -- which fits everything and so checked nothing.
+function M.selfTypedFieldsAreCheckedWhereTheValueIsBuilt()
+    assertEq(diagsOf([[
+local record Plain
+    a: integer
+    c: self
+end
+local p = new Plain(a = 1, c = 3)
+return p
+]]), "NUPP2202:5")
+    assertEq(diagsOf([[
+local record Callback<T>
+    a: T
+    c: function(self): nil
+end
+local made = new Callback(a = 1, c = function(other: integer): nil end)
+return made
+]]), "NUPP2202:5")
+end
+
+-- And carries the construction's type arguments into it, so a generic declaration's
+-- own instantiation is what a `self` field of one accepts.
+function M.selfTypedFieldsTakeTheirOwnInstantiation()
+    assertClean([[
+local record Node<T>
+    value: T
+    next: self?
+end
+local tail = new Node(value = 2)
+local head: Node<integer> = new Node(value = 1, next = tail)
+return head
+]])
+end
+
 function M.constructorsCannotReturnAnotherValue()
     assertEq(diagsOf([[
 local record R

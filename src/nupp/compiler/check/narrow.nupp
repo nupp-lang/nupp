@@ -636,6 +636,43 @@ function narrow.install(c: state.Checker): narrow.Ops
         return baseKey, T.union(kept), T.union(dropped)
     end
 
+    --- Whether an expression is one no run can find falsy, which is what lets the
+    --- falsity of a conjunction it stands in name the other conjunct.
+    ---
+    --- Only what a type is already known to be is read; nothing is inferred here,
+    --- because this runs while the condition is being checked and inferring an
+    --- expression a second time would report what it says twice. A gradual type
+    --- proves nothing either way, and neither does anything this cannot name.
+    local function alwaysTruthy(node: Node?): boolean
+        if not node then
+            return false
+        end
+        if node.kind == "paren" then
+            return alwaysTruthy(node.expr)
+        end
+        -- A written value answers for itself. Every Lua value but `nil` and `false` is
+        -- truthy, so a number, a string, or a table written in place is one.
+        local kind = node.kind
+        if kind == "number"
+            or kind == "string"
+            or kind == "dedentString"
+            or kind == "istring"
+            or kind == "trueExpr"
+            or kind == "tableExpr"
+            or kind == "funcExpr"
+            or kind == "shortfn"
+        then
+            return true
+        end
+        local vt = c.refType(node)
+        if not vt or vt == T.any or vt == T.unknown or vt == T.never or vt.tag == "typevar" then
+            return false
+        end
+        local _, falsy = truthiness(vt)
+
+        return falsy == nil
+    end
+
     --- What testing `cond` proves, on each side of the test.
     function facts.analyzeCond(cond: Node): narrow.Facts
         local none = {t = {}, f = {}}
@@ -925,9 +962,15 @@ function narrow.install(c: state.Checker): narrow.Ops
                 c.pushScope()
                 facts.applyFacts(l.t)
                 local r = facts.analyzeCond(rhs)
+                local rhsAlwaysTrue = alwaysTruthy(rhs)
                 c.popScope()
-                -- both truthy in the then-branch; falsy side is unknowable (v0)
-                return {t = facts.mergeFacts(l.t, r.t), f = {}}
+                -- Both truthy in the then-branch. The falsy side is a disjunction --
+                -- either conjunct may be the one that failed -- and so says nothing,
+                -- unless the second could not have been the one: a conjunct whose type
+                -- has no falsy value at all leaves the first as the only way here, and
+                -- what it proves carries. That is what makes `x is T and x.field or x`
+                -- read `x` as the member the test ruled out.
+                return {t = facts.mergeFacts(l.t, r.t), f = rhsAlwaysTrue and l.f or {}}
             elseif op == "or" then
                 -- and the second disjunct is only reached when the first did not hold,
                 -- which is the other side of the same fact

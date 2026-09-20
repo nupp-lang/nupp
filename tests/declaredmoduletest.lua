@@ -642,4 +642,104 @@ end
     )
 end
 
+-- A required module is a type namespace, and a declaration it exports is one in turn.
+-- `const m = require("m")` then `m.Outer.Inner` asks m for `Outer` and walks the rest
+-- through what that nests; reading the whole prefix as a module name instead left a
+-- type published inside a record reachable only by importing the record itself.
+function M.nestedTypesResolveThroughARequiredModuleBinding()
+    withProject(
+        {
+            [
+                "src/shapes.nupp"
+            ] = [[
+module shapes
+
+export record Canvas
+    record Layer
+        type Name = string
+        label: string
+    end
+
+    title: string
+end
+]],
+            [
+                "src/draw.nupp"
+            ] = [[
+module draw
+
+const shapes = require("shapes")
+
+export function labelOf(layer: shapes.Canvas.Layer): string
+    return layer.label
+end
+
+export function nameOf(name: shapes.Canvas.Layer.Name): string
+    return name
+end
+
+export function missing(layer: shapes.Canvas.Layer): string
+    return layer.absent
+end
+]],
+        },
+        function(dir)
+            local inc = incremental.new(dir, {config = {include = {"src"}}})
+            local checked = inc.checkFile(dir .. "/src/draw.nupp")
+            assertEq(#checked.diags, 1, "only the field the nested record does not have")
+            assertEq(checked.diags[1].code, "NUPP2004", checked.diags[1].msg)
+            assert(
+                diagnosticContaining({checked.diags[1]}, "Layer"),
+                "the nested declaration answers rather than being erased"
+            )
+        end
+    )
+end
+
+-- Two bindings of the same module name the same declarations, and so the same nested
+-- ones, including where the two modules require each other.
+function M.nestedTypesKeepTheirIdentityAcrossACircularRequire()
+    withProject(
+        {
+            [
+                "src/first.nupp"
+            ] = [[
+module first
+
+export record Holder
+    record Kind
+        tag: string
+    end
+end
+
+export function callOut(kind: Holder.Kind): string
+    const second = require("second")
+    return second.take(kind) .. second.takeAgain(kind)
+end
+]],
+            [
+                "src/second.nupp"
+            ] = [[
+module second
+
+const one = require("first")
+const other = require("first")
+
+export function take(kind: one.Holder.Kind): string
+    return kind.tag
+end
+
+export function takeAgain(kind: other.Holder.Kind): string
+    return kind.tag
+end
+]],
+        },
+        function(dir)
+            local inc = incremental.new(dir, {config = {include = {"src"}}})
+            local checked = inc.checkFile(dir .. "/src/first.nupp")
+            assertEq(#checked.diags, 0, checked.diags[1] and checked.diags[1].msg)
+        end
+    )
+end
+
 return M

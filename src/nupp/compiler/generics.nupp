@@ -2209,6 +2209,24 @@ local function selfMemo(binder: Type, target: Type): {[Type]: Type}
     return byMember
 end
 
+--- A declaration standing for itself: the nominal applied to its own binders, so that
+--- `Node` inside `record Node<T>` is the `Node<T>` the field would have spelled. A
+--- declaration with no parameters already stands for itself and comes back unchanged.
+---
+--- @param n the declaration
+--- @return what one of its own values is typed as
+function generics.ownInstance(n: T.Nominal): T.Nominal
+    if n.typeArgs or not (n.typeParams and #n.typeParams > 0) then
+        return n
+    end
+    local map: Bindings = {}
+    for _, binder in ipairs(n.typeParams) do
+        map[binder] = binder
+    end
+
+    return generics.instantiate(n, map)
+end
+
 --- A member's type as the receiver reaching it sees it: `self` inside a declaration
 --- stands for whatever the value actually is, which is what lets an inherited contract
 --- be rebound to the child that included it.

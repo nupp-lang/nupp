@@ -1188,6 +1188,38 @@ function resolve.install(c: state.Checker): nil
                         end
                     end
                 end
+                -- A required module is a type namespace too, and its exported
+                -- declarations are namespaces in turn. `const a = require("m")` then
+                -- `a.Outer.Inner` asks m for the exported `Outer` and walks the rest
+                -- through what it nests -- the same walk the lexical path above makes,
+                -- starting one step later. Without it the prefix was read as the module
+                -- name `a.Outer`, which names no module, and a type a module publishes
+                -- inside a record was reachable only by importing the record first.
+                if #names >= 2 and c.env and c.env.resolveQualifiedType then
+                    local holder = c.lookupEntry(names[1])
+                    local required = holder and holder.requiredModule or nil
+                    local step = nil
+                    if required then
+                        step = c.env.resolveQualifiedType(c.env, c.filename, required, names[2])
+                    end
+                    for j = 3, #names do
+                        step = step and step.tag == "nominal" and step.nestedTypes and step.nestedTypes[names[j]] or nil
+                    end
+                    local nested = step and step.tag == "nominal" and step.nestedTypes and step.nestedTypes[typeName]
+                        or nil
+                    if nested then
+                        c.markToken(lastTok, nil, nested, "type")
+                        if nested.runtimePath then
+                            if nested.declKind == "struct" then
+                                node.reified = ("require(%q).%s"):format(required, nested.runtimePath)
+                            elseif nested.declKind == "record" then
+                                node.recordName = ("require(%q).%s"):format(required, nested.runtimePath)
+                            end
+                        end
+
+                        return applyWrittenType(nested, node)
+                    end
+                end
                 -- A lexical nominal owns this path even when the member is missing.
                 -- During signature hoisting its nested aliases may not be filled yet;
                 -- trying a module instead records a dependency that survives the
