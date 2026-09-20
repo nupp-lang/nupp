@@ -298,6 +298,31 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     if target.kind == "binary" or target.kind == "bundle" or target.kind == "component" then
         defaultLevel = 2
     end
+    -- A reload component is a watch build: development generation, where every
+    -- named function dispatches through a patchable slot and no pass moves one.
+    -- Reload belongs to the build key for the same reason coverage does, because
+    -- it changes the emitted Lua.
+    config._reload = target.reload == true
+    if config._reload then
+        defaultLevel = 0
+        if opts.optLevel and opts.optLevel ~= 0 then
+            io.stderr:write("nupp: a reload component builds at -O0\n")
+            return 1
+        end
+        -- The same map the session will compile against. A pinned library is part
+        -- of what watch generation writes into a module, so a component generated
+        -- without it is not the code the session would produce for it.
+        local read, pinned = pcall(
+            require("nupp.compiler.hotsession").libraries,
+            config,
+            require("nupp.compiler.fs").absolute(root)
+        )
+        if not read then
+            io.stderr:write("nupp: " .. tostring(pinned) .. "\n")
+            return 1
+        end
+        config._reloadLibraries = pinned
+    end
     config._optLevel = opts.optLevel or target.optimize as integer? or defaultLevel
     config._disabledPasses = opts.disabled or {}
     -- Coverage affects emitted Lua, therefore belongs in the configuration before the

@@ -38,6 +38,7 @@ const RELOAD_NO_CHANGE: u32 = 0;
 const RELOAD_COMMITTED: u32 = 1;
 const RELOAD_REJECTED: u32 = 2;
 const RELOAD_RESTART_REQUIRED: u32 = 3;
+const RELOAD_PREPARED: u32 = 4;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -795,6 +796,49 @@ pub unsafe extern "C" fn nupp_reload_config_init(config: *mut NuppReloadConfig) 
     }
 }
 
+unsafe fn reload_configuration<'a>(
+    config: *const NuppReloadConfig,
+    out: *mut *mut NuppReload,
+) -> Result<(NuppReloadConfig, Option<&'a str>, Option<&'a str>), Failure> {
+    if out.is_null() {
+        return Err(Failure::invalid(
+            ERROR_CONFIGURATION,
+            "opening a reload session needs somewhere to put it",
+        ));
+    }
+    unsafe { out.write(ptr::null_mut()) };
+    if config.is_null() {
+        return Err(Failure::invalid(
+            ERROR_CONFIGURATION,
+            "opening a reload session needs its configuration",
+        ));
+    }
+    let size = unsafe { ptr::addr_of!((*config).size).read() };
+    if (size as usize) < size_of::<NuppReloadConfig>() {
+        return Err(Failure {
+            status: STATUS_INCOMPATIBLE,
+            category: ERROR_COMPATIBILITY,
+            message: "nupp_reload_config is smaller than embedding ABI 1 requires".to_owned(),
+        });
+    }
+    let config = unsafe { config.read() };
+    if config.flags & !RELOAD_STRICT != 0 {
+        return Err(Failure::invalid(
+            ERROR_CONFIGURATION,
+            "nupp_reload_config contains unknown flags",
+        ));
+    }
+    let compiler = unsafe {
+        optional_utf8(
+            config.compiler_path,
+            "a compiler directory",
+            ERROR_CONFIGURATION,
+        )
+    }?;
+    let root = unsafe { optional_utf8(config.root, "a project root", ERROR_CONFIGURATION) }?;
+    Ok((config, compiler, root))
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn nupp_reload_open(
     runtime: *mut NuppRuntime,
@@ -805,44 +849,35 @@ pub unsafe extern "C" fn nupp_reload_open(
     unsafe {
         status_boundary(error, || {
             let runtime = runtime_mut(runtime)?;
-            if out.is_null() {
-                return Err(Failure::invalid(
-                    ERROR_CONFIGURATION,
-                    "opening a reload session needs somewhere to put it",
-                ));
-            }
-            out.write(ptr::null_mut());
-            if config.is_null() {
-                return Err(Failure::invalid(
-                    ERROR_CONFIGURATION,
-                    "opening a reload session needs its configuration",
-                ));
-            }
-            let size = ptr::addr_of!((*config).size).read();
-            if (size as usize) < size_of::<NuppReloadConfig>() {
-                return Err(Failure {
-                    status: STATUS_INCOMPATIBLE,
-                    category: ERROR_COMPATIBILITY,
-                    message: "nupp_reload_config is smaller than embedding ABI 1 requires"
-                        .to_owned(),
-                });
-            }
-            let config = config.read();
-            if config.flags & !RELOAD_STRICT != 0 {
-                return Err(Failure::invalid(
-                    ERROR_CONFIGURATION,
-                    "nupp_reload_config contains unknown flags",
-                ));
-            }
+            let (config, compiler, root) = reload_configuration(config, out)?;
             let entry = utf8(config.entry, "a reloading entry", ERROR_CONFIGURATION)?;
-            let compiler = optional_utf8(
-                config.compiler_path,
-                "a compiler directory",
-                ERROR_CONFIGURATION,
-            )?;
-            let root = optional_utf8(config.root, "a project root", ERROR_CONFIGURATION)?;
             let reload = runtime
                 .reload_open(compiler, root, entry, config.flags & RELOAD_STRICT != 0)
+                .map_err(|error| Failure::runtime(ERROR_COMPONENT, error))?;
+            out.write(Box::into_raw(Box::new(NuppReload {
+                reload,
+                message: None,
+            })));
+            Ok(())
+        })
+    }
+}
+
+/// Attaches to the reload components already loaded in this runtime. `entry` is
+/// not read: the component named its own modules when it installed them.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nupp_reload_attach(
+    runtime: *mut NuppRuntime,
+    config: *const NuppReloadConfig,
+    out: *mut *mut NuppReload,
+    error: *mut *mut NuppError,
+) -> c_int {
+    unsafe {
+        status_boundary(error, || {
+            let runtime = runtime_mut(runtime)?;
+            let (config, compiler, root) = reload_configuration(config, out)?;
+            let reload = runtime
+                .reload_attach(compiler, root, config.flags & RELOAD_STRICT != 0)
                 .map_err(|error| Failure::runtime(ERROR_COMPONENT, error))?;
             out.write(Box::into_raw(Box::new(NuppReload {
                 reload,
@@ -882,6 +917,87 @@ pub unsafe extern "C" fn nupp_reload_find(
     }
 }
 
+unsafe fn reload_step(
+    runtime: *mut NuppRuntime,
+    reload: *mut NuppReload,
+    verdict: *mut u32,
+    generation: *mut u64,
+    step: fn(&mut HostRuntime, Reload) -> Result<crate::ReloadReport, HostError>,
+) -> Result<(), Failure> {
+    let runtime = unsafe { runtime_mut(runtime) }?;
+    let reload = unsafe { reload_mut(reload) }?;
+    reload.message = None;
+    let report =
+        step(runtime, reload.reload).map_err(|error| Failure::runtime(ERROR_RUNTIME, error))?;
+    if let Some(message) = report.message {
+        let mut bytes = message.into_bytes();
+        for byte in &mut bytes {
+            if *byte == 0 {
+                *byte = b'?';
+            }
+        }
+        bytes.push(0);
+        reload.message = Some(bytes.into_boxed_slice());
+    }
+    if !verdict.is_null() {
+        unsafe {
+            verdict.write(match report.verdict {
+                ReloadVerdict::NoChange => RELOAD_NO_CHANGE,
+                ReloadVerdict::Prepared => RELOAD_PREPARED,
+                ReloadVerdict::Committed => RELOAD_COMMITTED,
+                ReloadVerdict::Rejected => RELOAD_REJECTED,
+                ReloadVerdict::RestartRequired => RELOAD_RESTART_REQUIRED,
+            })
+        };
+    }
+    if !generation.is_null() {
+        unsafe { generation.write(report.generation) };
+    }
+    Ok(())
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nupp_reload_prepare(
+    runtime: *mut NuppRuntime,
+    reload: *mut NuppReload,
+    verdict: *mut u32,
+    generation: *mut u64,
+    error: *mut *mut NuppError,
+) -> c_int {
+    unsafe {
+        status_boundary(error, || {
+            reload_step(
+                runtime,
+                reload,
+                verdict,
+                generation,
+                HostRuntime::reload_prepare,
+            )
+        })
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nupp_reload_apply(
+    runtime: *mut NuppRuntime,
+    reload: *mut NuppReload,
+    verdict: *mut u32,
+    generation: *mut u64,
+    error: *mut *mut NuppError,
+) -> c_int {
+    unsafe {
+        status_boundary(error, || {
+            reload_step(
+                runtime,
+                reload,
+                verdict,
+                generation,
+                HostRuntime::reload_apply,
+            )
+        })
+    }
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn nupp_reload_poll(
     runtime: *mut NuppRuntime,
@@ -892,34 +1008,13 @@ pub unsafe extern "C" fn nupp_reload_poll(
 ) -> c_int {
     unsafe {
         status_boundary(error, || {
-            let runtime = runtime_mut(runtime)?;
-            let reload = reload_mut(reload)?;
-            reload.message = None;
-            let report = runtime
-                .reload_poll(reload.reload)
-                .map_err(|error| Failure::runtime(ERROR_RUNTIME, error))?;
-            if let Some(message) = report.message {
-                let mut bytes = message.into_bytes();
-                for byte in &mut bytes {
-                    if *byte == 0 {
-                        *byte = b'?';
-                    }
-                }
-                bytes.push(0);
-                reload.message = Some(bytes.into_boxed_slice());
-            }
-            if !verdict.is_null() {
-                verdict.write(match report.verdict {
-                    ReloadVerdict::NoChange => RELOAD_NO_CHANGE,
-                    ReloadVerdict::Committed => RELOAD_COMMITTED,
-                    ReloadVerdict::Rejected => RELOAD_REJECTED,
-                    ReloadVerdict::RestartRequired => RELOAD_RESTART_REQUIRED,
-                });
-            }
-            if !generation.is_null() {
-                generation.write(report.generation);
-            }
-            Ok(())
+            reload_step(
+                runtime,
+                reload,
+                verdict,
+                generation,
+                HostRuntime::reload_poll,
+            )
         })
     }
 }

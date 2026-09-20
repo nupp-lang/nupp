@@ -71,6 +71,7 @@ typedef enum nupp_reload_verdict {
     NUPP_RELOAD_COMMITTED = 1,
     NUPP_RELOAD_REJECTED = 2,
     NUPP_RELOAD_RESTART_REQUIRED = 3,
+    NUPP_RELOAD_PREPARED = 4,
 } nupp_reload_verdict;
 
 typedef struct nupp_config {
@@ -209,6 +210,18 @@ NUPP_API nupp_status nupp_reload_open(
     nupp_error **error
 );
 
+/* Attaches a session to the components already loaded here that were built with
+ * `reload = true`. `entry` is not read: a component named its own modules when
+ * it installed them, and attaching recompiles each one to prove the source in
+ * `root` is still what it is running. Load the component before the compiler,
+ * because a component refuses to install a module the state already has. */
+NUPP_API nupp_status nupp_reload_attach(
+    nupp_runtime *runtime,
+    const nupp_reload_config *config,
+    nupp_reload **out,
+    nupp_error **error
+);
+
 /* One member of the reloading entry, by dotted name. The handle keeps working
  * across every commit, which is what a watch build's stable identity buys. */
 NUPP_API nupp_status nupp_reload_find(
@@ -219,8 +232,33 @@ NUPP_API nupp_status nupp_reload_find(
     nupp_error **error
 );
 
-/* The commit boundary, called where the host knows no work is half applied.
- * Nothing in the running process changes anywhere else. */
+/* Checks what changed and stages a patch. Nothing that is running changes here,
+ * so a host may prepare away from its safe point: `NUPP_RELOAD_PREPARED` says a
+ * complete patch is waiting for `nupp_reload_apply`, and a second prepare
+ * replaces what the first staged. */
+NUPP_API nupp_status nupp_reload_prepare(
+    nupp_runtime *runtime,
+    nupp_reload *reload,
+    uint32_t *verdict,
+    uint64_t *generation,
+    nupp_error **error
+);
+
+/* Publishes what `nupp_reload_prepare` staged: the commit boundary, called
+ * where the host knows no work is half applied. It is the only call in a
+ * session that changes a live implementation. With nothing staged it answers
+ * `NUPP_RELOAD_NO_CHANGE`, and a patch the running generation has moved past
+ * answers `NUPP_RELOAD_REJECTED`. */
+NUPP_API nupp_status nupp_reload_apply(
+    nupp_runtime *runtime,
+    nupp_reload *reload,
+    uint32_t *verdict,
+    uint64_t *generation,
+    nupp_error **error
+);
+
+/* Preparing and applying at one point, for a host with nothing to gain by
+ * separating them. */
 NUPP_API nupp_status nupp_reload_poll(
     nupp_runtime *runtime,
     nupp_reload *reload,

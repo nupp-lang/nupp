@@ -110,6 +110,7 @@ if not state then
     state = {
         generation = 1,
         modules = {},
+        observers = {},
         bySlots = setmetatable({}, {
             __mode = "k"
         }),
@@ -118,6 +119,9 @@ if not state then
     }
     _G[STATE_KEY] = state
 end
+-- A state installed by an older copy of this module, reached through a different
+-- loader path, predates the observers below.
+state.observers = state.observers or {}
 
 local function upvalues(fn: hotreload.Implementation, selfName: string?): hotreload.Captures
     local byName, order = {}, {}
@@ -256,6 +260,35 @@ function hotreload.seal(name: string): nil
         error("nupp hot reload: cannot seal unknown or loaded module " .. name, 2)
     end
     module.loaded = true
+    for _, observer in ipairs(state.observers) do
+        observer(name)
+    end
+end
+
+--- Watches modules joining the running generation.
+---
+--- A watching command loads every module itself and knows when each one arrived. A
+--- host attaching to a component does not: the component preloaded its own modules
+--- and requires them when the program reaches them, which may be long after the
+--- session opened. This is how a session learns about those.
+---
+--- The observer runs inside the sealing module's own load, so what it does must not
+--- require that module back.
+---
+--- @param observer called with each module's name as it completes registration
+--- @return a function that removes this observer
+function hotreload.observe(observer: function(name: string): nil): function(): nil
+    local watching = state.observers
+    watching[#watching + 1] = observer
+
+    return function(): nil
+        for index, candidate in ipairs(watching) do
+            if candidate == observer then
+                table.remove(watching, index)
+                return
+            end
+        end
+    end
 end
 
 --- Discards an incomplete registration after its initial chunk fails.
@@ -435,6 +468,7 @@ end
 function hotreload.retire(): nil
     state.generation = 1
     state.modules = {}
+    state.observers = {}
     state.bySlots = setmetatable({}, {__mode = "k"})
     state.staging = nil
     state.preparedSerial = 0

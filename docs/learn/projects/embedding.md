@@ -458,72 +458,109 @@ allowed and succeeds; double-freeing any C pointer remains invalid C.
 ## Hot reload
 
 A development host can keep its program's function bodies current without
-restarting the process. `nupp_reload_open` builds an entry in watch mode, runs
-its chunk, and leaves a compiler session open beside it. Reload compiles while
-the program runs, so the compiler is part of the process rather than of an
-artifact: `compiler_path` names a directory holding the compiler's own Lua
-modules, which is what `nupp build --target bootstrapCompiler` writes.
+restarting the process. There are two ways in, and both end at the same session:
+
+- `nupp_reload_attach` adopts the components already loaded here that were built
+  with `reload = true`. The program is the component the host would ship, loaded
+  the way it always is.
+- `nupp_reload_open` builds a `.nupp` entry in watch mode and runs it, for a host
+  with no component to load.
+
+Reload compiles while the program runs, so the compiler is part of the process
+rather than of the artifact: `compiler_path` names a directory holding the
+compiler's own Lua modules, which is what `nupp build --target bootstrapCompiler`
+writes.
 
 ```c
 nupp_reload_config reloading;
 nupp_reload *reload = NULL;
-nupp_handle *update = NULL;
+
+nupp_component_load(runtime, bytes, length, "game-dev.nuppc", &component, &error);
+nupp_export_find(runtime, component, "game.update", &update, &error);
 
 nupp_reload_config_init(&reloading);
 reloading.compiler_path = "/path/to/nupp/build";
 reloading.root = "/path/to/project";
-reloading.entry = "src/game.nupp";
-if (nupp_reload_open(runtime, &reloading, &reload, &error) != NUPP_STATUS_OK) {
+if (nupp_reload_attach(runtime, &reloading, &reload, &error) != NUPP_STATUS_OK) {
     fprintf(stderr, "nupp: %s\n", nupp_error_message(error));
     return 1;
 }
-nupp_reload_find(runtime, reload, "update", &update, &error);
 ```
 
-A reloading program is source rather than a packaged component, so a session
-takes the place of `nupp_component_load` rather than joining it. The entry is a
-module, and `nupp_reload_find` names one of its members by dotted name. Take the
-handle once: a watch build dispatches every named function through a slot, so
-the handle keeps working after each commit, and so does every other value the
-program already handed out.
+Load the component before attaching. A component installs the runtime modules it
+carries and refuses a module the state already has, and attaching is what brings
+the compiler in. Attaching recompiles every module the component is running and
+compares each against the digest the component recorded, so a session either
+proves it is patching the code that is actually running or refuses to open; a
+tree that has moved on since the component was built is a rebuild, not a patch.
 
-`nupp_reload_poll` is the commit boundary. Call it where the host knows nothing
-is half applied — between frames, between requests, outside a transaction —
-because that moment is the one thing the runtime cannot work out for itself:
+A handle taken before a commit keeps working after it. A watch build dispatches
+every named function through a slot, so `nupp_export_find` — or
+`nupp_reload_find`, for a member of an entry opened from source — answers a value
+that stays valid for the life of the session, and so does every other value the
+program has already handed out.
+
+### The commit boundary
+
+Preparing and applying are separate calls, because only one of them changes the
+running program:
 
 ```c
 uint32_t verdict = 0;
 uint64_t generation = 0;
 
-nupp_reload_poll(runtime, reload, &verdict, &generation, &error);
+/* Anywhere: compiles, checks and stages. Nothing that is running changes. */
+nupp_reload_prepare(runtime, reload, &verdict, &generation, &error);
 if (verdict == NUPP_RELOAD_REJECTED) {
     fprintf(stderr, "nupp: %s\n", nupp_reload_message(reload));
+}
+
+/* Between frames, between requests, outside a transaction: publishes it. */
+if (verdict == NUPP_RELOAD_PREPARED) {
+    nupp_reload_apply(runtime, reload, &verdict, &generation, &error);
 }
 ```
 
 | Verdict | Meaning |
 | --- | --- |
 | `NUPP_RELOAD_NO_CHANGE` | Nothing a running implementation depends on changed |
-| `NUPP_RELOAD_COMMITTED` | A complete generation was published; `generation` names it |
+| `NUPP_RELOAD_PREPARED` | A complete patch is staged, waiting for `nupp_reload_apply` |
+| `NUPP_RELOAD_COMMITTED` | A generation was published; `generation` names it |
 | `NUPP_RELOAD_REJECTED` | The candidate did not check, and the last good generation keeps running |
 | `NUPP_RELOAD_RESTART_REQUIRED` | The change is outside what a live process can take |
 
-Nothing changes in the running process anywhere but inside that call, and a
-generation it publishes is complete: staging proves the whole patch compatible
-before a commit assigns any slot. `nupp_reload_message` carries the diagnostics
-behind a refusal, formatted as one line each; the session owns those bytes and
-the next poll replaces them.
+`nupp_reload_poll` is both at one point, for a host with nothing to gain by
+separating them. A second prepare replaces what the first staged, since the newer
+edit is the one the program is about to be asked for, and an apply with nothing
+staged answers `NUPP_RELOAD_NO_CHANGE` rather than committing something twice.
 
-`nupp_reload_close` retires the loader and the compiler session, and
-`nupp_reload_free` releases the handle to it. The program's own values survive
-both, and every function it handed out keeps answering; what stops is reloading
-them. A process holds one session at a time: opening a second before the first
-closes is refused, and opening one after a close starts again at generation 1.
+Nothing changes in the running process anywhere but inside `nupp_reload_apply`,
+and what it publishes is complete: staging proves the whole patch compatible
+before a commit assigns any slot, so no call can see half of one. A call already
+running finishes on the implementation it entered. `nupp_reload_message` carries
+the diagnostics behind a refusal, formatted as one line each; the session owns
+those bytes and the next step replaces them.
 
-Watch builds are development builds: always `-O0`, and carrying slot dispatch
-the ordinary build has no trace of. Measure and ship the ordinary build. See
-[hot-reload.md](hot-reload.md) for which edits a commit accepts and which
-report a restart.
+What survives a commit and what reports `NUPP_RELOAD_RESTART_REQUIRED` is watch
+mode's own account, in [hot-reload.md](hot-reload.md): bodies of named functions
+are replaceable, and a changed declaration, layout, capture set or native
+artifact is not. Nupp does not replace native machine code in a live process, so
+a changed C library is a restart however the host asks, and so is a changed
+`@aot` entry: a patched Lua body is not a rebuilt kernel.
+
+A commit reaches the state the session is attached to and no other. A worker
+task runs in its own LuaJIT state with its own copy of the module code, so a
+worker keeps running the generation it started with until it is replaced.
+
+### Closing
+
+`nupp_reload_close` retires the session and `nupp_reload_free` releases the
+handle to it. The program's own values survive both, and every function it handed
+out keeps answering; what stops is reloading them. A process holds one session at
+a time: opening a second before the first closes is refused.
+
+Watch builds are development builds: always `-O0`, and carrying slot dispatch the
+ordinary build has no trace of. Measure and ship the ordinary build.
 
 ## Authority and limits
 
@@ -537,7 +574,9 @@ The current embedding release has these deliberate limits:
 - the managed number kind is binary64 rather than an exact integer family;
 - `nupp_runtime_poll` does not provide a scheduler;
 - the in-process compiler is reachable only through a reload session, and not as
-  a general compile-this-source API.
+  a general compile-this-source API;
+- a reload session is development-only, and needs the project's source tree and a
+  compiler beside the running process.
 
 The current C header remains the authority for the implemented ABI.
 

@@ -968,6 +968,12 @@ local function buildModules(root: string, outDir: string, config: Config, target
 
     local function runtimeImports(name: string, code: string): any
         local required = gen.runtimeModules(code)
+        -- Watch generation reaches its registry through a global rather than a
+        -- require, so nothing in the generated code says the module it needs is
+        -- there. Naming it here is what packages it.
+        if config._reload then
+            required[#required + 1] = "nupp.runtime.hotreload"
+        end
         if name == "nupp.spi" then
             required[#required + 1] = "nupp.spi.index"
         elseif name == "nupp.spi.index" then
@@ -1552,11 +1558,19 @@ local function buildModules(root: string, outDir: string, config: Config, target
                 ] = {file = path, kind = site.kind, line = site.line, col = site.col,}
             end
             local emittedEffects
+            -- A reload component is generated the way `nupp run --watch` generates:
+            -- one slot array per module, every named function dispatching through
+            -- it, and the same registration calls. What makes it a component rather
+            -- than a watch run is who seals it and who holds the compiler session,
+            -- both of which packaging and the host settle later.
+            local hotRequest: any = config._reload
+                and {mode = "initial", module = name, libraries = config._reloadLibraries or {}}
+                or nil
             code, genDiags, coverage, emittedEffects = gen.generate(
                 result.result,
                 path,
                 config._coverage and {path = path} or nil,
-                nil,
+                hotRequest,
                 nil,
                 nil,
                 ((target as any)._aotGpuSources or {})[normalize(path)] and {["runtime.gpu"] = true} or nil

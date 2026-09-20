@@ -153,7 +153,16 @@ local function bundleText(
             and (name:match("^nupp%.compiler%.") == nil or name:match("^nupp%.compiler%.runtime%.") ~= nil)
     end
 
-    local function addModule(name: string, text: string, shared: boolean?): nil
+    -- What a reload component was built from, module by module: the digest of the
+    -- generated Lua it is running. A session attaching to it recompiles from source
+    -- and compares, which is the whole proof that the two agree -- generation is
+    -- deterministic, so the same source and the same compiler answer the same bytes.
+    local reloadModules: {{
+        name: string,
+        hash: string
+    }} = {}
+
+    local function addModule(name: string, text: string, shared: boolean?, patchable: boolean?): nil
         if shared then
             sharedModules[#sharedModules + 1] = {name = name, hash = hash.digest(text),}
             chunks[
@@ -168,6 +177,24 @@ local function bundleText(
             ] = (
                 "__nuppCompilerSources[%q] = %s\npackage.preload[%q] = assert(loadstring(__nuppCompilerSources[%q], %q))\n"
             ):format(name, longString(text), name, name, "@" .. name)
+        elseif patchable then
+            -- A watch module registers its slots as its chunk runs and is sealed
+            -- once the chunk has returned. Under `nupp run --watch` the loader does
+            -- the sealing; a component has no loader, so it seals itself here, and
+            -- abandons the registration when its own top level raises.
+            reloadModules[#reloadModules + 1] = {name = name, hash = hash.digest(text),}
+            chunks[
+                #chunks + 1
+            ] = (
+                "package.preload[%q] = function(...)\nlocal __nuppReloadOk, __nuppReloadValue = pcall(function(...)\n"
+            ):format(name)
+            chunks[#chunks + 1] = text
+            chunks[
+                #chunks + 1
+            ] = (
+                "\nend, ...)\nif not __nuppReloadOk then _G.__nuppHotReload.abort(%q) error(__nuppReloadValue, 0) end\n"
+                .. "_G.__nuppHotReload.seal(%q)\nreturn __nuppReloadValue\nend\n"
+            ):format(name, name)
         else
             chunks[#chunks + 1] = ("package.preload[%q] = function(...)\n"):format(name)
             chunks[#chunks + 1] = text
@@ -255,7 +282,15 @@ local function bundleText(
             if not text then
                 return nil, readErr
             end
-            addModule(name, text, component and record.compilerRuntime)
+            -- Only what this build generated in watch mode is patchable. The
+            -- runtime modules staged beside them come from the compiler's own
+            -- build, generated ordinarily, and register no slots to patch.
+            addModule(
+                name,
+                text,
+                component and record.compilerRuntime,
+                component and config._reload and not record.compilerRuntime
+            )
         end
     end
 
@@ -421,6 +456,20 @@ local function bundleText(
                 member,
                 "nupp: component export is not callable: " .. name
             )
+        end
+        if config._reload then
+            -- The registry every watch module reaches through `_G.__nuppHotReload`,
+            -- installed before any of them runs, and the record a session attaches
+            -- against. Both are process-wide because the runtime half is: two
+            -- components built for reload join one registry and one session.
+            chunks[#chunks + 1] = "require(\"nupp.runtime.hotreload\")\n"
+            chunks[
+                #chunks + 1
+            ] = "local __nuppReload = rawget(_G, \"__nuppComponentReload\") or {}\n"
+                .. "rawset(_G, \"__nuppComponentReload\", __nuppReload)\n"
+            for _, entry in ipairs(reloadModules) do
+                chunks[#chunks + 1] = interpolate("__nuppReload[%q] = %q\n", entry.name, entry.hash)
+            end
         end
         chunks[
             #chunks + 1

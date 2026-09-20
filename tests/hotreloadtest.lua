@@ -1403,4 +1403,37 @@ function M.hostSessionNamesAnEntryItCannotRead()
     assert(failure and failure:find("NUPP0001", 1, true), "an unreadable entry reports a diagnostic: " .. tostring(failure))
 end
 
+function M.aPatchDoesNotDisturbTheLoadedModuleTable()
+    -- A patch runs the module's top level again to build candidates over the same
+    -- cells. It is not a module load: writing `package.loaded` there would unload the
+    -- running module, and the next `require` would register its slots a second time.
+    local source = "module patched\n\nlocal patched = {}\n\n"
+        .. "function patched.answer(): integer return 1 end\n\nexport = patched\n"
+    local dir = temporaryProject({["patched.nupp"] = source})
+    local path = dir .. "/patched.nupp"
+    hot.resetForTesting()
+    package.loaded.patched = nil
+    local session = hotSession.new(dir, {cache = false})
+    local built = assert(session:compile(path, "initial", "patched"))
+    local api = assert(loadstring(built.code, "@" .. path))("patched")
+    hot.seal("patched")
+    session:loaded("patched", 1, built.manifest)
+    assertEq(package.loaded.patched, api, "the initial load publishes the module")
+
+    write(path, (source:gsub("return 1", "return 2")))
+    session:diskChanged(path, 2)
+    local prepared = session:prepare({path})
+    assertEq(prepared.kind, "prepared")
+    assert(not prepared.patch:find("package.loaded", 1, true), "a patch leaves the loaded table alone")
+    local staged, reason = hot.stage(prepared.patch, prepared.baseGeneration)
+    assert(staged, reason)
+    assertEq(package.loaded.patched, api, "staging leaves the running module loaded")
+    assertEq(hot.commit(staged), 2)
+    session:committed(2)
+    assertEq(package.loaded.patched, api, "committing leaves the running module loaded")
+    assertEq(require("patched"), api, "requiring it again is the same table, not a second load")
+    assertEq(api.answer(), 2, "and it answers from the committed generation")
+    package.loaded.patched = nil
+end
+
 return M

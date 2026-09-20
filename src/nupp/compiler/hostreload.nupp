@@ -21,8 +21,11 @@ preserves.
 
 local hostreload = {}
 
---- What one poll decided about the running generation.
-type hostreload.Verdict = 'no-change' | 'committed' | 'rejected' | 'restart-required'
+--- What one step decided about the running generation.
+---
+--- `prepared` is only `prepare`'s: a complete patch is staged and nothing in the
+--- running process has changed yet. `committed` is only `apply`'s and `poll`'s.
+type hostreload.Verdict = 'no-change' | 'prepared' | 'committed' | 'rejected' | 'restart-required'
 
 --- One open host session: the entry's value, and the three things a host does with
 --- it. They are plain fields rather than methods because the caller is C, which
@@ -35,13 +38,21 @@ type hostreload.Session = {
     --- function through a slot, so what comes back stays valid across every commit.
     member: function(name: string): any,
 
-    --- The commit boundary: the verdict, the implementation generation running
-    --- after it, and the diagnostics behind a refusal.
+    --- Checks what changed and stages a patch. Nothing that is running changes
+    --- here, so a host may do this away from its safe point.
+    prepare: function(): (hostreload.Verdict, integer, string?),
+
+    --- Publishes what `prepare` staged. This is the commit boundary, and the only
+    --- call in a session that changes a live implementation.
+    apply: function(): (hostreload.Verdict, integer, string?),
+
+    --- `prepare` and `apply` at one point, for a host with nothing to gain by
+    --- separating them.
     ---
-    --- Three values rather than a record, because the caller reads them across the
-    --- C boundary, where a returned table is another rooted value to take apart and
-    --- release. The message is already formatted: a host has no way to render the
-    --- compiler's own diagnostic records.
+    --- Each answers three values rather than a record, because the caller reads
+    --- them across the C boundary, where a returned table is another rooted value
+    --- to take apart and release. The message is already formatted: a host has no
+    --- way to render the compiler's own diagnostic records.
     poll: function(): (hostreload.Verdict, integer, string?),
 
     --- Retires the loader and the compiler session. `ok` says whether the program
@@ -71,6 +82,49 @@ local function formatDiagnostics(values: {any}?): string?
     end
 
     return table.concat(parts, "\n")
+end
+
+-- The session speaks one word for two different facts: `prepared` means a patch is
+-- staged when `prepare` says it and means one was published when `apply` or `poll`
+-- does. What a host is told has to tell them apart.
+local function verdictOf(result: any, staging: boolean): hostreload.Verdict, integer, string?
+    local kind = tostring(result.kind)
+    local verdict: hostreload.Verdict = "no-change"
+    if kind == "prepared" then
+        verdict = staging and "prepared" or "committed"
+    elseif kind == "diagnostics" then
+        verdict = "rejected"
+    elseif kind == "restart-required" then
+        verdict = "restart-required"
+    end
+
+    return verdict, require("nupp.runtime.hotreload").generation(), formatDiagnostics(result.diagnostics)
+end
+
+--- The three host-facing steps over one watching driver, whatever produced it.
+local function steps(
+    driver: any
+): (function(): (hostreload.Verdict, integer, string?), function(): (hostreload.Verdict, integer, string?), function(): (hostreload.Verdict, integer, string?))
+    local function prepare(): hostreload.Verdict, integer, string?
+        return verdictOf(driver.prepare(), true)
+    end
+
+    local function apply(): hostreload.Verdict, integer, string?
+        return verdictOf(driver.apply(), false)
+    end
+
+    local function poll(): hostreload.Verdict, integer, string?
+        local verdict, generation, message = prepare()
+        if verdict == "prepared" then
+            return apply()
+        else
+            -- Everything else is already final: nothing was staged, so there is
+            -- nothing for the commit half of this call to publish.
+            return verdict, generation, message
+        end
+    end
+
+    return prepare, apply, poll
 end
 
 -- The runtime half's registry is process-wide, and a compiler session advances a
@@ -143,7 +197,9 @@ function hostreload.open(entry: string, root: string?, strict: boolean?): (hostr
     -- entry here, and the session watches from the build it just ran rather than
     -- from whatever the host's first poll happens to find on disk.
     local hot: any = _G.nupp.hotreload
-    hot.poll()
+    if opened.prepare().kind == "prepared" then
+        opened.apply()
+    end
     active = true
 
     local function member(name: string): any
@@ -158,20 +214,7 @@ function hostreload.open(entry: string, root: string?, strict: boolean?): (hostr
         return current
     end
 
-    local function poll(): hostreload.Verdict, integer, string?
-        local result: any = hot.poll()
-        local kind = tostring(result.kind)
-        local verdict: hostreload.Verdict = "no-change"
-        if kind == "prepared" then
-            verdict = "committed"
-        elseif kind == "diagnostics" then
-            verdict = "rejected"
-        elseif kind == "restart-required" then
-            verdict = "restart-required"
-        end
-
-        return verdict, hot.generation(), formatDiagnostics(result.diagnostics)
-    end
+    local prepare, apply, poll = steps(opened)
 
     local closed = false
 
@@ -189,7 +232,133 @@ function hostreload.open(entry: string, root: string?, strict: boolean?): (hostr
         require("nupp.runtime.hotreload").retire()
     end
 
-    return {entry = value, member = member, poll = poll, close = close}, nil
+    return {entry = value, member = member, prepare = prepare, apply = apply, poll = poll, close = close}, nil
+end
+
+--- Resolves a dotted name through the modules a component loaded.
+---
+--- The longest prefix that names a loaded module wins, and what is left indexes into
+--- it, so `game.answer` finds `answer` in `game` and `game.rules.answer` finds it in
+--- `game.rules` when that is the module. A module the component preloaded but has
+--- not reached yet is required here, which is what the program would do anyway.
+local function loadedMember(name: string): any
+    local parts: {string} = {}
+    for part in tostring(name):gmatch("[^%.]+") do
+        parts[#parts + 1] = part
+    end
+    for count = #parts - 1, 1, -1 do
+        local moduleName = table.concat(parts, ".", 1, count)
+        local loaded: any = package.loaded[moduleName]
+        if loaded == nil and package.preload[moduleName] ~= nil then
+            local required, value = pcall(require, moduleName)
+            loaded = required and value or nil
+        end
+        if type(loaded) == "table" then
+            local current: any = loaded
+            for index = count + 1, #parts do
+                if type(current) ~= "table" then
+                    return nil
+                end
+                current = current[parts[index]]
+            end
+
+            return current
+        end
+    end
+
+    return nil
+end
+
+--- Opens a session on the reload components already loaded in this process.
+---
+--- A component built with `reload = true` records the digest of the generated Lua
+--- each of its modules is running. Attaching recompiles those modules from source
+--- and compares: generation is deterministic, so agreement is proof that the source
+--- the session will patch against is the source the component was built from, and a
+--- mismatch means the tree moved on and the component has to be rebuilt.
+---
+--- @param root the project directory the component was built from
+--- @param strict whether every file is held to the strict floor
+--- @return the open session, or nil and why it could not be opened
+function hostreload.attach(root: string?, strict: boolean?): (hostreload.Session?, string?)
+    if active then
+        return nil, "a hot reload session is already open in this process"
+    end
+    local recorded: any = _G.__nuppComponentReload
+    if type(recorded) ~= "table" or next(recorded) == nil then
+        return nil, "no component in this runtime was built with reload = true"
+    end
+    local hotRuntime = require("nupp.runtime.hotreload")
+    local hash = require("nupp.compiler.build.hash")
+    local watch = require("nupp.compiler.cli.watch")
+    local session: any = require("nupp.compiler.hotsession").new(root or ".", {strict = strict})
+    local driver: any = nil
+
+    -- Recompiles one running module and adopts it as the session's baseline, or
+    -- says why it cannot be adopted. A module the session never adopts is one the
+    -- session will not patch: editing it reports no change, because as far as the
+    -- compiler is concerned nothing it knows about is running.
+    local function adopt(name: string): string?
+        local digest = recorded[name]
+        if digest == nil then
+            return nil
+        end
+        local path = session.inc.modulePath(name)
+        if not path then
+            return ("%s is running from this component, but this project has no source for it"):format(name)
+        end
+        local built, failure = session:compile(path, "initial", name)
+        if not built then
+            return formatDiagnostics(failure and failure.diagnostics) or ("%s no longer compiles"):format(name)
+        end
+        if hash.digest(built.code) ~= digest then
+            return (
+                "%s has changed since this component was built; rebuild the component before attaching"
+            ):format(name)
+        end
+        watch.reportNotices(session:loaded(name, session.generation, built.manifest))
+
+        return nil
+    end
+
+    for name in pairs(recorded) do
+        if hotRuntime.loaded(name) then
+            local failure = adopt(name)
+            if failure then
+                return nil, failure
+            end
+        end
+    end
+
+    -- A component requires its own modules when the program reaches them, which is
+    -- after this. Each one joins the session as it seals, on the same terms.
+    local removeObserver = hotRuntime.observe(function(name: string): nil
+        local failure = adopt(name)
+        if failure then
+            io.stderr:write("nupp: " .. failure .. "\n")
+        elseif driver then
+            driver.resetInputs()
+        end
+    end)
+    driver = watch.driver(session)
+    local prepare, apply, poll = steps(driver)
+    active = true
+    local closed = false
+
+    local function close(finishedWell: boolean?): nil
+        local _ = finishedWell
+        if closed then
+            return
+        end
+        closed = true
+        active = false
+        removeObserver()
+        -- The registry is left as it is: the component still owns its modules and
+        -- is still running them, and another session may attach to the same ones.
+        session:persist()
+    end
+
+    return {entry = nil, member = loadedMember, prepare = prepare, apply = apply, poll = poll, close = close}, nil
 end
 
 export = hostreload

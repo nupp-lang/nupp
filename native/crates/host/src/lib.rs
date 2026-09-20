@@ -78,6 +78,7 @@ pub struct Reload {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ReloadVerdict {
     NoChange,
+    Prepared,
     Committed,
     Rejected,
     RestartRequired,
@@ -97,13 +98,38 @@ pub struct ReloadReport {
 struct ReloadState {
     session: i32,
     member: i32,
+    prepare: i32,
+    apply: i32,
     poll: i32,
     close: i32,
 }
 
+/// One argument on the way to a session opener, owned until the call is made.
+enum ReloadArgument {
+    Nil,
+    Boolean(bool),
+    Bytes(Vec<u8>),
+}
+
+impl ReloadArgument {
+    fn name(value: Option<&str>) -> Self {
+        match value {
+            Some(value) => Self::Bytes(value.as_bytes().to_vec()),
+            None => Self::Nil,
+        }
+    }
+}
+
 impl ReloadState {
-    fn references(&self) -> [i32; 4] {
-        [self.session, self.member, self.poll, self.close]
+    fn references(&self) -> [i32; 6] {
+        [
+            self.session,
+            self.member,
+            self.prepare,
+            self.apply,
+            self.poll,
+            self.close,
+        ]
     }
 }
 
@@ -504,27 +530,62 @@ impl HostRuntime {
         entry: &str,
         strict: bool,
     ) -> Result<Reload, HostError> {
+        self.reload_session(
+            compiler,
+            c"open",
+            &[
+                ReloadArgument::Bytes(entry.as_bytes().to_vec()),
+                ReloadArgument::name(root),
+                ReloadArgument::Boolean(strict),
+            ],
+        )
+    }
+
+    /// Opens a session on the reload components already loaded here.
+    ///
+    /// A component built with `reload = true` records what it was built from, and
+    /// attaching recompiles those modules to prove the source still matches. Load
+    /// the component before the compiler: the component installs the runtime
+    /// modules it carries, and a module already loaded is a collision it refuses.
+    pub fn reload_attach(
+        &mut self,
+        compiler: Option<&str>,
+        root: Option<&str>,
+        strict: bool,
+    ) -> Result<Reload, HostError> {
+        self.reload_session(
+            compiler,
+            c"attach",
+            &[ReloadArgument::name(root), ReloadArgument::Boolean(strict)],
+        )
+    }
+
+    fn reload_session(
+        &mut self,
+        compiler: Option<&str>,
+        opener: &CStr,
+        arguments: &[ReloadArgument],
+    ) -> Result<Reload, HostError> {
         if let Some(compiler) = compiler {
             let directory = CString::new(compiler).map_err(|_| HostError::InvalidChunkName)?;
             self.lua()?
                 .add_package_path(&directory)
                 .map_err(HostError::Lua)?;
         }
-        let entry = entry.as_bytes().to_vec();
-        let root = root.map(|root| root.as_bytes().to_vec());
         let open = self
             .lua()?
-            .module_member(c"nupp.compiler.hostreload", c"open")
+            .module_member(c"nupp.compiler.hostreload", opener)
             .map_err(HostError::Lua)?;
-        let arguments = [
-            LuaArgument::Bytes(&entry),
-            match root.as_ref() {
-                Some(root) => LuaArgument::Bytes(root),
-                None => LuaArgument::Nil,
-            },
-            LuaArgument::Boolean(strict),
-        ];
-        let opened = self.lua()?.call(open, &arguments).map_err(HostError::Lua);
+        let passed = arguments
+            .iter()
+            .map(|argument| match argument {
+                ReloadArgument::Nil => LuaArgument::Nil,
+                ReloadArgument::Boolean(value) => LuaArgument::Boolean(*value),
+                ReloadArgument::Bytes(value) => LuaArgument::Bytes(value),
+            })
+            .collect::<Vec<_>>();
+        let opened = self.lua()?.call(open, &passed).map_err(HostError::Lua);
+        drop(passed);
         let _ = self.lua()?.release_reference(open);
         let answers = opened?;
         let session = match answers.first() {
@@ -582,14 +643,33 @@ impl HostRuntime {
         }
     }
 
-    /// The commit boundary. Nothing in the running process changes until this
-    /// is called, and a generation it commits is complete when it returns.
+    /// Checks what changed and stages a patch. Nothing that is running changes
+    /// here, so a host may prepare away from its safe point and apply at one.
+    pub fn reload_prepare(&mut self, reload: Reload) -> Result<ReloadReport, HostError> {
+        let prepare = self.reload_state(reload)?.prepare;
+        self.reload_step(prepare)
+    }
+
+    /// Publishes what `reload_prepare` staged. This is the commit boundary, and
+    /// the only call in a session that changes a live implementation.
+    pub fn reload_apply(&mut self, reload: Reload) -> Result<ReloadReport, HostError> {
+        let apply = self.reload_state(reload)?.apply;
+        self.reload_step(apply)
+    }
+
+    /// Preparing and applying at one point, for a host with nothing to gain by
+    /// separating them.
     pub fn reload_poll(&mut self, reload: Reload) -> Result<ReloadReport, HostError> {
         let poll = self.reload_state(reload)?.poll;
-        let answers = self.lua()?.call(poll, &[]).map_err(HostError::Lua)?;
+        self.reload_step(poll)
+    }
+
+    fn reload_step(&mut self, step: i32) -> Result<ReloadReport, HostError> {
+        let answers = self.lua()?.call(step, &[]).map_err(HostError::Lua)?;
         let verdict = match answers.first() {
             Some(LuaAnswer::Bytes(kind)) => match kind.as_slice() {
                 b"no-change" => ReloadVerdict::NoChange,
+                b"prepared" => ReloadVerdict::Prepared,
                 b"committed" => ReloadVerdict::Committed,
                 b"rejected" => ReloadVerdict::Rejected,
                 b"restart-required" => ReloadVerdict::RestartRequired,
@@ -654,11 +734,21 @@ impl HostRuntime {
             }
             Err(error) => Err(HostError::Lua(error)),
         };
-        let members = (|| Ok((take(c"member")?, take(c"poll")?, take(c"close")?)))();
+        let members = (|| {
+            Ok((
+                take(c"member")?,
+                take(c"prepare")?,
+                take(c"apply")?,
+                take(c"poll")?,
+                take(c"close")?,
+            ))
+        })();
         match members {
-            Ok((member, poll, close)) => Ok(ReloadState {
+            Ok((member, prepare, apply, poll, close)) => Ok(ReloadState {
                 session,
                 member,
+                prepare,
+                apply,
                 poll,
                 close,
             }),

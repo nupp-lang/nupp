@@ -287,17 +287,17 @@ int main(int argc, char **argv) {
     if (report("recall", status, error)) return 1;
     printf("after = %.0f\n", result.number);
 
-    error = NULL;
-    status = nupp_reload_close(runtime, reload, 1, &error);
-    if (report("close", status, error)) return 1;
-    nupp_reload_free(reload);
+    /* Shut down with the session still open: a runtime releases what it rooted
+     * for a session the host never closed. */
     error = NULL;
     nupp_handle_release(runtime, update, &error);
     nupp_error_free(error);
     error = NULL;
     status = nupp_runtime_shutdown(runtime, &error);
     if (report("shutdown", status, error)) return 1;
+    nupp_reload_free(reload);
     nupp_runtime_free(runtime);
+    printf("shut down with the session open\n");
     return 0;
 }
 ]]
@@ -336,6 +336,7 @@ function M.hotReloadCommitsAnEditThroughTheCApi()
     assert(output:find("before = 41", 1, true), output)
     assert(output:find("verdict = 1 generation = 2", 1, true), output)
     assert(output:find("after = 42", 1, true), output)
+    assert(output:find("shut down with the session open", 1, true), output)
 
     -- The published example drives the same surface but waits on a person between
     -- polls, so it is compiled rather than run: what would rot in it is the API it
@@ -349,6 +350,275 @@ function M.hotReloadCommitsAnEditThroughTheCApi()
         )
     )
     assert(status == 0, output)
+end
+
+-- The plan's own acceptance case, in C: a loaded component, a callable retained
+-- across the edit, an update prepared away from the safe point and applied at one,
+-- and module state that outlives the commit.
+local ATTACH_DRIVER = [[
+#include "nupp.h"
+#include <stdio.h>
+#include <stdlib.h>
+
+static int failed = 0;
+
+static int report(const char *what, nupp_status status, nupp_error *error) {
+    if (status == NUPP_STATUS_OK) return 0;
+    fprintf(stderr, "%s: %s\n", what, error ? nupp_error_message(error) : "unknown error");
+    nupp_error_free(error);
+    failed = 1;
+    return 1;
+}
+
+static unsigned char *read_all(const char *path, size_t *length) {
+    FILE *file = fopen(path, "rb");
+    long end;
+    unsigned char *bytes;
+    if (!file) return NULL;
+    if (fseek(file, 0, SEEK_END) != 0 || (end = ftell(file)) < 0) { fclose(file); return NULL; }
+    fseek(file, 0, SEEK_SET);
+    bytes = (unsigned char *)malloc((size_t)end);
+    if (!bytes || fread(bytes, 1, (size_t)end, file) != (size_t)end) { free(bytes); fclose(file); return NULL; }
+    fclose(file);
+    *length = (size_t)end;
+    return bytes;
+}
+
+/* The whole module each time: an edit a reload accepts changes a body, and the
+ * structural variant adds a module-level binding, which it does not. */
+static void write_source(const char *path, int increment, int structural) {
+    FILE *file = fopen(path, "wb");
+    fprintf(file, "module game\n\nlocal game = {}\n\nlocal calls: integer = 0\n\n");
+    if (structural) fprintf(file, "local added: integer = 7\n\n");
+    fprintf(file, "function game.answer(value: number): number\n    calls = calls + 1\n    return value + %d\nend\n\n", increment);
+    fprintf(file, "function game.calls(): number\n    return calls\nend\n\nexport = game\n");
+    fclose(file);
+}
+
+static double call(nupp_runtime *runtime, nupp_handle *callable, double value, int pass) {
+    nupp_value argument = {0};
+    nupp_value result = {0};
+    nupp_error *error = NULL;
+    size_t count = 0;
+    argument.kind = NUPP_VALUE_NUMBER;
+    argument.number = value;
+    if (report("call", nupp_call(runtime, callable, pass ? &argument : NULL, pass ? 1 : 0,
+            &result, 1, &count, &error), error)) {
+        return -1.0;
+    }
+    return count == 1 && result.kind == NUPP_VALUE_NUMBER ? result.number : -1.0;
+}
+
+int main(int argc, char **argv) {
+    nupp_runtime *runtime = NULL;
+    nupp_component *component = NULL;
+    nupp_reload *reload = NULL;
+    nupp_handle *answer = NULL;
+    nupp_handle *calls = NULL;
+    nupp_error *error = NULL;
+    nupp_config config;
+    nupp_reload_config reloading;
+    uint32_t verdict = 0;
+    uint64_t generation = 0;
+    size_t length = 0;
+    unsigned char *bytes;
+    char source[2048];
+
+    if (argc != 5) { fprintf(stderr, "usage: attach COMPILER PROJECT SOURCE COMPONENT\n"); return 2; }
+    snprintf(source, sizeof source, "%s", argv[3]);
+    bytes = read_all(argv[4], &length);
+    if (!bytes) { fprintf(stderr, "cannot read %s\n", argv[4]); return 2; }
+
+    nupp_config_init(&config);
+    if (report("runtime", nupp_runtime_new(&config, &runtime, &error), error)) return 1;
+    error = NULL;
+    if (report("load", nupp_component_load(runtime, bytes, length, argv[4], &component, &error), error)) return 1;
+    error = NULL;
+    if (report("answer", nupp_export_find(runtime, component, "game.answer", &answer, &error), error)) return 1;
+    error = NULL;
+    if (report("calls", nupp_export_find(runtime, component, "game.calls", &calls, &error), error)) return 1;
+
+    printf("before = %.0f\n", call(runtime, answer, 41.0, 1));
+    printf("calls before = %.0f\n", call(runtime, calls, 0.0, 0));
+
+    nupp_reload_config_init(&reloading);
+    reloading.compiler_path = argv[1];
+    reloading.root = argv[2];
+    error = NULL;
+    if (report("attach", nupp_reload_attach(runtime, &reloading, &reload, &error), error)) return 1;
+
+    write_source(source, 5, 0);
+    error = NULL;
+    if (report("prepare", nupp_reload_prepare(runtime, reload, &verdict, &generation, &error), error)) return 1;
+    printf("prepared verdict = %u generation = %llu\n", verdict, (unsigned long long)generation);
+    printf("during = %.0f\n", call(runtime, answer, 41.0, 1));
+
+    error = NULL;
+    if (report("apply", nupp_reload_apply(runtime, reload, &verdict, &generation, &error), error)) return 1;
+    printf("applied verdict = %u generation = %llu\n", verdict, (unsigned long long)generation);
+    printf("after = %.0f\n", call(runtime, answer, 41.0, 1));
+    printf("calls after = %.0f\n", call(runtime, calls, 0.0, 0));
+
+    error = NULL;
+    if (report("reapply", nupp_reload_apply(runtime, reload, &verdict, &generation, &error), error)) return 1;
+    printf("reapplied verdict = %u generation = %llu\n", verdict, (unsigned long long)generation);
+
+    /* A second prepare replaces the first: the newer edit is the one the program
+     * is about to be asked for. */
+    write_source(source, 6, 0);
+    error = NULL;
+    if (report("prepare-again", nupp_reload_prepare(runtime, reload, &verdict, &generation, &error), error)) return 1;
+    printf("first staged verdict = %u\n", verdict);
+    write_source(source, 7, 0);
+    error = NULL;
+    if (report("prepare-newer", nupp_reload_prepare(runtime, reload, &verdict, &generation, &error), error)) return 1;
+    error = NULL;
+    if (report("apply-newer", nupp_reload_apply(runtime, reload, &verdict, &generation, &error), error)) return 1;
+    printf("superseded = %.0f\n", call(runtime, answer, 41.0, 1));
+
+    /* An edit that does not check leaves the running generation alone. */
+    {
+        FILE *broken = fopen(source, "wb");
+        fprintf(broken, "module game\n\nlocal game = {}\n\nlocal calls: integer = 0\n\n"
+            "function game.answer(value: number): number\n    calls = calls + 1\n    return \"seven\"\nend\n\n"
+            "function game.calls(): number\n    return calls\nend\n\nexport = game\n");
+        fclose(broken);
+    }
+    error = NULL;
+    if (report("rejected", nupp_reload_poll(runtime, reload, &verdict, &generation, &error), error)) return 1;
+    printf("rejected verdict = %u generation = %llu\n", verdict, (unsigned long long)generation);
+    if (nupp_reload_message(reload)) printf("rejected message = %s\n", nupp_reload_message(reload));
+    printf("rejected keeps = %.0f\n", call(runtime, answer, 41.0, 1));
+
+    write_source(source, 7, 1);
+    error = NULL;
+    if (report("structural", nupp_reload_poll(runtime, reload, &verdict, &generation, &error), error)) return 1;
+    printf("structural verdict = %u generation = %llu\n", verdict, (unsigned long long)generation);
+    if (nupp_reload_message(reload)) printf("structural message = %s\n", nupp_reload_message(reload));
+    printf("still = %.0f\n", call(runtime, answer, 41.0, 1));
+
+    error = NULL;
+    if (report("close", nupp_reload_close(runtime, reload, 1, &error), error)) return 1;
+    /* A closed session answers rather than acting. */
+    error = NULL;
+    if (nupp_reload_prepare(runtime, reload, &verdict, &generation, &error) == NUPP_STATUS_OK) {
+        fprintf(stderr, "a closed session still prepared\n");
+        failed = 1;
+    }
+    printf("closed says = %s\n", error ? nupp_error_message(error) : "nothing");
+    nupp_error_free(error);
+    nupp_reload_free(reload);
+    error = NULL;
+    nupp_handle_release(runtime, answer, &error);
+    nupp_error_free(error);
+    error = NULL;
+    nupp_handle_release(runtime, calls, &error);
+    nupp_error_free(error);
+    nupp_component_release(component);
+    error = NULL;
+    if (report("shutdown", nupp_runtime_shutdown(runtime, &error), error)) return 1;
+    nupp_runtime_free(runtime);
+    free(bytes);
+    return failed;
+}
+]]
+
+local RELOAD_COMPONENT_MANIFEST = [[
+return {
+    include = {"src"},
+    build = {
+        kind = "component",
+        description = "A component built for development hot reload",
+        entries = {"game"},
+        exports = {"game.answer", "game.calls"},
+        reload = true,
+    },
+}
+]]
+
+local RELOAD_COMPONENT_SOURCE = [[
+module game
+
+local game = {}
+
+local calls: integer = 0
+
+function game.answer(value: number): number
+    calls = calls + 1
+    return value + 1
+end
+
+function game.calls(): number
+    return calls
+end
+
+export = game
+]]
+
+function M.hotReloadAttachesToALoadedComponent()
+    local compilerModules = ROOT .. "/build"
+    local present = io.open(compilerModules .. "/nupp/compiler/hostreload.lua", "rb")
+    if not present then
+        test.skip("hot reload needs the compiler's Lua modules under build/")
+    end
+    present:close()
+    local directory, library = temporary(), sdk()
+    local project = directory .. "/project"
+    assert(os.execute("mkdir -p " .. quote(project .. "/src")) == 0)
+    write(project .. "/nupp.lua", RELOAD_COMPONENT_MANIFEST)
+    write(project .. "/src/game.nupp", RELOAD_COMPONENT_SOURCE)
+    local status, output = run(
+        ("cd %s && %s build"):format(quote(project), quote(ROOT .. "/bin/nupp"))
+    )
+    assert(status == 0, output)
+    local component = project .. "/build/component.nuppc"
+    assert(io.open(component, "rb"), "the reload target writes a component: " .. output)
+
+    local source = directory .. "/attach.c"
+    write(source, ATTACH_DRIVER)
+    local executable = directory .. "/attach"
+    if jit.os == "Windows" then
+        executable = executable .. ".exe"
+    end
+    status, output = run(
+        ("%s -std=c11 -I%s %s %s %s -o %s"):format(
+            quote(compiler()),
+            quote(library),
+            quote(source),
+            quote(library .. "/libnupp.a"),
+            platformLibraries(library),
+            quote(executable)
+        )
+    )
+    assert(status == 0, output)
+    status, output = run(
+        ("%s %s %s %s %s"):format(
+            quote(executable),
+            quote(compilerModules),
+            quote(project),
+            quote(project .. "/src/game.nupp"),
+            quote(component)
+        )
+    )
+    assert(status == 0, output)
+    -- Applied, and only where the host asked for it.
+    assert(output:find("before = 42", 1, true), output)
+    assert(output:find("prepared verdict = 4 generation = 1", 1, true), output)
+    assert(output:find("during = 42", 1, true), output)
+    assert(output:find("applied verdict = 1 generation = 2", 1, true), output)
+    assert(output:find("after = 46", 1, true), output)
+    -- The captured counter kept counting across the commit.
+    assert(output:find("calls before = 1", 1, true), output)
+    assert(output:find("calls after = 3", 1, true), output)
+    -- Nothing was left staged, and a structural edit stays out of the process.
+    assert(output:find("reapplied verdict = 0", 1, true), output)
+    assert(output:find("superseded = 48", 1, true), output)
+    assert(output:find("rejected verdict = 2 generation = 3", 1, true), output)
+    assert(output:find("rejected keeps = 48", 1, true), output)
+    assert(output:find("structural verdict = 3 generation = 3", 1, true), output)
+    assert(output:find("NUPP5001", 1, true), output)
+    assert(output:find("still = 48", 1, true), output)
+    assert(output:find("closed says = ", 1, true), output)
 end
 
 return M

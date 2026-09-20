@@ -9787,27 +9787,34 @@ function gen.generate(
         end
 
         inspectServices(result.root)
+        -- A patch is not a module load. It runs the module's top level again only to
+        -- build candidate closures over the same lexical cells, and the module it
+        -- patches is already in `package.loaded` -- so a patch that wrote there would
+        -- publish a half-built table under the running module's name, and one that
+        -- wrote the table it never filled would unload it. The next `require` then
+        -- runs the module a second time and registers its slots twice.
+        local patching = hotState ~= nil and hotState.mode == "patch"
         local prefix
         if migrationAssignment then
             prefix = ("local %s;local __nuppOk,__nuppWhy=pcall(function()"):format(emitDepth.exportTableName)
-        elseif consumesService then
+        elseif consumesService or patching then
             prefix = ("local %s={};local __nuppOk,__nuppWhy=pcall(function()"):format(emitDepth.exportTableName)
         else
             prefix = (
                 "local %s={};package.loaded[%q]=%s;local __nuppOk,__nuppWhy=pcall(function()"
             ):format(emitDepth.exportTableName, declaredModuleName, emitDepth.exportTableName)
         end
+        local epilogue = patching
+            and (" end);if not __nuppOk then error(__nuppWhy,0) end;return %s"):format(emitDepth.exportTableName)
+            or (
+                " end);if not __nuppOk then package.loaded[%q]=nil;error(__nuppWhy,0) end;"
+                .. "package.loaded[%q]=%s;return %s"
+            ):format(declaredModuleName, declaredModuleName, emitDepth.exportTableName, emitDepth.exportTableName)
         code = prefix .. table.concat(
             instantiation
         ) .. code .. table.concat(
             recordDefinitions
-        ) .. table.concat(
-            workerDefinitions
-        ) .. table.concat(
-            sendableDefinitions
-        ) .. (
-            " end);if not __nuppOk then package.loaded[%q]=nil;error(__nuppWhy,0) end;package.loaded[%q]=%s;return %s"
-        ):format(declaredModuleName, declaredModuleName, emitDepth.exportTableName, emitDepth.exportTableName)
+        ) .. table.concat(workerDefinitions) .. table.concat(sendableDefinitions) .. epilogue
     end
     -- Declared first here so they end up last in the prologue: every block below
     -- prepends

@@ -445,6 +445,43 @@ option has no retain flags to give; `symbols` is then the list that registry
 must contain. `aot = "emit-c"` with static linkage writes the same C units,
 probe, and link manifest without compiling any of them.
 
+### Reload components
+
+A component built with `reload = true` is the development build of the same
+program: every named function dispatches through a slot an embedding host can
+patch while the process runs, and the component records the digest of the
+generated Lua each module carries.
+
+```lua
+build = {
+   targets = {
+      game = {
+         kind = "component",
+         entries = { "game.main" },
+         exports = { "game.update" },
+      },
+      gameDev = {
+         kind = "component",
+         entries = { "game.main" },
+         exports = { "game.update" },
+         output = "build/game-dev.nuppc",
+         reload = true,
+      },
+   },
+}
+```
+
+`reload` is only valid for a component, and it builds at `-O0`: watch generation
+is development generation, and a target that also named an optimization level is
+refused rather than quietly demoted. Ship the ordinary target; hand the reload
+one to a host that opens a session over it with `nupp_reload_attach`. See
+[embedding.md](embedding.md#hot-reload) for the session and
+[hot-reload.md](hot-reload.md) for which edits it accepts.
+
+The recorded digests are what a session checks when it attaches: it recompiles
+each running module from source and compares, so attaching to a component the
+tree has moved past is refused rather than patched against the wrong baseline.
+
 ### Target capability profiles
 
 A target profile says what a destination admits, as distinct from what its

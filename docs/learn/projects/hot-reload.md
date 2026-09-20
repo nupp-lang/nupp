@@ -74,15 +74,23 @@ source is compiled when it is first required.
 
 `nupp run --watch` owns the process. A C or C++ program embedding Nupp owns its
 own loop instead, and drives the same session through the embedding ABI:
-`nupp_reload_open` in place of the watch command, `nupp_reload_find` for the
-functions it will call, and `nupp_reload_poll` wherever it knows no frame,
-request or transaction is half applied. The verdicts are the ones below.
+`nupp_reload_attach` over a component built with `reload = true`,
+`nupp_reload_prepare` wherever it likes, and `nupp_reload_apply` where it knows
+no frame, request or transaction is half applied. The verdicts are the ones on
+this page.
 
 ```c
-nupp_reload_poll(runtime, reload, &verdict, &generation, &error);
+nupp_reload_prepare(runtime, reload, &verdict, &generation, &error);
+if (verdict == NUPP_RELOAD_PREPARED) {
+    nupp_reload_apply(runtime, reload, &verdict, &generation, &error);
+}
 ```
 
-See [embedding.md](embedding.md#hot-reload) for the whole surface.
+Everything below holds there too: a callable the host retained answers the new
+body after a commit, application state stays where it is, and the same edits
+report a restart. See [embedding.md](embedding.md#hot-reload) for the whole
+surface and [build.md](build.md#reload-components) for the component it attaches
+to.
 
 ## Accepted edits
 

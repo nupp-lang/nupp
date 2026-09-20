@@ -3898,4 +3898,36 @@ function M.buildGlobsTreatDoubleStarAsZeroOrMoreDirectories()
     remove(dir)
 end
 
+function M.manifestValidatesReloadComponents()
+    local valid = tempProject({
+        ["nupp.lua"] = [[
+return {build = {kind = "component", entries = {"main"}, exports = {"main.run"}, reload = true}}
+]]
+    })
+    local config, err = project.loadManifest(valid)
+    assert(config, err)
+    assertEq(config.build.reload, true)
+    remove(valid)
+
+    local wrongKind = tempProject({
+        ["nupp.lua"] = [[
+return {build = {kind = "bundle", entries = {"main"}, reload = true}}
+]]
+    })
+    config, err = project.loadManifest(wrongKind)
+    assertEq(config, nil, "only a component carries the slots a session patches")
+    assert(err:find("reload is only valid for a component target", 1, true), err)
+    remove(wrongKind)
+
+    local optimized = tempProject({
+        ["nupp.lua"] = [[
+return {build = {kind = "component", entries = {"main"}, reload = true, optimize = 2}}
+]]
+    })
+    config, err = project.loadManifest(optimized)
+    assertEq(config, nil, "watch generation is development generation")
+    assert(err:find("reload builds at optimize = 0", 1, true), err)
+    remove(optimized)
+end
+
 return M

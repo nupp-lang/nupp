@@ -540,6 +540,40 @@ end
 -- Opening a session
 ----------------------------------------------------------------------------
 
+--- The native libraries a project pins for reload, canonical and as configured.
+---
+--- Read here rather than in the session alone, because a component built for reload
+--- is generated with the same map: the code a session recompiles has to be the code
+--- the component is running, and a pinned library is part of what the generator
+--- writes into it.
+---
+--- @param config the project manifest's table
+--- @param rootDir the directory configured paths are relative to
+--- @return canonical paths by loader name, and the configured spellings by name
+--- @raises when the `hotreload` section is not the shape it must be
+function hotSession.libraries(config: any, rootDir: string): {[string]: string}, {[string]: string}
+    local configured = config and config.hotreload
+    if configured ~= nil and type(configured) ~= "table" then
+        error("hotreload must be a table", 2)
+    end
+    local libraries = configured and configured.libraries or nil
+    if libraries ~= nil and type(libraries) ~= "table" then
+        error("hotreload.libraries must be a table of loader names to paths", 2)
+    end
+    local canonical: {[string]: string} = {}
+    local spelled: {[string]: string} = {}
+    for name, path in pairs(libraries or {}) do
+        if type(name) ~= "string" or name == "" or type(path) ~= "string" or path == "" then
+            error("hotreload.libraries must map non-empty string names to non-empty paths", 2)
+        end
+        local configuredPath = fs.absolute(fs.join(rootDir, path))
+        spelled[name] = configuredPath
+        canonical[name] = fs.canonical(configuredPath)
+    end
+
+    return canonical, spelled
+end
+
 function hotSession.new(root: string?, opts: table?): hotSession.Session
     -- `Session` is a plain table of methods used as a metatable, so the claim that
     -- this is a session is made here, once, where the fields below fill it in.
@@ -552,22 +586,7 @@ function hotSession.new(root: string?, opts: table?): hotSession.Session
     self.observedInputs = {}
     self.libraryPaths = {}
     self.libraryConfiguredPaths = {}
-    local configured = self.inc.env.config and self.inc.env.config.hotreload
-    if configured ~= nil and type(configured) ~= "table" then
-        error("hotreload must be a table", 2)
-    end
-    local libraries = configured and configured.libraries or nil
-    if libraries ~= nil and type(libraries) ~= "table" then
-        error("hotreload.libraries must be a table of loader names to paths", 2)
-    end
-    for name, path in pairs(libraries or {}) do
-        if type(name) ~= "string" or name == "" or type(path) ~= "string" or path == "" then
-            error("hotreload.libraries must map non-empty string names to non-empty paths", 2)
-        end
-        local configuredPath = fs.absolute(fs.join(self.inc.env.rootDir, path))
-        self.libraryConfiguredPaths[name] = configuredPath
-        self.libraryPaths[name] = fs.canonical(configuredPath)
-    end
+    self.libraryPaths, self.libraryConfiguredPaths = hotSession.libraries(self.inc.env.config, self.inc.env.rootDir)
 
     return self
 end

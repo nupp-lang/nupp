@@ -54,6 +54,12 @@ type manifest.Target = {
     --- stamping the payload, producing an executable with no native sidecars.
     standalone: boolean?,
 
+    --- Build this component for development hot reload: every named function
+    --- dispatches through a slot an embedding host can patch, and the component
+    --- records what it was built from so a session can prove it still matches.
+    --- A reload build is `-O0` and is not what ships.
+    reload: boolean?,
+
     --- How linked AOT code reaches its consumer. Static archives are consumed
     --- by a standalone host or by an embedding application, never mapped by
     --- the generated component.
@@ -348,6 +354,7 @@ local DOCS_KEYS = {
     "payloadOutput",
     "stub",
     "standalone",
+    "reload",
     "platforms",
     "platformOutputs",
     "nativeFeatures",
@@ -418,6 +425,7 @@ local TARGET_KEYS = {
     "payloadOutput",
     "stub",
     "standalone",
+    "reload",
     "platforms",
     "platformOutputs",
     "entries",
@@ -681,6 +689,20 @@ local function validateTarget(target, label, dependencies)
         end
         if target.stub ~= "nupp" then
             return nil, label .. ".standalone requires the compiler-owned stub = \"nupp\""
+        end
+    end
+    if target.reload ~= nil and type(target.reload) ~= "boolean" then
+        return nil, label .. ".reload must be a boolean"
+    end
+    if target.reload then
+        if kind ~= "component" then
+            return nil, label .. ".reload is only valid for a component target"
+        end
+        -- Watch generation is development generation: a slot for every named
+        -- function, and no pass that moves one. Claiming an optimization level
+        -- beside it would describe a build that cannot exist.
+        if target.optimize ~= nil and target.optimize ~= 0 then
+            return nil, label .. ".reload builds at optimize = 0"
         end
     end
     if target.platforms ~= nil then
