@@ -7,6 +7,14 @@ try {
   const result = await runPackagedNuppLuaJITApp(new URL(`./${name}-app/nupp-browser-app.json`, location.href).href);
   const expect = (condition, message) => {if (!condition) throw new Error(`${message}: ${JSON.stringify(result)}`);};
   if (name === 'aot' || name === 'native' || name === 'gpu') expect(result?.ok === true, 'AOT assertions did not complete');
+  if (name === 'aot') {
+    expect(result.numericLoops?.cases === 9 && result.numericLoops.scalar === 9 && result.numericLoops.simd === 9,
+      'Independent Wasm numeric-loop differential assertions did not complete');
+    const manifest = await (await fetch(new URL('./aot-app/nupp-browser-app.json', location.href))).json();
+    expect(manifest.kernels.some(kernel => kernel.tier === 'simd128' &&
+      kernel.entries.some(entry => entry.symbol.endsWith('_first_loop_values'))),
+    'The numeric-loop differential fixture must contain its SIMD kernel');
+  }
   if (name === 'native') expect(result.iterations === 100 && result.bytes === 4, 'Native builder assertions did not complete');
   if (name === 'http') {
     expect(result.status === 200 && JSON.parse(result.body).message === 'hello from Nupp over fetch', 'HTTP streaming result mismatch');

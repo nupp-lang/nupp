@@ -3035,19 +3035,27 @@ return {scale = scale}
     local out, code = run(dir, "--target aarch64-apple-darwin --features neon --json --emit asm oracle.nupp")
     test.equal(code, 0, out)
     local report = require("testjson").decode(out)
-    assert(emitted:match("KS_SCALAR_ORACLE%s+__attribute__%(%(noinline%)%)%s+KS_API void ks_scale_forced_scalar"),
-        "loop-shaped scalar oracle must retain the same unoptimized marker as general blocks")
+    assert(
+        emitted:match("KS_SCALAR_ORACLE%s+__attribute__%(%(noinline%)%)%s+KS_API void ks_scale_forced_scalar"),
+        "loop-shaped scalar oracle must retain the same unoptimized marker as general blocks"
+    )
     local kernel, oracle
     for _, listing in ipairs(report.asm.functions) do
-        if listing.symbol == "ks_scale" then kernel = listing end
-        if listing.symbol == "ks_scale_forced_scalar" then oracle = listing end
+        if listing.symbol == "ks_scale" then
+            kernel = listing
+        end
+        if listing.symbol == "ks_scale_forced_scalar" then
+            oracle = listing
+        end
     end
     assert(kernel and oracle, "both actual assembly routes must exist")
     test.equal(oracle.role, "oracle")
     local packed = 0
     for _, instruction in ipairs(kernel.instructions) do
         if instruction.mnemonic:match("^fadd") or instruction.mnemonic:match("^fmul") then
-            if instruction.text:find(".4s", 1, true) then packed = packed + 1 end
+            if instruction.text:find(".4s", 1, true) then
+                packed = packed + 1
+            end
         end
     end
     assert(packed > 0, "production loop must execute packed arithmetic")
@@ -3093,7 +3101,10 @@ return {ordered = ordered, pairwise = pairwise, algebraic = algebraic}
     test.equal(code, 0, out)
     local report = require("testjson").decode(out)
     local listings = {}
-    for _, listing in ipairs(report.asm.functions) do listings[listing.symbol] = listing end
+    for _, listing in ipairs(report.asm.functions) do
+        listings[listing.symbol] = listing
+    end
+
     local function additions(name)
         local listing = assert(listings["ks_" .. name], "missing kernel " .. name)
         local scalar = assert(listings["ks_" .. name .. "_forced_scalar"], "missing independent scalar-source artifact")
@@ -3101,15 +3112,21 @@ return {ordered = ordered, pairwise = pairwise, algebraic = algebraic}
         test.equal(scalar.role, "oracle")
         local count, packed = 0, 0
         for _, instruction in ipairs(listing.instructions) do
-            assert(not instruction.mnemonic:match("^fmadd") and not instruction.mnemonic:match("^fmla"),
-                name .. " sum contracted a multiply-add: " .. instruction.text)
+            assert(
+                not instruction.mnemonic:match("^fmadd") and not instruction.mnemonic:match("^fmla"),
+                name .. " sum contracted a multiply-add: " .. instruction.text
+            )
             if instruction.mnemonic:match("^fadd") then
                 count = count + 1
-                if instruction.text:find(".2d", 1, true) then packed = packed + 1 end
+                if instruction.text:find(".2d", 1, true) then
+                    packed = packed + 1
+                end
             end
         end
+
         return count, packed
     end
+
     local ordered = additions("ordered")
     local pairwise = additions("pairwise")
     assert(ordered >= 7, "ordered sum lost its eight-lane addition chain: " .. out)
@@ -5307,7 +5324,10 @@ return {acc = acc}
 end
 
 function M.countedLoopEntryUsesTheSelectedRuntime()
-    local dir = project{["entry.nupp"] = [[
+    local dir = project{
+        [
+            "entry.nupp"
+        ] = [[
 @aot
 local function entry(first: number, last: number): number
     for cursor = first, last do
@@ -5316,13 +5336,20 @@ local function entry(first: number, last: number): number
     return 0
 end
 return {entry = entry}
-]]}
+]]
+    }
     for _, selection in ipairs({
         {"x86_64-unknown-linux-gnu", "baseline", "luajit-single"},
         {"aarch64-apple-darwin", "neon", "luajit-dual"},
         {"wasm32-unknown-emscripten", "simd128", "lua51"},
+        {"wasm32-unknown-emscripten", "simd128", "luajit-single", "luajit"},
+        {"wasm32-unknown-emscripten", "simd128", "lua51", "lua51"},
     }) do
-        local out, code = run(dir, "--target " .. selection[1] .. " --features " .. selection[2] .. " --emit c entry.nupp")
+        local dialect = selection[4] and " --dialect " .. selection[4] or ""
+        local out, code = run(
+            dir,
+            "--target " .. selection[1] .. " --features " .. selection[2] .. dialect .. " --emit c entry.nupp"
+        )
         test.equal(code, 0, out)
         local normalized = out:find("== (double)nupp_wrap_i32(ks_for_last_", 1, true) ~= nil
         test.equal(normalized, selection[3] == "luajit-dual", selection[1] .. " dual-number entry")
@@ -5331,8 +5358,50 @@ return {entry = entry}
     end
 end
 
+function M.aotCallerDialectAlsoControlsSourceChecking()
+    local dir = project{
+        [
+            "caller.nupp"
+        ] = [[
+local enabled = jit.status()
+@aot
+local function entry(value: number): number
+    return value + 1
+end
+return {entry = entry, enabled = enabled}
+]]
+    }
+    local target = "--target wasm32-unknown-emscripten --emit c "
+    local accepted, acceptedCode = run(dir, target .. "--dialect luajit caller.nupp")
+    test.equal(acceptedCode, 0, accepted)
+    local refused, refusedCode = run(dir, target .. "--dialect lua51 caller.nupp")
+    test.equal(refusedCode, 1, refused)
+    assert(refused:find("NUPP3010", 1, true), "the selected caller also controls checking: " .. refused)
+end
+
+function M.aotRejectsAnUnknownCallerDialect()
+    local dir = project{
+        [
+            "entry.nupp"
+        ] = [[
+@aot
+local function entry(value: number): number
+    return value + 1
+end
+return {entry = entry}
+]]
+    }
+    local out, code = run(dir, "--dialect lua54 entry.nupp")
+    assert(code ~= 0, "an unsupported caller dialect must fail")
+    assert(out:find("option --dialect does not take lua54; expected luajit, lua51", 1, true), out)
+    assert(not out:find("stack traceback", 1, true), out)
+end
+
 function M.unrolledCountedLoopsRetainRuntimeCompatibilityGuards()
-    local dir = project{["unrolled.nupp"] = [[
+    local dir = project{
+        [
+            "unrolled.nupp"
+        ] = [[
 @aot
 local function total(value: number): number
     local result = value
@@ -5340,11 +5409,15 @@ local function total(value: number): number
     return result
 end
 return {total = total}
-]]}
+]]
+    }
     local c, code = run(dir, "--target x86_64-unknown-linux-gnu --features baseline --emit c unrolled.nupp")
     test.equal(code, 0, c)
     assert(not c:find("ks_for_counter_", 1, true), "the fixture really unrolls its counted loop")
-    local out, bindingCode = run(dir, "--target x86_64-unknown-linux-gnu --features baseline --emit binding unrolled.nupp")
+    local out, bindingCode = run(
+        dir,
+        "--target x86_64-unknown-linux-gnu --features baseline --emit binding unrolled.nupp"
+    )
     test.equal(bindingCode, 0, out)
     assert(out:find("AOT numeric-for runtime mismatch", 1, true), "unrolling retains original runtime dependency")
 end

@@ -119,4 +119,107 @@ do
 end
 local sum, n1, n2 = sumBytes(first:read(), second:read())
 assert(sum == 30 and n1 == 2 and n2 == 3)
-return {ok = true}
+
+-- The guest uses single-number LuaJIT, so FORI preserves the first value.
+-- Stock Lua 5.1 instead initializes it through (first - 1) + 1, losing these
+-- zeros and tiny bounds. Every loop below exits on its first body entry.
+@aot
+local function firstLoopValue(first: number, last: number): (boolean, number)
+    for cursor = first, last do
+        return true, cursor
+    end
+    return false, 0
+end
+
+@aot
+local function firstLoopValues(
+    exclusive visits: span.WriteSpan<number>,
+    exclusive initial: span.WriteSpan<number>,
+    borrows starts: span.Span<number>,
+    borrows stops: span.Span<number>
+): nil
+    if #visits ~= #starts or #initial ~= #starts or #stops ~= #starts then
+        error("length mismatch", 2)
+    end
+    @simd
+    for index = 1, #starts do
+        local visited, value = 0, 0
+        for cursor = starts[index], stops[index] do
+            visited = 1
+            value = cursor
+            break
+        end
+        visits[index] = visited
+        initial[index] = value
+    end
+end
+
+local function loopOracle(first: number, last: number): (boolean, number)
+    for cursor = first, last do
+        return true, cursor
+    end
+    return false, 0
+end
+
+jit.off(loopOracle)
+
+local function sameLoopValue(actual: number, expected: number): boolean
+    return actual == expected and (actual ~= 0 or 1 / actual == 1 / expected)
+end
+
+local ranges: {
+    {number}
+} = {
+    {-0.0, 0},
+    {-0.0, 0.5},
+    {-0.0, 2147483648},
+    {1e-20, 0},
+    {1e-20, 0.5},
+    {1e-20, 2147483648},
+    {-1e-20, 0},
+    {-1e-20, 0.5},
+    {-1e-20, 2147483648},
+}
+local scalarLoopChecks = 0
+local starts = array.scalar(array.number, #ranges)
+local stops = array.scalar(array.number, #ranges)
+do
+    local firsts, lasts = starts:write(), stops:write()
+    for index = 1, #ranges do
+        local range = ranges[index]
+        local expectedRan, expectedValue = loopOracle(range[1], range[2])
+        -- Check the independent oracle against the actual guest probe too.
+        assert(expectedRan == (index ~= 4), "guest numeric loop admission")
+        if expectedRan then
+            assert(sameLoopValue(expectedValue, range[1]), "guest numeric loop first value")
+        end
+        local actualRan, actualValue = firstLoopValue(range[1], range[2])
+        assert(actualRan == expectedRan, "scalar numeric loop admission " .. index)
+        assert(sameLoopValue(actualValue, expectedValue), "scalar numeric loop first value " .. index)
+        scalarLoopChecks = scalarLoopChecks + 1
+        firsts[index], lasts[index] = range[1], range[2]
+    end
+    drop firsts
+    drop lasts
+end
+
+-- Nine cases exercise full f64 SIMD lanes and a final scalar tail.
+local visits = array.scalar(array.number, #ranges)
+local initial = array.scalar(array.number, #ranges)
+do
+    local visited, values = visits:write(), initial:write()
+    firstLoopValues(visited, values, starts:read(), stops:read())
+    drop visited
+    drop values
+end
+local simdLoopChecks = 0
+local actualVisits, actualInitial = visits:read(), initial:read()
+for index = 1, #ranges do
+    local range = ranges[index]
+    local expectedRan, expectedValue = loopOracle(range[1], range[2])
+    assert(actualVisits[index] == (expectedRan and 1 or 0), "SIMD numeric loop admission " .. index)
+    assert(sameLoopValue(actualInitial[index], expectedValue), "SIMD numeric loop first value " .. index)
+    simdLoopChecks = simdLoopChecks + 1
+end
+
+return {ok = true, numericLoops = {cases = #ranges, scalar = scalarLoopChecks, simd = simdLoopChecks}}

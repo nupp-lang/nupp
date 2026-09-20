@@ -74,9 +74,10 @@ function wasmbinding.replacement(program: scalarIR.Program, unit: string, indepe
         .. " is not registered\")",
     }
     if independent then
-        lines = {
-            "local " .. prefix .. "Native: any = " .. require("nupp.compiler.aot.wasmbridge").binding(program, unit)
-        }
+        lines = binding.numericForGuard(program)
+        lines[
+            #lines + 1
+        ] = "local " .. prefix .. "Native: any = " .. require("nupp.compiler.aot.wasmbridge").binding(program, unit)
     else
         for _, layout in ipairs(program.layouts or {}) do
             local variable = prefix .. "Layout" .. layout.name
