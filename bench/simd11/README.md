@@ -152,7 +152,8 @@ the timed control was separately compiled with optimization and automatic
 vectorization disabled, with its assembly checked. The raw timing evidence and
 its source revision remain unchanged.
 
-After the GCC and math fixes, all sixteen correctness cases pass on `01ba97eb`.
+After the GCC and portable math fixes, all sixteen correctness cases pass on
+`7e32e50a`.
 [Exact function-body comparison](results/arm64-macos-final-function-equivalence.json)
 finds identical assembly for all fourteen timed native/control functions.
 This compares each complete entry through its end directive; it does not claim
@@ -183,3 +184,31 @@ above. Its overall outcome remains **failed**. It predates the added raw-bit,
 mask-conversion, raw-memory and closed-math families, and is not relabeled as
 expanded-inventory acceptance. Both completed routes retain their actual probe
 inventories and artifact hashes.
+
+The [full frozen Wasm sweep](results/wasm-full-historical-20260920.json)
+retains all forty canonical shards from `628d1f02`, including exact probe
+inventories, completed calls and artifact hashes. It predates the expanded
+families and region-proof gate; it does not substitute for final-head coverage.
+
+The [raw-bit and mask-conversion record](results/simd-float-bits-masks-20260920.json)
+includes every legal width for both floating representations and all cross-type
+mask conversions on local Clang NEON and Wasm. Its guarded-memory replay
+compares 471,094,272 raw words per route, observing both backing guards after
+every operation. GCC boundary checks are recorded separately; the local
+completion flag does not certify other platforms or a full GCC inventory.
+
+Portable `math.log` now honors its declared optional base in ordinary generated
+Lua 5.1 code. Resolved field reads share one adapter while user replacements
+retain their identity, including aliases, safe reads and function declarations.
+Project bundles and loose-file builds both carry the injected helper. Original
+failed regressions remain preserved; the corrected source passes portable and
+package checks, the shared suites and byte-identical fixpoint.
+
+The [final math-map execution record](results/math-map-execution-20260920.json)
+uses `7e32e50a` for every legal width on Clang and the stock-Lua Wasm host.
+Both routes execute 6,432 compiled calls across 128 probes: Clang checks
+11,517,557 assertions per route, and Wasm checks 9,903,733. The portable
+intersection excludes four unsupported host functions with positioned refusals;
+it does not silently shrink a declared target's admitted operations. The record
+retains the predefined transcendental tolerance and exact signed-zero/FMA
+contracts, source and artifact identities, and original failure evidence.
