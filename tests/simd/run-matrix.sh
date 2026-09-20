@@ -4,6 +4,27 @@
 set -euo pipefail
 repo=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$repo"
+# Keep the compiler's provisioned host runtime fixed while NUPP_NATIVE_CC
+# selects each emitted-C compiler. That legacy variable is also a toolchain
+# alias: without a primary NUPP_CC, even an absolute path to the same compiler
+# changes the dependency prefix and hides the already provisioned LPeg.
+if [[ -z ${NUPP_CC:-} ]]; then
+  NUPP_CC=${NUPP_NATIVE_CC:-}
+  if [[ -z "$NUPP_CC" ]]; then
+    case $(uname -s) in
+      MINGW*|MSYS*|CYGWIN*) host_compilers=(gcc cc clang) ;;
+      *) host_compilers=(clang cc gcc) ;;
+    esac
+    for candidate in "${host_compilers[@]}"; do
+      if command -v "$candidate" >/dev/null 2>&1; then
+        NUPP_CC=$candidate
+        break
+      fi
+    done
+  fi
+fi
+export NUPP_CC
+: "${NUPP_CC:?No compiler is available for the provisioned host toolchain}"
 . ./scripts/luajit.sh
 select_luajit "$repo"
 if command -v cygpath >/dev/null 2>&1; then

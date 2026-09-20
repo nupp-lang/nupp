@@ -21,6 +21,9 @@ alias. Windows Clang targets MinGW and uses the same GNU sysroot as GCC, matchin
 the LuaJIT library ABI. Compiler versions, target triples, CPU capabilities,
 revision, generated source, build logs, artifact SHA256s and execution counts are
 retained under `build/simd-matrix` and uploaded even when a case fails.
+The runner keeps the provisioned host compiler in `NUPP_CC`; each requested
+`NUPP_NATIVE_CC` still compiles the emitted C, without changing the host's
+LuaJIT and LPeg dependency prefix.
 
 ```sh
 NUPP_SIMD_COMPILERS=clang,gcc-16 tests/simd/run-matrix.sh
