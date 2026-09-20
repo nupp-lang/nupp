@@ -3,14 +3,9 @@
   "recordedAtUtc": "2026-09-20T07:10:25.235954+00:00",
   "digestConvention": "JSON object digests use UTF-8 compact sorted-key JSON; source and artifact digests use original file bytes.",
   "scope": "New raw floating-word movement/memory and cross-element mask families. Each run states its completed selection; pending all-width guarded memory is never inferred from boundary checks. Local NEON and Wasm execution does not certify unexecuted architectures or a full GCC inventory.",
-  "provenance": "Rows retain their actual compiler revision and generator hash. Bitpatterns/masks were uncommitted test generators over unchanged 628d compiler sources; the final guarded memory generator was committed at 39d7dd51. Results are not relabelled as a later combined head.",
-  "fullLocalNewFamilyInventoryComplete": false,
-  "pendingExecutions": [
-    {
-      "family": "bitmemory",
-      "scope": "Final prefix/suffix guarded all-width native and Wasm replay pending; only completed boundary proof is claimed below."
-    }
-  ],
+  "provenance": "Rows retain their actual compiler revision and generator hash. Bitpatterns/masks were uncommitted test generators over unchanged 628d compiler sources; the final guarded memory generator was executed clean at 1832c907. Results are not relabelled as a later combined head.",
+  "fullLocalNewFamilyInventoryComplete": true,
+  "pendingExecutions": [],
   "rows": [
     {
       "family": "bitpatterns",
@@ -316,6 +311,312 @@
         "directory": "/private/tmp/nupp-simd11-bitpatterns-wasm-final",
         "canonicalOriginalResultSha256": "9e80e4a443f3351f63ae87f184d855b71f2593aea065467e7e0912bb77ce637e",
         "canonicalScalarResultSha256": "306e784cb9e2ce2b78394db439c81a86d39051df5af064f32b05ec93a23796ba"
+      }
+    },
+    {
+      "family": "bitmemory",
+      "backend": "native",
+      "compilerRevision": "1832c907e598a4d6bad4bf4c6c6fe93f13928627",
+      "compilerSourceChanges": [],
+      "generator": {
+        "path": "tests/simd/bitmemory.lua",
+        "sha256": "530cc711126ca766f43e06199ab8e0dc3e46bacc5e160eef95ba2d35c9faa923",
+        "committedDuringExecution": true
+      },
+      "proofSources": [
+        {
+          "path": "tests/simd/runner.lua",
+          "sha256": "e675da681758b24f4813de9b16ea9f6f2193bfb741ba364a5eb64080f3f78a6a"
+        },
+        {
+          "path": "tests/simd/execute-native.lua",
+          "sha256": "f0b3c1dba3f235aa56315f3267fe72dc2e59788d2af9bb6a252c2b450138c8ff"
+        },
+        {
+          "path": "tests/simd/execute-scalar.lua",
+          "sha256": "289e39138fc13a8eb383bd9debc5fd8ca87e2ec3428a1e913a773605516dddef"
+        },
+        {
+          "path": "tests/simd/run-wasm.mjs",
+          "sha256": "4b3fd35a6383a23562d161afda1ece44976269e5b34b195843f404fcc63d14ce"
+        },
+        {
+          "path": "tests/simd/prepare-wasm-scalar.mjs",
+          "sha256": "2cbf80c04d25dd419b26c898435b8095b23e91221a69247337ec7024085e1d3e"
+        }
+      ],
+      "selection": {
+        "types": [
+          "float",
+          "number"
+        ],
+        "lanes": [
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23,
+          24,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30,
+          31,
+          32,
+          33,
+          34,
+          35,
+          36,
+          37,
+          38,
+          39,
+          40,
+          41,
+          42,
+          43,
+          44,
+          45,
+          46,
+          47,
+          48,
+          49,
+          50,
+          51,
+          52,
+          53,
+          54,
+          55,
+          56,
+          57,
+          58,
+          59,
+          60,
+          61,
+          62,
+          63,
+          64,
+          "preferred"
+        ]
+      },
+      "fullSelectedInventoryComplete": true,
+      "configuration": {
+        "compiler": "Apple clang version 21.0.0 (clang-2100.3.34.2)",
+        "tier": "neon",
+        "runtime": "LuaJIT 2.1.1787165859 -- Copyright (C) 2005-2026 Mike Pall. https://luajit.org/",
+        "runtimeExecutableSha256": "16a0e628820a3314f427b32b3350b1599f5807d620d4a1c720436532a57ea699"
+      },
+      "routes": {
+        "simd": {
+          "cases": 471094272,
+          "completedCalls": 2456432,
+          "probes": 128,
+          "completedInventorySha256": "12f46bf1050f2a9b8f406831d8536121c518d6754cd5a9da6b826d0c90cf9980"
+        },
+        "scalarC": {
+          "cases": 471094272,
+          "completedCalls": 2456432,
+          "probes": 128,
+          "completedInventorySha256": "12f46bf1050f2a9b8f406831d8536121c518d6754cd5a9da6b826d0c90cf9980"
+        }
+      },
+      "authoredSources": {
+        "files": 17,
+        "sha256": "ec25607d00332d9ddd597b5c4f77ee37ddc22527a8d5d84be607cfb4b0c35e69"
+      },
+      "generatedC": {
+        "files": 16,
+        "sha256": "2a9a5268634c6717d24a31ea0d8f0fed38d51d4dbf7710424b4c64dece1ea30d"
+      },
+      "compiledArtifactInventory": {
+        "count": 17,
+        "sha256": "d7d1deb340bed262d536ddc5fdc50cb51f4be1819843cc617e81fb5eab68e458"
+      },
+      "scalarCArtifactInventory": {
+        "count": 17,
+        "sha256": "d7d1deb340bed262d536ddc5fdc50cb51f4be1819843cc617e81fb5eab68e458"
+      },
+      "scalarSelectionSha256": null,
+      "rawEvidence": {
+        "directory": "/private/tmp/nupp-simd11-bitmemory-bothguards-native-all",
+        "canonicalOriginalResultSha256": "c422b715c3c07e1ce58e64442ee705262c8177198312185fe830ad4c4c780f9c",
+        "canonicalScalarResultSha256": "c341dffc61876183892964107dc6f91d89ce8dd76f7dc682713e4d10c57b68e1"
+      }
+    },
+    {
+      "family": "bitmemory",
+      "backend": "wasm",
+      "compilerRevision": "1832c907e598a4d6bad4bf4c6c6fe93f13928627",
+      "compilerSourceChanges": [],
+      "generator": {
+        "path": "tests/simd/bitmemory.lua",
+        "sha256": "530cc711126ca766f43e06199ab8e0dc3e46bacc5e160eef95ba2d35c9faa923",
+        "committedDuringExecution": true
+      },
+      "proofSources": [
+        {
+          "path": "tests/simd/runner.lua",
+          "sha256": "e675da681758b24f4813de9b16ea9f6f2193bfb741ba364a5eb64080f3f78a6a"
+        },
+        {
+          "path": "tests/simd/execute-native.lua",
+          "sha256": "f0b3c1dba3f235aa56315f3267fe72dc2e59788d2af9bb6a252c2b450138c8ff"
+        },
+        {
+          "path": "tests/simd/execute-scalar.lua",
+          "sha256": "289e39138fc13a8eb383bd9debc5fd8ca87e2ec3428a1e913a773605516dddef"
+        },
+        {
+          "path": "tests/simd/run-wasm.mjs",
+          "sha256": "4b3fd35a6383a23562d161afda1ece44976269e5b34b195843f404fcc63d14ce"
+        },
+        {
+          "path": "tests/simd/prepare-wasm-scalar.mjs",
+          "sha256": "2cbf80c04d25dd419b26c898435b8095b23e91221a69247337ec7024085e1d3e"
+        }
+      ],
+      "selection": {
+        "types": [
+          "float",
+          "number"
+        ],
+        "lanes": [
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23,
+          24,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30,
+          31,
+          32,
+          33,
+          34,
+          35,
+          36,
+          37,
+          38,
+          39,
+          40,
+          41,
+          42,
+          43,
+          44,
+          45,
+          46,
+          47,
+          48,
+          49,
+          50,
+          51,
+          52,
+          53,
+          54,
+          55,
+          56,
+          57,
+          58,
+          59,
+          60,
+          61,
+          62,
+          63,
+          64,
+          "preferred"
+        ]
+      },
+      "fullSelectedInventoryComplete": true,
+      "configuration": {
+        "compiler": "Emscripten 6.0.8-git",
+        "tier": "simd128",
+        "runtime": "existing Lua 5.1 Wasm host / Node",
+        "node": "v26.7.0",
+        "hostArtifacts": [
+          {
+            "name": "nupp-app.mjs",
+            "sha256": "6621f09847bb658755c9309a9b3a627fd09136e2eb8f8cf7186305e54e788f47"
+          },
+          {
+            "name": "nupp-app.wasm",
+            "sha256": "18b5ea997848b98205fc905b291494df28d5c507136b20282366c44fde70007c"
+          }
+        ]
+      },
+      "routes": {
+        "simd": {
+          "cases": 471094272,
+          "completedCalls": 2456432,
+          "probes": 128,
+          "completedInventorySha256": "5b162e566b87c8527a3051dffd196e5d7193bac0b5abf6b54cb6122bf2a87120"
+        },
+        "scalarC": {
+          "cases": 471094272,
+          "completedCalls": 2456432,
+          "probes": 128,
+          "completedInventorySha256": "5b162e566b87c8527a3051dffd196e5d7193bac0b5abf6b54cb6122bf2a87120"
+        }
+      },
+      "authoredSources": {
+        "files": 17,
+        "sha256": "ec25607d00332d9ddd597b5c4f77ee37ddc22527a8d5d84be607cfb4b0c35e69"
+      },
+      "generatedC": {
+        "files": 32,
+        "sha256": "035a29a1dc760c9050c78e37933fd3fafdd1e408500b5e07ceae7918465aa54e"
+      },
+      "compiledArtifactInventory": {
+        "count": 16,
+        "sha256": "e269a7825e493064ecae66a73ccb0fe6f2d9d46c8286ea9c14f724215ed6524a"
+      },
+      "scalarCArtifactInventory": {
+        "count": 16,
+        "sha256": "2a43263346dfb2b3bf5b586423f6dc793a277c50b1425a4ce3596a8094d0faf3"
+      },
+      "scalarSelectionSha256": "52dc10faae2cb91bc59b86cf349f191389cd6258b2e07e32d85d66f6a262e9cf",
+      "rawEvidence": {
+        "directory": "/private/tmp/nupp-simd11-bitmemory-bothguards-wasm-all",
+        "canonicalOriginalResultSha256": "2e17ffe633213daaf19c57d1c41dda8b2bdeba3b987a4983fbb87be9c8183f2e",
+        "canonicalScalarResultSha256": "1eb7f4ea0689ba6847f8a38cd6cece96dd52cf422f2d0562114389eff8e14069"
       }
     },
     {
@@ -842,5 +1143,6 @@
     "directory": "/private/tmp/nupp-simd11-bitmemory-doubleguard-clang-focus",
     "scope": "The first middle-slice fixture used length instead of inclusive last-index and failed before kernel execution on Clang/GCC/Wasm. Endpoints were corrected to 65..128 and 65..64+n without changing raw expectations or invalid indices."
   },
-  "diagnosticGuard": "Bitpatterns builds failure text only on inequality. All 17 generated files were compared to confirm unchanged input words, raw predicates, loop bounds and counts; the final source was rerun on both routes."
+  "diagnosticGuard": "Bitpatterns builds failure text only on inequality. All 17 generated files were compared to confirm unchanged input words, raw predicates, loop bounds and counts; the final source was rerun on both routes.",
+  "lastUpdatedAtUtc": "2026-09-20T07:46:13.440921+00:00"
 }
