@@ -371,23 +371,17 @@ function M.numericLoopRuntimeIsPartOfTheArtifactKey()
     assert(ok, failure)
 end
 
-function M.wasmCallerDialectChangesNumericLoopArtifactKey()
+function M.wasmNumericLoopsUseTheLuaJitArtifactKey()
     local aot = require("nupp.compiler.build.aot")
     local targets = require("nupp.compiler.aot.target")
     local triple = "wasm32-unknown-emscripten"
     local source = "same verified Wasm source"
     for _, tier in ipairs({"scalar", "simd128"}) do
-        local legacy = assert(targets.select(triple, tier, "lua51"))
         local guest = assert(targets.select(triple, tier, "luajit"))
         local unspecified = assert(targets.select(triple, tier))
-        test.equal(targets.numericForRuntime(legacy), "lua51")
         test.equal(targets.numericForRuntime(guest), "luajit-single")
-        test.equal(targets.numericForRuntime(unspecified), "lua51", "direct Wasm AOT retains its default")
-        assert(
-            aot.key(source, legacy) ~= aot.key(source, guest),
-            "changing only the calling VM invalidates an artifact for the same Wasm target"
-        )
-        test.equal(aot.key(source, legacy), aot.key(source, unspecified))
+        test.equal(targets.numericForRuntime(unspecified), "luajit-single", "direct Wasm AOT uses the LuaJIT runtime")
+        test.equal(aot.key(source, guest), aot.key(source, unspecified))
     end
     local tiers = assert(targets.buildTiers(triple, {minimum = "scalar", maximum = "simd128"}, "luajit"))
     test.equal(#tiers, 2)
