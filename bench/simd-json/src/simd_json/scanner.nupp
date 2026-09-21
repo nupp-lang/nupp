@@ -1,4 +1,6 @@
 local span = require("nupp.mem.span")
+local array = require("nupp.mem.array")
+local simd = require("nupp.simd")
 
 local scanner = {}
 
@@ -20,18 +22,43 @@ const scanner.UTF8_INVALID = 160
 
 --- Classifies every input byte before the recursive parser sees it.
 ---
---- The carrier is a 32-bit SIMD gang today, while the pointers remain byte
---- pointers. That makes narrow span storage a reusable AOT feature rather than
---- a JSON-specific intrinsic, and leaves room for a future packed-byte gang.
+--- Explicit byte vectors classify full groups; the scalar loop handles the tail
+--- and also runs when AOT is off.
 @aot
 local function classify(exclusive flags: span.WriteSpan<uint8>, borrows bytes: span.Span<uint8>): nil
     if #flags ~= #bytes then
         error("length mismatch", 2)
     end
 
-    @simd
-    for i = 1, #flags do
-        local byte = bytes[i]
+    local cursor: uint32 = 0
+    if species = simd.species(array.uint8) then
+        while cursor + species.lanes <= #bytes do
+            local byte = species:load(bytes, cursor + 1)
+            local flag = (byte < 32):select(16, 0)
+            flag = (byte == 34):select(1, flag)
+            flag = (byte == 92):select(2, flag)
+            flag = (byte == 123):select(4, flag)
+            flag = (byte == 125):select(4, flag)
+            flag = (byte == 91):select(4, flag)
+            flag = (byte == 93):select(4, flag)
+            flag = (byte == 58):select(4, flag)
+            flag = (byte == 44):select(4, flag)
+            flag = (byte == 32):select(8, flag)
+            flag = (byte == 9):select(8, flag)
+            flag = (byte == 10):select(8, flag)
+            flag = (byte == 13):select(8, flag)
+            flag = (byte >= 128):select(160, flag)
+            flag = ((byte >= 128) & (byte <= 191)):select(32, flag)
+            flag = ((byte >= 194) & (byte <= 223)):select(64, flag)
+            flag = ((byte >= 224) & (byte <= 239)):select(96, flag)
+            flag = ((byte >= 240) & (byte <= 244)):select(128, flag)
+            species:store(flags, cursor + 1, flag)
+            cursor = cursor + species.lanes
+        end
+    end
+
+    while cursor < #bytes do
+        local byte = bytes[cursor + 1]
         local flag: uint32 = switch byte do
             case 34 -> 1
             case 92 -> 2
@@ -57,7 +84,10 @@ local function classify(exclusive flags: span.WriteSpan<uint8>, borrows bytes: s
                 flag = 160
             end
         end
-        flags[i] = flag
+        if cursor < #flags then
+            flags[cursor + 1] = flag
+        end
+        cursor = cursor + 1
     end
 end
 

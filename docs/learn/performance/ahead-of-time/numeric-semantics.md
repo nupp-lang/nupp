@@ -220,49 +220,35 @@ matrix is required complete rather than merely consistent: every pair of span
 regions carries a fact, because a pair with no fact would be a `restrict` nobody
 justified.
 
-Above that sit the differentials, which is where correctness is actually
-established. Ordinary Nupp, forced-scalar C and lane-parallel C are all built
-from one source and must agree exactly rather than within a tolerance, because
-the arithmetic is specified to be the same work in the same order:
+Above that sit the differentials, which establish correctness. Explicit SIMD
+primitives and algorithms run through native vector C and a forced-scalar C
+oracle, alongside independent scalar expectations appropriate to each
+numerical contract:
 
 ```bash
-bench/kernel-subset-spike/simd.sh                     # lane rewrite vs scalar
-luajit bench/kernel-subset-spike/corrected_main.lua   # binary32 min/max/fma
-luajit bench/kernel-subset-spike/tecsbits_main.lua    # bitwise lanes over entities
-luajit bench/kernel-subset-spike/mixedwidth_main.lua  # binary32 and binary64 in one region
-luajit bench/kernel-subset-spike/mandelbrot_main.lua  # every pixel, three ways
+./bin/nupp test simdprimitivedifferentialtest
+./bin/nupp test simdreducerdifferentialtest
 ```
 
-Tails are exercised at every remainder for both region widths, so a four-lane
-and an eight-lane tail are both covered.
+Tails are exercised across supported fixed and preferred species.
 
-The forced-scalar twin of a body containing a `@simd` region is compiled with
-the optimizer off, which is what makes it an independent answer rather than a
-second copy of the same lowering. On Clang that is `__attribute__((optnone))`,
-and an `optnone` function is compiled as though `-ffp-contract=off` had not been
-given: a `total += a * b` the source did not write as a fused operation becomes
-one, and the oracle answers a different last bit from both the lane body and
-ordinary Lua. The generated oracle therefore restates the contract inside its
-own braces, and `exactLoopReducersAgreeAcrossLuaScalarAndVectorExecution` holds
-it there by reducing a dot product over magnitudes that make the difference
-visible.
+The forced-scalar version of an explicit vector body is compiled with the
+optimizer off, which makes it an independent executable answer. On Clang that
+is `__attribute__((optnone))`; the generated oracle restates the floating-point
+contraction contract inside its own braces so its last bits agree with the
+specified operation order.
 
-Two things follow from the same attribute. An `-O0` oracle is not a speed
-baseline, so a benchmark quoting one is quoting the optimizer rather than the
-lanes; and a map program's oracle is not one, because it carries a loop pragma
-at the same `-O3` instead. `bench/simd-mandelbrot` records which of the two it
-is measuring.
+The `-O0` oracle is not a speed baseline. Compare complete optimized functions
+when measuring performance, not the forced-scalar conformance route.
 
 The exact reducer contracts are also executed at the one other tier that can
 run them. `tests/wasm-aot/simd-project` reduces the same corpus at Wasm
 `simd128` against the same Lua reducers, so bit identity for an ordered chain or
 a logical-index tree is a claim about the contract rather than about NEON.
 
-`bench/kernel-subset-spike/crosscheck.sh` runs the same agreement in C with no
-LuaJIT in the process, over every committed kernel, at both region widths and at
-whatever feature tier is asked for. CI runs it on Linux and macOS at three tiers
-and through both Clang and GCC, and on Windows, so the platform is checked
-rather than reasoned about from the other two.
+The SIMD conformance matrix runs the authored vector corpus on native targets
+and Wasm `simd128`. It checks Clang and GCC where available, with each native
+tier selected explicitly.
 
 The build's own end of it is exercised the same way, by doing the thing rather
 than asserting it: a project is built under `require` and its answers compared
@@ -368,8 +354,8 @@ end
 Lowering preserves left-to-right operand evaluation and conditional execution
 in boolean `and`/`or` and ternaries. A loop condition's statements execute on
 every condition test, including the test reached by `continue`. These blocks
-compile to native locals and control flow without closures. Inside `@simd`,
-`while` and `repeat` condition blocks run under the live-lane mask: `continue`
-reaches the next condition test and `break` retires that lane without testing
-again. A condition block's own `break` or `continue` still targets its enclosing
-loop. GPU profiles do not admit statementful loop conditions.
+compile to native locals and control flow without closures. Explicit SIMD
+algorithms express lane-local control flow with masks and `select`; Nupp does
+not convert scalar loop conditions into masks. A condition block's own `break`
+or `continue` still targets its enclosing loop. GPU profiles do not admit
+statementful loop conditions.

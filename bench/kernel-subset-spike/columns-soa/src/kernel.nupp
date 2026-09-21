@@ -1,4 +1,6 @@
 local span = require("nupp.mem.span")
+local array = require("nupp.mem.array")
+local simd = require("nupp.simd")
 
 @aot
 local function advance(
@@ -17,10 +19,32 @@ local function advance(
         error("range out of bounds", 2)
     end
 
-    @simd
-    for index = first, last do
-        xs[index] = xs[index] + vxs[index] * dt
-        ys[index] = ys[index] + vys[index] * dt
+    if floats = simd.species(array.float, 4) then
+        local doubles = assert(simd.species(array.number, 4))
+        local cursor: integer = first - 1
+        while cursor + floats.lanes <= last do
+            local x = doubles:convert(floats:load(xs, cursor + 1))
+            local y = doubles:convert(floats:load(ys, cursor + 1))
+            local vx = doubles:convert(floats:load(vxs, cursor + 1))
+            local vy = doubles:convert(floats:load(vys, cursor + 1))
+            floats:store(xs, cursor + 1, floats:convert(x + vx * dt))
+            floats:store(ys, cursor + 1, floats:convert(y + vy * dt))
+            cursor = cursor + floats.lanes
+        end
+        if cursor < last then
+            local active = floats:tail(last - cursor)
+            local x = doubles:convert(floats:load(xs, cursor + 1, active))
+            local y = doubles:convert(floats:load(ys, cursor + 1, active))
+            local vx = doubles:convert(floats:load(vxs, cursor + 1, active))
+            local vy = doubles:convert(floats:load(vys, cursor + 1, active))
+            floats:store(xs, cursor + 1, floats:convert(x + vx * dt), active)
+            floats:store(ys, cursor + 1, floats:convert(y + vy * dt), active)
+        end
+    else
+        for index = first, last do
+            xs[index] = xs[index] + vxs[index] * dt
+            ys[index] = ys[index] + vys[index] * dt
+        end
     end
 end
 

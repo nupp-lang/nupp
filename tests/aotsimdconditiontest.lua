@@ -14,7 +14,6 @@ local span = require("nupp.mem.span")
 @aot
 local function before(exclusive output: span.WriteSpan<number>, exclusive checks: span.WriteSpan<number>, borrows limits: span.Span<number>): nil
     assert(#output == #limits and #checks == #limits)
-    @simd
     for i = 1, #output do
         local count, total = 0.0, 0.0
         while do
@@ -33,7 +32,6 @@ end
 @aot
 local function after(exclusive output: span.WriteSpan<number>, exclusive checks: span.WriteSpan<number>, borrows limits: span.Span<number>): nil
     assert(#output == #limits and #checks == #limits)
-    @simd
     for i = 1, #output do
         local count, total = 0.0, 0.0
         repeat
@@ -52,7 +50,6 @@ end
 @aot
 local function enclosing(exclusive output: span.WriteSpan<number>, borrows limits: span.Span<number>): nil
     assert(#output == #limits)
-    @simd
     for i = 1, #output do
         local count, total = 0.0, 0.0
         while count < limits[i] do
@@ -72,7 +69,6 @@ local function enclosing(exclusive output: span.WriteSpan<number>, borrows limit
 end
 @aot
 local function uniform(exclusive output: span.WriteSpan<number>): nil
-    @simd
     for i = 1, #output do
         local count, checks = 0.0, 0.0
         while do
@@ -148,9 +144,13 @@ for count = 0, 37 do
 end
 print("condition results match")
 ]]
+
 local function write(path, text)
-    local f = assert(io.open(path, "wb")); f:write(text); f:close()
+    local f = assert(io.open(path, "wb"));
+    f:write(text);
+    f:close()
 end
+
 function M.statementfulConditionsPreserveLaneEvaluationAndOuterExits()
     local dir = os.tmpname()
     os.remove(dir)
@@ -158,14 +158,23 @@ function M.statementfulConditionsPreserveLaneEvaluationAndOuterExits()
     write(dir .. "/src/conditions.nupp", SOURCE)
     write(dir .. "/check.lua", 'package.path="build/native/?.lua;"..package.path;\n' .. SCRIPT)
     for _, policy in ipairs({"off", "require"}) do
-        write(dir .. "/nupp.lua", ('return {include={"src"}, build={targets={native={kind="modules",entries={"conditions"},outDir="build/native",aot=%q}}}}'):format(policy))
+        write(
+            dir .. "/nupp.lua",
+            (
+                'return {include={"src"}, build={targets={native={kind="modules",entries={"conditions"},outDir="build/native",aot=%q}}}}'
+            ):format(policy)
+        )
         local output = dir .. "/build.log"
         local status = os.execute(("cd %q && %q build --target native > %q 2>&1"):format(dir, NUPP, output))
-        local f = assert(io.open(output, "rb")); local log = f:read("*a"); f:close()
+        local f = assert(io.open(output, "rb"));
+        local log = f:read("*a");
+        f:close()
         test.equal(status, 0, policy .. " build at " .. dir .. ": " .. log)
         local pipe = assert(io.popen(("cd %q && luajit check.lua %s 2>&1"):format(dir, policy)))
-        local result = pipe:read("*a"); pipe:close()
+        local result = pipe:read("*a");
+        pipe:close()
         test.equal(result:gsub("%s+$", ""), "condition results match", policy .. " at " .. dir)
     end
 end
+
 return M

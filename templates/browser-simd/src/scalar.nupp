@@ -3,9 +3,9 @@ local array = require("nupp.mem.array")
 local json = require("nupp.codec.json")
 
 local struct Sample
-    value: float
+    value: number
     bias: number
-    weight: float
+    weight: number
 end
 
 @aot
@@ -25,7 +25,7 @@ local writable = input:write()
 for index = 1, #writable do
     writable[index] = new Sample(index, index * 2, index * 3)
 end
-drop writable
+nupp.drop(writable)
 
 local output = array.new(new Sample(), 4096)
 scale(output:write(), input:read(), 2)

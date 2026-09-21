@@ -72,8 +72,6 @@ try {
     appSha256:digest(path.join(output, manifest.app)), hostArtifacts, artifacts,
     randomFingerprint:browserResult.result.randomFingerprint, coverage:corpus.coverage,
     scalarSelection:existsSync(scalarSelectionPath) ? JSON.parse(readFileSync(scalarSelectionPath, 'utf8')) : null};
-  const regions = path.join(project, 'regions.json');
-  if (existsSync(regions)) report.requiredRegions = JSON.parse(readFileSync(regions, 'utf8'));
   writeFileSync(path.join(project, 'result.json'), JSON.stringify(report, null, 2) + '\n');
   console.log(JSON.stringify(report));
 } finally {

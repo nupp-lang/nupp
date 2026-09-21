@@ -10,7 +10,7 @@ the selected x86-64 tier still compiles, because the compiler splits it, but it
 has no stable ABI at a function boundary. Clang says so through `-Wpsabi`, and
 it is right to.
 
-So this is where a `@simd` rewrite finds out how wide it may be.
+This is where preferred explicit species find their native width.
 
 Nothing here probes the machine by running anything. A tier is selected, not
 discovered, because a build that measured the machine in front of it would
@@ -154,11 +154,10 @@ end
 --- The tiers a project build carries, narrowest first.
 ---
 --- A range is an explicit inclusive host contract: every tier between its
---- bounds is emitted, and a `@simd` region that will not lower at one of them
---- fails the build rather than losing that tier. A bound left out is the
+--- bounds is emitted. A bound left out is the
 --- architecture's own -- `{minimum = "simd128"}` on wasm32 is simd128 alone,
 --- `{minimum = "avx2"}` on x86-64 is avx2 through avx512f -- so the minimum a
---- tier-failure diagnostic names can be written on its own.
+--- minimum tier can be written on its own.
 ---
 --- The string form names a maximum and keeps the x86-64 ceiling semantics it
 --- has always had, every tier below it included; other architectures read it as
@@ -332,31 +331,6 @@ function target.simdWidth(selected: target.Target): integer
     end
 
     return held(selected, 16)
-end
-
---- The vector width, in bytes, a `@simd` region groups its iterations into.
----
---- `TIERS` above, which differs from `simdWidth` only on NEON: it pairs two
---- registers for a 32-byte value without an ABI question, and a region filling
---- both measures faster than one filling a single register -- the Mandelbrot
---- kernel runs at 182 MPix/s over eight binary32 lanes against 142 over four.
----
---- The two are free to differ because they answer different questions.
---- `simdWidth` is what `preferred` means where someone wrote it, which is a
---- promise to whoever reads that source: one register. This is only what the
---- rewrite groups iterations by, which nobody writes down.
----
---- A region is grouped no wider than a value may be either: the rewrite
---- writes `preferred` species, and what `preferred` means to the backend is
---- this width, so a region grouped wider than the frame can carry would put
---- the ceiling back exactly where `simdWidth` took it away.
-function target.simdRegionWidth(selected: target.Target): integer
-    local width = (target.TIERS[selected.tier] or target.simdWidth(selected)) as integer
-    if width == 0 then
-        return 0
-    end
-
-    return held(selected, width)
 end
 
 export = target

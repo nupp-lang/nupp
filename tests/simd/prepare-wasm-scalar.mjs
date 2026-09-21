@@ -17,9 +17,6 @@ if (manifest.schemaVersion !== 3 || manifest.target !== 'wasm32-unknown-emscript
 }
 mkdirSync(path.join(output, 'dist/aot'), { recursive: true });
 writeFileSync(path.join(output, 'corpus.json'), readFileSync(path.join(project, 'corpus.json')));
-if (existsSync(path.join(project, 'regions.json'))) {
-  writeFileSync(path.join(output, 'regions.json'), readFileSync(path.join(project, 'regions.json')));
-}
 writeFileSync(path.join(output, 'dist/app.lua'), readFileSync(path.join(project, 'dist/app.lua')));
 const referenceText = readFileSync(path.join(project, 'result.json'), 'utf8');
 const reference = JSON.parse(referenceText);

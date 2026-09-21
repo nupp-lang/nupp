@@ -2,6 +2,9 @@
 -- and writes escape records; grid construction and checksum reduction belong
 -- to the harness.
 local span = require("nupp.mem.span")
+local soa = require("nupp.mem.soa")
+local array = require("nupp.mem.array")
+local simd = require("nupp.simd")
 
 local struct Point
     re: float
@@ -28,7 +31,6 @@ local function mandelbrot(
         error("range out of bounds", 2)
     end
 
-    @simd
     for i = first, last do
         local escape = escapes[i]
         local point = points[i]
@@ -76,4 +78,66 @@ local function mandelbrot(
     end
 end
 
-return {mandelbrot = mandelbrot, Point = Point, Escape = Escape,}
+@aot
+local function mandelbrotSimd(
+    exclusive escapes: soa.WriteToken & soa.WriteSpan<Escape>,
+    borrows points: soa.Span<Point>,
+    first: integer,
+    last: integer,
+    maxIterations: int32
+): nil
+    if #escapes ~= #points then
+        error("length mismatch", 2)
+    end
+    if first < 1 or last > #escapes or first > last + 1 then
+        error("range out of bounds", 2)
+    end
+
+    local fs = assert(simd.species(array.float, 8))
+    local is = assert(simd.species(array.int32, 8))
+    local us = assert(simd.species(array.uint32, 8))
+    local limit = is:splat(maxIterations)
+    local cursor: uint64 = (first - 1) as uint64
+    while cursor < last do
+        local active = fs:mask(true)
+        local cx = fs:splat(0.0)
+        local cy = fs:splat(0.0)
+        if cursor + fs.lanes <= last and cursor + fs.lanes <= #points then
+            cx = fs:load(points, (cursor + 1) as integer, "re")
+            cy = fs:load(points, (cursor + 1) as integer, "im")
+        else
+            active = fs:tail((last - cursor) as integer)
+            cx = fs:load(points, (cursor + 1) as integer, "re", active)
+            cy = fs:load(points, (cursor + 1) as integer, "im", active)
+        end
+        local cardioidX = cx - 0.25
+        local ySquared = cy * cy
+        local q = cardioidX * cardioidX + ySquared
+        local inside = (q * (q + cardioidX) <= ySquared * 0.25) | ((cx + 1.0) * (cx + 1.0) + ySquared <= 0.0625)
+
+        local zx = fs:splat(0.0)
+        local zy = fs:splat(0.0)
+        local zxSquared = fs:splat(0.0)
+        local zySquared = fs:splat(0.0)
+        local iteration = is:mask(inside):select(limit, is:splat(0))
+        local running = active & fs:mask(iteration < limit)
+        while running:any() do
+            local outside = zxSquared + zySquared > 4.0
+            local step = running & ~outside
+            local doubledZx = zx * 2.0
+            local nextZy = fs:map(nupp.math.f32.fma, doubledZx, zy, cy)
+            local nextZx = zxSquared - zySquared + cx
+            zy = step:select(nextZy, zy)
+            zx = step:select(nextZx, zx)
+            zxSquared = step:select(zx * zx, zxSquared)
+            zySquared = step:select(zy * zy, zySquared)
+            iteration = is:mask(step):select(iteration + 1, iteration)
+            running = step & fs:mask(iteration < limit)
+        end
+        is:store(escapes, (cursor + 1) as integer, "iterations", iteration, is:mask(active))
+        us:store(escapes, (cursor + 1) as integer, "escaped", us:mask(iteration < limit):select(1, 0), us:mask(active))
+        cursor = cursor + fs.lanes
+    end
+end
+
+return {mandelbrot = mandelbrot, mandelbrotSimd = mandelbrotSimd, Point = Point, Escape = Escape,}

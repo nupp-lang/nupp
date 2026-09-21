@@ -1,5 +1,9 @@
 # Nupp against Terra
 
+The SIMD figures and `@simd` discussion below are historical measurements of
+the pre-removal compiler. The current Nupp kernels have no loop annotation;
+rerun the benchmark before attributing those figures to current source.
+
 Four numeric kernels, four implementations, one process.
 
 - **Nupp `@aot`** — `src/kernels.nupp` built by the `terra-bench` target, which

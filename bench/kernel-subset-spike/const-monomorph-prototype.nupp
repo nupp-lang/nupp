@@ -18,7 +18,6 @@ local function transform<const Rounds: integer>(
         error("range out of bounds", 2)
     end
 
-    @simd
     for index = first, last do
         local value = input[index]
         for round = 1, rounds as integer do

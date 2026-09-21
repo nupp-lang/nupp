@@ -42,7 +42,6 @@ local function corrected(
         error("range out of bounds", 2)
     end
 
-    @simd
     for i = first, last do
         local result = results[i]
         local sample = samples[i]

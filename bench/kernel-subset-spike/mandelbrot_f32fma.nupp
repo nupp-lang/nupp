@@ -43,7 +43,6 @@ local function mandelbrot(
         error("range out of bounds", 2)
     end
 
-    @simd
     for i = first, last do
         local escape = escapes[i]
         local point = points[i]

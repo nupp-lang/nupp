@@ -16,7 +16,6 @@ local function scale(
         error("range out of bounds", 2)
     end
 
-    @simd
     for index = first, last do
         output[index] = input[index] * factor
     end

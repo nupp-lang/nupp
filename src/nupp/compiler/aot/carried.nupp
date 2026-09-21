@@ -118,8 +118,8 @@ walk = function(statements: {scalarIR.Statement}, state: carried.State): nil
             loop(state, node, node.body, node.binding)
         elseif op == "block" then
             walk((statement as scalarIR.Block).body, state)
-        elseif op == "simd_region" then
-            walk((statement as scalarIR.SimdRegion).body, state)
+        elseif op == "reducer_region" then
+            walk((statement as scalarIR.ReducerRegion).body, state)
         elseif op == "phase" then
             walk((statement as scalarIR.Phase).body, state)
         end

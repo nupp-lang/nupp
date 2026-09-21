@@ -2,9 +2,8 @@ module nupp.compiler.aot.loops
 
 -- Per-loop AOT facts. A map-shaped program's one loop and the loops of a
 -- structured body are inventoried alike, so diagnostics and reports never
--- collapse every loop into one function-level answer. A loop is `lowered` when
--- it said `@simd` and ran in lanes, `explicit-simd` when its body uses the
--- fixed-width vector API, and `scalar` otherwise.
+-- collapse every loop into one function-level answer. A loop is
+-- `explicit-simd` when its body uses vectors, and `scalar` otherwise.
 
 local effects = require("nupp.compiler.aot.effects")
 local scalarIR = require("nupp.compiler.aot.scalar")
@@ -23,7 +22,7 @@ record loops.Report
     nativeReads: integer
     nativeWrites: integer
     mayRaise: boolean
-    outcome: 'lowered' | 'explicit-simd' | 'scalar'
+    outcome: 'explicit-simd' | 'scalar'
     reason: string?
 end
 
@@ -74,7 +73,7 @@ local STATEMENTS: {
     ["repeat"] = true,
     fornum = true,
     block = true,
-    simd_region = true,
+    reducer_region = true,
     ["break"] = true,
     ["continue"] = true,
     ["return"] = true,
@@ -103,7 +102,7 @@ local function count(value: any, counts: loops.Counts): nil
         counts.mayRaise = counts.mayRaise or facts.mayRaise
     end
     for key, child in pairs(value) do
-        if key ~= "source" and key ~= "cursorBounds" and key ~= "vector" then
+        if key ~= "source" and key ~= "cursorBounds" then
             count(child, counts)
         end
     end
@@ -144,7 +143,7 @@ local function append(
     kind: 'map' | 'fornum' | 'while' | 'repeat',
     source: scalarIR.Source?,
     value: any,
-    outcome: 'lowered' | 'explicit-simd' | 'scalar',
+    outcome: 'explicit-simd' | 'scalar',
     reason: string?
 ): nil
     local counts = measurements(value)
@@ -173,19 +172,10 @@ local function structured(statements: {scalarIR.Statement}, reports: {loops.Repo
             local counts = measurements(statement)
             local explicit = counts.simdOperations > 0
             local reason: string? = nil
-            local required = statement.op == "fornum" and (statement as scalarIR.Fornum).simdRequired == true
-            local lowered = required and (statement as scalarIR.Fornum).vector ~= nil
-            if not explicit and not lowered then
-                reason = "loop runs one iteration at a time; mark it @simd to run in lanes"
+            if not explicit then
+                reason = "loop has no explicit SIMD operations in Nupp IR"
             end
-            append(
-                reports,
-                statement.op,
-                statement.source,
-                statement,
-                lowered and "lowered" or explicit and "explicit-simd" or "scalar",
-                reason
-            )
+            append(reports, statement.op, statement.source, statement, explicit and "explicit-simd" or "scalar", reason)
             structured((statement as any).conditionBody or {}, reports)
             structured(statement.body, reports)
         elseif statement.op == "if" then
@@ -206,18 +196,17 @@ function loops.program(program: scalarIR.Program): {loops.Report}
     local reports: {loops.Report} = {}
     if program.loop ~= nil then
         local statements = (program.loop as scalarIR.Loop).statements
-        local lowered = program.vector ~= nil
-        local explicit = not lowered and measurements(statements).simdOperations > 0
+        local explicit = measurements(statements).simdOperations > 0
         local reason: string? = nil
-        if not lowered and not explicit then
-            reason = "loop runs one iteration at a time; mark it @simd to run in lanes"
+        if not explicit then
+            reason = "loop has no explicit SIMD operations in Nupp IR"
         end
         append(
             reports,
             "map",
             (program.loop as scalarIR.Loop).source,
             statements,
-            lowered and "lowered" or explicit and "explicit-simd" or "scalar",
+            explicit and "explicit-simd" or "scalar",
             reason
         )
     elseif program.workgroup ~= nil then

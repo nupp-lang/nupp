@@ -1,84 +1,15 @@
 # Checked AOT-to-C subset spike
 
-This directory tests one implementation seam: an ordinary Nupp function is
-checked, lowered to a sealed AOT IR, verified, and emitted as private C. The
-same body remains the ordinary Nupp implementation and differential oracle.
+This is a historical optimizer experiment. Its recorded `@simd` results and
+forced-scalar-twin harnesses describe the pre-removal compiler; they are not
+current acceptance tests. Most retained `.nupp` kernels now use ordinary scalar
+C lowering. `columns-soa` keeps an explicit SIMD control beside scalar C, with
+binary64 arithmetic before each float store as the old source required. Use
+`bench/simd11` for the active SIMD comparison.
 
-The backend it drives is the production one. Everything that used to live here
-is under `src/nupp/compiler/aot/`, and what is left in this directory is the
-kernels, the harnesses that run them three ways, and the Clang orchestration
-that a benchmark needs and a build does not. `kernel_compiler.lua` is a driver
-over `nupp.compiler.aot.compile`.
-
-## One SIMD source model
-
-The selected source surface is scalar Nupp:
-
-```nupp
-@aot
-local function advance(
-    exclusive output: span.WriteSpan<Particle>,
-    borrows input: span.Span<Particle>,
-    dt: float
-): nil
-    if #output ~= #input then
-        error("length mismatch", 2)
-    end
-
-    for i = 1, #output do
-        output[i].x = input[i].x + input[i].vx * dt
-    end
-end
-```
-
-A loop runs in lanes when the source marks it `@simd`, and a body of exactly
-one top-level numeric map loop is the shape that mark can take here. Nothing
-else names a lane, a mask, or a width. A body without the mark is deliberately
-scalar. Explicit `F32x8`, `I32x8`, mask helpers, and hand-unrolled lane structs
-were removed; compiler-internal vectors are the only vector values.
-
-A `@simd` loop that cannot run in lanes fails the build with the construct that
-refused it, so there is nothing to check for after the fact. What the compiler
-chose for a marked loop is printed with:
-
-```sh
-bench/kernel-subset-spike/generate.sh KERNEL.nupp OUT --check-lanes
-```
-
-It names the width when a body lowered, names the construct that stopped it when
-one did not, and exits 1 for the second. This is where the withdrawn
-`@aot(simd = true)` went: the setting was justified as asserting that iterations
-are independent, which the admitted subset proves rather than assumes, and what
-it actually delivered was a build error instead of silently scalar code.
-
-The current pass handles binary64 arithmetic, comparisons, nested masked
-conditionals, and data-dependent inner `while` loops over consecutive struct
-fields. It turns `break` and `continue` into per-lane retirement, ends a loop
-when no lane remains live, and admits short-circuit `and`/`or` only with an
-explicit verified pure-and-total effect fact. Branch masks are captured before
-their bodies execute, so changing a condition operand cannot change which
-lanes execute later statements in that branch.
-
-The gang width follows the widths the loop's own varying values need and the
-target tier it is built for. Ordinary Nupp arithmetic is binary64, so a loop
-written with operators gets two lanes at the x86-64 baseline, four at AVX2, and
-eight at AVX-512.
-
-A loop whose varying values are all 32-bit gets four lanes at baseline and eight
-at every wider tier. That happens only when the source says so, through the
-released `nupp.math.f32` and `nupp.math.i32` operations, and it is a different
-program with different answers. At AVX-512 a mixed loop also gets eight lanes:
-binary64 values occupy `f64x8`, binary32 values occupy `f32x8`, and masks convert
-between their widths.
-
-Bitwise operations on flag words lower too, because an entity query is made of
-them. A gang that carries integers in binary64 lanes converts a lane out to a
-32-bit integer vector and back, which changes nothing because every uint32 is an
-exact binary64 value; a 32-bit gang is already there and converts nothing.
-
-A scalar epilogue handles the remainder so no vector load can cross the end of a
-span. Nested numeric `for` loops, uniform inner loops, and helper calls
-currently refuse.
+The recorded measurements below describe the former scalar-loop rewrite.
+The rewrite-only C differentials and lane-inspection driver were removed with
+it. `kernel_compiler.lua` and the scalar kernels remain for AOT experiments.
 
 ## Lane lowering loses on a memory-bound loop
 
@@ -236,18 +167,8 @@ NUPP_NATIVE_CFLAGS="--sysroot=/path/to/sdk" \
 bench/kernel-subset-spike/build.sh
 ```
 
-Run its differential and crossover driver after the host build:
-
-```sh
-luajit bench/kernel-subset-spike/test.lua
-luajit bench/kernel-subset-spike/main.lua
-```
-
-Run the scalar-source SIMD differential separately:
-
-```sh
-bench/kernel-subset-spike/simd.sh
-```
+The old lane and forced-scalar differential drivers are no longer runnable;
+use `tests/simd/run-matrix.sh` for current explicit-SIMD conformance.
 
 Run the corrected binary32 differential, which is what admits `min`, `max` and
 `fma` to the subset, and the bitwise one, which admits the flag-word operations
@@ -260,28 +181,8 @@ bench/kernel-subset-spike/mandelbrot.sh tecsbits
 luajit bench/kernel-subset-spike/tecsbits_main.lua
 ```
 
-Compare the two generated C bodies of every kernel, which is the architectural
-question rather than the semantic one. The Lua differentials above prove the
-generated code against ordinary Nupp; this proves the lane body against the
-scalar body on whatever target compiled it, and needs nothing but a C compiler:
-
-```sh
-bench/kernel-subset-spike/crosscheck.sh
-```
-
-`NUPP_CHECK_TARGET` and `NUPP_CHECK_RUNNER` cross-compile and emulate, and
-`NUPP_CHECK_CFLAGS` selects a feature tier. A 32-byte vector is two SSE
-registers and one AVX2 register, so those are different instruction sequences
-and passing one says nothing about the other:
-
-```sh
-NUPP_CHECK_TARGET=x86_64-apple-macos11 NUPP_CHECK_RUNNER='arch -x86_64' \
-    NUPP_CHECK_CFLAGS=-mavx2 bench/kernel-subset-spike/crosscheck.sh
-```
-
-Run the two differentials that widened the subset last: a uniform helper call
-inside a lane body, and two `@aot` functions in one file landing on different
-gangs. Both are C-only and run through `crosscheck.sh` with the rest.
+The former C-only cross-target differential was removed with the loop rewrite.
+The explicit-SIMD matrix now checks the backend on each selected tier.
 
 Run the uniform-loop differential, which is what admits an inner loop every
 lane runs the same number of times -- the shape that used to be refused, so a
@@ -500,13 +401,8 @@ Native lowering has landed: a target selects `aot = "emit-c"` or
 what either produced. [The guide](../../docs/guides/ahead-of-time.md) documents
 all of it.
 
-What stays here is what a build has no reason to carry. The kernels are the
-shapes the admitted subset was designed against, and each has a harness that
-runs it as ordinary Nupp, as forced-scalar C, and as lane-parallel C and
-compares the three -- which is how a change to the backend is shown not to have
-changed an answer. `mandelbrot.sh` and `mixedwidth.sh` are the measurements the
-lane decisions were taken on, and `crosscheck.sh` runs the differentials against
-a second target.
+The kernels and measurements record the design of the former rewrite. They do
+not define current SIMD behavior; the explicit corpus does that.
 
 Not covered by any of it, and so not claimed: hot reload, reductions, stencils,
 helper graphs, and nested numeric-loop lowering.

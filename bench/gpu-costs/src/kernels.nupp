@@ -7,7 +7,6 @@ local function cpu(exclusive output: span.WriteSpan<uint32>, borrows input: span
     if #output ~= #input then
         error("length mismatch", 2)
     end
-    @simd
     for index = 1, #output do
         local value = input[index]
         local round: int32 = 0

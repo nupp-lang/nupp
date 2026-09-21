@@ -865,9 +865,9 @@ end
 
 --- One `do` block that masked reducer contributions may turn into an
 --- explicit SIMD region: its identity, and the reducers contributed so far.
-record lower.SimdDo
+record lower.ReducerDo
     region: integer
-    reducers: {scalarIR.SimdRegionReducer}
+    reducers: {scalarIR.ReducerRegionAccumulator}
     byName: {[string]: boolean}
 end
 
@@ -936,18 +936,11 @@ record lower.Kernel
 
     intrinsicAliases: {[string]: string}
 
-    --- Whether source is currently inside an authored outer SIMD region.
-    simdSource: boolean?
-
-    --- Identity of that authored region. Unmarked nested loops deliberately
-    --- clear it, which keeps reducer contributions directly in the region body.
-    simdRegion: integer?
-
-    nextSimdRegion: integer
+    nextReducerRegion: integer
 
     --- The innermost `do` block being lowered, which becomes an explicit
     --- SIMD region when a masked reducer contribution lands inside it.
-    simdDo: lower.SimdDo?
+    simdDo: lower.ReducerDo?
 
     --- Reducer lifecycle state, keyed by the compiler-owned local identity.
     reducers: {[string]: lower.ReducerState}
@@ -1256,7 +1249,9 @@ local function provedVectorCursor(offset: scalarIR.Expr, spanName: string?, kern
         return nil
     end
     local name = (base as scalarIR.Name).name
-    if simdbounds.covers(boundRoom(kernel.cursorBounds, name, spanName), room, (count or 0) + 1) then
+    local param = spanName ~= nil and kernel.params[spanName as string] or nil
+    local counted = param ~= nil and param.soa ~= nil and param.soa.view or spanName
+    if simdbounds.covers(boundRoom(kernel.cursorBounds, name, counted), room, (count or 0) + 1) then
         return name
     end
 
@@ -2974,10 +2969,10 @@ local function maskedContribution(
     local context = kernel.context
     local source = lower.site(node)
     local scope = kernel.simdDo
-    if scope == nil or kernel.simdSource == true then
+    if scope == nil then
         context.reject(source, "a masked reducer contribution belongs inside a do block, which is its region")
     end
-    local region = (scope as lower.SimdDo).region
+    local region = (scope as lower.ReducerDo).region
     if reducerState.finalized then
         context.reject(source, "a finalized reducer cannot receive another contribution")
     end
@@ -3003,13 +2998,13 @@ local function maskedContribution(
         context.reject(source, "a masked reducer contribution takes the mask of its vector's species")
     end
     reducerState.region = region
-    local byName = (scope as lower.SimdDo).byName
+    local byName = (scope as lower.ReducerDo).byName
     if byName[reducerState.name] ~= true then
         byName[reducerState.name] = true
-        local reducers = (scope as lower.SimdDo).reducers
+        local reducers = (scope as lower.ReducerDo).reducers
         reducers[
             #reducers + 1
-        ] = new scalarIR.SimdRegionReducer(
+        ] = new scalarIR.ReducerRegionAccumulator(
             name = reducerState.name,
             cName = reducerState.cName,
             order = reducerOrder as any,
@@ -3019,7 +3014,7 @@ local function maskedContribution(
         )
     end
 
-    return new scalarIR.SimdReducerAdd(
+    return new scalarIR.VectorReducerAdd(
         op = "simd_reducer_add",
         reducer = receiver,
         value = value,
@@ -3079,9 +3074,8 @@ local function laneWiseMap(
             source = source
         )
     end
-    -- The three binary32 operations the prelude corrects rather than computes
-    -- in binary64: they are already applied one lane at a time when the `@simd`
-    -- rewrite reaches one, so the same spelling names them here.
+    -- The three binary32 operations the prelude corrects lane by lane rather
+    -- than computing in binary64.
     local corrected = path ~= nil and admit.fixed(path as string) or nil
     if corrected ~= nil and CORRECTED_LANES[tostring((corrected as admit.Fixed).op)] ~= nil then
         local fixed = corrected as admit.Fixed
@@ -3127,8 +3121,8 @@ local function laneWiseMap(
     )
 end
 
---- `s:load(span, i, "field"[, m])` and `s:store(span, i, "field", v[, m])`:
---- one field of every struct in a run of the span, strided by the struct.
+--- `s:load(view, i, "field"[, m])` and `s:store(view, i, "field", v[, m])`:
+--- one field per row, contiguous for SoA and strided for a span of structs.
 local function fieldAccess(
     node: cst.MethodCall,
     receiver: scalarIR.Expr,
@@ -3147,14 +3141,14 @@ local function fieldAccess(
     local source = lower.site(node)
     local method = reading and "load" or "store"
     local wantedKind = reading and "read_span" or "write_span"
-    local layoutName = span ~= nil and span.type:match("^struct:(.+)$") or nil
+    local layoutName = span ~= nil and (span.soa ~= nil and span.soa.layout or span.type:match("^struct:(.+)$")) or nil
     local layout = layoutName ~= nil and kernel.layouts.byName[layoutName as string] or nil
     if span == nil or (span.kind ~= wantedKind and not (reading and span.kind == "write_span")) or layout == nil then
         context.reject(
             source,
             "SIMD field " .. method .. " needs a matching " .. (
                 reading and "borrowed Span or WriteSpan" or "exclusive WriteSpan"
-            ) .. " of a reified struct"
+            ) .. " of a reified struct or SoA row view"
         )
     end
     local expected = reading and (#raw == 3 or #raw == 4) or not reading and (#raw == 4 or #raw == 5)
@@ -3173,7 +3167,22 @@ local function fieldAccess(
     if field == nil then
         context.reject(source, "struct " .. tostring(layoutName) .. " has no field " .. fieldName)
     end
-    if genericSimdFieldElement(field as scalarIR.Field) ~= element then
+    local column: scalarIR.Param? = nil
+    if span ~= nil and span.soa ~= nil then
+        for _, candidate in pairs(kernel.params) do
+            if candidate.soa ~= nil and scalarIR.sameSoaView(span, candidate) and candidate.soa.field == fieldName then
+                column = candidate
+                break
+            end
+        end
+        if column == nil then
+            context.reject(source, "SoA row view has no column " .. fieldName)
+        end
+    end
+    if (
+        column ~= nil and genericSimdSpanElement(column as scalarIR.Param)
+        or genericSimdFieldElement(field as scalarIR.Field)
+    ) ~= element then
         context.reject(source, "SIMD field " .. method .. " needs a field of the species' element")
     end
     local offset = lower.convert(lower.expression(raw[2], environment, activeIndex, kernel), "f64", source, context)
@@ -3199,12 +3208,13 @@ local function fieldAccess(
     end
 
     return new scalarIR.Simd(
-        op = reading and "simd_field_load" or "simd_field_store",
+        op = column ~= nil and (reading and "simd_load" or "simd_store")
+        or (reading and "simd_field_load" or "simd_field_store"),
         args = args,
-        span = spanName,
-        layout = layoutName as string,
-        field = fieldName,
-        intrinsic = "field",
+        span = column ~= nil and (column as scalarIR.Param).name or spanName,
+        layout = column == nil and layoutName as string or nil,
+        field = column == nil and fieldName or nil,
+        intrinsic = column ~= nil and method or "field",
         cursor = cursor,
         cursorCName = cursorCName,
         type = reading and vectorType or "lua_effect",
@@ -3352,17 +3362,14 @@ local function simdMethod(
                 kernel
             )
         elseif method == contributionMethod and #raw == argumentCount then
-            if kernel.simdSource ~= true or kernel.simdRegion == nil then
-                kernel.context.reject(source, "a reducer contribution belongs directly inside one @simd loop")
-            end
             if (reducerState as lower.ReducerState).finalized then
                 kernel.context.reject(source, "a finalized reducer cannot receive another contribution")
             end
             local region = (reducerState as lower.ReducerState).region
-            if region ~= nil and region ~= kernel.simdRegion then
-                kernel.context.reject(source, "a reducer is scoped to exactly one @simd loop")
+            if region ~= nil and region ~= 0 then
+                kernel.context.reject(source, "scalar and masked vector contributions cannot be mixed")
             end
-            (reducerState as lower.ReducerState).region = kernel.simdRegion
+            (reducerState as lower.ReducerState).region = 0
             local right: scalarIR.Expr? = nil
             if reducerOperation == "dot" then
                 right = lower.convert(
@@ -3388,9 +3395,6 @@ local function simdMethod(
                 source = source
             )
         elseif method == "value" and #raw == 0 then
-            if kernel.simdSource == true then
-                kernel.context.reject(source, "a reducer is finalized after its @simd loop")
-            end
             if (reducerState as lower.ReducerState).region == nil then
                 kernel.context.reject(source, "a reducer must receive its contribution before it is finalized")
             end
@@ -3581,12 +3585,6 @@ local function simdMethod(
                     kernel.context.reject(
                         source,
                         "SIMD indexed memory needs 32-bit or 64-bit integer indices with the same logical lane count"
-                    )
-                end
-                if not reading and kernel.simdSource == true then
-                    kernel.context.reject(
-                        source,
-                        "SIMD scatter does not prove disjoint destinations between @simd iterations"
                     )
                 end
                 if method == "scatter" and not simdindices.unique(offset) then
@@ -5960,9 +5958,6 @@ local function localStmt(
         )
         noteBinding(token.text, value, binding, kernel)
         if value.op == "reducer_init" then
-            if kernel.simdSource == true then
-                context.reject(lower.site(stat), "a reducer is created before its @simd loop")
-            end
             local state = new lower.ReducerState(
                 name = token.text,
                 cName = binding.cName,
@@ -6543,12 +6538,8 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
 
     for _, authored in ipairs(statements) do
         local stat = authored
-        local simdRequired = false
         while stat.kind == "pragmaStmt" do
             local pragma = stat as cst.PragmaStmt
-            simdRequired = simdRequired
-                or pragma.name ~= nil and (pragma.name as lexer.Token).text == "simd"
-                or (pragma.stat as any).simdRequired == true
             stat = pragma.stat as cst.Node
         end
         local expressionFrame = new lower.ExpressionFrame(output = out)
@@ -7083,22 +7074,7 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
                 end
             end
             kernel.cursorBounds = loopBounds
-            local previousSimdSource = kernel.simdSource
-            local previousSimdRegion = kernel.simdRegion
-            local authoredSimd = simdRequired or (loop as any).simdRequired == true
-            if authoredSimd and previousSimdSource == true then
-                context.reject(lower.site(stat), "an @simd loop cannot be nested in another @simd loop")
-            end
-            kernel.simdSource = authoredSimd
-            if authoredSimd then
-                kernel.nextSimdRegion = kernel.nextSimdRegion + 1
-                kernel.simdRegion = kernel.nextSimdRegion
-            else
-                kernel.simdRegion = nil
-            end
             local loopBody = lower.block(loop.body ~= nil and (loop.body as cst.Block).stats or {}, inner, kernel)
-            kernel.simdSource = previousSimdSource
-            kernel.simdRegion = previousSimdRegion
             for name in pairs(previousBounds) do
                 if loopBounds[name] == nil then
                     previousBounds[name] = nil
@@ -7120,7 +7096,6 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
                 body = loopBody,
                 carried = {},
                 boundSpan = bounding,
-                simdRequired = authoredSimd,
                 source = lower.site(stat)
             )
         elseif kind == "whileStmt" then
@@ -7175,16 +7150,16 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
             -- reducer contributions inside it accumulate from its entry and
             -- fold into their reducers at its exit.
             local previousDo = kernel.simdDo
-            kernel.nextSimdRegion = kernel.nextSimdRegion + 1
-            local scope = new lower.SimdDo(region = kernel.nextSimdRegion, reducers = {}, byName = {})
+            kernel.nextReducerRegion = kernel.nextReducerRegion + 1
+            local scope = new lower.ReducerDo(region = kernel.nextReducerRegion, reducers = {}, byName = {})
             kernel.simdDo = scope
             local body = nested((stat as cst.DoStmt).body)
             kernel.simdDo = previousDo
             if #scope.reducers > 0 then
                 out[
                     #out + 1
-                ] = new scalarIR.SimdRegion(
-                    op = "simd_region",
+                ] = new scalarIR.ReducerRegion(
+                    op = "reducer_region",
                     body = body,
                     reducers = scope.reducers,
                     source = lower.site(stat)
@@ -8482,8 +8457,6 @@ record lower.Contract
     --- Whether fixed-width transcendentals may select a native implementation.
     fpTranscendentals: boolean
 
-    --- Whether the source requires lane lowering for an authored loop.
-    simdRequired: boolean
 end
 
 --- Reads one application's contract.
@@ -8501,8 +8474,7 @@ function lower.contract(
     local contract = new lower.Contract(
         target = body.aotTarget == "gpu" and "gpu" or "cpu",
         fpContract = relaxed ~= nil and relaxed["fp-contract"] == true,
-        fpTranscendentals = relaxed ~= nil and relaxed["fp-transcendentals"] == true,
-        simdRequired = body.simdRequired == true
+        fpTranscendentals = relaxed ~= nil and relaxed["fp-transcendentals"] == true
     )
     if checked then
         return contract
@@ -8629,7 +8601,7 @@ local function newKernel(
         stringAccumulators = {},
         reducers = {},
         reducerOrder = {},
-        nextSimdRegion = 0,
+        nextReducerRegion = 0,
         symbol = symbol,
         index = "",
         indexCName = "",
@@ -8652,18 +8624,15 @@ local function newKernel(
 end
 
 --- Reject incomplete reducer capabilities after the whole entry has lowered.
---- Source order establishes contribution-before-finalization; the region id
---- establishes that no second authored loop can reuse the binding.
+--- Source order establishes contribution-before-finalization; region identity
+--- prevents mixing scalar and masked vector contributions.
 local function validateReducers(kernel: lower.Kernel): nil
     for _, reducer in ipairs(kernel.reducerOrder) do
         if reducer.region == nil then
-            kernel.context.reject(
-                reducer.source,
-                "a reducer belongs to exactly one @simd loop and must receive one contribution"
-            )
+            kernel.context.reject(reducer.source, "a reducer must receive a contribution before finalization")
         end
         if not reducer.finalized then
-            kernel.context.reject(reducer.source, "a reducer is finalized exactly once after its @simd loop")
+            kernel.context.reject(reducer.source, "a reducer is finalized exactly once after its contribution region")
         end
     end
 end
@@ -9069,7 +9038,6 @@ function lower.program(
             registrar = kernel.usesLua and symbol .. "_register" or nil,
             fpContract = contract.fpContract,
             fpTranscendentals = contract.fpTranscendentals,
-            simdRequired = contract.simdRequired,
             params = signature.params,
             layouts = layouts.ordered,
             regions = regions,
@@ -9147,7 +9115,6 @@ function lower.program(
             executionTarget = contract.target,
             fpContract = contract.fpContract,
             fpTranscendentals = contract.fpTranscendentals,
-            simdRequired = contract.simdRequired,
             params = signature.params,
             layouts = layouts.ordered,
             regions = regions,

@@ -350,7 +350,7 @@ local function pairedBreaks(statements: {scalarIR.Statement}, found: any): boole
             if statement.elseBody ~= nil and not pairedBreaks(statement.elseBody, found) then
                 return false
             end
-        elseif (statement.op == "block" or statement.op == "simd_region")
+        elseif (statement.op == "block" or statement.op == "reducer_region")
             and not pairedBreaks((statement as any).body as {scalarIR.Statement}, found)
         then
             return false
@@ -387,7 +387,7 @@ local function removeBreakWrites(statements: {scalarIR.Statement}, found: any): 
                 if statement.elseBody ~= nil then
                     statement.elseBody = removeBreakWrites(statement.elseBody, found)
                 end
-            elseif statement.op == "block" or statement.op == "simd_region" then
+            elseif statement.op == "block" or statement.op == "reducer_region" then
                 (statement as any).body = removeBreakWrites((statement as any).body as {scalarIR.Statement}, found)
             end
             kept[#kept + 1] = statement
@@ -596,7 +596,7 @@ propagateBlock = function(statements: {scalarIR.Statement}, inherited: optimize.
             or statement.op == "while"
             or statement.op == "repeat"
             or statement.op == "block"
-            or statement.op == "simd_region"
+            or statement.op == "reducer_region"
         then
             if value.conditionBody ~= nil then
                 propagateBlock(value.conditionBody, propagation, state)
@@ -739,7 +739,7 @@ optimizeBlock = function(statements: {scalarIR.Statement}, state: optimize.State
                 else
                     rewritten[#rewritten + 1] = statement
                 end
-            elseif statement.op == "block" or statement.op == "simd_region" then
+            elseif statement.op == "block" or statement.op == "reducer_region" then
                 local value = statement as any
                 value.body = optimizeBlock(value.body as {scalarIR.Statement}, state)
                 rewritten[#rewritten + 1] = statement
@@ -833,7 +833,7 @@ removeWrites = function(
             if loop.conditionBody ~= nil then
                 loop.conditionBody = removeWrites(loop.conditionBody, dead, state)
             end
-        elseif statement.op == "block" or statement.op == "simd_region" or statement.op == "phase" then
+        elseif statement.op == "block" or statement.op == "reducer_region" or statement.op == "phase" then
             (statement as any).body = removeWrites((statement as any).body as {scalarIR.Statement}, dead, state)
         end
         if keep then
@@ -884,7 +884,7 @@ local function removeDead(
                 loop.conditionBody = removeDead(loop.conditionBody, state, {loop.condition, loop.body})
             end
             loop.body = removeDead(loop.body, state)
-        elseif statement.op == "fornum" or statement.op == "block" or statement.op == "simd_region" then
+        elseif statement.op == "fornum" or statement.op == "block" or statement.op == "reducer_region" then
             (statement as any).body = removeDead((statement as any).body as {scalarIR.Statement}, state)
         end
 
@@ -957,7 +957,7 @@ local function foldWorkgroupStatements(statements: {scalarIR.Statement}, state: 
             or statement.op == "while"
             or statement.op == "repeat"
             or statement.op == "block"
-            or statement.op == "simd_region"
+            or statement.op == "reducer_region"
         then
             foldWorkgroupStatements((statement as any).body as {scalarIR.Statement}, state)
         end

@@ -98,7 +98,7 @@ function M.wasmOnlyFixturesSelectTheJobThatRunsThem()
         "macos-integration",
         "windows-integration"
     })
-    selects("src/nupp/compiler/aot/simdrewrite.nupp", {"browser-wasm", "simd-conformance"})
+    selects("src/nupp/compiler/aot/compile.nupp", {"browser-wasm", "simd-conformance"})
     selects("src/nupp/compiler/build/aot.nupp", {"browser-wasm"})
     selects("src/nupp/simd.nupp", {"browser-wasm"})
     selects("tests/wasm-memory/run.sh", {"browser-wasm"})

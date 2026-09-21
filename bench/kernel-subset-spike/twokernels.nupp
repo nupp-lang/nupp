@@ -31,7 +31,6 @@ local function scale(
         error("range out of bounds", 2)
     end
 
-    @simd
     for i = first, last do
         local sample = samples[i]
         local input = source[i]
@@ -55,7 +54,6 @@ local function brighten(
         error("range out of bounds", 2)
     end
 
-    @simd
     for i = first, last do
         local sample = samples[i]
         local input = source[i]

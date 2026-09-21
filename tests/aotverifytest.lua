@@ -68,13 +68,16 @@ local function find(body, predicate)
 end
 
 function M.unknownNumericLoopRuntimeIsRefused()
-    local program = lowered([[
+    local program = lowered(
+        [[
 @aot
 local function identity(value: number): number
     return value
 end
 return {identity = identity}
-]], "runtime.nupp")
+]],
+        "runtime.nupp"
+    )
     program.numericForRuntime = "future-runtime"
     refuses(program, "unknown numeric-for runtime")
     program.numericForRuntime = nil
@@ -124,7 +127,6 @@ local simd = require("nupp.simd")
 @aot
 local function total(borrows input: span.Span<uint32>, seed: uint32): uint32
     local fold = simd.reducer.u32.wrappingSum(seed)
-    @simd
     for i = 1, #input do fold:add(input[i]) end
     return fold:value()
 end
@@ -230,21 +232,23 @@ function M.mapBoundsAndLengthClaimsAreReprovedFromRelations()
 end
 
 function M.aGuardedBlockCannotKeepCrossSpanLoadsWithoutItsRelations()
-    local program = lowered([[
+    local program = lowered(
+        [[
 local span = require("nupp.mem.span")
 local simd = require("nupp.simd")
 @aot
 local function orderedDot(borrows left: span.Span<number>, borrows right: span.Span<number>): number
     assert(#left == #right, "length mismatch")
     local fold = simd.reducer.orderedDot(0.0)
-    @simd
     for i = 1, #left do
         fold:add(left[i], right[i])
     end
     return fold:value()
 end
 return {orderedDot = orderedDot}
-]], "guarded-dot.nupp")
+]],
+        "guarded-dot.nupp"
+    )
     verify.program(program)
     assert(#program.relations > 0, "the entry guard contributes span-length relations")
     program.relations = {}
@@ -551,7 +555,9 @@ return {copy = copy}
 ]]
     local program = lowered(source, "derived.g.nupp")
     verify.program(program)
-    local loop = find(program.body, function(statement) return statement.op == "while" end)
+    local loop = find(program.body, function(statement)
+        return statement.op == "while"
+    end)
     local store = loop.body[1]
     local load = store.args[3]
     assert(store.cursor == "cursor" and load.cursor == "cursor", "derived accesses retain their base proof")
@@ -559,9 +565,9 @@ return {copy = copy}
     assert(product.op == "u64_mul", "the guard multiplies in64bits before adding")
     local oldProduct = loop.condition.left.left.right
     loop.condition.left.left.right = {
-        op = "numeric_cast", type = "u64", value = {
-            op = "u32_mul", type = "u32", left = product.left.value, right = product.right.value,
-        },
+        op = "numeric_cast",
+        type = "u64",
+        value = {op = "u32_mul", type = "u32", left = product.left.value, right = product.right.value,},
     }
     refuses(program, "invalid loop cursor bounds proof")
     loop.condition.left.left.right = oldProduct
@@ -580,9 +586,13 @@ return {copy = copy}
     local mutable = source:gsub("local lanes = s.lanes", "local lanes: uint32 = s.lanes\n    lanes = s.lanes", 1)
     local unproved = lowered(mutable, "mutable-lanes.g.nupp")
     verify.program(unproved)
-    local changedLoop = find(unproved.body, function(statement) return statement.op == "while" end)
-    assert(changedLoop.body[1].cursor == nil and changedLoop.body[1].args[3].cursor == nil,
-        "a mutable lanes alias keeps checked loads and stores")
+    local changedLoop = find(unproved.body, function(statement)
+        return statement.op == "while"
+    end)
+    assert(
+        changedLoop.body[1].cursor == nil and changedLoop.body[1].args[3].cursor == nil,
+        "a mutable lanes alias keeps checked loads and stores"
+    )
 end
 
 function M.aProvenVectorAccessIsHeldToTheGuardThatProvesIt()
@@ -871,12 +881,23 @@ return {mapped = mapped}
         "mapped.nupp"
     )
     verify.program(program)
-    local call = assert(findExpr(program.body, function(node)
-        return node.op == "simd_call"
-    end))
+    local call = assert(
+        findExpr(program.body, function(node)
+            return node.op == "simd_call"
+        end)
+    )
     local operand = call.args[1]
     assert(operand.op == "local", "the lowerer binds the operand")
-    call.args[1] = {op = "simd_splat", args = {{op = "local", name = "s", type = "simd_species_f64_fixed4"}, {op = "constant", value = "1", type = "f64"}}, type = operand.type}
+    call.args[
+        1
+    ] = {
+        op = "simd_splat",
+        args = {
+            {op = "local", name = "s", type = "simd_species_f64_fixed4"},
+            {op = "constant", value = "1", type = "f64"}
+        },
+        type = operand.type
+    }
     refuses(program, "generic SIMD lane-wise operand is not a local of the result's species")
     call.args[1] = operand
     verify.program(program)
@@ -884,9 +905,11 @@ return {mapped = mapped}
     call.helper = "missing"
     refuses(program, "invalid generic SIMD lane-wise helper")
     call.helper = helper
-    local math_ = assert(findExpr(program.body, function(node)
-        return node.op == "simd_math"
-    end))
+    local math_ = assert(
+        findExpr(program.body, function(node)
+            return node.op == "simd_math"
+        end)
+    )
     math_.intrinsic = "select"
     refuses(program, "invalid generic SIMD lane-wise math")
 end
@@ -911,17 +934,21 @@ return {masks = masks}
         "masks.nupp"
     )
     verify.program(program)
-    local convert = assert(findExpr(program.body, function(node)
-        return node.op == "simd_mask_convert"
-    end))
+    local convert = assert(
+        findExpr(program.body, function(node)
+            return node.op == "simd_mask_convert"
+        end)
+    )
     assert(convert.args[1].type == "simd_mask_f64_fixed4", "the mask converted")
     convert.args[1].type = "simd_mask_f64_fixed8"
     refuses(program, "generic SIMD mask conversion changes the lane count")
     convert.args[1].type = "simd_mask_f64_fixed4"
     verify.program(program)
-    local splat = assert(findExpr(program.body, function(node)
-        return node.op == "simd_mask_splat"
-    end))
+    local splat = assert(
+        findExpr(program.body, function(node)
+            return node.op == "simd_mask_splat"
+        end)
+    )
     splat.args[1] = {op = "constant", value = "1", type = "f64"}
     refuses(program, "invalid generic SIMD mask splat")
 end
@@ -947,9 +974,11 @@ return {copy = copy}
         "fields.nupp"
     )
     verify.program(program)
-    local load = assert(findExpr(program.body, function(node)
-        return node.op == "simd_field_load"
-    end))
+    local load = assert(
+        findExpr(program.body, function(node)
+            return node.op == "simd_field_load"
+        end)
+    )
     assert(load.field == "x", "the field loaded")
     load.field = "n"
     refuses(program, "invalid generic SIMD field access root")
@@ -957,9 +986,11 @@ return {copy = copy}
     refuses(program, "invalid generic SIMD field access root")
     load.field = "x"
     verify.program(program)
-    local store = assert(find(program.body, function(statement)
-        return statement.op == "simd_field_store"
-    end))
+    local store = assert(
+        find(program.body, function(statement)
+            return statement.op == "simd_field_store"
+        end)
+    )
     store.field = "n"
     refuses(program, "invalid generic SIMD field access root")
     store.field = "x"
@@ -992,15 +1023,21 @@ return {total = total}
 function M.aMaskedContributionBelongsToTheRegionAccumulatingItsReducer()
     local program = lowered(REGION, "region.nupp")
     verify.program(program)
-    local region = assert(find(program.body, function(statement)
-        return statement.op == "simd_region"
-    end))
-    local loop = assert(find(region.body, function(statement)
-        return statement.op == "while"
-    end))
-    local contribution = assert(find(loop.body, function(statement)
-        return statement.op == "simd_reducer_add"
-    end))
+    local region = assert(
+        find(program.body, function(statement)
+            return statement.op == "reducer_region"
+        end)
+    )
+    local loop = assert(
+        find(region.body, function(statement)
+            return statement.op == "while"
+        end)
+    )
+    local contribution = assert(
+        find(loop.body, function(statement)
+            return statement.op == "simd_reducer_add"
+        end)
+    )
 
     -- A contribution outside the region has no accumulator to contribute to.
     local at = nil
@@ -1052,10 +1089,20 @@ end
 return {lanes = lanes}
 ]]
     for _, preferred in ipairs({false, true}) do
-        local program = lowered(preferred and source:gsub('array.number, 4', 'array.number') or source,
-            "damaged-lane-index.nupp")
-        local extract = assert(findExpr(program.body, function(node) return node.op == "simd_extract" end))
-        local insert = assert(findExpr(program.body, function(node) return node.op == "simd_insert" end))
+        local program = lowered(
+            preferred and source:gsub('array.number, 4', 'array.number') or source,
+            "damaged-lane-index.nupp"
+        )
+        local extract = assert(
+            findExpr(program.body, function(node)
+                return node.op == "simd_extract"
+            end)
+        )
+        local insert = assert(
+            findExpr(program.body, function(node)
+                return node.op == "simd_insert"
+            end)
+        )
         -- Preferred is unresolved during initial lowering; the selected tier
         -- later fixes its logical width independently of physical packing.
         if preferred then
@@ -1078,14 +1125,28 @@ return {lanes = lanes}
             node.args[2] = original
         end
         local helperIndex = {op = "constant", type = "f64", value = "4"}
-        program.helpers[#program.helpers + 1] = {
-            name = "laneHelper", cName = "ks_lane_helper", params = {},
-            resultType = "f64", resultTypes = {"f64"}, values = {{
-                op = "simd_extract", type = "f64", args = {{
-                    op = "simd_splat", type = extract.args[1].type,
-                    args = {{op = "constant", type = "f64", value = "1"}},
-                }, helperIndex},
-            }},
+        program.helpers[
+            #program.helpers + 1
+        ] = {
+            name = "laneHelper",
+            cName = "ks_lane_helper",
+            params = {},
+            resultType = "f64",
+            resultTypes = {"f64"},
+            values = {
+                {
+                    op = "simd_extract",
+                    type = "f64",
+                    args = {
+                        {
+                            op = "simd_splat",
+                            type = extract.args[1].type,
+                            args = {{op = "constant", type = "f64", value = "1"}},
+                        },
+                        helperIndex
+                    },
+                }
+            },
         }
         verify.program(program)
         helperIndex.value = "5"
@@ -1100,9 +1161,18 @@ end
 
 function M.reducerRegionsRecheckSpeciesMasksArityAndNesting()
     local program = lowered(REGION, "damaged-reducer-region.nupp")
-    local region = assert(find(program.body, function(s) return s.op == "simd_region" end))
-    local contribution = assert(find(region.body, function(s) return s.op == "simd_reducer_add" end))
+    local region = assert(
+        find(program.body, function(s)
+            return s.op == "reducer_region"
+        end)
+    )
+    local contribution = assert(
+        find(region.body, function(s)
+            return s.op == "simd_reducer_add"
+        end)
+    )
     local entry = region.reducers[1]
+
     local function changed(object, key, value, reason)
         local saved = object[key]
         object[key] = value
@@ -1110,6 +1180,7 @@ function M.reducerRegionsRecheckSpeciesMasksArityAndNesting()
         object[key] = saved
         verify.program(program)
     end
+
     changed(entry, "order", "invented", "a SIMD region's reducer does not match its binding")
     changed(entry, "element", "u32", "a SIMD region's reducer does not match its binding")
     changed(entry, "vectorType", "simd_mask_f64_fixed4", "a SIMD region's reducer takes no vector contribution")
@@ -1122,11 +1193,15 @@ function M.reducerRegionsRecheckSpeciesMasksArityAndNesting()
     region.reducers[2] = entry
     refuses(program, "a SIMD region names a reducer twice or not in scope")
     region.reducers[2] = nil
-    table.insert(region.body, 1, {op = "simd_region", reducers = {}, body = {}})
+    table.insert(region.body, 1, {op = "reducer_region", reducers = {}, body = {}})
     refuses(program, "a SIMD region inside another")
     table.remove(region.body, 1)
     verify.program(program)
-    local result = assert(findExpr(program.body, function(node) return node.op == "reducer_value" end))
+    local result = assert(
+        findExpr(program.body, function(node)
+            return node.op == "reducer_value"
+        end)
+    )
     changed(result, "order", "invented", "invalid reducer finalization")
     table.insert(region.body, 1, {op = "let", name = "$premature", type = result.type, value = result})
     refuses(program, "reducer finalized inside the region accumulating it")
@@ -1156,13 +1231,20 @@ function M.aWholeVectorGuardAgainstAProvedLastBoundsEverySpanItIsProvedAgainst()
     local program = lowered(LAST_MAP, "last-map.nupp")
     verify.program(program)
     local vector = lowered(VECTOR_MAP, "map.g.nupp")
-    local loop = assert(find(vector.body, function(statement)
-        return statement.op == "while"
-    end))
+    local loop = assert(
+        find(vector.body, function(statement)
+            return statement.op == "while"
+        end)
+    )
     local condition = loop.condition
     assert(condition.op == "and" and condition.left.op == "le" and condition.right.op == "le", "the two guards")
     local last = {op = "numeric_cast", value = {op = "uniform", name = "last", type = "f64"}, type = "u64"}
-    loop.condition = {op = "and", left = {op = "le", left = condition.left.left, right = last, type = "bool"}, right = {op = "le", left = condition.right.left, right = last, type = "bool"}, type = "bool"}
+    loop.condition = {
+        op = "and",
+        left = {op = "le", left = condition.left.left, right = last, type = "bool"},
+        right = {op = "le", left = condition.right.left, right = last, type = "bool"},
+        type = "bool"
+    }
     local grafted = {}
     for _, statement in ipairs(vector.body) do
         grafted[#grafted + 1] = statement

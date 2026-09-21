@@ -38,7 +38,6 @@ local function vector(
     if #visitsOut ~= #starts or #initialOut ~= #starts or #finalOut ~= #starts or #stops ~= #starts then
         error("length mismatch")
     end
-    @simd
     for index = 1, #starts do
         local visits, initial, final = 0, 0, 0
         for cursor = starts[index], stops[index] do

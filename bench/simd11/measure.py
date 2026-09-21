@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build separately identified SIMD/oracle/no-vector artifacts and measure them."""
+"""Build scalar C, explicit SIMD, and no-vector controls and measure them."""
 import argparse
 import ctypes as ct
 import hashlib
@@ -19,6 +19,7 @@ ROOT = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).resolve().parent
 BUILD = HERE / "build"
 NAMES = ("map", "refine", "ordered", "pairwise", "algebraic", "crossLane")
+EXPLICIT = {name: "explicit" + name[0].upper() + name[1:] for name in NAMES[:-1]}
 SIZES = (63, 65539)
 
 
@@ -40,17 +41,19 @@ def assembly_contracts(build, declarations, architecture):
         operation = r"\b(?:fadd|fmul|add|mul|sub|and|orr|eor|smax|smin|fmax|fmin)(?:\.[0-9]+[bhsd])?\s+v\d+"
     else:
         operation = r"\b(?:v?(?:add|mul|sub)(?:ps|pd)|v?p(?:add|sub|mul|and|or|xor)[a-z]*)\s"
-    for role, suffix in (("native", ""), ("no_vector", "_forced_scalar")):
+    for role in ("native", "auto_vector", "no_vector"):
         assembly = (build / (role + ".s")).read_text()
         counts = {}
         for name, declaration in declarations.items():
             if name == "crossWidth": continue
+            suffix = declaration["oracleSuffix"] if role != "native" else ""
             symbol = declaration["symbol"] + suffix
             body = re.search(r"^_?" + re.escape(symbol) + r":.*?(?=^\s*\.glob[a-z]*|\Z)", assembly, re.M | re.S)
             assert body, "assembly is missing " + symbol
             counts[symbol] = len(re.findall(operation, body.group(0)))
-            if role == "no_vector": assert counts[symbol] == 0, ("no-vector arithmetic contract", symbol, counts[symbol])
-            else: assert counts[symbol] > 0, ("native vector arithmetic contract", symbol)
+            if role == "no_vector" and name in NAMES: assert counts[symbol] == 0, ("no-vector arithmetic contract", symbol, counts[symbol])
+            elif role == "native" and (name == "crossLane" or name in EXPLICIT.values()):
+                assert counts[symbol] > 0, ("native vector arithmetic contract", symbol)
         evidence[role] = counts
     return evidence
 
@@ -67,7 +70,9 @@ def prepare_group(source_path, names, build):
     # Preserve the unmodified oracle. Only the separate performance control
     # removes any O0/optnone attributes; its global flags forbid auto-vectorizing.
     optimized = re.sub(r"^#define KS_SCALAR_ORACLE.*$", "#define KS_SCALAR_ORACLE", source, flags=re.M)
+    optimized = re.sub(r"^#pragma clang loop vectorize\(disable\) interleave\(disable\)\n", "", optimized, flags=re.M)
     assert optimized != source, "oracle attribute transformation matched nothing"
+    assert "#pragma clang loop vectorize(disable)" not in optimized, "scalar C retains a test-only vectorizer ban"
     declarations = {}
     wrappers = ["#include <time.h>", "static volatile double bench_sink;",
                 "static double bench_clock(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return (double)t.tv_sec + (double)t.tv_nsec * 1e-9; }"]
@@ -78,10 +83,11 @@ def prepare_group(source_path, names, build):
         result, params = match.groups()
         params = params.replace(" KS_UNUSED", "")
         arguments = [re.search(r"(\w+)\s*$", p).group(1) for p in params.split(",") if p.strip()]
-        declarations[name] = {"symbol": symbol, "result": result, "params": params, "arguments": arguments}
+        oracle_suffix = "_forced_scalar" if re.search(r"\b" + re.escape(symbol) + r"_forced_scalar\s*\(", source) else ""
+        declarations[name] = {"symbol": symbol, "result": result, "params": params, "arguments": arguments, "oracleSuffix": oracle_suffix}
         if name == "crossWidth":
             continue
-        for suffix in ("", "_forced_scalar"):
+        for suffix in ("", oracle_suffix) if oracle_suffix else ("",):
             selected = symbol + suffix
             # A volatile function pointer keeps repeated identical calls from
             # being hoisted out of the timer loop by interprocedural analysis.
@@ -100,7 +106,8 @@ def prepare_group(source_path, names, build):
     extension = "dylib" if sys.platform == "darwin" else "so"
     shared = "-dynamiclib" if sys.platform == "darwin" else "-shared"
     artifacts = {}
-    for role, text, extra in (("native", source, []), ("no_vector", optimized, no_vector)):
+    for role, text, extra in (("native", source, []), ("auto_vector", optimized, []),
+                              ("no_vector", optimized, no_vector)):
         c_path = build / (role + ".c")
         c_path.write_text(text + "\n" + "\n".join(wrappers) + "\n")
         library = build / (role + "." + extension)
@@ -112,17 +119,17 @@ def prepare_group(source_path, names, build):
     metadata = {"revision": run(["git", "rev-parse", "HEAD"]).strip(), "dirtyDiff": run(["git", "diff"]),
                 "sourceSha256": digest(source_path), "compiler": version, "host": platform.platform(),
                 "target": artifact["target"], "artifacts": artifacts, "declarations": declarations,
-                "controlTransformation": "Only KS_SCALAR_ORACLE attributes removed; optimization O3, auto-vectorization disabled",
+                "controlTransformation": "Removed KS_SCALAR_ORACLE attributes and clang loop vectorize-disable pragmas; both scalar C artifacts use O3 and differ only in vectorizer flags",
                 "scope": "Complete exported C entry, including setup/tails/finalization; Lua checked wrapper and input construction outside timer"}
     metadata["assemblyContracts"] = assembly_contracts(build, declarations, artifact["target"]["architecture"])
-    metadata["oracle"] = {"sourceSha256": digest(build / "original.c"), "librarySha256": artifacts["native"]["sha256"], "symbols": [d["symbol"] + "_forced_scalar" for d in declarations.values()], "timed": False}
+    metadata["oracle"] = {"sourceSha256": digest(build / "original.c"), "librarySha256": artifacts["native"]["sha256"], "symbols": [d["symbol"] + d["oracleSuffix"] for d in declarations.values() if d["oracleSuffix"]], "timed": False}
     assert artifacts["native"]["sourceSha256"] != artifacts["no_vector"]["sourceSha256"]
     save(build / "metadata.json", metadata)
     return metadata
 
 
 def prepare():
-    core = prepare_group(HERE / "kernels.nupp", (*NAMES, "crossWidth"), BUILD)
+    core = prepare_group(HERE / "kernels.nupp", (*NAMES, *EXPLICIT.values(), "crossWidth"), BUILD)
     utf8 = prepare_group(ROOT / "bench/utf8simd/src/utf8simd.nupp", ("validPrefix",), BUILD / "utf8")
     print(json.dumps({"prepared": str(BUILD), "target": core["target"], "utf8Target": utf8["target"]}))
 
@@ -131,6 +138,16 @@ def pairwise(values):
     while len(values) > 1:
         values = [values[i] + values[i + 1] if i + 1 < len(values) else values[i] for i in range(0, len(values), 2)]
     return values[0]
+
+
+def call_inputs(declaration, values, count, element):
+    arguments, argtypes = [], []
+    for parameter in declaration["arguments"]:
+        value = count if parameter.startswith("count") else values[parameter]
+        arguments.append(value)
+        argtypes.append(ct.c_size_t if parameter.startswith("count") else
+                        ct.POINTER(element) if parameter in ("p_output", "p_input", "p_left", "p_right") else ct.c_double)
+    return arguments, argtypes
 
 
 def utf8_rows(index, check_only=False):
@@ -146,7 +163,9 @@ def utf8_rows(index, check_only=False):
             data = (ct.c_uint8 * n).from_buffer_copy(value)
             args = (data, n)
             types = (ct.POINTER(ct.c_uint8), ct.c_size_t)
-            for role, suffix in (("native", ""), ("native", "_forced_scalar"), ("no_vector", "_forced_scalar")):
+            oracle_suffix = declaration["oracleSuffix"]
+            for role, suffix in (("native", ""), ("native", oracle_suffix),
+                                 ("auto_vector", oracle_suffix), ("no_vector", oracle_suffix)):
                 fn = getattr(libraries[role], declaration["symbol"] + suffix)
                 fn.argtypes = types; fn.restype = ct.c_uint32
                 assert fn(*args) == expected, ("utf8", kind, n, role, suffix)
@@ -154,7 +173,8 @@ def utf8_rows(index, check_only=False):
                 rows.append({"name": "utf8-" + kind, "elements": n, "checked": True})
                 continue
             timers = []
-            for role, suffix in (("native", ""), ("no_vector", "_forced_scalar")):
+            for role, suffix in (("native", ""), ("auto_vector", oracle_suffix),
+                                 ("no_vector", oracle_suffix)):
                 fn = getattr(libraries[role], declaration["symbol"] + suffix + "_timer")
                 fn.argtypes = (ct.c_size_t, *types); fn.restype = ct.c_double
                 timers.append(fn)
@@ -163,10 +183,10 @@ def utf8_rows(index, check_only=False):
                 for fn in timers: fn(repeats, *args)
             samples = []
             for sample in range(15):
-                times = [None, None]
-                for variant in ((0, 1) if (sample + index) % 2 == 0 else (1, 0)):
+                times = [None, None, None]
+                for variant in ((0, 1, 2) if (sample + index) % 2 == 0 else (2, 1, 0)):
                     times[variant] = timers[variant](repeats, *args)
-                samples.append({"native": times[0], "noVector": times[1]})
+                samples.append({"native": times[0], "autoVector": times[1], "noVector": times[2]})
             rows.append({"name": "utf8-" + kind, "elements": n, "repeats": repeats, "samples": samples})
     return rows
 
@@ -185,11 +205,9 @@ def worker(index, check_only=False):
             output = (element * (n + 4))()
             for i in range(n, n + 4): output[i] = -777
             values = {"p_output": output, "p_input": left, "p_left": left, "p_right": right, "p_scale": 1.25, "p_bias": -0.5}
-            arguments, argtypes = [], []
-            for parameter in declaration["arguments"]:
-                value = n if parameter.startswith("count") else values[parameter]
-                arguments.append(value)
-                argtypes.append(ct.c_size_t if parameter.startswith("count") else ct.POINTER(element) if parameter in ("p_output", "p_input", "p_left", "p_right") else ct.c_double)
+            arguments, argtypes = call_inputs(declaration, values, n, element)
+            explicit_declaration = metadata["declarations"].get(EXPLICIT.get(name))
+            explicit_arguments, explicit_argtypes = call_inputs(explicit_declaration, values, n, element) if explicit_declaration else (None, None)
             if name == "map": expected = [x * 1.25 - 0.5 for x in left]
             elif name == "refine":
                 expected = []
@@ -214,10 +232,19 @@ def worker(index, check_only=False):
                     for value in reversed(block): running += value; scan.append(running)
                     packed = [value for value in scan if value > 0]
                     expected += (packed + [0] * (width - len(packed)))[:active]
-            for role, suffix in (("native", ""), ("native", "_forced_scalar"), ("no_vector", "_forced_scalar")):
-                fn = getattr(libraries[role], declaration["symbol"] + suffix)
-                fn.argtypes = argtypes; fn.restype = None if declaration["result"] == "void" else ct.c_double
-                answer = fn(*arguments)
+            oracle_suffix = declaration["oracleSuffix"]
+            checks = [("native", declaration["symbol"], ""),
+                      ("native", declaration["symbol"], oracle_suffix),
+                      ("auto_vector", declaration["symbol"], oracle_suffix),
+                      ("no_vector", declaration["symbol"], oracle_suffix)]
+            if name in EXPLICIT:
+                explicit_symbol = explicit_declaration["symbol"]
+                checks.extend((("native", explicit_symbol, ""), ("native", explicit_symbol, explicit_declaration["oracleSuffix"])))
+            for role, symbol, suffix in checks:
+                fn = getattr(libraries[role], symbol + suffix)
+                selected_arguments, selected_argtypes = (explicit_arguments, explicit_argtypes) if name in EXPLICIT and symbol == explicit_symbol else (arguments, argtypes)
+                fn.argtypes = selected_argtypes; fn.restype = None if declaration["result"] == "void" else ct.c_double
+                answer = fn(*selected_arguments)
                 if declaration["result"] == "void": assert list(output[:n]) == expected, (name, role, suffix, n)
                 elif name == "algebraic": assert abs(answer - expected) <= 1e-12 * max(1, abs(expected)), (name, answer, expected)
                 else: assert answer == expected, (name, role, suffix, n, answer, expected)
@@ -226,19 +253,28 @@ def worker(index, check_only=False):
                 rows.append({"name": name, "elements": n, "checked": True})
                 continue
             timers = []
-            for role, suffix in (("native", ""), ("no_vector", "_forced_scalar")):
-                fn = getattr(libraries[role], declaration["symbol"] + suffix + "_timer")
-                fn.argtypes = [ct.c_size_t, *argtypes]; fn.restype = ct.c_double
-                timers.append(fn)
+            timed = [("native", declaration["symbol"], ""),
+                     ("auto_vector", declaration["symbol"], oracle_suffix),
+                     ("no_vector", declaration["symbol"], oracle_suffix)]
+            if name in EXPLICIT:
+                timed.append(("native", explicit_symbol, ""))
+            for role, symbol, suffix in timed:
+                fn = getattr(libraries[role], symbol + suffix + "_timer")
+                selected_arguments, selected_argtypes = (explicit_arguments, explicit_argtypes) if name in EXPLICIT and symbol == explicit_symbol else (arguments, argtypes)
+                fn.argtypes = [ct.c_size_t, *selected_argtypes]; fn.restype = ct.c_double
+                timers.append((fn, selected_arguments))
             repeats = max(1, 1_000_000 // n)
             for _ in range(3):
-                for fn in timers: fn(repeats, *arguments)
+                for fn, selected_arguments in timers: fn(repeats, *selected_arguments)
             samples = []
             for sample in range(15):
-                times = [None, None]
-                for variant in ((0, 1) if (sample + index) % 2 == 0 else (1, 0)):
-                    times[variant] = timers[variant](repeats, *arguments)
-                samples.append({"native": times[0], "noVector": times[1]})
+                times = [None] * len(timers)
+                for variant in (range(len(timers)) if (sample + index) % 2 == 0 else range(len(timers) - 1, -1, -1)):
+                    fn, selected_arguments = timers[variant]
+                    times[variant] = fn(repeats, *selected_arguments)
+                sample_row = {"native": times[0], "autoVector": times[1], "noVector": times[2]}
+                if name in EXPLICIT: sample_row["explicit"] = times[3]
+                samples.append(sample_row)
             rows.append({"name": name, "elements": n, "repeats": repeats, "samples": samples})
     rows.extend(utf8_rows(index, check_only))
     if check_only:
@@ -298,11 +334,17 @@ def measure(destination):
     result["qualified"] = cv <= 0.05 and quiet
     summaries = []
     for offset, row in enumerate(result["processes"][0]["rows"]):
-        ratios = [stats.median(math.log(s["native"] / s["noVector"]) for s in p["rows"][offset]["samples"]) for p in result["processes"]]
-        mean = stats.mean(ratios); half = 2.306004135 * stats.stdev(ratios) / 3
-        low, high = math.exp(mean - half), math.exp(mean + half)
-        verdict = "improved" if high < 0.99 else "regressed" if low > 1.01 else "unchanged" if low >= 0.99 and high <= 1.01 else "inconclusive"
-        summaries.append({"name": row["name"], "elements": row["elements"], "ratio": math.exp(mean), "confidence95": [low, high], "verdict": verdict if result["qualified"] else "environment-invalid"})
+        comparisons = [("native", "autoVector"), ("native", "noVector")]
+        if "explicit" in result["processes"][0]["rows"][offset]["samples"][0]:
+            comparisons.append(("explicit", "native"))
+        for numerator, denominator in comparisons:
+            ratios = [stats.median(math.log(s[numerator] / s[denominator]) for s in p["rows"][offset]["samples"]) for p in result["processes"]]
+            mean = stats.mean(ratios); half = 2.306004135 * stats.stdev(ratios) / 3
+            low, high = math.exp(mean - half), math.exp(mean + half)
+            verdict = "improved" if high < 0.99 else "regressed" if low > 1.01 else "unchanged" if low >= 0.99 and high <= 1.01 else "inconclusive"
+            summaries.append({"name": row["name"], "elements": row["elements"], "comparison": numerator + "/" + denominator,
+                              "ratio": math.exp(mean), "confidence95": [low, high],
+                              "verdict": verdict if result["qualified"] else "environment-invalid"})
     result["summary"] = summaries; result["finished"] = time.time()
     save(destination, result)
     print(json.dumps({"controlCV": cv, "qualified": result["qualified"], "summary": summaries}, indent=2))
@@ -317,13 +359,13 @@ def report(source):
         print(destination)
         return
     lines = ["# Complete-function SIMD measurements", "", "Qualified: **" + str(data["qualified"]).lower() + "**. Colocated control CV: **%.2f%%**." % (100 * data["controlCV"]), "",
-             "Nine fresh processes, fifteen alternating pairs per process, three warmups. Ratios are native/no-vector elapsed durations; lower is faster. The 95% Student-t interval uses process-level median paired log ratios, with a 1% practical margin.", "",
-             "| Function | Elements | Duration ratio | 95% interval | Verdict |", "| --- | ---: | ---: | --- | --- |"]
+             "Nine fresh processes, fifteen alternating samples per process, three warmups. Ratios compare complete-function elapsed durations; lower is faster. The 95% Student-t interval uses process-level median paired log ratios, with a 1% practical margin.", "",
+             "| Function | Elements | Comparison | Duration ratio | 95% interval | Verdict |", "| --- | ---: | --- | ---: | --- | --- |"]
     for row in data["summary"]:
         low, high = row["confidence95"]
-        lines.append("| %s | %d | %.5f | [%.5f, %.5f] | %s |" % (row["name"], row["elements"], row["ratio"], low, high, row["verdict"]))
+        lines.append("| %s | %d | %s | %.5f | [%.5f, %.5f] | %s |" % (row["name"], row["elements"], row["comparison"], row["ratio"], low, high, row["verdict"]))
     lines += ["", "Compiler revision: `" + metadata["revision"] + "`. Target: `" + metadata["target"]["triple"] + "` / `" + metadata["target"]["tier"] + "`. Host: " + metadata["host"] + ".", "",
-              "The comparison uses the complete exported C entry and an optimized scalar-source control with automatic vectorization disabled. Original scalar-source oracles are correctness checks only. Lua span wrappers and cold loading are outside this timing scope. Independent formulas and UTF-8 decoding also check answers before timing.", "",
+              "The comparison uses the complete exported C entry and two optimized scalar-source controls that differ only in vectorizer flags. Original scalar-source oracles are correctness checks only. Lua span wrappers and cold loading are outside this timing scope. Independent formulas and UTF-8 decoding also check answers before timing.", "",
               "[Raw samples, compiler/flags, artifact hashes, assembly contracts and environment observations](" + source.name + ") are retained. Historical Mandelbrot, Base64 and fused JSON comparisons remain separately identified in the parent README.", ""]
     destination = source.with_suffix(".md")
     destination.write_text("\n".join(lines))

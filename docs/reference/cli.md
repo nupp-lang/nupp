@@ -427,17 +427,15 @@ That is the whole of `return 1`, down to the newline the file ends with.
 ```text [nupp aot --help]
 Show what the @aot functions in a file compile to.
 
-With no artifact, reports what each function lowered to: the species every
-`@simd` loop runs in, or that it runs scalar. Select verified IR, generated
-C, the `@simd` rewrite as Nupp, native GPU SPIR-V, browser GPU WGSL, native
-assembly, or the generated Nupp binding with `--emit`.
+With no artifact, reports whether each function uses scalar, explicit SIMD, or GPU
+execution. Select verified IR, generated C, native GPU SPIR-V, browser GPU WGSL,
+native assembly, or the generated Nupp binding with `--emit`.
 
 Examples:
 
     nupp aot bench/kernel-subset-spike/mandelbrot.nupp
     nupp aot --emit ir src/kernel.nupp
     nupp aot --emit c src/kernel.nupp
-    nupp aot --emit simd bench/kernel-subset-spike/mandelbrot.nupp
     nupp aot --emit asm --function scale src/kernel.nupp
     nupp aot --emit wgsl --function transform src/gpu.nupp
     nupp aot --format json src/kernel.nupp
@@ -449,8 +447,7 @@ Arguments:
   FILE  Source file to inspect.
 
 Options:
-  --emit ARTIFACT     Artifact to print: ir, c, simd, spirv, wgsl, asm, or
-                      binding.
+  --emit ARTIFACT     Artifact to print: ir, c, spirv, wgsl, asm, or binding.
   --source-locations  Include authored #line locations in emitted C (assembly
                       always carries them).
   --function NAME     Show only this function.
@@ -467,16 +464,14 @@ Options:
 ```
 
 The bare command says what every `@aot` function in the file lowered to: its
-entry mode, and the
-[species](../learn/performance/ahead-of-time/vectorization.md) each `@simd` loop
-in it runs in, or `scalar` for a body with none.
+entry mode and whether its Nupp IR uses explicit SIMD, scalar control flow,
+or GPU invocations. It does not claim what the C compiler vectorized.
 
 ```text [nupp aot bench/kernel-subset-spike/mandelbrot.nupp]
-bench/kernel-subset-spike/mandelbrot.nupp: mandelbrot, kernel, Fixed<4>, 4 lanes
+bench/kernel-subset-spike/mandelbrot.nupp: mandelbrot, kernel, scalar
 ```
 
-`--emit` prints one artifact. `ir` is the verified IR with the vector body
-beside the scalar loop it was rewritten from, `c` is the generated C, `spirv` is the
+`--emit` prints one artifact. `ir` is the verified IR, `c` is the generated C, `spirv` is the
 native GPU module, `wgsl` is the browser WebGPU integer artifact, `asm` is the
 instructions that C became, and `binding` is the Nupp module that stands in
 front of it.
@@ -525,20 +520,11 @@ is: `--json` reports it, alongside the flags it was given and the per-symbol
 counts. There are instruction rules for aarch64 and x86-64; another
 architecture is refused rather than reported with empty counts.
 
-The exit status is the one a build would give. `@simd` is a requirement, so a
-marked loop that cannot run in lanes exits 1 and names the construct that
-stopped it, whichever artifact was asked for:
-
-```text [nupp aot src/particles.nupp]
-src/particles.nupp:27:5: aot: a lane-parallel body cannot call a compiled entry
-```
-
-A loop without the mark runs one iteration at a time and is reported as
-`scalar`; that is not a failure, and nothing here estimates whether lanes would
-have paid.
-
-See [vectorization.md](../learn/performance/ahead-of-time/vectorization.md#targets-and-feature-tiers)
-for how a lane count is chosen and for the tiers `--features` names.
+The exit status is the one a build would give. An invalid explicit vector
+operation fails at its authored access. An ordinary loop remains scalar in Nupp
+IR; the C compiler may still vectorize it. See
+[vectorization.md](../learn/performance/ahead-of-time/vectorization.md) for
+species and target tiers.
 
 ### `bc`
 

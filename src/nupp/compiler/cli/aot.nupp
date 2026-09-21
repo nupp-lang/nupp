@@ -4,8 +4,7 @@ module nupp.compiler.cli.aot
 `nupp aot`: what an `@aot` function compiles to.
 
 An `@aot` body is compiled somewhere a reader cannot see, so `--emit ir` shows
-the verified IR, `--emit c` shows the generated C, `--emit simd` shows what a
-`@simd` loop was rewritten into as ordinary Nupp, `--emit spirv` writes the
+the verified IR, `--emit c` shows the generated C, `--emit spirv` writes the
 native WGPU module, `--emit wgsl` shows the browser WebGPU integer artifact,
 `--emit asm` shows the instructions that C became, and `--emit binding` shows
 the module that stands in front of it. Reading the C is how you tell a mask
@@ -20,11 +19,8 @@ answer that could not be compared with last week's. It takes `--function` and
 `--features`, so what is asked for is one body at one tier, and it counts the
 listing by kind so that two runs of the same kernel can be put side by side.
 
-With no `--emit`, one line per function says what it lowered to: the species
-each `@simd` loop runs in, or that it runs scalar. Whether a loop runs in lanes
-is the source's to say, so there is nothing here to check for -- a `@simd` loop
-that cannot run in lanes already fails the build, with the construct that
-refused it.
+With no `--emit`, one line per function reports scalar, explicit SIMD, or GPU
+execution.
 ]]
 const {type Target} = require("nupp.compiler.aot.target")
 const {type Toolchain} = require("nupp.compiler.build.aot")
@@ -71,7 +67,7 @@ local REPORT_SCHEMA = {
                     },
                     optimization = {
                         type = "object",
-                        description = "Verified scalar AOT rewrites applied before lane selection.",
+                        description = "Verified scalar AOT optimizations.",
                         properties = {
                             beforeNodes = {type = "integer"},
                             afterNodes = {type = "integer"},
@@ -113,54 +109,8 @@ local REPORT_SCHEMA = {
                                 nativeReads = {type = "integer"},
                                 nativeWrites = {type = "integer"},
                                 mayRaise = {type = "boolean"},
-                                outcome = {type = "string", enum = {"lowered", "explicit-simd", "scalar"},},
+                                outcome = {type = "string", enum = {"explicit-simd", "scalar"},},
                                 reason = {type = "string"},
-                            },
-                        },
-                    },
-                    regions = {
-                        type = "array",
-                        description = "Every @simd loop in source order: a map-shaped function's one loop, "
-                        .. "or the marked regions of a structured body.",
-                        items = {
-                            type = "object",
-                            properties = {
-                                ordinal = {type = "integer"},
-                                line = {type = "integer"},
-                                column = {type = "integer"},
-                                bounds = {
-                                    type = "object",
-                                    properties = {
-                                        first = {type = "string"},
-                                        last = {type = "string"},
-                                        step = {type = "string"},
-                                    },
-                                },
-                                gang = {
-                                    type = "object",
-                                    properties = {
-                                        lanes = {type = "integer"},
-                                        species = {
-                                            type = "object",
-                                            description = "The vector type each element of the region is "
-                                            .. "carried in, by element.",
-                                            additionalProperties = {type = "string"},
-                                        },
-                                    },
-                                },
-                                tail = {type = "string", enum = {"masked"}},
-                                reducers = {
-                                    type = "array",
-                                    items = {
-                                        type = "object",
-                                        properties = {
-                                            binding = {type = "string"},
-                                            order = {type = "string"},
-                                            operation = {type = "string"},
-                                            serialized = {type = "boolean"},
-                                        },
-                                    },
-                                },
                             },
                         },
                     },
@@ -169,11 +119,6 @@ local REPORT_SCHEMA = {
         },
         ir = {type = "string"},
         c = {type = "string"},
-        simd = {
-            type = "string",
-            description = "Every vectorized @simd loop in the file, printed back as the "
-            .. "explicit Nupp over Fixed<N> species it was rewritten onto.",
-        },
         spirv = {type = "string", description = "Canonical SPIR-V bytes as lowercase hexadecimal."},
         binding = {type = "string"},
         asm = {
@@ -264,155 +209,12 @@ local REPORT_SCHEMA = {
     },
 }
 
---- Every `@simd` loop in source order.
----
---- A map-shaped program carries the mark on its one loop and its rewritten body
---- on the program; a structured body carries both on each marked region.
---- Reported alike, so a reader asks one question of either.
-local function simdRegions(program: any): {any}
-    local answer: {any} = {}
-
-    local function reducers(value: any, found: {any}, seen: {[string]: boolean}): nil
-        if type(value) ~= "table" then
-            return
-        end
-        if value.op == "simd_region" then
-            for _, reducer in ipairs(value.reducers or {}) do
-                local key = tostring(
-                    reducer.name
-                ) .. ":" .. tostring(reducer.order) .. ":" .. tostring(reducer.operation)
-                if not seen[key] then
-                    seen[key] = true
-                    found[
-                        #found + 1
-                    ] = {
-                        binding = reducer.name,
-                        order = reducer.order,
-                        operation = reducer.operation,
-                        serialized = reducer.order ~= "algebraic" and reducer.order ~= "exact",
-                    }
-                end
-            end
-        end
-        for key, child in pairs(value) do
-            if key ~= "source" then
-                reducers(child, found, seen)
-            end
-        end
-    end
-
-    --- The species the rewrite chose, read back off the types it wrote.
-    ---
-    --- The lane count is the same in every one of them by construction -- a
-    --- lane is a logical iteration, so a region carries one species per element
-    --- at one width -- and the elements are whatever the body touched.
-    local function gangOf(statements: any): any
-        local species: {[string]: string} = {}
-        local lanes: integer? = nil
-
-        local function walk(value: any): nil
-            if type(value) ~= "table" then
-                return
-            end
-            local named = value.type
-            if type(named) == "string" then
-                local family, element, width = (named as string):match("^simd_(%a+)_([fiu]%d+)_fixed(%d+)$")
-                if width ~= nil then
-                    lanes = lanes or tonumber(width) as integer
-                    if family == "vector" then
-                        species[element as string] = named as string
-                    end
-                end
-            end
-            for key, child in pairs(value) do
-                if key ~= "source" then
-                    walk(child)
-                end
-            end
-        end
-
-        walk(statements)
-        if lanes == nil then
-            return nil
-        end
-
-        return {lanes = lanes, species = species}
-    end
-
-    local function visit(statements: {any}): nil
-        for _, statement in ipairs(statements) do
-            if statement.op == "fornum" then
-                if statement.simdRequired == true then
-                    local reduced: {any} = {}
-                    reducers(statement.vector or {}, reduced, {})
-                    answer[
-                        #answer + 1
-                    ] = {
-                        ordinal = #answer + 1,
-                        line = statement.source and statement.source.line or 1,
-                        column = statement.source and statement.source.column or 1,
-                        bounds = {
-                            first = statement.from and statement.from.op or "unknown",
-                            last = statement.to and statement.to.op or "unknown",
-                            step = "positive-unit",
-                        },
-                        gang = statement.vector and gangOf(statement.vector) or nil,
-                        tail = "masked",
-                        reducers = reduced,
-                    }
-                else
-                    visit(statement.body or {})
-                end
-            elseif statement.op == "if" then
-                for _, clause in ipairs(statement.clauses or {}) do
-                    visit(clause.body or {})
-                end
-                visit(statement.elseBody or {})
-            elseif statement.op == "while" or statement.op == "block" then
-                visit(statement.body or {})
-            end
-        end
-    end
-
-    if program.loop ~= nil and program.simdRequired == true then
-        local loop = program.loop
-        local reduced: {any} = {}
-        reducers(program.vector or {}, reduced, {})
-        answer[
-            1
-        ] = {
-            ordinal = 1,
-            line = loop.source and loop.source.line or 1,
-            column = loop.source and loop.source.column or 1,
-            bounds = {first = tostring(loop.first), last = tostring(loop.last), step = "positive-unit"},
-            gang = program.vector and gangOf(program.vector) or nil,
-            tail = "masked",
-            reducers = reduced,
-        }
-    end
-    visit(program.body or {})
-
-    return answer
-end
-
 --- One line saying what happened, for a person.
 local function summarise(path: string, program: any, artifacts: any): string
     local gpu = artifacts and artifacts.gpu and artifacts.gpu[program.symbol] ~= nil
-    local regions = simdRegions(program)
     local what: string
     if gpu then
         what = "gpu, one iteration per GPU invocation"
-    elseif #regions > 0 then
-        local gangs: {string} = {}
-        for index, region in ipairs(regions) do
-            local gang = region.gang
-            gangs[index] = "Fixed<" .. tostring(gang.lanes) .. ">, " .. tostring(gang.lanes) .. " lanes"
-        end
-        if #regions == 1 then
-            what = gangs[1]
-        else
-            what = tostring(#regions) .. " @simd regions: " .. table.concat(gangs, "; ")
-        end
     elseif program.usesSimd == true then
         what = "explicit simd"
     elseif program.entryMode == "lua-builder" then
@@ -664,28 +466,7 @@ local function run(options: any): integer
         end
         instructionReport = built
     end
-    -- The rewrite is printed from the verified IR and has no lowering of its
-    -- own, so a construct it cannot say is a gap in the surface rather than a
-    -- bad file: it is reported as itself rather than as a compile failure.
-    local simdText: string? = nil
-    if emit == "simd" then
-        local textMod = require("nupp.compiler.aot.text")
-        local ok, printed = pcall(textMod.explicitPrograms, artifacts.programs)
-        if not ok then
-            io.stderr:write("nupp: --emit simd: " .. tostring(printed) .. "\n")
-
-            return 1
-        end
-        if printed == "" then
-            io.stderr:write("nupp: no @simd loop in " .. path .. " was vectorized, so there is nothing to print\n")
-
-            return 1
-        end
-        simdText = printed as string
-    end
     if options.format == "json" then
-        -- Lane counts and widths are integers the backend settled on, so a NaN
-        -- here would be a fault rather than a measurement.
         local functions: {any} = {}
         for position, program in ipairs(artifacts.programs) do
             local shader = artifacts.gpu[program.symbol]
@@ -711,7 +492,6 @@ local function run(options: any): integer
                 registrar = program.registrar,
                 optimization = artifacts.optimizations[position],
                 loops = artifacts.loops[position],
-                regions = simdRegions(program),
             }
         end
         io.write(
@@ -727,7 +507,6 @@ local function run(options: any): integer
                 c = (emit == nil or emit == "c")
                 and (options.sourceLocations and inspectionC(artifacts, path) or artifacts.c)
                 or nil,
-                simd = simdText,
                 spirv = spirvHex,
                 wgsl = emit == "wgsl" and wgsl or nil,
                 binding = (emit == nil or emit == "binding") and artifacts.binding or nil,
@@ -738,8 +517,6 @@ local function run(options: any): integer
         io.write(artifacts.irText)
     elseif emit == "c" then
         io.write(options.sourceLocations and inspectionC(artifacts, path) or artifacts.c)
-    elseif emit == "simd" then
-        io.write(simdText as string)
     elseif emit == "spirv" then
         io.write(spirvParts[1])
     elseif emit == "wgsl" then
@@ -771,25 +548,23 @@ end
 
 --- Show what the @aot functions in a file compile to.
 ---
---- With no artifact, reports what each function lowered to: the species every
---- `@simd` loop runs in, or that it runs scalar. Select verified IR, generated
---- C, the `@simd` rewrite as Nupp, native GPU SPIR-V, browser GPU WGSL, native
---- assembly, or the generated Nupp binding with `--emit`.
+--- With no artifact, reports whether each function uses scalar, explicit SIMD, or GPU
+--- execution. Select verified IR, generated C, native GPU SPIR-V, browser GPU WGSL,
+--- native assembly, or the generated Nupp binding with `--emit`.
 ---
 --- Examples:
 ---
 ---     nupp aot bench/kernel-subset-spike/mandelbrot.nupp
 ---     nupp aot --emit ir src/kernel.nupp
 ---     nupp aot --emit c src/kernel.nupp
----     nupp aot --emit simd bench/kernel-subset-spike/mandelbrot.nupp
 ---     nupp aot --emit asm --function scale src/kernel.nupp
 ---     nupp aot --emit wgsl --function transform src/gpu.nupp
 ---     nupp aot --format json src/kernel.nupp
 @cli("aot")
 @derive(cliModule.Command)
 local record Aot
-    --- Artifact to print: ir, c, simd, spirv, wgsl, asm, or binding.
-    @cli(value = "ARTIFACT", choices = {"ir", "c", "simd", "spirv", "wgsl", "asm", "binding"})
+    --- Artifact to print: ir, c, spirv, wgsl, asm, or binding.
+    @cli(value = "ARTIFACT", choices = {"ir", "c", "spirv", "wgsl", "asm", "binding"})
     emit: string?
 
     --- Include authored #line locations in emitted C (assembly always carries them).

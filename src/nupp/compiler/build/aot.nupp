@@ -1428,8 +1428,8 @@ end
 --- target's own deliverable: `scope` is the set of files it reaches, and a
 --- target that reaches the whole project passes nothing and gets every module
 --- under the roots. A module the target never bundles is not its to compile --
---- and since `@simd` is a requirement rather than an inference, lowering one
---- would fail a build over code the artifact does not contain.
+--- and lowering unreachable code would fail a build over code the artifact
+--- does not contain.
 ---
 --- @param roots the project's include directories
 --- @param scope the files the target reaches, or nothing for the whole project
@@ -1568,38 +1568,6 @@ function aot.emitC(
                     local first = diagnostics[1]
                     if first ~= nil and first.message ~= "no @aot function was found" then
                         local rendered = "feature tier " .. tierTarget.tier .. ": " .. compile.renderDiagnostic(first)
-                        if text:find("@simd", 1, true) then
-                            local known = targets.tiers(tierTarget.architecture)
-                            local afterFailure = false
-                            for _, tier in ipairs(known) do
-                                if afterFailure then
-                                    local candidate = targets.select(tierTarget.triple, tier, tierTarget.dialect)
-                                    if candidate ~= nil then
-                                        local probe = compile.artifacts(
-                                            text,
-                                            source,
-                                            tree,
-                                            "<object>",
-                                            candidate as targets.Target,
-                                            tier,
-                                            constPlans,
-                                            true
-                                        )
-                                        if probe ~= nil then
-                                            rendered = rendered
-                                                .. "\nthis complete SIMD source lowers at "
-                                                .. tier
-                                                .. "; set aotFeatures.minimum = \""
-                                                .. tier
-                                                .. "\" to require that host tier"
-                                            break
-                                        end
-                                    end
-                                elseif tier == tierTarget.tier then
-                                    afterFailure = true
-                                end
-                            end
-                        end
                         return nil, rendered, produced, authoredUnused, constSelection, gpuSources, first
                     end
                     break

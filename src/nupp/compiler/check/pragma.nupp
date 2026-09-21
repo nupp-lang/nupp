@@ -462,9 +462,6 @@ function pragma.install(c: state.Checker): state.StatHandlers
                     c.diag("NUPP2901", annotationName, "@aot and @jit name different compilers for one body")
                 end
                 targetBody.aotRequired = true
-                -- Whether a loop runs in lanes is the loop's own `@simd` to
-                -- say; the function-level contract only names the execution
-                -- family.
                 local values = (stat as any).annotationValues
                 local target = values and values.target
                 local requested = target and stringValue(target.expr) or nil
@@ -488,30 +485,6 @@ function pragma.install(c: state.Checker): state.StatHandlers
                 then
                     bindGpuSpec(target, targetBody)
                 end
-            end
-            return
-
-        elseif written == "simd" then
-            if valid and target then
-                local functionBody: any = c.functionBodies[#c.functionBodies]
-                if targetKind ~= "fornumStmt" then
-                    c.diag("NUPP2904", annotationName, "@simd requires a numeric for loop")
-                elseif functionBody == nil or functionBody.aotRequired ~= true then
-                    c.diag("NUPP2904", annotationName, "@simd is valid only inside an @aot function")
-                elseif functionBody.aotTarget == "gpu" then
-                    c.diag(
-                        "NUPP2904",
-                        annotationName,
-                        "@simd is a CPU lane contract and is not valid inside @aot(target = \"gpu\")"
-                    )
-                else
-                    targetAny.simdRequired = true
-                    targetAny.simdAnnotation = stat
-                    functionBody.simdRequired = true
-                end
-            end
-            if stat.stat then
-                c.checkStat(stat.stat)
             end
             return
 

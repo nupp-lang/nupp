@@ -22,7 +22,6 @@ local function scale(
     if #output ~= #input then
         error("length mismatch", 2)
     end
-    @simd
     for index = 1, #output do
         if enabled then
             output[index].value = input[index].value * factor
@@ -37,13 +36,13 @@ local inputRows = input:write()
 inputRows[1] = new Sample(2, 10, 1)
 inputRows[2] = new Sample(3, 20, 4)
 inputRows[3] = new Sample(5, 30, 7)
-drop inputRows
+nupp.drop(inputRows)
 
 local output = array.new(new Sample(), 3)
 do
     local writable = output:write()
     scale(writable, input:read(), 2, true)
-    drop writable
+    nupp.drop(writable)
 end
 
 local rows = output:read()
@@ -73,13 +72,13 @@ do
     writable[1] = 0x80000000
     writable[2] = 0x7fc12345
     writable[3] = 0x7f812345
-    drop writable
+    nupp.drop(writable)
 end
 local transposed = array.scalar(array.uint32, 9)
 do
     local writable = transposed:write()
     rearrange(writable, tile:read())
-    drop writable
+    nupp.drop(writable)
 end
 local original = tile:read()
 local columns = transposed:read()
@@ -101,7 +100,6 @@ end
 @aot
 local function orderedSum(borrows input: span.Span<number>, seed: number): number
     local fold = simd.reducer.orderedSum(seed)
-    @simd
     for i = 1, #input do
         fold:add(input[i])
     end
@@ -112,7 +110,6 @@ end
 @aot
 local function pairwiseSum(borrows input: span.Span<number>, seed: number): number
     local fold = simd.reducer.pairwiseSum(seed)
-    @simd
     for i = 1, #input do
         fold:add(input[i])
     end
@@ -123,7 +120,6 @@ end
 @aot
 local function orderedDot(borrows input: span.Span<number>, seed: number): number
     local fold = simd.reducer.orderedDot(seed)
-    @simd
     for i = 1, #input do
         fold:add(input[i], input[i])
     end
@@ -134,7 +130,6 @@ end
 @aot
 local function wrappingSum(borrows input: span.Span<int32>, seed: int32): int32
     local fold = simd.reducer.i32.wrappingSum(seed)
-    @simd
     for i = 1, #input do
         fold:add(input[i])
     end
@@ -185,8 +180,8 @@ for offset = 0, #reducerSamples - 1 do
                 writableWords[i] = nupp.math.i32.wrap(digit)
                 wrapping:add(nupp.math.i32.wrap(digit))
             end
-            drop writableWords
-            drop writableValues
+            nupp.drop(writableWords)
+            nupp.drop(writableValues)
         end
         local where = " at offset " .. tostring(offset) .. " count " .. tostring(count)
         assert(same(orderedSum(values:read(), seed), ordered:value()), "orderedSum" .. where)

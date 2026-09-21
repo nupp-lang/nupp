@@ -131,30 +131,6 @@
           "guarantees": ["the external parser oracle and the C importer"]
         },
         {
-          "name": "Compare the AOT lane and scalar bodies",
-          "guarantees": ["vector lowering matches the scalar body on this architecture"]
-        },
-        {
-          "name": "Compare them again at the full v3 feature tier",
-          "platforms": ["linux"],
-          "guarantees": ["vector lowering at x86-64-v3"]
-        },
-        {
-          "name": "Compare them at the x86-64 baseline",
-          "platforms": ["linux"],
-          "guarantees": ["vector lowering at the SSE2 baseline"]
-        },
-        {
-          "name": "Compile the eight-lane mixed gang at AVX-512",
-          "platforms": ["linux"],
-          "guarantees": ["the 64-byte vector ABI compiles warning-clean"]
-        },
-        {
-          "name": "Compare them again through GCC",
-          "platforms": ["linux"],
-          "guarantees": ["generated C is accepted by GCC as well as Clang"]
-        },
-        {
           "name": "Build and load an aot = \"require\" project through GCC",
           "platforms": ["linux"],
           "suites": ["aotbuildtest"],

@@ -1,10 +1,6 @@
--- `nupp aot`: what an `@aot` function compiles to, and the gang each `@simd`
--- loop in it runs in.
+-- `nupp aot`: what scalar and explicitly vectorized `@aot` functions compile to.
 --
--- Driven through the real binary rather than the module, because the artifacts and
--- the exit status are the whole interface: a `@simd` loop that cannot run in
--- lanes is an exit status, so a test that could not read one would not be
--- testing it.
+-- Driven through the real binary because artifacts and exit status are the interface.
 
 local test = require("assert")
 
@@ -135,7 +131,7 @@ end
 --- them used to start the compiler twice over the same file. `--json` without
 --- `--emit` carries the IR, the C and the binding together, and the C in it is
 --- byte for byte the C `--emit c` prints. The exit status comes back beside
---- them, which is what says every `@simd` loop got its lanes.
+--- them, so a single compiler invocation supplies the complete report.
 ---
 --- The command and the directory it ran in come back last, because a project is
 --- now shared between the cases that ask about the same sources and a failure
@@ -253,8 +249,8 @@ local function assertSpirvStructure(module)
     assert(loops > 0, "SPIR-V module has no structured loops")
 end
 
--- A register-resident loop: sixteen bytes read once, then arithmetic over locals that
--- touches no memory. Marked `@simd`, so it runs in lanes or fails to compile.
+-- A register-resident scalar loop: sixteen bytes read once, then arithmetic
+-- over locals that touches no memory.
 local COMPUTE = [[
 local span = require("nupp.mem.span")
 
@@ -283,7 +279,6 @@ local function escapes(
         error("range out of bounds", 2)
     end
 
-    @simd
     for i = first, last do
         local cell = out[i]
         local point = points[i]
@@ -1403,107 +1398,6 @@ end
 return {advance = advance, Position = Position, Velocity = Velocity,}
 ]]
 
-local CONTIGUOUS_STREAMING = [[
-local span = require("nupp.mem.span")
-
-@aot
-local function copy(
-    exclusive output: span.WriteSpan<float>,
-    borrows input: span.Span<float>,
-    first: integer,
-    last: integer
-): nil
-    if #output ~= #input then error("length mismatch", 2) end
-    if first < 1 or last > #output or first > last + 1 then error("range out of bounds", 2) end
-    for index = first, last do
-        output[index] = input[index]
-    end
-end
-return {copy = copy}
-]]
-
-local REQUIRED_CONTIGUOUS = CONTIGUOUS_STREAMING:gsub(
-    "    for index = first, last do",
-    "    @simd\n    for index = first, last do",
-    1
-)
-
-local REQUIRED_REGIONS = [[
-local span = require("nupp.mem.span")
-
-@aot
-local function process(
-    exclusive output: span.WriteSpan<number>,
-    scale: number
-): number
-    local adjusted = scale + 1.0
-    @simd
-    for i = 1, #output do
-        output[i] = adjusted * 2.0
-    end
-
-    local result = adjusted + 3.0
-    @simd
-    for i = 1, #output do
-        output[i] = output[i] + result
-    end
-    return result
-end
-
-return {process = process}
-]]
-
-local REQUIRED_THRESHOLD = [[
-local span = require("nupp.mem.span")
-
-local function refine(value: number, sample: integer): number
-    return value + sample * 0.25
-end
-
-@aot
-local function thresholded(
-    exclusive output: span.WriteSpan<number>,
-    borrows input: span.Span<number>,
-    threshold: number,
-    sampleCount: integer
-): nil
-    if #output ~= #input then error("length mismatch", 2) end
-    @simd
-    for pixel = 1, #output do
-        local value = input[pixel]
-        if value > threshold then
-            for sample = 1, sampleCount do
-                value = refine(value, sample)
-            end
-        end
-        output[pixel] = value
-    end
-end
-
-return {thresholded = thresholded}
-]]
-
-local REQUIRED_VARYING_FOR = [[
-local span = require("nupp.mem.span")
-
-@aot
-local function varying(exclusive output: span.WriteSpan<number>): nil
-    @simd
-    for pixel = 1, #output do
-        local value = 0.0
-        for sample = 1, pixel do
-            if sample > 2 then
-                break
-            end
-            value = value + sample
-        end
-        output[pixel] = value
-    end
-end
-
-return {varying = varying}
-]]
-
 local GENERIC_EXPLICIT_SIMD = [[
 local span = require("nupp.mem.span")
 local array = require("nupp.mem.array")
@@ -1531,49 +1425,6 @@ end
 return {saxpy = saxpy}
 ]]
 
--- Lanes required around a real native entry call. A compiled entry has one
--- scalar ABI call, not one invocation per lane, so the build fails.
-local REFUSED = STREAMING:gsub(
-    "@aot\nlocal function advance",
-    "@aot\nlocal function compiledScale(value: float): float\n"
-    .. "    return value\n"
-    .. "end\n\n"
-    .. "@aot\nlocal function advance",
-    1
-)
-    :gsub("    for i = first, last do", "    @simd\n    for i = first, last do", 1)
-    :gsub(
-        "        local position = positions%[i%]",
-        "        local position = positions[i]\n        local scale = compiledScale(position.x)",
-        1
-    )
-    :gsub("velocity%.vx %* dt", "velocity.vx * scale", 1)
-    :gsub("velocity%.vy %* dt", "velocity.vy * scale", 1)
-
-local FIXED_MIX = [[
-local span = require("nupp.mem.span")
-
-@aot
-local function mix(
-    exclusive output: span.WriteSpan<number>,
-    borrows input: span.Span<number>,
-    first: integer,
-    last: integer
-): nil
-    if #output ~= #input then error("length mismatch", 2) end
-    if first < 1 or last > #output or first > last + 1 then error("range out of bounds", 2) end
-    @simd
-    for index = first, last do
-        local value = input[index]
-        for round = 1, 4 do
-            value = value * 1.0009765625 + round * 0.125
-        end
-        output[index] = value
-    end
-end
-return {mix = mix}
-]]
-
 --- A target every host can compile for, at a tier that holds the wide gangs.
 ---
 --- Pinned because these assert which gang a body takes, and that depends on what
@@ -1590,7 +1441,6 @@ local function classify(
     borrows bytes: span.Span<uint8>
 ): nil
     if #flags ~= #bytes then error("length mismatch", 2) end
-    @simd
     for i = 1, #flags do
         local byte = bytes[i]
         local flag: uint32 = 0
@@ -2108,147 +1958,22 @@ function M.anAssertGuardTakesAConditionAndAMessage()
     assert(out:find("expected 2, got 3", 1, true), "the ordinary call contract is reported first: " .. out)
 end
 
-function M.aRegisterResidentLoopReportsItsGangAndWidth()
-    local dir = project{["compute.nupp"] = COMPUTE}
-    local out, code = run(dir, PINNED .. "compute.nupp")
-    test.equal(code, 0, out)
-    assert(out:find("Fixed<4>", 1, true), "the species is named: " .. out)
-    assert(out:find("4 lanes", 1, true), "the width is named: " .. out)
-end
-
-function M.anUnmarkedLoopCompilesScalarAndSaysSo()
+function M.anOrdinaryLoopCompilesScalarAndSaysSo()
     local dir = project{["stream.nupp"] = STREAMING}
     local out, code = run(dir, "stream.nupp")
-    test.equal(code, 0, "a loop without @simd is not a failure\n" .. out)
+    test.equal(code, 0, "an ordinary loop compiles\n" .. out)
     assert(out:find("advance, kernel, scalar", 1, true), "the report says it runs scalar: " .. out)
     assert(not out:find("lanes", 1, true), "and offers no lane decision to read: " .. out)
 end
 
 function M.aVectorizeMemberOnAotIsUnknown()
-    -- Whether a loop runs in lanes is the loop's own `@simd` to say, so `@aot`
-    -- has no member for it and the old spelling is refused at the source.
+    -- `@aot` has no vectorization member; explicit SIMD is written in source.
     for _, spelling in ipairs({"@aot(vectorize = true)", "@aot(vectorize = false)", "@aot(lanes = true)"}) do
         local dir = project{["stream.nupp"] = replaceOnce(STREAMING, "@aot\n", spelling .. "\n")}
         local out, code = run(dir, "stream.nupp")
         test.equal(code, 1, spelling .. " is not accepted\n" .. out)
         assert(out:find("NUPP2115", 1, true), spelling .. " is an unknown member: " .. out)
     end
-end
-
-function M.aRequiredSimdLoopLowersAContiguousCopy()
-    local dir = project{["required.nupp"] = REQUIRED_CONTIGUOUS}
-    local out, code = run(dir, PINNED .. "required.nupp")
-    test.equal(code, 0, out)
-    assert(out:find("Fixed<8>", 1, true), "the required species is named: " .. out)
-    assert(out:find("8 lanes", 1, true), "the required width is named: " .. out)
-end
-
-function M.aRequiredSimdLoopFailsWithoutLaneCode()
-    local dir = project{["required.nupp"] = REFUSED}
-    local out, code = run(dir, PINNED .. "required.nupp")
-    test.equal(code, 1, "required SIMD cannot fall back to scalar execution\n" .. out)
-    assert(out:find("cannot call a compiled entry", 1, true), "the failed construct is named: " .. out)
-    assert(
-        not out:find("ran one iteration at a time", 1, true),
-        "required SIMD is a build error, not a report: " .. out
-    )
-end
-
-function M.requiredSimdRegionsKeepScalarSetupTeardownAndOrder()
-    local dir = project{["required.nupp"] = REQUIRED_REGIONS}
-    local decoded, raw, code, where = lowered(dir, PINNED .. "--json required.nupp")
-    test.equal(code, 0, raw)
-    local ir = decoded.ir
-    local _, regions = ir:gsub("simd vector", "")
-    test.equal(regions, 2, where .. ": both authored regions have vector bodies\n" .. ir)
-    assert(
-        ir:find("let adjusted", 1, true) < ir:find("@simd for", 1, true)
-        and ir:find("let result", 1, true) > ir:find("simd vector", 1, true)
-        and ir:find("return local:f64 result", 1, true) > ir:match(".*()simd vector"),
-        where .. ": scalar setup, between-region work, and teardown remain ordered\n" .. ir
-    )
-    local _, loops = decoded.c:gsub("_base1 = UINT32_C%(0%);", "")
-    test.equal(loops, 2, where .. ": each region emits its own whole-group loop")
-    local scalarOracle = decoded.c:match("ks_process_forced_scalar.-\n}\n")
-    assert(scalarOracle ~= nil, where .. ": required regions retain a scalar-source C oracle")
-    assert(
-        not scalarOracle:find("ks_exp_", 1, true),
-        where .. ": the scalar-source oracle erases vector regions instead of sharing their lowering"
-    )
-end
-
-function M.requiredSimdKeepsUniformNestedLoopsInsideLaneBranches()
-    local dir = project{["required.nupp"] = REQUIRED_THRESHOLD}
-    local decoded, raw, code, where = lowered(dir, PINNED .. "--json required.nupp")
-    test.equal(code, 0, raw)
-    assert(decoded.ir:find("for sample", 1, true), where .. ": the uniform inner loop remains structured")
-    assert(decoded.ir:find("simd_select", 1, true), where .. ": its assignment is masked by the outer condition")
-end
-
-function M.requiredSimdControlsVaryingNestedForAndBreakPerLane()
-    local dir = project{["required.nupp"] = REQUIRED_VARYING_FOR}
-    local decoded, raw, code, where = lowered(dir, PINNED .. "--json required.nupp")
-    test.equal(code, 0, raw)
-    assert(decoded.ir:find("simd_mask_any", 1, true), where .. ": varying bounds become a live-mask loop")
-    assert(decoded.ir:find("simd_unary.not", 1, true), where .. ": break retires only participating lanes")
-    assert(decoded.ir:find("simd_iota", 1, true), where .. ": the authored outer index is a vector value")
-end
-
-function M.mandelbrotUsesRequiredSimdWithLaneLocalEarlyExit()
-    local handle = assert(io.open(HERE .. "/../bench/simd-mandelbrot/mandelbrot.nupp", "rb"))
-    local source = handle:read("*a")
-    handle:close()
-    assert(source:find("@simd", 1, true), "the bench marks its loop")
-    local dir = project{["mandelbrot.nupp"] = source}
-    local decoded, raw, code, where = lowered(dir, PINNED .. "--json mandelbrot.nupp")
-    test.equal(code, 0, raw)
-    assert(decoded.ir:find("simd_mask_any", 1, true), where .. ": Mandelbrot retains its varying loop")
-    assert(decoded.ir:find("simd_unary.not", 1, true), where .. ": each escaped point retires independently")
-end
-
-function M.requiredSimdRepeatTestsEachLaneAfterItsBody()
-    local source = [[
-local span = require("nupp.mem.span")
-
-@aot
-local function refine(
-    exclusive output: span.WriteSpan<number>,
-    borrows input: span.Span<number>
-): nil
-    if #output ~= #input then error("length mismatch", 2) end
-    @simd
-    for i = 1, #output do
-        local value = input[i]
-        repeat
-            local done = value <= 1.0
-            if done then
-                continue
-            end
-            value = value * 0.5
-            if value < input[i] * 0.1 then
-                break
-            end
-        until done
-        output[i] = value
-    end
-end
-
-return {refine = refine}
-]]
-    local dir = project{["repeat.nupp"] = source}
-    local decoded, raw, code, where = lowered(dir, PINNED .. "--json repeat.nupp")
-    test.equal(code, 0, raw)
-    assert(decoded.ir:find("simd_mask_any", 1, true), where .. ": repeat becomes one lane-live loop")
-    assert(decoded.ir:find("$exec", 1, true), where .. ": continue reaches the trailing lane test")
-    assert(decoded.ir:find("$live", 1, true), where .. ": break retires only its lane")
-    local scalarOracle = decoded.c:match("ks_refine_forced_scalar.-\n}\n")
-    assert(scalarOracle ~= nil, where .. ": repeat retains an independent scalar oracle")
-    assert(
-        scalarOracle:find("goto ks_repeat_continue_", 1, true)
-        and scalarOracle:find("ks_repeat_continue_", 1, true)
-        and scalarOracle:find("if (v2_done) break;", 1, true),
-        where .. ": scalar continue evaluates a body-local trailing condition\n" .. scalarOracle
-    )
 end
 
 function M.exactReducersKeepNativeWidthAndLogicalPositionsAtEveryTier()
@@ -2261,7 +1986,6 @@ local function folds(borrows input: span.Span<uint64>, seed: uint64): (uint64, i
     local arg: simd.IntegerArgMax<uint64> = simd.reducer.integerArgMax()
     local count = simd.reducer.count()
     local all = simd.reducer.all()
-    @simd
     for i = 3, #input do
         sum:add(input[i])
         arg:add(input[i])
@@ -2282,161 +2006,10 @@ return {folds = folds}
     }) do
         local decoded, raw, code = lowered(dir, tier .. "--json folds.nupp")
         test.equal(code, 0, raw)
-        assert(decoded.ir:find("simd.reducer.exact.sum", 1, true), tier .. decoded.ir)
-        assert(decoded.ir:find("simd_load.load:simd_vector_u64_fixed", 1, true), tier .. decoded.ir)
-        assert(decoded.c:find("simd_acc_", 1, true), tier .. ": missing lane accumulator")
+        assert(decoded.ir:find("reducer.exact.sum", 1, true), tier .. decoded.ir)
+        assert(decoded.ir:find("reducer.add", 1, true), tier .. ": missing scalar contribution")
+        assert(not decoded.ir:find("simd_load", 1, true), tier .. ": no inferred vector load")
         assert(decoded.c:find("ks_reduce_integer_argmax_u64_add", 1, true), tier .. ": missing indexed extremum")
-    end
-end
-
-function M.requiredSimdReducersCarryTheirArithmeticContractAcrossTheRegion()
-    local source = [[
-local span = require("nupp.mem.span")
-local simd = require("nupp.simd")
-
-@aot
-local function totals(borrows values: span.Span<number>): (number, number, number)
-    local ordered = simd.reducer.orderedSum(1.0)
-    @simd
-    for i = 1, #values do
-        ordered:add(values[i])
-    end
-
-    local pairwise = simd.reducer.pairwiseSum(1.0)
-    @simd
-    for i = 1, #values do
-        pairwise:add(values[i])
-    end
-
-    local algebraic = simd.reducer.algebraicSum(1.0)
-    @simd
-    for i = 1, #values do
-        algebraic:add(values[i])
-    end
-
-    return ordered:value(), pairwise:value(), algebraic:value()
-end
-
-return {totals = totals}
-]]
-    local dir = project{["reducers.nupp"] = source}
-    local decoded, raw, code, where = lowered(dir, PINNED .. "--json reducers.nupp")
-    test.equal(code, 0, raw)
-    assert(decoded.ir:find("reducer.ordered.sum", 1, true), where .. ": ordered contract is explicit\n" .. decoded.ir)
-    assert(decoded.ir:find("reducer.pairwise.sum", 1, true), where .. ": pairwise contract is explicit\n" .. decoded.ir)
-    assert(
-        decoded.ir:find("reducer.algebraic.sum", 1, true),
-        where .. ": algebraic contract is explicit\n" .. decoded.ir
-    )
-    assert(
-        decoded.ir:find("simd.reducer.pairwise.sum", 1, true),
-        where .. ": the pairwise contribution carries its order\n" .. decoded.ir
-    )
-    assert(decoded.c:find("ks_pairwise_f64_add", 1, true), where .. ": pairwise tree has its own native state")
-    assert(
-        decoded.c:find("simd_acc_", 1, true),
-        where .. ": algebraic sum uses lane accumulators rather than an ordered chain"
-    )
-    assert(decoded.c:find("ks_totals_forced_scalar", 1, true), where .. ": reducers retain the scalar-source C oracle")
-    test.equal(#decoded.functions[1].regions, 3, where .. ": each authored region is reported")
-    test.equal(decoded.functions[1].regions[1].gang.lanes, 4, where .. ": the selected gang is reported")
-    test.equal(decoded.functions[1].regions[1].reducers[1].serialized, true, where .. ": ordered edges are visible")
-    test.equal(decoded.functions[1].regions[3].reducers[1].serialized, false, where .. ": algebraic freedom is visible")
-end
-
-function M.requiredSimdReducersHaveOneRegionAndOneFinalization()
-    local prefix = [[
-local span = require("nupp.mem.span")
-local simd = require("nupp.simd")
-
-@aot
-local function total(borrows values: span.Span<number>): number
-    local sum = simd.reducer.orderedSum(0.0)
-]]
-    local suffix = [[
-end
-
-return {total = total}
-]]
-    local cases = {
-        {
-            name = "reused.nupp",
-            body = [[
-    @simd
-    for i = 1, #values do
-        sum:add(values[i])
-    end
-    @simd
-    for i = 1, #values do
-        sum:add(values[i])
-    end
-    return sum:value()
-]],
-            message = "a reducer is scoped to exactly one @simd loop",
-        },
-        {
-            name = "early.nupp",
-            body = [[
-    return sum:value()
-]],
-            message = "a reducer must receive its contribution before it is finalized",
-        },
-        {
-            name = "unfinished.nupp",
-            body = [[
-    @simd
-    for i = 1, #values do
-        sum:add(values[i])
-    end
-    return 0.0
-]],
-            message = "a reducer is finalized exactly once after its @simd loop",
-        },
-        {
-            name = "copied.nupp",
-            body = [[
-    local other = sum
-    @simd
-    for i = 1, #values do
-        other:add(values[i])
-    end
-    return other:value()
-]],
-            message = "a reducer cannot be copied or passed through another value",
-        },
-        {
-            name = "twice.nupp",
-            body = [[
-    @simd
-    for i = 1, #values do
-        sum:add(values[i])
-    end
-    local first = sum:value()
-    return first + sum:value()
-]],
-            message = "a reducer is finalized exactly once",
-        },
-        {
-            name = "nested.nupp",
-            body = [[
-    @simd
-    for i = 1, #values do
-        @simd
-        for j = 1, #values do
-            sum:add(values[j])
-        end
-    end
-    return sum:value()
-]],
-            message = "an @simd loop cannot be nested in another @simd loop",
-        },
-    }
-
-    for _, case in ipairs(cases) do
-        local dir = project{[case.name] = prefix .. case.body .. suffix}
-        local out, code = run(dir, case.name)
-        test.equal(code, 1, case.name .. " must fail\n" .. out)
-        assert(out:find(case.message, 1, true), case.name .. ": " .. out)
     end
 end
 
@@ -2888,17 +2461,6 @@ function M.indexedSimdRefusesFloatingIndicesAndMismatchedPreferredWidths()
     end
 end
 
-function M.scatterDoesNotAuthorizeCrossIterationCollisions()
-    local source = INDEXED_SIMD:gsub(
-        "    values:scatterUnchecked%(output, indices, gathered %+ 1, active%)",
-        "    @simd\n    for i = 1, #output do\n        values:scatterUnchecked(output, indices, gathered + 1, active)\n    end"
-    )
-    local dir = project{["indexed.nupp"] = source}
-    local out, code = run(dir, "--target aarch64-apple-darwin --features neon --emit c indexed.nupp")
-    test.equal(code, 1, out)
-    assert(out:find("disjoint destinations between @simd iterations", 1, true), out)
-end
-
 function M.horizontalVectorOperationsNameTheirArithmeticContracts()
     local source = [[
 local array = require("nupp.mem.array")
@@ -3010,129 +2572,6 @@ return {ordered = ordered, pairwise = pairwise, algebraic = algebraic}
     end
     local fused, asm = fusedIn("algebraic")
     assert(fused > 0, "algebraicDot did not contract, which is the one place it may:\n" .. asm)
-end
-
-function M.loopScalarOraclesRemainUnoptimizedAndUnvectorized()
-    local chain = require("nupp.compiler.build.aot").toolchain()
-    local host = require("nupp.compiler.aot.target").hostTriple()
-    if chain == nil or (chain.dialect ~= "clang" and host ~= "aarch64-apple-darwin") then
-        test.skip("reading NEON oracle instructions needs Clang or an aarch64 host")
-        return
-    end
-    local source = [[
-local span = require("nupp.mem.span")
-@aot
-local function scale(exclusive output: span.WriteSpan<float>, borrows input: span.Span<float>): nil
-    if #output ~= #input then error("length mismatch") end
-    @simd
-    for index = 1, #input do output[index] = input[index] * 2 end
-end
-return {scale = scale}
-]]
-    local dir = project{["oracle.nupp"] = source}
-    local emitted, emitCode = run(dir, "--target aarch64-apple-darwin --features neon --emit c oracle.nupp")
-    test.equal(emitCode, 0, emitted)
-    local out, code = run(dir, "--target aarch64-apple-darwin --features neon --json --emit asm oracle.nupp")
-    test.equal(code, 0, out)
-    local report = require("testjson").decode(out)
-    assert(
-        emitted:match("KS_SCALAR_ORACLE%s+__attribute__%(%(noinline%)%)%s+KS_API void ks_scale_forced_scalar"),
-        "loop-shaped scalar oracle must retain the same unoptimized marker as general blocks"
-    )
-    local kernel, oracle
-    for _, listing in ipairs(report.asm.functions) do
-        if listing.symbol == "ks_scale" then
-            kernel = listing
-        end
-        if listing.symbol == "ks_scale_forced_scalar" then
-            oracle = listing
-        end
-    end
-    assert(kernel and oracle, "both actual assembly routes must exist")
-    test.equal(oracle.role, "oracle")
-    local packed = 0
-    for _, instruction in ipairs(kernel.instructions) do
-        if instruction.mnemonic:match("^fadd") or instruction.mnemonic:match("^fmul") then
-            if instruction.text:find(".4s", 1, true) then
-                packed = packed + 1
-            end
-        end
-    end
-    assert(packed > 0, "production loop must execute packed arithmetic")
-    for _, instruction in ipairs(oracle.instructions) do
-        if instruction.mnemonic:match("^fadd") or instruction.mnemonic:match("^fmul") then
-            assert(not instruction.text:find(".4s", 1, true), "scalar oracle was revectorized: " .. instruction.text)
-        end
-    end
-end
-
-function M.reductionOrdersRetainTheirAssemblyDependencyShapes()
-    local chain = require("nupp.compiler.build.aot").toolchain()
-    local host = require("nupp.compiler.aot.target").hostTriple()
-    if chain == nil or (chain.dialect ~= "clang" and host ~= "aarch64-apple-darwin") then
-        test.skip("reading NEON reduction instructions needs Clang or an aarch64 host")
-        return
-    end
-    local source = [[
-local array = require("nupp.mem.array")
-local span = require("nupp.mem.span")
-local simd = require("nupp.simd")
-@aot
-local function ordered(borrows input: span.Span<number>): number
-    local species = assert(simd.species(array.number, 8))
-    return simd.horizontal.orderedSum(species:load(input, 1))
-end
-@aot
-local function pairwise(borrows input: span.Span<number>): number
-    local species = assert(simd.species(array.number, 8))
-    return simd.horizontal.pairwiseSum(species:load(input, 1))
-end
-@aot
-local function algebraic(borrows input: span.Span<number>, seed: number): number
-    local fold = simd.reducer.algebraicSum(seed)
-    @simd
-    for i = 1, #input do fold:add(input[i]) end
-    return fold:value()
-end
-return {ordered = ordered, pairwise = pairwise, algebraic = algebraic}
-]]
-    local dir = project{["orders.nupp"] = source}
-    local out, code = run(dir, "--target aarch64-apple-darwin --features neon --json --emit asm orders.nupp")
-    test.equal(code, 0, out)
-    local report = require("testjson").decode(out)
-    local listings = {}
-    for _, listing in ipairs(report.asm.functions) do
-        listings[listing.symbol] = listing
-    end
-
-    local function additions(name)
-        local listing = assert(listings["ks_" .. name], "missing kernel " .. name)
-        local scalar = assert(listings["ks_" .. name .. "_forced_scalar"], "missing independent scalar-source artifact")
-        test.equal(listing.role, "kernel")
-        test.equal(scalar.role, "oracle")
-        local count, packed = 0, 0
-        for _, instruction in ipairs(listing.instructions) do
-            assert(
-                not instruction.mnemonic:match("^fmadd") and not instruction.mnemonic:match("^fmla"),
-                name .. " sum contracted a multiply-add: " .. instruction.text
-            )
-            if instruction.mnemonic:match("^fadd") then
-                count = count + 1
-                if instruction.text:find(".2d", 1, true) then
-                    packed = packed + 1
-                end
-            end
-        end
-
-        return count, packed
-    end
-
-    local ordered = additions("ordered")
-    local pairwise = additions("pairwise")
-    assert(ordered >= 7, "ordered sum lost its eight-lane addition chain: " .. out)
-    assert(pairwise > 0 and pairwise < ordered, "pairwise tree did not group independent adjacent pairs: " .. out)
-    local _, packed = additions("algebraic")
-    assert(packed > 0, "algebraic loop did not retain independent lane accumulators: " .. out)
 end
 
 function M.bitwiseOperatorsKeepASixtyFourBitOperandAtItsWidth()
@@ -3331,7 +2770,7 @@ return {extrema = extrema, counted = counted, ignoringMissing = ignoringMissing}
     -- fixed species by one line the compiler emits after the width block.
     local header = assert(io.open(HERE .. "/../src/nupp/compiler/aot/include/ks_simd.h", "rb")):read("*a")
     assert(
-        decoded.c:find("KS_EXP_FIXED(f32x8, float, int32_t, 8, f32x4, 4, 2, FLOAT)", 1, true),
+        decoded.c:find("KS_EXP_ELEMENT(32, f32x8, float, int32_t, 8, 4, FLOAT)", 1, true),
         where .. ": the f32x8 helpers are instantiated\n" .. decoded.c
     )
     assert(
@@ -3405,7 +2844,6 @@ local simd = require("nupp.simd")
 @aot
 local function total(borrows values: span.Span<number>): number
     local exact = simd.reducer.compensatedSum(0.0)
-    @simd
     for i = 1, #values do
         exact:add(values[i])
     end
@@ -3423,19 +2861,15 @@ return {total = total}
         where .. ": the exact contract is explicit\n" .. decoded.ir
     )
     assert(
-        decoded.ir:find("simd.reducer.compensated.sum", 1, true),
-        where .. ": the contribution carries its order\n" .. decoded.ir
+        decoded.ir:find("reducer.add", 1, true),
+        where .. ": the scalar contribution retains its order\n" .. decoded.ir
     )
     assert(
         decoded.c:find("ks_compensated_f64_add", 1, true),
         where .. ": the compensated state has its own native form"
     )
     assert(decoded.c:find("KsCompensatedF64", 1, true), where .. ": the accumulator is more than one double")
-    test.equal(
-        decoded.functions[1].regions[1].reducers[1].serialized,
-        true,
-        where .. ": a compensated sum keeps its contribution edges"
-    )
+    assert(decoded.functions[1].regions == nil, where .. ": no inferred SIMD region")
 end
 
 function M.fixedExplicitSimdSplitsIntoNativeRegistersWithoutChangingItsIdentity()
@@ -3446,13 +2880,13 @@ function M.fixedExplicitSimdSplitsIntoNativeRegistersWithoutChangingItsIdentity(
     local c, cCode = run(dir, "--target aarch64-apple-darwin --features neon --emit c vectors.nupp")
     test.equal(cCode, 0, c)
     assert(
-        c:find("KS_EXP_FIXED(f32x8, float, int32_t, 8, f32x4, 4, 2, FLOAT)", 1, true),
-        "Fixed<8> is two native NEON registers: " .. c
+        c:find("KS_EXP_ELEMENT(32, f32x8, float, int32_t, 8, 4, FLOAT)", 1, true),
+        "Fixed<8> uses a wide vector lowered to NEON registers: " .. c
     )
     local header = assert(io.open(HERE .. "/../src/nupp/compiler/aot/include/ks_simd.h", "rb")):read("*a")
     assert(
-        header:find("typedef struct { ks_exp_##NATIVE chunk[CHUNKS]; } ks_exp_##ELEM;", 1, true),
-        "a fixed species is an aggregate of native vectors"
+        header:find("typedef CTYPE ks_exp_##ELEM __attribute__((vector_size(W) KS_VECTOR_ABI_ALIGN));", 1, true),
+        "a complete fixed species can use a wide vector"
     )
 
     local asm = neonAsm(dir, "vectors.nupp")
@@ -3460,6 +2894,78 @@ function M.fixedExplicitSimdSplitsIntoNativeRegistersWithoutChangingItsIdentity(
         local _, adds = asm:gsub("fadd%.4s", "")
         assert(adds >= 2, "both logical halves execute as vector additions: " .. asm)
     end
+end
+
+function M.provedFixedVectorsCopyOnlyTheirLogicalLanes()
+    local source = [[
+local span = require("nupp.mem.span")
+local array = require("nupp.mem.array")
+local simd = require("nupp.simd")
+
+@aot
+local function copy(exclusive output: span.WriteSpan<float>, borrows input: span.Span<float>): nil
+    if #output ~= #input then error("length mismatch", 2) end
+    local species = assert(simd.species(array.float, 5))
+    local cursor: uint32 = 0
+    while cursor + species.lanes <= #input and cursor + species.lanes <= #output do
+        species:store(output, cursor + 1, species:load(input, cursor + 1))
+        cursor = cursor + species.lanes
+    end
+    if cursor < #input then
+        local active = species:tail(#input - cursor)
+        species:store(output, cursor + 1, species:load(input, cursor + 1, active), active)
+    end
+end
+
+return {copy = copy}
+]]
+    local dir = project{["copy.nupp"] = source}
+    local c, code = run(dir, "--target aarch64-apple-darwin --features neon --emit c copy.nupp")
+    test.equal(code, 0, c)
+    assert(c:find("ks_exp_load_at_f32x5(p_input + (size_t)", 1, true), c)
+    assert(c:find("ks_exp_store_at_f32x5(p_output + (size_t)", 1, true), c)
+    local header = assert(io.open(HERE .. "/../src/nupp/compiler/aot/include/ks_simd.h", "rb")):read("*a")
+    assert(header:find("ks_exp_load_part_##NATIVE(source +", 1, true), "partial final chunk reads exactly one lane")
+    assert(
+        header:find("ks_exp_store_part_##NATIVE(destination +", 1, true),
+        "partial final chunk writes exactly one lane"
+    )
+end
+
+function M.readOnlySoaRowsHaveContiguousExplicitLoads()
+    local source = [[
+local soa = require("nupp.mem.soa")
+local array = require("nupp.mem.array")
+local simd = require("nupp.simd")
+
+local struct Row
+    x: float
+    y: float
+end
+
+@aot
+local function sumX(borrows rows: soa.Span<Row>): float
+    local species = assert(simd.species(array.float))
+    local total = species:splat(0.0)
+    local cursor: uint32 = 0
+    while cursor + species.lanes <= #rows do
+        total = total + species:load(rows, cursor + 1, "x")
+        cursor = cursor + species.lanes
+    end
+    if cursor < #rows then
+        local active = species:tail(#rows - cursor)
+        total = total + species:load(rows, cursor + 1, "x", active)
+    end
+    return simd.horizontal.algebraicSum(total)
+end
+
+return {sumX = sumX}
+]]
+    local dir = project{["soa.nupp"] = source}
+    local c, code = run(dir, "--target aarch64-apple-darwin --features neon --emit c soa.nupp")
+    test.equal(code, 0, c)
+    assert(c:find("ks_exp_load_at_f32x4(p_rows + (size_t)", 1, true), c)
+    assert(not c:find("ks_exp_gather_", 1, true), c)
 end
 
 function M.explicitSimdValuesCannotCrossAnEntryAbi()
@@ -3582,426 +3088,6 @@ return {inspect = inspect}
     assert(decoded.c:find("ks_inspect_forced_scalar", 1, true), where .. ": the independent scalar oracle remains")
 end
 
-function M.productAndDotReducersCarryDistinctArithmeticContracts()
-    local source = [[
-local span = require("nupp.mem.span")
-local simd = require("nupp.simd")
-
-@aot
-local function reductions(borrows values: span.Span<number>): (number, number)
-    local product = simd.reducer.pairwiseProduct(1.0)
-    @simd
-    for i = 1, #values do
-        product:multiply(values[i])
-    end
-
-    local dot = simd.reducer.algebraicDot(0.0)
-    @simd
-    for i = 1, #values do
-        dot:add(values[i], values[i])
-    end
-    return product:value(), dot:value()
-end
-
-
-return {reductions = reductions}
-]]
-    local dir = project{["reducers.nupp"] = source}
-    local decoded, raw, code, where = lowered(dir, PINNED .. "--json reducers.nupp")
-    test.equal(code, 0, raw)
-    assert(
-        decoded.ir:find("simd.reducer.pairwise.product", 1, true),
-        where .. ": product order and operation are explicit"
-    )
-    assert(decoded.ir:find("simd.reducer.algebraic.dot", 1, true), where .. ": dot contraction permission is distinct")
-    assert(decoded.c:find("ks_pairwise_f64_product_add", 1, true), where .. ": product uses a multiplication tree")
-    assert(decoded.c:find("simd_acc_", 1, true), where .. ": algebraic dot uses lane accumulators")
-end
-
--- The lane body out of `--emit ir`, which is what a helper call and the same source
--- written inline have to agree on. The scalar body cannot be compared directly: one
--- spelling carries a `helper_call` and the other carries the expression, which is the
--- difference the inline is supposed to erase by the time lanes are chosen.
-
---- The vector body inside one pinned report's IR, and the report it came out of.
----
---- `--json` carries the IR beside everything else the run measured, so a case
---- that wants both the vector body and what the optimizer did to it asks once.
-local function vectorReport(dir, file, label)
-    local decoded, out, code, where = lowered(dir, PINNED .. "--json " .. file)
-    test.equal(code, 0, label .. " (" .. where .. "): " .. out)
-    local ir = decoded.ir
-    local vector = ir:match("(\nsimd vector\n.*)$")
-    assert(
-        vector,
-        label .. " ran one iteration at a time, so there is no vector body to compare (" .. where .. "):\n" .. out
-    )
-
-    -- Unrolling a counted loop wraps each copy in a `block`, which the rewrite
-    -- carries through to the vector body as an ordinary scope. It is the one
-    -- difference between a loop and the same work written out, and it is not a
-    -- difference in the vectorized work, so it is normalized away here rather
-    -- than asserted about.
-    local lines = {}
-    for line in (vector .. "\n"):gmatch("([^\n]*)\n") do
-        local bare = line:match("^%s*(.-)%s*$")
-        if bare ~= "block" then
-            lines[#lines + 1] = bare
-        end
-    end
-
-    return table.concat(lines, "\n"), decoded
-end
-
-local function vectorIr(dir, file, label)
-    return (vectorReport(dir, file, label))
-end
-
--- Both spellings of one kernel: the predicate behind a helper, and the same predicate
--- written where it is used. Derived from one source so the two cannot drift apart.
-local function bothSpellings(inlined, predicate, call, helper)
-    local withHelper = inlined:gsub("@aot\n", helper .. "\n\n@aot\n", 1):gsub(predicate, call)
-    assert(withHelper ~= inlined, "the predicate moved behind the helper")
-
-    return withHelper, inlined
-end
-
-function M.aHelperCallLowersToTheSameVectorIrAsWritingItInline()
-    -- The property the inline exists to have, and the one that regressed silently:
-    -- a helper's parameters lowered as ordinary locals, the lane rewriter read the
-    -- inlined body as uniform, and the loop ran scalar. Comparing the gang and the
-    -- width would not have caught the shape being wrong, only its absence.
-    local withHelper, inlined = bothSpellings(
-        COMPUTE,
-        "if zxSquared %+ zySquared > 4%.0 then",
-        "if hasEscaped(zxSquared, zySquared) then",
-        "local function hasEscaped(a: number, b: number): boolean\n    return a + b > 4.0\nend"
-    )
-    local dir = project{["helper.nupp"] = withHelper, ["inline.nupp"] = inlined}
-    test.equal(vectorIr(dir, "helper.nupp", "the helper spelling"), vectorIr(dir, "inline.nupp", "the inline spelling"))
-end
-
-function M.aNumericHelperCallLowersToTheSameVectorIrAsWritingItInline()
-    -- The condition path and the value path reach the rewriter differently -- one
-    -- through a mask, one through a vector of the wanted element -- so one case
-    -- passing says nothing about the other.
-    local withHelper, inlined = bothSpellings(
-        COMPUTE,
-        "zy = 2%.0 %* zx %* zy %+ cy",
-        "zy = twiceProduct(zx, zy) + cy",
-        "local function twiceProduct(a: number, b: number): number\n    return 2.0 * a * b\nend"
-    )
-    local dir = project{["helper.nupp"] = withHelper, ["inline.nupp"] = inlined}
-    test.equal(vectorIr(dir, "helper.nupp", "the helper spelling"), vectorIr(dir, "inline.nupp", "the inline spelling"))
-end
-
-function M.aFourTripLoopLowersToTheSameVectorIrAsWritingItOut()
-    local written = FIXED_MIX:gsub(
-        "        for round = 1, 4 do\n            value = value %* 1%.0009765625 %+ round %* 0%.125\n        end",
-        table.concat(
-            {
-                "        value = value * 1.0009765625 + 0.125",
-                "        value = value * 1.0009765625 + 0.25",
-                "        value = value * 1.0009765625 + 0.375",
-                "        value = value * 1.0009765625 + 0.5",
-            },
-            "\n"
-        )
-    )
-    assert(written ~= FIXED_MIX, "the fixed loop was replaced by its control")
-    local dir = project{["loop.nupp"] = FIXED_MIX, ["written.nupp"] = written}
-    local fixed, report = vectorReport(dir, "loop.nupp", "the fixed loop")
-    test.equal(fixed, vectorIr(dir, "written.nupp", "the written body"))
-
-    -- The same report the lane body came out of also says what unrolled it.
-    local optimization = report.functions[1].optimization
-    test.equal(optimization.unrolledLoops, 1)
-    test.equal(optimization.unrolledIterations, 4)
-end
-
--- `--emit simd` and the round trip that says it is the same program.
---
--- `@simd` has no vector IR of its own any more: a marked loop is rewritten onto
--- the explicit `simd_*` operations over `Fixed<N>` species, and `--emit simd`
--- prints that rewrite as the Nupp somebody could have written instead. What
--- makes the printer worth having rather than decorative is that the printed
--- source is the same program: it checks, and the region it lowers to is the
--- region the `@simd` loop lowered to.
---
--- Two differences are read past rather than asserted about, because neither is
--- a difference in the vectorized work. A map-shaped kernel takes one `count`
--- for the spans its range guard proved equal where an ordinary function takes
--- one per span; and every generated C local carries the ordinal of the IR
--- binding behind it, which the printed spelling numbers from its own bindings.
-
---- One generated function's body, with those two differences normalized away.
----
---- Block braces, the `#pragma` a contract carries and the scalar loop bounds a
---- map-shaped entry declares for the oracle beside it are dropped for the same
---- reason: they are the entry's shape rather than the region's work.
-local function generatedBody(c, symbol, label)
-    local lines = {}
-    local inside = false
-    local found = false
-    for line in (c .. "\n"):gmatch("([^\n]*)\n") do
-        if inside and line == "}" then
-            inside = false
-        elseif inside then
-            local bare = line:match("^%s*(.-)%s*$")
-            local shape = bare == ""
-                or bare == "{"
-                or bare == "}"
-                or bare:match("^#")
-                or bare:match("^%(void%)[%w_]+;$")
-                or bare:match("^size_t [%w_]+ = .*;$")
-            if not shape then
-                lines[#lines + 1] = bare
-            end
-        elseif line:match("^KS_API .-[ %*]" .. symbol .. "%(") then
-            inside = true
-            found = true
-        end
-    end
-    assert(found, label .. ": the generated C has no " .. symbol)
-    local body = table.concat(lines, " ")
-    body = body:gsub("count_[%a_][%w_]*", "count")
-    body = body:gsub("%f[%w]v%d+_", ""):gsub("%f[%w]sr%d+_", "")
-    body = body:gsub("%f[%w]as%d+%f[%W]", "as")
-    -- Value-block locals carry a private C prefix that the printed source omits.
-    body = body:gsub("%f[%w_]__nupp_value_", "value_")
-
-    return body
-end
-
---- Prints one file's rewrite, compiles the printed source, and holds the two
---- generated regions to each other.
-local function roundTrip(files, file, symbol, label)
-    local dir = project(files)
-    local printed, printedCode = run(dir, PINNED .. "--emit simd " .. file)
-    test.equal(printedCode, 0, label .. ": --emit simd refused:\n" .. printed)
-    local original, originalCode = run(dir, PINNED .. "--emit c " .. file)
-    test.equal(originalCode, 0, label .. ": " .. original)
-
-    -- Compiling the printed source checks it: a diagnostic is a nonzero status
-    -- and the diagnostic itself, which is what a failure here reports.
-    local again, againCode = run(project{["printed.nupp"] = printed}, PINNED .. "--emit c printed.nupp")
-    test.equal(againCode, 0, label .. ": the printed rewrite did not compile:\n" .. again .. "\n" .. printed)
-    test.equal(
-        generatedBody(again, symbol, label),
-        generatedBody(original, symbol, label),
-        label .. ": the printed rewrite lowered to different C\n" .. printed
-    )
-
-    return printed
-end
-
-function M.aReadModifyWriteRegionPrintsThroughThePublicWriteSpanLoad()
-    local path = HERE .. "/../bench/kernel-subset-spike/uniformcall.nupp"
-    local handle = assert(io.open(path, "rb"))
-    local source = handle:read("*a")
-    handle:close()
-    local printed = roundTrip({["uniformcall.nupp"] = source}, "uniformcall.nupp", "ks_advance", "uniform call")
-    assert(printed:find(':load(positions,', 1, true), printed)
-end
-
-function M.aScalarWriteSpanReadPrintsThroughThePublicLoad()
-    roundTrip(
-        {
-            [
-                "update.nupp"
-            ] = [[
-local span = require("nupp.mem.span")
-@aot
-local function update(exclusive values: span.WriteSpan<number>): nil
-    @simd
-    for i = 1, #values do
-        values[i] = values[i] + 1.0
-    end
-end
-return {update = update}
-]]
-        },
-        "update.nupp",
-        "ks_update",
-        "scalar write span"
-    )
-end
-
-function M.aStatementfulConditionPrintsAsNuppThatLowersToTheSameVectorC()
-    local printed = roundTrip(
-        {
-            [
-                "condition.nupp"
-            ] = [[
-local span = require("nupp.mem.span")
-@aot
-local function condition(exclusive values: span.WriteSpan<number>): nil
-    @simd
-    for i = 1, #values do
-        local count = 0.0
-        while do
-            count = count + 1.0
-            local keep = count < values[i]
-            yield keep
-        end do
-            if count == 3.0 then break end
-        end
-        values[i] = count
-    end
-end
-return {condition = condition}
-]]
-        },
-        "condition.nupp",
-        "ks_condition",
-        "condition block"
-    )
-    assert(printed:find("while true do", 1, true), printed)
-end
-
-function M.theMandelbrotRewritePrintsAsNuppThatLowersToTheSameVectorC()
-    -- The kernel the vectorizer is measured on: two binary32 fields gathered
-    -- from an array of structs, a per-lane escape loop with a break in it, and
-    -- two narrowing field stores. Read from the bench tree rather than copied,
-    -- so the thing that round-trips is the thing that is benchmarked.
-    local path = HERE .. "/../bench/kernel-subset-spike/mandelbrot.nupp"
-    local handle = assert(io.open(path, "rb"), "the mandelbrot kernel is missing")
-    local source = handle:read("*a")
-    handle:close()
-
-    local printed = roundTrip({["mandelbrot.nupp"] = source}, "mandelbrot.nupp", "ks_mandelbrot", "mandelbrot")
-
-    -- The vocabulary it is printed in, which is the point of printing it: a
-    -- species per element, the masked tail, and the per-lane loop as a mask.
-    for _, spelling in ipairs({
-        "assert(simd.species(array.number, 4))",
-        "assert(simd.species(array.float, 4))",
-        's_f32_x4:load(points, base1 + 1, "re")',
-        "while base1 + s_f64_x4.lanes <= #points",
-        "s_f64_x4:tail(last - base1)",
-        ":any() do",
-        ":select(",
-    }) do
-        assert(printed:find(spelling, 1, true), "the printed rewrite does not say " .. spelling .. ":\n" .. printed)
-    end
-end
-
-function M.aVaryingNestedLoopWithAPerLaneBreakPrintsAsNuppThatLowersToTheSame()
-    -- The control-flow case: an inner trip count that differs per lane and a
-    -- break inside it, which is the live mask, the execution mask and the
-    -- iota-derived bound all at once.
-    local printed = roundTrip({["required.nupp"] = REQUIRED_VARYING_FOR}, "required.nupp", "ks_varying", "varying")
-    assert(printed:find("s_f64_x4:iota(", 1, true), "the loop index retains its numeric range in an iota:\n" .. printed)
-    assert(
-        printed:find("local live%d+ = for_counter%d+ <= for_last%d+"),
-        "the f64 comparison is the control mask:\n" .. printed
-    )
-end
-
-function M.twoReducerRegionsInOneBodyPrintAsNuppThatLowersToTheSame()
-    -- Two regions in one function, each with its own contract, and each naming
-    -- its cursor the same thing: the printed scopes are what keep that legal,
-    -- because a native local may not shadow another.
-    local source = [[
-local span = require("nupp.mem.span")
-local simd = require("nupp.simd")
-
-@aot
-local function reductions(borrows values: span.Span<number>): (number, number)
-    local product = simd.reducer.pairwiseProduct(1.0)
-    @simd
-    for i = 1, #values do
-        product:multiply(values[i])
-    end
-
-    local dot = simd.reducer.algebraicDot(0.0)
-    @simd
-    for i = 1, #values do
-        dot:add(values[i], values[i])
-    end
-    return product:value(), dot:value()
-end
-
-
-return {reductions = reductions}
-]]
-    local printed = roundTrip({["reducers.nupp"] = source}, "reducers.nupp", "ks_reductions", "reducers")
-    assert(printed:find("simd.reducer.pairwiseProduct(1.0)", 1, true), "the contract survives:\n" .. printed)
-    assert(printed:find(":multiply(", 1, true), "a product is contributed by multiplying:\n" .. printed)
-    assert(printed:find("s_f64_x4:mask(true)", 1, true), "a whole group contributes every lane:\n" .. printed)
-end
-
-function M.aCorrectedBinary32RegionPrintsAsNuppThatLowersToTheSame()
-    -- The lane-wise corrections, which the rewrite applies one lane at a time
-    -- rather than computing in binary64: `min` and `max` become vector
-    -- intrinsics and `fma` stays a per-lane call, so printing it needs the
-    -- `s:map(nupp.math.f32.fma, ...)` spelling on the way back in.
-    local source = [[
-local span = require("nupp.mem.span")
-
-local struct Sample
-    a: float
-    b: float
-    c: float
-end
-
-local struct Result
-    least: float
-    greatest: float
-    fused: float
-end
-
-@aot
-local function corrected(
-    exclusive results: span.WriteSpan<Result>,
-    borrows samples: span.Span<Sample>,
-    first: integer,
-    last: integer
-): nil
-    assert(#results == #samples, "length mismatch")
-    assert(first >= 1 and last <= #results and first <= last + 1, "range out of bounds")
-
-    @simd
-    for i = first, last do
-        local result = results[i]
-        local sample = samples[i]
-        local a = nupp.math.f32.narrow(sample.a)
-        local b = nupp.math.f32.narrow(sample.b)
-        local c = nupp.math.f32.narrow(sample.c)
-        result.least = nupp.math.f32.min(a, b)
-        result.greatest = nupp.math.f32.max(a, b)
-        result.fused = nupp.math.f32.fma(a, b, c)
-    end
-end
-
-return {corrected = corrected, Sample = Sample, Result = Result,}
-]]
-    local printed = roundTrip({["corrected.nupp"] = source}, "corrected.nupp", "ks_corrected", "corrected")
-    assert(printed:find("s_f32_x8:map(nupp.math.f32.fma,", 1, true), "the fused lane call:\n" .. printed)
-    assert(printed:find(":propagatingMin(", 1, true), "the corrected minimum:\n" .. printed)
-end
-
-function M.aFileWithNoVectorizedLoopPrintsNothingForSimd()
-    local source = [[
-local span = require("nupp.mem.span")
-
-@aot
-local function total(borrows values: span.Span<number>): number
-    local sum = 0.0
-    for i = 1, #values do
-        sum = sum + values[i]
-    end
-    return sum
-end
-
-return {total = total}
-]]
-    local dir = project{["scalar.nupp"] = source}
-    local out, code = run(dir, PINNED .. "--emit simd scalar.nupp")
-    test.equal(code, 1, out)
-    assert(out:find("was vectorized", 1, true), "it says there is no rewrite to show: " .. out)
-end
-
 function M.aLoopRefusesASpanNothingProvesIsLongEnough()
     local dir = project{["unproved.nupp"] = UNPROVED_SPAN}
     local out, code = run(dir, "unproved.nupp")
@@ -4059,25 +3145,6 @@ function M.oneCompiledEntryCallsAnotherAsARealCall()
     assert(out:find("KS_API double ks_scale", 1, true), "and it keeps its own exported definition: " .. out)
 end
 
-function M.aLaneBodyRefusesRatherThanCallingAnEntryPerLane()
-    -- A compiled entry takes one set of scalars and answers once, so there is no
-    -- per-lane form of it. The refusal names that, rather than the loop quietly
-    -- running scalar for a reason nothing reports.
-    local source = COMPUTE:gsub(
-        "@aot\n",
-        "@aot\nlocal function beyondFour(a: number, b: number): number\n" .. "    return a + b - 4.0\nend\n\n@aot\n",
-        1
-    )
-        :gsub("if zxSquared %+ zySquared > 4%.0 then", "if beyondFour(zxSquared, zySquared) > 0.0 then")
-    local dir = project{["perlane.nupp"] = source}
-    local out, code = run(dir, "perlane.nupp")
-    test.equal(code, 1, "a @simd loop that cannot run in lanes fails the build\n" .. out)
-    assert(
-        out:find("cannot call a compiled entry", 1, true),
-        "the refusal names the call, not just the outcome: " .. out
-    )
-end
-
 function M.emitPrintsTheGeneratedC()
     local dir = project{["compute.nupp"] = COMPUTE}
     local decoded, raw, code, where = lowered(dir, PINNED .. "--json compute.nupp")
@@ -4085,18 +3152,12 @@ function M.emitPrintsTheGeneratedC()
 
     local out = decoded.c
     assert(out:find("void ks_escapes(", 1, true), where .. ": the exported symbol is defined: " .. out)
-    assert(
-        out:find("ks_escapes_forced_scalar", 1, true),
-        where .. ": the oracle the lane body is diffed against comes out too: " .. out
-    )
+    assert(not out:find("ks_escapes_forced_scalar", 1, true), where .. ": no scalar-loop twin: " .. out)
     assert(
         out:find("*restrict", 1, true),
         where .. ": the writable span carries the disjointness ownership proved: " .. out
     )
-    assert(
-        out:find("ks_exp_select_f64x4", 1, true),
-        where .. ": the conditional became a select rather than a branch: " .. out
-    )
+    assert(not out:find("ks_exp_select_f64x4", 1, true), where .. ": no inferred vector select: " .. out)
 end
 
 -- A result the wrapper has to establish. `loadlib` hands back `any`, so a
@@ -4161,14 +3222,7 @@ function M.emitAsmShowsWhatTheCCompilerMadeOfTheBody()
         "the header names the file, the target, the tier and the compiler: " .. out
     )
     assert(out:find("ks_escapes (escapes), kernel:", 1, true), "the compiled body is named by both spellings: " .. out)
-    assert(
-        out:find("ks_escapes_forced_scalar (escapes), oracle:", 1, true),
-        "the forced-scalar twin is told apart from the body it is the oracle for: " .. out
-    )
-    assert(
-        out:find("ks_escapes (escapes)", 1, true) < out:find("forced_scalar", 1, true),
-        "what the reader came for is first, whatever order the compiler emitted: " .. out
-    )
+    assert(not out:find("forced_scalar", 1, true), "scalar loops have no generated oracle: " .. out)
 end
 
 function M.asmShowsOneFunctionWhenOneIsNamed()
@@ -4249,7 +3303,7 @@ function M.emitPrintsTheIrAndTheBinding()
     test.equal(code, 0, raw)
 
     local ir = decoded.ir
-    assert(ir:find("simd vector", 1, true), where .. ": the vector body is in the IR beside the scalar one: " .. ir)
+    assert(not ir:find("simd vector", 1, true), where .. ": scalar source has no vector body: " .. ir)
     assert(ir:find("disjoint r0 r1", 1, true), where .. ": the alias matrix is in the IR: " .. ir)
 
     local binding = decoded.binding
@@ -4273,19 +3327,12 @@ function M.narrowScalarSpansKeepTheirStorageAndUseLanes()
         ir:find("flags:u32 source(uint8)", 1, true),
         where .. ": the IR distinguishes storage from its established value: " .. ir
     )
-    assert(
-        ir:find("simd_load.load:simd_vector_u8_fixed8", 1, true),
-        where .. ": a byte load keeps its own species and is converted from it: " .. ir
-    )
-    assert(
-        ir:find("simd_store.store:lua_effect", 1, true),
-        where .. ": a scalar span store is written from the vector: " .. ir
-    )
+    assert(not ir:find("simd_load", 1, true), where .. ": scalar byte loads are not rewritten: " .. ir)
 
     local c = decoded.c
     assert(c:find("uint8_t *restrict p_flags", 1, true), where .. ": the output pointer retains byte storage: " .. c)
     assert(c:find("const uint8_t *p_bytes", 1, true), where .. ": the input pointer retains const byte storage: " .. c)
-    assert(c:find("ks_exp_store_full_u8x8(p_flags", 1, true), where .. ": lane values narrow only when stored: " .. c)
+    assert(not c:find("ks_exp_store_full_u8x8(p_flags", 1, true), where .. ": no inferred vector store: " .. c)
 
     local binding, bindingCode = run(dir, "--emit binding bytes.nupp")
     test.equal(bindingCode, 0, binding)
@@ -4691,7 +3738,7 @@ return {classify = classify, Value = Value}
     assert(out:find("if (", 1, true), out)
 end
 
-function M.jsonCarriesTheRegionAndItsGang()
+function M.jsonReportsScalarLoopWithoutRemovedFields()
     local dir = project{["compute.nupp"] = COMPUTE}
     local out, code = run(dir, PINNED .. "--json compute.nupp")
     test.equal(code, 0, out)
@@ -4703,21 +3750,15 @@ function M.jsonCarriesTheRegionAndItsGang()
     local only = decoded.functions[1]
     test.equal(only.name, "escapes")
     test.equal(only.symbol, "ks_escapes")
-    test.equal(#only.regions, 1, "the map loop is the one @simd region")
-    test.equal(only.regions[1].gang.lanes, 4)
-    test.equal(only.regions[1].gang.species.f64, "simd_vector_f64_fixed4")
+    test.equal(only.regions, nil, "required-loop reports are removed")
     test.equal(#only.loops, 1)
     test.equal(only.loops[1].kind, "map")
-    test.equal(only.loops[1].outcome, "lowered")
-    test.equal(only.loops[1].line, only.regions[1].line, "the loop and the region are the same source line")
+    test.equal(only.loops[1].outcome, "scalar")
     assert(only.loops[1].nodes > 0)
     assert(decoded.ir and decoded.c and decoded.binding, "all three artifacts are carried")
 end
 
--- Two functions over one struct, landing on different gangs: `scale` is
--- ordinary binary64 and takes four lanes, `brighten` is written through
--- `nupp.math.f32` and takes eight. One file used to hold exactly one function,
--- and two gangs in one file is where the shared prelude has to not collide.
+-- Two scalar functions over one struct and two arithmetic widths.
 local TWO = [[
 local span = require("nupp.mem.span")
 
@@ -4741,7 +3782,6 @@ local function scale(
         error("range out of bounds", 2)
     end
 
-    @simd
     for i = first, last do
         local sample = samples[i]
         local input = source[i]
@@ -4765,7 +3805,6 @@ local function brighten(
         error("range out of bounds", 2)
     end
 
-    @simd
     for i = first, last do
         local sample = samples[i]
         local input = source[i]
@@ -4786,28 +3825,13 @@ function M.everyAotFunctionInAFileIsCompiled()
     test.equal(#decoded.functions, 2, "both functions are reported")
     test.equal(decoded.functions[1].name, "scale", "in source order")
     test.equal(decoded.functions[2].name, "brighten")
-    test.equal(decoded.functions[1].regions[1].gang.lanes, 4, "a binary64 value takes four lanes of 32 bytes")
-    test.equal(
-        decoded.functions[1].regions[1].gang.species.f64,
-        "simd_vector_f64_fixed4",
-        "and the species each element is carried in is reported"
-    )
-    test.equal(decoded.functions[2].regions[1].gang.lanes, 8, "explicit binary32 takes eight")
+    test.equal(decoded.functions[1].regions, nil)
+    test.equal(decoded.functions[2].regions, nil)
 
-    -- One struct declared once, both gangs in use, and each function bringing
-    -- its own pair of bodies.
+    -- One struct declared once, with each function bringing its own body.
     local c = decoded.c
     test.equal(select(2, c:gsub("} KsSample;", "")), 1, "the shared struct is declared once")
-    assert(
-        c:find("ks_exp_splat_f64x4(p_factor)", 1, true) and c:find("ks_exp_splat_f32x8(p_lift)", 1, true),
-        "each function's body runs on the species it chose"
-    )
-    test.equal(
-        select(2, c:gsub("float nupp_f32_nan", "")),
-        1,
-        "the helpers no gang owns appear once however many gangs the file uses"
-    )
-    for _, symbol in ipairs({"ks_scale", "ks_scale_forced_scalar", "ks_brighten", "ks_brighten_forced_scalar"}) do
+    for _, symbol in ipairs({"ks_scale", "ks_brighten"}) do
         assert(c:find("void " .. symbol .. "(", 1, true), symbol .. " is defined")
     end
 
@@ -4818,78 +3842,13 @@ function M.everyAotFunctionInAFileIsCompiled()
     )
 end
 
--- A gang is 16, 32, or 64 bytes. The tier decides which fit: those are one SSE2,
--- AVX, or AVX-512 register. The tier is selected rather than measured, because a
--- build that probed the machine in front of it would produce an artifact that
--- only runs there.
-function M.theBaselineX86TierGetsTheNarrowGang()
-    local dir = project{["compute.nupp"] = COMPUTE}
-    local decoded, out, code, where = lowered(dir, "--json --target x86_64-unknown-linux-gnu compute.nupp")
-    test.equal(code, 0, "plain x86-64 vectorises rather than refusing\n" .. out)
-    test.equal(decoded.target.tier, "baseline", where .. ": and did not quietly promise instructions nobody asked for")
-    test.equal(
-        decoded.functions[1].regions[1].gang.lanes,
-        2,
-        where .. ": half the lanes of AVX, which is the point: a smaller win, not no win"
-    )
-end
-
-function M.aWiderTierGetsTheWiderGang()
-    local dir = project{["compute.nupp"] = COMPUTE}
-    local out, code = run(dir, "--json --target x86_64-unknown-linux-gnu --features avx2 compute.nupp")
-    test.equal(code, 0, out)
-    local decoded = require("testjson").decode(out)
-    test.equal(decoded.target.triple, "x86_64-unknown-linux-gnu")
-    test.equal(decoded.target.tier, "avx2", "the tier is reported, because it changed the answer")
-    test.equal(decoded.functions[1].regions[1].gang.lanes, 4)
-end
-
-function M.theAvx512TierGetsEightMixedLanes()
-    local dir = project{["compute.nupp"] = COMPUTE}
-    local out, code = run(dir, "--json --target x86_64-unknown-linux-gnu --features avx512f compute.nupp")
-    test.equal(code, 0, out)
-    local decoded = require("testjson").decode(out)
-    test.equal(decoded.target.tier, "avx512f")
-    test.equal(decoded.functions[1].regions[1].gang.lanes, 8)
-    assert(
-        decoded.c:find("ks_exp_f64x8", 1, true) and decoded.c:find("ks_exp_mask_f64x8", 1, true),
-        "the eight-lane species carries binary64 values and masks at 64 bytes"
-    )
-end
-
-function M.anAll32BitLoopFillsTheTierWithNarrowLanes()
-    -- A lane is one logical iteration, so the lane count is the tier divided by
-    -- the widest element the region touches. Nothing here is wider than 32 bits,
-    -- so sixteen iterations fit a 64-byte register rather than eight.
-    local dir = project{["classify.nupp"] = BYTE_CLASSIFIER}
-    local out, code = run(dir, "--json --target x86_64-unknown-linux-gnu --features avx512f classify.nupp")
-    test.equal(code, 0, out)
-    local gang = require("testjson").decode(out).functions[1].regions[1].gang
-    test.equal(gang.lanes, 16, "sixteen 32-bit lanes fill the tier")
-    test.equal(gang.species.f64, nil, "and no binary64 species is chosen for a region with no binary64 value")
-end
-
-function M.theWidestGangThatFitsWins()
-    -- Both widths are available at avx2, so the choice has to be the wider one.
-    -- Preference used to come from the order the shapes were listed in, which
-    -- would have picked four narrow lanes over four wide ones here.
-    local dir = project{["compute.nupp"] = COMPUTE}
-    local out = select(1, run(dir, "--json --target x86_64-unknown-linux-gnu --features avx2 compute.nupp"))
-    local decoded = require("testjson").decode(out)
-    test.equal(decoded.functions[1].regions[1].gang.lanes, 4, "not two, which also fits and holds half as much")
-end
-
 function M.armHasOneTierAndNeedsNoSelection()
     local dir = project{["compute.nupp"] = COMPUTE}
     local out, code = run(dir, "--json --target aarch64-apple-darwin compute.nupp")
     test.equal(code, 0, out)
     local decoded = require("testjson").decode(out)
     test.equal(decoded.target.tier, "neon", "its 16-byte registers are mandatory, so there is nothing to opt into")
-    test.equal(
-        decoded.functions[1].regions[1].gang.lanes,
-        4,
-        "and a region pairs two of them, which holds four binary64 lanes"
-    )
+    test.equal(decoded.functions[1].regions, nil)
 end
 
 function M.anUnknownTargetOrTierIsRejected()
@@ -5620,12 +4579,8 @@ return {decode = decode}
     test.equal(code, 0, "a loop whose own condition proves the cursor proves it every pass\n" .. out)
 end
 
-function M.anAnnotatedLoopMovingACursorRetiresTheEnclosingProof()
-    -- The look-ahead that retires a proof reads the body's statements, and an
-    -- `@simd` loop is a pragma wrapping the loop. It used to stop at the
-    -- pragma, so a cursor moved inside the annotated loop kept the enclosing
-    -- proof through lowering and the verifier crashed on the read instead of
-    -- the lowerer refusing it at its line.
+function M.aNestedLoopMovingACursorRetiresTheEnclosingProof()
+    -- A cursor moved by a nested loop cannot keep the enclosing range proof.
     local dir = project{
         [
             "annotated.nupp"
@@ -5639,7 +4594,6 @@ local function scan(borrows bytes: span.Span<number>, exclusive out: span.WriteS
     if cursor < #bytes then
         while total < 10.0 do
             total = total + bytes[cursor + 1]
-            @simd
             for i = 1, #out do
                 out[i] = total
                 cursor = cursor + nupp.math.u32.wrap(1)
@@ -5653,7 +4607,7 @@ return {scan = scan}
 ]],
     }
     local out, code = run(dir, "annotated.nupp")
-    test.equal(code, 1, "a cursor an annotated loop moves is not proved by the enclosing check\n" .. out)
+    test.equal(code, 1, "a cursor the nested loop moves is not proved by the enclosing check\n" .. out)
     assert(
         out:find(
             "annotated.nupp:9:29: aot: span loads need a counted-loop index or cursor + 1 under cursor < #span",

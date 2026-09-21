@@ -1,22 +1,9 @@
 module nupp.compiler.aot.compile
 
 --[[
-Compiling one `@aot` function, end to end.
-
-Parse, lower, verify, run the loops the source marked `@simd` in lanes, verify
-again, emit. Everything it does is a step some other module owns; what it owns
-is the order, and the two places that order matters.
-
-The `@simd` rewrite runs on verified scalar IR. What it rewrites has already been
-proved to mean something, so a refusal from it is only ever about running the
-loop several iterations at a time -- never about whether the loop meant anything
-in the first place. And the rewritten IR is verified again before it is emitted,
-because a rewrite that produced something malformed is a compiler bug and this is
-where it stops being one.
-
-Only a loop that says `@simd` is rewritten, and one that says it and cannot be
-fails the build with the refusals. A loop without it keeps its scalar form and
-nothing estimates whether lanes would have paid: the source decides.
+Compiling one `@aot` function, end to end. The source is lowered, verified,
+optimized, and emitted. Explicit vector values are legalized for the selected
+target before emission.
 ]]
 
 local bindingRules = require("nupp.compiler.aot.binding")
@@ -30,7 +17,6 @@ local lower = require("nupp.compiler.aot.lower")
 local loopAnalysis = require("nupp.compiler.aot.loops")
 local aotOptimize = require("nupp.compiler.aot.optimize")
 local parser = require("nupp.compiler.parser")
-local simdrewrite = require("nupp.compiler.aot.simdrewrite")
 local scalarIR = require("nupp.compiler.aot.scalar")
 local targets = require("nupp.compiler.aot.target")
 local text = require("nupp.compiler.aot.text")
@@ -184,57 +170,6 @@ local function nameRegistrar(programs: {scalarIR.Program}): nil
         end
     end
 end
-
---- A diagnostic placed at the program's map loop, which is where a lane
---- decision is about, or at the program when it has none.
-local function loopDiagnostic(program: scalarIR.Program, filename: string, message: string): compile.Diagnostic
-    local at = program.loop ~= nil and (program.loop as scalarIR.Loop).source or program.source
-
-    return new compile.Diagnostic(
-        file = filename,
-        line = at ~= nil and (at as scalarIR.Source).line or 1,
-        column = at ~= nil and (at as scalarIR.Source).column or 1,
-        message = message
-    )
-end
-
-local function regionDiagnostic(region: scalarIR.Fornum, filename: string, message: string): compile.Diagnostic
-    local at = region.source
-
-    return new compile.Diagnostic(
-        file = filename,
-        line = at ~= nil and (at as scalarIR.Source).line or 1,
-        column = at ~= nil and (at as scalarIR.Source).column or 1,
-        message = message
-    )
-end
-
-local function requiredRegions(statements: {scalarIR.Statement}, out: {scalarIR.Fornum}): nil
-    for _, statement in ipairs(statements) do
-        if statement.op == "fornum" then
-            local loop = statement as scalarIR.Fornum
-            if loop.simdRequired == true then
-                out[#out + 1] = loop
-            else
-                requiredRegions(loop.body, out)
-            end
-        elseif statement.op == "if" then
-            for _, clause in ipairs((statement as scalarIR.If).clauses) do
-                requiredRegions(clause.body, out)
-            end
-            requiredRegions((statement as scalarIR.If).elseBody or {}, out)
-        elseif statement.op == "while"
-            or statement.op == "repeat"
-            or statement.op == "block"
-            or statement.op == "simd_region"
-        then
-            requiredRegions((statement as any).conditionBody or {}, out)
-            requiredRegions((statement as any).body as {scalarIR.Statement}, out)
-        end
-    end
-end
-
-const NO_LANE_CODE = "the required @simd loop did not produce lane code"
 
 --- Whether a target has vector registers, which is what `simd.species`
 --- answers. No target means the standalone harness, which has always assumed
@@ -693,7 +628,7 @@ function compile.constSpecializations(
             numericForRuntime(program, selected)
             optimizations[position] = aotOptimize.program(program)
             verify.program(program)
-            local refusals = compile.lanes(program, filename, selected)
+            local refusals = compile.legalizeVectors(program, filename, selected)
             if refusals ~= nil then
                 laneRefusals = refusals
                 error(REFUSED, 0)
@@ -723,25 +658,14 @@ function compile.constSpecializations(
     return answer as compile.Artifacts, diagnostics
 end
 
---- Runs the loops the source marked `@simd` several iterations at a time.
----
---- A map-shaped program carries the mark on its one loop and is rewritten
---- whole; a block-shaped body carries it on regions, each rewritten in place.
---- Either way the rewrite is onto the explicit SIMD vocabulary -- the same
---- species, masks and reducers a programmer writes by hand, at the target's own
---- vector width. A program with no mark is left as it lowered.
----
---- @param filename what a refusal names
---- @param selected the target, which decides the vector width
---- @return the refusals when a required loop produced no vector code, which
----   fails the build; nothing when every required loop did
-function compile.lanes(program: scalarIR.Program, filename: string, selected: targets.Target): {compile.Diagnostic}?
+--- Resolves explicit vector widths and validates constant lane indices.
+function compile.legalizeVectors(
+    program: scalarIR.Program,
+    filename: string,
+    selected: targets.Target
+): {compile.Diagnostic}?
     numericForRuntime(program, selected)
-    -- Preferred resolves only once the program's actual width is selected.
-    -- Required loops use the region width; ordinary explicit code uses the
-    -- preferred width, which can be narrower than the target's register ceiling.
-    local resolvedWidth = program.simdRequired == true and targets.simdRegionWidth(selected)
-        or targets.simdWidth(selected)
+    local resolvedWidth = targets.simdWidth(selected)
     local indexRefusals: {compile.Diagnostic} = {}
     if program.usesSimd == true then
         visit.program(
@@ -777,77 +701,6 @@ function compile.lanes(program: scalarIR.Program, filename: string, selected: ta
         program.simdWidth = targets.simdWidth(selected)
         program.vectorCeiling = targets.vectorCeiling(selected)
     end
-    if program.simdRequired ~= true then
-        return nil
-    end
-    local width = targets.simdRegionWidth(selected)
-    if width == 0 then
-        -- A tier with no vector register has nothing for a required loop to
-        -- run in. Refused here, before the rewrite is handed a zero width and
-        -- the verifier is handed the zero-width program it produces, so that
-        -- the failure is a diagnostic the build can answer with the tier that
-        -- would lower the source and the `aotFeatures.minimum` naming it.
-        local why = "the " .. selected.tier .. " feature tier has no 16-byte vector"
-        local narrowest: string? = nil
-        for _, tier in ipairs(targets.tiers(selected.architecture)) do
-            if narrowest == nil and (targets.TIERS[tier] or 0) > 0 then
-                narrowest = tier
-            end
-        end
-        if narrowest ~= nil then
-            why = why .. "; select " .. (narrowest as string) .. " to run several iterations at once"
-        end
-        local refused: {compile.Diagnostic} = {}
-        local zeroRegions: {scalarIR.Fornum} = {}
-        requiredRegions(program.body or {}, zeroRegions)
-        for _, region in ipairs(zeroRegions) do
-            refused[#refused + 1] = regionDiagnostic(region, filename, why)
-        end
-        if #refused == 0 then
-            refused[1] = loopDiagnostic(program, filename, why)
-        end
-
-        return refused
-    end
-    if program.loop ~= nil then
-        local refusals = simdrewrite.program(program, width)
-        if program.vector == nil then
-            local out: {compile.Diagnostic} = {}
-            for _, why in ipairs(refusals) do
-                out[#out + 1] = loopDiagnostic(program, filename, why)
-            end
-            if #out == 0 then
-                out[1] = loopDiagnostic(program, filename, NO_LANE_CODE)
-            end
-            return out
-        end
-        program.simdWidth = width
-        program.vectorCeiling = targets.vectorCeiling(selected)
-        verify.program(program)
-        return nil
-    end
-
-    local regions: {scalarIR.Fornum} = {}
-    requiredRegions(program.body or {}, regions)
-    if #regions == 0 then
-        return {loopDiagnostic(program, filename, NO_LANE_CODE)}
-    end
-    for ordinal, region in ipairs(regions) do
-        local refusals = simdrewrite.region(program, region, width, ordinal)
-        if region.vector == nil then
-            local out: {compile.Diagnostic} = {}
-            for _, why in ipairs(refusals) do
-                out[#out + 1] = regionDiagnostic(region, filename, why)
-            end
-            if #out == 0 then
-                out[1] = regionDiagnostic(region, filename, NO_LANE_CODE)
-            end
-            return out
-        end
-    end
-    program.simdWidth = width
-    program.vectorCeiling = targets.vectorCeiling(selected)
-    verify.program(program)
 
     return nil
 end
@@ -936,7 +789,7 @@ function compile.artifacts(
             checkedArtifact.artifactId = hash.digest(checkedArtifact.spirv)
             gpu[program.symbol] = artifact as gpuartifact.Artifact
         else
-            local refusals = compile.lanes(program, filename, selected)
+            local refusals = compile.legalizeVectors(program, filename, selected)
             if refusals ~= nil then
                 return nil, refusals
             end

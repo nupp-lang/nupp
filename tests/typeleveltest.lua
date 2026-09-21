@@ -2014,17 +2014,23 @@ local simd = require("nupp.simd")
 local left: simd.Mask<uint8, simd.Fixed<3>> = nil as any
 local right: simd.Mask<uint8, simd.Fixed<3>> = nil as any
 ]]
-    clean(prefix .. [[
+    clean(
+        prefix
+        .. [[
 local same: simd.Mask<uint8, simd.Fixed<3>> = left == right
 local different: simd.Mask<uint8, simd.Fixed<3>> = left ~= right
 return same:select(4, 2), different:any()
-]])
+]]
+    )
     assertEq(codes(prefix .. "return left < right"), "NUPP2003")
     assertEq(codes(prefix .. "return left == true"), "NUPP2003")
-    assertEq(codes(prefix .. [[
+    assertEq(
+        codes(prefix .. [[
 local other: simd.Mask<uint8, simd.Fixed<4>> = nil as any
 return left == other
-]]), "NUPP2006")
+]]),
+        "NUPP2006"
+    )
 end
 
 function M.narrowStorageWidthsAreValidOnlyInsideCompilerOwnedSimdFamilies()
@@ -2084,7 +2090,6 @@ local simd = require("nupp.simd")
 @aot
 local function total(seed: uint32): uint32
     local fold = simd.reducer.u32.wrappingSum(seed)
-    @simd
     for i = 1, 4 do
         fold:add(seed)
     end
@@ -2094,12 +2099,7 @@ return total
 ]]
     clean(source)
     local bad = source:gsub("fold:add%(seed%)", "if i > 2 then fold:add(seed) end")
-    local found = diagnostics(bad)
-    local saw = false
-    for _, diagnostic in ipairs(found) do
-        saw = saw or diagnostic.msg:find("exactly one unconditional contribution", 1, true) ~= nil
-    end
-    assert(saw, "conditional exact contribution was not rejected")
+    clean(bad)
     assertEq(codes(source:gsub("fold:add%(seed%)", "fold:add(true)")), "NUPP2006")
     clean(
         [[
@@ -2120,7 +2120,6 @@ function M.reducerLifecyclesAreCheckedWithoutTargetLowering()
                 "@aot",
                 "local function total(): number",
                 "   local sum = simd.reducer.orderedSum(0.0)",
-                "   @simd",
                 "   for i = 1, 4 do",
                 "      sum:add(i)",
                 "   end",
@@ -2140,7 +2139,6 @@ function M.reducerLifecyclesAreCheckedWithoutTargetLowering()
                 "local function total(): number",
                 "   local sum = simd.reducer.orderedSum(0.0)",
                 "   local copy = sum",
-                "   @simd",
                 "   for i = 1, 4 do",
                 "      copy:add(i)",
                 "   end",
@@ -2153,11 +2151,8 @@ function M.reducerLifecyclesAreCheckedWithoutTargetLowering()
     )
     local lifecycle = false
     for _, diagnostic in ipairs(found) do
-        lifecycle = lifecycle or diagnostic.msg:find(
-            "a reducer cannot be copied or passed through another value",
-            1,
-            true
-        ) ~= nil
+        lifecycle = lifecycle
+            or diagnostic.msg:find("a reducer cannot be copied or passed through another value", 1, true) ~= nil
     end
     assert(lifecycle, "nupp check did not enforce reducer ownership")
 end

@@ -78,7 +78,6 @@ local function vector(
     borrows stops: span.Span<int32>
 ): nil
     assert(#output == #starts and #starts == #stops)
-    @simd
     for index = 1, #output do
         local low = starts[index]
         local stop = stops[index]
@@ -171,7 +170,6 @@ local function vectorWide(
     borrows stops: span.Span<number>
 ): nil
     assert(#output == #starts and #starts == #stops)
-    @simd
     for index = 1, #output do
         local visits = 0
         local final = 0
@@ -220,7 +218,6 @@ local function uniformAssigned(
     last: int32
 ): nil
     assert(#output == #input)
-    @simd
     for index = 1, #output do
         local total = 0
         local value = input[index]
@@ -241,7 +238,6 @@ local function unsignedVector(
     borrows stops: span.Span<uint32>
 ): nil
     assert(#output == #starts and #starts == #stops)
-    @simd
     for index = 1, #output do
         local visits: uint32 = 0
         for cursor = starts[index], stops[index] do
@@ -258,7 +254,6 @@ local function signedVector(
     borrows stops: span.Span<int32>
 ): nil
     assert(#output == #starts and #starts == #stops)
-    @simd
     for index = 1, #output do
         local visits: uint32 = 0
         for cursor = starts[index], stops[index] do
@@ -286,7 +281,6 @@ end
 
 @aot
 local function regions(exclusive output: span.WriteSpan<uint32>, repeats: int32): nil
-    @simd
     for index = 1, #output do
         local count: uint32 = 0
         for cursor = output[index], 3 do
@@ -298,7 +292,6 @@ local function regions(exclusive output: span.WriteSpan<uint32>, repeats: int32)
         output[index] = count
     end
     for outer = 1, repeats do
-        @simd
         for index = 1, #output do
             local count = output[index]
             for cursor = output[index], 3 do
@@ -314,7 +307,6 @@ end
 
 @aot
 local function liveness(exclusive output: span.WriteSpan<number>, trips: int32, mode: int32): nil
-    @simd
     for index = 1, #output do
         local control = output[index]
         local visits = 0

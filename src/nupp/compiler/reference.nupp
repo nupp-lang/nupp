@@ -1906,8 +1906,6 @@ annotation. It changes no runtime behavior.
 
 `@jit` enforces traceability: a variadic FFI call or a Lua callback passed into
 C must live in a function disabled with `jit.off`, or it reports `NUPP2707`.
-`@simd` targets a numeric `for` loop inside an `@aot` body and requires it to
-run in lanes; it takes no members.
 
 ### Ahead-of-time compilation
 
@@ -1953,16 +1951,14 @@ guard is a compile-time refusal rather than an unchecked native access. Reified
 span structs may store `number` fields as physical C `double` values, which is
 what makes them usable as pointer-free parser and codec arenas.
 
-A numeric loop inside an `@aot` body marked `@simd` runs several iterations
-at once, at a width taken from the lane types its own values need; nothing in
-the source names a lane, a mask, or a width. The mark is a requirement: a
-`@simd` loop the compiler cannot run in lanes fails the build, naming the
-construct that refused it, and a loop without the mark compiles scalar. Removing
-the mark changes the compilation strategy, never the answer. An algorithm whose
-register is itself a data structure imports
-`nupp.simd` inside a block kernel. Its values and masks cannot escape the kernel
-and have no boxed Lua representation. `simd.species` answers `nil` with
-`aot = "off"`, so callers can supply an ordinary scalar path.
+An ordinary loop remains scalar in Nupp IR. Its generated C is optimized and
+may be vectorized by the C compiler, but Nupp makes no vectorization promise.
+An algorithm that requires vectors imports `nupp.simd` inside a block kernel
+and writes the species loop, masks, and tail explicitly. Its vector and mask
+values cannot escape the kernel and have no boxed Lua representation.
+`simd.species` answers `nil` with `aot = "off"`, so the source can supply an
+ordinary scalar continuation. `nupp aot --emit c` and `--emit asm` expose the
+chosen implementation for inspection.
 
 `@aot(target = "gpu")` records a GPU execution family in the verified IR and
 maps one whole-span loop iteration to one GPU invocation. With the native `aot = "require"` policy, the compiler emits

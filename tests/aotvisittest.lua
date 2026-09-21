@@ -376,12 +376,9 @@ function M.pointerSpansSeeUniformReadsAndLoopBounds()
 end
 
 function M.theWalkReachesAUniformMultipleBinding()
-    -- A uniform multiple-result call stays a scalar `multi_let` inside a
-    -- rewritten body. The rewrite emits one, the verifier admits one and the
-    -- emitter renders one; the walk used to fall through it without visiting
-    -- the call.
+    -- A scalar `multi_let` must expose the call's arguments to the walk.
     local program = {
-        vector = {
+        body = {
             {
                 op = "multi_let",
                 call = {op = "helper_call", helper = "pair", args = {localValue("argument")}, type = "multi"},

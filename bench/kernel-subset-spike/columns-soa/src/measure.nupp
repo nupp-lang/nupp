@@ -10,7 +10,7 @@ local struct Entity
     vy: float
 end
 
-local function run(count: integer, steps: integer, scalar: boolean): (number, number)
+local function run(count: integer, steps: integer, scalar: boolean, dt: float): (number, number)
     local entities = soa.allocate(ffi.typeof<Entity>(), count)
     local elapsed = 0.0
     local checksum = 0.0
@@ -32,9 +32,9 @@ local function run(count: integer, steps: integer, scalar: boolean): (number, nu
             local started = os.clock()
             for _ = 1, steps do
                 if scalar then
-                    kernel.advanceScalar(xs, ys, vxs, vys, 1, count, 0.5)
+                    kernel.advanceScalar(xs, ys, vxs, vys, 1, count, dt)
                 else
-                    kernel.advance(xs, ys, vxs, vys, 1, count, 0.5)
+                    kernel.advance(xs, ys, vxs, vys, 1, count, dt)
                 end
             end
             elapsed = os.clock() - started
@@ -43,10 +43,10 @@ local function run(count: integer, steps: integer, scalar: boolean): (number, nu
             end
         end
 
-        drop writeVys
-        drop writeVxs
-        drop ys
-        drop xs
+        nupp.drop(writeVys)
+        nupp.drop(writeVxs)
+        nupp.drop(ys)
+        nupp.drop(xs)
     end
 
     return elapsed, checksum

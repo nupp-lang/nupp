@@ -41,7 +41,6 @@ local function advance(
         error("range out of bounds", 2)
     end
 
-    @simd
     for i = first, last do
         -- Both operands are uniform parameters, so both results are uniform and
         -- every lane reads the same two numbers.

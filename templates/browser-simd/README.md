@@ -27,7 +27,7 @@ nupp task serve
 ```
 
 Open <http://127.0.0.1:8787>. `src/scalar.nupp` forces scalar AOT and
-`src/simd.nupp` forces lane lowering into Wasm SIMD128. Both operate on bounded copies of guest struct arrays. The bridge converts field offsets between the guest and Wasm layouts. The page reports which package
+`src/simd.nupp` uses explicit vectors on Wasm SIMD128. Both operate on bounded copies of guest struct arrays. The bridge converts field offsets between the guest and Wasm layouts. The page reports which package
 it selected and the kernel's result. Measure representative application
 buffers before deciding that an AOT boundary pays for itself.
 

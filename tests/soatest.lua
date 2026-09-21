@@ -35,11 +35,8 @@ local function runs(source)
     assertEq(
         #generated,
         0,
-        generated[
-            1
-        ] and (
-            (generated[1].code or "generation") .. ": " .. (generated[1].msg or "") .. "\n" .. code
-        ) or "generation diagnostics"
+        generated[1] and ((generated[1].code or "generation") .. ": " .. (generated[1].msg or "") .. "\n" .. code)
+        or "generation diagnostics"
     )
     local chunk, why = loadstring(code, "@soa_test")
     assert(chunk, tostring(why) .. "\n" .. code)
@@ -61,6 +58,8 @@ end
 
 local PRELUDE = [[
 local soa = require("nupp.mem.soa")
+local array = require("nupp.mem.array")
+local simd = require("nupp.simd")
 local ffi = require("ffi")
 
 local struct Particle
@@ -668,16 +667,23 @@ local DIRECT = PRELUDE
     .. [[
 @aot
 local function advance(exclusive rows: soa.WriteToken & soa.WriteSpan<Particle>, dt: float): nil
-    @simd
-    for i = 1, #rows do
-        rows[i].x += rows[i].dx * dt
-        rows[i].y = rows[i].y + rows[i].dy * dt
+    local species = assert(simd.species(array.float))
+    local cursor: uint32 = 0
+    while cursor < #rows do
+        local active = species:tail(#rows - cursor)
+        local x = species:load(rows, cursor + 1, "x", active)
+        local dx = species:load(rows, cursor + 1, "dx", active)
+        local y = species:load(rows, cursor + 1, "y", active)
+        local dy = species:load(rows, cursor + 1, "dy", active)
+        species:store(rows, cursor + 1, "x", x + dx * dt, active)
+        species:store(rows, cursor + 1, "y", y + dy * dt, active)
+        cursor = cursor + species.lanes
     end
 end
 return advance
 ]]
 
-function M.nativeColumnsKeepSourceMappingAndRunThroughLaneLowering()
+function M.nativeColumnsKeepSourceMappingAndUseExplicitVectors()
     local selected = assert(aotTargets.select("aarch64-apple-darwin", "neon"))
     local programs, diagnostics = native(DIRECT, selected)
     assertEq(#diagnostics, 0, diagnostics[1] and diagnostics[1].message)
@@ -699,7 +705,7 @@ function M.nativeColumnsKeepSourceMappingAndRunThroughLaneLowering()
     assert(binding:find('rows:field("dx")', 1, true), binding)
     assert(not binding:find("ffi.copy", 1, true), binding)
     assert(not binding:find("exclusive __nuppSoa", 1, true), binding)
-    local refusal = aotCompile.lanes(program, "soa-native.g.nupp", selected)
+    local refusal = aotCompile.legalizeVectors(program, "soa-native.g.nupp", selected)
     assert(refusal == nil, refusal and refusal[1] and refusal[1].message)
     aotVerify.program(program)
     local text = aotText.program(program)

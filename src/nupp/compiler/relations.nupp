@@ -243,11 +243,30 @@ local usedAssumption: boolean = false
 -- Contracts and associated answers
 ----------------------------------------------------------------------------
 
+--- Imported summaries can carry distinct objects for the same non-generic
+--- sealed declaration. A sealed module and declaration name identify it across
+--- that boundary; generic applications still need argument comparison.
+local function sameSealedDeclaration(a: Type, b: Type): boolean
+    return a == b
+        or (
+            a.tag == "nominal"
+            and b.tag == "nominal"
+            and a.sealedModule ~= nil
+            and a.sealedModule == b.sealedModule
+            and a.moduleName == b.moduleName
+            and a.name == b.name
+            and #(a.typeArgs or {}) == 0
+            and #(b.typeArgs or {}) == 0
+            and #(a.constArgs or {}) == 0
+            and #(b.constArgs or {}) == 0
+        )
+end
+
 --- Whether a nominal explicitly takes a contract, directly or through another
 --- declared contract. Sealed interfaces use this instead of structural matching:
 --- their owning module audited the implementation edge, not merely its public shape.
 local function declaresContract(a: Type, b: Type, seen: {[Type]: boolean}?): boolean
-    if a == b then
+    if sameSealedDeclaration(a, b) then
         return true
     end
     if a.tag ~= "nominal" then
@@ -259,8 +278,19 @@ local function declaresContract(a: Type, b: Type, seen: {[Type]: boolean}?): boo
     end
     seen[a] = true
     for _, parent in ipairs((a as T.Nominal).supertypes or {}) do
-        if parent == b or declaresContract(parent, b, seen) then
+        if sameSealedDeclaration(parent, b) or declaresContract(parent, b, seen) then
             return true
+        end
+    end
+    -- A generic application can be instantiated while its declaration is still
+    -- being checked, before the `is` list has been filled. The declaration's
+    -- later non-generic contracts are still contracts of that application.
+    local origin = (a as T.Nominal).origin as T.Nominal?
+    if origin then
+        for _, parent in ipairs(origin.supertypes or {}) do
+            if sameSealedDeclaration(parent, b) or declaresContract(parent, b, seen) then
+                return true
+            end
         end
     end
 

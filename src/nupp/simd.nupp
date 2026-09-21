@@ -38,12 +38,12 @@ first logical lane to bit zero. A vector and a mask have no boxed Lua
 representation, so neither can leave the kernel. `simd.species` answers `nil`
 under `aot = "off"`; the scalar continuation above handles that case.
 
-Reach for this only where a scalar loop cannot say what you mean -- shuffles,
-transposes, prefix scans, fixed-tree reductions, gathers, compress and expand.
-A loop that merely wants to be vectorized should be `@simd` instead and let the
-compiler do it. `simd.reducer` carries one contribution per logical iteration of
-such a loop back into scalar code, and `simd.horizontal` reduces a vector to one
-value.
+Use explicit vectors when SIMD execution is part of the algorithm: shuffles,
+transposes, prefix scans, fixed-tree reductions, gathers, compress, expand, or
+a loop that C does not vectorize adequately. Ordinary loops compile to optimized
+C and may be vectorized downstream. `simd.reducer` accepts scalar contributions
+or explicit vector-plus-mask contributions, and `simd.horizontal` reduces a
+vector to one value.
 
 See
 [vectorization.md](docs/learn/performance/ahead-of-time/vectorization.md) for
@@ -51,12 +51,16 @@ the whole of it.
 ]]
 
 const {type Span, type WriteSpan} = require("nupp.mem.span")
+const {
+    type ReadView as SoaReadView,
+    type WriteSpan as SoaWriteSpan,
+    type WriteToken as SoaWriteToken
+} = require("nupp.mem.soa")
 const {type Scalar as StorageWitness} = require("nupp.mem.array")
 
 local simd = {}
 
---- Closed reduction values used to carry one contribution from each logical
---- iteration of an `@simd` loop back into scalar code.
+--- Closed reduction values for scalar or explicit masked vector contributions.
 --- @export
 local reducer: {
     orderedSum: function(initial: number): reducer.OrderedSum,
@@ -1404,10 +1408,9 @@ sealed interface simd.Species<T, S>
         ...: simd.Vector<T, S>
     ): simd.Vector<T, S>
 
-    --- The next lanes of a span from `offset`, or with a field name, that
-    --- field of the next lanes of a span of structs, strided by the struct.
-    --- `active` limits both to the lanes it names. A WriteSpan can be borrowed
-    --- for the read; the returned vector retains no borrow of its storage.
+    --- The next lanes of a span from `offset`, or one named field of its rows.
+    --- A field in a span of structs is strided; a SoA row field is contiguous.
+    --- `active` limits the lanes. The vector retains no storage borrow.
     load: function(
         borrows self: simd.Species<T, S>,
         borrows source: Span<T>,
@@ -1435,9 +1438,23 @@ sealed interface simd.Species<T, S>
             field: string,
             active: simd.Mask<T, S>?
         ): simd.Vector<T, S>
+        & function<E>(
+            borrows self: simd.Species<T, S>,
+            borrows source: SoaWriteToken & SoaWriteSpan<E>,
+            offset: integer,
+            field: string,
+            active: simd.Mask<T, S>?
+        ): simd.Vector<T, S>
+        & function(
+            borrows self: simd.Species<T, S>,
+            borrows source: SoaReadView,
+            offset: integer,
+            field: string,
+            active: simd.Mask<T, S>?
+        ): simd.Vector<T, S>
 
-    --- The counterpart of `load`: the next lanes of a span, or one field of
-    --- the next lanes of a span of structs, leaving the other fields alone.
+    --- Writes the next lanes of a span or one named field of its rows.
+    --- Other fields are unchanged.
     store: function(
         borrows self: simd.Species<T, S>,
         exclusive destination: WriteSpan<T>,
@@ -1448,6 +1465,14 @@ sealed interface simd.Species<T, S>
         & function<E>(
             borrows self: simd.Species<T, S>,
             exclusive destination: WriteSpan<E>,
+            offset: integer,
+            field: string,
+            value: simd.Vector<T, S>,
+            active: simd.Mask<T, S>?
+        ): nil
+        & function<E>(
+            borrows self: simd.Species<T, S>,
+            exclusive destination: SoaWriteToken & SoaWriteSpan<E>,
             offset: integer,
             field: string,
             value: simd.Vector<T, S>,
@@ -1479,7 +1504,7 @@ sealed interface simd.Species<T, S>
     --- Asserts that all active indices are unique, without checking them.
     --- Duplicate active indices are undefined behavior, even if the values
     --- agree. This promises no winning lane or accumulation order and does
-    --- not authorize collisions between iterations of an enclosing @simd loop.
+    --- not authorize collisions between separate scatter operations.
     --- Bounds and inactive lanes behave as in scatter.
     scatterUnchecked: function<I>(
         borrows self: simd.Species<T, S>,

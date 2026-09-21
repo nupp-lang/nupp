@@ -4,6 +4,11 @@ This directory records completion evidence for the explicit SIMD plan. The
 LuaJIT browser migration tracked by #59 is outside this matrix; the existing
 Wasm SIMD128 backend is included.
 
+Results dated before the removal of `@simd` are historical. The current
+`measure.py` compares scalar-source C at `-O3`, the same C with vectorization
+disabled, and authored `nupp.simd`. It does not regenerate the removed loop
+rewrite; its frozen pre-removal artifacts are kept outside the source tree.
+
 ## Performance protocol (frozen before timing)
 
 The primary measurement is elapsed monotonic wall time for complete functions,
@@ -17,10 +22,10 @@ pairwise and algebraic dot products, UTF-8, Base64, fused JSON and explicit
 cross-lane operations. Existing qualified comparisons retain their recorded
 revisions and scope; a historical result is not relabeled as a new-head run.
 
-New kernel comparisons distinguish three artifacts: the independent
-scalar-source correctness oracle, the optimized native vector function, and
-an optimized scalar-source control with automatic vectorization disabled.
-The original correctness oracle is never a performance baseline. Algebraic
+New kernel comparisons distinguish the current native entry, optimized scalar
+C, and the same scalar C with vectorization disabled. Authored vector entries
+are timed separately. Where an explicit SIMD oracle exists, it is used only
+for correctness. Algebraic
 answers are checked against their declared numerical envelope rather than
 forced to equal a particular association.
 
@@ -55,8 +60,8 @@ python3 bench/simd11/measure.py --report /private/tmp/simd11-measurement.json
 
 Preparation records generated C, IR, checked bindings, native assembly, flags,
 compiler identity, target and SHA-256 digests. It checks vector arithmetic in
-native entries and its absence in the corresponding no-vector control entries.
-The original scalar-source oracle is retained for correctness and is not timed.
+authored SIMD entries and its absence in scalar no-vector control entries.
+An explicit SIMD oracle is retained for correctness and is not timed.
 `--check` performs correctness checks without collecting timing samples.
 
 The new matrix has 63 and 65,539 elements, so both sizes exercise tails. Map
@@ -116,7 +121,7 @@ and logs remain preserved; the accepted report retains this source revision.
 | Primitive types, species, tails, masks and input classes | [Shared corpus inventory](../../tests/simd/coverage.md) |
 | Exact and algebraic reducer contracts | [Reducer corpus](../../tests/simd/reducers.lua), [numerical rules](../../docs/learn/performance/ahead-of-time/numeric-semantics.md) |
 | Actual native and Wasm entry execution | [Shared runners and retained proof](../../tests/simd/README.md) |
-| Every authored corpus region has vector artifact evidence | [Region proof](../../tests/simd/regionproof.lua), retained `regions.json`, and executed-entry checks in both runners |
+| Authored vector operations execute in native and Wasm builds | [Shared runners](../../tests/simd/README.md) and their executed-entry checks |
 | Clang/GCC, operating systems and exact feature tiers | [CI matrix](../../.github/workflows/simd-conformance.yml), [platform inventory](../../.github/simd-platforms.json) |
 | Malformed regions, reducers, masks, vectors and lane indices | [Verifier fixtures](../../tests/aotverifytest.lua) |
 | Ordered, pairwise, algebraic and FMA assembly contracts | [AOT CLI checks](../../tests/aotclitest.lua) |

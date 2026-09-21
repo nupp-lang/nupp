@@ -30,8 +30,9 @@ Lua-building entries.
 Pure numeric and span bodies keep the small `kernel` ABI, and a body that
 constructs fresh Lua values uses the separate `lua-builder` ABI. GPU entries
 replace the function with a checked `compile`, `bind`, and `dispatch` surface.
-Nothing in the source names an ABI, a mask, or a vector width; a loop that is
-to run in lanes says so with one mark, `@simd`, and that is the whole of it.
+Nothing in the source names an ABI. A loop that requires CPU SIMD states its
+species, masks, and tail through `nupp.simd`; ordinary loops compile to
+optimized C without a vectorization guarantee.
 
 ## Const-specialized families
 
@@ -51,7 +52,7 @@ local result = doubled(5.0, 3)
 
 The build collects closed applications across the module graph, emits a private
 native body per admitted body class, and removes the carrier from that private
-ABI. Constant folding and bounded unrolling run before lane selection. Checked
+ABI. Constant folding and bounded unrolling run before target legalization. Checked
 same- and cross-module calls use the private entry; the public function value
 dispatches tuples that were included in the deliverable and reports an unmatched
 tuple instead of silently falling back from an AOT-required build.
@@ -66,7 +67,7 @@ specialized by [`OPT-8`](../index.md#opt-8-const-monomorphization).
 
 ## Annotation guarantees
 
-`@aot` promises three properties.
+`@aot` promises ahead-of-time compilation and stable numeric meaning.
 
 The body compiles once, ahead of time, with an optimizing compiler behind it.
 LuaJIT is a tracing JIT: it compiles what it observes, it gives up on shapes it
@@ -79,11 +80,6 @@ property of what was written rather than of the target that compiled it.
 Explicit wrapping integer operations may be reassociated because their modular
 answer does not depend on grouping. Ask for a relaxation per function with
 [`@relax`](../../../reference/annotations.md#relaxing-observable-guarantees).
-
-And a numeric loop over spans marked `@simd` runs several iterations at once.
-That is the largest single win where it applies, and the source decides where
-it applies: the mark is a requirement, so a marked loop that cannot run in lanes
-fails the build rather than quietly running one iteration at a time.
 
 ::: deepdive Required compilation
 The annotation is a contract over ordinary Nupp rather than a restricted
@@ -102,7 +98,7 @@ Each page owns one part of the AOT pipeline.
   representative measurement.
 - [Lua values](lua-values.md) covers table and string construction through the
   VM-rooted builder ABI.
-- [Vectorization](vectorization.md) covers `@simd` loops, explicit SIMD, and
+- [Vectorization](vectorization.md) covers explicit SIMD, ordinary C optimization, and
   target feature tiers.
 - [Numeric semantics](numeric-semantics.md) covers arithmetic guarantees and
   verification.
@@ -124,9 +120,10 @@ annotation that changes the answer, and it says so per function.
 
 ### Why did my loop compile but run one iteration at a time?
 
-It is not marked `@simd`. An unmarked loop runs scalar and `nupp aot FILE`
-reports it so; a marked loop either runs in lanes or fails the build at the
-construct that stopped it. See [Required loops](vectorization.md#required-loops).
+An ordinary loop remains scalar in Nupp IR. Its generated C may or may not be
+vectorized by the C compiler. Inspect `nupp aot --emit asm` before relying on
+that optimization; write explicit SIMD when vectors are required. See
+[AOT vectorization](vectorization.md).
 
 ### Does a project need a C compiler?
 

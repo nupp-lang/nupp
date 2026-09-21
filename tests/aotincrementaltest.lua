@@ -60,7 +60,6 @@ local function scale%d(exclusive out: span.WriteSpan<float>, borrows input: span
     if #out ~= #input then
         error("length mismatch", 2)
     end
-    @simd
     for i = 1, #out do
         out[i] = input[i] * factor + %d.0
     end

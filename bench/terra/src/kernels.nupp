@@ -59,7 +59,6 @@ local function mandelbrot(
 ): nil
     assert(#escapes == #points, "length mismatch")
 
-    @simd
     for i = 1, #escapes do
         local escape = escapes[i]
         local point = points[i]
@@ -147,7 +146,6 @@ one may be lowered lane-parallel without any relaxation being asked for.
 local function mix(exclusive output: span.WriteSpan<uint32>, borrows input: span.Span<uint32>): nil
     assert(#output == #input, "length mismatch")
 
-    @simd
     for i = 1, #output do
         local state = input[i]
         state = state ~ (state << 13)

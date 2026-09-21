@@ -158,8 +158,7 @@ function aot.install(c: state.Checker): aot.Ops
             local ordered: {any} = {}
             local nextRegion: integer = 0
 
-            --- The regions opened by `do` blocks, where masked contributions
-            --- belong, as opposed to those opened by `@simd` loops.
+            --- The regions opened by `do` blocks for masked contributions.
             local doRegions: {[integer]: boolean} = {}
 
             local function constructor(current: any): (string?, string?, integer?)
@@ -213,27 +212,14 @@ function aot.install(c: state.Checker): aot.Ops
                         state_.region = region
                     end
                 elseif method == state_.contribution then
-                    if region == nil or doRegions[region] then
-                        diagnose(call, "a reducer contribution belongs directly inside one @simd loop")
-                        return
-                    elseif not direct then
-                        diagnose(
-                            call,
-                            "a reducer receives exactly one unconditional contribution per logical iteration"
-                        )
-                    end
-                    if state_.region ~= nil and state_.region ~= region then
-                        diagnose(call, "a reducer is scoped to exactly one @simd loop")
+                    if state_.region ~= nil and state_.region ~= 0 then
+                        diagnose(call, "scalar and masked vector contributions cannot be mixed")
                     else
-                        state_.region = region
-                    end
-                    state_.contributions = state_.contributions + 1
-                    if state_.contributions > 1 then
-                        diagnose(call, "a reducer receives exactly one contribution per logical iteration")
+                        state_.region = 0
                     end
                 elseif method == "value" then
                     if region ~= nil then
-                        diagnose(call, "a reducer is finalized after its @simd loop")
+                        diagnose(call, "a reducer is finalized after its contribution region")
                     elseif state_.region == nil then
                         diagnose(call, "a reducer must receive its contribution before it is finalized")
                     elseif state_.finalized then
@@ -258,36 +244,6 @@ function aot.install(c: state.Checker): aot.Ops
                 end
             end
 
-            local function simdLoop(loop: any, nested: boolean): nil
-                nextRegion = nextRegion + 1
-                local region = nextRegion
-                if nested then
-                    diagnose(loop, "an @simd loop cannot be nested in another @simd loop")
-                end
-                local loopBody = loop.body
-                for _, statement in ipairs(loopBody ~= nil and loopBody.stats or {}) do
-                    local actual = statement
-                    while actual ~= nil and actual.kind == "pragmaStmt" do
-                        actual = actual.stat
-                    end
-                    if actual ~= nil and actual.kind == "fornumStmt" and actual.simdRequired == true then
-                        simdLoop(actual, true)
-                    elseif statement.kind == "callStmt"
-                        and statement.expr ~= nil
-                        and statement.expr.kind == "methodCall"
-                    then
-                        use(statement.expr as cst.MethodCall, region, true)
-                        for _, argument in ipairs((
-                            statement.expr as cst.MethodCall
-                        ).args ~= nil and (((statement.expr as cst.MethodCall).args as cst.Args).exprs or {}) or {}) do
-                            scan(argument, region, false)
-                        end
-                    else
-                        scan(statement, region, false)
-                    end
-                end
-            end
-
             for _, statement in ipairs(body and body.stats or {}) do
                 local actual = statement
                 while actual ~= nil and actual.kind == "pragmaStmt" do
@@ -305,7 +261,6 @@ function aot.install(c: state.Checker): aot.Ops
                                 source = names[1],
                                 contribution = contribution,
                                 arity = arity,
-                                contributions = 0,
                                 finalized = false,
                             }
                             states[identity] = state_
@@ -318,8 +273,6 @@ function aot.install(c: state.Checker): aot.Ops
                         end
                     end
                     scan(actual, nil, false)
-                elseif actual ~= nil and actual.kind == "fornumStmt" and actual.simdRequired == true then
-                    simdLoop(actual, false)
                 elseif actual ~= nil and actual.kind == "doStmt" then
                     nextRegion = nextRegion + 1
                     doRegions[nextRegion] = true
@@ -331,12 +284,9 @@ function aot.install(c: state.Checker): aot.Ops
 
             for _, state_ in ipairs(ordered) do
                 if state_.region == nil then
-                    diagnose(
-                        state_.source,
-                        "a reducer belongs to exactly one @simd loop and must receive one contribution"
-                    )
+                    diagnose(state_.source, "a reducer must receive a contribution before finalization")
                 elseif not state_.finalized then
-                    diagnose(state_.source, "a reducer is finalized exactly once after its @simd loop")
+                    diagnose(state_.source, "a reducer is finalized exactly once after its contribution region")
                 end
             end
         end

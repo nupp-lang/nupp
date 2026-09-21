@@ -23,7 +23,6 @@ local function advance(
         error("length mismatch", 2)
     end
 
-    @simd
     for i = 1, #particles do
         local particle = particles[i]
         local from = source[i]

@@ -10,63 +10,57 @@ local input = assert(arg[1], "usage: generate.lua INPUT.nupp OUTPUT_DIR")
 local output = assert(arg[2], "usage: generate.lua INPUT.nupp OUTPUT_DIR")
 
 local function read(path)
-   local file = assert(io.open(path, "rb"))
-   local value = assert(file:read("*a"))
-   assert(file:close())
-   return value
+    local file = assert(io.open(path, "rb"))
+    local value = assert(file:read("*a"))
+    assert(file:close())
+    return value
 end
 
 local function write(path, value)
-   local file = assert(io.open(path, "wb"))
-   assert(file:write(value))
-   assert(file:close())
+    local file = assert(io.open(path, "wb"))
+    assert(file:write(value))
+    assert(file:close())
 end
 
 local source = read(input)
 local parsed = parser.parse(source, input)
 if #parsed.errors > 0 then
-   for _, problem in ipairs(parsed.errors) do
-      io.stderr:write(("%s:%d:%d: %s\n"):format(
-         input, problem.line or 1, problem.col or 1,
-         problem.message or problem.msg or "syntax error"
-      ))
-   end
-   os.exit(1)
+    for _, problem in ipairs(parsed.errors) do
+        io.stderr:write(
+            (
+                "%s:%d:%d: %s\n"
+            ):format(input, problem.line or 1, problem.col or 1, problem.message or problem.msg or "syntax error")
+        )
+    end
+    os.exit(1)
 end
 
 local checkedDiagnostics = check.check(parsed, input, env.new(root))
 if #checkedDiagnostics > 0 then
-   for _, problem in ipairs(checkedDiagnostics) do
-      local start = problem.range and problem.range.start or {}
-      io.stderr:write(("%s:%d:%d: %s: %s\n"):format(
-         problem.file or input, start.line or 1, start.column or 1,
-         problem.code or "error", problem.message or "checking failed"
-      ))
-   end
-   os.exit(1)
+    for _, problem in ipairs(checkedDiagnostics) do
+        local start = problem.range and problem.range.start or {}
+        io.stderr:write(
+            (
+                "%s:%d:%d: %s: %s\n"
+            ):format(
+                problem.file or input,
+                start.line or 1,
+                start.column or 1,
+                problem.code or "error",
+                problem.message or "checking failed"
+            )
+        )
+    end
+    os.exit(1)
 end
 
--- Lower the same tree the checker annotated. The spike does not rediscover
--- `@aot`, `@simd`, relaxation, or fixed-width establishment from source
--- spelling.
+-- Lower the same tree the checker annotated.
 local artifacts, diagnostics = compiler.compile(source, input, parsed)
 if not artifacts then
-   for _, problem in ipairs(diagnostics) do
-      io.stderr:write(compiler.renderDiagnostic(problem), "\n")
-   end
-   os.exit(1)
-end
-
--- Whether the loop runs in lanes is the source's to say with `@simd`, and a
--- marked loop that cannot has already failed above with the construct that
--- refused it. What is left to report is the gang a marked loop took.
-if arg[3] == "--check-lanes" then
-   if artifacts.ir.lanes then
-      io.write(("%s: lowered to %d lanes (%s)\n"):format(input, artifacts.ir.lanes.lanes, artifacts.ir.lanes.shape))
-   else
-      io.write(("%s: scalar, no @simd loop\n"):format(input))
-   end
-   os.exit(0)
+    for _, problem in ipairs(diagnostics) do
+        io.stderr:write(compiler.renderDiagnostic(problem), "\n")
+    end
+    os.exit(1)
 end
 
 write(output .. "/kernel.ir", artifacts.irText)

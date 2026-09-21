@@ -220,9 +220,14 @@ function soa.destroyWriteSpan<T is soa.WriteToken>(takes self: T): nil
     end
 end
 
+--- A read-only SoA row view independent of its row type.
+--- @export
+sealed interface soa.ReadView
+end
+
 --- A shared checked view over SoA rows.
 --- @export
-sealed interface soa.Span<T>
+sealed interface soa.Span<T> is soa.ReadView
     metamethod __len: function(self: Span<T>): integer
     metamethod __index: function(borrows self: Span<T>, index: integer): T
 

@@ -66,7 +66,6 @@ local function scale(
         error("range out of bounds", 2)
     end
 
-    @simd
     for i = first, last do
         local sample = samples[i]
         local input = source[i]
@@ -133,7 +132,6 @@ local function corrected(
         error("range out of bounds", 2)
     end
 
-    @simd
     for i = first, last do
         local result = results[i]
         local sample = samples[i]
@@ -1422,10 +1420,7 @@ function M.emitCWritesTheCBesideTheBuild()
         c:find("void " .. emittedSymbol(c, "ks_scale", tier) .. "(", 1, true),
         "and it defines the tiered exported symbol: " .. c:sub(1, 200)
     )
-    assert(
-        c:find("void " .. emittedSymbol(c, "ks_scale_forced_scalar", tier) .. "(", 1, true),
-        "beside the oracle the lane body is diffed against"
-    )
+    assert(not c:find("ks_scale_forced_scalar", 1, true), "scalar source has no generated twin")
     local sum = emittedSymbol(c, "ks_sum_bytes", tier)
     assert(
         c:find("KsResult_" .. sum:gsub("__" .. tier .. "$", "") .. " " .. sum .. "(", 1, true),
@@ -1857,9 +1852,7 @@ function M.theFeatureTierReachesTheBackend()
 
     local out, code = build(dir)
     test.equal(code, 0, ("the manifest key is accepted (emit-c fixture at %s)\n%s"):format(dir, out))
-    -- Every species is instantiated from the one carried header, so the body is
-    -- what says which: its binary64 lanes are named by the species' lane count,
-    -- which is the tier's bytes divided by the widest element the region holds.
+    -- Scalar source does not request vector species at any tier.
     local after = assert(read(tieredC(dir, tier)))
     -- Named from the tier's own width rather than a constant, because NEON's is
     -- not its register width: it pairs two registers for a region, so binary64
@@ -1874,14 +1867,9 @@ function M.theFeatureTierReachesTheBackend()
         tier = tier,
     })
     local tierBytes = math.min(targets.TIERS[tier], ceiling or math.huge)
-    local expected = ("ks_exp_f64x%d"):format(tierBytes / 8)
-    assert(after:find(expected, 1, true), ("the tier gets %s: %s"):format(expected, after:sub(1, 200)))
+    assert(not after:find("ks_exp_f64x", 1, true), "no inferred vector species")
 
     if widens then
-        assert(
-            baseline:find(("ks_exp_f64x%d"):format(math.min(16, ceiling or 16) / 8), 1, true),
-            "the same build carries its baseline fallback"
-        )
         assert(ceiling ~= nil or after ~= baseline, "and the ceiling also carries the wide unit")
         assert(read(dir .. "/build/native/aot/features.c"), "several tiers bring one baseline runtime detector")
     else
@@ -2112,17 +2100,17 @@ function M.onlyAWindowsX86TargetGivesUpItsWiderRegisters()
     test.equal(units:find("-mprefer-vector-width", 1, true), nil, units)
 end
 
-function M.aTierWithoutVectorsRefusesARequiredLoopAndNamesTheMinimum()
+function M.aTierWithoutVectorsAcceptsScalarLoops()
     local dir = project("emit-c")
     withKeys(dir, 'aotTarget = "wasm32-unknown-emscripten", aotFeatures = "scalar",')
     local out, code = build(dir)
-    test.equal(code, 1, out)
-    assert(out:find("the scalar feature tier has no 16-byte vector", 1, true), out)
-    assert(out:find('set aotFeatures.minimum = "simd128"', 1, true), "and says what to write: " .. out)
+    test.equal(code, 0, out)
+    local c = assert(read(tieredC(dir, "scalar")))
+    assert(not c:find("ks_exp_f64x", 1, true), "scalar loops do not require SIMD")
 end
 
--- A condition block is rewritten with the same live-lane mask as its body.
-function M.aStatementfulLoopConditionBuildsWithRequiredSimd()
+-- A condition block remains ordinary scalar control flow.
+function M.aStatementfulLoopConditionBuildsAsScalarControlFlow()
     local dir = project("emit-c")
     withKeys(dir, 'sources = {"src/conditional.nupp"},')
     local source = assert(io.open(dir .. "/src/conditional.nupp", "wb"))
@@ -2132,7 +2120,6 @@ local span = require("nupp.mem.span")
 
 @aot
 local function run(exclusive out: span.WriteSpan<number>): nil
-    @simd
     for i = 1, #out do
         local value = 0.0
         while do
@@ -2153,13 +2140,13 @@ export = run
     test.equal(code, 0, out)
 end
 
-function M.aDeclaredMinimumCarriesTheTierARequiredLoopNeeds()
+function M.aDeclaredMinimumCarriesOnlyItsSelectedTier()
     local dir = project("emit-c")
     withKeys(dir, 'aotTarget = "wasm32-unknown-emscripten", aotFeatures = {minimum = "simd128"},')
     local out, code = build(dir)
     test.equal(code, 0, out)
     assert(read(tieredC(dir, "simd128")), "the required tier travels")
-    test.equal(read(tieredC(dir, "scalar")), nil, "and the tier that cannot lower the loop does not")
+    test.equal(read(tieredC(dir, "scalar")), nil, "and the excluded tier does not")
 end
 
 function M.aFeatureRangeRejectsUnknownKeys()
@@ -2234,7 +2221,6 @@ function M.crossCompilingEmitsThatTargetsCode()
     test.equal(code, 0, ("a target this machine is not still emits (fixture at %s)\n%s"):format(dir, out))
     local crossTiers = buildTiers(elsewhere, nil)
     local cross = assert(read(tieredC(dir, crossTiers[1].tier)))
-    assert(cross:find("ks_exp_f64x%d"), "which is that target's code: " .. cross:sub(1, 200))
     assert(cross ~= host, "and not what the host produced")
 end
 
@@ -3654,7 +3640,6 @@ function M.theBuiltLibraryLoadsAndComputes()
     local ffi = require("ffi")
     local lib = ffi.load(libraryPath(dir))
     local scale = librarySymbol(dir, lib, "ks_scale")
-    local forced = librarySymbol(dir, lib, "ks_scale_forced_scalar")
     local sum = librarySymbol(dir, lib, "ks_sum_bytes")
     local layout = librarySymbol(dir, lib, "ks_scale") .. "_layout_Sample_size"
     ffi.cdef(
@@ -3664,34 +3649,28 @@ function M.theBuiltLibraryLoadsAndComputes()
       typedef struct { double v1; uint32_t v2; uint32_t v3; } KsResult_ks_sum_bytes;
       void %s(NuppAotSample *samples, const NuppAotSample *source,
          double first, double last, double factor, size_t count);
-      void %s(NuppAotSample *samples, const NuppAotSample *source,
-         double first, double last, double factor, size_t count);
       KsResult_ks_sum_bytes %s(const uint8_t *first, const uint8_t *second,
          size_t count_first, size_t count_second);
       uint32_t %s(void);
    ]=]
-        ):format(scale, forced, sum, layout)
+        ):format(scale, sum, layout)
     )
 
     test.equal(tonumber(lib[layout]()), 8, "the object reports the layout the wrapper will check against")
 
     local count = 1000
-    local lanes = ffi.new("NuppAotSample[?]", count)
-    local scalar = ffi.new("NuppAotSample[?]", count)
+    local output = ffi.new("NuppAotSample[?]", count)
     local source = ffi.new("NuppAotSample[?]", count)
     for i = 0, count - 1 do
         source[i].value, source[i].weight = i * 0.5, i * 0.25
     end
-    lib[scale](lanes, source, 1, count, 3.0, count)
-    lib[forced](scalar, source, 1, count, 3.0, count)
+    lib[scale](output, source, 1, count, 3.0, count)
 
-    -- Bit-identical, not close. The whole lane lowering rests on the claim that
-    -- running four iterations at once changes the strategy and never the answer.
     for i = 0, count - 1 do
-        test.equal(lanes[i].value, scalar[i].value, "value diverged at lane " .. i)
-        test.equal(lanes[i].weight, scalar[i].weight, "weight diverged at lane " .. i)
+        test.equal(output[i].value, source[i].value * 3.0 + source[i].weight, "value at row " .. i)
+        test.equal(output[i].weight, source[i].weight * 3.0, "weight at row " .. i)
     end
-    test.equal(lanes[7].value, 7 * 0.5 * 3.0 + 7 * 0.25, "and it is the arithmetic the source asked for")
+    test.equal(output[7].value, 7 * 0.5 * 3.0 + 7 * 0.25, "and it is the arithmetic the source asked for")
 
     local first = ffi.new("uint8_t[2]", {1, 2})
     local second = ffi.new("uint8_t[3]", {3, 4, 250})
@@ -3870,7 +3849,6 @@ function M.correctedBinary32OperationsMatchTheRuntimeBitForBit()
     local ffi = require("ffi")
     local lib = ffi.load(libraryPath(dir))
     local corrected = librarySymbol(dir, lib, "ks_corrected")
-    local forced = librarySymbol(dir, lib, "ks_corrected_forced_scalar")
     ffi.cdef(
         (
             [=[
@@ -3879,11 +3857,8 @@ function M.correctedBinary32OperationsMatchTheRuntimeBitForBit()
       void %s(NuppCorrectedResult *results,
          const NuppCorrectedSample *samples, double first, double last,
          size_t count);
-      void %s(NuppCorrectedResult *results,
-         const NuppCorrectedSample *samples, double first, double last,
-         size_t count);
    ]=]
-        ):format(corrected, forced)
+        ):format(corrected)
     )
     local holder = ffi.new("union { float f; uint32_t u; }[1]")
 
@@ -3931,10 +3906,8 @@ function M.correctedBinary32OperationsMatchTheRuntimeBitForBit()
         end
     end
 
-    local lanes = ffi.new("NuppCorrectedResult[?]", count)
-    local scalar = ffi.new("NuppCorrectedResult[?]", count)
-    lib[corrected](lanes, samples, 1, count, count)
-    lib[forced](scalar, samples, 1, count, count)
+    local output = ffi.new("NuppCorrectedResult[?]", count)
+    lib[corrected](output, samples, 1, count, count)
     local f32 = nupp.math.f32
     for index = 0, count - 1 do
         local sample = samples[index]
@@ -3943,11 +3916,9 @@ function M.correctedBinary32OperationsMatchTheRuntimeBitForBit()
             bits(f32.max(sample.a, sample.b)),
             bits(f32.fma(sample.a, sample.b, sample.c)),
         }
-        for _, body in ipairs({lanes[index], scalar[index]}) do
-            test.equal(bits(body.least), want[1], "min differs at case " .. index)
-            test.equal(bits(body.greatest), want[2], "max differs at case " .. index)
-            test.equal(bits(body.fused), want[3], "fma differs at case " .. index)
-        end
+        test.equal(bits(output[index].least), want[1], "min differs at case " .. index)
+        test.equal(bits(output[index].greatest), want[2], "max differs at case " .. index)
+        test.equal(bits(output[index].fused), want[3], "fma differs at case " .. index)
     end
 end
 
@@ -4161,7 +4132,6 @@ function M.exactLoopReducersAgreeAcrossLuaScalarAndVectorExecution()
 @aot
 local function %s(borrows input: span.Span<%s>, seed: %s): %s
     %s
-    @simd
     for i = %d, #input do
         fold:%s(%s)
     end
@@ -4781,7 +4751,6 @@ local function scaleBoth(
 ): nil
     if #out ~= #src then error("length mismatch", 2) end
     if first < 1 or last > #out or first > last + 1 then error("range out of bounds", 2) end
-    @simd
     for i = first, last do
         local o = out[i]
         local s = src[i]
@@ -4797,7 +4766,6 @@ local function shiftBoth(
 ): nil
     if #out ~= #src then error("length mismatch", 2) end
     if first < 1 or last > #out or first > last + 1 then error("range out of bounds", 2) end
-    @simd
     for i = first, last do
         local o = out[i]
         local s = src[i]
@@ -5665,10 +5633,7 @@ end
     end
 end
 
--- Two `@aot` modules under one include root, and a target that bundles one of
--- them. `@simd` is a requirement rather than an inference, so lowering the one
--- the target never reaches fails the build at a tier that has no vector -- and
--- the browser template's scalar package is exactly that shape.
+-- Two `@aot` modules under one include root, with only one bundled entry.
 local SCOPED_ENTRY = [[
 local reached = require("reached")
 
@@ -5704,7 +5669,6 @@ local function scale(exclusive output: span.WriteSpan<Sample>, borrows input: sp
     if #output ~= #input then
         error("length mismatch", 2)
     end
-    @simd
     for index = 1, #output do
         output[index].value = input[index].value * factor
         output[index].weight = input[index].weight * factor
@@ -6439,7 +6403,7 @@ return whole
     )
 end
 
-function M.homogeneousFieldPairsPreserveNativeValuesAndMaskedTails()
+function M.homogeneousFieldPairsPreserveNativeValuesAndTails()
     if not hasToolchain() then
         return
     end
@@ -6464,7 +6428,6 @@ end
 @aot
 local function pair%s(exclusive output: span.WriteSpan<number>, borrows points: span.Span<Pair%s>): nil
     assert(#output == #points)
-    @simd
     for i = 1, #output do
         local point = points[i]
         local right = point.right
@@ -6488,40 +6451,30 @@ end
     for _, variant in ipairs(variants) do
         local name, ctype = variant[1], variant[3]
         local symbol = librarySymbol(dir, library, "ks_pair_" .. name:lower())
-        local oracle = librarySymbol(dir, library, "ks_pair_" .. name:lower() .. "_forced_scalar")
         ffi.cdef(
             (
                 [[typedef struct { %s left, right; } NuppFieldPair%s;
-void %s(double *, const NuppFieldPair%s *, size_t);
 void %s(double *, const NuppFieldPair%s *, size_t);]]
-            ):format(ctype, name, symbol, name, oracle, name)
+            ):format(ctype, name, symbol, name)
         )
         for count = 0, 37 do
             local points = ffi.new("NuppFieldPair" .. name .. "[?]", math.max(count, 1))
-            local output, scalar = ffi.new("double[?]", count + 4), ffi.new("double[?]", count + 4)
+            local output = ffi.new("double[?]", count + 4)
             for i = 0, count - 1 do
                 points[i].left = name == "Unsigned" and 2147483648 + i or i - 19
                 points[i].right = i * 3 + 7
             end
             for i = 0, count + 3 do
-                output[i], scalar[i] = -991, -991
+                output[i] = -991
             end
             library[symbol](output, points, count)
-            library[oracle](scalar, points, count)
             for i = 0, count - 1 do
                 local expected = tonumber(points[i].left) - tonumber(points[i].right)
-                test.equal(output[i], expected, name .. " lane " .. i)
-                test.equal(output[i], scalar[i], name .. " scalar lane " .. i)
+                test.equal(output[i], expected, name .. " row " .. i)
             end
             for i = count, count + 3 do
                 test.equal(output[i], -991, "tail sentinel")
             end
-        end
-    end
-    if ffi.arch == "arm64" then
-        local emitted = assert(read(tieredC(dir, "neon")))
-        for _, variant in ipairs(variants) do
-            assert(emitted:find(variant[4], 1, true), "no deinterleaving for " .. variant[1])
         end
     end
 end

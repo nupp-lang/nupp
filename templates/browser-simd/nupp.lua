@@ -1,7 +1,6 @@
 -- `aotFeatures` is an inclusive host range. The scalar package pins both bounds
--- to the tier with no vectors; the SIMD package names only a minimum, because
--- `@simd` in `src/simd.nupp` is a requirement and simd128 is the tier that
--- satisfies it.
+-- to the tier with no vectors; the SIMD package requires SIMD128 because its
+-- kernel asserts an explicit species.
 local function target(entry, output, outDir, features)
     return {
         kind = "bundle",

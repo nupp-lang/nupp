@@ -1,5 +1,5 @@
--- Ordinary scalar reducer bodies and an independent adjacent-pair tree share
--- one physical corpus with required-SIMD native/Wasm entries.
+-- Scalar reducer bodies and an independent adjacent-pair tree share one
+-- corpus with explicit SIMD native/Wasm entries.
 local M = {}
 
 local function loopCases(types)
@@ -97,7 +97,6 @@ function M.generate(types, masked, width)
         local admitted = {}
         for _, case in ipairs(cases) do
             -- Arg-position and predicate folds expose scalar contributions only.
-            -- Their required-loop contracts remain covered by the other module.
             if not case.name:find('Arg', 1, true)
                 and not case.name:find('_arg', 1, true)
                 and case.name ~= 'any'
@@ -186,7 +185,7 @@ end
                 or case.value == 'input[i] > seed' and 'value > species:splat(seed)'
                 or 'value'
             )
-            or ('@simd\n    for i = 1, #input do fold:%s(%s) end'):format(case.method, case.value)
+            or ('for i = 1, #input do fold:%s(%s) end'):format(case.method, case.value)
         )
     end
     source[#source + 1] = 'local function run(): number\n    local checked = 0\n'

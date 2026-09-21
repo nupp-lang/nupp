@@ -576,13 +576,26 @@ local function mixedComparison(context: emit.Context, node: scalarIR.Expr): stri
     return "(" .. left .. " " .. (emit.BINARY[selected.name] as string) .. " " .. right .. ")"
 end
 
+--- Whether a fixed species needs native-register chunks in C. Complete
+--- 256-bit floating vectors can use the compiler's vector type except on
+--- targets with a frame-vector ceiling. Integer operations use chunk helpers,
+--- and partial widths stay chunked so no padding lane is read or written.
+local function compositeSpecies(context: emit.Context, element: string, lanes: integer, shape: string): boolean
+    local bits = tonumber(element:match("%d+")) as number
+    local native = math.floor(context.explicitWidth * 8 / bits)
+
+    return shape ~= "preferred"
+        and lanes ~= native
+        and not (element:sub(1, 1) == "f" and lanes * bits == 256 and context.vectorCeiling == 0)
+end
+
 --- Constant lane selections let the C backend form target shuffles without
 --- runtime indices. Helper parameters ensure every input is evaluated once.
 function emit.rearrange(context: emit.Context, node: scalarIR.Simd): string
     local _, element, lanes, shape = explicitType(context, node.type)
     local width = lanes as integer
     local native = math.floor(context.explicitWidth * 8 / (tonumber((element as string):match("%d+")) as number))
-    local composite = shape ~= "preferred" and width ~= native
+    local composite = compositeSpecies(context, element as string, width, shape as string)
     local part = tonumber((node.args[#node.args] as scalarIR.Constant).value) as integer
     local selected: {string} = {}
     for i = 0, width - 1 do
@@ -696,21 +709,19 @@ function emit.genericStore(context: emit.Context, store: scalarIR.Simd): string
     if store.intrinsic == "scatter" or store.intrinsic == "scatterUnchecked" then
         return emit.indexedSimd(context, store)
     end
-    local _, element, lanes, shape = explicitType(context, store.args[3].type)
+    local _, element, lanes = explicitType(context, store.args[3].type)
     if element == nil or lanes == nil then
         error("generic SIMD store has no resolved species", 0)
     end
     local suffix = element .. "x" .. tostring(lanes)
     local helper = context.explicitScalar and "ks_scalar_exp_" or "ks_exp_"
-    local elementBits = tonumber(element:match("%d+")) or 0
-    local nativeLanes = elementBits > 0 and math.floor(context.explicitWidth * 8 / elementBits) or 0
     local count = emit.spanCount(context, tostring(store.span))
     local at = "p_" .. tostring(
         store.span
     ) .. ", " .. count .. ", " .. emit.spanFirst(context, store.args[2]) .. ", " .. emit.scalar(context, store.args[3])
     local checked = store.args[4] == nil and helper .. "store_full_" .. suffix .. "(" .. at .. ")"
         or helper .. "store_" .. suffix .. "(" .. at .. ", " .. emit.scalar(context, store.args[4]) .. ")"
-    if store.cursor ~= nil and (shape == "preferred" or lanes == nativeLanes) then
+    if store.cursor ~= nil then
         local unchecked = helper .. "store_at_" .. suffix .. "(" .. emit.cursorAddress(
             context,
             store
@@ -772,7 +783,7 @@ local function genericSpecies(context: emit.Context, typeName: string): emit.Spe
         suffix = element .. "x" .. tostring(lanes),
         helper = context.explicitScalar and "ks_scalar_exp_" or "ks_exp_",
         nativeLanes = nativeLanes as integer,
-        composite = shape ~= "preferred" and lanes ~= nativeLanes
+        composite = compositeSpecies(context, element, lanes, shape)
     )
 end
 
@@ -1220,8 +1231,7 @@ function emit.scalar(context: emit.Context, node: scalarIR.Expr): string
             local genericSuffix = element .. "x" .. tostring(lanes)
             local genericHelper = context.explicitScalar and "ks_scalar_exp_" or "ks_exp_"
             local elementBits = tonumber(element:match("%d+")) or 0
-            local nativeLanes = elementBits > 0 and math.floor(context.explicitWidth * 8 / elementBits) or 0
-            local composite = shape ~= "preferred" and lanes ~= nativeLanes
+            local composite = compositeSpecies(context, element, lanes, shape)
             if operation == "simd_mask_bits" and lanes > 64 then
                 error("explicit SIMD masks with more than 64 lanes have no uint64 representation", 0)
             end
@@ -1322,8 +1332,8 @@ function emit.scalar(context: emit.Context, node: scalarIR.Expr): string
                 -- A verified cursor access is a whole vector inside the span:
                 -- one copy at the cursor while its index fits uint32. The
                 -- checked fallback retains wrapping indices on larger spans. A
-                -- composite vector keeps the checked form, because its last
-                -- chunk may be partial and its size is not its lane count.
+                -- composite vector can use the proved helper too: its final
+                -- chunk reads only the remaining logical lanes.
                 -- A rooted byte view addresses the pointer and length the
                 -- entry's own parameter arrived with; everything else is the
                 -- same load over the same two operands.
@@ -1338,7 +1348,7 @@ function emit.scalar(context: emit.Context, node: scalarIR.Expr): string
                         context,
                         args[3]
                     ) .. ")"
-                if simd.cursor ~= nil and not composite then
+                if simd.cursor ~= nil then
                     local unchecked = genericHelper .. "load_at_" .. genericSuffix .. "(" .. emit.cursorAddress(
                         context,
                         simd
@@ -2062,13 +2072,9 @@ end
 ----------------------------------------------------------------------------
 
 --- Fixed logical species whose size differs from one native register.
----
---- Each production value is an aggregate of preferred native vectors, which
---- keeps `Fixed<N>` target-neutral and still guarantees vector execution when
---- the logical width is smaller, larger, or not an exact register multiple.
---- The helpers themselves are `KS_EXP_FIXED` in `ks_simd.h`; this emits one
---- instantiation of it per species the program mentions, after the header's
---- width block has defined the native species it is built from.
+--- Complete 256-bit vectors use the compiler's vector type when the target
+--- permits it; other widths are aggregates of native vectors. Both retain
+--- the same logical lane identity and scalar oracle.
 --- @raises when a fixed species has fewer than two or more than 64 lanes
 local function fixedSimdPrelude(context: emit.Context, width: integer, nativeWidths: {[integer]: boolean}): {string}
     local lines: {string} = {}
@@ -2101,22 +2107,31 @@ local function fixedSimdPrelude(context: emit.Context, width: integer, nativeWid
         lanes = lanes as integer
         local nativeLanes = width / element.bytes
         if nativeWidths[(lanes * element.bytes) as integer] ~= true then
-            local chunks = math.ceil(lanes / nativeLanes) as integer
-            lines[
-                #lines + 1
-            ] = "KS_EXP_FIXED(" .. table.concat(
-                {
-                    suffix,
-                    element.c,
-                    element.mask,
-                    tostring(lanes),
-                    tostring(elementName) .. "x" .. tostring(nativeLanes),
-                    tostring(nativeLanes),
-                    tostring(chunks),
-                    element.kind,
-                },
-                ", "
-            ) .. ")"
+            if not compositeSpecies(context, elementName as string, lanes, "fixed") then
+                lines[
+                    #lines + 1
+                ] = "KS_EXP_ELEMENT(32, " .. table.concat(
+                    {suffix, element.c, element.mask, tostring(lanes), tostring(element.bytes), element.kind},
+                    ", "
+                ) .. ")"
+            else
+                local chunks = math.ceil(lanes / nativeLanes) as integer
+                lines[
+                    #lines + 1
+                ] = "KS_EXP_FIXED(" .. table.concat(
+                    {
+                        suffix,
+                        element.c,
+                        element.mask,
+                        tostring(lanes),
+                        tostring(elementName) .. "x" .. tostring(nativeLanes),
+                        tostring(nativeLanes),
+                        tostring(chunks),
+                        element.kind,
+                    },
+                    ", "
+                ) .. ")"
+            end
         end
     end
 
@@ -3163,7 +3178,7 @@ function emit.luaBlock(
                 append(controlFlow(node as emit.Flow, depth, body, repeatContinue, expression, recursive, false))
                 yield true
             end
-            case "shared_store", "phase", "simd_species", "simd_lanes_generic", "simd_splat", "simd_iota", "simd_tail", "simd_load", "simd_binary", "simd_unary", "simd_compare", "simd_select", "simd_mask_any", "simd_mask_all", "simd_mask_count", "simd_mask_first", "simd_mask_bits", "simd_extract", "simd_insert", "simd_permute", "simd_convert", "simd_reinterpret", "simd_compress", "simd_expand", "simd_prefix", "simd_horizontal", "simd_mask_splat", "simd_mask_convert", "simd_field_load", "simd_call", "simd_math", "store", "reducer_add", "simd_field_store", "simd_reducer_add", "simd_region" -> error(
+            case "shared_store", "phase", "simd_species", "simd_lanes_generic", "simd_splat", "simd_iota", "simd_tail", "simd_load", "simd_binary", "simd_unary", "simd_compare", "simd_select", "simd_mask_any", "simd_mask_all", "simd_mask_count", "simd_mask_first", "simd_mask_bits", "simd_extract", "simd_insert", "simd_permute", "simd_convert", "simd_reinterpret", "simd_compress", "simd_expand", "simd_prefix", "simd_horizontal", "simd_mask_splat", "simd_mask_convert", "simd_field_load", "simd_call", "simd_math", "store", "reducer_add", "simd_field_store", "simd_reducer_add", "reducer_region" -> error(
                 "unsupported Lua construction statement " .. node.op,
                 0
             )
@@ -3389,7 +3404,7 @@ function emit.block(
                 yield true
             end
             case "simd_reducer_add" -> do
-                local contribution = node as scalarIR.SimdReducerAdd
+                local contribution = node as scalarIR.VectorReducerAdd
                 local named = contribution.reducer as scalarIR.Name
                 local species = genericSpecies(context, contribution.value.type)
                 local accumulator = body.simdAccumulators ~= nil and body.simdAccumulators[named.name] or nil
@@ -3492,10 +3507,10 @@ function emit.block(
                 lines[#lines + 1] = prefix .. "}"
                 yield true
             end
-            case "simd_region" -> do
-                local region = node as scalarIR.SimdRegion
+            case "reducer_region" -> do
+                local region = node as scalarIR.ReducerRegion
                 local accumulators: {[string]: string} = {}
-                local parallel: {scalarIR.SimdRegionReducer} = {}
+                local parallel: {scalarIR.ReducerRegionAccumulator} = {}
                 lines[#lines + 1] = prefix .. "{"
                 -- A parallel order over a native species accumulates lane-wise
                 -- and folds once at the end; the oracle, a composite, a
@@ -3618,22 +3633,7 @@ function emit.block(
                 yield true
             end
             case "fornum" -> do
-                local statement = node as scalarIR.Fornum
-                if statement.vector ~= nil and body.forceScalar ~= true then
-                    -- The region in the explicit vocabulary stands in for the
-                    -- counted loop whole: it reads the span count and the
-                    -- species width itself, so the whole groups and the tail
-                    -- are its own two statements.
-                    lines[#lines + 1] = prefix .. "{"
-                    for _, line in ipairs(
-                        emit.block(context, statement.vector as {scalarIR.Statement}, depth + 1, body)
-                    ) do
-                        lines[#lines + 1] = line
-                    end
-                    lines[#lines + 1] = prefix .. "}"
-                else
-                    append(controlFlow(node as emit.Flow, depth, body, repeatContinue, expression, recursive, true))
-                end
+                append(controlFlow(node as emit.Flow, depth, body, repeatContinue, expression, recursive, true))
                 yield true
             end
             case "if", "while", "repeat", "block", "break", "continue" -> do
@@ -3938,22 +3938,12 @@ function emit.program(programs: {scalarIR.Program}, tier: string?, sourceFile: s
                         lines[#lines + 1] = line
                     end
                 end
-                local vector = program.vector
                 if general then
                     for _, line in ipairs(emit.block(context, program.body or {}, 1, body)) do
                         lines[#lines + 1] = line
                     end
-                elseif vector ~= nil and not forced then
-                    -- The map loop in the explicit vocabulary: its region
-                    -- reads the bounds itself, so the scalar `i` and `end` are
-                    -- declared for the guard's sake and not otherwise read.
-                    lines[#lines + 1] = "    (void)i;"
-                    lines[#lines + 1] = "    (void)end;"
-                    for _, line in ipairs(emit.block(context, vector as {scalarIR.Statement}, 1, body)) do
-                        lines[#lines + 1] = line
-                    end
                 end
-                if not general and (vector == nil or forced) then
+                if not general then
                     local loopSource = (program.loop as scalarIR.Loop).source
                     if sourceFile ~= nil and loopSource ~= nil then
                         lines[#lines + 1] = ('#line %d %q'):format(loopSource.line, sourceFile as string)
@@ -3974,7 +3964,7 @@ function emit.program(programs: {scalarIR.Program}, tier: string?, sourceFile: s
                 lines[#lines + 1] = ""
             end
 
-            if not general or program.usesSimd == true or program.simdRequired == true then
+            if program.usesSimd == true then
                 implementation(physicalSymbol(program.symbol .. "_forced_scalar", tier), true)
             end
             implementation(physicalSymbol(program.symbol, tier), false)

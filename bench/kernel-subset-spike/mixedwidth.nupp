@@ -47,7 +47,6 @@ local function integrate(
         error("range out of bounds", 2)
     end
 
-    @simd
     for i = first, last do
         local track = tracks[i]
         local body = bodies[i]

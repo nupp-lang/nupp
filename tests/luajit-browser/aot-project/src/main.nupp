@@ -30,13 +30,13 @@ local inputRows = input:write()
 inputRows[1] = new Sample(2, 10, 1)
 inputRows[2] = new Sample(3, 20, 4)
 inputRows[3] = new Sample(5, 30, 7)
-drop inputRows
+nupp.drop(inputRows)
 
 local output = array.new(new Sample(), 3)
 do
     local writable = output:write()
     scale(writable, input:read(), 2, true)
-    drop writable
+    nupp.drop(writable)
 end
 
 local rows = output:read()
@@ -69,13 +69,13 @@ do
     local writable = wideInput:write()
     writable[1] = (-1 as int64) as uint64
     writable[2] = 9007199254740992 as uint64
-    drop writable
+    nupp.drop(writable)
 end
 local wideOutput = array.scalar(array.uint64, 2)
 do
     local writable = wideOutput:write()
     incrementWide(writable, wideInput:read(), 1 as uint64)
-    drop writable
+    nupp.drop(writable)
 end
 local exact = addWide(wideInput:read()[2], 1 as uint64)
 assert(exact == 9007199254740993ULL)
@@ -114,8 +114,8 @@ do
     b[1] = 6
     b[2] = 7
     b[3] = 8
-    drop a
-    drop b
+    nupp.drop(a)
+    nupp.drop(b)
 end
 local sum, n1, n2 = sumBytes(first:read(), second:read())
 assert(sum == 30 and n1 == 2 and n2 == 3)
@@ -141,7 +141,6 @@ local function firstLoopValues(
     if #visits ~= #starts or #initial ~= #starts or #stops ~= #starts then
         error("length mismatch", 2)
     end
-    @simd
     for index = 1, #starts do
         local visited, value = 0, 0
         for cursor = starts[index], stops[index] do
@@ -199,8 +198,8 @@ do
         scalarLoopChecks = scalarLoopChecks + 1
         firsts[index], lasts[index] = range[1], range[2]
     end
-    drop firsts
-    drop lasts
+    nupp.drop(firsts)
+    nupp.drop(lasts)
 end
 
 -- Nine cases exercise full f64 SIMD lanes and a final scalar tail.
@@ -209,8 +208,8 @@ local initial = array.scalar(array.number, #ranges)
 do
     local visited, values = visits:write(), initial:write()
     firstLoopValues(visited, values, starts:read(), stops:read())
-    drop visited
-    drop values
+    nupp.drop(visited)
+    nupp.drop(values)
 end
 local simdLoopChecks = 0
 local actualVisits, actualInitial = visits:read(), initial:read()

@@ -103,13 +103,13 @@ record verify.Scope
     --- Resolved logical vector width; physical packing may use narrower chunks.
     simdWidth: integer?
 
-    --- The `simd_region` this block runs inside, if any.
+    --- The `reducer_region` this block runs inside, if any.
     region: verify.Region?
 end
 
---- One `simd_region` as its body sees it: the reducers it accumulates.
+--- One `reducer_region` as its body sees it: the reducers it accumulates.
 record verify.Region
-    reducers: {[string]: scalarIR.SimdRegionReducer}
+    reducers: {[string]: scalarIR.ReducerRegionAccumulator}
 end
 
 --- A scope for a nested block: this one, with `overrides` applied.
@@ -712,13 +712,16 @@ local function vectorCursor(access: scalarIR.Simd, values: {[string]: string}, s
     local cursor = access.cursor as string
     local named, species, count = simdbounds.offset(access.args[2])
     local wanted = tostring(access.args[1].type)
+    local param = access.span ~= nil and scope.spans[access.span as string] or nil
+    local counted = param ~= nil and param.soa ~= nil and param.soa.view or access.span
+
     return named ~= nil
         and (named as scalarIR.Name).name == cursor
         and (named as scalarIR.Name).cName == access.cursorCName
         and access.cursorCName ~= nil
         and values[cursor] == "u32"
         and (species == nil or simdbounds.covers(species, wanted))
-        and simdbounds.covers(boundRoom(scope.cursorBounds, cursor, access.span), wanted, (count or 0) + 1)
+        and simdbounds.covers(boundRoom(scope.cursorBounds, cursor, counted), wanted, (count or 0) + 1)
 end
 
 --- Checks one binary64 operation, comparison, or bitwise operation.
@@ -2031,7 +2034,7 @@ local function contributions(statements: {scalarIR.Statement}, region: {[string]
 
     for _, statement in ipairs(statements) do
         if statement.op == "simd_reducer_add" then
-            local named = (statement as scalarIR.SimdReducerAdd).reducer as scalarIR.Name
+            local named = (statement as scalarIR.VectorReducerAdd).reducer as scalarIR.Name
             holds(region[named.name] == true, "a SIMD region contribution names a reducer outside it")
             counts[named.name] = (counts[named.name] or 0) + 1
         elseif statement.op == "if" then
@@ -2327,13 +2330,13 @@ local function block(
             holds(store.type == "lua_effect" and store.args[3] ~= nil, "invalid generic SIMD field store")
             genericFieldAccess(store, store.args[3].type, 1, "write_span", values, scope)
         elseif statement.op == "simd_reducer_add" then
-            local contribution = statement as scalarIR.SimdReducerAdd
+            local contribution = statement as scalarIR.VectorReducerAdd
             holds(contribution.reducer.op == "local", "invalid SIMD reducer contribution")
             local named = contribution.reducer as scalarIR.Name
             local region = scope.region
             local accumulated = region ~= nil and (region as verify.Region).reducers[named.name] or nil
             holds(accumulated ~= nil, "a SIMD reducer contribution outside a region accumulating its reducer")
-            local entry = accumulated as scalarIR.SimdRegionReducer
+            local entry = accumulated as scalarIR.ReducerRegionAccumulator
             holds(
                 values[named.name] == contribution.reducer.type
                 and entry.order == contribution.order
@@ -2356,10 +2359,10 @@ local function block(
             if contribution.right ~= nil then
                 scalarWalk(contribution.right as scalarIR.Expr, values, scope)
             end
-        elseif statement.op == "simd_region" then
-            local region = statement as scalarIR.SimdRegion
+        elseif statement.op == "reducer_region" then
+            local region = statement as scalarIR.ReducerRegion
             holds(scope.region == nil, "a SIMD region inside another")
-            local accumulated: {[string]: scalarIR.SimdRegionReducer} = {}
+            local accumulated: {[string]: scalarIR.ReducerRegionAccumulator} = {}
             for _, entry in ipairs(region.reducers) do
                 local reducerType = values[entry.name]
                 holds(
@@ -2743,97 +2746,6 @@ local function block(
             end
         else
             holds(statement.op == "break" or statement.op == "continue", "unknown statement opcode")
-        end
-    end
-end
-
---- Whether any authored region of a block kernel was rewritten into the
---- explicit vocabulary.
-local vectorRegions: function({scalarIR.Statement}): boolean
-
-vectorRegions = function(statements: {scalarIR.Statement}): boolean
-    for _, statement in ipairs(statements) do
-        local op = statement.op
-        if op == "fornum" then
-            local region = statement as scalarIR.Fornum
-            if region.vector ~= nil or vectorRegions(region.body) then
-                return true
-            end
-        elseif op == "if" then
-            for _, clause in ipairs((statement as scalarIR.If).clauses) do
-                if vectorRegions(clause.body) then
-                    return true
-                end
-            end
-            if vectorRegions((statement as scalarIR.If).elseBody or {}) then
-                return true
-            end
-        elseif op == "while" or op == "repeat" or op == "block" then
-            if vectorRegions((statement as any).body as {scalarIR.Statement}) then
-                return true
-            end
-        end
-    end
-
-    return false
-end
-
-local function regionVectorBlocks(
-    program: scalarIR.Program,
-    statements: {scalarIR.Statement},
-    inherited: {[string]: string},
-    scope: verify.Scope
-): nil
-    local values = inherit(inherited)
-    for _, statement in ipairs(statements) do
-        if statement.op == "let" then
-            values[(statement as scalarIR.Let).name] = (statement as scalarIR.Let).type
-        elseif statement.op == "multi_let" then
-            for _, binding in ipairs((statement as scalarIR.MultiLet).bindings) do
-                values[binding.name] = binding.type
-            end
-        elseif statement.op == "fornum" then
-            local region = statement as scalarIR.Fornum
-            local inner = inherit(values)
-            inner[region.binding.name] = region.binding.type
-            regionVectorBlocks(program, region.body, inner, scope)
-            if region.vector ~= nil then
-                holds(
-                    region.simdRequired == true and program.simdRequired == true,
-                    "an explicit SIMD region without the required contract"
-                )
-                local nested = new verify.Scope(
-                    spans = scope.spans,
-                    layouts = scope.layouts,
-                    helpers = scope.helpers,
-                    writes = scope.writes,
-                    mapIndex = false,
-                    cursorBounds = {},
-                    resultTypes = scope.resultTypes,
-                    entryMode = scope.entryMode,
-                    builderMode = scope.builderMode,
-                    workgroup = scope.workgroup,
-                    inPhase = scope.inPhase,
-                    shared = scope.shared,
-                    sharedCounts = scope.sharedCounts,
-                    countBounds = scope.countBounds,
-                    simdWidth = scope.simdWidth
-                )
-                block(region.vector as {scalarIR.Statement}, values, nested, {})
-            end
-        elseif statement.op == "if" then
-            for _, clause in ipairs((statement as scalarIR.If).clauses) do
-                regionVectorBlocks(program, clause.body, values, scope)
-            end
-            regionVectorBlocks(program, (statement as scalarIR.If).elseBody or {}, values, scope)
-        elseif statement.op == "while" or statement.op == "repeat" or statement.op == "block" then
-            if statement.op == "while" then
-                regionVectorBlocks(program, statement.conditionBody or {}, values, scope)
-            end
-            regionVectorBlocks(program, (statement as any).body as {scalarIR.Statement}, values, scope)
-            if statement.op == "repeat" then
-                regionVectorBlocks(program, statement.conditionBody or {}, values, scope)
-            end
         end
     end
 end
@@ -3518,10 +3430,7 @@ function verify.program(program: scalarIR.Program): scalarIR.Program
     if program.usesSimd == true then
         holds(body ~= nil and loop == nil and workgroup == nil, "explicit SIMD requires a block kernel")
     end
-    if program.vector ~= nil then
-        holds(loop ~= nil and program.simdRequired == true, "an explicit SIMD map loop without a map program")
-    end
-    if program.usesSimd == true or program.vector ~= nil or vectorRegions(body or {}) then
+    if program.usesSimd == true then
         holds(
             program.simdWidth == nil or program.simdWidth == 16 or program.simdWidth == 32 or program.simdWidth == 64,
             "invalid SIMD width"
@@ -3599,33 +3508,6 @@ function verify.program(program: scalarIR.Program): scalarIR.Program
         block(phased.statements, uniforms, scope, stored, true)
     else
         block(loop ~= nil and (loop as scalarIR.Loop).statements or body or {}, uniforms, scope, stored)
-    end
-    if program.vector ~= nil then
-        block(
-            program.vector as {scalarIR.Statement},
-            uniforms,
-            new verify.Scope(
-                spans = byName,
-                layouts = layouts,
-                helpers = helpers,
-                writes = writes,
-                mapIndex = false,
-                cursorBounds = {},
-                resultTypes = resultTypes,
-                entryMode = program.entryMode,
-                builderMode = program.builderMode,
-                workgroup = false,
-                inPhase = false,
-                shared = sharedTypes,
-                sharedCounts = sharedCounts,
-                countBounds = countBounds,
-                simdWidth = program.simdWidth
-            ),
-            {}
-        )
-    end
-    if body ~= nil then
-        regionVectorBlocks(program, body as {scalarIR.Statement}, uniforms, scope)
     end
     if loop ~= nil or workgroup ~= nil then
         for output in pairs(writes) do

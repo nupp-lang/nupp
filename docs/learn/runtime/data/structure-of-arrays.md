@@ -267,18 +267,35 @@ The private native call receives column pointers and a row count; entry and
 exit copy no row payloads.
 
 ```nupp
+local array = require("nupp.mem.array")
+local simd = require("nupp.simd")
+
 @aot
 local function advance(exclusive rows: soa.WriteToken & soa.WriteSpan<Particle>, dt: float): nil
-    @simd
-    for i = 1, #rows do
-        rows[i].x += rows[i].dx * dt
-        rows[i].y += rows[i].dy * dt
+    if species = simd.species(array.float) then
+        local cursor: uint32 = 0
+        while cursor < #rows do
+            local active = species:tail(#rows - cursor)
+            local x = species:load(rows, cursor + 1, "x", active)
+            local dx = species:load(rows, cursor + 1, "dx", active)
+            local y = species:load(rows, cursor + 1, "y", active)
+            local dy = species:load(rows, cursor + 1, "dy", active)
+            species:store(rows, cursor + 1, "x", x + dx * dt, active)
+            species:store(rows, cursor + 1, "y", y + dy * dt, active)
+            cursor = cursor + species.lanes
+        end
+    else
+        for i = 1, #rows do
+            rows[i].x += rows[i].dx * dt
+            rows[i].y += rows[i].dy * dt
+        end
     end
 end
 ```
 
 Set the build's `aot` policy to `"require"` to require native execution.
-`@simd` requires lane lowering; omit it for a scalar native loop. Ordinary
+The field loads address contiguous columns, including slices; a writable view
+keeps per-column `restrict` in generated C. Ordinary
 length guards can relate separate views, and shared views may overlap. The
 existing ownership rules still reject incompatible exclusive overlaps.
 

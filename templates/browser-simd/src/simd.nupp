@@ -1,11 +1,12 @@
 local span = require("nupp.mem.span")
 local array = require("nupp.mem.array")
+local simd = require("nupp.simd")
 local json = require("nupp.codec.json")
 
 local struct Sample
-    value: float
+    value: number
     bias: number
-    weight: float
+    weight: number
 end
 
 @aot
@@ -13,11 +14,19 @@ local function scale(exclusive output: span.WriteSpan<Sample>, borrows input: sp
     if #output ~= #input then
         error("length mismatch", 2)
     end
-    @simd
-    for index = 1, #output do
-        output[index].value = input[index].value * factor
-        output[index].bias = input[index].bias + factor
-        output[index].weight = input[index].weight + factor
+    local species = assert(simd.species(array.number))
+    local cursor: uint32 = 0
+    while cursor + species.lanes <= #input do
+        species:store(output, cursor + 1, "value", species:load(input, cursor + 1, "value") * factor)
+        species:store(output, cursor + 1, "bias", species:load(input, cursor + 1, "bias") + factor)
+        species:store(output, cursor + 1, "weight", species:load(input, cursor + 1, "weight") + factor)
+        cursor = cursor + species.lanes
+    end
+    if cursor < #input then
+        local active = species:tail(#input - cursor)
+        species:store(output, cursor + 1, "value", species:load(input, cursor + 1, "value", active) * factor, active)
+        species:store(output, cursor + 1, "bias", species:load(input, cursor + 1, "bias", active) + factor, active)
+        species:store(output, cursor + 1, "weight", species:load(input, cursor + 1, "weight", active) + factor, active)
     end
 end
 
@@ -26,7 +35,7 @@ local writable = input:write()
 for index = 1, #writable do
     writable[index] = new Sample(index, index * 2, index * 3)
 end
-drop writable
+nupp.drop(writable)
 
 local output = array.new(new Sample(), 4096)
 scale(output:write(), input:read(), 2)
