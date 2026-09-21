@@ -106,7 +106,7 @@ end
 
 -- The one job narrow enough to be worth narrowing, so the boundary is worth an
 -- assertion: a compiler change is covered by `portable-compiler` compiling every
--- homepage example under the Worker's settings, and by the nightly backstop.
+-- homepage example under the Worker's default settings, and by the nightly backstop.
 function M.anOrdinaryCompilerChangeDoesNotPayForEmscripten()
     doesNotSelect("src/nupp/compiler/check/callexpr.nupp", {"browser-wasm"})
 end

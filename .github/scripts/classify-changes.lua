@@ -203,7 +203,7 @@ function classifier.classify(paths)
     -- job here whose cost makes narrowing it worth the risk. The browser
     -- surface selects it; a compiler change anywhere is covered more cheaply by
     -- `portable-compiler` job, which compiles every homepage example under the
-    -- Worker's exact settings, and by the nightly backstop.
+    -- Worker's default settings, and by the nightly backstop.
     if surfaces.browser then
         select(jobs, "browser-wasm", "browser or Wasm delivery changed", reasons)
     end

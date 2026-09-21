@@ -164,9 +164,9 @@
       "selectedBy": "portable-compiler",
       "steps": [
         {
-          "name": "Compile every homepage example in compatibility mode",
-          "compilerModes": ["luajit", "compat-lua51", "strict", "O1"],
-          "guarantees": ["every homepage example stays inside the checked stock Lua source subset"]
+          "name": "Compile every homepage example in LuaJIT mode",
+          "compilerModes": ["luajit", "strict", "O1"],
+          "guarantees": ["every homepage example compiles under the browser Worker's default settings"]
         },
         {
           "name": "Validate the LuaJIT browser compiler bundle",

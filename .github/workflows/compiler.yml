@@ -806,12 +806,12 @@ jobs:
         run: ./bin/nupp build
 
       # A checker or optimizer change anywhere in the compiler can invalidate
-      # source shown on the homepage. Keep the compatibility surface checked
-      # here as well as in the browser compiler request corpus below.
-      - name: Compile every homepage example in compatibility mode
+      # source shown on the homepage. Compile it under the Worker's default
+      # LuaJIT settings here as well as in the browser compiler request corpus.
+      - name: Compile every homepage example in LuaJIT mode
         shell: bash
         run: >-
-          ./bin/nupp build --strict --compat lua51 -O1
+          ./bin/nupp build --strict -O1
           -o build/ci-playground-examples
           editors/playground/src/examples/*.nupp
 

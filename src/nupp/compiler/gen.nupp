@@ -9883,7 +9883,7 @@ function gen.generate(
         -- every source position. Turn those continuations into `\n` escapes so the
         -- ordinary prelude implementation remains on the generated preamble line.
         local quotedPrelude = ("%q"):format(result.preludeRuntime):gsub("\n", "n")
-        code = ("_G.assert(_G.loadstring(%s,%q))();"):format(quotedPrelude, "@nupp-prelude") .. code
+        code = ("_G.assert((_G.loadstring or _G.load)(%s,%q))();"):format(quotedPrelude, "@nupp-prelude") .. code
     end
 
     -- Generated Lua that will not load is a bug in this file, and it should say so here

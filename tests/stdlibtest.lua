@@ -116,6 +116,26 @@ function M.ownershipInstallerDoesNotRecursivelyLoadItsPrelude()
     assert(not code:find("@nupp-prelude", 1, true), "the intrinsic installer does not execute a dependent prelude")
 end
 
+function M.generatedPreludeLoadsWithoutLoadstring()
+    local result = parser.parse("return 42\n", "prelude.g.nupp")
+    assertEq(#check.check(result, "prelude.g.nupp", sharedEnv), 0, "prelude fixture checks")
+    result.preludeRuntime = "_G.__testPrelude = true"
+    local code, diagnostics = gen.generate(result, "prelude.g.nupp")
+    assertEq(#diagnostics, 0, "prelude fixture generates")
+
+    local scope = setmetatable({loadstring = false}, {__index = _G})
+    scope._G = scope
+    scope.load = function(source, name)
+        local chunk = assert(loadstring(source, name))
+        setfenv(chunk, scope)
+        return chunk
+    end
+    local chunk = assert(loadstring(code))
+    setfenv(chunk, scope)
+    assertEq(chunk(), 42, "module result with load-only host")
+    assert(scope.__testPrelude, "prelude executes with a load-only host")
+end
+
 function M.checkerRecordsTheResolvedDialect()
     local default = parser.parse("return 42\n", "default.nupp")
     check.check(default, "default.nupp", sharedEnv)
