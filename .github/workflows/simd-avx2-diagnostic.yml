@@ -44,7 +44,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          export NUPP_CC="$NUPP_SIMD_COMPILERS"
+          export NUPP_CC=clang
+          ./bin/nupp build --target bootstrapCompiler
+          ./bin/nupp build --target docs
           ./bin/nupp build
           . ./scripts/luajit.sh
           select_luajit "$PWD"
