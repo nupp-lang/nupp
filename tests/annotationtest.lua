@@ -68,6 +68,11 @@ end
     assertEq(checked("local f: @nosuspend @nosuspend function(): nil"), "NUPP2112")
 end
 
+function M.typeQualifiersPreserveBorrowedFunctionResults()
+    assertEq(checked("local value: @nosuspend function<V>(borrows owner: V): V borrows (owner)"), "")
+    assertEq(checked("local value: @sendable function<V>(borrows owner: V): V borrows (owner)"), "")
+end
+
 function M.builtinCliCannotBeReplacedByTheFormerBootstrapPath()
     for _, source in ipairs({
         "src/nupp/compiler/cli/annotation.g.nupp",

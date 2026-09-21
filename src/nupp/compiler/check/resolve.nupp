@@ -2005,6 +2005,10 @@ function resolve.install(c: state.Checker): nil
 
     --- Applies built-in qualifiers after aliases and compound primaries resolve.
     local function qualifyType(application: any, value: Type, field: string, written: string): Type
+        if value.tag == "borrowed" then
+            local inner = qualifyType(application, value.inner, field, written)
+            return inner == value.inner and value or T.borrowed(inner)
+        end
         if value.tag == "union" then
             local members = {}
             for at, member in ipairs(value.members) do
