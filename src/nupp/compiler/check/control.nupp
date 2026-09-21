@@ -453,6 +453,100 @@ function control.install(c: state.Checker): state.StatHandlers
     local handlers = {}
     local labelOwnership = {}
 
+    -- An owned region lowers to a protected closure. Entering it from outside
+    -- would skip acquisition and jump to a label inaccessible in that closure.
+    local function refuseEntryToOwnedRegion(stat: any, kind: string)
+        local inside, labels = {}, {}
+
+        local function collect(node: any)
+            if not node or cst.isToken(node) then
+                return
+            end
+            inside[node] = true
+            if node ~= stat.body
+                and (
+                    node.kind == "funcExpr"
+                    or node.kind == "shortfn"
+                    or node.kind == "localFuncStmt"
+                    or node.kind == "funcStmt"
+                )
+            then
+                return
+            end
+            if node.kind == "labelStmt" and node.name then
+                labels[node.name.definition or node.name.text] = true
+            end
+            for _, child in ipairs(node) do
+                collect(child)
+            end
+        end
+
+        collect(stat.body)
+        if not next(labels) then
+            return
+        end
+
+        local targetFunction = nil
+
+        local function locate(node: any, currentFunction: any): boolean
+            if not node or cst.isToken(node) then
+                return false
+            end
+            local nextFunction = currentFunction
+            if node.kind == "funcExpr"
+                or node.kind == "shortfn"
+                or node.kind == "localFuncStmt"
+                or node.kind == "funcStmt"
+            then
+                nextFunction = node
+            end
+            if node == stat then
+                targetFunction = nextFunction
+                return true
+            end
+            for _, child in ipairs(node) do
+                if locate(child, nextFunction) then
+                    return true
+                end
+            end
+
+            return false
+        end
+
+        locate(c.result.root, nil)
+
+        local function refuse(node: any, currentFunction: any)
+            if not node or cst.isToken(node) then
+                return
+            end
+            local nextFunction = currentFunction
+            if node.kind == "funcExpr"
+                or node.kind == "shortfn"
+                or node.kind == "localFuncStmt"
+                or node.kind == "funcStmt"
+            then
+                nextFunction = node
+            end
+            if nextFunction == targetFunction
+                and not inside[node]
+                and node.kind == "gotoStmt"
+                and node.name
+                and labels[node.name.definition or node.name.text]
+                and not node.ownedEntryDiagnosed
+            then
+                node.ownedEntryDiagnosed = true
+                c.diag("NUPP2706", node, "control cannot enter a `" .. kind .. "` region", nil, {
+                    help = "move the label outside the owned region"
+                })
+            end
+            for _, child in ipairs(node) do
+                refuse(child, nextFunction)
+            end
+        end
+
+        refuse(c.result.root, nil)
+    end
+
     --- The statements a backward `goto` to this label runs again: everything after
     --- the label in its block, when some `goto` in there names it.
     local function repeatedAfter(stat: cst.LabelStmt): cst.Node?
@@ -576,6 +670,7 @@ function control.install(c: state.Checker): state.StatHandlers
     end
 
     handlers.withStmt = function(stat: cst.WithStmt)
+        refuseEntryToOwnedRegion(stat, "with")
         c.pushScope()
         for _, binding in ipairs(stat.bindings or {}) do
             local nameTok = binding.name
@@ -1412,97 +1507,7 @@ function control.install(c: state.Checker): state.StatHandlers
                 end
             end
         end
-        -- Leaving the protected closure is transported by cleanup lowering. Entering
-        -- it cannot be: a jump from outside would have to acquire an installation and
-        -- invent the lexical state before the label. Refuse that edge explicitly
-        -- instead of emitting Lua with an inaccessible label.
-        local inside, labels = {}, {}
-
-        local function collect(node: any)
-            if not node or cst.isToken(node) then
-                return
-            end
-            inside[node] = true
-            if node ~= stat.body
-                and (
-                    node.kind == "funcExpr"
-                    or node.kind == "shortfn"
-                    or node.kind == "localFuncStmt"
-                    or node.kind == "funcStmt"
-                )
-            then
-                return
-            end
-            if node.kind == "labelStmt" and node.name then
-                labels[node.name.text] = true
-            end
-            for _, child in ipairs(node) do
-                collect(child)
-            end
-        end
-
-        collect(stat.body)
-        if next(labels) then
-            local targetFunction = nil
-
-            local function locate(node: any, currentFunction: any)
-                if not node or cst.isToken(node) then
-                    return false
-                end
-                local nextFunction = currentFunction
-                if node.kind == "funcExpr"
-                    or node.kind == "shortfn"
-                    or node.kind == "localFuncStmt"
-                    or node.kind == "funcStmt"
-                then
-                    nextFunction = node
-                end
-                if node == stat then
-                    targetFunction = nextFunction
-                    return true
-                end
-                for _, child in ipairs(node) do
-                    if locate(child, nextFunction) then
-                        return true
-                    end
-                end
-
-                return false
-            end
-
-            locate(c.result.root, nil)
-
-            local function refuse(node: any, currentFunction: any)
-                if not node or cst.isToken(node) then
-                    return
-                end
-                local nextFunction = currentFunction
-                if node.kind == "funcExpr"
-                    or node.kind == "shortfn"
-                    or node.kind == "localFuncStmt"
-                    or node.kind == "funcStmt"
-                then
-                    nextFunction = node
-                end
-                if nextFunction == targetFunction
-                    and not inside[node]
-                    and node.kind == "gotoStmt"
-                    and node.name
-                    and labels[node.name.text]
-                    and not node.handledEntryDiagnosed
-                then
-                    node.handledEntryDiagnosed = true
-                    c.diag("NUPP2706", node, "control cannot enter a `handle suspension` region", nil, {
-                        help = "move the label outside the handled region"
-                    })
-                end
-                for _, child in ipairs(node) do
-                    refuse(child, nextFunction)
-                end
-            end
-
-            refuse(c.result.root, nil)
-        end
+        refuseEntryToOwnedRegion(stat, "handle suspension")
         -- Installing a handler is what puts `require("nupp.suspension")` in the
         -- generated module, so the target has to carry that runtime. Recorded
         -- here because this statement is the only thing that asks for it.

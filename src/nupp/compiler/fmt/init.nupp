@@ -1927,7 +1927,9 @@ local function canonicalizeUnifiedGrammar(source: string, result: any): string
                 add(
                     first.offset,
                     math.floor(close.offset + #close.text - first.offset) as integer,
-                    "with " .. freshInstallation(node) .. " = suspension.install(" .. exact(node.handler) .. ") do"
+                    "with " .. freshInstallation(
+                        node
+                    ) .. " = require(\"nupp.suspension\").install(" .. exact(node.handler) .. ") do"
                 )
             end
             return

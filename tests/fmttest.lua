@@ -167,7 +167,7 @@ function M.unifiedGrammarCanonicalizesCompatibilitySpellings()
             "local owner = @unsafe nupp.adopt<affine(any)>(raw)",
             "local raw2 = @unsafe nupp.release(owner)",
             "nupp.drop(owner)",
-            "with _suspensionInstallation = suspension.install(handler) do",
+            'with _suspensionInstallation = require("nupp.suspension").install(handler) do',
             "    print(1)",
             "end",
             "",
