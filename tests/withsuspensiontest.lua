@@ -60,7 +60,7 @@ function M.ordinaryCallChecksTheHandler()
     assert(found, "install must reject a non-handler")
 end
 
-function M.gotoCannotBypassInstallation()
+function M.gotoCannotEnterInstallationScope()
     local diagnostics = diagnose(
         HANDLER .. table.concat(
             {"goto inside", 'with installation = require("nupp.suspension").install(h) do', "    ::inside::", "end",},
@@ -69,11 +69,11 @@ function M.gotoCannotBypassInstallation()
     )
     local found = 0
     for _, diagnostic in ipairs(diagnostics) do
-        if diagnostic.code == "NUPP2706" then
+        if diagnostic.code == "NUPP2602" then
             found = found + 1
         end
     end
-    assert(found == 1, "one diagnostic must reject entry without acquisition")
+    assert(found == 1, "one ownership diagnostic must reject entry without acquisition")
 end
 
 function M.returnDischargesInstallation()

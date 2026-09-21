@@ -670,7 +670,7 @@ function control.install(c: state.Checker): state.StatHandlers
     end
 
     handlers.withStmt = function(stat: cst.WithStmt)
-        refuseEntryToOwnedRegion(stat, "with")
+        -- auditWithGotos already rejects entry into a with scope as NUPP2602.
         c.pushScope()
         for _, binding in ipairs(stat.bindings or {}) do
             local nameTok = binding.name

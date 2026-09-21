@@ -16,11 +16,15 @@ local function assertEq(got, want, label)
     end
 end
 
-local function compile(src, level, dialect)
+local function compile(src, level, compat)
     local result = parser.parse(src, "test.g.nupp")
     assertEq(#result.errors, 0, "syntax errors in test source")
-    check.check(result, "test.g.nupp", env)
-    local remarks = optimize.run(result, {level = level, filename = "test.g.nupp", dialect = dialect or "luajit",})
+    local checkDiags = check.check(result, "test.g.nupp", env, compat and {compat = compat} or nil)
+    if compat then
+        assertEq(#checkDiags, 0, "source compatibility diagnostics")
+        assertEq(result.compat, compat, "resolved source compatibility")
+    end
+    local remarks = optimize.run(result, {level = level, filename = "test.g.nupp"})
     local code, diags = gen.generate(result, "test")
     assertEq(#diags, 0, "gen diagnostics for " .. src)
 
@@ -273,7 +277,7 @@ return out
     end
 end
 
-function M.lua51DialectSkipsThePass()
+function M.lua51CompatSkipsThePass()
     local source = [[
 local out = ""
 for i = 1, 3 do
