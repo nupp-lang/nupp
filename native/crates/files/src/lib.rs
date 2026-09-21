@@ -731,12 +731,17 @@ mod tests {
 
     #[test]
     fn application_bases_follow_each_platform_contract() {
+        let xdg_config = if cfg!(windows) {
+            "C:/xdg/config"
+        } else {
+            "/xdg/config"
+        };
         let environment = |name: &str| match name {
             "HOME" => Some(OsString::from("/home/test")),
             "USERPROFILE" => Some(OsString::from("C:/Users/Test")),
             "APPDATA" => Some(OsString::from("C:/Users/Test/AppData/Roaming")),
             "LOCALAPPDATA" => Some(OsString::from("C:/Users/Test/AppData/Local")),
-            "XDG_CONFIG_HOME" => Some(OsString::from("/xdg/config")),
+            "XDG_CONFIG_HOME" => Some(OsString::from(xdg_config)),
             "XDG_DATA_HOME" => Some(OsString::from("relative/data")),
             _ => None,
         };
@@ -759,11 +764,7 @@ mod tests {
             ),
             (
                 ApplicationPlatform::Xdg,
-                [
-                    "/xdg/config",
-                    "/home/test/.local/share",
-                    "/home/test/.cache",
-                ],
+                [xdg_config, "/home/test/.local/share", "/home/test/.cache"],
             ),
         ];
         for (platform, bases) in expected {
