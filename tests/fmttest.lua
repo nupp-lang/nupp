@@ -182,6 +182,15 @@ function M.unifiedGrammarCanonicalizesCompatibilitySpellings()
     assertEq(fmt1(expected), expected, "unified grammar formatting is idempotent")
 end
 
+function M.stageZeroSourcesKeepCompatibilitySpellings()
+    local source = "local sealed interface Token\nreadonly value:integer\nend"
+    local expected = "local sealed interface Token\n    readonly value: integer\nend\n"
+    assertEq(formatter:format(source, "src/nupp/compiler/example.nupp"), expected)
+    assertEq(formatter:format(source, "src/nupp/runtime/example.nupp"), expected)
+    assertEq(formatter:format(source, "src/nupp/example.nupp"), expected)
+    assertEq(formatter:format(source, "src/example.nupp"), fmt1(source))
+end
+
 function M.sealedInterfaceModifier()
     assertEq(
         fmt1("local sealed interface Token\nreadonly value:integer\nend"),
