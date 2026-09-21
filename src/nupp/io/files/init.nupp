@@ -137,6 +137,9 @@ local function applicationPath(kind: string): (appPaths.ApplicationPath?, string
 end
 
 --- Resolves and creates this application's platform configuration directory.
+---
+--- Configuration, data and cache are always three distinct directories, so
+--- clearing one with a recursive `remove` never reaches another.
 --- @return the configuration path, or nil on failure
 --- @return a failure reason, when unsuccessful
 export function configurationPath(): (appPaths.ApplicationPath?, string?)

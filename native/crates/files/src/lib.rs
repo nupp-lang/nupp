@@ -364,7 +364,9 @@ pub fn current_directory() -> io::Result<Vec<u8>> {
 
 /// Returns one platform application-storage base without requiring it to exist.
 ///
-/// Codes are configuration, durable data and disposable cache respectively.
+/// Codes are configuration, durable data and disposable cache respectively. The
+/// three never alias: `nupp.io.files` hands each one out as its own directory,
+/// and a recursive remove of one must not reach into another.
 pub fn application_base(which: u32) -> io::Result<Vec<u8>> {
     let platform = if cfg!(windows) {
         ApplicationPlatform::Windows
@@ -404,12 +406,17 @@ fn resolve_application_base(
         .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "the home directory is not set"))
     };
     Ok(if matches!(platform, ApplicationPlatform::Windows) {
+        // Roaming carries settings between machines, local does not, which is the
+        // same split configuration and data already mean.
+        let local = || {
+            configured("LOCALAPPDATA")
+                .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "LOCALAPPDATA is not set"))
+        };
         match which {
-            0 | 1 => configured("APPDATA")
+            0 => configured("APPDATA")
                 .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "APPDATA is not set"))?,
-            2 => configured("LOCALAPPDATA").ok_or_else(|| {
-                io::Error::new(io::ErrorKind::NotFound, "LOCALAPPDATA is not set")
-            })?,
+            1 => local()?,
+            2 => local()?.join("Temp"),
             _ => {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidInput,
@@ -419,7 +426,8 @@ fn resolve_application_base(
         }
     } else if matches!(platform, ApplicationPlatform::Apple) {
         match which {
-            0 | 1 => home()?.join("Library/Application Support"),
+            0 => home()?.join("Library/Preferences"),
+            1 => home()?.join("Library/Application Support"),
             2 => home()?.join("Library/Caches"),
             _ => {
                 return Err(io::Error::new(
@@ -732,33 +740,48 @@ mod tests {
             "XDG_DATA_HOME" => Some(OsString::from("relative/data")),
             _ => None,
         };
-        assert_eq!(
-            resolve_application_base(0, ApplicationPlatform::Windows, environment).unwrap(),
-            PathBuf::from("C:/Users/Test/AppData/Roaming")
-        );
-        assert_eq!(
-            resolve_application_base(2, ApplicationPlatform::Windows, environment).unwrap(),
-            PathBuf::from("C:/Users/Test/AppData/Local")
-        );
-        assert_eq!(
-            resolve_application_base(0, ApplicationPlatform::Apple, environment).unwrap(),
-            PathBuf::from("/home/test/Library/Application Support")
-        );
-        assert_eq!(
-            resolve_application_base(2, ApplicationPlatform::Apple, environment).unwrap(),
-            PathBuf::from("/home/test/Library/Caches")
-        );
-        assert_eq!(
-            resolve_application_base(0, ApplicationPlatform::Xdg, environment).unwrap(),
-            PathBuf::from("/xdg/config")
-        );
-        assert_eq!(
-            resolve_application_base(1, ApplicationPlatform::Xdg, environment).unwrap(),
-            PathBuf::from("/home/test/.local/share")
-        );
-        assert_eq!(
-            resolve_application_base(2, ApplicationPlatform::Xdg, environment).unwrap(),
-            PathBuf::from("/home/test/.cache")
-        );
+        let expected = [
+            (
+                ApplicationPlatform::Windows,
+                [
+                    "C:/Users/Test/AppData/Roaming",
+                    "C:/Users/Test/AppData/Local",
+                    "C:/Users/Test/AppData/Local/Temp",
+                ],
+            ),
+            (
+                ApplicationPlatform::Apple,
+                [
+                    "/home/test/Library/Preferences",
+                    "/home/test/Library/Application Support",
+                    "/home/test/Library/Caches",
+                ],
+            ),
+            (
+                ApplicationPlatform::Xdg,
+                [
+                    "/xdg/config",
+                    "/home/test/.local/share",
+                    "/home/test/.cache",
+                ],
+            ),
+        ];
+        for (platform, bases) in expected {
+            for (which, base) in bases.iter().enumerate() {
+                assert_eq!(
+                    resolve_application_base(which as u32, platform, environment).unwrap(),
+                    PathBuf::from(base)
+                );
+            }
+            // Three kinds, three directories: one kind's recursive remove must not
+            // be able to reach another's.
+            assert_eq!(
+                bases
+                    .iter()
+                    .collect::<std::collections::BTreeSet<_>>()
+                    .len(),
+                bases.len()
+            );
+        }
     }
 }

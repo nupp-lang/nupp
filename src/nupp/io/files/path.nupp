@@ -137,7 +137,9 @@ end
     return self:toString()
 end
 
-export function native(root: string, kind: string, organization: string, application: string): ApplicationPath
+-- The native root already names the kind: the platform hands out a separate
+-- base for configuration, data and cache, so nothing distinguishes them here.
+export function native(root: string, organization: string, application: string): ApplicationPath
     return newPath("native", root, {
         encodeIdentity(organization, "organization"),
         encodeIdentity(application, "application")

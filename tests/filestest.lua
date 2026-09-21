@@ -622,7 +622,7 @@ function M.applicationPathsAreScopedPortableAndStable()
         applicationPaths.encodeIdentity("/") ~= applicationPaths.encodeIdentity("%2F"),
         "identity escaping remains reversible"
     )
-    local data = applicationPaths.native(root, "data", "nupp", application)
+    local data = applicationPaths.native(root, "nupp", application)
 
     local safe = data:join("save files", "slot-1.dat")
     assert(safe:toString():find("save files", 1, true))
@@ -653,7 +653,7 @@ function M.applicationPathsAreScopedPortableAndStable()
     end
 
     files.setApplicationIdentity("nupp", application .. "-next")
-    local nextData = applicationPaths.native(root, "data", "nupp", application .. "-next")
+    local nextData = applicationPaths.native(root, "nupp", application .. "-next")
     assert(nextData:toString() ~= data:toString(), "changing identity selects another root")
     assert(data:join("old"):toString():find(application, 1, true), "an existing path retains its identity")
 

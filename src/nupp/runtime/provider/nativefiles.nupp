@@ -1888,7 +1888,7 @@ export function applicationPath(
     if base == nil then
         return nil, reason
     end
-    local value = appPaths.native(base, kind, organization, application)
+    local value = appPaths.native(base, organization, application)
     local made, failure = done(C.nuppNativeFilesCreateDirectory(slice(value:toString())))
     if not made then
         return nil, failure
