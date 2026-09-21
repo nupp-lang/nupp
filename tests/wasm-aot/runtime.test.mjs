@@ -259,6 +259,30 @@ test("browser file effects acquire OPFS paths and retain synchronous handles", a
   assert.deepEqual(persisted.responses[0].value, {granted: true});
 });
 
+test("browser file effects retry a storage root that refused once", async () => {
+  const {storage} = fakeOpfs();
+  let refusals = 1;
+  const files = {
+    storage: {
+      getDirectory: async () => {
+        if (refusals-- > 0) throw new Error("storage is busy");
+        return storage.getDirectory();
+      },
+    },
+    available: true, handles: new Map(), nextHandle: 1, lastError: "",
+  };
+  const request = async (id) => {
+    const result = await handleBrowserEffects({kind: "effects", requests: [{
+      id, kind: "files", operation: "create-directory", root: "data", parts: ["data", "nupp", "example"],
+    }]}, {files});
+    return result.responses[0];
+  };
+  const refused = await request(1);
+  assert.equal(refused.ok, false);
+  assert.match(refused.error, /storage is busy/);
+  assert.equal((await request(2)).ok, true, "a refusal must not be cached for the rest of the run");
+});
+
 test("browser time effects use Worker clocks and cancellable timers", async () => {
   const clock = await handleBrowserEffects({
     kind: "effects",

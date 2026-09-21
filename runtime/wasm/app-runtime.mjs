@@ -566,7 +566,12 @@ function fileParts(effect) {
 }
 
 async function filesRoot(state) {
-  state.rootPromise ||= Promise.resolve(state.storage.getDirectory());
+  // Memoize the directory, not a failure to reach it: caching a rejection would
+  // replay one transient refusal for every later file effect in the run.
+  state.rootPromise ||= Promise.resolve(state.storage.getDirectory()).catch((error) => {
+    state.rootPromise = undefined;
+    throw error;
+  });
   return state.rootPromise;
 }
 
