@@ -34,37 +34,9 @@ function pragma.install(c: state.Checker): state.StatHandlers
     local defineAnnotation = marks.defineAnnotation
     local validateAnnotation = marks.validateAnnotation
     local stringValue, nameText = marks.stringValue, marks.nameText
+    local annotationType = marks.annotationType
 
     local handlers = {}
-
-    --- Rebuilds a stable dotted annotation argument as a type name node.
-    local function annotationType(expr: any): cst.Tname?
-        local names = {}
-
-        local function collect(node: any): boolean
-            if not node then
-                return false
-            elseif node.kind == "name" and node.token then
-                names[#names + 1] = node.token
-                return true
-            elseif node.kind == "dotIndex" and node.name and collect(node.obj) then
-                names[#names + 1] = node.name
-                return true
-            end
-
-            return false
-        end
-
-        if not collect(expr) or not names[1] then
-            return nil
-        end
-        local node = new cst.Tname(kind = "tname", base = names[1])
-        for _, token in ipairs(names) do
-            node[#node + 1] = token
-        end
-
-        return node
-    end
 
     local function nominalValue(value: T.Type?): T.Nominal?
         if value ~= nil and (value.tag == "typeobject" or value.tag == "metatable") then

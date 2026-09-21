@@ -32,6 +32,9 @@ type annotate.Ops = {
     --- member's value is a compile-time constant, so this is how one is read.
     stringValue: function(expr: any): string?,
 
+    --- A stable dotted annotation argument represented as a type name.
+    annotationType: function(expr: any): cst.Tname?,
+
     --- Checks one application against the definition it names, answering that
     --- definition and whether the application held up.
     validateAnnotation: function(application: any, target: any, owner: any?): (any, boolean),
@@ -46,6 +49,34 @@ type annotate.Ops = {
 --- @return the operations the walk calls
 function annotate.install(c: state.Checker): annotate.Ops
     local ops = {}
+
+    function ops.annotationType(expr: any): cst.Tname?
+        local names = {}
+
+        local function collect(node: any): boolean
+            if not node then
+                return false
+            elseif node.kind == "name" and node.token then
+                names[#names + 1] = node.token
+                return true
+            elseif node.kind == "dotIndex" and node.name and collect(node.obj) then
+                names[#names + 1] = node.name
+                return true
+            end
+
+            return false
+        end
+
+        if not collect(expr) or not names[1] then
+            return nil
+        end
+        local node = new cst.Tname(kind = "tname", base = names[1])
+        for _, token in ipairs(names) do
+            node[#node + 1] = token
+        end
+
+        return node
+    end
 
     --- The identifier an expression names, or nil where it names none. Error recovery
     --- can leave a name node without its token, so an annotation argument written

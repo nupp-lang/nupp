@@ -73,6 +73,30 @@ function M.typeQualifiersPreserveBorrowedFunctionResults()
     assertEq(checked("local value: @sendable function<V>(borrows owner: V): V borrows (owner)"), "")
 end
 
+function M.coroutineProtocolOnBodylessCallableField()
+    local protocol = "local type Feed = thread<(number), (boolean), (number), (string)>\n"
+    assertEq(checked(protocol .. [[
+local interface Worker
+    @coroutine(Feed)
+    run: function(number): string
+end
+local worker: Worker
+local co: Feed = coroutine.create(worker.run)
+]]), "")
+    assertEq(checked(protocol .. [[
+local interface Worker
+    @coroutine(Feed)
+    run: function(boolean): string
+end
+]]), "NUPP2112")
+    assertEq(checked(protocol .. [[
+local interface Worker
+    @coroutine(Feed)
+    run: string
+end
+]]), "NUPP2112")
+end
+
 function M.builtinCliCannotBeReplacedByTheFormerBootstrapPath()
     for _, source in ipairs({
         "src/nupp/compiler/cli/annotation.g.nupp",

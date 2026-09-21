@@ -392,7 +392,7 @@ local BUILTINS = {
         arguments = "names",
         builtin = true,
         qualifiedNames = true,
-        targets = {"function"},
+        targets = {"function", "field"},
         doc = "Checks a function against a thread<Start, Resume, Yield, Return> protocol.",
         docsPath = "learn/runtime/concurrency/coroutines",
     },
