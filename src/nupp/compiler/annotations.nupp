@@ -60,6 +60,8 @@ local KNOWN_TARGETS = {
     assignment = true,
     call = true,
     field = true,
+    type = true,
+    indexer = true,
 }
 
 local CATEGORIES = {
@@ -83,6 +85,7 @@ local CATEGORIES = {
     compoundAssignStmt = {assignment = true},
     callStmt = {call = true},
     fieldDecl = {field = true},
+    indexerDecl = {indexer = true},
 }
 
 --- What a registry offers a caller. The methods are explicit fields as well as
@@ -158,6 +161,7 @@ function Registry:define(spec)
         declaration = spec.declaration,
         source = spec.source,
         builtin = spec.builtin,
+        qualifiedNames = spec.qualifiedNames,
         doc = spec.doc,
         docsPath = spec.docsPath,
     }
@@ -238,6 +242,94 @@ end
 -- compiled into the registry need a stand-in.
 local BUILTINS = {
     {
+        name = "nosuspend",
+        arguments = "none",
+        builtin = true,
+        targets = {"type", "block"},
+        doc = "Requires a callable type or block that cannot suspend.",
+        docsPath = "learn/runtime/concurrency/suspension",
+    },
+    {
+        name = "sendable",
+        arguments = "none",
+        builtin = true,
+        targets = {"type"},
+        doc = "Requires a callable type reproducible in another isolated Lua state.",
+        docsPath = "reference/annotations#built-in-annotations",
+    },
+    {
+        name = "comptime",
+        arguments = "none",
+        builtin = true,
+        targets = {"type", "function", "type-declaration"},
+        doc = "Restricts a callable or type declaration to compile-time use.",
+        docsPath = "reference/annotations#built-in-annotations",
+    },
+    {
+        name = "noalloc",
+        arguments = "none",
+        builtin = true,
+        targets = {"block"},
+        doc = "Requires a block that performs no allocation.",
+        docsPath = "concepts/effects",
+    },
+    {
+        name = "noraise",
+        arguments = "none",
+        builtin = true,
+        targets = {"block"},
+        doc = "Requires a block that cannot raise an error.",
+        docsPath = "concepts/effects",
+    },
+    {
+        name = "sealed",
+        arguments = "none",
+        builtin = true,
+        targets = {"interface"},
+        doc = "Closes an interface to implementations declared outside its module.",
+        docsPath = "reference/annotations#built-in-annotations",
+    },
+    {
+        name = "affine",
+        arguments = "none",
+        builtin = true,
+        targets = {"interface"},
+        doc = "Marks an interface as an affine ownership capability.",
+        docsPath = "reference/ownership",
+    },
+    {
+        name = "terminal",
+        arguments = "none",
+        builtin = true,
+        targets = {"field"},
+        doc = "Selects the terminal method of an affine interface.",
+        docsPath = "reference/ownership",
+    },
+    {
+        name = "readonly",
+        arguments = "none",
+        builtin = true,
+        targets = {"field", "indexer"},
+        doc = "Makes a declared property or indexer readable but not writable.",
+        docsPath = "reference/types",
+    },
+    {
+        name = "writeonly",
+        arguments = "none",
+        builtin = true,
+        targets = {"field", "indexer"},
+        doc = "Makes a declared property or indexer writable but not readable.",
+        docsPath = "reference/types",
+    },
+    {
+        name = "private",
+        arguments = "none",
+        builtin = true,
+        targets = {"field"},
+        doc = "Restricts a record field to its declaring module.",
+        docsPath = "reference/types",
+    },
+    {
         name = "unsafe",
         arguments = "none",
         builtin = true,
@@ -292,8 +384,17 @@ local BUILTINS = {
         name = "effects",
         arguments = "effects",
         targets = {"function", "c-function", "local-binding"},
-        doc = "A complete, pessimistic effect contract: reads, writes, shapes, metatables, escapes, calls, returns, allocates, yields, raises, external.",
+        doc = "A complete, pessimistic effect contract: reads, writes, shapes, metatables, escapes, calls, returns, allocates, suspends, raises, external.",
         docsPath = "concepts/effects",
+    },
+    {
+        name = "coroutine",
+        arguments = "names",
+        builtin = true,
+        qualifiedNames = true,
+        targets = {"function"},
+        doc = "Checks a function against a thread<Start, Resume, Yield, Return> protocol.",
+        docsPath = "learn/runtime/concurrency/coroutines",
     },
     {
         name = "relax",
@@ -307,6 +408,7 @@ local BUILTINS = {
         arguments = "names",
         targets = {"record", "struct"},
         builtin = true,
+        qualifiedNames = true,
         doc = "Runs a closed comptime recipe, e.g. `nupp.derive.Serde`, that adds checked members or data without exposing source or AST macros.",
         docsPath = "reference/derives",
     },

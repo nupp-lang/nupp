@@ -750,7 +750,7 @@ function resolve.install(c: state.Checker): nil
     --- The type an annotation node names.
     ---
     --- @param node the type node, when there is one
-    c.resolveType = function(node: Node?): Type
+    local function resolveTypeCore(node: Node?): Type
         if not node then
             return T.any
         end
@@ -2001,6 +2001,85 @@ function resolve.install(c: state.Checker): nil
         end
 
         return T.any
+    end
+
+    --- Applies built-in qualifiers after aliases and compound primaries resolve.
+    local function qualifyType(application: any, value: Type, field: string, written: string): Type
+        if value.tag == "union" then
+            local members = {}
+            for at, member in ipairs(value.members) do
+                if member.tag ~= "func" then
+                    c.diag(
+                        "NUPP2112",
+                        application.name,
+                        (
+                            "@%s requires every union alternative to be callable; %s is not"
+                        ):format(written, T.tostring(member))
+                    )
+                    return value
+                end
+                members[at] = T.funcWith(member, {[field] = true})
+            end
+            return T.union(members)
+        end
+        if value.tag ~= "func" then
+            c.diag(
+                "NUPP2112",
+                application.name,
+                ("@%s requires a callable type, got %s"):format(written, T.tostring(value))
+            )
+            return value
+        end
+
+        return T.funcWith(value, {[field] = true})
+    end
+
+    c.resolveType = function(node: Node?): Type
+        if not node then
+            return T.any
+        end
+        local attached = node.typeAnnotations
+        if attached then
+            -- `type` is itself compiler-only. Grant the existing contextual permission
+            -- before resolving it; callable qualifiers are applied after resolution.
+            for _, application in ipairs(attached) do
+                local applicationAny = application as any
+                if applicationAny.name and applicationAny.name.text == "comptime" then
+                    (node as any).comptimeOnly = true
+                end
+            end
+        end
+        local value = resolveTypeCore(node)
+        if not attached then
+            return value
+        end
+        local seen = {}
+        for _, application in ipairs(attached) do
+            local applicationAny = application as any
+            local definition, valid = c.marks.validateAnnotation(application, node)
+            local written = applicationAny.name and applicationAny.name.text or ""
+            if seen[written] then
+                c.diag(
+                    "NUPP2112",
+                    applicationAny.name or application,
+                    ("duplicate type annotation @%s"):format(written)
+                )
+                valid = false
+            end
+            seen[written] = true
+            if definition and valid then
+                if written == "nosuspend" then
+                    value = qualifyType(application, value, "noYield", written)
+                elseif written == "sendable" then
+                    value = qualifyType(application, value, "sendable", written)
+                elseif written == "comptime" and value.tag ~= "type" then
+                    value = qualifyType(application, value, "comptimeOnly", written)
+                end
+            end
+        end
+        node.resolvedType = value
+
+        return value
     end
 
     ---------------------------------------------------------------------

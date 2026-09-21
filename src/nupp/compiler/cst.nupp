@@ -30,6 +30,12 @@ local cst = {}
 --- These belong to no one kind, so they are declared once and included by every node
 --- rather than repeated on each.
 interface cst.Hints
+    --- Built-in annotations qualifying this type primary.
+    typeAnnotations: {cst.Node}?
+
+    --- Only compiler-registered type annotations may attach here.
+    typeAttachment: boolean?
+
     --- Prefix annotations keep the operand's kind and result-count semantics.
     expressionAnnotations: {cst.Node}?
 
@@ -1986,6 +1992,9 @@ record cst.DotIndex is cst.Hints
 
     --- The type argument of an ffi intrinsic written `ffi.new<T>`.
     ffiTypeArg: cst.Node?
+
+    --- The owner type of `nupp.adopt<T>`.
+    ownershipTypeArg: cst.Node?
 end
 
 --- `obj[e]`.
@@ -2966,7 +2975,18 @@ cst.isToken = isToken
 --- introduced only as `nupp.pin`: a bare `pin` is an ordinary value name.
 local OWNERSHIP_INTRINSICS: {
     [string]: boolean
-} = {attemptAll = true, borrow = true, borrowFrom = true, partition = true, region = true, pin = true, manage = true,}
+} = {
+    attemptAll = true,
+    borrow = true,
+    borrowFrom = true,
+    partition = true,
+    region = true,
+    pin = true,
+    manage = true,
+    adopt = true,
+    release = true,
+    drop = true,
+}
 
 --- The ownership intrinsic a callee is written as, before anything asks what the names
 --- in it resolve to. Answers nil for a callee of any other shape.
@@ -2988,7 +3008,7 @@ function cst.ownershipIntrinsicSpelling(callee: cst.Node?): string?, boolean?
     end
     if callee.kind == "name" then
         local bare = callee.token and callee.token.text or ""
-        if bare == "pin" then
+        if bare == "pin" or bare == "adopt" or bare == "release" or bare == "drop" then
             return nil, false
         end
         return OWNERSHIP_INTRINSICS[bare] and bare or nil, false

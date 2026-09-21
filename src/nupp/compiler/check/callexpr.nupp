@@ -989,7 +989,46 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         local intrinsic = node.ownershipSyntax or ownershipIntrinsic(c, callee)
         if intrinsic then
             local args = argExprs
-            if intrinsic == "manage" then
+            if intrinsic == "adopt" then
+                local valueT = args[1] and c.infer(args[1]) or T.any
+                local targetNode = callee and callee.kind == "dotIndex" and callee.ownershipTypeArg or nil
+                local target = targetNode and c.resolveType(targetNode) or T.any
+                if not targetNode then
+                    c.diag("NUPP2602", node, "nupp.adopt needs an owner type: nupp.adopt<Owner>(value)")
+                elseif target.tag ~= "affine" then
+                    c.diag("NUPP2602", targetNode, "nupp.adopt target must be an affine type")
+                end
+                if #args ~= 1 then
+                    c.diag("NUPP2602", node, "nupp.adopt expects one unmanaged value")
+                elseif c.ownershipKind(valueT) then
+                    c.diag("NUPP2602", args[1], "nupp.adopt expects an unmanaged value")
+                end
+                if c.unsafeDepth == 0 then
+                    c.diag("NUPP2604", node, "nupp.adopt requires @unsafe on the call")
+                end
+                local representation = rawType(target)
+                if valueT ~= T.any and target ~= T.any and not isA(valueT, representation) then
+                    c.diag(
+                        "NUPP2602",
+                        args[1] or node,
+                        ("cannot adopt %s as owner of %s"):format(T.tostring(valueT), T.tostring(representation))
+                    )
+                end
+                node.ownerCleanups = target.tag == "affine" and target.cleanups or nil
+                node.ownershipIntrinsic = "adopt"
+                return target
+            elseif intrinsic == "release" then
+                local valueT = args[1] and c.infer(args[1]) or T.any
+                if #args ~= 1 or c.ownershipKind(valueT) ~= "affine" then
+                    c.diag("NUPP2602", args[1] or node, "nupp.release expects one affine value")
+                end
+                if c.unsafeDepth == 0 then
+                    c.diag("NUPP2604", node, "nupp.release requires @unsafe on the call")
+                end
+                c.moveExpression(args[1] or node, valueT, "nupp.release")
+                node.ownershipIntrinsic = "release"
+                return rawType(valueT)
+            elseif intrinsic == "manage" then
                 local valueT = args[1] and c.infer(args[1]) or T.any
                 -- Judged here whether or not the cell accepts it.
                 c.markTemporaryConsumed(args[1])

@@ -2099,8 +2099,22 @@ function declare.install(
                     local partitionApplication = nil
                     for _, application in ipairs(e.annotations or {}) do
                         local definition2, valid = validateAnnotation(application, e, stat)
-                        if definition2 and valid and application.name.text == "partition" then
-                            partitionApplication = application
+                        if definition2 and valid then
+                            local qualifier = application.name.text
+                            if qualifier == "partition" then
+                                partitionApplication = application
+                            elseif qualifier == "terminal" then
+                                e.terminalTok = application.name
+                            elseif qualifier == "private" then
+                                e.privacy = application.name
+                            elseif qualifier == "readonly" or qualifier == "writeonly" then
+                                if e.capability then
+                                    c.diag("NUPP2118", application.name, "a field has only one property capability")
+                                else
+                                    e.capability = application.name
+                                    e.capability.propertyCapability = qualifier == "readonly" and "read" or "write"
+                                end
+                            end
                         end
                     end
                     local ft = c.resolveType(e.type)
@@ -2377,6 +2391,20 @@ function declare.install(
                         end
                     end
                 elseif e.kind == "indexerDecl" then
+                    for _, application in ipairs(e.annotations or {}) do
+                        local definition2, valid = validateAnnotation(application, e, stat)
+                        if definition2 and valid then
+                            local qualifier = application.name.text
+                            if qualifier == "readonly" or qualifier == "writeonly" then
+                                if e.capability then
+                                    c.diag("NUPP2118", application.name, "an indexer has only one property capability")
+                                else
+                                    e.capability = application.name
+                                    e.capability.propertyCapability = qualifier == "readonly" and "read" or "write"
+                                end
+                            end
+                        end
+                    end
                     local key = c.resolveType(e.key)
                     local value = c.resolveType(e.value)
                     local capability = e.capability and e.capability.propertyCapability or nil

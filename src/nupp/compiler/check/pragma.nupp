@@ -37,6 +37,35 @@ function pragma.install(c: state.Checker): state.StatHandlers
 
     local handlers = {}
 
+    --- Rebuilds a stable dotted annotation argument as a type name node.
+    local function annotationType(expr: any): cst.Tname?
+        local names = {}
+
+        local function collect(node: any): boolean
+            if not node then
+                return false
+            elseif node.kind == "name" and node.token then
+                names[#names + 1] = node.token
+                return true
+            elseif node.kind == "dotIndex" and node.name and collect(node.obj) then
+                names[#names + 1] = node.name
+                return true
+            end
+
+            return false
+        end
+
+        if not collect(expr) or not names[1] then
+            return nil
+        end
+        local node = new cst.Tname(kind = "tname", base = names[1])
+        for _, token in ipairs(names) do
+            node[#node + 1] = token
+        end
+
+        return node
+    end
+
     local function nominalValue(value: T.Type?): T.Nominal?
         if value ~= nil and (value.tag == "typeobject" or value.tag == "metatable") then
             value = value.of
@@ -197,7 +226,7 @@ function pragma.install(c: state.Checker): state.StatHandlers
             calls = true,
             returns = true,
         }
-        local boolMembers = {allocates = true, yields = true, raises = true, external = true,}
+        local boolMembers = {allocates = true, suspends = true, yields = true, raises = true, external = true,}
         local contract = {
             reads = {},
             writes = {},
@@ -214,10 +243,11 @@ function pragma.install(c: state.Checker): state.StatHandlers
         local seen = {}
         for _, arg in ipairs(application.annotationArgs or {}) do
             local name = arg.name and arg.name.text or nil
-            if not name or seen[name] or not (listMembers[name] or boolMembers[name]) then
+            local semanticName = name == "suspends" and "yields" or name
+            if not name or seen[semanticName] or not (listMembers[name] or boolMembers[name]) then
                 c.diag("NUPP2112", arg, "@effects arguments must be unique named effect members")
             elseif listMembers[name] then
-                seen[name] = true
+                seen[semanticName] = true
                 local expr = arg.expr
                 if not expr or expr.kind ~= "tableExpr" then
                     c.diag("NUPP2112", arg, ("@effects.%s must be an array of strings"):format(name))
@@ -232,12 +262,12 @@ function pragma.install(c: state.Checker): state.StatHandlers
                     end
                 end
             else
-                seen[name] = true
+                seen[semanticName] = true
                 local expr = arg.expr
                 if not expr or (expr.kind ~= "trueExpr" and expr.kind ~= "falseExpr") then
                     c.diag("NUPP2112", arg, ("@effects.%s must be true or false"):format(name))
                 else
-                    contract[name] = expr.kind == "trueExpr"
+                    contract[semanticName] = expr.kind == "trueExpr"
                 end
             end
         end
@@ -336,6 +366,72 @@ function pragma.install(c: state.Checker): state.StatHandlers
             end
             if valid and target and targetKind == "recordDecl" then
                 defineAnnotation(stat, target)
+            end
+            return
+
+        elseif written == "nosuspend" or written == "noalloc" or written == "noraise" then
+            if valid and target and targetAny.body then
+                if written == "nosuspend" then
+                    c.nosuspend.region({body = targetAny.body})
+                    c.noSuspendDepth = c.noSuspendDepth + 1
+                else
+                    local effect = written == "noalloc" and "allocates" or "raises"
+                    c.effectRegions.region({body = targetAny.body, effect = effect} as any)
+                    c.effectRegionDepths[effect] = (c.effectRegionDepths[effect] or 0) + 1
+                end
+            end
+            if stat.stat then
+                c.checkStat(stat.stat)
+            end
+            if valid and target and targetAny.body then
+                if written == "nosuspend" then
+                    c.noSuspendDepth = c.noSuspendDepth - 1
+                else
+                    local effect = written == "noalloc" and "allocates" or "raises"
+                    c.effectRegionDepths[effect] = (c.effectRegionDepths[effect] or 1) - 1
+                end
+            end
+            return
+
+        elseif written == "comptime" or written == "sealed" or written == "affine" then
+            if valid and target then
+                if written == "comptime" then
+                    targetAny.comptimeTok = annotationName
+                    targetAny.comptimeOnly = true
+                elseif written == "sealed" then
+                    targetAny.sealedTok = annotationName
+                else
+                    targetAny.affineTok = annotationName
+                end
+            end
+            if stat.stat then
+                c.checkStat(stat.stat)
+            end
+            return
+
+        elseif written == "coroutine" then
+            if valid and targetBody then
+                local args = stat.annotationArgs or {}
+                local typeNode = args[1] and annotationType(args[1].expr) or nil
+                if #args ~= 1 or not typeNode then
+                    c.diag("NUPP2112", stat, "@coroutine expects one thread protocol type name")
+                else
+                    local protocol = c.resolveType(typeNode)
+                    if protocol.tag ~= "protocolThread" then
+                        c.diag(
+                            "NUPP2112",
+                            args[1],
+                            (
+                                "@coroutine expects thread<Start, Resume, Yield, Return>, got %s"
+                            ):format(T.tostring(protocol))
+                        )
+                    else
+                        (targetBody as any).coroutineProtocol = protocol
+                    end
+                end
+            end
+            if stat.stat then
+                c.checkStat(stat.stat)
             end
             return
 

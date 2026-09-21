@@ -27,7 +27,46 @@ local function diagsOf(src, registry)
     return table.concat(out, " ")
 end
 
+local checked
 local M = {}
+
+function M.policyAnnotationsComposeAcrossTypesDeclarationsMembersAndRegions()
+    local source = [[
+@sealed @affine local interface Resource
+    @terminal
+    close: @nosuspend function(takes self: Resource): nil
+end
+
+local record Box
+    @private
+    @readonly
+    value: integer
+
+    @writeonly
+    [string]: integer
+end
+
+@comptime
+local function build(): integer
+    return 1
+end
+
+local result = comptime do
+    return build()
+end
+
+@nosuspend
+@noalloc
+@noraise
+do
+    local _ = result
+end
+]]
+    assertEq(checked(source), "")
+    assertEq(checked("local f: @comptime @nosuspend @sendable function(): nil"), "")
+    assertEq(checked("local f: @nosuspend ((function(): nil) | integer)"), "NUPP2112")
+    assertEq(checked("local f: @nosuspend @nosuspend function(): nil"), "NUPP2112")
+end
 
 function M.builtinCliCannotBeReplacedByTheFormerBootstrapPath()
     for _, source in ipairs({
@@ -49,7 +88,7 @@ function M.builtinCliCannotBeReplacedByTheFormerBootstrapPath()
     end
 end
 
-local function checked(src)
+checked = function(src)
     local result = parser.parse(src, "test.g.nupp")
     assertEq(#result.errors, 0, "syntax")
     -- The environment this file already shares, rather than another one built
@@ -123,9 +162,8 @@ function M.sealedInterfacesRequireDeclaredConformance()
     )
 end
 
-function M.sealedIsAKeywordNotAnAnnotation()
-    local result = parser.parse("@sealed\nlocal interface Token end", "test.g.nupp")
-    assert(#result.errors > 0, "@sealed must be rejected as syntax")
+function M.sealedIsAvailableAsAnAnnotation()
+    assertEq(checked("@sealed\nlocal interface Token end"), "")
 end
 
 function M.partitionContractsRequireASealedInterfaceAndRealFields()
@@ -306,7 +344,7 @@ end
 
 function M.reservedAnnotationsAreNotSilentlyErased()
     assertEq(diagsOf("@jit local function f() end"), "")
-    assertEq(diagsOf("@comptime const function f() end"), "NUPP2111")
+    assertEq(diagsOf("@comptime const function f() end"), "")
     assertEq(diagsOf("const comptime function f() end"), "")
 end
 

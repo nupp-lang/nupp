@@ -3314,6 +3314,26 @@ function M.rawReconstructionRequiresUnsafe()
     )
 end
 
+function M.ownershipCallsReplaceAdoptReleaseAndDropSyntax()
+    assertClean(
+        RESOURCE .. table.concat(
+            {
+                "",
+                "local raw: resource*",
+                "local value = @unsafe nupp.adopt<affine(resource*, resource_free)>(raw)",
+                "local restored = @unsafe nupp.release(value)",
+                "local again = @unsafe nupp.adopt<affine(resource*, resource_free)>(restored)",
+                "nupp.drop(again)",
+            },
+            "\n"
+        )
+    )
+    assertEq(
+        codes(RESOURCE .. "\nlocal raw: resource*\nlocal value = nupp.adopt<affine(resource*, resource_free)>(raw)"),
+        "NUPP2604"
+    )
+end
+
 function M.rawAbandonmentRequiresUnsafe()
     assertClean(
         RESOURCE .. table.concat(

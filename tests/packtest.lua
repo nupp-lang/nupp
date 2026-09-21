@@ -476,6 +476,24 @@ function M.coroutineProtocolsTypeYieldResumeAndReturnValues()
     )
 end
 
+function M.coroutineAnnotationUsesTheThreadProtocolType()
+    clean(
+        table.concat(
+            {
+                "local type Feed = thread<(number), (boolean), (number, string), (string)>",
+                "@coroutine(Feed)",
+                "local function worker(start: number): string",
+                "   local again: boolean = coroutine.yield(start, 'paused')",
+                "   return tostring(again)",
+                "end",
+                "local co: Feed = coroutine.create(worker)",
+                "local ok, value, label = coroutine.resume(co, 1)",
+            },
+            "\n"
+        )
+    )
+end
+
 function M.coroutineStartAndResumePacksFollowTheLocalHandlePhase()
     local declaration = table.concat(
         {

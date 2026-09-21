@@ -703,6 +703,23 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     --- A type without its postfixes.
     local function parseTypePrimary(): Node
         local kind = cur().kind
+        if kind == "@" then
+            local attached = {}
+            while cur().kind == "@" do
+                local application = parseAnnotationApplication(new cst.AnnotationApply(kind = "annotationApply"), true)
+                application.typeAttachment = true
+                attached[#attached + 1] = application
+            end
+            local inner = parseTypePrimary()
+            inner.typeAnnotations = inner.typeAnnotations or {}
+            for _, application in ipairs(attached) do
+                inner.typeAnnotations[#inner.typeAnnotations + 1] = application
+            end
+            for at = #attached, 1, -1 do
+                table.insert(inner, 1, attached[at])
+            end
+            return inner
+        end
         if kind == "name"
             and (cur().text == "keyof" or cur().text == "writekeyof")
             and startsType(tokens[i + 1])
@@ -1558,11 +1575,18 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 if cur().kind == "<"
                     and member
                     and baseTok
-                    and FFI_INTRINSIC[member.text]
-                    and baseTok.text == "ffi"
+                    and (
+                        FFI_INTRINSIC[member.text] and baseTok.text == "ffi"
+                        or member.text == "adopt" and baseTok.text == "nupp"
+                    )
                 then
                     add(n, advance()).generic = true
-                    n.ffiTypeArg = add(n, parseType())
+                    local argument = add(n, parseType())
+                    if member.text == "adopt" and baseTok.text == "nupp" then
+                        n.ownershipTypeArg = argument
+                    else
+                        n.ffiTypeArg = argument
+                    end
                     add(n, expectGenericClose("to close a type argument")).generic = true
                 end
             elseif kind == "[" then
@@ -2525,14 +2549,18 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     -- checker, except that an @ref definition member accepts a type name; `name =
     -- value` records a structured annotation member while a positional value is the
     -- annotation's designated single-value member.
-    parseAnnotationApplication = function(n)
+    parseAnnotationApplication = function(n, typePosition: boolean?)
         add(n, expect("@"))
         local negated = cur().text == "!" and add(n, advance()) or nil
-        n.name = add(n, expectName("after '@'"))
+        -- `sealed` remains reserved during the compatibility release so its old
+        -- declaration form still parses; after `@` it is an annotation name.
+        n.name = add(n, cur().kind == "sealed" and advance() or expectName("after '@'"))
         if negated then
             errAt(n.name, "@!" .. n.name.text .. " is not supported; annotate one statement or expression", "NUPP2112")
         end
-        if n.name.text == "unsafe" then
+        if typePosition and (n.name.text == "nosuspend" or n.name.text == "sendable" or n.name.text == "comptime") then
+            return n
+        elseif n.name.text == "unsafe" then
             if cur().kind == "("
                 and tokens[i + 1]
                 and tokens[i + 1].kind == "name"

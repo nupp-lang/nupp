@@ -7430,11 +7430,19 @@ function gen.generate(
             -- already has; here, in the middle of an expression, only a wrapper can,
             -- and
             -- that wrapper is a function built every time this runs.
-            local wrapsMove = movedActive ~= nil and not x.ownershipMoveCleared and x.ownershipIntrinsic == "drop"
+            local wrapsMove = movedActive ~= nil
+                and not x.ownershipMoveCleared
+                and (x.ownershipIntrinsic == "drop" or x.ownershipIntrinsic == "release")
             if wrapsMove then
                 pluck.loweredFunction(("(function() %s=false; return "):format(movedActive), line, pluck.reasons.move)
             end
-            if x.ownershipIntrinsic == "borrow" then
+            if x.ownershipIntrinsic == "adopt" or x.ownershipIntrinsic == "release" then
+                if args[1] then
+                    emit(args[1])
+                else
+                    e("nil", line)
+                end
+            elseif x.ownershipIntrinsic == "borrow" then
                 if args[1] then
                     emit(args[1])
                 else

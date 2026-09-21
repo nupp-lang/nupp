@@ -378,7 +378,9 @@ function annotate.install(c: state.Checker): annotate.Ops
 
         local valid = true
         local accepts = target and c.annotationRegistry:accepts(annotation, target)
-        if application.expressionAttachment then
+        if application.typeAttachment then
+            accepts = annotation.builtin and annotation.targetSet.type
+        elseif application.expressionAttachment then
             local direct = target
             while direct and direct.kind == "paren" do
                 direct = direct.expr
@@ -421,7 +423,10 @@ function annotate.install(c: state.Checker): annotate.Ops
             end
 
             for _, arg in ipairs(application.annotationArgs or {}) do
-                local qualifiedProvider = application.name.text == "derive" and derivePath(arg.expr)
+                -- Keep the established derive path explicit while the stage-zero
+                -- compiler learns the registry flag that generalizes it.
+                local qualifiedProvider = (annotation.qualifiedNames or application.name.text == "derive")
+                    and derivePath(arg.expr)
                 if arg.name
                     or not arg.expr
                     or (arg.expr.kind ~= "name" and arg.expr.kind ~= "string" and not qualifiedProvider)
