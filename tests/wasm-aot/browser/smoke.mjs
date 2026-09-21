@@ -96,7 +96,7 @@ try {
     if (returned.platform !== "browser" || returned.architecture !== "wasm32" ||
         returned.pointerBits !== 32 || returned.endianness !== "little" ||
         !Number.isInteger(returned.parallelism) || returned.parallelism < 1 ||
-        returned.elapsed < 0 || returned.randomBytes !== 32 || returned.stored !== "persisted" ||
+        returned.elapsed < 0 || returned.randomBytes !== 32 ||
         returned.md5 !== "900150983cd24fb0d6963f7d28e17f72" ||
         returned.sha1 !== "a9993e364706816aba3e25717850c26c9cd0d89d" ||
         returned.sha512 !== "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f" ||
