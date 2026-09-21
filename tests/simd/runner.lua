@@ -228,7 +228,7 @@ function M.wasm(generated, options)
     M.write(
         dir .. "/src/" .. runner .. ".g.nupp",
         (
-            "local entry=require(%q)\nlocal cases=entry.run()\nlocal fingerprint=entry.randomFingerprint and entry.randomFingerprint()\nif fingerprint then return string.format('{\"cases\":%%.0f,\"randomFingerprint\":\"%%s\"}',cases,fingerprint) end\nreturn string.format('{\"cases\":%%.0f}',cases)\n"
+            "local entry=require(%q)\nlocal cases=entry.run()\nreturn string.format('{\"cases\":%%.0f}',cases)\n"
         ):format(generated.entry)
     )
     M.write(

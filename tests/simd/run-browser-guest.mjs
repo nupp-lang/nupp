@@ -12,6 +12,8 @@ if (!projectArg || !guestArg || !outputArg || !['simd', 'scalar-c'].includes(rou
 const project = path.resolve(projectArg), guest = path.resolve(guestArg), output = path.resolve(outputArg);
 const manifest = await packageBrowserApp({project, target:'app', output, guest, prebuilt:true});
 const corpus = JSON.parse(readFileSync(path.join(project, 'corpus.json'), 'utf8'));
+// Allow the larger owned JSON corpus a bounded ten minutes on loaded runners.
+const deadlineMs = corpus.algorithm === 'simd-json' ? 600000 : 240000;
 const entries = manifest.kernels.flatMap(kernel => kernel.entries.map(entry => ({...entry, unit:kernel.unit})));
 const symbols = {};
 const executedEntries = [];
@@ -20,7 +22,9 @@ for (const [module, names] of Object.entries(corpus.probes)) {
   const units = manifest.kernels.filter(kernel => suffixes.some(suffix => kernel.source?.endsWith(suffix)));
   if (units.length !== 1) throw new Error(`Missing unique independent Wasm unit for ${module}`);
   for (const name of names) {
-    const matches = entries.filter(entry => entry.unit === units[0].unit && entry.symbol.endsWith('_' + name));
+    const lowered = name.replace(/[A-Z]/g, letter => '_' + letter.toLowerCase());
+    const matches = entries.filter(entry => entry.unit === units[0].unit &&
+      [name, lowered].some(suffix => entry.symbol.endsWith('_' + suffix)));
     if (matches.length !== 1) throw new Error(`Missing unique independent Wasm entry for ${module}.${name}`);
     const key = `${module}.${name}`;
     symbols[key] = matches[0].symbol;
@@ -37,7 +41,7 @@ const output = document.querySelector('#result');
 try {
   const result = await runPackagedNuppLuaJITApp('./nupp-browser-app.json', {limits:{
     maxEffects:1000000, maxEffectBytes:268435456, maxResponseBytes:268435456,
-    maxStorageValueBytes:1048576, deadlineMs:240000,
+    maxStorageValueBytes:1048576, deadlineMs:${deadlineMs},
   }});
   if (!result || !Number.isFinite(result.cases) || result.cases <= 0) throw new Error('SIMD corpus returned no cases');
   output.textContent = JSON.stringify({ok:true, result}); output.dataset.status = 'passed';
@@ -59,7 +63,7 @@ try {
   browser = await chromium.launch({headless:true, args:['--no-sandbox','--disable-dev-shm-usage']});
   const page = await browser.newPage();
   await page.goto(`http://127.0.0.1:${server.address().port}/runner.html`);
-  await page.waitForFunction(() => ['passed','failed'].includes(document.querySelector('#result')?.dataset.status), null, {timeout:240000});
+  await page.waitForFunction(() => ['passed','failed'].includes(document.querySelector('#result')?.dataset.status), null, {timeout:deadlineMs});
   const browserResult = JSON.parse(await page.locator('#result').textContent());
   if (!browserResult.ok) throw new Error(JSON.stringify(browserResult));
   const digest = file => createHash('sha256').update(readFileSync(file)).digest('hex');
