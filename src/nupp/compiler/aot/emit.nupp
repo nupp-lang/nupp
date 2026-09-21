@@ -577,16 +577,22 @@ local function mixedComparison(context: emit.Context, node: scalarIR.Expr): stri
 end
 
 --- Whether a fixed species needs native-register chunks in C. Complete
---- 256-bit floating vectors can use the compiler's vector type except on
---- targets with a frame-vector ceiling. Integer operations use chunk helpers,
---- and partial widths stay chunked so no padding lane is read or written.
+--- 256-bit floating vectors can use the compiler's vector type only when the
+--- tier has a register class for them and the frame permits it. Integer
+--- operations use chunk helpers, and partial widths stay chunked so no
+--- padding lane is read or written.
 local function compositeSpecies(context: emit.Context, element: string, lanes: integer, shape: string): boolean
     local bits = tonumber(element:match("%d+")) as number
     local native = math.floor(context.explicitWidth * 8 / bits)
 
     return shape ~= "preferred"
         and lanes ~= native
-        and not (element:sub(1, 1) == "f" and lanes * bits == 256 and context.vectorCeiling == 0)
+        and not (
+            element:sub(1, 1) == "f"
+            and lanes * bits == 256
+            and context.explicitWidth >= 32
+            and context.vectorCeiling == 0
+        )
 end
 
 --- Constant lane selections let the C backend form target shuffles without
@@ -3744,7 +3750,9 @@ function emit.program(programs: {scalarIR.Program}, tier: string?, sourceFile: s
     -- requested native widths first, then each remaining logical species once.
     -- Otherwise a later width redefines an earlier native type as an aggregate.
     if widest > 0 then
-        for _, line in ipairs(fixedSimdPrelude(context, widest, simdWidths)) do
+        local fixedContext = emit.context(context)
+        fixedContext.explicitWidth = widest
+        for _, line in ipairs(fixedSimdPrelude(fixedContext, widest, simdWidths)) do
             lines[#lines + 1] = line
         end
     end

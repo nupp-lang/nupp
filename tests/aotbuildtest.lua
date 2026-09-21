@@ -2020,7 +2020,20 @@ local function woven(exclusive out: span.WriteSpan<number>, borrows input: span.
     s:store(out, 65, b)
 end
 
-return {widen = widen, narrow = narrow, gathered = gathered, woven = woven}
+@aot
+local function packed(
+    exclusive doublesOut: span.WriteSpan<number>,
+    borrows doublesIn: span.Span<number>,
+    exclusive floatsOut: span.WriteSpan<float>,
+    borrows floatsIn: span.Span<float>
+): nil
+    local doubles = assert(simd.species(array.number, 4))
+    local floats = assert(simd.species(array.float, 8))
+    doubles:store(doublesOut, 1, doubles:load(doublesIn, 1))
+    floats:store(floatsOut, 1, floats:load(floatsIn, 1))
+end
+
+return {widen = widen, narrow = narrow, gathered = gathered, woven = woven, packed = packed}
 ]]
 
 local function wideSimdProject(keys)
@@ -2047,6 +2060,23 @@ return {
     source:close()
 
     return dir
+end
+
+function M.aLinuxBaselineChunksFixedFloatingSpecies()
+    local dir = wideSimdProject('aotTarget = "x86_64-unknown-linux-gnu", aotFeatures = "avx512f",')
+    local out, code = build(dir)
+    test.equal(code, 0, out)
+    local baseline = assert(read(tieredC(dir, "baseline")))
+    for _, species in ipairs({"f64x4", "f32x8"}) do
+        assert(baseline:find("KS_EXP_FIXED(" .. species .. ",", 1, true), species .. " stays chunked at baseline")
+        local _, vectorDefinitions = baseline:gsub("KS_EXP_ELEMENT%(32, " .. species, "")
+        test.equal(vectorDefinitions, 1, species .. " has no baseline ABI beyond the inactive header branch")
+    end
+    local avx512 = assert(read(tieredC(dir, "avx512f")))
+    for _, species in ipairs({"f64x4", "f32x8"}) do
+        local _, vectorDefinitions = avx512:gsub("KS_EXP_ELEMENT%(32, " .. species, "")
+        test.equal(vectorDefinitions, 2, species .. " keeps its AVX ABI")
+    end
 end
 
 -- The Windows x64 frame is sixteen-byte aligned and nothing in a generated
