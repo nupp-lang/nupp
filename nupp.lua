@@ -622,12 +622,8 @@ return {
                 -- heading gives. What a path cannot say, a page says in its own
                 -- front matter, so nothing here repeats a directory listing back
                 -- at itself.
-                --
-                -- The style guide is written for whoever writes the docs rather
-                -- than for whoever reads them, so it is the one file in the tree
-                -- the site does not publish.
                 pages = {
-                    {glob = "docs/**.md", exclude = {"docs/style.md"}},
+                    {glob = "docs/**.md"},
                     -- What deriving adds to a declaration reads as one page
                     -- whether a reader arrives from the reference or from the
                     -- module route, so the reference page is also the overview

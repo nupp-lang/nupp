@@ -663,7 +663,7 @@ with, and `exclude` drops files the tree holds and the site does not publish.
 ```lua
 {
    glob = "docs/**.md",
-   exclude = { "docs/style.md" }
+   exclude = { "docs/drafts/**.md" }
 }
 ```
 

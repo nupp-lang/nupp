@@ -1,3 +1,8 @@
+---
+name: writing-documentation
+description: How Nupp's prose is written: page shape, titles, layering, code examples, cross-links, admonitions, voice, the fixed vocabulary, doc comments, and formatting mechanics. Use whenever writing or editing a page under `docs/`, adding a section to an existing one, writing a `---` doc comment or module blurb in `src/`, wording CLI help text, or reviewing any of those for style. The rules are prescriptive and not guessable. Banned title shapes, the em dash ban, one word per idea, a two-sentence intro and an example above the fold are all enforced by review rather than by a tool, so read this before writing rather than after a review asks for the page back.
+---
+
 # Documentation style
 
 This is how Nupp's documentation and prose in source code are written: the
@@ -23,6 +28,28 @@ local function slurp(path: string): string
 end
 ```
 ````
+
+## Docs tree
+
+Pages are Markdown under `docs/`, and writing one publishes it: the `docs`
+target in `nupp.lua` sweeps `docs/**.md` and gives each page the route its path
+names. What a path cannot say, the page says in its `---` front matter.
+`./bin/nupp build --target docs` renders the site, and `nupp test doctest`
+covers generation.
+
+More than the site reads a page, so check what reads this one before moving a
+heading or a fence:
+
+- `nupp reference --section` addresses a section by its page anchor, as in
+  `docs/learn/language/modules.md#modules`, which is also what a diagnostic's
+  `docs` pointer carries. Renaming a heading moves that address.
+- Some pages are compiled. `tests/spipackagetest.lua` builds and runs every
+  fence on [spi.md](docs/learn/projects/spi.md) as a project, so the count of
+  `nupp` blocks and what each one contains is a test fixture.
+
+Links here cite pages by repository path so they can be opened from the root.
+A page links to another page relatively, as [Cross-linking](#cross-linking)
+says.
 
 ## Page shape
 
@@ -220,9 +247,9 @@ yet. Stop at H5; reaching H6 usually means the page should split.
 order cannot answer: a limit they expect to hit or a decision between two
 constructs the page introduced separately. Each entry is an H3 holding one
 complete question, ending in a question mark, answered in two or three
-sentences and a link. A learning page is where this earns its place. Do not invent
-questions to fill a section: three real ones are a good FAQ and eight invented
-ones are padding.
+sentences and a link. A learning page is where this earns its place. Do not
+invent questions to fill a section: three real ones are a good FAQ and eight
+invented ones are padding.
 
 ## Openings
 
@@ -234,8 +261,9 @@ anything, and one sentence is usually the whole cost.
 
 Do not explain a concept completely and then illustrate it. Alternate.
 
-> minimal example → the rule it demonstrates → one more detail → the example
-> that needs it → the edge → the diagnostic that catches getting it wrong
+> minimal example → the rule it demonstrates → one more detail
+> → the example that needs it → the edge
+> → the diagnostic that catches getting it wrong
 
 Each example adds exactly one idea to the one before it, and each one is real
 code that compiles. Keep the running example's names stable down the page so a
@@ -312,29 +340,30 @@ Link generously. A page is a node, not a document.
 - Link the first mention of any concept that has a page of its own, then use the
   bare term afterward on that page.
 - Deep-link to the heading that answers the question, not the page top: `[rock
-  dependencies](learn/projects/build.md#rock-dependencies)`.
+  dependencies](../projects/build.md#rock-dependencies)`.
 - One page owns each concept; the rest link to it and state only what they need.
   `concepts/ownership.md` states the annotations a caller writes and links
   `type-system/ownership.md` for the model.
 - Say what is on the other end, as in `See
-  [ownership.md](learn/runtime/ownership/borrowing.md) for the complete contract reference`.
-  Never a bare "see here" or a naked URL.
+  [ownership.md](../ownership/borrowing.md) for the complete contract
+  reference`. Never a bare "see here" or a naked URL.
 - **Send the reader; do not describe the destination.** A cross-reference is an
   instruction, so write it as one: "See
-  [suspension.md](learn/runtime/concurrency/suspension.md) for more
-  information." A sentence about the target instead, as in "the suspension page
+  [suspension.md](../concurrency/suspension.md) for more information." A
+  sentence about the target instead, as in "the suspension page
   has the full record" or "the ownership page covers this", leaves the reader to
   work out that they were being sent somewhere.
 - A `::: seealso` block collects the links a section would otherwise scatter.
   See [Admonitions](#see-also) for when one earns its place.
 - **Prose does not name diagnostic codes.** A page says what the rule is and
-  what to write instead; [diagnostics.md](reference/diagnostics.md) and
-  [lints.md](reference/lints.md) say which code reports it. A code inside an
-  example, as the comment on the line that reports it, is part of the example.
+  what to write instead; [diagnostics.md](docs/reference/diagnostics.md) and
+  [lints.md](docs/reference/lints.md) say which code reports it. A code inside
+  an example, as the comment on the line that reports it, is part of the
+  example.
 - A link whose text is the file it points at, as
-  [ownership.md](learn/runtime/ownership/borrowing.md), renders as that page's title. Write
-  the filename and let the site title it; write your own text only when the
-  sentence needs a word the title does not give it.
+  [ownership.md](docs/learn/runtime/ownership/borrowing.md), renders as that
+  page's title. Write the filename and let the site title it; write your own
+  text only when the sentence needs a word the title does not give it.
 - Doc comments in `src/` link the same way. A `---` block that names a concept
   links to its page; a module blurb links to the page that introduces the
   module's subject. Generated API pages are part of the site, not a separate
@@ -366,7 +395,7 @@ table. A table with one row is a sentence.
 
 - **Scope, at the top of a page**, when a reader is likely to reach for a
   feature they do not need. The `@effects` note on
-  [effects.md](learn/language/effects.md) is the model.
+  [effects.md](docs/learn/language/effects.md) is the model.
 - **A trap**, where the obvious reading is wrong and the consequence is silent.
 
 Two per page is a lot. An admonition that restates the prose above it is
@@ -380,8 +409,8 @@ one link and what is on the other end of it.
 
 ```markdown
 ::: seealso
-- [ownership.md](learn/runtime/ownership/borrowing.md) for the complete contract reference
-- [c-interop.md](learn/runtime/c-interop/index.md) for what a C boundary adds to it
+- [ownership.md](../ownership/borrowing.md) for the complete contract reference
+- [c-interop.md](../c-interop/index.md) for what a C boundary adds to it
 :::
 ```
 
@@ -535,7 +564,7 @@ The rest is formatting, and none of it is negotiable per page:
   period is fine when the items form one sentence, as in the ownership
   guarantees list.
 - Relative links between pages, with the `.md` extension, as
-  [ownership.md](learn/runtime/ownership/borrowing.md) does.
+  `[ownership.md](../ownership/borrowing.md)` does.
 
 ## Checklist
 
@@ -550,7 +579,8 @@ Before a page lands:
 - Every concept with a page of its own is linked on first mention, by heading
   where a heading answers it.
 - No diagnostic code appears outside an example; the code lists live on
-  [diagnostics.md](reference/diagnostics.md) and [lints.md](reference/lints.md).
+  [diagnostics.md](docs/reference/diagnostics.md) and
+  [lints.md](docs/reference/lints.md).
 - Every cross-reference says "see" and says what is on the other end.
 - A deep dive sits under the section that introduced its construct, and says
   something the prose does not.

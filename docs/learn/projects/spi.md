@@ -5,13 +5,13 @@ title: SPI
 
 # SPI
 
-`nupp.spi.load(Interface)` returns a lazy iterator of implementations. A module
-chooses what it needs during initialization and exports the resulting functions.
-Selection is ordinary code.
+`nupp.spi.load(Interface)` iterates the implementations a package advertises.
+A module chooses one while it initializes, and the choosing is ordinary code.
 
-Declare the interface in a module that does not initialize its consumer:
+The interface is an exported declaration in a module that does not initialize
+its consumer:
 
-```nupp
+```nupp [src/example/codec/spi.nupp]
 module example.codec.spi
 
 export interface Codec
@@ -20,9 +20,11 @@ export interface Codec
 end
 ```
 
+## Implementations
+
 An implementation exports the interface's members directly:
 
-```nupp
+```nupp [src/example/fastcodec.nupp]
 module example.fastcodec
 
 export const priority: integer = 10
@@ -31,9 +33,9 @@ export function encode(value: string): string
 end
 ```
 
-The fallback is another ordinary implementation module:
+The fallback is another module of the same shape, and nothing advertises it:
 
-```nupp
+```nupp [src/example/defaultcodec.nupp]
 module example.defaultcodec
 
 export function encode(value: string): string
@@ -41,31 +43,44 @@ export function encode(value: string): string
 end
 ```
 
-Both implementations return their input unchanged in this minimal example.
+Both return their input unchanged: the example is about the selection, not the
+codec. An implementation needs typed Nupp source, a `.d.nupp` declaration, or a
+typed adapter, and the build holds it to an ordinary assignment covering
+generic functions, borrowing, ownership, and suspension. A plain `.lua` module
+carries nothing to check:
 
-The application or provider package advertises it in `nupp/spi.json`:
+```text
+nupp: SPI implementation needs typed Nupp or a declaration: example.luacodec
+```
 
-```json
+Checking is by signature. A provider still needs behavioral tests for its byte
+formats, ownership, cleanup, cancellation, and supported hosts.
+
+## Advertising
+
+A package lists its implementation modules in `nupp/spi.json`, under the
+interface's qualified name:
+
+```json [nupp/spi.json]
 {
   "example.codec.spi.Codec": ["example.fastcodec"]
 }
 ```
 
-The interface name uses ordinary dots. Imported aliases and re-exports resolve
-to the defining interface. The interface must be exported and have no type
-parameters. Implementations need typed Nupp source, a `.d.nupp` declaration, or
-a typed adapter; the build checks ordinary assignment compatibility, including
-generic functions, borrowing, ownership, and suspension.
+The name is the interface module and the interface it exports, in ordinary
+dots. Imported aliases and re-exports resolve to the defining interface, which
+must be exported and take no type parameters:
+
+```text
+nupp: SPI declaration must name a concrete exported interface: example.codec.spi.Transform
+```
 
 ## Choosing an implementation
 
-This module chooses the unique highest priority, then binds the function it uses:
+This consumer takes the unique highest priority and keeps the one function it
+calls:
 
-Save it as `src/example/codec/init.nupp`, with the interface in
-`src/example/codec/spi.nupp` and the implementation modules beside the `codec`
-directory.
-
-```nupp
+```nupp [src/example/codec/init.nupp]
 module example.codec
 local spi = require("nupp.spi")
 local {type Codec} = require("example.codec.spi")
@@ -88,41 +103,53 @@ end
 export const encode = impl.encode
 ```
 
-`priority` belongs to this interface and its consumer. SPI knows nothing about
-it. A different consumer can compare capabilities, use configuration, combine
-implementations, or reject duplicates. Lower priority ties do not matter once a
-unique higher candidate is found.
+`priority` belongs to this interface and its consumer, and SPI knows nothing
+about it. Another consumer can compare capabilities, read configuration,
+combine implementations, or reject duplicates instead. Discovery order assigns
+no preference: the use site decides what wins.
 
-## Discovery and loading
+Initialization selects once, so a later call through `encode` performs no SPI
+lookup.
 
-The application descriptor comes first. Target runtime dependencies follow in
-declared order, depth first, visiting each dependency once. Module arrays retain
-their order; repeated interface/module pairs appear once. Tool-only and
-compile-only dependencies contribute nothing.
+## Discovery order
 
-**Discovery order assigns no preference.** The use site determines what wins.
+The application's own descriptor comes first, then the target's runtime
+dependencies in declared order, depth first, visiting each dependency once. A
+module array keeps its order, a repeated interface and module pair appears
+once, and tool-only and compile-only dependencies contribute nothing.
 
-Creating an iterator executes no provider. Each advance requires one module;
-stopping early leaves later modules unloaded. Empty discovery returns an empty
-iterator. A failed provider propagates its ordinary `require` error, preserving
-error values and identities. Ordinary module caching preserves implementation
-identity within a Lua state; each call to `load` starts a fresh iterator over that
-same index.
+## Lazy loading
 
-Builds carry a data-only index and the advertised modules in their artifact.
-`nupp build --json` reports them in `spi`, with `interface`, `implementation`, and
-`dependency` fields. Editing a descriptor invalidates the generated index.
+Creating an iterator executes no provider. Each advance requires one module, so
+stopping early leaves the rest unloaded, and an empty index gives an empty
+iterator. A provider that fails to load propagates its ordinary `require`
+error, values and identities intact, and ordinary module caching keeps an
+implementation's identity within a Lua state.
 
-Module initialization selects once. Calls through the published functions do no
-SPI lookup. This removes ongoing SPI overhead; initialization still takes work,
-and whether a function inlines is a separate compiler decision.
+## Build artifacts
+
+A build writes a data-only index and the advertised modules into its artifact,
+and reports what it found:
+
+```json [nupp build --json, excerpt]
+"spi": [
+  {
+    "interface": "example.codec.spi.Codec",
+    "implementation": "example.fastcodec",
+    "dependency": "application"
+  }
+]
+```
+
+`dependency` is the package the descriptor came from, or `application` for the
+project's own. Editing a descriptor invalidates the generated index.
 
 ## Standard-library providers
 
-Standard-library consumers choose the unique highest `priority`, treating an
-omitted priority as zero. Equal highest priorities fail initialization. Without
-an external implementation they choose their built-in fallback with ordinary
-target and host conditions.
+A standard-library consumer chooses the unique highest `priority`, counts an
+omitted one as zero, and fails initialization on equal highest priorities.
+Without an external implementation it chooses its built-in fallback under
+ordinary target and host conditions.
 
 | Interface module | Implementation interface |
 | --- | --- |
@@ -137,17 +164,23 @@ target and host conditions.
 | `nupp.runtime.representation.spi` | `CstorageProvider`, `Int64Provider` |
 | `nupp.digest.spi`, `nupp.checksum.spi`, `nupp.mac.spi` | `Provider` |
 | `nupp.compression.spi`, `nupp.system.spi`, `nupp.gpu.spi` | `Provider` |
-| `nupp.io.http.spi`, `nupp.io.net.spi`, `nupp.io.tls.spi`, `nupp.io.process.spi` | `Provider` |
+| `nupp.io.files.spi`, `nupp.io.http.spi`, `nupp.io.net.spi`, `nupp.io.tls.spi`, `nupp.io.process.spi` | `Provider` |
 | `nupp.suspension.spi`, `nupp.workers.spi` | `Provider` |
 
-Algorithm catalogs overlay their entries on the built-in catalog. Reuse the
-shared resource types and cleanup identities declared by each interface module.
-Storage and its integer operations must use one coherent representation;
-selection cannot change the layout compiled into the program.
+An algorithm catalog overlays its entries on the built-in catalog, and each
+interface module declares the shared resource types and cleanup identities to
+reuse. Storage and its integer operations must use one coherent
+representation, because selection cannot change the layout compiled into the
+program.
 
-Workers receive the artifact's immutable index and load independent module
-instances in their own Lua states. Provider objects and closures do not cross
-worker boundaries.
+## Workers
 
-Type checking verifies signatures. Providers still need behavioral tests for
-their byte formats, ownership, cleanup, cancellation, and supported hosts.
+A worker receives the artifact's immutable index and loads its own module
+instances in its own Lua state. Provider objects and closures do not cross a
+worker boundary.
+
+::: seealso
+- [standard-library.md](../runtime/data/standard-library.md) for how a
+  standard-library consumer picks its provider
+- [libraries.md](portability/libraries.md) for which operations vary by host
+:::

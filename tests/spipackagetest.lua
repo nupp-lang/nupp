@@ -495,13 +495,15 @@ return codec.encode == require("example.fastcodec").encode and "provider" or "fa
 ]],
     }
     local moduleCount = 0
-    for language, source in page:gmatch("```([%w]+)\r?\n(.-)\r?\n```") do
+    -- A fence carries the file it is, as `json [nupp/spi.json]`, so the page can
+    -- show other JSON without it becoming the descriptor this project builds.
+    for language, caption, source in page:gmatch("```([%w]+)([^\r\n]*)\r?\n(.-)\r?\n```") do
         if language == "nupp" then
             local name = assert(source:match("^module ([%w.]+)"), "the guide example needs a module name")
             local suffix = name == "example.codec" and "/init.nupp" or ".nupp"
             files["src/" .. name:gsub("%.", "/") .. suffix] = source .. "\n"
             moduleCount = moduleCount + 1
-        elseif language == "json" then
+        elseif language == "json" and caption:find("nupp/spi.json", 1, true) then
             files["nupp/spi.json"] = source .. "\n"
         end
     end
