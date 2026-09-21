@@ -1,5 +1,5 @@
 ---
-order: 510
+order: 600
 ---
 
 # LuaCATS and annotated Lua

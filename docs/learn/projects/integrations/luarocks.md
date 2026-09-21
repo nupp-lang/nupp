@@ -1,5 +1,5 @@
 ---
-order: 520
+order: 610
 ---
 
 # Working with LuaRocks
