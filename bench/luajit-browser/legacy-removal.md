@@ -1,22 +1,20 @@
-# Legacy removal preparation
+# Legacy removal record
 
-The default switch and deletion remain separate releases. This branch does not
-remove the rollback backend. Delete it only after the default release ships and
-Safari UI, the accepted desktop performance targets, and field validation pass.
-Physical mobile testing is deferred because hardware is unavailable; mobile
-support remains unverified and is not a desktop release prerequisite.
-The stage-zero pin must first name a published release that accepts `compat` and
-`host`; no version, tag or pin moves as part of this preparation.
+The LuaJIT browser default landed before this cleanup. This change removes the
+alternate compiler lowering and legacy browser host while retaining the checked
+`compat = "lua51"` source subset. It does not publish a release or move the
+stage-zero pin. Physical mobile testing remains deferred and is not reclassified
+by the cleanup.
 
 ## Concrete deletion units
 
 | Unit | Later change | Coverage retained |
 | --- | --- | --- |
-| `src/nupp/compiler/dialects.nupp`, `gen.nupp`, portable checker branches | Remove `lua51` and `luajit-compat` lowering and their generated helpers; preserve the native generator and checker | `gentest`, ownership/control-flow suites, `lua51compattest` |
+| `src/nupp/compiler/dialects.nupp`, `gen.nupp`, portable checker branches | Removed `lua51` and `luajit-compat` lowering and their generated helpers; preserved the native generator and checker | `gentest`, ownership/control-flow suites, `lua51compattest` |
 | `src/nupp/compiler/compat.nupp` and stock-5.1 corpus | Keep source-subset enforcement and actual stock interpreter execution | `scripts/lua51-compat-corpus.sh`; no automatic bit/int64/struct lowering |
-| Three portable compiler/runtime targets in `nupp.lua`, `scripts/prelude-image lua51`, `tests/portable-compiler` | Remove only after the browser compiler is validated; compiler sources then cease to require portable lowering | LuaJIT browser response oracle; stage-zero fixpoint remains |
-| Legacy compiler/runner hosts under `editors/playground/wasm`, legacy workers and selector paths | Remove together with legacy URLs/settings migration and old assets | Full playground UI, embedded editors, Stop/restart and compatibility persistence |
-| `runtime/wasm/nupp_app_host.c`, `dylink-runtime.js`, legacy Wasm package builder | Remove the old Lua VM and its shared-memory side-module ABI | Independent `runtime/luajit/aot.mjs` kernels; guest-native Lua-C-API builders |
+| Three portable compiler/runtime targets in `nupp.lua`, `scripts/prelude-image lua51`, `tests/portable-compiler` | Removed after browser compiler validation | LuaJIT browser response oracle; stage-zero fixpoint remains |
+| Legacy compiler/runner hosts under `editors/playground/wasm`, legacy workers and selector paths | Removed with legacy URLs/settings migration and old assets | Full playground UI, embedded editors, Stop/restart and compatibility persistence |
+| `runtime/wasm/nupp_app_host.c`, `dylink-runtime.js`, legacy Wasm package builder | Removed the old Lua VM and its shared-memory side-module ABI | Independent `runtime/luajit/aot.mjs` kernels; guest-native Lua-C-API builders |
 | `runtime/wasm/app-runtime.mjs`, `worker-pool.mjs`, `browser-entry.mjs` | Keep or relocate: LuaJIT imports these shared browser services | HTTP/platform/workers/WebGPU packaged fixtures |
 | `scalarbitops`, `tablebuffer`, `tablestruct`, storage/representation facades | Audit individual branches, not whole filenames | These providers still appear in the **new guest-native application build's written outputs**; current names do not imply exclusive legacy use |
 | Legacy browser release artifact and CI jobs | Remove after the rollback release; keep the source-built LuaJIT runtime archive with matching sources/notices | `browser-guest.yml`, independent Wasm and guest-native AOT, fresh-checkout packaging |

@@ -1,8 +1,7 @@
 -- `or return`, `or break` and `or continue`: the contextual exit suffixes.
 --
--- The cases run each admitted program under both dialects, because the whole
--- point of lowering the suffix to straight-line statements is that LuaJIT and
--- portable Lua 5.1 agree about what it did.
+-- The cases run each admitted program through the LuaJIT generator and execute
+-- the resulting straight-line control flow.
 
 local parser = require("nupp.compiler.parser")
 local check = require("fragment")
@@ -44,15 +43,13 @@ local function run(source, dialect, level)
     return fn(), code
 end
 
--- Asserts the program answers true under both dialects, and hands back the
--- LuaJIT output for a case that also wants to read what was generated.
-local function runsBothDialects(source)
+-- Asserts the generated program answers true and returns its source for cases
+-- that also inspect the lowering.
+local function runsGenerated(source)
     local answer, code = run(source, "luajit")
     assert(answer, "luajit:\n" .. code)
-    local portableAnswer, portableCode = run(source, "lua51")
-    assert(portableAnswer, "lua51:\n" .. portableCode)
 
-    return code, portableCode
+    return code
 end
 
 local function codesOf(diagnostics)
@@ -281,9 +278,7 @@ return wrapped(1)
     assert(fmt.format(customary) == customary, customary)
     -- A suffix whose operand is broken across lines keeps the exit word on the
     -- last one, because the formatter never breaks at the suffix's own `or`.
-    local wide = fmt.format(
-        HELPER .. "local total = ok(1) " .. ("+ 100000 "):rep(14) .. "or return\n"
-    )
+    local wide = fmt.format(HELPER .. "local total = ok(1) " .. ("+ 100000 "):rep(14) .. "or return\n")
     assert(wide:find("or return", 1, true), wide)
     assert(fmt.format(wide) == wide, wide)
 end
@@ -296,7 +291,7 @@ end
 --- that selected it, at every operand width.
 function M.successIsTheNarrowedFirstResult()
     assert(
-        runsBothDialects(
+        runsGenerated(
             [[
 local function one(n: integer): integer?
     return n > 0 and n or nil
@@ -338,7 +333,7 @@ end
 --- the reason reaches the caller and a boolean discriminator forwards `false`.
 function M.failureForwardsTheOperandsPack()
     assert(
-        runsBothDialects(
+        runsGenerated(
             [[
 local record Problem
     message: string
@@ -393,14 +388,9 @@ end
 --- The reason's type is never privileged: the policy reads the pack's width and
 --- the first slot's truthiness and nothing else.
 function M.anyReasonTypeIsAdmitted()
-    for _, reason in ipairs({
-        "string?",
-        "integer?",
-        "Problem?",
-        "Problem | Other | nil",
-        "unknown",
-    }) do
-        local source = ([[
+    for _, reason in ipairs({"string?", "integer?", "Problem?", "Problem | Other | nil", "unknown",}) do
+        local source = (
+            [[
 local record Problem
     message: string
 end
@@ -424,7 +414,8 @@ local function wrapped(n: integer): (integer?, %s)
 end
 
 return wrapped(1)
-]]):format(reason, reason)
+]]
+        ):format(reason, reason)
         local _, diagnostics = checked(source)
         assertClean(diagnostics, reason)
     end
@@ -511,10 +502,12 @@ function M.protectedBuiltinsAreRefusedByName()
     for _, builtin in ipairs({"pcall", "xpcall"}) do
         local call = builtin == "pcall" and "pcall(work)" or "xpcall(work, tostring)"
         local diagnostic = assertReports(
-            ("local function work(): integer\n    return 1\nend\n"
-            .. "local function f(): (integer?, unknown)\n    local value = %s or return\n"
-            .. "    return value, nil\nend\n"
-            .. "return f()\n"):format(call),
+            (
+                "local function work(): integer\n    return 1\nend\n"
+                .. "local function f(): (integer?, unknown)\n    local value = %s or return\n"
+                .. "    return value, nil\nend\n"
+                .. "return f()\n"
+            ):format(call),
             "NUPP2146",
             builtin
         )
@@ -582,7 +575,7 @@ end
 --- explicit `if` over a safe call already has.
 function M.aSafeCallIsAnAdmittedOperand()
     assert(
-        runsBothDialects(
+        runsGenerated(
             [[
 local record Source
     id: integer
@@ -711,7 +704,7 @@ end
 --- does not run at all.
 function M.theOperandRunsOnceAndOnlyWhenSelected()
     assert(
-        runsBothDialects(
+        runsGenerated(
             [[
 local calls: integer, receivers: integer = 0, 0
 
@@ -753,7 +746,7 @@ end
 --- and `nil, nil` still takes the exit because the primary is nil.
 function M.failureForwardingPreservesTheWholePack()
     assert(
-        runsBothDialects(
+        runsGenerated(
             [[
 local function holes(n: integer): (integer?, string?, string?)
     if n <= 0 then
@@ -801,7 +794,7 @@ end
 --- condition keeps the target the generator already gives a lowered condition.
 function M.loopExitsReachTheirOwnTarget()
     assert(
-        runsBothDialects(
+        runsGenerated(
             [[
 local function source(n: integer): (integer?, string?)
     if n <= 0 then
@@ -842,7 +835,7 @@ end
 --- Cleanup runs exactly once on every exit, the way it does for the statements.
 function M.cleanupRunsOnEveryExit()
     assert(
-        runsBothDialects(
+        runsGenerated(
             [[
 local closed = 0
 
@@ -893,7 +886,7 @@ end
 --- loop exits keep their loop targets through one.
 function M.aDoExpressionDoesNotCaptureTheExit()
     assert(
-        runsBothDialects(
+        runsGenerated(
             [[
 local function source(n: integer): (integer?, string?)
     if n <= 0 then
@@ -931,7 +924,7 @@ end
 --- generator's block-condition and argument lowering.
 function M.conditionsAndArgumentListsLower()
     assert(
-        runsBothDialects(
+        runsGenerated(
             [[
 local function source(n: integer): (integer?, string?)
     if n <= 0 then
@@ -967,7 +960,7 @@ end
 --- Generated output carries no new syntax, and a fixed-width operand costs no
 --- pack table.
 function M.generatedOutputIsOrdinaryLua()
-    local code, portable = runsBothDialects(
+    local code = runsGenerated(
         [[
 local function source(n: integer): (integer?, string?)
     if n <= 0 then
@@ -986,18 +979,16 @@ end
 return wrapped(1) == 1
 ]]
     )
-    for _, generated in ipairs({code, portable}) do
-        assert(not generated:find("or return", 1, true), generated)
-        assert(not generated:find("or break", 1, true), generated)
-        assert(not generated:find("or continue", 1, true), generated)
-        assert(not generated:find("__nuppBlockPack", 1, true), "a fixed-width operand needs no pack table")
-    end
+    assert(not code:find("or return", 1, true), code)
+    assert(not code:find("or break", 1, true), code)
+    assert(not code:find("or continue", 1, true), code)
+    assert(not code:find("__nuppBlockPack", 1, true), "a fixed-width operand needs no pack table")
 end
 
 --- Every optimization level keeps the exit and the pack.
 function M.optimizerPreservesTheExit()
     for _, level in ipairs({0, 1, 2}) do
-        for _, dialect in ipairs({"luajit", "lua51"}) do
+        for _, dialect in ipairs({"luajit"}) do
             local answer = run(
                 [[
 local function source(n: integer): (integer?, string?)
@@ -1030,7 +1021,7 @@ end
 --- Comptime runs the same branch.
 function M.comptimeTakesTheSameBranch()
     assert(
-        runsBothDialects(
+        runsGenerated(
             [[
 const chosen = comptime do
     local found: integer? = 3
@@ -1096,6 +1087,7 @@ end
 --- exactly as raised, and `xpcallse` answers whatever its handler made of it.
 function M.protectedWrappersAnswerTheConventionalLayout()
     local protected = require("nupp.util.internal.protected")
+
     local function work(n)
         if n < 0 then
             error("negative")
@@ -1128,11 +1120,15 @@ function M.protectedWrappersAnswerTheConventionalLayout()
 
     -- The handler decides the reason's type, and runs before the stack unwinds.
     local depth = nil
-    value, reason = protected.xpcallse(function(raised)
-        depth = debug.traceback("", 2):find("work") ~= nil
+    value, reason = protected.xpcallse(
+        function(raised)
+            depth = debug.traceback("", 2):find("work") ~= nil
 
-        return {message = tostring(raised)}
-    end, work, -1)
+            return {message = tostring(raised)}
+        end,
+        work,
+        -1
+    )
     assert(value == nil and type(reason) == "table", tostring(reason))
     assert(reason.message:find("negative", 1, true), reason.message)
     assert(depth, "the handler ran before the stack unwound")
@@ -1183,7 +1179,8 @@ end
 --- A handler's own result type reaches the caller, whatever it is.
 function M.aHandlerResultTypeReachesTheCaller()
     for _, shape in ipairs({"string", "integer", "Problem"}) do
-        local source = ([[
+        local source = (
+            [[
 local util = require("nupp.util")
 
 local record Problem
@@ -1205,9 +1202,14 @@ local function described(n: integer): (integer?, %s?)
 end
 
 return described(1)
-]]):format(shape, shape == "string" and "tostring(raised)"
+]]
+        ):format(
+            shape,
+            shape == "string" and "tostring(raised)"
             or shape == "integer" and "1"
-            or "new Problem(message = tostring(raised))", shape)
+            or "new Problem(message = tostring(raised))",
+            shape
+        )
         local _, diagnostics = checked(source)
         assertClean(diagnostics, shape)
     end

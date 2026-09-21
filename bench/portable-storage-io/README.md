@@ -13,7 +13,8 @@ tests/portable-storage/run.sh wasm > portable-contracts.txt
 ```
 
 The Wasm runner needs the same Lua 5.1 source and Emscripten setup as
-`tests/wasm-aot/run.sh`. Set `NUPP_LUA51_SOURCE` and `NUPP_WASM_CC` when needed.
+the browser application tests. Set `NUPP_BROWSER_GUEST_DIR` and `NUPP_WASM_CC`
+when needed.
 It compiles the actual memory service into a temporary Wasm program and removes
 its output on exit. The `native` runner mode exercises the same C service with
 stock Lua on the host; it is not the native LuaJIT storage representation.

@@ -82,8 +82,8 @@ function M.targetFactsResolveTheHostAfterSelectingTheCheckDialect()
         }
     end
     for _, environment in ipairs(environments) do
-        for _, dialect in ipairs({"lua51", "luajit"}) do
-            local expectedHost = environment.host or (dialect == "lua51" and "browser" or "native")
+        for _, dialect in ipairs({"luajit"}) do
+            local expectedHost = environment.host or "native"
             local parsed = parser.parse("return true", "target-facts.g.nupp")
             local diagnostics = check.check(parsed, "target-facts.g.nupp", environment.value, {
                 dialect = dialect,
@@ -852,23 +852,26 @@ end
 -- value is. On a subject narrowing has already reduced to nil, `is nil` is simply
 -- true, and asking whether the value is present would answer it backwards.
 function M.isSemanticsWhereTheTestAdmitsNil()
-    local source = table.concat({
-        "local function classify(v: string | nil): integer",
-        "    if v is string then",
-        "        return 1",
-        "    elseif v is nil then",
-        "        return 2",
-        "    end",
-        "    return 3",
-        "end",
-        "local function settled(v: string | nil): boolean",
-        "    if v is string then",
-        "        return false",
-        "    end",
-        "    return v is string | nil",
-        "end",
-        "return classify, settled",
-    }, "\n")
+    local source = table.concat(
+        {
+            "local function classify(v: string | nil): integer",
+            "    if v is string then",
+            "        return 1",
+            "    elseif v is nil then",
+            "        return 2",
+            "    end",
+            "    return 3",
+            "end",
+            "local function settled(v: string | nil): boolean",
+            "    if v is string then",
+            "        return false",
+            "    end",
+            "    return v is string | nil",
+            "end",
+            "return classify, settled",
+        },
+        "\n"
+    )
     local classify, settled = assert(loadstring(generateChecked(source), "@gen_nil_test"))()
     assertEq(classify(nil), 2, "a nil subject takes the nil arm")
     assertEq(classify("text"), 1, "a string subject takes the string arm")

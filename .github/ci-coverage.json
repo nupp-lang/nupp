@@ -66,9 +66,9 @@
         "exact baseline, AVX2 and AVX512 tiers on capable x64 hosts, or NEON on arm64",
         "Intel macOS and both Windows images have explicit execution rows",
         "unavailable hardware produces missing acceptance evidence, never an execution pass",
-        "all ten element types and every Fixed2..64 plus Preferred execute through SIMD128 and scalar-C Wasm routes",
+        "all ten element types and every Fixed2..64 plus Preferred execute through SIMD128 and scalar-C Wasm routes in the LuaJIT browser guest",
         "disjoint Wasm shards aggregate only when the complete requested inventory has proof",
-        "UTF-8, Base64, structural JSON and fused JSON differentials execute once through returned Wasm registrar calls"
+        "UTF-8, Base64 and structural JSON differentials execute once through independent Wasm entries in the LuaJIT browser guest; fused JSON retains native AOT execution"
       ]
     },
     "integration": {
@@ -76,10 +76,10 @@
       "selectedBy": "linux-integration, macos-integration, windows-integration",
       "steps": [
         {
-          "name": "Run the portable generated-output corpus",
+          "name": "Run compat-checked output across Lua runtimes",
           "platforms": ["linux"],
-          "compilerModes": ["lua51", "lua52", "lua53", "lua54", "luajit"],
-          "guarantees": ["generated output runs on every supported Lua"]
+          "compilerModes": ["compat-lua51", "lua51", "lua52", "lua53", "lua54", "luajit"],
+          "guarantees": ["compatibility-checked output runs on every supported Lua"]
         },
         {
           "name": "Run the Lua 5.1 compatibility corpus",
@@ -88,10 +88,10 @@
           "guarantees": ["ordinary compatibility output runs on stock Lua 5.1 without legacy lowering"]
         },
         {
-          "name": "Build the same library for LuaJIT and Lua 5.1",
+          "name": "Compare ordinary and compat-checked generation",
           "platforms": ["linux"],
-          "compilerModes": ["luajit", "lua51"],
-          "guarantees": ["one library builds for two dialects"]
+          "compilerModes": ["luajit", "compat-lua51"],
+          "guarantees": ["one library builds normally and for the checked Lua 5.1 subset"]
         },
         {
           "name": "Check the compiler",
@@ -188,14 +188,14 @@
       "selectedBy": "portable-compiler",
       "steps": [
         {
-          "name": "Compile every homepage playground example",
-          "compilerModes": ["lua51", "strict", "O1"],
-          "guarantees": ["every homepage example still compiles under the Worker's settings"]
+          "name": "Compile every homepage example in compatibility mode",
+          "compilerModes": ["luajit", "compat-lua51", "strict", "O1"],
+          "guarantees": ["every homepage example stays inside the checked stock Lua source subset"]
         },
         {
-          "name": "Run the portable compiler in the six-library host",
-          "compilerModes": ["lua51"],
-          "guarantees": ["the compiler runs on official Lua 5.1.5 with six libraries"]
+          "name": "Validate the LuaJIT browser compiler bundle",
+          "compilerModes": ["luajit"],
+          "guarantees": ["the browser compiler answers the checked request corpus and fits its startup budget"]
         }
       ]
     },
@@ -221,7 +221,7 @@
       "guarantees": [
         "the LuaJIT playground checks and runs programs in Chromium, Firefox and WebKit",
         "real changing-source editor latency is recorded for both browser backends",
-        "the explicit legacy compiler runs in Lua 5.1 compiled to Wasm",
+        "the LuaJIT compiler and application runtime execute in the browser guest",
         "browser applications and templates run in Chromium",
         "the generated Pages artifact builds"
       ]

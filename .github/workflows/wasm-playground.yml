@@ -1,10 +1,8 @@
-name: Test Wasm playground
+name: Test LuaJIT browser
 
 # Which changes reach this is decided by `.github/scripts/classify-changes.lua`
-# and expressed by the `browser-wasm` job of the Compiler matrix, which calls
-# this workflow. It used to be a sixty-line list of paths maintained by hand
-# here, which is a list that goes stale silently: a new source file reaching the
-# playground is not on it, and nothing says so.
+# and expressed by the `browser-wasm` job of the Compiler matrix. The reusable
+# guest workflow owns the runtime, archive, browser and packaged-app matrix.
 on:
   workflow_dispatch:
   workflow_call:
@@ -14,109 +12,4 @@ permissions:
 
 jobs:
   candidate:
-    name: LuaJIT browser and legacy rollback
-    runs-on: ubuntu-latest
-    timeout-minutes: 50
-    steps:
-      - name: Check out the repository
-        uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: editors/playground/package-lock.json
-
-      - name: Set up Emscripten 6.0.8
-        uses: emscripten-core/setup-emsdk@v15
-        with:
-          version: 6.0.8
-          actions-cache-folder: emsdk-cache
-
-      - name: Install browser guest build tools
-        run: sudo apt-get update && sudo apt-get install -y gcc-multilib g++-multilib flex bison libelf-dev libssl-dev
-
-      - uses: actions/cache@v4
-        with:
-          path: .nupp-cache/toolchain
-          key: browser-guest-${{ runner.os }}-${{ hashFiles('scripts/toolchain', 'scripts/toolchain.pins', 'scripts/browser-*.py', 'scripts/browser-*.mjs', 'runtime/luajit/**', 'src/nupp/runtime/vendor/lunajson/**', 'host/notices/**') }}
-          restore-keys: browser-guest-${{ runner.os }}-
-
-      - name: Build pinned host dependencies
-        run: ./scripts/toolchain --all
-
-      - name: Install playground dependencies
-        run: npm ci --prefix editors/playground
-
-      - name: Install browser engines
-        run: npx --prefix editors/playground playwright install --with-deps firefox webkit
-
-      - name: Test Node Wasm parity
-        run: npm run test:wasm --prefix editors/playground
-
-      - name: Test Lua 5.1 Wasm struct AOT
-        run: tests/wasm-aot/run.sh
-
-      - name: Test ordinary storage and I/O in Lua 5.1 Wasm
-        run: tests/portable-storage/run.sh wasm
-
-      - name: Test browser application manifests
-        run: node --test tests/wasm-aot/runtime.test.mjs
-
-      - name: Test browser applications in Chromium
-        run: tests/wasm-aot/run-browser.sh > wasm-app-browser-smoke.json
-
-      - name: Test initialized browser applications in Chromium
-        run: tests/browser-templates/run.sh > browser-template-smoke.json
-
-      - name: Record asset sizes
-        run: node editors/playground/tools/report-wasm-assets.mjs > wasm-sizes.json
-
-      - name: Build the generated Pages artifact
-        env:
-          NUPP_PLAYGROUND_ALREADY_BUILT: 1
-        run: node scripts/build-pages.mjs
-
-      - name: Start the playground server
-        env:
-          PORT: 8787
-        run: |
-          node editors/playground/serve.mjs build/pages > playground-server.log 2>&1 &
-          echo $! > playground-server.pid
-          for attempt in {1..30}; do
-            if curl --fail --silent http://127.0.0.1:8787/playground/wasm-smoke.html >/dev/null; then
-              exit 0
-            fi
-            sleep 1
-          done
-          exit 1
-
-      - name: Test the LuaJIT playground UI and actual edits
-        run: |
-          node editors/playground/test/luajit-ui.mjs http://127.0.0.1:8787/playground/ luajit-ui.json
-          node editors/playground/test/compiler-performance.mjs http://127.0.0.1:8787/playground/ luajit-editor.json
-
-      - name: Test the Chromium Worker
-        run: |
-          node editors/playground/tools/run-browser-smoke.mjs \
-            http://127.0.0.1:8787/playground/wasm-smoke.html \
-            > chromium-smoke.json
-
-      - name: Stop the playground server
-        if: always()
-        run: kill "$(cat playground-server.pid)" || true
-
-      - name: Upload sizes and timing results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: wasm-playground-measurements
-          path: |
-            chromium-smoke.json
-            luajit-ui*
-            luajit-editor.json
-            browser-template-smoke.json
-            wasm-app-browser-smoke.json
-            playground-server.log
-            wasm-sizes.json
+    uses: ./.github/workflows/browser-guest.yml

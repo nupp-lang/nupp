@@ -2,7 +2,7 @@ module nupp.codec.json
 
 --[==[
 `nupp.codec.json` is a strict Nupp JSON codec. Its performance provider is
-SIMD-accelerated through `@aot`; portable compiler and browser targets select a
+SIMD-accelerated through `@aot`; compiler and browser targets select a
 pure-Lua provider behind the same API. It parses, pulls selected fields,
 serializes, and streams.
 

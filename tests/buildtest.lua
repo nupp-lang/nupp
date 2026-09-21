@@ -336,7 +336,7 @@ end
 
 function M.buildAndCheckResolveTheSameDialectOption()
     local dir = tempProject({
-        ["nupp.lua"] = 'return {include = {"."}, build = {entries = {"main"}, ' .. 'dialect = "lua51"}}\n',
+        ["nupp.lua"] = 'return {include = {"."}, build = {entries = {"main"}, ' .. 'dialect = "luajit"}}\n',
         ["main.nupp"] = "return 42\n",
     })
     local native = require("testjson").decode(captureJson(("cd '%s' && '%s' build main.nupp --json"):format(dir, NUPP)))
@@ -353,35 +353,15 @@ function M.buildAndCheckResolveTheSameDialectOption()
         "omitted and explicit LuaJIT dialects generate byte-identically"
     )
 
-    local portable = require(
-        "testjson"
-    ).decode(captureJson(("cd '%s' && '%s' build --dialect lua51 main.nupp --json"):format(dir, NUPP)))
-    assertEq(portable.dialect, "lua51", "an explicit build reports its dialect")
-    local portableCode = read(dir .. "/build/main.lua")
-    assert(portableCode ~= nativeCode, "the portable dialect carries its compatibility floor")
-    assert(
-        portableCode:find("_G.loadstring or _G.load", 1, true),
-        "portable prelude loading works across the stock Lua versions"
-    )
-    assert(
-        not nativeCode:find("_G.loadstring or _G.load", 1, true),
-        "the compatibility lookup costs nothing in native output"
-    )
-
-    local checked = require(
-        "testjson"
-    ).decode(captureJson(("cd '%s' && '%s' check --dialect lua51 main.nupp --json"):format(dir, NUPP)))
-    assertEq(checked.dialect, "lua51", "check reports the same resolved dialect")
-
     local configuredBuild = require("testjson").decode(captureJson(("cd '%s' && '%s' build --json"):format(dir, NUPP)))
-    assertEq(configuredBuild.dialect, "lua51", "build inherits the manifest dialect")
+    assertEq(configuredBuild.dialect, "luajit", "build inherits the manifest dialect")
     local configuredCheck = require("testjson").decode(captureJson(("cd '%s' && '%s' check --json"):format(dir, NUPP)))
-    assertEq(configuredCheck.dialect, "lua51", "check inherits the manifest dialect")
+    assertEq(configuredCheck.dialect, "luajit", "check inherits the manifest dialect")
 
-    local rejected = capture(("cd '%s' && '%s' check --dialect lua54 main.nupp"):format(dir, NUPP))
+    local rejected = capture(("cd '%s' && '%s' check --dialect lua51 main.nupp"):format(dir, NUPP))
     assert(
-        rejected:find("option --dialect does not take lua54; expected luajit, luajit-compat, lua51", 1, true),
-        "the command grammar rejects unsupported dialects: " .. rejected
+        rejected:find("option --dialect does not take lua51; expected luajit", 1, true),
+        "the command grammar rejects the removed dialect: " .. rejected
     )
     os.execute("rm -rf '" .. dir .. "'")
 end

@@ -37,7 +37,7 @@ cross-target execution record.
 | cross-element `Species.mask` | `masks.lua`, all 100 Fixed element pairs and same-width Preferred pairs, every tail and four independent boolean patterns |
 | numeric conversion | `conversions.lua`, all 100 numeric pairs at every Fixed width, same-width Preferred pairs, every tail; independent ordinary scalar storage conversions |
 | indexed load/store and strided fields | `memory.lua`, all elements/species, four admitted index types, every tail, zero/out-of-range indices and scalar address oracle |
-| scalar helper and closed math map | `primitives.lua` covers scalar helpers for every element/species; `maps.lua` covers all 22 admitted native math identities and arities on float/number, plus corrected f32 min/max/fma, at every species; Wasm executes the 18 identities admitted by the shared Lua 5.1–5.4 surface, with explicit positioned refusals for atan2/sinh/cosh/tanh |
+| scalar helper and closed math map | `primitives.lua` covers scalar helpers for every element/species; `maps.lua` covers all 22 admitted native math identities and arities on float/number, plus corrected f32 min/max/fma, at every species; Wasm executes the 18 identities admitted by the portable math surface, with explicit positioned refusals for atan2/sinh/cosh/tanh |
 | horizontal reductions and exact reducers | `reducers.lua`, maintained separately from primitive lane operations |
 
 Every generator reports the actual selected cases in its coverage record.

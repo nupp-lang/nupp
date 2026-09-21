@@ -296,7 +296,7 @@ local function draw(x: number, y: number): number return x + y end
 ]]
 
 local function nestedBoth(source, expected)
-    for _, dialect in ipairs({"luajit", "lua51"}) do
+    for _, dialect in ipairs({"luajit"}) do
         local answer, code = run(nestedFixture .. source, dialect)
         assertEq(answer, expected, dialect .. " nested pluck")
         assert(not code:find("(function()", 1, true), code)

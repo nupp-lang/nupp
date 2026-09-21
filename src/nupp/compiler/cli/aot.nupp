@@ -808,7 +808,7 @@ local record Aot
     features: string?
 
     --- Calling Lua VM and source-checking dialect.
-    @cli(value = "DIALECT", choices = {"luajit", "lua51"})
+    @cli(value = "DIALECT", choices = {"luajit"})
     dialect: string?
 
     --- Compiled object path used by a generated binding.

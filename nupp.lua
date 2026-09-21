@@ -405,24 +405,11 @@ for _, resource in ipairs({
     "src/nupp/runtime/provider/tablebuffer.nupp",
     "src/nupp/runtime/storage.nupp",
     "src/nupp/runtime/managed.g.nupp",
-    "src/nupp/runtime/portablemath.nupp",
     "src/nupp/runtime/vendor/lunajson/decoder.lua",
     "src/nupp/runtime/vendor/lunajson/encoder.lua",
 }) do
     RESOURCES[#RESOURCES + 1] = {source = resource, output = resource:gsub("^src/", "nupp/compiler/"),}
 end
-local PLAYGROUND_COMPILER_RESOURCES = {}
-for index, resource in ipairs(RESOURCES) do
-    PLAYGROUND_COMPILER_RESOURCES[index] = resource
-end
--- Generated rather than committed. The image is derived from the compiler's own
--- declaration checker, so a checked-in copy is stale the moment the checker
--- moves, and nothing in the ordinary loop compares them -- only a separate job
--- that builds Lua 5.1.5 to ask. `scripts/prelude-image` makes it and then makes
--- this bundle; the bundle below is what it makes it with.
-PLAYGROUND_COMPILER_RESOURCES[
-    #PLAYGROUND_COMPILER_RESOURCES + 1
-] = {source = "build/playground/preludeimage.bin", output = "nupp/compiler/preludeimage.bin",}
 local LUAJIT_BROWSER_RESOURCES = {}
 for index, resource in ipairs(RESOURCES) do
     LUAJIT_BROWSER_RESOURCES[index] = resource
@@ -502,32 +489,6 @@ return {
                 nativeFeatures = COMPILER_NATIVE_FEATURES,
                 resources = RESOURCES,
             },
-            playgroundCompiler = {
-                kind = "bundle",
-                description = "Build the stock-Lua in-memory compiler",
-                outDir = "build/playground",
-                output = "build/playground/nupp-compiler.lua",
-                dialect = "lua51",
-                entries = {"nupp.compiler.browser"},
-                sources = {"src/nupp/compiler/browser.nupp"},
-
-                resources = PLAYGROUND_COMPILER_RESOURCES,
-            },
-            -- The same bundle without the image, which is what generates one:
-            -- `source` mode reads the compiler's declaration checker and never
-            -- hydrates an image, so this only has to load. Hydrating is the one
-            -- thing it cannot do, and the one thing nothing asks of it.
-            playgroundCompilerWithoutPrelude = {
-                kind = "bundle",
-                description = "Build the portable compiler with no prelude image",
-                outDir = "build/playground-bootstrap",
-                output = "build/playground-bootstrap/nupp-compiler.lua",
-                dialect = "lua51",
-                entries = {"nupp.compiler.browser"},
-                sources = {"src/nupp/compiler/browser.nupp"},
-
-                resources = RESOURCES,
-            },
             browserLuaJITCompiler = {
                 kind = "bundle",
                 description = "Build the LuaJIT browser compiler candidate",
@@ -556,16 +517,6 @@ return {
                 dialect = "luajit",
                 entries = {"nupp.runtime.browser.playground"},
                 sources = {"src/nupp/runtime/browser/playground.g.nupp"},
-            },
-            playgroundApplicationRuntime = {
-                kind = "bundle",
-                description = "Build the checked playground application runtime",
-                outDir = "build/playground-app",
-                output = "build/playground/nupp-app-runtime.lua",
-                dialect = "lua51",
-                entries = {"nupp.runtime.browser.playground"},
-                sources = {"src/nupp/runtime/browser/playground.g.nupp"},
-
             },
             -- Nupp stamped into a feature-matched host as one self-contained
             -- executable. It is the first payload the format ever carries, on

@@ -3162,16 +3162,7 @@ function optimize.run(result: optimize.Checked, opts: optimize.Options?): ({any}
     if level >= optimize.passes["OPT-4"].level and not disabled["OPT-4"] then
         staticCallableWalk(result.root, remarks)
     end
-    -- Not for Lua 5.1: this pass lowers a string accumulator to a `nupp.text` buffer,
-    -- and the module then requires it where it loads. That module is LuaJIT's, so
-    -- a stock 5.1 host could not load what it produced -- which is the host the
-    -- portable compiler is for, and which stopped loading it at all once this
-    -- level became the default.
-    if level >= optimize.passes["OPT-5"].level
-        and not disabled["OPT-5"]
-        and opts.dialect ~= "lua51"
-        and result.compat ~= "lua51"
-    then
+    if level >= optimize.passes["OPT-5"].level and not disabled["OPT-5"] and result.compat ~= "lua51" then
         concatBufferWalk(result, remarks)
     end
     if level >= optimize.passes["OPT-6"].level and not disabled["OPT-6"] then

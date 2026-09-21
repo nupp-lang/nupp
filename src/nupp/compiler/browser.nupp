@@ -1,23 +1,12 @@
 module nupp.compiler.browser
 
 --[[
-The in-memory compiler API shared by a native stock-Lua host and the browser Worker.
-It selects compiler-private providers directly, owns one lazy environment per output
-dialect, and leaves JSON at the outer ABI boundary.
+The in-memory compiler API used by the browser Worker. It selects compiler-private
+providers directly and leaves JSON at the outer ABI boundary.
 ]]
 
 local triviaArena = require("nupp.compiler.triviaarena")
 triviaArena.install(require("nupp.compiler.triviaarena.table"))
-
--- Select the compiler host's bit implementation once. LuaJIT keeps its native
--- operations; stock Lua 5.1 gets the checked scalar provider.
-local hasNativeBit = pcall(require, "bit")
-if not hasNativeBit then
-    local scalarBitops = require("nupp.runtime.provider.scalarbitops")
-    package.preload.bit = function()
-        return scalarBitops
-    end
-end
 
 local json = require("nupp.runtime.provider.lunajson")
 local parser = require("nupp.compiler.parser")
@@ -33,7 +22,7 @@ local preludeImage = require("nupp.compiler.preludeimage")
 local type BrowserOptions = {
     strict: boolean?,
     optimize: boolean?,
-    dialect: ('lua51' | 'luajit')?,
+    dialect: 'luajit'?,
     compat: 'lua51'?
 }
 
@@ -51,8 +40,8 @@ local type HoverResponse = {
     length: integer?
 }
 
-local function selectedDialect(options: BrowserOptions?, defaultDialect: any?): 'lua51' | 'luajit'
-    return options and options.dialect or options and options.compat and "luajit" or defaultDialect or "lua51"
+local function selectedDialect(options: BrowserOptions?, defaultDialect: any?): 'luajit'
+    return options and options.dialect or defaultDialect or "luajit"
 end
 
 local function diagnosticsOf(diags: {any}): {any}
@@ -175,8 +164,7 @@ function Session:compile(source: string, filename: string, options: BrowserOptio
         dialect = result.dialect,
     })
     result.effects = optimize.liveEffects(result)
-    local hostDialect = type(rawget(_G, "jit")) == "table" and "luajit" or "lua51"
-    local code, generated = gen.generate(result, filename, nil, nil, hostDialect)
+    local code, generated = gen.generate(result, filename)
     if #generated > 0 then
         return {reason = "code generation errors", diagnostics = diagnosticsOf(generated),}
     end
@@ -185,7 +173,7 @@ function Session:compile(source: string, filename: string, options: BrowserOptio
 end
 
 function Session:hover(offset: integer): HoverResponse
-    local result = self.lastResults[self.lastDialect or "lua51"]
+    local result = self.lastResults[self.lastDialect or "luajit"]
     if not result then
         return {found = false,}
     end
@@ -232,7 +220,7 @@ local Browser = {}
 
 function Browser.new(settings: any?): any
     return setmetatable(
-        {environments = {}, lastResults = {}, lastDialect = "lua51", settings = settings or {},},
+        {environments = {}, lastResults = {}, lastDialect = "luajit", settings = settings or {},},
         Session
     )
 end

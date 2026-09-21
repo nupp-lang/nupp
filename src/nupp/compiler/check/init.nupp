@@ -901,7 +901,7 @@ function checkMod.check(
     -- The checker and every later lowering read the same resolved build axis. No
     -- dialect-specific rule is implied merely by recording it here.
     result.dialect = selectedDialect
-    result.host = env and env.artifactHost or (selectedDialect == "lua51" and "browser" or "native")
+    result.host = env and env.artifactHost or "native"
     result.preludeRuntime = env and env.preludeRuntime or nil
     result.moduleName = opts and opts.moduleName
         or env and env.moduleNameForPath and env.moduleNameForPath(env, filename)
@@ -2430,17 +2430,6 @@ function checkMod.check(
         for kind, handle in pairs(installed) do
             statHandlers[kind] = handle
         end
-    end
-    if c.opts.dialect == "lua51" then
-        local function refuseJump(stat)
-            local spelling = stat.kind == "gotoStmt" and "`goto`" or "a label"
-            c.diag("NUPP3009", stat, ("the `lua51` dialect cannot lower authored %s"):format(spelling), nil, {
-                help = "use structured control flow; generated cleanup transfers are lowered separately"
-            })
-        end
-
-        statHandlers.gotoStmt = refuseJump
-        statHandlers.labelStmt = refuseJump
     end
 
     local function checkTypeDeclaration(stat)

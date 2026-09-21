@@ -778,7 +778,7 @@ local function choose(flag: boolean): number
 end
 return choose(true), 1 == 2, select('#', true and choose(false))
 ]]
-    for _, dialect in ipairs({"luajit", "lua51"}) do
+    for _, dialect in ipairs({"luajit"}) do
         local result = parser.parse(source, "test.g.nupp")
         check.check(result, "test.g.nupp", env)
         result.dialect = dialect

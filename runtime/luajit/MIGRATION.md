@@ -1,9 +1,8 @@
 # Browser runtime migration
 
-The browser default on this branch is LuaJIT. This is the first, reversible
-migration phase: legacy Lua 5.1 lowering and the stock-Lua browser host remain
-available explicitly. Their deletion belongs to the later release gate in the
-migration plan. Main and the stage-zero release pin are unchanged.
+The browser runtime is LuaJIT. The legacy Lua 5.1 lowering and stock-Lua browser
+host have been removed. Rollback now means selecting a prior release; no failure
+silently selects another VM.
 
 A browser bundle selects its host independently of the source dialect:
 
@@ -43,10 +42,9 @@ The combined native-library limit is one MiB; escaped initialization and the
 application share the seven-MiB startup budget. Guest-native code executes
 through CPU emulation, with different performance from independent Wasm.
 
-`require-wasm` still rejects Lua-C-API builders by name. Use guest-native AOT,
-ordinary LuaJIT with `aot = "off"`, or the explicit old side-module ABI with
-`dialect = "lua51"` and `NUPP_BROWSER_BACKEND=lua51` during the rollback release.
-Arbitrary external libraries still need their own guest ABI/conformance checks.
+`require-wasm` still rejects Lua-C-API builders by name. Use guest-native AOT or
+ordinary LuaJIT with `aot = "off"`. Arbitrary external libraries still need
+their own guest ABI/conformance checks.
 
 FFI sees the guest's libc, LPeg and supplied i386 libraries. It cannot load a
 browser Wasm module or a macOS/Windows library. The source guest preserves frame

@@ -119,39 +119,6 @@ every project target and cannot be relaxed by a file or dependency. The flag
 is independent of strict checking and optimization and cannot be combined with
 a legacy lowering dialect.
 
-### Dialect selection
-
-Every target resolves one source-lowering dialect. `luajit` is the default.
-`luajit-compat` lowers newer LuaJIT syntax while retaining LuaJIT's FFI, JIT,
-and native representations. It is for LuaJIT hosts whose runtime facilities are
-available but whose parser does not meet Nupp's default floor. `lua51` may be
-selected on the build table, inherited by its targets, or overridden by one
-target:
-
-```lua
-build = {
-   dialect = "lua51",
-   targets = {
-      portable = { entries = { "lib.main" } },
-      native = {
-         entries = { "app.main" },
-         dialect = "luajit"
-      }
-   }
-}
-```
-
-`nupp build --dialect lua51` and `nupp check --dialect lua51` override the
-selected target for that invocation and also work with explicitly named source
-files. The resolved value appears in build and check JSON and in `nupp task --list`.
-It is part of the cache key, so artifacts and checks from different dialects
-cannot satisfy one another.
-
-The `lua51` checker requires a supported target representation for every
-reached construct. Library facades select their implementations during module initialization.
-See [portable libraries](portability/libraries.md) for typed providers, target
-dependencies, and explicit fallback imports.
-
 A target's `dependencies` are names, declared once at the top level of the
 manifest and shared by every target that lists them:
 
@@ -209,7 +176,7 @@ resources = {
 The manifest is validated before builds, checks, tests, and task queries.
 Validation covers dense string arrays, required target inputs, supported
 dependency kinds, named target and dependency references, and dependency
-cycles. A target's `dialect` is `"luajit"`, `"luajit-compat"` or `"lua51"`.
+cycles. A target's `dialect`, when present, must be `"luajit"`.
 Configuration errors name the invalid field before any build work starts.
 
 Every table in the manifest takes a closed set of keys, and one that is not in

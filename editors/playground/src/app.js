@@ -28,7 +28,6 @@ const checkTimeEl = el("check-time");
 const compileButton = el("compile-button");
 const exampleSelect = el("example-select");
 const examplePicker = el("example-picker");
-const dialectSelect = el("dialect-select");
 const diagListEl = el("diagnostics");
 const outputHost = el("output-editor");
 const outputEl = el("output");
@@ -132,7 +131,7 @@ function startWorker() {
     resolveWorkerReady = resolve;
     rejectWorkerReady = reject;
   });
-  worker = new Worker(new URL(options.dialect === "lua51" ? "./legacy-worker.js" : "./worker.js", import.meta.url), { type: "module" });
+  worker = new Worker(new URL("./worker.js", import.meta.url), { type: "module" });
   const instance = worker;
   worker.onmessage = event => { if (worker === instance) onWorkerMessage(event); };
   worker.onerror = (event) => {
@@ -613,7 +612,7 @@ let cancelRun = null;
 const runMarkup = compileButton?.innerHTML || "Run";
 function runGenerated(code) {
   return new Promise((resolve, reject) => {
-    const application = new Worker(new URL(options.dialect === "lua51" ? "./legacy-app-worker.js" : "./app-worker.js", import.meta.url), {type: "module"});
+    const application = new Worker(new URL("./app-worker.js", import.meta.url), {type: "module"});
     let settled = false;
     const timeout = setTimeout(() => {
       finish(() => reject(new Error("the program exceeded the playground's 10 second hard deadline")));
@@ -732,20 +731,6 @@ if (exampleSelect && wantsExampleMenu) {
   if (examplePicker) examplePicker.hidden = true;
 }
 
-if (dialectSelect) {
-  dialectSelect.value = options.dialect;
-  dialectSelect.addEventListener("change", () => {
-    options.dialect = dialectSelect.value;
-    if (options.dialect === "lua51") delete options.compat;
-    saveOptions(options);
-    cancelRun?.();
-    closeCompiler("Runtime changed");
-    renderOptionsPanel();
-    setOutput("");
-    checkNow();
-  });
-}
-
 // --- Options menu -----------------------------------------------------------
 
 function renderOptionsPanel() {
@@ -756,7 +741,6 @@ function renderOptionsPanel() {
   const subset = document.createElement("input");
   subset.type = "checkbox";
   subset.checked = options.compat === "lua51";
-  subset.disabled = options.dialect === "lua51";
   subset.addEventListener("change", () => {
     if (subset.checked) options.compat = "lua51"; else delete options.compat;
     saveOptions(options);

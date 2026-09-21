@@ -90,8 +90,14 @@ end
 -- tests left a change to one uncompiled until something else selected the job.
 function M.wasmOnlyFixturesSelectTheJobThatRunsThem()
     selects("tests/portable-storage/project/src/main.nupp", {"browser-wasm"})
-    selects("tests/wasm-aot/run.sh", {"browser-wasm"})
-    selects("tests/simd/primitives.lua", {"browser-wasm", "simd-conformance", "linux-integration", "macos-integration", "windows-integration"})
+    selects("tests/luajit-browser/prepare-packaged.mjs", {"browser-wasm"})
+    selects("tests/simd/primitives.lua", {
+        "browser-wasm",
+        "simd-conformance",
+        "linux-integration",
+        "macos-integration",
+        "windows-integration"
+    })
     selects("src/nupp/compiler/aot/simdrewrite.nupp", {"browser-wasm", "simd-conformance"})
     selects("src/nupp/compiler/build/aot.nupp", {"browser-wasm"})
     selects("src/nupp/simd.nupp", {"browser-wasm"})
@@ -300,14 +306,23 @@ function M.gatingTheRunnerSuiteDoesNotGateTheRestOfTheBenchSurface()
     )
 end
 
-
 function M.wasmSimdShardsCoverEveryTypeAndWidthExactlyOnce()
     local decode = assert(loadfile("src/nupp/runtime/vendor/lunajson/decoder.lua"))()()
     local file = assert(io.open(".github/simd-wasm-shards.json", "rb"))
     local shards = decode(file:read("*a"))
     file:close()
-    local types = {float=true, number=true, int8=true, uint8=true, int16=true,
-        uint16=true, int32=true, uint32=true, int64=true, uint64=true}
+    local types = {
+        float = true,
+        number = true,
+        int8 = true,
+        uint8 = true,
+        int16 = true,
+        uint16 = true,
+        int32 = true,
+        uint32 = true,
+        int64 = true,
+        uint64 = true
+    }
     local seen = {}
     for _, shard in ipairs(shards) do
         test.assert(types[shard.element], "known SIMD element type")
@@ -321,7 +336,9 @@ function M.wasmSimdShardsCoverEveryTypeAndWidthExactlyOnce()
     end
     for element in pairs(types) do
         test.assert(seen[element] and seen[element].preferred, "Preferred execution requested")
-        for width = 2, 64 do test.assert(seen[element][tostring(width)], "every legal Fixed width requested") end
+        for width = 2, 64 do
+            test.assert(seen[element][tostring(width)], "every legal Fixed width requested")
+        end
     end
     test.assert(#shards == 40, "ten element types times four width batches")
 end

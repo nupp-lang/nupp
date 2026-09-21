@@ -698,7 +698,7 @@ local value = switch selector do case "\x61", "a" -> 1 else -> 0 end]]
 end
 
 local function leanSwitch(source, expected, inspect)
-    for _, dialect in ipairs({"luajit", "lua51"}) do
+    for _, dialect in ipairs({"luajit"}) do
         local result = parser.parse(source, "lean-switch.g.nupp")
         assertEq(#result.errors, 0, "lean switch parses")
         local diagnostics = check.check(result, "lean-switch.g.nupp", nil, {dialect = dialect})

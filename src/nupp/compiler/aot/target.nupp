@@ -123,15 +123,12 @@ if hostJit ~= nil then
     hostJit.off(dualNumberLoops, true)
 end
 
---- Numeric-loop entry follows the runtime provisioned for the target.
+--- Numeric-loop entry follows the LuaJIT runtime provisioned for the target.
 --- The pinned LuaJIT defaults to dual numbers on ARM64 and single numbers
 --- on x86. Independent browser Wasm kernels are called by the i686 LuaJIT
---- guest; the retained Lua 5.1 backend uses its own loop-entry contract.
 function target.numericForRuntime(selected: target.Target): string
-    if selected.dialect == "lua51" then
-        return "lua51"
-    elseif selected.architecture == "wasm32" then
-        return selected.dialect == "luajit" and "luajit-single" or "lua51"
+    if selected.architecture == "wasm32" then
+        return "luajit-single"
     elseif hostJit ~= nil and selected.triple == target.hostTriple() then
         return dualNumberLoops() and "luajit-dual" or "luajit-single"
     elseif selected.architecture == "aarch64" then

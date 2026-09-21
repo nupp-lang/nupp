@@ -5,7 +5,7 @@ module nupp.runtime.browser.workers
 --[[
 Browser structured-worker implementation used as a built-in module fallback.
 
-Each lane is a module Web Worker with its own Lua 5.1 Wasm state, initialized from
+Each lane is a module Web Worker with its own LuaJIT guest, initialized from
 the application's verified payload. The host pool exchanges copied messages;
 parallel work requires neither Wasm threads nor shared memory. Sendable function
 metadata, scopes, and task results follow [](nupp.workers.spi).

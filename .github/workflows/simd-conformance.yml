@@ -108,9 +108,43 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
+  guest:
+    name: Build the LuaJIT browser guest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: emscripten-core/setup-emsdk@v15
+        with:
+          version: 6.0.8
+          actions-cache-folder: emsdk-cache
+      - name: Install the guest build tools
+        run: sudo apt-get update && sudo apt-get install -y gcc-multilib g++-multilib flex bison libelf-dev libssl-dev
+      - uses: actions/cache@v4
+        with:
+          path: .nupp-cache/toolchain
+          key: >-
+            simd-browser-guest-${{ runner.os }}-${{
+            hashFiles('scripts/toolchain', 'scripts/toolchain.pins', 'scripts/browser-*.py',
+            'scripts/browser-*.mjs', 'runtime/luajit/**', 'host/notices/**') }}
+          restore-keys: simd-browser-guest-${{ runner.os }}-
+      - name: Build the pinned guest
+        run: |
+          guest=$(./scripts/toolchain browser-guest)
+          mkdir -p build/simd-browser-guest
+          cp -R "$guest/." build/simd-browser-guest/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: simd-luajit-browser-guest
+          path: build/simd-browser-guest
+          if-no-files-found: error
+
   wasm:
     name: Wasm / ${{ matrix.shard.element }} / ${{ matrix.shard.batch }}
-    needs: platforms
+    needs: [platforms, guest]
     runs-on: ubuntu-24.04
     timeout-minutes: 150
     strategy:
@@ -126,6 +160,10 @@ jobs:
         with:
           version: 6.0.8
           actions-cache-folder: emsdk-cache
+      - uses: actions/download-artifact@v4
+        with:
+          name: simd-luajit-browser-guest
+          path: build/simd-browser-guest
       - uses: actions/cache@v4
         with:
           path: .nupp-cache/toolchain
@@ -144,19 +182,13 @@ jobs:
             nupp-buildcache-${{ runner.os }}-${{ runner.arch }}-
       - name: Provision the pinned toolchain
         run: ./scripts/toolchain --all
-      - name: Fetch verified Lua 5.1.5 sources
-        shell: bash
+      - name: Install Chromium
         run: |
-          set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/nupp-portable-compiler"
-          archive="$RUNNER_TEMP/nupp-portable-compiler/lua-5.1.5.tar.gz"
-          curl -fsSL https://www.lua.org/ftp/lua-5.1.5.tar.gz -o "$archive"
-          printf '%s  %s\n' \
-            2640fc56a795f29d28ef15e13c34a47e223960b0240e8cb0a82d9b0738695333 \
-            "$archive" | sha256sum -c -
-          tar -xzf "$archive" -C "$RUNNER_TEMP/nupp-portable-compiler"
+          npm ci --prefix editors/playground
+          npx --prefix editors/playground playwright install --with-deps chromium
       - name: Execute identical SIMD128 and scalar-C corpora
         env:
+          NUPP_BROWSER_GUEST_DIR: ${{ github.workspace }}/build/simd-browser-guest
           NUPP_SIMD_TYPES: ${{ matrix.shard.element }}
           NUPP_SIMD_LANES: ${{ matrix.shard.lanes }}
         run: tests/simd/run-wasm.sh
@@ -179,6 +211,7 @@ jobs:
 
   wasm-algorithms:
     name: Wasm / Owned algorithms
+    needs: guest
     runs-on: ubuntu-24.04
     timeout-minutes: 150
     steps:
@@ -190,6 +223,10 @@ jobs:
         with:
           version: 6.0.8
           actions-cache-folder: emsdk-cache
+      - uses: actions/download-artifact@v4
+        with:
+          name: simd-luajit-browser-guest
+          path: build/simd-browser-guest
       - uses: actions/cache@v4
         with:
           path: .nupp-cache/toolchain
@@ -208,18 +245,13 @@ jobs:
             nupp-buildcache-${{ runner.os }}-${{ runner.arch }}-
       - name: Provision the pinned toolchain
         run: ./scripts/toolchain --all
-      - name: Fetch verified Lua 5.1.5 sources
-        shell: bash
+      - name: Install Chromium
         run: |
-          set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/nupp-portable-compiler"
-          archive="$RUNNER_TEMP/nupp-portable-compiler/lua-5.1.5.tar.gz"
-          curl -fsSL https://www.lua.org/ftp/lua-5.1.5.tar.gz -o "$archive"
-          printf '%s  %s\n' \
-            2640fc56a795f29d28ef15e13c34a47e223960b0240e8cb0a82d9b0738695333 \
-            "$archive" | sha256sum -c -
-          tar -xzf "$archive" -C "$RUNNER_TEMP/nupp-portable-compiler"
-      - name: Execute all four owned algorithm differentials
+          npm ci --prefix editors/playground
+          npx --prefix editors/playground playwright install --with-deps chromium
+      - name: Execute the independent-kernel algorithm differentials
+        env:
+          NUPP_BROWSER_GUEST_DIR: ${{ github.workspace }}/build/simd-browser-guest
         run: tests/simd/run-wasm-algorithms.sh
       - name: Retain algorithm execution and failure evidence
         if: always()

@@ -354,14 +354,6 @@ interface cst.Hints
     --- A checker-recognized call to the stable prelude `ipairs` binding.
     builtinIpairs: any
 
-    --- A resolved portable math binding, evaluated or overwritten by authored code.
-    portableMathLibrary: boolean?
-
-    --- A portable math.log identity or its exact structural callable field contract.
-    portableMathLog: boolean?
-
-    portableMathLogWrite: boolean?
-
     --- A call to a stable LuaJIT table builtin, lowered to one module-local binding.
     tableIntrinsic: string?
 
@@ -473,11 +465,6 @@ interface cst.Hints
 
     --- The module a `require` names, so an alias can name its types.
     requiredModule: string?
-
-    --- The module the require is emitted as instead, when the one the source names
-    --- does not exist on the target. `require("bit")` on a portable target is the
-    --- only one: the type stays LuaJIT's BitOp, and the adapter answers to it.
-    rewrittenModule: string?
 
     --- What an index expression was indexing, so removal by nil can be allowed on a
     --- container and refused on a declared field.

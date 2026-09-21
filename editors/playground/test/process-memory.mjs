@@ -7,7 +7,7 @@ const [url, output] = process.argv.slice(2);
 if(!url || !output)throw new Error('usage: process-memory.mjs URL RESULT.json');
 const temporary=mkdtempSync(path.join(os.tmpdir(),'nupp-browser-memory-')),results=[];
 try {
- for(const backend of ['luajit','lua51']) {
+ for(const backend of ['luajit']) {
   const server=await chromium.launchServer({headless:true,channel:'chrome'});
   const root=server.process().pid, samples=[],begin=performance.now();
   let phase='baseline';
@@ -51,7 +51,7 @@ try {
    await new Promise(resolve=>setTimeout(resolve,1000));
    const afterTeardown=sample();
    results.push({backend,version:browser.version(),baseline,compilerReady,afterRun,afterTeardown,peakRssBytes:Math.max(...samples.map(x=>x.rssBytes)),peakFootprintBytes:samples.every(x=>Number.isFinite(x.footprintBytes))?Math.max(...samples.map(x=>x.footprintBytes)):null,samples});
-   writeFileSync(output,JSON.stringify({scope:'Each backend uses a fresh headless Chromium process tree sampled every 100 ms. RSS sums shared pages more than once. On macOS footprintBytes is the footprint tool total for that process family. Includes browser overhead, compiler and transient application VM. Teardown is one second after closing the page. This is desktop memory accounting, not mobile acceptance or a VM-size limit.',host:{platform:os.platform(),arch:os.arch(),cpu:os.cpus()[0].model},results},null,2)+'\n');
+   writeFileSync(output,JSON.stringify({scope:'The LuaJIT backend uses a fresh headless Chromium process tree sampled every 100 ms. RSS sums shared pages more than once. On macOS footprintBytes is the footprint tool total for that process family. Includes browser overhead, compiler and transient application VM. Teardown is one second after closing the page. This is desktop memory accounting, not mobile acceptance or a VM-size limit.',host:{platform:os.platform(),arch:os.arch(),cpu:os.cpus()[0].model},results},null,2)+'\n');
   } finally {clearInterval(timer);await browser?.close();await server.close();}
  }
 } finally {rmSync(temporary,{recursive:true,force:true});}

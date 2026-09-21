@@ -439,7 +439,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y lua5.1 lua5.2 lua5.3 lua5.4
 
-      - name: Run the portable generated-output corpus
+      - name: Run compat-checked output across Lua runtimes
         if: runner.os == 'Linux'
         shell: bash
         run: |
@@ -452,7 +452,7 @@ jobs:
         shell: bash
         run: scripts/lua51-compat-corpus.sh lua5.1
 
-      - name: Build the same library for LuaJIT and Lua 5.1
+      - name: Compare ordinary and compat-checked generation
         if: runner.os == 'Linux'
         shell: bash
         run: scripts/dual-dialect-library.sh lua5.1
@@ -828,7 +828,7 @@ jobs:
         run: ./bin/nupp fixpoint
 
   portable-compiler:
-    name: Portable compiler on official Lua 5.1.5
+    name: LuaJIT browser compiler
     needs: [classify, fast-checks]
     if: >-
       !cancelled() && needs.classify.result == 'success'
@@ -868,18 +868,17 @@ jobs:
         shell: bash
         run: ./bin/nupp build
 
-      # The Wasm acceptance workflow is path-filtered, but a checker or
-      # optimizer change anywhere in the compiler can invalidate source shown
-      # on the homepage. Keep the menu corpus here, using the same strict,
-      # optimized Lua 5.1 settings as the playground Worker.
-      - name: Compile every homepage playground example
+      # A checker or optimizer change anywhere in the compiler can invalidate
+      # source shown on the homepage. Keep the compatibility surface checked
+      # here as well as in the browser compiler request corpus below.
+      - name: Compile every homepage example in compatibility mode
         shell: bash
         run: >-
-          ./bin/nupp build --strict --dialect lua51 -O1
+          ./bin/nupp build --strict --compat lua51 -O1
           -o build/ci-playground-examples
           editors/playground/src/examples/*.nupp
 
-      - name: Run the portable compiler in the six-library host
+      - name: Validate the LuaJIT browser compiler bundle
         shell: bash
         run: .github/scripts/test-portable-compiler.sh
 
@@ -930,8 +929,8 @@ jobs:
       - name: Regenerate and verify the documentation
         run: ./bin/nupp test --group=docs
 
-  # Emscripten, a Node parity run, the Lua 5.1 Wasm AOT fixtures, the browser
-  # templates in Chromium, and the generated Pages artifact. Called rather than
+  # The full LuaJIT browser guest, application packages, browser templates, and
+  # generated Pages artifact. Called rather than
   # path-filtered: the sixty-line list of paths that used to bring it into a
   # pull request was maintained by hand, and a new source file reaching the
   # playground was simply not on it.

@@ -28,9 +28,9 @@ function version.line(): string
     return "nupp " .. version.VERSION
 end
 
---- The interpreter underneath, which is LuaJIT for a release binary and plain Lua for
---- the portable compiler. Only `--json` reports it, being the part of "which nupp is
---- this" that a person answering a bug report wants and a packager does not.
+--- The LuaJIT interpreter underneath. Only `--json` reports it, being the part
+--- of "which nupp is this" that a person answering a bug report wants and a
+--- packager does not.
 function version.runtime(): string
     return jit and tostring(jit.version) or _VERSION
 end

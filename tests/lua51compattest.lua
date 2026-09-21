@@ -370,7 +370,7 @@ return work(false)
         assert(errors(diags) == "", errors(diags))
         -- Isolate the emitted effect boundary from each facade's separate
         -- source/runtime eligibility; the authored cleanup does not yield.
-        local _, generated = gen.generate(result, "compat.g.nupp", nil, nil, nil, nil, {[feature] = true})
+        local _, generated = gen.generate(result, "compat.g.nupp", nil, nil, nil, {[feature] = true})
         local message = errors(generated)
         assert(message:find(feature .. " -> runtime.suspension", 1, true), message)
     end

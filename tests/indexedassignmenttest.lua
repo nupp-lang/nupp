@@ -10,9 +10,12 @@ local function compile(source, dialect, optimized)
     for _, diagnostic in ipairs(diagnostics) do
         assert(diagnostic.severity == "warning", diagnostic.code .. ": " .. diagnostic.msg)
     end
-    if optimized then require("nupp.compiler.optimize").run(parsed, {level = 1}) end
+    if optimized then
+        require("nupp.compiler.optimize").run(parsed, {level = 1})
+    end
     local code, generated = gen.generate(parsed, "indexedassignment")
     assert(#generated == 0, generated[1] and generated[1].msg)
+
     return assert(loadstring(code, "@indexedassignment"))(), code
 end
 
@@ -47,17 +50,22 @@ local function apply(exclusive values: span.WriteSpan<number>, trace: {number}):
 end
 return apply
 ]]
-    for _, dialect in ipairs({"luajit", "lua51"}) do
+    for _, dialect in ipairs({"luajit"}) do
         local apply = compile(source, dialect)
         local trace, data = {}, {0, 0}
         local view = {
-            get = function(_, i) return data[i] end,
-            set = function(_, i, value) data[i] = value end,
+            get = function(_, i)
+                return data[i]
+            end,
+            set = function(_, i, value)
+                data[i] = value
+            end,
         }
         assert(apply(view, trace) == 398, "aliased stores and tuple expansion")
         assert(table.concat(trace, ",") == "1,2,3,4", "target indices precede RHS evaluations")
     end
 end
+
 function M.mixedAssignmentsFreezeTableReceiversBeforeRebinding()
     local source = [[
 local span = require("nupp.mem.span")
@@ -82,14 +90,22 @@ local function apply(exclusive values: span.WriteSpan<number>, trace: {number}):
 end
 return apply
 ]]
-    for _, dialect in ipairs({"luajit", "lua51"}) do
+    for _, dialect in ipairs({"luajit"}) do
         local apply = compile(source, dialect)
         local trace, data = {}, {0}
-        local view = {get = function(_, i) return data[i] end, set = function(_, i, value) data[i] = value end}
+        local view = {
+            get = function(_, i)
+                return data[i]
+            end,
+            set = function(_, i, value)
+                data[i] = value
+            end
+        }
         assert(apply(view, trace) == 360, "table receiver remains the original object")
         assert(table.concat(trace, ",") == "1,2,3", "receiver and index precede RHS")
     end
 end
+
 function M.optimizedVirtualViewsKeepSimultaneousStores()
     local source = [[
 local span = require("nupp.mem.span")
@@ -106,10 +122,13 @@ return apply
     local ffi = require("ffi")
     for _, optimized in ipairs({false, true}) do
         local apply, code = compile(source, "luajit", optimized)
-        if optimized then assert(not code:find(".writeCarray(", 1, true), "exercise the virtual view path") end
+        if optimized then
+            assert(not code:find(".writeCarray(", 1, true), "exercise the virtual view path")
+        end
         assert(apply(ffi.new("double[2]")) == 44, "virtual view aliased store semantics")
     end
 end
+
 function M.temporaryStructFieldReceiversRemainRefused()
     local source = [[
 local span = require("nupp.mem.span")
@@ -128,7 +147,7 @@ local function apply(factory: function(): span.WriteSpan<Cell>, trace: {number})
 end
 return apply
 ]]
-    for _, dialect in ipairs({"luajit", "lua51"}) do
+    for _, dialect in ipairs({"luajit"}) do
         local parsed = parser.parse(source, "indexedassignment.g.nupp")
         assert(#parsed.errors == 0)
         local diagnostics = check.check(parsed, "indexedassignment.g.nupp", env, {dialect = dialect})
@@ -142,6 +161,7 @@ return apply
         assert(refused, "temporary struct references require a rooted receiver")
     end
 end
+
 function M.rootedStructFieldsEvaluateIndicesOnce()
     local source = [[
 local span = require("nupp.mem.span")
@@ -160,14 +180,20 @@ local function apply(exclusive values: span.WriteSpan<Cell>, trace: {number}): n
 end
 return apply
 ]]
-    for _, dialect in ipairs({"luajit", "lua51"}) do
+    for _, dialect in ipairs({"luajit"}) do
         local apply = compile(source, dialect)
         local trace, row, reads = {}, {value = 0}, 0
-        local view = {getMut = function() reads = reads + 1; return row end}
+        local view = {
+            getMut = function()
+                reads = reads + 1;
+                return row
+            end
+        }
         apply(view, trace)
         assert(row.value == 3, "leftmost aliased field wins")
         assert(reads == 2, "each mutable row receiver is evaluated once")
         assert(table.concat(trace, ",") == "1,2,3,4", "field index/RHS order")
     end
 end
+
 return M

@@ -376,7 +376,6 @@ function compile.module(
         path,
         settings.coverage and {path = path} or nil,
         nil,
-        nil,
         settings.bytecodeBoundary
     )
     if #genDiags > 0 then

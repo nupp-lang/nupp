@@ -1,4 +1,4 @@
--- Package the existing owned-algorithm differential corpus for the stock host.
+-- Package the C-safe owned-algorithm differential corpus for the browser guest.
 -- Checked boundaries exclude only native setup and optional timing code.
 local r = require("tests.simd.runner")
 local name, directory = assert(arg[1]), assert(arg[2])
@@ -47,12 +47,10 @@ local function copy(path, target)
     write("src/" .. target, r.read(root .. "/" .. path))
 end
 
-local imports, corpus, probes, eagerVariant
-local entry = name == "fused-json" and "nupp.algorithm" or "algorithm"
-local random = name ~= "fused-json"
-if random then
-    write("src/corpusmath.g.nupp", snapshot("tests/simd/corpusmath.lua"))
-end
+local imports, corpus, probes
+local entry = "algorithm"
+local random = true
+write("src/corpusmath.g.nupp", snapshot("tests/simd/corpusmath.lua"))
 if name == "utf8simd" then
     copy("bench/utf8simd/src/utf8simd.nupp", "utf8simd.nupp")
     copy("bench/utf8simd/src/utf8reference.nupp", "utf8reference.nupp")
@@ -62,8 +60,14 @@ if name == "utf8simd" then
 elseif name == "base64simd" then
     copy("bench/base64simd/src/base64simd.nupp", "base64simd.nupp")
     copy("bench/base64simd/src/base64reference.nupp", "base64reference.nupp")
-    imports = 'local simd=require("base64simd"); local reference=require("base64reference"); local shipped=require("nupp.codec.base64")\n'
+    imports = 'local simd=require("base64simd"); local reference=require("base64reference")\n'
     corpus = body(snapshot("bench/base64simd/tests/run.lua"), "local checks = 0", 'print(("ok - %d base64')
+    local removed
+    corpus, removed = corpus:gsub(
+        '\n    if shipped%.encode%(value%) ~= want then\n        error%(%(%"reference disagrees with nupp%.codec%.base64 on %%s %(%%d bytes%)%"%):format%(what, #value%), 0%)\n    end',
+        ""
+    )
+    assert(removed == 1, "missing shipped Base64 comparison")
     probes = {base64simd = {"encode"}}
 elseif name == "simd-json" then
     copy("bench/simd-json/src/simd_json/indexer.nupp", "simd_json/indexer.nupp")
@@ -97,53 +101,6 @@ return {indexed = indexed}
         'print(("ok - %d structural index'
     )
     probes = {["simd_json/indexer"] = {"index"}}
-elseif name == "fused-json" then
-    snapshot("bench/fused-json/tests/differential.lua")
-    snapshot("src/nupp/runtime/vendor/lunajson/decoder.lua")
-    snapshot("src/nupp/runtime/provider/lunajson.nupp")
-    local source = r.read(root .. "/src/nupp/codec/json/internal/decoder/fused.nupp")
-    eagerVariant = assert(
-        tonumber(source:match("function fused%.decodeEager%(.+return decodeFused%(source, (%d+),")),
-        "missing authored eager variant"
-    )
-    source = source:gsub(
-        "module nupp%.codec%.json%.internal%.decoder%.fused\n",
-        "module nupp.codec.json.internal.decoder.fusedbench\n",
-        1
-    )
-        :gsub("\n    borrows source: string | Buffer,", "\n    source: string,")
-    assert(not source:find("borrows source", 1, true), "fused benchmark signature rewrite incomplete")
-    write("src/nupp/codec/json/internal/decoder/fusedbench.nupp", source)
-    -- The full provider is native-only. Keep its decode/error contract and
-    -- typed eager alias verbatim; only the dependency points at the separately
-    -- compiled builder. The corpus below still asserts every original value
-    -- and first-error position, and the runner proves this builder returned.
-    local eager = snapshot("src/nupp/codec/json/internal/decoder/eager.nupp")
-    eager = eager:gsub(
-        "module nupp%.codec%.json%.internal%.decoder%.eager",
-        "module nupp.codec.json.internal.decoder.eagerbench",
-        1
-    )
-        :gsub(
-            'require%("nupp%.codec%.json%.internal%.decoder%.fused"%)',
-            'require("nupp.codec.json.internal.decoder.fusedbench")'
-        )
-    write("src/nupp/codec/json/internal/decoder/eagerbench.nupp", eager)
-    local provider = snapshot("src/nupp/codec/json/aot.nupp")
-    local decode = body(provider, "local function failDecode", "local function classify")
-    write(
-        "src/nupp/algorithmaot.g.nupp",
-        'local eagerDecoder=require("nupp.codec.json.internal.decoder.eagerbench")\nlocal json={}\nlocal ARRAY_MARKER,OBJECT_MARKER,ARRAY_SHAPE,SERDE_MARKERS={},{},{},{}\n'
-        .. decode
-        .. '\nreturn json\n'
-    )
-    local suite = snapshot("tests/jsonfuseddifferentialtest.lua")
-    local count
-    suite, count = suite:gsub('require%("nupp%.codec%.json%.aot"%)', 'require("nupp.algorithmaot")')
-    assert(count == 1, "missing fused corpus dependency")
-    imports = "local suite=(function()\n" .. suite .. "\nend)()\n"
-    corpus = 'local names={} for name in pairs(suite) do names[#names+1]=name end table.sort(names) for _, name in ipairs(names) do suite[name]() end local checks=#names\n'
-    probes = {}
 else
     error("unknown owned algorithm: " .. name)
 end
@@ -154,11 +111,18 @@ write(
         random and ",randomFingerprint=math.fingerprint" or ""
     ) .. "}\n"
 )
+local runner = "__nupp_wasm_runner"
+write(
+    "src/" .. runner .. ".g.nupp",
+    (
+        "local entry=require(%q)\nlocal cases=entry.run()\nlocal fingerprint=entry.randomFingerprint and entry.randomFingerprint()\nif fingerprint then return string.format('{\"cases\":%%.0f,\"randomFingerprint\":\"%%s\"}',cases,fingerprint) end\nreturn string.format('{\"cases\":%%.0f}',cases)\n"
+    ):format(entry)
+)
 r.write(
     directory .. "/nupp.lua",
     (
-        'return {include={"src",%q},build={targets={app={kind="bundle",entries={%q},sources={"src"},output="dist/app.lua",outDir="build/app",dialect="lua51",optimize=1,aot="require-wasm",aotFeatures={minimum="simd128",maximum="simd128"}}}}}\n'
-    ):format(root .. "/src", entry)
+        'return {include={"src",%q},build={targets={app={kind="bundle",entries={%q},sources={"src"},output="dist/app.lua",outDir="build/app",dialect="luajit",host="browser",optimize=1,aot="require-wasm",aotFeatures={minimum="simd128",maximum="simd128"}}}}}\n'
+    ):format(root .. "/src", runner)
 )
 local compiler = os.getenv("NUPP_WASM_CC") or os.getenv("EMCC") or "emcc"
 local nupp = os.getenv("NUPP_SIMD_NUPP") or root .. "/bin/nupp"
@@ -166,28 +130,17 @@ r.command(
     "cd " .. q(directory) .. " && NUPP_WASM_CC=" .. q(compiler) .. " " .. q(nupp) .. " build --target app",
     directory .. "/build.log"
 )
-if name == "fused-json" then
-    local source = r.read(directory .. "/dist/app.lua")
-    local eager = assert(
-        source:match("if%s+variant%s*==%s*" .. eagerVariant .. "%s+then%s+return%s+(__nuppConst_decodeFused_%x+)"),
-        "missing actual eager specialization dispatch"
-    )
-    probes = {["nupp/codec/json/internal/decoder/fusedbench"] = {eager}}
-end
 r.writeJson(directory .. "/corpus.json", {
     algorithm = name,
     compiler = nupp,
     entry = entry,
     probes = probes,
     oracleSources = oracleSources,
-    logical = name == "fused-json" and "decodeEager" or nil,
-    variant = eagerVariant,
     coverage = {
         {
             family = "owned-algorithm",
             algorithm = name,
-            contract = random and "shared scalar expectations with portable correctness PRNG"
-            or "shared fused decoder expectations through the exact provider decode body"
+            contract = "shared scalar expectations with portable correctness PRNG"
         }
     }
 })

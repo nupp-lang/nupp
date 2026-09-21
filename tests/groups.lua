@@ -65,18 +65,11 @@ return {
 
     ["aot"] = {"aot*test"},
 
-    -- Browser and Wasm delivery: the worker seam, the portable dialect the
-    -- playground compiles under, and the generated browser templates.
+    -- Browser delivery: the worker seam, checked compatibility and generated
+    -- browser templates.
     [
         "browser"
-    ] = {
-        "browserworkerstest",
-        "portabledialecttest",
-        "lua51compattest",
-        "portableiocontractstest",
-        "targetprofiletest",
-        "templatetest",
-    },
+    ] = {"browserworkerstest", "lua51compattest", "portableiocontractstest", "targetprofiletest", "templatetest",},
 
     ["gpu"] = {"gputest"},
 

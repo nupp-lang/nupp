@@ -348,7 +348,7 @@ local record Check
     strict: boolean = false
 
     --- Source-lowering dialect.
-    @cli(value = "DIALECT", choices = {"luajit", "luajit-compat", "lua51"})
+    @cli(value = "DIALECT", choices = {"luajit"})
     dialect: string?
 
     --- Enforce the stock Lua 5.1 source subset without compatibility lowering.

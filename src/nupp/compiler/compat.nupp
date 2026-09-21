@@ -370,6 +370,9 @@ function compat.dependencies(checker: any)
         if node.trivia or ERASED[node.kind] or node.comptimeTok then
             return
         end
+        if node.fixedArithmetic then
+            reject(node, "compatibility does not permit fixed-width arithmetic")
+        end
         if node.kind == "localStmt" and node.pattern then
             local runtime = false
             for _, entry in ipairs(node.pattern) do

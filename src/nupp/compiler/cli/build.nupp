@@ -398,7 +398,7 @@ local function run(options: any): integer
             return false
         end
         for _, name in ipairs(gen.runtimeModules(code)) do
-            if name == "nupp.runtime.managed" or name == "nupp.runtime.portablemath" then
+            if name == "nupp.runtime.managed" then
                 runtimeNames[name] = true
             end
         end
@@ -545,7 +545,7 @@ local record Build
     strict: boolean = false
 
     --- Source-lowering dialect.
-    @cli(value = "DIALECT", choices = {"luajit", "luajit-compat", "lua51"})
+    @cli(value = "DIALECT", choices = {"luajit"})
     dialect: string?
 
     --- Runtime host services, independent of the Lua output dialect.

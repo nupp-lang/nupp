@@ -49,7 +49,6 @@ return {newBuffer = text.newBuffer, now = time.now, storage = representation.sto
             kind = "modules", entries = {"main"}, default = "browser",
             targets = {
                 browser = {dialect = "luajit", host = "browser", outDir = "out/browser"},
-                legacy = {dialect = "lua51", host = "browser", outDir = "out/legacy"},
                 native = {dialect = "luajit", host = "native", outDir = "out/native"},
             }
         }}]],
@@ -70,7 +69,6 @@ return {newBuffer = text.newBuffer, now = time.now, storage = representation.sto
         assertEq(project.check(dir), 0, "the default browser target checks")
         for _, target in ipairs({
             {name = "browser", host = "browser", dialect = "luajit"},
-            {name = "legacy", host = "browser", dialect = "lua51"},
             {name = "native", host = "native", dialect = "luajit"},
         }) do
             local options = target.name == "browser" and {} or {target = target.name}
@@ -86,10 +84,9 @@ return {newBuffer = text.newBuffer, now = time.now, storage = representation.sto
                     target.name .. " carries " .. name
                 )
             end
-            assertEq(
-                exists(output .. "/nupp/runtime/provider/wasmstorage.lua"),
-                target.dialect == "lua51",
-                target.name .. " carries linear storage"
+            assert(
+                not exists(output .. "/nupp/runtime/provider/wasmstorage.lua"),
+                target.name .. " excludes retired storage"
             )
             assertEq(
                 exists(output .. "/nupp/runtime/provider/nativetime.lua"),
@@ -112,7 +109,7 @@ function M.fixedHostLibrariesRemainOrdinaryBundleImports()
         [
             "nupp.lua"
         ] = [[return {include = {"src"}, build = {
-            kind = "bundle", dialect = "lua51", outDir = "out",
+            kind = "bundle", dialect = "luajit", outDir = "out",
             output = "out/app.lua", entries = {"main"}
         }}]],
         ["src/main.g.nupp"] = [[local re = require("re")
@@ -254,9 +251,9 @@ return codec
     remove(dir)
 end
 
-function M.portableBitopsResolveOnlyWhileRequiringTheFacade()
+function M.nativeBitopsNeedNoSpiResolution()
     local dir = tempProject({
-        ["nupp.lua"] = 'return {include = {"src"}, build = {outDir = "out", entries = {"setup"}, dialect = "lua51"}}',
+        ["nupp.lua"] = 'return {include = {"src"}, build = {outDir = "out", entries = {"setup"}, dialect = "luajit"}}',
         ["src/setup.nupp"] = [[
 module setup
 export = require("consumer")
@@ -268,19 +265,12 @@ export function shift(value: int32): int32
 end
 ]],
     })
-    assertEq(project.build(dir), 0, "portable bitops build")
+    assertEq(project.build(dir), 0, "native bitops build")
     local script = (
         [=[
 package.path = %q .. package.path
-local spi = require("nupp.spi")
-local count = 0
-local load = spi.load
-spi.load = function(interface) count = count + 1; return load(interface) end
 local consumer = require("setup")
-local initialized = count
-assert(initialized > 0)
 for value = 1, 1000 do assert(consumer.shift(value) == value * 8) end
-assert(count == initialized, "hot calls performed SPI resolution")
 assert(require("consumer") == consumer)
 io.write("direct")
 ]=]
@@ -288,18 +278,19 @@ io.write("direct")
     local probe = dir .. "/verify.lua"
     write(probe, script)
     local status, output = process.capture({"luajit", probe})
-    assertEq(status, 0, "portable provider initialization: " .. tostring(output))
+    assertEq(status, 0, "native bit operation initialization: " .. tostring(output))
     assertEq(output, "direct")
     local code = read(dir .. "/out/consumer.lua")
-    assert(code:find('require("nupp.runtime.bitops")', 1, true), code)
-    assert(not code:find("_G.__nuppBitops", 1, true), code)
+    assert(code:find("value << 3", 1, true), code)
+    assert(not code:find('require("nupp.runtime.bitops")', 1, true), code)
     assert(not code:find("spi.load", 1, true), code)
+    assert(not exists(dir .. "/out/nupp/spi.lua"))
     remove(dir)
 end
 
-function M.portableStructsBindTheirRepresentationOnce()
+function M.nativeStructsBindFfiDirectly()
     local dir = tempProject({
-        ["nupp.lua"] = 'return {include = {"src"}, build = {outDir = "out", entries = {"setup"}, dialect = "lua51"}}',
+        ["nupp.lua"] = 'return {include = {"src"}, build = {outDir = "out", entries = {"setup"}, dialect = "luajit"}}',
         ["src/setup.nupp"] = [[
 module setup
 export = require("consumer")
@@ -325,31 +316,24 @@ end
             diagnostics = diagnostics
         }),
         0,
-        "portable struct build: " .. tostring(diagnostics[1] and diagnostics[1].msg)
+        "native struct build: " .. tostring(diagnostics[1] and diagnostics[1].msg)
     )
     local script = (
         [=[
 package.path = %q .. package.path
-local spi = require("nupp.spi")
-local count = 0
-local load = spi.load
-spi.load = function(interface) count = count + 1; return load(interface) end
 local consumer = require("setup")
-local initialized = count
-assert(initialized > 0)
 for index = 1, 1000 do assert(consumer.sum(index) == index + 8) end
-assert(count == initialized, "constructors performed SPI resolution")
 io.write("direct")
 ]=]
     ):format(dir .. "/out/?.lua;")
     local probe = dir .. "/verify.lua"
     write(probe, script)
     local status, output = process.capture({"luajit", probe})
-    assertEq(status, 0, "portable struct initialization: " .. tostring(output))
+    assertEq(status, 0, "native struct initialization: " .. tostring(output))
     assertEq(output, "direct")
     local code = read(dir .. "/out/consumer.lua")
-    assert(code:find('require("nupp.runtime.structvalue")', 1, true), code)
-    assert(not code:find("_G.__nuppStructvalue", 1, true), code)
+    assert(code:find('require("ffi")', 1, true), code)
+    assert(not code:find('require("nupp.runtime.structvalue")', 1, true), code)
     assert(not exists(dir .. "/out/nupp/runtime/provider/nativestorage.lua"))
     assert(not exists(dir .. "/out/nupp/workers/native.lua"))
     assert(not exists(dir .. "/out/nupp/text/internal/buffer.lua"))
@@ -484,7 +468,7 @@ local function checkDocumentedSpi(page)
         [
             "nupp.lua"
         ] = [[return {include = {"src"}, build = {
-            kind = "bundle", dialect = "lua51", outDir = "out",
+            kind = "bundle", dialect = "luajit", outDir = "out",
             output = "out/app.lua", entries = {"main"}
         }}]],
         [

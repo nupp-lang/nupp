@@ -5,7 +5,8 @@ local function target(output, outDir, features)
         sources = {"src"},
         output = output,
         outDir = outDir,
-        dialect = "lua51",
+        dialect = "luajit",
+        host = "browser",
 
         aot = "require-wasm",
         aotFeatures = features,

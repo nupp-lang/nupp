@@ -87,7 +87,7 @@ generate() {
         multisource) count=8; policy=require; extra="" ;;
         multiversion) count=4; policy=require; extra="$(tiered_target)aotFeatures = \"avx2\"," ;;
         wide) count=16; policy=require; extra="$(tiered_target)aotFeatures = \"avx2\"," ;;
-        wasm) count=4; policy=require-wasm; extra='dialect = "lua51",' ;;
+        wasm) count=4; policy=require-wasm; extra='dialect = "luajit",' ;;
         *) echo "unknown shape $shape" >&2; exit 2 ;;
     esac
     entries=""

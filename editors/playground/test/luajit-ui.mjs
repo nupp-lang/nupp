@@ -26,7 +26,6 @@ for (const engine of (process.env.NUPP_TEST_BROWSERS || 'chromium,firefox,webkit
       const response=await page.goto(address);
       if(!response.ok())throw new Error(`Shared playground returned HTTP ${response.status()}: ${address}`);
       await ready();
-      if(await page.locator('#dialect-select').inputValue()!==expected.dialect)throw new Error('Shared link changed runtime');
       await page.locator('#options-button').click();
       for(const [label, checked] of [[/^Strict/,expected.strict],[/^Optimize/,expected.optimize],
         ['Require stock Lua 5.1 compatibility',expected.compat==='lua51']]) {
@@ -39,8 +38,8 @@ for (const engine of (process.env.NUPP_TEST_BROWSERS || 'chromium,firefox,webkit
       await locator.click();
       return locator.evaluate(anchor=>anchor.href);
     };
-    const defaults={strict:true,optimize:true,dialect:'luajit'};
-    const conflicting={strict:false,optimize:false,dialect:'luajit',compat:'lua51'};
+    const defaults={strict:true,optimize:true};
+    const conflicting={strict:false,optimize:false,compat:'lua51'};
     const response = await page.goto(url);
     if (!response.ok()) throw new Error(`Playground returned HTTP ${response.status()}: ${url}`);
     await run('pay rent is high priority');
@@ -61,9 +60,6 @@ for (const engine of (process.env.NUPP_TEST_BROWSERS || 'chromium,firefox,webkit
     if(!await page.getByLabel('Require stock Lua 5.1 compatibility').isChecked())throw new Error('Compatibility setting was lost');
     await page.getByLabel('Require stock Lua 5.1 compatibility').uncheck();
     await page.locator('#options-button').click();
-    await page.locator('#dialect-select').selectOption('lua51');
-    await edit('print("legacy works")'); await run('legacy works');
-    await page.locator('#dialect-select').selectOption('luajit');
     await edit('print(require("bit").bor(1, 2))'); await run('3');
     await page.evaluate(()=>Object.defineProperty(navigator,'clipboard',{configurable:true,
       value:{writeText:async value=>{window.sharedLink=value;}}}));
@@ -73,7 +69,7 @@ for (const engine of (process.env.NUPP_TEST_BROWSERS || 'chromium,firefox,webkit
     await reopen(shared,conflicting,defaults); await run('3');
     const legacy=new URL(url);
     legacy.hash='source='+encodeURIComponent('print("legacy link works")')+'&dialect=lua51';
-    await reopen(legacy.href,conflicting,{strict:false,optimize:false,dialect:'lua51'});
+    await reopen(legacy.href,conflicting,{strict:false,optimize:false});
     await run('legacy link works');
     await page.evaluate(()=>localStorage.removeItem('nupp-playground-options-v1'));
     // The iframe remains usable at a narrow viewport, with a separately owned VM.
@@ -108,7 +104,7 @@ for (const engine of (process.env.NUPP_TEST_BROWSERS || 'chromium,firefox,webkit
     await doc.locator('button.run').click();
     await page.waitForFunction(()=>document.querySelector('#doc-test').shadowRoot.querySelector('.output-main').textContent.includes('reconnected'),null,{timeout:30000});
     await reopen(await openLink(doc.locator('a.open')),conflicting,defaults); await run('reconnected');
-    results.push({engine,version:browser.version(),cancelMs,checks:['tour','stop infinite loop','run after stop','compat rejection','stored settings','legacy and LuaJIT switch','shared link settings','legacy link over saved compatibility','narrow iframe','embedded Open link settings','documentation run and disconnect/reconnect','documentation Open link settings'],errors});
+    results.push({engine,version:browser.version(),cancelMs,checks:['tour','stop infinite loop','run after stop','compat rejection','stored settings','LuaJIT runtime','shared link settings','stale legacy link ignored','narrow iframe','embedded Open link settings','documentation run and disconnect/reconnect','documentation Open link settings'],errors});
     writeFileSync(output,JSON.stringify({scope:'Desktop engines, including narrow viewport; not physical mobile-device acceptance',results},null,2)+'\n');
     if(errors.length)throw new Error(errors.join('\n'));
     await context.close();

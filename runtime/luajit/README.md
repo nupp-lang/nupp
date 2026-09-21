@@ -1,8 +1,7 @@
 # LuaJIT browser runtime
 
-LuaJIT is the browser default on this branch. The explicit legacy Lua 5.1
-backend remains available through the rollback release. See [migration and
-remaining limits](MIGRATION.md).
+LuaJIT is the browser runtime. The legacy Lua 5.1 browser backend has been
+removed; see [migration and remaining limits](MIGRATION.md).
 `guest-manifest.json` identifies every input and output by SHA-256. Guest
 artifacts come from source, rather than the spike's downloaded root filesystem.
 

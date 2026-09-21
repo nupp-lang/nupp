@@ -11,7 +11,8 @@ return {
                 sources = {"src"},
                 output = "dist/app.lua",
                 outDir = "build/app",
-                dialect = "lua51",
+                dialect = "luajit",
+                host = "browser",
                 dependencies = {"lunajson"},
 
             },

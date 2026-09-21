@@ -32,8 +32,8 @@ const units = [];
 for (const unit of manifest.units) {
   const relative = unit.source.replace(/\.c$/, '.side.c');
   const original = readFileSync(path.join(project, 'build/app/aot', relative), 'utf8');
-  const boundary = original.indexOf('/* The stock Lua 5.1 host binding');
-  if (boundary < 0) throw new Error(`Missing generated Lua C binding boundary: ${relative}`);
+  const boundary = original.indexOf('\nKS_API void nupp_bridge_');
+  if (boundary < 0) throw new Error(`Missing generated independent Wasm bridge boundary: ${relative}`);
   const kernels = original.slice(0, boundary);
   const symbols = {};
   const binding = original.slice(boundary).replace(/\b(ks_[A-Za-z0-9_]+)__simd128(?=\s*\()/g, (_, symbol) => {
@@ -51,8 +51,15 @@ for (const unit of manifest.units) {
   writeFileSync(sourcePath, source);
   const staged = sourcePath.replace(/\.c$/, '.wasm');
   const args = [sourcePath, '-std=c11', '-O3', '-ffp-contract=off', '-fno-fast-math',
-    '-Wall', '-Wextra', '-Werror', '-Wno-parentheses-equality', '-sSIDE_MODULE=2',
-    '-sFILESYSTEM=0', ...(unit.cflags || []), '-o', staged];
+    '-Wall', '-Wextra', '-Werror', '-Wno-parentheses-equality', '-sFILESYSTEM=0',
+    '-sSTANDALONE_WASM=1', '--no-entry', '-Wl,--export-dynamic', '-Wl,--export=malloc', '-Wl,--export=free',
+    '-sALLOW_MEMORY_GROWTH=1', '-sINITIAL_MEMORY=4194304', '-sMAXIMUM_MEMORY=67108864',
+    ...unit.bridge.entries.flatMap(entry => ['-Wl,--export=' + entry.call, ...entry.layouts.flatMap(layout => [
+      '-Wl,--export=' + layout.prefix + '_size',
+      ...layout.fields.flatMap(field => ['-Wl,--export=' + layout.prefix + '_offset_' + field,
+        '-Wl,--export=' + layout.prefix + '_size_' + field]),
+    ])]),
+    ...(unit.cflags || []), '-o', staged];
   const result = spawnSync(compiler, args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
   writeFileSync(sourcePath + '.compile.log', `${compiler} ${args.map((arg) => JSON.stringify(arg)).join(' ')}\n${result.stdout || ''}${result.stderr || ''}`);
   if (result.error) throw result.error;

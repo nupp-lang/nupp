@@ -197,12 +197,12 @@ function classifier.classify(paths)
         select(jobs, "fixpoint", "the compiler's own inputs changed", reasons)
     end
     if surfaces.compiler or surfaces.browser or surfaces.library then
-        select(jobs, "portable-compiler", "the portable compiler's inputs changed", reasons)
+        select(jobs, "portable-compiler", "the browser compiler's inputs changed", reasons)
     end
     -- Emscripten, a Chromium run and a page build: half an hour, and the only
     -- job here whose cost makes narrowing it worth the risk. The browser
     -- surface selects it; a compiler change anywhere is covered more cheaply by
-    -- `portable-compiler`, which compiles every homepage example under the
+    -- `portable-compiler` job, which compiles every homepage example under the
     -- Worker's exact settings, and by the nightly backstop.
     if surfaces.browser then
         select(jobs, "browser-wasm", "browser or Wasm delivery changed", reasons)

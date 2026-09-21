@@ -4,8 +4,8 @@ order: 636
 
 # Wasm AOT applications
 
-The default browser package runs LuaJIT inside a v86 guest. Select the browser
-host independently of the dialect:
+The browser package runs LuaJIT inside a retained v86 guest. Select browser
+services independently of the emitted dialect:
 
 ```lua
 app = {
@@ -16,18 +16,29 @@ app = {
 ```
 
 `scripts/browser-app . app dist/browser` packages the program, verified guest,
-independent Wasm kernels, worker entry and matching sources/notices. Linux
+independent Wasm kernels, worker entry, and matching sources and notices. Linux
 builds the pinned guest; other hosts set `NUPP_BROWSER_GUEST_DIR` to a verified
-source-built guest package. Install `editors/playground` Node dependencies before
-packaging. Set `NUPP_WASM_CC` when Emscripten is not on `PATH`.
+source-built guest package. Install the `editors/playground` Node dependencies
+before packaging. Set `NUPP_WASM_CC` when Emscripten is not on `PATH`.
 
-Pure kernels exchange exact scalar slots and bounded copied spans with their
-own Wasm memory. Struct field offsets are converted between guest and Wasm
-layouts. The transfer batch limit is 2 MiB; Wasm kernel memory is capped at
-64 MiB. This boundary is best used for substantial kernels rather than tiny
-calls. `emit-wasm` exports the kernels while leaving ordinary Lua bodies active.
+## Independent Wasm kernels
 
-Lua-builder entries use the guest's Lua C API through native AOT:
+Pure kernels exchange exact scalar slots and bounded copied spans with their own
+Wasm memory. Struct field offsets are converted between guest and Wasm layouts.
+The transfer batch limit is 2 MiB and kernel memory is capped at 64 MiB. This
+boundary is best for substantial kernels rather than tiny calls. `emit-wasm`
+exports kernels while leaving ordinary Lua bodies active; `require-wasm`
+installs their generated wrappers.
+
+An artifact manifest under the target's AOT output names each content-addressed
+module, registrar, unit identity, feature tier, target, and bridge entries. The
+browser packager copies those modules as verified assets. Guest FFI cannot load
+a Wasm side module directly.
+
+## Guest-native AOT
+
+Functions that construct Lua tables or strings use the guest's Lua C API and
+must be compiled for the guest rather than as independent kernels:
 
 ```lua
 app = {
@@ -38,347 +49,56 @@ app = {
 }
 ```
 
-Set `NUPP_BROWSER_NATIVE_CC` to an **i386/musl cross compiler** when packaging
-with `scripts/browser-app`. A direct `nupp build` uses `NUPP_AOT_CC`, which leaves the host compiler
-selected by `NUPP_CC` unchanged. The
-modeled GNU triple describes the C layout; the library must link against the
-guest's musl, not glibc. Preserve unwind tables and C frame pointers in foreign
-code that Lua callbacks can unwind through. `tests/luajit-browser/prepare-native.py`
-builds the conformance fixture's minimal Clang driver from the verified guest's
-musl headers and libc; it is not a general compiler SDK.
-
-The packager includes the target's adjacent shared libraries as hashed assets,
-verifies their i386 ELF identity, and installs them before application or worker
-startup. Existing FFI and `package.loadlib` bindings call the actual guest VM:
-table construction, string bytes and rooted Lua values keep their normal ABI.
-Native libraries are limited to one MiB combined and share the seven-MiB startup
-budget with the application after binary escaping. Additional foreign library
-dependencies need their own cross build and validation.
+Set `NUPP_BROWSER_NATIVE_CC` to an i386/musl cross compiler when packaging.
+The modeled triple describes the C layout; the library must link against the
+guest's musl, not glibc. The packager verifies i386 ELF identity and installs
+adjacent shared libraries before application or worker startup. Native libraries
+are limited to one MiB combined and share the seven-MiB startup budget with the
+application.
 
 Guest-native AOT executes through x86 emulation. It is not an independent Wasm
-kernel or a promise of equivalent speed. `require-wasm` still rejects Lua-C-API
-builders; select native `require`, ordinary LuaJIT with `aot = "off"`, or the
-explicit legacy backend during the rollback release. Guest FFI cannot load a
-Wasm side module. Browser services, including WebGPU and worker tasks, are
-selected by the browser host.
-
-## Legacy Lua 5.1 host
-
-The rest of this page describes the explicit legacy backend retained during the
-rollback release. Its shared-memory ABI differs from the default LuaJIT package.
-Set `NUPP_BROWSER_BACKEND=lua51` when invoking `scripts/browser-app` for it.
-
-A Lua 5.1 application can run inside Nupp's Wasm host while selected `@aot`
-functions run as WebAssembly side modules in the same linear memory. Use
-`nupp.mem.span` and `nupp.mem.array` when Lua and compiled code need zero-copy arrays of Nupp structs:
-
-```nupp
-local span = nupp.mem.span
-local array = nupp.mem.array
-
-local struct Sample
-    value: float
-end
-
-@aot
-local function double(exclusive out: span.WriteSpan<Sample>): nil
-    for index = 1, #out do out[index].value = out[index].value * 2 end
-end
-```
-
-The rest of the program remains Lua 5.1. The annotated body is replaced by one
-Lua C-closure call into compiled Wasm; its loop performs direct loads and stores
-without a Lua or JavaScript call per element.
-
-## Wasm storage
-
-The Lua 5.1 target fixes portable calling conventions. During module initialization,
-`representation.cstorage` selects the compatible Wasm implementation when its host
-is present. That implementation supplies physical storage, exact integers,
-reference-valued structs, and transfer leases together. Lua receives no numeric
-address and cannot construct a pointer from an integer.
-
-The application target selects Lua 5.1 and requires Wasm AOT:
-
-```lua
-app = {
-   kind = "bundle",
-   entries = {"main"},
-   output = "dist/app.lua",
-   outDir = "build/app",
-   dialect = "lua51",
-   aot = "require-wasm",
-}
-```
-
-`require-wasm` fixes the AOT target to `wasm32-unknown-emscripten`. The default
-feature tier is scalar; `aotFeatures = {minimum = "simd128"}` selects Wasm SIMD
-and narrows the set of hosts that may load the result. A source with a `@simd`
-loop has to say that, because the scalar tier has no vector to lower it to.
-
-## Lua values
-
-An admitted function that returns a fresh table or string uses the
-`lua-builder` entry mode. Its side-module closure receives the embedded VM's
-`lua_State`, keeps unfinished values rooted on that stack, and returns an
-ordinary Lua value:
-
-```nupp
-@aot
-local function summary(name: string, count: integer): {[string]: any}
-    return {name = name, count = count, ready = true}
-end
-```
-
-This is the same source and builder subset used by native AOT. The compiler
-chooses the entry mode; the application still selects only `require-wasm`.
-Fresh numeric tables, rooted `string.byte` and `string.sub` calls, and ordinary
-append-only concatenation lower through the same entry. Specialized streaming
-parsers may still use
-[`nupp.codec.valuebuilder`](https://github.com/nupp-lang/nupp/blob/main/src/nupp/codec/valuebuilder.nupp) inside that
-boundary.
-
-## Struct arrays
-
-`array.new` takes a struct value as its checked type witness and returns
-zeroed storage in the host's linear memory:
-
-```nupp
-local samples = array.new(new Sample(), 128)
-local writable = samples:write()
-writable[1] = new Sample(3)
-drop writable
-
-local readable = samples:read()
-print(#readable, readable[1].value)
-```
-
-Indexing and length are Nupp operations. Lua 5.1 output lowers them to checked
-`get`, `set`, and `count` access, so it does not rely on table `__len` support.
-A writable span is affine and holds an exclusive borrow until it is passed to a
-kernel, dropped, or discharged at a scope boundary.
-
-The provider uses the explicit wasm32 layout for booleans, floats, numbers,
-integers, fixed-width integers, fixed arrays, and nested structs. Every side
-module registers the size, alignment, and field offsets its C compiler used.
-The generated Lua wrapper compares those values with the checked provider's
-layout before publishing the kernel.
-
-## Artifacts
-
-Emscripten 6.0.8 compiles the verified C rendering as a retained side module.
-Name another compiler with `NUPP_WASM_CC` when `emcc` is not on `PATH`:
-
-```bash
-NUPP_WASM_CC=/opt/emsdk/upstream/emscripten/emcc nupp build --target app
-```
-
-A bundle target writes one transportable group:
-
-```text
-dist/app.lua
-dist/aot/units.json
-dist/aot/src/main.scalar-<content digest>.wasm
-```
-
-The manifest names each side module, registrar, unit identity, tier, and target.
-Content-addressed filenames let a host cache the Lua VM, Lua bundle, and kernels
-independently. `emit-wasm` writes and packages the same Wasm artifacts but keeps
-the ordinary Lua bodies active; `require-wasm` installs the compiled wrappers.
+kernel or a promise of equivalent speed. `require-wasm` rejects Lua-C-API
+builders; use native `require` or ordinary LuaJIT with `aot = "off"` for them.
 
 ## Browser package
 
-`NUPP_BROWSER_BACKEND=lua51 scripts/browser-app` builds a Lua 5.1 bundle and writes everything a static
-server needs. Name the project, target, and destination:
-
-```bash
-NUPP_BROWSER_BACKEND=lua51 \
-NUPP_WASM_CC=/opt/emsdk/upstream/emscripten/emcc \
-NUPP_LUA51_SOURCE=/opt/src/lua-5.1.5/src \
-  scripts/browser-app . app dist/browser
-```
-
-The destination contains one manifest and entry module beside independently
+The destination contains a manifest and entry module beside independently
 cacheable assets:
 
 ```text
 dist/browser/nupp-browser-app.mjs
 dist/browser/nupp-browser-app.json
 dist/browser/app-<digest>.lua
-dist/browser/nupp-app-<digest>.mjs
-dist/browser/nupp-app-<digest>.wasm
+dist/browser/guest/<build-key>/guest-manifest.json
 dist/browser/aot/<unit>.<digest>.wasm
+dist/browser/native/<digest>/<library>.so
 dist/browser/worker-lane.mjs
 ```
 
-`worker-lane.mjs` is packaged only where the application reached
-[worker tasks](../../runtime/concurrency/workers.md), and the manifest names it under
-`workers` when it did.
+Import `nupp-browser-app.mjs` or call
+`runPackagedNuppLuaJITApp()` from `app-runtime.mjs`. The application may return
+no value or one JSON-compatible value. Worker tasks use a bounded pool of guest
+lanes and the same verified manifest.
 
-An HTML module can start the application by importing the entry:
-
-```js
-const application = await import("./nupp-browser-app.mjs");
-const result = await application.ready;
-console.log(result);
-```
-
-The entry creates a module Worker and starts one application. A bundle may
-return no value or one JSON string; `ready` answers the decoded value. Call
-`application.cancel()` while `ready` is pending to resume the Lua cleanup path
-with cancellation, and call `application.close()` when the Worker is no longer
-needed.
-
-The command builds the reusable host under `build/wasm-app-runtime` once and
-reuses it for later applications. Set `NUPP_BROWSER_RUNTIME` to a separately
-built runtime package to share the same host across projects. The package
-includes Lua's copyright notice and records the exact Emscripten version,
-digests, and byte sizes of the host assets. Tagged releases publish the same
-package as `nupp-browser-runtime.tar.gz`.
-
-The browser loader verifies the Lua bundle, host Wasm, and side-module bytes
-before execution. Chromium acceptance runs plain Lua 5.1, scalar struct AOT,
-SIMD struct AOT, the browser platform providers, cancellation, runtime errors,
-missing side modules, and worker tasks in their scalar and SIMD packages
-through an HTTP server.
-
-## Browser platform services
-
-Browser facades select implementations during module initialization for HTTP,
-URI, suspension, time, random bytes, and UUIDs when required. SHA-256 and
-HMAC-SHA256 are ordinary portable functions:
-
-```nupp
-local random = nupp.random
-local time = nupp.time
-
-time.sleep(10)
-local token = random.randomBytes(32)
-print(#token)
-```
-
-A browser target uses ordinary entry modules:
-
-```lua
-app = {
-   kind = "bundle",
-   entries = {"main"},
-   dialect = "lua51",
-}
-```
-
-Facades resolve compatible providers while requiring their modules. The checked
-Lua provider suspends the application and sends one effect to the Worker. The
-Worker uses `fetch`, `setTimeout`, Worker clocks, or Web Crypto and resumes Lua
-with the result. Pure Lua work and AOT kernels do not cross the effect boundary.
-
-`nupp.runtime.browser.workers` implements `nupp.workers.spi.Provider`, so a browser application runs
-[worker tasks](../../runtime/concurrency/workers.md) on a bounded pool of lane Workers. Each
-lane boots this same verified manifest in its own Lua 5.1 Wasm state, including
-the packaged AOT side modules, and receives work through the same effect
-framing. Neither Wasm threads nor shared memory is involved, so a page serving
-these assets needs no cross-origin isolation headers.
-
-SHA-256, HMAC-SHA256, and UUIDs retain the standard Nupp APIs:
-
-```nupp
-local digest = nupp.digest
-local mac = nupp.mac
-
-print(digest.hexDigest("sha256", "payload"))
-print(mac.hexDigest("hmac-sha256", "key", "payload"))
-print(nupp.util.uuid4(), nupp.util.uuid7())
-```
-
-## WebGPU
-
-The browser GPU provider can run admitted `@aot(target = "gpu")` map kernels through
-WebGPU while keeping their storage in Wasm memory. See
-[gpu.md](gpu.md#browser-gpu-kernels) for the generated WGSL profile and the
-browser provider's convenience operation.
-
-## Application host
-
-`runtime/wasm/build-app-host.sh` builds official Lua 5.1 with the memory bridge
-and dynamic linker. It takes the output module and an official Lua source
-directory:
-
-```bash
-EMCC=emcc runtime/wasm/build-app-host.sh \
-  dist/nupp-app.mjs /opt/src/lua-5.1.5/src
-```
-
-The generated ES module runs in Node, a Worker, or a browser. Load the artifact
-manifest, then pass its modules and Lua bundle through
-`runtime/wasm/app-runtime.mjs`; the runtime allocates a private stack for every
-retained side module, calls its registrar against the host's one `lua_State`,
-and only then starts the bundle.
-
-The host exposes start, resume, cancellation, status, and result operations. A
-suspended application yields one protocol string; a completed application
-returns no value or one structured-result string. The Worker owns effect
-dispatch and sends each response through the resume operation.
-
-The host caps linear memory at 256 MiB. Packaged applications default to 256
-effects, 4 MiB requests, 8 MiB responses, 1 MiB storage values, and a
-30-second cooperative deadline. The entry module also owns a hard Worker
-deadline; terminating the Worker stops code that never reaches a suspension
-point.
-
-Applications may embed the C host and reproduce that order directly. The
-binding ABI is the Lua 5.1 C API plus `nupp_wasm_pointer_address`; there is no
-general virtual filesystem or JavaScript kernel trampoline. `nupp.io.files`
-uses the browser's Origin Private File System through a dedicated-Worker bridge:
-opening and directory operations suspend, while an open file's reads, writes,
-seeks, sizes, flushes, and closes call its synchronous access handle directly.
+Browser facades select implementations for HTTP, files, suspension, time,
+random bytes, UUIDs, WebGPU, and worker tasks. Effects cross a bounded protocol;
+ordinary Lua and AOT kernels stay within the guest or kernel until they request
+a service.
 
 ## Limits
 
-Wasm AOT is not a whole-language Nupp-to-Wasm lowering. General Nupp lowers to
-Lua 5.1 and runs on the embedded VM, while admitted pointer kernels and
-Lua-building entries lower from the verified AOT IR through C to Wasm.
+Wasm AOT is not a whole-language Nupp-to-Wasm lowering. General Nupp emits
+LuaJIT and runs in the guest; only admitted kernels lower through C to Wasm.
+Independent kernels cannot use raw FFI, arbitrary C interop, or guest-native
+modules. Guest-native AOT cannot be loaded as an independent Wasm kernel.
 
-Pointer kernels use `nupp.mem.span` spans. A `lua-builder` entry instead receives
-the embedded VM's `lua_State` and constructs fresh tables or strings through
-the public Lua 5.1 API, with the same admitted subset and rooting rules as a
-native AOT builder. Ordinary `cstorage` and typed span references use the
-target-compatible storage provider. Raw `ffi`, arbitrary `cinterop`, and native Lua modules remain
-unavailable.
-
-Pure Lua dependencies work when included by the target. Facades import their
-built-in platform implementations explicitly; the artifact SPI index carries
-implementations advertised by application dependencies. Browser Wasm supplies
-identity-scoped application files in OPFS, but not arbitrary host paths,
-processes, foreign C interoperability, or arbitrary third-party services.
-
-Browser HTTP accepts `http` and `https` absolute URIs. String and narrow
-`http.Reader` upload sources are accepted; reader uploads are collected before
-Fetch begins. Declared upload lengths are checked. File uploads require a file
-host and remain unavailable in browsers. Neither request nor response streaming
-is advertised.
-
-Fetch response chunks are bounded by `maxBytes` and the host byte limit, then
-copied directly into one writable Wasm lease. That allocation is transferred to
-an ordinary `io.Reader`; creating the reader does not copy it or create a Lua
-string. An explicit `read` materializes its returned string; `readSpan`,
-`readInto`, and `transferTo` use bulk memory operations. Fetch takes one owned
-copy of request bytes, so asynchronous memory growth cannot change its input.
-Host transfers use no base64. Cancellation and teardown release leases and
-retained response chunks. The portable URI provider covers the public
-absolute-URI suite and basic relative
-resolution; it does not implement the native provider's complete URI
-normalization surface.
-
-Lua 5.1 cannot yield through an arbitrary C function. Nupp's Lua 5.1 cleanup
-lowering uses a coroutine trampoline, so owned scopes can suspend and still
-drop their resources after completion, failure, or cancellation. A suspending
-call must remain outside a call to a C function such as
-`assert(client:send(request))`; branch on the returned error before calling
-`assert` instead.
+Pure Lua dependencies work when selected by the target. Browser files are
+application-scoped; arbitrary host paths and processes remain unavailable.
+HTTP accepts absolute `http` and `https` URIs and applies the configured byte,
+effect, response, storage, and deadline limits.
 
 ::: seealso
-- [ahead-of-time.md](index.md) for the admitted kernel subset and
-  numeric guarantees
-- [portable-compiler.md](../../projects/portability/compiler.md) for the separate compiler bundle
-  used by the playground
+- [Ahead-of-time compilation](index.md) for the admitted kernel subset
+- [Workers](../../runtime/concurrency/workers.md) for browser worker tasks
+- [WebGPU](gpu.md#browser-gpu-kernels) for admitted GPU maps
 :::

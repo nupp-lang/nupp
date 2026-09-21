@@ -1232,7 +1232,10 @@ function M.gpuCountedLoopUnsupportedBoundsAndStepsHaveJsonPositions()
             local dir = gpuProject()
             local manifest = assert(read(dir .. "/nupp.lua"))
             if browser then
-                manifest = manifest:gsub('aot = "require"', 'dialect = "lua51", aot = "require-wasm"')
+                manifest = manifest:gsub(
+                    'aot = "require"',
+                    'dialect = "luajit", host = "browser", aot = "require-wasm"'
+                )
             end
             local file = assert(io.open(dir .. "/nupp.lua", "wb"))
             file:write(manifest)
@@ -1300,10 +1303,11 @@ export const kernel = kernel
     end
 end
 
-function M.portableGpuChecksShareTheGeneratedInterface()
+function M.browserGpuChecksShareTheGeneratedInterface()
     local dir = gpuProject()
     local path = dir .. "/nupp.lua"
-    local source = assert(read(path)):gsub('aot = "require"', 'dialect = "lua51", aot = "require-wasm"')
+    local source = assert(read(path))
+        :gsub('aot = "require"', 'dialect = "luajit", host = "browser", aot = "require-wasm"')
     local file = assert(io.open(path, "wb"))
     assert(file:write(source))
     file:close()
@@ -2249,13 +2253,13 @@ end
 
 function M.wasmPoliciesFixTheirTargetAndFeatureVocabulary()
     local dir = project("emit-wasm")
-    withKeys(dir, 'dialect = "lua51", aotTarget = "x86_64-unknown-linux-gnu",')
+    withKeys(dir, 'dialect = "luajit", host = "browser", aotTarget = "x86_64-unknown-linux-gnu",')
     local out, code = build(dir)
     test.equal(code, 1, out)
     assert(out:find("fixes aotTarget to wasm32-unknown-emscripten", 1, true), out)
 
     dir = project("emit-wasm")
-    withKeys(dir, 'dialect = "lua51", aotFeatures = "avx2",')
+    withKeys(dir, 'dialect = "luajit", host = "browser", aotFeatures = "avx2",')
     out, code = build(dir)
     test.equal(code, 1, out)
     assert(out:find("wasm32 has no feature tier avx2; it has scalar, simd128", 1, true), out)
@@ -2429,14 +2433,12 @@ function M.aReplacementLeavesThreeModuleLocalsWhateverTheTierCount()
     end
 end
 
-function M.wasmHostExportsEveryLuaBuilderImport()
-    local host = assert(read(NATIVE_HERE .. "/../runtime/wasm/build-app-host.sh"))
-    for _, line in ipairs(aotEmitter.luaPrelude(false)) do
-        local symbol = line:match("^extern .- (lua[%w_]*)%(")
-        if symbol then
-            assert(host:find('"_' .. symbol .. '"', 1, true), "the Wasm host does not export builder import " .. symbol)
-        end
-    end
+function M.independentWasmRuntimeRejectsUnexpectedImports()
+    test.equal(read(NATIVE_HERE .. "/../runtime/wasm/build-app-host.sh"), nil)
+    local runtime = assert(read(NATIVE_HERE .. "/../runtime/luajit/aot.mjs"))
+    assert(runtime:find("Unexpected independent Wasm import", 1, true), runtime)
+    assert(runtime:find("wasi_snapshot_preview1", 1, true), runtime)
+    assert(runtime:find("emscripten_notify_memory_growth", 1, true), runtime)
 end
 
 --- What this host calls a shared library, asked of the compiler rather than
@@ -5727,7 +5729,8 @@ return {
       sources = {"src/entry.nupp"},
       output = "dist/entry.lua",
       outDir = "build/native",
-      dialect = "lua51",
+      dialect = "luajit",
+      host = "browser",
       aot = "require-wasm",
       aotFeatures = "scalar",
    }}},

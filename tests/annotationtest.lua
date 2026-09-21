@@ -1023,7 +1023,7 @@ return a, b, values[1], values[2], chosen, c, d, table.concat(log, ',')
     local codes_, result = checked(source)
     assertEq(codes_, "")
     local expected = "4|5|4|5|2|4|5|4,5,4,5,1,2,6,7,8,9,4,5,4,5"
-    for _, dialect in ipairs({"luajit", "lua51"}) do
+    for _, dialect in ipairs({"luajit"}) do
         for _, level in ipairs({0, 1, 2}) do
             local fresh = parser.parse(source, "test.g.nupp")
             local diagnostics = check.check(fresh, "test.g.nupp", env, {dialect = dialect})

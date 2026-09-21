@@ -1,7 +1,7 @@
 // The page-side half of `nupp.workers` for a browser application.
 //
 // A lane is a module Web Worker booting the same verified application manifest in
-// its own Lua 5.1 Wasm state, so nothing is shared between lanes and the page: no
+// its own LuaJIT guest, so nothing is shared between lanes and the page: no
 // Wasm threads, no SharedArrayBuffer, and no cross-origin isolation headers. Work
 // and results cross as copies inside the ordinary browser effect framing, where
 // this file only relays the opaque payload the Nupp codec wrote.

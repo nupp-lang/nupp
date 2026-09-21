@@ -16,41 +16,43 @@ local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local sharedEnv = envMod.new(HERE .. "/..")
 
 local function assertEq(got, want, label)
-   if got ~= want then
-      error(("%s:\n  want: %s\n  got:  %s"):format(
-         label or "mismatch", tostring(want), tostring(got)), 2)
-   end
+    if got ~= want then
+        error(("%s:\n  want: %s\n  got:  %s"):format(label or "mismatch", tostring(want), tostring(got)), 2)
+    end
 end
 
 local function library()
-   local prior = rawget(_G, "nupp")
-   _G.nupp = nil
-   local chunk = assert(loadstring(stdlib.bootstrap({["stdlib.math"] = true})
-      .. " return nupp.math"))
-   local mathLibrary = chunk()
-   _G.nupp = prior
-   return mathLibrary
+    local prior = rawget(_G, "nupp")
+    _G.nupp = nil
+    local chunk = assert(loadstring(stdlib.bootstrap({["stdlib.math"] = true}) .. " return nupp.math"))
+    local mathLibrary = chunk()
+    _G.nupp = prior
+
+    return mathLibrary
 end
 
 local M = {}
 local checkedTree
 
 local function diagnosticsFor(source)
-   local result = parser.parse(source, "fixed-width-diagnostic.nupp")
-   assertEq(#result.errors, 0, "diagnostic syntax")
-   return check.check(result, "fixed-width-diagnostic.nupp", sharedEnv)
+    local result = parser.parse(source, "fixed-width-diagnostic.nupp")
+    assertEq(#result.errors, 0, "diagnostic syntax")
+    return check.check(result, "fixed-width-diagnostic.nupp", sharedEnv)
 end
 
 local function errorCodes(source)
-   local codes = {}
-   for _, diagnostic in ipairs(diagnosticsFor(source)) do
-      if diagnostic.severity == "error" then codes[#codes + 1] = diagnostic.code end
-   end
-   return table.concat(codes, ",")
+    local codes = {}
+    for _, diagnostic in ipairs(diagnosticsFor(source)) do
+        if diagnostic.severity == "error" then
+            codes[#codes + 1] = diagnostic.code
+        end
+    end
+
+    return table.concat(codes, ",")
 end
 
 function M.surfaceHasFixedStaticResults()
-   local source = [[
+    local source = [[
 local si: int32 = nupp.math.i32.mul(0x7fffffff, 2)
 local ui: uint32 = nupp.math.u32.add(0xffffffff, 1)
 local quotient: uint32 = nupp.math.u32.div(17, 5)
@@ -64,18 +66,20 @@ local halfBits: uint32 = nupp.math.f32.toF16Bits(rounded)
 local widened: float = nupp.math.f32.fromF16Bits(halfBits)
 return si, ui, quotient, remainder, shifted, compared, rounded, exponential, floatBits, halfBits, widened
 ]]
-   local result = parser.parse(source, "fixed-width.nupp")
-   assertEq(#result.errors, 0, "parse errors")
-   local diagnostics = check.check(result, "fixed-width.nupp", sharedEnv)
-   for _, diagnostic in ipairs(diagnostics) do
-      if diagnostic.severity == "error" then
-         error(diagnostic.code .. ": " .. diagnostic.msg, 2)
-      end
-   end
+    local result = parser.parse(source, "fixed-width.nupp")
+    assertEq(#result.errors, 0, "parse errors")
+    local diagnostics = check.check(result, "fixed-width.nupp", sharedEnv)
+    for _, diagnostic in ipairs(diagnostics) do
+        if diagnostic.severity == "error" then
+            error(diagnostic.code .. ": " .. diagnostic.msg, 2)
+        end
+    end
 end
 
 function M.valueRefinementsRequireEstablishment()
-   assertEq(errorCodes([[
+    assertEq(
+        errorCodes(
+            [[
 local input: number = 0.1
 local exact: float = 0.5
 local decimal: float = 0.1
@@ -85,20 +89,27 @@ local function returnsFloat(): float
     return input
 end
 return exact, decimal, copied, returnsFloat
-]]), "NUPP2011,NUPP2011,NUPP2011", "unestablished values")
+]]
+        ),
+        "NUPP2011,NUPP2011,NUPP2011",
+        "unestablished values"
+    )
 
-   checkedTree([[
+    checkedTree(
+        [[
 local input: number = 0.1
 local f: float = nupp.math.f32.narrow(input)
 local i: int32 = nupp.math.i32.wrap(2147483648)
 local u: uint32 = nupp.math.u32.wrap(-1)
 local wide: number = f + f
 return f, i, u, wide
-]])
+]]
+    )
 end
 
 function M.switchesPreserveEstablishmentSharedByEveryExpressionArm()
-   checkedTree([[
+    checkedTree(
+        [[
 local function select(choice: boolean): uint32
     local selected: uint32 = switch choice do
         case true -> 1
@@ -107,9 +118,12 @@ local function select(choice: boolean): uint32
     return selected
 end
 return select
-]])
+]]
+    )
 
-   assertEq(errorCodes([[
+    assertEq(
+        errorCodes(
+            [[
 local function select(choice: boolean, input: number): uint32
     local selected: uint32 = switch choice do
         case true -> 1
@@ -118,11 +132,17 @@ local function select(choice: boolean, input: number): uint32
     return selected
 end
 return select
-]]), "NUPP2011,NUPP2011", "one unestablished switch arm")
+]]
+        ),
+        "NUPP2011,NUPP2011",
+        "one unestablished switch arm"
+    )
 end
 
 function M.storageOnlyWidthsStayAtPhysicalBoundaries()
-   assertEq(errorCodes([[
+    assertEq(
+        errorCodes(
+            [[
 local record Bad
     byte: uint8
 end
@@ -131,9 +151,14 @@ local function bad(value: int16): uint8
     return slot
 end
 return Bad, bad
-]]), "NUPP2012,NUPP2012,NUPP2012,NUPP2012", "storage-only value positions")
+]]
+        ),
+        "NUPP2012,NUPP2012,NUPP2012,NUPP2012",
+        "storage-only value positions"
+    )
 
-   checkedTree([[
+    checkedTree(
+        [[
 local span = require("nupp.mem.span")
 local struct Bytes
     signed: int8
@@ -150,11 +175,14 @@ local function read(values: span.Span<uint8>, bytes: Bytes, input: number): (uin
     return unsigned, byte_identity(input)
 end
 return read
-]])
+]]
+    )
 end
 
 function M.recordFactsDoNotSurviveGradualErasure()
-   assertEq(errorCodes([[
+    assertEq(
+        errorCodes(
+            [[
 local record Reading
     value: float
 end
@@ -164,9 +192,14 @@ local function bad(reading: Reading): float
     return forged.value
 end
 return bad
-]]), "NUPP2011", "erased record trust")
+]]
+        ),
+        "NUPP2011",
+        "erased record trust"
+    )
 
-   checkedTree([[
+    checkedTree(
+        [[
 local record Reading
     value: float
 end
@@ -175,59 +208,93 @@ local function keep(reading: Reading): float
     return reading.value
 end
 return keep
-]])
+]]
+    )
 end
 
 function M.foreignCallableAssertionsDoNotEstablishResults()
-   assertEq(errorCodes([[
+    assertEq(
+        errorCodes(
+            [[
 local raw: any = function(): number return 0.1 end
 local claimed = raw as function(): float
 local value: float = claimed()
 return value
-]]), "NUPP2011", "erased callable result")
+]]
+        ),
+        "NUPP2011",
+        "erased callable result"
+    )
 end
 
 function M.contextualFunctionResultsConsumeFacts()
-   assertEq(errorCodes([[
+    assertEq(
+        errorCodes(
+            [[
 local input: number = 0.1
 local f: function(): float = || -> input as float
 local value: float = f()
 return value
-]]), "NUPP2011", "contextual short function result")
+]]
+        ),
+        "NUPP2011",
+        "contextual short function result"
+    )
 
-   assertEq(errorCodes([[
+    assertEq(
+        errorCodes(
+            [[
 local input: number = 0.1
 local f: function(): float = function()
     return input as float
 end
 local value: float = f()
 return value
-]]), "NUPP2011", "contextual function result")
+]]
+        ),
+        "NUPP2011",
+        "contextual function result"
+    )
 end
 
 function M.logicalValuesKeepOnlyProvedSelectedWidths()
-   checkedTree([[
+    checkedTree(
+        [[
 local function choose(flag: boolean, value: uint32, other: uint32): (uint32, uint32, uint32, uint32)
     return flag and value or 0, flag and 0 or other, (flag and value or other) or 0, flag and 1 or 0
 end
 return choose
-]])
-   assertEq(errorCodes([[
+]]
+    )
+    assertEq(
+        errorCodes(
+            [[
 local function choose(flag: boolean, value: number): uint32
     return flag and (value as uint32) or 0
 end
 return choose
-]]), "NUPP2011", "logical selection cannot establish an erased cast")
-   assertEq(errorCodes([[
+]]
+        ),
+        "NUPP2011",
+        "logical selection cannot establish an erased cast"
+    )
+    assertEq(
+        errorCodes(
+            [[
 local function choose(flag: boolean, value: uint32, other: number): uint32
     return flag and value or (other as uint32)
 end
 return choose
-]]), "NUPP2011", "the fallback also needs a width proof")
+]]
+        ),
+        "NUPP2011",
+        "the fallback also needs a width proof"
+    )
 end
 
 function M.fixedWidthFactsFollowEveryCallResult()
-   checkedTree([[
+    checkedTree(
+        [[
 local function pair(): (float, uint32)
     return 0.5, 7
 end
@@ -237,15 +304,17 @@ local function forward(): (float, uint32)
     return pair()
 end
 return a, b, forward
-]])
+]]
+    )
 end
 
 function M.assignmentKeepsAFixedWidthValueEstablished()
-   -- Assigning narrows the destination, and a narrowed binding shadows its
-   -- declaration. The shadow has to carry the establishment fact, or a
-   -- fixed-width local would stop being usable as one the moment anything
-   -- wrote to it -- which is every accumulator in an iterative kernel.
-   checkedTree([[
+    -- Assigning narrows the destination, and a narrowed binding shadows its
+    -- declaration. The shadow has to carry the establishment fact, or a
+    -- fixed-width local would stop being usable as one the moment anything
+    -- wrote to it -- which is every accumulator in an iterative kernel.
+    checkedTree(
+        [[
 local function step(v: number): (float, int32)
     local x: float = 0.0
     x = nupp.math.f32.narrow(v)
@@ -258,63 +327,72 @@ local function step(v: number): (float, int32)
     return x, n
 end
 return step
-]])
+]]
+    )
 end
 
 function M.assignmentDoesNotInventEstablishment()
-   -- The other half of the same rule: carrying the fact must not become
-   -- carrying it regardless of what was assigned.
-   assertEq(errorCodes([[
+    -- The other half of the same rule: carrying the fact must not become
+    -- carrying it regardless of what was assigned.
+    assertEq(
+        errorCodes(
+            [[
 local input: number = 0.1
 local x: float = 0.0
 x = input as float
 local y: float = nupp.math.f32.mul(x, x)
 return y
-]]), "NUPP2011,NUPP2011,NUPP2011", "an erased assertion still establishes nothing")
+]]
+        ),
+        "NUPP2011,NUPP2011,NUPP2011",
+        "an erased assertion still establishes nothing"
+    )
 end
 
 function M.conversionsReturnUnboxedLuaNumbers()
-   local m = library()
-   assertEq(m.i32.wrap(2147483648), -2147483648)
-   assertEq(m.u32.wrap(-1), 4294967295)
-   assertEq(type(m.f32.narrow(0.1)), "number")
-   assertEq(type(m.i32.wrap(1)), "number")
-   assertEq(type(m.u32.wrap(1)), "number")
+    local m = library()
+    assertEq(m.i32.wrap(2147483648), -2147483648)
+    assertEq(m.u32.wrap(-1), 4294967295)
+    assertEq(type(m.f32.narrow(0.1)), "number")
+    assertEq(type(m.i32.wrap(1)), "number")
+    assertEq(type(m.u32.wrap(1)), "number")
 
-   local holder = ffi.new("union {float f;uint32_t u;}[1]")
-   holder[0].u = 0x7fc01234
-   local payload = tonumber(holder[0].f)
-   holder[0].f = m.f32.narrow(payload)
-   assertEq(tonumber(holder[0].u), 0x7fc01234, "narrow keeps a NaN payload")
-   holder[0].f = m.f32.round(payload)
-   assertEq(tonumber(holder[0].u), 0x7fc00000, "round canonicalizes a NaN")
+    local holder = ffi.new("union {float f;uint32_t u;}[1]")
+    holder[0].u = 0x7fc01234
+    local payload = tonumber(holder[0].f)
+    holder[0].f = m.f32.narrow(payload)
+    assertEq(tonumber(holder[0].u), 0x7fc01234, "narrow keeps a NaN payload")
+    holder[0].f = m.f32.round(payload)
+    assertEq(tonumber(holder[0].u), 0x7fc00000, "round canonicalizes a NaN")
 end
 
-
 function M.binary32BitsZerosAndNaNsAreCanonical()
-   local f = library().f32
-   assertEq(f.toBits(f.fromBits(0)), 0, "+0")
-   assertEq(f.toBits(f.fromBits(0x80000000)), 0x80000000, "-0")
-   assertEq(f.toBits(f.fromBits(0x7f800000)), 0x7f800000, "+infinity")
-   assertEq(f.toBits(f.fromBits(0xff800000)), 0xff800000, "-infinity")
-   for _, bits in ipairs({0x7f800001, 0x7fc01234, 0xff800001, 0xffffffff}) do
-      assertEq(f.toBits(f.fromBits(bits)), 0x7fc00000, "canonical NaN")
-   end
-   assertEq(f.toBits(f.min(f.fromBits(0), f.fromBits(0x80000000))), 0x80000000,
-      "min chooses negative zero")
-   assertEq(f.toBits(f.max(f.fromBits(0), f.fromBits(0x80000000))), 0,
-      "max chooses positive zero")
+    local f = library().f32
+    assertEq(f.toBits(f.fromBits(0)), 0, "+0")
+    assertEq(f.toBits(f.fromBits(0x80000000)), 0x80000000, "-0")
+    assertEq(f.toBits(f.fromBits(0x7f800000)), 0x7f800000, "+infinity")
+    assertEq(f.toBits(f.fromBits(0xff800000)), 0xff800000, "-infinity")
+    for _, bits in ipairs({0x7f800001, 0x7fc01234, 0xff800001, 0xffffffff}) do
+        assertEq(f.toBits(f.fromBits(bits)), 0x7fc00000, "canonical NaN")
+    end
+    assertEq(f.toBits(f.min(f.fromBits(0), f.fromBits(0x80000000))), 0x80000000, "min chooses negative zero")
+    assertEq(f.toBits(f.max(f.fromBits(0), f.fromBits(0x80000000))), 0, "max chooses positive zero")
 end
 
 local function withFloatOracle(fn)
-   if ffi.os == "Windows" then test.skip("the C oracle fixture is POSIX-only") end
-   local probe = os.execute("cc --version >/dev/null 2>&1")
-   if probe ~= 0 and probe ~= true then test.skip("cc is unavailable") end
-   local base = os.tmpname()
-   os.remove(base)
-   local source, output = base .. ".c", base .. (ffi.os == "OSX" and ".dylib" or ".so")
-   local file = assert(io.open(source, "wb"))
-   file:write([[
+    if ffi.os == "Windows" then
+        test.skip("the C oracle fixture is POSIX-only")
+    end
+    local probe = os.execute("cc --version >/dev/null 2>&1")
+    if probe ~= 0 and probe ~= true then
+        test.skip("cc is unavailable")
+    end
+    local base = os.tmpname()
+    os.remove(base)
+    local source, output = base .. ".c", base .. (ffi.os == "OSX" and ".dylib" or ".so")
+    local file = assert(io.open(source, "wb"))
+    file:write(
+        [[
 #include <math.h>
 #include <stdint.h>
 typedef union { float f; uint32_t u; } F;
@@ -333,16 +411,19 @@ uint32_t oracle_sqrt(uint32_t a) { return bits(sqrtf(value(a))); }
 uint32_t oracle_fma(uint32_t a, uint32_t b, uint32_t c) {
   return bits(fmaf(value(a), value(b), value(c)));
 }
-]])
-   file:close()
-   local shared = ffi.os == "OSX" and "-dynamiclib" or "-shared -fPIC"
-   local command = ("cc -std=c11 -O2 -fno-fast-math -ffp-contract=off %s -o '%s' '%s' -lm")
-      :format(shared, output, source)
-   local compiled = os.execute(command)
-   if compiled ~= 0 and compiled ~= true then
-      os.remove(source); test.skip("the C binary32 oracle did not compile")
-   end
-   ffi.cdef[[
+]]
+    )
+    file:close()
+    local shared = ffi.os == "OSX" and "-dynamiclib" or "-shared -fPIC"
+    local command = (
+        "cc -std=c11 -O2 -fno-fast-math -ffp-contract=off %s -o '%s' '%s' -lm"
+    ):format(shared, output, source)
+    local compiled = os.execute(command)
+    if compiled ~= 0 and compiled ~= true then
+        os.remove(source);
+        test.skip("the C binary32 oracle did not compile")
+    end
+    ffi.cdef[[
 uint32_t oracle_round(double);
 uint32_t oracle_add(uint32_t, uint32_t);
 uint32_t oracle_sub(uint32_t, uint32_t);
@@ -351,376 +432,455 @@ uint32_t oracle_div(uint32_t, uint32_t);
 uint32_t oracle_sqrt(uint32_t);
 uint32_t oracle_fma(uint32_t, uint32_t, uint32_t);
 ]]
-   local oracle = ffi.load(output)
-   local ok, failure = pcall(fn, oracle)
-   oracle = nil
-   collectgarbage()
-   os.remove(source); os.remove(output)
-   if not ok then error(failure, 0) end
+    local oracle = ffi.load(output)
+    local ok, failure = pcall(fn, oracle)
+    oracle = nil
+    collectgarbage()
+    os.remove(source);
+    os.remove(output)
+    if not ok then
+        error(failure, 0)
+    end
 end
 
 function M.binary32OperationsMatchAnIndependentCOracle()
-   withFloatOracle(function(oracle)
-      local f = library().f32
-      local edges = {
-         0, 0x80000000, 1, 0x80000001, 0x007fffff, 0x00800000,
-         0x3f000000, 0x3f800000, 0x7f7fffff, 0x7f800000,
-         0x7f800001, 0x7fc00000, 0xff7fffff, 0xff800000,
-      }
-      local function number(bits) return f.fromBits(bits) end
-      local function expected(name, ...)
-         return tonumber(oracle[name](...))
-      end
-      for _, a in ipairs(edges) do
-         assertEq(f.toBits(f.sqrt(number(a))), expected("oracle_sqrt", a),
-            ("sqrt %08x"):format(a))
-         for _, b in ipairs(edges) do
-            for _, operation in ipairs({"add", "sub", "mul", "div"}) do
-               assertEq(f.toBits(f[operation](number(a), number(b))),
-                  expected("oracle_" .. operation, a, b),
-                  ("%s %08x %08x"):format(operation, a, b))
+    withFloatOracle(function(oracle)
+        local f = library().f32
+        local edges = {
+            0,
+            0x80000000,
+            1,
+            0x80000001,
+            0x007fffff,
+            0x00800000,
+            0x3f000000,
+            0x3f800000,
+            0x7f7fffff,
+            0x7f800000,
+            0x7f800001,
+            0x7fc00000,
+            0xff7fffff,
+            0xff800000,
+        }
+
+        local function number(bits)
+            return f.fromBits(bits)
+        end
+
+        local function expected(name, ...)
+            return tonumber(oracle[name](...))
+        end
+
+        for _, a in ipairs(edges) do
+            assertEq(f.toBits(f.sqrt(number(a))), expected("oracle_sqrt", a), ("sqrt %08x"):format(a))
+            for _, b in ipairs(edges) do
+                for _, operation in ipairs({"add", "sub", "mul", "div"}) do
+                    assertEq(
+                        f.toBits(f[operation](number(a), number(b))),
+                        expected("oracle_" .. operation, a, b),
+                        ("%s %08x %08x"):format(operation, a, b)
+                    )
+                end
             end
-         end
-      end
-      -- Values on both sides of binary32 input-rounding halfway boundaries.
-      for _, value in ipairs({
-         1 + 2^-24 - 2^-54, 1 + 2^-24, 1 + 2^-24 + 2^-54,
-         -(1 + 2^-24 - 2^-54), -(1 + 2^-24), -(1 + 2^-24 + 2^-54),
-      }) do
-         assertEq(f.toBits(f.round(value)), expected("oracle_round", value),
-            "input halfway rounding")
-      end
-      math.randomseed(0x32f00d)
-      local function randomBits()
-         return math.random(0, 0xffff) * 65536 + math.random(0, 0xffff)
-      end
-      for _ = 1, 50000 do
-         local a, b, c = randomBits(), randomBits(), randomBits()
-         assertEq(f.toBits(f.fma(number(a), number(b), number(c))),
-            expected("oracle_fma", a, b, c),
-            ("fma %08x %08x %08x"):format(a, b, c))
-      end
-   end)
+        end
+        -- Values on both sides of binary32 input-rounding halfway boundaries.
+        for _, value in ipairs({
+            1 + 2 ^ -24 - 2 ^ -54,
+            1 + 2 ^ -24,
+            1 + 2 ^ -24 + 2 ^ -54,
+            -(1 + 2 ^ -24 - 2 ^ -54),
+            -(1 + 2 ^ -24),
+            -(1 + 2 ^ -24 + 2 ^ -54),
+        }) do
+            assertEq(f.toBits(f.round(value)), expected("oracle_round", value), "input halfway rounding")
+        end
+        math.randomseed(0x32f00d)
+
+        local function randomBits()
+            return math.random(0, 0xffff) * 65536 + math.random(0, 0xffff)
+        end
+
+        for _ = 1, 50000 do
+            local a, b, c = randomBits(), randomBits(), randomBits()
+            assertEq(
+                f.toBits(f.fma(number(a), number(b), number(c))),
+                expected("oracle_fma", a, b, c),
+                ("fma %08x %08x %08x"):format(a, b, c)
+            )
+        end
+    end)
 end
 
 function M.binary32HolderIsStableWithTheJitOnAndOff()
-   local f = library().f32
-   local inputs = {0, 1, 0x3f800001, 0x7f7fffff, 0x80000001, 0xff7fffff}
-   local function run()
-      local out = {}
-      for iteration = 1, 1000 do
-         for index, bits in ipairs(inputs) do
-            local a = f.fromBits(bits)
-            local b = f.fromBits(inputs[#inputs - index + 1])
-            out[index] = f.toBits(f.fma(a, b, a))
-         end
-      end
-      return table.concat(out, ",")
-   end
-   jit.on(); local traced = run()
-   jit.off(); local interpreted = run()
-   jit.on()
-   assertEq(traced, interpreted, "module holder has identical JIT semantics")
+    local f = library().f32
+    local inputs = {0, 1, 0x3f800001, 0x7f7fffff, 0x80000001, 0xff7fffff}
+
+    local function run()
+        local out = {}
+        for iteration = 1, 1000 do
+            for index, bits in ipairs(inputs) do
+                local a = f.fromBits(bits)
+                local b = f.fromBits(inputs[#inputs - index + 1])
+                out[index] = f.toBits(f.fma(a, b, a))
+            end
+        end
+
+        return table.concat(out, ",")
+    end
+
+    jit.on();
+    local traced = run()
+    jit.off();
+    local interpreted = run()
+    jit.on()
+    assertEq(traced, interpreted, "module holder has identical JIT semantics")
 end
 
 checkedTree = function(source)
-   local result = parser.parse(source, "fixed-intrinsic.nupp")
-   assertEq(#result.errors, 0, "intrinsic syntax")
-   local diagnostics = check.check(result, "fixed-intrinsic.nupp", sharedEnv)
-   for _, diagnostic in ipairs(diagnostics) do
-      if diagnostic.severity == "error" then
-         error(diagnostic.code .. ": " .. diagnostic.msg, 2)
-      end
-   end
-   return result
+    local result = parser.parse(source, "fixed-intrinsic.nupp")
+    assertEq(#result.errors, 0, "intrinsic syntax")
+    local diagnostics = check.check(result, "fixed-intrinsic.nupp", sharedEnv)
+    for _, diagnostic in ipairs(diagnostics) do
+        if diagnostic.severity == "error" then
+            error(diagnostic.code .. ": " .. diagnostic.msg, 2)
+        end
+    end
+
+    return result
 end
 
 local function callsIn(result)
-   local cst = require("nupp.compiler.cst")
-   local calls = {}
-   local function walk(node)
-      if not node or cst.isToken(node) then return end
-      if node.kind == "call" then calls[#calls + 1] = node end
-      for _, child in ipairs(node) do walk(child) end
-   end
-   walk(result.root)
-   return calls
+    local cst = require("nupp.compiler.cst")
+    local calls = {}
+
+    local function walk(node)
+        if not node or cst.isToken(node) then
+            return
+        end
+        if node.kind == "call" then
+            calls[#calls + 1] = node
+        end
+        for _, child in ipairs(node) do
+            walk(child)
+        end
+    end
+
+    walk(result.root)
+
+    return calls
 end
 
 function M.intrinsicIdentityFollowsAliasesButNotShadowing()
-   local result = checkedTree(table.concat({
-      "local add = nupp.math.u32.add",
-      "local a = add(0xffffffff, 1)",
-      "local nupp = {math = {u32 = {add = function(x: number, y: number): number return x + y end}}}",
-      "local b = nupp.math.u32.add(1, 2)",
-      "return a, b",
-   }, "\n"))
-   local calls = callsIn(result)
-   assertEq(calls[1].scalarIntrinsic, "u32.add", "an exact alias keeps identity")
-   assert(not calls[2].scalarIntrinsic, "a shadowed path is ordinary code")
+    local result = checkedTree(
+        table.concat(
+            {
+                "local add = nupp.math.u32.add",
+                "local a = add(0xffffffff, 1)",
+                "local nupp = {math = {u32 = {add = function(x: number, y: number): number return x + y end}}}",
+                "local b = nupp.math.u32.add(1, 2)",
+                "return a, b",
+            },
+            "\n"
+        )
+    )
+    local calls = callsIn(result)
+    assertEq(calls[1].scalarIntrinsic, "u32.add", "an exact alias keeps identity")
+    assert(not calls[2].scalarIntrinsic, "a shadowed path is ordinary code")
 end
 
 function M.integerIntrinsicsConstantFoldByCanonicalIdentity()
-   local result = checkedTree("local value = nupp.math.u32.mul(0xffffffff, 3)\nreturn value")
-   require("nupp.compiler.optimize").run(result, {level = 1, filename = "fixed-intrinsic.nupp"})
-   local call = callsIn(result)[1]
-   assertEq(call.scalarIntrinsic, "u32.mul", "canonical operation")
-   assertEq(call.folded, "4294967293", "fold uses wrapping multiplication")
+    local result = checkedTree("local value = nupp.math.u32.mul(0xffffffff, 3)\nreturn value")
+    require("nupp.compiler.optimize").run(result, {level = 1, filename = "fixed-intrinsic.nupp"})
+    local call = callsIn(result)[1]
+    assertEq(call.scalarIntrinsic, "u32.mul", "canonical operation")
+    assertEq(call.folded, "4294967293", "fold uses wrapping multiplication")
 end
 
 function M.wrapsAndNormalizesAsLuaNumbers()
-   local m = library()
-   assertEq(m.i32.add(2147483647, 1), -2147483648)
-   assertEq(m.i32.sub(-2147483648, 1), 2147483647)
-   assertEq(m.u32.add(4294967295, 1), 0)
-   assertEq(m.u32.sub(0, 1), 4294967295)
-   assertEq(type(m.i32.mul(3, 7)), "number", "i32 runtime representation")
-   assertEq(type(m.u32.mul(3, 7)), "number", "u32 runtime representation")
+    local m = library()
+    assertEq(m.i32.add(2147483647, 1), -2147483648)
+    assertEq(m.i32.sub(-2147483648, 1), 2147483647)
+    assertEq(m.u32.add(4294967295, 1), 0)
+    assertEq(m.u32.sub(0, 1), 4294967295)
+    assertEq(type(m.i32.mul(3, 7)), "number", "i32 runtime representation")
+    assertEq(type(m.u32.mul(3, 7)), "number", "u32 runtime representation")
 end
 
 function M.unsignedDivisionAndRemainderDefineZeroDivisors()
-   local m = library()
-   assertEq(m.u32.div(4294967295, 65536), 65535)
-   assertEq(m.u32.mod(4294967295, 65536), 65535)
-   assertEq(m.u32.div(17, 0), 0)
-   assertEq(m.u32.mod(17, 0), 0)
+    local m = library()
+    assertEq(m.u32.div(4294967295, 65536), 65535)
+    assertEq(m.u32.mod(4294967295, 65536), 65535)
+    assertEq(m.u32.div(17, 0), 0)
+    assertEq(m.u32.mod(17, 0), 0)
 end
 
 function M.binary16StorageConversionsAreBitDefined()
-   local f32 = library().f32
-   local decode = {
-      [0x0000] = 0x00000000,
-      [0x8000] = 0x80000000,
-      [0x0001] = 0x33800000,
-      [0x03ff] = 0x387fc000,
-      [0x0400] = 0x38800000,
-      [0x3c00] = 0x3f800000,
-      [0xc000] = 0xc0000000,
-      [0x7c00] = 0x7f800000,
-      [0xfc00] = 0xff800000,
-      [0x7e01] = 0x7fc00000,
-   }
-   for half, single in pairs(decode) do
-      assertEq(f32.toBits(f32.fromF16Bits(half)), single, ("decode 0x%04x"):format(half))
-   end
+    local f32 = library().f32
+    local decode = {
+        [0x0000] = 0x00000000,
+        [0x8000] = 0x80000000,
+        [0x0001] = 0x33800000,
+        [0x03ff] = 0x387fc000,
+        [0x0400] = 0x38800000,
+        [0x3c00] = 0x3f800000,
+        [0xc000] = 0xc0000000,
+        [0x7c00] = 0x7f800000,
+        [0xfc00] = 0xff800000,
+        [0x7e01] = 0x7fc00000,
+    }
+    for half, single in pairs(decode) do
+        assertEq(f32.toBits(f32.fromF16Bits(half)), single, ("decode 0x%04x"):format(half))
+    end
 
-   local encode = {
-      [0x00000000] = 0x0000,
-      [0x80000000] = 0x8000,
-      [0x33000000] = 0x0000,
-      [0x33000001] = 0x0001,
-      [0x33800000] = 0x0001,
-      [0x38800000] = 0x0400,
-      [0x3f800000] = 0x3c00,
-      [0x477fe000] = 0x7bff,
-      [0x477ff000] = 0x7c00,
-      [0x7f800000] = 0x7c00,
-      [0xff800000] = 0xfc00,
-      [0x7fc12345] = 0x7e00,
-      [0xffc12345] = 0x7e00,
-   }
-   for single, half in pairs(encode) do
-      assertEq(f32.toF16Bits(f32.fromBits(single)), half, ("encode 0x%08x"):format(single))
-   end
+    local encode = {
+        [0x00000000] = 0x0000,
+        [0x80000000] = 0x8000,
+        [0x33000000] = 0x0000,
+        [0x33000001] = 0x0001,
+        [0x33800000] = 0x0001,
+        [0x38800000] = 0x0400,
+        [0x3f800000] = 0x3c00,
+        [0x477fe000] = 0x7bff,
+        [0x477ff000] = 0x7c00,
+        [0x7f800000] = 0x7c00,
+        [0xff800000] = 0xfc00,
+        [0x7fc12345] = 0x7e00,
+        [0xffc12345] = 0x7e00,
+    }
+    for single, half in pairs(encode) do
+        assertEq(f32.toF16Bits(f32.fromBits(single)), half, ("encode 0x%08x"):format(single))
+    end
 end
 
 function M.bfloat16StorageConversionsAreBitDefined()
-   local f32 = library().f32
-   local decode = {
-      [0x0000] = 0x00000000,
-      [0x8000] = 0x80000000,
-      [0x3f80] = 0x3f800000,
-      [0xbf80] = 0xbf800000,
-      [0x7f80] = 0x7f800000,
-      [0xff80] = 0xff800000,
-      [0x7fc1] = 0x7fc00000,
-   }
-   for short, single in pairs(decode) do
-      assertEq(f32.toBits(f32.fromBF16Bits(short)), single, ("decode 0x%04x"):format(short))
-   end
+    local f32 = library().f32
+    local decode = {
+        [0x0000] = 0x00000000,
+        [0x8000] = 0x80000000,
+        [0x3f80] = 0x3f800000,
+        [0xbf80] = 0xbf800000,
+        [0x7f80] = 0x7f800000,
+        [0xff80] = 0xff800000,
+        [0x7fc1] = 0x7fc00000,
+    }
+    for short, single in pairs(decode) do
+        assertEq(f32.toBits(f32.fromBF16Bits(short)), single, ("decode 0x%04x"):format(short))
+    end
 
-   local encode = {
-      [0x00000000] = 0x0000,
-      [0x80000000] = 0x8000,
-      [0x3f800000] = 0x3f80,
-      [0x3f808000] = 0x3f80,
-      [0x3f818000] = 0x3f82,
-      [0x7f800000] = 0x7f80,
-      [0xff800000] = 0xff80,
-      [0x7fc12345] = 0x7fc0,
-      [0xffc12345] = 0x7fc0,
-   }
-   for single, short in pairs(encode) do
-      assertEq(f32.toBF16Bits(f32.fromBits(single)), short, ("encode 0x%08x"):format(single))
-   end
+    local encode = {
+        [0x00000000] = 0x0000,
+        [0x80000000] = 0x8000,
+        [0x3f800000] = 0x3f80,
+        [0x3f808000] = 0x3f80,
+        [0x3f818000] = 0x3f82,
+        [0x7f800000] = 0x7f80,
+        [0xff800000] = 0xff80,
+        [0x7fc12345] = 0x7fc0,
+        [0xffc12345] = 0x7fc0,
+    }
+    for single, short in pairs(encode) do
+        assertEq(f32.toBF16Bits(f32.fromBits(single)), short, ("encode 0x%08x"):format(single))
+    end
 end
 
 function M.binary32ExponentialIsPolynomialAndBounded()
-   local f32 = library().f32
-   assertEq(f32.toBits(f32.exp(0.0)), 0x3f800000, "exp zero")
-   assertEq(f32.toBits(f32.exp(f32.fromBits(0x7fc12345))), 0x7fc00000, "exp NaN")
-   assertEq(f32.toBits(f32.exp(-math.huge)), 0x00000000, "negative saturation")
-   local samples = {-20.0, -10.0, -1.0, 1.0, 10.0, 80.0, 88.0}
-   for _, value in ipairs(samples) do
-      local got = f32.exp(value)
-      local relative = math.abs(got - math.exp(value)) / math.exp(value)
-      assert(relative < 0.00001, ("exp approximation at %g: %.9g"):format(value, relative))
-   end
+    local f32 = library().f32
+    assertEq(f32.toBits(f32.exp(0.0)), 0x3f800000, "exp zero")
+    assertEq(f32.toBits(f32.exp(f32.fromBits(0x7fc12345))), 0x7fc00000, "exp NaN")
+    assertEq(f32.toBits(f32.exp(-math.huge)), 0x00000000, "negative saturation")
+    local samples = {-20.0, -10.0, -1.0, 1.0, 10.0, 80.0, 88.0}
+    for _, value in ipairs(samples) do
+        local got = f32.exp(value)
+        local relative = math.abs(got - math.exp(value)) / math.exp(value)
+        assert(relative < 0.00001, ("exp approximation at %g: %.9g"):format(value, relative))
+    end
 end
 
 function M.multiplicationKeepsEveryLowProductBit()
-   local m = library()
-   local values = {
-      0, 1, 65535, 65536, 2147483647, 2147483648, 4294967295,
-      0x12345678, 0xdeadbeef,
-   }
-   for _, left in ipairs(values) do
-      for _, right in ipairs(values) do
-         local wide = ffi.new("uint64_t", left) * ffi.new("uint64_t", right)
-         local expected = tonumber(ffi.cast("uint32_t", wide))
-         assertEq(m.u32.mul(left, right), expected,
-            ("0x%08x * 0x%08x"):format(left, right))
-      end
-   end
+    local m = library()
+    local values = {0, 1, 65535, 65536, 2147483647, 2147483648, 4294967295, 0x12345678, 0xdeadbeef,}
+    for _, left in ipairs(values) do
+        for _, right in ipairs(values) do
+            local wide = ffi.new("uint64_t", left) * ffi.new("uint64_t", right)
+            local expected = tonumber(ffi.cast("uint32_t", wide))
+            assertEq(m.u32.mul(left, right), expected, ("0x%08x * 0x%08x"):format(left, right))
+        end
+    end
 end
 
 function M.shiftCountsAreMaskedAndSignednessIsExplicit()
-   local m = library()
-   assertEq(m.u32.shiftLeft(1, 32), 1)
-   assertEq(m.u32.shiftLeft(1, 33), 2)
-   assertEq(m.u32.shiftRightLogical(0x80000000, 31), 1)
-   assertEq(m.i32.shiftRightArithmetic(0x80000000, 31), -1)
-   assertEq(m.u32.rotateLeft(0x80000001, 1), 3)
-   assertEq(m.i32.rotateRight(1, 1), -2147483648)
+    local m = library()
+    assertEq(m.u32.shiftLeft(1, 32), 1)
+    assertEq(m.u32.shiftLeft(1, 33), 2)
+    assertEq(m.u32.shiftRightLogical(0x80000000, 31), 1)
+    assertEq(m.i32.shiftRightArithmetic(0x80000000, 31), -1)
+    assertEq(m.u32.rotateLeft(0x80000001, 1), 3)
+    assertEq(m.i32.rotateRight(1, 1), -2147483648)
 end
 
 function M.comparisonsAndConversionsUseTheNamedWidth()
-   local m = library()
-   assert(m.i32.lessThan(0xffffffff, 0), "signed -1 is below zero")
-   assert(not m.u32.lessThan(0xffffffff, 0), "unsigned max is above zero")
-   assertEq(m.i32.fromU32(4294967295), -1)
-   assertEq(m.i32.toU32(-1), 4294967295)
-   assertEq(m.u32.fromI32(-2147483648), 2147483648)
-   assertEq(m.u32.toI32(2147483648), -2147483648)
+    local m = library()
+    assert(m.i32.lessThan(0xffffffff, 0), "signed -1 is below zero")
+    assert(not m.u32.lessThan(0xffffffff, 0), "unsigned max is above zero")
+    assertEq(m.i32.fromU32(4294967295), -1)
+    assertEq(m.i32.toU32(-1), 4294967295)
+    assertEq(m.u32.fromI32(-2147483648), 2147483648)
+    assertEq(m.u32.toI32(2147483648), -2147483648)
 end
 
 function M.unsignedBitCountsDefineZeroAndLaneOrderCases()
-   local m = library()
-   assertEq(m.u32.popcount(0), 0)
-   assertEq(m.u32.popcount(0xffffffff), 32)
-   assertEq(m.u32.popcount(0x80000005), 3)
-   assertEq(m.u32.trailingZeros(0), 32)
-   assertEq(m.u32.trailingZeros(0x80000000), 31)
-   assertEq(m.u32.trailingZeros(0x28), 3)
-   assertEq(m.u32.leadingZeros(0), 32)
-   assertEq(m.u32.leadingZeros(1), 31)
-   assertEq(m.u32.leadingZeros(0x40000000), 1)
+    local m = library()
+    assertEq(m.u32.popcount(0), 0)
+    assertEq(m.u32.popcount(0xffffffff), 32)
+    assertEq(m.u32.popcount(0x80000005), 3)
+    assertEq(m.u32.trailingZeros(0), 32)
+    assertEq(m.u32.trailingZeros(0x80000000), 31)
+    assertEq(m.u32.trailingZeros(0x28), 3)
+    assertEq(m.u32.leadingZeros(0), 32)
+    assertEq(m.u32.leadingZeros(1), 31)
+    assertEq(m.u32.leadingZeros(0x40000000), 1)
 end
 
 function M.unsignedWideBitCountsAndPrefixParityCoverEveryBit()
-   local u64 = library().u64
-   local zero = ffi.new("uint64_t", 0)
-   local wide = 0x8000000000000005ULL
-   assertEq(tostring(u64.andBits(wide, 0x8000000000000000ULL)), "9223372036854775808ULL")
-   assertEq(tostring(u64.sub(zero, 1ULL)), "18446744073709551615ULL")
-   assertEq(tostring(u64.sub(wide, wide)), "0ULL")
-   assertEq(u64.popcount(zero), 0)
-   assertEq(u64.popcount(wide), 3)
-   assertEq(u64.trailingZeros(zero), 64)
-   assertEq(u64.trailingZeros(0x100000000ULL), 32)
-   assertEq(u64.leadingZeros(zero), 64)
-   assertEq(u64.leadingZeros(wide), 0)
-   assertEq(tostring(u64.prefixXor(ffi.new("uint64_t", 5))), "3ULL")
-   assertEq(tostring(u64.prefixXor(ffi.new("uint64_t", 1))), "18446744073709551615ULL")
+    local u64 = library().u64
+    local zero = ffi.new("uint64_t", 0)
+    local wide = 0x8000000000000005ULL
+    assertEq(tostring(u64.andBits(wide, 0x8000000000000000ULL)), "9223372036854775808ULL")
+    assertEq(tostring(u64.sub(zero, 1ULL)), "18446744073709551615ULL")
+    assertEq(tostring(u64.sub(wide, wide)), "0ULL")
+    assertEq(u64.popcount(zero), 0)
+    assertEq(u64.popcount(wide), 3)
+    assertEq(u64.trailingZeros(zero), 64)
+    assertEq(u64.trailingZeros(0x100000000ULL), 32)
+    assertEq(u64.leadingZeros(zero), 64)
+    assertEq(u64.leadingZeros(wide), 0)
+    assertEq(tostring(u64.prefixXor(ffi.new("uint64_t", 5))), "3ULL")
+    assertEq(tostring(u64.prefixXor(ffi.new("uint64_t", 1))), "18446744073709551615ULL")
 end
 
 function M.boxedSixtyFourBitTypesStandApartFromLuaNumbers()
-   -- int64 and uint64 are cdata boxes: a Lua number is not one and one is not a
-   -- Lua number, so neither side converts silently and the signs do not mix
-   assertEq(errorCodes("local n: number = 1LL"), "NUPP2001")
-   assertEq(errorCodes("local i: integer = 1LL"), "NUPP2001")
-   assertEq(errorCodes("local x: int64 = 1.5"), "NUPP2001")
-   -- An integral literal a double spells exactly is the box's own value, which is
-   -- what the native path reads it as; a fraction, an out-of-range value, and a
-   -- negative into the unsigned box are not.
-   assertEq(errorCodes("local x: int64 = 1"), "")
-   assertEq(errorCodes("local x: int64 = 4294967296"), "")
-   assertEq(errorCodes("local x: uint64 = 1"), "")
-   assertEq(errorCodes("local x: uint64 = -1"), "NUPP2001")
-   assertEq(errorCodes("local x: int64 = 9007199254740994"), "NUPP2001")
-   assertEq(errorCodes("local x: uint64 = -1LL"), "NUPP2001")
-   assertEq(errorCodes("local x: int64 = 1ULL"), "NUPP2001")
-   assertEq(errorCodes("local w: int32 = 1\nlocal x: int64 = w"), "NUPP2001")
-   assertEq(errorCodes("local n: number = 1\nlocal x: int64 = n"), "NUPP2001")
-   assertEq(errorCodes(table.concat({
-      "local big: int64 = 1LL",
-      "local ubig: uint64 = 1ULL",
-      "local same: int64 = big",
-      "local usame: uint64 = ubig",
-      "return same, usame",
-   }, "\n")), "")
-   -- LuaJIT's operators take a box beside a Lua number or the other box, and the
-   -- result is the wider box; a numeric for does not take one
-   assertEq(errorCodes(table.concat({
-      "local a: int64 = 1LL + 1",
-      "local b: uint64 = 1LL + 1ULL",
-      "local c: int64 = -1LL",
-      "local d: boolean = 1ULL < -1LL",
-      "local e: boolean = 1LL == 1",
-      "local f: int64 = 7LL // 2",
-      "return a, b, c, d, e, f",
-   }, "\n")), "")
-   assertEq(errorCodes("local a: int64 = 1LL + 1ULL"), "NUPP2001")
-   assertEq(errorCodes("for i = 1LL, 3LL do end"), "NUPP2003,NUPP2003")
-   -- a physical slot converts on the store and loads the box back
-   assertEq(errorCodes(table.concat({
-      "local struct S",
-      "   big: int64",
-      "end",
-      "local s = new S(1)",
-      "s.big = 2",
-      "local back: int64 = s.big",
-      "return back",
-   }, "\n")), "")
+    -- int64 and uint64 are cdata boxes: a Lua number is not one and one is not a
+    -- Lua number, so neither side converts silently and the signs do not mix
+    assertEq(errorCodes("local n: number = 1LL"), "NUPP2001")
+    assertEq(errorCodes("local i: integer = 1LL"), "NUPP2001")
+    assertEq(errorCodes("local x: int64 = 1.5"), "NUPP2001")
+    -- An integral literal a double spells exactly is the box's own value, which is
+    -- what the native path reads it as; a fraction, an out-of-range value, and a
+    -- negative into the unsigned box are not.
+    assertEq(errorCodes("local x: int64 = 1"), "")
+    assertEq(errorCodes("local x: int64 = 4294967296"), "")
+    assertEq(errorCodes("local x: uint64 = 1"), "")
+    assertEq(errorCodes("local x: uint64 = -1"), "NUPP2001")
+    assertEq(errorCodes("local x: int64 = 9007199254740994"), "NUPP2001")
+    assertEq(errorCodes("local x: uint64 = -1LL"), "NUPP2001")
+    assertEq(errorCodes("local x: int64 = 1ULL"), "NUPP2001")
+    assertEq(errorCodes("local w: int32 = 1\nlocal x: int64 = w"), "NUPP2001")
+    assertEq(errorCodes("local n: number = 1\nlocal x: int64 = n"), "NUPP2001")
+    assertEq(
+        errorCodes(
+            table.concat(
+                {
+                    "local big: int64 = 1LL",
+                    "local ubig: uint64 = 1ULL",
+                    "local same: int64 = big",
+                    "local usame: uint64 = ubig",
+                    "return same, usame",
+                },
+                "\n"
+            )
+        ),
+        ""
+    )
+    -- LuaJIT's operators take a box beside a Lua number or the other box, and the
+    -- result is the wider box; a numeric for does not take one
+    assertEq(
+        errorCodes(
+            table.concat(
+                {
+                    "local a: int64 = 1LL + 1",
+                    "local b: uint64 = 1LL + 1ULL",
+                    "local c: int64 = -1LL",
+                    "local d: boolean = 1ULL < -1LL",
+                    "local e: boolean = 1LL == 1",
+                    "local f: int64 = 7LL // 2",
+                    "return a, b, c, d, e, f",
+                },
+                "\n"
+            )
+        ),
+        ""
+    )
+    assertEq(errorCodes("local a: int64 = 1LL + 1ULL"), "NUPP2001")
+    assertEq(errorCodes("for i = 1LL, 3LL do end"), "NUPP2003,NUPP2003")
+    -- a physical slot converts on the store and loads the box back
+    assertEq(
+        errorCodes(
+            table.concat(
+                {
+                    "local struct S",
+                    "   big: int64",
+                    "end",
+                    "local s = new S(1)",
+                    "s.big = 2",
+                    "local back: int64 = s.big",
+                    "return back",
+                },
+                "\n"
+            )
+        ),
+        ""
+    )
 end
 
 function M.physicalStoresRefuseLiteralsTheSlotCannotHold()
-   -- a real C store converts to the slot's width, so a literal outside it lands
-   -- as a different value: 300 in a byte is 44, 1.9 in an int32 is 1
-   local S = table.concat({
-      "local struct S",
-      "   a: int32",
-      "   b: uint8",
-      "   f: float",
-      "   big: int64",
-      "   ubig: uint64",
-      "end",
-      "local s = new S(1, 2, 3.0, 4, 5)",
-   }, "\n") .. "\n"
-   assertEq(errorCodes(S .. "s.a = 2147483648"), "NUPP2001")
-   assertEq(errorCodes(S .. "s.a = 1.9"), "NUPP2001")
-   assertEq(errorCodes(S .. "s.b = 300"), "NUPP2001")
-   assertEq(errorCodes(S .. "s.b = -1"), "NUPP2001")
-   assertEq(errorCodes(S .. "s.f = 1e40"), "NUPP2001")
-   assertEq(errorCodes(S .. "s.ubig = -1"), "NUPP2001")
-   assertEq(errorCodes(table.concat({
-      "local struct S",
-      "   a: int32",
-      "   b: uint8",
-      "   f: float",
-      "end",
-      "local s = new S(1.9, 300, 1e40)",
-      "return s",
-   }, "\n")), "NUPP2202,NUPP2202,NUPP2202")
-   -- in range, the store's own conversion is the point: an inexact float narrows
-   assertEq(errorCodes(S .. table.concat({
-      "s.a = -2147483648",
-      "s.b = 255",
-      "s.f = 0.1",
-      "s.big = 9007199254740993",
-      "s.ubig = 0",
-      "return s",
-   }, "\n")), "")
+    -- a real C store converts to the slot's width, so a literal outside it lands
+    -- as a different value: 300 in a byte is 44, 1.9 in an int32 is 1
+    local S = table.concat(
+        {
+            "local struct S",
+            "   a: int32",
+            "   b: uint8",
+            "   f: float",
+            "   big: int64",
+            "   ubig: uint64",
+            "end",
+            "local s = new S(1, 2, 3.0, 4, 5)",
+        },
+        "\n"
+    ) .. "\n"
+    assertEq(errorCodes(S .. "s.a = 2147483648"), "NUPP2001")
+    assertEq(errorCodes(S .. "s.a = 1.9"), "NUPP2001")
+    assertEq(errorCodes(S .. "s.b = 300"), "NUPP2001")
+    assertEq(errorCodes(S .. "s.b = -1"), "NUPP2001")
+    assertEq(errorCodes(S .. "s.f = 1e40"), "NUPP2001")
+    assertEq(errorCodes(S .. "s.ubig = -1"), "NUPP2001")
+    assertEq(
+        errorCodes(
+            table.concat(
+                {
+                    "local struct S",
+                    "   a: int32",
+                    "   b: uint8",
+                    "   f: float",
+                    "end",
+                    "local s = new S(1.9, 300, 1e40)",
+                    "return s",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2202,NUPP2202,NUPP2202"
+    )
+    -- in range, the store's own conversion is the point: an inexact float narrows
+    assertEq(
+        errorCodes(
+            S .. table.concat(
+                {"s.a = -2147483648", "s.b = 255", "s.f = 0.1", "s.big = 9007199254740993", "s.ubig = 0", "return s",},
+                "\n"
+            )
+        ),
+        ""
+    )
 end
 
 -- `+`, `-` and `*` between established values of one 32-bit width are that
@@ -728,98 +888,107 @@ end
 -- joins in. Mixed widths, a `number` operand, an erased claim, and every
 -- other operator keep LuaJIT's meaning and produce `number`.
 function M.arithmeticBetweenOneFixedWidthWrapsAndEstablishes()
-   assertEq(errorCodes(table.concat({
-      "local function wrapAdd(a: uint32, b: uint32): uint32",
-      "   return a + b",
-      "end",
-      "local function step(cursor: uint32, first: uint32): uint32",
-      "   return cursor + first - 1",
-      "end",
-      "local function signedMul(a: int32, b: int32): int32",
-      "   return a * b",
-      "end",
-      "local function stays(a: uint32): uint32",
-      "   local next: uint32 = a * 2",
-      "   return next + a",
-      "end",
-      "local function widened(a: uint32): number",
-      "   local asNumber: number = a * 1.0",
-      "   return asNumber + a * 0.5",
-      "end",
-      "return wrapAdd, step, signedMul, stays, widened",
-   }, "\n")), "")
-   for _, case in ipairs({
-      {"local function f(a: uint32, b: int32): uint32 return a + b end", "NUPP2011"},
-      {"local function f(a: uint32, b: integer): uint32 return a + b end", "NUPP2011"},
-      {"local function f(a: uint32, b: number): uint32 return a + (b as uint32) end", "NUPP2011"},
-      {"local function f(a: uint32, b: uint32): uint32 return a / b end", "NUPP2011"},
-      {"local function f(a: uint32): uint32 return a + 4294967296 end", "NUPP2011"},
-   }) do
-      assertEq(errorCodes(case[1] .. "\nreturn f"), case[2], case[1])
-   end
+    assertEq(
+        errorCodes(
+            table.concat(
+                {
+                    "local function wrapAdd(a: uint32, b: uint32): uint32",
+                    "   return a + b",
+                    "end",
+                    "local function step(cursor: uint32, first: uint32): uint32",
+                    "   return cursor + first - 1",
+                    "end",
+                    "local function signedMul(a: int32, b: int32): int32",
+                    "   return a * b",
+                    "end",
+                    "local function stays(a: uint32): uint32",
+                    "   local next: uint32 = a * 2",
+                    "   return next + a",
+                    "end",
+                    "local function widened(a: uint32): number",
+                    "   local asNumber: number = a * 1.0",
+                    "   return asNumber + a * 0.5",
+                    "end",
+                    "return wrapAdd, step, signedMul, stays, widened",
+                },
+                "\n"
+            )
+        ),
+        ""
+    )
+    for _, case in ipairs({
+        {"local function f(a: uint32, b: int32): uint32 return a + b end", "NUPP2011"},
+        {"local function f(a: uint32, b: integer): uint32 return a + b end", "NUPP2011"},
+        {"local function f(a: uint32, b: number): uint32 return a + (b as uint32) end", "NUPP2011"},
+        {"local function f(a: uint32, b: uint32): uint32 return a / b end", "NUPP2011"},
+        {"local function f(a: uint32): uint32 return a + 4294967296 end", "NUPP2011"},
+    }) do
+        assertEq(errorCodes(case[1] .. "\nreturn f"), case[2], case[1])
+    end
 
-   local source = table.concat({
-      "local function wrapAdd(a: uint32, b: uint32): uint32",
-      "   return a + b",
-      "end",
-      "local function wrapSub(a: uint32): uint32",
-      "   return a - 1",
-      "end",
-      "local function signedMul(a: int32, b: int32): int32",
-      "   return a * b",
-      "end",
-      "local function plain(a: integer, b: integer): integer",
-      "   return a + b",
-      "end",
-      "return wrapAdd, wrapSub, signedMul, plain",
-   }, "\n")
-   local result = parser.parse(source, "fixed-arithmetic.nupp")
-   assertEq(#result.errors, 0, "arithmetic source parses")
-   assertEq(#check.check(result, "fixed-arithmetic.nupp", sharedEnv), 0, "arithmetic source checks")
-   local gen = require("nupp.compiler.gen")
-   local code, loweringDiags = gen.generate(result, "fixed-arithmetic.nupp")
-   assertEq(#loweringDiags, 0, "arithmetic source lowers")
-   local wrapAdd, wrapSub, signedMul, plain = assert(loadstring(code, "@fixed-arithmetic"))()
-   assertEq(wrapAdd(4294967295, 1), 0, "uint32 addition wraps")
-   assertEq(wrapSub(0), 4294967295, "uint32 subtraction wraps")
-   assertEq(signedMul(65536, 65536), 0, "int32 multiplication wraps")
-   assertEq(signedMul(-2147483648, -1), -2147483648, "and keeps the sign convention")
-   assertEq(plain(4294967295, 1), 4294967296, "integer arithmetic does not")
+    local source = table.concat(
+        {
+            "local function wrapAdd(a: uint32, b: uint32): uint32",
+            "   return a + b",
+            "end",
+            "local function wrapSub(a: uint32): uint32",
+            "   return a - 1",
+            "end",
+            "local function signedMul(a: int32, b: int32): int32",
+            "   return a * b",
+            "end",
+            "local function plain(a: integer, b: integer): integer",
+            "   return a + b",
+            "end",
+            "return wrapAdd, wrapSub, signedMul, plain",
+        },
+        "\n"
+    )
+    local result = parser.parse(source, "fixed-arithmetic.nupp")
+    assertEq(#result.errors, 0, "arithmetic source parses")
+    assertEq(#check.check(result, "fixed-arithmetic.nupp", sharedEnv), 0, "arithmetic source checks")
+    local gen = require("nupp.compiler.gen")
+    local code, loweringDiags = gen.generate(result, "fixed-arithmetic.nupp")
+    assertEq(#loweringDiags, 0, "arithmetic source lowers")
+    local wrapAdd, wrapSub, signedMul, plain = assert(loadstring(code, "@fixed-arithmetic"))()
+    assertEq(wrapAdd(4294967295, 1), 0, "uint32 addition wraps")
+    assertEq(wrapSub(0), 4294967295, "uint32 subtraction wraps")
+    assertEq(signedMul(65536, 65536), 0, "int32 multiplication wraps")
+    assertEq(signedMul(-2147483648, -1), -2147483648, "and keeps the sign convention")
+    assertEq(plain(4294967295, 1), 4294967296, "integer arithmetic does not")
 
-   local portable = parser.parse(source, "fixed-arithmetic.nupp")
-   assertEq(#check.check(portable, "fixed-arithmetic.nupp", sharedEnv, {dialect = "lua51",}), 0, "checks portably")
-   local portableCode, portableDiags = gen.generate(portable, "fixed-arithmetic.nupp", nil, nil, nil, "lua51")
-   assertEq(#portableDiags, 0, "lowers portably")
-   assert(portableCode:find("nupp.math.u32.add(", 1, true), "the portable dialect calls the library:\n" .. portableCode)
-   assert(portableCode:find("nupp.math.u32.sub(", 1, true), portableCode)
-   assert(portableCode:find("nupp.math.i32.mul(", 1, true), portableCode)
-   assert(not portableCode:find("bit.tobit", 1, true), "and never LuaJIT's BitOp:\n" .. portableCode)
+    local compatible = parser.parse(source, "fixed-arithmetic-compatible.nupp")
+    local diagnostics = check.check(compatible, "fixed-arithmetic-compatible.nupp", sharedEnv, {compat = "lua51"})
+    assert(
+        diagnostics[1] and diagnostics[1].code == "NUPP3015",
+        "compatibility checking rejects generated bit operations"
+    )
 end
 
 function M.unsignedBitOperatorsKeepTheirCanonicalRange()
-   local source = [[
+    local source = [[
 local function bits(a: uint32, b: uint32): (uint32, uint32, uint32, uint32, uint32, uint32)
     return a & b, a | b, a ~ b, a << 1, a >> 1, ~a
 end
 return bits
 ]]
-   local gen = require("nupp.compiler.gen")
-   for _, dialect in ipairs({"luajit", "lua51"}) do
-      local result = parser.parse(source, "unsigned-bits.nupp")
-      assertEq(#result.errors, 0)
-      assertEq(#check.check(result, "unsigned-bits.nupp", sharedEnv, {dialect = dialect}), 0)
-      local code, diags = gen.generate(result, "unsigned-bits.nupp", nil, nil, nil, dialect)
-      assertEq(#diags, 0)
-      local prelude = dialect == "lua51" and stdlib.bootstrap({["stdlib.math"] = true}) or ""
-      local bits = assert(loadstring(prelude .. code))()
-      local a, b, c, d, e, f = bits(0x80000001, 0xffffffff)
-      assertEq(a, 0x80000001)
-      assertEq(b, 0xffffffff)
-      assertEq(c, 0x7ffffffe)
-      assertEq(d, 2)
-      assertEq(e, 0x40000000)
-      assertEq(f, 0x7ffffffe)
-   end
+    local gen = require("nupp.compiler.gen")
+    local result = parser.parse(source, "unsigned-bits.nupp")
+    assertEq(#result.errors, 0)
+    assertEq(#check.check(result, "unsigned-bits.nupp", sharedEnv, {dialect = "luajit"}), 0)
+    local code, diags = gen.generate(result, "unsigned-bits.nupp")
+    assertEq(#diags, 0)
+    local bits = assert(loadstring(code))()
+    local a, b, c, d, e, f = bits(0x80000001, 0xffffffff)
+    assertEq(a, 0x80000001)
+    assertEq(b, 0xffffffff)
+    assertEq(c, 0x7ffffffe)
+    assertEq(d, 2)
+    assertEq(e, 0x40000000)
+    assertEq(f, 0x7ffffffe)
+    local compatible = parser.parse(source, "unsigned-bits-compatible.nupp")
+    local diagnostics = check.check(compatible, "unsigned-bits-compatible.nupp", sharedEnv, {compat = "lua51"})
+    assert(diagnostics[1] and diagnostics[1].code == "NUPP3013", "compatibility checking rejects bit operators")
 end
 
 return M

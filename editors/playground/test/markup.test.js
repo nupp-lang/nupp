@@ -168,25 +168,23 @@ test("playground codegen drops effects removed by optimization", () => {
   );
 });
 
-test("the playground build publishes only native-tested compiler bytes", () => {
+test("the playground build publishes the LuaJIT compiler", () => {
   const build = readFileSync(new URL("../build.mjs", import.meta.url), "utf8");
-  assert.match(build, /test-portable-compiler\.sh/);
-  assert.match(build, /if \(sha256\(after\) !== digest \|\| !after\.equals\(before\)\)/);
-  assert.match(build, /if \(!copied\.equals\(before\)\)/);
+  assert.match(build, /prepareLuaJIT/);
+  assert.doesNotMatch(build, /legacy-worker/);
 });
 
-test("the full playground exposes the default and explicit legacy runtimes", () => {
+test("the full playground has one runtime and the checked compatibility option", () => {
   const html = readFileSync(new URL("../static/index.html", import.meta.url), "utf8");
   const app = readFileSync(new URL("../src/app.js", import.meta.url), "utf8");
-  assert.match(html, /id="dialect-select"/);
-  assert.match(html, /value="lua51">Lua 5\.1/);
-  assert.match(html, /value="luajit">LuaJIT/);
+  assert.doesNotMatch(html, /dialect-select/);
+  assert.match(app, /Require stock Lua 5\.1 compatibility/);
   assert.match(app, /OPTION_DEFAULTS = DEFAULT_OPTIONS/);
 });
 
 test("Run uses a separate bounded application Worker", () => {
   const app = readFileSync(new URL("../src/app.js", import.meta.url), "utf8");
-  const worker = readFileSync(new URL("../src/app-worker.js", import.meta.url), "utf8");
+  const worker = readFileSync(new URL("../src/luajit-app-worker.js", import.meta.url), "utf8");
   assert.match(app, /"\.\/app-worker\.js"/);
   assert.match(app, /application\.terminate\(\)/);
   assert.match(worker, /managed: true/);

@@ -35,7 +35,6 @@ local pegTyping = require(
 local runtimeSurface = require("nupp.compiler.runtimesurface")
 
 -- What `require("bit")` reaches on a target with no BitOp library of its own.
-local PORTABLE_BITOPS = "nupp.runtime.bitops"
 
 local isA = relations.isA
 local packIsA = relations.packIsA
@@ -1333,22 +1332,9 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                         c.diag("NUPP2144", tok, access)
                         return T.any
                     end
-                    -- `bit` is LuaJIT's C library, and a portable target has no such
-                    -- module to load. It is the one runtime module whose portable
-                    -- implementation answers to every name in the declaration with the
-                    -- same signature, so the require is rewritten to that adapter
-                    -- rather than refused: one spelling reaches the C library where
-                    -- there is one and the scalar implementation where there is not.
-                    local rewritten = modname == "bit" and c.opts.dialect == "lua51" and PORTABLE_BITOPS or nil
-                    if rewritten then
-                        node.rewrittenModule = rewritten
-                    else
-                        runtimeSurface.requireModule(c, modname, tok)
-                    end
-                    local portableEffect = require(
-                        "nupp.compiler.standardsurface"
-                    ).requireModule(c, rewritten or modname, tok)
-                    node.requiredModule = rewritten or modname
+                    runtimeSurface.requireModule(c, modname, tok)
+                    local portableEffect = require("nupp.compiler.standardsurface").requireModule(c, modname, tok)
+                    node.requiredModule = modname
                     local modulePath = c.env.findModulePath and c.env.findModulePath(c.env, modname) or nil
                     local canonical = modulePath
                         and c.env.moduleNameForPath

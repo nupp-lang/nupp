@@ -1,45 +1,11 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
-import { createHash, webcrypto } from "node:crypto";
-import path from "node:path";
+import { webcrypto } from "node:crypto";
 import test from "node:test";
-import { fileURLToPath } from "node:url";
 
-import {
-  handleBrowserEffects,
-  runPackagedNuppWasmApp,
-  runNuppWasmApp,
-} from "../../runtime/wasm/app-runtime.mjs";
-import { runtimeSourceDigest } from "../../runtime/wasm/build-runtime-package.mjs";
+import { handleBrowserEffects } from "../../runtime/wasm/app-runtime.mjs";
 import { createWorkerPool } from "../../runtime/wasm/worker-pool.mjs";
 
 globalThis.crypto ||= webcrypto;
-
-test("side-module stacks preserve the Wasm ABI alignment and capacity", async () => {
-  for (const [base, stackSize] of [[0x10008, 1024 * 1024], [0x10010, 35], [0x10008, 1]]) {
-    const stop = new Error("registered aligned stack");
-    let allocated = 0;
-    let top = 0;
-    const host = {
-      _nupp_app_boot: () => 1,
-      _malloc: (bytes) => { allocated = bytes; return base; },
-      nuppSetSideStackPointer: (pointer) => { top = pointer; },
-      loadDynamicLibrary: async (_url, _options, scope) => {
-        scope.register = () => {
-          assert.equal(top % 16, 0, "side-module stack top must be aligned to 16 bytes");
-          assert.ok(top >= base + stackSize, "alignment must retain the requested usable capacity");
-          assert.ok(top <= base + allocated, "aligned stack top must remain inside its allocation");
-          throw stop;
-        };
-      },
-    };
-    await assert.rejects(runNuppWasmApp({
-      createHost: async () => host,
-      app: new Uint8Array(),
-      sideModules: [{url: "fixture.wasm", registrar: "register", stackSize}],
-    }), (error) => error === stop);
-  }
-});
 
 test("browser system effects report usable parallelism", async () => {
   const result = await handleBrowserEffects({
@@ -58,86 +24,6 @@ test("browser system effects respect host overrides", async () => {
   assert.equal(result.responses[0].value.availableParallelism, 3);
 });
 
-const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-const bytes = new TextEncoder().encode("fixture");
-const checksum = createHash("sha256").update(bytes).digest("hex");
-const moduleChecksum = "1".repeat(64);
-
-function manifest(overrides = {}) {
-  return {
-    schemaVersion: 1,
-    target: "wasm32-unknown-emscripten",
-    runtime: {
-      module: {file: `nupp-app-${moduleChecksum.slice(0, 16)}.mjs`, sha256: moduleChecksum, bytes: 1},
-      wasm: {file: "nupp-app.wasm", sha256: checksum, bytes: bytes.length},
-    },
-    app: {file: "app.lua", sha256: checksum, bytes: bytes.length},
-    sideModules: [],
-    ...overrides,
-  };
-}
-
-function fetcher(document) {
-  return async (url) => {
-    if (String(url).endsWith("nupp-browser-app.json")) {
-      return new Response(JSON.stringify(document), {status: 200});
-    }
-    return new Response(bytes, {status: 200});
-  };
-}
-
-test("browser packaging preserves failed Nupp build output", () => {
-  const result = spawnSync(process.execPath, [
-    path.join(repo, "runtime/wasm/package-browser-app.mjs"),
-    "--project", path.join(repo, "tests/wasm-aot/plain-project"),
-    "--target", "definitely-missing",
-    "--output", path.join(repo, "build/wasm-invalid-packager-test"),
-    "--runtime", path.join(repo, "build/wasm-app-runtime"),
-    "--lua-source", path.join(repo, "build/wasm-invalid-lua-source"),
-  ], {cwd: repo, encoding: "utf8"});
-
-  assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /Nupp build output for .* \(definitely-missing\):/);
-  assert.match(result.stderr, /"ok":false/);
-});
-
-test("packaged applications reject unknown manifest versions", async () => {
-  await assert.rejects(
-    runPackagedNuppWasmApp("https://example.test/nupp-browser-app.json", {
-      fetch: fetcher({...manifest(), schemaVersion: 99}),
-    }),
-    /unsupported Nupp browser application manifest/,
-  );
-});
-
-test("packaged application assets cannot escape their directory", async () => {
-  await assert.rejects(
-    runPackagedNuppWasmApp("https://example.test/nupp-browser-app.json", {
-      fetch: fetcher(manifest({app: {file: "../app.lua", sha256: checksum, bytes: bytes.length}})),
-    }),
-    /app\.file must stay inside/,
-  );
-});
-
-test("packaged applications verify fetched bytes", async () => {
-  await assert.rejects(
-    runPackagedNuppWasmApp("https://example.test/nupp-browser-app.json", {
-      fetch: fetcher(manifest({app: {file: "app.lua", sha256: "2".repeat(64), bytes: bytes.length}})),
-    }),
-    /app SHA-256 mismatch/,
-  );
-});
-
-test("runtime modules use content-addressed filenames", async () => {
-  const runtime = manifest().runtime;
-  runtime.module.file = "nupp-app.mjs";
-  await assert.rejects(
-    runPackagedNuppWasmApp("https://example.test/nupp-browser-app.json", {
-      fetch: fetcher(manifest({runtime})),
-    }),
-    /runtime\.module must use its content-addressed filename/,
-  );
-});
 
 test("browser HTTP effects preserve response bytes and metadata", async () => {
   const result = await handleBrowserEffects({
@@ -562,11 +448,6 @@ test("browser effect quotas fail before host work begins", async () => {
     handleBrowserEffects({kind: "effects", requests}, {limitOverrides: {maxEffects: 2}}),
     /more than 2 effects/,
   );
-});
-
-test("runtime source digests cover the reusable host inputs", () => {
-  assert.match(runtimeSourceDigest(), /^[0-9a-f]{64}$/);
-  assert.equal(runtimeSourceDigest(), runtimeSourceDigest());
 });
 
 // One lane, standing in for a module Web Worker that boots the payload. It answers

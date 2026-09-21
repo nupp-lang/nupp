@@ -3,7 +3,7 @@
 module nupp.compiler.preludeimage
 
 --[[
-Hydrates the portable compiler's checked prelude graph.
+Hydrates the browser compiler's checked prelude graph.
 
 The image is data generated from the ordinary declaration checker. This module is the
 only implementation of its format: the generated resource contains no Lua source or

@@ -857,16 +857,7 @@ function reducer.count(): simd.Count
     return new simd.Count(total = 0ULL)
 end
 
--- A generic argument has no single static integer width. Native LuaJIT can
--- compare its number/cdata representation directly; portable wide values
--- belong to the selected integer provider instead.
-local portableIntegers = require("nupp.runtime.target").dialect == "lua51"
-
 local function integerLess(left: any, right: any): boolean
-    if portableIntegers and type(left) ~= "number" then
-        return require("nupp.runtime.int64").compare(left, right) < 0
-    end
-
     return left < right
 end
 

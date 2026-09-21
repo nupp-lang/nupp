@@ -5,14 +5,15 @@ import { fileURLToPath } from 'node:url';
 import { algorithms, verifyAlgorithm } from './wasm-algorithm-evidence.mjs';
 import { verifyOriginalSources } from './wasm-algorithm-oracles.mjs';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const [name, projectArg, hostArg, sourceRootArg] = process.argv.slice(2);
+const [name, projectArg, guestArg, sourceRootArg] = process.argv.slice(2);
 const sourceRoot = sourceRootArg ? path.resolve(sourceRootArg) : root;
 const project = path.resolve(projectArg);
 const expected = algorithms[name];
 if (!expected) throw new Error(`Unknown algorithm: ${name}`);
 const corpus = JSON.parse(readFileSync(path.join(project, 'corpus.json'), 'utf8'));
 verifyOriginalSources(corpus, name, sourceRoot, project);
-const execution = spawnSync(process.execPath, [path.join(root, 'tests/simd/run-wasm.mjs'), project, path.resolve(hostArg)],
+const execution = spawnSync(process.execPath, [path.join(root, 'tests/simd/run-browser-guest.mjs'), project,
+  path.resolve(guestArg), path.join(project, 'browser'), 'simd'],
   { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 });
 writeFileSync(path.join(project, 'registrar-execution.log'), (execution.stdout ?? '') + (execution.stderr ?? ''));
 if (execution.error) throw execution.error;

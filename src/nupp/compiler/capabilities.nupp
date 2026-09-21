@@ -18,14 +18,8 @@ function capabilities.resolve(dialect: string): any
     local resolved = {dialect = dialect, byName = {}}
     for name, contract in pairs(CONTRACTS) do
         local kind = "missing"
-        if dialect == "luajit" or dialect == "luajit-compat" then
+        if dialect == "luajit" then
             kind = "native"
-        elseif dialect == "lua51" then
-            if contract.compiler then
-                kind = "compiler"
-            elseif contract.effect then
-                kind = "runtime"
-            end
         end
         resolved.byName[name] = {kind = kind, name = name, effect = contract.effect}
     end

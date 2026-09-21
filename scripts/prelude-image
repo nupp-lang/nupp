@@ -1,12 +1,12 @@
 #!/bin/sh
-# Builds the portable compiler bundle, generating the prelude image it carries.
+# Builds the browser compiler bundle, generating the prelude image it carries.
 #
 # The image is the compiler's own declaration checker, serialized as inert data
 # for a host that cannot run the checker. It is therefore derived from the
 # compiler and stale whenever the compiler moves. It used to be committed, which
 # meant every change to the checker had to be followed by a regeneration nobody
 # was reminded to do: `check`, `test` and `fixpoint` all pass with a stale image,
-# and only the portable-compiler job compares them.
+# and only the browser compiler job compares them.
 #
 # So it is made here instead, in two passes. The first bundle carries no image,
 # which is all `source` mode needs -- it reads the checker and never hydrates
@@ -14,26 +14,20 @@
 #
 # The interpreter matters: the encoding is `%.17g` and a Lua with integers does
 # not write the same bytes as one without. NUPP_PRELUDE_LUA names one; the
-# default is the pinned LuaJIT, which is Lua 5.1.
+# default is the pinned LuaJIT.
 
 set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
-dialect=${1:-lua51}
+dialect=${1:-luajit}
 case "$dialect" in
-    lua51)
-        image_dir=build/playground
-        bootstrap_dir=build/playground-bootstrap
-        bootstrap_target=playgroundCompilerWithoutPrelude
-        compiler_target=playgroundCompiler
-        ;;
     luajit)
         image_dir=build/browser-luajit
         bootstrap_dir=build/browser-luajit/bootstrap
         bootstrap_target=browserLuaJITCompilerWithoutPrelude
         compiler_target=browserLuaJITCompiler
         ;;
-    *) echo "usage: scripts/prelude-image [lua51|luajit]" >&2; exit 2 ;;
+    *) echo "usage: scripts/prelude-image [luajit]" >&2; exit 2 ;;
 esac
 IMAGE="$ROOT/$image_dir/preludeimage.bin"
 GENERATOR="$ROOT/editors/playground/tools/generate-prelude-image.lua"

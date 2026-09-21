@@ -58,15 +58,11 @@ const {type ModuleRecord} = require("nupp.compiler.build.cache")
 --- drops one immediately after the opening bracket, and a file whose first line matters
 --- would otherwise come back one line short.
 ---
---- Opening brackets count as much as closing ones. Lua 5.1 refuses an opening sequence
---- nested inside a long string of the same level -- "nesting of [[...]] is deprecated"
---- -- where later Luas and LuaJIT read it as text. The portable compiler is the one
---- artifact stock 5.1 reads, and a carried source whose pattern spelled `%[[%x:.]+%]`
---- stopped it loading, while every LuaJIT host had been reading the same bytes.
+--- Opening brackets count as much as closing ones, keeping generated bundles
+--- valid for Lua readers that diagnose nested long-bracket delimiters.
 local function longString(text: string): string
-    -- Lua normalizes carriage returns inside long strings. Stock Lua's Windows
-    -- text loader also treats raw Ctrl-Z as EOF. Escape both in binary resources;
-    -- unlike LuaJIT, stock Lua's %q may leave Ctrl-Z inside a quoted literal.
+    -- Lua normalizes carriage returns inside long strings. Escape them and raw
+    -- Ctrl-Z bytes in binary resources.
     if text:find("\r", 1, true) or text:find("\026", 1, true) then
         local quoted = interpolate("%q", text)
         return (quoted:gsub("\026", "\\026"))

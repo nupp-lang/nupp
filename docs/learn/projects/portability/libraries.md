@@ -32,7 +32,7 @@ namespace tables or code loaders through containers or unchecked callbacks is
 rejected because their use can no longer be verified. Registry, upvalue and
 local-variable reflection likewise cannot certify runtime dependencies.
 
-This is narrower than `dialect = "lua51"`. Runtime `const`, compound assignment,
+Runtime `const`, compound assignment,
 bit operators, `continue`, jumps, short functions, safe navigation, extended
 literals, FFI, native `bit`, `string.buffer`, exact-width representations and VM
 table helpers are rejected. There are no automatic bit, integer or struct
@@ -48,52 +48,8 @@ requiring LuaJIT's extra `xpcall` arguments is unavailable.
 
 The guarantee concerns emitted syntax and checked runtime requirements, not
 identical behavior across every VM or operating system. Platform services still
-need their own supported host. The legacy dialects remain available during the
-browser migration; they keep their existing lowering behavior.
-
-## Legacy lowering targets
-
-The legacy targets remain available during the browser rollback release. Their
-provider substitutions are separate from the source compatibility guarantee.
-
-A library can target LuaJIT's native representations or portable Lua syntax. The
-target determines representations and calling conventions. Runtime service
-providers supply operations for those representations.
-
-```lua
-return {
-   include = {"src"},
-   build = {
-      default = "portable",
-      targets = {
-         native = {entries = {"main"}, dialect = "luajit", outDir = "build/luajit"},
-         portable = {entries = {"main"}, dialect = "lua51", outDir = "build/lua51"},
-      },
-   },
-}
-```
-
-Check and build each supported target:
-
-```bash
-nupp check --target native
-nupp check --target portable
-nupp build --target native
-nupp build --target portable
-```
-
-## Target representations
-
-`luajit` uses native FFI pointers, layouts, integer values, and supported operators.
-`luajit-compat` keeps those representations while lowering syntax for older
-embedded LuaJIT parsers. `lua51` lowers portable operations to retained module
-functions. Provider names do not change generated operations or machine layouts.
-
-Portable bit operations and table struct values have built-in implementations.
-Physical storage requires a compatible implementation at module initialization.
-The Wasm storage implementation supplies its exact integers, reference-valued
-structs, and memory host together. A module requiring physical storage fails to
-load if that representation is unavailable.
+need their own supported host. Nupp emits LuaJIT code only; compatibility is a
+source contract, not a second lowering backend.
 
 Unsupported source operations still fail during checking. Foreign C calls need a
 LuaJIT target and a compatible library. Browser calls execute against the i386
@@ -101,16 +57,9 @@ guest's libraries; registering a provider cannot change that requirement.
 
 ## LuaJIT modules
 
-`require("ffi")`, `require("string.buffer")`, `require("table.new")` and the
-`jit.*` modules are LuaJIT's, and the `lua51` dialect refuses them: each does
-something a portable target cannot do at all, or can only do in part. Reach
-them through an adapter instead, the way [](nupp.text) covers buffers with one
-`Buffer` type over both implementations.
-
-`bit` is the exception, and the only one. Every name BitOp declares has a scalar
-implementation with the same signature, so `require("bit")` resolves on every
-dialect: a LuaJIT target loads the C library and a portable target loads the
-scalar implementation beneath it.
+`require("ffi")`, `require("string.buffer")`, `require("table.new")`, `bit`, and
+the `jit.*` modules are LuaJIT facilities, so the compatibility profile rejects
+them. Use an ordinary pure-Lua dependency when stock Lua 5.1 support is required.
 
 ```nupp
 const bit = require("bit")
@@ -118,11 +67,8 @@ const bit = require("bit")
 print(bit.tohex(bit.bswap(0x11223344))) -- 44332211
 ```
 
-Write `&`, `|`, `~`, `<<`, `>>` and `~>>` where an operator says it, since the
-compiler lowers each one per target and nothing has to name an implementation.
-Require the module for `tohex`, `bswap`, `rol`, `ror` and `tobit`, which have no
-operator. The bare `bit` global stays LuaJIT's: a global cannot be supplied
-without writing to `_G`, so portable source requires the module.
+The compatibility profile rejects bit operators as well. A checked pure-Lua
+library can expose equivalent operations explicitly.
 
 ## Require-time selection
 

@@ -1,13 +1,13 @@
 # LuaJIT browser migration measurements
 
-This directory holds measurements for `codex/luajit-everywhere`. LuaJIT is the browser default on this branch. Main and the legacy lowerers
-remain unchanged; integration, release and deletion gates still apply.
+This directory preserves the measurements used to switch the browser default to
+LuaJIT. The recorded revisions remain the attribution boundary for those
+measurements; they are not measurements of later lowerer cleanup.
 
 The compatibility implementation is in `nupp.compiler.compat`. Its stock-5.1
 execution oracle is `scripts/lua51-compat-corpus.sh`; its checker/cache tests are
-`tests/lua51compattest.lua`. Browser API isolation is also tested by the retained
-portable-compiler smoke suite. `scripts/prelude-image luajit` builds the separate
-LuaJIT compiler candidate without changing the existing browser artifact.
+`tests/lua51compattest.lua`. `scripts/prelude-image luajit` builds the browser
+compiler image.
 
 ## Reproduce request measurements
 
@@ -36,7 +36,7 @@ Query parameters select independent experiments:
 | `direct` | Structured session calls without the inner JSON request codec |
 | `transport` | Experimental compiler lane with raw source/padding bytes, one JSON envelope and the existing bounded mailbox |
 | `phases` | Serial phase markers timestamped synchronously in the emulator worker |
-| `backend=lua51` | Preserved stock Lua 5.1 Wasm compiler worker |
+| `backend=lua51` | Historical stock Lua 5.1 baseline used during migration |
 
 The stock worker's no-op measures its JavaScript message floor, not a Lua call.
 Both real compiler paths use check/compile/hover requests and retained sessions;
@@ -77,11 +77,11 @@ consumers. It is a textual search and does not certify deletion eligibility.
 
 | Area | Migration disposition |
 | --- | --- |
-| `dialects`, `gen`, portable branches in checker | Keep through rollback release; preserve shared semantics before deleting only alternate lowering |
+| `dialects`, `gen`, portable branches in checker | Removed after the default switch; shared semantics remain in ordinary compiler tests |
 | `capabilities`, `runtimesurface`, `standardsurface` | Separate source compatibility from runtime/platform requirements |
 | manifest Wasm validation, AOT emission, Wasm side modules | Migrate platform schema and Lua-C-API binding before removing legacy host |
 | SPI discovery, facade fallbacks and representation selection | Keep native/browser provider boundaries; audit each provider's consumers |
-| browser compiler, prelude images and three portable targets | Build and test LuaJIT candidates; retain portable guards during rollback release |
+| browser compiler and prelude image | Build and test the LuaJIT artifact and retain source-compatibility guards |
 | playground workers, settings, URLs, doc examples | Migrate together after packaged runtime and latency acceptance |
 | release, packaging, notices and toolchain pins | Source-built guest and matching-source distribution required before publication |
 

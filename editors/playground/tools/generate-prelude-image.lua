@@ -1,10 +1,8 @@
--- Generates the portable compiler's checked prelude graph as inert data. Run
--- this under official Lua 5.1 after building the portable bundle; the bundle
--- selects the table trivia provider before the source oracle runs.
+-- Generates the browser compiler's checked prelude graph as inert data.
 
 local bundle, output, mode, dialect = ...
-dialect = dialect or "lua51"
-assert(dialect == "lua51" or dialect == "luajit", "invalid prelude dialect")
+dialect = dialect or "luajit"
+assert(dialect == "luajit", "invalid prelude dialect")
 assert(
     bundle and output and (mode == "source" or mode == "image"),
     "usage: lua generate-prelude-image.lua BUNDLE OUTPUT source|image"

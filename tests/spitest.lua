@@ -21,7 +21,7 @@ local function files(main, descriptor)
         [
             "nupp.lua"
         ] = [[return {include = {"src"}, build = {
-            kind = "bundle", dialect = "lua51", outDir = "out",
+            kind = "bundle", dialect = "luajit", outDir = "out",
             output = "out/app.lua", entries = {"main"}
         }}]],
         ["nupp/spi.json"] = descriptor or [[{"example.api.Codec":["example.first","example.second"]}]],
@@ -357,7 +357,6 @@ end
 local TARGET_PROFILES = {
     {dialect = "luajit", host = "native"},
     {dialect = "luajit", host = "browser", marker = "__nuppBrowser"},
-    {dialect = "lua51", host = "browser", marker = "__nuppWasmHost"},
 }
 
 function M.hostAndVmFallbacksRetainSpiOverrides()
@@ -459,7 +458,7 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
                         provider.platform, provider.architecture = "fixture", "fixture"
                         provider.pointerBits, provider.endianness = 32, "little"
                     elseif case.storage then
-                        provider.representation = profile.dialect == "lua51" and "linear32" or "native"
+                        provider.representation = "native"
                         provider.layout, provider.reference = {}, function()
                         end
                         provider.integers, provider.structs, provider.host = {}, {referenceValued = true}, {}
@@ -499,7 +498,7 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
                     preloads,
                     globals
                 )
-                local usesNative = case.vm and profile.dialect ~= "lua51" or not case.vm and profile.host == "native"
+                local usesNative = case.vm or profile.host == "native"
                 local selectedName = override and "fixture.chosen" or usesNative and case.native or case.browser
                 local expected = providers[selectedName]
                 local facade = load(case.module)
@@ -534,19 +533,19 @@ end
 function M.moduleStagingDistinguishesTheHostFromTheVm()
     local surface = require("nupp.compiler.standardsurface")
     local expectations = {
-        {"nupp.runtime.provider.nativebuffer", true, true, false},
-        {"nupp.runtime.provider.nativestorage", true, true, false},
-        {"bit", true, true, false},
-        {"nupp.runtime.provider.wasmstorage", false, false, true},
-        {"nupp.runtime.provider.nativetime", true, false, false},
-        {"nupp.runtime.provider.workers", true, false, false},
-        {"nupp.runtime.provider.nativeprocess", true, false, false},
-        {"nupp.runtime.provider.nativecompression", true, false, false},
-        {"nupp.runtime.browser.time", false, true, true},
-        {"nupp.runtime.browser.workers", false, true, true},
+        {"nupp.runtime.provider.nativebuffer", true, true},
+        {"nupp.runtime.provider.nativestorage", true, true},
+        {"bit", true, true},
+        {"nupp.runtime.provider.wasmstorage", false, false},
+        {"nupp.runtime.provider.nativetime", true, false},
+        {"nupp.runtime.provider.workers", true, false},
+        {"nupp.runtime.provider.nativeprocess", true, false},
+        {"nupp.runtime.provider.nativecompression", true, false},
+        {"nupp.runtime.browser.time", false, true},
+        {"nupp.runtime.browser.workers", false, true},
         -- The compiler may carry the transport helper without selecting a browser
         -- provider.
-        {"nupp.runtime.browser.memory", true, true, true},
+        {"nupp.runtime.browser.memory", true, true},
     }
     for _, case in ipairs(expectations) do
         for index, profile in ipairs(TARGET_PROFILES) do

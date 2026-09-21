@@ -28,7 +28,7 @@ end
 local M = {}
 
 function M.earlyYieldAndNestedExpressions()
-    for _, dialect in ipairs({"luajit", "lua51"}) do
+    for _, dialect in ipairs({"luajit"}) do
         local value, code = run(
             [[
 local function result(cached: integer?): number
@@ -54,7 +54,7 @@ return result(5) * 100 + result(nil)
 end
 
 function M.lazyOperandsAndFalsyResults()
-    for _, dialect in ipairs({"luajit", "lua51"}) do
+    for _, dialect in ipairs({"luajit"}) do
         assert(
             run(
                 [[
@@ -96,7 +96,7 @@ return selectValue(true) == 7 and selectValue(false) == 3
 end
 
 function M.eagerOrderAndMultipleValues()
-    for _, dialect in ipairs({"luajit", "lua51"}) do
+    for _, dialect in ipairs({"luajit"}) do
         assert(
             run(
                 [[
@@ -119,7 +119,7 @@ return events == 'abc' and a == 'a' and b == 'b' and c == 3 and d == 4
 end
 
 function M.yieldCrossesNestedLoopsAndContinueWrappers()
-    for _, dialect in ipairs({"luajit", "lua51"}) do
+    for _, dialect in ipairs({"luajit"}) do
         assert(
             run(
                 [[
@@ -161,7 +161,7 @@ return answer(true) == 17 and answer(false) == 2
 end
 
 function M.loopControlCrossesExpressionBlocks()
-    for _, dialect in ipairs({"luajit", "lua51"}) do
+    for _, dialect in ipairs({"luajit"}) do
         assert(
             run(
                 [[
@@ -234,7 +234,7 @@ return value == 5
 end
 
 function M.conditionsAndLoopHeaders()
-    for _, dialect in ipairs({"luajit", "lua51"}) do
+    for _, dialect in ipairs({"luajit"}) do
         assert(
             run(
                 [[
@@ -266,7 +266,7 @@ return visits == 18 and f(4) == 5
 end
 
 function M.repeatContinueEvaluatesBlockConditionInScope()
-    for _, dialect in ipairs({"luajit", "lua51"}) do
+    for _, dialect in ipairs({"luajit"}) do
         assert(
             run(
                 [[
@@ -300,7 +300,7 @@ return original[1] == 11 and target[1] == 30 and index == 2 and values.key == 11
 end
 
 function M.safeNavigationAndMethodLookupOrder()
-    for _, dialect in ipairs({"luajit", "lua51"}) do
+    for _, dialect in ipairs({"luajit"}) do
         local okay, code = run(
             [[
 local count = 0
@@ -335,7 +335,7 @@ function M.formatRoundTrip()
 end
 
 function M.compoundAndGuardedAssignments()
-    for _, dialect in ipairs({"luajit", "lua51"}) do
+    for _, dialect in ipairs({"luajit"}) do
         assert(
             run(
                 [[
@@ -359,7 +359,7 @@ end
 
 function M.optimizerPreservesBlockSideEffects()
     for _, level in ipairs({1, 2}) do
-        for _, dialect in ipairs({"luajit", "lua51"}) do
+        for _, dialect in ipairs({"luajit"}) do
             assert(
                 run(
                     [[
@@ -400,7 +400,7 @@ return outer() == 72
 end
 
 function M.safeCallsPreserveMultipleResults()
-    for _, dialect in ipairs({"luajit", "lua51"}) do
+    for _, dialect in ipairs({"luajit"}) do
         assert(
             run(
                 [[
@@ -421,7 +421,7 @@ return a == 4 and b == 5 and c == 6 and d == 8 and count(missing?.(do yield 4 en
 end
 
 function M.loopHeaderControlKeepsItsAuthoredTarget()
-    for _, dialect in ipairs({"luajit", "lua51"}) do
+    for _, dialect in ipairs({"luajit"}) do
         assert(
             run(
                 [[
@@ -460,7 +460,7 @@ return total == 2
 end
 
 function M.loopHeaderExitsRunAutomaticCleanup()
-    for _, dialect in ipairs({"luajit", "lua51"}) do
+    for _, dialect in ipairs({"luajit"}) do
         assert(
             run(
                 [[

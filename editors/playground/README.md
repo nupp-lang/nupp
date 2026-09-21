@@ -18,7 +18,7 @@ npm run serve --prefix editors/playground
 The LuaJIT guest is built from pinned sources on Linux x86_64. Other development
 hosts set `NUPP_BROWSER_GUEST_DIR` to a verified source-built guest package.
 See [guest requirements](../../runtime/luajit/README.md). Emscripten 6.0.8 is
-also needed while the explicitly selectable legacy Lua 5.1 host is retained.
+needed when packaging independent Wasm kernels.
 The build creates missing pre-LuaJIT snapshots in a derived build cache using
 headless Chromium; it does not modify the toolchain's source package.
 
@@ -67,17 +67,14 @@ The guest RAM settings are not total browser memory: Wasm memory, JavaScript,
 snapshot decoding and generated emulator code also contribute. No
 SharedArrayBuffer or cross-origin isolation headers are required.
 
-## Compatibility and legacy selection
+## Compatibility
 
 LuaJIT is the default runtime. The options menu's stock Lua 5.1 compatibility
 checkbox enables `compat = "lua51"`: unsupported source and dependencies are
 rejected without selecting a different generator or VM. It is narrower than
-the old portable lowering contract.
-
-Lua 5.1 remains explicitly selectable during the rollback release. Its compiler
-and application host are separate legacy Workers. Settings survive reload and
-shared URL fragments carry source, runtime and non-default options. Strict
-checking and O1 optimization default on.
+the removed portable lowering contract. Settings survive reload and shared URL
+fragments carry source and non-default options. Strict checking and O1
+optimization default on.
 
 ## Host boundary
 
@@ -97,8 +94,7 @@ checks successfully is not a promise that its host facilities exist in a browser
 documentation uses `<nupp-playground>` from `doc-app.js`, sharing one lazy
 compiler Worker. Component removal and page teardown cancel application work.
 
-`npm test` covers the UI helpers; `npm run test:wasm` preserves the legacy
-rollback oracle. `test/luajit-ui.mjs` exercises the built UI in Chromium, Firefox
+`npm test` covers the UI helpers. `test/luajit-ui.mjs` exercises the built UI in Chromium, Firefox
 and WebKit. `test/compiler-performance.mjs` measures the actual retained workers
 with changing source, and `test/delivery.mjs` measures cold/cached navigation
 under a shared modeled 10 Mbps transfer budget. Engine tests are not physical

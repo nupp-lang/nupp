@@ -55,8 +55,6 @@ local COMMON_ROOTS: {
 }
 
 -- Common contracts produced by a compiler-owned lexical binding.
-local LOWERED_ROOTS: {[string]: boolean} = {unpack = true, loadstring = true,}
-
 -- Library tables need the same fail-closed accounting at member granularity.
 -- The portable table intrinsics are admitted because the generator lowers
 -- them; none depends on a VM module.
@@ -303,28 +301,6 @@ function surface.requireIdentity(checker: any, root: string?, member: string?, a
         end
         return
     end
-    if checker.opts.dialect ~= "lua51" or not root then
-        return
-    end
-    local members = COMMON_MEMBERS[root]
-    local unavailable = member and members and not members[member]
-        or not member and not (COMMON_ROOTS[root] or LOWERED_ROOTS[root])
-    if not unavailable then
-        return
-    end
-    local identity = member and root .. "." .. member or root
-    -- The global is LuaJIT's, because a global cannot be supplied without writing to
-    -- `_G`. The module of the same name is not, so say which spelling carries over
-    -- rather than leaving a reader to find that out from the module list.
-    local help = root == "bit" and 'require the module instead: `require("bit")` resolves on every dialect'
-        or "use a portable module adapter or bind an application value with a different definition"
-    checker.diag(
-        "NUPP3010",
-        at,
-        ("the `lua51` runtime surface does not include prelude identity `%s`"):format(identity),
-        nil,
-        {help = help}
-    )
 end
 
 --- Reports an exact prelude token, before any local alias carries its root.
@@ -344,12 +320,6 @@ function surface.requireModule(checker: any, name: string, at: any)
         })
         return
     end
-    if checker.opts.dialect ~= "lua51" or not RUNTIME_MODULES[name] then
-        return
-    end
-    checker.diag("NUPP3010", at, ("the `lua51` runtime surface does not include module `%s`"):format(name), nil, {
-        help = "require a target-compatible typed adapter"
-    })
 end
 
 export = surface

@@ -121,9 +121,9 @@ function M.checkerRecordsTheResolvedDialect()
     check.check(default, "default.nupp", sharedEnv)
     assertEq(default.dialect, "luajit", "the checker defaults to the native dialect")
 
-    local portable = parser.parse("return 42\n", "portable.nupp")
-    check.check(portable, "portable.nupp", sharedEnv, {dialect = "lua51"})
-    assertEq(portable.dialect, "lua51", "the checker records the selected dialect")
+    local explicit = parser.parse("return 42\n", "explicit.nupp")
+    check.check(explicit, "explicit.nupp", sharedEnv, {dialect = "luajit"})
+    assertEq(explicit.dialect, "luajit", "the checker records the explicit dialect")
 end
 
 function M.portableWideIntegersUseFixedOperations()
@@ -153,21 +153,9 @@ return c < a, c >> 1LL, ~c, wide & bit, decimal + exponent + hex, grouped, negat
     assertEq(tostring(grouped), "4294967296ULL", "parentheses preserve width")
     assertEq(tostring(negative), "-4294967296LL", "negative literals preserve width")
 
-    local portableTree = parser.parse(source, "portable-int64.nupp")
-    assertEq(
-        #check.check(portableTree, "portable-int64.nupp", sharedEnv, {
-            dialect = "lua51",
-
-        }),
-        0,
-        "portable int64 checks"
-    )
-    local code, diags = gen.generate(portableTree, "portable-int64.nupp")
-    assertEq(#diags, 0, "portable int64 lowers")
-    for _, operation in ipairs({"int64", "uint64", "add", "mul", "compare", "rshift", "bnot", "band"}) do
-        assert(code:find("__nuppInt64." .. operation, 1, true), "wide operation lowers through " .. operation)
-    end
-    assert(not code:find("LL", 1, true), "portable output has no LuaJIT cdata suffix")
+    local compatible = parser.parse(source, "compatible-int64.nupp")
+    local diagnostics = check.check(compatible, "compatible-int64.nupp", sharedEnv, {compat = "lua51"})
+    assert(diagnostics[1] and diagnostics[1].code == "NUPP3013", "compatibility checking rejects wide literals")
 end
 
 function M.portableStructsUseTheTargetRepresentation()
@@ -185,19 +173,13 @@ return p
     assert(nativeCode:find("require(\"ffi\")", 1, true), "native output keeps direct FFI representation")
     assert(not nativeCode:find("__nuppStructvalue", 1, true), "native output pays no provider access")
 
-    local portableTree = parser.parse(source, "portable-struct.nupp")
-    assertEq(
-        #check.check(portableTree, "portable-struct.nupp", sharedEnv, {
-            dialect = "lua51",
-
-        }),
-        0,
-        "portable struct checks with its contract"
-    )
-    local portableCode, diags = gen.generate(portableTree, "portable-struct.nupp")
-    assertEq(#diags, 0, "portable struct lowers")
-    assert(portableCode:find("__nuppStructvalue.define", 1, true), "declaration uses the checked implementation")
-    assert(not portableCode:find("require(\"ffi\")", 1, true), "portable struct output carries no FFI")
+    local compatible = parser.parse(source, "compatible-struct.nupp")
+    local diagnostics = check.check(compatible, "compatible-struct.nupp", sharedEnv, {compat = "lua51"})
+    local rejected = false
+    for _, diagnostic in ipairs(diagnostics) do
+        rejected = rejected or diagnostic.code == "NUPP3013"
+    end
+    assert(rejected, "compatibility checking rejects structs")
 end
 
 function M.wasmViewsLowerThroughTheOpaqueCheckedSurface()
@@ -217,8 +199,8 @@ return #readable, readable[1].value
     local tree = parser.parse(source, "wasm-view.nupp")
     assertEq(
         #check.check(tree, "wasm-view.nupp", sharedEnv, {
-            dialect = "lua51",
-
+            dialect = "luajit",
+            host = "browser"
         }),
         0,
         "Wasm views check through both required contracts"
@@ -228,27 +210,26 @@ return #readable, readable[1].value
     assert(code:find("writable%s*:set%s*%(%s*1"), code)
     assert(code:find("readable%s*%.count"), code)
     assert(code:find("readable%s*:get%s*%(%s*1%s*%)%s*%.value"), code)
-    assert(not code:find("require(\"ffi\")", 1, true), code)
+    assert(code:find("require(\"ffi\")", 1, true), code)
 end
 
 function M.poolIsOrdinaryTablesOnEveryDialect()
-    assertClean(
-        table.concat(
-            {
-                "local pool = require('nupp.util')",
-                "local record Event",
-                "    id: integer",
-                "end",
-                "local events = pool.newPool(Event, 4)",
-                "local event = events:acquire()",
-                "event.id = 1",
-                "events:release(event)",
-                "return events:free()",
-            },
-            "\n"
-        ),
-        {dialect = "lua51"}
+    local source = table.concat(
+        {
+            "local pool = require('nupp.util')",
+            "local record Event",
+            "    id: integer",
+            "end",
+            "local events = pool.newPool(Event, 4)",
+            "local event = events:acquire()",
+            "event.id = 1",
+            "events:release(event)",
+            "return events:free()",
+        },
+        "\n"
     )
+    assertClean(source)
+    assertEq(diagsOf(source, {compat = "lua51"}), "NUPP3015:1", "the LuaJIT-backed pool is not compatible")
 end
 
 function M.arenaLowersThroughTheStorageContract()
@@ -268,11 +249,11 @@ function M.arenaLowersThroughTheStorageContract()
     )
     sharedEnv.loaded = {}
     local tree = parser.parse(source, "wasm-arena.nupp")
-    local diags = check.check(tree, "wasm-arena.nupp", sharedEnv, {dialect = "lua51",})
+    local diags = check.check(tree, "wasm-arena.nupp", sharedEnv, {dialect = "luajit", host = "browser"})
     assertEq(#diags, 0, "an arena checks through the storage contract" .. (diags[1] and (": " .. diags[1].msg) or ""))
     local code, genDiags = gen.generate(tree, "wasm-arena.nupp")
     assertEq(#genDiags, 0, "an arena lowers through the storage contract")
-    assert(not code:find("require(\"ffi\")", 1, true), code)
+    assert(code:find("require(\"ffi\")", 1, true), code)
 end
 
 function M.aComputedRequireArgumentIsChecked()
@@ -314,7 +295,7 @@ function M.randomUsesPortableBitops()
             },
             "\n"
         ),
-        {dialect = "lua51",}
+        {dialect = "luajit"}
     )
 end
 
@@ -329,21 +310,20 @@ function M.digestUsesPortableBitops()
             },
             "\n"
         ),
-        {dialect = "lua51",}
+        {dialect = "luajit"}
     )
 end
 
 function M.oneShotHmacUsesOrdinaryCode()
-    assertClean(
-        table.concat(
-            {
-                "local mac = require('nupp.mac')",
-                "return mac.hexDigest('hmac-sha256', 'key', 'message'), #mac.digest('hmac-sha256', 'key', 'message')",
-            },
-            "\n"
-        ),
-        {dialect = "lua51",}
+    local source = table.concat(
+        {
+            "local mac = require('nupp.mac')",
+            "return mac.hexDigest('hmac-sha256', 'key', 'message'), #mac.digest('hmac-sha256', 'key', 'message')",
+        },
+        "\n"
     )
+    assertClean(source)
+    assertEq(diagsOf(source, {compat = "lua51"}), "NUPP3015:1", "the runtime provider is not compatible")
 end
 
 function M.browserHttpProviderHasAPortableDependencyClosure()
@@ -355,7 +335,7 @@ function M.browserHttpProviderHasAPortableDependencyClosure()
     assertEq(#result.errors, 0, "syntax errors in browser HTTP provider")
     local root = HERE .. "/.."
     local env = envMod.new(root)
-    local diags = check.check(result, path, env, {dialect = "lua51"})
+    local diags = check.check(result, path, env, {dialect = "luajit", host = "browser"})
     assertEq(diags[1] and diags[1].msg or "", "", "the browser HTTP provider must not reach a native implementation")
 end
 
@@ -466,10 +446,14 @@ function M.browserEffectsHandCancelledResourcesToTheirDiscard()
     -- Cancelled after it shipped: the host opened the file whatever this side
     -- decided, so the handle has to reach the discard or it leaks.
     cancel()
-    assert(coroutine.resume(
-        shipped,
-        json.encode({responses = {{id = batch.requests[1].id, ok = true, value = {handle = 7}}}})
-    ))
+    assert(
+        coroutine.resume(
+            shipped,
+            json.encode({
+                responses = {{id = batch.requests[1].id, ok = true, value = {handle = 7}}}
+            })
+        )
+    )
     assert(not resumed, "a cancelled request must not resume its waiter")
     assertEq(discarded, 7, "a cancelled request still hears about the resource it was handed")
 end
@@ -478,9 +462,15 @@ function M.browserEffectsDropCancelledRequestsBeforeTheyShip()
     local effects = require("nupp.runtime.browser.effects")
     local json = require("nupp.runtime.provider.lunajson")
     local discarded = false
-    local cancel = effects.request("files", {operation = "open"}, function() end, function()
-        discarded = true
-    end)
+    local cancel = effects.request(
+        "files",
+        {operation = "open"},
+        function()
+        end,
+        function()
+            discarded = true
+        end
+    )
     cancel()
     local shipped = coroutine.create(function()
         effects.park("browser file operation")
@@ -494,7 +484,7 @@ end
 
 function M.stringLibrary()
     assertClean("local s: string = string.format('%d', 3)")
-    assertClean("local s: string = string.format('%d', 3)\nreturn string.rep(s, 2)", {dialect = "lua51"})
+    assertClean("local s: string = string.format('%d', 3)\nreturn string.rep(s, 2)", {compat = "lua51"})
     assertEq((diagsOf("local n: number = string.format('%d', 3)")), "NUPP2001:1")
     assertEq((diagsOf("string.formt('%d', 3)")), "NUPP2004:1")
     assertClean("local a, b = string.find('abc', 'b')\nlocal x: integer? = a")
@@ -581,17 +571,17 @@ function M.coreFunctions()
     assertClean("local t = setmetatable({}, {__index = {}})")
 end
 
-function M.everyFeatureRuntimeIsPortableOrRefused()
+function M.everyFeatureRuntimeIsReachableOrRefused()
     local surface = require("nupp.compiler.standardsurface")
-    local portable = {opts = {dialect = "lua51"}}
+    local browser = {opts = {dialect = "luajit"}, env = {artifactHost = "browser"}}
     for _, effect in ipairs(native.effectNames()) do
         local feature = native.feature(effect)
         local moduleName = feature.runtimeModule
         if moduleName ~= nil and not feature.portableRuntime then
             assert(
-                not surface.reachable(portable, moduleName),
+                not surface.reachable(browser, moduleName),
                 (
-                    "%s stages %s for a lua51 target: "
+                    "%s stages %s for a browser target: "
                 ):format(
                     effect,
                     moduleName
@@ -603,14 +593,14 @@ end
 
 function M.reachableStandardFacilitiesHaveRuntimeMetadata()
     local surface = require("nupp.compiler.standardsurface")
-    local portable = {opts = {dialect = "lua51"}}
+    local browser = {opts = {dialect = "luajit"}, env = {artifactHost = "browser"}}
     for moduleName, facility in pairs(surface.all()) do
-        if facility.effect and surface.reachable(portable, moduleName) then
+        if facility.effect and surface.reachable(browser, moduleName) then
             local feature = native.feature(facility.effect)
             assert(feature, moduleName .. " has no runtime metadata for " .. facility.effect)
             assert(
                 feature.runtimeModule == nil or feature.portableRuntime,
-                moduleName .. " cannot be packaged for Lua 5.1"
+                moduleName .. " cannot be packaged for the browser"
             )
         end
     end
@@ -618,16 +608,20 @@ end
 
 function M.portableFeatureRuntimesAreReachable()
     local surface = require("nupp.compiler.standardsurface")
-    local portable = {opts = {dialect = "lua51"}}
+    local browser = {opts = {dialect = "luajit"}, env = {artifactHost = "browser"}}
     local seen = 0
     for _, effect in ipairs(native.effectNames()) do
         local feature = native.feature(effect)
         if feature.portableRuntime then
             seen = seen + 1
             assert(feature.runtimeModule ~= nil, effect .. " says portableRuntime with no runtime module to compile")
+            assert(
+                surface.reachable(browser, feature.runtimeModule),
+                feature.runtimeModule .. " is unreachable in the browser"
+            )
         end
     end
-    assert(seen > 0, "some feature runtime is portable")
+    assert(seen > 0, "some feature runtime is available in the browser")
 end
 
 function M.nativeFeaturesAreResolvedEffects()
@@ -1838,7 +1832,7 @@ function M.applicationResourcesHideLifecycleAndTransportMachinery()
 end
 
 function M.tensorLayoutAlgebraDoesNotSelectAGpu()
-    assertClean("local layout = require('nupp.gpu.layout')", {dialect = "lua51"})
+    assertClean("local layout = require('nupp.gpu.layout')", {dialect = "luajit", host = "browser"})
     assertEq(native.forModule("nupp.gpu.layout"), "runtime.gpu_layout", "layout algebra is a portable module")
     local selected = native.expand({["runtime.gpu_layout"] = true})
     assert(not selected["native.gpu"], "layout algebra must not select a device provider")

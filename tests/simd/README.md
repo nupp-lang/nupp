@@ -67,21 +67,20 @@ report retains the region inventory alongside the compiled artifact hashes.
 This is lowering evidence; it does not infer a particular machine instruction
 from the presence of C vector operations.
 
-`run-wasm.sh` consumes the **same** generated sources through the existing
-Lua 5.1 Wasm application host and Emscripten 6.0.8. It requires the same Lua 5.1
-source setup as `tests/wasm-aot/run.sh`. `NUPP_LUA51_SOURCE`, `NUPP_WASM_CC` and
+`run-wasm.sh` consumes the **same** generated sources through the LuaJIT browser
+guest and Emscripten 6.0.8. `NUPP_BROWSER_GUEST_DIR`, `NUPP_WASM_CC` and
 `NUPP_SIMD_WASM_OUTPUT` select those paths. The manifest must contain only
-SIMD128 side modules. Before authored modules load, the launcher forwards each
-registrar-installed native entry and counts completed calls; every probe must
-execute. It records the Wasm artifact hashes, cases and call counts under
-`build/simd-wasm`. Node runs this shared corpus; the existing browser workflow
-continues to run its separate Chromium application smoke tests.
+SIMD128 side modules, and every named probe must map to one independent Wasm
+entry. The application is compiled with `aot = "require-wasm"`, so successful
+corpus completion proves those entries were available rather than falling back
+to Lua. The runner records the guest, application and Wasm artifact hashes,
+cases and entry inventory under `build/simd-wasm`.
 
 The Wasm runner also preserves a test-only copy of each generated side C file.
-Only the Lua registrar wrapper's call target changes to the already emitted,
+Only the browser bridge's call target changes to the already emitted,
 unoptimized scalar-C twin. The adapter requires one verified replacement per
-probe; the launcher checks source/Wasm hashes and counts completed registrar
-calls again. Reports retain the original and scalar-C artifact hashes and name
+probe; the launcher checks source/Wasm hashes and executes the same entry
+inventory again. Reports retain the original and scalar-C artifact hashes and name
 each selected twin. This proves the chosen call route; it does not claim that
 the entire Wasm module contains no SIMD instructions.
 
@@ -92,20 +91,23 @@ duplicated, wrong-revision, or partial shards before claiming the complete
 inventory. It derives each type and width from the emitted probe identities that
 returned on each route, so selection metadata cannot turn a smaller corpus into
 complete coverage. Each shard also runs the counted-loop runtime corpus on both routes, covering
-Lua 5.1 loop-entry rounding independently of the type/width inventory. Missing
+numeric-for loop-entry rounding independently of the type/width inventory. Missing
 counted-loop execution evidence also fails aggregation. These jobs are separate
 from browser application tests.
 
 These are semantic tests, not benchmarks. The reports do not measure speed or
 claim that a compiler chose a particular machine instruction for every operation.
 
-The dedicated `Wasm / Owned algorithms` job runs UTF-8, Base64, structural JSON
-and fused JSON once, separately from the forty type/width shards. It reuses the
-shared differential corpora, archives their source hashes, and counts calls
-only after the registered Wasm kernel or builder returns. Its summary requires
-all four independently matched native/Wasm case counts, the three randomized
+The dedicated `Wasm / Owned algorithms` job runs UTF-8, Base64 and structural
+JSON once, separately from the forty type/width shards. It reuses the
+shared differential corpora, archives their source hashes, and requires the
+independent Wasm entry through the browser application route. Its summary requires
+all three independently matched native/Wasm case counts and randomized
 corpora's stream fingerprints, and emitted entry identities at the tested commit;
 a missing algorithm, smaller corpus or interpreted-only run cannot pass.
+Fused JSON returns a Lua object from its AOT builder, which the independent
+browser bridge deliberately does not expose; its full differential remains in
+every executable native tier instead.
 
 Correctness random inputs use a shared Park–Miller generator whose integer
 products are exact in binary64. This replaces VM-specific `math.random` only

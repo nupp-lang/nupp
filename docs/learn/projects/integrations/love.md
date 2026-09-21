@@ -4,9 +4,7 @@ order: 620
 
 # LÖVE
 
-LÖVE runs your game under LuaJIT. Nupp's `luajit-compat` target keeps that
-runtime model: it lowers Nupp syntax LuaJIT does not parse while retaining
-LuaJIT FFI, native representations, and ordinary Lua modules.
+LÖVE runs your game under LuaJIT, which is Nupp's emitted runtime model.
 
 Start with the built-in project:
 
@@ -61,6 +59,5 @@ Lua modules and use LuaJIT's FFI APIs.
 ::: seealso
 - [LuaCATS definitions](luacats.md) for pinning or updating the API source
 - [Gradual typing](../../language/gradual-typing.md) for the file-by-file migration
-- [Target dialects](../build.md#dialect-selection) for choosing
-  `luajit-compat`
+- [Build targets](../build.md#targets-and-outputs)
 :::

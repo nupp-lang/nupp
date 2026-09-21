@@ -5614,7 +5614,7 @@ end
 
 -- A terminal named only in a type still has to publish the function before a
 -- top-level owner can leave the module scope and ask the lazy resolver for it.
-function M.portableCleanupForwardsArgumentsWithLua51ProtectedCalls()
+function M.cleanupForwardsArgumentsWithProtectedCalls()
     local result, diagnostics = checked(
         [[
 local record Resource
@@ -5635,7 +5635,7 @@ local function run(): integer
 end
 return run()
 ]],
-        {dialect = "lua51"}
+        {dialect = "luajit"}
     )
     assertEq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
     local code, generation = gen.generate(result, "portablecleanup")
@@ -5643,8 +5643,8 @@ return run()
     local rawXpcall = xpcall
     local globals = setmetatable(
         {
-            xpcall = function(body, handler)
-                return rawXpcall(body, handler)
+            xpcall = function(body, handler, ...)
+                return rawXpcall(body, handler, ...)
             end
         },
         {__index = _G}
@@ -7291,7 +7291,7 @@ local returned = returning()
 @unsafe do local held = open('d') end
 return answer, returned, log
 ]]
-    for _, dialect in ipairs({"luajit", "lua51"}) do
+    for _, dialect in ipairs({"luajit"}) do
         for _, level in ipairs({0, 1, 2}) do
             local result, diags = checked(source, {dialect = dialect})
             assertEq(#diags, 0, diags[1] and diags[1].msg)

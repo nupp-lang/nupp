@@ -707,7 +707,7 @@ local function openSession(
         config = envConfig,
         strict = strict,
         dialect = target.dialect,
-        nativeCompilerServices = target.dialect ~= "lua51",
+        nativeCompilerServices = true,
         typeRoots = rocks and rocks.typeRoots or {},
         ambientTypeRoots = ambientTypeRoots,
         observe = observer,
@@ -763,7 +763,7 @@ local function openSession(
     local function stageGpuRuntime(): nil
         stageBundled("nupp.gpu.internal")
         stageBundled("nupp.gpu.layout")
-        if target.dialect ~= "lua51" and target.host ~= "browser" then
+        if target.host ~= "browser" then
             stageBundled("nupp.runtime.native")
         end
         stageBundled("nupp.gpu")
@@ -829,7 +829,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
     -- is never visible in a record -- only in how long the run took. The wrapper
     -- shadows the module-level `hashFile` so every site below reaches it without
     -- carrying the digest through its own signature.
-    local contentDigest = cache.contentDigest(target.dialect ~= "lua51")
+    local contentDigest = cache.contentDigest(true)
 
     local function hashFile(path: string): string?
         return cache.hashFile(path, contentDigest)
@@ -936,11 +936,9 @@ local function buildModules(root: string, outDir: string, config: Config, target
         return inc.moduleDependencies(path)
     end
 
-    -- Whether this target is a different one from the compiler's own build. A module
-    -- the compiler carries is staged from that build for a `luajit` target, which is
-    -- the same artifact it would compile; for `lua51` it is not, so those modules are
-    -- compiled here instead.
-    local portableTarget = target.dialect == "lua51" or target.host == "browser"
+    -- Browser artifacts stage the carried modules because they run in a different
+    -- host from the compiler itself.
+    local browserTarget = target.host == "browser"
     -- A directory of modules must carry its emitted stdlib dependencies too:
     -- moving the directory away from the compiler must not lose its runtime.
     local selfContainedTarget = target.kind == nil
@@ -1049,24 +1047,12 @@ local function buildModules(root: string, outDir: string, config: Config, target
         end
     end
 
-    -- What a portable compiler-provided feature is implemented in, for a target the
-    -- compiler did not build itself for.
-    --
-    -- These modules are not reached by any `require` the source wrote: generation
-    -- emits the require for them, so the dependency walk never sees them and the
-    -- staging that would otherwise cover them copies the compiler's own `luajit`
-    -- artifact. Reading the effects a module recorded finds them where the walk
-    -- cannot, and compiling them here puts a `lua51` lowering in a `lua51` payload.
-    --
-    -- Only the features that say their runtime is portable. Most of the others are
-    -- what a native target reaches for, `ffi` and all, and a portable target carries
-    -- them without loading them.
-    -- Assigned once the work queue exists, below. Staging a module puts its source
-    -- on the path; compiling it is a separate step, and a module nothing requires
-    -- reaches the queue only by being put there.
+    -- Compiler-provided feature runtimes are not reached by a source `require`:
+    -- generation emits those imports after the dependency walk. Reading recorded
+    -- effects puts their checked runtime source on the work queue explicitly.
 
     local function linkFeatureRuntime(effects: any): nil
-        if not portableTarget and not selfContainedTarget then
+        if not browserTarget and not selfContainedTarget then
             return
         end
         local named: {[string]: boolean} = {}
@@ -1075,7 +1061,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
         end
         for effect in pairs(native.expand(named)) do
             local feature = native.feature(effect)
-            if feature ~= nil and feature.runtimeModule ~= nil and (feature.portableRuntime or not portableTarget) then
+            if feature ~= nil and feature.runtimeModule ~= nil and (feature.portableRuntime or not browserTarget) then
                 local runtimeModule = feature.runtimeModule as string
                 linkRuntimeSource(runtimeModule)
                 if linkedModules[runtimeModule] and enqueueLinked ~= nil then
@@ -1294,7 +1280,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
     local runtimeSourceRoot = join(root, join(outDir, "cache/runtime-source"))
 
     local function addCarriedRuntime(name: string): boolean
-        if portableTarget then
+        if browserTarget then
             return false
         end
         -- The worker lane bridge is supplied by the selected host stub. The compiler
@@ -1528,7 +1514,6 @@ local function buildModules(root: string, outDir: string, config: Config, target
                 config._coverage and {path = path} or nil,
                 hotRequest,
                 nil,
-                nil,
                 ((target as any)._aotGpuSources or {})[normalize(path)] and {["runtime.gpu"] = true} or nil
             )
             -- Generation is the last word on runtime reachability: it has now seen
@@ -1602,11 +1587,9 @@ local function buildModules(root: string, outDir: string, config: Config, target
         for _, depName in ipairs(depNames) do
             if linkedModules[name] and not packagedRuntimeModules[name] then
                 linkRuntimeSource(depName)
-            elseif portableTarget and inc.modulePath(depName) == nil then
-                -- Carried, and this target is not the one the compiler built itself
-                -- for. Staging that artifact would put a `luajit` lowering in a
-                -- `lua51` payload -- `const` where `local` belongs, before anything
-                -- subtler -- and the payload would not even parse.
+            elseif browserTarget and inc.modulePath(depName) == nil then
+                -- Browser targets need the source selected for that host rather
+                -- than a carried artifact built for the compiler's native host.
                 linkRuntimeSource(depName)
             end
             if not packagedCheckSources[depName] or packagedRuntimeModules[depName] then

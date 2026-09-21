@@ -126,11 +126,8 @@ try {
     await evaluate("[...document.querySelectorAll('label')].find(e=>e.textContent.includes('Require stock Lua 5.1')).querySelector('input').click()");
     await click('#options-button');
   });
-  await check('legacy and LuaJIT backend switch', async () => {
-    for (const [dialect,source,expected] of [['lua51','print("legacy works")','legacy works'], ['luajit','print(require("bit").bor(1, 2))','3']]) {
-      await evaluate("const s=document.querySelector('#dialect-select');s.value=arguments[0];s.dispatchEvent(new Event('change',{bubbles:true}))",dialect);
-      await edit(source); await run(expected);
-    }
+  await check('LuaJIT runtime', async () => {
+    await edit('print(require("bit").bor(1, 2))'); await run('3');
   });
   await check('narrow embedded playground', async () => {
     const window=await post('/window/rect',{width:390,height:844});

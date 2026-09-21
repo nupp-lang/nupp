@@ -2,8 +2,8 @@ module nupp.compiler.standardsurface
 
 local surface = {}
 
-local function facility(kind: string, effect: string, allDialects: boolean?, accelerators: {string}?): any
-    return {kind = kind, effect = effect, allDialects = allDialects, accelerators = accelerators}
+local function facility(kind: string, effect: string): any
+    return {kind = kind, effect = effect}
 end
 
 local MODULES = {
@@ -106,10 +106,6 @@ local MODULES = {
     ["nupp.events"] = {kind = "unavailable", capability = "cstorage"},
 }
 
-local FACILITIES = {["task.deadline"] = facility("host", "runtime.time")}
-
-local MODULE_MEMBERS = {["nupp.tasks"] = {runFor = "task.deadline",},}
-
 local BROWSER_IMPLEMENTATIONS = {
     ["nupp.runtime.browser.system"] = true,
     ["nupp.runtime.browser.webgpu.internal"] = true,
@@ -125,25 +121,34 @@ local BROWSER_IMPLEMENTATIONS = {
 
 --- Whether this implementation module belongs to the artifact's runtime.
 function surface.supports(moduleName: string, dialect: string, host: string?): boolean
-    local selectedHost = host or (dialect == "lua51" and "browser" or "native")
+    local selectedHost = host or "native"
     if BROWSER_IMPLEMENTATIONS[moduleName] then
         return selectedHost == "browser"
     end
     if moduleName == "nupp.runtime.provider.wasmstorage" then
-        return dialect == "lua51"
+        return false
     end
     if moduleName == "nupp.runtime.provider.nativebuffer"
         or moduleName == "nupp.runtime.provider.nativestorage"
         or moduleName == "bit"
     then
-        return dialect ~= "lua51"
+        return true
+    end
+    if selectedHost == "browser" then
+        local native = require("nupp.compiler.native")
+        for _, effect in ipairs(native.effectNames()) do
+            local feature = native.feature(effect) as any
+            if feature.runtimeModule == moduleName and not feature.portableRuntime then
+                return false
+            end
+        end
     end
     if moduleName:match("^nupp%.runtime%.provider%.native")
         or moduleName == "nupp.runtime.provider.workers"
         or moduleName == "nupp.runtime.provider.suspension"
         or moduleName == "nupp.codec.json.aot"
     then
-        return dialect ~= "lua51" and selectedHost == "native"
+        return selectedHost == "native"
     end
 
     return true
@@ -162,20 +167,23 @@ function surface.all(): {[string]: any}
     return copy
 end
 
-local function gate(checker: any, moduleName: string): any
+--- Whether a runtime module can participate in stock-Lua compatibility output.
+--- The source profile asks this directly now that portability is no longer a
+--- lowering dialect.
+function surface.compatible(moduleName: string): boolean
     local classification = MODULES[moduleName]
-    if checker.opts.dialect ~= "lua51" and not (classification and classification.allDialects) then
-        return nil
+    if classification and classification.kind == "unavailable" then
+        return false
     end
-    if classification == nil
-        or classification.kind == "common"
-        or classification.kind == "compiler"
-        or classification.kind == "members"
-    then
-        return nil
+    local native = require("nupp.compiler.native")
+    for _, effect in ipairs(native.effectNames()) do
+        local feature = native.feature(effect) as any
+        if feature.runtimeModule == moduleName and not feature.portableRuntime then
+            return false
+        end
     end
 
-    return classification
+    return true
 end
 
 local function reach(checker: any, moduleName: string, at: any?): boolean
@@ -186,27 +194,10 @@ local function reach(checker: any, moduleName: string, at: any?): boolean
                 at,
                 (
                     "module %q does not support dialect %q on host %q"
-                ):format(
-                    moduleName,
-                    checker.opts.dialect,
-                    checker.env and checker.env.artifactHost
-                    or (checker.opts.dialect == "lua51" and "browser" or "native")
-                )
+                ):format(moduleName, checker.opts.dialect, checker.env and checker.env.artifactHost or "native")
             )
         end
         return false
-    end
-    local classification = gate(checker, moduleName)
-    if classification == nil then
-        return true
-    end
-    if classification.kind == "unavailable" then
-        local capabilities = require("nupp.compiler.capabilities")
-        if at then
-            return capabilities.require(checker, classification.capability, at)
-        end
-
-        return capabilities.available(checker, classification.capability)
     end
 
     return true
@@ -226,30 +217,11 @@ function surface.requireModule(checker: any, moduleName: string, at: any): strin
     if not reach(checker, moduleName, at) then
         return nil
     end
-    local classification = gate(checker, moduleName)
-
-    return classification and classification.kind ~= "unavailable" and classification.effect or nil
+    return nil
 end
 
 function surface.requireMember(checker: any, moduleName: string, member: string, at: any): string?
-    if checker.opts.dialect ~= "lua51" then
-        return nil
-    end
-    local facilityName = MODULE_MEMBERS[moduleName] and MODULE_MEMBERS[moduleName][member] or nil
-    if not facilityName then
-        return nil
-    end
-    local classification = FACILITIES[facilityName]
-    if classification.kind == "unavailable" then
-        local capabilities = require("nupp.compiler.capabilities")
-        if capabilities.require(checker, classification.capability, at) then
-            local resolved = capabilities.resolve(checker.opts.dialect)
-            return classification.effect or capabilities.get(resolved, classification.capability).effect
-        end
-        return nil
-    end
-
-    return classification.effect
+    return nil
 end
 
 export = surface

@@ -238,7 +238,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         return 1
     end
     target.dialect = dialect
-    target.host = opts.host or target.host or (dialect == "lua51" and "browser" or "native")
+    target.host = opts.host or target.host or "native"
     if target.host ~= "native" and target.host ~= "browser" then
         io.stderr:write("nupp: host must be native or browser\n")
         return 1
@@ -249,7 +249,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         )
         return 1
     end
-    if target.host == "browser" and dialect ~= "lua51" then
+    if target.host == "browser" then
         if target.layoutTarget ~= nil and target.layoutTarget ~= "i686-unknown-linux-gnu" then
             io.stderr:write("nupp: the LuaJIT browser guest requires layoutTarget i686-unknown-linux-gnu\n")
             return 1
@@ -428,7 +428,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     -- Every cache key below this line goes through one digest. A native host has a
     -- compiled one that answers identically, so resolve it once here and hand it
     -- down rather than letting each site fall back to the portable spelling.
-    local contentDigest = cache.contentDigest(target.dialect ~= "lua51")
+    local contentDigest = cache.contentDigest(true)
     newState.compilerHash = toolFingerprint(contentDigest)
     -- Dated here, before a single source has been read, and published by the rename
     -- below once they all have been.
@@ -572,7 +572,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
             ),
             report,
             aotScope,
-            dialect ~= "lua51"
+            true
         )
         report:clear()
         if produced == nil then

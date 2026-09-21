@@ -239,16 +239,23 @@ end
 function M.wasm(generated, options)
     options = options or {}
     local dir = M.prepare(generated, options)
+    local runner = "__nupp_wasm_runner"
+    M.write(
+        dir .. "/src/" .. runner .. ".g.nupp",
+        (
+            "local entry=require(%q)\nlocal cases=entry.run()\nlocal fingerprint=entry.randomFingerprint and entry.randomFingerprint()\nif fingerprint then return string.format('{\"cases\":%%.0f,\"randomFingerprint\":\"%%s\"}',cases,fingerprint) end\nreturn string.format('{\"cases\":%%.0f}',cases)\n"
+        ):format(generated.entry)
+    )
     M.write(
         dir .. "/nupp.lua",
         (
             [[
 return {include={"src"},build={targets={app={
 kind="bundle",entries={%q},sources={"src"},output="dist/app.lua",outDir="build/app",
-dialect="lua51",aot="require-wasm",aotFeatures={minimum="simd128",maximum="simd128"},
+dialect="luajit",host="browser",aot="require-wasm",aotFeatures={minimum="simd128",maximum="simd128"},
 }}}}
 ]]
-        ):format(generated.entry)
+        ):format(runner)
     )
     local compiler = options.compiler or os.getenv("NUPP_WASM_CC") or os.getenv("EMCC") or "emcc"
     M.command(

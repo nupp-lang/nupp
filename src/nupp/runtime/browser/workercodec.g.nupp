@@ -3,13 +3,12 @@ module nupp.runtime.browser.workercodec
 
 -- The value boundary between a browser application and one of its worker lanes.
 --
--- A lane is a separate Web Worker with its own Lua 5.1 Wasm state, so the same
--- rule the native scheduler enforces holds here: arguments, captures and results
--- cross as copies and heap identity never does. The native scheduler reaches
--- `string.buffer` for that, which stock Lua 5.1 has no equivalent of, so this
--- module is the portable codec. It writes one self-describing byte string that
--- the JavaScript pool relays without reading, which keeps the framing's meaning
--- in Nupp rather than spread across the host.
+-- A lane is a separate Web Worker with its own LuaJIT guest, so the same rule the
+-- native scheduler enforces holds here: arguments, captures and results cross as copies
+-- and heap identity never does. The native scheduler reaches `string.buffer` for that;
+-- this module instead writes one self-describing byte string that the JavaScript pool
+-- relays without reading, which keeps the framing's meaning in Nupp rather than spread
+-- across the host.
 --
 -- The refusals and their wording are the native ones, because they are the same
 -- rule about the same values and a program should not learn a different vocabulary

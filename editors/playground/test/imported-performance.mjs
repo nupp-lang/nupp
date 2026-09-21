@@ -25,7 +25,7 @@ const guestManifest = await guestResponse.json();
 const metadata = {
   scope: 'Production retained compiler workers: changing application edits with six bundled-library imports. Browser memoryOnly sessions accept one source and lazily check bundled modules; they cannot load arbitrary project files. This is not a multi-file incremental-project benchmark, UI responsiveness budget, physical mobile test, or network-delivery measurement.',
   timing: 'Page performance.now immediately before worker.postMessage until the matching response: includes structured clone, queue, raw-source guest bridge, compiler execution, and response. Worker boot excluded from edit timing. Fresh first check includes lazy imported-module checking; warm check and compile reuse the same worker/environment. Hover follows each changed check and is timed separately.',
-  hostConditions: process.env.NUPP_BENCH_HOST_CONDITIONS || 'Not independently verified idle; interleaved backend order reduces but does not remove shared-host variation.',
+  hostConditions: process.env.NUPP_BENCH_HOST_CONDITIONS || 'Not independently verified idle.',
   commit: execFileSync('git', ['rev-parse', 'HEAD'], {encoding: 'utf8'}).trim(),
   host: {platform: os.platform(), arch: os.arch(), cpu: os.cpus()[0].model, memoryBytes: os.totalmem()},
   repetitions, samples, warmups: 3,
@@ -33,7 +33,7 @@ const metadata = {
   imports: [...source.matchAll(/require\("([^"]+)"\)/g)].map(match => match[1]),
   edits: 'Replace round integer 5 and both scoreboard-edit-5 string literals with trial+5 on every request. Each compile must contain its current changed string. Every check/compile must return zero errors; every hover must identify wire as string. After timing, each imported API must reject a wrong argument with NUPP2006.',
   manifest, guestManifest,
-  assets: await Promise.all(['worker.js', 'legacy-worker.js', manifest.compiler, manifest.hostModule, manifest.hostWasm, manifest.luajit.compiler].map(fetchAsset)),
+  assets: await Promise.all(['worker.js', manifest.compiler, manifest.hostModule, manifest.hostWasm, manifest.luajit.compiler].map(fetchAsset)),
   results: [],
 };
 for (const engine of (process.env.NUPP_TEST_BROWSERS || 'chromium,firefox,webkit').split(',')) {
@@ -44,11 +44,11 @@ for (const engine of (process.env.NUPP_TEST_BROWSERS || 'chromium,firefox,webkit
       // Keep this real HTTP navigation (a plain 404 page also works). Playwright
       // request interception breaks the emulator's blob workers in WebKit.
       await page.goto(new URL('performance-empty.html', url).href);
-      for (const backend of round % 2 ? ['lua51', 'luajit'] : ['luajit', 'lua51']) {
+      for (const backend of ['luajit']) {
         console.log(engine, round, backend);
         const result = await page.evaluate(async ({backend, source, samples}) => {
           const started = performance.now();
-          const worker = new Worker(backend === 'luajit' ? './worker.js' : './legacy-worker.js', {type: 'module'});
+          const worker = new Worker('./worker.js', {type: 'module'});
           let id = 0;
           let phase = 'boot';
           const bounded = action => new Promise((resolve, reject) => {

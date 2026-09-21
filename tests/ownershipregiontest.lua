@@ -219,7 +219,7 @@ return run
     assert(run(40) == 50)
 end
 
-function M.portableMultiOwnerRegionsForwardTheStateFrame()
+function M.multiOwnerRegionsForwardTheStateFrame()
     local code = compile(
         RESOURCE
         .. [[
@@ -231,12 +231,12 @@ local function run(value: integer): integer
 end
 return run, closed
 ]],
-        {dialect = "lua51"}
+        {dialect = "luajit"}
     )
     local globals = setmetatable(
         {
-            xpcall = function(body, handler)
-                return xpcall(body, handler)
+            xpcall = function(body, handler, ...)
+                return xpcall(body, handler, ...)
             end
         },
         {__index = _G}

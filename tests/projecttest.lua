@@ -1153,35 +1153,31 @@ return {include = {"src"}, build = {targets = {app = {
         return config, err
     end
 
-    assert(load('"luajit"'), "the native dialect is accepted")
-    assert(load('"luajit-compat"'), "the compatibility LuaJIT dialect is accepted")
-    assert(load('"lua51"'), "the portable dialect is accepted")
+    assert(load('"luajit"'), "the LuaJIT dialect is accepted")
+    local _, removed = load('"lua51"')
+    assert(removed and removed:find('build.targets.app.dialect must be "luajit"', 1, true), tostring(removed))
     local _, unsupported = load('"lua54"')
     assert(
-        unsupported
-        and unsupported:find('build.targets.app.dialect must be "luajit", "luajit-compat" or "lua51"', 1, true),
+        unsupported and unsupported:find('build.targets.app.dialect must be "luajit"', 1, true),
         tostring(unsupported)
     )
     local _, wrongType = load("true")
-    assert(
-        wrongType and wrongType:find('build.targets.app.dialect must be "luajit", "luajit-compat" or "lua51"', 1, true),
-        tostring(wrongType)
-    )
+    assert(wrongType and wrongType:find('build.targets.app.dialect must be "luajit"', 1, true), tostring(wrongType))
 
     local inherited = tempProject({
         [
             "nupp.lua"
         ] = [[
-return {build = {dialect = "lua51", targets = {
-   portable = {entries = {"main"}},
-   native = {entries = {"main"}, dialect = "luajit"},
+return {build = {dialect = "luajit", targets = {
+   inherited = {entries = {"main"}},
+   explicit = {entries = {"main"}, dialect = "luajit"},
 }}}
 ]]
     })
-    local portableTask = assert(project.describeTasks(inherited, "portable"))
-    local nativeTask = assert(project.describeTasks(inherited, "native"))
-    assertEq(portableTask.dialect, "lua51", "a target inherits the build dialect")
-    assertEq(nativeTask.dialect, "luajit", "a target overrides the build dialect")
+    local inheritedTask = assert(project.describeTasks(inherited, "inherited"))
+    local explicitTask = assert(project.describeTasks(inherited, "explicit"))
+    assertEq(inheritedTask.dialect, "luajit", "a target inherits the build dialect")
+    assertEq(explicitTask.dialect, "luajit", "a target may restate the build dialect")
     remove(inherited)
 
     local dir = tempProject({
@@ -1189,33 +1185,20 @@ return {build = {dialect = "lua51", targets = {
             "nupp.lua"
         ] = [[
 return {include = {"src"}, build = {outDir = "out", entries = {"main"},
-   dialect = "lua51"}}
+   dialect = "luajit"}}
 ]],
         ["src/main.nupp"] = "return 42\n",
     })
     local produced = {}
     assertEq(project.build(dir, {produced = produced}), 0, "the configured dialect builds")
-    assertEq(produced.dialect, "lua51", "build reporting names the manifest dialect")
+    assertEq(produced.dialect, "luajit", "build reporting names the manifest dialect")
     local warm = {}
     assertEq(project.build(dir, {stats = warm}), 0, "the same dialect reuses its build")
     assertEq(warm.generatedModules, 0, "an unchanged dialect regenerates nothing")
 
-    local changed, overridden = {}, {}
-    assertEq(
-        project.build(dir, {
-            dialect = "luajit",
-            stats = changed,
-            produced = overridden
-        }),
-        0,
-        "a command-level dialect overrides the manifest"
-    )
-    assertEq(overridden.dialect, "luajit", "build reporting names the override")
-    assert(changed.generatedModules > 0, "changing dialect invalidates generated artifacts")
-
     local checked = {}
-    assertEq(project.check(dir, {dialect = "lua51", produced = checked}), 0, "check accepts the same dialect axis")
-    assertEq(checked.dialect, "lua51", "check reporting names its resolved dialect")
+    assertEq(project.check(dir, {dialect = "luajit", produced = checked}), 0, "check accepts the dialect axis")
+    assertEq(checked.dialect, "luajit", "check reporting names its resolved dialect")
     remove(dir)
 end
 
@@ -1911,7 +1894,7 @@ function M.warmRuntimeCheckUsesRecordedRuntimeDependencies()
         ] = [[
 return {
    include = {"src"},
-   build = {outDir = "out", entries = {"main"}, dialect = "lua51"},
+   build = {outDir = "out", entries = {"main"}, dialect = "luajit"},
 }
 ]],
         [

@@ -43,7 +43,6 @@ local switchplan = require("nupp.compiler.switchplan")
 local stdlib = require("nupp.compiler.stdlib")
 local native = require("nupp.compiler.native")
 local capabilities = require("nupp.compiler.capabilities")
-local dialects = require("nupp.compiler.dialects")
 local cabi = require("nupp.compiler.cabi")
 local bit = require("nupp.compiler.bitops")
 
@@ -101,11 +100,6 @@ function gen.runtimeModules(code: string): {string}
 
     return modules
 end
-
--- Generation runs inside both LuaJIT and the portable stock-5.1 compiler. Read the
--- host identity once: it controls only the optional parser sanity check, never output.
-local hostJit = rawget(_G, "jit")
-local VALIDATING_HOST_DIALECT = type(hostJit) == "table" and "luajit" or (_VERSION == "Lua 5.1" and "lua51" or nil)
 
 -- These are the nodes a block may execute directly. Coverage deliberately stays at
 -- statement boundaries: putting a probe in every expression is both less useful to a
@@ -273,69 +267,6 @@ CP = C_PRIM
 -- The two compound assignments this runtime does not have. Every other one is written
 -- out as it was read.
 local LOWERED_COMPOUND = {["//="] = true, ["??="] = true}
-
--- LuaJIT's `const` is emitted from many semantic lowerings as well as from authored
--- tokens. Portable output erases that runtime enforcement to Lua 5.1 `local`. This
--- scanner changes identifiers only: C declarations and user strings containing the
--- word remain byte-for-byte intact.
-local function lowerPortableConst(code: string): string
-    local out, at, count = {}, 1, #code
-
-    local function copyThrough(last: number)
-        out[#out + 1] = code:sub(at, last)
-        at = last + 1
-    end
-
-    while at <= count do
-        local char = code:sub(at, at)
-        if char == '"' or char == "'" then
-            local quote, cursor = char, at + 1
-            while cursor <= count do
-                local current = code:sub(cursor, cursor)
-                if current == "\\" then
-                    cursor = cursor + 2
-                elseif current == quote then
-                    cursor = cursor + 1
-                    break
-                else
-                    cursor = cursor + 1
-                end
-            end
-            copyThrough(cursor - 1)
-        elseif char == "[" then
-            local opened, _, equals = code:find("%[(=*)%[", at)
-            if opened == at and equals then
-                local close = "]" .. equals .. "]"
-                local finish = code:find(close, at + #equals + 2, true)
-                copyThrough(finish and finish + #close - 1 or count)
-            else
-                copyThrough(at)
-            end
-        elseif char == "-" and code:sub(at, at + 1) == "--" then
-            local opened, _, equals = code:find("%-%-%[(=*)%[", at)
-            if opened == at and equals then
-                local close = "]" .. equals .. "]"
-                local finish = code:find(close, at + #equals + 4, true)
-                copyThrough(finish and finish + #close - 1 or count)
-            else
-                local finish = code:find("\n", at + 2, true)
-                copyThrough(finish and finish - 1 or count)
-            end
-        elseif char:match("[%a_]") then
-            local finish = at + 1
-            while finish <= count and code:sub(finish, finish):match("[%w_]") do
-                finish = finish + 1
-            end
-            local word = code:sub(at, finish - 1)
-            out[#out + 1] = word == "const" and "local" or word
-            at = finish
-        else
-            copyThrough(at)
-        end
-    end
-
-    return table.concat(out)
-end
 
 ----------------------------------------------------------------------------
 -- Literals
@@ -542,30 +473,16 @@ function gen.generate(
     filename: string?,
     coverage: (boolean | gen.CoverageRequest)?,
     hot: gen.HotRequest?,
-    validatingHostDialect: string?,
     bytecodeBoundary: string?,
     forcedEffects: {[string]: boolean}?
 ): string, {any}, gen.Coverage?, {[string]: boolean}, gen.HotMetadata?
-    -- This immutable fact describes generated code, including a portable artifact
-    -- executed by a LuaJIT host. It is unrelated to provider discovery.
+    -- This immutable fact describes generated code and is unrelated to provider
+    -- discovery.
     if result.moduleName == "nupp.runtime.target" then
-        return (
-            "return {dialect=%q,host=%q}"
-        ):format(
-            result.dialect or "luajit",
-            result.host or (result.dialect == "lua51" and "browser" or "native")
-        ), {}, nil, {}
+        return ("return {dialect=%q,host=%q}"):format(result.dialect or "luajit", result.host or "native"), {}, nil, {}
     end
     local out = {}
     local capabilityResolution = capabilities.resolve(result.dialect or "luajit")
-    local bitopsCapability = capabilities.get(capabilityResolution, "bitops")
-    local compatibilityBitops = result.dialect == "luajit-compat"
-    local portableBitops = bitopsCapability.kind == "runtime" or compatibilityBitops
-    local needsCompatibilityBitops = false
-    local structvalueCapability = capabilities.get(capabilityResolution, "structvalue")
-    local portableStructvalue = structvalueCapability.kind == "runtime"
-    local int64Capability = capabilities.get(capabilityResolution, "int64")
-    local portableInt64 = int64Capability.kind == "runtime"
     --[[
     The fixed-width scalar members that lower to inline BitOp rather than to a
     call through the installed `nupp.math`.
@@ -624,29 +541,6 @@ function gen.generate(
         ["u32.rotateRight"] = {arity = 2, parts = {"(@ror(", 1, ",@band(", 2, ",31))%4294967296)"},},
     }
 
-    local BITOP_METHOD = {
-        ["&"] = "band",
-        ["|"] = "bor",
-        ["~"] = "bxor",
-        ["<<"] = "lshift",
-        [">>"] = "rshift",
-        ["~>>"] = "arshift",
-    }
-    local INT64_METHOD = {
-        ["+"] = "add",
-        ["-"] = "sub",
-        ["*"] = "mul",
-        ["/"] = "div",
-        ["//"] = "div",
-        ["%"] = "mod",
-        ["^"] = "pow",
-        ["&"] = "band",
-        ["|"] = "bor",
-        ["~"] = "bxor",
-        ["<<"] = "lshift",
-        [">>"] = "rshift",
-        ["~>>"] = "arshift",
-    }
     local declaredModuleName = result.declaredModuleName
     local curLine = 1
     local atLineStart = true
@@ -669,11 +563,6 @@ function gen.generate(
     local function needRuntimeEffect(effect: string?, moduleName: string?): nil
         if effect ~= nil then
             emittedFeatureEffects[effect] = true
-            -- The runtime math table binds its bit functions when it loads.
-            -- Install the selected representation before that table is required.
-            if effect == "stdlib.math" and bitopsCapability.kind == "runtime" then
-                emittedFeatureEffects[bitopsCapability.effect] = true
-            end
         end
     end
 
@@ -876,7 +765,7 @@ function gen.generate(
         activations = {},
         activationPlaceholders = {},
         loopNodes = {},
-        portableLoops = {},
+        loopWrappers = {},
         captureFrames = {},
         captureFrameStack = {},
         constructorReturnName = nil as string?,
@@ -959,10 +848,6 @@ function gen.generate(
 
         return fresh
     end
-
-    local bitopsName = portableBitops and reservedName("__nuppBitops") or nil
-    local structvalueName = portableStructvalue and reservedName("__nuppStructvalue") or nil
-    local int64Name = portableInt64 and reservedName("__nuppInt64") or nil
 
     emitDepth.exportTableName = declaredModuleName and reservedName("__nuppExports") or nil
     if declaredModuleName and cst.exportAssignment(result.root) then
@@ -1419,10 +1304,6 @@ function gen.generate(
         cleanupIdName = nextTemp()
         cleanupFailureName = nextTemp()
         cleanupCacheName = nextTemp()
-        if result.dialect == "lua51" then
-            yieldableXpcallName = nextTemp()
-            yieldablePcallName = nextTemp()
-        end
         cleanupGlobals = {}
         for _, name in ipairs({"pcall", "xpcall", "error", "unpack", "select", "setmetatable", "tostring", "ipairs"}) do
             cleanupGlobals[name] = nextTemp()
@@ -2074,13 +1955,6 @@ function gen.generate(
     end
 
     local function emitRuntimeLayout(spec, line, emitCtype)
-        if portableStructvalue then
-            needRuntimeEffect("runtime.structvalue")
-            e(structvalueName .. ".layout(", line)
-            emitCtype()
-            e(")")
-            return
-        end
         needsLayout = true
         layoutName = layoutName or reservedName("__nuppLayout")
         e(("%s("):format(layoutName), line)
@@ -2109,7 +1983,6 @@ function gen.generate(
     -- load.
     local pluck = {
         compat = result.compat,
-        portable = dialects.lowersSyntax(result.dialect or "luajit"),
         plans = {},
         loweredPlans = {},
         statementActive = {},
@@ -2165,30 +2038,13 @@ function gen.generate(
             region = "the protected body reads and writes this region's own owners and flags",
             lazy = "the body defers an operand until the test that guards it has passed",
         },
-        bitops = {
-            portable = portableBitops,
-            effect = bitopsCapability.effect,
-            compatibility = compatibilityBitops,
-            methods = BITOP_METHOD,
-            name = bitopsName,
-        },
         -- Carried here rather than reached directly, because `emit` is at its
         -- upvalue ceiling and one more name from it would stop the module
         -- loading. See the note above.
         scalarInline = {forms = SCALAR_INLINE, bitop = inlineBitop,},
-        structvalue = {enabled = portableStructvalue, name = structvalueName, effect = "runtime.structvalue",},
         storage = {
             enabled = capabilities.get(capabilityResolution, "cstorage").kind == "runtime",
             name = reservedName("__nuppCstorage")
-        },
-        int64 = {
-            enabled = portableInt64,
-            name = int64Name,
-            effect = "runtime.int64",
-            methods = INT64_METHOD,
-            isWide = function(t)
-                return t ~= nil and (t.tag == "int64" or t.tag == "uint64")
-            end,
         },
     }
 
@@ -2677,36 +2533,22 @@ function gen.generate(
     -- current value: the bitops helper applied to it when the operator has no
     -- spelling in this dialect, and the operator applied to it otherwise. The value
     -- is parenthesised so its own operators bind before the compound one.
-    function pluck.emitCompoundValue(x, emitRead, bitMethod: string?, lead: string?, line)
-        if bitMethod then
-            e((lead or "") .. pluck.bitops.name .. "." .. bitMethod .. "(", line)
-            emitRead()
-            e(",", x.op.line)
-            emit(x.value)
-            e(")")
-        else
-            if lead then
-                e(lead, line)
-            end
-            emitRead()
-            e((" %s ("):format(x.op.kind:sub(1, -2)), x.op.line)
-            emit(x.value)
-            e(")")
+    function pluck.emitCompoundValue(x, emitRead, lead: string?, line)
+        if lead then
+            e(lead, line)
         end
+        emitRead()
+        e((" %s ("):format(x.op.kind:sub(1, -2)), x.op.line)
+        emit(x.value)
+        e(")")
     end
 
     -- `slot op= value` for a slot `emitSlot` spells, one cheap and safe to spell
-    -- twice. The choice between the native compound operator, the portable
-    -- expansion that reads the slot back, and the bitops helper is made here once
-    -- for every indexed target.
-    function pluck.emitCompoundInto(x, emitSlot, bitMethod: string?)
+    -- twice.
+    function pluck.emitCompoundInto(x, emitSlot)
         emitSlot()
-        if bitMethod or pluck.portable then
-            pluck.emitCompoundValue(x, emitSlot, bitMethod, "=")
-        else
-            e((" %s "):format(x.op.kind), x.op.line)
-            emit(x.value)
-        end
+        e((" %s "):format(x.op.kind), x.op.line)
+        emit(x.value)
     end
 
     local function hotEmitImplementation(planned): nil
@@ -2810,9 +2652,6 @@ function gen.generate(
     -- OPT-8 re-emits a checked function body under exact scalar substitutions.
     -- Keep its helpers on `pluck`, which the recursive emitter already captures: that
     -- emitter deliberately sits at LuaJIT's 60-upvalue boundary. Not `pluck.const`:
-    -- `lowerPortableConst` above rewrites the bare identifier `const` to `local`
-    -- wherever it finds one in generated output, and this file is itself generated
-    -- for the portable dialect, so that name would rewrite its own definition.
     pluck.constSpecialize = {emission = nil,} as any
     pluck.constSpecialize.integer = function(node): integer?
         if node == nil or cst.isToken(node) then
@@ -2997,13 +2836,6 @@ function gen.generate(
             e(("(%s==%s)"):format(recordIdentity, t.recordName), line)
         elseif t.recordName and recordIdentitySafe then
             e(("(getmetatable(%s).__index==%s)"):format(subject, t.recordName), line)
-        elseif t.recordName and pluck.portable then
-            local test = pluck.declareHelper(
-                "__nuppIsRecord",
-                "value,identity",
-                "local mt=getmetatable(value);return mt~=nil and mt.__index==identity"
-            )
-            e(("%s(%s,%s)"):format(test, subject, t.recordName), line)
         elseif t.recordName then
             e(("(getmetatable(%s)?.__index==%s)"):format(subject, t.recordName), line)
         elseif t.reified then
@@ -3950,10 +3782,10 @@ function gen.generate(
             region[kind .. "Exit"] = true
             e(("do return %q end"):format(kind), line)
         else
-            local loop = emitDepth.portableLoops[#emitDepth.portableLoops]
+            local loop = emitDepth.loopWrappers[#emitDepth.loopWrappers]
             if loop and loop.action then
                 e("do ", line)
-                pluck.portableExit(loop, kind)
+                pluck.loopExit(loop, kind)
                 e(" end")
             else
                 e("do " .. kind .. " end", line)
@@ -4114,11 +3946,10 @@ function gen.generate(
         return labels
     end
 
-    -- A synthetic one-iteration repeat gives Lua 5.1 a structured target for
-    -- `continue`. Nested loops and functions own their control statements, so they do
-    -- not force a wrapper around this loop.
-    function pluck.portableLoopNeedsWrapper(loop): boolean
-        if not pluck.portable and not (loop.kind == "repeatStmt" and emitDepth.switchContains(loop.cond)) then
+    -- A synthetic one-iteration repeat keeps a `continue` ahead of a lowered switch
+    -- in an authored repeat condition inside the body's scope.
+    function pluck.loopNeedsWrapper(loop): boolean
+        if not (loop.kind == "repeatStmt" and emitDepth.switchContains(loop.cond)) then
             return false
         end
         local found = false
@@ -4161,31 +3992,31 @@ function gen.generate(
     -- spelled at every exit that reaches the condition natively: the end of the body
     -- and each `continue`. The condition is rendered once, apart from the output and
     -- on one line: the cursor starts past every source line, so no token advances it.
-    function pluck.portableUntilTest(portableLoop): string
-        if not portableLoop.untilTest then
+    function pluck.loopUntilTest(loopWrapper): string
+        if not loopWrapper.untilTest then
             local savedOut, savedLine, savedLineStart = out, curLine, atLineStart
             out, curLine, atLineStart = {}, 0x7fffffff, true
-            emitDepth.beginCondition(portableLoop.blockCondition)
-            lowerSwitches(portableLoop.untilCond)
-            e(portableLoop.untilFlag .. "=")
-            emit(portableLoop.untilCond)
+            emitDepth.beginCondition(loopWrapper.blockCondition)
+            lowerSwitches(loopWrapper.untilCond)
+            e(loopWrapper.untilFlag .. "=")
+            emit(loopWrapper.untilCond)
             e(";")
-            emitDepth.endCondition(portableLoop.blockCondition)
-            portableLoop.untilTest = table.concat(out)
+            emitDepth.endCondition(loopWrapper.blockCondition)
+            loopWrapper.untilTest = table.concat(out)
             out, curLine, atLineStart = savedOut, savedLine, savedLineStart
         end
 
-        return portableLoop.untilTest
+        return loopWrapper.untilTest
     end
 
     -- Leaves the wrapper with the completion the authored statement asked for; the
     -- test after the wrapper turns "break" into a real one.
-    function pluck.portableExit(portableLoop, completion: string, line)
-        if completion == "continue" and portableLoop.untilFlag then
-            e(pluck.portableUntilTest(portableLoop), line)
+    function pluck.loopExit(loopWrapper, completion: string, line)
+        if completion == "continue" and loopWrapper.untilFlag then
+            e(pluck.loopUntilTest(loopWrapper), line)
             line = nil
         end
-        e(("%s=%q;break"):format(portableLoop.action, completion), line)
+        e(("%s=%q;break"):format(loopWrapper.action, completion), line)
     end
 
     -- `...` cannot cross the protected region's function boundary, so a body that reads
@@ -5111,28 +4942,12 @@ function gen.generate(
             if x.kind == "string" and text:sub(1, 1) == "`" then
                 -- backtick string without interpolation -> quoted string
                 text = pluck.quote(text:sub(2, -2))
-            elseif pluck.portable and x.kind == "number" then
-                text = text:gsub("_", "")
-                local lower = text:lower()
-                if lower:find("x", 1, true) and (lower:find("%.") or lower:find("p", 1, true)) then
-                    local value = tonumber(text)
-                    if value then
-                        text = ("%.17g"):format(value)
-                    end
-                end
-            elseif pluck.portable then
-                text = ({["!"] = "not", ["&&"] = "and", ["||"] = "or", ["!="] = "~=",})[text] or text
             end
             e(text, x.line)
             return
         end
 
         local kind = x.kind
-        if pluck.portable and x.portableMathLibrary then
-            -- Capture the host function before authored code can pass or replace
-            -- the library, even when this module never reads its log field.
-            compilerModuleName("nupp.runtime.portablemath")
-        end
         if kind == "assignmentTemporary" then
             e(x.name);
             return
@@ -5285,27 +5100,6 @@ function gen.generate(
         if kind == "assignStmt" and pluck.multiIndexedAssignment(x) then
             return
         end
-        if pluck.portable
-            and kind == "assignStmt"
-            and #(x.targets or {}) == 1
-            and #(x.exprs or {}) == 1
-            and (x.targets[1].kind == "safeIndex" or x.targets[1].kind == "safeBracket")
-        then
-            local target, object = x.targets[1], nextTemp()
-            e(("do local %s="):format(object), sourceLine(x))
-            emit(target.obj)
-            e((";if %s~=nil then "):format(object))
-            if target.kind == "safeIndex" then
-                e(object .. "." .. target.name.text .. "=")
-            else
-                e(object .. "[")
-                emit(target.expr)
-                e("]=")
-            end
-            emit(x.exprs[1])
-            e(" end end")
-            return
-        end
         if kind == "assignStmt" and #(x.targets or {}) == 1 and #(x.exprs or {}) == 1 then
             local target = x.targets[1]
             if target
@@ -5424,15 +5218,6 @@ function gen.generate(
                 return
             end
         elseif kind == "compoundAssign" and x.target then
-            local compoundBase = x.op and x.op.kind:sub(1, -2) or nil
-            local bitMethod = pluck.bitops.portable and compoundBase and pluck.bitops.methods[compoundBase] or nil
-            if bitMethod then
-                if pluck.bitops.compatibility then
-                    needsCompatibilityBitops = true
-                else
-                    pluck.needRuntimeEffect(pluck.bitops.effect)
-                end
-            end
             local target = x.target
             if target.kind == "bracketIndex" and target.indexedAccess and target.indexedAccess.adapter == "span" then
                 e("do ", sourceLine(x))
@@ -5441,26 +5226,18 @@ function gen.generate(
                     e(("const %s="):format(indexName))
                     emit(target.expr)
                     e(";")
-                    pluck.emitCompoundInto(
-                        x,
-                        function()
-                            emitDepth.view.spanSlot(target.obj, indexName, nil, not target.indexedDirectAccess)
-                        end,
-                        bitMethod
-                    )
+                    pluck.emitCompoundInto(x, function()
+                        emitDepth.view.spanSlot(target.obj, indexName, nil, not target.indexedDirectAccess)
+                    end)
                 elseif target.indexedDirectAccess then
-                    pluck.emitCompoundInto(
-                        x,
-                        function()
-                            emit(target.obj)
-                            e(".pointer[")
-                            emit(target.obj)
-                            e(".offset+")
-                            emit(target.expr)
-                            e("-1]")
-                        end,
-                        bitMethod
-                    )
+                    pluck.emitCompoundInto(x, function()
+                        emit(target.obj)
+                        e(".pointer[")
+                        emit(target.obj)
+                        e(".offset+")
+                        emit(target.expr)
+                        e("-1]")
+                    end)
                 else
                     local viewName, indexName = nextTemp(), nextTemp()
                     e(("const %s="):format(viewName))
@@ -5468,13 +5245,9 @@ function gen.generate(
                     e((";const %s="):format(indexName))
                     emit(target.expr)
                     e((";%s:set(%s,"):format(viewName, indexName))
-                    pluck.emitCompoundValue(
-                        x,
-                        function()
-                            e(("%s:get(%s)"):format(viewName, indexName))
-                        end,
-                        bitMethod
-                    )
+                    pluck.emitCompoundValue(x, function()
+                        e(("%s:get(%s)"):format(viewName, indexName))
+                    end)
                     e(")")
                 end
                 e(" end")
@@ -5492,18 +5265,9 @@ function gen.generate(
                     e(("const %s="):format(indexName))
                     emit(access.expr)
                     e(";")
-                    pluck.emitCompoundInto(
-                        x,
-                        function()
-                            emitDepth.view.spanSlot(
-                                access.obj,
-                                indexName,
-                                target.name.text,
-                                not access.indexedDirectAccess
-                            )
-                        end,
-                        bitMethod
-                    )
+                    pluck.emitCompoundInto(x, function()
+                        emitDepth.view.spanSlot(access.obj, indexName, target.name.text, not access.indexedDirectAccess)
+                    end)
                     e(" end")
                     return
                 end
@@ -5519,13 +5283,9 @@ function gen.generate(
                     slot = ("%s:getMut(%s).%s"):format(viewName, indexName, target.name.text)
                 end
                 e(";")
-                pluck.emitCompoundInto(
-                    x,
-                    function()
-                        e(slot)
-                    end,
-                    bitMethod
-                )
+                pluck.emitCompoundInto(x, function()
+                    e(slot)
+                end)
                 e(" end")
                 return
             end
@@ -5533,13 +5293,9 @@ function gen.generate(
             if row and ordinal then
                 local bound = emitDepth.soa.boundName(row.obj, ordinal, row.expr)
                 if bound then
-                    pluck.emitCompoundInto(
-                        x,
-                        function()
-                            e(bound)
-                        end,
-                        bitMethod
-                    )
+                    pluck.emitCompoundInto(x, function()
+                        e(bound)
+                    end)
                     return
                 elseif emitDepth.view.info(row.obj) then
                     e("do ", sourceLine(x))
@@ -5547,13 +5303,9 @@ function gen.generate(
                     e(("const %s="):format(indexName))
                     emit(row.expr)
                     e(";")
-                    pluck.emitCompoundInto(
-                        x,
-                        function()
-                            emitDepth.view.soaSlot(row.obj, ordinal, indexName, not emitDepth.soa.unchecked(row))
-                        end,
-                        bitMethod
-                    )
+                    pluck.emitCompoundInto(x, function()
+                        emitDepth.view.soaSlot(row.obj, ordinal, indexName, not emitDepth.soa.unchecked(row))
+                    end)
                     e(" end")
                     return
                 end
@@ -5564,13 +5316,9 @@ function gen.generate(
                 emit(row.expr)
                 local slot = emitDepth.soa.slot(viewName, ordinal, indexName, emitDepth.soa.unchecked(row))
                 e(";")
-                pluck.emitCompoundInto(
-                    x,
-                    function()
-                        e(slot)
-                    end,
-                    bitMethod
-                )
+                pluck.emitCompoundInto(x, function()
+                    e(slot)
+                end)
                 e(" end")
                 return
             end
@@ -5619,115 +5367,6 @@ function gen.generate(
             -- Annotation schemas are compile-time model metadata, even when written
             -- with `record` or `struct`; they have no runtime value or FFI layout of
             -- their own.
-            return
-        end
-        if pluck.portable and kind == "ternary" and x.cond and x.ifTrue and x.ifFalse then
-            local value = nextTemp()
-            pluck.loweredFunction(
-                ("(function(%s) if %s then return ("):format(value, value),
-                sourceLine(x),
-                pluck.reasons.lazy
-            )
-            emit(x.ifTrue)
-            e(") else return (")
-            emit(x.ifFalse)
-            e(") end end)(")
-            emit(x.cond)
-            e(")")
-            return
-        end
-        if pluck.portable and kind == "binop" and x.op and x.op.kind == "??" and x.lhs and x.rhs then
-            local value = nextTemp()
-            pluck.loweredFunction(
-                ("(function(%s) if %s==nil then return ("):format(value, value),
-                x.op.line,
-                pluck.reasons.lazy
-            )
-            emit(x.rhs)
-            e((") else return %s end end)("):format(value))
-            emit(x.lhs)
-            e(")")
-            return
-        end
-        if pluck.portable and kind == "safeIndex" and x.obj then
-            -- A member read has no operand of its own to defer, so one helper per
-            -- member name serves every site.
-            local field = "__nuppV." .. x.name.text
-            if x.portableMathLog then
-                field = compilerModuleName("nupp.runtime.portablemath") .. ".logFunction(" .. field .. ")"
-            end
-            local helper = pluck.declareHelper(
-                "__nuppSafeIndex",
-                "__nuppV",
-                "if __nuppV==nil then return nil end return " .. field
-            )
-            e(helper .. "(", sourceLine(x))
-            emit(x.obj)
-            e(")")
-            return
-        end
-        if pluck.portable and (kind == "safeBracket" or kind == "safeCall") and x.obj then
-            -- The key and the arguments are evaluated only once the receiver is known
-            -- to be present, as they are natively, so they stay inside a body.
-            local value = nextTemp()
-            pluck.loweredFunction(
-                ("(function(%s) if %s==nil then return nil end return %s"):format(value, value, value),
-                sourceLine(x),
-                pluck.reasons.lazy
-            )
-            if kind == "safeBracket" then
-                e("[")
-                emit(x.expr)
-                e("]")
-            elseif x.args then
-                emit(x.args)
-            end
-            e(" end)(")
-            emit(x.obj)
-            e(")")
-            return
-        end
-        if pluck.portable and kind == "methodCall" and (x.safeObj or x.safeMethod) and x.obj and x.name then
-            local object, method = nextTemp(), nextTemp()
-            e(("(function(%s) "):format(object), sourceLine(x))
-            if x.safeObj then
-                e(("if %s==nil then return nil end; "):format(object))
-            end
-            if x.safeMethod then
-                e(
-                    (
-                        "local %s=%s.%s; if %s==nil then return nil end; return %s(%s"
-                    ):format(method, object, x.overloadMember or x.name.text, method, method, object)
-                )
-                local args = x.args
-                if args and args.loweredArgs then
-                    for _, argument in ipairs(args.loweredArgs) do
-                        e(",")
-                        pluck.emitArgument(argument, args)
-                    end
-                elseif args then
-                    for _, argument in ipairs(args.exprs or {}) do
-                        e(",")
-                        emit(argument)
-                    end
-                    if args.table then
-                        e(",")
-                        emit(args.table)
-                    elseif args.str then
-                        e(",")
-                        emit(args.str)
-                    end
-                end
-                e(")")
-            else
-                e(("return %s:%s"):format(object, x.overloadMember or x.name.text))
-                if x.args then
-                    emit(x.args)
-                end
-            end
-            e(" end)(")
-            emit(x.obj)
-            e(")")
             return
         end
         if not pluck.statementActive[x] then
@@ -5823,33 +5462,8 @@ function gen.generate(
             -- The checker retains the exact accepted value, including grouped
             -- and negative literals. Decimal text also makes integral exponent
             -- and hexadecimal-float forms valid integer constructor inputs.
-            if pluck.int64.enabled then
-                pluck.needRuntimeEffect(pluck.int64.effect)
-                e(
-                    (
-                        "%s.%s(%q)"
-                    ):format(
-                        pluck.int64.name,
-                        x.wideIntegerLiteralTag == "uint64" and "uint64" or "int64",
-                        x.wideIntegerLiteralText
-                    ),
-                    sourceLine(x)
-                )
-            else
-                e(x.wideIntegerLiteralText .. (x.wideIntegerLiteralTag == "uint64" and "ULL" or "LL"), sourceLine(x))
-            end
+            e(x.wideIntegerLiteralText .. (x.wideIntegerLiteralTag == "uint64" and "ULL" or "LL"), sourceLine(x))
             return
-        end
-        if pluck.int64.enabled and kind == "number" and x.token then
-            local spelling = x.token.text:gsub("_", "")
-            local lower = spelling:lower()
-            if lower:sub(-3) == "ull" or lower:sub(-2) == "ll" then
-                pluck.needRuntimeEffect(pluck.int64.effect)
-                local unsigned = lower:sub(-3) == "ull"
-                local digits = spelling:sub(1, unsigned and -4 or -3)
-                e(("%s.%s(%q)"):format(pluck.int64.name, unsigned and "uint64" or "int64", digits), x.token.line)
-                return
-            end
         end
         if x.materializedIR then
             local materializeIR = require("nupp.compiler.materialize.ir")
@@ -5882,59 +5496,12 @@ function gen.generate(
             e(")")
             return
         end
-        if pluck.int64.enabled and kind == "unop" and x.op and x.operand and pluck.int64.isWide(x.inferredType) then
-            pluck.needRuntimeEffect(pluck.int64.effect)
-            e(("%s.%s("):format(pluck.int64.name, x.op.kind == "-" and "neg" or "bnot"), x.op.line)
-            emit(x.operand)
-            e(")")
-            return
-        end
-        if pluck.int64.enabled and kind == "binop" and x.op and x.lhs and x.rhs then
-            local wide = pluck.int64.isWide(x.inferredType)
-                or pluck.int64.isWide(x.lhs.inferredType)
-                or pluck.int64.isWide(x.rhs.inferredType)
-            local method = wide and pluck.int64.methods[x.op.kind] or nil
-            if method then
-                pluck.needRuntimeEffect(pluck.int64.effect)
-                e(("%s.%s("):format(pluck.int64.name, method), x.op.line)
-                emit(x.lhs);
-                e(",");
-                emit(x.rhs);
-                e(")")
-                return
-            elseif wide
-                and (
-                    x.op.kind == "=="
-                    or x.op.kind == "~="
-                    or x.op.kind == "<"
-                    or x.op.kind == "<="
-                    or x.op.kind == ">"
-                    or x.op.kind == ">="
-                )
-            then
-                pluck.needRuntimeEffect(pluck.int64.effect)
-                e(("(%s.compare("):format(pluck.int64.name), x.op.line)
-                emit(x.lhs);
-                e(",");
-                emit(x.rhs)
-                local comparison = ({
-                    ["=="] = "==0",
-                    ["~="] = "~=0",
-                    ["<"] = "<0",
-                    ["<="] = "<=0",
-                    [">"] = ">0",
-                    [">="] = ">=0",
-                })[x.op.kind]
-                e(")" .. comparison .. ")")
-                return
-            end
-        end
         if (kind == "binop" or kind == "unop") and x.fixedArithmetic then
             -- Established thirty-two bit operands: the operator is the
             -- `nupp.math` intrinsic the checker named, inlined where the bit
             -- library is native and called where it is not, exactly as the
             -- spelled-out call would be.
-            local form = not pluck.bitops.portable and pluck.scalarInline.forms[x.fixedArithmetic] or nil
+            local form = pluck.scalarInline.forms[x.fixedArithmetic]
             if form ~= nil then
                 local sides = kind == "unop" and {x.operand} or {x.lhs, x.rhs}
                 for index, piece in ipairs(form.parts) do
@@ -5956,36 +5523,6 @@ function gen.generate(
                 end
                 e(")")
             end
-            return
-        end
-        if pluck.bitops.portable and kind == "unop" and x.op and x.op.kind == "~" and x.operand then
-            if pluck.bitops.compatibility then
-                needsCompatibilityBitops = true
-            else
-                pluck.needRuntimeEffect(pluck.bitops.effect)
-            end
-            e(pluck.bitops.name .. ".bnot(", x.op.line)
-            emit(x.operand)
-            e(")")
-            return
-        end
-        if pluck.bitops.portable
-            and kind == "binop"
-            and x.op
-            and pluck.bitops.methods[x.op.kind]
-            and x.lhs
-            and x.rhs
-        then
-            if pluck.bitops.compatibility then
-                needsCompatibilityBitops = true
-            else
-                pluck.needRuntimeEffect(pluck.bitops.effect)
-            end
-            e(pluck.bitops.name .. "." .. pluck.bitops.methods[x.op.kind] .. "(", x.op.line)
-            emit(x.lhs)
-            e(",")
-            emit(x.rhs)
-            e(")")
             return
         end
         if kind == "unop" and x.indexedLength and x.operand then
@@ -6052,17 +5589,6 @@ function gen.generate(
         end
         for _, effect in ipairs(x.compilerFeatureEffects or {}) do
             pluck.needRuntimeEffect(effect)
-        end
-        if kind == "dotIndex" and x.portableMathLog and pluck.portable then
-            -- A write also loads the adapter before authored statements, so a
-            -- first module replacing math.log cannot redefine its host baseline.
-            local adapter = compilerModuleName("nupp.runtime.portablemath")
-            if not x.portableMathLogWrite then
-                e(adapter .. ".logFunction(", sourceLine(x))
-                emit(x.obj)
-                e(".log)")
-                return
-            end
         end
         if kind == "dotIndex" and x.overloadMember then
             emit(x.obj)
@@ -6160,7 +5686,7 @@ function gen.generate(
             e("," .. tostring(x.carrayBound) .. ")]")
             return
         end
-        if kind == "call" and x.scalarIntrinsic and not pluck.bitops.portable then
+        if kind == "call" and x.scalarIntrinsic then
             local form = pluck.scalarInline.forms[x.scalarIntrinsic]
             local exprs = x.args and x.args.exprs or nil
             local plain = form ~= nil and exprs ~= nil and #exprs == form.arity and not (x.args and x.args.table)
@@ -6488,98 +6014,6 @@ function gen.generate(
         end
 
         if kind == "recordDecl" and x.declKind == "struct" then
-            if pluck.structvalue.enabled then
-                pluck.needRuntimeEffect(pluck.structvalue.effect)
-                local line = sourceLine(x)
-                local path = declPath(x)
-                local storage = path and "" or x.visibility == "global" and "" or "local "
-                local mt = "__nuppMt_" .. x.name.text
-                local fields = {}
-
-                local function fixedType(t: any): string?
-                    if t.kind == "topt" then
-                        t = t.inner
-                    end
-                    if t.kind == "tname" and C_PRIM[t.base.text] then
-                        return ("%s.scalar(%q)"):format(pluck.structvalue.name, t.base.text)
-                    elseif t.kind == "tname" then
-                        return (t.reified or cst.textOf(t)) as string
-                    elseif t.kind == "tptr" or (t.kind == "tcarray" and not t.count) then
-                        local element = fixedType(t.element or t.inner)
-                        if element then
-                            return ("%s.reference(function() return %s end)"):format(pluck.structvalue.name, element)
-                        end
-                    elseif t.kind == "tcarray" and t.count then
-                        local element = fixedType(t.element)
-                        if element then
-                            return ("%s.array(%s,%s)"):format(pluck.structvalue.name, element, cst.textOf(t.count))
-                        end
-                    end
-
-                    return nil
-                end
-
-                for _, entry in ipairs(x.entries or {}) do
-                    if entry.kind == "fieldDecl" then
-                        local t = entry.type
-                        if t.kind == "topt" then
-                            t = t.inner
-                        end
-                        if t.kind == "tname" and C_PRIM[t.base.text] then
-                            fields[
-                                #fields + 1
-                            ] = (
-                                "{name=%q,kind=%q%s}"
-                            ):format(
-                                entry.name.text,
-                                t.base.text,
-                                entry.bitWidth and (",bits=" .. entry.bitWidth.text) or ""
-                            )
-                        else
-                            local fixed = fixedType(t)
-                            if fixed then
-                                fields[#fields + 1] = ("{name=%q,type=%s}"):format(entry.name.text, fixed)
-                            else
-                                emitDepth.diag(
-                                    entry.name,
-                                    "NUPP3006",
-                                    "portable struct fields need scalar, struct, or fixed-array storage"
-                                )
-                            end
-                        end
-                    end
-                end
-                if storage == "local " then
-                    e("local " .. x.name.text, line)
-                    storage = ""
-                end
-                e(
-                    (
-                        "local %s={__index={}} %s%s=%s.define({name=%q,fields={%s}},%s)"
-                    ):format(
-                        mt,
-                        storage,
-                        path or x.name.text,
-                        pluck.structvalue.name,
-                        x.name.text,
-                        table.concat(fields, ","),
-                        mt
-                    ),
-                    line
-                )
-                for _, entry in ipairs(x.entries or {}) do
-                    if entry.kind == "inlineMethod" then
-                        entry.inlineRuntimeOwner = mt .. ".__index"
-                        emit(entry)
-                    elseif entry.kind == "constructorDecl" then
-                        entry.inlineRuntimeOwner = mt .. ".__index"
-                        entry.structAllocator = path or x.name.text
-                        emit(entry)
-                    end
-                end
-                emitInheritedDefaults(x, mt .. ".__index")
-                return
-            end
             -- struct S { a: float, b: OtherStruct, p: S* } lowers to const S =
             -- __nuppFfi.typeof("struct { float a; $ b; $ *p; }", OtherStruct,
             -- S_is_forward_error)
@@ -6927,20 +6361,9 @@ function gen.generate(
                 -- directly stamped instance arrives at `R` by the same step a linked
                 -- one does. The subject is read once, and a value with no metatable at
                 -- all falls out as false rather than raising.
-                if pluck.portable then
-                    local test = pluck.declareHelper(
-                        "__nuppIsRecord",
-                        "value,identity",
-                        "local mt=getmetatable(value);return mt~=nil and mt.__index==identity"
-                    )
-                    e(test .. "(", firstTok and firstTok.line)
-                    emit(x.expr)
-                    e("," .. t.recordName .. ")")
-                else
-                    e("( getmetatable(", firstTok and firstTok.line)
-                    emit(x.expr)
-                    e(")?.__index == " .. t.recordName .. " )")
-                end
+                e("( getmetatable(", firstTok and firstTok.line)
+                emit(x.expr)
+                e(")?.__index == " .. t.recordName .. " )")
             elseif t.recordNames then
                 -- A union of records is nominal member by member: the value came from
                 -- one of these declarations or none. The subject is evaluated once
@@ -6955,11 +6378,6 @@ function gen.generate(
                 e(test .. "(", firstTok and firstTok.line)
                 emit(x.expr)
                 e("," .. table.concat(t.recordNames, ",") .. ")")
-            elseif t.reified and pluck.structvalue.enabled then
-                pluck.needRuntimeEffect(pluck.structvalue.effect)
-                e(t.reified .. ":isa(", firstTok and firstTok.line)
-                emit(x.expr)
-                e(")")
             elseif t.reified then
                 -- struct target: real runtime identity via ffi.istype
                 needsFfi = true
@@ -6986,7 +6404,7 @@ function gen.generate(
             -- for.
             local first = x[1]
             local line = first and (cst.isToken(first) and first.line or (first[1] and first[1].line))
-            if not x.varargParam and not pluck.portable and not emitDepth.switchContains(x.expr) then
+            if not x.varargParam and not emitDepth.switchContains(x.expr) then
                 local names = {}
                 for _, p in ipairs(x.params) do
                     names[#names + 1] = p.name.text
@@ -7078,28 +6496,11 @@ function gen.generate(
             emit(x.rhs)
             e("))")
 
-        elseif kind == "compoundAssign"
-            and (
-                pluck.portable
-                or emitDepth.switchContains(x)
-                or LOWERED_COMPOUND[x.op.kind]
-                or (pluck.bitops.portable and pluck.bitops.methods[x.op.kind:sub(1, -2)])
-            )
-        then
-            -- Portable Lua has no compound syntax. Every form reads the target and then
-            -- writes it, so an indexed target's prefix and key are bound to temporaries
-            -- first: `obj.f += v` must not re-run whatever produced obj.
+        elseif kind == "compoundAssign" and (emitDepth.switchContains(x) or LOWERED_COMPOUND[x.op.kind]) then
+            -- Lowered forms read the target and then write it, so an indexed target's
+            -- prefix and key are bound to temporaries first: `obj.f ??= v` must not
+            -- re-run whatever produced obj.
             local base = x.op.kind:sub(1, -2)
-            local bitMethod = pluck.bitops.portable and pluck.bitops.methods[base] or nil
-            local wideMethod = pluck.int64.enabled
-                and pluck.int64.isWide(x.target.inferredType)
-                and pluck.int64.methods[base]
-                or nil
-            if wideMethod then
-                pluck.needRuntimeEffect(pluck.int64.effect)
-            elseif bitMethod then
-                pluck.needRuntimeEffect(pluck.bitops.effect)
-            end
             local target = x.target
             local line = sourceLine(target)
 
@@ -7124,17 +6525,12 @@ function gen.generate(
                     e(("%s = math.floor((%s) / ("):format(slot, read), at)
                     emit(x.value)
                     e("))")
-                elseif wideMethod then
-                    e(("%s=%s.%s(%s,"):format(slot, pluck.int64.name, wideMethod, read), at)
-                    emit(x.value)
-                    e(")")
                 else
                     pluck.emitCompoundValue(
                         x,
                         function()
                             e(read)
                         end,
-                        bitMethod,
                         slot .. "=",
                         at
                     )
@@ -7599,12 +6995,6 @@ function gen.generate(
                 emit(arg)
             end
             e(")")
-            return
-
-        elseif kind == "call" and x.rewrittenModule then
-            -- The source named a module this target does not have. Its replacement
-            -- answers to the same declaration, so only the name moves.
-            e(("require(%q)"):format(x.rewrittenModule), sourceLine(x))
             return
 
         elseif kind == "call" and x.carrayElem then
@@ -9020,10 +8410,10 @@ function gen.generate(
             pluck.currentRegion()[completion .. "Exit"] = true
             e(("return %q"):format(completion), sourceLine(x))
 
-        elseif pluck.portable and (kind == "breakStmt" or kind == "continueStmt") then
-            local portableLoop = emitDepth.portableLoops[#emitDepth.portableLoops]
-            if portableLoop and portableLoop.action then
-                pluck.portableExit(portableLoop, kind == "breakStmt" and "break" or "continue", sourceLine(x))
+        elseif kind == "breakStmt" or kind == "continueStmt" then
+            local loopWrapper = emitDepth.loopWrappers[#emitDepth.loopWrappers]
+            if loopWrapper and loopWrapper.action then
+                pluck.loopExit(loopWrapper, kind == "breakStmt" and "break" or "continue", sourceLine(x))
             else
                 emitChildren(x)
             end
@@ -9050,12 +8440,12 @@ function gen.generate(
             for j = 3, #names do
                 e(("local %s=nil;"):format(names[j].text))
             end
-            local portableLoop = {}
-            if pluck.portableLoopNeedsWrapper(x) then
-                portableLoop.action = nextTemp()
-                e(("local %s;repeat"):format(portableLoop.action))
+            local loopWrapper = {}
+            if pluck.loopNeedsWrapper(x) then
+                loopWrapper.action = nextTemp()
+                e(("local %s;repeat"):format(loopWrapper.action))
             end
-            emitDepth.portableLoops[#emitDepth.portableLoops + 1] = portableLoop
+            emitDepth.loopWrappers[#emitDepth.loopWrappers + 1] = loopWrapper
             emitDepth.loop = emitDepth.loop + 1
             emitDepth.loopNodes[#emitDepth.loopNodes + 1] = x
             if x.body then
@@ -9063,9 +8453,9 @@ function gen.generate(
             end
             emitDepth.loopNodes[#emitDepth.loopNodes] = nil
             emitDepth.loop = emitDepth.loop - 1
-            emitDepth.portableLoops[#emitDepth.portableLoops] = nil
-            if portableLoop.action then
-                e(("until true;if %s==\"break\" then break end;"):format(portableLoop.action))
+            emitDepth.loopWrappers[#emitDepth.loopWrappers] = nil
+            if loopWrapper.action then
+                e(("until true;if %s==\"break\" then break end;"):format(loopWrapper.action))
                 emitDepth.propagateValueLoop()
             end
             local endTok = pluck.endToken(x)
@@ -9080,7 +8470,7 @@ function gen.generate(
                 emitDepth.lowerValues(x.exprs or {})
             end
             emitDepth.soa.openLoop(x)
-            local portableLoop = {}
+            local loopWrapper = {}
             local blockWhile = kind == "whileStmt" and emitDepth.switchContains(x.cond)
             local header = nil
             if (kind == "whileStmt" or kind == "repeatStmt") and emitDepth.switchContains(x.cond) then
@@ -9093,7 +8483,7 @@ function gen.generate(
                     cleanupDepth = #cleanupStack
                 }
                 x.blockCondition = header
-                portableLoop.blockCondition = header
+                loopWrapper.blockCondition = header
                 e("local " .. header.action .. ";", sourceLine(x))
             end
             if kind == "repeatStmt" then
@@ -9107,14 +8497,14 @@ function gen.generate(
                     e(("local %s;"):format(x.cleanupConditionTemp), sourceLine(x))
                 end
             end
-            if pluck.portableLoopNeedsWrapper(x) then
-                portableLoop.action = nextTemp()
+            if pluck.loopNeedsWrapper(x) then
+                loopWrapper.action = nextTemp()
                 -- A body with automatic cleanup already evaluates the condition
                 -- inside its region and leaves it in cleanupConditionTemp, which
                 -- the until reads; a second flag would run the condition twice.
                 if kind == "repeatStmt" and x.cond and not x.cleanupConditionTemp then
-                    portableLoop.untilFlag = nextTemp()
-                    portableLoop.untilCond = x.cond
+                    loopWrapper.untilFlag = nextTemp()
+                    loopWrapper.untilCond = x.cond
                 end
             end
             local lastLine = nil
@@ -9128,30 +8518,30 @@ function gen.generate(
                         e(") then break end;")
                         emitDepth.endCondition(header)
                     end
-                    if portableLoop.untilFlag then
-                        e(("local %s,%s;repeat"):format(portableLoop.action, portableLoop.untilFlag), sourceLine(child))
-                    elseif portableLoop.action then
-                        e(("local %s;repeat"):format(portableLoop.action), sourceLine(child))
+                    if loopWrapper.untilFlag then
+                        e(("local %s,%s;repeat"):format(loopWrapper.action, loopWrapper.untilFlag), sourceLine(child))
+                    elseif loopWrapper.action then
+                        e(("local %s;repeat"):format(loopWrapper.action), sourceLine(child))
                     end
                     emitDepth.soa.beginIteration(x)
-                    emitDepth.portableLoops[#emitDepth.portableLoops + 1] = portableLoop
+                    emitDepth.loopWrappers[#emitDepth.loopWrappers + 1] = loopWrapper
                     emitDepth.loop = emitDepth.loop + 1
                     emitDepth.loopNodes[#emitDepth.loopNodes + 1] = x
                     emit(child)
-                    if kind == "repeatStmt" and not portableLoop.untilFlag and not x.cleanupConditionTemp then
+                    if kind == "repeatStmt" and not loopWrapper.untilFlag and not x.cleanupConditionTemp then
                         emitDepth.beginCondition(header)
                         emitDepth.lowerSwitches(x.cond)
                         emitDepth.endCondition(header)
                     end
-                    if portableLoop.untilFlag then
-                        e(pluck.portableUntilTest(portableLoop))
+                    if loopWrapper.untilFlag then
+                        e(pluck.loopUntilTest(loopWrapper))
                     end
                     emitDepth.loopNodes[#emitDepth.loopNodes] = nil
                     emitDepth.loop = emitDepth.loop - 1
-                    emitDepth.portableLoops[#emitDepth.portableLoops] = nil
+                    emitDepth.loopWrappers[#emitDepth.loopWrappers] = nil
                     emitDepth.soa.endIteration(x)
-                    if portableLoop.action then
-                        e(("until true;if %s==\"break\" then break end;"):format(portableLoop.action))
+                    if loopWrapper.action then
+                        e(("until true;if %s==\"break\" then break end;"):format(loopWrapper.action))
                         emitDepth.propagateValueLoop()
                         if header then
                             e("if " .. header.action .. " then break end;")
@@ -9161,8 +8551,8 @@ function gen.generate(
                     e("true", sourceLine(child))
                 elseif child == x.cond and x.cleanupConditionTemp then
                     e(x.cleanupConditionTemp, sourceLine(child))
-                elseif child == x.cond and portableLoop.untilFlag then
-                    e(portableLoop.untilFlag, sourceLine(child))
+                elseif child == x.cond and loopWrapper.untilFlag then
+                    e(loopWrapper.untilFlag, sourceLine(child))
                 else
                     emit(child)
                 end
@@ -9682,9 +9072,7 @@ function gen.generate(
         end
     end
 
-    if not pluck.portable then
-        planStructTags()
-    end
+    planStructTags()
     if hotState and hotState.mode == "patch" then
         local captured = {}
         for _, planned in ipairs(hotState.functions) do
@@ -10152,24 +9540,10 @@ function gen.generate(
         ):format(compilerModules["nupp.log"], result.moduleName or filename or "?") .. code
     end
     local runtimeBootstrap = stdlib.bootstrap(runtimeEffects, hotState ~= nil, installingManaged)
-    if runtimeEffects[pluck.bitops.effect] then
-        runtimeBootstrap = runtimeBootstrap .. ("local %s=require(\"nupp.runtime.bitops\");"):format(pluck.bitops.name)
-    end
-    if needsCompatibilityBitops then
-        runtimeBootstrap = runtimeBootstrap .. ("local %s=require(\"bit\");"):format(pluck.bitops.name)
-    end
     if pluck.storage.enabled and runtimeEffects["runtime.cstorage"] then
         runtimeBootstrap = runtimeBootstrap .. (
             "local %s=require(%q);"
         ):format(pluck.storage.name, "nupp.runtime.storage")
-    end
-    if portableStructvalue and runtimeEffects["runtime.structvalue"] then
-        runtimeBootstrap = runtimeBootstrap .. (
-            "local %s=require(%q);"
-        ):format(structvalueName, "nupp.runtime.structvalue")
-    end
-    if portableInt64 and runtimeEffects["runtime.int64"] then
-        runtimeBootstrap = runtimeBootstrap .. ("local %s=require(%q);"):format(int64Name, "nupp.runtime.int64")
     end
     if needsCleanupRegions then
         -- A cleanup region runs its terminals inside a protected call, and stock Lua
@@ -10339,20 +9713,10 @@ function gen.generate(
             .. code
     end
     if needsClearTab then
-        if pluck.portable then
-            code = ("local function %s(t) for k in next,t do t[k]=nil end end; "):format(clearTabName) .. code
-        else
-            code = ("const %s = require(\"table.clear\"); "):format(clearTabName) .. code
-        end
+        code = ("const %s = require(\"table.clear\"); "):format(clearTabName) .. code
     end
     if needsNewTab then
-        if pluck.portable then
-            -- The call still evaluates both capacity arguments before entering this
-            -- helper. Only their allocation hint is erased.
-            code = ("local function %s(_,_) return {} end; "):format(newTabName) .. code
-        else
-            code = ("const %s = require(\"table.new\"); "):format(newTabName) .. code
-        end
+        code = ("const %s = require(\"table.new\"); "):format(newTabName) .. code
     end
     if needsMetatypeOnce then
         -- `ffi.metatype` claims a ctype once per process. A named struct's tag encodes
@@ -10510,45 +9874,6 @@ function gen.generate(
         }
     end
 
-    if pluck.portable then
-        code = lowerPortableConst(code)
-        -- Stock Lua will not yield out of a protected call, and on a host whose every
-        -- wait is a yield -- a browser, where the program is a coroutine the host
-        -- resumes -- that makes `pcall` and suspension mutually exclusive. Which is
-        -- most of what a program does with either: no sleeping inside a `pcall`, no
-        -- request, no awaited worker task, and no way at all to observe a failure the
-        -- way `nupp.workers` documents. So a portable target that can suspend gets the
-        -- protected calls it needs: the body runs on its own coroutine and whatever it
-        -- yields is passed through, which is the same call with the barrier removed.
-        --
-        -- Lexical, like the two names below it, so the process global table is left
-        -- alone and a source local of the same name still shadows it normally.
-        if canSuspend then
-            local portableCoroutineCreate = "__nuppProtectedCreate"
-            code = 'local __nuppProtectedCreate=require("nupp.suspension").create;'
-                .. "local function __nuppYieldPack(...) return {n=select(\"#\",...),...} end;"
-                -- The body is wrapped rather than handed over: `coroutine.create`
-                -- takes a Lua function, and a protected call takes anything callable.
-                .. "local function __nuppProtected(handler,body,...) " .. (
-                    "local thread=%s(function(...) return body(...) end);"
-                ):format(
-                    portableCoroutineCreate
-                )
-                .. "local input=__nuppYieldPack(...);"
-                .. "while true do "
-                .. "local out=__nuppYieldPack(coroutine.resume(thread,unpack(input,1,input.n)));"
-                .. "if not out[1] then if handler then return false,handler(out[2]) end return false,out[2] end "
-                .. "if coroutine.status(thread)==\"dead\" then return unpack(out,1,out.n) end "
-                .. "input=__nuppYieldPack(coroutine.yield(unpack(out,2,out.n))) end end;"
-                .. "local function pcall(body,...) return __nuppProtected(nil,body,...) end;"
-                .. "local function xpcall(body,handler,...) return __nuppProtected(handler,body,...) end;"
-                .. code
-        end
-        -- These are the two moved names emitted code itself reaches. Keeping the
-        -- compatibility floor lexical avoids mutating the process global table and
-        -- leaves a same-spelled source local free to shadow it normally.
-        code = "local unpack=unpack or table.unpack;local loadstring=loadstring or load;" .. code
-    end
     -- Prelude implementation bodies are ordinary checked and generated Nupp. Execute
     -- their generated chunk before this module on one physical line so authored source
     -- line numbers remain aligned with the module body.
@@ -10558,11 +9883,7 @@ function gen.generate(
         -- every source position. Turn those continuations into `\n` escapes so the
         -- ordinary prelude implementation remains on the generated preamble line.
         local quotedPrelude = ("%q"):format(result.preludeRuntime):gsub("\n", "n")
-        if pluck.portable then
-            code = ("_G.assert((_G.loadstring or _G.load)(%s,%q))();"):format(quotedPrelude, "@nupp-prelude") .. code
-        else
-            code = ("_G.assert(_G.loadstring(%s,%q))();"):format(quotedPrelude, "@nupp-prelude") .. code
-        end
+        code = ("_G.assert(_G.loadstring(%s,%q))();"):format(quotedPrelude, "@nupp-prelude") .. code
     end
 
     -- Generated Lua that will not load is a bug in this file, and it should say so here
@@ -10583,9 +9904,7 @@ function gen.generate(
     --
     -- Line numbers survive generation one to one, so the line LuaJIT names is the line
     -- that was written.
-    local targetDialect = result.dialect or "luajit"
-    local hostDialect = validatingHostDialect or VALIDATING_HOST_DIALECT
-    if loadstring and hostDialect == targetDialect then
+    if loadstring then
         local chunk, reason = loadstring(code, "@" .. tostring(filename or "generated"))
         if not chunk then
             local text = tostring(reason)

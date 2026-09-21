@@ -24,11 +24,7 @@ local REPORT_SCHEMA = {
             type = "string",
             description = "The release, without a leading \"v\"; a -dev suffix " .. "is a checkout between releases."
         },
-        runtime = {
-            type = "string",
-            description = "The interpreter underneath: LuaJIT for a release "
-            .. "binary, plain Lua for the portable compiler."
-        },
+        runtime = {type = "string", description = "The LuaJIT interpreter underneath this compiler."},
     },
     required = {"version", "runtime"},
 }
