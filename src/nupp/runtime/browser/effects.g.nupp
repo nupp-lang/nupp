@@ -11,7 +11,12 @@ local nextId: integer = 1
 local queued: {any} = {}
 local waiting: {[integer]: any} = {}
 
-function effects.request(kind: string, payload: any, resume: function(any): nil): function()
+function effects.request(
+    kind: string,
+    payload: any,
+    resume: function(any): nil,
+    discard: (function(any): nil)?
+): function()
     local id = nextId
     nextId = nextId + 1
     payload.id = id
@@ -39,14 +44,25 @@ function effects.request(kind: string, payload: any, resume: function(any): nil)
             return
         end
         active = false
-        waiting[id] = nil
         -- The host executes whatever a park carries, so a request cancelled before
         -- it shipped must leave the queue: a cancelled write must not still happen.
         for index = #queued, 1, -1 do
             if queued[index] == payload then
                 table.remove(queued, index)
-                break
+                waiting[id] = nil
+                return
             end
+        end
+        -- Past that point the host will run the request whatever this side does, so
+        -- one that hands back a resource must still hear about it: dropping the
+        -- waiter would strand an open file handle for the rest of the run.
+        if discard == nil then
+            waiting[id] = nil
+            return
+        end
+        waiting[id] = function(response: any): nil
+            waiting[id] = nil
+            discard(response)
         end
     end
 end

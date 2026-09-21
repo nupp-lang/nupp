@@ -442,6 +442,56 @@ function M.browserHttpTransfersItsBodyToTheReturnedResponse()
     assert(ok, problem)
 end
 
+function M.browserEffectsHandCancelledResourcesToTheirDiscard()
+    local effects = require("nupp.runtime.browser.effects")
+    local json = require("nupp.runtime.provider.lunajson")
+    local resumed, discarded = false, nil
+    local shipped = coroutine.create(function()
+        effects.park("browser file operation")
+    end)
+    local cancel = effects.request(
+        "files",
+        {operation = "open"},
+        function()
+            resumed = true
+        end,
+        function(response)
+            discarded = response.value.handle
+        end
+    )
+    local ok, encoded = coroutine.resume(shipped)
+    assert(ok, encoded)
+    local batch = json.decode(encoded)
+    assertEq(#batch.requests, 1, "the park ships the queued request")
+    -- Cancelled after it shipped: the host opened the file whatever this side
+    -- decided, so the handle has to reach the discard or it leaks.
+    cancel()
+    assert(coroutine.resume(
+        shipped,
+        json.encode({responses = {{id = batch.requests[1].id, ok = true, value = {handle = 7}}}})
+    ))
+    assert(not resumed, "a cancelled request must not resume its waiter")
+    assertEq(discarded, 7, "a cancelled request still hears about the resource it was handed")
+end
+
+function M.browserEffectsDropCancelledRequestsBeforeTheyShip()
+    local effects = require("nupp.runtime.browser.effects")
+    local json = require("nupp.runtime.provider.lunajson")
+    local discarded = false
+    local cancel = effects.request("files", {operation = "open"}, function() end, function()
+        discarded = true
+    end)
+    cancel()
+    local shipped = coroutine.create(function()
+        effects.park("browser file operation")
+    end)
+    local ok, encoded = coroutine.resume(shipped)
+    assert(ok, encoded)
+    assertEq(json.decode(encoded).kind, "poll", "a request cancelled before it ships never happens")
+    assert(coroutine.resume(shipped, json.encode({responses = {}})))
+    assert(not discarded, "nothing was opened, so nothing is discarded")
+end
+
 function M.stringLibrary()
     assertClean("local s: string = string.format('%d', 3)")
     assertClean("local s: string = string.format('%d', 3)\nreturn string.rep(s, 2)", {dialect = "lua51"})

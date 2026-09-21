@@ -32,7 +32,7 @@ local function descriptor(value: any, level: integer): any
     return {root = described.root, parts = described.parts,}
 end
 
-local function effect(operation: string, path: any?, extra: any?): (any?, string?)
+local function effect(operation: string, path: any?, extra: any?, discard: (function(any): nil)?): (any?, string?)
     local payload = extra or {}
     payload.operation = operation
     if path ~= nil then
@@ -43,7 +43,7 @@ local function effect(operation: string, path: any?, extra: any?): (any?, string
     local completed, suspended = pcall(suspension.suspend, "browser file operation", function(
         resume: function(any): nil
     ): function()
-        return effects.request("files", payload, resume)
+        return effects.request("files", payload, resume, discard)
     end)
     if not completed then
         return nil, tostring(suspended)
@@ -393,8 +393,17 @@ newWriterOver = function(borrows file: File): affine(FileWriter) borrows (file)
     return new FileWriter(_file = file, _closed = false)
 end
 
+-- An open cancelled after it shipped still opened a file over in the host, and an
+-- OPFS access handle is exclusive: without this the file stays locked until the
+-- run ends, because no File was ever built to close it.
+local function closeOrphan(response: any): nil
+    if response.ok and response.value ~= nil and response.value.handle ~= nil then
+        host.close(response.value.handle)
+    end
+end
+
 function files.open(path: any, mode: messages.Mode?): (affine(File?, contracts.destroyOwner), string?)
-    local value, reason = effect("open", path, {mode = mode or "r",})
+    local value, reason = effect("open", path, {mode = mode or "r",}, closeOrphan)
     if value == nil then
         return nil, reason
     end
