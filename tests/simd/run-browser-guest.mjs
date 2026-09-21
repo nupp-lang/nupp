@@ -12,8 +12,8 @@ if (!projectArg || !guestArg || !outputArg || !['simd', 'scalar-c'].includes(rou
 const project = path.resolve(projectArg), guest = path.resolve(guestArg), output = path.resolve(outputArg);
 const manifest = await packageBrowserApp({project, target:'app', output, guest, prebuilt:true});
 const corpus = JSON.parse(readFileSync(path.join(project, 'corpus.json'), 'utf8'));
-// Allow the larger owned JSON corpus a bounded ten minutes on loaded runners.
-const deadlineMs = corpus.algorithm === 'simd-json' ? 600000 : 240000;
+// Allow the larger owned corpora a bounded ten minutes on loaded runners.
+const deadlineMs = ['utf8simd', 'simd-json'].includes(corpus.algorithm) ? 600000 : 240000;
 const entries = manifest.kernels.flatMap(kernel => kernel.entries.map(entry => ({...entry, unit:kernel.unit})));
 const symbols = {};
 const executedEntries = [];

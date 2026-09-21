@@ -22,6 +22,7 @@ const referenceText = readFileSync(path.join(project, 'result.json'), 'utf8');
 const reference = JSON.parse(referenceText);
 if (!reference.ok || !reference.nativeCalls || !reference.symbols || reference.scalarSelection ||
     (reference.executionPath && reference.executionPath !== 'simd')) throw new Error('Run the SIMD corpus before preparing its scalar-C twin');
+const scalarOnlyCounted = reference.symbols['simdcounted.vector'];
 const selection = { executionPath: 'scalar-c', originalProject: project,
   referenceExecutionSha256: sha256(referenceText), referenceCases: reference.cases,
   referenceCalls: reference.nativeCalls, referenceProbes: reference.probes, units: [] };
@@ -31,12 +32,26 @@ for (const unit of manifest.units) {
   const original = readFileSync(path.join(project, 'build/app/aot', relative), 'utf8');
   const boundary = original.indexOf('\nKS_API void nupp_bridge_');
   if (boundary < 0) throw new Error(`Missing generated independent Wasm bridge boundary: ${relative}`);
-  const kernels = original.slice(0, boundary);
+  let kernels = original.slice(0, boundary);
   const symbols = {};
   const binding = original.slice(boundary).replace(/\b(ks_[A-Za-z0-9_]+)__simd128(?=\s*\()/g, (_, symbol) => {
     const scalar = `${symbol}_forced_scalar__simd128`;
     const declaration = new RegExp(`KS_SCALAR_ORACLE\\s+__attribute__\\(\\(noinline\\)\\)\\s+KS_API[^;{}]+\\b${scalar}\\(`);
-    if (!declaration.test(kernels)) throw new Error(`Missing unoptimized emitted scalar-C twin: ${scalar}`);
+    if (!declaration.test(kernels)) {
+      if (symbol !== scalarOnlyCounted) throw new Error(`Missing unoptimized emitted scalar-C twin: ${scalar}`);
+      // The counted vector loop is scalar C since loop auto-vectorization was removed.
+      // Give it a separate unoptimized entry without relaxing the twin requirement.
+      const native = `KS_API void ${symbol}__simd128(`;
+      const start = kernels.indexOf(native);
+      if (start < 0 || kernels.indexOf(native, start + 1) >= 0) throw new Error(`Missing unique scalar-only counted entry: ${native}`);
+      const bodyStart = kernels.indexOf('{', start + native.length);
+      const bodyEnd = kernels.indexOf('\n}\n', bodyStart);
+      if (bodyStart < 0 || bodyEnd < 0 || /\bks_(?:exp|fixed|scalar_exp)_[A-Za-z0-9_]+/.test(kernels.slice(bodyStart, bodyEnd))) {
+        throw new Error(`Counted entry is no longer scalar-only: ${native}`);
+      }
+      kernels = kernels.slice(0, start) + `KS_SCALAR_ORACLE\n__attribute__((noinline))\nKS_API void ${scalar}(` + kernels.slice(start + native.length);
+      if (!declaration.test(kernels)) throw new Error(`Missing promoted scalar-C twin: ${scalar}`);
+    }
     if (symbols[symbol]) throw new Error(`Repeated Lua wrapper call for ${symbol}`);
     symbols[symbol] = scalar;
     return scalar;
