@@ -7,7 +7,7 @@
 -- tail after the last one, so the byte loop and the one- and two-byte padding
 -- cases each run at every phase; every byte value at every position of a
 -- vector group, which walks every lane of every gather and every entry of
--- the four alphabet tables through every slot of a triple; the all-zero and
+-- the four alphabet ranges through every slot of a triple; the all-zero and
 -- all-ones blocks whose six-bit values sit at the ends of the alphabet; and
 -- random strings up to a few kilobytes.
 --
@@ -68,8 +68,8 @@ for length = 0, 3 * GROUP + 5 do
 end
 
 -- Every byte value at every position of one vector group, against a
--- background that maps to the first alphabet table, and then against one
--- that maps to the last: each six-bit value reaches each of the four tables
+-- background that maps to the first alphabet range, and then against one
+-- that maps to the last: each six-bit value reaches each of the four ranges
 -- in each of the four slots of a quantum.
 for _, background in ipairs({"\0", "\255", "\85"}) do
     for position = 1, GROUP do

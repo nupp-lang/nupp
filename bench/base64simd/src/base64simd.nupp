@@ -12,10 +12,10 @@ hold `3 * lanes` consecutive bytes; the three bytes of every triple are
 gathered into `b0`, `b1`, `b2` by a paired swizzle whose index vector is an
 arithmetic sequence with stride three, and which reads `c` in a second swizzle
 for the triples that begin past the pair. Four six-bit indexes come out of
-shifts and masks. The alphabet is four sixteen-entry tables, again ordinary
-vectors, read by two paired swizzles whose out-of-range lanes are zero, so the
-two halves combine with an or. Two rounds of `interleave` put the four symbol
-vectors back into byte order, and four stores write them.
+shifts and masks. Comparisons select the four contiguous ranges of the Base64
+alphabet without assuming a particular native lane count. Two rounds of
+`interleave` put the four symbol vectors back into byte order, and four stores
+write them.
 
 Every vector load and store is proved in range by the loop condition, which
 bounds the input by three vectors and the output by four. Every access is
@@ -35,45 +35,11 @@ const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789
 
 const ALPHABET_BYTES = span.fromString(ALPHABET)
 
---- Sixteen alphabet entries, inserted into `zero`, a zero vector of the
---- species: the swizzles below read only the first sixteen lanes of a table
---- and the first sixteen of its pair, so a wider species carries zeros past
---- them.
-local function table16(
-    zero: simd.Vector<uint8, simd.Preferred>,
-    e0: uint32,
-    e1: uint32,
-    e2: uint32,
-    e3: uint32,
-    e4: uint32,
-    e5: uint32,
-    e6: uint32,
-    e7: uint32,
-    e8: uint32,
-    e9: uint32,
-    e10: uint32,
-    e11: uint32,
-    e12: uint32,
-    e13: uint32,
-    e14: uint32,
-    e15: uint32
-): simd.Vector<uint8, simd.Preferred>
-    return zero:insert(1, e0)
-        :insert(2, e1)
-        :insert(3, e2)
-        :insert(4, e3)
-        :insert(5, e4)
-        :insert(6, e5)
-        :insert(7, e6)
-        :insert(8, e7)
-        :insert(9, e8)
-        :insert(10, e9)
-        :insert(11, e10)
-        :insert(12, e11)
-        :insert(13, e12)
-        :insert(14, e13)
-        :insert(15, e14)
-        :insert(16, e15)
+--- Maps Base64 indexes to their alphabet bytes for every preferred width.
+local function alphabetByte(value: simd.Vector<uint8, simd.Preferred>): simd.Vector<uint8, simd.Preferred>
+    return (
+        value < 26
+    ):select(value + 65, (value < 52):select(value + 71, (value < 62):select(value - 4, (value == 62):select(43, 47))))
 end
 
 --- Encodes `source` into `output`, which must hold `4 * ceil(#source / 3)`
@@ -93,14 +59,6 @@ local function encode(
     local out: uint32 = 0
     if species = simd.species(array.uint8) then
         local lanes: uint32 = species.lanes
-        local zero = species:splat(0)
-        -- Sixty-four symbols as four tables. Index one is the first lane, so
-        -- a value `d` reads lane `d + 1` of the first pair and `d - 31` of
-        -- the second; out-of-range lanes are zero and an or joins the halves.
-        local t0 = table16(zero, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80)
-        local t1 = table16(zero, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 97, 98, 99, 100, 101, 102)
-        local t2 = table16(zero, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118)
-        local t3 = table16(zero, 119, 120, 121, 122, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 43, 47)
         -- Lane `i` of `b_k` is byte `3i + k` of the group. Within the first
         -- two vectors that is index `3i + k + 1` of the pair; past them it is
         -- the same index less two vectors, read from the third. Each index
@@ -125,10 +83,10 @@ local function encode(
             local d2 = ((b1 & 15) << 2) | (b2 >> 6)
             local d3 = b2 & 63
 
-            local e0 = t0:swizzle(d0 + 1, t1) | t2:swizzle(d0 - 31, t3)
-            local e1 = t0:swizzle(d1 + 1, t1) | t2:swizzle(d1 - 31, t3)
-            local e2 = t0:swizzle(d2 + 1, t1) | t2:swizzle(d2 - 31, t3)
-            local e3 = t0:swizzle(d3 + 1, t1) | t2:swizzle(d3 - 31, t3)
+            local e0 = alphabetByte(d0)
+            local e1 = alphabetByte(d1)
+            local e2 = alphabetByte(d2)
+            local e3 = alphabetByte(d3)
 
             -- Symbols of one quantum are consecutive in the output: first
             -- the even and odd symbols pair up, then the pairs do.
