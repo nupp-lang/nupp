@@ -165,6 +165,9 @@ local RESOURCES = {
     {source = "src/nupp/io/process/spi.nupp", output = "nupp/compiler/nupp/io/process/spi.nupp"},
     {source = "src/nupp/io/net/spi.nupp", output = "nupp/compiler/nupp/io/net/spi.nupp"},
     {source = "src/nupp/io/http/spi.nupp", output = "nupp/compiler/nupp/io/http/spi.nupp"},
+    {source = "src/nupp/io/files/spi.nupp", output = "nupp/compiler/nupp/io/files/spi.nupp"},
+    {source = "src/nupp/io/files/messages.nupp", output = "nupp/compiler/nupp/io/files/messages.nupp"},
+    {source = "src/nupp/io/files/path.nupp", output = "nupp/compiler/nupp/io/files/path.nupp"},
     {source = "src/nupp/gpu/spi.nupp", output = "nupp/compiler/nupp/gpu/spi.nupp"},
     {source = "src/nupp/runtime/cancellation.nupp", output = "nupp/compiler/nupp/runtime/cancellation.nupp"},
     {
@@ -211,6 +214,10 @@ local RESOURCES = {
     {
         source = "src/nupp/runtime/provider/nativehttp.nupp",
         output = "nupp/compiler/nupp/runtime/provider/nativehttp.nupp"
+    },
+    {
+        source = "src/nupp/runtime/provider/nativefiles.nupp",
+        output = "nupp/compiler/nupp/runtime/provider/nativefiles.nupp"
     },
     {
         source = "src/nupp/runtime/provider/nativegpurelease.nupp",
@@ -338,7 +345,7 @@ local RESOURCES = {
     {source = "src/nupp/io/path/provider.nupp", output = "nupp/compiler/nupp/io/path/provider.nupp"},
     {source = "src/nupp/io/path/pathtext.nupp", output = "nupp/compiler/nupp/io/path/pathtext.nupp"},
     {source = "src/nupp/io/uri/init.nupp", output = "nupp/compiler/nupp/io/uri/init.nupp"},
-    {source = "src/nupp/io/files.nupp", output = "nupp/compiler/nupp/io/files.nupp"},
+    {source = "src/nupp/io/files/init.nupp", output = "nupp/compiler/nupp/io/files/init.nupp"},
     {source = "src/nupp/io/init.nupp", output = "nupp/compiler/nupp/io/init.nupp"},
     {source = "src/nupp/log.nupp", output = "nupp/compiler/nupp/log.nupp"},
     {source = "src/nupp/suspension/init.nupp", output = "nupp/compiler/nupp/suspension/init.nupp"},
@@ -386,6 +393,7 @@ for _, resource in ipairs({
     "src/nupp/runtime/browser/workercodec.g.nupp",
     "src/nupp/runtime/browser/crypto.g.nupp",
     "src/nupp/runtime/browser/http.g.nupp",
+    "src/nupp/runtime/browser/files.g.nupp",
     "src/nupp/runtime/browser/path.nupp",
     "src/nupp/browser/init.nupp",
     "src/nupp/runtime/browser/suspension.g.nupp",

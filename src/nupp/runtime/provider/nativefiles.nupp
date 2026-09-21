@@ -1,4 +1,5 @@
-module nupp.io.files
+@!internal
+module nupp.runtime.provider.nativefiles
 
 --[[
 `nupp.io.files` reads what the filesystem knows about a name: whether it
@@ -295,6 +296,9 @@ const suspension = require("nupp.suspension")
 const paths = require("nupp.io.path")
 const io = require("nupp.io")
 const span = require("nupp.mem.span")
+const messages = require("nupp.io.files.messages")
+const appPaths = require("nupp.io.files.path")
+const contracts = require("nupp.io.files.spi")
 
 -- The record is declared here rather than in the runtime cdef below, because
 -- `ffi.new` names it and the checker has to know the type to accept that. It reaches
@@ -333,6 +337,8 @@ int32_t nuppNativeFilesCreateTemporary(
     int32_t, uint64_t *);
 int32_t nuppNativeFilesCurrentDirectory(uint64_t *);
 int32_t nuppNativeFilesUserFolder(uint32_t, uint64_t *);
+int32_t nuppNativeFilesApplicationBase(uint32_t, uint64_t *);
+int32_t nuppNativeFilesExecutablePath(uint64_t *);
 
 int32_t nuppNativeFileOpen(struct NuppNativeFilesSlice, uint32_t, uint64_t *);
 int32_t nuppNativeFileRead(uint64_t, uint8_t *, size_t, size_t *);
@@ -434,89 +440,50 @@ local SOURCE, PRIORITY = "nupp-files", 20
 --- What a resolved path refers to. A `symlink` answer only ever comes from
 --- `isSymlink`, since every other operation follows the link first.
 --- @export
-export type Kind = "file" | "directory" | "symlink" | "other"
+export type Kind = messages.Kind
 
 --- A well-known user folder. Resolved from the environment, so a desktop that records
 --- its folders elsewhere is not consulted.
 --- @export
-export type UserFolder = "home" | "documents" | "downloads" | "desktop" | "pictures" | "music" | "videos"
+export type UserFolder = messages.UserFolder
 
 --- How an open file may be used. The three update modes read and write: `r+` needs an
 --- existing file, `w+` truncates one, and `a+` appends.
 --- @export
-export type Mode = "r" | "w" | "a" | "r+" | "w+" | "a+"
+export type Mode = messages.Mode
 
 --- What a seek offset is measured from.
 --- @export
-export type Origin = "set" | "current" | "end"
+export type Origin = messages.Origin
 
 --- Answers each line in turn, and nil at the end of the file.
 --- @export
-export type LineIterator = function(): string?
+export type LineIterator = messages.LineIterator
 
 --- One resolved path's attributes.
 --- @export
-export record Info
-    --- What the path refers to, after following symbolic links.
-    kind: Kind
+export type Info = messages.Info
 
-    --- The byte length of a file's contents.
-    size: integer
-
-    --- Seconds since the Unix epoch, with a fractional part where the platform
-    --- records one.
-    modified: number
-
-    --- Whether the platform refuses writes to this path.
-    readOnly: boolean
-end
+local Info = messages.Info
 
 --- One directory child, as the directory itself describes it.
 --- @export
-export record Entry
-    --- The child's name, without any directory part.
-    name: string
+export type Entry = messages.Entry
 
-    --- What the entry itself is, without following a symbolic link.
-    kind: Kind
-end
+local Entry = messages.Entry
 
 --- Where a temporary is created, and what surrounds its generated name.
 --- @export
-export record TemporaryOptions
-    --- Where to create it, or the platform's temporary directory when omitted.
-    directory: (string | paths.Path)?
-
-    --- Text before the generated part.
-    prefix: string?
-
-    --- Text after the generated part, such as an extension.
-    suffix: string?
-end
+export type TemporaryOptions = messages.TemporaryOptions
 
 ----------------------------------------------------------------------------
 -- Owners and argument checks
 ----------------------------------------------------------------------------
 
--- A terminal has to be a declared function wherever a contract names it, and these
--- records hand each other out: an open file answers a reader and a writer. Written one
--- per record, each terminal would have to follow the record it takes and precede the
--- record that hands it out, and no such order exists. One generic terminal over the
--- shape they all share is written once, ahead of them.
-local interface Owner
-    drop: nosuspend function(takes self: Owner): nil
-end
-
---- Releases any of this module's owners. Every one of them is handed out under this
---- exact cleanup, which is why a caller never names it.
-local function destroyOwner<T is Owner>(takes self: T): nil
-    self:drop()
-end
-
 -- Declared ahead of the records because their methods reach them, and defined below
 -- because they name the records. The types are the contract either way.
-local newReaderOver: function(file: File): FileReader
-local newWriterOver: function(file: File): FileWriter
+local newReaderOver: function(borrows file: File): affine(FileReader) borrows (file)
+local newWriterOver: function(borrows file: File): affine(FileWriter) borrows (file)
 local scratch: function(borrows self: FileReader, count: integer): any
 local usable: function(borrows self: FileReader): (File?, string?)
 local writable: function(borrows self: FileWriter): (File?, string?)
@@ -525,6 +492,9 @@ local writable: function(borrows self: FileWriter): (File?, string?)
 local function named(value: any, what: string, level: integer): string
     if type(value) == "string" then
         return value as string
+    end
+    if appPaths.is(value) then
+        return (value as appPaths.ApplicationPath):toString()
     end
     if type(value) == "table" and (value as any).toString ~= nil then
         return (value as paths.Path):toString()
@@ -610,7 +580,7 @@ export record File
     --- @param self this file
     --- @return the new reader
     --- @raises when the file is closed
-    function newReader(self): FileReader
+    function newReader(borrows self): affine(FileReader) borrows (self)
         if self._closed then
             error("nupp: io.files File is closed", 2)
         end
@@ -622,7 +592,7 @@ export record File
     --- @param self this file
     --- @return the new writer
     --- @raises when the file is closed
-    function newWriter(self): FileWriter
+    function newWriter(borrows self): affine(FileWriter) borrows (self)
         if self._closed then
             error("nupp: io.files File is closed", 2)
         end
@@ -635,7 +605,7 @@ export record File
     --- @return the byte length, or nil on failure
     --- @return a failure reason, when unsuccessful
     --- @raises when the file is closed
-    function size(self): (integer?, string?)
+    function size(borrows self): (integer?, string?)
         if self._closed then
             error("nupp: io.files File is closed", 2)
         end
@@ -655,7 +625,7 @@ export record File
     --- @return the new position, or nil on failure
     --- @return a failure reason, when unsuccessful
     --- @raises when origin names no seek origin
-    function seek(self, offset: integer?, origin: Origin?): (integer?, string?)
+    function seek(exclusive self, offset: integer?, origin: Origin?): (integer?, string?)
         if self._closed then
             error("nupp: io.files File is closed", 2)
         end
@@ -676,7 +646,7 @@ export record File
     --- @param self this file
     --- @return the position, or nil on failure
     --- @return a failure reason, when unsuccessful
-    function position(self): (integer?, string?)
+    function position(exclusive self): (integer?, string?)
         return self:seek(0, "current")
     end
 
@@ -685,7 +655,7 @@ export record File
     --- @return whether the flush succeeded
     --- @return a failure reason, when unsuccessful
     --- @raises when the file is closed
-    function flush(self): (boolean, string?)
+    function flush(borrows self): (boolean, string?)
         if self._closed then
             error("nupp: io.files File is closed", 2)
         end
@@ -696,7 +666,7 @@ export record File
     --- Whether this file has been closed.
     --- @param self this file
     --- @return whether it is closed
-    function isReleased(self): boolean
+    function isReleased(borrows self): boolean
         return self._closed
     end
 
@@ -1048,11 +1018,11 @@ function FileWriter.drop(takes self: FileWriter): nil
     state._closed = true
 end
 
-newReaderOver = function(file: File): FileReader
+newReaderOver = function(borrows file: File): affine(FileReader) borrows (file)
     return new FileReader(_file = file, _scratch = nil, _capacity = 0, _closed = false)
 end
 
-newWriterOver = function(file: File): FileWriter
+newWriterOver = function(borrows file: File): affine(FileWriter) borrows (file)
     return new FileWriter(_file = file, _closed = false)
 end
 
@@ -1394,10 +1364,10 @@ end
 --- @param path the path to test
 --- @return whether it is a symbolic link
 --- @export
-export function isSymlink(path: string | paths.Path): boolean
+export function isSymlink(path: string | paths.Path): (boolean?, string?)
     local found = described(path, false, 2)
 
-    return found ~= nil and found.kind == 4
+    return found ~= nil and found.kind == 4, nil
 end
 
 --- Reads a symbolic link's target without resolving it.
@@ -1712,7 +1682,7 @@ end
 --- @return a failure reason, when unsuccessful
 --- @raises when mode names no open mode
 --- @export
-export function open(path: string | paths.Path, mode: Mode?): (affine(File?, destroyOwner), string?)
+export function open(path: string | paths.Path, mode: Mode?): (affine(File?, contracts.destroyOwner), string?)
     local text = named(path, "path", 2)
     local selected = MODES[mode or "r"]
     if selected == nil then
@@ -1825,7 +1795,9 @@ end
 --- @return the created path, or nil on failure
 --- @return a failure reason, when unsuccessful
 --- @export
-export function createTemporaryFile(options: TemporaryOptions?): (affine(TemporaryPath?, destroyOwner), string?)
+export function createTemporaryFile(
+    options: TemporaryOptions?
+): (affine(TemporaryPath?, contracts.destroyOwner), string?)
     local text, reason = temporary(options, false, 2)
     if text == nil then
         return nil, reason
@@ -1840,7 +1812,9 @@ end
 --- @return the created path, or nil on failure
 --- @return a failure reason, when unsuccessful
 --- @export
-export function createTemporaryDirectory(options: TemporaryOptions?): (affine(TemporaryPath?, destroyOwner), string?)
+export function createTemporaryDirectory(
+    options: TemporaryOptions?
+): (affine(TemporaryPath?, contracts.destroyOwner), string?)
     local text, reason = temporary(options, true, 2)
     if text == nil then
         return nil, reason
@@ -1876,4 +1850,68 @@ export function userFolder(which: UserFolder): (string?, string?)
     local output = ffi.new("uint64_t[1]")
 
     return answer(C.nuppNativeFilesUserFolder(index, output), output)
+end
+
+--- Reports the complete native filesystem surface.
+export function capabilities(): messages.Capabilities
+    return new messages.Capabilities(
+        available = true,
+        arbitraryPaths = true,
+        symbolicLinks = true,
+        readOnlyAttributes = true,
+        glob = true,
+        rename = true,
+        atomicWrite = true,
+        temporaryPaths = true,
+        concurrentOpenHandles = true,
+        currentDirectory = true,
+        userFolders = true,
+        executableDirectory = true,
+        persistentStorageRequest = true
+    )
+end
+
+local APPLICATION_BASES = {configuration = 0, data = 1, cache = 2,}
+
+export function applicationPath(
+    kind: string,
+    organization: string,
+    application: string
+): (appPaths.ApplicationPath?, string?)
+    local code = APPLICATION_BASES[kind]
+    if code == nil then
+        return nil, "unknown application path kind"
+    end
+    requireFiles()
+    local output = ffi.new("uint64_t[1]")
+    local base, reason = answer(C.nuppNativeFilesApplicationBase(code, output), output)
+    if base == nil then
+        return nil, reason
+    end
+    local value = appPaths.native(base, kind, organization, application)
+    local made, failure = done(C.nuppNativeFilesCreateDirectory(slice(value:toString())))
+    if not made then
+        return nil, failure
+    end
+
+    return value, nil
+end
+
+export function executableDirectory(): (string?, string?)
+    requireFiles()
+    local output = ffi.new("uint64_t[1]")
+    local executable, reason = answer(C.nuppNativeFilesExecutablePath(output), output)
+    if executable == nil then
+        return nil, reason
+    end
+    local parent = paths.newPath(executable):parent()
+    if parent == nil then
+        return nil, "the executable path has no parent directory"
+    end
+
+    return parent:toString(), nil
+end
+
+export function requestPersistentStorage(): (boolean, string?)
+    return true, nil
 end

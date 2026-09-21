@@ -547,6 +547,106 @@ async function performHttpEffect(effect, options) {
   }
 }
 
+function filesState(options) {
+  const state = options.files;
+  if (!state?.available) throw new Error("Origin Private File System is unavailable");
+  return state;
+}
+
+function fileParts(effect) {
+  if (!Array.isArray(effect.parts) || effect.parts.length < 3 ||
+      effect.parts.some((part) => typeof part !== "string" || part.length === 0 ||
+        part === "." || part === ".." || part.includes("/") || part.includes("\\"))) {
+    throw new Error("browser file path is invalid");
+  }
+  if (effect.parts[0] !== effect.root || !["configuration", "data", "cache"].includes(effect.root)) {
+    throw new Error("browser file root is invalid");
+  }
+  return effect.parts;
+}
+
+async function filesRoot(state) {
+  state.rootPromise ||= Promise.resolve(state.storage.getDirectory());
+  return state.rootPromise;
+}
+
+async function directoryAt(state, parts, create, through = parts.length) {
+  let directory = await filesRoot(state);
+  for (let index = 0; index < through; index++) {
+    directory = await directory.getDirectoryHandle(parts[index], {create});
+  }
+  return directory;
+}
+
+async function performFilesEffect(effect, options) {
+  const state = filesState(options);
+  if (effect.operation === "persist") {
+    if (!state.requestPersistentStorage) throw new Error("the browser host has no main-thread persistence relay");
+    return {granted: await state.requestPersistentStorage() === true};
+  }
+  const parts = fileParts(effect);
+  if (effect.operation === "create-directory") {
+    await directoryAt(state, parts, true);
+    return {created: true};
+  }
+  const parent = await directoryAt(state, parts, false, parts.length - 1);
+  const name = parts[parts.length - 1];
+  if (effect.operation === "open") {
+    const modes = {
+      r: {mustExist: true, readable: true, writable: false},
+      w: {mustExist: false, readable: false, writable: true, truncate: true},
+      a: {mustExist: false, readable: false, writable: true, appending: true},
+      "r+": {mustExist: true, readable: true, writable: true},
+      "w+": {mustExist: false, readable: true, writable: true, truncate: true},
+      "a+": {mustExist: false, readable: true, writable: true, appending: true},
+    };
+    const mode = modes[effect.mode];
+    if (!mode) throw new Error("unknown browser file mode");
+    const file = await parent.getFileHandle(name, {create: !mode.mustExist});
+    if (typeof file.createSyncAccessHandle !== "function") {
+      throw new Error("synchronous OPFS file handles are unavailable");
+    }
+    const access = await file.createSyncAccessHandle();
+    try {
+      if (mode.truncate) access.truncate(0);
+      let handle = state.nextHandle++;
+      while (handle === 0 || state.handles.has(handle)) handle = state.nextHandle++;
+      state.handles.set(handle, {access, cursor: 0, ...mode});
+      return {handle};
+    } catch (error) {
+      access.close();
+      throw error;
+    }
+  }
+  if (effect.operation === "info") {
+    try {
+      const handle = await parent.getFileHandle(name);
+      const file = await handle.getFile();
+      return {kind: "file", size: file.size, modified: file.lastModified / 1000};
+    } catch (fileError) {
+      try {
+        await parent.getDirectoryHandle(name);
+        return {kind: "directory", size: 0, modified: 0};
+      } catch {
+        throw fileError;
+      }
+    }
+  }
+  if (effect.operation === "remove") {
+    await parent.removeEntry(name, {recursive: effect.recursive === true});
+    return {removed: true};
+  }
+  if (effect.operation === "list") {
+    const directory = await parent.getDirectoryHandle(name);
+    const entries = [];
+    for await (const [entryName, handle] of directory.entries()) {
+      entries.push({name: entryName, kind: handle.kind === "directory" ? "directory" : "file"});
+    }
+    return entries;
+  }
+  throw new Error(`unsupported browser file operation ${effect.operation}`);
+}
+
 export async function handleBrowserEffects(message, options = {}) {
   if (message?.kind === "poll") {
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -568,6 +668,7 @@ export async function handleBrowserEffects(message, options = {}) {
       const supplied = options.effectHandlers?.[effect.kind];
       if (supplied) value = await supplied(effect, options);
       else if (effect.kind === "http") value = await performHttpEffect(effect, options);
+      else if (effect.kind === "files") value = await performFilesEffect(effect, options);
       else if (effect.kind === "time") value = await performTimeEffect(effect, options);
       else if (effect.kind === "random") value = await performRandomEffect(effect, options);
       else if (effect.kind === "system") {
@@ -686,6 +787,12 @@ async function driveApplication(module, source, options) {
     }
   } finally {
     options.httpBodies?.clear();
+    if (options.files?.handles) {
+      for (const entry of options.files.handles.values()) {
+        try { entry.access.close(); } catch {}
+      }
+      options.files.handles.clear();
+    }
     clearTimeout(deadlineTimer);
     outerSignal?.removeEventListener("abort", forwardAbort);
   }
@@ -742,11 +849,24 @@ export async function runNuppWasmApp({
   limits,
   initialize,
   managed,
+  storage,
+  requestPersistentStorage,
 }) {
   const module = await createHost({
     locateFile,
     ...(wasmBinary ? { wasmBinary } : {}),
   });
+  const selectedStorage = storage || globalThis.navigator?.storage;
+  const files = {
+    storage: selectedStorage,
+    available: typeof selectedStorage?.getDirectory === "function",
+    persistentAvailable: typeof requestPersistentStorage === "function",
+    requestPersistentStorage,
+    handles: new Map(),
+    nextHandle: 1,
+    lastError: "",
+  };
+  module.__nuppFiles = files;
   const state = module._nupp_app_boot();
   if (!state) throw new Error(hostError(module));
   if (initialize) {
@@ -783,7 +903,7 @@ export async function runNuppWasmApp({
   const source = app instanceof Uint8Array ? app : new Uint8Array(app);
   return driveApplication(module, source, {
     effects, effectHandlers, resetLimits, fetch, signal,
-    limitOverrides: limits, managed,
+    limitOverrides: limits, managed, files,
   });
 }
 
@@ -837,6 +957,7 @@ export async function runPackagedNuppWasmApp(manifestUrl, options = {}) {
         manifestUrl: manifestAddress.href,
         maxLanes: manifest.workers.maxLanes,
         limits: options.limits || manifest.limits,
+        requestPersistentStorage: options.requestPersistentStorage,
       });
     }
     return await runNuppWasmApp({
@@ -854,6 +975,8 @@ export async function runPackagedNuppWasmApp(manifestUrl, options = {}) {
       fetch: fetchAsset,
       signal: options.signal,
       limits: options.limits || manifest.limits,
+      storage: options.storage,
+      requestPersistentStorage: options.requestPersistentStorage,
     });
   } finally {
     pool?.close();

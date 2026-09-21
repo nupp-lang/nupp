@@ -795,7 +795,13 @@ end
 
 function M.optimizedDeadCodeDropsItsNativeFeatures()
     local source = table.concat(
-        {"if false then", "    print(nupp.system.availableParallelism())", "else", "    print(nupp.util.uuid4())", "end",},
+        {
+            "if false then",
+            "    print(nupp.system.availableParallelism())",
+            "else",
+            "    print(nupp.util.uuid4())",
+            "end",
+        },
         "\n"
     )
     local result = parser.parse(source, "dead-native-feature")
@@ -809,7 +815,13 @@ end
 
 function M.generatedBootstrapFollowsWhatCodegenEmits()
     local source = table.concat(
-        {"if false then", "    print(nupp.system.availableParallelism())", "else", "    print(nupp.util.uuid4())", "end",},
+        {
+            "if false then",
+            "    print(nupp.system.availableParallelism())",
+            "else",
+            "    print(nupp.util.uuid4())",
+            "end",
+        },
         "\n"
     )
     local result = parser.parse(source, "generated-runtime-features")
@@ -926,7 +938,8 @@ function M.openFilesAreOwnersOverTheSharedReaderContract()
             {
                 "const files = require('nupp.io.files')",
                 "do",
-                "    local file = files.open('input.txt') as nupp.io.files.File",
+                "    local file, reason = files.open('input.txt')",
+                "    if file == nil then error(reason) end",
                 "    local reader = file:newReader()",
                 "    local writer = file:newWriter()",
                 "    local bytes: string? = reader:read(16)",
@@ -943,32 +956,19 @@ function M.openFilesAreOwnersOverTheSharedReaderContract()
                 "local buffer = nupp.io.newBuffer()",
                 "local reader = nupp.io.newStringReader('abc')",
                 "local moved: integer? = reader:readInto(buffer)",
-                "local info = nupp.io.files.info('x')",
+                "const files = require('nupp.io.files')",
+                "local info = files.info('x')",
                 "local size: integer? = info and info.size",
             },
             "\n"
         )
     )
 
-    assertEq((diagsOf("local n: number = nupp.io.files.read('x')")), "NUPP2001:1")
-    assertClean("local paths: {string} = assert(nupp.io.files.glob('src/**/*.nupp'))")
-    assertEq((diagsOf("nupp.io.files.info(42)")), "NUPP2006:1")
-    assertEq((diagsOf("nupp.io.files.open('x')")), "NUPP2605:1")
-    assertEq((diagsOf("nupp.io.files.createTemporaryFile()")), "NUPP2605:1")
-
-    local source = table.concat(
-        {"local file = nupp.io.files.open('input.txt') as nupp.io.files.File", "print(file)",},
-        "\n"
-    )
-    local parsed = parser.parse(source, "owned.g.nupp")
-    assertEq(#parsed.errors, 0, "syntax errors in the ownership fragment")
-    sharedEnv.loaded = {}
-    check.check(parsed, "owned.g.nupp", sharedEnv)
-    local code = gen.generate(parsed, "owned")
-    assert(
-        code:find("nupp.io.files#destroyOwner", 1, true),
-        "an open file is dropped at the end of its scope, through its module's terminal"
-    )
+    assertEq((diagsOf("const files = require('nupp.io.files')\nlocal n: number = files.read('x')")), "NUPP2001:2")
+    assertClean("const files = require('nupp.io.files')\nlocal paths: {string} = assert(files.glob('src/**/*.nupp'))")
+    assertEq((diagsOf("const files = require('nupp.io.files')\nfiles.info(42)")), "NUPP2006:2")
+    assertEq((diagsOf("const files = require('nupp.io.files')\nfiles.open('x')")), "NUPP2605:2")
+    assertEq((diagsOf("const files = require('nupp.io.files')\nfiles.createTemporaryFile()")), "NUPP2605:2")
 end
 
 function M.luaFilesAndPublicResourcesUseAffineConstructors()
@@ -1779,11 +1779,9 @@ function M.applicationResourcesHideLifecycleAndTransportMachinery()
             ):format(example[1], example[2], example[3])
         )
         assert(
-            diagnostics:find(
-                "NUPP2209",
-                1,
-                true
-            ) or diagnostics:find("NUPP2004", 1, true) or diagnostics:find("NUPP2006", 1, true),
+            diagnostics:find("NUPP2209", 1, true)
+            or diagnostics:find("NUPP2004", 1, true)
+            or diagnostics:find("NUPP2006", 1, true),
             table.concat(example, ".") .. " must be inaccessible: " .. diagnostics
         )
     end

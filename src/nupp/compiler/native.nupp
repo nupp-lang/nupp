@@ -61,6 +61,41 @@ local FEATURES: {[string]: native.Feature} = {
         requires = {"runtime.suspension"}
     },
     [
+        "runtime.files"
+    ] = {
+        name = "files_runtime",
+        module = "nupp.io.files",
+        runtimeModule = "nupp.io.files",
+        portableRuntime = true,
+        requires = {
+            "runtime.files_messages",
+            "runtime.files_path",
+            "runtime.files_spi",
+            "runtime.path",
+            "runtime.suspension",
+            "stdlib.io",
+        }
+    },
+    [
+        "runtime.files_messages"
+    ] = {name = "files_messages", runtimeModule = "nupp.io.files.messages", portableRuntime = true},
+    [
+        "runtime.files_path"
+    ] = {
+        name = "files_path",
+        runtimeModule = "nupp.io.files.path",
+        portableRuntime = true,
+        requires = {"runtime.path", "stdlib.io"},
+    },
+    [
+        "runtime.files_spi"
+    ] = {
+        name = "files_spi",
+        runtimeModule = "nupp.io.files.spi",
+        portableRuntime = true,
+        requires = {"runtime.files_messages", "runtime.files_path", "stdlib.io"},
+    },
+    [
         "runtime.uri_provider"
     ] = {
         name = "uri_provider",
@@ -407,17 +442,24 @@ local FEATURES: {[string]: native.Feature} = {
     },
     ["native.files"] = {
         name = "files",
-        modules = {"nupp.io.files"},
+        modules = {"nupp.runtime.provider.nativefiles"},
         provider = "nupp_native",
         providerDriver = "native-rust",
         providerFeature = "files",
         host = "native-files",
         library = "nupp_native",
         binary = true,
-        runtimeModule = "nupp.io.files",
+        runtimeModule = "nupp.runtime.provider.nativefiles",
         -- A file operation that waits performs `suspend`, so the runtime that
         -- answers it has to be in the target beside the program.
-        requires = {"native.path", "stdlib.io", "runtime.spanview", "runtime.suspension", "runtime.native",},
+        requires = {
+            "runtime.files",
+            "native.path",
+            "stdlib.io",
+            "runtime.spanview",
+            "runtime.suspension",
+            "runtime.native",
+        },
     },
     ["runtime.suspension"] = {
         -- Not a native library: a compiler-provided Nupp module a target needs its

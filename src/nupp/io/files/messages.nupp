@@ -1,0 +1,87 @@
+module nupp.io.files.messages
+
+local paths = require("nupp.io.path")
+
+export type Kind = "file" | "directory" | "symlink" | "other"
+export type UserFolder = "home" | "documents" | "downloads" | "desktop" | "pictures" | "music" | "videos"
+export type Mode = "r" | "w" | "a" | "r+" | "w+" | "a+"
+export type Origin = "set" | "current" | "end"
+export type LineIterator = function(): string?
+
+--- Metadata about one resolved filesystem object.
+export record Info
+    --- The object's filesystem kind.
+    kind: Kind
+
+    --- Its byte size, or zero for a directory.
+    size: integer
+
+    --- Its modification time in Unix seconds.
+    modified: number
+
+    --- Whether the native platform refuses writes.
+    readOnly: boolean
+end
+
+--- One immediate child of a listed directory.
+export record Entry
+    --- The child's name relative to the listed directory.
+    name: string
+
+    --- The child's kind without following a symbolic link.
+    kind: Kind
+end
+
+--- Naming and placement options for a native temporary path.
+export record TemporaryOptions
+    --- The native directory to create the path in.
+    directory: (string | paths.Path)?
+
+    --- Text placed before the random portion of the name.
+    prefix: string?
+
+    --- Text placed after the random portion of the name.
+    suffix: string?
+end
+
+--- The exact filesystem guarantees supplied by one provider.
+export record Capabilities
+    --- Whether filesystem access is available at all.
+    available: boolean
+
+    --- Whether ordinary native paths are accepted.
+    arbitraryPaths: boolean
+
+    --- Whether symbolic links can be queried and created.
+    symbolicLinks: boolean
+
+    --- Whether read-only attributes can be changed.
+    readOnlyAttributes: boolean
+
+    --- Whether filesystem globbing is supported.
+    glob: boolean
+
+    --- Whether paths can be renamed.
+    rename: boolean
+
+    --- Whether atomic replacement writes are supported.
+    atomicWrite: boolean
+
+    --- Whether temporary path owners can be created.
+    temporaryPaths: boolean
+
+    --- Whether one path may have multiple open handles.
+    concurrentOpenHandles: boolean
+
+    --- Whether a process working directory exists.
+    currentDirectory: boolean
+
+    --- Whether conventional user folders can be resolved.
+    userFolders: boolean
+
+    --- Whether the running executable's directory can be resolved.
+    executableDirectory: boolean
+
+    --- Whether persistent browser storage can be requested.
+    persistentStorageRequest: boolean
+end

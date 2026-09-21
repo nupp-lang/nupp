@@ -341,6 +341,22 @@ pub unsafe extern "C" fn nuppNativeFilesCurrentDirectory(output: *mut u64) -> i3
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn nuppNativeFilesApplicationBase(which: u32, output: *mut u64) -> i32 {
+    match filesystem::application_base(which) {
+        Ok(value) => store(value, output, "application base output is null"),
+        Err(error) => io_failed(error),
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nuppNativeFilesExecutablePath(output: *mut u64) -> i32 {
+    match filesystem::executable_path() {
+        Ok(value) => store(value, output, "executable path output is null"),
+        Err(error) => io_failed(error),
+    }
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn nuppNativeFilesCanonicalize(input: FilesSlice, output: *mut u64) -> i32 {
     let path = match unsafe { path(input, "path") } {
         Ok(value) => value,

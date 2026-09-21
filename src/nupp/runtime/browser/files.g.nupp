@@ -1,0 +1,539 @@
+@!internal
+module nupp.runtime.browser.files
+
+local effects = require("nupp.runtime.browser.effects")
+local contracts = require("nupp.io.files.spi")
+local messages = require("nupp.io.files.messages")
+local appPaths = require("nupp.io.files.path")
+local io = require("nupp.io")
+local span = require("nupp.mem.span")
+local suspension = require("nupp.suspension")
+local memory = require("nupp.runtime.wasm") as any
+local host = assert(rawget(_G, "__nuppWasmFilesHost"), "nupp.io.files: browser file host is unavailable") as any
+
+local files = {}
+local pending: integer = 0
+local READ_SIZE: integer = 65536
+local ORIGINS = {set = 0, current = 1, ["end"] = 2,}
+
+local function unavailable(operation: string): string
+    return "browser files do not support " .. operation
+end
+
+local function descriptor(value: any, level: integer): any
+    if not appPaths.is(value) then
+        error("nupp: browser file paths must come from an application path", level)
+    end
+    local described = appPaths.descriptor(value as appPaths.ApplicationPath)
+    if described.provider ~= "browser" then
+        error("nupp: browser file paths must come from this browser provider", level)
+    end
+
+    return {root = described.root, parts = described.parts,}
+end
+
+local function effect(operation: string, path: any?, extra: any?): (any?, string?)
+    local payload = extra or {}
+    payload.operation = operation
+    if path ~= nil then
+        local described = descriptor(path, 4)
+        payload.root = described.root
+        payload.parts = described.parts
+    end
+    local completed, suspended = pcall(suspension.suspend, "browser file operation", function(
+        resume: function(any): nil
+    ): function()
+        return effects.request("files", payload, resume)
+    end)
+    if not completed then
+        return nil, tostring(suspended)
+    end
+    local answer = suspended as any
+    if not answer.ok then
+        return nil, answer.error or "browser file operation failed"
+    end
+
+    return answer.value, nil
+end
+
+local newReaderOver: function(borrows file: File): affine(FileReader) borrows (file)
+local newWriterOver: function(borrows file: File): affine(FileWriter) borrows (file)
+
+function files.capabilities(): messages.Capabilities
+    local available = host.available() == true
+    return new messages.Capabilities(
+        available = available,
+        arbitraryPaths = false,
+        symbolicLinks = false,
+        readOnlyAttributes = false,
+        glob = false,
+        rename = false,
+        atomicWrite = false,
+        temporaryPaths = false,
+        concurrentOpenHandles = false,
+        currentDirectory = false,
+        userFolders = false,
+        executableDirectory = false,
+        persistentStorageRequest = available and host.persistentAvailable() == true
+    )
+end
+
+function files.applicationPath(
+    kind: string,
+    organization: string,
+    application: string
+): (appPaths.ApplicationPath?, string?)
+    local path = appPaths.browser(kind, organization, application)
+    local _, reason = effect("create-directory", path)
+    if reason ~= nil then
+        return nil, reason
+    end
+
+    return path, nil
+end
+
+function files.info(path: any): (messages.Info?, string?)
+    local value, reason = effect("info", path)
+    if value == nil then
+        return nil, reason
+    end
+
+    return new messages.Info(kind = value.kind, size = value.size, modified = value.modified, readOnly = false), nil
+end
+
+function files.exists(path: any): boolean
+    local value = effect("info", path)
+    return value ~= nil
+end
+
+function files.isFile(path: any): boolean
+    local value = effect("info", path)
+    return value ~= nil and value.kind == "file"
+end
+
+function files.isDirectory(path: any): boolean
+    local value = effect("info", path)
+    return value ~= nil and value.kind == "directory"
+end
+
+function files.isSymlink(path: any): (boolean?, string?)
+    descriptor(path, 2)
+    return nil, unavailable("symbolic links")
+end
+
+function files.readLink(path: any): (string?, string?)
+    descriptor(path, 2)
+    return nil, unavailable("symbolic links")
+end
+
+function files.createSymlink(target: any, link: any, kind: any): (boolean, string?)
+    descriptor(target, 2)
+    descriptor(link, 2)
+    return false, unavailable("symbolic links")
+end
+
+function files.setReadOnly(path: any, readOnly: boolean): (boolean, string?)
+    descriptor(path, 2)
+    return false, unavailable("read-only attributes")
+end
+
+function files.createDirectory(path: any): (boolean, string?)
+    local value, reason = effect("create-directory", path)
+    return value ~= nil, reason
+end
+
+function files.remove(path: any, recursive: boolean?): (boolean, string?)
+    local value, reason = effect("remove", path, {recursive = recursive == true,})
+    return value ~= nil, reason
+end
+
+function files.rename(from: any, to: any): (boolean, string?)
+    descriptor(from, 2)
+    descriptor(to, 2)
+    return false, unavailable("rename")
+end
+
+function files.list(path: any): ({messages.Entry}?, string?)
+    local value, reason = effect("list", path)
+    if value == nil then
+        return nil, reason
+    end
+    local entries: {messages.Entry} = {}
+    for _, entry in ipairs(value) do
+        entries[#entries + 1] = new messages.Entry(name = entry.name, kind = entry.kind)
+    end
+
+    return entries, nil
+end
+
+function files.glob(path: any): ({string}?, string?)
+    descriptor(path, 2)
+    return nil, unavailable("glob")
+end
+
+local record File
+    private _handle: integer
+    private _closed: boolean
+
+    function newReader(borrows self): affine(FileReader) borrows (self)
+        if self._closed then
+            error("nupp: io.files File is closed", 2)
+        end
+        return newReaderOver(self)
+    end
+
+    function newWriter(borrows self): affine(FileWriter) borrows (self)
+        if self._closed then
+            error("nupp: io.files File is closed", 2)
+        end
+        return newWriterOver(self)
+    end
+
+    function size(borrows self): (integer?, string?)
+        if self._closed then
+            error("nupp: io.files File is closed", 2)
+        end
+        return host.size(self._handle)
+    end
+
+    function seek(exclusive self, offset: integer?, origin: messages.Origin?): (integer?, string?)
+        if self._closed then
+            error("nupp: io.files File is closed", 2)
+        end
+        local whence = ORIGINS[origin or "set"]
+        if whence == nil then
+            error("nupp: io.files has no seek origin named " .. tostring(origin), 2)
+        end
+
+        return host.seek(self._handle, offset or 0, whence)
+    end
+
+    function position(exclusive self): (integer?, string?)
+        return self:seek(0, "current")
+    end
+
+    function flush(borrows self): (boolean, string?)
+        if self._closed then
+            error("nupp: io.files File is closed", 2)
+        end
+        return host.flush(self._handle)
+    end
+
+    function isReleased(borrows self): boolean
+        return self._closed
+    end
+
+    drop: nosuspend function(takes self: File): nil
+
+    function close(takes self): boolean
+        self:drop()
+        return true
+    end
+end
+
+local record FileReader is io.Reader
+    private _file: any
+    private _closed: boolean
+
+    function read(self, count: integer): (string?, string?)
+        if self._closed then
+            return nil, "the reader is closed"
+        end
+        if type(count) ~= "number" or count ~= math.floor(count) or count < 1 then
+            error("nupp: io.files FileReader:read count must be positive", 2)
+        end
+        local file = self._file as File
+        if file._closed then
+            return nil, "the file is closed"
+        end
+
+        return host.read(file._handle, count)
+    end
+
+    function readSpan(self, exclusive destination: span.Writable<uint8>): (integer?, string?)
+        if self._closed then
+            return nil, "the reader is closed"
+        end
+        local file = self._file as File
+        if file._closed then
+            return nil, "the file is closed"
+        end
+        local pointer, count = destination:ref()
+        local leaseRead = memory.lease as function(
+            exclusive pointer: uint8[?],
+            count: integer,
+            writable: boolean?
+        ): integer
+        local lease = leaseRead(pointer, count, true)
+        local value, reason = host.readLease(file._handle, lease, count)
+        memory.releaseLease(lease)
+
+        return value, reason
+    end
+
+    function readInto(self, exclusive destination: io.Buffer, offset: integer?, count: integer?): (integer?, string?)
+        local from = offset or 0
+        local wanted = count or READ_SIZE
+        local lease = destination:reserveWrite(from, wanted)
+        local got: integer?
+        local reason: string?
+        do
+            local output = lease:span()
+            got, reason = self:readSpan(output)
+            drop output
+        end
+        if got == nil then
+            lease:commit(0)
+            return nil, reason
+        end
+        lease:commit(got)
+
+        return got, nil
+    end
+
+    function transferTo(self, exclusive destination: io.Writer): (integer?, string?)
+        local total: integer = 0
+        while true do
+            local chunk, reason = self:read(READ_SIZE)
+            if chunk == nil then
+                return nil, reason
+            end
+            if #chunk == 0 then
+                return total, nil
+            end
+            local wrote, failure = destination:write(chunk)
+            if not wrote then
+                return nil, failure
+            end
+            total = total + #chunk
+        end
+    end
+
+    drop: nosuspend function(takes self: FileReader): nil
+    function close(takes self): nil
+        self:drop()
+    end
+end
+
+local record FileWriter is io.Writer
+    private _file: any
+    private _closed: boolean
+
+    function write(exclusive self, bytes: string): (boolean, string?)
+        if self._closed then
+            return false, "the writer is closed"
+        end
+        local file = self._file as File
+        if file._closed then
+            return false, "the file is closed"
+        end
+        local wrote, reason = host.write(file._handle, bytes)
+
+        return wrote ~= nil and wrote == #bytes, reason
+    end
+
+    function writeSpan(exclusive self, borrows source: span.ByteSpan): (integer?, string?)
+        if self._closed then
+            return nil, "the writer is closed"
+        end
+        local file = self._file as File
+        if file._closed then
+            return nil, "the file is closed"
+        end
+        local pointer, count = source:ref()
+        local leaseWrite = memory.lease as function(
+            borrows pointer: const uint8[?],
+            count: integer,
+            writable: boolean?
+        ): integer
+        local lease = leaseWrite(pointer, count, false)
+        local value, reason = host.writeLease(file._handle, lease, count)
+        memory.releaseLease(lease)
+
+        return value, reason
+    end
+
+    function flush(self): (boolean, string?)
+        if self._closed then
+            return false, "the writer is closed"
+        end
+        return (self._file as File):flush()
+    end
+
+    drop: nosuspend function(takes self: FileWriter): nil
+    function close(takes self): nil
+        self:drop()
+    end
+end
+
+function File.drop(takes self: File): nil
+    local state = @unsafe release self
+    if state._closed then
+        return
+    end
+    state._closed = true
+    host.close(state._handle)
+end
+
+function FileReader.drop(takes self: FileReader): nil
+    local state = @unsafe release self
+    state._closed = true
+end
+
+function FileWriter.drop(takes self: FileWriter): nil
+    local state = @unsafe release self
+    state._closed = true
+end
+
+newReaderOver = function(borrows file: File): affine(FileReader) borrows (file)
+    return new FileReader(_file = file, _closed = false)
+end
+
+newWriterOver = function(borrows file: File): affine(FileWriter) borrows (file)
+    return new FileWriter(_file = file, _closed = false)
+end
+
+function files.open(path: any, mode: messages.Mode?): (affine(File?, contracts.destroyOwner), string?)
+    local value, reason = effect("open", path, {mode = mode or "r",})
+    if value == nil then
+        return nil, reason
+    end
+
+    return new File(_handle = value.handle, _closed = false), nil
+end
+
+local function wholeRead(path: any): (string?, string?)
+    pending = pending + 1
+    local opened, reason = files.open(path, "r")
+    if opened == nil then
+        pending = pending - 1
+        return nil, reason
+    end
+    local file = opened as File
+    local pieces: {string} = {}
+    while true do
+        local chunk, failure = host.read(file._handle, READ_SIZE)
+        if chunk == nil then
+            file:drop()
+            pending = pending - 1
+            return nil, failure
+        end
+        if #chunk == 0 then
+            break
+        end
+        pieces[#pieces + 1] = chunk
+    end
+    file:drop()
+    pending = pending - 1
+
+    return table.concat(pieces), nil
+end
+
+function files.read(path: any): (string?, string?)
+    return wholeRead(path)
+end
+
+local function wholeWrite(path: any, bytes: any, mode: messages.Mode): (boolean, string?)
+    if type(bytes) ~= "string" and (type(bytes) ~= "table" or bytes.getString == nil) then
+        error("nupp: io.files contents must be bytes or a byte view", 3)
+    end
+    local text = type(bytes) == "string" and bytes or bytes:getString()
+    pending = pending + 1
+    local opened, reason = files.open(path, mode)
+    if opened == nil then
+        pending = pending - 1
+        return false, reason
+    end
+    local file = opened as File
+    local wrote, failure = host.write(file._handle, text)
+    file:drop()
+    pending = pending - 1
+
+    return wrote == #text, failure
+end
+
+function files.write(path: any, bytes: any): (boolean, string?)
+    return wholeWrite(path, bytes, "w")
+end
+
+function files.append(path: any, bytes: any): (boolean, string?)
+    return wholeWrite(path, bytes, "a")
+end
+
+function files.writeAtomic(path: any, bytes: any): (boolean, string?)
+    descriptor(path, 2)
+    return false, unavailable("atomic replacement")
+end
+
+function files.copy(from: any, to: any): (boolean, string?)
+    local bytes, reason = wholeRead(from)
+    if bytes == nil then
+        return false, reason
+    end
+
+    return wholeWrite(to, bytes, "w")
+end
+
+function files.pendingTransfers(): integer
+    return pending
+end
+
+function files.lines(path: any): (messages.LineIterator?, string?)
+    local bytes, reason = wholeRead(path)
+    if bytes == nil then
+        return nil, reason
+    end
+    local at: integer = 1
+
+    return function(): string?
+        if at > #bytes then
+            return nil
+        end
+        local stop = bytes:find("\n", at, true)
+        local line: string
+        if stop == nil then
+            line, at = bytes:sub(at), #bytes + 1
+        else
+            line, at = bytes:sub(at, stop - 1), stop + 1
+        end
+        if line:sub(-1) == "\r" then
+            line = line:sub(1, -2)
+        end
+
+        return line
+    end, nil
+end
+
+function files.createTemporaryFile(options: messages.TemporaryOptions?): (nil, string?)
+    return nil, unavailable("temporary paths")
+end
+
+function files.createTemporaryDirectory(options: messages.TemporaryOptions?): (nil, string?)
+    return nil, unavailable("temporary paths")
+end
+
+function files.currentDirectory(): (string?, string?)
+    return nil, unavailable("a current directory")
+end
+
+function files.userFolder(which: messages.UserFolder): (string?, string?)
+    return nil, unavailable("user folders")
+end
+
+function files.executableDirectory(): (string?, string?)
+    return nil, unavailable("an executable directory")
+end
+
+function files.requestPersistentStorage(): (boolean, string?)
+    if host.persistentAvailable() ~= true then
+        return false, "the browser host has no main-thread persistence relay"
+    end
+    local value, reason = effect("persist", nil)
+    if value == nil then
+        return false, reason
+    end
+
+    return value.granted == true, value.granted == true and nil or "persistent storage was not granted"
+end
+
+export = files

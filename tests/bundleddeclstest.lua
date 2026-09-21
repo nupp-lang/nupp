@@ -11,6 +11,7 @@
 local parser = require("nupp.compiler.parser")
 local check = require("fragment")
 local envMod = require("nupp.compiler.env")
+local gen = require("nupp.compiler.gen")
 local T = require("nupp.compiler.types")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
@@ -27,6 +28,7 @@ end
 -- Built once and answered again: every case wants the same one, and building it
 -- means checking the prelude from source.
 local strict = nil
+
 local function strictEnv()
     strict = strict or envMod.new(ROOT, {config = {strict = true, include = {"src"}}})
 
@@ -305,11 +307,11 @@ function M.everyPublicStandardModuleResolves()
     for name, classification in pairs(surface.all()) do
         -- `members` classifies a namespace that holds no module of its own, and
         -- the compiler's own internals are not something a project requires.
-        local public = name:match(
-            "^nupp%."
-        ) and classification.kind ~= "members" and not name:match(
-            "^nupp%.compiler%."
-        ) and not name:match("^nupp%.runtime%.") and not name:match("^nupp%.browser%.")
+        local public = name:match("^nupp%.")
+            and classification.kind ~= "members"
+            and not name:match("^nupp%.compiler%.")
+            and not name:match("^nupp%.runtime%.")
+            and not name:match("^nupp%.browser%.")
         if public then
             local resolved = env.resolveModule(env, name)
             if not resolved or resolved == T.any or resolved.tag == "unknown" then
@@ -323,6 +325,27 @@ function M.everyPublicStandardModuleResolves()
         0,
         "a module classified public must have loadable types; unresolvable: " .. table.concat(lost, ", ")
     )
+end
+
+function M.openFilesKeepTheirLexicalCleanupAcrossThePublicFacade()
+    local source = [[
+const files = require("nupp.io.files")
+do
+    local file, reason = files.open("input.txt")
+    if file == nil then error(reason) end
+    print(file)
+end
+]]
+    local parsed = parser.parse(source, "files-owner.nupp")
+    assertEq(#parsed.errors, 0, "syntax errors")
+    local diagnostics = check.check(parsed, "files-owner.nupp", strictEnv(), {strict = true}) or {}
+    for _, diagnostic in ipairs(diagnostics) do
+        if diagnostic.severity == "error" then
+            error(("%s: %s"):format(diagnostic.code, diagnostic.msg), 2)
+        end
+    end
+    local code = gen.generate(parsed, "files-owner")
+    assert(code:find("__nuppV:drop()", 1, true), "the public File terminal runs at lexical scope exit")
 end
 
 return M

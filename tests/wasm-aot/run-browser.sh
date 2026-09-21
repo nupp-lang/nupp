@@ -25,7 +25,7 @@ if [[ ! -f "$lua_source/lapi.c" ]]; then
 fi
 
 runtime="$site/runtime"
-for case_name in plain scalar simd128 http platform derive cancel runtime-error \
+for case_name in plain scalar simd128 http files platform derive cancel runtime-error \
     workers workers-scalar workers-simd; do
   target=app
   case $case_name in
@@ -33,6 +33,7 @@ for case_name in plain scalar simd128 http platform derive cancel runtime-error 
     scalar) project="$script_dir/project" ;;
     simd128) project="$script_dir/simd-project" ;;
     http) project="$script_dir/http-project" ;;
+    files) project="$script_dir/files-project" ;;
     platform) project="$script_dir/platform-project" ;;
     derive) project="$script_dir/derive-project" ;;
     cancel) project="$script_dir/cancel-project" ;;
@@ -63,7 +64,7 @@ for attempt in {1..30}; do
 done
 curl --fail --silent "http://127.0.0.1:$port/plain/index.html" >/dev/null
 
-for case_name in plain scalar simd128 http platform derive cancel runtime-error missing \
+for case_name in plain scalar simd128 http files platform derive cancel runtime-error missing \
     workers workers-scalar workers-simd; do
   case $case_name in plain) expected=none ;; *) expected=$case_name ;; esac
   CHROME="$chrome_command" node "$repo/editors/playground/tools/run-browser-smoke.mjs" \
@@ -73,6 +74,7 @@ done
 
 node "$script_dir/browser-summary.mjs" \
   "$site/plain-result.json" "$site/scalar-result.json" "$site/simd128-result.json" "$site/http-result.json" \
+  "$site/files-result.json" \
   "$site/platform-result.json" "$site/derive-result.json" "$site/cancel-result.json" \
   "$site/runtime-error-result.json" \
   "$site/missing-result.json" "$site/workers-result.json" "$site/workers-scalar-result.json" \

@@ -1,0 +1,114 @@
+const files = require("nupp.io.files")
+
+files.setApplicationIdentity("nupp", "browser-files-test")
+local root, rootReason = files.dataPath()
+assert(root, rootReason)
+files.remove(root, true)
+local created, createReason = files.createDirectory(root)
+assert(created, createReason)
+local path = root:join("save.bin")
+local wrote, writeReason = files.write(path, "abc\0def")
+assert(wrote, writeReason)
+local appended, appendReason = files.append(path, ":tail")
+assert(appended, appendReason)
+local initial, readReason = files.read(path)
+assert(initial == "abc\0def:tail", readReason)
+
+local modes = root:join("modes.bin")
+local missing = root:join("missing.bin")
+local absent = files.open(missing, "r")
+assert(absent == nil)
+do
+    local file, reason = files.open(modes, "w")
+    if file == nil then
+        error(reason or "w failed", 0)
+    end
+    local reader = file:newReader()
+    local denied = reader:read(1)
+    reader:close()
+    assert(denied == nil)
+    local writer = file:newWriter()
+    assert(writer:write("old"))
+    writer:close()
+end
+do
+    local file, reason = files.open(modes, "r")
+    if file == nil then
+        error(reason or "r failed", 0)
+    end
+    local writer = file:newWriter()
+    assert(not writer:write("denied"))
+    writer:close()
+end
+do
+    local file, reason = files.open(modes, "w+")
+    if file == nil then
+        error(reason or "w+ failed", 0)
+    end
+    assert(file:size() == 0)
+    local writer = file:newWriter()
+    assert(writer:write("xy"))
+    writer:close()
+    assert(file:seek(5) == 5)
+    writer = file:newWriter()
+    assert(writer:write("q"))
+    writer:close()
+    assert(file:size() == 6)
+    assert(file:seek(0) == 0)
+    local reader = file:newReader()
+    assert(reader:read(6) == "xy\0\0\0q")
+    reader:close()
+end
+do
+    local file, reason = files.open(modes, "a+")
+    if file == nil then
+        error(reason or "a+ failed", 0)
+    end
+    assert(file:seek(0) == 0)
+    local writer = file:newWriter()
+    assert(writer:write("z"))
+    writer:close()
+    assert(file:seek(0) == 0)
+    local reader = file:newReader()
+    assert(reader:read(7) == "xy\0\0\0qz")
+    reader:close()
+end
+
+local locked: boolean
+do
+    local file, openReason = files.open(path, "r+")
+    if file == nil then
+        error(openReason or "could not open file", 0)
+    end
+    assert(file:seek(4) == 4)
+    local reader = file:newReader()
+    assert(reader:read(3) == "def")
+    reader:close()
+    assert(file:seek(0, "end") == 12)
+    local second, reason = files.open(path, "r")
+    locked = second == nil and type(reason) == "string"
+end
+
+local reopened: boolean
+do
+    local file, openReason = files.open(path, "r")
+    if file == nil then
+        error(openReason or "could not reopen file", 0)
+    end
+    reopened = file:size() == 12
+end
+
+local entries, listReason = files.list(root)
+assert(entries, listReason)
+local symlink, symlinkReason = files.isSymlink(path)
+local persistent = files.requestPersistentStorage()
+local capabilities = files.capabilities()
+local final, finalReason = files.read(path)
+assert(final == "abc\0def:tail", finalReason)
+assert(entries[1].name == "save.bin")
+assert(symlink == nil and type(symlinkReason) == "string")
+assert(capabilities.available and not capabilities.arbitraryPaths and not capabilities.concurrentOpenHandles)
+assert(type(persistent) == "boolean")
+local removed, removeReason = files.remove(root, true)
+assert(removed, removeReason)
+return [[{"bytes":"abc\u0000def:tail","entry":"save.bin","modes":true,"locked":true,"reopened":true,"symlinkUnsupported":true,"available":true,"arbitraryPaths":false,"concurrentOpenHandles":false,"persistenceAnswered":true}]]

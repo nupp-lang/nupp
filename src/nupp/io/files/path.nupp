@@ -1,0 +1,161 @@
+@!internal
+module nupp.io.files.path
+
+const utf8 = require("nupp.text.utf8")
+const paths = require("nupp.io.path")
+
+--- An opaque portable path beneath an application-owned storage root.
+export sealed interface ApplicationPath
+    --- Appends portable path components without allowing an escape from the root.
+    join: function(self, ...: string): ApplicationPath
+
+    --- Returns a display or native-interoperability form that does not retain
+    --- authority.
+    toString: function(self): string
+end
+
+local descriptors: {[any]: any} = setmetatable({}, {__mode = "k"})
+
+local function validText(value: any, what: string, level: integer): string
+    if type(value) ~= "string" or value == "" then
+        error("nupp: io.files " .. what .. " must be a non-empty string", level)
+    end
+    if not utf8.isValid(value as string) then
+        error("nupp: io.files " .. what .. " must be valid UTF-8", level)
+    end
+
+    return value as string
+end
+
+local function reservedDevice(value: string): boolean
+    local base = (value:match("^([^.]*)") or value):upper()
+    return base == "CON"
+        or base == "PRN"
+        or base == "AUX"
+        or base == "NUL"
+        or base:match("^COM[1-9]$") ~= nil
+        or base:match("^LPT[1-9]$") ~= nil
+end
+
+local function hex(byte: integer): string
+    return ("%%%02X"):format(byte)
+end
+
+--- Encodes one application identity component reversibly for every native host.
+export function encodeIdentity(value: any, what: string?): string
+    local text = validText(value, what or "application identity", 3)
+    local reserved = reservedDevice(text)
+    local out: {string} = {}
+    for index = 1, #text do
+        local byte = text:byte(index) as integer
+        local character = text:sub(index, index)
+        local escape = byte < 32
+            or byte == 127
+            or character == "%"
+            or character == "/"
+            or character == "\\"
+            or character == "<"
+            or character == ">"
+            or character == ":"
+            or character == '"'
+            or character == "|"
+            or character == "?"
+            or character == "*"
+            or index == #text and (character == "." or character == " ")
+            or index == 1 and (text == "." or text == ".." or reserved)
+        out[#out + 1] = escape and hex(byte) or character
+    end
+
+    return table.concat(out)
+end
+
+local function component(value: any, level: integer): string
+    local text = validText(value, "ApplicationPath component", level + 1)
+    if text == "." or text == ".." then
+        error("nupp: io.files ApplicationPath component must not be '.' or '..'", level)
+    end
+    if text:sub(-1) == "." or text:sub(-1) == " " then
+        error("nupp: io.files ApplicationPath component must not end in a dot or space", level)
+    end
+    if text:find("[/\\]", 1) or text:find('[<>:"|?*]') or reservedDevice(text) then
+        error("nupp: io.files ApplicationPath component is not portable", level)
+    end
+    for index = 1, #text do
+        local byte = text:byte(index) as integer
+        if byte < 32 or byte == 127 then
+            error("nupp: io.files ApplicationPath component contains a control byte", level)
+        end
+    end
+
+    return text
+end
+
+local newPath: function(provider: string, root: string, parts: {string}): ApplicationPath
+
+local record PathImpl is ApplicationPath
+    private _text: string
+
+    function join(self, ...: string): ApplicationPath
+        local descriptor = assert(descriptors[self])
+        local parts: {string} = {}
+        for index = 1, #descriptor.parts do
+            parts[index] = descriptor.parts[index]
+        end
+        for index = 1, select("#", ...) do
+            parts[#parts + 1] = component(select(index, ...), 2)
+        end
+
+        return newPath(descriptor.provider, descriptor.root, parts)
+    end
+
+    function toString(self): string
+        return self._text
+    end
+
+    metamethod __tostring: function(self): string
+end
+
+newPath = function(provider: string, root: string, parts: {string}): ApplicationPath
+    local text: string
+    if provider == "native" then
+        local built = paths.newPath(root)
+        for _, part in ipairs(parts) do
+            built = built:join(part)
+        end
+        text = built:toString()
+    else
+        text = "opfs:/" .. table.concat(parts, "/")
+    end
+    local value = new PathImpl(_text = text)
+    descriptors[value] = {provider = provider, root = root, parts = parts,}
+
+    return value
+end
+
+    ;
+(PathImpl as {[string]: any}).__tostring = function(self: PathImpl): string
+    return self:toString()
+end
+
+export function native(root: string, kind: string, organization: string, application: string): ApplicationPath
+    return newPath("native", root, {
+        encodeIdentity(organization, "organization"),
+        encodeIdentity(application, "application")
+    })
+end
+
+export function browser(kind: string, organization: string, application: string): ApplicationPath
+    return newPath("browser", kind, {
+        kind,
+        encodeIdentity(organization, "organization"),
+        encodeIdentity(application, "application")
+    })
+end
+
+export function is(value: any): boolean
+    return type(value) == "table" and descriptors[value] ~= nil
+end
+
+export function descriptor(value: ApplicationPath): any
+    return assert(descriptors[value], "nupp.io.files: path is not an ApplicationPath")
+end

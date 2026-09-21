@@ -262,7 +262,10 @@ point.
 
 Applications may embed the C host and reproduce that order directly. The
 binding ABI is the Lua 5.1 C API plus `nupp_wasm_pointer_address`; there is no
-virtual filesystem or JavaScript kernel trampoline.
+general virtual filesystem or JavaScript kernel trampoline. `nupp.io.files`
+uses the browser's Origin Private File System through a dedicated-Worker bridge:
+opening and directory operations suspend, while an open file's reads, writes,
+seeks, sizes, flushes, and closes call its synchronous access handle directly.
 
 ## Limits
 
@@ -279,8 +282,9 @@ unavailable.
 
 Pure Lua dependencies work when included by the target. Facades import their
 built-in platform implementations explicitly; the artifact SPI index carries
-implementations advertised by application dependencies. Wasm storage does not supply
-filesystem, process, foreign C interoperability, or arbitrary third-party services.
+implementations advertised by application dependencies. Browser Wasm supplies
+identity-scoped application files in OPFS, but not arbitrary host paths,
+processes, foreign C interoperability, or arbitrary third-party services.
 
 Browser HTTP accepts `http` and `https` absolute URIs. String and narrow
 `http.Reader` upload sources are accepted; reader uploads are collected before

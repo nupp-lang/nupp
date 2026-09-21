@@ -7,6 +7,7 @@ try {
   const tierFor = {
     "runtime-error": "none",
     http: "none",
+    files: "none",
     platform: "none",
     cancel: "none",
     derive: "none",
@@ -49,6 +50,15 @@ try {
     if (returned.status !== 200 || document.message !== "hello from Nupp over fetch" ||
         returned.contentType !== "application/octet-stream") {
       throw new Error(`unexpected structured HTTP result: ${JSON.stringify(returned)}`);
+    }
+  }
+  if (expected === "files") {
+    if (returned.bytes !== "abc\0def:tail" || returned.entry !== "save.bin" ||
+        returned.locked !== true || returned.reopened !== true ||
+        returned.symlinkUnsupported !== true || returned.available !== true ||
+        returned.arbitraryPaths !== false || returned.concurrentOpenHandles !== false ||
+        returned.persistenceAnswered !== true || returned.modes !== true) {
+      throw new Error(`unexpected browser files result: ${JSON.stringify(returned)}`);
     }
   }
   if (expected === "workers") {

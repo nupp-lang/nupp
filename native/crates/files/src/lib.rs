@@ -362,6 +362,95 @@ pub fn current_directory() -> io::Result<Vec<u8>> {
     path_bytes(std::env::current_dir()?)
 }
 
+/// Returns one platform application-storage base without requiring it to exist.
+///
+/// Codes are configuration, durable data and disposable cache respectively.
+pub fn application_base(which: u32) -> io::Result<Vec<u8>> {
+    let platform = if cfg!(windows) {
+        ApplicationPlatform::Windows
+    } else if cfg!(target_os = "macos") {
+        ApplicationPlatform::Apple
+    } else {
+        ApplicationPlatform::Xdg
+    };
+    path_bytes(resolve_application_base(which, platform, |name| {
+        std::env::var_os(name)
+    })?)
+}
+
+#[derive(Clone, Copy)]
+enum ApplicationPlatform {
+    Windows,
+    Apple,
+    Xdg,
+}
+
+fn resolve_application_base(
+    which: u32,
+    platform: ApplicationPlatform,
+    environment: impl Fn(&str) -> Option<OsString>,
+) -> io::Result<PathBuf> {
+    let configured = |name: &str| {
+        environment(name)
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from)
+    };
+    let home = || {
+        configured(if matches!(platform, ApplicationPlatform::Windows) {
+            "USERPROFILE"
+        } else {
+            "HOME"
+        })
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "the home directory is not set"))
+    };
+    Ok(if matches!(platform, ApplicationPlatform::Windows) {
+        match which {
+            0 | 1 => configured("APPDATA")
+                .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "APPDATA is not set"))?,
+            2 => configured("LOCALAPPDATA").ok_or_else(|| {
+                io::Error::new(io::ErrorKind::NotFound, "LOCALAPPDATA is not set")
+            })?,
+            _ => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "unknown application base",
+                ));
+            }
+        }
+    } else if matches!(platform, ApplicationPlatform::Apple) {
+        match which {
+            0 | 1 => home()?.join("Library/Application Support"),
+            2 => home()?.join("Library/Caches"),
+            _ => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "unknown application base",
+                ));
+            }
+        }
+    } else {
+        let (variable, fallback) = match which {
+            0 => ("XDG_CONFIG_HOME", ".config"),
+            1 => ("XDG_DATA_HOME", ".local/share"),
+            2 => ("XDG_CACHE_HOME", ".cache"),
+            _ => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "unknown application base",
+                ));
+            }
+        };
+        match configured(variable).filter(|path| path.is_absolute()) {
+            Some(path) => path,
+            None => home()?.join(fallback),
+        }
+    })
+}
+
+pub fn executable_path() -> io::Result<Vec<u8>> {
+    path_bytes(std::env::current_exe()?)
+}
+
 pub fn canonicalize(path: &Path) -> io::Result<Vec<u8>> {
     path_bytes(fs::canonicalize(path)?)
 }
@@ -630,5 +719,46 @@ mod tests {
         }
 
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn application_bases_follow_each_platform_contract() {
+        let environment = |name: &str| match name {
+            "HOME" => Some(OsString::from("/home/test")),
+            "USERPROFILE" => Some(OsString::from("C:/Users/Test")),
+            "APPDATA" => Some(OsString::from("C:/Users/Test/AppData/Roaming")),
+            "LOCALAPPDATA" => Some(OsString::from("C:/Users/Test/AppData/Local")),
+            "XDG_CONFIG_HOME" => Some(OsString::from("/xdg/config")),
+            "XDG_DATA_HOME" => Some(OsString::from("relative/data")),
+            _ => None,
+        };
+        assert_eq!(
+            resolve_application_base(0, ApplicationPlatform::Windows, environment).unwrap(),
+            PathBuf::from("C:/Users/Test/AppData/Roaming")
+        );
+        assert_eq!(
+            resolve_application_base(2, ApplicationPlatform::Windows, environment).unwrap(),
+            PathBuf::from("C:/Users/Test/AppData/Local")
+        );
+        assert_eq!(
+            resolve_application_base(0, ApplicationPlatform::Apple, environment).unwrap(),
+            PathBuf::from("/home/test/Library/Application Support")
+        );
+        assert_eq!(
+            resolve_application_base(2, ApplicationPlatform::Apple, environment).unwrap(),
+            PathBuf::from("/home/test/Library/Caches")
+        );
+        assert_eq!(
+            resolve_application_base(0, ApplicationPlatform::Xdg, environment).unwrap(),
+            PathBuf::from("/xdg/config")
+        );
+        assert_eq!(
+            resolve_application_base(1, ApplicationPlatform::Xdg, environment).unwrap(),
+            PathBuf::from("/home/test/.local/share")
+        );
+        assert_eq!(
+            resolve_application_base(2, ApplicationPlatform::Xdg, environment).unwrap(),
+            PathBuf::from("/home/test/.cache")
+        );
     }
 }

@@ -1,6 +1,9 @@
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+
+#include <emscripten/emscripten.h>
 
 #include "lua.h"
 #include "lauxlib.h"
@@ -29,6 +32,211 @@ static int32_t app_status = NUPP_APP_IDLE;
 static const char *app_payload;
 static size_t app_payload_size;
 static char last_error[LAST_ERROR_SIZE];
+
+EM_JS(int, browser_files_available, (), {
+    return Module.__nuppFiles?.available ? 1 : 0;
+});
+
+EM_JS(int, browser_files_persistent_available, (), {
+    return Module.__nuppFiles?.persistentAvailable ? 1 : 0;
+});
+
+EM_JS(int, browser_files_read, (uint32_t handle, uintptr_t pointer, uint32_t count), {
+    try {
+        const entry = Module.__nuppFiles?.handles?.get(handle);
+        if (!entry) throw new Error("file handle is closed");
+        if (!entry.readable) throw new Error("file is not open for reading");
+        const output = Module.HEAPU8.subarray(pointer, pointer + count);
+        const read = entry.access.read(output, {at: entry.cursor});
+        entry.cursor += read;
+        return read;
+    } catch (error) {
+        if (Module.__nuppFiles) Module.__nuppFiles.lastError = String(error?.message || error);
+        return -1;
+    }
+});
+
+EM_JS(int, browser_files_write, (uint32_t handle, uintptr_t pointer, uint32_t count), {
+    try {
+        const entry = Module.__nuppFiles?.handles?.get(handle);
+        if (!entry) throw new Error("file handle is closed");
+        if (!entry.writable) throw new Error("file is not open for writing");
+        let written = 0;
+        while (written < count) {
+            const at = entry.appending ? entry.access.getSize() : entry.cursor;
+            const input = Module.HEAPU8.subarray(pointer + written, pointer + count);
+            const countWritten = entry.access.write(input, {at});
+            if (!Number.isInteger(countWritten) || countWritten < 1) throw new Error("file write made no progress");
+            written += countWritten;
+            entry.cursor = at + countWritten;
+        }
+        return written;
+    } catch (error) {
+        if (Module.__nuppFiles) Module.__nuppFiles.lastError = String(error?.message || error);
+        return -1;
+    }
+});
+
+EM_JS(double, browser_files_size, (uint32_t handle), {
+    try {
+        const entry = Module.__nuppFiles?.handles?.get(handle);
+        if (!entry) throw new Error("file handle is closed");
+        return entry.access.getSize();
+    } catch (error) {
+        if (Module.__nuppFiles) Module.__nuppFiles.lastError = String(error?.message || error);
+        return -1;
+    }
+});
+
+EM_JS(double, browser_files_seek, (uint32_t handle, double offset, uint32_t origin), {
+    try {
+        const entry = Module.__nuppFiles?.handles?.get(handle);
+        if (!entry) throw new Error("file handle is closed");
+        const base = origin === 0 ? 0 : origin === 1 ? entry.cursor : origin === 2 ? entry.access.getSize() : NaN;
+        if (!Number.isFinite(base) || !Number.isSafeInteger(offset)) throw new Error("invalid file seek");
+        entry.cursor = Math.max(0, base + offset);
+        return entry.cursor;
+    } catch (error) {
+        if (Module.__nuppFiles) Module.__nuppFiles.lastError = String(error?.message || error);
+        return -1;
+    }
+});
+
+EM_JS(int, browser_files_flush, (uint32_t handle), {
+    try {
+        const entry = Module.__nuppFiles?.handles?.get(handle);
+        if (!entry) throw new Error("file handle is closed");
+        entry.access.flush();
+        return 1;
+    } catch (error) {
+        if (Module.__nuppFiles) Module.__nuppFiles.lastError = String(error?.message || error);
+        return 0;
+    }
+});
+
+EM_JS(int, browser_files_close, (uint32_t handle), {
+    try {
+        const files = Module.__nuppFiles;
+        const entry = files?.handles?.get(handle);
+        if (!entry) return 1;
+        entry.access.close();
+        files.handles.delete(handle);
+        return 1;
+    } catch (error) {
+        if (Module.__nuppFiles) Module.__nuppFiles.lastError = String(error?.message || error);
+        return 0;
+    }
+});
+
+EM_JS(char *, browser_files_last_error, (), {
+    const text = Module.__nuppFiles?.lastError || "browser file operation failed";
+    const bytes = lengthBytesUTF8(text) + 1;
+    const pointer = _malloc(bytes);
+    stringToUTF8(text, pointer, bytes);
+    return pointer;
+});
+
+static int files_failure(lua_State *state) {
+    char *message = browser_files_last_error();
+    lua_pushnil(state);
+    lua_pushstring(state, message == NULL ? "browser file operation failed" : message);
+    free(message);
+    return 2;
+}
+
+static int files_available(lua_State *state) {
+    lua_pushboolean(state, browser_files_available());
+    return 1;
+}
+
+static int files_persistent_available(lua_State *state) {
+    lua_pushboolean(state, browser_files_persistent_available());
+    return 1;
+}
+
+static int files_read(lua_State *state) {
+    uint32_t handle = (uint32_t)luaL_checknumber(state, 1);
+    uint32_t count = (uint32_t)luaL_checknumber(state, 2);
+    char *buffer = count == 0 ? NULL : (char *)malloc(count);
+    int read;
+    if (count != 0 && buffer == NULL) return luaL_error(state, "cannot allocate browser file read buffer");
+    read = browser_files_read(handle, (uintptr_t)buffer, count);
+    if (read < 0) { free(buffer); return files_failure(state); }
+    lua_pushlstring(state, buffer == NULL ? "" : buffer, (size_t)read);
+    free(buffer);
+    lua_pushnil(state);
+    return 2;
+}
+
+static int files_read_lease(lua_State *state) {
+    uint32_t handle = (uint32_t)luaL_checknumber(state, 1);
+    uint32_t lease = (uint32_t)luaL_checknumber(state, 2);
+    uint32_t count = (uint32_t)luaL_checknumber(state, 3);
+    uintptr_t address = nupp_wasm_lease_address(lease);
+    if (address == 0 || !nupp_wasm_lease_writable(lease) || count > nupp_wasm_lease_size(lease))
+        return luaL_error(state, "browser file read lease is invalid");
+    int read = browser_files_read(handle, address, count);
+    if (read < 0) return files_failure(state);
+    lua_pushnumber(state, (lua_Number)read); lua_pushnil(state); return 2;
+}
+
+static int files_write(lua_State *state) {
+    uint32_t handle = (uint32_t)luaL_checknumber(state, 1);
+    size_t count;
+    const char *bytes = luaL_checklstring(state, 2, &count);
+    int written = browser_files_write(handle, (uintptr_t)bytes, (uint32_t)count);
+    if (written < 0) return files_failure(state);
+    lua_pushnumber(state, (lua_Number)written); lua_pushnil(state); return 2;
+}
+
+static int files_write_lease(lua_State *state) {
+    uint32_t handle = (uint32_t)luaL_checknumber(state, 1);
+    uint32_t lease = (uint32_t)luaL_checknumber(state, 2);
+    uint32_t count = (uint32_t)luaL_checknumber(state, 3);
+    uintptr_t address = nupp_wasm_lease_address(lease);
+    if (address == 0 || count > nupp_wasm_lease_size(lease))
+        return luaL_error(state, "browser file write lease is invalid");
+    int written = browser_files_write(handle, address, count);
+    if (written < 0) return files_failure(state);
+    lua_pushnumber(state, (lua_Number)written); lua_pushnil(state); return 2;
+}
+
+static int files_size(lua_State *state) {
+    double size = browser_files_size((uint32_t)luaL_checknumber(state, 1));
+    if (size < 0) return files_failure(state);
+    lua_pushnumber(state, size); lua_pushnil(state); return 2;
+}
+
+static int files_seek(lua_State *state) {
+    double value = browser_files_seek((uint32_t)luaL_checknumber(state, 1), luaL_checknumber(state, 2),
+        (uint32_t)luaL_checknumber(state, 3));
+    if (value < 0) return files_failure(state);
+    lua_pushnumber(state, value); lua_pushnil(state); return 2;
+}
+
+static int files_flush(lua_State *state) {
+    if (!browser_files_flush((uint32_t)luaL_checknumber(state, 1))) return files_failure(state);
+    lua_pushboolean(state, 1); lua_pushnil(state); return 2;
+}
+
+static int files_close(lua_State *state) {
+    if (!browser_files_close((uint32_t)luaL_checknumber(state, 1))) return files_failure(state);
+    lua_pushboolean(state, 1); lua_pushnil(state); return 2;
+}
+
+static const luaL_Reg files_functions[] = {
+    {"available", files_available}, {"persistentAvailable", files_persistent_available},
+    {"read", files_read}, {"readLease", files_read_lease},
+    {"write", files_write}, {"writeLease", files_write_lease},
+    {"size", files_size}, {"seek", files_seek}, {"flush", files_flush}, {"close", files_close},
+    {NULL, NULL},
+};
+
+static void install_files(lua_State *state) {
+    lua_newtable(state);
+    luaL_register(state, NULL, files_functions);
+    lua_setglobal(state, "__nuppWasmFilesHost");
+}
 
 /* Where the failure was, appended to the message it carried.
  *
@@ -105,6 +313,7 @@ uintptr_t nupp_app_boot(void) {
     open_library(LUA_MATHLIBNAME, luaopen_math);
     preload_library("lpeg", luaopen_lpeg);
     nupp_wasm_install_memory(app_state);
+    install_files(app_state);
     last_error[0] = '\0';
     return (uintptr_t)app_state;
 }

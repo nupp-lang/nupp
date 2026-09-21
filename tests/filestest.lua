@@ -573,16 +573,17 @@ end
 
 function M.theProviderIsSelectedOnlyByReachingIt()
     local recorded = native.forModule("nupp.io.files")
-    test.equal(recorded, "native.files")
+    test.equal(recorded, "runtime.files")
+    test.equal(native.forModule("nupp.runtime.provider.nativefiles"), "native.files")
     local feature = assert(native.feature("native.files"))
     test.equal(feature.providerFeature, "files")
     test.equal(feature.providerDriver, "native-rust")
     test.equal(feature.provider, "nupp_native")
     test.equal(feature.library, "nupp_native")
-    test.equal(feature.runtimeModule, "nupp.io.files")
+    test.equal(feature.runtimeModule, "nupp.runtime.provider.nativefiles")
     test.equal(
         table.concat(feature.requires or {}, ","),
-        "native.path,stdlib.io,runtime.spanview,runtime.suspension,runtime.native"
+        "runtime.files,native.path,stdlib.io,runtime.spanview,runtime.suspension,runtime.native"
     )
     -- The declarations belong to the module that calls them rather than to the
     -- bootstrap, so selecting the feature stages the provider and installs nothing.
@@ -592,10 +593,82 @@ function M.theProviderIsSelectedOnlyByReachingIt()
         }):find("nuppNativeFilesInfo", 1, true),
         "the files ABI is the module's, not the bootstrap's"
     )
-    local handle = assert(io.open("src/nupp/io/files.nupp", "rb"))
+    local handle = assert(io.open("src/nupp/runtime/provider/nativefiles.nupp", "rb"))
     local source = handle:read("*a")
     handle:close()
     assert(source:find("nuppNativeFilesInfo", 1, true), "the module declares the ABI it calls")
+end
+
+function M.applicationPathsAreScopedPortableAndStable()
+    local files = ready()
+    test.equal(files.applicationIdentity(), nil)
+    local missing, reason = files.dataPath()
+    test.equal(missing, nil)
+    assert(reason:find("setApplicationIdentity", 1, true))
+
+    local application = "portable-files-" .. tostring(math.random(1, 1e9))
+    files.setApplicationIdentity("nupp", application)
+    local organization, selected = files.applicationIdentity()
+    test.equal(organization, "nupp")
+    test.equal(selected, application)
+    local applicationPaths = require("nupp.io.files.path")
+    test.equal(applicationPaths.encodeIdentity("Tecs"), "Tecs")
+    test.equal(applicationPaths.encodeIdentity("a%b"), "a%25b")
+    test.equal(applicationPaths.encodeIdentity("a/b\\c"), "a%2Fb%5Cc")
+    test.equal(applicationPaths.encodeIdentity("line\nfeed"), "line%0Afeed")
+    test.equal(applicationPaths.encodeIdentity("tail."), "tail%2E")
+    test.equal(applicationPaths.encodeIdentity("NUL"), "%4EUL")
+    assert(
+        applicationPaths.encodeIdentity("/") ~= applicationPaths.encodeIdentity("%2F"),
+        "identity escaping remains reversible"
+    )
+    local data = applicationPaths.native(root, "data", "nupp", application)
+
+    local safe = data:join("save files", "slot-1.dat")
+    assert(safe:toString():find("save files", 1, true))
+    for _, invalid in ipairs({
+        "",
+        ".",
+        "..",
+        "/etc",
+        "C:\\Windows",
+        "a/b",
+        "a\\b",
+        "NUL",
+        "COM1.txt",
+        "LPT9",
+        "bad?name",
+        "bad:name",
+        "bad\0name",
+        "bad\31name",
+        "tail.",
+        "tail ",
+    }) do
+        test.raises(
+            function()
+                data:join(invalid)
+            end,
+            "ApplicationPath component"
+        )
+    end
+
+    files.setApplicationIdentity("nupp", application .. "-next")
+    local nextData = applicationPaths.native(root, "data", "nupp", application .. "-next")
+    assert(nextData:toString() ~= data:toString(), "changing identity selects another root")
+    assert(data:join("old"):toString():find(application, 1, true), "an existing path retains its identity")
+
+end
+
+function M.nativeCapabilitiesAndExecutableDirectoryAreReported()
+    local files = ready()
+    local capabilities = files.capabilities()
+    for name, value in pairs(capabilities) do
+        if type(name) == "string" then
+            test.equal(value, true, "native capability " .. name)
+        end
+    end
+    assert(files.isDirectory(assert(files.executableDirectory())))
+    assert(files.requestPersistentStorage())
 end
 
 return M

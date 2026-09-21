@@ -12,6 +12,16 @@ const inbox = [];
 let deliver;
 let current;
 let booted = false;
+let nextPersistenceRequest = 1;
+const persistenceRequests = new Map();
+
+function requestPersistentStorage() {
+  const requestId = nextPersistenceRequest++;
+  return new Promise((resolve, reject) => {
+    persistenceRequests.set(requestId, {resolve, reject});
+    self.postMessage({type: "persistent-storage-request", requestId});
+  });
+}
 
 // A Worker only sees a posted message on a fresh turn of its event loop, so asking
 // whether cancellation was requested costs one. A MessageChannel gives that turn
@@ -48,6 +58,14 @@ function assign(task) {
 
 self.addEventListener("message", (event) => {
   const message = event.data;
+  if (message?.type === "persistent-storage-response") {
+    const request = persistenceRequests.get(message.requestId);
+    if (!request) return;
+    persistenceRequests.delete(message.requestId);
+    if (message.error) request.reject(new Error(message.error));
+    else request.resolve(message.granted === true);
+    return;
+  }
   if (message?.type === "boot") {
     if (booted) return;
     booted = true;
@@ -126,5 +144,6 @@ async function boot(message) {
     workers: false,
     effectHandlers: {lane: performLaneEffect},
     resetLimits: beginsTask,
+    requestPersistentStorage: message.persistentStorageAvailable ? requestPersistentStorage : undefined,
   });
 }

@@ -1,0 +1,378 @@
+module nupp.io.files
+
+--[[
+Portable filesystem access. Native programs may pass ordinary strings or
+[](nupp.io.path.Path) values. Browser programs use an opaque
+`ApplicationPath` obtained from `configurationPath`, `dataPath`, or
+`cachePath`; raw path text is deliberately refused there.
+
+Browser application data lives in the Origin Private File System. It remains
+evictable unless `requestPersistentStorage` succeeds. Capability flags describe
+the operations whose native semantics have no browser equivalent.
+]]
+
+const spi = require("nupp.spi")
+const target = require("nupp.runtime.target")
+const io = require("nupp.io")
+const paths = require("nupp.io.path")
+const contracts = require("nupp.io.files.spi")
+const messages = require("nupp.io.files.messages")
+const appPaths = require("nupp.io.files.path")
+
+local provider: contracts.Provider = do
+    local chosen: contracts.Provider?
+    local tied = false
+    for candidate in spi.load(contracts.Provider) do
+        if chosen == nil or (candidate.priority ?? 0) > (chosen.priority ?? 0) then
+            chosen = candidate
+            tied = false
+        elseif (candidate.priority ?? 0) == (chosen.priority ?? 0) then
+            tied = true
+        end
+    end
+    assert(not tied, "nupp.io.files: multiple implementations have the highest priority")
+    if chosen ~= nil then
+        yield chosen
+    end
+    if target.dialect ~= "lua51" then
+        yield _G.require("nupp.runtime.provider.nativefiles") as contracts.Provider
+    end
+    yield _G.require("nupp.runtime.browser.files") as contracts.Provider
+end
+
+--- The kind of filesystem object described by metadata or a directory entry.
+export type Kind = messages.Kind
+
+--- A portable name for one conventional user directory.
+export type UserFolder = messages.UserFolder
+
+--- A file open mode: read, write, append, or an updating variant.
+export type Mode = messages.Mode
+
+--- The base used by a file seek.
+export type Origin = messages.Origin
+
+--- An iterator that returns one line at a time.
+export type LineIterator = messages.LineIterator
+
+--- Metadata about one filesystem object.
+export type Info = messages.Info
+
+--- One immediate child returned by a directory listing.
+export type Entry = messages.Entry
+
+--- Naming and placement options for a native temporary path.
+export type TemporaryOptions = messages.TemporaryOptions
+
+--- The exact filesystem guarantees supplied by the selected provider.
+export type Capabilities = messages.Capabilities
+
+--- An opaque portable path rooted in this application's platform storage.
+export type ApplicationPath = appPaths.ApplicationPath
+
+--- A native path or an opaque application-owned path.
+export type Path = string | paths.Path | appPaths.ApplicationPath
+
+--- An affine open file with one shared cursor.
+export type File = contracts.File
+
+--- A forward-only reader over an open file's cursor.
+export type FileReader = contracts.FileReader
+
+--- A forward-only writer over an open file's cursor.
+export type FileWriter = contracts.FileWriter
+
+--- A native temporary path removed when its owner closes unless persisted.
+export type TemporaryPath = contracts.TemporaryPath
+
+--- Constructs filesystem metadata, primarily for provider implementations.
+export const Info = messages.Info
+
+--- Constructs a directory entry, primarily for provider implementations.
+export const Entry = messages.Entry
+
+--- Constructs native temporary-path options.
+export const TemporaryOptions = messages.TemporaryOptions
+
+--- Constructs a filesystem capability report.
+export const Capabilities = messages.Capabilities
+
+local organization: string?
+local application: string?
+local roots: {[string]: appPaths.ApplicationPath} = {}
+
+--- Selects the identity used to resolve configuration, data, and cache roots.
+--- @param newOrganization the organization component
+--- @param newApplication the application component
+--- @return nil after selecting the identity
+export function setApplicationIdentity(newOrganization: string, newApplication: string): nil
+    appPaths.encodeIdentity(newOrganization, "organization")
+    appPaths.encodeIdentity(newApplication, "application")
+    organization = newOrganization
+    application = newApplication
+end
+
+--- Answers the selected application identity, or nil values before one is set.
+--- @return the organization component
+--- @return the application component
+export function applicationIdentity(): (string?, string?)
+    return organization, application
+end
+
+local function applicationPath(kind: string): (appPaths.ApplicationPath?, string?)
+    if organization == nil or application == nil then
+        return nil, "application identity is unset; call files.setApplicationIdentity first"
+    end
+    local key = kind .. "\0" .. organization .. "\0" .. application
+    local remembered = roots[key]
+    if remembered ~= nil then
+        return remembered, nil
+    end
+    local value, reason = provider.applicationPath(kind, organization, application)
+    if value ~= nil then
+        roots[key] = value
+    end
+
+    return value, reason
+end
+
+--- Resolves and creates this application's platform configuration directory.
+--- @return the configuration path, or nil on failure
+--- @return a failure reason, when unsuccessful
+export function configurationPath(): (appPaths.ApplicationPath?, string?)
+    return applicationPath("configuration")
+end
+
+--- Resolves and creates this application's platform data directory.
+--- @return the data path, or nil on failure
+--- @return a failure reason, when unsuccessful
+export function dataPath(): (appPaths.ApplicationPath?, string?)
+    return applicationPath("data")
+end
+
+--- Resolves and creates this application's platform cache directory.
+--- @return the cache path, or nil on failure
+--- @return a failure reason, when unsuccessful
+export function cachePath(): (appPaths.ApplicationPath?, string?)
+    return applicationPath("cache")
+end
+
+--- Clears application-root memoization for platform-resolution tests.
+--- @return nil after clearing the memoized roots
+export function resetApplicationPaths(): nil
+    roots = {}
+end
+
+--- Reports the exact guarantees of the selected filesystem provider.
+--- @return the provider capabilities
+export const capabilities = provider.capabilities
+
+--- Describes the filesystem object at a path.
+--- @param path the path to inspect
+--- @return its metadata, or nil on failure
+--- @return a failure reason, when unsuccessful
+export function info(path: Path): (messages.Info?, string?)
+    return provider.info(path)
+end
+
+--- Reports whether a path resolves.
+--- @param path the path to inspect
+--- @return whether it exists
+export function exists(path: Path): boolean
+    return provider.exists(path)
+end
+
+--- Reports whether a path resolves to a file.
+--- @param path the path to inspect
+--- @return whether it is a file
+export function isFile(path: Path): boolean
+    return provider.isFile(path)
+end
+
+--- Reports whether a path resolves to a directory.
+--- @param path the path to inspect
+--- @return whether it is a directory
+export function isDirectory(path: Path): boolean
+    return provider.isDirectory(path)
+end
+
+--- Reports whether a path itself is a symbolic link.
+--- @param path the path to inspect
+--- @return whether it is a symbolic link, or nil when unsupported
+--- @return a failure reason, when unsuccessful
+export function isSymlink(path: Path): (boolean?, string?)
+    return provider.isSymlink(path)
+end
+
+--- Reads a symbolic link target without resolving it.
+--- @param path the link to read
+--- @return its target text, or nil on failure
+--- @return a failure reason, when unsuccessful
+export function readLink(path: Path): (string?, string?)
+    return provider.readLink(path)
+end
+
+--- Creates a symbolic link when the provider supports one.
+--- @param targetPath the path the link names
+--- @param link where to create the link
+--- @param kind whether a Windows link names a file or directory
+--- @return whether the link was created
+--- @return a failure reason, when unsuccessful
+export function createSymlink(targetPath: Path, link: Path, kind: ("file" | "directory")?): (boolean, string?)
+    return provider.createSymlink(targetPath, link, kind)
+end
+
+--- Sets or clears a path's native read-only attribute.
+--- @param path the path to change
+--- @param readOnly whether writes should be refused
+--- @return whether the attribute was changed
+--- @return a failure reason, when unsuccessful
+export function setReadOnly(path: Path, readOnly: boolean): (boolean, string?)
+    return provider.setReadOnly(path, readOnly)
+end
+
+--- Creates a directory and all missing parents.
+--- @param path the directory to create
+--- @return whether the directory exists afterward
+--- @return a failure reason, when unsuccessful
+export function createDirectory(path: Path): (boolean, string?)
+    return provider.createDirectory(path)
+end
+
+--- Removes a file, link, or directory.
+--- @param path the path to remove
+--- @param recursive whether to remove a directory's contents
+--- @return whether the path was removed
+--- @return a failure reason, when unsuccessful
+export function remove(path: Path, recursive: boolean?): (boolean, string?)
+    return provider.remove(path, recursive)
+end
+
+--- Renames a path, replacing an existing destination when supported.
+--- @param from the source path
+--- @param to the destination path
+--- @return whether the path was renamed
+--- @return a failure reason, when unsuccessful
+export function rename(from: Path, to: Path): (boolean, string?)
+    return provider.rename(from, to)
+end
+
+--- Lists a directory's immediate children.
+--- @param path the directory to list
+--- @return its entries, or nil on failure
+--- @return a failure reason, when unsuccessful
+export function list(path: Path): ({messages.Entry}?, string?)
+    return provider.list(path)
+end
+
+--- Expands a native filesystem glob.
+--- @param path the glob pattern
+--- @return sorted matching paths, or nil on failure
+--- @return a failure reason, when unsuccessful
+export function glob(path: Path): ({string}?, string?)
+    return provider.glob(path)
+end
+
+--- Reads an entire file as bytes.
+--- @param path the file to read
+--- @return its bytes, or nil on failure
+--- @return a failure reason, when unsuccessful
+export function read(path: Path): (string?, string?)
+    return provider.read(path)
+end
+
+--- Replaces a file with the supplied bytes.
+--- @param path the file to write
+--- @param bytes the byte string or view to write
+--- @return whether the bytes were written
+--- @return a failure reason, when unsuccessful
+export function write(path: Path, bytes: string | io.ByteView): (boolean, string?)
+    return provider.write(path, bytes)
+end
+
+--- Appends bytes to a file, creating it when absent.
+--- @param path the file to append to
+--- @param bytes the byte string or view to append
+--- @return whether the bytes were written
+--- @return a failure reason, when unsuccessful
+export function append(path: Path, bytes: string | io.ByteView): (boolean, string?)
+    return provider.append(path, bytes)
+end
+
+--- Atomically replaces a file when the provider supports it.
+--- @param path the destination file
+--- @param bytes the byte string or view to write
+--- @return whether the file was replaced
+--- @return a failure reason, when unsuccessful
+export function writeAtomic(path: Path, bytes: string | io.ByteView): (boolean, string?)
+    return provider.writeAtomic(path, bytes)
+end
+
+--- Copies one file over another.
+--- @param from the source file
+--- @param to the destination file
+--- @return whether the file was copied
+--- @return a failure reason, when unsuccessful
+export function copy(from: Path, to: Path): (boolean, string?)
+    return provider.copy(from, to)
+end
+
+--- Reports whole-file transfers that have not settled.
+--- @return the number of pending transfers
+export const pendingTransfers = provider.pendingTransfers
+
+--- Opens a file in one of the six standard read, write, append, or update modes.
+--- @param path the native path or browser application path to open
+--- @param mode the access mode, defaulting to read
+--- @return the open file owner, or nil on failure
+--- @return a failure reason, when unsuccessful
+export function open(path: Path, mode: messages.Mode?): (affine(contracts.File?), string?)
+    return provider.open(path, mode)
+end
+
+--- Iterates a file's lines without retaining line endings.
+--- @param path the file to read
+--- @return the line iterator, or nil on failure
+--- @return a failure reason, when unsuccessful
+export function lines(path: Path): (messages.LineIterator?, string?)
+    return provider.lines(path)
+end
+
+--- Creates a native temporary file owner when the provider supports one.
+--- @param options naming and placement options
+--- @return the temporary path owner, or nil on failure
+--- @return a failure reason, when unsuccessful
+export function createTemporaryFile(options: messages.TemporaryOptions?): (affine(contracts.TemporaryPath?), string?)
+    return provider.createTemporaryFile(options)
+end
+
+--- Creates a native temporary directory owner when the provider supports one.
+--- @param options naming and placement options
+--- @return the temporary path owner, or nil on failure
+--- @return a failure reason, when unsuccessful
+export function createTemporaryDirectory(
+    options: messages.TemporaryOptions?
+): (affine(contracts.TemporaryPath?), string?)
+    return provider.createTemporaryDirectory(options)
+end
+
+--- Returns the native process working directory.
+--- @return the working directory, or nil when unavailable
+--- @return a failure reason, when unsuccessful
+export const currentDirectory = provider.currentDirectory
+
+--- Resolves one conventional native user folder.
+--- @param which the folder to resolve
+--- @return its native path, or nil when unavailable
+--- @return a failure reason, when unsuccessful
+export const userFolder = provider.userFolder
+
+--- Returns the native running executable's directory.
+--- @return the executable directory, or nil when unavailable
+--- @return a failure reason, when unsuccessful
+export const executableDirectory = provider.executableDirectory
+
+--- Requests non-evictable browser storage; native providers succeed without work.
+--- @return whether persistence is guaranteed
+--- @return a failure reason, when unsuccessful
+export const requestPersistentStorage = provider.requestPersistentStorage

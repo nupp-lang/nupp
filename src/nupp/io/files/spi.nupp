@@ -1,0 +1,109 @@
+@!internal
+module nupp.io.files.spi
+
+local io = require("nupp.io")
+local messages = require("nupp.io.files.messages")
+local appPaths = require("nupp.io.files.path")
+
+export interface Owner
+    drop: nosuspend function(takes self: Owner): nil
+end
+
+--- A forward-only byte reader sharing an open file's cursor.
+export interface FileReader is io.Reader
+    drop: nosuspend function(takes self: FileReader): nil
+end
+
+--- A forward-only byte writer sharing an open file's cursor.
+export interface FileWriter is io.Writer
+    drop: nosuspend function(takes self: FileWriter): nil
+end
+
+--- An affine open file and its exclusive platform handle.
+export affine interface File
+    --- Opens a reader at the shared cursor.
+    newReader: function(borrows self: File): affine(FileReader) borrows (self)
+
+    --- Opens a writer at the shared cursor.
+    newWriter: function(borrows self: File): affine(FileWriter) borrows (self)
+
+    --- Returns the file's byte length without moving its cursor.
+    size: function(borrows self: File): (integer?, string?)
+
+    --- Moves the cursor relative to an origin and returns its new position.
+    seek: function(exclusive self: File, offset: integer?, origin: messages.Origin?): (integer?, string?)
+
+    --- Returns the shared cursor position.
+    position: function(exclusive self: File): (integer?, string?)
+
+    --- Publishes buffered file writes.
+    flush: function(borrows self: File): (boolean, string?)
+
+    --- Reports whether the file has already been closed.
+    isReleased: function(borrows self: File): boolean
+
+    --- Closes the file and spends its ownership.
+    close: function(takes self: File): boolean
+
+    --- Releases the platform handle during lexical cleanup.
+    terminal drop: nosuspend function(takes self: File): nil
+end
+
+--- A native temporary path removed on close unless persisted.
+export affine interface TemporaryPath
+    --- Returns the native path text.
+    toString: function(self: TemporaryPath): string
+
+    --- Moves the temporary path to a durable destination.
+    persist: function(self: TemporaryPath, destination: any): (boolean, string?)
+
+    --- Reports whether the temporary owner has been closed or persisted.
+    isReleased: function(self: TemporaryPath): boolean
+
+    --- Removes the temporary path and spends its ownership.
+    close: function(takes self: TemporaryPath): boolean
+
+    --- Removes the path during lexical cleanup.
+    terminal drop: nosuspend function(takes self: TemporaryPath): nil
+end
+
+export function destroyOwner<T is Owner>(takes value: T): nil
+    value:drop()
+end
+
+export interface Provider
+    readonly priority: integer?
+    readonly capabilities: function(): messages.Capabilities
+    readonly info: function(path: any): (messages.Info?, string?)
+    readonly exists: function(path: any): boolean
+    readonly isFile: function(path: any): boolean
+    readonly isDirectory: function(path: any): boolean
+    readonly isSymlink: function(path: any): (boolean?, string?)
+    readonly readLink: function(path: any): (string?, string?)
+    readonly createSymlink: function(target: any, link: any, kind: ("file" | "directory")?): (boolean, string?)
+    readonly setReadOnly: function(path: any, readOnly: boolean): (boolean, string?)
+    readonly createDirectory: function(path: any): (boolean, string?)
+    readonly remove: function(path: any, recursive: boolean?): (boolean, string?)
+    readonly rename: function(from: any, to: any): (boolean, string?)
+    readonly list: function(path: any): ({messages.Entry}?, string?)
+    readonly glob: function(path: any): ({string}?, string?)
+    readonly read: function(path: any): (string?, string?)
+    readonly write: function(path: any, bytes: string | io.ByteView): (boolean, string?)
+    readonly append: function(path: any, bytes: string | io.ByteView): (boolean, string?)
+    readonly writeAtomic: function(path: any, bytes: string | io.ByteView): (boolean, string?)
+    readonly copy: function(from: any, to: any): (boolean, string?)
+    readonly pendingTransfers: function(): integer
+    readonly open: function(path: any, mode: messages.Mode?): (affine(File?), string?)
+    readonly lines: function(path: any): (messages.LineIterator?, string?)
+    readonly createTemporaryFile: function(options: messages.TemporaryOptions?): (affine(TemporaryPath?), string?)
+    readonly createTemporaryDirectory: function(options: messages.TemporaryOptions?): (affine(TemporaryPath?), string?)
+    readonly currentDirectory: function(): (string?, string?)
+    readonly userFolder: function(which: messages.UserFolder): (string?, string?)
+    readonly applicationPath: function(
+        kind: string,
+        organization: string,
+        application: string
+    ): (appPaths.ApplicationPath?, string?)
+    readonly executableDirectory: function(): (string?, string?)
+    readonly requestPersistentStorage: function(): (boolean, string?)
+end

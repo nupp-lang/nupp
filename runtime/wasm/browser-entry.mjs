@@ -4,6 +4,17 @@ let nextId = 1;
 let launchedPromise = null;
 
 worker.addEventListener("message", (event) => {
+  if (event.data?.type === "persistent-storage-request") {
+    const requestId = event.data.requestId;
+    Promise.resolve(globalThis.navigator?.storage?.persist?.()).then(
+      (granted) => worker.postMessage({type: "persistent-storage-response", requestId, granted: granted === true}),
+      (error) => worker.postMessage({
+        type: "persistent-storage-response", requestId,
+        error: String(error?.message || error),
+      }),
+    );
+    return;
+  }
   const request = pending.get(event.data?.id);
   if (!request) return;
   pending.delete(event.data.id);
@@ -39,6 +50,7 @@ export function run(options = {}) {
     type: "run",
     manifest: new URL("./nupp-browser-app.json", import.meta.url).href,
     limits: options.limits,
+    persistentStorageAvailable: typeof globalThis.navigator?.storage?.persist === "function",
   });
   launchedPromise = result;
   return result;

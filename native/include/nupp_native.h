@@ -124,6 +124,10 @@ NUPP_NATIVE_EXPORT int32_t nuppNativeFilesCreateTemporary(
     NuppNativeFilesSlice suffix, int32_t as_directory, uint64_t *output);
 NUPP_NATIVE_EXPORT int32_t nuppNativeFilesCurrentDirectory(
     uint64_t *output);
+NUPP_NATIVE_EXPORT int32_t nuppNativeFilesApplicationBase(
+    uint32_t kind, uint64_t *output);
+NUPP_NATIVE_EXPORT int32_t nuppNativeFilesExecutablePath(
+    uint64_t *output);
 NUPP_NATIVE_EXPORT int32_t nuppNativeFilesCanonicalize(
     NuppNativeFilesSlice path, uint64_t *output);
 NUPP_NATIVE_EXPORT int32_t nuppNativeFilesUserFolder(

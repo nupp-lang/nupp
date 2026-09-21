@@ -21,7 +21,7 @@ function laneCount(maxLanes) {
   return Math.max(1, Math.min(requested, available, 64));
 }
 
-export function createWorkerPool({laneUrl, manifestUrl, maxLanes, limits, WorkerClass}) {
+export function createWorkerPool({laneUrl, manifestUrl, maxLanes, limits, WorkerClass, requestPersistentStorage}) {
   const Worker = WorkerClass || globalThis.Worker;
   if (typeof Worker !== "function") {
     throw new Error("Web Workers are unavailable, so this host cannot run Nupp worker tasks");
@@ -65,6 +65,18 @@ export function createWorkerPool({laneUrl, manifestUrl, maxLanes, limits, Worker
   };
 
   const laneMessage = (lane, message) => {
+    if (message?.type === "persistent-storage-request") {
+      Promise.resolve(requestPersistentStorage?.()).then(
+        (granted) => lane.worker.postMessage({
+          type: "persistent-storage-response", requestId: message.requestId, granted: granted === true,
+        }),
+        (error) => lane.worker.postMessage({
+          type: "persistent-storage-response", requestId: message.requestId,
+          error: String(error?.message || error),
+        }),
+      );
+      return;
+    }
     if (message?.type === "started") {
       if (lane.task && lane.task.id === message.id) started.push(message.id);
       return;
@@ -96,7 +108,10 @@ export function createWorkerPool({laneUrl, manifestUrl, maxLanes, limits, Worker
     worker.addEventListener("messageerror", () => laneFailure(
       lane, "nupp: a worker lane could not decode a task",
     ));
-    worker.postMessage({type: "boot", manifestUrl, entry: LANE_ENTRY_MODULE, limits});
+    worker.postMessage({
+      type: "boot", manifestUrl, entry: LANE_ENTRY_MODULE, limits,
+      ...(typeof requestPersistentStorage === "function" ? {persistentStorageAvailable: true} : {}),
+    });
     lanes.push(lane);
 
     return lane;

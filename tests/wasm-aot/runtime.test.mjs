@@ -171,6 +171,94 @@ test("browser HTTP effect failures resume as protocol errors", async () => {
   assert.match(result.responses[0].error, /absolute http or https URL/);
 });
 
+function fakeOpfs() {
+  class FileHandle {
+    constructor(name) {
+      this.kind = "file";
+      this.name = name;
+      this.bytes = new Uint8Array();
+      this.locked = false;
+    }
+    async getFile() { return {size: this.bytes.length, lastModified: 1_700_000_000_000}; }
+    async createSyncAccessHandle() {
+      if (this.locked) throw new Error("file is already locked");
+      this.locked = true;
+      return {
+        read: (output, {at}) => {
+          const count = Math.min(output.length, Math.max(0, this.bytes.length - at));
+          output.set(this.bytes.subarray(at, at + count));
+          return count;
+        },
+        write: (input, {at}) => {
+          const grown = new Uint8Array(Math.max(this.bytes.length, at + input.length));
+          grown.set(this.bytes);
+          grown.set(input, at);
+          this.bytes = grown;
+          return input.length;
+        },
+        getSize: () => this.bytes.length,
+        truncate: (size) => { this.bytes = this.bytes.slice(0, size); },
+        flush() {},
+        close: () => { this.locked = false; },
+      };
+    }
+  }
+  class DirectoryHandle {
+    constructor(name = "") { this.kind = "directory"; this.name = name; this.children = new Map(); }
+    async getDirectoryHandle(name, {create = false} = {}) {
+      let child = this.children.get(name);
+      if (!child && create) { child = new DirectoryHandle(name); this.children.set(name, child); }
+      if (!child || child.kind !== "directory") throw new Error("directory does not exist");
+      return child;
+    }
+    async getFileHandle(name, {create = false} = {}) {
+      let child = this.children.get(name);
+      if (!child && create) { child = new FileHandle(name); this.children.set(name, child); }
+      if (!child || child.kind !== "file") throw new Error("file does not exist");
+      return child;
+    }
+    async removeEntry(name, {recursive = false} = {}) {
+      const child = this.children.get(name);
+      if (!child) throw new Error("entry does not exist");
+      if (child.kind === "directory" && child.children.size && !recursive) throw new Error("directory is not empty");
+      this.children.delete(name);
+    }
+    async *entries() { yield* this.children.entries(); }
+  }
+  const root = new DirectoryHandle();
+  return {root, storage: {getDirectory: async () => root}};
+}
+
+test("browser file effects acquire OPFS paths and retain synchronous handles", async () => {
+  const {storage} = fakeOpfs();
+  const files = {
+    storage, available: true, persistentAvailable: true,
+    requestPersistentStorage: async () => true,
+    handles: new Map(), nextHandle: 1, lastError: "",
+  };
+  const request = async (id, operation, parts = ["data", "nupp", "example"], extra = {}) => {
+    const result = await handleBrowserEffects({kind: "effects", requests: [{
+      id, kind: "files", operation, root: "data", parts, ...extra,
+    }]}, {files});
+    return result.responses[0];
+  };
+  assert.equal((await request(1, "create-directory")).ok, true);
+  const opened = await request(2, "open", ["data", "nupp", "example", "save.bin"], {mode: "w+"});
+  assert.equal(opened.ok, true);
+  assert.equal(files.handles.get(opened.value.handle).writable, true);
+  const locked = await request(3, "open", ["data", "nupp", "example", "save.bin"], {mode: "r"});
+  assert.equal(locked.ok, false);
+  assert.match(locked.error, /locked/);
+  files.handles.get(opened.value.handle).access.close();
+  files.handles.delete(opened.value.handle);
+  assert.equal((await request(4, "open", ["data", "nupp", "example", "save.bin"], {mode: "r"})).ok, true);
+  assert.deepEqual((await request(5, "list")).value, [{name: "save.bin", kind: "file"}]);
+  const persisted = await handleBrowserEffects({kind: "effects", requests: [{
+    id: 6, kind: "files", operation: "persist",
+  }]}, {files});
+  assert.deepEqual(persisted.responses[0].value, {granted: true});
+});
+
 test("browser time effects use Worker clocks and cancellable timers", async () => {
   const clock = await handleBrowserEffects({
     kind: "effects",

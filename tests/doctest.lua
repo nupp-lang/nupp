@@ -1061,7 +1061,7 @@ function M.standardIOApiHasCompleteDocumentation()
             "src/nupp/io/uri/init.nupp"
         ] = {types = {URI = true, Components = true,}, functions = {newURI = true, validate = true, isURI = true,},},
         [
-            "src/nupp/io/files.nupp"
+            "src/nupp/io/files/init.nupp"
         ] = {
             types = {File = true, TemporaryPath = true, Info = true, Entry = true,},
             functions = {info = true, open = true, read = true, glob = true,},
