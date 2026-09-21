@@ -9552,11 +9552,13 @@ function gen.generate(
         -- coroutine the host resumes -- draining is a yield all the same. So the
         -- protected call becomes the coroutine-driven one there too.
         local yieldableCleanupPcall = useYieldableCleanupCalls and yieldablePcallName ~= nil
+        local portableUnpack = "(unpack or table.unpack)"
         local names, values = {}, {}
         for _, name in ipairs({"pcall", "xpcall", "error", "unpack", "select", "setmetatable", "tostring", "ipairs"}) do
             names[#names + 1] = cleanupGlobals[name]
             values[#values + 1] = name == "xpcall" and yieldableXpcallName
                 or name == "pcall" and yieldableCleanupPcall and yieldablePcallName
+                or name == "unpack" and portableUnpack
                 or name
         end
         code = (
@@ -9584,16 +9586,16 @@ function gen.generate(
                 cleanupCoroutineCreate,
                 cleanupPackName,
                 cleanupPackName,
-                "unpack",
-                "unpack",
+                portableUnpack,
+                portableUnpack,
                 cleanupPackName,
-                "unpack"
+                portableUnpack
             )
             or yieldableXpcallName
             and (
                 "local function %s(body,handler,...) local args=%s(...);"
-                .. "return xpcall(function() return body(unpack(args,1,args.n)) end,handler) end; "
-            ):format(yieldableXpcallName, cleanupPackName)
+                .. "return xpcall(function() return body(%s(args,1,args.n)) end,handler) end; "
+            ):format(yieldableXpcallName, cleanupPackName, portableUnpack)
             or ""
         ) .. (
             yieldableCleanupPcall

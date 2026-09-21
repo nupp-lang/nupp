@@ -33,6 +33,15 @@ for runtime in "$@"; do
     }
     echo "compatible output: $runtime passed"
     ran=$((ran + 1))
+    if [ "${runtime##*/}" = luajit ]; then
+        actual=$(CORPUS_FILE="$corpus/build/main.lua" "$runtime" -e \
+            'table.unpack=unpack; unpack=nil; dofile(assert(os.getenv("CORPUS_FILE")))')
+        test "$actual" = "lua51 compatibility corpus ok" || {
+            echo "compatible output: $runtime without global unpack returned: $actual" >&2
+            exit 1
+        }
+        echo "compatible output: $runtime without global unpack passed"
+    fi
 done
 
 test "$ran" -gt 0
