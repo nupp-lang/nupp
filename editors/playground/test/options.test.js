@@ -5,6 +5,10 @@ import {DEFAULT_OPTIONS, restoreOptions, sourceFragment, storedOptions} from '..
 test('LuaJIT is the only runtime and stale dialect settings are ignored', () => {
   assert.deepEqual(restoreOptions(), {strict:true,optimize:true,dialect:'luajit'});
   assert.deepEqual(restoreOptions({dialect:'lua51'}, {dialect:'lua51'}), DEFAULT_OPTIONS);
+  assert.deepEqual(restoreOptions({source:'print(42)',dialect:'lua51'}, {compat:'lua51'}), DEFAULT_OPTIONS);
+  assert.deepEqual(restoreOptions({source:'print(42)',dialect:'luajit'}, {compat:'lua51'}), DEFAULT_OPTIONS);
+  assert.deepEqual(restoreOptions({source:'print(42)',dialect:'lua51'},
+    {strict:false,optimize:false,compat:'lua51'}), {strict:false,optimize:false,dialect:'luajit'});
 });
 
 test('compatibility selects the checked stock Lua source subset', () => {

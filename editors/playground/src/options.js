@@ -10,7 +10,10 @@ export function restoreOptions(params = {}, saved = {}) {
     if (typeof saved[key] === 'boolean') options[key] = saved[key];
     if (params[key] !== undefined) options[key] = params[key] === '1';
   }
-  const compat = params.compat !== undefined ? params.compat : saved.compat;
+  // An old explicit runtime link does not select a lowerer anymore, but it
+  // must not inherit an unrelated compatibility preference from the reader.
+  const legacyDialect = params.dialect === 'luajit' || params.dialect === 'lua51';
+  const compat = params.compat !== undefined ? params.compat : legacyDialect ? undefined : saved.compat;
   if (compat === 'lua51') {
     options.compat = compat;
   }
