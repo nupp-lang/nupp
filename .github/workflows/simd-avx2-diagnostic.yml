@@ -44,6 +44,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          export NUPP_CC="$NUPP_SIMD_COMPILERS"
           ./bin/nupp build
           . ./scripts/luajit.sh
           select_luajit "$PWD"
