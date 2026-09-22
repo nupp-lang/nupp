@@ -12,8 +12,11 @@ if (!projectArg || !guestArg || !outputArg || !['simd', 'scalar-c'].includes(rou
 const project = path.resolve(projectArg), guest = path.resolve(guestArg), output = path.resolve(outputArg);
 const manifest = await packageBrowserApp({project, target:'app', output, guest, prebuilt:true});
 const corpus = JSON.parse(readFileSync(path.join(project, 'corpus.json'), 'utf8'));
-// Allow the larger owned corpora a bounded ten minutes on loaded runners.
-const deadlineMs = ['utf8simd', 'simd-json'].includes(corpus.algorithm) ? 600000 : 240000;
+const matrixCorpus = !corpus.algorithm && Object.keys(corpus.probes).length > 1;
+// Large owned and matrix corpora need a bounded ten minutes on loaded runners.
+const deadlineMs = matrixCorpus || ['utf8simd', 'simd-json'].includes(corpus.algorithm) ? 600000 : 240000;
+// Matrix probes transfer large span payloads, but remain below the effect-count cap.
+const matrixBytes = matrixCorpus ? 2147483648 : 268435456;
 const entries = manifest.kernels.flatMap(kernel => kernel.entries.map(entry => ({...entry, unit:kernel.unit})));
 const symbols = {};
 const executedEntries = [];
@@ -40,7 +43,7 @@ import {runPackagedNuppLuaJITApp} from './app-runtime.mjs';
 const output = document.querySelector('#result');
 try {
   const result = await runPackagedNuppLuaJITApp('./nupp-browser-app.json', {limits:{
-    maxEffects:1000000, maxEffectBytes:268435456, maxResponseBytes:268435456,
+    maxEffects:1000000, maxEffectBytes:${matrixBytes}, maxResponseBytes:${matrixBytes},
     maxStorageValueBytes:1048576, deadlineMs:${deadlineMs},
   }});
   if (!result || !Number.isFinite(result.cases) || result.cases <= 0) throw new Error('SIMD corpus returned no cases');
@@ -60,7 +63,8 @@ const server = createServer((request, response) => {
 await new Promise((resolve, reject) => {server.once('error', reject); server.listen(0, '127.0.0.1', resolve);});
 let browser;
 try {
-  browser = await chromium.launch({headless:true, args:['--no-sandbox','--disable-dev-shm-usage']});
+  browser = await chromium.launch({headless:true, executablePath:process.env.NUPP_SIMD_CHROMIUM_PATH || undefined,
+    args:['--no-sandbox','--disable-dev-shm-usage']});
   const page = await browser.newPage();
   await page.goto(`http://127.0.0.1:${server.address().port}/runner.html`);
   await page.waitForFunction(() => ['passed','failed'].includes(document.querySelector('#result')?.dataset.status), null, {timeout:deadlineMs});

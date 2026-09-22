@@ -39,8 +39,8 @@ for (const unit of manifest.units) {
     const declaration = new RegExp(`KS_SCALAR_ORACLE\\s+__attribute__\\(\\(noinline\\)\\)\\s+KS_API[^;{}]+\\b${scalar}\\(`);
     if (!declaration.test(kernels)) {
       if (symbol !== scalarOnlyCounted) throw new Error(`Missing unoptimized emitted scalar-C twin: ${scalar}`);
-      // The counted vector loop is scalar C since loop auto-vectorization was removed.
-      // Give it a separate unoptimized entry without relaxing the twin requirement.
+      // The counted vector loop is already scalar C. Keep its optimized numeric-loop
+      // semantics while giving it a distinct entry without explicit SIMD operations.
       const native = `KS_API void ${symbol}__simd128(`;
       const start = kernels.indexOf(native);
       if (start < 0 || kernels.indexOf(native, start + 1) >= 0) throw new Error(`Missing unique scalar-only counted entry: ${native}`);
@@ -49,8 +49,7 @@ for (const unit of manifest.units) {
       if (bodyStart < 0 || bodyEnd < 0 || /\bks_(?:exp|fixed|scalar_exp)_[A-Za-z0-9_]+/.test(kernels.slice(bodyStart, bodyEnd))) {
         throw new Error(`Counted entry is no longer scalar-only: ${native}`);
       }
-      kernels = kernels.slice(0, start) + `KS_SCALAR_ORACLE\n__attribute__((noinline))\nKS_API void ${scalar}(` + kernels.slice(start + native.length);
-      if (!declaration.test(kernels)) throw new Error(`Missing promoted scalar-C twin: ${scalar}`);
+      kernels = kernels.slice(0, start) + `KS_API void ${scalar}(` + kernels.slice(start + native.length);
     }
     if (symbols[symbol]) throw new Error(`Repeated Lua wrapper call for ${symbol}`);
     symbols[symbol] = scalar;
@@ -62,7 +61,8 @@ for (const unit of manifest.units) {
   mkdirSync(path.dirname(sourcePath), { recursive: true });
   writeFileSync(sourcePath, source);
   const staged = sourcePath.replace(/\.c$/, '.wasm');
-  const args = [sourcePath, '-std=c11', '-O3', '-ffp-contract=off', '-fno-fast-math',
+  const args = [sourcePath, '-std=c11', '-O3', '-fno-vectorize', '-fno-slp-vectorize',
+    '-ffp-contract=off', '-fno-fast-math',
     '-Wall', '-Wextra', '-Werror', '-Wno-parentheses-equality', '-sFILESYSTEM=0',
     '-sSTANDALONE_WASM=1', '--no-entry', '-Wl,--export-dynamic', '-Wl,--export=malloc', '-Wl,--export=free',
     '-sALLOW_MEMORY_GROWTH=1', '-sINITIAL_MEMORY=4194304', '-sMAXIMUM_MEMORY=67108864',

@@ -5,6 +5,12 @@ local util = require("jit.util")
 assert(jit.arch == "x86" and jit.os == "Linux")
 assert(ffi.sizeof("void *") == 4)
 assert(bit.band(0xf0, 0x3c) == 0x30 and bit.rol(1, 31) == -2147483648)
+assert(1 / math.fmod(-0.5, 0.5) == -math.huge, "fmod must keep the dividend's negative zero")
+assert(1 / math.fmod(-0.0, 0.5) == -math.huge, "fmod must keep a negative-zero dividend")
+assert(1 / math.fmod(0.5, 0.5) == math.huge, "fmod must keep the dividend's positive zero")
+assert(math.fmod(0, math.huge) == 0 and math.fmod(1, math.huge) == 1, "fmod must keep finite dividends of infinity")
+assert(math.fmod(-1, -math.huge) == -1, "fmod must keep a negative dividend of infinity")
+assert(math.fmod(math.huge, math.huge) ~= math.fmod(math.huge, math.huge), "fmod of infinities must be NaN")
 assert(9007199254740993LL + 2LL == 9007199254740995LL)
 ffi.cdef[[
 int abs(int);

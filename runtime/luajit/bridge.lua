@@ -21,6 +21,22 @@ if config.jit == false then
     jit.off()
     jit.flush()
 end
+-- The i386 guest's math.fmod loses negative zero and returns NaN for finite
+-- dividends with infinite divisors. Match the native LuaJIT remainder contract.
+local rawFmod = math.fmod
+local infinity = math.huge
+local negativeZero = -1 / math.huge
+math.fmod = function(dividend, divisor)
+    if (divisor == infinity or divisor == -infinity) and dividend ~= infinity and dividend ~= -infinity then
+        return dividend
+    end
+    local result = rawFmod(dividend, divisor)
+    if result == 0 and (dividend < 0 or dividend == 0 and 1 / dividend < 0) then
+        return negativeZero
+    end
+
+    return result
+end
 local address = assert(tonumber(readFile("/proc/cmdline"):match("nupp.mailbox=(%d+)")))
 assert(address == 48 * 1024 * 1024 or address == 112 * 1024 * 1024)
 local fd = ffi.C.open("/dev/mem", 2)
