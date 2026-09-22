@@ -595,6 +595,41 @@ function M.refusesTostringOfATable()
    assertEq(codes[1], "NUPP2412", "tostring of a table is refused")
 end
 
+-- An operand the checker typed loosely reaches the evaluator as whatever it turned out
+-- to be, and every operator here is a raw Lua one. Without a guard the host raises and
+-- that error escapes as a NUPP2415 quoting a line in the generated compiler, which
+-- names Nupp's own sources rather than the program at fault.
+function M.refusesAnOperandTheOperatorHasNoMeaningFor()
+   local cases = {
+      {"nil .. \"a\"", "t.missing .. \"a\"", "the left operand of '..' is nil, and '..' needs strings or numbers"},
+      {"nil + 1", "t.missing + 1", "the left operand of '+' is nil, and '+' needs numbers"},
+      {"1 < nil", "1 < t.missing", "'<' orders two numbers or two strings, and these are number and nil"},
+      {"nil & 1", "t.missing & 1", "the left operand of '&' is nil, and '&' needs numbers"},
+      {"-nil", "-t.missing", "the operand of '-' is nil, and '-' needs a number"},
+      {"#nil", "#t.missing", "the operand of '#' is nil, and '#' needs a string or a table"},
+   }
+   for _, case in ipairs(cases) do
+      local label, expression, message = case[1], case[2], case[3]
+      local src = ("return comptime do local t = {} return %s end"):format(expression)
+      local codes, diags = errorsOf(src)
+      assertEq(codes[1], "NUPP2412", label .. " is refused")
+      local found = nil
+      for _, diag in ipairs(diags) do
+         if diag.code == "NUPP2412" then found = diag.msg end
+      end
+      assertEq(found, message, label .. " names the operator and what it needs")
+   end
+end
+
+-- The coercion Lua itself performs stays performed, so a block and the runtime do not
+-- disagree about the same expression.
+function M.keepsLuaOperandCoercion()
+   local code = compile("return comptime do return \"10\" + 1 end")
+   assertTrue(code:find("11", 1, true) ~= nil, "a numeric string still converts for arithmetic")
+   local concatenated = compile("return comptime do return 1 .. 2 end")
+   assertTrue(concatenated:find("\"12\"", 1, true) ~= nil, "a number still spells itself for concatenation")
+end
+
 function M.iteratesDeterministically()
    -- Two orders would be two programs. The keys come back sorted, so the string a
    -- block builds by walking a table is the same one every build.

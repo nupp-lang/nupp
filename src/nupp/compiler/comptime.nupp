@@ -664,11 +664,79 @@ end
 
 local evalExpr, execBlock, evalMulti
 
+local ORDERING = {["<"] = true, ["<="] = true, [">"] = true, [">="] = true}
+local BITWISE = {["&"] = true, ["|"] = true, ["~"] = true, ["<<"] = true, [">>"] = true, ["~>>"] = true}
+local ARITHMETIC = {["+"] = true, ["-"] = true, ["*"] = true, ["/"] = true, ["%"] = true, ["^"] = true, ["//"] = true}
+
+--- Whether a value is one an arithmetic operator is defined over. Lua coerces a
+--- numeric string, so accepting one keeps a block's answer the same as the runtime's
+--- rather than making comptime the stricter of the two.
+local function numberLike(value)
+    local kind = type(value)
+    return kind == "number" or (kind == "string" and tonumber(value) ~= nil)
+end
+
+--- Whether a value concatenates. Lua spells a number into a string here, and nothing
+--- else has a spelling `..` may assume.
+local function concatenable(value)
+    local kind = type(value)
+    return kind == "string" or kind == "number"
+end
+
+--- Refuses an operand the operator has no meaning for, naming the operator and the
+--- side it came from.
+---
+--- Without this the host Lua raises instead, and that error escapes as a `NUPP2415`
+--- quoting a line in the generated compiler -- a location in Nupp's own sources
+--- rather than in the program that caused it. The operand kinds are part of what
+--- comptime is defined over, so a value outside them is `NUPP2412` like every other
+--- unsupported use.
+local function operandIs(ok, op, value, side, node, wanted)
+    if ok then
+        return
+    end
+    fail(
+        "NUPP2412",
+        node,
+        (
+            "the %soperand of '%s' is %s, and '%s' needs %s"
+        ):format(side and (side .. " ") or "", op, type(value), op, wanted),
+        "give the operator a value of the kind it is defined over, or move this to run time"
+    )
+end
+
+--- An ordering operator reads both sides at once: Lua orders two numbers or two
+--- strings and raises on any other pair, a mismatched one included. Neither side is
+--- at fault on its own when they simply disagree, so this names the pair.
+local function orderable(op, left, right, node)
+    if (type(left) == "number" and type(right) == "number") or (type(left) == "string" and type(right) == "string") then
+        return
+    end
+    fail(
+        "NUPP2412",
+        node,
+        ("'%s' orders two numbers or two strings, and these are %s and %s"):format(op, type(left), type(right)),
+        "give the operator a value of the kind it is defined over, or move this to run time"
+    )
+end
+
+--- Both operands of one operator, checked in source order so the leftmost problem is
+--- the one reported.
+local function operandsAre(test, op, left, right, node, wanted)
+    operandIs(test(left), op, left, "left", node, wanted)
+    operandIs(test(right), op, right, "right", node, wanted)
+end
+
 --- The arithmetic and concatenation a binary operator and its compound assignment
 --- share, so `a // b` and `a //= b` cannot disagree.
 ---
 --- @return the answer, and whether `op` was one of these at all
 local function arith(op, left, right, node)
+    if ARITHMETIC[op] then
+        operandsAre(numberLike, op, left, right, node, "numbers")
+    elseif op == ".." then
+        operandsAre(concatenable, op, left, right, node, "strings or numbers")
+    end
     if op == "+" then
         return left + right, true
     elseif op == "-" then
@@ -964,10 +1032,20 @@ evalExpr = function(state, node)
         if op == "not" then
             answer = not operand
         elseif op == "-" then
+            operandIs(numberLike(operand), op, operand, nil, node, "a number")
             answer = -operand
         elseif op == "#" then
+            operandIs(
+                type(operand) == "string" or type(operand) == "table",
+                op,
+                operand,
+                nil,
+                node,
+                "a string or a table"
+            )
             answer = #operand
         elseif op == "~" then
+            operandIs(numberLike(operand), op, operand, nil, node, "a number")
             answer = bit.bnot(operand)
         else
             unsupported(node, ("the %s operator"):format(tostring(op)))
@@ -1021,26 +1099,32 @@ evalExpr = function(state, node)
                 answer = left == right
             elseif op == "~=" then
                 answer = left ~= right
-            elseif op == "<" then
-                answer = left < right
-            elseif op == "<=" then
-                answer = left <= right
-            elseif op == ">" then
-                answer = left > right
-            elseif op == ">=" then
-                answer = left >= right
-            elseif op == "&" then
-                answer = bit.band(left, right)
-            elseif op == "|" then
-                answer = bit.bor(left, right)
-            elseif op == "~" then
-                answer = bit.bxor(left, right)
-            elseif op == "<<" then
-                answer = bit.lshift(left, right)
-            elseif op == ">>" then
-                answer = bit.rshift(left, right)
-            elseif op == "~>>" then
-                answer = bit.arshift(left, right)
+            elseif ORDERING[op] then
+                orderable(op, left, right, node)
+                if op == "<" then
+                    answer = left < right
+                elseif op == "<=" then
+                    answer = left <= right
+                elseif op == ">" then
+                    answer = left > right
+                else
+                    answer = left >= right
+                end
+            elseif BITWISE[op] then
+                operandsAre(numberLike, op, left, right, node, "numbers")
+                if op == "&" then
+                    answer = bit.band(left, right)
+                elseif op == "|" then
+                    answer = bit.bor(left, right)
+                elseif op == "~" then
+                    answer = bit.bxor(left, right)
+                elseif op == "<<" then
+                    answer = bit.lshift(left, right)
+                elseif op == ">>" then
+                    answer = bit.rshift(left, right)
+                else
+                    answer = bit.arshift(left, right)
+                end
             else
                 unsupported(node, ("the %s operator"):format(tostring(op)))
             end
