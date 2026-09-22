@@ -136,12 +136,12 @@ path.
 
 ### Non-suspending regions
 
-`nosuspend do` requires every call inside the region to prove that it cannot
+`@nosuspend do` requires every call inside the region to prove that it cannot
 suspend:
 
 ```nupp
-local function commit(write: nosuspend function(): nil): nil
-    nosuspend do
+local function commit(write: @nosuspend function(): nil): nil
+    @nosuspend do
         write()
     end
 end
@@ -153,6 +153,18 @@ The region is lexical, static, and erased. It adds no runtime lock. An
 unresolved call is refused too, because the checker cannot prove the guarantee
 for a callee it cannot follow.
 
+The annotation also attaches to a loop. It covers the header, implicit
+iterator calls, body, and cleanup inside the loop:
+
+```nupp
+local total = 0
+@nosuspend
+for index = 1, 3 do
+    total = total + index
+end
+print(total)
+```
+
 This call path reaches `coroutine.yield`, so the region is reported, and the
 report names the path from the call to the suspension:
 
@@ -161,7 +173,7 @@ local function pause(): nil
     coroutine.yield()
 end
 
-nosuspend do
+@nosuspend do
     pause()
 end
 ```
@@ -175,14 +187,14 @@ obligation is being discharged there and the discharge cannot be left half done.
 
 ### Function types carry the guarantee
 
-`nosuspend function(...)` describes a callback or host declaration whose body is
+`@nosuspend function(...)` describes a callback or host declaration whose body is
 not visible:
 
 ```nupp
-local type Reporter = nosuspend function(message: string): nil
+local type Reporter = @nosuspend function(message: string): nil
 
 local function publish(report: Reporter): nil
-    nosuspend do
+    @nosuspend do
         report("committed")
     end
 end
@@ -191,7 +203,7 @@ print(publish)
 ```
 
 A non-suspending function fits an ordinary function slot. An ordinary function
-does not fit a `nosuspend` slot. The qualifier survives aliases, generics,
+does not fit an `@nosuspend` slot. The qualifier survives aliases, generics,
 imports, and exports.
 
 The guarantee covers suspension only. The function may allocate, mutate, perform

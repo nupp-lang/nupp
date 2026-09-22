@@ -245,8 +245,8 @@ local BUILTINS = {
         name = "nosuspend",
         arguments = "none",
         builtin = true,
-        targets = {"type", "block"},
-        doc = "Requires a callable type or block that cannot suspend.",
+        targets = {"type", "block", "loop"},
+        doc = "Requires a callable type, block or loop that cannot suspend.",
         docsPath = "learn/runtime/concurrency/suspension",
     },
     {

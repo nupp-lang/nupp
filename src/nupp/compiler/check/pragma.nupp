@@ -344,7 +344,14 @@ function pragma.install(c: state.Checker): state.StatHandlers
         elseif written == "nosuspend" or written == "noalloc" or written == "noraise" then
             if valid and target and targetAny.body then
                 if written == "nosuspend" then
-                    c.nosuspend.region({body = targetAny.body})
+                    -- A loop annotation covers its header, implicit iterator and
+                    -- loop-owned cleanup as well as statements in its body.
+                    local loopTarget = targetKind == "fornumStmt"
+                        or targetKind == "forinStmt"
+                        or targetKind == "whileStmt"
+                        or targetKind == "repeatStmt"
+                    local regionBody = loopTarget and target or targetAny.body
+                    c.nosuspend.region({body = regionBody})
                     c.noSuspendDepth = c.noSuspendDepth + 1
                 else
                     local effect = written == "noalloc" and "allocates" or "raises"
