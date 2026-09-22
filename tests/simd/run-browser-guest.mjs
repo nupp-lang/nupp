@@ -4,6 +4,7 @@ import {createServer} from 'node:http';
 import path from 'node:path';
 import {chromium} from '../../editors/playground/node_modules/playwright/index.mjs';
 import {packageBrowserApp} from '../../runtime/luajit/package-browser-app.mjs';
+import {loweredEntryName} from './wasm-entry-name.mjs';
 
 const [projectArg, guestArg, outputArg, route = 'simd'] = process.argv.slice(2);
 if (!projectArg || !guestArg || !outputArg || !['simd', 'scalar-c'].includes(route)) {
@@ -25,7 +26,7 @@ for (const [module, names] of Object.entries(corpus.probes)) {
   const units = manifest.kernels.filter(kernel => suffixes.some(suffix => kernel.source?.endsWith(suffix)));
   if (units.length !== 1) throw new Error(`Missing unique independent Wasm unit for ${module}`);
   for (const name of names) {
-    const lowered = name.replace(/[A-Z]/g, letter => '_' + letter.toLowerCase());
+    const lowered = loweredEntryName(name);
     const matches = entries.filter(entry => entry.unit === units[0].unit &&
       [name, lowered].some(suffix => entry.symbol.endsWith('_' + suffix)));
     if (matches.length !== 1) throw new Error(`Missing unique independent Wasm entry for ${module}.${name}`);
