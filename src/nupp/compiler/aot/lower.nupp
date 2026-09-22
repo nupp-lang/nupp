@@ -6327,7 +6327,9 @@ local function forBound(bound: scalarIR.Expr, at: cst.Node?, kernel: lower.Kerne
         if number ~= nil then
             number = number * sign
         end
-        if not kernel.gpuTarget and number == 0 and 1 / (number as number) < 0 then
+        -- The sign of zero after multiplication is host-VM dependent. Keep an
+        -- authored unary minus as an expression on every compiler host.
+        if not kernel.gpuTarget and number == 0 and (sign < 0 or 1 / (number as number) < 0) then
             return bound
         end
         if number ~= nil and number == math.floor(number as number) then

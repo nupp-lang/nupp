@@ -673,6 +673,9 @@ optimizeBlock = function(statements: {scalarIR.Statement}, state: optimize.State
                 loop.body = optimizeBlock(loop.body, state)
                 local first = fold.exactInteger(loop.from)
                 local last = fold.exactInteger(loop.to)
+                local fromText = loop.from.op == "constant" and (loop.from as scalarIR.Constant).value or nil
+                local negativeZeroStart = first == 0
+                    and (loop.from.op == "neg" or fromText ~= nil and (fromText as string):sub(1, 1) == "-")
                 local trips = first ~= nil and last ~= nil and math.max((last as number) - (first as number) + 1, 0)
                     or nil
                 -- A binary64 counter at 2^53 can stop advancing. Expanding a
@@ -684,7 +687,7 @@ optimizeBlock = function(statements: {scalarIR.Statement}, state: optimize.State
                     and (first as number) >= -9007199254740992
                     and (state.numericForRuntime ~= "lua51" or (first as number) > -9007199254740992)
                     and (last as number) < 9007199254740992
-                    and not (first == 0 and 1 / (first as number) < 0)
+                    and not negativeZeroStart
                 if trips ~= nil
                     and trips <= optimize.MAX_UNROLL_TRIPS
                     and exactProgress

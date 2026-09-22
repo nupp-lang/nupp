@@ -62,6 +62,7 @@ local function oracle(first: number, last: number): (number, number, number)
     end
     return visits, initial, final
 end
+jit.off(oracle)
 
 local function same(actual: number, expected: number, label: string): nil
     assert(actual == expected or (actual ~= actual and expected ~= expected), label .. ": " .. tostring(actual) .. " versus " .. tostring(expected))
@@ -120,6 +121,7 @@ local function run(): number
     end
     return checks
 end
+jit.off(run)
 return {run = run, counted = counted, literal = literal, vector = vector}
 ]=]
     return {

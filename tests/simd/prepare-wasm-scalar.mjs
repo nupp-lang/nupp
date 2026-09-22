@@ -65,7 +65,8 @@ for (const unit of manifest.units) {
     '-ffp-contract=off', '-fno-fast-math',
     '-Wall', '-Wextra', '-Werror', '-Wno-parentheses-equality', '-sFILESYSTEM=0',
     '-sSTANDALONE_WASM=1', '--no-entry', '-Wl,--export-dynamic', '-Wl,--export=malloc', '-Wl,--export=free',
-    '-sALLOW_MEMORY_GROWTH=1', '-sINITIAL_MEMORY=4194304', '-sMAXIMUM_MEMORY=67108864',
+    '-sSTACK_SIZE=16777216',
+    '-sALLOW_MEMORY_GROWTH=1', '-sINITIAL_MEMORY=33554432', '-sMAXIMUM_MEMORY=67108864',
     ...unit.bridge.entries.flatMap(entry => ['-Wl,--export=' + entry.call, ...entry.layouts.flatMap(layout => [
       '-Wl,--export=' + layout.prefix + '_size',
       ...layout.fields.flatMap(field => ['-Wl,--export=' + layout.prefix + '_offset_' + field,
