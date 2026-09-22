@@ -61,7 +61,7 @@ local function printCompilerVersion(): nil
 end
 
 local function application(): nil
-    handle suspension with frame.handler do
+    with installation = nupp.suspension.install(frame.handler) do
         printCompilerVersion()
     end
 end
@@ -220,7 +220,7 @@ const receive: function(): string
 
 Use `@effects` where an API needs a reviewed complete effect summary.
 `@effects()` says that every modeled effect is absent, so it promises much more
-than a `nosuspend function` type does.
+than a `@nosuspend function` type does.
 
 ## Handler scope follows the coroutine
 
@@ -237,7 +237,7 @@ local function childWork(): nil
 end
 
 local function application(): nil
-    handle suspension with frame.handler do
+    with installation = nupp.suspension.install(frame.handler) do
         local task = suspension.create(childWork)
         local ok, problem = coroutine.resume(task)
         if not ok then
@@ -254,7 +254,7 @@ handler installed where it was created. Inheritance is fixed at creation.
 Continue to use `coroutine.resume`; no resume wrapper is required. A coroutine
 made with `coroutine.create` inherits no handler.
 
-A nested `handle suspension` temporarily replaces the current handler and
+A nested handler installation temporarily replaces the current handler and
 restores the outer one when its region ends, so different coroutines may use
 different handlers at the same time.
 
@@ -440,7 +440,7 @@ once per frame instead of using this standalone loop.
 
 ## Cancellation unwinds the parked stack
 
-`handle suspension` lowers to an owned handler installation. When its extent
+`suspension.install(handler)` returns an owned handler installation. When its extent
 ends, the runtime restores the previous handler, cancels outstanding
 subscriptions, wakes their coroutines, and invokes `shutdown`. A cancelled
 `suspend` raises inside its parked coroutine, so lexical resource drops run as
@@ -454,7 +454,7 @@ them, and `goto` may reach a label outside:
 local frame = require("scheduler")
 
 local function choose(): integer
-    handle suspension with frame.handler do
+    with installation = nupp.suspension.install(frame.handler) do
         return 1
     end
 end
@@ -473,13 +473,13 @@ handler installation and the lexical state before the label:
 local frame = require("scheduler")
 
 goto inside
-handle suspension with frame.handler do
+with installation = nupp.suspension.install(frame.handler) do
     ::inside::
 end
 ```
 
 ```text [nupp check wrong.nupp]
-error: NUPP2706: control cannot enter a `handle suspension` region
+error: NUPP2706: control cannot enter a `with` scope
 ```
 
 ## C-call boundaries
@@ -520,7 +520,7 @@ propagation](#suspension-propagates-through-calls).
 
 ### Should a callback be a `nosuspend` type or an `@effects` contract?
 
-Use `nosuspend function(...)` when suspension is the only thing that matters,
+Use `@nosuspend function(...)` when suspension is the only thing that matters,
 which is the common case for a callback invoked inside a region or across a C
 boundary. Use [`@effects`](../../language/effects.md) when the API owes a reviewed summary of
 allocation, raising, and yielding together.

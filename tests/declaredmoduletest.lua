@@ -420,7 +420,7 @@ function M.exportedComptimeAliasesKeepTheirBoundaryInTheHeader()
     local parsed = parser.parse(
         [[
 module sample
-export comptime type Field = {readonly name: string, readonly read: type?}
+@comptime export type Field = {readonly name: string, readonly read: type?}
 ]],
         "sample.nupp"
     )

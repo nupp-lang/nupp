@@ -779,7 +779,7 @@ end
 -- the missing argument is nil, and only a required one omitted is a mistake.
 function M.callsAHelperWithoutItsOptionalArgument()
    assertEq(run([[
-local comptime function pick(a: integer, b: integer?): integer
+@comptime local function pick(a: integer, b: integer?): integer
     return a + (b or 10)
 end
 local v = comptime do
@@ -788,7 +788,7 @@ end
 return v
 ]]), 15, "the omitted optional argument is nil")
    local codes = errorsOf([[
-local comptime function pick(a: integer, b: integer): integer
+@comptime local function pick(a: integer, b: integer): integer
     return a + b
 end
 return comptime do return pick(5) end
@@ -798,7 +798,7 @@ end
 
 function M.boundsComptimeHelperRecursion()
    local codes, diags = errorsOf([[
-local comptime function descend(value: number): number
+@comptime local function descend(value: number): number
     if value == 0 then return 0 end
     return descend(value - 1)
 end
@@ -849,10 +849,10 @@ end
 
 function M.callsTypedComptimeHelpersAndErasesThem()
    local src = [[
-local comptime function double(value: integer): integer
+@comptime local function double(value: integer): integer
     return value * 2
 end
-local comptime function addDouble(left: integer, right: integer): integer
+@comptime local function addDouble(left: integer, right: integer): integer
     return left + double(right)
 end
 const ANSWER: integer = comptime do
@@ -870,7 +870,7 @@ end
 
 function M.recursesWithinTheSharedEvaluationBudget()
    local src = [[
-local comptime function factorial(value: number): number
+@comptime local function factorial(value: number): number
     if value <= 1 then return 1 end
     return value * factorial(value - 1)
 end
@@ -881,7 +881,7 @@ end
 
 function M.keepsComptimeHelpersOutOfRuntimeValues()
    local codes = errorsOf([[
-local comptime function answer(): integer return 42 end
+@comptime local function answer(): integer return 42 end
 local escaped = answer
 return escaped()
 ]])
@@ -890,7 +890,7 @@ end
 
 function M.reportsAComptimeCallStack()
    local _, diags = compile([[
-local comptime function explode(value: integer): integer
+@comptime local function explode(value: integer): integer
     return error("builder failed")
 end
 return comptime do return explode(1) end

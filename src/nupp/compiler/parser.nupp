@@ -2743,7 +2743,13 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             elseif cur().kind == "name" then
                 e = new cst.FieldDecl(kind = "fieldDecl")
                 if cur().text == "terminal" and tokens[i + 1] and tokens[i + 1].kind == "name" then
-                    e.terminalTok = add(e, advance())
+                    local legacy = add(e, advance())
+                    errAt(
+                        legacy,
+                        "terminal fields use an Affine cleanup claim",
+                        "NUPP1005",
+                        "declare `is nupp.Affine<self." .. cur().text .. ">` on the interface"
+                    )
                 end
                 if cur().text == "private" and tokens[i + 1] and tokens[i + 1].kind == "name" then
                     e.privacy = add(e, advance())
@@ -2807,6 +2813,12 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         local affineTok = nil
         if cur().kind == "name" and cur().text == "affine" then
             affineTok = advance()
+            errAt(
+                affineTok,
+                "affine interface uses an explicit Affine claim",
+                "NUPP1005",
+                "declare `is nupp.Affine<self.cleanup>` on the interface"
+            )
         end
         local sealedTok = nil
         if cur().kind == "sealed" then
@@ -3017,8 +3029,22 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
 
         if kind == "@" then
             local n = new cst.PragmaStmt(kind = "pragmaStmt")
-            parseAnnotationApplication(n)
+            local application = parseAnnotationApplication(n)
             n.stat = add(n, parseStatement())
+            if application.name and application.name.text == "comptime" then
+                local target = n.stat
+                while target and target.kind == "exportStmt" and target.stat do
+                    target = target.stat
+                end
+                if target
+                    and (target.kind == "typeAlias" or target.kind == "localFuncStmt" or target.kind == "funcStmt")
+                then
+                    target.comptimeTok = application.name
+                    if target.kind == "typeAlias" then
+                        target.comptimeOnly = true
+                    end
+                end
+            end
             return n
         end
 

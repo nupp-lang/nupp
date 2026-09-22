@@ -803,7 +803,7 @@ function M.anExportedComptimeAliasCrossesOnlyIntoComptimeCode()
             ] = [[
 module schema
 
-export comptime type Field = {
+@comptime export type Field = {
     readonly name: string,
     readonly read: type?,
     readonly write: type?
@@ -820,7 +820,7 @@ local record User
     name: string
 end
 
-local comptime function Structural(T: type): type
+@comptime local function Structural(T: type): type
     local fields: {schema.Field} = nupp.types.fields(T)
     return nupp.types.shape(fields)
 end

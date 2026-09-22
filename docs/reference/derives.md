@@ -363,16 +363,16 @@ and allocation model, and [](nupp.codec.json) for the rest of the codec.
 
 ## Package providers
 
-A package may export a derive provider as a `comptime function`. Its exact
+A package may export a derive provider as a `@comptime function`. Its exact
 signature names the one existing interface it implements:
 
 ```nupp
-comptime function M.derive(info: nupp.derive.Info): nupp.derive.Result<M.Inspect>
+@comptime function M.derive(info: nupp.derive.Info): nupp.derive.Result<M.Inspect>
     -- inspect info and return a closed recipe
 end
 ```
 
-In a declared module, write `export comptime function derive(...)` instead of
+In a declared module, write `@comptime export function derive(...)` instead of
 qualifying the function through a module table. Exported annotation declarations
 may accompany the provider and remain compile-time metadata, not runtime values.
 
@@ -396,7 +396,7 @@ closed comptime-built signature. Generic, variadic, overloaded, and effectful
 provider declarations are not part of the first recipe version.
 
 ::: deepdive
-`Debug` and `JSON` are ordinary exported `comptime function` declarations
+`Debug` and `JSON` are ordinary exported `@comptime function` declarations
 implemented in `src/nupp/derive.nupp`, and the compiler has no provider-name or
 operation switch for them. Both travel through the same sealed comptime worker,
 immutable `Info`, versioned result envelope, cache and recipe lowering a package
@@ -460,7 +460,7 @@ A provider that generates a recipe from a schema or other immutable project file
 reads it with `nupp.derive.file`:
 
 ```nupp
-comptime function M.derive(info: nupp.derive.Info): nupp.derive.Result<M.Inspect>
+@comptime function M.derive(info: nupp.derive.Info): nupp.derive.Result<M.Inspect>
     local schema = nupp.derive.file("schemas/inspect.txt")
     return nupp.derive.implement {
         methods = {

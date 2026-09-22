@@ -251,7 +251,7 @@ mailboxes would be a separate abstraction.
 
 ## Functions that can be submitted
 
-The final argument to `spawn` must be a `sendable function`. A function read
+The final argument to `spawn` must be a `@sendable function`. A function read
 from a loaded module is sendable with no captures:
 
 ```nupp
@@ -291,7 +291,7 @@ A callable held as a value keeps the guarantee only where the type says so, so a
 dispatch table names it:
 
 ```nupp
-const handlers: {[string]: sendable function(string): string} = {
+const handlers: {[string]: @sendable function(string): string} = {
     hash = jobs.hash,
     resize = jobs.resize,
 }

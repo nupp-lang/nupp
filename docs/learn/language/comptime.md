@@ -9,7 +9,7 @@ compiled and written into the generated Lua as a literal. The block is ordinary
 Nupp, and none of the work survives into the program.
 
 ```nupp:playground
-local comptime function step(acc: integer): integer
+@comptime local function step(acc: integer): integer
     return acc & 1 ~= 0 and 0xedb88320 ~ (acc >> 1) or acc >> 1
 end
 
@@ -166,14 +166,14 @@ called with ordinary parentheses in type position, where it builds a structural
 type while the program is checked:
 
 ```nupp
-local comptime function Optional(T: type): type
+@comptime local function Optional(T: type): type
     return nupp.types.optional(T)
 end
 
 local value: Optional(string) = nil
 ```
 
-`comptime function` declares a reusable compile-time-only callable, where
+`@comptime function` declares a reusable compile-time-only callable, where
 `comptime do ... end` evaluates one scoped expression inside otherwise runtime
 code. Both are erased and have no runtime value. `affine(T, cleanup)`,
 `affine(T)`, and `pinned(T)` use the same call-like form in type position and
@@ -181,7 +181,7 @@ are compile-time type generators rather than runtime constructors; see
 [Ownership](../runtime/ownership/index.md) for what they promise.
 
 Types used only by these functions may likewise be declared with `comptime`, as in
-`local comptime type Field = {name: string, read: type?}`. That lets a helper name
+`@comptime local type Field = {name: string, read: type?}`. That lets a helper name
 structures containing compiler-only `type` or `typepack` handles once. The alias
 body is checked in a comptime context, and naming the alias in runtime code is
 `NUPP2421`.
@@ -222,7 +222,7 @@ functions](#type-functions) for what a call in type position may build.
 
 ### Is a comptime function generic?
 
-Not yet. A `comptime function` is neither generic nor variadic, so an algorithm
+Not yet. A `@comptime function` is neither generic nor variadic, so an algorithm
 that has to cover several shapes takes a `type` handle and inspects it with
 `nupp.types`.
 

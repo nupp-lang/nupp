@@ -1858,7 +1858,7 @@ return {
    build = {outDir = "out", entries = {"main"}},
 }
 ]],
-        ["src/main.g.nupp"] = table.concat({"local D = require('dep')", "noalloc do D.work() end",}, "\n"),
+        ["src/main.g.nupp"] = table.concat({"local D = require('dep')", "@noalloc do D.work() end",}, "\n"),
         ["src/dep.g.nupp"] = allocating,
     })
 
@@ -2037,10 +2037,10 @@ function M.exportedComptimeTypeFunctionsInvalidateAndPersistSafely()
     local optional = table.concat(
         {
             "local M = {}",
-            "local comptime function AddNil(T: type): type",
+            "@comptime local function AddNil(T: type): type",
             "   return nupp.types.optional(T)",
             "end",
-            "comptime function M.Maybe(T: type): type",
+            "@comptime function M.Maybe(T: type): type",
             "   return AddNil(T)",
             "end",
             "return M",

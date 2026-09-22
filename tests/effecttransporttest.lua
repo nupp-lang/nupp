@@ -542,7 +542,7 @@ function M.aNominalMethodThatStartsYieldingInvalidatesDependents()
     write(
         mainPath,
         table.concat(
-            {"local dep = require('dep')", "local value = new dep.Thing(n = 1)", "nosuspend do value:waiter() end",},
+            {"local dep = require('dep')", "local value = new dep.Thing(n = 1)", "@nosuspend do value:waiter() end",},
             "\n"
         )
     )

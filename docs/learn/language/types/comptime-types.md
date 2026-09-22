@@ -4,13 +4,13 @@ order: 330
 
 # Comptime types
 
-A `comptime function` that accepts compiler-only `type` and `typepack` handles
+A `@comptime function` that accepts compiler-only `type` and `typepack` handles
 and returns a structural type or value pack is a type generator. Calling one in
 type position runs it while the program is checked and emits no runtime
 function or data.
 
 ```nupp:playground
-local comptime function Optional(T: type): type
+@comptime local function Optional(T: type): type
     return nupp.types.optional(T)
 end
 
@@ -55,16 +55,16 @@ reference. A type function can select `array(T)` or `carray(T)` from this catego
 without losing the declaration's nominal identity.
 
 A reusable type that contains those compiler-only handles is declared with
-`comptime type`. The alias is erased like an ordinary type alias, but both its body
+`@comptime type`. The alias is erased like an ordinary type alias, but both its body
 and every use are restricted to comptime code:
 
 ```nupp
-local comptime type ReadField = {
+@comptime local type ReadField = {
     name: string,
     read: type?
 }
 
-local comptime function ReadView(T: type): type
+@comptime local function ReadView(T: type): type
     local selected: {ReadField} = {}
     for _, field in ipairs(nupp.types.fields(T)) do
         if field.read then
@@ -86,7 +86,7 @@ anything. See [Unions that may grow](unions.md#unions-that-may-grow) for what
 it does to a switch over that union.
 
 ```nupp
-local comptime function DeepElement(T: type): type
+@comptime local function DeepElement(T: type): type
     while nupp.types.kind(T) == "array" do
         T = nupp.types.elements(T)[1]
     end
@@ -117,7 +117,7 @@ local record Other<T>
     value: T
 end
 
-local comptime function SameFamily(A: type, B: type): type
+@comptime local function SameFamily(A: type, B: type): type
     return nupp.types.literal(nupp.types.sameNominal(A, B))
 end
 
@@ -133,7 +133,7 @@ an open type term, and [generic](generics.md) substitution executes it as soon
 as inference makes every argument concrete.
 
 ```nupp
-local comptime function Arguments(Kind: type): typepack
+@comptime local function Arguments(Kind: type): typepack
     local info = nupp.types.describe(Kind)
     if info.kind == "literal" and info.value == "pair" then
         return nupp.types.pack({nupp.types.string, nupp.types.number})
@@ -406,7 +406,7 @@ function returns an existing nominal type rather than making one.
 
 ### Do comptime calls run at runtime?
 
-A `comptime function` runs while source is checked and contributes only its
+A `@comptime function` runs while source is checked and contributes only its
 resulting type or pack. It emits no callable function, cache table, or runtime
 branch, and [const parameters](#const-parameters) erase by the same boundary.
 See

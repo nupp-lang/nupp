@@ -295,15 +295,14 @@ stat           =/ annotatedstat
 annotatedstat  = annotation stat
 annotation     = "@" Name [annotationargs]   ; @unsafe never consumes annotationargs
 simpleexp      =/ unsafeexp
-unsafeexp      = "@" %s"unsafe" (unsafeoperand / ownershipoperand)
+unsafeexp      = "@" %s"unsafe" unsafeoperand
 unsafeoperand  = (unop unexp / simpleexp) *(%s"as" type)
-ownershipoperand = %s"release" exp / %s"adopt" exp %s"as" type
 ; Unary/power precedence stays unchanged; permission ends before the first
 ; unparenthesized binary operator even when power is nested under a unary node.
 ; An expression annotation preserves its operand's result count. Unary operators,
 ; postfix operations and casts belong to that operand; binary operators do not.
-; Parentheses explicitly include a larger expression. Ownership operands retain
-; their full-expression grammar, including the final cast consumed by adoption.
+; Parentheses explicitly include a larger expression. `nupp.adopt<Owner>(raw)`
+; and `nupp.release(owner)` are compiler-recognized calls inside `@unsafe`.
 ; Only compiler-registered annotations with expression support are admitted.
 ; @unsafe statement targets are do/if/for/while/repeat, value bindings,
 ; assignments and calls. Function bodies reset permission. @!unsafe is invalid.
@@ -314,9 +313,8 @@ annotationarg  = [Name "="] exp
 ; borrowed provenance in their parameter
 ; type and conditional initialization in the C status return type.
 
-stat           =/ effectregionstat
-effectregionstat = (%s"noalloc" / %s"noraise") "do" block "end"
-                                                ; erased checked effect regions
+; `@nosuspend`, `@noalloc`, and `@noraise` annotate `do` blocks through
+; annotatedstat above. Their regions erase after effect checking.
 
 ; `with` is contextual at statement position when Name and `=` or `:` follow.
 ; Each binding acquires one affine owner and exposes a scoped borrow [CS-5].
@@ -330,18 +328,15 @@ withbinding    = bindname "=" exp
 stat           =/ modulestat
 stat           =/ exportstat
 modulestat     = %s"module" Name *("." Name)
-exportstat     = %s"export" (typedecl / comptimetypealias
+exportstat     = %s"export" (typedecl
                               / "function" Name funcbody
-                              / %s"comptime" "function" Name funcbody
                               / %s"const" bindname "=" exp
                               / "=" exp)
 stat           =/ typedeclstat
-stat           =/ comptimefuncstat
-comptimefuncstat = %s"comptime" "function" funcname funcbody
-localstat      = "local" ([%s"comptime"] "function" Name funcbody
+localstat      = "local" ("function" Name funcbody
                           / bindingpattern "=" exp
                           / bindlist ["=" explist])
-conststat      = %s"const" ([%s"comptime"] "function" Name funcbody
+conststat      = %s"const" ("function" Name funcbody
                              / bindingpattern "=" exp
                              / bindlist ["=" explist])
 bindlist       = bindname *("," bindname)
@@ -349,10 +344,9 @@ bindname       = Name [":" type]
 bindingpattern = "{" bindingentry *("," bindingentry) [","] "}"
 bindingentry   = [%s"type"] Name [%s"as" Name] [":" type]
 
-typedeclstat   = ["local" / "global"] (typedecl / comptimetypealias)
-comptimetypealias = %s"comptime" "type" declname [generics] "=" type
+typedeclstat   = ["local" / "global"] typedecl
 typedecl       = "type" declname [generics] "=" type
-               / ["sealed" / "affine"] "interface" declname [generics] [contracts]
+               / ["sealed"] "interface" declname [generics] [contracts]
                  [refinement] recordbody "end"
                / ("record" / "struct") declname [generics] [contracts] [refinement]
                  recordbody "end"
@@ -369,13 +363,13 @@ arraypart      = "{" type "}"                  ; the record is also a
 annotatedentry = *annotation (fielddecl / metamethoddecl / inlinemethod
                               / constructordecl / matchesdecl)
                                                 ; metadata attaches to one entry
-fielddecl      = [propertycap / %s"terminal"] Name ":" type ["=" exp]
+fielddecl      = Name ":" type ["=" exp]
                                                 ; one explicit type per field;
                                                 ; grouped names are rejected
                                                 ; with a targeted error
-indexerdecl    = [propertycap] "[" type "]" ":" type
-propertycap    = %s"readonly" / %s"writeonly"  ; contextual before a member;
-                                                ; absent grants both capabilities
+indexerdecl    = "[" type "]" ":" type
+; `@readonly`, `@writeonly`, and `@private` use annotatedentry above.
+propertycap    = %s"readonly" / %s"writeonly" ; type shape capability
 metamethoddecl = "metamethod" Name ":" functype
 inlinemethod   = "function" Name funcbody       ; implicit self receiver
 constructordecl = %s"constructor" funcbody      ; optional result is the construction policy [CS-20]
@@ -571,9 +565,8 @@ packunion      = typepack 1*("|" typepack)
 ;   tokens are a Name followed by `=` or `:`. Elsewhere it is an identifier.
 ;   `sealed` is a reserved level-1 keyword rather than a contextual name. It may
 ;   appear only immediately before `interface`, after an optional visibility
-;   modifier: `local sealed interface Token`. `affine interface` and its
-;   `terminal` field modifier are contextual forms that declare one inherent
-;   ownership terminal; the checker restricts `terminal` to affine interfaces.
+;   modifier: `local sealed interface Token`. A declared
+;   `is nupp.Affine<cleanup>` contract selects an inherent cleanup policy.
 ;   LuaJIT's `const` is likewise a soft keyword: at statement position it
 ;   introduces a block-scoped immutable local when followed by a Name or
 ;   `function`, or an immutable named field when followed by a dotted field
@@ -717,7 +710,7 @@ packunion      = typepack 1*("|" typepack)
 ;   return type that itself intersects a function is parenthesized.
 ;
 ; [CS-24] Type-function calls. Parentheses after a name in type position call a
-;   checked `comptime function` whose result is `type` or `typepack`. Its
+;   checked `@comptime function` whose result is `type` or `typepack`. Its
 ;   checked parameter kinds decide whether each syntactic argument denotes a
 ;   type, pack, or compile-time scalar. Angle brackets remain generic
 ;   declaration application.

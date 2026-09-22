@@ -576,16 +576,21 @@ end
 function M.comptimeTypeAliasesAreDeclarations()
     local source = table.concat(
         {
-            "local comptime type Field = {name: string, read: type?}",
-            "comptime type Shared = {readonly value: type}",
-            "global comptime type Global = {write: type?}",
-            "export comptime type Public = {name: string}",
+            "@comptime local type Field = {name: string, read: type?}",
+            "@comptime type Shared = {readonly value: type}",
+            "@comptime global type Global = {write: type?}",
+            "@comptime export type Public = {name: string}",
         },
         "\n"
     )
     local result = assertRoundtrip(source)
     assertEq(#result.errors, 0, "comptime aliases should parse cleanly")
     local stats = result.root.blocks[1].stats
+    for i, stat in ipairs(stats) do
+        if stat.kind == "pragmaStmt" then
+            stats[i] = stat.stat
+        end
+    end
     assert(stats[1].kind == "typeAlias" and stats[1].comptimeOnly)
     assert(stats[1].visibility == "local" and stats[1].comptimeTok.text == "comptime")
     assert(stats[2].kind == "typeAlias" and stats[2].visibility == "module")

@@ -66,7 +66,7 @@ function M.closedComptimeTypeFunctionsConstructTypes()
     clean(
         table.concat(
             {
-                "local comptime function Optional(T: type): type",
+                "@comptime local function Optional(T: type): type",
                 "   return nupp.types.optional(T)",
                 "end",
                 "local yes: Optional(string) = 'yes'",
@@ -80,7 +80,7 @@ function M.closedComptimeTypeFunctionsConstructTypes()
         codes(
             table.concat(
                 {
-                    "local comptime function Optional(T: type): type",
+                    "@comptime local function Optional(T: type): type",
                     "   return nupp.types.optional(T)",
                     "end",
                     "local bad: Optional(string) = 42",
@@ -97,7 +97,7 @@ function M.closedComptimeTypeFunctionsUseScalarControlFlowAndInspection()
     clean(
         table.concat(
             {
-                "local comptime function Binary(source: string): type",
+                "@comptime local function Binary(source: string): type",
                 "   local elements = {}",
                 "   for index = 1, #source do",
                 "      local digit = source:sub(index, index)",
@@ -111,7 +111,7 @@ function M.closedComptimeTypeFunctionsUseScalarControlFlowAndInspection()
                 "   end",
                 "   return nupp.types.tuple(elements)",
                 "end",
-                "local comptime function DeepElement(T: type): type",
+                "@comptime local function DeepElement(T: type): type",
                 "   while nupp.types.kind(T) == 'array' do",
                 "      T = nupp.types.elements(T)[1]",
                 "   end",
@@ -131,7 +131,7 @@ function M.closedComptimeTypeFunctionsReportApplicationFailures()
         codes(
             table.concat(
                 {
-                    "local comptime function Binary(source: string): type",
+                    "@comptime local function Binary(source: string): type",
                     "   return nupp.types.error('expected binary digits')",
                     "end",
                     "local bad: Binary('2')",
@@ -146,7 +146,7 @@ function M.closedComptimeTypeFunctionsReportApplicationFailures()
         codes(
             table.concat(
                 {
-                    "local comptime function Optional(T: type): type",
+                    "@comptime local function Optional(T: type): type",
                     "   return nupp.types.optional(T)",
                     "end",
                     "local bad: Optional(string, number)",
@@ -184,7 +184,7 @@ function M.openComptimeTypeCallsCloseAfterGenericInference()
     clean(
         table.concat(
             {
-                "local comptime function Optional(T: type): type",
+                "@comptime local function Optional(T: type): type",
                 "   return nupp.types.optional(T)",
                 "end",
                 "local function choose<T>(value: T, fallback: Optional(T)): Optional(T)",
@@ -200,7 +200,7 @@ function M.openComptimeTypeCallsCloseAfterGenericInference()
         codes(
             table.concat(
                 {
-                    "local comptime function Optional(T: type): type",
+                    "@comptime local function Optional(T: type): type",
                     "   return nupp.types.optional(T)",
                     "end",
                     "local function choose<T>(value: T, fallback: Optional(T)): Optional(T)",
@@ -219,7 +219,7 @@ function M.openScalarTypeCallsCloseAfterConstInference()
     clean(
         table.concat(
             {
-                "local comptime function Literal(value: integer): type",
+                "@comptime local function Literal(value: integer): type",
                 "   return nupp.types.literal(value)",
                 "end",
                 "local function preserve<const N: integer>(value: N): Literal(N)",
@@ -238,7 +238,7 @@ function M.comptimeTypeFunctionsPreserveExistingNominalIdentity()
         table.concat(
             {
                 "local record User name: string end",
-                "local comptime function Maybe(T: type): type",
+                "@comptime local function Maybe(T: type): type",
                 "   return nupp.types.optional(T)",
                 "end",
                 "local user: Maybe(User) = new User(name = 'Ada')",
@@ -254,7 +254,7 @@ function M.comptimeTypeFunctionsPreserveNestedNominalReferences()
         table.concat(
             {
                 "local record User name: string end",
-                "local comptime function Element(T: type): type",
+                "@comptime local function Element(T: type): type",
                 "   return nupp.types.elements(T)[1]",
                 "end",
                 "local user: Element({User}) = new User(name = 'Ada')",
@@ -269,8 +269,8 @@ function M.comptimeTypeAliasesNameReusableDescriptorShapes()
     clean(
         table.concat(
             {
-                "local comptime type Field = {name: string, read: type?}",
-                "local comptime function ReadView(T: type): type",
+                "@comptime local type Field = {name: string, read: type?}",
+                "@comptime local function ReadView(T: type): type",
                 "   local fields: {Field} = {{name = 'value', read = T}}",
                 "   return nupp.types.shape(fields)",
                 "end",
@@ -283,7 +283,7 @@ function M.comptimeTypeAliasesNameReusableDescriptorShapes()
     oneDiagnostic(
         table.concat(
             {
-                "local comptime type Field = {name: string, read: type?}",
+                "@comptime local type Field = {name: string, read: type?}",
                 "local value: Field = nil as any",
                 "return value",
             },
@@ -302,7 +302,7 @@ function M.comptimeReadsNominalFieldsThroughTheTypesAPI()
                 "   name: string",
                 "   age: integer",
                 "end",
-                "local comptime function Structural(T: type): type",
+                "@comptime local function Structural(T: type): type",
                 "   const direct = nupp.types.fields(T)",
                 "   const described = nupp.types.describe(T).fields",
                 "   if not described or #direct ~= 2 or #described ~= #direct then",
@@ -322,7 +322,7 @@ function M.constrainedOpenTypeCallsExposeOnlyTheirDeclaredBound()
     clean(
         table.concat(
             {
-                "local comptime function ReadView(T: type): type<{readonly name: string}>",
+                "@comptime local function ReadView(T: type): type<{readonly name: string}>",
                 "   return nupp.types.shape({{name = 'name', read = nupp.types.string}})",
                 "end",
                 "local function nameOf<T>(value: ReadView(T)): string",
@@ -337,7 +337,7 @@ function M.constrainedOpenTypeCallsExposeOnlyTheirDeclaredBound()
         codes(
             table.concat(
                 {
-                    "local comptime function Bad(T: type): type<{readonly name: string}>",
+                    "@comptime local function Bad(T: type): type<{readonly name: string}>",
                     "   return nupp.types.integer",
                     "end",
                     "local value: Bad(string)",
@@ -354,7 +354,7 @@ function M.comptimeTypePackResultsExpandThroughUnpackof()
     clean(
         table.concat(
             {
-                "local comptime function Pair(T: type): typepack",
+                "@comptime local function Pair(T: type): typepack",
                 "   return nupp.types.pack({T, nupp.types.string})",
                 "end",
                 "local function closed(...: unpackof Pair(integer)): nil end",
@@ -370,7 +370,7 @@ function M.comptimeTypePackResultsExpandThroughUnpackof()
         codes(
             table.concat(
                 {
-                    "local comptime function Pair(T: type): typepack",
+                    "@comptime local function Pair(T: type): typepack",
                     "   return nupp.types.pack({T, nupp.types.string})",
                     "end",
                     "local function inferred<T>(value: T, ...: unpackof Pair(T)): nil end",
@@ -388,7 +388,7 @@ function M.comptimeTypeFunctionsAcceptTypePackArguments()
     clean(
         table.concat(
             {
-                "local comptime function Identity(P: typepack): typepack",
+                "@comptime local function Identity(P: typepack): typepack",
                 "   return P",
                 "end",
                 "local function takes(...: unpackof Identity((string, integer))): nil end",
@@ -402,7 +402,7 @@ function M.comptimeTypeFunctionsAcceptTypePackArguments()
         codes(
             table.concat(
                 {
-                    "local comptime function Identity(P: typepack): typepack",
+                    "@comptime local function Identity(P: typepack): typepack",
                     "   return P",
                     "end",
                     "local function takes(...: unpackof Identity((string, integer))): nil end",
@@ -622,7 +622,7 @@ function M.computedTypesExpandIntoCallablePacks()
     clean(
         table.concat(
             {
-                "local comptime function Args(F: type): typepack",
+                "@comptime local function Args(F: type): typepack",
                 "   local info = nupp.types.describe(F)",
                 "   if info.kind ~= 'literal' then return nupp.types.pack({}, nupp.types.any) end",
                 "   if info.value == 'pair' then return nupp.types.pack({nupp.types.string, nupp.types.number}) end",
@@ -646,7 +646,7 @@ function M.computedTypesExpandIntoCallablePacks()
         codes(
             table.concat(
                 {
-                    "local comptime function Args(F: type): typepack",
+                    "@comptime local function Args(F: type): typepack",
                     "   local info = nupp.types.describe(F)",
                     "   if info.kind == 'literal' and info.value == 'pair' then",
                     "      return nupp.types.pack({nupp.types.string, nupp.types.number})",
@@ -678,7 +678,7 @@ function M.computedTypesExpandIntoCallablePacks()
     local failure = diagnostics(
         table.concat(
             {
-                "local comptime function Failure(): typepack",
+                "@comptime local function Failure(): typepack",
                 "   return nupp.types.error('computed contract failed')",
                 "end",
                 "local function apply(...: unpackof Failure()): nil end",
@@ -936,10 +936,10 @@ function M.comptimeTypeLibraryDoesNotLeakIntoRuntimeCode()
         table.concat(
             {
                 "local type TypeLibrary = {",
-                "   readonly string: comptime type,",
-                "   readonly optional: comptime function(value: type): type,",
+                "   readonly string: @comptime type,",
+                "   readonly optional: @comptime function(value: type): type,",
                 "}",
-                "local comptime function Maybe(T: type): type",
+                "@comptime local function Maybe(T: type): type",
                 "   return nupp.types.optional(T)",
                 "end",
                 "local value: Maybe(string) = nil",
@@ -966,7 +966,7 @@ function M.comptimeTypeLibraryDoesNotLeakIntoRuntimeCode()
     oneDiagnostic(
         table.concat(
             {
-                "local type ScalarLibrary = {readonly step: comptime function(integer): integer}",
+                "local type ScalarLibrary = {readonly step: @comptime function(integer): integer}",
                 "local library: ScalarLibrary = nil as any",
                 "local leaked = library.step",
                 "return leaked",
@@ -984,7 +984,7 @@ function M.templateConstructionAndOneSegmentExtractionAreFinite()
             {
                 "local type Event<const Name: string> = `${Name}Changed`",
                 "local event: Event<'ready'> = 'readyChanged'",
-                "local comptime function Parameter(Path: type): type",
+                "@comptime local function Parameter(Path: type): type",
                 "   local info = nupp.types.describe(Path)",
                 "   local name = info.kind == 'literal' and info.value:match(':(.+)$') or nil",
                 "   if name then return nupp.types.literal(name) end",
@@ -1007,7 +1007,7 @@ function M.mappedRemappingBuildsDependentEventAdapters()
                 "local events: Events<{name: string, age: integer}> = nil as any",
                 "local onName: function(value: string): nil = events.nameChanged",
                 "local onAge: function(value: integer): nil = events.ageChanged",
-                "local comptime function PublicKey(K: type): type",
+                "@comptime local function PublicKey(K: type): type",
                 "   local info = nupp.types.describe(K)",
                 "   if info.kind == 'literal' and info.value == 'password' then return nupp.types.never end",
                 "   return K",
@@ -1248,7 +1248,7 @@ end
 function M.comptimeCallsInAnnotationPositionEraseFromGeneratedLua()
     local source = table.concat(
         {
-            "local comptime function Optional(T: type): type",
+            "@comptime local function Optional(T: type): type",
             "   return nupp.types.optional(T)",
             "end",
             "local value: Optional(string) = 'ok'",
@@ -1517,7 +1517,7 @@ function M.comptimeCanConstructAffineTypesFromFunctionIdentity()
         table.concat(
             {
                 "local function close(takes value: string): nil end",
-                "local comptime function MakeOwner(T: type, const cleanup: function): type",
+                "@comptime local function MakeOwner(T: type, const cleanup: function): type",
                 "   return nupp.types.affine(T, cleanup)",
                 "end",
                 "local function make(): MakeOwner(string, close) return 'value' end",
@@ -1560,7 +1560,7 @@ local TUPLE_QUERY = table.concat(
         "local record Velocity",
         "   dx: number",
         "end",
-        "local comptime function Values(Q: type): typepack",
+        "@comptime local function Values(Q: type): typepack",
         "   return nupp.types.pack(nupp.types.elements(Q))",
         "end",
         "local function each(body: function(integer, ...: unpackof Values({Position, Velocity})): nil): nil",
@@ -1618,7 +1618,7 @@ function M.comptimeReadsTheHeadOfAPack()
     clean(
         table.concat(
             {
-                "local comptime function FirstParameter(F: type): type",
+                "@comptime local function FirstParameter(F: type): type",
                 "   const supplied = nupp.types.elements(nupp.types.parameters(F))",
                 "   if #supplied ~= 2 then",
                 "      return nupp.types.error('this one takes two')",
@@ -1640,7 +1640,7 @@ function M.comptimeReadsTheArgumentsOfAGenericApplication()
                 "local record Cell<T>",
                 "   value: T",
                 "end",
-                "local comptime function Held(C: type): type",
+                "@comptime local function Held(C: type): type",
                 "   const supplied = nupp.types.arguments(C)",
                 "   if #supplied ~= 1 then",
                 "      return nupp.types.error('a cell holds one type')",
@@ -1658,7 +1658,7 @@ function M.aTypeWithNoArgumentsHasNone()
     oneDiagnostic(
         table.concat(
             {
-                "local comptime function Held(C: type): type",
+                "@comptime local function Held(C: type): type",
                 "   const supplied = nupp.types.arguments(C)",
                 "   if #supplied ~= 1 then",
                 "      return nupp.types.error('a cell holds one type')",
@@ -1684,10 +1684,10 @@ function M.comptimeComparesNominalDeclarationFamilies()
                 "local record Other<T>",
                 "   value: T",
                 "end",
-                "local comptime function Same(A: type, B: type): type",
+                "@comptime local function Same(A: type, B: type): type",
                 "   return nupp.types.literal(nupp.types.sameNominal(A, B))",
                 "end",
-                "local comptime function Borrowed(T: type): type",
+                "@comptime local function Borrowed(T: type): type",
                 "   return nupp.types.borrowed(T)",
                 "end",
                 "local type TextCell = Cell<string>",
@@ -1713,7 +1713,7 @@ local PACK_QUERY = table.concat(
         "local record Component<T>",
         "   id: integer",
         "end",
-        "local comptime function Values(C: typepack): typepack",
+        "@comptime local function Values(C: typepack): typepack",
         "   const members = nupp.types.elements(C)",
         "   const out = {}",
         "   for index = 1, #members do",
@@ -1813,7 +1813,7 @@ function M.computedIteratorModesMakeBindingsIterationScopedBorrows()
             PACK_QUERY .. table.concat(
                 {
                     "",
-                    "local comptime function BorrowedValues(C: typepack): typepack",
+                    "@comptime local function BorrowedValues(C: typepack): typepack",
                     "   const members = nupp.types.elements(C)",
                     "   const out = {}",
                     "   const modes = {}",
@@ -1843,7 +1843,7 @@ function M.comptimeCountsThePackItWasPassed()
     clean(
         table.concat(
             {
-                "local comptime function Count(C: typepack): type",
+                "@comptime local function Count(C: typepack): type",
                 "   return nupp.types.literal(#nupp.types.elements(C))",
                 "end",
                 "local record Counter",
@@ -2234,12 +2234,12 @@ function M.admissionEmitsOnlyWhatProofLeaves()
 end
 
 -- One constraint is one type however it was reached: written in a type, returned
--- from a comptime function, or substituted into a generic alias. That is the whole
+-- from a @comptime function, or substituted into a generic alias. That is the whole
 -- reason the builder and the resolver share a constructor.
 function M.aConstraintBuiltAtComptimeIsTheOneWrittenInAType()
     local built = table.concat(
         {
-            "local comptime function Between(T: type, low: integer, high: integer): type",
+            "@comptime local function Between(T: type, low: integer, high: integer): type",
             "    return nupp.types.range(T, low, high)",
             "end",
             "local type Range<T, const Low: integer, const High: integer> = Between(T, Low, High)",

@@ -960,7 +960,7 @@ end
 -- borrowing receiver would run as the terminal without taking anything.
 function M.aTerminalTakesItsReceiverTheWayTheContractSays()
     local iface = table.concat(
-        {"local affine interface Closer", "   terminal close: nosuspend function(takes self: Closer): nil", "end",},
+        {"local interface Closer is nupp.Affine<self.close>", "   close: @nosuspend function(takes self: Closer): nil", "end",},
         "\n"
     )
     assertEq(
@@ -978,7 +978,7 @@ function M.aTerminalTakesItsReceiverTheWayTheContractSays()
                 "\n"
             )
         ),
-        "NUPP2118:6"
+        "NUPP2615:4 NUPP2118:6"
     )
     assertClean(
         iface .. table.concat(

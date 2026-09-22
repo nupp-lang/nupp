@@ -738,7 +738,7 @@ function M.sessionNamesTheImportedModuleWhoseInterfaceChanged()
     assert(result.diagnostics[1].msg:find(dependencyPath, 1, true), result.diagnostics[1].msg)
 end
 
--- An `export comptime type` flip reaches the session as a project declaration
+-- An `@comptime export type` flip reaches the session as a project declaration
 -- before its fingerprint is consulted, so the digest itself is what is held to
 -- the build's: the session names the build's own function, and these are the
 -- two inputs the session's copy of it used to leave out.
@@ -894,7 +894,7 @@ function M.sessionTracksDeriveProviderFilesystemInputs()
             "   label: function(self): string",
             "end",
             "function M.labelValue(value: string): string return value end",
-            "comptime function M.derive(info: nupp.derive.Info): nupp.derive.Result<M.Labelled>",
+            "@comptime function M.derive(info: nupp.derive.Info): nupp.derive.Result<M.Labelled>",
             "   local label = nupp.derive.file('schema.txt')",
             "   return nupp.derive.implement{methods = {",
             "      label = nupp.derive.forward{helper = nupp.derive.helper(M, 'labelValue'), arguments = {nupp.derive.constant(label)}},",
@@ -937,7 +937,7 @@ function M.deriveProviderFilesystemInputsRequireLiteralPaths()
             "   value: function(self): string",
             "end",
             "function M.value(): string return 'value' end",
-            "comptime function M.derive(info: nupp.derive.Info): nupp.derive.Result<M.Contract>",
+            "@comptime function M.derive(info: nupp.derive.Info): nupp.derive.Result<M.Contract>",
             "   local path = 'schema.txt'",
             "   local schema = nupp.derive.file(path)",
             "   return nupp.derive.implement{methods = {value = nupp.derive.forward{helper = nupp.derive.helper(M, 'value'), arguments = {}}}}",
@@ -964,7 +964,7 @@ function M.deriveProviderFilesystemInputsStayInsideTheProject()
             "   value: function(self): string",
             "end",
             "function M.value(): string return 'value' end",
-            "comptime function M.derive(info: nupp.derive.Info): nupp.derive.Result<M.Contract>",
+            "@comptime function M.derive(info: nupp.derive.Info): nupp.derive.Result<M.Contract>",
             "   local schema = nupp.derive.file('../outside.txt')",
             "   return nupp.derive.implement{methods = {value = nupp.derive.forward{helper = nupp.derive.helper(M, 'value'), arguments = {}}}}",
             "end",

@@ -150,7 +150,7 @@ function M.computedPacksComposeWithAssociatedMembers()
       "local record Row is Holds",
       "   associated type Item = string",
       "end",
-      "local comptime function Arguments(Kind: type): typepack",
+      "@comptime local function Arguments(Kind: type): typepack",
       "   local info = nupp.types.describe(Kind)",
       "   if info.kind == 'literal' and info.value == 'pair' then",
       "      return nupp.types.pack({nupp.types.string, nupp.types.number})",

@@ -139,7 +139,7 @@ so a constraint can be built rather than written.
 ```nupp
 local m = {}
 
-local comptime function Between(T: type, low: integer, high: integer): type
+@comptime local function Between(T: type, low: integer, high: integer): type
     return nupp.types.range(T, low, high)
 end
 

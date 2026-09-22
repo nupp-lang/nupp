@@ -59,9 +59,9 @@ anywhere in the file is refused, because the type's identity would then name a
 function the discharge no longer calls.
 It may raise, and it may suspend: a terminal that waits for what the resource
 owns to finish is a *settling* terminal, and discharging it parks the coroutine
-the way any wait does, so it is refused inside a `nosuspend` region. General affine policies name the exact function;
-the standard `nupp.Closeable` lifecycle below names `close` through an explicit
-nominal contract.
+the way any wait does, so it is refused inside a `@nosuspend` region. General
+affine policies name the exact function; `nupp.Closeable` selects `close` through
+an explicit `nupp.Affine` claim.
 
 The parentheses are compile-time call syntax: `affine(Session, closeSession)`
 invokes a built-in type generator while checking and produces a transparent
@@ -93,7 +93,7 @@ local client = new Client()
 Conformance is explicit because it changes ownership. Construction and a bare
 owned `Client` annotation carry one close obligation; `borrows Client` and
 `exclusive Client` remain non-owning views. `close` consumes the owner and
-is non-suspending and returns `nil`. A resource that can publish pending work
+returns `nil`; it may suspend. A resource that can publish pending work
 may additionally declare `flush`; that operation is not part of every
 closeable lifecycle.
 
@@ -104,14 +104,13 @@ transfer-only.
 ## Discharging an owner
 
 An owner is destroyed automatically at its lexical boundary. You can consume it
-earlier with either spelling of the `drop` operator:
+earlier with `nupp.drop`:
 
 ```nupp
 local file = openFile()
-drop file
-
+nupp.drop(file)
 local another = openFile()
-drop(another)
+nupp.drop(another)
 ```
 
 Passing it to a `takes` parameter or returning it through an affine result moves
@@ -131,8 +130,8 @@ end
 The visible `session` is a non-escaping borrow. Its hidden owner always drops at
 the end of the body and cannot be moved or ended early.
 
-`affine(T)` selects `T`'s inherent terminal when `T` is an affine interface or
-`nupp.Closeable` nominal type. Otherwise it is deliberately terminal-less: it may be
+`affine(T)` selects `T`'s inherent cleanup when `T` has a declared
+`nupp.Affine` claim. Otherwise it is deliberately terminal-less: it may be
 forwarded to another owner or consuming parameter, returned, or released in
 `@unsafe`, but it cannot be dropped locally because there is no function to call.
 
@@ -148,7 +147,7 @@ end
 
 local session = openSession(1)
 inspect(session)
-drop session
+nupp.drop(session)
 ```
 
 `borrows` is a lifetime and aliasing contract, not a const qualifier. Use
@@ -171,7 +170,7 @@ local bundle = new Bundle(
     first = openSession(1),
     second = openSession(2)
 )
-drop bundle
+nupp.drop(bundle)
 ```
 
 `nupp.Closeable` fields behave the same way without an explicit wrapper: a field
@@ -217,13 +216,13 @@ does not permit an unrestricted conversion from the representation, because it
 would mint a second obligation for an aliased value.
 
 Fresh function and C results introduce ownership normally. At an audited raw
-boundary, use the explicit operators:
+boundary, use the ownership calls:
 
 ```nupp
 @unsafe do
-    local raw = @unsafe release owner
-    local restored = @unsafe adopt raw as affine(voidptr, free)
-    drop restored
+    local raw = @unsafe nupp.release(owner)
+    local restored = @unsafe nupp.adopt<affine(voidptr, free)>(raw)
+    nupp.drop(restored)
 end
 ```
 

@@ -901,7 +901,7 @@ local ENTRIES: {any} = {
         .. "comptime function that returns type or typepack when the computation "
         .. "needs control flow.",
         wrong = "local type Loop<T> = Loop<T>\nreturn Loop\n",
-        right = "local comptime function DeepElement(T: type): type\n"
+        right = "@comptime local function DeepElement(T: type): type\n"
         .. "    while nupp.types.kind(T) == 'array' do\n"
         .. "        T = nupp.types.elements(T)[1]\n"
         .. "    end\n"
@@ -1104,8 +1104,8 @@ local ENTRIES: {any} = {
         code = "NUPP2615",
         summary = "An affine value names an invalid terminal",
         rule = "The terminal must be visible and have the exact shape "
-        .. "`nosuspend function(takes Representation): nil`. An affine interface "
-        .. "declares exactly one such terminal and cannot inherit a competing one.",
+        .. "`function(takes Representation): nil`. A declared `nupp.Affine` claim "
+        .. "selects one cleanup function and cannot inherit a competing one.",
         wrong = "local record Resource\nend\nlocal record Other\nend\n"
         .. "local function release(takes value: Other): nil\nend\n"
         .. "local function acquire(): affine(Resource, release)\n"
@@ -1232,8 +1232,8 @@ local ENTRIES: {any} = {
         .. "parking the current coroutine. Remove the yielding call, move it before "
         .. "the protected region, or call an operation whose type or visible body "
         .. "proves that it cannot suspend.",
-        wrong = "local function wait(): nil\n    coroutine.yield()\nend\n\n" .. "nosuspend do\n    wait()\nend\n",
-        right = "local function finish(): nil\nend\n\n" .. "nosuspend do\n    finish()\nend\n",
+        wrong = "local function wait(): nil\n    coroutine.yield()\nend\n\n" .. "@nosuspend do\n    wait()\nend\n",
+        right = "local function finish(): nil\nend\n\n" .. "@nosuspend do\n    finish()\nend\n",
         related = {"NUPP2602", "NUPP2603"},
         docs = "docs/learn/runtime/concurrency/suspension.md#non-suspending-regions",
     },
@@ -1250,11 +1250,11 @@ local ENTRIES: {any} = {
     {
         code = "NUPP2706",
         summary = "Control cannot jump into a handled suspension region",
-        rule = "Entering a `handle suspension` body from outside would bypass handler "
-        .. "installation and its cleanup obligation. Move the label outside the region "
-        .. "or move the jump inside it. Structured exits from the region are allowed.",
-        wrong = "goto inside\nhandle suspension with handler do\n" .. "    ::inside::\nend\n",
-        right = "handle suspension with handler do\nend\n::outside::\n",
+        rule = "Entering a `with` body from outside would bypass owner "
+        .. "acquisition and its cleanup obligation. Move the label outside the scope "
+        .. "or move the jump inside it. Structured exits from the scope are allowed.",
+        wrong = "goto inside\nwith owner = acquire() do\n" .. "    ::inside::\nend\n",
+        right = "with owner = acquire() do\nend\n::outside::\n",
         related = {"NUPP2701", "NUPP2702"},
         docs = "docs/learn/runtime/concurrency/suspension.md#handler-scope-follows-the-coroutine",
     },
@@ -1474,8 +1474,8 @@ ENTRIES[
     .. "exact exported guarantees prove they perform no managed allocation. Remove "
     .. "the construction, move it outside the region, or give an unseen declaration "
     .. "a truthful trusted @effects contract.",
-    wrong = "local function build(): nil\n    local values = {}\nend\n\nnoalloc do\n    build()\nend\n",
-    right = "local function update(): nil\n    local n = 1\nend\n\nnoalloc do\n    update()\nend\n",
+    wrong = "local function build(): nil\n    local values = {}\nend\n\n@noalloc do\n    build()\nend\n",
+    right = "local function update(): nil\n    local n = 1\nend\n\n@noalloc do\n    update()\nend\n",
     related = {"NUPP2112", "NUPP2711"},
     docs = "docs/learn/language/effects.md#allocation-and-raising-regions",
 }
@@ -1489,8 +1489,8 @@ ENTRIES[
     .. "exact exported guarantees prove they cannot raise a catchable language "
     .. "error. Validate the precondition first, remove the error path, or move the "
     .. "operation outside the region.",
-    wrong = "local function fail(): nil\n    error('failed')\nend\n\nnoraise do\n    fail()\nend\n",
-    right = "local function finish(): nil\nend\n\nnoraise do\n    finish()\nend\n",
+    wrong = "local function fail(): nil\n    error('failed')\nend\n\n@noraise do\n    fail()\nend\n",
+    right = "local function finish(): nil\nend\n\n@noraise do\n    finish()\nend\n",
     related = {"NUPP2112", "NUPP2710"},
     docs = "docs/learn/language/effects.md#allocation-and-raising-regions",
 }
@@ -2049,8 +2049,8 @@ ENTRIES[
     code = "NUPP2415",
     summary = "A comptime-only value failed validation where it landed",
     rule = "A comptime function's own identity, a type or const-function argument crossing into the isolated comptime worker, and an opaque provider result reaching a materialization boundary are all checked against exactly where they land. A comptime function read as an ordinary runtime value has nowhere to run there, an argument that cannot import into the worker cannot be evaluated, and a declared type with no registered materialization relation for what a provider produced cannot receive it.",
-    wrong = "local comptime function answer(): integer return 42 end\nlocal escaped = answer\nreturn escaped()\n",
-    right = "local comptime function answer(): integer return 42 end\nreturn comptime do return answer() end\n",
+    wrong = "@comptime local function answer(): integer return 42 end\nlocal escaped = answer\nreturn escaped()\n",
+    right = "@comptime local function answer(): integer return 42 end\nreturn comptime do return answer() end\n",
     related = {"NUPP2414", "NUPP2416"},
     docs = "docs/reference/diagnostics.md#diagnostic-index",
 }
@@ -2121,8 +2121,8 @@ ENTRIES[
     code = "NUPP2420",
     summary = "A comptime type function rejected its own application",
     rule = "nupp.types.error(message) lets a comptime type function refuse a specific application deliberately, distinct from an evaluator crash or a result of the wrong kind. The authored message is reported at the application together with the bounded comptime call trace, so a computed type contract can say why an argument it inspected does not qualify.",
-    wrong = "local comptime function Positive(): type\n    return nupp.types.error(\"always fails\")\nend\nlocal value: Positive() = 1\nreturn value\n",
-    right = "local comptime function Positive(): type\n    return nupp.types.number\nend\nlocal value: Positive() = 1\nreturn value\n",
+    wrong = "@comptime local function Positive(): type\n    return nupp.types.error(\"always fails\")\nend\nlocal value: Positive() = 1\nreturn value\n",
+    right = "@comptime local function Positive(): type\n    return nupp.types.number\nend\nlocal value: Positive() = 1\nreturn value\n",
     related = {"NUPP2415", "NUPP2421"},
     docs = "docs/learn/language/types/comptime-types.md#inspection-and-construction",
 }
@@ -2132,9 +2132,9 @@ ENTRIES[
 ] = {
     code = "NUPP2421",
     summary = "A compiler-only member or type-position call was used where it cannot run",
-    rule = "Type handles, comptime type aliases, and members typed comptime type or comptime function(...) are opaque and exist only for the comptime evaluator. Reading one into an ordinary runtime binding, naming a comptime alias in a runtime annotation, or writing a type-position call whose callee, argument, or result does not resolve to a checked comptime function signature is refused because none has anything to erase to at runtime.",
+    rule = "Type handles, comptime type aliases, and members typed comptime type or @comptime function(...) are opaque and exist only for the comptime evaluator. Reading one into an ordinary runtime binding, naming a comptime alias in a runtime annotation, or writing a type-position call whose callee, argument, or result does not resolve to a checked comptime function signature is refused because none has anything to erase to at runtime.",
     wrong = "local leaked = nupp.types.string\nreturn leaked\n",
-    right = "local comptime function Self(): type\n    return nupp.types.string\nend\nlocal value: Self() = \"ok\"\nreturn value\n",
+    right = "@comptime local function Self(): type\n    return nupp.types.string\nend\nlocal value: Self() = \"ok\"\nreturn value\n",
     related = {"NUPP2133", "NUPP2420"},
     docs = "docs/learn/language/types/comptime-types.md#inspection-and-construction",
 }

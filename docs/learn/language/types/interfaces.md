@@ -105,13 +105,13 @@ and a conflict is NUPP2118:
 - A stored field cannot stand where the parent provides a default method,
   whatever its type: on an instance the field would shadow the default.
   Replacing a default is written as a method with `@override`.
-- An affine parent's terminal takes its receiver, so implementing
+- An `Affine` parent's cleanup takes its receiver, so implementing
   `close(takes self)` as `close(self)` is refused.
-- A method implementing a member the parent declared `nosuspend function` may
+- A method implementing a member the parent declared `@nosuspend function` may
   not suspend. A method's own guarantee is inferred from its body, so this is
   checked once the file's effects have settled, and only a proven suspension is
   reported: a body whose calls cannot be followed keeps the claim, as a bodyless
-  declaration would. A `nosuspend` region asks more of what it calls, and says so
+  declaration would. An `@nosuspend` region asks more of what it calls, and says so
   at the call.
 
 A struct is held to one more thing. Its layout is closed, so a parent member no

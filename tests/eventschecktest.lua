@@ -453,7 +453,7 @@ local record Diagonal
     end
 end
 
-local comptime function Construction(E: type): typepack
+@comptime local function Construction(E: type): typepack
     return nupp.types.construction(E)
 end
 
@@ -504,7 +504,7 @@ local record Overloaded
     end
 end
 
-local comptime function Construction(E: type): typepack
+@comptime local function Construction(E: type): typepack
     return nupp.types.construction(E)
 end
 

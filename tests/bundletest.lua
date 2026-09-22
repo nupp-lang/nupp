@@ -788,7 +788,7 @@ builder:commit(2)
 builder:append("!")
 print(builder:freeze():text())
 
-local type Accounted = {accounted: nosuspend function(): integer}
+local type Accounted = {accounted: @nosuspend function(): integer}
 local rawShared = require("nupp.mem.sharedbytes.native") as Accounted
 collectgarbage("collect")
 collectgarbage("collect")

@@ -333,7 +333,7 @@ With no scheduler, `communicate` blocks by driving the registered readiness
 sources. Under an installed scheduler, the same call parks the current coroutine
 so other work can run. A ready operation does neither.
 
-Whether a function may suspend is an inferred effect. Use `nosuspend do` where
+Whether a function may suspend is an inferred effect. Use `@nosuspend do` where
 control must not park; the compiler follows calls to the possible suspension and
 reports the path. Libraries subscribe through `nupp.suspension`, [suspension
 handlers](../learn/runtime/concurrency/suspension.md#hosts-supply-scheduling-policy) own

@@ -46,7 +46,7 @@ Angle brackets apply a declared generic type such as `Box<T>`, and parentheses
 call a compile-time type generator. Keeping those two operations visibly
 distinct is what lets one syntax serve both the built-in generators and
 user-defined comptime type functions, so a package that wants its own policy
-constructor writes an ordinary `comptime function` rather than asking for a
+constructor writes an ordinary `@comptime function` rather than asking for a
 language keyword. The cost is that `affine(T, cleanup)` reads like a call at a
 glance, and the payment for it is that `nupp.types.affine` and every user
 generator are written the same way. See
@@ -123,7 +123,7 @@ A user-defined comptime type function can call the programmable counterpart of
 the direct form:
 
 ```nupp
-local comptime function MakeOwner(
+@comptime local function MakeOwner(
     T: type,
     const cleanup: function
 ): type

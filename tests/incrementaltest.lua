@@ -383,7 +383,7 @@ function M.deriveDocumentationChangesInvalidateGeneratedBehavior()
                 "   documentation: function(self): string",
                 "end",
                 "function M.returnText(text: string): string return text end",
-                "comptime function M.derive(info: nupp.derive.Info): nupp.derive.Result<M.Documented>",
+                "@comptime function M.derive(info: nupp.derive.Info): nupp.derive.Result<M.Documented>",
                 "   return nupp.derive.implement{methods = {documentation = nupp.derive.forward{",
                 "      helper = nupp.derive.helper(M, 'returnText'),",
                 "      arguments = {nupp.derive.constant(info.documentation or '')},",

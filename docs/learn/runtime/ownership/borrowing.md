@@ -98,14 +98,15 @@ end
 
 `affine(voidptr)` says there is deliberately no local terminal.
 
-## `nupp.Closeable` nominal lifecycle
+## Inherent owners
 
-An affine interface declares that conforming nominal types carry an inherent
-terminal:
+`nupp.Affine<cleanup>` is the compiler-recognized ownership claim. A declared
+`is` edge selects the cleanup function for a record, and another interface may
+inherit that claim. `nupp.Closeable` supplies the common policy:
 
 ```nupp
-affine interface nupp.Closeable
-    terminal close: nosuspend function(takes self: nupp.Closeable): nil
+interface nupp.Closeable is nupp.Affine<self.close>
+    close: function(takes self: nupp.Closeable): nil
 end
 ```
 
@@ -116,9 +117,9 @@ result positions refer to the representation instead of minting an owner.
 Calling `close()` consumes the obligation. Resource-specific interfaces may
 add non-consuming operations such as `flush()`.
 
-An affine interface must declare one terminal. Its terminal consumes `self`,
-returns `nil`, is non-suspending, and may raise. Interface composition rejects
-competing terminal names. A record containing `nupp.Closeable` fields inherits their
+The cleanup function consumes `self`, returns `nil`, and may raise or suspend.
+Interface composition rejects competing cleanup identities. A record containing
+`nupp.Closeable` fields inherits their
 aggregate obligations and destroys live fields in reverse declaration order.
 
 ## Terminal contract
@@ -133,11 +134,11 @@ The terminal may raise, and it may suspend. One that waits for the resource's
 own work to finish before returning is a *settling* terminal: a task scope's
 terminal waits for its children, and a worker scope's for its lanes. Discharging
 one parks the coroutine as any wait does, and is therefore refused inside a
-`nosuspend` region. A terminal declared `nosuspend` is a stronger promise and
+`@nosuspend` region. A terminal declared `@nosuspend` is a stronger promise and
 still fits. Automatic destruction keeps the first failure primary,
 attempts the independent remaining cleanups, and attaches later failures as
 suppressed errors. A suspending terminal is refused only where the surrounding
-region is `nosuspend`; a terminal that must also work without a suspension
+region is `@nosuspend`; a terminal that must also work without a suspension
 handler supplies its own blocking behavior.
 
 Generic terminals use ordinary inference and bounds. A terminal is a const
@@ -178,7 +179,7 @@ adoption, which is reserved for a boundary no typed producer can describe.
 
 ## Consumption and lexical destruction
 
-`drop owner` and `drop(owner)` consume an affine value and invoke its statically
+`nupp.drop(owner)` consumes an affine value and invokes its statically
 selected terminal. Passing to `takes`, returning through a matching affine
 result, or moving into another affine location transfers the obligation instead:
 
@@ -186,7 +187,7 @@ result, or moving into another affine location transfers the obligation instead:
 local function peek(path: string): string
     local file = new File(nativeOpen(path))
     local head = file:read(16)
-    drop file
+    nupp.drop(file)
     return head
 end
 ```
@@ -281,7 +282,7 @@ A closure with `takes (capture)` is an affine, single-shot callable:
 local file = new File(nativeOpen("notes.txt"))
 local finish = function(): nil takes (file)
     print(file:read(16))
-    drop file
+    nupp.drop(file)
 end
 
 finish() -- moves `file` into the invocation frame
@@ -311,7 +312,7 @@ end
 
 local file = new File(nativeOpen("notes.txt"))
 print(checksum(file)) -- `file` is still live and still owed a close
-drop file
+nupp.drop(file)
 ```
 
 A function literal or short function written where a callable is expected,
@@ -513,7 +514,7 @@ reported:
 local function run(again: boolean): nil
     local value = new File(nativeOpen("notes.txt"))
     while again do
-        drop(value) -- NUPP2609: the second iteration has nothing to drop
+        nupp.drop(value) -- NUPP2609: the second iteration has nothing to drop
     end
 end
 ```
@@ -533,7 +534,7 @@ with scope = workers.scope() do
         frame = scope:spawn(frame, generation, jobs.fill):await()
     end
 end
-drop frame
+nupp.drop(frame)
 ```
 
 A borrow taken before the loop and held across it keeps the identity
@@ -637,7 +638,7 @@ the policy:
 
 ```nupp
 @unsafe do
-    local owner = @unsafe adopt raw as affine(voidptr, free)
+    local owner = @unsafe nupp.adopt<affine(voidptr, free)>(raw)
 end
 ```
 
@@ -645,7 +646,7 @@ The reverse operation is also explicit:
 
 ```nupp
 @unsafe do
-    local raw = @unsafe release owner
+    local raw = @unsafe nupp.release(owner)
 end
 ```
 

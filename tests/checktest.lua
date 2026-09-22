@@ -217,7 +217,7 @@ end
 
 -- A mode says what a callee does with an owner, and nothing owned ever reaches
 -- a slot typed `any` or left untyped, so against such a tail the mode is moot:
--- `sendable function(...: any): any` stands for any callable a worker may run,
+-- `@sendable function(...: any): any` stands for any callable a worker may run,
 -- taking parameters included.
 function M.anExtraParametersModeIsMootAgainstAnAnyTail()
     local consume = table.concat(
@@ -525,7 +525,7 @@ function M.arrayCovarianceCannotLaunderFunctionEffects()
         diagsOf(
             table.concat(
                 {
-                    "local safe: {nosuspend function(number): number} = {math.floor}",
+                    "local safe: {@nosuspend function(number): number} = {math.floor}",
                     "local calls: {function(number): number} = safe",
                     "return calls",
                 },

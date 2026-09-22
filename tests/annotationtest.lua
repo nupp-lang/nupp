@@ -32,8 +32,7 @@ local M = {}
 
 function M.policyAnnotationsComposeAcrossTypesDeclarationsMembersAndRegions()
     local source = [[
-@sealed @affine local interface Resource
-    @terminal
+local sealed interface Resource is nupp.Affine<self.close>
     close: @nosuspend function(takes self: Resource): nil
 end
 
@@ -186,8 +185,8 @@ function M.sealedInterfacesRequireDeclaredConformance()
     )
 end
 
-function M.sealedIsAvailableAsAnAnnotation()
-    assertEq(checked("@sealed\nlocal interface Token end"), "")
+function M.sealedAnnotationIsRemoved()
+    assertEq(checked("@sealed\nlocal interface Token end"), "NUPP2111")
 end
 
 function M.partitionContractsRequireASealedInterfaceAndRealFields()
@@ -372,14 +371,14 @@ end
 function M.reservedAnnotationsAreNotSilentlyErased()
     assertEq(diagsOf("@jit local function f() end"), "")
     assertEq(diagsOf("@comptime const function f() end"), "")
-    assertEq(diagsOf("const comptime function f() end"), "")
+    assertEq(diagsOf("@comptime const function f() end"), "")
 end
 
 function M.attachmentTargetsAreChecked()
     assertEq(diagsOf("@jit local x = 1"), "NUPP2112")
     -- Named functions are a valid attachment target because exported helpers use
     -- `function M.f()`. A bare global is rejected by the comptime declaration rule.
-    assertEq(diagsOf("comptime function f() end"), "NUPP2411")
+    assertEq(diagsOf("@comptime function f() end"), "NUPP2411")
 end
 
 function M.argumentContractsAreChecked()
@@ -980,9 +979,9 @@ function M.contextualFunctionTypesStillValidateExpressionAnnotations()
 end
 
 function M.unsafePreservesOtherRegionRestrictionsAndExits()
-    assertEq(checked('nosuspend do @unsafe coroutine.yield() end'), 'NUPP2701')
-    assertEq(checked('noalloc do @unsafe local value = {} end'), 'NUPP2710')
-    assertEq(checked("noraise do @unsafe error('failed') end"), 'NUPP2711')
+    assertEq(checked('@nosuspend do @unsafe coroutine.yield() end'), 'NUPP2701')
+    assertEq(checked('@noalloc do @unsafe local value = {} end'), 'NUPP2710')
+    assertEq(checked("@noraise do @unsafe error('failed') end"), 'NUPP2711')
     for _, body in ipairs({
         '@unsafe do return 1 end',
         '@unsafe if true then return 1 else return 2 end',

@@ -1,4 +1,4 @@
--- S1: `sendable function(...)`.
+-- S1: `@sendable function(...)`.
 --
 -- The guarantee that another isolated Lua state can reproduce a callable. Asserted
 -- here: module members, contextual literals, effectively-final captures, capture
@@ -50,7 +50,7 @@ end
 local MODULE = "local m = {}\n"
    .. "function m.hash(value: string): string\n    return value\nend\n"
 local PRIVATE = "local function priv(value: string): string\n    return value\nend\n"
-local WANT = "local slot: sendable function(string): string = "
+local WANT = "local slot: @sendable function(string): string = "
 
 local M = {}
 
@@ -68,7 +68,7 @@ end
 function M.acceptsAContextualLiteral()
    local errors = diagnoseDeclared([[
 export function apply(prefix: string, value: string): string
-    const slot: sendable function(string): string = |item: string| -> prefix .. item
+    const slot: @sendable function(string): string = |item: string| -> prefix .. item
     return slot(value)
 end
 ]])
@@ -80,7 +80,7 @@ function M.acceptsAnEffectivelyFinalCapture()
 export function apply(value: string): string
     local prefix: string
     prefix = "nupp:"
-    const slot: sendable function(string): string = |item: string| -> prefix .. item
+    const slot: @sendable function(string): string = |item: string| -> prefix .. item
     return slot(value)
 end
 ]])
@@ -90,7 +90,7 @@ end
 function M.refusesAReassignedCapture()
    local errors = diagnoseDeclared([[
 export function apply(prefix: string, value: string): string
-    const slot: sendable function(string): string = |item: string| -> prefix .. item
+    const slot: @sendable function(string): string = |item: string| -> prefix .. item
     prefix = "changed:"
     return slot(value)
 end
@@ -102,7 +102,7 @@ end
 
 function M.refusesAnUncopyableCapture()
    local errors = diagnoseDeclared([[
-export function hold(value: thread): sendable function(): thread
+export function hold(value: thread): @sendable function(): thread
     return || -> value
 end
 ]])
@@ -121,7 +121,7 @@ end
 function M.satisfiesAPlainSlot()
    -- One-directional: a guarantee is spare where none was asked for.
    local src = MODULE .. "local plain: function(string): string = m.hash\n"
-   assertEq(#diagnose(src), 0, "a sendable function is still a function")
+   assertEq(#diagnose(src), 0, "a @sendable function is still a function")
 end
 
 function M.staysCallableAcrossABranch()
@@ -142,8 +142,8 @@ function M.dropsTheGuaranteeAcrossABranch()
 end
 
 function M.composesWithNosuspend()
-   local both = "local a: sendable nosuspend function(string): string = m.hash\n"
-      .. "local b: nosuspend sendable function(string): string = m.hash\n"
+   local both = "local a: @sendable @nosuspend function(string): string = m.hash\n"
+      .. "local b: @nosuspend @sendable function(string): string = m.hash\n"
    local errors = diagnose(MODULE .. both)
    -- `m.hash` is not proved quiet here, so both slots refuse it for that reason and
    -- neither refuses it for its address: the modifiers parsed in either order.
@@ -160,7 +160,7 @@ function M.survivesGenericInstantiation()
    local generic = "local m = {}\n"
       .. "function m.first<T>(xs: {T}): T?\n    return xs[1]\nend\n"
    assertEq(#diagnose(generic
-      .. "local slot: sendable function(xs: {integer}): integer? = m.first"), 0,
+      .. "local slot: @sendable function(xs: {integer}): integer? = m.first"), 0,
       "a generic module member is sendable once instantiated")
 end
 
@@ -169,9 +169,9 @@ end
 -- guarantee has to survive that.
 function M.anInterfaceMemberHoldsImplementorsToIt()
    local contract = "local m = {}\n"
-      .. "interface m.Job\n    run: sendable function(self: m.Job): nil\nend\n"
+      .. "interface m.Job\n    run: @sendable function(self: m.Job): nil\nend\n"
    local good = contract
-      .. "record m.Good\n    run: sendable function(self: m.Good): nil\nend\n"
+      .. "record m.Good\n    run: @sendable function(self: m.Good): nil\nend\n"
       .. "local job: m.Job = new m.Good(run = nil as any)\nprint(job)"
    assertEq(#diagnose(good), 0, "a sendable member conforms")
    local bad = contract

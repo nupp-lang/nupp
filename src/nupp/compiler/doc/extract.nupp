@@ -466,9 +466,9 @@ local function functionSignature(stat, name)
     end
     local prefix
     if stat.kind == "localFuncStmt" then
-        prefix = (stat.isConst and "const " or "local ") .. (stat.comptimeTok and "comptime " or "") .. "function "
+        prefix = (stat.comptimeTok and "@comptime " or "") .. (stat.isConst and "const " or "local ") .. "function "
     else
-        prefix = (stat.comptimeTok and "comptime " or "") .. "function "
+        prefix = (stat.comptimeTok and "@comptime " or "") .. "function "
     end
     -- A leading `self` typed as the table before the final dot makes that segment a
     -- method even when ownership forces the source declaration to spell the receiver

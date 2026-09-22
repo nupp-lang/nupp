@@ -1937,7 +1937,9 @@ local function canonicalizeUnifiedGrammar(source: string, result: any): string
 
         local first = statementAnchor or cst.firstToken(node)
         if node.kind == "funcStmt" or node.kind == "localFuncStmt" or node.kind == "typeAlias" then
-            moveAnnotation(node.comptimeTok, first)
+            if node.comptimeTok and node.comptimeTok.contextualOp then
+                moveAnnotation(node.comptimeTok, first)
+            end
         elseif node.kind == "recordDecl" then
             moveAnnotation(node.affineTok, first)
         elseif node.kind == "fieldDecl" then

@@ -791,7 +791,7 @@ function M.settlingTerminalsAreRefusedInsideANosuspendRegion()
                     "local function open(): affine(Resource, close)",
                     "   return new Resource(value = 1)",
                     "end",
-                    "nosuspend do",
+                    "@nosuspend do",
                     "   local value = open()",
                     "   drop(value)",
                     "end",
@@ -1952,7 +1952,7 @@ local ITERATOR_BORROWS = table.concat(
         "local record Iterated",
         "   value: integer",
         "end",
-        "local comptime function IterationResult(T: type, mode: string): typepack",
+        "@comptime local function IterationResult(T: type, mode: string): typepack",
         "   return nupp.types.pack({T}, nil, {mode})",
         "end",
         "local record Cursor",
@@ -2649,7 +2649,7 @@ function M.aCleanupFunctionCanBeConstrainedByAnInterface()
         table.concat(
             {
                 "local interface Closeable",
-                "   drop: nosuspend function(takes value: self): nil",
+                "   drop: @nosuspend function(takes value: self): nil",
                 "end",
                 "local record File is Closeable",
                 "   closed: boolean",
@@ -5326,7 +5326,7 @@ local DROPPING_RECORD = table.concat(
         "local record Session",
         "   id: integer",
         "",
-        "   drop: nosuspend function(takes self: Session): nil",
+        "   drop: @nosuspend function(takes self: Session): nil",
         "end",
         "function Session.drop(takes self): nil",
         "   @unsafe do",
@@ -5362,7 +5362,7 @@ function M.anOwnedResultUsesALaterQualifiedStructuralDropOperation()
             "local m = {}",
             "record m.Session",
             "   id: integer",
-            "   drop: nosuspend function(takes self: m.Session): nil",
+            "   drop: @nosuspend function(takes self: m.Session): nil",
             "end",
             "record m.Factory",
             "end",
@@ -5782,8 +5782,8 @@ function M.affineOfAnAffineInterfaceSelectsItsInherentTerminal()
     assertClean(
         table.concat(
             {
-                "local affine interface Sink is nupp.Closeable",
-                "   terminal close: nosuspend function(takes self: Sink): nil",
+                "local interface Sink is nupp.Closeable",
+                "   close: @nosuspend function(takes self: Sink): nil",
                 "end",
                 "local record BufferSink is Sink",
                 "   anchor: any",
@@ -5884,7 +5884,7 @@ function M.affineInterfacesRequireOneValidTerminal()
     assertEq(
         codes(
             table.concat(
-                {"local affine interface Broken", "   terminal close: function(self: Broken): boolean", "end",},
+                {"local interface Broken is nupp.Affine<self.close>", "   close: function(self: Broken): boolean", "end",},
                 "\n"
             )
         ),
@@ -5894,11 +5894,11 @@ function M.affineInterfacesRequireOneValidTerminal()
     local conflicts = codes(
         table.concat(
             {
-                "local affine interface First",
-                "   terminal close: nosuspend function(takes self: First): nil",
+                "local interface First is nupp.Affine<self.close>",
+                "   close: @nosuspend function(takes self: First): nil",
                 "end",
-                "local affine interface Second",
-                "   terminal destroy: nosuspend function(takes self: Second): nil",
+                "local interface Second is nupp.Affine<self.destroy>",
+                "   destroy: @nosuspend function(takes self: Second): nil",
                 "end",
                 "interface Both is First, Second end",
             },

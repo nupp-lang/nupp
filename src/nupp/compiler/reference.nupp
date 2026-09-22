@@ -366,7 +366,7 @@ Backtick template types concatenate finite string literal sets. Const
 parameters, associated-type projections, and `unpackof` remain direct finite
 operators.
 
-Algorithms use ordinary Nupp in a `comptime function`. Parameters and results
+Algorithms use ordinary Nupp in a `@comptime function`. Parameters and results
 may be compiler-only `type` or `typepack` handles. `nupp.types` inspects
 immutable semantics and constructs structural types, never declarations. Calls
 use parentheses in type position and erase completely from generated Lua.
@@ -391,11 +391,11 @@ declaration identity while exposing its public fields in declaration order, and
 read-only, so an annotated descriptor may omit an unused optional `read` or `write`
 member.
 
-`local comptime type Field = {name: string, read: type?}` names a shape that
+`@comptime local type Field = {name: string, read: type?}` names a shape that
 contains compiler-only handles for reuse by comptime functions. Its body and uses
 are comptime-only, and the declaration erases with ordinary type syntax.
 
-Compile-only members use `comptime type` or `comptime function(...)`;
+Compile-only members use `@comptime type` or `@comptime function(...)`;
 projecting one outside comptime code is `NUPP2421`.
 ]=],
         example = [=[
@@ -403,7 +403,7 @@ local m = {}
 
 local type Events<T> = {readonly [K in keyof T as `${K}Changed`]: function(value: T.[K]): nil}
 
-local comptime function DeepElement(T: type): type
+@comptime local function DeepElement(T: type): type
     while nupp.types.kind(T) == "array" do
         T = nupp.types.elements(T)[1]
     end
@@ -467,7 +467,7 @@ record m.Cell<T>
 end
 
 --- The cells a caller names, mapped to what each one holds.
-local comptime function Held(C: typepack): typepack
+@comptime local function Held(C: typepack): typepack
     const cells = nupp.types.elements(C)
     const out = {}
     for index = 1, #cells do
@@ -1501,22 +1501,23 @@ identity combines `T` with the exact const cleanup function, and no wrapper is
 allocated. The binding named must stay that function: one assigned anywhere
 else in the file is refused, since the identity would otherwise name a function
 the discharge no longer calls. Cleanup has type `function(takes T): nil` and may
-suspend. `affine(T)`
-selects the inherent terminal of an affine interface or `nupp.Closeable` nominal; for
-other types it is transfer-only.
+suspend. `affine(T)` selects the inherent cleanup of a type with a declared
+`nupp.Affine` claim; for other types it is transfer-only.
 
-`nupp.Closeable` is the common nominal lifecycle. A record explicitly implementing
-it is inherently affine, so construction and bare annotations carry its
-`close` obligation without spelling `affine(T, T.close)`.
-`close(takes self)` is its non-suspending terminal. Resource-specific
-interfaces may add non-consuming operations such as `flush(exclusive self)`.
-An affine interface declares one `terminal` member, and inherited interfaces
-may not contribute competing terminals.
+`nupp.Affine<cleanup>` is the compiler-recognized ownership claim. A record or
+interface must explicitly declare `is nupp.Affine<cleanup>`, possibly through
+another interface. A compatible method alone does not make a type affine.
+Inherited claims cannot specify conflicting cleanup functions.
 
-A known affine local is dropped at scope exit. `drop owner` invokes its selected
-terminal now, `takes` parameters and affine returns transfer it, and
-`@unsafe adopt raw as SomeAffine` asserts a fresh obligation while
-`@unsafe release owner` consumes one without cleanup.
+`nupp.Closeable` inherits `nupp.Affine<self.close>`. A record explicitly
+implementing it is inherently affine, so construction and bare annotations
+carry its `close` obligation. `close(takes self)` may suspend; an implementation
+can promise `@nosuspend` where appropriate.
+
+An affine local is dropped at scope exit. `nupp.drop(owner)` invokes its
+cleanup now, `takes` parameters and affine returns transfer it, and
+`@unsafe nupp.adopt<SomeAffine>(raw)` asserts a fresh obligation while
+`@unsafe nupp.release(owner)` consumes one without cleanup.
 
 Parameter modes describe what a call does with an owner: `takes` consumes it,
 `borrows` is call-scoped, `exclusive` also requires sole access, and
@@ -1800,7 +1801,7 @@ local type Percent = nupp.types.range(integer, 0, 100)
 local type Digit = nupp.types.range(Percent, 0, 9)
 local type Short = nupp.types.length(string, 1, 4)
 
-local comptime function Between(T: type, low: integer, high: integer): type
+@comptime local function Between(T: type, low: integer, high: integer): type
     return nupp.types.range(T, low, high)
 end
 
@@ -2035,7 +2036,7 @@ declaration-augmentation phase rather than a text macro, so it cannot add
 imports, top-level declarations, modules, or independently nameable types. The
 bundled providers are `nupp.derive.Debug`, `nupp.derive.JSON`, and
 `nupp.derive.Serde`; `nupp.events.Event` marks a record or struct as an event
-the same way; and a package exports its own as a `comptime function` returning
+the same way; and a package exports its own as a `@comptime function` returning
 `nupp.derive.Result<T>`. A provider may also ask for the declaration's
 initializer, its constructor body or field list as a function run against
 storage the caller already holds, which is how pooled construction reuses the
@@ -2267,7 +2268,7 @@ propagates through resolved calls and across modules, separately from parameter
 and result types. `nosuspend` refuses that fact rather than consuming it, and
 the Suspension regions section covers it.
 
-`handle suspension with HANDLER do ... end` installs a host's scheduling policy
+`with installation = suspension.install(HANDLER) do ... end` installs a host's scheduling policy
 for the region and everything called beneath it, per coroutine rather than per
 process. `HANDLER` is an ordinary value satisfying `nupp.suspension.Handler`,
 not a keyword or a global scheduler. Where none is installed a wait drives the
@@ -2327,7 +2328,7 @@ return m
         title = "Suspension regions",
         codes = {"NUPP2701", "NUPP2702", "NUPP2706"},
         body = [=[
-`nosuspend do ... end` refuses, while compiling, any call inside it that may
+`@nosuspend do ... end` refuses, while compiling, any call inside it that may
 suspend the current coroutine. It is lexical and static: it erases to an
 ordinary `do` block and has no run-time component at all.
 
@@ -2343,11 +2344,11 @@ binding, a C function, a parameter or a callback, the guarantee is written in
 the type:
 
 ```nupp
-local type Measure = nosuspend function(x: number): integer
+local type Measure = @nosuspend function(x: number): integer
 ```
 
 The positive guarantee participates in identity, subtyping, aliasing and
-substitution. An unmarked type remains may-yield; a `nosuspend function` fits
+substitution. An unmarked type remains may-yield; a `@nosuspend function` fits
 an ordinary slot, but not conversely. Pure library calls such as `math.floor`
 carry the same declaration rather than a special case.
 
@@ -2373,9 +2374,9 @@ local function total(values: {integer}): number
     return sum
 end
 
-function m.commit(values: {integer}, report: nosuspend function(n: number): nil): number
+function m.commit(values: {integer}, report: @nosuspend function(n: number): nil): number
     local answer = 0
-    nosuspend do
+    @nosuspend do
         answer = total(values)
         report(answer)
     end
@@ -2391,7 +2392,7 @@ return m
         title = "Sendable callables",
         codes = {"NUPP2116"},
         body = [=[
-`sendable function(...)` is a callable another isolated Lua state can
+`@sendable function(...)` is a callable another isolated Lua state can
 reproduce. A member of a loaded module is sendable with no captures. A function
 literal expected to be sendable is outlined into its declared module and carries
 a snapshot of its activation-local captures.
@@ -2402,7 +2403,7 @@ longer visible. A worker spawn supplies the expectation to its final argument,
 so an inline literal there needs no annotation.
 
 Like `nosuspend`, it is a positive guarantee that participates in identity,
-subtyping, aliasing and substitution. A `sendable function` fits an ordinary
+subtyping, aliasing and substitution. A `@sendable function` fits an ordinary
 slot, but not conversely, and a choice between a sendable and a local-only reading
 promises only what both did.
 
@@ -2440,16 +2441,16 @@ module example
 
 const jobs = require("jobs")
 
-const handlers: {[string]: sendable function(string): string} = {
+const handlers: {[string]: @sendable function(string): string} = {
     hash = jobs.hash,
     upper = jobs.upper,
 }
 
-export function named(name: string): sendable function(string): string
+export function named(name: string): @sendable function(string): string
     return handlers[name] or jobs.hash
 end
 
-export function prefixed(prefix: string): sendable function(string): string
+export function prefixed(prefix: string): @sendable function(string): string
     return |value: string| -> prefix .. value
 end
 ]=]
@@ -2459,8 +2460,8 @@ end
         title = "Allocation and raising regions",
         codes = {"NUPP2710", "NUPP2711", "NUPP2112"},
         body = [=[
-`noalloc do ... end` requires every reachable modeled operation to avoid
-Nupp/Lua-managed allocation. `noraise do ... end` independently requires that
+`@noalloc do ... end` requires every reachable modeled operation to avoid
+Nupp/Lua-managed allocation. `@noraise do ... end` independently requires that
 no modeled path raises a catchable Nupp/Lua error. Both are lexical static
 checks and erase to ordinary `do` blocks without guards or protected calls.
 
@@ -2484,8 +2485,8 @@ end
 
 function m.advance(value: uint32): uint32
     local result = value
-    noalloc do
-        noraise do
+    @noalloc do
+        @noraise do
             result = quiet(value)
         end
     end
@@ -2541,7 +2542,7 @@ Evaluation runs in an isolated, cancellable worker with step, call-depth, time,
 memory, result, and protocol limits, so a crash or an oversized result fails
 only that block.
 
-`comptime function` declares a reusable compile-only callable, where
+`@comptime function` declares a reusable compile-only callable, where
 `comptime do ... end` evaluates one expression. Helpers share the caller's
 budgets, may inspect `nupp.reflect.Info`, and erase from runtime output. They
 are not yet generic or variadic.
@@ -2560,7 +2561,7 @@ references to source bindings.
         example = [=[
 local m = {}
 
-local comptime function step(acc: integer): integer
+@comptime local function step(acc: integer): integer
     return acc & 1 ~= 0 and 0xedb88320 ~ (acc >> 1) or acc >> 1
 end
 

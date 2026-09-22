@@ -113,7 +113,7 @@ ordinary Nupp during compilation. Reflection and derives turn those facts into
 checked serializers, layouts, and generated declarations.
 
 ```nupp
-local comptime function Optional(T: type): type
+@comptime local function Optional(T: type): type
     return nupp.types.optional(T)
 end
 

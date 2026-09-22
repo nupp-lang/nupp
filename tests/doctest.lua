@@ -190,23 +190,23 @@ function M.documentsComptimeCallablesAndTypeHandlesAsCompilerOnly()
     local source = table.concat(
         {
             "--- Builds a type.",
-            "comptime function newType(T: type): type",
+            "@comptime function newType(T: type): type",
             "   return T",
             "end",
             "",
             "--- Another type builder.",
-            "local factory: comptime function(T: type): type",
+            "local factory: @comptime function(T: type): type",
             "",
             "--- A type handle.",
-            "local text: comptime type",
+            "local text: @comptime type",
             "",
             "--- Compiler operations.",
             "local record Compiler",
             "   --- Builds through a member.",
-            "   build: comptime function(T: type): type",
+            "   build: @comptime function(T: type): type",
             "",
             "   --- Holds a type through a member.",
-            "   value: comptime type",
+            "   value: @comptime type",
             "end",
         },
         "\n"
@@ -219,7 +219,7 @@ function M.documentsComptimeCallablesAndTypeHandlesAsCompilerOnly()
 
     assert(items.newType.kind == "function", items.newType.kind)
     assert(items.newType.comptimeKind == "function", items.newType.comptimeKind)
-    assert(items.newType.signature == "comptime function newType(T: type): type", items.newType.signature)
+    assert(items.newType.signature == "@comptime function newType(T: type): type", items.newType.signature)
     assert(items.factory.kind == "function" and items.factory.comptimeKind == "function")
     assert(items.text.kind == "variable" and items.text.comptimeKind == "type")
 
@@ -245,7 +245,7 @@ function M.documentsComptimeCallablesAndTypeHandlesAsCompilerOnly()
 
     local markdown = doc.markdown({module})
     assert(markdown:find("### `newType` _comptime function_", 1, true), markdown)
-    assert(markdown:find("comptime function newType(T: type): type", 1, true), markdown)
+    assert(markdown:find("@comptime function newType(T: type): type", 1, true), markdown)
     assert(markdown:find("#### `build` _comptime function_", 1, true), markdown)
     assert(markdown:find("#### `value` _comptime type_", 1, true), markdown)
 
@@ -891,8 +891,8 @@ function M.standardTypesApiMarksItsCompilerOnlyValues()
             foundFunction = item.comptimeKind == "function"
         end
     end
-    assert(foundType, "nupp.types.string lost its comptime type kind")
-    assert(foundFunction, "nupp.types.optional lost its comptime function kind")
+    assert(foundType, "nupp.types.string lost its @comptime type kind")
+    assert(foundFunction, "nupp.types.optional lost its @comptime function kind")
 end
 
 function M.spiReferenceShowsTheInterfaceArgumentRatherThanItsLowering()
@@ -1799,7 +1799,7 @@ function M.highlightsAssociatedTypeAndDirectiveKeywordsWithTheParser()
                 "    associated type Result = R",
                 "end",
                 "local compiled = comptime do return 1 end",
-                "nosuspend do end",
+                "@nosuspend do end",
             },
             "\n"
         )
@@ -1808,7 +1808,7 @@ function M.highlightsAssociatedTypeAndDirectiveKeywordsWithTheParser()
     assert(html:find("keyword-type", 1, true), html)
     -- `comptime`/`nosuspend` get the directive colour, not the ordinary keyword one.
     assert(html:find('class="token directive nuppdoc-token-meta">comptime<', 1, true), html)
-    assert(html:find('class="token directive nuppdoc-token-meta">nosuspend<', 1, true), html)
+    assert(html:find('class="token directive nuppdoc-token-meta">@</span><span class="token directive nuppdoc-token-meta">nosuspend<', 1, true), html)
     assert(not html:find("keyword-comptime", 1, true), html)
     assert(not html:find("keyword-nosuspend", 1, true), html)
 end
@@ -1847,7 +1847,7 @@ function M.scintilluaLexerUnderstandsCurrentNuppSyntax()
             table.concat(
                 {
                     "@!internal",
-                    "local type Events<T> = {readonly [K in keyof T as `${K}Changed`]: nosuspend function(value: T.[K]): nil}",
+                    "local type Events<T> = {readonly [K in keyof T as `${K}Changed`]: @nosuspend function(value: T.[K]): nil}",
                     "local type Writable<T> = {writeonly [K in writekeyof T]: writeof T.[K]}",
                     "local type First<T> = T.[1]",
                     "local function worker<P..., const Format: string>(...: unpackof Arguments<Format>): unpackof Results<Format>",
@@ -1856,7 +1856,7 @@ function M.scintilluaLexerUnderstandsCurrentNuppSyntax()
                     "end",
                     "local function preserve(scoped callback: function(): nil, takes value: affine(voidptr)): voidptr preserves value return value end",
                     "local compiled = comptime do return {answer = 42} end",
-                    "nosuspend do end",
+                    "@nosuspend do end",
                     "handle suspension with cancel do cancel() end",
                     "local sealed interface Token end",
                     "interface Matcher",
@@ -1891,7 +1891,7 @@ function M.scintilluaLexerUnderstandsCurrentNuppSyntax()
     assert(html:find("nuppdoc-token-number", 1, true), html)
     -- `comptime`/`nosuspend` get the directive colour, not the ordinary keyword one.
     assert(html:find('class="token directive nuppdoc-token-meta">comptime<', 1, true), html)
-    assert(html:find('class="token directive nuppdoc-token-meta">nosuspend<', 1, true), html)
+    assert(html:find('class="token directive nuppdoc-token-meta">@nosuspend<', 1, true), html)
 end
 
 function M.scintilluaLexerHighlightsNuppPegGrammar()
@@ -3695,8 +3695,9 @@ function M.stdlibIndexIsWrittenWhereTheManifestAsked()
             {
                 "@!internal",
                 "--- A deterministic resource.",
-                "affine interface nupp.Closeable",
-                "   terminal close: nosuspend function(takes self: nupp.Closeable): nil",
+                "interface nupp.Affine<const cleanup: function> end",
+                "interface nupp.Closeable is nupp.Affine<self.close>",
+                "   close: @nosuspend function(takes self: nupp.Closeable): nil",
                 "end",
             },
             "\n"

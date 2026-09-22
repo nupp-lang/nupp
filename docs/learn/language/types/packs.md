@@ -195,7 +195,7 @@ local x: number, y: number = unpack(point)
 local type Prepend<Value, Values> = {Value, unpackof Values}
 ```
 
-Algorithms that inspect or transform a complete pack use a `comptime function`
+Algorithms that inspect or transform a complete pack use a `@comptime function`
 with `typepack` parameters and the `nupp.types` pack API. See
 [type-level-computation.md](comptime-types.md#closed-and-generic-calls)
 for how such a call closes once inference supplies its arguments.
@@ -211,7 +211,7 @@ local record Cell<T>
     value: T
 end
 
-local comptime function Values(Cells: typepack): typepack
+@comptime local function Values(Cells: typepack): typepack
     const cells = nupp.types.elements(Cells)
     const values = {}
     for index = 1, #cells do

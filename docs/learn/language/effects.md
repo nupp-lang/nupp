@@ -273,8 +273,8 @@ scheduling decision a `yields` contract permits.
 
 ## Allocation and raising regions
 
-`noalloc do ... end` requires every reachable modeled operation to avoid Nupp-
-or Lua-managed allocation, and `noraise do ... end` independently requires that
+`@noalloc do ... end` requires every reachable modeled operation to avoid Nupp-
+or Lua-managed allocation, and `@noraise do ... end` independently requires that
 no modeled path raises a catchable Nupp or Lua error. Both are lexical static
 checks and erase to ordinary `do` blocks, with no guard and no protected call.
 
@@ -284,8 +284,8 @@ local function quiet(value: uint32): uint32
 end
 
 local result: uint32 = 0
-noalloc do
-    noraise do
+@noalloc do
+    @noraise do
         result = quiet(1)
     end
 end

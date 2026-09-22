@@ -245,11 +245,10 @@ are unsupported targets. Annotate operations inside functions; write
 `return @unsafe expression` or `yield @unsafe expression` for terminal values.
 `@aot` continues to reject unsafe constructs, and comptime gains no operations.
 
-Ownership transfers remain explicit: `@unsafe release owner` consumes an
-affine obligation without cleanup, and `@unsafe adopt raw as Owner` creates
-one with the target's cleanup policy. These forms are required even inside an
-annotated block. Their operands keep the full expression grammar; release and
-adoption introduce no extra grouping or function.
+Ownership transfers remain explicit: `@unsafe nupp.release(owner)` consumes an
+affine obligation without cleanup, and `@unsafe nupp.adopt<Owner>(raw)` creates
+one with the target's cleanup policy. These compiler-recognized calls require
+`@unsafe` even inside an annotated block.
 
 The former contextual forms are rejected with a fix that inserts `@` at the
 old marker. Comments, strings, grouping and ordinary identifiers are preserved.
@@ -257,8 +256,6 @@ old marker. Comments, strings, grouping and ordinary identifiers are preserved.
 | Rejected form | Replacement |
 | --- | --- |
 | `unsafe do ... end` | `@unsafe do ... end` |
-| `unsafe release owner` | `@unsafe release owner` |
-| `unsafe adopt raw as Owner` | `@unsafe adopt raw as Owner` |
 
 Names such as `unsafe`, `adopt` and `release` remain ordinary identifiers
 outside these annotation forms.
@@ -490,7 +487,7 @@ body.
 
 The annotation does not promise that the function runs, becomes hot, receives
 stable runtime types, or stays compiled for every input. Compile-time-only
-helpers use the `comptime function` declaration modifier rather than an
+helpers use the `@comptime function` declaration modifier rather than an
 annotation. See [jit-trace-checking.md](../learn/performance/jit-trace-checking.md) for
 every current blocker, risk, expected stop, warning, call-path error, bytecode
 verdict, editor query, and runtime reason.

@@ -533,7 +533,7 @@ function M.comptimeHoverAndCompletionExposeOnlyEvaluatorState()
     local source = table.concat(
         {
             "local runtimeOnly = {secret = 1}",
-            "local comptime function helper(value: integer): integer",
+            "@comptime local function helper(value: integer): integer",
             "   return value + 1",
             "end",
             "const RESULT = comptime do",
@@ -1492,8 +1492,8 @@ function M.unsafeAnnotationsAndNosuspendHaveDistinctSemanticKinds()
     local source = table.concat(
         {
             "@unsafe do end",
-            "nosuspend do end",
-            "local callback: nosuspend function(): nil = function() end",
+            "@nosuspend do end",
+            "local callback: @nosuspend function(): nil = function() end",
             "local value: string = nil as any",
             "local unsafe = 1",
             "local expression = @unsafe unsafe",
@@ -1524,8 +1524,8 @@ function M.unsafeAnnotationsAndNosuspendHaveDistinctSemanticKinds()
     assert(at["4:6"] == "variable", "ordinary unsafe remains a variable")
     assert(at["5:20"] == "decorator", "expression annotations are decorators")
     assert(at["5:27"] == "variable", "expression operands retain their symbol")
-    assert(at["1:0"] == "nuppKeyword", "nosuspend block is a keyword")
-    assert(at["2:16"] == "nuppKeyword", "nosuspend function type is a keyword")
+    assert(at["1:1"] == "decorator", "nosuspend block is an annotation")
+    assert(at["2:17"] == "decorator", "@nosuspend function type is an annotation")
     assert(at["3:26"] == "nuppKeyword", "as cast is a keyword")
 end
 

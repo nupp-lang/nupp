@@ -35,8 +35,8 @@ function M.sameFileCallsUseTheExistingSummary()
                 "local function quiet(): nil local n = 1 end",
                 "local function allocates(): nil local t = {} end",
                 "local function raises(): nil error('bad') end",
-                "noalloc do quiet(); allocates() end",
-                "noraise do quiet(); raises() end",
+                "@noalloc do quiet(); allocates() end",
+                "@noraise do quiet(); raises() end",
             },
             "\n"
         )
@@ -47,7 +47,7 @@ function M.sameFileCallsUseTheExistingSummary()
 end
 
 function M.directOperationsAreCheckedAndRegionsErase()
-    local found, parsed = refusals("noalloc do local t = {} end")
+    local found, parsed = refusals("@noalloc do local t = {} end")
     assertEq(#found, 1, "table construction is an allocation")
     local generated = require("nupp.compiler.gen").generate(parsed, "effect-region.g.nupp")
     assert(generated:find("do", 1, true), "region emits a block")
@@ -58,8 +58,8 @@ function M.fixedWidthScalarOperationsSatisfyBothRegions()
     local found = refusals(
         table.concat(
             {
-                "noalloc do local x = nupp.math.u32.mul(0xffffffff, 3) end",
-                "noraise do local y = nupp.math.f32.fma(1.0, 2.0, 3.0) end",
+                "@noalloc do local x = nupp.math.u32.mul(0xffffffff, 3) end",
+                "@noraise do local y = nupp.math.f32.fma(1.0, 2.0, 3.0) end",
             },
             "\n"
         )
@@ -76,15 +76,15 @@ function M.boxedSixtyFourBitArithmeticAllocates()
             {
                 "local function sum(a: int64, n: integer): int64",
                 "   local v = a",
-                "   noalloc do",
+                "   @noalloc do",
                 "      for _ = 1, n do v = v + a end",
                 "   end",
                 "   return v",
                 "end",
                 "local function twice(a: uint64): uint64 return a * 2ULL end",
-                "noalloc do local w = twice(1ULL) end",
-                "noalloc do local b = 1LL & 2LL end",
-                "noalloc do local m = -1LL end",
+                "@noalloc do local w = twice(1ULL) end",
+                "@noalloc do local b = 1LL & 2LL end",
+                "@noalloc do local m = -1LL end",
             },
             "\n"
         )
@@ -103,8 +103,8 @@ function M.aGradualIndexMayRaise()
             {
                 "local function read(g: any): any",
                 "   local n: any = 0",
-                "   noraise do n = g.field end",
-                "   noalloc do n = g.field end",
+                "   @noraise do n = g.field end",
+                "   @noalloc do n = g.field end",
                 "   return n",
                 "end",
             },
@@ -126,10 +126,10 @@ function M.aCheckedRangeDischargesMatchingSpanBoundsOnly()
                 "const values = span.fromCarray(storage, 4)",
                 "const rows = indexed.range(1, 4, values)",
                 "for i = rows.first, rows.last do",
-                "   noalloc do local value = values[i] end",
-                "   noraise do local value = values[i] end",
+                "   @noalloc do local value = values[i] end",
+                "   @noraise do local value = values[i] end",
                 "end",
-                "noraise do local value = values[1] end",
+                "@noraise do local value = values[1] end",
             },
             "\n"
         )
@@ -149,7 +149,7 @@ function M.rangeProofsRequireStableSpanIdentities()
                 "local values = span.fromCarray(storage, 2)",
                 "const rows = indexed.range(1, 2, values)",
                 "for i = rows.first, rows.last do",
-                "   noraise do local value = values[i] end",
+                "   @noraise do local value = values[i] end",
                 "end",
             },
             "\n"
@@ -170,7 +170,7 @@ function M.rangeProofsDoNotEnterNestedFunctions()
                 "const rows = indexed.range(1, 2, values)",
                 "for i = rows.first, rows.last do",
                 "   local callback = function(): nil",
-                "      noraise do local value = values[i] end",
+                "      @noraise do local value = values[i] end",
                 "   end",
                 "end",
             },
@@ -186,12 +186,12 @@ function M.unknownCallbacksAndForeignCallsNeedTrustedContracts()
         table.concat(
             {
                 "local function invoke(callback: function()): nil",
-                "   noalloc do callback() end",
-                "   noraise do callback() end",
+                "   @noalloc do callback() end",
+                "   @noraise do callback() end",
                 "end",
                 "cdef function opaque(): nil",
-                "noalloc do opaque() end",
-                "noraise do opaque() end",
+                "@noalloc do opaque() end",
+                "@noraise do opaque() end",
             },
             "\n"
         )
@@ -211,7 +211,7 @@ function M.automaticCleanupParticipatesInTheRaisingSummary()
                 "local function close(takes value: Resource): nil error('close') end",
                 "local function open(): affine(Resource, close) return new Resource() end",
                 "local function use(): nil local value = open() end",
-                "noraise do use() end",
+                "@noraise do use() end",
             },
             "\n"
         )
@@ -258,8 +258,8 @@ function M.importsObserveOnlyTheExactFactsTheyUse()
         table.concat(
             {
                 "local D = require('dep')",
-                "noalloc do D.quiet(); D.allocates() end",
-                "noraise do D.quiet(); D.raises() end",
+                "@noalloc do D.quiet(); D.allocates() end",
+                "@noraise do D.quiet(); D.raises() end",
             },
             "\n"
         ),
