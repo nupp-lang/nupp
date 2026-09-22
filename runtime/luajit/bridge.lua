@@ -26,11 +26,39 @@ end
 local rawFmod = math.fmod
 local infinity = math.huge
 local negativeZero = -1 / math.huge
+
+local function exactRemainder(dividend, divisor)
+    local magnitude, unit = math.abs(dividend), math.abs(divisor)
+    local _, exponent = math.frexp(magnitude)
+    local fraction = math.frexp(unit)
+    local scaled = math.ldexp(fraction, exponent - 1)
+    if scaled * 2 <= magnitude then
+        scaled = scaled * 2
+    end
+    while scaled >= unit do
+        if magnitude >= scaled then
+            magnitude = magnitude - scaled
+        end
+        scaled = scaled * 0.5
+    end
+
+    return dividend < 0 and -magnitude or magnitude
+end
+
 math.fmod = function(dividend, divisor)
     if (divisor == infinity or divisor == -infinity) and dividend ~= infinity and dividend ~= -infinity then
         return dividend
     end
     local result = rawFmod(dividend, divisor)
+    -- The guest libm also rounds some extreme finite ratios to zero. Binary
+    -- long division keeps each subtraction exact and recovers their remainder.
+    if result == 0
+        and math.abs(dividend) < infinity
+        and math.abs(divisor) < infinity
+        and math.abs(dividend) > math.abs(divisor)
+    then
+        result = exactRemainder(dividend, divisor)
+    end
     if result == 0 and (dividend < 0 or dividend == 0 and 1 / dividend < 0) then
         return negativeZero
     end

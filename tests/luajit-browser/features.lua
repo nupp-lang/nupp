@@ -11,6 +11,8 @@ assert(1 / math.fmod(0.5, 0.5) == math.huge, "fmod must keep the dividend's posi
 assert(math.fmod(0, math.huge) == 0 and math.fmod(1, math.huge) == 1, "fmod must keep finite dividends of infinity")
 assert(math.fmod(-1, -math.huge) == -1, "fmod must keep a negative dividend of infinity")
 assert(math.fmod(math.huge, math.huge) ~= math.fmod(math.huge, math.huge), "fmod of infinities must be NaN")
+assert(math.fmod(1e300, 1e-20) == 0x1.ca81c9754c5p-68, "fmod must retain extreme finite remainders")
+assert(math.fmod(-1e300, 1e-20) == -0x1.ca81c9754c5p-68, "fmod must retain negative finite remainders")
 assert(9007199254740993LL + 2LL == 9007199254740995LL)
 ffi.cdef[[
 int abs(int);
