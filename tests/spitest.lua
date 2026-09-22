@@ -29,7 +29,7 @@ local function files(main, descriptor)
             "src/example/api.nupp"
         ] = [[module example.api
 export interface Codec
-    readonly encode: function(value: string): string
+    @readonly encode: function(value: string): string
 end]],
         [
             "src/example/first.nupp"
@@ -222,7 +222,7 @@ print("ok")]]
     ] = [[module example.api
 local api = {}
 interface api.Codec
-    readonly encode: function(value: string): string
+    @readonly encode: function(value: string): string
 end
 export = api]]
     fixture(sources, function(dir)
@@ -294,8 +294,8 @@ print("ok")]]
         "src/example/api.nupp"
     ] = [[module example.api
 export interface Codec
-    readonly priority: integer?
-    readonly encode: function(value: string): string
+    @readonly priority: integer?
+    @readonly encode: function(value: string): string
 end]]
     sources["src/example/second.nupp"] = sources["src/example/second.nupp"] .. "\nexport const priority: integer = 5"
     fixture(sources, function(dir)
@@ -306,9 +306,9 @@ end
 
 function M.onlyExportedConcreteInterfacesCanBeLoaded()
     for _, declaration in ipairs({
-        "local interface Codec readonly encode: function(string): string end",
-        "export record Codec readonly encode: function(string): string end",
-        "export interface Codec<T> readonly encode: function(T): T end",
+        "local interface Codec @readonly encode: function(string): string end",
+        "export record Codec @readonly encode: function(string): string end",
+        "export interface Codec<T> @readonly encode: function(T): T end",
     }) do
         fixture(
             files(

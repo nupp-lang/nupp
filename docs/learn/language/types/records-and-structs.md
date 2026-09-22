@@ -175,7 +175,8 @@ record:
 
 ```nupp
 record model.Box<T>
-    private value: T
+    @private
+    value: T
 
     function get(self: model.Box<T>): T
         return self.value

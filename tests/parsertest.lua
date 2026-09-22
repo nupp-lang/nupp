@@ -598,6 +598,29 @@ function M.comptimeTypeAliasesAreDeclarations()
     assert(stats[4].kind == "exportStmt" and stats[4].stat.comptimeOnly)
 end
 
+function M.keywordEffectAndComptimeFormsRequireAnnotations()
+    for _, source in ipairs({
+        "local callback: nosuspend function(): nil",
+        "local callback: sendable function(): nil",
+        "local value: comptime type",
+        "comptime function build(): integer return 1 end",
+        "local comptime function build(): integer return 1 end",
+        "local comptime type Field = {name: string}",
+        "nosuspend do end",
+        "noalloc do end",
+        "noraise do end",
+        "local record R readonly value: integer end",
+        "local record R writeonly value: integer end",
+        "local record R private value: integer end",
+        "local record R readonly [integer]: integer end",
+    }) do
+        local result = assertRoundtrip(source)
+        assertEq(result.errors[1] and result.errors[1].code, "NUPP1005", source)
+    end
+    local shape = assertRoundtrip("local type Read = {readonly value: integer}")
+    assertEq(#shape.errors, 0)
+end
+
 function M.recoveryMissingPieces()
     local cases = {
         "local = 5",
@@ -788,7 +811,7 @@ function M.ifClausesBindANameFollowedByEquals()
     assertEq(clauses[4].cond.kind, "name")
 end
 
-function M.legacyUnsafeFormsHaveCompleteTokenRangeFixes()
+function M.legacyUnsafeBlockHasATokenRangeFix()
     local source = [[
 local unsafe, adopt, release = print, print, print
 unsafe(1) adopt(2) release(3)
@@ -796,12 +819,12 @@ local text = 'unsafe do; unsafe release owner; unsafe adopt raw as Owner'
 -- unsafe do is text here, too.
 unsafe -- keep this comment
  do
-    local raw = unsafe release (owner)
-    local restored = unsafe adopt (raw or fallback) as Owner
+    local raw = @unsafe nupp.release(owner)
+    local restored = @unsafe nupp.adopt<Owner>((raw or fallback))
 end
 ]]
     local result = parser.parse(source, 'legacy.g.nupp')
-    assertEq(#result.errors, 3)
+    assertEq(#result.errors, 1)
     local edits = {}
     for _, diagnostic in ipairs(result.errors) do
         assertEq(diagnostic.code, 'NUPP1005')
@@ -830,10 +853,13 @@ end
     assertEq(wrapper.kind, 'pragmaStmt')
     assertEq(wrapper.stat.kind, 'doStmt')
     local ownership = wrapper.stat.body.stats
-    assertEq(ownership[1].exprs[1].kind, 'unsafeOwnershipExpr')
-    assertEq(ownership[1].exprs[1].expr.kind, 'paren')
-    assertEq(ownership[2].exprs[1].expr.kind, 'paren')
+    assertEq(ownership[1].exprs[1].kind, 'call')
+    assertEq(ownership[2].exprs[1].kind, 'call')
     assertEq(require('nupp.compiler.cst').textOf(accepted.root), fixed)
+    for _, legacy in ipairs({'local raw = @unsafe release owner', 'local owner = @unsafe adopt raw as Owner',}) do
+        local parsed = parser.parse(legacy)
+        assertEq(parsed.errors[1] and parsed.errors[1].code, 'NUPP1005')
+    end
 end
 
 function M.unsafeOwnershipAlwaysNeedsItsExplicitMarker()

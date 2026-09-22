@@ -13,7 +13,7 @@ local input = array.scalar(array.uint32, 2)
 local inputRows = input:write()
 inputRows[1] = nupp.math.u32.wrap(4)
 inputRows[2] = nupp.math.u32.wrap(9)
-drop inputRows
+nupp.drop(inputRows)
 
 local output = array.scalar(array.uint32, 2)
 assert(#input:read() == 2 and #output:read() == 2)

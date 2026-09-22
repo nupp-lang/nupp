@@ -213,8 +213,8 @@ local function run(options: any): integer
                 kind = "unsafe assertion region",
             }
             inUnsafe = true
-            -- `@unsafe adopt` and `@unsafe release` are expressions, legal outside
-            -- an annotated block, and are assertion sites wherever they appear.
+            -- `@unsafe nupp.adopt` and `@unsafe nupp.release` are expressions, legal
+            -- outside an annotated block, and are assertion sites wherever they appear.
             -- The other intrinsics are ordinary helpers, worth listing only inside a
             -- declared unsafe region.
         elseif node.ownershipIntrinsic
@@ -242,7 +242,11 @@ local function run(options: any): integer
                 kind = node.unsafeOwnershipOperation,
             }
         end
-        if node.expressionAnnotations and node.kind ~= "unsafeOwnershipExpr" then
+        if node.expressionAnnotations
+            and node.kind ~= "unsafeOwnershipExpr"
+            and node.ownershipIntrinsic ~= "adopt"
+            and node.ownershipIntrinsic ~= "release"
+        then
             for _, application in ipairs(node.expressionAnnotations) do
                 if application.name.text == "unsafe" then
                     local token = firstToken(application)

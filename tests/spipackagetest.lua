@@ -429,7 +429,7 @@ function M.advertisedImplementationsAndTheirImportsReceiveTheAotPolicy()
         ["nupp/spi.json"] = [[{"api.Kernel":["implementation"]}]],
         ["src/api.nupp"] = [[module api
 export interface Kernel
-    readonly apply: function(number): number
+    @readonly apply: function(number): number
 end
 ]],
         [

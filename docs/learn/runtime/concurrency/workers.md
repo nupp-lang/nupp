@@ -400,7 +400,7 @@ export function fill(takes frame: heap.Array<uint8>, seed: integer): affine(heap
     for index = 1, #writable do
         writable[index] = (seed + index) % 256
     end
-    drop writable
+    nupp.drop(writable)
 
     return frame
 end
@@ -413,7 +413,7 @@ with scope = workers.scope() do
         frame = scope:spawn(frame, generation, jobs.fill):await()
     end
 end
-drop frame
+nupp.drop(frame)
 ```
 
 Sixty generations shuttle one allocation between lanes with nothing copied

@@ -277,7 +277,7 @@ function M.importsObserveOnlyTheExactFactsTheyUse()
 end
 
 function M.gainingAGuaranteeInvalidatesARejectedObservation()
-    withProject("local D = require('dep')\nnoalloc do D.allocates() end", function(inc, depPath, mainPath)
+    withProject("local D = require('dep')\n@noalloc do D.allocates() end", function(inc, depPath, mainPath)
         local before = inc.checkFile(mainPath)
         assertEq(before.diags[1] and before.diags[1].code, "NUPP2710", "initial refusal")
         local cold = inc.q.stats.checkModule

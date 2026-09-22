@@ -95,7 +95,7 @@ end
 local storage = carray(Point, 4)
 const points = span.writeCarray(storage, 4)
 clear(points)
-drop points
+nupp.drop(points)
 ```
 
 Whole-element and direct field assignments write through the checked indexed
@@ -804,7 +804,7 @@ end
 --- do
 ---     local writable = span.writeCarray(storage, 4)
 ---     writable[1] = new Value(42)
----     drop writable
+---     nupp.drop(writable)
 --- end
 ---
 --- const values = span.fromCarray(storage, 4)

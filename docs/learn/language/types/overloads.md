@@ -293,9 +293,9 @@ local record Incomplete is DecoderContract
 end
 ```
 
-A child interface is different: a method body there replaces an inherited
-method slot, so it requires `@override` whether or not that slot had a default.
-The annotation matches one parameter pack, and the replacement still has to be
+A child interface method body can mark an inherited method slot with
+`@override` whether or not that slot had a default. The annotation matches
+one parameter pack, and the replacement still has to be
 type-compatible with that inherited entry.
 
 ## Default implementations and `@override`

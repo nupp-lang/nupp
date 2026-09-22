@@ -501,9 +501,9 @@ return m
         title = "Property capabilities",
         codes = {"NUPP2001", "NUPP2009"},
         body = [=[
-`readonly` and `writeonly` grant member access independently on shapes,
-interfaces, records, and indexers. A readonly property is covariant; a
-writeonly property is contravariant. Declaring both separately permits
+`readonly` and `writeonly` on shapes, and `@readonly` and `@writeonly` on
+declarations, grant member access independently. A readonly property is
+covariant; a writeonly property is contravariant. Declaring both permits
 different types, while an unmodified property grants both capabilities at one
 invariant type.
 
@@ -521,10 +521,10 @@ local type Output = {
 }
 
 record m.Cell
-    readonly value: string
-    writeonly value: string | integer
-    readonly [string]: string
-    writeonly [string]: string | integer
+    @readonly value: string
+    @writeonly value: string | integer
+    @readonly [string]: string
+    @writeonly [string]: string | integer
 end
 
 function m.fill(out: Output): nil
@@ -755,9 +755,9 @@ is written rather than looked up at run time.
 This is the one thing that gives an interface a runtime presence: one that
 declares only signatures still emits nothing.
 
-`@override` is required on a child interface method replacing any inherited
-method, and on a concrete implementation replacing an inherited default. It is
-an error on one replacing no matching method. Two interfaces providing the same
+`@override` may mark a child interface or concrete method satisfying any
+inherited requirement, including a bodyless one. It is an error on one matching
+no requirement. Two interfaces providing the same
 name are two implementations and no reason to prefer either, so the declaration
 writes the member itself to say which behavior it means. These are `NUPP2118`.
 ]=],
@@ -1575,7 +1575,7 @@ end
 
 function m.closeNow(): nil
     local file = m.open()
-    drop file
+    nupp.drop(file)
 end
 
 return m

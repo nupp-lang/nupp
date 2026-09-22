@@ -375,16 +375,10 @@ function pragma.install(c: state.Checker): state.StatHandlers
             end
             return
 
-        elseif written == "comptime" or written == "sealed" or written == "affine" then
+        elseif written == "comptime" then
             if valid and target then
-                if written == "comptime" then
-                    targetAny.comptimeTok = annotationName
-                    targetAny.comptimeOnly = true
-                elseif written == "sealed" then
-                    targetAny.sealedTok = annotationName
-                else
-                    targetAny.affineTok = annotationName
-                end
+                targetAny.comptimeTok = annotationName
+                targetAny.comptimeOnly = true
             end
             if stat.stat then
                 c.checkStat(stat.stat)

@@ -129,7 +129,7 @@ function gpubinding.replacement(program: scalarIR.Program, artifact: gpuartifact
     append(lines, "")
 
     append(lines, recordDeclaration .. specType)
-    append(lines, "    private readonly _marker: boolean")
+    append(lines, "    @private @readonly _marker: boolean")
     append(
         lines,
         "    compile: function(borrows self: "
@@ -144,8 +144,8 @@ function gpubinding.replacement(program: scalarIR.Program, artifact: gpuartifact
     append(lines, "")
 
     append(lines, recordDeclaration .. kernelType)
-    append(lines, "    private readonly _context: " .. runtime .. ".Context")
-    append(lines, "    private readonly _kernel: " .. implementation .. ".Kernel borrows (_context)")
+    append(lines, "    @private @readonly _context: " .. runtime .. ".Context")
+    append(lines, "    @private @readonly _kernel: " .. implementation .. ".Kernel borrows (_context)")
     local bindParams: {string} = {"borrows self: " .. kernelType}
     for _, param in ipairs(program.params) do
         if param.kind == "read_span" or param.kind == "write_span" then
@@ -163,8 +163,8 @@ function gpubinding.replacement(program: scalarIR.Program, artifact: gpuartifact
     append(lines, "")
 
     append(lines, recordDeclaration .. bindingType)
-    append(lines, "    private readonly _context: " .. runtime .. ".Context")
-    append(lines, "    private readonly _binding: " .. implementation .. ".Binding borrows (_context)")
+    append(lines, "    @private @readonly _context: " .. runtime .. ".Context")
+    append(lines, "    @private @readonly _binding: " .. implementation .. ".Binding borrows (_context)")
     local dispatchParams: {string} = {"borrows self: " .. bindingType}
     for _, param in ipairs(artifact.uniforms) do
         dispatchParams[#dispatchParams + 1] = param.name .. ": " .. sourceType(param)

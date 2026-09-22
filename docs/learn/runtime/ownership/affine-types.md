@@ -151,8 +151,7 @@ end
 
 For an ordinary value this is an ordinary pass-through. For an affine value its
 single obligation moves to the result rather than being copied, which is what
-lets one generic API serve affine and ordinary types without overloads or an
-`Affine` interface special case.
+lets one generic API serve affine and ordinary types without overloads.
 
 The relation reaches inside a type the result wraps, so a constructor that
 stores its argument preserves the capability into the unique `T` component of

@@ -1734,8 +1734,8 @@ function M.highlightsLjppWithTheNativeLexer()
             {
                 "--- Construct a point.",
                 "local record Box",
-                "   readonly point: Point",
-                "   writeonly replacement: Point",
+                "   @readonly point: Point",
+                "   @writeonly replacement: Point",
                 "   point: Point",
                 "end",
                 "do",
@@ -1757,8 +1757,8 @@ function M.highlightsLjppWithTheNativeLexer()
     assert(html:find("nuppdoc-token-number", 1, true))
     assert(html:find("nuppdoc-token-operator", 1, true))
     assert(html:find("keyword-record", 1, true), html)
-    assert(html:find("keyword-readonly", 1, true), html)
-    assert(html:find("keyword-writeonly", 1, true), html)
+    assert(html:find('nuppdoc-token-meta">readonly<', 1, true), html)
+    assert(html:find('nuppdoc-token-meta">writeonly<', 1, true), html)
     assert(html:find("keyword-local", 1, true), html)
     assert(html:find('href="#math.Point"', 1, true))
 end
@@ -1808,7 +1808,14 @@ function M.highlightsAssociatedTypeAndDirectiveKeywordsWithTheParser()
     assert(html:find("keyword-type", 1, true), html)
     -- `comptime`/`nosuspend` get the directive colour, not the ordinary keyword one.
     assert(html:find('class="token directive nuppdoc-token-meta">comptime<', 1, true), html)
-    assert(html:find('class="token directive nuppdoc-token-meta">@</span><span class="token directive nuppdoc-token-meta">nosuspend<', 1, true), html)
+    assert(
+        html:find(
+            'class="token directive nuppdoc-token-meta">@</span><span class="token directive nuppdoc-token-meta">nosuspend<',
+            1,
+            true
+        ),
+        html
+    )
     assert(not html:find("keyword-comptime", 1, true), html)
     assert(not html:find("keyword-nosuspend", 1, true), html)
 end
@@ -1857,7 +1864,7 @@ function M.scintilluaLexerUnderstandsCurrentNuppSyntax()
                     "local function preserve(scoped callback: function(): nil, takes value: affine(voidptr)): voidptr preserves value return value end",
                     "local compiled = comptime do return {answer = 42} end",
                     "@nosuspend do end",
-                    "handle suspension with cancel do cancel() end",
+                    "with installation = nupp.suspension.install(cancel) do cancel() end",
                     "local sealed interface Token end",
                     "interface Matcher",
                     "    associated type Result = R",
@@ -1870,11 +1877,9 @@ function M.scintilluaLexerUnderstandsCurrentNuppSyntax()
     )
     assert(html:find("nuppdoc-token-meta", 1, true), html)
     for _, keyword in ipairs({
-        "handle",
         "keyof",
         "preserves",
         "scoped",
-        "suspension",
         "unpackof",
         "with",
         "writekeyof",
@@ -2775,7 +2780,7 @@ function M.siteMatchesTheNuppdocPageModel()
                 "",
                 "```lua [Generated Lua]",
                 "local resource = openResource()",
-                "drop(resource)",
+                "nupp.drop(resource)",
                 "```",
                 ":::",
                 "",
@@ -3854,7 +3859,7 @@ module package.internal.model
 export record Message
     --- The message text.
     text: string
-    private token: integer
+    @private token: integer
 end
 ]],
     })
@@ -3910,7 +3915,7 @@ local declared = {}
 --- One typed range.
 record declared.Range
     --- How many elements it holds.
-    readonly count: integer
+    @readonly count: integer
     --- Narrows it to a shorter one.
     slice: function(borrows self: declared.Range, count: integer): declared.Range
 end

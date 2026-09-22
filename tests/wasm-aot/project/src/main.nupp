@@ -70,13 +70,13 @@ local inputRows = input:write()
 inputRows[1] = new Sample(2, 10, 1)
 inputRows[2] = new Sample(3, 20, 4)
 inputRows[3] = new Sample(5, 30, 7)
-drop inputRows
+nupp.drop(inputRows)
 
 local output = array.new(new Sample(), 3)
 do
     local writable = output:write()
     scale(writable, input:read(), 2, true)
-    drop writable
+    nupp.drop(writable)
 end
 
 local rows = output:read()
@@ -109,13 +109,13 @@ do
     local writable = wideInput:write()
     writable[1] = (-1 as int64) as uint64
     writable[2] = 9007199254740992 as uint64
-    drop writable
+    nupp.drop(writable)
 end
 local wideOutput = array.scalar(array.uint64, 2)
 do
     local writable = wideOutput:write()
     incrementWide(writable, wideInput:read(), 1 as uint64)
-    drop writable
+    nupp.drop(writable)
 end
 local exact = addWide(wideInput:read()[2], 1 as uint64)
 assert(tostring(exact) == "9007199254740993")
@@ -139,7 +139,7 @@ do
     const original = "a\0b\255"
     const source = span.fromString(original)
     copyBytes(bytes, source)
-    drop bytes
+    nupp.drop(bytes)
 end
 byteLease:commit(4)
 assert(byteBuffer:getString() == "a\0b\255")

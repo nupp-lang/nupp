@@ -573,7 +573,7 @@ local heap = nupp.mem.heap
 local values = heap.allocate(ffi.typeof<int32>(), 1000000)
 local writable = values:write()
 writable[1] = 42 as int32
-drop writable
+nupp.drop(writable)
 ```
 
 ## C unions and bitfields

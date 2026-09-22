@@ -12,7 +12,7 @@ function M.metadataNavigationDoesNotLoadImplementations()
         ["contract.nupp"] = [[
 module contract
 export interface Provider
-    readonly value: function(): string
+    @readonly value: function(): string
 end
 ]],
         [
@@ -70,7 +70,7 @@ function M.facadeLoadSitesLocateAdvertisedImplementations()
     local files = {
         ["nupp.lua"] = 'return {include = {"."}}',
         ["contract.nupp"] = [[module contract
-export interface Provider readonly value: function(): string end]],
+export interface Provider @readonly value: function(): string end]],
         [
             "alias.nupp"
         ] = [[module alias

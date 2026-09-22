@@ -771,10 +771,10 @@ function M.propertyCapabilities()
             {
                 "local type Animal = string | integer",
                 "local record Cell",
-                "   readonly value: string",
-                "   writeonly value: Animal",
-                "   readonly [string]: string",
-                "   writeonly [string]: Animal",
+                "   @readonly value: string",
+                "   @writeonly value: Animal",
+                "   @readonly [string]: string",
+                "   @writeonly [string]: Animal",
                 "end",
                 "local cell = new Cell(value = 'ready')",
                 "cell.value = 1",
@@ -840,11 +840,14 @@ function M.propertyCapabilities()
 
     assertEq(
         diagsOf(
-            table.concat({"local record Bad", "   readonly value: string", "   readonly value: integer", "end",}, "\n")
+            table.concat(
+                {"local record Bad", "   @readonly value: string", "   @readonly value: integer", "end",},
+                "\n"
+            )
         ),
         "NUPP2118:3"
     )
-    assertEq(diagsOf(table.concat({"local struct Bad", "   readonly value: int32", "end",}, "\n")), "NUPP2118:2")
+    assertEq(diagsOf(table.concat({"local struct Bad", "   @readonly value: int32", "end",}, "\n")), "NUPP2118:2")
 
     assertClean(
         table.concat(

@@ -215,7 +215,7 @@ function M.withBindingCannotEscapeOrBeDroppedEarly()
     )
 
     assertEq(
-        codes(PRELUDE .. table.concat({"", "with value = open_resource('x') do drop value end",}, "\n")),
+        codes(PRELUDE .. table.concat({"", "with value = open_resource('x') do nupp.drop(value) end",}, "\n")),
         "NUPP2602"
     )
 end
@@ -325,7 +325,7 @@ end
 
 function M.explicitDropSuppressesAutomaticCleanup()
     local chunk = compile(
-        PRELUDE .. table.concat({"", "local value = open_resource('d')", "drop(value)", "return calls",}, "\n")
+        PRELUDE .. table.concat({"", "local value = open_resource('d')", "nupp.drop(value)", "return calls",}, "\n")
     )
     assertEq(chunk(), "d")
 end
@@ -337,7 +337,7 @@ function M.aMovedBindingCanBeReinitializedForAutomaticCleanup()
                 "",
                 "local function run()",
                 "   local value = open_resource('a')",
-                "   drop(value)",
+                "   nupp.drop(value)",
                 "   value = open_resource('b')",
                 "end",
                 "run()",
@@ -356,7 +356,7 @@ function M.aTakesCallReceivesResponsibilityExactlyOnce()
                 "",
                 "local function consume(takes value: Resource)",
                 "   @unsafe do",
-                "      local raw = @unsafe release value",
+                "      local raw = @unsafe nupp.release(value)",
                 "      calls = calls .. raw.name",
                 "   end",
                 "end",
@@ -392,7 +392,7 @@ function M.anOwningReturnTransfersResponsibility()
                 "   return value",
                 "end",
                 "local value = make()",
-                "drop(value)",
+                "nupp.drop(value)",
                 "return calls",
             },
             "\n"
@@ -411,7 +411,7 @@ function M.capabilityPreservingGenericsTransferAutomaticResponsibility()
                 "end",
                 "local value = open_resource('f')",
                 "local moved = forward(value)",
-                "drop(moved)",
+                "nupp.drop(moved)",
                 "return calls",
             },
             "\n"
@@ -529,7 +529,7 @@ function M.partialFieldMovesAndReinitializationKeepExactObligations()
                 "      second = open_resource('b')",
                 "   )",
                 "   local first = bundle.first",
-                "   drop(first)",
+                "   nupp.drop(first)",
                 "   bundle.first = open_resource('c')",
                 "end",
                 "run()",
@@ -894,7 +894,7 @@ function M.aParenthesisedOwnerMovesIntoItsNewBindingOnce()
                 "do",
                 "   local a = open_resource('b')",
                 "   local b = (a) as Resource",
-                "   local raw = @unsafe release (b)",
+                "   local raw = @unsafe nupp.release(b)",
                 "   calls = calls .. raw.name",
                 "end",
                 "return calls",
@@ -918,7 +918,7 @@ function M.aFieldMovedOnOnePathIsStillDroppedWithTheRecordOnTheOther()
                 "end",
                 "local function consume(takes value: affine(Resource, close_resource)): nil",
                 "   calls = calls .. '<' .. value.name .. '>'",
-                "   drop(value)",
+                "   nupp.drop(value)",
                 "end",
                 "local function run(flag: boolean)",
                 "   local bundle = new Bundle(",
@@ -926,7 +926,7 @@ function M.aFieldMovedOnOnePathIsStillDroppedWithTheRecordOnTheOther()
                 "      second = open_resource('b')",
                 "   )",
                 "   if flag then consume(bundle.first) end",
-                "   drop(bundle)",
+                "   nupp.drop(bundle)",
                 "   calls = calls .. '|'",
                 "end",
                 "run(true)",

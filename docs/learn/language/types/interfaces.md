@@ -42,20 +42,20 @@ what each capability admits.
 
 ## Sealed interfaces
 
-`sealed` closes structural satisfaction when an interface is a trust boundary:
+`sealed` limits structural satisfaction to the declaring module:
 
 ```nupp
 sealed interface span.Span<T>
-    readonly count: integer
+    @readonly
+    count: integer
     get: function(self: Span<T>, index: integer): T
 end
 ```
 
-Only a record, struct, or child interface declared with `is span.Span<T>` in the
-same module may satisfy that contract. A type in another module is rejected even
-when it has the same fields, and it cannot add the `is` claim itself. The owning
-module can therefore keep the representation private and export only
-constructors returning the interface.
+Only types declared in the same module may satisfy that contract. Their members
+follow the ordinary interface compatibility rules. A type in another module is
+rejected even when it has the same fields. The owning module can keep the
+representation private and export constructors returning the interface.
 
 Sealing is entirely static. It emits no tag, wrapper, virtual dispatch, or
 runtime test. It earns its place when the visible methods rely on facts that
@@ -99,7 +99,7 @@ and a conflict is NUPP2118:
   and a narrower result allowed.
 - A generic parent is compared as instantiated. `record StrSink is Sink<integer>`
   cannot declare `push(self, v: string)`.
-- A capability the record withholds is withheld. `readonly value` beside a parent
+- A capability the record withholds is withheld. `@readonly value` beside a parent
   whose `value` is writable is a conflict, not a field the parent's write entry
   quietly reopens, and the record's own writes to it are refused as well.
 - A stored field cannot stand where the parent provides a default method,
@@ -267,8 +267,8 @@ say which behavior it means.
 
 ### Explicit overrides
 
-`@override` is required on a concrete method that replaces an inherited default,
-and is equally an error on one that replaces nothing:
+`@override` may mark a method satisfying any interface requirement, including
+a bodyless one. It reports an error when the method matches no requirement:
 
 ```nupp
 local record Shouter is Greeter
@@ -281,11 +281,10 @@ local record Shouter is Greeter
 end
 ```
 
-That catches a misspelled name that would define a new method and a later
-interface default that would shadow an implementor's method.
+That catches a misspelled name that would define a new method. The annotation
+is optional when the implementation satisfies the requirement.
 
-A child interface is a subtype rather than a concrete implementor, so every
-method body replacing an inherited method uses `@override` even when the parent
+A child interface can also mark a method body with `@override` when the parent
 declared only a signature. The replacement is checked against the inherited
 signature, with ordinary parameter and result variance:
 

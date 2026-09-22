@@ -138,7 +138,7 @@ function M.strictModeAcceptsDeclaredAndStdlibNames()
     assertEq(#diags, 0, "declared locals and the stdlib are known: " .. (diags[1] and diags[1].msg or ""))
 end
 
-local BOX = table.concat({"local record Box<T>", "    readonly value: T", "end",}, "\n")
+local BOX = table.concat({"local record Box<T>", "    @readonly value: T", "end",}, "\n")
 
 function M.genericDeclarationsBindTheirParameters()
     assertClean(BOX)

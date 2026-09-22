@@ -4,17 +4,19 @@ order: 280
 
 # Property capabilities
 
-Properties and indexers declared `readonly` or `writeonly` grant read and write
-access independently. A type then describes the authority an API needs instead
-of turning every member into a read-write slot.
+Properties and indexers grant read and write access independently. A type then
+describes the authority an API needs instead of turning every member into a
+read-write slot.
 
 ```nupp:playground
 local interface Snapshot
-    readonly value: string
+    @readonly
+    value: string
 end
 
 local interface Output
-    writeonly value: string
+    @writeonly
+    value: string
 end
 ```
 
@@ -24,17 +26,20 @@ member but cannot observe its current value. See
 
 ## Declaring a capability
 
-The same syntax works in a [record](records-and-structs.md#records):
+A [record](records-and-structs.md#records) marks member capabilities with
+`@readonly` and `@writeonly`:
 
 ```nupp
 local record Cell
-    readonly value: string
-    writeonly value: string | integer
+    @readonly
+    value: string
+    @writeonly
+    value: string | integer
 end
 ```
 
-It works in a structural shape too, which is how a caller states the authority
-it needs without naming the declaration that supplies it:
+Structural shapes use `readonly` and `writeonly`. A caller can state the
+authority it needs without naming the declaration that supplies it:
 
 ```nupp
 local input: {
@@ -112,11 +117,13 @@ Indexers take the same capabilities, in shapes, interfaces, and records:
 
 ```nupp
 local interface ByteView
-    readonly [integer]: uint8
+    @readonly
+    [integer]: uint8
 end
 
 local interface ByteSink
-    writeonly [integer]: uint8
+    @writeonly
+    [integer]: uint8
 end
 ```
 

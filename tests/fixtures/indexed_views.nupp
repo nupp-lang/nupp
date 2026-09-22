@@ -17,8 +17,8 @@ const middle = writable:slice(2, 3)
 for index = 1, #middle do
     middle[index].y += 1
 end
-drop middle
-drop writable
+nupp.drop(middle)
+nupp.drop(writable)
 
 const readable = span.fromCarray(storage, 4)
 assert(#readable == 4)

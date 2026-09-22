@@ -896,7 +896,7 @@ record cst.DoStmt is cst.Hints
     body: cst.Node?
 end
 
---- `nosuspend do ... end`: a region in which suspending is a checked error.
+--- `@nosuspend do ... end`: a region in which suspending is a checked error.
 ---
 --- Lexical and static. It erases to an ordinary `do` block, having no run-time
 --- component at all: what it does is refuse, while compiling, any call that may yield.
@@ -919,7 +919,7 @@ record cst.NoSuspendStmt is cst.Hints
     endTok: lexer.Token?
 end
 
---- `noalloc do ... end` or `noraise do ... end`: a region which requires one
+--- `@noalloc do ... end` or `@noraise do ... end`: a region which requires one
 --- negative call-graph guarantee. Both spellings share one production because their
 --- only difference is the effect flag the checker asks about.
 record cst.EffectRegionStmt is cst.Hints

@@ -131,10 +131,10 @@ function M.sealedInterfacesRequireDeclaredConformance()
             table.concat(
                 {
                     "local sealed interface Token",
-                    "    readonly value: integer",
+                    "    @readonly value: integer",
                     "end",
                     "local record Genuine is Token",
-                    "    readonly value: integer",
+                    "    @readonly value: integer",
                     "end",
                     "local token: Token = new Genuine(value = 1)",
                     "print(token.value)",
@@ -150,10 +150,10 @@ function M.sealedInterfacesRequireDeclaredConformance()
             table.concat(
                 {
                     "local sealed interface Token",
-                    "    readonly value: integer",
+                    "    @readonly value: integer",
                     "end",
                     "local record Shaped",
-                    "    readonly value: integer",
+                    "    @readonly value: integer",
                     "end",
                     "local token: Token = new Shaped(value = 1)",
                     "print(token.value)",
@@ -169,11 +169,11 @@ function M.sealedInterfacesRequireDeclaredConformance()
             table.concat(
                 {
                     "local record Shaped",
-                    "    readonly value: integer",
+                    "    @readonly value: integer",
                     "end",
                     "local token: Token = new Shaped(value = 1)",
                     "local sealed interface Token",
-                    "    readonly value: integer",
+                    "    @readonly value: integer",
                     "end",
                     "print(token.value)",
                 },

@@ -52,6 +52,7 @@ end
 -- same lifetime an editor gives consecutive checks and avoids spending seconds
 -- rechecking nupp.workers for every small assertion.
 local workerRoot, workerEnv
+
 local function withWorkerProject(files, callback)
     if not workerRoot then
         workerRoot = os.tmpname()
@@ -700,7 +701,7 @@ local use = {}
 
 function use.touch(path: string)
     local file = res.open(path)
-    drop(file)
+    nupp.drop(file)
 end
 
 return use
@@ -977,7 +978,7 @@ return model
 local model = require("model")
 
 local a = new model.Account("Ada", 42)
-drop(a)
+nupp.drop(a)
 
 return 0
 ]],

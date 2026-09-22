@@ -754,6 +754,9 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         then
             local keyword = advance()
             keyword.contextualOp = true
+            errAt(keyword, "use @" .. keyword.text .. " on this type", "NUPP1005", "prefix the modifier with @", {
+                {title = "use @" .. keyword.text, edits = {{offset = keyword.offset, length = 0, newText = "@"}}}
+            })
             local inner = parseTypePrimary()
             if not prefix.functionOnly or inner.kind == "tfunc" then
                 (inner as any)[prefix.flag] = true
@@ -2017,8 +2020,18 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         )
     end
 
+    local function rejectLegacyAnnotation(token: Token, replacement: string)
+        errAt(token, "use " .. replacement .. " instead", "NUPP1005", "move the annotation before the declaration")
+    end
+
     parseOwnership = function(prefix): Node
         local operation = cur().text as 'adopt' | 'release'
+        errAt(
+            cur(),
+            "ownership " .. operation .. " uses a nupp call",
+            "NUPP1005",
+            operation == "adopt" and "write @unsafe nupp.adopt<Owner>(raw)" or "write @unsafe nupp.release(owner)"
+        )
         local n = new cst.UnsafeOwnershipExpr(kind = "unsafeOwnershipExpr", operation = operation)
         if prefix then
             add(n, prefix).contextualOp = true
@@ -2734,6 +2747,18 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 if cur().kind == "name" then
                     e.capability = add(e, advance())
                     e.capability.propertyCapability = e.capability.text == "readonly" and "read" or "write"
+                    errAt(
+                        e.capability,
+                        "field capability uses @" .. e.capability.text,
+                        "NUPP1005",
+                        "prefix the capability with @",
+                        {
+                            {
+                                title = "use @" .. e.capability.text,
+                                edits = {{offset = e.capability.offset, length = 0, newText = "@"}}
+                            }
+                        }
+                    )
                 end
                 add(e, expect("[", "to open indexer key type"))
                 e.key = add(e, parseType())
@@ -2753,6 +2778,9 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 end
                 if cur().text == "private" and tokens[i + 1] and tokens[i + 1].kind == "name" then
                     e.privacy = add(e, advance())
+                    errAt(e.privacy, "private fields use @private", "NUPP1005", "prefix private with @", {
+                        {title = "use @private", edits = {{offset = e.privacy.offset, length = 0, newText = "@"}}}
+                    })
                 end
                 if (cur().text == "readonly" or cur().text == "writeonly")
                     and tokens[i + 1]
@@ -2762,6 +2790,18 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 then
                     e.capability = add(e, advance())
                     e.capability.propertyCapability = e.capability.text == "readonly" and "read" or "write"
+                    errAt(
+                        e.capability,
+                        "field capability uses @" .. e.capability.text,
+                        "NUPP1005",
+                        "prefix the capability with @",
+                        {
+                            {
+                                title = "use @" .. e.capability.text,
+                                edits = {{offset = e.capability.offset, length = 0, newText = "@"}}
+                            }
+                        }
+                    )
                 end
                 e.name = add(e, advance())
                 if cur().kind == "," then
@@ -3196,6 +3236,12 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             -- reserving either.
             local n = new cst.HandleStmt(kind = "handleStmt")
             n.handleTok = add(n, advance())
+            errAt(
+                n.handleTok,
+                "handle suspension uses an owned with installation",
+                "NUPP1005",
+                "write with installation = suspension.install(handler) do ... end"
+            )
             add(n, advance()).contextualOp = true
             if cur().kind == "name" and cur().text == "with" then
                 add(n, advance()).contextualOp = true
@@ -3211,6 +3257,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         elseif kind == "name" and cur().text == "nosuspend" and tokens[i + 1] and tokens[i + 1].kind == "do" then
             local n = new cst.NoSuspendStmt(kind = "noSuspendStmt")
             n.keywordTok = add(n, advance())
+            rejectLegacyAnnotation(n.keywordTok, "@nosuspend do")
             n.doTok = add(n, advance())
             n.body = add(n, parseBlock())
             n.endTok = add(n, expect("end", "to close 'nosuspend do'"))
@@ -3227,6 +3274,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 effect = written == "noalloc" and "allocates" or "raises"
             )
             n.keywordTok = add(n, advance())
+            rejectLegacyAnnotation(n.keywordTok, "@" .. written .. " do")
             n.doTok = add(n, advance())
             n.body = add(n, parseBlock())
             n.endTok = add(n, expect("end", "to close '" .. written .. " do'"))
@@ -3247,6 +3295,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         elseif startsComptimeTypeAlias(i) then
             local comptimeTok = advance()
             comptimeTok.contextualOp = true
+            rejectLegacyAnnotation(comptimeTok, "@comptime type")
             return parseTypedecl(nil, "module", comptimeTok)
 
         elseif kind == "name" and cur().text == "global" and startsTypedecl(i + 1) then
@@ -3257,6 +3306,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             local globalTok = advance()
             local comptimeTok = advance()
             comptimeTok.contextualOp = true
+            rejectLegacyAnnotation(comptimeTok, "@comptime global type")
             return parseTypedecl(globalTok, "global", comptimeTok)
 
         elseif kind == "function"
@@ -3266,6 +3316,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             if kind == "name" then
                 n.comptimeTok = add(n, advance())
                 n.comptimeTok.contextualOp = true
+                rejectLegacyAnnotation(n.comptimeTok, "@comptime function")
             end
             add(n, advance())
             local fn = new cst.Funcname(kind = "funcname")
@@ -3368,6 +3419,10 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 if cur().kind == "name" then
                     n.comptimeTok = add(n, advance())
                     n.comptimeTok.contextualOp = true
+                    rejectLegacyAnnotation(
+                        n.comptimeTok,
+                        "@comptime " .. (isConst and "const" or "local") .. " function"
+                    )
                 end
                 add(n, advance())
                 n.name = add(
@@ -3389,6 +3444,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             if not isConst and startsComptimeTypeAlias(i) then
                 local comptimeTok = advance()
                 comptimeTok.contextualOp = true
+                rejectLegacyAnnotation(comptimeTok, "@comptime local type")
                 return parseTypedecl(loctok, "local", comptimeTok)
             end
             local n = new cst.LocalStmt(names = {}, types = {}, kind = "localStmt")
@@ -3526,6 +3582,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         if kind == "name" and cur().text == "drop" then
             local n = new cst.CallStmt(kind = "callStmt")
             local dropTok = add(n, advance())
+            errAt(dropTok, "drop uses nupp.drop(value)", "NUPP1005", "write nupp.drop(value)")
             dropTok.contextualOp = true
             local value = add(n, parseExp())
             local callee = new cst.NameExpr(kind = "name", token = dropTok)

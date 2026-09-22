@@ -1,6 +1,7 @@
 local exported = require("tests.fixtures.witnessexported")
 
-local comptime function Construction(E: type): typepack
+@comptime
+local function Construction(E: type): typepack
     return nupp.types.construction(E)
 end
 
@@ -14,6 +15,7 @@ print(witness == exported.Spawned, count(exported.Spawned, entity = 7), count(ex
 -- An `is` against an alias of an exported record tests the declaration it
 -- names, from another module.
 local type Spawn = exported.Spawned
+
 local function describe(event: Spawn | integer): string
     if event is Spawn then
         return "spawned"

@@ -357,9 +357,9 @@ sealed interface soa.WriteSpan<T>
     ---     local ys: span.Writable<float> = rows:field("y")
     ---     xs[1] = 3.5
     ---     ys[1] = 4.5
-    ---     drop xs
-    ---     drop ys
-    ---     drop rows
+    ---     nupp.drop(xs)
+    ---     nupp.drop(ys)
+    ---     nupp.drop(rows)
     --- end
     --- ```
     field: function(exclusive self: WriteSpan<T>, name: string): any borrows (self)

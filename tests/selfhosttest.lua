@@ -48,8 +48,8 @@ function M.privateRecordFieldsBelongToTheirCanonicalModule()
         {
             "local m = {}",
             "record m.Secret<T>",
-            "   private readonly value: T",
-            "   readonly label: string",
+            "   @private @readonly value: T",
+            "   @readonly label: string",
             "end",
             "function m.read<T>(secret: m.Secret<T>): T",
             "   return secret.value",
@@ -74,11 +74,11 @@ function M.forwardGenericNominalsPreserveTheirApplications()
                 {
                     "local m = {}",
                     "record m.Left<T>",
-                    "   readonly right: m.Right<T>?",
+                    "   @readonly right: m.Right<T>?",
                     "end",
                     "record m.Right<T>",
-                    "   readonly left: m.Left<T>?",
-                    "   readonly value: T",
+                    "   @readonly left: m.Left<T>?",
+                    "   @readonly value: T",
                     "end",
                     "local right = new m.Right(left = nil, value = 7)",
                     "local left = new m.Left(right = right)",
@@ -131,8 +131,8 @@ function M.inlineMethodsPreserveExplicitReceiverModes()
 end
 
 function M.privateIsAFieldModifierOnlyForRecords()
-    assertEq(diagsOf("local struct S\n   private value: int32\nend"), "NUPP2209")
-    assertEq(diagsOf("local interface I\n   private value: int32\nend"), "NUPP2209")
+    assertEq(diagsOf("local struct S\n   @private value: int32\nend"), "NUPP2209")
+    assertEq(diagsOf("local interface I\n   @private value: int32\nend"), "NUPP2209")
 end
 
 -- A field whose type admits nil need not be there at all: an absent field

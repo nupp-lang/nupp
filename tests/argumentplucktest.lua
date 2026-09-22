@@ -725,8 +725,8 @@ function M.aBoundedTypeParameterPlucksThroughItsBound()
         table.concat(
             {
                 "local interface XY",
-                "   readonly x: number",
-                "   readonly y: number",
+                "   @readonly x: number",
+                "   @readonly y: number",
                 "end",
                 "local record Point is XY",
                 "   x: number",

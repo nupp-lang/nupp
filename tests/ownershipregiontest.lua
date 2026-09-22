@@ -22,7 +22,7 @@ local record Resource
     id: integer
     function destroy(takes self): nil
         closed[#closed + 1] = self.id
-        @unsafe do local released = @unsafe release self end
+        @unsafe do local released = @unsafe nupp.release(self) end
     end
 end
 local function create(id: integer): affine(Resource, Resource.destroy)
@@ -39,7 +39,7 @@ local function run(value: integer, mode: integer): (integer, nil, integer)
     local first = create(value)
     local second = create(mode == 1 and -1 or value + 1)
     if mode == 2 then
-        drop second
+        nupp.drop(second)
     elseif mode == 3 then
         error("body")
     elseif mode == 4 then
@@ -226,7 +226,7 @@ function M.multiOwnerRegionsForwardTheStateFrame()
 local function run(value: integer): integer
     local first = create(value)
     local second = create(1)
-    drop second
+    nupp.drop(second)
     return first.id
 end
 return run, closed

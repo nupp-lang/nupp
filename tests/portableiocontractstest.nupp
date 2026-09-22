@@ -79,7 +79,7 @@ function tests.structuralQueuesReadIntoBuffersAndWritableSpans(): nil
     do
         local output = lease:span()
         assert(reader:readSpan(output) == 3)
-        drop output
+        nupp.drop(output)
     end
     lease:commit(3)
     assert(destination:getString() == "abcdef")
@@ -93,7 +93,7 @@ function tests.stringReadersFillWritableSpans(): nil
     do
         local output = lease:span()
         assert(reader:readSpan(output) == 3)
-        drop output
+        nupp.drop(output)
     end
     lease:commit(3)
     assert(destination:getString() == "abc")

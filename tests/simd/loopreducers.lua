@@ -245,7 +245,7 @@ end
                     writing[i] = samples[(i + scenario) %% #samples + 1]
                     %s
                 end
-                drop writing
+                nupp.drop(writing)
             end
             local full = storage:read()
             for selection = 1, 3 do

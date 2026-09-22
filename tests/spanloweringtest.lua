@@ -259,7 +259,7 @@ local function work(exclusive storage: Cell[?], count: integer): nil
     for index = 1, #values do
         values[index].value = 7
     end
-    drop values
+    nupp.drop(values)
 end
 return work
 ]]
@@ -402,7 +402,7 @@ local function work(exclusive storage: heap.Array<Cell>): nil
     for index = 1, #values do
         values[index].value = 9
     end
-    drop values
+    nupp.drop(values)
 end
 return work
 ]]
@@ -425,7 +425,7 @@ local function work(exclusive particles: soa.Array<Particle>): nil
     for index = 1, #xs do
         xs[index] = 3.5
     end
-    drop rows
+    nupp.drop(rows)
 end
 return work
 ]]
@@ -456,7 +456,7 @@ return work
 local function work(exclusive storage: Cell[?], count: integer, index: integer): nil
     const values = span.writeCarray(storage, count)
     values[index].value += 1
-    drop values
+    nupp.drop(values)
 end
 return work
 ]]
@@ -517,8 +517,8 @@ local function work(exclusive storage: Cell[?], count: integer): int32
     for index = 1, #input do
         total += input[index].value
     end
-    drop window
-    drop root
+    nupp.drop(window)
+    nupp.drop(root)
     return total
 end
 return work
@@ -584,7 +584,7 @@ local function work(exclusive particles: soa.Array<Particle>): number
         prior += value.x
         rows[index] = new Particle(value.x + 1, value.y + 2)
     end
-    drop rows
+    nupp.drop(rows)
     return prior
 end
 return work
@@ -672,7 +672,7 @@ end
 local function work(exclusive storage: Cell[?], count: integer): nil
     const values = span.writeCarray(storage, count)
     fill(values)
-    drop values
+    nupp.drop(values)
 end
 return work
 ]]
@@ -804,8 +804,8 @@ function R3.mutate(
         xvalues[index] += 1
         yvalues[index] += 2
     end
-    drop yvalues
-    drop xvalues
+    nupp.drop(yvalues)
+    nupp.drop(xvalues)
     return dirtyX * 10 + dirtyY
 end
 
@@ -876,7 +876,7 @@ function M.aLookalikeIndexedTypeCannotEnterTheTrustedRange()
         [[
 local indexed = require("nupp.mem.indexed")
 local record Fake
-    readonly count: integer
+    @readonly count: integer
 end
 const fake = new Fake(count = 1)
 const range = indexed.range(1, 1, fake)

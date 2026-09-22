@@ -86,7 +86,7 @@ value needs to move or end early, use an ordinary affine local and
 ```nupp
 local rows = positions:write()
 update(rows)
-drop rows
+nupp.drop(rows)
 ```
 
 ::: deepdive

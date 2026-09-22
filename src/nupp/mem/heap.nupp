@@ -14,7 +14,7 @@ do
     local values = heap.allocate(ffi.typeof<int32>(), 4)
     local writable = values:write()
     writable[1] = 42 as int32
-    drop writable
+    nupp.drop(writable)
     local readable = values:read()
     print(readable[1], #readable)
 end -- free runs here

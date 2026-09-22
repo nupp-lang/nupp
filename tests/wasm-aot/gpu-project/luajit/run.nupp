@@ -14,7 +14,7 @@ do
     local rows = input:write()
     rows[1] = nupp.math.u32.wrap(4)
     rows[2] = nupp.math.u32.wrap(9)
-    drop rows
+    nupp.drop(rows)
 end
 local output = array.scalar(array.uint32, 2)
 local gpu = require("nupp.gpu")
@@ -28,7 +28,7 @@ binding:dispatch(nupp.math.u32.wrap(3))
 do
     local rows = output:write()
     context:download(gpuOutput, rows)
-    drop rows
+    nupp.drop(rows)
 end
 local rows = output:read()
 assert(rows[1] == 7 and rows[2] == 12)

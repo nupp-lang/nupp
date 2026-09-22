@@ -20,7 +20,8 @@ export function returnWitness(witness: any): any
     return witness
 end
 
-export comptime function derive(info: nupp.derive.Info): nupp.derive.Result<HasWitness>
+@comptime
+export function derive(info: nupp.derive.Info): nupp.derive.Result<HasWitness>
     local annotations = info.annotations
     for _, field in ipairs(info.fields) do
         if #field.annotations > 0 then

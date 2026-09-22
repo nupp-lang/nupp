@@ -1005,14 +1005,14 @@ local ENTRIES: {any} = {
         .. "local function open(): affine(Resource, close) return new Resource() end\n"
         .. "local function run(again: boolean): nil\n"
         .. "    local value = open()\n"
-        .. "    while again do\n        drop(value)\n    end\nend\nreturn run\n",
+        .. "    while again do\n        nupp.drop(value)\n    end\nend\nreturn run\n",
         right = "local record Resource\nend\n"
         .. "local function close(takes value: Resource): nil\nend\n"
         .. "local function open(): affine(Resource, close) return new Resource() end\n"
         .. "local function run(again: boolean): nil\n"
         .. "    local value = open()\n"
         .. "    if again then\n        print('once')\n    end\n"
-        .. "    drop(value)\nend\nreturn run\n",
+        .. "    nupp.drop(value)\nend\nreturn run\n",
         related = {"NUPP2601", "NUPP2603", "NUPP2607"},
         docs = "docs/learn/runtime/ownership/borrowing.md#regions-and-loop-carried-capabilities",
     },
@@ -1034,10 +1034,10 @@ local ENTRIES: {any} = {
         rule = "A value carrying an obligation, root, exclusive loan, pin, or "
         .. "foreign retention cannot be converted to any or passed to untyped Lua. "
         .. "Keep the boundary typed, move a self-contained owner into "
-        .. "nupp.manage, or use an explicit @unsafe release.",
+        .. "nupp.manage, or use an explicit @unsafe nupp.release call.",
         wrong = "local function erase(value: affine(table)): any\n    return value\nend\nreturn erase\n",
         right = "local function erase(takes value: affine(table)): any\n"
-        .. "    return @unsafe release value\nend\nreturn erase\n",
+        .. "    return @unsafe nupp.release(value)\nend\nreturn erase\n",
         related = {"NUPP2603", "NUPP2608", "NUPP2612"},
         docs = "docs/learn/runtime/ownership/borrowing.md#dynamic-boundaries",
     },
@@ -1090,7 +1090,7 @@ local ENTRIES: {any} = {
         code = "NUPP2603",
         summary = "An ownership obligation is not discharged or cannot escape",
         rule = "An affine value must be consumed, dropped, returned under a "
-        .. "matching ownership contract, or explicitly released with @unsafe release. "
+        .. "matching ownership contract, or explicitly released with @unsafe nupp.release. "
         .. "Borrows likewise stay within the lifetime and suspension boundaries "
         .. "their provenance permits.",
         wrong = "cdef function begin_request(): affine(voidptr)\n" .. "local request = begin_request()\nreturn 0\n",
@@ -2215,8 +2215,8 @@ ENTRIES[
     code = "NUPP2601",
     summary = "A moved-from owner is used again",
     rule = "An affine binding or affine field is discharged by exactly one move, drop, or return. The name stays in scope after that, but its value is gone: reading it, moving it a second time, or dropping it again all reuse a transfer that already happened.",
-    wrong = "cdef struct resource\n    value: int32\nend\ncdef function resource_create(): resource*\ncdef function resource_free(takes value: resource*)\n\nlocal function resource_new(): affine(resource*, resource_free)\n    return resource_create()\nend\n\nlocal function useTwice(): nil\n    local value = resource_new()\n    drop(value)\n    drop(value)\nend\n\nreturn useTwice\n",
-    right = "cdef struct resource\n    value: int32\nend\ncdef function resource_create(): resource*\ncdef function resource_free(takes value: resource*)\n\nlocal function resource_new(): affine(resource*, resource_free)\n    return resource_create()\nend\n\nlocal function useOnce(): nil\n    local value = resource_new()\n    drop(value)\nend\n\nreturn useOnce\n",
+    wrong = "cdef struct resource\n    value: int32\nend\ncdef function resource_create(): resource*\ncdef function resource_free(takes value: resource*)\n\nlocal function resource_new(): affine(resource*, resource_free)\n    return resource_create()\nend\n\nlocal function useTwice(): nil\n    local value = resource_new()\n    nupp.drop(value)\n    nupp.drop(value)\nend\n\nreturn useTwice\n",
+    right = "cdef struct resource\n    value: int32\nend\ncdef function resource_create(): resource*\ncdef function resource_free(takes value: resource*)\n\nlocal function resource_new(): affine(resource*, resource_free)\n    return resource_create()\nend\n\nlocal function useOnce(): nil\n    local value = resource_new()\n    nupp.drop(value)\nend\n\nreturn useOnce\n",
     related = {"NUPP2602", "NUPP2603"},
     docs = "docs/reference/diagnostics.md#diagnostic-index",
 }

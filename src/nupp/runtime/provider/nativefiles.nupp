@@ -249,7 +249,7 @@ The immediate operations cannot suspend, so a region that forbids waiting still
 permits asking what a path is, listing a directory, or renaming one:
 
 ```nupp
-nosuspend do
+@nosuspend do
     if files.isDirectory(candidate) then
         print(#assert(files.list(candidate)))
     end

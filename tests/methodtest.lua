@@ -960,7 +960,11 @@ end
 -- borrowing receiver would run as the terminal without taking anything.
 function M.aTerminalTakesItsReceiverTheWayTheContractSays()
     local iface = table.concat(
-        {"local interface Closer is nupp.Affine<self.close>", "   close: @nosuspend function(takes self: Closer): nil", "end",},
+        {
+            "local interface Closer is nupp.Affine<self.close>",
+            "   close: @nosuspend function(takes self: Closer): nil",
+            "end",
+        },
         "\n"
     )
     assertEq(
@@ -987,7 +991,7 @@ function M.aTerminalTakesItsReceiverTheWayTheContractSays()
                 "local record Taking is Closer",
                 "   open: boolean",
                 "   function close(takes self): nil",
-                "      local state = @unsafe release self",
+                "      local state = @unsafe nupp.release(self)",
                 "      state.open = false",
                 "   end",
                 "end",
@@ -1046,7 +1050,7 @@ function M.aReadonlyFieldStaysReadonlyUnderAWritableContract()
                     "   value: string",
                     "end",
                     "local record Cell is Mut",
-                    "   readonly value: string",
+                    "   @readonly value: string",
                     "end",
                     "local c = new Cell(value = 'a')",
                     "c.value = 'b'",
@@ -1062,7 +1066,7 @@ function M.aReadonlyFieldStaysReadonlyUnderAWritableContract()
         table.concat(
             {
                 "local interface RO",
-                "   readonly value: string | integer",
+                "   @readonly value: string | integer",
                 "end",
                 "local record Wide is RO",
                 "   value: string | integer",
@@ -1956,7 +1960,7 @@ function M.aPlainCallableFieldDoesNotSatisfyAMethodMember()
             table.concat(
                 {
                     "local interface Greeter",
-                    "   readonly greet: function(self, n: integer): string",
+                    "   @readonly greet: function(self, n: integer): string",
                     "end",
                     impl,
                     "local g: Greeter = impl",
@@ -1973,7 +1977,7 @@ function M.aPlainCallableFieldDoesNotSatisfyAMethodMember()
             table.concat(
                 {
                     "local interface Greeter",
-                    "   readonly greet: function(n: string): string",
+                    "   @readonly greet: function(n: string): string",
                     "end",
                     impl,
                     "local g: Greeter = impl",
@@ -1988,7 +1992,7 @@ function M.aPlainCallableFieldDoesNotSatisfyAMethodMember()
         table.concat(
             {
                 "local interface Greeter",
-                "   readonly greet: function(n: integer): string",
+                "   @readonly greet: function(n: integer): string",
                 "end",
                 impl,
                 "local g: Greeter = impl",

@@ -1456,7 +1456,7 @@ function M.usersCanDeclareGenericAffineTypes()
                 "   return new Resource(value = 1)",
                 "end",
                 "local resource = open()",
-                "drop resource",
+                "nupp.drop(resource)",
             },
             "\n"
         )
@@ -1503,7 +1503,7 @@ function M.terminalLessAffineTypesAreExplicitAndCannotBeDropped()
                     "local type Forward<T> = affine(T)",
                     "local function make(): Forward<integer> return 1 end",
                     "local value = make()",
-                    "drop value",
+                    "nupp.drop(value)",
                 },
                 "\n"
             )
@@ -1522,7 +1522,7 @@ function M.comptimeCanConstructAffineTypesFromFunctionIdentity()
                 "end",
                 "local function make(): MakeOwner(string, close) return 'value' end",
                 "local value = make()",
-                "drop value",
+                "nupp.drop(value)",
             },
             "\n"
         )
@@ -1537,7 +1537,7 @@ function M.affineConstructorAddsNoRuntimeRepresentation()
             "local type Counter = affine(integer, close)",
             "local function make(): Counter return 2 end",
             "local value = make()",
-            "drop value",
+            "nupp.drop(value)",
             "return calls",
         },
         "\n"
@@ -2330,9 +2330,9 @@ function M.admissionCarriesExactlyTheEffectsItLeft()
         )
     end
 
-    clean(body("noraise", "7"))
-    assertEq(codes(body("noraise", "v")), "NUPP2711")
-    clean(body("noalloc", "v"))
+    clean(body("@noraise", "7"))
+    assertEq(codes(body("@noraise", "v")), "NUPP2711")
+    clean(body("@noalloc", "v"))
 
     -- a field, an element and a constructor are admission positions too
     local box = alias .. "local record Box\n    n: Small\nend\n"

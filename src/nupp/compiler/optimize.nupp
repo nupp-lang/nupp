@@ -1968,7 +1968,9 @@ local function indexedRangeWalk(result, remarks)
                     end
                 end
                 for _, ancestor in ipairs(ancestors) do
-                    if ancestor.kind == "call" and ancestor.ownershipSyntax == "drop" then
+                    if ancestor.kind == "call"
+                        and (ancestor.ownershipIntrinsic == "drop" or ancestor.ownershipSyntax == "drop")
+                    then
                         allowed = true
                     end
                     local transport = ancestor.kind == "call" and ancestor.indexedViewParameterTransport or nil
@@ -1987,7 +1989,11 @@ local function indexedRangeWalk(result, remarks)
                         end
                     end
                 end
-                if parent and parent.kind == "callStmt" and parent.expr and parent.expr.ownershipSyntax == "drop" then
+                if parent
+                    and parent.kind == "callStmt"
+                    and parent.expr
+                    and (parent.expr.ownershipIntrinsic == "drop" or parent.expr.ownershipSyntax == "drop")
+                then
                     allowed = true
                 end
                 if not allowed then

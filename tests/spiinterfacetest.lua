@@ -73,7 +73,7 @@ response.body:readInto(destination, 0, 8)
 local lease = destination:reserveWrite(0, 8)
 local output = lease:span()
 response.body:readSpan(output)
-drop output
+nupp.drop(output)
 lease:commit(8)
 local writer = destination:newWriter()
 response.body:transferTo(writer)
@@ -243,7 +243,7 @@ function M.genericMethodsPreserveTheirOwnBindersAndBorrowRelations()
         [[
 local m = {}
 interface m.Mapper
-    readonly map: function<T>(borrows self: m.Mapper, element: ctype<T>, value: T): T
+    @readonly map: function<T>(borrows self: m.Mapper, element: ctype<T>, value: T): T
 end
 record m.Implementation is m.Mapper
     map: function<U>(borrows self: m.Implementation, element: ctype<U>, value: U): U
@@ -271,7 +271,7 @@ return new m.Owner(range = range)
                 [[
 local m = {}
 interface m.Mapper
-    readonly map: function<T>(borrows self: m.Mapper, element: ctype<T>, value: T): T
+    @readonly map: function<T>(borrows self: m.Mapper, element: ctype<T>, value: T): T
 end
 record m.Implementation is m.Mapper
     map: %s
@@ -290,7 +290,7 @@ record m.Range
     count: integer
 end
 interface m.Owner
-    readonly range: function(borrows self: m.Owner): m.Range borrows (self)
+    @readonly range: function(borrows self: m.Owner): m.Range borrows (self)
 end
 record m.Unrooted is m.Owner
     range: function(borrows self: m.Unrooted): m.Range

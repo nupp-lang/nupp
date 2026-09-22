@@ -182,7 +182,7 @@ do
     for index = range.first, range.last do
         output[index].x = source[index].x * 2
     end
-    drop output
+    nupp.drop(output)
 end
 return particles:read()[3].x
 ]]
@@ -206,7 +206,7 @@ with rows = particles:write() do
     end
 end
 local value = particles:read()[2].x
-drop particles
+nupp.drop(particles)
 return value
 ]]
     )
@@ -243,7 +243,7 @@ do
     local rows = particles:write()
     rows[1].x = 3
     rows[nextIndex()].x += 4
-    drop rows
+    nupp.drop(rows)
 end
 return calls * 10 + particles:read()[1].x
 ]]
@@ -287,12 +287,12 @@ local columns = soa.allocate(ffi.typeof<Particle>(), 1)
 do
     local rows = aos:write()
     rows[1] = new Particle(1, 2, 3, 4)
-    drop rows
+    nupp.drop(rows)
 end
 do
     local rows = columns:write()
     rows[1] = new Particle(5, 6, 7, 8)
-    drop rows
+    nupp.drop(rows)
 end
 local ordinary = layoutof(Particle)
 local split = soa.layoutof(ffi.typeof<Particle>())
@@ -369,9 +369,9 @@ do
     local ys: span.Writable<float> = rows:field("y")
     xs[1] = 3.5
     ys[1] = 4.5
-    drop xs
-    drop ys
-    drop rows
+    nupp.drop(xs)
+    nupp.drop(ys)
+    nupp.drop(rows)
 end
 local rows = particles:read()
 local xs: span.Span<float> = rows:field("x")
@@ -449,10 +449,10 @@ do
     local rows = particles:write()
     local middle = rows:slice(2, 2)
     middle[1].x = 12.5
-    drop middle
+    nupp.drop(middle)
     rows[1].x = 1.5
     rows[3].x = 30.5
-    drop rows
+    nupp.drop(rows)
 end
 local rows = particles:read()
 local tail = rows:slice(2, 3)
@@ -473,8 +473,8 @@ do
     for index = 1, #middle do
         middle[index].x = index * 5
     end
-    drop middle
-    drop rows
+    nupp.drop(middle)
+    nupp.drop(rows)
 end
 return particles:read()[3].x
 ]]
@@ -495,8 +495,8 @@ do
     for index = 1, #xs do
         xs[index] = index * 4
     end
-    drop xs
-    drop rows
+    nupp.drop(xs)
+    nupp.drop(rows)
 end
 const readable = particles:read()
 const xs = readable:field("x")
@@ -525,12 +525,12 @@ do
     rows[1] = new Particle(1, 2, 3, 4)
     rows[2] = new Particle(5, 6, 7, 8)
     rows[3] = new Particle(9, 10, 11, 12)
-    drop rows
+    nupp.drop(rows)
 end
 do
     local rows = target:write()
     rows:copyFrom(2, source:read(), 1, 3)
-    drop rows
+    nupp.drop(rows)
 end
 local rows = target:read()
 return rows[2].x + rows[3].y + rows[4].dy
@@ -580,7 +580,7 @@ local one = soa.allocate(ffi.typeof<Particle>(), 1)
 local okDirect = pcall(function()
     local rows = one:write()
     rows[2].x = 1
-    drop rows
+    nupp.drop(rows)
 end)
 local okNegative = pcall(function()
     local invalid = soa.allocate(ffi.typeof<Particle>(), -1)

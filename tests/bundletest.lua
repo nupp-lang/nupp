@@ -514,7 +514,7 @@ return {include = {"src"}, build = {default = "app", targets = {app = {
             "src/counter/spi.nupp"
         ] = [[module counter.spi
 export interface Counter
-    readonly next: function(): integer
+    @readonly next: function(): integer
 end]],
         [
             "src/counter/provider.nupp"
@@ -624,7 +624,7 @@ const heap = require("nupp.mem.heap")
 export function stamp(takes frame: heap.Array<uint8>, value: integer): affine(heap.Array<uint8>, heap.destroyArray)
     local writable = frame:write()
     writable[1] = value % 256
-    drop writable
+    nupp.drop(writable)
 
     return frame
 end
@@ -764,7 +764,7 @@ do
     local readable = frame:read()
     print(frame.count, readable[1])
 end
-drop frame
+nupp.drop(frame)
 
 local counts = heap.allocate(ffi.typeof<int32>(), 5)
 do
@@ -772,7 +772,7 @@ do
     for index = 1, 5 do
         writable[index] = index * 3
     end
-    drop writable
+    nupp.drop(writable)
 end
 with scope = workers.scope() do
     print(scope:spawn(counts, jobs.total):await())

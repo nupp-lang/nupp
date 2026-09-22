@@ -3,7 +3,7 @@ module nupp.compiler.check.nosuspend
 --[[
 Regions in which suspending is refused.
 
-`nosuspend do ... end` is lexical and static: it erases to an ordinary block and
+`@nosuspend do ... end` is lexical and static: it erases to an ordinary block and
 its whole effect is that a call inside it which may suspend is a diagnostic
 rather than a run-time surprise. tecs raises the same refusal today, from
 `checkWait`, in a frame, in a game; this is the same fact found while compiling.

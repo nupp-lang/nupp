@@ -317,7 +317,10 @@ function M.cleanupRegionsWritingFunctionAndLoopLocalsStillCompile()
 end
 
 function M.multiOwnerLoopsReuseTheirCleanupBody()
-    local dir = project{["multiowner.g.nupp"] = [[
+    local dir = project{
+        [
+            "multiowner.g.nupp"
+        ] = [[
 cdef function free(takes value: voidptr)
 cdef function malloc(size: uint64): voidptr
 local function ownedMalloc(size: integer): affine(voidptr, free)
@@ -326,9 +329,10 @@ end
 for i = 1, 3000 do
     local first = ownedMalloc(i)
     local second = ownedMalloc(i + 1)
-    drop second
+    nupp.drop(second)
 end
-]]}
+]]
+    }
     local out, code = run(dir, "--check multiowner.g.nupp")
     assert(code == 0, "multiple owners must not construct a cleanup body each iteration:\n" .. out)
     assert(not out:find("never compiles", 1, true), out)
@@ -496,12 +500,14 @@ return total
 end
 
 function M.bytecodeUsesTheSelectedTierAndNamesConstructorTailCalls()
-    local dir = project{["constructor.g.nupp"] = [[
+    local dir = project{
+        ["constructor.g.nupp"] = [[
 local function make()
     return setmetatable({}, {})
 end
 return make()
-]]}
+]]
+    }
     local out, code = run(dir, "--json --check -O1 constructor.g.nupp")
     test.equal(code, 0, out)
     local report = require("testjson").decode(out)

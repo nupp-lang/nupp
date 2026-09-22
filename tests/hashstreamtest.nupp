@@ -56,7 +56,7 @@ function M.overloadedFinalizationWritesOnlyTheSuppliedSlice(): nil
         rolling:updateSpan(input)
         local written: integer = rolling:digest(region)
         assert(written == algorithm.digestSize)
-        drop region
+        nupp.drop(region)
         assert(output[1] == 0xa5 and output[#output] == 0x5a)
         local expected = digest.digest(name, "abc")
         for index = 1, #expected do

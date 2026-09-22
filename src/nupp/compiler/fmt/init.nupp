@@ -1940,10 +1940,7 @@ local function canonicalizeUnifiedGrammar(source: string, result: any): string
             if node.comptimeTok and node.comptimeTok.contextualOp then
                 moveAnnotation(node.comptimeTok, first)
             end
-        elseif node.kind == "recordDecl" then
-            moveAnnotation(node.affineTok, first)
         elseif node.kind == "fieldDecl" then
-            annotateToken(node.terminalTok)
             annotateToken(node.privacy)
             annotateToken(node.capability)
         elseif node.kind == "indexerDecl" then
@@ -2035,12 +2032,19 @@ function fmt.Formatter:format(source: string, filename: string?): string, {any}
     local originalSource = source
     local result = parser.parse(source, filename)
     if #result.errors > 0 then
-        return source, result.errors
+        for _, problem in ipairs(result.errors) do
+            if problem.code ~= "NUPP1005" then
+                return source, result.errors
+            end
+        end
     end
     if result.root.formatDisabled then
         return source, {}
     end
     local canonical = canonicalizeUnifiedGrammar(source, result)
+    if #result.errors > 0 and canonical == source then
+        return source, result.errors
+    end
     if canonical ~= source then
         source = canonical
         result = parser.parse(source, filename)

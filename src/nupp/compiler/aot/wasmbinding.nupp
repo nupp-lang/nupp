@@ -186,7 +186,7 @@ function wasmbinding.replacement(program: scalarIR.Program, unit: string, indepe
     end
     lines[
         #lines + 1
-    ] = "    local " .. prefix .. "Call = " .. prefix .. "Native as nosuspend function(" .. table.concat(
+    ] = "    local " .. prefix .. "Call = " .. prefix .. "Native as @nosuspend function(" .. table.concat(
         physicalParams,
         ", "
     ) .. "): " .. result

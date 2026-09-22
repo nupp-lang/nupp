@@ -39,7 +39,8 @@ function M.renderRecord(names: {string}, values: {string}): string
     return "{" .. table.concat(parts, ", ") .. "}"
 end
 
-comptime function M.derive(info: nupp.derive.Info): nupp.derive.Result<M.Inspect>
+@comptime
+function M.derive(info: nupp.derive.Info): nupp.derive.Result<M.Inspect>
     if info.schema ~= 2 then
         return nupp.derive.error("Inspect needs derive input schema 2", info.reference)
     end

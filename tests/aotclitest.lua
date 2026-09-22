@@ -969,7 +969,7 @@ local GPU_PHASE_DECLARATIONS = [[
 module nupp.gpu
 
 export record Shared<T>
-    readonly count: integer
+    @readonly count: integer
     metamethod __len: function(borrows self: Shared<T>): integer
     metamethod __index: function(borrows self: Shared<T>, index: integer): T
     metamethod __newindex: function(exclusive self: Shared<T>, index: integer, value: T): nil

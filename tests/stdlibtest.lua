@@ -212,7 +212,7 @@ end
 local values = array.new(new Sample(), 2)
 local writable = values:write()
 writable[1] = new Sample(3)
-drop writable
+nupp.drop(writable)
 local readable = values:read()
 return #readable, readable[1].value
 ]]
@@ -1702,7 +1702,7 @@ function M.stringBufferPointersBecomeCheckedSpans()
                 "   do",
                 "      local writable = spans.writeCarray(ptr, reserved as integer)",
                 "      writable[1] = 65",
-                "      drop writable",
+                "      nupp.drop(writable)",
                 "   end",
                 "end",
                 "b:commit(1)",

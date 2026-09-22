@@ -13,7 +13,7 @@ do
     output[1] = new Cell(7)
     output[2] = new Cell(11)
     output[3] = new Cell(13)
-    drop output
+    nupp.drop(output)
 end
 const values = span.fromCarray(cells, 3)
 assert(#values == 3 and values[1].value == 7 and values[3].value == 13)

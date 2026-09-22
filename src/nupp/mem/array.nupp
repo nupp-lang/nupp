@@ -11,7 +11,7 @@ do
     const writable = values:write()
 
     writable[1] = 42
-    drop writable
+    nupp.drop(writable)
 
     print(values:read()[1])
 end -- the array is released here

@@ -11,8 +11,10 @@ end
 local function advance(value: float, scale: float): (float, uint32)
     local position: float = value
     local flags: uint32 = 0
-    noalloc do
-        noraise do
+    @noalloc
+    do
+        @noraise
+        do
             position = nupp.math.f32.fma(value, scale, TENTH)
             flags = nupp.math.u32.rotateLeft(nupp.math.u32.add(flags, 1), 3)
         end
@@ -28,15 +30,17 @@ function system.run(): (float, uint32)
         const active = writable:slice(2, 7)
         const rows = indexed.range(1, #active, active)
         for index = rows.first, rows.last do
-            noalloc do
-                noraise do
+            @noalloc
+            do
+                @noraise
+                do
                     local state = active[index]
                     state.x, state.flags = advance(state.x, 2.0)
                 end
             end
         end
     end
-    drop writable
+    nupp.drop(writable)
 
     const readable = span.fromCarray(storage, 8)
 

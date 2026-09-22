@@ -114,7 +114,7 @@ local function apply(exclusive storage: number[?]): number
     values[1], values[2] = 3, 4
     values[1], values[1] = values[2], values[1]
     local result = values[1] * 10 + values[2]
-    drop values
+    nupp.drop(values)
     return result
 end
 return apply

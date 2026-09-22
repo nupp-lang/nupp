@@ -57,9 +57,9 @@ local interface Factory<P...>
 end
 
 local interface ResultSink
-   readonly result: string
+   @readonly result: string
 -- ^^^^^^^^ keyword.other.property.nupp
-   writeonly result: string
+   @writeonly result: string
 -- ^^^^^^^^^ keyword.other.property.nupp
    readonly [string]: string
 -- ^^^^^^^^ keyword.other.property.nupp
@@ -72,7 +72,7 @@ local readonly = true
 
 local record PrivateField
 --    ^^^^^^ storage.type.declaration.nupp
-   private readonly value: string
+   @private @readonly value: string
 -- ^^^^^^^ keyword.control.nupp
 --         ^^^^^^^^ keyword.other.property.nupp
 end
@@ -343,7 +343,7 @@ local reply = handler?.:respond?.(payload) ?? fallback
 --                                         ^^ keyword.operator.nupp
 
 local type Events<T> = {
-   readonly [K in keyof T as `${K}Changed`]: nosuspend function(value: T.[K]): nil
+   readonly [K in keyof T as `${K}Changed`]: @nosuspend function(value: T.[K]): nil
 -- ^^^^^^^^ keyword.other.property.nupp
 --             ^^ keyword.control.nupp
 --                ^^^^^ keyword.operator.nupp
@@ -353,7 +353,7 @@ local type Events<T> = {
 --                                                     ^^^^^^^^ storage.type.function.nupp
 }
 
-local comptime function First(T: type): type
+@comptime local function First(T: type): type
 --    ^^^^^^^^ storage.modifier.directive.nupp
 --             ^^^^^^^^ storage.type.function.nupp
    local elements = nupp.types.elements(T)
@@ -378,7 +378,7 @@ local compiled = comptime do
    return {answer = 42}
 end
 
-nosuspend do
+@nosuspend do
 -- <- keyword.control.nupp
    local safe = 1
 end
@@ -399,15 +399,15 @@ local interface Matcher
 end
 
 local function releaseSpan(writable: WriteSpan): nil
-   drop writable
+   nupp.drop(writable)
 -- ^^^^ keyword.control.nupp
 end
 
-local x = @unsafe release writable
+local x = @unsafe nupp.release(writable)
 --        ^ punctuation.definition.annotation.nupp
 --         ^^^^^^ entity.name.tag.nupp
 --                ^^^^^^^ storage.modifier.ownership.nupp
-local y = @unsafe adopt raw as Owner
+local y = @unsafe nupp.adopt<Owner>(raw)
 --        ^ punctuation.definition.annotation.nupp
 --         ^^^^^^ entity.name.tag.nupp
 --                ^^^^^ storage.modifier.ownership.nupp

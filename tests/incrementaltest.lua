@@ -277,7 +277,7 @@ function M.countedPointerLogicalSignaturesCrossModuleSummaries()
                 "local writer = spans.writeCarray(output, 4)",
                 "local reader = spans.fromCarray(input, 4)",
                 "native.copy(writer, reader)",
-                "drop writer",
+                "nupp.drop(writer)",
             },
             "\n"
         )

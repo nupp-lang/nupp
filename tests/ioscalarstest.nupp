@@ -160,7 +160,7 @@ function M.bufferWriteLeasesCommitAtomically(): nil
             output[1] = 65
             output[2] = 66
             output[3] = 67
-            drop output
+            nupp.drop(output)
         end
         lease:commit(2)
     end

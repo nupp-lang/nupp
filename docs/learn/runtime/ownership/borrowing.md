@@ -421,7 +421,7 @@ return m
 automatic cleanup into the callee. A consuming parameter whose type names a
 terminal is an owner inside the body like any other: every path out of the
 body — each `return`, and the fall-through end — must have dropped it, moved it
-on, returned it, or released it with `@unsafe release`, and a branch that
+on, returned it, or released it with `@unsafe nupp.release`, and a branch that
 discharges it on only some of its arms is reported (NUPP2603). A consuming
 parameter whose type names no terminal is the endpoint of the obligation: the
 body of a cleanup function written over the plain payload, a record's own
@@ -652,7 +652,7 @@ end
 
 `@unsafe` grants only the representation assertion. The resulting affine value
 still participates in normal move, borrow, and lexical-destruction checks, and
-`@unsafe release` consumes an obligation without running its terminal, which
+`@unsafe nupp.release` consumes an obligation without running its terminal, which
 makes the caller responsible for the resource from that line on.
 
 ## FAQ
