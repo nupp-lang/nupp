@@ -526,7 +526,7 @@ the effects its implementation may actually perform.
     calls = {"$global.callback"},
     returns = {"1=destination"},
     allocates = true,
-    yields = true,
+    suspends = true,
     raises = true,
     external = true
 )

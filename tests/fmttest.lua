@@ -136,7 +136,7 @@ function M.unifiedGrammarCanonicalizesCompatibilitySpellings()
             "local raw2 = @unsafe release owner",
             "drop owner",
             "handle suspension with handler do print(1) end",
-            "@effects(yields = false)",
+            "@effects(suspends = false)",
             "local function run() end",
         },
         "\n"

@@ -307,10 +307,10 @@ end
 --
 -- A contract outranks inference. `external` and `top` mean *inference* learned nothing,
 -- which is why they disqualify an inferred summary -- but an author who wrote
--- `@effects(external = true, yields = false)` has stated the fact that inference could
--- not reach, and NUPP2112 already holds a visible body to what its contract claims.
--- Treating a declared negative as unknown would make the contract unable to say the one
--- thing it exists to say.
+-- `@effects(external = true, suspends = false)` has stated the fact that inference
+-- could not reach, and NUPP2112 already holds a visible body to what its contract
+-- claims. Treating a declared negative as unknown would make the contract unable to say
+-- the one thing it exists to say.
 local function provenNonYielding(node: cst.Node?, body: cst.Node?): boolean
     local contract = node and node.effectContract or body and body.effectContract
     if contract and contract.yields ~= nil then

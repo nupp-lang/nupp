@@ -214,7 +214,7 @@ external I/O, or raise.
 An [effect contract](../../language/effects.md) includes suspension in its `yields` member:
 
 ```nupp [transport.d.nupp]
-@effects(yields = true, raises = true)
+@effects(suspends = true, raises = true)
 const receive: function(): string
 ```
 

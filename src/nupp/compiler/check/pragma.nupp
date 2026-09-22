@@ -34,7 +34,6 @@ function pragma.install(c: state.Checker): state.StatHandlers
     local defineAnnotation = marks.defineAnnotation
     local validateAnnotation = marks.validateAnnotation
     local stringValue, nameText = marks.stringValue, marks.nameText
-    local annotationType = marks.annotationType
 
     local handlers = {}
 
@@ -198,7 +197,7 @@ function pragma.install(c: state.Checker): state.StatHandlers
             calls = true,
             returns = true,
         }
-        local boolMembers = {allocates = true, suspends = true, yields = true, raises = true, external = true,}
+        local boolMembers = {allocates = true, suspends = true, raises = true, external = true,}
         local contract = {
             reads = {},
             writes = {},
@@ -216,7 +215,11 @@ function pragma.install(c: state.Checker): state.StatHandlers
         for _, arg in ipairs(application.annotationArgs or {}) do
             local name = arg.name and arg.name.text or nil
             local semanticName = name == "suspends" and "yields" or name
-            if not name or seen[semanticName] or not (listMembers[name] or boolMembers[name]) then
+            if name == "yields" then
+                c.diag("NUPP2112", arg.name, "@effects uses suspends for the suspension effect", {
+                    c.edits.fix("use suspends", c.edits.replaceToken(arg.name, "suspends"))
+                })
+            elseif not name or seen[semanticName] or not (listMembers[name] or boolMembers[name]) then
                 c.diag("NUPP2112", arg, "@effects arguments must be unique named effect members")
             elseif listMembers[name] then
                 seen[semanticName] = true
@@ -381,32 +384,6 @@ function pragma.install(c: state.Checker): state.StatHandlers
                     targetAny.sealedTok = annotationName
                 else
                     targetAny.affineTok = annotationName
-                end
-            end
-            if stat.stat then
-                c.checkStat(stat.stat)
-            end
-            return
-
-        elseif written == "coroutine" then
-            if valid and targetBody then
-                local args = stat.annotationArgs or {}
-                local typeNode = args[1] and annotationType(args[1].expr) or nil
-                if #args ~= 1 or not typeNode then
-                    c.diag("NUPP2112", stat, "@coroutine expects one thread protocol type name")
-                else
-                    local protocol = c.resolveType(typeNode)
-                    if protocol.tag ~= "protocolThread" then
-                        c.diag(
-                            "NUPP2112",
-                            args[1],
-                            (
-                                "@coroutine expects thread<Start, Resume, Yield, Return>, got %s"
-                            ):format(T.tostring(protocol))
-                        )
-                    else
-                        (targetBody as any).coroutineProtocol = protocol
-                    end
                 end
             end
             if stat.stat then

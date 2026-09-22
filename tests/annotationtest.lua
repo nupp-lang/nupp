@@ -73,28 +73,23 @@ function M.typeQualifiersPreserveBorrowedFunctionResults()
     assertEq(checked("local value: @sendable function<V>(borrows owner: V): V borrows (owner)"), "")
 end
 
-function M.coroutineProtocolOnBodylessCallableField()
-    local protocol = "local type Feed = thread<(number), (boolean), (number), (string)>\n"
-    assertEq(checked(protocol .. [[
+function M.namedCoroutineFunctionTypeWorksOnBodylessCallableField()
+    assertEq(
+        checked(
+            [[
+local type Feed = thread<(number), (boolean), (number), (string)>
+local type Producer = function(number): string yields(number) resumes(boolean)
 local interface Worker
-    @coroutine(Feed)
-    run: function(number): string
+    run: Producer
 end
-local worker: Worker
-local co: Feed = coroutine.create(worker.run)
-]]), "")
-    assertEq(checked(protocol .. [[
-local interface Worker
-    @coroutine(Feed)
-    run: function(boolean): string
+local function start(worker: Worker): Feed
+    return coroutine.create(worker.run)
 end
-]]), "NUPP2112")
-    assertEq(checked(protocol .. [[
-local interface Worker
-    @coroutine(Feed)
-    run: string
-end
-]]), "NUPP2112")
+]]
+        ),
+        ""
+    )
+    assertEq(checked("@coroutine(Feed)\nlocal function worker(): nil end"), "NUPP2111")
 end
 
 function M.builtinCliCannotBeReplacedByTheFormerBootstrapPath()
@@ -281,6 +276,9 @@ function M.effectMembersHaveClosedShapes()
     assertEq(checked("@effects(reads = true)\nlocal function f() end"), "NUPP2112")
     assertEq(checked("@effects(allocates = {})\nlocal function f() end"), "NUPP2112")
     assertEq(checked("@effects(mystery = true)\nlocal function f() end"), "NUPP2112")
+    local codes, _, diags = checked("@effects(yields = false)\nlocal function f() end")
+    assertEq(codes, "NUPP2112")
+    assertEq(diags[1].fixes[1].edits[1].newText, "suspends")
 end
 
 function M.relaxationsUseAClosedSetOfObservableGuarantees()

@@ -512,17 +512,18 @@ function M.coroutineProtocolsTypeYieldResumeAndReturnValues()
     )
 end
 
-function M.coroutineAnnotationUsesTheThreadProtocolType()
+function M.namedCoroutineFunctionTypeUsesTheThreadProtocolType()
     clean(
         table.concat(
             {
                 "local type Feed = thread<(number), (boolean), (number, string), (string)>",
-                "@coroutine(Feed)",
-                "local function worker(start: number): string",
+                "local type Producer = function(number): string yields(number, string) resumes(boolean)",
+                "local function worker(start: number): string yields(number, string) resumes(boolean)",
                 "   local again: boolean = coroutine.yield(start, 'paused')",
                 "   return tostring(again)",
                 "end",
-                "local co: Feed = coroutine.create(worker)",
+                "local producer: Producer = worker",
+                "local co: Feed = coroutine.create(producer)",
                 "local ok, value, label = coroutine.resume(co, 1)",
             },
             "\n"

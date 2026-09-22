@@ -388,15 +388,6 @@ local BUILTINS = {
         docsPath = "concepts/effects",
     },
     {
-        name = "coroutine",
-        arguments = "names",
-        builtin = true,
-        qualifiedNames = true,
-        targets = {"function", "field"},
-        doc = "Checks a function against a thread<Start, Resume, Yield, Return> protocol.",
-        docsPath = "learn/runtime/concurrency/coroutines",
-    },
-    {
         name = "relax",
         arguments = "names",
         targets = {"function"},

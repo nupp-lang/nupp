@@ -1963,10 +1963,6 @@ local function canonicalizeUnifiedGrammar(source: string, result: any): string
             end
         end
 
-        if node.kind == "annotationArg" and node.name and node.name.text == "yields" then
-            add(node.name.offset, #node.name.text, "suspends")
-        end
-
         for _, child in ipairs(node) do
             if not cst.isToken(child) then
                 local anchor = node.kind == "exportStmt" and child == node.stat and cst.firstToken(node) or nil
