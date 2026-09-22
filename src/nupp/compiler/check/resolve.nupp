@@ -560,6 +560,7 @@ function resolve.install(c: state.Checker): nil
             return t
         end
         local map = {}
+        local intrinsicAffine = ((t.origin or t) as T.Nominal).intrinsicAffine == true
         local typeAt, packAt, constAt = 1, 1, 1
         local defaults = t.paramDefaults or {}
         for position, kind in ipairs(t.paramKinds or {}) do
@@ -570,7 +571,12 @@ function resolve.install(c: state.Checker): nil
             if kind == "const" then
                 local cv = t.constParams and t.constParams[constAt]
                 if cv then
-                    map[cv] = constArgument(arg, cv, node)
+                    -- `Affine<self.close>` names the implementation's method, which
+                    -- is not a free function binding while the parent list resolves.
+                    -- Keep its name until the declaration's members are complete.
+                    local named = intrinsicAffine and arg and writtenName(arg) or nil
+                    local method = named and named:match("^self%.([%a_][%w_]*)$") or nil
+                    map[cv] = method and T.constLiteral("function", "self." .. method) or constArgument(arg, cv, node)
                 end
                 constAt = constAt + 1
             elseif kind == "type" then

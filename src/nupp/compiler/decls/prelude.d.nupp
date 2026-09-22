@@ -19,6 +19,10 @@ This file is parsed and checked by `nupp` itself, as is its Lua counterpart.
 -- Resources and aliases
 ----------------------------------------------------------------------------
 
+--- Declares one consuming cleanup for an affine owner.
+interface nupp.Affine<const cleanup: function>
+end
+
 --- A resource with a deterministic, consuming close operation.
 ---
 --- Declaring `is nupp.Closeable` makes construction and bare type annotations carry the

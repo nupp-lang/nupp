@@ -7344,4 +7344,53 @@ drop xs
     assert(bad:find("NUPP2602", 1, true), "a pointer keeps its column owner alive: " .. bad)
 end
 
+function M.explicitAffineClaimAndTransparentGenericBound()
+    local source = [[
+local function releaseId(takes id: integer): nil end
+local function acquireId(): affine(integer, releaseId) return 7 end
+local function consume<C is nupp.Affine<releaseId>>(takes value: C): nil
+    print(value)
+end
+consume(acquireId())
+
+local record Resource is nupp.Affine<self.finish>
+    function finish(takes self): nil end
+end
+local function acquire(): Resource return new Resource() end
+local owner: Resource = acquire()
+nupp.drop(owner)
+]]
+    assertClean(source)
+    local bad = codes(
+        [[
+local function releaseId(takes id: integer): nil end
+local record Incidental
+    function close(takes self): nil end
+end
+local function accept<C is nupp.Affine<releaseId>>(takes value: C): nil end
+accept(new Incidental())
+]]
+    )
+    assert(bad:find("NUPP2116", 1, true), "a compatible method alone is not an Affine claim: " .. bad)
+end
+
+function M.contextualNoSuspendFrameCallback()
+    local frame = [[
+local type FrameBody = @nosuspend function(number): boolean
+local interface Window
+    runFrames: function(self, scoped frame: FrameBody): nil
+end
+local function animate(win: Window): nil
+    win:runFrames(function(delta: number): boolean
+        %s
+        return delta > 0
+    end)
+end
+return animate
+]]
+    assertClean(frame:format("local elapsed = delta"))
+    local bad = codes(frame:format("coroutine.yield()"))
+    assert(bad:find("NUPP2701", 1, true), "a yielding callback cannot fill a FrameBody slot: " .. bad)
+end
+
 return M

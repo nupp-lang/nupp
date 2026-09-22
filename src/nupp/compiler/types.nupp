@@ -873,6 +873,9 @@ record types.Nominal
     --- This interface changes conforming values into inherent affine owners.
     affineInterface: boolean?
 
+    --- The prelude interface whose declared `is` edge grants affine ownership.
+    intrinsicAffine: boolean?
+
     --- The single consuming method inherited as the inherent cleanup policy.
     terminalMethod: string?
 

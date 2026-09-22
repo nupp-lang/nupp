@@ -1728,8 +1728,16 @@ function generics.instantiate(n: T.Nominal, map: Bindings): T.Nominal
     inst.fieldBorrowSources = n.fieldBorrowSources
     inst.borrowedRootFields = n.borrowedRootFields
     inst.affineInterface = n.affineInterface
+    inst.intrinsicAffine = n.intrinsicAffine
     inst.terminalMethod = n.terminalMethod
-    inst.inherentCleanup = n.inherentCleanup
+    inst.inherentCleanup = n.inherentCleanup and substCleanup(n.inherentCleanup, map, PRESERVE) or nil
+    if inst.intrinsicAffine and inst.constArgs[1] then
+        local term = inst.constArgs[1]
+        local named = term.tag == "constLiteral" and term.value or nil
+        local method = type(named) == "string" and named:match("^self%.([%a_][%w_]*)$") or nil
+        inst.inherentCleanup = method and T.methodCleanup(method) or T.constFunctionCleanup(term)
+        inst.affineInterface = true
+    end
     inst.managedCell = n.managedCell
     inst.managedAlias = n.managedAlias
     inst.arrayOf = n.arrayOf and substWith(n.arrayOf, map, PRESERVE) or nil
@@ -1984,7 +1992,20 @@ local function unifyConst(param: T.ConstTerm, arg: T.ConstTerm, map: Bindings): 
 end
 
 function generics.unify(param: Type, arg: Type, map: Bindings): nil
+    local originalArg = arg
     param, arg = T.unwrapOwnership(param), T.unwrapOwnership(arg)
+    if param.tag == "typevar" and originalArg.tag == "affine" then
+        local bound = (param as T.TypeVar).bound
+        local nominal = bound and T.unwrapOwnership(bound) or nil
+        if nominal and nominal.tag == "nominal" then
+            local origin = (nominal.origin or nominal) as T.Nominal
+            if origin.intrinsicAffine then
+                -- The representation alone cannot prove an Affine bound: a
+                -- transparent affine(integer, cleanup) must retain its claim.
+                arg = originalArg
+            end
+        end
+    end
     if not T.hasTypevar(param) then
         return
     end

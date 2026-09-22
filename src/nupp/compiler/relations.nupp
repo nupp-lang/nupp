@@ -297,6 +297,42 @@ local function declaresContract(a: Type, b: Type, seen: {[Type]: boolean}?): boo
     return false
 end
 
+--- Whether a declared inheritance chain reaches the prelude ownership interface.
+local function hasAffineClaim(t: Type, seen: {[Type]: boolean}?): boolean
+    if t.tag ~= "nominal" then
+        return false
+    end
+    local nominal = t as T.Nominal
+    if ((nominal.origin or nominal) as T.Nominal).intrinsicAffine then
+        return true
+    end
+    seen = seen or {}
+    if seen[nominal] then
+        return false
+    end
+    seen[nominal] = true
+    for _, parent in ipairs(nominal.supertypes or {}) do
+        if hasAffineClaim(parent, seen) then
+            return true
+        end
+    end
+
+    return false
+end
+
+local function affineTermCleanupId(term: T.ConstTerm?): string?
+    if not term then
+        return nil
+    end
+    if term.tag == "constLiteral" and term.domain == "function" then
+        local key = term.value as string
+        local method = key:match("^self%.([%a_][%w_]*)$")
+        return method and "method:" .. method or "function:" .. key
+    end
+
+    return "functionconst:" .. term.id
+end
+
 --- Whether `a` answers every associated type `b` is owed.
 ---
 --- Members can be satisfied structurally, and a declared `is` edge is trusted to fill
@@ -867,6 +903,41 @@ local function check(a: Type, b: Type): boolean, string?
     end
     if btag == "typevar" then
         return true
+    end
+
+    -- Resolving an inherently owned interface normally adds its ownership
+    -- wrapper. For an Affine bound, that wrapper describes the claim itself;
+    -- the implementing value can have a different erased representation.
+    if btag == "affine" and b.inner.tag == "nominal" then
+        local target = b.inner as T.Nominal
+        if ((target.origin or target) as T.Nominal).intrinsicAffine then
+            return isA(a, target)
+        end
+    end
+
+    -- An ownership claim is made by a declared edge, even though ordinary
+    -- interface members are structural. The cleanup identity must also agree.
+    if btag == "nominal" and b.declKind == "interface" and hasAffineClaim(b) then
+        local source = atag == "affine" and (a as T.Affine).inner or a
+        local sourceNominal = source.tag == "nominal" and source as T.Nominal or nil
+        local target = b as T.Nominal
+        if ((target.origin or target) as T.Nominal).intrinsicAffine then
+            local cleanup = atag == "affine" and (a as T.Affine).cleanups[1]
+                or sourceNominal and sourceNominal.inherentCleanup
+                or nil
+            local wanted = affineTermCleanupId(target.constArgs and target.constArgs[1] or nil)
+            if not cleanup
+                or not wanted
+                or cleanup.id ~= wanted
+                or not (atag == "affine" or sourceNominal and hasAffineClaim(sourceNominal))
+            then
+                return fail(a, b)
+            end
+            return true
+        end
+        if not sourceNominal or not declaresContract(sourceNominal, target) then
+            return fail(a, b)
+        end
     end
 
     -- Ownership is affine metadata over pointer values. Owners and borrows erase to

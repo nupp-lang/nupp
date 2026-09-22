@@ -2341,6 +2341,23 @@ function expr.install(c: state.Checker): nil
         if not expected then
             return c.infer(node)
         end
+        local expectedFunc = rawType(expected)
+        local contextualNoSuspend = expectedFunc.tag == "func" and (expectedFunc as T.Func).noYield == true
+        if contextualNoSuspend and (node.kind == "shortfn" or node.kind == "funcExpr") then
+            local body = node.kind == "funcExpr" and node.body and node.body.body or node.body
+            c.nosuspend.region({body = body})
+            c.noSuspendDepth = c.noSuspendDepth + 1
+        end
+
+        local function finish(inferred: Type): Type
+            if contextualNoSuspend and (node.kind == "shortfn" or node.kind == "funcExpr") then
+                c.noSuspendDepth = c.noSuspendDepth - 1
+                return T.withOwnershipPayload(inferred, T.withYields(rawType(inferred), false))
+            end
+
+            return inferred
+        end
+
         if node.kind == "shortfn" then
             if rawType(expected).tag == "func" and (rawType(expected) as T.Func).sendable then
                 node.sendableContext = true
@@ -2348,7 +2365,7 @@ function expr.install(c: state.Checker): nil
             expectedShortfns[node] = expected
             local inferred = c.infer(node)
             expectedShortfns[node] = nil
-            return inferred
+            return finish(inferred)
         elseif node.kind == "funcExpr" and node.body then
             -- Contextual function checking bypasses infer, but its annotations
             -- still have to satisfy the same attachment rules.
@@ -2375,7 +2392,7 @@ function expr.install(c: state.Checker): nil
                     inferred = T.borrowed(inferred)
                 end
             end
-            return inferred
+            return finish(inferred)
         end
 
         return c.infer(node)

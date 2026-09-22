@@ -1840,6 +1840,9 @@ function declare.install(
             if stat.affineTok then
                 n.affineInterface = true
             end
+            if c.filename == "nupp:prelude.d.nupp" and n.name == "Affine" and n.declKind == "interface" then
+                n.intrinsicAffine = true
+            end
             if c.result.moduleName == "nupp.prelude" and n.name == "Managed" then
                 n.managedCell = true
             elseif c.result.moduleName == "nupp.prelude" and n.name == "Alias" then
@@ -1896,19 +1899,28 @@ function declare.install(
                         )
                     end
                 else
-                    if super.affineInterface then
+                    if super.affineInterface or super.intrinsicAffine then
                         n.affineInterface = true
-                        if n.terminalMethod and super.terminalMethod and n.terminalMethod ~= super.terminalMethod then
-                            c.diag(
-                                "NUPP2615",
-                                superNode,
-                                (
-                                    "%s inherits competing terminal methods %q and %q"
-                                ):format(n.name, n.terminalMethod, super.terminalMethod)
-                            )
-                        elseif super.terminalMethod then
-                            n.terminalMethod = super.terminalMethod
-                            n.inherentCleanup = super.inherentCleanup or T.methodCleanup(super.terminalMethod)
+                        local inherited = super.inherentCleanup
+                        local inheritedMethod = super.terminalMethod
+                        if super.intrinsicAffine then
+                            local term = super.constArgs and super.constArgs[1] or nil
+                            local named = term and term.tag == "constLiteral" and term.value or nil
+                            local method = type(named) == "string" and named:match("^self%.([%a_][%w_]*)$") or nil
+                            if method then
+                                inheritedMethod = method
+                                inherited = T.methodCleanup(method)
+                            elseif term then
+                                inherited = T.constFunctionCleanup(term)
+                            else
+                                c.diag("NUPP2615", superNode, "Affine requires one cleanup function")
+                            end
+                        end
+                        if n.inherentCleanup and inherited and n.inherentCleanup.id ~= inherited.id then
+                            c.diag("NUPP2615", superNode, ("%s inherits competing cleanup functions"):format(n.name))
+                        elseif inherited then
+                            n.inherentCleanup = inherited
+                            n.terminalMethod = n.terminalMethod or inheritedMethod
                         end
                     end
                     if super.sealedModule and super.sealedModule ~= (c.result.moduleName or c.filename) then
@@ -2780,6 +2792,30 @@ function declare.install(
                     end
                 end
                 n.predicate = derived
+            end
+            if n.affineInterface and n.inherentCleanup and not stat.affineTok then
+                local cleanup = n.inherentCleanup
+                if cleanup.kind == "method" then
+                    local ft = n.byname[cleanup.name]
+                    ft = ft and T.unwrapOwnership(ft) or nil
+                    if not ft or ft.tag ~= "func" then
+                        c.diag("NUPP2615", stat.name, ("cleanup method %q must be declared"):format(cleanup.name))
+                    elseif #ft.params ~= 1 or ft.paramPack.tail ~= nil or ft.paramModes[1] ~= "takes" then
+                        c.diag(
+                            "NUPP2615",
+                            stat.name,
+                            ("cleanup method %q must take one consuming self"):format(cleanup.name)
+                        )
+                    elseif ft.params[1] == T.any or not isA(n, T.unwrapOwnership(ft.params[1])) then
+                        c.diag("NUPP2615", stat.name, ("cleanup method %q must accept self"):format(cleanup.name))
+                    elseif #ft.rets ~= 1 or ft.retPack.tail ~= nil or ft.rets[1] ~= T.nil_ then
+                        c.diag("NUPP2615", stat.name, ("cleanup method %q must return nil"):format(cleanup.name))
+                    end
+                elseif cleanup.kind == "function" then
+                    cleanup = c.own.resolveCleanups({cleanup}, stat, stat)[1]
+                    n.inherentCleanup = cleanup
+                    c.own.validateCleanups(n, {cleanup}, stat, "NUPP2615")
+                end
             end
             if stat.affineTok and not n.terminalMethod then
                 c.diag(
