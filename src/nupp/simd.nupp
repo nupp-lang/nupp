@@ -509,8 +509,10 @@ end
 --- to i32 or u32; i64 and u64 never pass through a Lua double.
 --- @export
 record simd.WrappingSum<T is int32 | uint32 | int64 | uint64>
-    private total: T
-    private operation: function(T, T): T
+    @private
+    total: T
+    @private
+    operation: function(T, T): T
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
@@ -531,8 +533,10 @@ end
 
 --- @export
 record simd.WrappingProduct<T is int32 | uint32 | int64 | uint64>
-    private total: T
-    private operation: function(T, T): T
+    @private
+    total: T
+    @private
+    operation: function(T, T): T
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
@@ -553,8 +557,10 @@ end
 
 --- @export
 record simd.AndBits<T is int32 | uint32 | int64 | uint64>
-    private total: T
-    private operation: function(T, T): T
+    @private
+    total: T
+    @private
+    operation: function(T, T): T
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
@@ -575,8 +581,10 @@ end
 
 --- @export
 record simd.OrBits<T is int32 | uint32 | int64 | uint64>
-    private total: T
-    private operation: function(T, T): T
+    @private
+    total: T
+    @private
+    operation: function(T, T): T
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
@@ -597,8 +605,10 @@ end
 
 --- @export
 record simd.XorBits<T is int32 | uint32 | int64 | uint64>
-    private total: T
-    private operation: function(T, T): T
+    @private
+    total: T
+    @private
+    operation: function(T, T): T
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
@@ -804,7 +814,8 @@ reducer.u64 = u64
 --- Whether any contribution is true; false for an empty loop.
 --- @export
 record simd.Any
-    private total: boolean
+    @private
+    total: boolean
 
     function add(self, value: boolean): nil
         self.total = self.total or value
@@ -824,7 +835,8 @@ end
 --- Whether every contribution is true; true for an empty loop.
 --- @export
 record simd.All
-    private total: boolean
+    @private
+    total: boolean
 
     function add(self, value: boolean): nil
         self.total = self.total and value
@@ -844,7 +856,8 @@ end
 --- Counts true contributions exactly, modulo 2^64.
 --- @export
 record simd.Count
-    private total: uint64
+    @private
+    total: uint64
 
     function add(self, value: boolean): nil
         self.total = self.total + (value and 1ULL or 0ULL)
@@ -868,7 +881,8 @@ end
 --- An integer extremum including its initial value.
 --- @export
 record simd.IntegerMin<T is int32 | uint32 | int64 | uint64>
-    private best: T
+    @private
+    best: T
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
@@ -898,9 +912,12 @@ end
 --- First one-based logical position of the integer extremum; zero when empty.
 --- @export
 record simd.IntegerArgMin<T is int32 | uint32 | int64 | uint64>
-    private best: T?
-    private position: integer
-    private count: integer
+    @private
+    best: T?
+    @private
+    position: integer
+    @private
+    count: integer
 
     function add(self, value: T): nil
         self.count = self.count + 1
@@ -924,7 +941,8 @@ end
 --- An integer extremum including its initial value.
 --- @export
 record simd.IntegerMax<T is int32 | uint32 | int64 | uint64>
-    private best: T
+    @private
+    best: T
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
@@ -954,9 +972,12 @@ end
 --- First one-based logical position of the integer extremum; zero when empty.
 --- @export
 record simd.IntegerArgMax<T is int32 | uint32 | int64 | uint64>
-    private best: T?
-    private position: integer
-    private count: integer
+    @private
+    best: T?
+    @private
+    position: integer
+    @private
+    count: integer
 
     function add(self, value: T): nil
         self.count = self.count + 1
@@ -997,7 +1018,8 @@ end
 --- A NaN wins over every number. Signed zero follows -0 < +0.
 --- @export
 record simd.PropagatingMin
-    private best: number
+    @private
+    best: number
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
@@ -1028,9 +1050,12 @@ end
 --- A NaN wins over every number. Signed zero follows -0 < +0.
 --- @export
 record simd.PropagatingArgMin
-    private best: number
-    private position: integer
-    private count: integer
+    @private
+    best: number
+    @private
+    position: integer
+    @private
+    count: integer
 
     function add(self, value: number): nil
         self.count = self.count + 1
@@ -1055,7 +1080,8 @@ end
 --- A NaN wins over every number. Signed zero follows -0 < +0.
 --- @export
 record simd.PropagatingMax
-    private best: number
+    @private
+    best: number
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
@@ -1086,9 +1112,12 @@ end
 --- A NaN wins over every number. Signed zero follows -0 < +0.
 --- @export
 record simd.PropagatingArgMax
-    private best: number
-    private position: integer
-    private count: integer
+    @private
+    best: number
+    @private
+    position: integer
+    @private
+    count: integer
 
     function add(self, value: number): nil
         self.count = self.count + 1
@@ -1113,7 +1142,8 @@ end
 --- A number wins over every NaN. Signed zero follows -0 < +0.
 --- @export
 record simd.NumberMin
-    private best: number
+    @private
+    best: number
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
@@ -1144,9 +1174,12 @@ end
 --- A number wins over every NaN. Signed zero follows -0 < +0.
 --- @export
 record simd.NumberArgMin
-    private best: number
-    private position: integer
-    private count: integer
+    @private
+    best: number
+    @private
+    position: integer
+    @private
+    count: integer
 
     function add(self, value: number): nil
         self.count = self.count + 1
@@ -1171,7 +1204,8 @@ end
 --- A number wins over every NaN. Signed zero follows -0 < +0.
 --- @export
 record simd.NumberMax
-    private best: number
+    @private
+    best: number
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
@@ -1202,9 +1236,12 @@ end
 --- A number wins over every NaN. Signed zero follows -0 < +0.
 --- @export
 record simd.NumberArgMax
-    private best: number
-    private position: integer
-    private count: integer
+    @private
+    best: number
+    @private
+    position: integer
+    @private
+    count: integer
 
     function add(self, value: number): nil
         self.count = self.count + 1
@@ -1373,7 +1410,8 @@ end
 --- Operations whose lane count is selected from `T` and `S` at AOT lowering.
 --- @export
 sealed interface simd.Species<T, S>
-    readonly lanes: uint32
+    @readonly
+    lanes: uint32
 
     --- Converts each lane using LuaJIT FFI numeric conversion rules. Integer
     --- narrowing keeps low bits; float-to-integer truncates through int64,
@@ -1564,7 +1602,8 @@ end) as(
     & function<T, const N: integer>(element: StorageWitness<T>, lanes: N): simd.Species<T, simd.Fixed<N>>?
 )
 
-local comptime function Transposed(Rows: typepack, Vector: type, Fixed: type): typepack
+@comptime
+local function Transposed(Rows: typepack, Vector: type, Fixed: type): typepack
     const rows = nupp.types.elements(Rows)
     if #rows < 2 or #rows > 64 then
         return nupp.types.error("transpose needs between 2 and 64 fixed-width rows")

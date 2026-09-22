@@ -202,7 +202,7 @@ local span = {}
 
 --- The consuming operation shared by every writable span representation.
 sealed interface span.WriteToken
-    drop: nosuspend function(takes self: WriteToken): nil
+    drop: @nosuspend function(takes self: WriteToken): nil
 end
 
 --- Ends a write range, which is what every writable span's contract names.
@@ -213,8 +213,9 @@ end
 --- @param writable the write range, spent by this call
 --- @export
 function span.destroyWriteSpan<T is span.WriteToken>(takes writable: T): nil
-    nosuspend do
-        local _raw = @unsafe release writable
+    @nosuspend
+    do
+        local _raw = @unsafe nupp.release(writable)
     end
 end
 
@@ -246,10 +247,17 @@ end
 
 --- The sole runtime representation of a dynamic shared span.
 local record SpanImpl<T> is span.Span<T>
-    private readonly anchor: any
-    private readonly pointer: const T[?] borrows (anchor)
-    private readonly offset: integer
-    readonly count: integer
+    @private
+    @readonly
+    anchor: any
+    @private
+    @readonly
+    pointer: const T[?] borrows (anchor)
+    @private
+    @readonly
+    offset: integer
+    @readonly
+    count: integer
 
     --- Returns one element after checking the one-based index.
     --- @raises string when index is outside 1 through count
@@ -301,10 +309,17 @@ end
 
 --- The sole runtime representation of a fixed shared span.
 local record FixedSpanImpl<T, const N: integer> is span.FixedSpan<T, N>
-    private readonly anchor: any
-    private readonly pointer: const T[?] borrows (anchor)
-    private readonly offset: integer
-    readonly count: N
+    @private
+    @readonly
+    anchor: any
+    @private
+    @readonly
+    pointer: const T[?] borrows (anchor)
+    @private
+    @readonly
+    offset: integer
+    @readonly
+    count: N
 
     function get(self: FixedSpanImpl<T, N>, index: integer): T
         if index < 1 or index > (self.count as integer) then
@@ -347,13 +362,17 @@ end
 --- relate to their anchor.
 --- @export
 record span.WriteSplit<T>
-    private readonly anchor: any
+    @private
+    @readonly
+    anchor: any
 
     --- The first `mid` elements, writable independently of `right`.
-    readonly left: span.WriteSpan<T> borrows (anchor)
+    @readonly
+    left: span.WriteSpan<T> borrows (anchor)
 
     --- Everything after them, writable independently of `left`.
-    readonly right: span.WriteSpan<T> borrows (anchor)
+    @readonly
+    right: span.WriteSpan<T> borrows (anchor)
 end
 
 --- An affine checked write range. Its live token keeps the source under an
@@ -366,7 +385,7 @@ sealed interface span.WriteSpan<T> is span.WriteToken
     metamethod __newindex: function(exclusive self: WriteSpan<T>, index: integer, value: T): nil
 
     --- Ends this write range, releasing the barrier on its source.
-    drop: nosuspend function(takes self: WriteSpan<T>): nil
+    drop: @nosuspend function(takes self: WriteSpan<T>): nil
 
     --- Answers the checked range as a mutable pointer and count, for a native call.
     ---
@@ -424,13 +443,20 @@ type span.FixedWritable<T, const N: integer> = affine(span.FixedWriteSpan<T, N>,
 
 --- The sole runtime representation of a dynamic writable span.
 local record WriteSpanImpl<T> is span.WriteSpan<T>
-    private readonly anchor: any
-    private readonly pointer: T[?] borrows (anchor)
-    private readonly offset: integer
-    readonly count: integer
+    @private
+    @readonly
+    anchor: any
+    @private
+    @readonly
+    pointer: T[?] borrows (anchor)
+    @private
+    @readonly
+    offset: integer
+    @readonly
+    count: integer
 
     --- Ends this affine write range. It is also the automatic scope-exit drop.
-    drop: nosuspend function(takes self: WriteSpanImpl<T>): nil
+    drop: @nosuspend function(takes self: WriteSpanImpl<T>): nil
 
     --- Returns a checked mutable element reference tied to this write borrow.
     --- @raises string when index is outside 1 through count
@@ -537,12 +563,19 @@ end
 
 --- The sole runtime representation of a fixed writable span.
 local record FixedWriteSpanImpl<T, const N: integer> is span.FixedWriteSpan<T, N>
-    private readonly anchor: any
-    private readonly pointer: T[?] borrows (anchor)
-    private readonly offset: integer
-    readonly count: N
+    @private
+    @readonly
+    anchor: any
+    @private
+    @readonly
+    pointer: T[?] borrows (anchor)
+    @private
+    @readonly
+    offset: integer
+    @readonly
+    count: N
 
-    drop: nosuspend function(takes self: FixedWriteSpanImpl<T, N>): nil
+    drop: @nosuspend function(takes self: FixedWriteSpanImpl<T, N>): nil
 
     function getMut(exclusive self: FixedWriteSpanImpl<T, N>, index: integer): T* borrows (self)
         if index < 1 or index > (self.count as integer) then
@@ -643,14 +676,16 @@ local record FixedWriteSpanImpl<T, const N: integer> is span.FixedWriteSpan<T, N
 end
 
 function WriteSpanImpl.drop<T>(takes self: WriteSpanImpl<T>): nil
-    nosuspend do
-        local _raw = @unsafe release self
+    @nosuspend
+    do
+        local _raw = @unsafe nupp.release(self)
     end
 end
 
 function FixedWriteSpanImpl.drop<T, const N: integer>(takes self: FixedWriteSpanImpl<T, N>): nil
-    nosuspend do
-        local _raw = @unsafe release self
+    @nosuspend
+    do
+        local _raw = @unsafe nupp.release(self)
     end
 end
 

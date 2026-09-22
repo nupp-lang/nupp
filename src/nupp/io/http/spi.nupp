@@ -27,47 +27,61 @@ export type Body = ResponseBody
 
 export interface Response is nupp.Closeable
     --- HTTP response status code.
-    readonly status: integer
+    @readonly
+    status: integer
 
     --- Observed protocol version, absent when the host cannot expose it.
-    readonly version: Version?
+    @readonly
+    version: Version?
 
     --- Canonical final response URI, including completed redirects.
-    readonly url: URI
+    @readonly
+    url: URI
 
     --- Owned response reader whose lifetime is governed by the response.
-    readonly body: Body
+    @readonly
+    body: Body
 
     --- Reports whether the status is in the successful 2xx range.
-    readonly ok: function(self: Response): boolean
+    @readonly
+    ok: function(self: Response): boolean
 
     --- Returns one header value by case-insensitive name, or nil if absent.
-    readonly header: function(self: Response, name: string): string?
+    @readonly
+    header: function(self: Response, name: string): string?
 
     --- Returns all values for a case-insensitive header name.
-    readonly getAll: function(self: Response, name: string): {string}
+    @readonly
+    getAll: function(self: Response, name: string): {string}
 
     --- Returns the response header mapping exposed by the host.
-    readonly headers: function(self: Response): {[string]: string}
+    @readonly
+    headers: function(self: Response): {[string]: string}
 end
 
 export interface Client is nupp.Closeable
     --- Services outstanding client work while holding exclusive client access.
-    readonly flush: function(exclusive self: Client): nil
+    @readonly
+    flush: function(exclusive self: Client): nil
 
     --- Returns the number of outstanding requests or transfers.
-    readonly pending: function(self: Client): integer
+    @readonly
+    pending: function(self: Client): integer
 
     --- Borrows the Request while sending and returns an owned Response or an error.
-    readonly send: function(self: Client, borrows request: Request): (Response?, string?)
+    @readonly
+    send: function(self: Client, borrows request: Request): (Response?, string?)
 end
 
 export interface Provider
-    readonly priority: integer?
+    @readonly
+    priority: integer?
 
     --- Constructs an owned client with the requested transport policy.
-    readonly client: function(options: Options?): Client
+    @readonly
+    client: function(options: Options?): Client
 
     --- Reports the guarantees this implementation actually provides.
-    readonly capabilities: function(): Capabilities
+    @readonly
+    capabilities: function(): Capabilities
 end

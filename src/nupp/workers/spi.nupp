@@ -35,14 +35,15 @@ local type Callable = function(...: any): any
 --- What may actually be submitted: a module member, or an outlined literal whose
 --- effectively-final captures can be copied to another lane. Exported so a task scope
 --- can hold its `fork` to the same bound without linking this module.
-type workers.Submittable = sendable function(...: any): any
+type workers.Submittable = @sendable function(...: any): any
 
 --- Whether one type is an engine-backed owner a lane boundary moves rather than
 --- copies: a [](nupp.mem.heap) array of a fixed-width element. The storage lives in
 --- neither Lua heap, so handing its pointer to another lane is sound, and the affine
 --- layer consumes the sender's binding where the move is written. The element names
 --- here must agree with the runtime tag map in `nupp.mem.heap`.
-local comptime function movableOwner(T: type): boolean
+@comptime
+local function movableOwner(T: type): boolean
     local described = nupp.types.describe(T) as {[string]: any}
     if described.kind ~= "reference" then
         return false
@@ -86,7 +87,8 @@ end
 ---
 --- The walk terminates on a self-referential type because the edge that would close the
 --- loop is one the compile-time view of a type does not carry.
-local comptime function unsendable(T: type, label: string): string?
+@comptime
+local function unsendable(T: type, label: string): string?
     local named = {
         thread = "a thread",
         userdata = "userdata",
@@ -148,7 +150,8 @@ end
 --- The arguments a submitted function takes, once its whole signature is known to be
 --- copyable. Reached only from `spawn`: naming `Job<F>` describes a handle rather than
 --- a crossing, so a signature is held to this where it is submitted and nowhere else.
-comptime function workers.Submitted(F: type): typepack
+@comptime
+function workers.Submitted(F: type): typepack
     if nupp.types.kind(F) ~= "function" then
         return nupp.types.error("a worker job must name a function type")
     end
@@ -189,7 +192,8 @@ comptime function workers.Submitted(F: type): typepack
     return nupp.types.parameters(F)
 end
 
-local comptime function JobType(F: type): type
+@comptime
+local function JobType(F: type): type
     if nupp.types.kind(F) ~= "function" then
         return nupp.types.error("a worker job must name a function type")
     end
@@ -243,7 +247,8 @@ type workers.Job<F is Callable> = JobType(F)
 
 --- The cleanup contract a structured worker scope carries.
 interface workers.ScopeToken is nupp.Affine<self.drop>
-    readonly drop: function(takes self: workers.ScopeToken): nil
+    @readonly
+    drop: function(takes self: workers.ScopeToken): nil
 end
 
 --- A lexical family of parallel child tasks.
@@ -273,43 +278,54 @@ record workers.Scope is workers.ScopeToken
 end
 
 interface workers.PublicScope is workers.ScopeToken
-    readonly spawn: function<F is workers.Submittable>(
+    @readonly
+    spawn: function<F is workers.Submittable>(
         borrows self: workers.PublicScope,
         F,
         ...: unpackof workers.Submitted(F)
     ): workers.Job<F>
-    readonly close: function(borrows self: workers.PublicScope): nil
-    readonly drop: function(takes self: workers.PublicScope): nil
+    @readonly
+    close: function(borrows self: workers.PublicScope): nil
+    @readonly
+    drop: function(takes self: workers.PublicScope): nil
 end
 
 --- Complete worker implementation protocol, including structured-task integration.
 --- Implement generic spawn and ownership guarantees through the shared scope types.
 interface workers.Provider
-    readonly priority: integer?
+    @readonly
+    priority: integer?
 
     --- Creates an affine structured scope that settles children during cleanup.
-    readonly scope: function(): affine(workers.PublicScope)
+    @readonly
+    scope: function(): affine(workers.PublicScope)
 
     --- Creates canonical scope state for task integration, with an optional
     --- monotonic deadline and observer.
-    readonly openScope: function(deadline: number?, observer: any): workers.Scope
+    @readonly
+    openScope: function(deadline: number?, observer: any): workers.Scope
 
     --- Waits for a task and returns status, packed values, exact count, and problem.
     --- Status is done, failed, or cancelled; cancellation preserves its shared
     --- identity.
-    readonly settle: function(task: any): (string, {any}?, integer, any)
+    @readonly
+    settle: function(task: any): (string, {any}?, integer, any)
 
     --- Reports the scheduler's available worker parallelism.
-    readonly parallelism: function(): integer
+    @readonly
+    parallelism: function(): integer
 
     --- Runs provider scheduler progress using its retained lane state.
-    readonly runScheduler: function(): nil
+    @readonly
+    runScheduler: function(): nil
 
     --- Associates an executable function with its module/member identity.
-    readonly defineSendable: function(moduleName: string, member: string, fn: any): nil
+    @readonly
+    defineSendable: function(moduleName: string, member: string, fn: any): nil
 
     --- Describes a submitted function and captures for destination-lane execution.
-    readonly describeSendable: function(fn: any, moduleName: string, member: string, ...: any): any
+    @readonly
+    describeSendable: function(fn: any, moduleName: string, member: string, ...: any): any
 end
 
 workers.Scope = workers.Scope

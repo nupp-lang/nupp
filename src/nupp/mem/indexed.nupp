@@ -31,10 +31,12 @@ local indexed = {}
 --- @export
 record indexed.Range
     --- The one-based first index, inclusive.
-    readonly first: integer
+    @readonly
+    first: integer
 
     --- The one-based last index, inclusive. One below `first` is an empty range.
-    readonly last: integer
+    @readonly
+    last: integer
 end
 
 --- Validates one inclusive range against every view supplied after it.

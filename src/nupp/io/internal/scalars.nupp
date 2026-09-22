@@ -26,7 +26,7 @@ end
 -- record it takes and precede the record that hands it out, and no such order exists.
 -- One generic terminal over the shape they all share is written once, ahead of them.
 local interface Owner
-    drop: nosuspend function(takes self: Owner): nil
+    drop: @nosuspend function(takes self: Owner): nil
 end
 
 --- Releases any of this module's owners. Every one of them is handed out under this
@@ -48,7 +48,7 @@ export interface ScalarReader
     --- Repeated calls are safe. Declared rather than written inline: a cleanup
     --- contract is `nosuspend`, and an inline method cannot carry one.
     --- @param self this owner, spent by the call
-    drop: nosuspend function(takes self: ScalarReader): nil
+    drop: @nosuspend function(takes self: ScalarReader): nil
 
     --- How many bytes are left, when that is knowable.
     --- @param self this reader
@@ -149,11 +149,15 @@ end
 
 --- The storage behind a scalar reader.
 local record Scalars is ScalarReader
-    private _pending: string
-    private _reader: any
-    private _queue: any
-    private _closed: boolean
-    drop: nosuspend function(takes self: Scalars): nil
+    @private
+    _pending: string
+    @private
+    _reader: any
+    @private
+    _queue: any
+    @private
+    _closed: boolean
+    drop: @nosuspend function(takes self: Scalars): nil
 
     function remaining(self): integer?
         if self._closed then
@@ -262,7 +266,7 @@ local record Scalars is ScalarReader
     end
 
     function close(takes self): (boolean, string?)
-        local state = @unsafe release self
+        local state = @unsafe nupp.release(self)
         local reader = state._reader
         state._reader = nil
         state._queue = nil
@@ -286,7 +290,7 @@ export interface ScalarWriter
     --- Repeated calls are safe. Declared rather than written inline: a cleanup
     --- contract is `nosuspend`, and an inline method cannot carry one.
     --- @param self this owner, spent by the call
-    drop: nosuspend function(takes self: ScalarWriter): nil
+    drop: @nosuspend function(takes self: ScalarWriter): nil
 
     --- Writes bytes as they are.
     --- @param self this writer
@@ -375,11 +379,15 @@ end
 
 --- The storage behind a scalar writer.
 local record ScalarSink is ScalarWriter
-    private _buffer: any
-    private _writer: any
-    private _ownsBuffer: boolean
-    private _closed: boolean
-    drop: nosuspend function(takes self: ScalarSink): nil
+    @private
+    _buffer: any
+    @private
+    _writer: any
+    @private
+    _ownsBuffer: boolean
+    @private
+    _closed: boolean
+    drop: @nosuspend function(takes self: ScalarSink): nil
 
     function writeBytes(self, bytes: string): ScalarWriter
         if type(bytes) ~= "string" then
@@ -445,7 +453,7 @@ local record ScalarSink is ScalarWriter
     end
 
     function close(takes self): (boolean, string?)
-        local state = @unsafe release self
+        local state = @unsafe nupp.release(self)
         local writer = state._writer
         local buffer = state._buffer
         local ownsBuffer = state._ownsBuffer
@@ -466,7 +474,7 @@ local record ScalarSink is ScalarWriter
 end
 
 function Scalars.drop(takes self: Scalars): nil
-    local state = @unsafe release self
+    local state = @unsafe nupp.release(self)
     local reader = state._reader
     state._closed = true
     state._pending = ""
@@ -478,7 +486,7 @@ function Scalars.drop(takes self: Scalars): nil
 end
 
 function ScalarSink.drop(takes self: ScalarSink): nil
-    local state = @unsafe release self
+    local state = @unsafe nupp.release(self)
     local writer = state._writer
     local buffer = state._buffer
     local ownsBuffer = state._ownsBuffer
@@ -606,7 +614,7 @@ local function openScalarWriter(destination: any): ScalarWriter
     if destination == nil then
         -- The scalar writer owns this buffer. `buffer()` only borrows it, and scalar
         -- teardown discharges the buffer obligation with the writer's own.
-        state._buffer = @unsafe release newBuffer(nil)
+        state._buffer = @unsafe nupp.release(newBuffer(nil))
         state._ownsBuffer = true
     elseif type(destination) == "table" and destination.write ~= nil then
         state._writer = destination

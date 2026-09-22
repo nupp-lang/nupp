@@ -70,7 +70,7 @@ end
 -- record it takes and precede the record that hands it out, and no such order exists.
 -- One generic terminal over the shape they all share is written once, ahead of them.
 local interface Owner
-    drop: nosuspend function(takes self: Owner): nil
+    drop: @nosuspend function(takes self: Owner): nil
 end
 
 --- Releases any of this module's owners. Every one of them is handed out under this
@@ -201,7 +201,7 @@ end
 --- A snapshot of bytes that cannot be written through.
 --- @export
 export sealed interface ByteView
-    drop: nosuspend function(takes self: ByteView): nil
+    drop: @nosuspend function(takes self: ByteView): nil
     length: function(borrows self: ByteView): integer
     getString: function(borrows self: ByteView): string
     readSpan: function(borrows self: ByteView): span.ByteSpan borrows (self)
@@ -216,10 +216,12 @@ end
 ----------------------------------------------------------------------------
 
 local record Snapshot is ByteView
-    private _bytes: string
-    private _closed: boolean
+    @private
+    _bytes: string
+    @private
+    _closed: boolean
 
-    drop: nosuspend function(takes self: Snapshot): nil
+    drop: @nosuspend function(takes self: Snapshot): nil
 
     function length(borrows self): integer
         opened(self._closed, "io.ByteView", 2)
@@ -262,7 +264,7 @@ end
 --- lease aborts it without changing the buffer's logical length.
 --- @export
 export sealed interface BufferWriteLease
-    drop: nosuspend function(takes self: BufferWriteLease): nil
+    drop: @nosuspend function(takes self: BufferWriteLease): nil
     span: function(exclusive self: BufferWriteLease): span.Writable<uint8> borrows (self)
     commit: function(takes self: BufferWriteLease, written: integer): nil
 end
@@ -270,7 +272,7 @@ end
 --- Growable byte storage whose pointer and logical length never escape separately.
 --- @export
 export sealed interface Buffer
-    drop: nosuspend function(takes self: Buffer): nil
+    drop: @nosuspend function(takes self: Buffer): nil
     length: function(borrows self: Buffer): integer
     capacity: function(borrows self: Buffer): integer
     clear: function(exclusive self: Buffer): nil
@@ -298,12 +300,16 @@ local newWriteLease: function(
 ): affine(BufferWriteLease, destroyOwner) borrows (buffer)
 
 local record HeapBuffer is Buffer
-    private _data: uint8[?]
-    private _length: integer
-    private _capacity: integer
-    private _closed: boolean
+    @private
+    _data: uint8[?]
+    @private
+    _length: integer
+    @private
+    _capacity: integer
+    @private
+    _closed: boolean
 
-    drop: nosuspend function(takes self: HeapBuffer): nil
+    drop: @nosuspend function(takes self: HeapBuffer): nil
 
     function length(borrows self): integer
         opened(self._closed, "io.Buffer", 2)
@@ -418,13 +424,23 @@ local record HeapBuffer is Buffer
 end
 
 local record WriteLease is BufferWriteLease
-    private readonly anchor: any
-    private readonly state: any
-    private readonly pointer: uint8[?]
-    private readonly offset: integer
-    private readonly count: integer
+    @private
+    @readonly
+    anchor: any
+    @private
+    @readonly
+    state: any
+    @private
+    @readonly
+    pointer: uint8[?]
+    @private
+    @readonly
+    offset: integer
+    @private
+    @readonly
+    count: integer
 
-    drop: nosuspend function(takes self: WriteLease): nil
+    drop: @nosuspend function(takes self: WriteLease): nil
 
     function span(exclusive self): span.Writable<uint8> borrows (self)
         return span.writeCarray(self.pointer, self.count)
@@ -435,7 +451,7 @@ local record WriteLease is BufferWriteLease
         if used > self.count then
             error("nupp: io.Buffer committed byte count exceeds its lease", 2)
         end
-        local raw = @unsafe release self
+        local raw = @unsafe nupp.release(self)
         local target = raw.state
         opened(target._closed, "io.Buffer", 2)
         if used > 0 then
@@ -475,10 +491,16 @@ end
 
 --- The storage behind a writer over a buffer.
 local record BufferWriter is Writer
-    private readonly anchor: any
-    private readonly _buffer: any
-    private _at: integer
-    private _closed: boolean
+    @private
+    @readonly
+    anchor: any
+    @private
+    @readonly
+    _buffer: any
+    @private
+    _at: integer
+    @private
+    _closed: boolean
 
     --- Appends bytes.
     --- @param self this writer
@@ -531,7 +553,7 @@ local record BufferWriter is Writer
                 -- every protected cleanup closure on the native interpreter.
                 require("nupp.runtime.storage").copy(destinationPointer, sourcePointer, count)
             end
-            drop output
+            nupp.drop(output)
         end
         lease:commit(count)
         self._at = at + count
@@ -645,7 +667,7 @@ local record StringReader is Reader
         do
             local output = lease:span()
             copyString(output, bytes, at - 1, taking)
-            drop output
+            nupp.drop(output)
         end
         lease:commit(taking)
         self._at = at + taking
@@ -745,7 +767,7 @@ local record QueueReader is Reader
         do
             local output = lease:span()
             copyString(output, chunk, 0, taking)
-            drop output
+            nupp.drop(output)
         end
         lease:commit(taking)
 
@@ -775,7 +797,7 @@ local record QueueReader is Reader
     --- Repeated calls are safe. Declared rather than written inline: a cleanup
     --- contract is `nosuspend`, and an inline method cannot carry one.
     --- @param self this reader, spent by the call
-    drop: nosuspend function(takes self: QueueReader): nil
+    drop: @nosuspend function(takes self: QueueReader): nil
 
     --- Closes the reader without closing the queue behind it.
     --- @param self this reader, spent by the call
@@ -789,13 +811,13 @@ end
 ----------------------------------------------------------------------------
 
 function Snapshot.drop(takes self: Snapshot): nil
-    local state = @unsafe release self
+    local state = @unsafe nupp.release(self)
     state._closed = true
     state._bytes = ""
 end
 
 function HeapBuffer.drop(takes self: HeapBuffer): nil
-    local state = @unsafe release self
+    local state = @unsafe nupp.release(self)
     state._closed = true
     state._length = 0
     state._capacity = 0
@@ -804,24 +826,25 @@ function HeapBuffer.drop(takes self: HeapBuffer): nil
 end
 
 function WriteLease.drop(takes self: WriteLease): nil
-    nosuspend do
-        local _raw = @unsafe release self
+    @nosuspend
+    do
+        local _raw = @unsafe nupp.release(self)
     end
 end
 
 function BufferWriter.drop(takes self: BufferWriter): nil
-    local state = @unsafe release self
+    local state = @unsafe nupp.release(self)
     state._closed = true
 end
 
 function StringReader.drop(takes self: StringReader): nil
-    local state = @unsafe release self
+    local state = @unsafe nupp.release(self)
     state._closed = true
     state._bytes = ""
 end
 
 function QueueReader.drop(takes self: QueueReader): nil
-    local state = @unsafe release self
+    local state = @unsafe nupp.release(self)
     state._closed = true
     state._source = nil
 end

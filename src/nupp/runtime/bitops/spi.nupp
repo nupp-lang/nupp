@@ -11,41 +11,54 @@ Omitted priority is zero. Importing these declarations loads no implementation.]
 --- rotates mask counts to five bits. Variadic operations consume every operand.
 --- Providers must preserve these conventions even on hosts with unsigned primitives.
 export interface BitopsProvider
-    readonly priority: integer?
+    @readonly
+    priority: integer?
 
     --- Normalizes a numeric operand to a signed 32-bit word.
-    readonly tobit: function(value: number): integer
+    @readonly
+    tobit: function(value: number): integer
 
     --- Formats the low requested hexadecimal digits; negative digits select uppercase.
-    readonly tohex: function(value: number, digits: number?): string
+    @readonly
+    tohex: function(value: number, digits: number?): string
 
     --- Rotates left by the low five bits of count.
-    readonly rol: function(value: number, count: number): integer
+    @readonly
+    rol: function(value: number, count: number): integer
 
     --- Rotates right by the low five bits of count.
-    readonly ror: function(value: number, count: number): integer
+    @readonly
+    ror: function(value: number, count: number): integer
 
     --- Reverses the four bytes of the normalized word.
-    readonly bswap: function(value: number): integer
+    @readonly
+    bswap: function(value: number): integer
 
     --- Bitwise conjunction of the first operand and every remaining operand.
-    readonly band: function(first: number, ...: number): integer
+    @readonly
+    band: function(first: number, ...: number): integer
 
     --- Bitwise disjunction of every operand.
-    readonly bor: function(first: number, ...: number): integer
+    @readonly
+    bor: function(first: number, ...: number): integer
 
     --- Bitwise exclusive-or of every operand.
-    readonly bxor: function(first: number, ...: number): integer
+    @readonly
+    bxor: function(first: number, ...: number): integer
 
     --- Inverts all 32 bits.
-    readonly bnot: function(value: number): integer
+    @readonly
+    bnot: function(value: number): integer
 
     --- Shifts left, discarding bits beyond the word.
-    readonly lshift: function(value: number, count: number): integer
+    @readonly
+    lshift: function(value: number, count: number): integer
 
     --- Shifts right with zero fill, then returns the signed word representation.
-    readonly rshift: function(value: number, count: number): integer
+    @readonly
+    rshift: function(value: number, count: number): integer
 
     --- Shifts right with sign extension.
-    readonly arshift: function(value: number, count: number): integer
+    @readonly
+    arshift: function(value: number, count: number): integer
 end

@@ -113,10 +113,14 @@ local function failure(prefix: string): string
 end
 
 local record Encoder is contract.Encoder
-    private handle: uint64
-    private consumed: any
-    private written: any
-    private status: any
+    @private
+    handle: uint64
+    @private
+    consumed: any
+    @private
+    written: any
+    @private
+    status: any
 
     function close(takes self): nil
         C.nuppNativeCompressionEncoderRelease(self.handle)
@@ -180,10 +184,14 @@ local record Encoder is contract.Encoder
 end
 
 local record Decoder is contract.Decoder
-    private handle: uint64
-    private consumed: any
-    private written: any
-    private status: any
+    @private
+    handle: uint64
+    @private
+    consumed: any
+    @private
+    written: any
+    @private
+    status: any
 
     function close(takes self): nil
         C.nuppNativeCompressionDecoderRelease(self.handle)
@@ -224,8 +232,10 @@ local record Decoder is contract.Decoder
 end
 
 local record Format is contract.Format
-    readonly name: string
-    private id: integer
+    @readonly
+    name: string
+    @private
+    id: integer
 
     function createEncoder(self, options: contract.FormatOptions?): contract.Encoder
         local level = options ~= nil and options.level or 6

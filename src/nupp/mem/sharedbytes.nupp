@@ -37,17 +37,17 @@ assert(builder:freeze():text() == "ABCDE!")
 local span = require("nupp.mem.span")
 
 local type Native = {
-    fromString: nosuspend function(string): (any?, integer?),
-    readFile: nosuspend function(string): (any?, any),
-    text: nosuspend function(any, integer, integer): string?,
-    pointer: nosuspend function(any): any,
-    length: nosuspend function(any): integer?,
-    builderNew: nosuspend function(): any,
-    builderAppend: nosuspend function(any, string): (boolean, string?),
-    builderReserve: nosuspend function(any, integer): (any?, string?),
-    builderCommit: nosuspend function(any, integer): boolean,
-    builderFreeze: nosuspend function(any): (any?, any),
-    accounted: nosuspend function(): integer
+    fromString: @nosuspend function(string): (any?, integer?),
+    readFile: @nosuspend function(string): (any?, any),
+    text: @nosuspend function(any, integer, integer): string?,
+    pointer: @nosuspend function(any): any,
+    length: @nosuspend function(any): integer?,
+    builderNew: @nosuspend function(): any,
+    builderAppend: @nosuspend function(any, string): (boolean, string?),
+    builderReserve: @nosuspend function(any, integer): (any?, string?),
+    builderCommit: @nosuspend function(any, integer): boolean,
+    builderFreeze: @nosuspend function(any): (any?, any),
+    accounted: @nosuspend function(): integer
 }
 local native = require("nupp.mem.sharedbytes.native") as Native
 local ffi = require("ffi")
@@ -55,7 +55,7 @@ local ffi = require("ffi")
 local foreignByteSpan = rawget(
     span as table,
     "__foreignByteSpan"
-) as nosuspend function(any, any, integer, integer): span.ByteSpan
+) as @nosuspend function(any, any, integer, integer): span.ByteSpan
 local foreignSpan = rawget(
     span as table,
     "__foreignSpan"
@@ -67,12 +67,15 @@ local sharedbytes = {}
 --- moves a reference, never the bytes; reading happens in place through a
 --- borrowed byte view, and `text` is the one explicit copy into a Lua state.
 record sharedbytes.Region
-    private _handle: any
-    private _first: integer
-    private _length: integer
+    @private
+    _handle: any
+    @private
+    _first: integer
+    @private
+    _length: integer
 
     --- How many bytes the region holds.
-    size: nosuspend function(sharedbytes.Region): integer
+    size: @nosuspend function(sharedbytes.Region): integer
 
     --- A zero-copy region over bytes `first` through `last` of this one.
     slice: function(sharedbytes.Region, integer, integer): sharedbytes.Region
@@ -84,7 +87,7 @@ record sharedbytes.Region
     viewAs: function<T>(borrows self: sharedbytes.Region, ctype<T>): span.Span<T> borrows (self)
 
     --- The region's bytes copied and interned as an ordinary string.
-    text: nosuspend function(sharedbytes.Region): string
+    text: @nosuspend function(sharedbytes.Region): string
 end
 
 local RegionMT: metatable<sharedbytes.Region> = {__index = sharedbytes.Region}
@@ -176,15 +179,16 @@ end
 --- An affine accumulator of engine storage. Appending grows one private
 --- allocation, and freezing transfers it into a region without copying.
 interface sharedbytes.BuilderToken is nupp.Affine<self.drop>
-    drop: nosuspend function(takes self: sharedbytes.BuilderToken): nil
+    drop: @nosuspend function(takes self: sharedbytes.BuilderToken): nil
 end
 
 --- A growable engine allocation that becomes a region when frozen.
 record sharedbytes.Builder is sharedbytes.BuilderToken
-    private _handle: any
+    @private
+    _handle: any
 
     --- Appends the chunk's bytes to the builder's storage.
-    append: nosuspend function(sharedbytes.Builder, string): nil
+    append: @nosuspend function(sharedbytes.Builder, string): nil
 
     --- Grows the storage and lends a checked writer over exactly `count`
     --- uninitialized bytes past what is already committed. All growth happens
@@ -197,13 +201,13 @@ record sharedbytes.Builder is sharedbytes.BuilderToken
     --- Closes the open reservation, keeping its first `written` bytes as
     --- content; a short read commits what arrived, and the surplus returns to
     --- capacity for the next reservation.
-    commit: nosuspend function(sharedbytes.Builder, integer): nil
+    commit: @nosuspend function(sharedbytes.Builder, integer): nil
 
     --- Consumes the builder and transfers its allocation into a region.
-    freeze: nosuspend function(takes self: sharedbytes.Builder): sharedbytes.Region
+    freeze: @nosuspend function(takes self: sharedbytes.Builder): sharedbytes.Region
 
     --- Releases an unfrozen builder's storage at scope exit.
-    drop: nosuspend function(takes self: sharedbytes.Builder): nil
+    drop: @nosuspend function(takes self: sharedbytes.Builder): nil
 end
 
 local BuilderMT: metatable<sharedbytes.Builder> = {__index = sharedbytes.Builder}
@@ -250,7 +254,7 @@ end
 function sharedbytes.Builder.freeze(takes self: sharedbytes.Builder): sharedbytes.Region
     -- Sealing spends the builder: the engine hands its bytes to the region, and
     -- the builder's own terminal has nothing left to release.
-    local builder = @unsafe release self
+    local builder = @unsafe nupp.release(self)
     local handle, length = native.builderFreeze(builder._handle)
     if handle == nil then
         if length == "open" then

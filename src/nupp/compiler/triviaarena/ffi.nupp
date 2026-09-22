@@ -10,10 +10,13 @@ local provider = {}
 const STRIDE = 5
 
 local record FfiArena
-    readonly source: string
+    @readonly
+    source: string
     count: integer
-    private capacity: integer
-    private words: uint32[?]
+    @private
+    capacity: integer
+    @private
+    words: uint32[?]
 end
 
 function FfiArena:append(kind: integer, offset: integer, length: integer, line: integer, col: integer): integer

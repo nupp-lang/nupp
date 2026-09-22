@@ -46,12 +46,15 @@ export type Digest = contexts.Digest
 --- Immutable algorithm metadata and a factory for independent digest contexts.
 export record Algorithm
     --- Canonical service and algorithm name.
-    readonly name: string
+    @readonly
+    name: string
 
     --- Number of output bytes, available before creating mutable state.
-    readonly digestSize: integer
+    @readonly
+    digestSize: integer
 
-    private implementation: provider.Algorithm
+    @private
+    implementation: provider.Algorithm
 
     --- Creates independent owned state for this algorithm.
     --- @return the unfinished digest context

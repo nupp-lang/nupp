@@ -16,20 +16,26 @@ or browser fallback when discovery is empty.
 
 --- Facts and a parallelism query for the executing ABI.
 export interface Provider
-    readonly priority: integer?
+    @readonly
+    priority: integer?
 
     --- Platform name, such as macos, linux, windows, or browser.
-    readonly platform: string
+    @readonly
+    platform: string
 
     --- Architecture name, such as aarch64, x86_64, or wasm32.
-    readonly architecture: string
+    @readonly
+    architecture: string
 
     --- Byte order: little or big.
-    readonly endianness: string
+    @readonly
+    endianness: string
 
     --- Pointer width in bits: 32 or 64.
-    readonly pointerBits: integer
+    @readonly
+    pointerBits: integer
 
     --- Estimates usable execution units, always at least one.
-    readonly availableParallelism: function(): integer
+    @readonly
+    availableParallelism: function(): integer
 end

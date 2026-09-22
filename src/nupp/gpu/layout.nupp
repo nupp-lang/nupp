@@ -25,14 +25,25 @@ is injective, which is what says when a write through it is well defined.
 local layout = {}
 
 record layout.Layout
-    private readonly _offset: integer
-    private _shape: {integer}
-    private _strides: {integer}
-    private readonly _extent: integer
-    private readonly _dense: boolean
-    private readonly _injective: boolean
+    @private
+    @readonly
+    _offset: integer
+    @private
+    _shape: {integer}
+    @private
+    _strides: {integer}
+    @private
+    @readonly
+    _extent: integer
+    @private
+    @readonly
+    _dense: boolean
+    @private
+    @readonly
+    _injective: boolean
 
-    readonly count: integer
+    @readonly
+    count: integer
 end
 
 local function copied(values: {integer}): {integer}

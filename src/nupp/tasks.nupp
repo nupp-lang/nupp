@@ -176,7 +176,8 @@ local type ScopeState = {
     frame: any
 }
 
-local comptime function TaskType(F: type): type
+@comptime
+local function TaskType(F: type): type
     if nupp.types.kind(F) ~= "function" then
         return nupp.types.error("a task must name a function type")
     end
@@ -246,7 +247,8 @@ type tasks.Task<F> = TaskType(F)
 --- read as both.
 local type Nullary = function(): any
 
-local comptime function Parameters(F: type): typepack
+@comptime
+local function Parameters(F: type): typepack
     if nupp.types.kind(F) ~= "function" then
         return nupp.types.error("a task must name a function type")
     end
@@ -1019,7 +1021,7 @@ local function workersImpl(scope: tasks.Scope): any
         }
         owner.settleHook = workerModule.settle
         local workerScope = workerModule.openScope(owner.deadline, observer)
-        owner.workerScope = @unsafe release workerScope
+        owner.workerScope = @unsafe nupp.release(workerScope)
     end
 
     return owner.workerScope
@@ -1492,7 +1494,7 @@ function tasks.open(limit: integer?, deadline: number?): affine(tasks.Scope, tas
     -- front of the host, not a host, so where nothing hosts the frame the turn stays
     -- unbounded as it is for any unhosted frame.
     local handling = suspension.install(frameHandler(owner), true)
-    owner.frame = @unsafe release handling
+    owner.frame = @unsafe nupp.release(handling)
 
     return scope
 end
@@ -1515,7 +1517,7 @@ local function familyScope(): tasks.Scope
     registerOpen(owner)
     -- The call's own frame drives the branches, exactly as a block's does.
     local handling = suspension.install(frameHandler(owner), true)
-    owner.frame = @unsafe release handling
+    owner.frame = @unsafe nupp.release(handling)
 
     return scope
 end
@@ -1612,7 +1614,7 @@ end
 --- @raises any the winner's error, when the first to settle settled by failing
 local function raceImpl<T>(takes bodies: {function(): T}): T?, integer?
     local rawBodies: {function(): T}
-    rawBodies = @unsafe release bodies
+    rawBodies = @unsafe nupp.release(bodies)
     const count = #rawBodies
     if count == 0 then
         return nil, nil

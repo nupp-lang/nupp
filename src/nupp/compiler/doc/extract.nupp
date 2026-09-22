@@ -575,17 +575,30 @@ end
 -- Compiler-only function and type handles retain their ordinary declaration kind for
 -- sorting and grouping. This is the phase-qualified kind a renderer puts on the
 -- badge instead.
+local function isComptime(node): boolean
+    if node and node.comptimeOnly then
+        return true
+    end
+    for _, application in ipairs(node and node.typeAnnotations or {}) do
+        if application.name and application.name.text == "comptime" then
+            return true
+        end
+    end
+
+    return false
+end
+
 local function comptimeKind(node): string?
     local fn = typeFunction(node)
     if fn then
         for _, overload in ipairs(node.kind == "tintersection" and node.types or {node}) do
-            if not overload.comptimeOnly then
+            if not isComptime(overload) then
                 return nil
             end
         end
         return "function"
     end
-    if node and node.comptimeOnly then
+    if isComptime(node) then
         return "type"
     end
 

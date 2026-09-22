@@ -27,7 +27,9 @@ local array = {}
 -- Element witnesses name a representation without loading its allocator.
 -- Species queries remain ordinary values even on hosts without native storage.
 record array.Scalar<T>
-    private readonly physical: string
+    @private
+    @readonly
+    physical: string
 end
 
 --- A witness for an element the checker admits only in storage positions.
@@ -52,8 +54,11 @@ const array.float = new array.Scalar(physical = "float") as array.Scalar<float>
 const array.number = new array.Scalar(physical = "number") as array.Scalar<number>
 
 record array.Array<T>
-    private readonly pointer: T[?]
-    readonly count: integer
+    @private
+    @readonly
+    pointer: T[?]
+    @readonly
+    count: integer
     read: function(borrows self: Array<T>): Span<T> borrows (self)
     write: function(exclusive self: Array<T>): Writable<T> borrows (self)
 end
@@ -69,7 +74,7 @@ end
 --- Allocates zeroed storage with the struct witness's physical layout.
 function array.new<T>(takes witness: T, count: integer): array.Array<T>
     local storage = require("nupp.runtime.storage")
-    local raw = @unsafe release witness
+    local raw = @unsafe nupp.release(witness)
     local element = storage.descriptor(raw)
     return new array.Array(pointer = storage.allocateArray(element, count) as T[?], count = count) as array.Array<T>
 end
@@ -85,8 +90,11 @@ end
 
 --- Owned bytes, with the same checked view vocabulary as scalar arrays.
 record array.Bytes
-    private readonly pointer: uint8[?]
-    readonly count: integer
+    @private
+    @readonly
+    pointer: uint8[?]
+    @readonly
+    count: integer
 
     function read(borrows self): ByteSpan borrows (self)
         return require("nupp.mem.span").fromCarray(self.pointer, self.count)

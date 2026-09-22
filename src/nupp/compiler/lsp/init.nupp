@@ -1914,7 +1914,7 @@ function lsp.run(rootDir: string?): integer
             host.currentId = nil
         end
     end
-    drop relayOwner
+    nupp.drop(relayOwner)
 
     return 0
 end

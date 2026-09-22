@@ -347,14 +347,19 @@ end
 record http.Body is io.Reader
     --- Releases the body and cancels whatever is still being produced for it.
     --- @param self this body, spent by the call
-    drop: nosuspend function(takes self: http.Body): nil
+    drop: @nosuspend function(takes self: http.Body): nil
 
-    private _client: BodyClient
-    private _transfer: NativeTransfer
-    private _closed: boolean
-    private _reading: boolean
+    @private
+    _client: BodyClient
+    @private
+    _transfer: NativeTransfer
+    @private
+    _closed: boolean
+    @private
+    _reading: boolean
 
-    private _next: function(self: http.Body, count: integer): (string?, string?)
+    @private
+    _next: function(self: http.Body, count: integer): (string?, string?)
 
     --- Reads up to `count` bytes, suspending until some arrive.
     ---
@@ -414,7 +419,7 @@ record http.Body is io.Reader
             for index = 1, #chunk do
                 output[index] = input[index]
             end
-            drop output
+            nupp.drop(output)
         end
         lease:commit(#chunk)
 
@@ -475,7 +480,8 @@ record http.Body is io.Reader
     --- The half of `close` that does not consume the owner, which is what the
     --- response's own teardown runs.
     --- @param self this body
-    private release: function(self: http.Body): nil
+    @private
+    release: function(self: http.Body): nil
 end
 
 function http.Body._next(self: http.Body, count: integer): (string?, string?)
@@ -518,8 +524,9 @@ function http.Body.drop(takes self: http.Body): nil
     -- The transfer holds the resource, and closing it is what `close` does too;
     -- done directly so this stays non-suspending, which the terminal is not
     -- declared to be.
-    local body = @unsafe release self
-    nosuspend do
+    local body = @unsafe nupp.release(self)
+    @nosuspend
+    do
         if not body._closed then
             body._closed = true
             body._transfer:close()
@@ -603,16 +610,21 @@ record http.Response is contracts.Response
     --- The response's bytes, owned by this response.
     body: http.Body
 
-    private _packed: string
-    private _values: {[string]: {string}}?
-    private _headers: {[string]: string}?
-    private _closed: boolean
+    @private
+    _packed: string
+    @private
+    _values: {[string]: {string}}?
+    @private
+    _headers: {[string]: string}?
+    @private
+    _closed: boolean
 
     --- Releases the response and the body with it.
     --- @param self this response, spent by the call
-    drop: nosuspend function(takes self: http.Response): nil
+    drop: @nosuspend function(takes self: http.Response): nil
 
-    private _decode: function(self: http.Response): nil
+    @private
+    _decode: function(self: http.Response): nil
 
     --- Whether the status is in the 2xx range.
     --- @param self this response
@@ -734,7 +746,8 @@ end
 function http.Response.drop(takes self: http.Response): nil
     -- The body's own drop is what guards a repeated call, so it runs on every
     -- path and the field is discharged on each.
-    nosuspend do
+    @nosuspend
+    do
         self._closed = true
         self.body:drop()
     end
@@ -768,11 +781,16 @@ end
 --- A client is worth keeping: connections, the TLS session cache and the default
 --- headers all live on it, so one client per program beats one per request.
 record http.Client is BodyClient, contracts.Client
-    private _native: NativeClient
-    private _options: any
-    private _source: suspension.Source?
-    private _sourceUsers: integer
-    private _closed: boolean
+    @private
+    _native: NativeClient
+    @private
+    _options: any
+    @private
+    _source: suspension.Source?
+    @private
+    _sourceUsers: integer
+    @private
+    _closed: boolean
 
     --- Opens a connection pool.
     ---
@@ -809,9 +827,11 @@ record http.Client is BodyClient, contracts.Client
     function flush(exclusive self): nil
     end
 
-    private _retainSource: function(self: http.Client, context: suspension.Context): nil
+    @private
+    _retainSource: function(self: http.Client, context: suspension.Context): nil
 
-    private _releaseSource: function(self: http.Client): nil
+    @private
+    _releaseSource: function(self: http.Client): nil
 end
 
 function http.Client._retainSource(self: http.Client, context: suspension.Context): nil
@@ -1178,7 +1198,8 @@ end
 --- Repeated calls are safe.
 --- @param self this client, spent by the call
 function http.Client.close(takes self: http.Client): nil
-    nosuspend do
+    @nosuspend
+    do
         if not self._closed then
             self._closed = true
             if self._source ~= nil then
@@ -1186,7 +1207,7 @@ function http.Client.close(takes self: http.Client): nil
                 self._source = nil
                 self._sourceUsers = 0
             end
-            local client = self._native as {close: nosuspend function(any): nil}
+            local client = self._native as {close: @nosuspend function(any): nil}
             client:close()
         end
     end

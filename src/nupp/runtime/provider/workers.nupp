@@ -26,55 +26,55 @@ const _DYNAMIC_REQUIRES = "@requires-dynamically nothing"
 ----------------------------------------------------------------------------
 
 local type BufferValue = {
-    encode: nosuspend function(any, any): any,
-    decode: nosuspend function(any): any,
-    get: nosuspend function(any): string,
-    reset: nosuspend function(any): any,
-    set: nosuspend function(any, string): any
+    encode: @nosuspend function(any, any): any,
+    decode: @nosuspend function(any): any,
+    get: @nosuspend function(any): string,
+    reset: @nosuspend function(any): any,
+    set: @nosuspend function(any, string): any
 }
 local type Buffer = {
-    new: nosuspend function(table?): BufferValue,
-    encode: nosuspend function(any): any,
-    decode: nosuspend function(string): any
+    new: @nosuspend function(table?): BufferValue,
+    encode: @nosuspend function(any): any,
+    decode: @nosuspend function(string): any
 }
 local buffer = require("string.buffer") as Buffer
 local suspension = require("nupp.suspension")
 local suspensionRuntime = suspension as any
 
 local type Native = {
-    channelCreate: nosuspend function(): any,
-    channelDestroy: nosuspend function(any),
-    channelClose: nosuspend function(any),
-    channelPush: nosuspend function(any, string, string): boolean,
-    channelPushNumberTask: nosuspend function(any, integer, string, string, number): boolean,
-    channelPushNumberReply: nosuspend function(any, integer, number): boolean,
-    channelPushStringTask: nosuspend function(any, integer, string, string, string): boolean,
-    channelPushStringReply: nosuspend function(any, integer, string): boolean,
-    channelSchemaRegister: nosuspend function(any, string, string, {string}, {string}): integer?,
-    channelPushRecordTask: nosuspend function(any, integer, string, string, integer, any): integer,
-    channelPushRecordReply: nosuspend function(any, integer, integer, any): integer,
-    channelDictRegister: nosuspend function(any, string): integer?,
-    channelDictCount: nosuspend function(any): integer,
-    channelDictAddress: nosuspend function(any, integer): string?,
-    channelPushBufferTask: nosuspend function(any, integer, string, string, number, string, any): boolean,
-    channelPushBufferReply: nosuspend function(any, integer, number, string, any): boolean,
-    channelPop: nosuspend function(
+    channelCreate: @nosuspend function(): any,
+    channelDestroy: @nosuspend function(any),
+    channelClose: @nosuspend function(any),
+    channelPush: @nosuspend function(any, string, string): boolean,
+    channelPushNumberTask: @nosuspend function(any, integer, string, string, number): boolean,
+    channelPushNumberReply: @nosuspend function(any, integer, number): boolean,
+    channelPushStringTask: @nosuspend function(any, integer, string, string, string): boolean,
+    channelPushStringReply: @nosuspend function(any, integer, string): boolean,
+    channelSchemaRegister: @nosuspend function(any, string, string, {string}, {string}): integer?,
+    channelPushRecordTask: @nosuspend function(any, integer, string, string, integer, any): integer,
+    channelPushRecordReply: @nosuspend function(any, integer, integer, any): integer,
+    channelDictRegister: @nosuspend function(any, string): integer?,
+    channelDictCount: @nosuspend function(any): integer,
+    channelDictAddress: @nosuspend function(any, integer): string?,
+    channelPushBufferTask: @nosuspend function(any, integer, string, string, number, string, any): boolean,
+    channelPushBufferReply: @nosuspend function(any, integer, number, string, any): boolean,
+    channelPop: @nosuspend function(
         any,
         integer
     ): (string?, string?, integer?, integer?, string?, string?, any, number?, any),
-    channelCount: nosuspend function(any): integer,
-    channelClosed: nosuspend function(any): boolean,
-    workerSpawn: nosuspend function(any, any): (any?, string?),
-    workerJoin: nosuspend function(any): (integer, string?),
-    workerParallelism: nosuspend function(): integer,
-    workerTaskCreate: nosuspend function(any, integer, number?): boolean,
-    workerTaskCancel: nosuspend function(any, integer): integer,
-    workerTaskStart: nosuspend function(integer): (boolean, boolean),
-    workerTaskCheckpoint: nosuspend function(): (boolean, boolean),
-    workerTaskFinish: nosuspend function(integer): (boolean, boolean),
-    workerTaskRelease: nosuspend function(any, integer): nil,
-    workerTaskStatus: nosuspend function(any, integer): integer,
-    current: nosuspend function(): (any?, any?)
+    channelCount: @nosuspend function(any): integer,
+    channelClosed: @nosuspend function(any): boolean,
+    workerSpawn: @nosuspend function(any, any): (any?, string?),
+    workerJoin: @nosuspend function(any): (integer, string?),
+    workerParallelism: @nosuspend function(): integer,
+    workerTaskCreate: @nosuspend function(any, integer, number?): boolean,
+    workerTaskCancel: @nosuspend function(any, integer): integer,
+    workerTaskStart: @nosuspend function(integer): (boolean, boolean),
+    workerTaskCheckpoint: @nosuspend function(): (boolean, boolean),
+    workerTaskFinish: @nosuspend function(integer): (boolean, boolean),
+    workerTaskRelease: @nosuspend function(any, integer): nil,
+    workerTaskStatus: @nosuspend function(any, integer): integer,
+    current: @nosuspend function(): (any?, any?)
 }
 local native = require("nupp.workers.native") as Native
 
@@ -215,11 +215,11 @@ local record TaskImpl
     await: function(TaskImpl): ...any
 
     --- Whether the child has settled and its reply has reached this Lua state.
-    isDone: nosuspend function(TaskImpl): boolean
+    isDone: @nosuspend function(TaskImpl): boolean
 
-    status: nosuspend function(TaskImpl): string
+    status: @nosuspend function(TaskImpl): string
 
-    cancel: nosuspend function(TaskImpl, string?): boolean
+    cancel: @nosuspend function(TaskImpl, string?): boolean
 end
 
 type workers.ScopeToken = contracts.ScopeToken
@@ -1633,7 +1633,7 @@ local function closeScope(borrows self: workers.Scope): nil
 end
 
 local function dropScope(takes self: workers.Scope): nil
-    local state = @unsafe release self
+    local state = @unsafe nupp.release(self)
     closeScope(state)
 end
 

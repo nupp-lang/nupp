@@ -35,14 +35,20 @@ local pool = {}
 --- A pool of instances stamped with one record declaration.
 --- @export
 record pool.Pool<T is table>
-    private readonly witness: any
+    @private
+    @readonly
+    witness: any
 
     --- How many released instances the pool retains for reuse.
-    readonly capacity: integer
+    @readonly
+    capacity: integer
 
-    private freeList: {T}
-    private freeCount: integer
-    private liveCount: integer
+    @private
+    freeList: {T}
+    @private
+    freeCount: integer
+    @private
+    liveCount: integer
 
     --- Hands out an instance, from the free list or freshly stamped.
     acquire: function(exclusive self: Pool<T>): T

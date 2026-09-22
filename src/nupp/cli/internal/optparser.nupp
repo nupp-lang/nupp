@@ -54,17 +54,28 @@ end
 
 --- An incremental command-line option parser.
 export record OptParser
-    private argv: {string}
-    private config: OptParserConfig
-    private nextIndex: integer
-    private literal: boolean
-    private currentKind: TokenKind?
-    private currentKey: string?
-    private currentValue: string?
-    private currentRaw: string?
-    private currentIndex: integer
-    private currentAttached: boolean
-    private currentPattern: boolean
+    @private
+    argv: {string}
+    @private
+    config: OptParserConfig
+    @private
+    nextIndex: integer
+    @private
+    literal: boolean
+    @private
+    currentKind: TokenKind?
+    @private
+    currentKey: string?
+    @private
+    currentValue: string?
+    @private
+    currentRaw: string?
+    @private
+    currentIndex: integer
+    @private
+    currentAttached: boolean
+    @private
+    currentPattern: boolean
 
     --- Advances to the next token and returns its kind, or a syntax error.
     ---

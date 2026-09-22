@@ -43,10 +43,14 @@ local type Descriptor = {
 
 --- A finite tree of derived command types.
 export record Application
-    private root: Descriptor
-    private commands: {Descriptor}
-    private byParent: {[any]: {[string]: Descriptor}}
-    private options: ApplicationOptions
+    @private
+    root: Descriptor
+    @private
+    commands: {Descriptor}
+    @private
+    byParent: {[any]: {[string]: Descriptor}}
+    @private
+    options: ApplicationOptions
 
     --- Resolves and decodes argv, without writing output or invoking `run`.
     function resolve(self, argv: {string}): Invocation?, any?

@@ -25,18 +25,25 @@ const gpu.PORTABLE_SCRATCH_BYTES = 16384
 --- CPU-addressable, so upload and download explicitly cross that boundary.
 --- @export
 record gpu.Buffer<T> is api.Buffer<T>
-    readonly _anchor: any
-    readonly _handle: any
-    readonly _width: integer
-    readonly _offset: integer
-    readonly _capacity: integer
+    @readonly
+    _anchor: any
+    @readonly
+    _handle: any
+    @readonly
+    _width: integer
+    @readonly
+    _offset: integer
+    @readonly
+    _capacity: integer
     _released: boolean
-    readonly _root: boolean
+    @readonly
+    _root: boolean
     _shape: {integer}
     _strides: {integer}
 
     --- Number of elements, kept with the allocation.
-    readonly count: integer
+    @readonly
+    count: integer
 
     --- Logical tensor dimensions. The returned table is a copy.
     dimensions: function(borrows self: gpu.Buffer<T>): {integer}
@@ -54,12 +61,18 @@ end
 --- One compiled compute entry owned by its context.
 --- @internal
 record gpu.Kernel is api.Kernel
-    readonly _anchor: any
-    readonly _handle: any
-    readonly _uniformBytes: integer
-    readonly _readonlyBuffers: integer
-    readonly _writableBuffers: integer
-    readonly _threads: integer
+    @readonly
+    _anchor: any
+    @readonly
+    _handle: any
+    @readonly
+    _uniformBytes: integer
+    @readonly
+    _readonlyBuffers: integer
+    @readonly
+    _writableBuffers: integer
+    @readonly
+    _threads: integer
 end
 
 --- The canonical shader artifact emitted for one verified native GPU kernel.
@@ -81,7 +94,8 @@ gpu.ArtifactSet = api.ArtifactSet
 --- @export
 record gpu.Shared<T> is api.Shared<T>
     _values: {T}
-    readonly count: integer
+    @readonly
+    count: integer
 
     metamethod __len: function(borrows self: gpu.Shared<T>): integer
     metamethod __index: function(borrows self: gpu.Shared<T>, index: integer): T
@@ -91,7 +105,8 @@ end
 --- The ordered stages and scratch belonging to one workgroup.
 --- @export
 record gpu.Phases is api.Phases
-    readonly _size: integer
+    @readonly
+    _size: integer
 
     --- Allocates fresh zero-based scratch for this workgroup.
     scratch: function<T>(borrows self: gpu.Phases, initial: T, count: integer): gpu.Shared<T>

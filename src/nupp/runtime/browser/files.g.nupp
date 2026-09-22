@@ -172,8 +172,10 @@ function files.glob(path: any): ({string}?, string?)
 end
 
 local record File
-    private _handle: integer
-    private _closed: boolean
+    @private
+    _handle: integer
+    @private
+    _closed: boolean
 
     function newReader(borrows self): affine(FileReader) borrows (self)
         if self._closed then
@@ -223,7 +225,7 @@ local record File
         return self._closed
     end
 
-    drop: nosuspend function(takes self: File): nil
+    drop: @nosuspend function(takes self: File): nil
 
     function close(takes self): boolean
         self:drop()
@@ -232,8 +234,10 @@ local record File
 end
 
 local record FileReader is io.Reader
-    private _file: any
-    private _closed: boolean
+    @private
+    _file: any
+    @private
+    _closed: boolean
 
     function read(self, count: integer): (string?, string?)
         if self._closed then
@@ -280,7 +284,7 @@ local record FileReader is io.Reader
         do
             local output = lease:span()
             got, reason = self:readSpan(output)
-            drop output
+            nupp.drop(output)
         end
         if got == nil then
             lease:commit(0)
@@ -309,15 +313,17 @@ local record FileReader is io.Reader
         end
     end
 
-    drop: nosuspend function(takes self: FileReader): nil
+    drop: @nosuspend function(takes self: FileReader): nil
     function close(takes self): nil
         self:drop()
     end
 end
 
 local record FileWriter is io.Writer
-    private _file: any
-    private _closed: boolean
+    @private
+    _file: any
+    @private
+    _closed: boolean
 
     function write(exclusive self, bytes: string): (boolean, string?)
         if self._closed then
@@ -360,14 +366,14 @@ local record FileWriter is io.Writer
         return (self._file as File):flush()
     end
 
-    drop: nosuspend function(takes self: FileWriter): nil
+    drop: @nosuspend function(takes self: FileWriter): nil
     function close(takes self): nil
         self:drop()
     end
 end
 
 function File.drop(takes self: File): nil
-    local state = @unsafe release self
+    local state = @unsafe nupp.release(self)
     if state._closed then
         return
     end
@@ -376,12 +382,12 @@ function File.drop(takes self: File): nil
 end
 
 function FileReader.drop(takes self: FileReader): nil
-    local state = @unsafe release self
+    local state = @unsafe nupp.release(self)
     state._closed = true
 end
 
 function FileWriter.drop(takes self: FileWriter): nil
-    local state = @unsafe release self
+    local state = @unsafe nupp.release(self)
     state._closed = true
 end
 

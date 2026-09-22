@@ -522,9 +522,10 @@ local function inferFunction(info, byDefinition)
     end
 
     local function applyCall(call)
-        if call.scalarIntrinsic then
+        if call.scalarIntrinsic or call.ownershipIntrinsic == "adopt" or call.ownershipIntrinsic == "release" then
             -- Released fixed-width intrinsics operate only on scalar values and their
-            -- module-lifetime binary32 holder. No per-call allocation or error path.
+            -- module-lifetime binary32 holder. Ownership adoption and release are
+            -- likewise compile-time checked representation changes with no call.
             return
         end
         local known = knownCall(call, byDefinition)

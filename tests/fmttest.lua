@@ -150,9 +150,8 @@ function M.unifiedGrammarCanonicalizesCompatibilitySpellings()
             "    return 1",
             "end",
             "",
-            "@sealed",
             "@affine",
-            "export interface Resource",
+            "export sealed interface Resource",
             "    @terminal",
             "    close: @nosuspend function(takes self: Resource): nil",
             "    @private",
@@ -182,9 +181,9 @@ function M.unifiedGrammarCanonicalizesCompatibilitySpellings()
     assertEq(fmt1(expected), expected, "unified grammar formatting is idempotent")
 end
 
-function M.stageZeroSourcesKeepCompatibilitySpellings()
+function M.stageZeroSourcesUseCanonicalSpellings()
     local source = "local sealed interface Token\nreadonly value:integer\nend"
-    local expected = "local sealed interface Token\n    readonly value: integer\nend\n"
+    local expected = "local sealed interface Token\n    @readonly\n    value: integer\nend\n"
     assertEq(formatter:format(source, "src/nupp/compiler/example.nupp"), expected)
     assertEq(formatter:format(source, "src/nupp/runtime/example.nupp"), expected)
     assertEq(formatter:format(source, "src/nupp/example.nupp"), expected)
@@ -194,7 +193,7 @@ end
 function M.sealedInterfaceModifier()
     assertEq(
         fmt1("local sealed interface Token\nreadonly value:integer\nend"),
-        "@sealed\nlocal interface Token\n    @readonly\n    value: integer\nend\n"
+        "local sealed interface Token\n    @readonly\n    value: integer\nend\n"
     )
 end
 

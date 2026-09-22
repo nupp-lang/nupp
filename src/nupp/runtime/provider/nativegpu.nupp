@@ -70,24 +70,37 @@ gpu.Phases = shared.Phases
 gpu.destroyContext = shared.destroyContext
 gpu.bufferIsDense = operations.bufferIsDense
 record gpu.Binding is api.Binding
-    readonly _anchor: any
-    readonly _kernel: gpu.Kernel
-    readonly _read: {integer}
-    readonly _write: {integer}
-    readonly _readCounts: {integer}
-    readonly _writeCounts: {integer}
-    readonly _readOffsets: {integer}
-    readonly _writeOffsets: {integer}
-    readonly _context: any
-    readonly _handle: any
-    readonly _uniformBytes: integer
-    readonly _readonlyBuffers: integer
+    @readonly
+    _anchor: any
+    @readonly
+    _kernel: gpu.Kernel
+    @readonly
+    _read: {integer}
+    @readonly
+    _write: {integer}
+    @readonly
+    _readCounts: {integer}
+    @readonly
+    _writeCounts: {integer}
+    @readonly
+    _readOffsets: {integer}
+    @readonly
+    _writeOffsets: {integer}
+    @readonly
+    _context: any
+    @readonly
+    _handle: any
+    @readonly
+    _uniformBytes: integer
+    @readonly
+    _readonlyBuffers: integer
     _spanCounts: {integer}
     _spanOffsets: {integer}
     _released: boolean
 
     --- Number of elements dispatched by this binding.
-    readonly count: integer
+    @readonly
+    count: integer
 
     --- Attaches a resident buffer to one read-only slot. A dispatch-indexed
     --- span asks for `matchCount`, which holds the buffer to one element per
@@ -122,9 +135,9 @@ record gpu.Context is api.KernelContext
     _closed: boolean
 
     --- Releases the device, compiled kernels, and resident buffers.
-    drop: nosuspend function(takes self: Context): nil
+    drop: @nosuspend function(takes self: Context): nil
 
-    _destroy: nosuspend function(state: any): nil
+    _destroy: @nosuspend function(state: any): nil
 
     --- Native provider family selected for this device.
     driver: function(borrows self: Context): string
@@ -643,7 +656,7 @@ function gpu.Context.bindKernel(
 end
 
 function gpu.Context.drop(takes self: gpu.Context): nil
-    local state = @unsafe release self
+    local state = @unsafe nupp.release(self)
     state._destroy(state)
 end
 

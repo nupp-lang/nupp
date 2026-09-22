@@ -41,12 +41,13 @@ local span = require("nupp.mem.span")
 
 cdef function malloc(size: uint64): voidptr
 cdef function free(takes pointer: voidptr)
-local free_nosuspend = free as nosuspend function(takes pointer: voidptr): nil
+local free_nosuspend = free as @nosuspend function(takes pointer: voidptr): nil
 
 local function finish_array(takes self: any): nil
-    nosuspend do
-        local raw = @unsafe release self
-        local pointer = @unsafe adopt raw.pointer as affine(voidptr, free_nosuspend)
+    @nosuspend
+    do
+        local raw = @unsafe nupp.release(self)
+        local pointer = @unsafe nupp.adopt<affine(voidptr, free_nosuspend)>(raw.pointer)
         -- The husk outlives the free wherever a dynamic reference still sees
         -- it, and a nil pointer is what marks the allocation gone.
         raw.pointer = nil
@@ -54,10 +55,10 @@ local function finish_array(takes self: any): nil
     end
 end
 
-local finish_array_nosuspend = finish_array as nosuspend function(takes self: any): nil
+local finish_array_nosuspend = finish_array as @nosuspend function(takes self: any): nil
 
 sealed interface heap.ArrayToken
-    close: nosuspend function(takes self: ArrayToken): nil
+    close: @nosuspend function(takes self: ArrayToken): nil
 end
 
 --- Frees an allocation, which is what every heap array's contract names.
@@ -75,16 +76,18 @@ end
 --- from its pointer in checked code.
 --- @export
 record heap.Array<T> is heap.ArrayToken
-    private pointer: T[?]
+    @private
+    pointer: T[?]
 
     --- How many elements the allocation holds.
-    readonly count: integer
+    @readonly
+    count: integer
 
     --- Releases the allocation. Scope exit invokes this automatically.
-    drop: nosuspend function(takes self: Array<T>): nil
+    drop: @nosuspend function(takes self: Array<T>): nil
 
     --- Frees the allocation. `drop` and scope exit both reach this.
-    close: nosuspend function(takes self: Array<T>): nil
+    close: @nosuspend function(takes self: Array<T>): nil
 
     --- Borrows the whole allocation as a shared checked span.
     ---
@@ -187,13 +190,14 @@ end
 local pointerBox = ffi.new("void *[1]")
 local POINTER_SIZE = ffi.sizeof("void *") as integer
 
-local getmetatable_nosuspend = getmetatable as nosuspend function(any): any
+local getmetatable_nosuspend = getmetatable as @nosuspend function(any): any
 local movedProbe = heap.allocate(ffi.typeof<int32>(), 0)
 local arrayMetatable: any = nil
-nosuspend do
-    local raw = @unsafe release movedProbe
+@nosuspend
+do
+    local raw = @unsafe nupp.release(movedProbe)
     arrayMetatable = getmetatable_nosuspend(raw)
-    local pointer = @unsafe adopt raw.pointer as affine(voidptr, free_nosuspend)
+    local pointer = @unsafe nupp.adopt<affine(voidptr, free_nosuspend)>(raw.pointer)
     free_nosuspend(pointer)
 end
 
@@ -242,8 +246,9 @@ rawset(heap as table, "__heapArrayFree", function(pointer: any): nil
     if type(pointer) == "string" then
         raw = (ffi.cast("void * const *", pointer) as any)[0]
     end
-    nosuspend do
-        local owned = @unsafe adopt(ffi.cast("void *", raw)) as affine(voidptr, free_nosuspend)
+    @nosuspend
+    do
+        local owned = @unsafe nupp.adopt<affine(voidptr, free_nosuspend)>((ffi.cast("void *", raw)))
         free_nosuspend(owned)
     end
 end)

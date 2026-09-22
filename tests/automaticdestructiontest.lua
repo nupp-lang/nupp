@@ -235,7 +235,7 @@ function M.gotoCannotEnterAWithScope()
                 "\n"
             )
         ),
-        "NUPP2602"
+        "NUPP2706"
     )
 end
 

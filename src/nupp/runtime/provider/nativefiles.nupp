@@ -573,8 +573,10 @@ end
 --- An open file, and the obligation to close it.
 --- @export
 export record File
-    private _handle: any
-    private _closed: boolean
+    @private
+    _handle: any
+    @private
+    _closed: boolean
 
     --- Opens a forward-only reader at the file's current position.
     --- @param self this file
@@ -676,7 +678,7 @@ export record File
     --- cleanup contract needs the `nosuspend`, and an inline method cannot carry
     --- one.
     --- @param self this file, spent by the call
-    drop: nosuspend function(takes self: File): nil
+    drop: @nosuspend function(takes self: File): nil
 
     --- Closes the file and reports whether it succeeded.
     ---
@@ -691,7 +693,7 @@ export record File
 end
 
 function File.drop(takes self: File): nil
-    local state = @unsafe release self
+    local state = @unsafe nupp.release(self)
     if state._closed then
         return
     end
@@ -720,17 +722,21 @@ end
 --- A forward-only reader over an open file.
 --- @export
 export record FileReader is io.Reader
-    private _file: any
-    private _scratch: any
-    private _capacity: integer
-    private _closed: boolean
+    @private
+    _file: any
+    @private
+    _scratch: any
+    @private
+    _capacity: integer
+    @private
+    _closed: boolean
 
     --- Releases it as an ownership terminal.
     ---
     --- Repeated calls are safe. Declared rather than written inline: a cleanup
     --- contract is `nosuspend`, and an inline method cannot carry one.
     --- @param self this owner, spent by the call
-    drop: nosuspend function(takes self: FileReader): nil
+    drop: @nosuspend function(takes self: FileReader): nil
 
     --- Reads up to `count` bytes.
     ---
@@ -798,7 +804,7 @@ export record FileReader is io.Reader
             for index = 1, taking do
                 output[index] = input[index]
             end
-            drop output
+            nupp.drop(output)
         end
         lease:commit(taking)
 
@@ -842,15 +848,17 @@ end
 --- An appending writer over an open file.
 --- @export
 export record FileWriter is io.Writer
-    private _file: any
-    private _closed: boolean
+    @private
+    _file: any
+    @private
+    _closed: boolean
 
     --- Releases it as an ownership terminal.
     ---
     --- Repeated calls are safe. Declared rather than written inline: a cleanup
     --- contract is `nosuspend`, and an inline method cannot carry one.
     --- @param self this owner, spent by the call
-    drop: nosuspend function(takes self: FileWriter): nil
+    drop: @nosuspend function(takes self: FileWriter): nil
 
     --- Writes bytes at the file's current position.
     --- @param self this writer
@@ -925,9 +933,12 @@ end
 --- can take, then put it where it belongs.
 --- @export
 export record TemporaryPath
-    private _text: string
-    private _directory: boolean
-    private _closed: boolean
+    @private
+    _text: string
+    @private
+    _directory: boolean
+    @private
+    _closed: boolean
 
     --- Returns the created path.
     --- @param self this temporary path
@@ -968,7 +979,7 @@ export record TemporaryPath
     --- rather than written inline because the cleanup contract needs the `nosuspend`,
     --- and an inline method cannot carry one.
     --- @param self this temporary path, spent by the call
-    drop: nosuspend function(takes self: TemporaryPath): nil
+    drop: @nosuspend function(takes self: TemporaryPath): nil
 
     --- Removes the path and reports whether it succeeded.
     ---
@@ -976,7 +987,7 @@ export record TemporaryPath
     --- @param self this temporary path, spent by the call
     --- @return whether the removal succeeded
     function close(takes self): boolean
-        local state = @unsafe release self
+        local state = @unsafe nupp.release(self)
         if state._closed then
             return true
         end
@@ -993,7 +1004,7 @@ end
 ----------------------------------------------------------------------------
 
 function TemporaryPath.drop(takes self: TemporaryPath): nil
-    local state = @unsafe release self
+    local state = @unsafe nupp.release(self)
     if state._closed then
         return
     end
@@ -1007,14 +1018,14 @@ end
 end
 
 function FileReader.drop(takes self: FileReader): nil
-    local state = @unsafe release self
+    local state = @unsafe nupp.release(self)
     state._closed = true
     state._scratch = nil
     state._capacity = 0
 end
 
 function FileWriter.drop(takes self: FileWriter): nil
-    local state = @unsafe release self
+    local state = @unsafe nupp.release(self)
     state._closed = true
 end
 

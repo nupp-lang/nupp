@@ -167,10 +167,14 @@ local function unsignedWordAt(words: {uint32}, index: integer): uint32
 end
 
 local record Sha256 is hash.Hasher
-    private state: {int32}
-    private tail: string
-    private length: {uint32}
-    private schedule: {int32}
+    @private
+    state: {int32}
+    @private
+    tail: string
+    @private
+    length: {uint32}
+    @private
+    schedule: {int32}
 
     constructor(self)
         self.state = {
@@ -374,8 +378,10 @@ local function xorPad(key: string, pad: integer): string
 end
 
 local record Hmac is hash.Hasher
-    private inner: Sha256
-    private outerPad: string
+    @private
+    inner: Sha256
+    @private
+    outerPad: string
 
     constructor(self, key: string)
         if #key > 64 then

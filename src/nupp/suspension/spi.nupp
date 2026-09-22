@@ -26,7 +26,7 @@ not copied into worker lanes.
 --- release must be idempotent and non-suspending; provider state tracks its lifetime.
 export record Source
     --- Unregisters this source without suspending; repeated calls are harmless.
-    release: nosuspend function(Source): nil
+    release: @nosuspend function(Source): nil
 
     --- Provider callback used by the canonical release method.
     releaseImpl: function(Source): nil
@@ -112,7 +112,7 @@ end
 --- Its affine drop restores the outer context and releases registration state.
 export record Installed
     --- Canonical non-suspending affine cleanup for the installation.
-    drop: nosuspend function(takes self: Installed): nil
+    drop: @nosuspend function(takes self: Installed): nil
 
     --- Restores the outer handler and releases this installation.
     release: function(self: Installed): nil
@@ -156,11 +156,13 @@ export type Suspend = function<T>(operation: string, subscribe: function(functio
 export type Create = function<A..., R...>(body: function(A...): R...): thread
 
 export interface Provider
-    readonly priority: integer?
+    @readonly
+    priority: integer?
 
     --- Registers a named poll source with a priority and optional blocking waiter.
     --- The optional active predicate controls whether the source can make progress.
-    readonly source: function(
+    @readonly
+    source: function(
         name: string,
         priority: integer,
         poll: function(): integer,
@@ -169,26 +171,34 @@ export interface Provider
     ): Source
 
     --- Polls registered sources and returns the amount of progress reported.
-    readonly poll: function(): integer
+    @readonly
+    poll: function(): integer
 
     --- Subscribes once, then waits for one typed result through the active handler.
-    readonly suspend: Suspend
+    @readonly
+    suspend: Suspend
 
     --- Installs a handler and returns affine restoration state.
-    readonly install: function(handler: Handler, transparent: boolean?): affine(Installed, destroyInstalled)
+    @readonly
+    install: function(handler: Handler, transparent: boolean?): affine(Installed, destroyInstalled)
 
     --- Creates a coroutine preserving the active suspension context and result pack.
-    readonly create: Create
+    @readonly
+    create: Create
 
     --- Reports whether an installed handler owns the current suspension context.
-    readonly handled: function(): boolean
+    @readonly
+    handled: function(): boolean
 
     --- Captures the outer handler's park-availability query.
-    readonly delegatedCanPark: function(): function(): boolean
+    @readonly
+    delegatedCanPark: function(): function(): boolean
 
     --- Captures the outer handler's parking operation.
-    readonly delegatedPark: function(): function(Waiting, function(): nil): nil
+    @readonly
+    delegatedPark: function(): function(Waiting, function(): nil): nil
 
     --- Reports whether this execution context can perform a suspension.
-    readonly canSuspend: function(): boolean
+    @readonly
+    canSuspend: function(): boolean
 end

@@ -21,90 +21,103 @@ representation; selection cannot make unrelated transport handles interoperable.
 local {type Address} = require("nupp.io.net.types")
 
 export interface Provider
-    readonly priority: integer?
+    @readonly
+    priority: integer?
 
     --- Creates a TCP listener; returns its handle or nil and an error.
-    readonly listen: function(
-        self: Provider,
-        host: string,
-        port: integer,
-        backlog: integer,
-        reusePort: boolean
-    ): (any?, string?)
+    @readonly
+    listen: function(self: Provider, host: string, port: integer, backlog: integer, reusePort: boolean): (any?, string?)
 
     --- Creates a local-path listener with the requested backlog.
-    readonly listenPath: function(self: Provider, path: string, backlog: integer): (any?, string?)
+    @readonly
+    listenPath: function(self: Provider, path: string, backlog: integer): (any?, string?)
 
     --- Returns the bound port, or -1 when no IP port is available.
-    readonly listenerPort: function(self: Provider, listener: any): integer
+    @readonly
+    listenerPort: function(self: Provider, listener: any): integer
 
     --- Returns an accepted stream, nil while pending, or nil and an error.
-    readonly accept: function(self: Provider, listener: any): (any?, string?)
+    @readonly
+    accept: function(self: Provider, listener: any): (any?, string?)
 
     --- Releases a listener and its pending accept resources.
-    readonly closeListener: function(self: Provider, listener: any): nil
+    @readonly
+    closeListener: function(self: Provider, listener: any): nil
 
     --- Starts a TCP connection request with a millisecond timeout.
-    readonly connect: function(self: Provider, host: string, port: integer, timeoutMs: integer): (any?, string?)
+    @readonly
+    connect: function(self: Provider, host: string, port: integer, timeoutMs: integer): (any?, string?)
 
     --- Starts a local-path connection request with a millisecond timeout.
-    readonly connectPath: function(self: Provider, path: string, timeoutMs: integer): (any?, string?)
+    @readonly
+    connectPath: function(self: Provider, path: string, timeoutMs: integer): (any?, string?)
 
     --- Returns the completed stream, nil while pending, or nil and an error.
-    readonly connectPoll: function(self: Provider, request: any): (any?, string?)
+    @readonly
+    connectPoll: function(self: Provider, request: any): (any?, string?)
 
     --- Releases the connection request, independently of any resulting stream.
-    readonly closeConnect: function(self: Provider, request: any): nil
+    @readonly
+    closeConnect: function(self: Provider, request: any): nil
 
     --- Returns up to wanted bytes; an empty string means no bytes are ready.
     --- Use ended to distinguish EOF. nil with an error reports a failed read.
-    readonly read: function(self: Provider, stream: any, wanted: integer): (string?, string?)
+    @readonly
+    read: function(self: Provider, stream: any, wanted: integer): (string?, string?)
 
     --- Reports that no further read bytes will arrive.
-    readonly ended: function(self: Provider, stream: any): boolean
+    @readonly
+    ended: function(self: Provider, stream: any): boolean
 
     --- Returns the accepted byte count, or nil and an error.
     --- Accepted bytes may remain queued; pending reports their outstanding count.
-    readonly write: function(self: Provider, stream: any, bytes: string): (integer?, string?)
+    @readonly
+    write: function(self: Provider, stream: any, bytes: string): (integer?, string?)
 
     --- Returns bytes accepted for writing that have not yet drained.
-    readonly pending: function(self: Provider, stream: any): integer
+    @readonly
+    pending: function(self: Provider, stream: any): integer
 
     --- Reports a terminal write failure, including one after enqueueing.
-    readonly writeFailed: function(self: Provider, stream: any): boolean
+    @readonly
+    writeFailed: function(self: Provider, stream: any): boolean
 
     --- Reports that the sending half is shutting down.
-    readonly shuttingDown: function(self: Provider, stream: any): boolean
+    @readonly
+    shuttingDown: function(self: Provider, stream: any): boolean
 
     --- Ends the sending half after queued writes; reports success or an error.
-    readonly shutdownWrite: function(self: Provider, stream: any): (boolean, string?)
+    @readonly
+    shutdownWrite: function(self: Provider, stream: any): (boolean, string?)
 
     --- Returns the canonical peer or local Address, or nil when unavailable.
-    readonly address: function(self: Provider, stream: any, peer: boolean): Address?
+    @readonly
+    address: function(self: Provider, stream: any, peer: boolean): Address?
 
     --- Sets TCP no-delay behavior on a stream.
-    readonly noDelay: function(self: Provider, stream: any, enable: boolean): (boolean, string?)
+    @readonly
+    noDelay: function(self: Provider, stream: any, enable: boolean): (boolean, string?)
 
     --- Configures TCP keepalive and its idle delay in seconds.
-    readonly keepAlive: function(
-        self: Provider,
-        stream: any,
-        enable: boolean,
-        delaySeconds: integer
-    ): (boolean, string?)
+    @readonly
+    keepAlive: function(self: Provider, stream: any, enable: boolean, delaySeconds: integer): (boolean, string?)
 
     --- Enables or disables sending broadcast datagrams.
-    readonly broadcast: function(self: Provider, socket: any, enable: boolean): (boolean, string?)
+    @readonly
+    broadcast: function(self: Provider, socket: any, enable: boolean): (boolean, string?)
 
     --- Sets the datagram multicast hop limit.
-    readonly multicastTtl: function(self: Provider, socket: any, ttl: integer): (boolean, string?)
+    @readonly
+    multicastTtl: function(self: Provider, socket: any, ttl: integer): (boolean, string?)
 
     --- Enables or disables local multicast loopback.
-    readonly multicastLoop: function(self: Provider, socket: any, enable: boolean): (boolean, string?)
+    @readonly
+    multicastLoop: function(self: Provider, socket: any, enable: boolean): (boolean, string?)
 
     --- Joins or leaves a multicast group on the named interface.
     --- An empty interface address selects the host default.
-    readonly membership: function(
+    @readonly
+    membership: function(
         self: Provider,
         socket: any,
         group: string,
@@ -113,35 +126,32 @@ export interface Provider
     ): (boolean, string?)
 
     --- Releases a stream and its queued native resources.
-    readonly closeStream: function(self: Provider, stream: any): nil
+    @readonly
+    closeStream: function(self: Provider, stream: any): nil
 
     --- Creates a bound datagram socket or returns nil and an error.
-    readonly bindDatagram: function(self: Provider, host: string, port: integer, reusePort: boolean): (any?, string?)
+    @readonly
+    bindDatagram: function(self: Provider, host: string, port: integer, reusePort: boolean): (any?, string?)
 
     --- Returns the bound datagram port, or -1 when unavailable.
-    readonly datagramPort: function(self: Provider, socket: any): integer
+    @readonly
+    datagramPort: function(self: Provider, socket: any): integer
 
     --- Returns bytes, source host, source port, truncation flag, and optional error.
     --- A nil first result without an error means no datagram is ready.
-    readonly receive: function(
-        self: Provider,
-        socket: any,
-        maximum: integer
-    ): (string?, string?, integer?, boolean?, string?)
+    @readonly
+    receive: function(self: Provider, socket: any, maximum: integer): (string?, string?, integer?, boolean?, string?)
 
     --- Sends one datagram to the destination or reports an error.
-    readonly sendTo: function(
-        self: Provider,
-        socket: any,
-        host: string,
-        port: integer,
-        bytes: string
-    ): (boolean, string?)
+    @readonly
+    sendTo: function(self: Provider, socket: any, host: string, port: integer, bytes: string): (boolean, string?)
 
     --- Releases a datagram socket.
-    readonly closeDatagram: function(self: Provider, socket: any): nil
+    @readonly
+    closeDatagram: function(self: Provider, socket: any): nil
 
     --- Pumps shared reactor readiness for at most timeoutMs milliseconds.
     --- A zero timeout performs a nonblocking pass.
-    readonly run: function(self: Provider, timeoutMs: integer): nil
+    @readonly
+    run: function(self: Provider, timeoutMs: integer): nil
 end

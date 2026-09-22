@@ -25,11 +25,16 @@ const buffer = {}
 local {type Buffer as SharedBuffer} = require("nupp.text.internal.buffer")
 
 local record Buffer
-    private pieces: {string}
-    private count: integer
-    private head: integer
-    private bytes: integer
-    private firstByte: integer
+    @private
+    pieces: {string}
+    @private
+    count: integer
+    @private
+    head: integer
+    @private
+    bytes: integer
+    @private
+    firstByte: integer
 
     metamethod __len: function(self): integer
     metamethod __concat: function(self, other: any): string
@@ -58,7 +63,8 @@ local record Buffer
     end
 
     --- Consumes at most count bytes; omitted count consumes everything.
-    private take: function(self: Buffer, count: integer?): string
+    @private
+    take: function(self: Buffer, count: integer?): string
 
     function get(self, ...: integer?): string
         local arrived = select("#", ...)

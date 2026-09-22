@@ -1158,13 +1158,26 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         local t = parsePosttype()
 
         local function nextIsFunctionMember(): boolean
-            return tokens[i + 1]
+            local at = i + 1
+            while tokens[at] and tokens[at].kind == "@" do
+                local qualifier = tokens[at + 1]
+                if not qualifier
+                    or qualifier.kind ~= "name"
+                    or qualifier.text ~= "comptime" and qualifier.text ~= "nosuspend" and qualifier.text ~= "sendable"
+                then
+                    break
+                end
+                at = at + 2
+            end
+            local nextToken = tokens[at]
+
+            return nextToken ~= nil
                 and (
-                    tokens[i + 1].kind == "function"
-                    or tokens[i + 1].kind == "name"
-                    and tokens[i + 1].text == "comptime"
-                    and tokens[i + 2]
-                    and tokens[i + 2].kind == "function"
+                    nextToken.kind == "function"
+                    or nextToken.kind == "name"
+                    and nextToken.text == "comptime"
+                    and tokens[at + 1]
+                    and tokens[at + 1].kind == "function"
                 )
                 or false
         end

@@ -163,12 +163,17 @@ end
 --- `close_notify`, drains it, and closes the socket.
 --- @export
 record tls.Session is Reader, Writer
-    private _provider: contract.Provider
-    private _session: any
+    @private
+    _provider: contract.Provider
+    @private
+    _session: any
 
-    private _closed: boolean
-    private _ready: boolean
-    private _ended: boolean
+    @private
+    _closed: boolean
+    @private
+    _ready: boolean
+    @private
+    _ended: boolean
 
     --- Whether the connection underneath is still open.
     ---
@@ -380,7 +385,7 @@ record tls.Session is Reader, Writer
                 for index = 1, landed do
                     output[index] = input[index]
                 end
-                drop output
+                nupp.drop(output)
             end
             lease:commit(landed)
         end

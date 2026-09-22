@@ -229,7 +229,8 @@ function cliModule.derivedGroupRun(self: table): integer
     return 0
 end
 
-local comptime function option(items, name: string): any
+@comptime
+local function option(items, name: string): any
     for _, item in ipairs(items) do
         if item.name == "cli" then
             for _, argument in ipairs(item.arguments) do
@@ -243,7 +244,8 @@ local comptime function option(items, name: string): any
     return nil
 end
 
-local comptime function annotationArgument(items, name: string): nupp.reflect.AnnotationArgument?
+@comptime
+local function annotationArgument(items, name: string): nupp.reflect.AnnotationArgument?
     for _, item in ipairs(items) do
         if item.name == "cli" then
             for _, argument in ipairs(item.arguments) do
@@ -257,7 +259,8 @@ local comptime function annotationArgument(items, name: string): nupp.reflect.An
     return nil
 end
 
-local comptime function detail(T: type): any
+@comptime
+local function detail(T: type): any
     local described = nupp.types.describe(T)
     if described.sourceKind then
         local normalized = {}
@@ -271,7 +274,8 @@ local comptime function detail(T: type): any
     return described
 end
 
-local comptime function Optional(T: type): type?
+@comptime
+local function Optional(T: type): type?
     local described = detail(T)
     if described.kind ~= "union" then
         return nil
@@ -291,7 +295,8 @@ local comptime function Optional(T: type): type?
     return nil
 end
 
-local comptime function valueSpec(T: type): any
+@comptime
+local function valueSpec(T: type): any
     local inner = Optional(T)
     if inner ~= nil then
         local spec = valueSpec(inner)
@@ -367,22 +372,26 @@ local comptime function valueSpec(T: type): any
     return nil
 end
 
-local comptime function kebab(name: string): string
+@comptime
+local function kebab(name: string): string
     return name:gsub("(%l)(%u)", "%1-%2"):gsub("_", "-"):lower()
 end
 
-local comptime function firstParagraph(documentation: string?): string
+@comptime
+local function firstParagraph(documentation: string?): string
     if documentation == nil then
         return ""
     end
     return documentation:match("^(.-)\n%s*\n") or documentation
 end
 
-local comptime function optionName(name: string): boolean
+@comptime
+local function optionName(name: string): boolean
     return name ~= "" and name:sub(1, 1) ~= "-" and name:find("=", 1, true) == nil and name:find("%s") == nil
 end
 
-local comptime function contains(items: {string}, wanted: string): boolean
+@comptime
+local function contains(items: {string}, wanted: string): boolean
     for _, item in ipairs(items) do
         if item == wanted then
             return true
@@ -392,7 +401,8 @@ local comptime function contains(items: {string}, wanted: string): boolean
     return false
 end
 
-local comptime function sortStrings(items: {string}): nil
+@comptime
+local function sortStrings(items: {string}): nil
     for index = 2, #items do
         local value = items[index]
         local position = index - 1
@@ -406,7 +416,8 @@ local comptime function sortStrings(items: {string}): nil
     return nil
 end
 
-local comptime function acceptsConstant(spec: any, value: any): boolean
+@comptime
+local function acceptsConstant(spec: any, value: any): boolean
     if spec.conversion == "boolean" then
         return type(value) == "boolean"
     elseif spec.conversion == "string" then
@@ -425,7 +436,8 @@ local comptime function acceptsConstant(spec: any, value: any): boolean
     return false
 end
 
-local comptime function DecodeErrorType(): type
+@comptime
+local function DecodeErrorType(): type
     local text = nupp.types.string
     local maybeText = nupp.types.optional(text)
     return nupp.types.shape({
@@ -439,7 +451,8 @@ local comptime function DecodeErrorType(): type
     })
 end
 
-local comptime function recipe(info: nupp.derive.Info, command: boolean): any
+@comptime
+local function recipe(info: nupp.derive.Info, command: boolean): any
     if info.kind ~= "record" then
         return nupp.derive.error("CLI arguments can be derived only for records", info.reference)
     elseif info.hasConstructor then
@@ -763,12 +776,14 @@ local comptime function recipe(info: nupp.derive.Info, command: boolean): any
 end
 
 --- Derives typed argv decoding for a record.
-comptime function cliModule.Arguments(info: nupp.derive.Info): nupp.derive.Result<cliModule.ArgumentRecord>
+@comptime
+function cliModule.Arguments(info: nupp.derive.Info): nupp.derive.Result<cliModule.ArgumentRecord>
     return recipe(info, false)
 end
 
 --- Derives typed argv decoding and a self-describing executable command.
-comptime function cliModule.Command(info: nupp.derive.Info): nupp.derive.Result<cliModule.Runnable>
+@comptime
+function cliModule.Command(info: nupp.derive.Info): nupp.derive.Result<cliModule.Runnable>
     return recipe(info, true)
 end
 

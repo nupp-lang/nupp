@@ -48,8 +48,10 @@ end
 --- must make text, authority, host, port, and path mutually consistent and preserve
 --- absent versus empty query and fragment values.
 export interface UriTextProvider
-    readonly priority: integer?
+    @readonly
+    priority: integer?
 
     --- Parses an absolute URI into shared components or returns nil and a message.
-    readonly parse: function(text: string): (UriParts?, string?)
+    @readonly
+    parse: function(text: string): (UriParts?, string?)
 end

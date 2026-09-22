@@ -12,7 +12,8 @@ constructors its caller supplies; no programmatic constructor API is published.
 
 local record pegRe
     record Failure
-        readonly message: string
+        @readonly
+        message: string
     end
 
     parse: function(source: string, make: any): (any?, pegRe.Failure?)

@@ -127,10 +127,14 @@ local validateOptions: function(options: process.Options): nil
 --- Borrowing the record through `asReader` keeps a single owner and makes its lifetime
 --- a question about Nupp values, which the checker can answer.
 record process.Reader is Reader2
-    private owner: any
-    private handle: any
-    private closed: boolean
-    private eof: boolean
+    @private
+    owner: any
+    @private
+    handle: any
+    @private
+    closed: boolean
+    @private
+    eof: boolean
 
     --- Maximum time one completion-oriented read may wait.
     timeoutMs: integer
@@ -152,7 +156,8 @@ record process.Reader is Reader2
     --- the complaint is only reported; one that kept the stream leaves this end open.
     ---
     --- @raises string when the platform reported a problem, released or not
-    private release: function(self: process.Reader): nil
+    @private
+    release: function(self: process.Reader): nil
 
     --- Takes whatever is available without waiting: the bytes, `""` when nothing is
     --- ready yet, or nil at end of stream.
@@ -322,7 +327,7 @@ record process.Reader is Reader2
             for index = 1, #chunk do
                 output[index] = input[index]
             end
-            drop output
+            nupp.drop(output)
         end
         lease:commit(#chunk)
 
@@ -359,15 +364,19 @@ end
 --- loop serving three pipes cannot afford to wait for. The completion-oriented `write`
 --- remains the ordinary `nupp.io.Writer` operation; `offer` is concrete and additional.
 record process.Writer is Writer2
-    private owner: any
-    private handle: any
-    private closed: boolean
+    @private
+    owner: any
+    @private
+    handle: any
+    @private
+    closed: boolean
 
     --- Whether the far end has gone, which is not the same as this end being shut.
     --- `closed` means the platform has released this stream; `gone` means nobody is
     --- reading the far end any more. A broken pipe sets only `gone`, because this end
     --- is still ours to close.
-    private gone: boolean
+    @private
+    gone: boolean
 
     --- Maximum time one completion-oriented write may wait.
     timeoutMs: integer
@@ -389,7 +398,8 @@ record process.Writer is Writer2
     --- there is no more input.
     ---
     --- @raises string when the platform reported a problem, released or not
-    private release: function(self: process.Writer): nil
+    @private
+    release: function(self: process.Writer): nil
 
     --- Writes what the pipe will take without waiting. Answers how many bytes went,
     --- which may be none and may be fewer than offered.
@@ -606,37 +616,47 @@ local newWriter: function(owner: any, handle: any): process.Writer
 
 --- A running child.
 record process.Process
-    drop: nosuspend function(takes self: process.Process): nil
-    private backend: contract.Provider
-    private handle: any
-    private deadline: number?
-    private exit: process.Exit?
+    drop: @nosuspend function(takes self: process.Process): nil
+    @private
+    backend: contract.Provider
+    @private
+    handle: any
+    @private
+    deadline: number?
+    @private
+    exit: process.Exit?
 
     --- Whether the whole teardown finished: every stream released, the pump released,
     --- and the child handle released. The aggregate, and what makes a repeat call a
     --- no-op.
-    private reaped: boolean
+    @private
+    reaped: boolean
 
     --- Whether the child *handle* has been given back, which is a smaller fact than
     --- `reaped` and has to be tracked apart from it. A teardown where a stream close
     --- complained still has a child to release, and a retry that had already released
     --- it must not ask again, because the native process handle was already returned.
-    private childReleased: boolean
+    @private
+    childReleased: boolean
 
     --- Whether a teardown is in progress. Separate from `reaped`, which means it
     --- finished: a close that failed part way must be retryable rather than silently
     --- successful.
-    private closing: boolean
+    @private
+    closing: boolean
 
     --- Which coroutine is running that teardown, so a second call can tell whether it
     --- is the same frame coming back around or a different one arriving. Nil on the
     --- main coroutine, which is why `closing` is the flag and this is only the owner.
-    private closingBy: any
+    @private
+    closingBy: any
 
-    private pump: any
+    @private
+    pump: any
 
     --- Whether the deadline is what ended it, remembered so the exit can say so.
-    private timedOut: boolean
+    @private
+    timedOut: boolean
 
     --- Operating-system process identifier.
     pid: integer

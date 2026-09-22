@@ -139,7 +139,8 @@ local pathCacheOldest: any = nil
 --- @export
 export record Path
     --- The native UTF-8 path text.
-    private _text: string
+    @private
+    _text: string
 
     --- Returns the native UTF-8 path text.
     --- @param self this path

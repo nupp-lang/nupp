@@ -210,20 +210,26 @@ end
 export interface CompressionWriter is io.Writer
     --- Aborts an unfinished stream and raises after releasing owned resources.
     --- @raises string whenever the stream was not consumed by `finish`
-    close: nosuspend function(takes self: CompressionWriter): nil
+    close: @nosuspend function(takes self: CompressionWriter): nil
 
     --- Completes the stream, flushes and closes the owned destination.
     finish: function(takes self: CompressionWriter): (boolean, string?)
 end
 
 local record Writer is CompressionWriter
-    private state: affine(provider.Encoder)
-    private destination: affine(io.Writer)
-    private output: uint8[?]
-    private capacity: integer
+    @private
+    state: affine(provider.Encoder)
+    @private
+    destination: affine(io.Writer)
+    @private
+    output: uint8[?]
+    @private
+    capacity: integer
 
-    private drain: function(exclusive self: Writer, count: integer): (boolean, string?)
-    private abort: nosuspend function(takes self: Writer): nil
+    @private
+    drain: function(exclusive self: Writer, count: integer): (boolean, string?)
+    @private
+    abort: @nosuspend function(takes self: Writer): nil
 
     function write(exclusive self, bytes: string): (boolean, string?)
         local input = span.fromString(bytes)
@@ -241,7 +247,7 @@ local record Writer is CompressionWriter
             local remaining = input:slice(at, #input)
             local output = span.writeCarray(self.output, self.capacity)
             local consumed, written, status, reason = self.state:write(remaining, output)
-            drop output
+            nupp.drop(output)
             if consumed == nil or written == nil or status == nil then
                 return nil, reason
             end
@@ -265,7 +271,7 @@ local record Writer is CompressionWriter
         while true do
             local output = span.writeCarray(self.output, self.capacity)
             local written, status, reason = self.state:flush(output)
-            drop output
+            nupp.drop(output)
             if written == nil or status == nil then
                 return false, reason
             end
@@ -291,7 +297,7 @@ local record Writer is CompressionWriter
             while true do
                 local writable = span.writeCarray(output, capacity)
                 local written, status, reason = owner.state:finish(writable)
-                drop writable
+                nupp.drop(writable)
                 if written == nil or status == nil then
                     return false, reason
                 end
@@ -376,26 +382,40 @@ local function makeWriter(
 end
 
 local record Reader is io.Reader
-    private state: affine(provider.Decoder)
-    private source: affine(io.Reader)
-    private input: uint8[?]
-    private capacity: integer
-    private inputAt: integer
-    private inputLength: integer
-    private inputTotal: integer
-    private outputTotal: integer
-    private maxOutputBytes: integer?
-    private maxExpansionRatio: number?
-    private streamFinished: boolean
-    private ended: boolean
+    @private
+    state: affine(provider.Decoder)
+    @private
+    source: affine(io.Reader)
+    @private
+    input: uint8[?]
+    @private
+    capacity: integer
+    @private
+    inputAt: integer
+    @private
+    inputLength: integer
+    @private
+    inputTotal: integer
+    @private
+    outputTotal: integer
+    @private
+    maxOutputBytes: integer?
+    @private
+    maxExpansionRatio: number?
+    @private
+    streamFinished: boolean
+    @private
+    ended: boolean
 
     function close(takes self): nil
         self.state:close()
         self.source:close()
     end
 
-    private refill: function(self: Reader): (boolean?, string?)
-    private account: function(self: Reader, consumed: integer, written: integer): string?
+    @private
+    refill: function(self: Reader): (boolean?, string?)
+    @private
+    account: function(self: Reader, consumed: integer, written: integer): string?
 
     function readSpan(self, exclusive destination: span.Writable<uint8>): (integer?, string?)
         local destinationLength: integer
@@ -481,7 +501,7 @@ local record Reader is io.Reader
         local output = storage.allocateBytes(wanted)
         local writable = span.writeCarray(output, wanted)
         local written, reason = self:readSpan(writable)
-        drop writable
+        nupp.drop(writable)
         if written == nil then
             return nil, reason
         end
@@ -501,10 +521,10 @@ local record Reader is io.Reader
         do
             local output = lease:span()
             written, reason = self:readSpan(output)
-            drop output
+            nupp.drop(output)
         end
         if written == nil then
-            drop lease
+            nupp.drop(lease)
             return nil, reason
         end
         lease:commit(written)
@@ -518,7 +538,7 @@ local record Reader is io.Reader
         while true do
             local writable = span.writeCarray(output, self.capacity)
             local read, reason = self:readSpan(writable)
-            drop writable
+            nupp.drop(writable)
             if read == nil then
                 return nil, reason
             elseif read == 0 then
@@ -545,7 +565,7 @@ end
 function Reader.refill(self: Reader): (boolean?, string?)
     local writable = span.writeCarray(self.input, self.capacity)
     local count, reason = self.source:readSpan(writable)
-    drop writable
+    nupp.drop(writable)
     if count == nil then
         return nil, reason
     end
@@ -572,9 +592,11 @@ end
 --- Retained compression format descriptor.
 export record Format
     --- Canonical format name.
-    readonly name: string
+    @readonly
+    name: string
 
-    private implementation: provider.Format
+    @private
+    implementation: provider.Format
 
     --- Wraps and owns a reader, validating the stream before EOF.
     --- @raises string when options are invalid or a format block does not match

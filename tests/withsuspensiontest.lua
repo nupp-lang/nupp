@@ -69,11 +69,11 @@ function M.gotoCannotEnterInstallationScope()
     )
     local found = 0
     for _, diagnostic in ipairs(diagnostics) do
-        if diagnostic.code == "NUPP2602" then
+        if diagnostic.code == "NUPP2706" then
             found = found + 1
         end
     end
-    assert(found == 1, "one ownership diagnostic must reject entry without acquisition")
+    assert(found == 1, "one diagnostic must reject entry without acquisition")
 end
 
 function M.returnDischargesInstallation()

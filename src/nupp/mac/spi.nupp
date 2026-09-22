@@ -21,10 +21,12 @@ local {type State} = require("nupp.digest.spi")
 --- Fixed-output authentication algorithm and a factory for keyed state.
 export interface Algorithm
     --- Canonical algorithm name matching the catalog key.
-    readonly name: string
+    @readonly
+    name: string
 
     --- Fixed output size in bytes.
-    readonly digestSize: integer
+    @readonly
+    digestSize: integer
 
     --- Creates independent owned state from the raw-byte secret key.
     create: function(self: Algorithm, key: string): State
@@ -32,8 +34,10 @@ end
 
 --- A selectable catalog of keyed algorithm descriptors.
 export interface Provider
-    readonly priority: integer?
+    @readonly
+    priority: integer?
 
     --- Algorithms keyed by canonical name; additional descriptor fields are allowed.
-    readonly algorithms: {[string]: Algorithm}
+    @readonly
+    algorithms: {[string]: Algorithm}
 end

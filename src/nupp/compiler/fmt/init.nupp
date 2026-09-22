@@ -1939,7 +1939,6 @@ local function canonicalizeUnifiedGrammar(source: string, result: any): string
         if node.kind == "funcStmt" or node.kind == "localFuncStmt" or node.kind == "typeAlias" then
             moveAnnotation(node.comptimeTok, first)
         elseif node.kind == "recordDecl" then
-            moveAnnotation(node.sealedTok, first)
             moveAnnotation(node.affineTok, first)
         elseif node.kind == "fieldDecl" then
             annotateToken(node.terminalTok)
@@ -2039,11 +2038,7 @@ function fmt.Formatter:format(source: string, filename: string?): string, {any}
     if result.root.formatDisabled then
         return source, {}
     end
-    -- The pinned stage-zero release reads all of src/nupp, including the
-    -- standard library and runtime. Keep its spelling until a release and pin
-    -- move make the new annotations available to that first build.
-    local stageZeroSource = filename and filename:gsub("\\", "/"):find("src/nupp/", 1, true) ~= nil
-    local canonical = stageZeroSource and source or canonicalizeUnifiedGrammar(source, result)
+    local canonical = canonicalizeUnifiedGrammar(source, result)
     if canonical ~= source then
         source = canonical
         result = parser.parse(source, filename)

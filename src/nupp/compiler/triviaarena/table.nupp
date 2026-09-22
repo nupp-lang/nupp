@@ -8,9 +8,11 @@ local provider = {}
 const STRIDE = 5
 
 local record TableArena
-    readonly source: string
+    @readonly
+    source: string
     count: integer
-    private words: {integer}
+    @private
+    words: {integer}
 end
 
 function TableArena:append(kind: integer, offset: integer, length: integer, line: integer, col: integer): integer

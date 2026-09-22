@@ -15,8 +15,10 @@ local contract = require("nupp.mac.spi")
 local {type State} = require("nupp.digest.spi")
 local builtin = require("nupp.digest.internal.builtin")
 local record Algorithm is contract.Algorithm
-    readonly name: string = "hmac-sha256"
-    readonly digestSize: integer = 32
+    @readonly
+    name: string = "hmac-sha256"
+    @readonly
+    digestSize: integer = 32
     function create(self, key: string): State
         return builtin.hmacSha256(key)
     end

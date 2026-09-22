@@ -14,8 +14,10 @@ branch per token or trivia record.
 local triviaarena = {}
 
 export interface Arena
-    readonly source: string
-    readonly count: integer
+    @readonly
+    source: string
+    @readonly
+    count: integer
     append: function(self: Arena, kind: integer, offset: integer, length: integer, line: integer, col: integer): integer
 
     --- @raises string when `index` is outside `1..count`
@@ -24,7 +26,8 @@ end
 
 export interface Provider
     -- Read only, so a provider whose `new` is inferred not to suspend still fits.
-    readonly new: function(source: string): Arena
+    @readonly
+    new: function(source: string): Arena
 end
 
 local selected: Provider?

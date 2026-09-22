@@ -25,7 +25,7 @@ export type FormatOptions = {readonly [string]: any}
 
 --- Independent incremental compression state.
 export interface Encoder is nupp.Closeable
-    close: nosuspend function(takes self: Encoder): nil
+    close: @nosuspend function(takes self: Encoder): nil
     write: function(
         exclusive self: Encoder,
         borrows input: ByteSpan,
@@ -37,7 +37,7 @@ end
 
 --- Independent incremental decompression state.
 export interface Decoder is nupp.Closeable
-    close: nosuspend function(takes self: Decoder): nil
+    close: @nosuspend function(takes self: Decoder): nil
     read: function(
         exclusive self: Decoder,
         borrows input: ByteSpan,
@@ -48,14 +48,17 @@ end
 
 --- Immutable format identity and state factories.
 export interface Format
-    readonly name: string
+    @readonly
+    name: string
     createEncoder: function(self: Format, options: FormatOptions?): Encoder
     createDecoder: function(self: Format, options: FormatOptions?): Decoder
 end
 
 --- A selectable implementation catalog.
 export interface Provider
-    readonly priority: integer?
+    @readonly
+    priority: integer?
 
-    readonly formats: {[string]: Format}
+    @readonly
+    formats: {[string]: Format}
 end

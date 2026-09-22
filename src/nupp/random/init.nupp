@@ -97,10 +97,14 @@ end
 --- An independent deterministic xoshiro128** sequence.
 --- @export
 export record Xoshiro128
-    private s0: int32
-    private s1: int32
-    private s2: int32
-    private s3: int32
+    @private
+    s0: int32
+    @private
+    s1: int32
+    @private
+    s2: int32
+    @private
+    s3: int32
 
     --- Creates a generator. An omitted seed uses a fixed reproducible value.
     constructor(self, seed: integer?)

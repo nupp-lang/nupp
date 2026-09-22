@@ -107,23 +107,28 @@ end
 record data.Bitset
     --- Zero-based words, lowest bit first. Every word from `used` up to
     --- `capacity` is zero, which is the invariant every word loop relies on.
-    private words: uint32[?]
+    @private
+    words: uint32[?]
 
     --- Words allocated.
-    private capacity: integer
+    @private
+    capacity: integer
 
     --- An upper bound on the words that may hold a set bit: every word at or
     --- above it is zero. Deliberately not the exact high-water mark, because
     --- keeping that exact costs a backwards scan on every clear and every
     --- intersection.
-    private used: integer
+    @private
+    used: integer
 
     --- The last resolved population, meaningful only when `stale` is false.
-    private population: integer
+    @private
+    population: integer
 
     --- Whether `population` needs recomputing. Set algebra marks it rather than
     --- paying two popcounts per word to keep a number most callers never read.
-    private stale: boolean
+    @private
+    stale: boolean
 
     --- Creates an empty set.
     ---

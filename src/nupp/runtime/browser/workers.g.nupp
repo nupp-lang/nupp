@@ -166,11 +166,11 @@ local record TaskImpl
     await: function(TaskImpl): ...any
 
     --- Whether the child has settled and its reply has reached this Lua state.
-    isDone: nosuspend function(TaskImpl): boolean
+    isDone: @nosuspend function(TaskImpl): boolean
 
-    status: nosuspend function(TaskImpl): string
+    status: @nosuspend function(TaskImpl): string
 
-    cancel: nosuspend function(TaskImpl, string?): boolean
+    cancel: @nosuspend function(TaskImpl, string?): boolean
 end
 
 type workers.ScopeToken = contracts.ScopeToken
@@ -542,7 +542,7 @@ local function closeScope(borrows self: workers.Scope): nil
 end
 
 local function dropScope(takes self: workers.Scope): nil
-    local state = @unsafe release self
+    local state = @unsafe nupp.release(self)
     closeScope(state)
 end
 

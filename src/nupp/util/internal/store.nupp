@@ -44,9 +44,12 @@ export record Key<T>
     --- promises what the loop delivers rather than what the last call returns.
     type Step = function(any, integer): (integer, string)
 
-    readonly id: integer
-    readonly name: string?
-    readonly _valueType: (function(value: T?): T?)?
+    @readonly
+    id: integer
+    @readonly
+    name: string?
+    @readonly
+    _valueType: (function(value: T?): T?)?
 
     --- Finds a registered key by name.
     ---
@@ -129,7 +132,8 @@ export interface Store
 end
 
 local record Bag is Store
-    private values: {[integer]: any}
+    @private
+    values: {[integer]: any}
 end
 
 --- Creates an empty store.

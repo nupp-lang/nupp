@@ -14,7 +14,7 @@ local DEFAULT_READ = 65536
 --- each see half of them.
 --- @export
 export sealed interface Lines is nupp.Closeable
-    drop: nosuspend function(takes self: Lines): nil
+    drop: @nosuspend function(takes self: Lines): nil
 
     --- Reads the next line, without its terminator.
     ---
@@ -29,18 +29,24 @@ export sealed interface Lines is nupp.Closeable
     isReleased: function(self: Lines): boolean
 
     --- Releases this reader and the source it took.
-    close: nosuspend function(takes self: Lines): nil
+    close: @nosuspend function(takes self: Lines): nil
 end
 
 local record LineReader is Lines
-    private _source: Reader
-    private _held: string
-    private _at: integer
-    private _limit: integer
-    private _closed: boolean
-    private _ended: boolean
+    @private
+    _source: Reader
+    @private
+    _held: string
+    @private
+    _at: integer
+    @private
+    _limit: integer
+    @private
+    _closed: boolean
+    @private
+    _ended: boolean
 
-    drop: nosuspend function(takes self: LineReader): nil
+    drop: @nosuspend function(takes self: LineReader): nil
 
     function isReleased(self): boolean
         return self._closed

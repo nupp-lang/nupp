@@ -278,7 +278,8 @@ type log.Target = log.Sink | LuaFile
 --- @export
 record log.Logger
     --- The name every line from this logger carries.
-    readonly name: string
+    @readonly
+    name: string
 
     --- Logs at debug. Accepts `string.format` directives.
     debug: function<F is string>(self: log.Logger, fmt: F, ...: unpackof __NuppFormatArguments(F, nupp.Debug)): nil

@@ -11,8 +11,8 @@ export interface NativeTransfer
     -- The version is the wire number, 10, 11 or 20, rather than the text form.
     -- `http.Version` is derived from it at the one place a caller sees a response.
     head: function(self: NativeTransfer): (string, integer?, integer?, string?, string?, string?)
-    cancel: nosuspend function(self: NativeTransfer): nil
-    close: nosuspend function(self: NativeTransfer): nil
+    cancel: @nosuspend function(self: NativeTransfer): nil
+    close: @nosuspend function(self: NativeTransfer): nil
     offer: function(self: NativeTransfer, value: any, count: integer?): string
     finishUpload: function(self: NativeTransfer): string
     takeBody: function(self: NativeTransfer): (boolean?, string?)
@@ -25,7 +25,7 @@ export interface NativeClient
     now: function(self: NativeClient): number
     send: function(self: NativeClient, descriptor: any): (NativeTransfer?, string?, boolean?)
     pending: function(self: NativeClient): integer
-    close: nosuspend function(self: NativeClient): nil
+    close: @nosuspend function(self: NativeClient): nil
 end
 
 const native = require("nupp.runtime.native")

@@ -25,62 +25,82 @@ export type MarkContainer = function<T is table>(takes value: T): T preserves va
 --- unknown-member policy. All buffer operations use the canonical shared Buffer;
 --- they must preserve the declared exclusive access and ownership guarantees.
 export interface JsonProvider
-    readonly priority: integer?
+    @readonly
+    priority: integer?
 
     --- Builds an array projection shape with the supplied element shape.
-    readonly arrayOf: function(shape: any?): any
+    @readonly
+    arrayOf: function(shape: any?): any
 
     --- Marks and returns the same table as an array, preserving its ownership.
-    readonly asArray: MarkContainer
+    @readonly
+    asArray: MarkContainer
 
     --- Marks and returns the same table as an object, preserving its ownership.
-    readonly asObject: MarkContainer
+    @readonly
+    asObject: MarkContainer
 
     --- Reports whether a value has JSON array semantics.
-    readonly isArray: function(value: any): boolean
+    @readonly
+    isArray: function(value: any): boolean
 
     --- Parses JSON, applying the caller-selected representation of null.
-    readonly decode: function(text: string, nullValue: any?): any
+    @readonly
+    decode: function(text: string, nullValue: any?): any
 
     --- Serializes a value with this provider's markers and null convention.
-    readonly encode: function(value: any, nullValue: any?): string
+    @readonly
+    encode: function(value: any, nullValue: any?): string
 
     --- Serializes with the same semantics as encode.
-    readonly serialize: function(value: any, nullValue: any?): string
+    @readonly
+    serialize: function(value: any, nullValue: any?): string
 
     --- Creates a validated encoded-value fragment for subsequent composition.
-    readonly encoded: function(value: any, nullValue: any?): any
+    @readonly
+    encoded: function(value: any, nullValue: any?): any
 
     --- Creates a fragment containing one escaped JSON string.
-    readonly encodedString: function(value: string): any
+    @readonly
+    encodedString: function(value: string): any
 
     --- Parses only the value projection described by shape.
-    readonly pull: function(text: string, shape: any, nullValue: any?): any
+    @readonly
+    pull: function(text: string, shape: any, nullValue: any?): any
 
     --- Validates raw JSON and retains a fragment suitable for composition.
-    readonly verified: function(text: string): any
+    @readonly
+    verified: function(text: string): any
 
     --- Validates a raw encoded JSON string fragment.
-    readonly verifiedString: function(text: string): any
+    @readonly
+    verifiedString: function(text: string): any
 
     --- Creates a JSON writer over exclusive access to the canonical buffer.
-    readonly writer: function(exclusive out: SharedBuffer, nullValue: any?): any
+    @readonly
+    writer: function(exclusive out: SharedBuffer, nullValue: any?): any
 
     --- Stable explicit null marker owned by this loaded implementation.
-    readonly NULL: any
+    @readonly
+    NULL: any
 
     --- Stable empty-array marker value.
-    readonly EMPTY_ARRAY: table
+    @readonly
+    EMPTY_ARRAY: table
 
     --- Stable empty-object marker value.
-    readonly EMPTY_OBJECT: table
+    @readonly
+    EMPTY_OBJECT: table
 
     --- Optionally prepares a schema plan with its unknown-member policy.
-    readonly compileSerde: (function(plan: any, unknownMembers: string): any)?
+    @readonly
+    compileSerde: (function(plan: any, unknownMembers: string): any)?
 
     --- Optionally decodes a prepared schema, returning value or diagnostic.
-    readonly decodeSerde: (function(schema: any, text: string): (any?, string?))?
+    @readonly
+    decodeSerde: (function(schema: any, text: string): (any?, string?))?
 
     --- Optionally decodes from exclusive access to the canonical buffer.
-    readonly decodeSerdeBuffer: (function(schema: any, exclusive input: SharedBuffer): (any?, string?))?
+    @readonly
+    decodeSerdeBuffer: (function(schema: any, exclusive input: SharedBuffer): (any?, string?))?
 end

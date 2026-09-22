@@ -6,17 +6,17 @@ local messages = require("nupp.io.files.messages")
 local appPaths = require("nupp.io.files.path")
 
 export interface Owner
-    drop: nosuspend function(takes self: Owner): nil
+    drop: @nosuspend function(takes self: Owner): nil
 end
 
 --- A forward-only byte reader sharing an open file's cursor.
 export interface FileReader is io.Reader
-    drop: nosuspend function(takes self: FileReader): nil
+    drop: @nosuspend function(takes self: FileReader): nil
 end
 
 --- A forward-only byte writer sharing an open file's cursor.
 export interface FileWriter is io.Writer
-    drop: nosuspend function(takes self: FileWriter): nil
+    drop: @nosuspend function(takes self: FileWriter): nil
 end
 
 --- An affine open file and its exclusive platform handle.
@@ -46,7 +46,7 @@ export interface File is nupp.Affine<self.drop>
     close: function(takes self: File): boolean
 
     --- Releases the platform handle during lexical cleanup.
-    drop: nosuspend function(takes self: File): nil
+    drop: @nosuspend function(takes self: File): nil
 end
 
 --- A native temporary path removed on close unless persisted.
@@ -64,7 +64,7 @@ export interface TemporaryPath is nupp.Affine<self.drop>
     close: function(takes self: TemporaryPath): boolean
 
     --- Removes the path during lexical cleanup.
-    drop: nosuspend function(takes self: TemporaryPath): nil
+    drop: @nosuspend function(takes self: TemporaryPath): nil
 end
 
 export function destroyOwner<T is Owner>(takes value: T): nil
@@ -72,38 +72,68 @@ export function destroyOwner<T is Owner>(takes value: T): nil
 end
 
 export interface Provider
-    readonly priority: integer?
-    readonly capabilities: function(): messages.Capabilities
-    readonly info: function(path: any): (messages.Info?, string?)
-    readonly exists: function(path: any): boolean
-    readonly isFile: function(path: any): boolean
-    readonly isDirectory: function(path: any): boolean
-    readonly isSymlink: function(path: any): (boolean?, string?)
-    readonly readLink: function(path: any): (string?, string?)
-    readonly createSymlink: function(target: any, link: any, kind: ("file" | "directory")?): (boolean, string?)
-    readonly setReadOnly: function(path: any, readOnly: boolean): (boolean, string?)
-    readonly createDirectory: function(path: any): (boolean, string?)
-    readonly remove: function(path: any, recursive: boolean?): (boolean, string?)
-    readonly rename: function(from: any, to: any): (boolean, string?)
-    readonly list: function(path: any): ({messages.Entry}?, string?)
-    readonly glob: function(path: any): ({string}?, string?)
-    readonly read: function(path: any): (string?, string?)
-    readonly write: function(path: any, bytes: string | io.ByteView): (boolean, string?)
-    readonly append: function(path: any, bytes: string | io.ByteView): (boolean, string?)
-    readonly writeAtomic: function(path: any, bytes: string | io.ByteView): (boolean, string?)
-    readonly copy: function(from: any, to: any): (boolean, string?)
-    readonly pendingTransfers: function(): integer
-    readonly open: function(path: any, mode: messages.Mode?): (affine(File?), string?)
-    readonly lines: function(path: any): (messages.LineIterator?, string?)
-    readonly createTemporaryFile: function(options: messages.TemporaryOptions?): (affine(TemporaryPath?), string?)
-    readonly createTemporaryDirectory: function(options: messages.TemporaryOptions?): (affine(TemporaryPath?), string?)
-    readonly currentDirectory: function(): (string?, string?)
-    readonly userFolder: function(which: messages.UserFolder): (string?, string?)
-    readonly applicationPath: function(
+    @readonly
+    priority: integer?
+    @readonly
+    capabilities: function(): messages.Capabilities
+    @readonly
+    info: function(path: any): (messages.Info?, string?)
+    @readonly
+    exists: function(path: any): boolean
+    @readonly
+    isFile: function(path: any): boolean
+    @readonly
+    isDirectory: function(path: any): boolean
+    @readonly
+    isSymlink: function(path: any): (boolean?, string?)
+    @readonly
+    readLink: function(path: any): (string?, string?)
+    @readonly
+    createSymlink: function(target: any, link: any, kind: ("file" | "directory")?): (boolean, string?)
+    @readonly
+    setReadOnly: function(path: any, readOnly: boolean): (boolean, string?)
+    @readonly
+    createDirectory: function(path: any): (boolean, string?)
+    @readonly
+    remove: function(path: any, recursive: boolean?): (boolean, string?)
+    @readonly
+    rename: function(from: any, to: any): (boolean, string?)
+    @readonly
+    list: function(path: any): ({messages.Entry}?, string?)
+    @readonly
+    glob: function(path: any): ({string}?, string?)
+    @readonly
+    read: function(path: any): (string?, string?)
+    @readonly
+    write: function(path: any, bytes: string | io.ByteView): (boolean, string?)
+    @readonly
+    append: function(path: any, bytes: string | io.ByteView): (boolean, string?)
+    @readonly
+    writeAtomic: function(path: any, bytes: string | io.ByteView): (boolean, string?)
+    @readonly
+    copy: function(from: any, to: any): (boolean, string?)
+    @readonly
+    pendingTransfers: function(): integer
+    @readonly
+    open: function(path: any, mode: messages.Mode?): (affine(File?), string?)
+    @readonly
+    lines: function(path: any): (messages.LineIterator?, string?)
+    @readonly
+    createTemporaryFile: function(options: messages.TemporaryOptions?): (affine(TemporaryPath?), string?)
+    @readonly
+    createTemporaryDirectory: function(options: messages.TemporaryOptions?): (affine(TemporaryPath?), string?)
+    @readonly
+    currentDirectory: function(): (string?, string?)
+    @readonly
+    userFolder: function(which: messages.UserFolder): (string?, string?)
+    @readonly
+    applicationPath: function(
         kind: string,
         organization: string,
         application: string
     ): (appPaths.ApplicationPath?, string?)
-    readonly executableDirectory: function(): (string?, string?)
-    readonly requestPersistentStorage: function(): (boolean, string?)
+    @readonly
+    executableDirectory: function(): (string?, string?)
+    @readonly
+    requestPersistentStorage: function(): (boolean, string?)
 end

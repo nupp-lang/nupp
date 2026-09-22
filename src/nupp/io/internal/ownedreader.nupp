@@ -14,10 +14,14 @@ local DEFAULT_READ = 65536
 -- A completed host transfer can give its allocation to a reader directly.
 -- Unlike Buffer:newReader's snapshot, this consumes the owner and copies no bytes.
 local record MemoryReader is Reader
-    private _data: uint8[?]
-    private _length: integer
-    private _at: integer
-    private _closed: boolean
+    @private
+    _data: uint8[?]
+    @private
+    _length: integer
+    @private
+    _at: integer
+    @private
+    _closed: boolean
 
     function read(self, count: integer): (string?, string?)
         if self._closed then
@@ -71,7 +75,7 @@ local record MemoryReader is Reader
         do
             local output = lease:span()
             local _read, _reason = self:readSpan(output)
-            drop output
+            nupp.drop(output)
         end
         lease:commit(taking)
 
@@ -105,7 +109,7 @@ local record MemoryReader is Reader
     end
 
     function drop(takes self): nil
-        local state = @unsafe release self
+        local state = @unsafe nupp.release(self)
         state._closed = true
         state._length = 0
         (state as any)._data = nil
@@ -113,7 +117,7 @@ local record MemoryReader is Reader
 end
 
 export function newOwnedReader(takes buffer: bytes.OwnedBuffer): Reader
-    local state = @unsafe release buffer
+    local state = @unsafe nupp.release(buffer)
     assert(not (state as any)._closed, "nupp: io.Buffer is closed")
     return new MemoryReader(_data = (state as any)._data, _length = (state as any)._length, _at = 0, _closed = false)
 end

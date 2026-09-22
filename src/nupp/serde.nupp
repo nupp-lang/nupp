@@ -98,14 +98,25 @@ export const debugRedact: MetadataKey<boolean> = metadataKey()
 --- One structure member with a stable dense index.
 --- @export
 export record Member
-    readonly index: integer
-    readonly name: string
-    readonly target: any
-    readonly required: boolean
-    readonly hasDefault: boolean
-    private readonly defaultValue: any
-    private readonly owner: any
-    private readonly metadataValues: store.Store
+    @readonly
+    index: integer
+    @readonly
+    name: string
+    @readonly
+    target: any
+    @readonly
+    required: boolean
+    @readonly
+    hasDefault: boolean
+    @private
+    @readonly
+    defaultValue: any
+    @private
+    @readonly
+    owner: any
+    @private
+    @readonly
+    metadataValues: store.Store
 
     --- Answers typed metadata attached to this member.
     function metadata<T>(self, key: MetadataKey<T>): T?
@@ -116,10 +127,15 @@ end
 --- One immutable logical schema node.
 --- @export
 export record Schema
-    readonly kind: Kind
-    readonly name: string?
-    readonly members: {Member}
-    private readonly state: any
+    @readonly
+    kind: Kind
+    @readonly
+    name: string?
+    @readonly
+    members: {Member}
+    @private
+    @readonly
+    state: any
 
     --- Answers a lazily computed typed extension.
     function extension<T>(self, key: nupp.reflect.ExtensionKey<T>): T
@@ -283,7 +299,8 @@ end
 --- Incrementally constructs and then freezes a run-time structure schema.
 --- @export
 export record SchemaBuilder
-    private state: any = nil
+    @private
+    state: any = nil
 
     constructor(self)
         self.state = nil
@@ -389,7 +406,9 @@ local validateValue: function(value: any, schema: Schema, path: string): nil
 ----------------------------------------------------------------------------
 
 local record BindingImpl<T> is Binding<T>
-    private readonly token: any
+    @private
+    @readonly
+    token: any
 
     function schema(self): Schema
         return bindingStates[self].schema
@@ -414,7 +433,9 @@ end
 --- An indexed value owned by a dynamic binding.
 --- @export
 export record DynamicValue
-    private readonly token: any
+    @private
+    @readonly
+    token: any
 
     --- Reads a resolved member.
     --- @raises string when the member belongs to another schema
@@ -470,7 +491,9 @@ export sealed interface DynamicBinding is Binding<DynamicValue>
 end
 
 local record DynamicBindingImpl is DynamicBinding
-    private readonly binding: Binding<DynamicValue>
+    @private
+    @readonly
+    binding: Binding<DynamicValue>
 
     function schema(self): Schema
         return self.binding:schema()
@@ -1040,10 +1063,14 @@ debugPlanFor = function(schema: Schema, access: any?, dynamicValues: boolean, se
 end
 
 local record PreparedDebugImpl<T> is PreparedDebug<T>
-    private readonly plan: DebugPlan
+    @private
+    @readonly
+    plan: DebugPlan
     -- Pop while in use and return only after reset. Reentrant and interleaved calls
     -- therefore acquire distinct buffers while steady-state calls allocate none.
-    private readonly buffers: {Buffer}
+    @private
+    @readonly
+    buffers: {Buffer}
 
     function write(self, value: T, exclusive out: Buffer): nil
         self.plan.write(value, out, {active = {}})
@@ -1094,8 +1121,11 @@ end
 --- Immutable JSON wire-policy identity.
 --- @export
 export record JsonProfile
-    readonly unknownMembers: "reject" | "ignore"
-    private readonly fieldNames: any
+    @readonly
+    unknownMembers: "reject" | "ignore"
+    @private
+    @readonly
+    fieldNames: any
 end
 
 --- A prepared JSON traversal for one binding and profile.
@@ -1404,7 +1434,9 @@ local writeDocument: function(
 ): nil
 
 local record PreparedImpl<T> is Prepared<T>
-    private readonly token: any
+    @private
+    @readonly
+    token: any
 
     function encode(self, value: T): string
         local state = preparedStates[self]
@@ -1649,7 +1681,8 @@ end
 --- A JSON codec that lazily prepares bindings.
 --- @export
 export record JsonCodec
-    readonly profile: JsonProfile
+    @readonly
+    profile: JsonProfile
 
     --- Prepares and memoizes a fused traversal.
     function prepare<T>(self, binding: Binding<T>): Prepared<T>

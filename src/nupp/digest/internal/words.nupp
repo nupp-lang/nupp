@@ -56,12 +56,18 @@ local function sigma(h: integer, l: integer, a: integer, b: integer, c: integer,
 end
 
 local record Engine is streaming.Hasher
-    private name: string
-    private state: {integer}
-    private schedule: {integer}
-    private tail: string
-    private low: integer
-    private high: integer
+    @private
+    name: string
+    @private
+    state: {integer}
+    @private
+    schedule: {integer}
+    @private
+    tail: string
+    @private
+    low: integer
+    @private
+    high: integer
     update: function(self: Engine, bytes: string): streaming.Hasher
     digest: function(self: Engine): string
     hex: function(self: Engine): string

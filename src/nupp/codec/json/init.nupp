@@ -141,7 +141,8 @@ const native = require("nupp.codec.json.provider")
 --- Values come from `encoded` or `verified`; the private token prevents checked
 --- callers from manufacturing an unverified fast-path value.
 export record EncodedValue
-    private _token: any
+    @private
+    _token: any
 end
 
 --- A JSON string whose immutable encoded bytes have already been produced or
@@ -150,7 +151,8 @@ end
 --- `Writer:key` accepts this type without validating UTF-8 or escaping it again.
 --- Values produced by `encodedString` and `verifiedString` are interned.
 export record EncodedString
-    private _token: any
+    @private
+    _token: any
 end
 
 --- Values that can write one complete JSON value through a checked writer.
@@ -298,7 +300,7 @@ export interface Writer is nupp.Closeable
     --- writer:endArray():close()
     --- ```
     --- @param self the writer
-    flush: nosuspend function(exclusive self: Writer): nil
+    flush: @nosuspend function(exclusive self: Writer): nil
 
     --- Verifies and publishes one complete root, then releases backing state.
     ---
@@ -310,11 +312,12 @@ export interface Writer is nupp.Closeable
     --- assert(out:tostring() == [[{"ok":true}]])
     --- ```
     --- @param self the writer
-    close: nosuspend function(takes self: Writer): nil
+    close: @nosuspend function(takes self: Writer): nil
 end
 
 local record WriterImpl is Writer
-    private raw: any
+    @private
+    raw: any
 
     function startArray(exclusive self): Writer borrows (self)
         self.raw:startArray()

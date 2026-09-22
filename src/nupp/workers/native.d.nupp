@@ -6,40 +6,40 @@
 --- functions deliberately expose only opaque handles and serialized bytes, so
 --- nothing here can hand a Lua value from one state to another.
 local record native
-    channelCreate: nosuspend function(): any
-    channelDestroy: nosuspend function(any)
-    channelClose: nosuspend function(any)
-    channelPush: nosuspend function(any, string, string): boolean
-    channelPushNumberTask: nosuspend function(any, integer, string, string, number): boolean
-    channelPushNumberReply: nosuspend function(any, integer, number): boolean
-    channelPushStringTask: nosuspend function(any, integer, string, string, string): boolean
-    channelPushStringReply: nosuspend function(any, integer, string): boolean
-    channelSchemaRegister: nosuspend function(any, string, string, {string}, {string}): integer?
-    channelPushRecordTask: nosuspend function(any, integer, string, string, integer, any): integer
-    channelPushRecordReply: nosuspend function(any, integer, integer, any): integer
-    channelDictRegister: nosuspend function(any, string): integer?
-    channelDictCount: nosuspend function(any): integer
-    channelDictAddress: nosuspend function(any, integer): string?
-    channelPushBufferTask: nosuspend function(any, integer, string, string, number, string, any): boolean
-    channelPushBufferReply: nosuspend function(any, integer, number, string, any): boolean
-    channelPop: nosuspend function(
+    channelCreate: @nosuspend function(): any
+    channelDestroy: @nosuspend function(any)
+    channelClose: @nosuspend function(any)
+    channelPush: @nosuspend function(any, string, string): boolean
+    channelPushNumberTask: @nosuspend function(any, integer, string, string, number): boolean
+    channelPushNumberReply: @nosuspend function(any, integer, number): boolean
+    channelPushStringTask: @nosuspend function(any, integer, string, string, string): boolean
+    channelPushStringReply: @nosuspend function(any, integer, string): boolean
+    channelSchemaRegister: @nosuspend function(any, string, string, {string}, {string}): integer?
+    channelPushRecordTask: @nosuspend function(any, integer, string, string, integer, any): integer
+    channelPushRecordReply: @nosuspend function(any, integer, integer, any): integer
+    channelDictRegister: @nosuspend function(any, string): integer?
+    channelDictCount: @nosuspend function(any): integer
+    channelDictAddress: @nosuspend function(any, integer): string?
+    channelPushBufferTask: @nosuspend function(any, integer, string, string, number, string, any): boolean
+    channelPushBufferReply: @nosuspend function(any, integer, number, string, any): boolean
+    channelPop: @nosuspend function(
         any,
         integer
     ): (string?, string?, integer?, integer?, string?, string?, any, number?, any)
-    channelCount: nosuspend function(any): integer
-    channelClosed: nosuspend function(any): boolean
+    channelCount: @nosuspend function(any): integer
+    channelClosed: @nosuspend function(any): boolean
 
-    workerSpawn: nosuspend function(any, any, string?): (any?, string?)
-    workerJoin: nosuspend function(any): (integer, string?)
-    workerParallelism: nosuspend function(): integer
-    workerTaskCreate: nosuspend function(any, integer, number?): boolean
-    workerTaskCancel: nosuspend function(any, integer): integer
-    workerTaskStart: nosuspend function(integer): (boolean, boolean)
-    workerTaskCheckpoint: nosuspend function(): (boolean, boolean)
-    workerTaskFinish: nosuspend function(integer): (boolean, boolean)
-    workerTaskRelease: nosuspend function(any, integer): nil
-    workerTaskStatus: nosuspend function(any, integer): integer
-    current: nosuspend function(): (any?, any?)
+    workerSpawn: @nosuspend function(any, any, string?): (any?, string?)
+    workerJoin: @nosuspend function(any): (integer, string?)
+    workerParallelism: @nosuspend function(): integer
+    workerTaskCreate: @nosuspend function(any, integer, number?): boolean
+    workerTaskCancel: @nosuspend function(any, integer): integer
+    workerTaskStart: @nosuspend function(integer): (boolean, boolean)
+    workerTaskCheckpoint: @nosuspend function(): (boolean, boolean)
+    workerTaskFinish: @nosuspend function(integer): (boolean, boolean)
+    workerTaskRelease: @nosuspend function(any, integer): nil
+    workerTaskStatus: @nosuspend function(any, integer): integer
+    current: @nosuspend function(): (any?, any?)
 end
 
 return native

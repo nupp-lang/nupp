@@ -948,7 +948,8 @@ function derive.install(namespace: any): nil
     end
 end
 
-local comptime function option(items, annotationName: string, name: string): any
+@comptime
+local function option(items, annotationName: string, name: string): any
     for _, item in ipairs(items) do
         if item.name == annotationName then
             for index, argument in ipairs(item.arguments) do
@@ -962,7 +963,8 @@ local comptime function option(items, annotationName: string, name: string): any
     return nil
 end
 
-local comptime function detail(T: type): any
+@comptime
+local function detail(T: type): any
     local value = nupp.types.describe(T)
     if value.sourceKind then
         local normalized = {}
@@ -976,7 +978,8 @@ local comptime function detail(T: type): any
     return value
 end
 
-local comptime function Optional(T: type): type?
+@comptime
+local function Optional(T: type): type?
     local value = detail(T)
     if value.kind ~= "union" then
         return nil
@@ -995,7 +998,8 @@ local comptime function Optional(T: type): type?
     return nil
 end
 
-local comptime function debugSpec(T: type, contract: type): any
+@comptime
+local function debugSpec(T: type, contract: type): any
     local inner = Optional(T)
     if inner ~= nil then
         return {kind = "optional", value = debugSpec(inner, contract)}
@@ -1047,7 +1051,8 @@ local comptime function debugSpec(T: type, contract: type): any
     return nil
 end
 
-local comptime function jsonSpec(T: type, contract: type): any
+@comptime
+local function jsonSpec(T: type, contract: type): any
     local inner = Optional(T)
     if inner ~= nil then
         local value = jsonSpec(inner, contract)
@@ -1177,7 +1182,8 @@ end
 
 -- The serde recipe preserves semantic scalar widths and contains no JSON member
 -- policy. Unsupported topology is refused instead of being weakened to `document`.
-local comptime function serdeSpec(T: type, contract: type): any
+@comptime
+local function serdeSpec(T: type, contract: type): any
     local inner = Optional(T)
     if inner ~= nil then
         local item = serdeSpec(inner, contract)
@@ -1240,7 +1246,8 @@ local comptime function serdeSpec(T: type, contract: type): any
     return nil
 end
 
-comptime function derive.Debug(info: nupp.derive.Info): nupp.derive.Result<nupp.Debug>
+@comptime
+function derive.Debug(info: nupp.derive.Info): nupp.derive.Result<nupp.Debug>
     if info.kind ~= "record" and info.kind ~= "struct" then
         return nupp.derive.error("Debug can be derived only for records or structs", info.reference, "NUPP2803")
     end
@@ -1296,7 +1303,8 @@ comptime function derive.Debug(info: nupp.derive.Info): nupp.derive.Result<nupp.
     }
 end
 
-comptime function derive.JSON(info: nupp.derive.Info): nupp.derive.Result<JSONEncodable>
+@comptime
+function derive.JSON(info: nupp.derive.Info): nupp.derive.Result<JSONEncodable>
     if info.kind ~= "record" then
         return nupp.derive.error("JSON can be derived only for records", info.reference, "NUPP2806")
     end
@@ -1381,7 +1389,8 @@ end
 ---
 --- Unlike `JSON`, this provider admits both records and fixed-layout structs and
 --- generates no per-format traversal methods.
-comptime function derive.Serde(info: nupp.derive.Info): nupp.derive.Result<Serializable>
+@comptime
+function derive.Serde(info: nupp.derive.Info): nupp.derive.Result<Serializable>
     if info.kind ~= "record" and info.kind ~= "struct" then
         return nupp.derive.error("Serde can be derived only for records or structs", info.reference, "NUPP2803")
     end

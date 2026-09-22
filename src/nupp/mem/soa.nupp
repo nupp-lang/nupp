@@ -43,7 +43,7 @@ local span = require("nupp.mem.span")
 
 cdef function malloc(size: uint64): voidptr
 cdef function free(takes pointer: voidptr)
-local free_nosuspend = free as nosuspend function(takes pointer: voidptr): nil
+local free_nosuspend = free as @nosuspend function(takes pointer: voidptr): nil
 
 local MAX_EXACT_INTEGER = 9007199254740991
 
@@ -51,68 +51,86 @@ local MAX_EXACT_INTEGER = 9007199254740991
 --- @export
 record soa.FieldLayout
     --- The field's name, as the struct declared it.
-    readonly name: string
+    @readonly
+    name: string
 
     --- The struct name and the field name joined, which is what a fingerprint
     --- entry is filed under.
-    readonly identity: string
+    @readonly
+    identity: string
 
     --- The C type of one element of this column.
-    readonly ctype: string
+    @readonly
+    ctype: string
 
     --- Where this field sits in the declaration, counted from one.
-    readonly ordinal: integer
+    @readonly
+    ordinal: integer
 
     --- Bytes per element.
-    readonly elementSize: integer
+    @readonly
+    elementSize: integer
 
     --- The alignment the column starts on.
-    readonly alignment: integer
+    @readonly
+    alignment: integer
 
-    private readonly pointerType: any
+    @private
+    @readonly
+    pointerType: any
 end
 
 --- One field segment for a particular element count.
 --- @export
 record soa.SegmentLayout
     --- Which field this segment holds.
-    readonly field: soa.FieldLayout
+    @readonly
+    field: soa.FieldLayout
 
     --- Where the segment starts, in bytes from the slab's aligned base.
-    readonly offset: integer
+    @readonly
+    offset: integer
 
     --- How many bytes it occupies.
-    readonly byteCount: integer
+    @readonly
+    byteCount: integer
 end
 
 --- The count-dependent layout of one complete SoA slab.
 --- @export
 record soa.InstanceLayout
     --- The row count this layout was computed for.
-    readonly count: integer
+    @readonly
+    count: integer
 
     --- The slab's size in bytes, before alignment padding.
-    readonly byteSize: integer
+    @readonly
+    byteSize: integer
 
     --- One segment per field, in declaration order.
-    readonly segments: {soa.SegmentLayout}
+    @readonly
+    segments: {soa.SegmentLayout}
 end
 
 --- Immutable reflection for a reified struct's SoA representation.
 --- @export
 record soa.Layout
     --- The struct's name.
-    readonly name: string
+    @readonly
+    name: string
 
     --- Every field's identity, type, size and alignment in one string, so two
     --- layouts can be compared without walking them.
-    readonly fingerprint: string
+    @readonly
+    fingerprint: string
 
     --- The alignment the whole slab starts on, which is the widest field's.
-    readonly alignment: integer
+    @readonly
+    alignment: integer
 
     --- One entry per stored top-level field, in declaration order.
-    readonly fields: {soa.FieldLayout}
+    @readonly
+    fields: {soa.FieldLayout}
 
     --- Computes checked segment offsets for `count` rows without allocating storage.
     --- @raises string when count is negative or the slab size overflows a Lua integer
@@ -189,11 +207,11 @@ function soa._layout(raw: table): soa.Layout
 end
 
 sealed interface soa.ArrayToken
-    close: nosuspend function(takes self: ArrayToken): nil
+    close: @nosuspend function(takes self: ArrayToken): nil
 end
 
 sealed interface soa.WriteToken
-    drop: nosuspend function(takes self: WriteToken): nil
+    drop: @nosuspend function(takes self: WriteToken): nil
 end
 
 --- Frees a slab, which is what every SoA array's contract names.
@@ -215,8 +233,9 @@ end
 --- @param self the writer, spent by this call
 --- @export
 function soa.destroyWriteSpan<T is soa.WriteToken>(takes self: T): nil
-    nosuspend do
-        local _raw = @unsafe release self
+    @nosuspend
+    do
+        local _raw = @unsafe nupp.release(self)
     end
 end
 
@@ -253,12 +272,23 @@ sealed interface soa.Span<T> is soa.ReadView
 end
 
 local record SpanImpl<T> is soa.Span<T>
-    private readonly anchor: any
-    private readonly element: ctype<T>
-    private readonly layout: soa.Layout
-    private readonly columns: {any}
-    private readonly offset: integer
-    readonly count: integer
+    @private
+    @readonly
+    anchor: any
+    @private
+    @readonly
+    element: ctype<T>
+    @private
+    @readonly
+    layout: soa.Layout
+    @private
+    @readonly
+    columns: {any}
+    @private
+    @readonly
+    offset: integer
+    @readonly
+    count: integer
 
     function checkedIndex(self, index: integer): integer
         if index < 1 or index > self.count then
@@ -372,12 +402,23 @@ end
 type soa.Writable<T> = affine(soa.WriteToken & soa.WriteSpan<T>, soa.destroyWriteSpan)
 
 local record WriteSpanImpl<T> is soa.WriteToken, soa.WriteSpan<T>
-    private readonly anchor: any
-    private readonly element: ctype<T>
-    private readonly layout: soa.Layout
-    private readonly columns: {any}
-    private readonly offset: integer
-    readonly count: integer
+    @private
+    @readonly
+    anchor: any
+    @private
+    @readonly
+    element: ctype<T>
+    @private
+    @readonly
+    layout: soa.Layout
+    @private
+    @readonly
+    columns: {any}
+    @private
+    @readonly
+    offset: integer
+    @readonly
+    count: integer
 
     function checkedIndex(self, index: integer): integer
         if index < 1 or index > self.count then
@@ -476,28 +517,38 @@ local record WriteSpanImpl<T> is soa.WriteToken, soa.WriteSpan<T>
         ) as(soa.WriteToken & soa.WriteSpan<T>)
     end
 
-    drop: nosuspend function(takes self: WriteSpanImpl<T>): nil
+    drop: @nosuspend function(takes self: WriteSpanImpl<T>): nil
 end
 
 function WriteSpanImpl.drop<T>(takes self: WriteSpanImpl<T>): nil
-    nosuspend do
-        local _raw = @unsafe release self
+    @nosuspend
+    do
+        local _raw = @unsafe nupp.release(self)
     end
 end
 
 --- One owned native slab whose top-level struct fields occupy separate segments.
 --- @export
 record soa.Array<T> is soa.ArrayToken
-    private raw: voidptr
-    private readonly element: ctype<T>
-    private readonly layout: soa.Layout
-    private readonly columns: {any}
+    @private
+    raw: voidptr
+    @private
+    @readonly
+    element: ctype<T>
+    @private
+    @readonly
+    layout: soa.Layout
+    @private
+    @readonly
+    columns: {any}
 
     --- How many rows the slab holds.
-    readonly count: integer
+    @readonly
+    count: integer
 
     --- The layout fingerprint the slab was allocated under.
-    readonly fingerprint: string
+    @readonly
+    fingerprint: string
 
     --- Borrows the rows as a shared checked view.
     ---
@@ -514,9 +565,9 @@ record soa.Array<T> is soa.ArrayToken
     ): affine(soa.WriteToken & soa.WriteSpan<T>, soa.destroyWriteSpan) borrows (self)
 
     --- Frees the slab. `drop` and scope exit both reach this.
-    close: nosuspend function(takes self: Array<T>): nil
+    close: @nosuspend function(takes self: Array<T>): nil
 
-    drop: nosuspend function(takes self: Array<T>): nil
+    drop: @nosuspend function(takes self: Array<T>): nil
 end
 
 function soa.Array.read<T>(borrows self: soa.Array<T>): soa.Span<T> borrows (self)
@@ -544,14 +595,15 @@ function soa.Array.write<T>(
 end
 
 local function finishArray(takes self: any): nil
-    nosuspend do
-        local raw = @unsafe release self
-        local pointer = @unsafe adopt raw.raw as affine(voidptr, free_nosuspend)
+    @nosuspend
+    do
+        local raw = @unsafe nupp.release(self)
+        local pointer = @unsafe nupp.adopt<affine(voidptr, free_nosuspend)>(raw.raw)
         free_nosuspend(pointer)
     end
 end
 
-local finishArrayNosuspend = finishArray as nosuspend function(takes self: any): nil
+local finishArrayNosuspend = finishArray as @nosuspend function(takes self: any): nil
 
 function soa.Array.close<T>(takes self: soa.Array<T>): nil
     finishArrayNosuspend(self)

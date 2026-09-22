@@ -178,16 +178,26 @@ end
 --- A parsed URI.
 --- @export
 export record URI
-    private _text: string
-    private _scheme: string
-    private _authority: string?
-    private _username: string
-    private _password: string?
-    private _host: string?
-    private _port: integer?
-    private _path: string
-    private _query: string?
-    private _fragment: string?
+    @private
+    _text: string
+    @private
+    _scheme: string
+    @private
+    _authority: string?
+    @private
+    _username: string
+    @private
+    _password: string?
+    @private
+    _host: string?
+    @private
+    _port: integer?
+    @private
+    _path: string
+    @private
+    _query: string?
+    @private
+    _fragment: string?
 
     --- The whole URI as text.
     --- @param self this URI

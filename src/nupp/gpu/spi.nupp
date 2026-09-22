@@ -20,11 +20,13 @@ The facade exports the retained open function directly.
 local types = require("nupp.gpu.api")
 
 export interface Provider
-    readonly priority: integer?
+    @readonly
+    priority: integer?
 
     --- Opens an owned device context using the canonical destroyContext cleanup.
     --- Raise if the host cannot provide a compatible device.
-    readonly open: function(): affine(types.KernelContext, types.destroyContext)
+    @readonly
+    open: function(): affine(types.KernelContext, types.destroyContext)
 end
 
 --- Complete shared context protocol, including generated-kernel operations.

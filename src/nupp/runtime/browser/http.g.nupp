@@ -66,8 +66,10 @@ record http.Response is contracts.Response
     version: http.Version?
     url: uri.URI
     body: http.Body
-    private _headers: {[string]: {string}}
-    private _closed: boolean
+    @private
+    _headers: {[string]: {string}}
+    @private
+    _closed: boolean
 
     function ok(self): boolean
         return self.status >= 200 and self.status < 300
@@ -128,9 +130,12 @@ local function makeResponse(
 end
 
 record http.Client is contracts.Client
-    private _options: http.Options
-    private _closed: boolean
-    private _pending: integer
+    @private
+    _options: http.Options
+    @private
+    _closed: boolean
+    @private
+    _pending: integer
 
     constructor(self, options: http.Options?): http.Client
         self._options = options or new http.Options()
@@ -280,7 +285,7 @@ record http.Client is contracts.Client
                     error(failure, 0)
                 end
             end
-            drop output
+            nupp.drop(output)
         end
         lease:commit(value.bodyBytes as integer)
         local responseBody = ownedReader.newOwnedReader(storage)

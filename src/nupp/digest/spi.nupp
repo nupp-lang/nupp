@@ -24,7 +24,7 @@ local {type ByteSpan, type ByteWriteSpan} = require("nupp.mem.span")
 --- Independent incremental state; close consumes its ownership without suspension.
 export interface State is nupp.Closeable
     --- Releases all state resources.
-    close: nosuspend function(takes self: State): nil
+    close: @nosuspend function(takes self: State): nil
 
     --- Processes this borrowed chunk without retaining its bytes.
     update: function(exclusive self: State, borrows bytes: ByteSpan): nil
@@ -37,10 +37,12 @@ end
 --- Immutable algorithm identity, output metadata, and a factory for fresh state.
 export interface Algorithm
     --- Canonical algorithm name, matching the catalog map key.
-    readonly name: string
+    @readonly
+    name: string
 
     --- Fixed output size in bytes.
-    readonly digestSize: integer
+    @readonly
+    digestSize: integer
 
     --- Creates independent owned state; self is the retained descriptor.
     create: function(self: Algorithm): State
@@ -48,8 +50,10 @@ end
 
 --- A selectable implementation catalog. Extra descriptor members are permitted.
 export interface Provider
-    readonly priority: integer?
+    @readonly
+    priority: integer?
 
     --- Canonical names mapped to checked, independent-state factories.
-    readonly algorithms: {[string]: Algorithm}
+    @readonly
+    algorithms: {[string]: Algorithm}
 end

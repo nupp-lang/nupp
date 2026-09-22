@@ -19,7 +19,7 @@ const provider = require("nupp.digest.spi")
 
 export interface Digest is nupp.Closeable
     --- Consumes an unfinished context and releases provider state without suspension.
-    close: nosuspend function(takes self: Digest): nil
+    close: @nosuspend function(takes self: Digest): nil
 
     --- Returns the canonical algorithm name retained at creation.
     algorithm: function(self: Digest): string
@@ -50,9 +50,12 @@ local record StateOwner is nupp.Closeable
 end
 
 local record Context is Digest
-    private state: affine(provider.State)
-    private name: string
-    private size: integer
+    @private
+    state: affine(provider.State)
+    @private
+    name: string
+    @private
+    size: integer
 
     function close(takes self): nil
         self.state:close()
@@ -95,7 +98,7 @@ local record Context is Digest
             local bytes = storage.allocateBytes(size)
             local output = span.writeCarray(bytes, size)
             owner.state:finish(output)
-            drop output
+            nupp.drop(output)
             return storage.string(bytes, size)
         end
     end
@@ -106,7 +109,7 @@ local record Context is Digest
             local bytes = storage.allocateBytes(size)
             local output = span.writeCarray(bytes, size)
             owner.state:finish(output)
-            drop output
+            nupp.drop(output)
             return hex.encode(storage.string(bytes, size))
         end
     end

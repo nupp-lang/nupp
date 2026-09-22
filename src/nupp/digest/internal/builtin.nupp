@@ -19,7 +19,8 @@ const storage = require("nupp.runtime.storage")
 const words = require("nupp.digest.internal.words")
 
 local record State is provider.State
-    private value: streaming.Hasher
+    @private
+    value: streaming.Hasher
 
     function update(exclusive self, borrows bytes: span.ByteSpan): nil
         -- Bound temporary copies for span-backed portable implementations.
@@ -43,8 +44,10 @@ local record State is provider.State
 end
 
 local record Algorithm is provider.Algorithm
-    readonly name: string
-    readonly digestSize: integer
+    @readonly
+    name: string
+    @readonly
+    digestSize: integer
 
     function create(self): provider.State
         if self.name == "sha256" then

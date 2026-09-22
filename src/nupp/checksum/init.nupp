@@ -47,7 +47,7 @@ const provider = require("nupp.checksum.spi")
 --- Owned incremental checksum state with non-consuming numeric reads.
 export interface Checksum is nupp.Closeable
     --- Consumes this context and releases its provider state without suspension.
-    close: nosuspend function(takes self: Checksum): nil
+    close: @nosuspend function(takes self: Checksum): nil
 
     --- Returns the canonical algorithm name.
     algorithm: function(self: Checksum): string
@@ -66,9 +66,12 @@ export interface Checksum is nupp.Closeable
 end
 
 local record Context is Checksum
-    private state: affine(provider.State)
-    private name: string
-    private bits: integer
+    @private
+    state: affine(provider.State)
+    @private
+    name: string
+    @private
+    bits: integer
 
     function algorithm(self): string
         return self.name
@@ -99,12 +102,15 @@ end
 --- Checksum metadata and a factory for independent state.
 export record Algorithm
     --- Canonical algorithm name.
-    readonly name: string
+    @readonly
+    name: string
 
     --- Number of meaningful checksum bits, from one through 64.
-    readonly width: integer
+    @readonly
+    width: integer
 
-    private implementation: provider.Algorithm
+    @private
+    implementation: provider.Algorithm
 
     --- Creates independent owned state for incremental updates and snapshots.
     function create(self): Checksum

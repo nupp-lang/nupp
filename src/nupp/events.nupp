@@ -74,7 +74,8 @@ interface events.Allocator<E>
     release: function(exclusive self: Allocator<E>, value: E): nil
 end
 
-local comptime function option(items: any, annotationName: string, name: string): any
+@comptime
+local function option(items: any, annotationName: string, name: string): any
     for _, item in ipairs(items) do
         if item.name == annotationName then
             for index, argument in ipairs(item.arguments) do
@@ -98,7 +99,8 @@ end
 --- against reused storage.
 --- @param info the declaration being derived
 --- @return the recipe claiming `events.Emittable`
-comptime function events.Event(info: nupp.derive.Info): nupp.derive.Result<events.Emittable>
+@comptime
+function events.Event(info: nupp.derive.Info): nupp.derive.Result<events.Emittable>
     if info.kind ~= "record" and info.kind ~= "struct" then
         return nupp.derive.error("events.Event admits a record or a fixed-layout struct", info.reference)
     end
@@ -114,7 +116,8 @@ comptime function events.Event(info: nupp.derive.Info): nupp.derive.Result<event
 end
 
 --- The parameters an event is constructed with, named, so `emit` binds them.
-local comptime function Construction(E: type): typepack
+@comptime
+local function Construction(E: type): typepack
     return nupp.types.construction(E)
 end
 
@@ -238,19 +241,29 @@ end
 --- pays for the observers it has and not for the entities it could have.
 --- @export
 record events.Observers<A>
-    private byAddress: {[A]: {[integer]: any}}
+    @private
+    byAddress: {[A]: {[integer]: any}}
 
     --- How many registrations are live across every address.
-    readonly count: integer
+    @readonly
+    count: integer
 
-    private depth: integer
-    private pending: boolean
-    private dirty: {[A]: boolean}
-    private detached: {any}
-    private freeLists: {any}
-    private freeMaps: {any}
-    private allocators: {[integer]: any}
-    private ownedArenas: {any}
+    @private
+    depth: integer
+    @private
+    pending: boolean
+    @private
+    dirty: {[A]: boolean}
+    @private
+    detached: {any}
+    @private
+    freeLists: {any}
+    @private
+    freeMaps: {any}
+    @private
+    allocators: {[integer]: any}
+    @private
+    ownedArenas: {any}
 end
 
 --- Empty observer state for a new source.

@@ -22,37 +22,47 @@ Process cleanup must remain valid after cancellation, kill, and partial spawn.
 local {type Options, type Exit, type Interest} = require("nupp.io.process.types")
 
 export interface Provider
-    readonly priority: integer?
+    @readonly
+    priority: integer?
 
     --- Returns child, stdin, stdout, stderr, pid, and error in that order.
     --- Absent or inherited pipes have nil handles; failure has no child owner.
-    readonly spawn: function(Provider, Options): (any?, any?, any?, any?, integer, string?)
+    @readonly
+    spawn: function(Provider, Options): (any?, any?, any?, any?, integer, string?)
 
     --- Returns the canonical Exit once available, or nil while the child runs.
-    readonly poll: function(Provider, any): (Exit?)
+    @readonly
+    poll: function(Provider, any): (Exit?)
 
     --- Requests termination; the boolean chooses forced termination.
     --- The child still requires settlement and reap.
-    readonly kill: function(Provider, any, boolean): nil
+    @readonly
+    kill: function(Provider, any, boolean): nil
 
     --- Reads at most the requested byte count. An empty string means pending;
     --- nil means EOF. Report transport failures by raising.
-    readonly read: function(Provider, any, integer): (string?)
+    @readonly
+    read: function(Provider, any, integer): (string?)
 
     --- Returns accepted bytes and whether the pipe is gone.
     --- Zero bytes with false means backpressure; true means the pipe is closed.
-    readonly write: function(Provider, any, string): (integer, boolean)
+    @readonly
+    write: function(Provider, any, string): (integer, boolean)
 
     --- Releases one pipe handle; repeated release must be harmless.
-    readonly closeStream: function(Provider, any): (boolean, string?)
+    @readonly
+    closeStream: function(Provider, any): (boolean, string?)
 
     --- Releases the settled child owner; repeated release must be harmless.
-    readonly reap: function(Provider, any): (boolean, string?)
+    @readonly
+    reap: function(Provider, any): (boolean, string?)
 
     --- Returns monotonic milliseconds for process deadlines.
-    readonly now: function(Provider): number
+    @readonly
+    now: function(Provider): number
 
     --- Waits for the Interest read/write sets or child completion up to the
     --- requested millisecond interval, returning the number of ready interests.
-    readonly waitReady: function(Provider, Interest, number): integer
+    @readonly
+    waitReady: function(Provider, Interest, number): integer
 end

@@ -22,6 +22,6 @@ export function destroy(state: any): nil
     state._closed = true
     local handle = state._handle
     state._handle = nil
-    local destroy = native.C.nuppNativeGpuContextRelease as nosuspend function(any): integer
+    local destroy = native.C.nuppNativeGpuContextRelease as @nosuspend function(any): integer
     destroy(handle)
 end

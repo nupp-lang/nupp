@@ -37,9 +37,12 @@ const IEEE = crcTable(0xedb88320)
 const CASTAGNOLI = crcTable(0x82f63b78)
 
 local record State is provider.State
-    private name: string
-    private high: integer
-    private low: integer
+    @private
+    name: string
+    @private
+    high: integer
+    @private
+    low: integer
 
     function update(exclusive self, borrows bytes: span.ByteSpan): nil
         if self.name == "adler32" then
@@ -86,8 +89,10 @@ local record State is provider.State
 end
 
 local record Algorithm is provider.Algorithm
-    readonly name: string
-    readonly width: integer
+    @readonly
+    name: string
+    @readonly
+    width: integer
     function create(self): provider.State
         local initial: integer = 0
         if self.name == "adler32" then

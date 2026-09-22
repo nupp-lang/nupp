@@ -13,8 +13,10 @@ local {type Buffer as SharedBuffer} = require("nupp.text.internal.buffer")
 --- must retain that identity. Native pointer and serializer facilities are outside
 --- this portable contract.
 export interface TextBufferProvider
-    readonly priority: integer?
+    @readonly
+    priority: integer?
 
     --- Creates an independent FIFO buffer; accepts a size hint or an options table.
-    readonly new: function(size: (integer | table)?, options: table?): SharedBuffer
+    @readonly
+    new: function(size: (integer | table)?, options: table?): SharedBuffer
 end

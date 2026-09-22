@@ -40,18 +40,29 @@ local arena = {}
 --- A paged allocator of rows of one struct type.
 --- @export
 record arena.Arena<S>
-    private readonly element: any
-    private readonly width: integer
+    @private
+    @readonly
+    element: any
+    @private
+    @readonly
+    width: integer
 
     --- How many rows each page holds.
-    readonly pageSize: integer
+    @readonly
+    pageSize: integer
 
-    private pageList: {S[?]}
-    private rows: {{S}}
-    private pageIndex: integer
-    private cursor: integer
-    private usedCount: integer
-    private liveCount: integer
+    @private
+    pageList: {S[?]}
+    @private
+    rows: {{S}}
+    @private
+    pageIndex: integer
+    @private
+    cursor: integer
+    @private
+    usedCount: integer
+    @private
+    liveCount: integer
 
     --- Hands out the next row, zero-filled.
     acquire: function(exclusive self: Arena<S>): S
