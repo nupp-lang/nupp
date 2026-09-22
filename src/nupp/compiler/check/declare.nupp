@@ -1901,6 +1901,9 @@ function declare.install(
                 else
                     if super.affineInterface or super.intrinsicAffine then
                         n.affineInterface = true
+                        if super.intrinsicAffine or super.intrinsicAffineClaim then
+                            n.intrinsicAffineClaim = true
+                        end
                         local inherited = super.inherentCleanup
                         local inheritedMethod = super.terminalMethod
                         if super.intrinsicAffine then
@@ -2793,7 +2796,7 @@ function declare.install(
                 end
                 n.predicate = derived
             end
-            if n.affineInterface and n.inherentCleanup and not stat.affineTok then
+            if n.intrinsicAffineClaim and n.inherentCleanup and not stat.affineTok then
                 local cleanup = n.inherentCleanup
                 if cleanup.kind == "method" then
                     local ft = n.byname[cleanup.name]

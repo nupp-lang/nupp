@@ -1729,6 +1729,7 @@ function generics.instantiate(n: T.Nominal, map: Bindings): T.Nominal
     inst.borrowedRootFields = n.borrowedRootFields
     inst.affineInterface = n.affineInterface
     inst.intrinsicAffine = n.intrinsicAffine
+    inst.intrinsicAffineClaim = n.intrinsicAffineClaim
     inst.terminalMethod = n.terminalMethod
     inst.inherentCleanup = n.inherentCleanup and substCleanup(n.inherentCleanup, map, PRESERVE) or nil
     if inst.intrinsicAffine and inst.constArgs[1] then

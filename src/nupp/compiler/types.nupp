@@ -876,6 +876,8 @@ record types.Nominal
     --- The prelude interface whose declared `is` edge grants affine ownership.
     intrinsicAffine: boolean?
 
+    intrinsicAffineClaim: boolean?
+
     --- The single consuming method inherited as the inherent cleanup policy.
     terminalMethod: string?
 
