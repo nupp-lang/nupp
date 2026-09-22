@@ -175,8 +175,8 @@ end
 
 --- An affine accumulator of engine storage. Appending grows one private
 --- allocation, and freezing transfers it into a region without copying.
-affine interface sharedbytes.BuilderToken
-    terminal drop: nosuspend function(takes self: sharedbytes.BuilderToken): nil
+interface sharedbytes.BuilderToken is nupp.Affine<self.drop>
+    drop: nosuspend function(takes self: sharedbytes.BuilderToken): nil
 end
 
 --- A growable engine allocation that becomes a region when frozen.

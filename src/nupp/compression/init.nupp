@@ -207,10 +207,10 @@ local record PairOwner is OwnedPair
 end
 
 --- An ordinary writer whose consuming `finish` emits the final trailer.
-export affine interface CompressionWriter is io.Writer
+export interface CompressionWriter is io.Writer
     --- Aborts an unfinished stream and raises after releasing owned resources.
     --- @raises string whenever the stream was not consumed by `finish`
-    terminal close: nosuspend function(takes self: CompressionWriter): nil
+    close: nosuspend function(takes self: CompressionWriter): nil
 
     --- Completes the stream, flushes and closes the owned destination.
     finish: function(takes self: CompressionWriter): (boolean, string?)

@@ -20,7 +20,7 @@ export interface FileWriter is io.Writer
 end
 
 --- An affine open file and its exclusive platform handle.
-export affine interface File
+export interface File is nupp.Affine<self.drop>
     --- Opens a reader at the shared cursor.
     newReader: function(borrows self: File): affine(FileReader) borrows (self)
 
@@ -46,11 +46,11 @@ export affine interface File
     close: function(takes self: File): boolean
 
     --- Releases the platform handle during lexical cleanup.
-    terminal drop: nosuspend function(takes self: File): nil
+    drop: nosuspend function(takes self: File): nil
 end
 
 --- A native temporary path removed on close unless persisted.
-export affine interface TemporaryPath
+export interface TemporaryPath is nupp.Affine<self.drop>
     --- Returns the native path text.
     toString: function(self: TemporaryPath): string
 
@@ -64,7 +64,7 @@ export affine interface TemporaryPath
     close: function(takes self: TemporaryPath): boolean
 
     --- Removes the path during lexical cleanup.
-    terminal drop: nosuspend function(takes self: TemporaryPath): nil
+    drop: nosuspend function(takes self: TemporaryPath): nil
 end
 
 export function destroyOwner<T is Owner>(takes value: T): nil

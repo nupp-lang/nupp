@@ -17,9 +17,9 @@ const storage = require("nupp.runtime.storage")
 const hex = require("nupp.codec.hex")
 const provider = require("nupp.digest.spi")
 
-export affine interface Digest is nupp.Closeable
+export interface Digest is nupp.Closeable
     --- Consumes an unfinished context and releases provider state without suspension.
-    terminal close: nosuspend function(takes self: Digest): nil
+    close: nosuspend function(takes self: Digest): nil
 
     --- Returns the canonical algorithm name retained at creation.
     algorithm: function(self: Digest): string

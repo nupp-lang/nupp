@@ -45,9 +45,9 @@ const span = require("nupp.mem.span")
 const provider = require("nupp.checksum.spi")
 
 --- Owned incremental checksum state with non-consuming numeric reads.
-export affine interface Checksum is nupp.Closeable
+export interface Checksum is nupp.Closeable
     --- Consumes this context and releases its provider state without suspension.
-    terminal close: nosuspend function(takes self: Checksum): nil
+    close: nosuspend function(takes self: Checksum): nil
 
     --- Returns the canonical algorithm name.
     algorithm: function(self: Checksum): string

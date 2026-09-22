@@ -242,8 +242,8 @@ end
 type workers.Job<F is Callable> = JobType(F)
 
 --- The cleanup contract a structured worker scope carries.
-affine interface workers.ScopeToken
-    terminal readonly drop: function(takes self: workers.ScopeToken): nil
+interface workers.ScopeToken is nupp.Affine<self.drop>
+    readonly drop: function(takes self: workers.ScopeToken): nil
 end
 
 --- A lexical family of parallel child tasks.

@@ -921,10 +921,11 @@ local function check(a: Type, b: Type): boolean, string?
         local source = atag == "affine" and (a as T.Affine).inner or atag == "borrowed" and (a as T.Borrowed).inner or a
         local sourceNominal = source.tag == "nominal" and source as T.Nominal or nil
         local target = b as T.Nominal
+        local cleanup = atag == "affine" and (a as T.Affine).cleanups[1] or nil
+        if atag ~= "affine" then
+            cleanup = sourceNominal and sourceNominal.inherentCleanup or nil
+        end
         if ((target.origin or target) as T.Nominal).intrinsicAffine then
-            local cleanup = atag == "affine" and (a as T.Affine).cleanups[1]
-                or sourceNominal and sourceNominal.inherentCleanup
-                or nil
             local wanted = affineTermCleanupId(target.constArgs and target.constArgs[1] or nil)
             if not cleanup
                 or not wanted
@@ -935,7 +936,12 @@ local function check(a: Type, b: Type): boolean, string?
             end
             return true
         end
-        if not sourceNominal or not declaresContract(sourceNominal, target) then
+        if not sourceNominal
+            or not hasAffineClaim(sourceNominal)
+            or not cleanup
+            or not target.inherentCleanup
+            or cleanup.id ~= target.inherentCleanup.id
+        then
             return fail(a, b)
         end
     end

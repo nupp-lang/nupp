@@ -24,8 +24,8 @@ export const FINISHED = 3
 export type FormatOptions = {readonly [string]: any}
 
 --- Independent incremental compression state.
-export affine interface Encoder is nupp.Closeable
-    terminal close: nosuspend function(takes self: Encoder): nil
+export interface Encoder is nupp.Closeable
+    close: nosuspend function(takes self: Encoder): nil
     write: function(
         exclusive self: Encoder,
         borrows input: ByteSpan,
@@ -36,8 +36,8 @@ export affine interface Encoder is nupp.Closeable
 end
 
 --- Independent incremental decompression state.
-export affine interface Decoder is nupp.Closeable
-    terminal close: nosuspend function(takes self: Decoder): nil
+export interface Decoder is nupp.Closeable
+    close: nosuspend function(takes self: Decoder): nil
     read: function(
         exclusive self: Decoder,
         borrows input: ByteSpan,

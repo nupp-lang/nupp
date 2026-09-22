@@ -25,7 +25,7 @@ local {type URI} = require("nupp.io.uri")
 local {type Reader as ResponseBody} = require("nupp.io")
 export type Body = ResponseBody
 
-export affine interface Response is nupp.Closeable
+export interface Response is nupp.Closeable
     --- HTTP response status code.
     readonly status: integer
 
@@ -51,7 +51,7 @@ export affine interface Response is nupp.Closeable
     readonly headers: function(self: Response): {[string]: string}
 end
 
-export affine interface Client is nupp.Closeable
+export interface Client is nupp.Closeable
     --- Services outstanding client work while holding exclusive client access.
     readonly flush: function(exclusive self: Client): nil
 

@@ -185,7 +185,7 @@ end
 --- assert(out:tostring() == [[{"ok":true}]])
 --- ```
 --- @export
-export affine interface Writer is nupp.Closeable
+export interface Writer is nupp.Closeable
     --- Starts an array value.
     ---
     --- ```nupp
@@ -310,7 +310,7 @@ export affine interface Writer is nupp.Closeable
     --- assert(out:tostring() == [[{"ok":true}]])
     --- ```
     --- @param self the writer
-    terminal close: nosuspend function(takes self: Writer): nil
+    close: nosuspend function(takes self: Writer): nil
 end
 
 local record WriterImpl is Writer
