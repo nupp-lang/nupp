@@ -1,5 +1,7 @@
 -- Scalar storage writes define the independent conversion oracle. They run in
 -- ordinary Nupp, outside @aot, while each probe uses explicit vector convert.
+-- A 64-bit integer to float first rounds through double by the public
+-- conversion contract; some LuaJIT hosts instead write cdata directly to f32.
 local M = {}
 local types = {'float', 'number', 'int8', 'uint8', 'int16', 'uint16', 'int32', 'uint32', 'int64', 'uint64'}
 local widths = {
@@ -100,12 +102,16 @@ local u32 = nupp.math.u32
                 arguments,
                 ', '
             ) .. ', readable, 0))) as integer\n        for active = 0, n do\n'
-            for index in ipairs(types) do
+            for index, target in ipairs(types) do
+                local value = '(i <= active and readable[u32.wrap(i)] or 0)'
+                if target == 'float' and (from == 'int64' or from == 'uint64') then
+                    value = 'tonumber' .. value
+                end
                 source[
                     #source + 1
                 ] = (
-                    '            for i = 1, 64 do\n                write%d[u32.wrap(i)] = 61\n                want%d[u32.wrap(i)] = (i <= active and readable[u32.wrap(i)] or 0) as any\n            end\n'
-                ):format(index, index)
+                    '            for i = 1, 64 do\n                write%d[u32.wrap(i)] = 61\n                want%d[u32.wrap(i)] = %s as any\n            end\n'
+                ):format(index, index, value)
             end
             source[
                 #source + 1
@@ -141,7 +147,8 @@ local u32 = nupp.math.u32
                 lanes = selected,
                 tails = '0..lanes',
                 preferred = 'same bit-width destinations',
-                oracle = 'ordinary scalar storage conversion',
+                oracle = (from == 'int64' or from == 'uint64') and 'scalar storage; float rounds through double'
+                or 'ordinary scalar storage conversion',
                 input = 'all integer widths and finite float fractions/boundaries'
             }
         end

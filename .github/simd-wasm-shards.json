@@ -16,13 +16,23 @@
   },
   {
     "element": "float",
-    "batch": "34-49",
-    "lanes": "34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49"
+    "batch": "34-41",
+    "lanes": "34,35,36,37,38,39,40,41"
   },
   {
     "element": "float",
-    "batch": "50-64-preferred",
-    "lanes": "50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,preferred"
+    "batch": "42-49",
+    "lanes": "42,43,44,45,46,47,48,49"
+  },
+  {
+    "element": "float",
+    "batch": "50-57",
+    "lanes": "50,51,52,53,54,55,56,57"
+  },
+  {
+    "element": "float",
+    "batch": "58-64-preferred",
+    "lanes": "58,59,60,61,62,63,64,preferred"
   },
   {
     "element": "number",
@@ -31,8 +41,13 @@
   },
   {
     "element": "number",
-    "batch": "18-33",
-    "lanes": "18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33"
+    "batch": "18-25",
+    "lanes": "18,19,20,21,22,23,24,25"
+  },
+  {
+    "element": "number",
+    "batch": "26-33",
+    "lanes": "26,27,28,29,30,31,32,33"
   },
   {
     "element": "number",
@@ -46,8 +61,23 @@
   },
   {
     "element": "number",
-    "batch": "50-64-preferred",
-    "lanes": "50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,preferred"
+    "batch": "50-53",
+    "lanes": "50,51,52,53"
+  },
+  {
+    "element": "number",
+    "batch": "54-57",
+    "lanes": "54,55,56,57"
+  },
+  {
+    "element": "number",
+    "batch": "58-61",
+    "lanes": "58,59,60,61"
+  },
+  {
+    "element": "number",
+    "batch": "62-64-preferred",
+    "lanes": "62,63,64,preferred"
   },
   {
     "element": "int8",

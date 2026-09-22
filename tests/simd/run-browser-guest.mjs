@@ -14,12 +14,16 @@ const project = path.resolve(projectArg), guest = path.resolve(guestArg), output
 const manifest = await packageBrowserApp({project, target:'app', output, guest, prebuilt:true});
 const corpus = JSON.parse(readFileSync(path.join(project, 'corpus.json'), 'utf8'));
 const matrixCorpus = !corpus.algorithm && Object.keys(corpus.probes).length > 1;
-// The full UTF-8 and number corpora exceed ten minutes on loaded CI runners.
-const numberCorpus = matrixCorpus && corpus.coverage?.some(item => item.element === 'number');
-const deadlineMs = numberCorpus ? 1800000 : corpus.algorithm === 'utf8simd' ? 1200000
-  : matrixCorpus || corpus.algorithm === 'simd-json' ? 600000 : 240000;
+// Full matrix shards and UTF-8 exceed ten minutes on loaded CI runners.
+const numberCorpus = matrixCorpus && (Array.isArray(corpus.coverage)
+  ? corpus.coverage.some(item => item.element === 'number')
+  : corpus.coverage?.types?.includes('number'));
+const deadlineMs = matrixCorpus ? 1800000 : corpus.algorithm === 'utf8simd' ? 1200000
+  : corpus.algorithm === 'simd-json' ? 600000 : 240000;
 // Matrix probes transfer large span payloads, but remain below the effect-count cap.
 const matrixBytes = matrixCorpus ? 2147483648 : 268435456;
+// The widest number shard makes more than a million independent kernel calls.
+const maxEffects = numberCorpus ? 4000000 : 1000000;
 const entries = manifest.kernels.flatMap(kernel => kernel.entries.map(entry => ({...entry, unit:kernel.unit})));
 const symbols = {};
 const executedEntries = [];
@@ -46,7 +50,7 @@ import {runPackagedNuppLuaJITApp} from './app-runtime.mjs';
 const output = document.querySelector('#result');
 try {
   const result = await runPackagedNuppLuaJITApp('./nupp-browser-app.json', {limits:{
-    maxEffects:1000000, maxEffectBytes:${matrixBytes}, maxResponseBytes:${matrixBytes},
+    maxEffects:${maxEffects}, maxEffectBytes:${matrixBytes}, maxResponseBytes:${matrixBytes},
     maxStorageValueBytes:1048576, deadlineMs:${deadlineMs},
   }});
   if (!result || !Number.isFinite(result.cases) || result.cases <= 0) throw new Error('SIMD corpus returned no cases');
