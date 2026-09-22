@@ -192,7 +192,11 @@ function M.sampleCollectsCollapsedStacks()
         ("a fifth of a second at 1ms must sample, got %d in %s"):format(report.samples, describeSampling())
     )
     assert(report.stacks > 0, "samples fell on at least one stack")
-    assert(#report.sourceSamples > 0, "Lua leaf source samples are retained")
+    -- A timer can land entirely in native VM work; those samples have no Lua
+    -- source location to retain. Check the mapping only when Lua was sampled.
+    if report.text:find("_[N] ", 1, true) or report.text:find("_[I] ", 1, true) then
+        assert(#report.sourceSamples > 0, "Lua leaf source samples are retained")
+    end
     local sourceCount = 0
     for _, sample in ipairs(report.sourceSamples) do
         assert(sample.line > 0 and sample.samples > 0 and #sample.file > 0, "a source sample has its measured location")
@@ -268,22 +272,44 @@ function M.sampleZoneFilterThatMatchesNothingIsEmptyRatherThanEverything()
     assertEq(report.stacks, 0, "and no stacks")
 end
 
--- Everything under the root is the harness that got here: the test runner, its
--- dofile, the pcall around each case. None of it is what was being measured.
-function M.sampleRootDropsTheFramesBeneathTheProgram()
-    local session = profile.sample({intervalMs = 1, root = "profiletest.lua"})
-    burn(sampleWindow(0.2))
+-- Root trimming is about stack names, not where a timer happens to interrupt
+-- the VM. Native samples intentionally hide their Lua frames, so a live sampler
+-- can spend the entire window in C without exercising this behavior.
+function M.sampleRootTrimsHarnessFramesAndMergesMatchingStacks()
+    local session = profile.sample({intervalMs = 1000, root = "profiletest.lua"})
+    session:pause()
+
+    local function sample(stack, count)
+        return {
+            zonePath = "",
+            stack = stack,
+            count = count,
+            compiled = count,
+            interpreted = 0,
+            cCode = 0,
+            collecting = 0,
+            compiling = 0,
+        }
+    end
+
+    session.aggregate = {
+        [
+            ""
+        ] = {
+            first = sample("runner:entry;profiletest.lua:burn;library:work", 2),
+            second = sample("other:entry;profiletest.lua:burn;library:work", 3),
+            outside = sample("runner:entry;otherprofiletest.lua:burn", 1),
+        }
+    }
     local report = session:stop()
 
-    assert(report.samples > 0, ("sampled, got %d in %s"):format(report.samples, describeSampling()))
-    local trimmed = false
-    for _, line in ipairs(lines(report.text)) do
-        if line:find("profiletest%.lua") then
-            assertMatch(line, "^profiletest%.lua", "the root is the first frame once the rest is cut")
-            trimmed = true
-        end
-    end
-    assert(trimmed, "at least one stack reached this file:\n" .. report.text)
+    assertEq(report.samples, 6, "all samples survive root trimming")
+    assertEq(report.stacks, 2, "matching stacks merge after harness frames are cut")
+    assertEq(
+        report.text,
+        "profiletest.lua:burn;library:work_[N] 5\n<outside>_[N] 1",
+        "the exact root frame starts the stack and a partial name does not match"
+    )
 end
 
 function M.sampleWritesTheSameTextItReturns()

@@ -16,15 +16,11 @@ record="$results/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.json"
 # The run's own timing is only on the API: a workflow cannot see when it was
 # created, only when its steps ran, and the difference between those two is
 # exactly the queue delay this is here to measure.
-run_json=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" 2>/dev/null || echo '{}')
-jobs_json=$(gh api --paginate \
-  "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/attempts/${GITHUB_RUN_ATTEMPT}/jobs" \
-  2>/dev/null || echo '{"jobs":[]}')
-
-RUN_JSON="$run_json" JOBS_JSON="$jobs_json" python3 - "$record" <<'PY'
+python3 - "$record" <<'PY'
 import datetime
 import json
 import os
+import subprocess
 import sys
 
 
@@ -40,8 +36,23 @@ def seconds(start, end):
     return round((end - start).total_seconds(), 1)
 
 
-run = json.loads(os.environ.get("RUN_JSON") or "{}")
-jobs = (json.loads(os.environ.get("JOBS_JSON") or "{}")).get("jobs", [])
+def api_json(path, fallback, paginate=False):
+    command = ["gh", "api"]
+    if paginate:
+        command.extend(("--paginate", "--slurp"))
+    command.append(path)
+    result = subprocess.run(command, capture_output=True, text=True)
+    if result.returncode:
+        return fallback
+    return json.loads(result.stdout)
+
+
+repository = os.environ["GITHUB_REPOSITORY"]
+run_id = os.environ["GITHUB_RUN_ID"]
+attempt = os.environ["GITHUB_RUN_ATTEMPT"]
+run = api_json(f"repos/{repository}/actions/runs/{run_id}", {})
+pages = api_json(f"repos/{repository}/actions/runs/{run_id}/attempts/{attempt}/jobs", [], paginate=True)
+jobs = [job for page in pages for job in page.get("jobs", [])]
 
 created = instant(run.get("created_at"))
 started = instant(run.get("run_started_at"))
