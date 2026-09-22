@@ -46,6 +46,7 @@
   --nuppdoc-dark-muted: #ad9277;
   --nuppdoc-accent-contrast: #ffffff;
   --nuppdoc-feature-heading: var(--nupp-woodblock-cinnabar-deep);
+  --nuppdoc-nav-heading: rgb(172, 146, 119);
   --nuppdoc-playground-border: color-mix(in srgb, #50676c 70%, white);
   --nuppdoc-code-block-radius: 4px;
   --nuppdoc-hero-glow-color: var(--nupp-woodblock-vermilion);
@@ -114,11 +115,11 @@
 }
 
 /* The base theme sets nav links to the muted text color; pull them up to
- * full text strength instead — an eggshell off-white on the dark theme's
- * near-black, rather than something that reads as dimmed-out. */
+ * the same tan the header nav links and h1 use instead, rather than
+ * something that reads as dimmed-out. */
 .nuppdoc-sidebar a,
 .nuppdoc-outline a {
-  color: var(--nuppdoc-text);
+  color: var(--nuppdoc-nav-heading);
 }
 
 /* Selected is a filled background — the same tint the base theme used for
@@ -331,10 +332,13 @@
 
 /* Headings are the text face throughout; the heading color is what marks
  * them out. */
-.nuppdoc-content h1,
 .nuppdoc-content h2,
 .nuppdoc-content h3 {
   color: var(--nuppdoc-feature-heading);
+}
+
+.nuppdoc-content h1 {
+  color: var(--nuppdoc-nav-heading);
 }
 
 .nuppdoc-content h2 {

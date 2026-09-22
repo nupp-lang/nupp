@@ -1141,11 +1141,6 @@ details.nuppdoc-admonition>.nuppdoc-admonition-body {
     content: ""
 }
 
-.nuppdoc-sidebar-section>details>summary.nuppdoc-sidebar-section-link {
-    padding-top: 0;
-    padding-bottom: 0
-}
-
 .nuppdoc-sidebar>ul>li.nuppdoc-sidebar-section>details>summary {
     font-weight: 700
 }
