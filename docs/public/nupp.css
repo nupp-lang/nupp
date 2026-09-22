@@ -43,10 +43,10 @@
   --nuppdoc-dark-border: color-mix(in srgb, #50676c 65%, black);
   --nuppdoc-dark-code-background: #1f1c1b;
   --nuppdoc-dark-text: #d4c2b6;
-  --nuppdoc-dark-muted: #ad9277;
+  --nuppdoc-dark-muted: #bda892;
   --nuppdoc-accent-contrast: #ffffff;
   --nuppdoc-feature-heading: var(--nupp-woodblock-cinnabar-deep);
-  --nuppdoc-nav-heading: rgb(172, 146, 119);
+  --nuppdoc-nav-heading: rgb(189, 168, 146);
   --nuppdoc-playground-border: color-mix(in srgb, #50676c 70%, white);
   --nuppdoc-code-block-radius: 4px;
   --nuppdoc-hero-glow-color: var(--nupp-woodblock-vermilion);
