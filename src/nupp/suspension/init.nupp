@@ -9,9 +9,10 @@ event loop, a poll, the next frame.
 
 ```nupp
 local frame = require("scheduler")
+local suspension = require("nupp.suspension")
 
 local function application(): nil
-    handle suspension with frame.handler do
+    with installation = suspension.install(frame.handler) do
         work()
     end
 end

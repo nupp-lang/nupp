@@ -370,7 +370,7 @@ function M.aHandleRegionInstallsAndRestores()
       "local h = {park = function() end}",
       "local before = s.handled()",
       "local inside = false",
-      "handle suspension with h do",
+      "with installation = require('nupp.suspension').install(h) do",
       "    inside = s.handled()",
       "end",
       "return before, inside, s.handled()",
@@ -384,14 +384,14 @@ function M.aHandleRegionInstallsAndRestores()
    local code = gen.generate(result, "test")
    assertTrue(code:find("install", 1, true) ~= nil,
       "it elaborates to installing a handler: " .. code)
-   assertTrue(code:find("release", 1, true) ~= nil,
+   assertTrue(code:find("destroyInstalled", 1, true) ~= nil,
       "and to discharging it: " .. code)
    assertEq(code:find("handle suspension", 1, true), nil,
       "with nothing of the construct surviving: " .. code)
 end
 
 function M.aHandleRegionPreservesTheLineCount()
-   local src = "local h = {park = function() end}\nhandle suspension with h do\n"
+   local src = "local h = {park = function() end}\nwith installation = require('nupp.suspension').install(h) do\n"
       .. "    local n = 1\n    print(n)\nend\n"
    local _, _, result = diagnose(src)
    local code = gen.generate(result, "test")
@@ -420,7 +420,7 @@ function M.aReturnLeavesAHandleRegionAfterReleasingIt()
       "local released: integer = 0",
       "local h = {shutdown = function() released = released + 1 end}",
       "local function f(): integer, integer",
-      "    handle suspension with h do",
+      "    with installation = require('nupp.suspension').install(h) do",
       "        return 1, released",
       "    end",
       "end",
@@ -436,7 +436,7 @@ function M.aBodyAndReleaseFailureAreBothPreserved()
    local ok, problem = runGenerated(table.concat({
       "local h = {shutdown = function() error('release failed') end}",
       "local ok, problem = pcall(function()",
-      "    handle suspension with h do",
+      "    with installation = require('nupp.suspension').install(h) do",
       "        error('body failed')",
       "    end",
       "end)",
@@ -454,13 +454,13 @@ function M.loopControlCanLeaveAHandleRegion()
       "local h = {}",
       "local total = 0",
       "for index = 1, 3 do",
-      "    handle suspension with h do",
+      "    with installation = require('nupp.suspension').install(h) do",
       "        if index == 2 then continue end",
       "        total = total + index",
       "    end",
       "end",
       "while true do",
-      "    handle suspension with h do",
+      "    with installation = require('nupp.suspension').install(h) do",
       "        break",
       "    end",
       "end",
@@ -474,7 +474,7 @@ function M.aGotoCanLeaveAHandleRegion()
    local answer = runGenerated(table.concat({
       "local h = {}",
       "local answer = 0",
-      "handle suspension with h do",
+      "with installation = require('nupp.suspension').install(h) do",
       "    answer = 1",
       "    goto done",
       "end",
@@ -489,7 +489,7 @@ function M.refusesAGotoIntoAHandleRegion()
    local _, diags = diagnose(table.concat({
       "local h = {}",
       "goto inside",
-      "handle suspension with h do",
+      "with installation = require('nupp.suspension').install(h) do",
       "    ::inside::",
       "end",
    }, "\n"))
@@ -501,10 +501,10 @@ function M.refusesAGotoIntoAHandleRegion()
 end
 
 function M.aHandleRegionRequiresAHandler()
-   local _, diags = diagnose("handle suspension with 42 do\nend")
+   local _, diags = diagnose("with installation = require('nupp.suspension').install(42) do\nend")
    local found = false
    for _, diag in ipairs(diags) do
-      if diag.code == "NUPP2001" and diag.msg:find("handler", 1, true) then
+      if diag.code == "NUPP2006" and diag.msg:find("Handler", 1, true) then
          found = true
       end
    end
@@ -515,7 +515,7 @@ function M.allowsABreakInsideALoopInAHandleRegion()
    -- A `break` bound by a loop inside the region never crosses the closure boundary.
    local _, diags = diagnose(table.concat({
       "local h = {park = function() end}",
-      "handle suspension with h do",
+      "with installation = require('nupp.suspension').install(h) do",
       "    for index = 1, 3 do",
       "        if index == 2 then",
       "            break",

@@ -3041,7 +3041,7 @@ function checkMod.check(
             if target then
                 for region in pairs(target.regions) do
                     if not jump.regions[region] then
-                        c.diag("NUPP2602", jump.node, "goto cannot enter a 'with' scope")
+                        c.diag("NUPP2706", jump.node, "goto cannot enter a 'with' scope")
                         break
                     end
                 end
