@@ -183,7 +183,7 @@ function functions.install(c: state.Checker): state.StatHandlers
                 -- By spelling, because this reads modes out of a body before anything
                 -- has resolved the names in it. A `drop` operation has to answer here
                 -- or its parameter gets a weaker mode than the operation requires.
-                local intrinsic = node.ownershipSyntax or cst.ownershipIntrinsicSpelling(node.obj)
+                local intrinsic = cst.ownershipIntrinsicSpelling(node.obj)
                 local args = node.args and node.args.exprs or {}
                 for j, arg in ipairs(args) do
                     local name = directName(arg)
@@ -750,13 +750,7 @@ function functions.install(c: state.Checker): state.StatHandlers
                 end
             end
             return fallsThrough(last.elseClause.body)
-        elseif kind == "doStmt"
-            or kind == "withStmt"
-            or kind == "handleStmt"
-            or kind == "unsafeStmt"
-            or kind == "noSuspendStmt"
-            or kind == "effectRegionStmt"
-        then
+        elseif kind == "doStmt" or kind == "withStmt" or kind == "unsafeStmt" then
             return fallsThrough(last.body)
         elseif kind == "pragmaStmt" and last.stat then
             return fallsThrough({kind = "block", stats = {last.stat}})
@@ -1258,7 +1252,7 @@ function functions.install(c: state.Checker): state.StatHandlers
                     declared,
                     (
                         "consuming parameter %q leaves its body without being consumed, "
-                        .. "dropped, returned, or released with @unsafe release"
+                        .. "dropped, returned, or released with @unsafe nupp.release"
                     ):format(consumingRoot)
                 )
             end

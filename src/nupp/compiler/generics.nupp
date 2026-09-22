@@ -1727,7 +1727,6 @@ function generics.instantiate(n: T.Nominal, map: Bindings): T.Nominal
     inst.affineFields = n.affineFields
     inst.fieldBorrowSources = n.fieldBorrowSources
     inst.borrowedRootFields = n.borrowedRootFields
-    inst.affineInterface = n.affineInterface
     inst.intrinsicAffine = n.intrinsicAffine
     inst.intrinsicAffineClaim = n.intrinsicAffineClaim
     inst.terminalMethod = n.terminalMethod
@@ -1737,7 +1736,6 @@ function generics.instantiate(n: T.Nominal, map: Bindings): T.Nominal
         local named = term.tag == "constLiteral" and term.value or nil
         local method = type(named) == "string" and named:match("^self%.([%a_][%w_]*)$") or nil
         inst.inherentCleanup = method and T.methodCleanup(method) or T.constFunctionCleanup(term)
-        inst.affineInterface = true
     end
     inst.managedCell = n.managedCell
     inst.managedAlias = n.managedAlias

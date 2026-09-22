@@ -116,71 +116,28 @@ function M.propertyCapabilities()
         "local x: {\n    readonly [string]: string,\n    writeonly [string]: integer\n}\n"
     )
     assertEq(
-        fmt1("local interface Cell\nreadonly value:string\nwriteonly value:integer\nend"),
+        fmt1("local interface Cell\n@readonly value:string\n@writeonly value:integer\nend"),
         "local interface Cell\n    @readonly\n    value: string\n    @writeonly\n    value: integer\nend\n"
     )
 end
 
-function M.unifiedGrammarCanonicalizesCompatibilitySpellings()
-    local source = table.concat(
-        {
-            "local f: nosuspend sendable function(): nil",
-            "@comptime local function build(): integer return 1 end",
-            "export sealed interface Resource is nupp.Affine<self.close>",
-            "close: @nosuspend function(takes self: Resource): nil",
-            "private readonly value: integer",
-            "end",
-            "@nosuspend do local x = 1 end",
-            "local raw",
-            "local owner = @unsafe adopt raw as affine(any)",
-            "local raw2 = @unsafe release owner",
-            "drop owner",
-            "handle suspension with handler do print(1) end",
-            "@effects(suspends = false)",
-            "local function run() end",
-        },
-        "\n"
-    )
-    local expected = table.concat(
-        {
-            "local f: @nosuspend @sendable function(): nil",
-            "",
-            "@comptime",
-            "local function build(): integer",
-            "    return 1",
-            "end",
-            "",
-            "export sealed interface Resource is nupp.Affine<self.close>",
-            "    close: @nosuspend function(takes self: Resource): nil",
-            "    @private",
-            "    @readonly",
-            "    value: integer",
-            "end",
-            "@nosuspend",
-            "do",
-            "    local x = 1",
-            "end",
-            "local raw",
-            "local owner = @unsafe nupp.adopt<affine(any)>(raw)",
-            "local raw2 = @unsafe nupp.release(owner)",
-            "nupp.drop(owner)",
-            'with _suspensionInstallation = require("nupp.suspension").install(handler) do',
-            "    print(1)",
-            "end",
-            "",
-            "@effects(suspends = false)",
-            "local function run()",
-            "end",
-            "",
-        },
-        "\n"
-    )
-    assertEq(fmt1(source), expected)
-    assertEq(fmt1(expected), expected, "unified grammar formatting is idempotent")
+function M.rejectedCompatibilityFormsRemainUnchanged()
+    for _, source in ipairs({
+        "local f: nosuspend function(): nil",
+        "local record R readonly value: integer end",
+        "local owner = @unsafe adopt raw as affine(any)",
+        "local raw = @unsafe release owner",
+        "drop owner",
+        "handle suspension with handler do end",
+    }) do
+        local formatted, errors = formatter:format(source, "test.nupp")
+        assertEq(formatted, source)
+        assertEq(errors[1] and errors[1].code, "NUPP1005")
+    end
 end
 
-function M.stageZeroSourcesUseCanonicalSpellings()
-    local source = "local sealed interface Token\nreadonly value:integer\nend"
+function M.stageZeroSourcesUseCanonicalForms()
+    local source = "local sealed interface Token\n@readonly value:integer\nend"
     local expected = "local sealed interface Token\n    @readonly\n    value: integer\nend\n"
     assertEq(formatter:format(source, "src/nupp/compiler/example.nupp"), expected)
     assertEq(formatter:format(source, "src/nupp/runtime/example.nupp"), expected)
@@ -190,7 +147,7 @@ end
 
 function M.sealedInterfaceModifier()
     assertEq(
-        fmt1("local sealed interface Token\nreadonly value:integer\nend"),
+        fmt1("local sealed interface Token\n@readonly value:integer\nend"),
         "local sealed interface Token\n    @readonly\n    value: integer\nend\n"
     )
 end

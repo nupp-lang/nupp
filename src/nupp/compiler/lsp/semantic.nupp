@@ -189,12 +189,6 @@ function semantic.syntaxKinds(result: semantic.Parse): {[lexer.Token]: string}
                     break
                 end
             end
-        elseif kind == "unsafeOwnershipExpr" then
-            for _, child in ipairs(node) do
-                if cst.isToken(child) and child.contextualOp then
-                    mark(child, keywordType)
-                end
-            end
         elseif kind == "whereClause" then
             mark(node[1], keywordType)
         elseif kind == "metamethodDecl" then
@@ -281,8 +275,6 @@ function semantic.syntaxKinds(result: semantic.Parse): {[lexer.Token]: string}
                     mark(child, keywordType)
                 end
             end
-        elseif kind == "noSuspendStmt" then
-            mark(node.keywordTok, keywordType)
         elseif kind == "localFuncStmt" and node.isConst then
             mark(node[1], keywordType)
             if node.comptimeTok then

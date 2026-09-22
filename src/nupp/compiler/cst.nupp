@@ -577,9 +577,6 @@ interface cst.Hints
     --- Which ownership intrinsic a call is.
     ownershipIntrinsic: string?
 
-    --- An ownership operation introduced by syntax rather than a callable name.
-    ownershipSyntax: string?
-
     --- What an owner promised to release.
     ownerCleanups: any
 
@@ -753,34 +750,6 @@ record cst.ExportStmt is cst.Hints
     stat: cst.Node?
 end
 
---- `handle suspension with h do ... end`: a scope in which `h` answers suspensions.
----
---- Installs a suspension handler and additionally marks its body a checked
---- handled-suspension region. The mark is the point rather than the sugar: a
---- suspension inside one is known to have somebody responsible for it, which is what
---- lets the resource rules treat it differently from a raw coroutine yield.
-record cst.HandleStmt is cst.Hints
-    {cst.Node | lexer.Token}
-
-    --- Names the production this node stands for.
-    kind: 'handleStmt'
-
-    --- The contextual `handle`.
-    handleTok: lexer.Token?
-
-    --- What answers suspensions inside.
-    handler: cst.Node?
-
-    --- The `do`.
-    doTok: lexer.Token?
-
-    --- The body, which is the checked region.
-    body: cst.Node?
-
-    --- The `end`.
-    endTok: lexer.Token?
-end
-
 --- An exact affine extent, `with value = acquire() do ... end`.
 record cst.WithStmt is cst.Hints
     {cst.Node | lexer.Token}
@@ -894,43 +863,6 @@ record cst.DoStmt is cst.Hints
 
     --- The block.
     body: cst.Node?
-end
-
---- `@nosuspend do ... end`: a region in which suspending is a checked error.
----
---- Lexical and static. It erases to an ordinary `do` block, having no run-time
---- component at all: what it does is refuse, while compiling, any call that may yield.
-record cst.NoSuspendStmt is cst.Hints
-    {cst.Node | lexer.Token}
-
-    --- Names the production this node stands for.
-    kind: 'noSuspendStmt'
-
-    --- The contextual `nosuspend`.
-    keywordTok: lexer.Token?
-
-    --- The `do`.
-    doTok: lexer.Token?
-
-    --- The block.
-    body: cst.Node?
-
-    --- The `end`.
-    endTok: lexer.Token?
-end
-
---- `@noalloc do ... end` or `@noraise do ... end`: a region which requires one
---- negative call-graph guarantee. Both spellings share one production because their
---- only difference is the effect flag the checker asks about.
-record cst.EffectRegionStmt is cst.Hints
-    {cst.Node | lexer.Token}
-
-    kind: 'effectRegionStmt'
-    keywordTok: lexer.Token?
-    effect: 'allocates' | 'raises'
-    doTok: lexer.Token?
-    body: cst.Node?
-    endTok: lexer.Token?
 end
 
 --- Recovery for rejected `unsafe do ... end`; valid regions use annotated DoStmt.
@@ -1386,19 +1318,6 @@ record cst.TypeAlias is cst.Hints
     --- The type it names.
     value: cst.Node?
 
-    --- This transparent declaration adds an affine obligation to `value`.
-    affine: boolean?
-
-    --- The contextual `affine` introducer, when this is an affine declaration.
-    affineTok: lexer.Token?
-
-    --- The const-function term written after `terminal`, when one was written.
-    terminal: cst.Node?
-
-    terminalTok: lexer.Token?
-
-    --- The `end` closing an affine declaration.
-    endTok: lexer.Token?
 end
 
 --- A `record`, `interface` or `struct` declaration.
@@ -1419,9 +1338,6 @@ record cst.RecordDecl is cst.Hints
 
     --- The `sealed` modifier on this interface, when one was written.
     sealedTok: lexer.Token?
-
-    --- The `affine` modifier on an ownership-bearing interface.
-    affineTok: lexer.Token?
 
     --- Which form: "record", "interface" or "struct".
     declKind: string?
@@ -1480,9 +1396,6 @@ record cst.FieldDecl is cst.Hints
 
     --- Its type.
     type: cst.Node?
-
-    --- Marks this callable member as the affine interface's terminal operation.
-    terminalTok: lexer.Token?
 
     --- The integer width after a C bitfield's second colon.
     bitWidth: lexer.Token?
@@ -1873,27 +1786,6 @@ record cst.NewExpr is cst.Hints
 
     --- The call this constructs from, whose `obj` names the type.
     call: cst.Node?
-end
-
---- `@unsafe adopt value as Owner` or `@unsafe release owner`.
----
---- Both forms are explicit capability-boundary assertions and erase at runtime. The
---- checker proves the representation agrees with the affine target on adoption and
---- moves the owner on release.
-record cst.UnsafeOwnershipExpr is cst.Hints
-    {cst.Node | lexer.Token}
-
-    --- Names the production this node stands for.
-    kind: 'unsafeOwnershipExpr'
-
-    --- Which boundary operation was written.
-    operation: 'adopt' | 'release'
-
-    --- The adopted value or released owner.
-    expr: cst.Node?
-
-    --- The affine target of an adoption.
-    type: cst.Node?
 end
 
 --- `satisfies |self| -> test` in an interface body: the runtime test for `is`.
@@ -2805,7 +2697,6 @@ type cst.Node = cst.Chunk
     | cst.EmptyStmt
     | cst.ModuleStmt
     | cst.ExportStmt
-    | cst.HandleStmt
     | cst.WithStmt
     | cst.WithBinding
     | cst.IfStmt
@@ -2815,8 +2706,6 @@ type cst.Node = cst.Chunk
     | cst.WhileStmt
     | cst.DoStmt
     | cst.UnsafeStmt
-    | cst.NoSuspendStmt
-    | cst.EffectRegionStmt
     | cst.FornumStmt
     | cst.ForinStmt
     | cst.RepeatStmt
@@ -2864,7 +2753,6 @@ type cst.Node = cst.Chunk
     | cst.Paren
     | cst.ComptimeExpr
     | cst.NewExpr
-    | cst.UnsafeOwnershipExpr
     | cst.ConstructorDecl
     | cst.SatisfiesDecl
     | cst.ErrorExpr

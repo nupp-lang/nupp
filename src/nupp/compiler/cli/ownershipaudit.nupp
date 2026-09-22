@@ -243,7 +243,6 @@ local function run(options: any): integer
             }
         end
         if node.expressionAnnotations
-            and node.kind ~= "unsafeOwnershipExpr"
             and node.ownershipIntrinsic ~= "adopt"
             and node.ownershipIntrinsic ~= "release"
         then

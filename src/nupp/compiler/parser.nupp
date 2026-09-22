@@ -2032,29 +2032,12 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             "NUPP1005",
             operation == "adopt" and "write @unsafe nupp.adopt<Owner>(raw)" or "write @unsafe nupp.release(owner)"
         )
-        local n = new cst.UnsafeOwnershipExpr(kind = "unsafeOwnershipExpr", operation = operation)
+        local n = new cst.ErrorExpr(kind = "errorExpr")
         if prefix then
             add(n, prefix).contextualOp = true
         end
         add(n, advance()).contextualOp = true
-        if operation == "release" then
-            n.expr = add(n, parseExp())
-        else
-            -- Let the ordinary expression parser recognize the required `as`.
-            -- Keeping that cast as the authored child preserves every token while
-            -- this node gives checking the stronger ownership meaning.
-            local assertion = add(n, parseExp())
-            if assertion.kind == "castExpr" then
-                n.expr, n.type = assertion.expr, assertion.type
-            else
-                errAt(
-                    cst.lastToken(assertion) or cur(),
-                    "'@unsafe adopt' needs an affine target; write @unsafe adopt value as Owner",
-                    "NUPP1002"
-                )
-                n.expr = assertion
-            end
-        end
+        add(n, parseExp())
 
         return n
     end
@@ -2910,7 +2893,6 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             local n = introduce(new cst.RecordDecl(entries = {}, kind = "recordDecl"))
             n.declKind = which
             n.sealedTok = sealedTok
-            n.affineTok = affineTok
             parseDeclName(n, "after '" .. which .. "'")
             parseGenerics(n)
             n.supertypes = {}
@@ -3234,10 +3216,10 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             -- Contextual in both words: `handle` is an ordinary name, and so is
             -- `suspension`, so the construct is recognized by the pair rather than by
             -- reserving either.
-            local n = new cst.HandleStmt(kind = "handleStmt")
-            n.handleTok = add(n, advance())
+            local n = new cst.ErrorStmt(kind = "errorStmt")
+            local handleTok = add(n, advance())
             errAt(
-                n.handleTok,
+                handleTok,
                 "handle suspension uses an owned with installation",
                 "NUPP1005",
                 "write with installation = suspension.install(handler) do ... end"
@@ -3248,19 +3230,18 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             else
                 errAt(cur(), "'with' expected in 'handle suspension'", "NUPP1002")
             end
-            n.handler = add(n, parseExp())
-            n.doTok = add(n, expect("do", "to open 'handle suspension'"))
-            n.body = add(n, parseBlock())
-            n.endTok = add(n, expect("end", "to close 'handle suspension'"))
+            add(n, parseExp())
+            add(n, expect("do", "to open 'handle suspension'"))
+            add(n, parseBlock())
+            add(n, expect("end", "to close 'handle suspension'"))
             return n
 
         elseif kind == "name" and cur().text == "nosuspend" and tokens[i + 1] and tokens[i + 1].kind == "do" then
-            local n = new cst.NoSuspendStmt(kind = "noSuspendStmt")
-            n.keywordTok = add(n, advance())
-            rejectLegacyAnnotation(n.keywordTok, "@nosuspend do")
-            n.doTok = add(n, advance())
-            n.body = add(n, parseBlock())
-            n.endTok = add(n, expect("end", "to close 'nosuspend do'"))
+            local n = new cst.ErrorStmt(kind = "errorStmt")
+            rejectLegacyAnnotation(add(n, advance()), "@nosuspend do")
+            add(n, advance())
+            add(n, parseBlock())
+            add(n, expect("end", "to close 'nosuspend do'"))
             return n
 
         elseif kind == "name"
@@ -3269,15 +3250,11 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             and tokens[i + 1].kind == "do"
         then
             local written = cur().text
-            local n = new cst.EffectRegionStmt(
-                kind = "effectRegionStmt",
-                effect = written == "noalloc" and "allocates" or "raises"
-            )
-            n.keywordTok = add(n, advance())
-            rejectLegacyAnnotation(n.keywordTok, "@" .. written .. " do")
-            n.doTok = add(n, advance())
-            n.body = add(n, parseBlock())
-            n.endTok = add(n, expect("end", "to close '" .. written .. " do'"))
+            local n = new cst.ErrorStmt(kind = "errorStmt")
+            rejectLegacyAnnotation(add(n, advance()), "@" .. written .. " do")
+            add(n, advance())
+            add(n, parseBlock())
+            add(n, expect("end", "to close '" .. written .. " do'"))
             return n
 
         elseif kind == "name" and cur().text == "unsafe" and tokens[i + 1] and tokens[i + 1].kind == "do" then
@@ -3579,15 +3556,11 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             end
         end
 
-        if kind == "name" and cur().text == "drop" then
-            local n = new cst.CallStmt(kind = "callStmt")
+        if kind == "name" and cur().text == "drop" and tokens[i + 1] and tokens[i + 1].kind ~= "(" then
+            local n = new cst.ErrorStmt(kind = "errorStmt")
             local dropTok = add(n, advance())
             errAt(dropTok, "drop uses nupp.drop(value)", "NUPP1005", "write nupp.drop(value)")
-            dropTok.contextualOp = true
-            local value = add(n, parseExp())
-            local callee = new cst.NameExpr(kind = "name", token = dropTok)
-            local args = new cst.Args(kind = "args", exprs = {value})
-            n.expr = new cst.Call(kind = "call", obj = callee, args = args, ownershipSyntax = "drop")
+            add(n, parseExp())
             return n
         end
 

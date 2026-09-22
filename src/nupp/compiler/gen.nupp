@@ -122,8 +122,6 @@ local COVERAGE_STATEMENTS = {
     gotoStmt = true,
     withStmt = true,
     unsafeStmt = true,
-    noSuspendStmt = true,
-    effectRegionStmt = true,
     yieldStmt = true,
 }
 
@@ -1225,9 +1223,8 @@ function gen.generate(
         return compilerModuleName("nupp.text")
     end
 
-    -- The suspension runtime, bound once per module that installs a handler, the way
-    -- `nupp.text` is. A file that never writes `handle suspension` requires
-    -- nothing.
+    -- The suspension runtime, bound once per module using coroutine cleanup,
+    -- the way `nupp.text` is.
     local function suspensionModule()
         needsSuspension = true
         needRuntimeEffect("runtime.suspension")
@@ -2634,12 +2631,6 @@ function gen.generate(
     ---------------------------------------------------------------------
 
     local function emitChildren(n)
-        if n.kind == "suspensionInstallExpr" then
-            e(suspensionModule() .. ".install(", sourceLine(n))
-            emit(n.handler)
-            e(")")
-            return
-        end
         if n.kind == "block" and n.automaticOwners and #n.automaticOwners > 0 then
             emitAutomaticBlock(n)
             return
@@ -2918,7 +2909,7 @@ function gen.generate(
 
     local function switchOperands(node): {cst.Node}?
         local kind = node.kind
-        if kind == "paren" or kind == "castExpr" or kind == "isExpr" or kind == "unsafeOwnershipExpr" then
+        if kind == "paren" or kind == "castExpr" or kind == "isExpr" then
             return node.expr and {node.expr} or {}
         elseif kind == "unop" then
             return node.operand and {node.operand} or {}
@@ -3163,10 +3154,7 @@ function gen.generate(
                         or child.kind == "elseClause"
                         or child.kind == "doStmt"
                         or child.kind == "withStmt"
-                        or child.kind == "handleStmt"
                         or child.kind == "unsafeStmt"
-                        or child.kind == "noSuspendStmt"
-                        or child.kind == "effectRegionStmt"
                         or child.kind == "pragmaStmt"
                     then
                         lowerSwitches(child, lazy)
@@ -6268,23 +6256,6 @@ function gen.generate(
         elseif kind == "castExpr" then
             emit(x.expr) -- `as T` vanishes; the operand keeps its grouping
 
-        elseif kind == "unsafeOwnershipExpr" then
-            local move = ownershipMoveOf(x.expr)
-            local movedActive = move and activeFlag(move) or nil
-            if x.operation == "release" and movedActive then
-                pluck.loweredFunction(
-                    ("(function() %s=false; return "):format(movedActive),
-                    sourceLine(x),
-                    pluck.reasons.move
-                )
-                emit(x.expr)
-                e(" end)()")
-            elseif x.expr then
-                emit(x.expr)
-            else
-                e("nil", sourceLine(x))
-            end
-
         elseif kind == "isExpr" then
             local t = x.type
             local firstTok = x[1] and (cst.isToken(x[1]) and x[1] or x[1][1])
@@ -7498,41 +7469,6 @@ function gen.generate(
             e("end", endTok and endTok.line or nil)
             return
 
-        elseif kind == "handleStmt" then
-            -- A handled extent is an ordinary owned cleanup region whose acquisition
-            -- happens to be compiler-provided. Reusing the same lowering is what lets
-            -- return, loop control and goto cross the protected closure while release
-            -- still runs exactly once and combines its failure with a body failure.
-            local name = nextTemp()
-            local definition = {}
-            local binding: any = {
-                kind = "cleanupBinding",
-                name = {
-                    kind = "name",
-                    text = name,
-                    line = x.handleTok and x.handleTok.line or sourceLine(x),
-                    offset = x.handleTok and x.handleTok.offset or 0,
-                    definition = definition,
-                },
-                expr = {
-                    kind = "suspensionInstallExpr",
-                    handler = x.handler,
-                    line = x.handleTok and x.handleTok.line or sourceLine(x),
-                },
-                ownerCleanups = {{kind = "method", name = "release", id = "method:release"}},
-            }
-            local region: any = {
-                kind = "cleanupRegion",
-                startTok = x.handleTok,
-                doTok = x.doTok,
-                endTok = x.endTok,
-                bindings = {binding},
-                body = x.body,
-            }
-            region.enclosingCaptures = automaticCaptures(x.body, region.bindings)
-            region.capturesEnclosing = #region.enclosingCaptures > 0
-            emit(region)
-
         elseif kind == "cleanupRegion" or kind == "withStmt" then
             -- A declaration that became this region's first binding was a switch
             -- statement root before the region replaced it, and a switch in its
@@ -8745,23 +8681,6 @@ function gen.generate(
                 emit(x.stat)
             end
             pluck.emitRegistrations(x.cleanupRegistrations, sourceLine(x), true)
-
-        elseif kind == "noSuspendStmt" then
-            -- Erases to an ordinary block. The region is a promise the checker held the
-            -- program to; there is nothing left to enforce once it has.
-            e("do", x.keywordTok and x.keywordTok.line or nil)
-            if x.body then
-                emit(x.body)
-            end
-            e("end", x.endTok and x.endTok.line or nil)
-
-        elseif kind == "effectRegionStmt" then
-            -- Like `nosuspend`, checked effect regions erase to an ordinary block.
-            e("do", x.keywordTok and x.keywordTok.line or nil)
-            if x.body then
-                emit(x.body)
-            end
-            e("end", x.endTok and x.endTok.line or nil)
 
         elseif kind == "unsafeStmt" then
             e("do", x.unsafeTok and x.unsafeTok.line or nil)

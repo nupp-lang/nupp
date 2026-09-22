@@ -396,9 +396,6 @@ local function structureHeader(stat): string
     end
     -- Source order, which is not the order the parser attached the two to the node:
     -- `affine` is read before `sealed`, and both before the contextual introducer.
-    if stat.affineTok then
-        parts[#parts + 1] = stat.affineTok.text
-    end
     if stat.sealedTok then
         parts[#parts + 1] = stat.sealedTok.text
     end

@@ -550,13 +550,7 @@ function expr.install(c: state.Checker): nil
             end
             local otherwise = stat.elseClause as cst.ElseClause
             return blockCompletesSwitch(otherwise.body)
-        elseif kind == "doStmt"
-            or kind == "withStmt"
-            or kind == "handleStmt"
-            or kind == "unsafeStmt"
-            or kind == "noSuspendStmt"
-            or kind == "effectRegionStmt"
-        then
+        elseif kind == "doStmt" or kind == "withStmt" or kind == "unsafeStmt" then
             return blockCompletesSwitch(stat.body)
         elseif kind == "pragmaStmt" and stat.stat then
             return statCompletesSwitch(stat.stat)
@@ -1431,37 +1425,6 @@ function expr.install(c: state.Checker): nil
             node.partitionFields = call.partitionFields
             c.fixedWidth.copy(node, call)
             return result
-        elseif kind == "unsafeOwnershipExpr" then
-            local value = node.expr
-            local valueT = value and c.infer(value) or T.any
-            if node.operation == "release" then
-                if c.ownershipKind(valueT) ~= "affine" then
-                    c.diag("NUPP2602", value or node, "@unsafe release expects an affine value")
-                end
-                c.moveExpression(value or node, valueT, "@unsafe release")
-                node.ownershipIntrinsic = "release"
-                return rawType(valueT)
-            else
-                local target = c.resolveType(node.type)
-                if target.tag ~= "affine" then
-                    c.diag("NUPP2602", node.type or node, "@unsafe adopt target must be an affine type")
-                    return target
-                end
-                if c.ownershipKind(valueT) then
-                    c.diag("NUPP2602", value or node, "@unsafe adopt expects an unmanaged value")
-                end
-                local representation = rawType(target)
-                if valueT ~= T.any and not isA(valueT, representation) then
-                    c.diag(
-                        "NUPP2602",
-                        value or node,
-                        ("cannot adopt %s as owner of %s"):format(T.tostring(valueT), T.tostring(representation))
-                    )
-                end
-                node.ownerCleanups = target.cleanups
-                node.ownershipIntrinsic = "adopt"
-                return target
-            end
         elseif kind == "ternary" then
             local cond, ifTrue, ifFalse = node.cond, node.ifTrue, node.ifFalse
             if not cond or not ifTrue or not ifFalse then

@@ -983,7 +983,6 @@ function checkMod.check(
             noSuspendDepth = 0,
             cleanupBindings = {},
             effectRegionDepths = {allocates = 0, raises = 0},
-            handledDepth = 0,
             functionDepth = 0,
             functionBodies = {},
             temporaryOwners = {},
@@ -1336,7 +1335,7 @@ function checkMod.check(
                     entry.definition and entry.definition.token or entry.assignedAt,
                     (
                         "owned value %q leaves scope without being consumed, "
-                        .. "dropped, returned, or released with @unsafe release"
+                        .. "dropped, returned, or released with @unsafe nupp.release"
                     ):format(name)
                 )
             elseif not entry.ownershipOrigin
@@ -2185,13 +2184,7 @@ function checkMod.check(
             return false
         elseif kind == "callStmt" then
             return not neverReturns(stat.expr)
-        elseif kind == "doStmt"
-            or kind == "unsafeStmt"
-            or kind == "noSuspendStmt"
-            or kind == "effectRegionStmt"
-            or kind == "withStmt"
-            or kind == "handleStmt"
-        then
+        elseif kind == "doStmt" or kind == "unsafeStmt" or kind == "withStmt" then
             return fallsThrough(stat.body)
         elseif kind == "ifStmt" then
             if not stat.elseClause then
@@ -3211,7 +3204,6 @@ function checkMod.check(
                 or kind == "continueStmt"
                 or kind == "gotoStmt"
                 or kind == "withStmt"
-                or kind == "handleStmt"
                 or #owners > 0
             then
                 straightforward = false

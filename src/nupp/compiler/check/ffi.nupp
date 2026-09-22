@@ -229,7 +229,7 @@ function ffi.install(c: state.Checker): ffi.Intrinsic
                     c.diag(
                         "NUPP2603",
                         node,
-                        "casting an affine value or borrow requires explicit @unsafe release or borrowFrom"
+                        "casting an affine value or borrow requires explicit @unsafe nupp.release or borrowFrom"
                     )
                 end
                 return argT

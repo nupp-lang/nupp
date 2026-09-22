@@ -871,7 +871,6 @@ record types.Nominal
     sealedModule: string?
 
     --- This interface changes conforming values into inherent affine owners.
-    affineInterface: boolean?
 
     --- The prelude interface whose declared `is` edge grants affine ownership.
     intrinsicAffine: boolean?
@@ -1846,7 +1845,7 @@ function types.affine(
     )
 end
 
---- Applies the ownership policy declared by an affine interface, if any.
+--- Applies the ownership policy declared by an Affine claim, if any.
 function types.inherentOwner(t: types.Type): types.Type
     local raw = types.unwrapOwnership(t)
     local nominal = raw.tag == "nominal" and raw as types.Nominal or nil
@@ -1861,12 +1860,7 @@ function types.inherentOwner(t: types.Type): types.Type
             end
         end
     end
-    local cleanup = nominal
-        and (
-            nominal.inherentCleanup
-            or nominal.affineInterface and nominal.terminalMethod and types.methodCleanup(nominal.terminalMethod)
-        )
-        or nil
+    local cleanup = nominal and nominal.inherentCleanup or nil
     if cleanup then
         return types.affine(raw, {cleanup})
     end

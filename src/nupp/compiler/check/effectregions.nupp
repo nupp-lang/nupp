@@ -15,7 +15,7 @@ local state = require("nupp.compiler.check.state")
 local effectregions = {}
 
 type effectregions.Ops = {
-    readonly region: function(cst.EffectRegionStmt),
+    readonly region: function(any),
     readonly free: function(any, string, any): boolean,
     readonly sweep: function(any)
 }
@@ -51,7 +51,7 @@ end
 function effectregions.install(c: state.Checker): effectregions.Ops
     local ops, regions = {}, {}
 
-    function ops.region(stat: cst.EffectRegionStmt)
+    function ops.region(stat: any)
         regions[#regions + 1] = stat
     end
 

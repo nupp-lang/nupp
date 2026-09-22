@@ -428,7 +428,7 @@ function nosuspend.install(c: state.Checker): nosuspend.Ops
                         ):format(token and ("`" .. token.text .. "`") or "this call", candidate.obligation),
                         nil,
                         {
-                            help = "suspend inside a `handle suspension` region, where a "
+                            help = "suspend inside a `with` installation scope, where a "
                             .. "handler is responsible for resuming or cancelling it",
                             related = chain(queries, info, "rawYields"),
                         }

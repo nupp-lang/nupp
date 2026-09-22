@@ -1281,13 +1281,7 @@ function declare.install(
                     condition.successors[#condition.successors + 1] = loop
                 end
                 return loop
-            elseif kind == "doStmt"
-                or kind == "unsafeStmt"
-                or kind == "noSuspendStmt"
-                or kind == "effectRegionStmt"
-                or kind == "withStmt"
-                or kind == "handleStmt"
-            then
+            elseif kind == "doStmt" or kind == "unsafeStmt" or kind == "withStmt" then
                 return buildBlock(stat.body, nextNode, breakNode, continueNode)
             elseif kind == "callStmt" and c.alwaysRaises({kind = "block", stats = {stat}} as any) then
                 return point({}, nil)
@@ -1837,9 +1831,6 @@ function declare.install(
             if n.declKind == "interface" and stat.sealedTok then
                 n.sealedModule = n.moduleName or c.filename
             end
-            if stat.affineTok then
-                n.affineInterface = true
-            end
             if c.filename == "nupp:prelude.d.nupp" and n.name == "Affine" and n.declKind == "interface" then
                 n.intrinsicAffine = true
             end
@@ -1899,8 +1890,7 @@ function declare.install(
                         )
                     end
                 else
-                    if super.affineInterface or super.intrinsicAffine then
-                        n.affineInterface = true
+                    if super.intrinsicAffineClaim or super.intrinsicAffine then
                         if super.intrinsicAffine or super.intrinsicAffineClaim then
                             n.intrinsicAffineClaim = true
                         end
@@ -2081,7 +2071,7 @@ function declare.install(
 
             -- Publish each inline definition on its nominal before any member body is
             -- checked, so a type-position const-function argument may resolve a later
-            -- `R.destroy` as its affine terminal. The name still denotes an ordinary
+            -- `R.destroy` as its Affine cleanup. The name still denotes an ordinary
             -- function declaration and stable function identity; constructors receive
             -- no private cleanup namespace.
             local function publishInlineFunctions(signaturesByName, declarations, kind)
@@ -2116,8 +2106,6 @@ function declare.install(
                             local qualifier = application.name.text
                             if qualifier == "partition" then
                                 partitionApplication = application
-                            elseif qualifier == "terminal" then
-                                e.terminalTok = application.name
                             elseif qualifier == "private" then
                                 e.privacy = application.name
                             elseif qualifier == "readonly" or qualifier == "writeonly" then
@@ -2134,32 +2122,6 @@ function declare.install(
                         c.diag("NUPP2209", e.privacy, "private fields are available only on records")
                     end
                     local ft = c.resolveType(e.type)
-                    if e.terminalTok then
-                        local rawField = T.unwrapOwnership(ft)
-                        local terminal = rawField.tag == "func" and rawField or nil
-                        if stat.declKind ~= "interface" or not stat.affineTok then
-                            c.diag("NUPP2615", e.terminalTok, "terminal members belong to an affine interface")
-                        elseif n.terminalMethod and n.terminalMethod ~= e.name.text then
-                            c.diag(
-                                "NUPP2615",
-                                e.terminalTok,
-                                ("affine interface %s already has terminal %q"):format(n.name, n.terminalMethod)
-                            )
-                        else
-                            n.terminalMethod = e.name.text
-                            n.inherentCleanup = T.methodCleanup(e.name.text)
-                        end
-                        if not terminal then
-                            c.diag("NUPP2615", e, "a terminal member must be a function")
-                        elseif #terminal.params ~= 1
-                            or terminal.paramPack.tail ~= nil
-                            or terminal.paramModes[1] ~= "takes"
-                        then
-                            c.diag("NUPP2615", e, "a terminal method must take exactly one consuming self")
-                        elseif #terminal.rets ~= 1 or terminal.retPack.tail ~= nil or terminal.rets[1] ~= T.nil_ then
-                            c.diag("NUPP2615", e, "a terminal method must return nil")
-                        end
-                    end
                     if stat.declKind ~= "struct" then
                         c.fixedWidth.storageOnly(e.type, ft, ("the %q table-backed field"):format(e.name.text))
                     end
@@ -2796,7 +2758,7 @@ function declare.install(
                 end
                 n.predicate = derived
             end
-            if n.intrinsicAffineClaim and n.inherentCleanup and not stat.affineTok then
+            if n.intrinsicAffineClaim and n.inherentCleanup then
                 local cleanup = n.inherentCleanup
                 if cleanup.kind == "method" then
                     local ft = n.byname[cleanup.name]
@@ -2819,13 +2781,6 @@ function declare.install(
                     n.inherentCleanup = cleanup
                     c.own.validateCleanups(n, {cleanup}, stat, "NUPP2615")
                 end
-            end
-            if stat.affineTok and not n.terminalMethod then
-                c.diag(
-                    "NUPP2615",
-                    stat.affineTok,
-                    ("affine interface %s must declare one terminal member"):format(n.name)
-                )
             end
             -- A refinement is the runtime test `is` compiles to, and it can only read
             -- fields. An associated type is erased, so a declaration whose associated

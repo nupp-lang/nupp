@@ -64,9 +64,7 @@ local DECLINED: {
     safeIndex = "an optional index",
     safeBracket = "an optional index",
     newExpr = "a constructor call",
-    handleStmt = "suspension handling",
     unsafeStmt = "an `@unsafe` construct",
-    unsafeOwnershipExpr = "an unsafe memory operation",
 }
 
 --- Why each declined construct is declined, in the terms the AOT contract uses. The
@@ -87,9 +85,7 @@ local BECAUSE: {
     safeIndex = "an AOT body indexes only spans, structs, and fixed arrays",
     safeBracket = "an AOT body indexes only spans, structs, and fixed arrays",
     newExpr = "an AOT body creates no owner and allocates nothing",
-    handleStmt = "an AOT function is non-suspending by construction",
     unsafeStmt = "`@aot` is a checked contract and does not admit unsafe operations",
-    unsafeOwnershipExpr = "`@aot` is a checked contract and does not admit unsafe operations",
 }
 
 --- Installs the AOT subset walk on one run.

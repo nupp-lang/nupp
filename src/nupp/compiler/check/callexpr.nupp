@@ -985,7 +985,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         if not argTable and not argStr and #argExprs == 1 and positionalOnly(argExprs) and keepIntrinsic(c, callee) then
             node.keepIntrinsic = true
         end
-        local intrinsic = node.ownershipSyntax or ownershipIntrinsic(c, callee)
+        local intrinsic = ownershipIntrinsic(c, callee)
         if intrinsic then
             local args = argExprs
             if intrinsic == "adopt" then
@@ -1581,7 +1581,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                     ("cannot suspend while temporal obligation %q is live"):format(obligation),
                     nil,
                     {
-                        help = "suspend inside a `handle suspension` region, where a "
+                        help = "suspend inside a `with` installation scope, where a "
                         .. "handler is responsible for resuming or cancelling it",
                     }
                 )

@@ -1768,7 +1768,7 @@ function calls.install(c: state.Checker): calls.Ops
                             "NUPP2611",
                             arg,
                             "a live capability cannot cross an untyped call; "
-                            .. "use @unsafe release explicitly to abandon tracking"
+                            .. "use @unsafe nupp.release explicitly to abandon tracking"
                         )
                     end
                 end
