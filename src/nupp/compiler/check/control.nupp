@@ -1644,6 +1644,11 @@ function control.install(c: state.Checker): state.StatHandlers
         iterT = iterT and rawType(iterT) or nil
         local stateT = T.packAt(header, 2) or T.nil_
         local controlT = T.packAt(header, 3) or T.nil_
+        if ownershipKind(controlT) == "affine" then
+            local controlSource = stat.exprs and stat.exprs[#stat.exprs] or stat
+            c.diag("NUPP2622", controlSource, "generic for control cannot be affine: each step replaces it")
+            c.markTemporaryConsumed(controlSource)
+        end
         local callable = iterT and c.metamethodOf(iterT, "__call") or nil
         if callable then
             callable = generics.dropSelf(callable)
@@ -1741,7 +1746,7 @@ function control.install(c: state.Checker): state.StatHandlers
         end
         -- The loop calls the iterator itself, once per step, so a region that forbids
         -- suspending hears about that invocation here or not at all.
-        c.nosuspend.iterator(stat, iterT)
+        local iteratorCallNode: any = stat
         local iterator = stat.exprs and stat.exprs[1]
         local callee = iterator and iterator.kind == "call" and iterator.obj or nil
         local calleeTok = callee and callee.kind == "name" and callee.token or nil
@@ -1765,6 +1770,87 @@ function control.install(c: state.Checker): state.StatHandlers
             and operandType.tag == "array"
         then
             stat.builtinIpairs = {operand = operand, type = operandType}
+        end
+
+        local sourceExprs = stat.exprs or {}
+
+        local function sourceForSlot(slot: integer): any
+            return sourceExprs[slot] or sourceExprs[#sourceExprs]
+        end
+
+        -- A named owner is borrowed by the loop. A new affine step or state is
+        -- held by hidden locals whose scope surrounds the entire loop.
+        local ownsHeader = false
+        for slot = 1, 2 do
+            local value = T.packAt(header, slot)
+            local source = sourceForSlot(slot)
+            if value and ownershipKind(value) == "affine" and #((value as T.Affine).cleanups or {}) > 0 then
+                if not (source and source.kind == "name" and c.ownershipEntry(source)) then
+                    ownsHeader = true
+                end
+            end
+        end
+        local headerBlock: any, headerLocal: any, hiddenNames: any
+        if ownsHeader then
+            local first = cst.firstToken(stat)
+
+            local function tokenLike(base, kind, spelling)
+                local tok: any = {}
+                for key, value in pairs(base or {}) do
+                    tok[key] = value
+                end
+                tok.kind, tok.text = kind, spelling
+                tok.definition = nil
+                tok.triviaFirst, tok.triviaCount = 0, 0
+
+                return tok
+            end
+
+            hiddenNames = {}
+            for slot = 1, 3 do
+                c.loopOwnerCount = (c.loopOwnerCount or 0) + 1
+                hiddenNames[slot] = tokenLike(first, "name", ("__nuppForHeader%d"):format(c.loopOwnerCount))
+            end
+            headerLocal = new cst.LocalStmt(kind = "localStmt", names = hiddenNames, types = {}, exprs = sourceExprs)
+            headerLocal[1] = tokenLike(first, "local", "local")
+            for slot, name in ipairs(hiddenNames) do
+                headerLocal[#headerLocal + 1] = name
+                if slot < 3 then
+                    headerLocal[#headerLocal + 1] = tokenLike(first, ",", ",")
+                end
+            end
+            headerLocal[#headerLocal + 1] = tokenLike(first, "=", "=")
+            for index, expr in ipairs(sourceExprs) do
+                headerLocal[#headerLocal + 1] = expr
+                if index < #sourceExprs then
+                    headerLocal[#headerLocal + 1] = tokenLike(first, ",", ",")
+                end
+            end
+            headerBlock = new cst.Block(kind = "block", stats = {headerLocal})
+            c.pushScope()
+            c.scope.block = headerBlock
+            c.scope.completionScope = headerBlock
+            for slot, name in ipairs(hiddenNames) do
+                local value = T.packAt(header, slot) or T.nil_
+                local source = sourceForSlot(slot)
+                local outer = source and source.kind == "name" and c.ownershipEntry(source) or nil
+                local fresh = slot <= 2 and ownershipKind(value) == "affine" and not outer
+                local bound = outer and T.borrowed(rawType(value)) or value
+                c.bindVar(name.text, bound, false, name)
+                local entry = c.scope.vars[name.text]
+                if fresh and entry and entry.automaticOwner then
+                    c.markTemporaryConsumed(source)
+                    local owner = entry.automaticOwner
+                    owner.stat, owner.index, owner.expr, owner.type = headerLocal, slot, source, bound
+                    owner.lowerable = true
+                    headerLocal.automaticOwners = headerLocal.automaticOwners or {}
+                    headerLocal.automaticOwners[slot] = owner
+                    c.own.validateCleanups(bound, owner.cleanups, source or stat, "NUPP2615")
+                elseif outer and entry then
+                    local facts = own.capabilityFacts(entry)
+                    facts.roots = {borrowRoot(outer)}
+                end
+            end
         end
         local ownershipBefore = ownershipSnapshot()
         local unassignedBefore = unassignedSnapshot()
@@ -1875,6 +1961,76 @@ function control.install(c: state.Checker): state.StatHandlers
         c.popScope()
         unassignedRestore(unassignedBefore)
         checkLoopBackEdge(ownershipBefore, stat.body, stat)
+        if headerBlock and headerLocal and hiddenNames then
+            headerBlock.automaticOwners = c.scope.automaticOwners
+            for _, owner in ipairs(headerBlock.automaticOwners or {}) do
+                owner.boundary = cst.lastToken(stat)
+            end
+            c.popScope()
+
+            local original: any = {}
+            for key, value in pairs(stat) do
+                original[key] = value
+            end
+            local rewritten = {}
+            local inHeader, afterHeader = false, false
+            for _, child in ipairs(original) do
+                if not inHeader then
+                    rewritten[#rewritten + 1] = child
+                    if cst.isToken(child) and child.kind == "in" then
+                        inHeader = true
+                        for slot, name in ipairs(hiddenNames) do
+                            local use = {kind = "name", token = name, name}
+                            rewritten[#rewritten + 1] = use
+                            if slot < 3 then
+                                local comma: any = {}
+                                for key, value in pairs(name) do
+                                    comma[key] = value
+                                end
+                                comma.kind, comma.text = ",", ","
+                                rewritten[#rewritten + 1] = comma
+                            end
+                        end
+                    end
+                elseif cst.isToken(child) and child.kind == "do" then
+                    afterHeader = true
+                    rewritten[#rewritten + 1] = child
+                elseif afterHeader then
+                    rewritten[#rewritten + 1] = child
+                end
+            end
+            original.exprs = {}
+            for slot, name in ipairs(hiddenNames) do
+                original.exprs[slot] = {kind = "name", token = name, name}
+            end
+            for index, child in ipairs(rewritten) do
+                original[index] = child
+            end
+            for index = #rewritten + 1, #original do
+                original[index] = nil
+            end
+            headerBlock.stats[2], headerBlock[1], headerBlock[2] = original, headerLocal, original
+            iteratorCallNode = original
+            local first = cst.firstToken(original)
+            local last = cst.lastToken(original)
+            local doTok: any = {}
+            local endTok: any = {}
+            for key, value in pairs(first or {}) do
+                doTok[key] = value
+            end
+            for key, value in pairs(last or {}) do
+                endTok[key] = value
+            end
+            doTok.kind, doTok.text, doTok.triviaCount = "do", "do", 0
+            endTok.kind, endTok.text, endTok.triviaCount = "end", "end", 0
+            local wrapper = stat as any
+            for key in pairs(wrapper) do
+                wrapper[key] = nil
+            end
+            wrapper.kind, wrapper.body = "doStmt", headerBlock
+            wrapper[1], wrapper[2], wrapper[3] = doTok, headerBlock, endTok
+        end
+        c.nosuspend.iterator(iteratorCallNode, iterT)
     end
 
     return handlers

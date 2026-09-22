@@ -7393,4 +7393,72 @@ return animate
     assert(bad:find("NUPP2701", 1, true), "a yielding callback cannot fill a FrameBody slot: " .. bad)
 end
 
+function M.genericForOwnsFreshHeaderValuesForWholeLoop()
+    local source = [[
+local events: {string} = {}
+local function releaseStep(takes step: function(integer, integer?): integer?): nil
+    events[#events + 1] = "step"
+end
+local function releaseState(takes state: integer): nil
+    events[#events + 1] = "state"
+end
+local function acquireStep(): affine(function(integer, integer?): integer?, releaseStep)
+    return function(_state: integer, control: integer?): integer?
+        if control == nil then return 1 end
+        return nil
+    end
+end
+local function acquireState(): affine(integer, releaseState) return 7 end
+for n in acquireStep(), acquireState(), nil do
+    events[#events + 1] = tostring(n)
+    break
+end
+return table.concat(events, ",")
+]]
+    local result, diags = checked(source)
+    assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+    local code, generated = gen.generate(result, "ownership-for-header")
+    assertEq(#generated, 0)
+    local chunk, problem = loadstring(code, "@ownership-for-header")
+    assert(chunk, tostring(problem) .. "\n" .. code)
+    assertEq(chunk(), "1,state,step")
+end
+
+function M.genericForBorrowsANamedOwnerAndRejectsOwnedControl()
+    local source = [[
+local events: {string} = {}
+local function releaseStep(takes step: function(integer, integer?): integer?): nil
+    events[#events + 1] = "step"
+end
+local function acquireStep(): affine(function(integer, integer?): integer?, releaseStep)
+    return function(_state: integer, control: integer?): integer?
+        if control == nil then return 1 end
+        return nil
+    end
+end
+local step = acquireStep()
+for n in step, 7, nil do break end
+events[#events + 1] = "after"
+nupp.drop(step)
+return table.concat(events, ",")
+]]
+    local result, diags = checked(source)
+    assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+    local code, generated = gen.generate(result, "ownership-for-borrow")
+    assertEq(#generated, 0)
+    local chunk, problem = loadstring(code, "@ownership-for-borrow")
+    assert(chunk, tostring(problem) .. "\n" .. code)
+    assertEq(chunk(), "after,step")
+
+    local bad = codes(
+        [[
+local function release(takes id: integer): nil end
+local function acquire(): affine(integer, release) return 0 end
+local function step(_state: nil, _control: integer?): integer? return nil end
+for n in step, nil, acquire() do end
+]]
+    )
+    assertEq(bad, "NUPP2622")
+end
+
 return M

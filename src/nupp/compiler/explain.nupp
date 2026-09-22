@@ -2279,6 +2279,18 @@ ENTRIES[
 ENTRIES[
     #ENTRIES + 1
 ] = {
+    code = "NUPP2622",
+    summary = "A generic for control value cannot be affine",
+    rule = "Generic for replaces its control value with the first result of every iterator call. An affine initial control would lose its cleanup obligation on the first step. Use an ordinary control value; a newly produced affine iterator or state is held and closed by the loop itself.",
+    wrong = "local function release(takes id: integer): nil end\nlocal function owned(): affine(integer, release) return 0 end\nlocal function step(_state: nil, _control: integer?): integer? return nil end\nfor n in step, nil, owned() do end\n",
+    right = "local function step(_state: nil, _control: integer?): integer? return nil end\nfor n in step, nil, 0 do end\n",
+    related = {"NUPP2603", "NUPP2615"},
+    docs = "docs/learn/runtime/ownership/affine-types.md#cleanup-and-transfer-only-forms",
+}
+
+ENTRIES[
+    #ENTRIES + 1
+] = {
     code = "NUPP3002",
     summary = "A struct field's type has no C declarator the generator can emit",
     rule = "Every field of a reified `struct` lowers to a literal C declarator inside the `ffi.typeof` string the record compiles to. The checker admits any pointer or fixed array uniformly as a reifiable field, but the generator still has to spell each concrete shape syntactically, and some admitted shapes have no case in that spelling, chief among them an array whose element is itself a pointer. Such a field is refused at generation rather than at check.",
