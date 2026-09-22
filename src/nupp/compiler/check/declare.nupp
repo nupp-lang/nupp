@@ -2660,24 +2660,11 @@ function declare.install(
                         }
                     end
                     e.overridesDefault = receiver and inheritedDefault(n, memberName) or nil
-                    local overrides = e.overridesDefault
-                    if receiver and stat.declKind == "interface" then
-                        overrides = inheritedMethod(n, name, ft as T.Func, memberName)
-                    end
+                    local overrides = receiver and inheritedMethod(n, name, ft as T.Func, memberName) or nil
                     if not receiver and isOverride then
                         c.diag("NUPP2118", e.name, "a static function cannot override an instance method", nil, {
                             help = "add `self` as the first parameter, or remove @override"
                         })
-                    elseif overrides and not isOverride then
-                        c.diag(
-                            "NUPP2118",
-                            e.name,
-                            (
-                                "%q replaces the matching method %s declares, which " .. "has to be said"
-                            ):format(name, overrides),
-                            nil,
-                            {help = "write @override above it"}
-                        )
                     elseif isOverride and not overrides then
                         c.diag(
                             "NUPP2118",

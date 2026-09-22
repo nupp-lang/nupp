@@ -765,9 +765,9 @@ function M.interfacesCarryDefaultBodies()
     )
 end
 
--- Replacing a default has to be said, and saying it when nothing is replaced is
--- the same mistake from the other side. Java catches neither.
-function M.overridingADefaultIsDeclared()
+-- An override is optional when replacing an interface method, and invalid when
+-- no declared interface supplies the matching slot.
+function M.overridingADefaultIsOptional()
     local iface = table.concat(
         {
             "local interface Greeter",
@@ -779,9 +779,9 @@ function M.overridingADefaultIsDeclared()
         },
         "\n"
     )
-    -- silently shadowing is refused
+    -- A method can replace the default without an annotation.
     assertEq(
-        diagsOf(
+        run(
             iface .. table.concat(
                 {
                     "",
@@ -791,11 +791,12 @@ function M.overridingADefaultIsDeclared()
                     "      return '...'",
                     "   end",
                     "end",
+                    "return (new Silent(name = 'x')):greet()",
                 },
                 "\n"
             )
         ),
-        "NUPP2118:9"
+        "..."
     )
     -- saying it is fine, and the override runs
     assertEq(
@@ -904,26 +905,23 @@ function M.aDeclaredMemberMustFitTheClaimedContract()
     )
 end
 
-function M.subtypeMethodOverridesAreExplicitAndCompatible()
+function M.subtypeMethodOverridesAreOptionalAndCompatible()
     local parent = table.concat(
         {"local interface Parent", "   convert: function(self, value: string): string", "end",},
         "\n"
     )
-    assertEq(
-        diagsOf(
-            parent .. table.concat(
-                {
-                    "",
-                    "local interface Child is Parent",
-                    "   function convert(self, value: string): string",
-                    "      return value",
-                    "   end",
-                    "end",
-                },
-                "\n"
-            )
-        ),
-        "NUPP2118:5"
+    assertClean(
+        parent .. table.concat(
+            {
+                "",
+                "local interface Child is Parent",
+                "   function convert(self, value: string): string",
+                "      return value",
+                "   end",
+                "end",
+            },
+            "\n"
+        )
     )
     assertClean(
         parent .. table.concat(
@@ -2332,7 +2330,9 @@ end
 -- unchecked left the declaration saying one thing and every call site held to the
 -- other, which is a declaration that cannot be read.
 function M.aDefinitionIsHeldToWhatTheDeclarationSaidTheMemberIs()
-    assertEq(diagsOf([[
+    assertEq(
+        diagsOf(
+            [[
 local record R
     step: function(self, at: integer): integer
 end
@@ -2340,8 +2340,13 @@ function R:step(at: string): string
     return at
 end
 return R
-]]), "NUPP2118:4")
-    assertEq(diagsOf([[
+]]
+        ),
+        "NUPP2118:4"
+    )
+    assertEq(
+        diagsOf(
+            [[
 local record R
     make: function(at: integer): integer
 end
@@ -2349,14 +2354,19 @@ function R.make(at: string): string
     return at
 end
 return R
-]]), "NUPP2118:4")
+]]
+        ),
+        "NUPP2118:4"
+    )
 end
 
 -- Counted rather than compared where the two reach a type through binders that stand
 -- for the same thing without being the same binder. How many values cross the
 -- boundary is still the declaration's to state.
 function M.aDefinitionMayNotAskForMoreThanTheDeclarationPasses()
-    assertEq(diagsOf([[
+    assertEq(
+        diagsOf(
+            [[
 local record Ledger
     entry: string
 end
@@ -2367,8 +2377,13 @@ function R.post(to: Ledger, also: Ledger): Ledger
     return also
 end
 return R
-]]), "NUPP2118:7")
-    assertEq(diagsOf([[
+]]
+        ),
+        "NUPP2118:7"
+    )
+    assertEq(
+        diagsOf(
+            [[
 local record R
     read: function(): (integer, string)
 end
@@ -2376,14 +2391,18 @@ function R.read(): integer
     return 1
 end
 return R
-]]), "NUPP2118:4")
+]]
+        ),
+        "NUPP2118:4"
+    )
 end
 
 -- What the definition adds beyond the declaration is the definition being precise:
 -- a parameter that admits nil no caller has to pass, a result beyond the ones the
 -- declaration promised, and the ownership a terminal settles.
 function M.aDefinitionMaySayMoreThanItsDeclarationDid()
-    assertClean([[
+    assertClean(
+        [[
 local record R
     parse: function(text: string): integer
     close: function(takes self: R): nil
@@ -2394,35 +2413,45 @@ end
 function R:close(): nil
 end
 return R
-]])
+]]
+    )
 end
 
 -- A field declared `self` is the declaration standing for the value being built, so
 -- construction holds what fills it to that and not to the binder `self` is before it
 -- is bound -- which fits everything and so checked nothing.
 function M.selfTypedFieldsAreCheckedWhereTheValueIsBuilt()
-    assertEq(diagsOf([[
+    assertEq(
+        diagsOf([[
 local record Plain
     a: integer
     c: self
 end
 local p = new Plain(a = 1, c = 3)
 return p
-]]), "NUPP2202:5")
-    assertEq(diagsOf([[
+]]),
+        "NUPP2202:5"
+    )
+    assertEq(
+        diagsOf(
+            [[
 local record Callback<T>
     a: T
     c: function(self): nil
 end
 local made = new Callback(a = 1, c = function(other: integer): nil end)
 return made
-]]), "NUPP2202:5")
+]]
+        ),
+        "NUPP2202:5"
+    )
 end
 
 -- And carries the construction's type arguments into it, so a generic declaration's
 -- own instantiation is what a `self` field of one accepts.
 function M.selfTypedFieldsTakeTheirOwnInstantiation()
-    assertClean([[
+    assertClean(
+        [[
 local record Node<T>
     value: T
     next: self?
@@ -2430,7 +2459,8 @@ end
 local tail = new Node(value = 2)
 local head: Node<integer> = new Node(value = 1, next = tail)
 return head
-]])
+]]
+    )
 end
 
 function M.constructorsCannotReturnAnotherValue()

@@ -41,6 +41,42 @@ end
 
 local M = {}
 
+function M.genericForChecksIteratorInputsAndNextControl()
+    clean(
+        table.concat(
+            {
+                "local function nextName(names: {string}, previous: integer): (integer?, string?)",
+                "   local index = previous + 1",
+                "   return names[index] and index or nil, names[index]",
+                "end",
+                "for index, name in nextName, {'Ada', 'Lin'}, 0 do",
+                "   print(index, name)",
+                "end",
+                "local record Counter",
+                "   metamethod __call: function(self, state: integer, previous: integer): integer?",
+                "end",
+                "for value in new Counter(), 1, 0 do print(value) end",
+            },
+            "\n"
+        )
+    )
+    assertEq(
+        codes(
+            table.concat(
+                {
+                    "local function nextBad(state: number, control: number): string?",
+                    "   return 'bad'",
+                    "end",
+                    "for value in nextBad, 1, 0 do print(value) end",
+                    "for value in nextBad, 'bad', 0 do print(value) end",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2006 NUPP2006"
+    )
+end
+
 -- A homogeneous tail may be empty, so a result pack whose slot comes out of one
 -- promises only an optional of the element: `function(): ...string` does not
 -- fit `function(): string`.

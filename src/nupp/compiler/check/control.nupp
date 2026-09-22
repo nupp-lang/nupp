@@ -1636,27 +1636,91 @@ function control.install(c: state.Checker): state.StatHandlers
     end
 
     handlers.forinStmt = function(stat: cst.ForinStmt)
-        -- the iterator's return types type the loop variables (e.g. pairs(m: {[K]: V})
-        -- instantiates to function(): (K, V))
-        local iterT = nil
-        for j, e in ipairs(stat.exprs or {}) do
-            local t = c.infer(e)
-            if j == 1 then
-                iterT = t
+        -- The final header expression expands as a Lua value pack. In particular,
+        -- `for ... in factory()` may produce the step, state, and initial control
+        -- from one call, whereas earlier expressions contribute only one value.
+        local header = c.inferListPack(stat.exprs)
+        local iterT = T.packAt(header, 1)
+        iterT = iterT and rawType(iterT) or nil
+        local stateT = T.packAt(header, 2) or T.nil_
+        local controlT = T.packAt(header, 3) or T.nil_
+        local callable = iterT and c.metamethodOf(iterT, "__call") or nil
+        if callable then
+            callable = generics.dropSelf(callable)
+        else
+            callable = iterT
+        end
+        local choices = callable and callable.tag == "intersection" and callable.members
+            or callable and {callable}
+            or {}
+        local selected, resultPack, failures = nil, nil, {}
+        for _, candidate in ipairs(choices) do
+            if candidate.tag == "func" then
+                local expanded, packProblem = generics.expandFunctionPacks(candidate, c.reductionControl)
+                if packProblem then
+                    failures[#failures + 1] = packProblem
+                else
+                    local problem = nil
+                    for position, want in ipairs(expanded.params) do
+                        local actual = position == 1 and stateT or position == 2 and controlT or T.nil_
+                        local ok, why = isA(actual, want)
+                        if not ok then
+                            problem = (
+                                "argument %d: %s"
+                            ):format(position, why or (T.tostring(actual) .. " is not " .. T.tostring(want)))
+                            break
+                        end
+                    end
+                    if not problem and expanded.paramPack.tail and expanded.paramPack.tail.kind == "homogeneous" then
+                        local tail = expanded.paramPack.tail
+                        for position = #expanded.params + 1, 2 do
+                            local actual = position == 1 and stateT or controlT
+                            local ok, why = isA(actual, tail.type)
+                            if not ok then
+                                problem = (
+                                    "argument %d: %s"
+                                ):format(position, why or (T.tostring(actual) .. " is not " .. T.tostring(tail.type)))
+                                break
+                            end
+                        end
+                    end
+                    if problem then
+                        failures[#failures + 1] = problem
+                    elseif selected then
+                        c.diag("NUPP2006", stat, "generic for iterator matches more than one callable overload")
+                    else
+                        selected, resultPack = expanded, expanded.retPack
+                    end
+                end
             end
         end
-        iterT = iterT and rawType(iterT) or nil
-        local resultPack = iterT and iterT.tag == "func" and iterT.retPack or nil
-        if iterT and iterT.tag == "func" then
-            local expanded, packProblem = generics.expandFunctionPacks(iterT, c.reductionControl)
-            if packProblem then
-                c.diag(
-                    "NUPP2006",
-                    stat.exprs and stat.exprs[1] or stat,
-                    "generic for iterator contract: " .. packProblem
-                )
-            else
-                iterT, resultPack = expanded, expanded.retPack
+        if not selected and #failures > 0 then
+            c.diag("NUPP2006", stat.exprs and stat.exprs[1] or stat, "generic for iterator: " .. failures[1])
+        elseif not selected and iterT and iterT ~= T.any then
+            c.diag("NUPP2005", stat.exprs and stat.exprs[1] or stat, "generic for iterator is not callable")
+        end
+        iterT = selected or iterT
+        if selected and resultPack then
+            local nextControl = T.packAt(resultPack, 1)
+            if nextControl and nextControl ~= T.nil_ then
+                nextControl = subtract(nextControl, T.nil_)
+                local want = selected.params[2]
+                    or selected.paramPack.tail
+                    and selected.paramPack.tail.kind == "homogeneous"
+                    and selected.paramPack.tail.type
+                    or nil
+                if want and nextControl ~= T.nil_ then
+                    local ok, why = isA(nextControl, want)
+                    if not ok then
+                        c.diag(
+                            "NUPP2006",
+                            stat,
+                            "generic for next control: " .. (
+                                why or (T.tostring(nextControl) .. " is not " .. T.tostring(want))
+                            )
+                        )
+                    end
+                end
             end
         end
         -- The body runs only while the iterator's first value is not nil, so the
