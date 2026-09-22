@@ -976,7 +976,7 @@ local comptime function detail(T: type): any
     return value
 end
 
-local comptime function optional(T: type): type?
+local comptime function Optional(T: type): type?
     local value = detail(T)
     if value.kind ~= "union" then
         return nil
@@ -996,7 +996,7 @@ local comptime function optional(T: type): type?
 end
 
 local comptime function debugSpec(T: type, contract: type): any
-    local inner = optional(T)
+    local inner = Optional(T)
     if inner ~= nil then
         return {kind = "optional", value = debugSpec(inner, contract)}
     end
@@ -1048,7 +1048,7 @@ local comptime function debugSpec(T: type, contract: type): any
 end
 
 local comptime function jsonSpec(T: type, contract: type): any
-    local inner = optional(T)
+    local inner = Optional(T)
     if inner ~= nil then
         local value = jsonSpec(inner, contract)
         return value and {kind = "optional", value = value} or nil
@@ -1178,7 +1178,7 @@ end
 -- The serde recipe preserves semantic scalar widths and contains no JSON member
 -- policy. Unsupported topology is refused instead of being weakened to `document`.
 local comptime function serdeSpec(T: type, contract: type): any
-    local inner = optional(T)
+    local inner = Optional(T)
     if inner ~= nil then
         local item = serdeSpec(inner, contract)
         return item and {kind = "optional", value = item} or nil
@@ -1270,7 +1270,7 @@ comptime function derive.Debug(info: nupp.derive.Info): nupp.derive.Result<nupp.
             -- still needs a node, while a co-derived public Serde recipe replaces
             -- this placeholder with the field's actual logical type.
             serdeType = spec or {kind = "any"},
-            required = optional(field.readType) == nil and not defaultField.hasDefault,
+            required = Optional(field.readType) == nil and not defaultField.hasDefault,
             default = defaultField.hasDefault and {kind = "literal", value = defaultField.defaultValue} or nil,
             debugSkip = skip,
             debugRedact = redact,
@@ -1398,7 +1398,7 @@ comptime function derive.Serde(info: nupp.derive.Info): nupp.derive.Result<Seria
             index = index,
             name = field.name,
             serdeType = spec,
-            required = optional(field.readType) == nil and not defaultField.hasDefault,
+            required = Optional(field.readType) == nil and not defaultField.hasDefault,
             default = defaultField.hasDefault and {kind = "literal", value = defaultField.defaultValue} or nil,
         }
     end

@@ -271,7 +271,7 @@ local comptime function detail(T: type): any
     return described
 end
 
-local comptime function optional(T: type): type?
+local comptime function Optional(T: type): type?
     local described = detail(T)
     if described.kind ~= "union" then
         return nil
@@ -292,7 +292,7 @@ local comptime function optional(T: type): type?
 end
 
 local comptime function valueSpec(T: type): any
-    local inner = optional(T)
+    local inner = Optional(T)
     if inner ~= nil then
         local spec = valueSpec(inner)
         if spec ~= nil then
@@ -425,7 +425,7 @@ local comptime function acceptsConstant(spec: any, value: any): boolean
     return false
 end
 
-local comptime function decodeErrorType(): type
+local comptime function DecodeErrorType(): type
     local text = nupp.types.string
     local maybeText = nupp.types.optional(text)
     return nupp.types.shape({
@@ -635,7 +635,7 @@ local comptime function recipe(info: nupp.derive.Info, command: boolean): any
                 }),
                 nupp.types.pack({
                     nupp.types.optional(info.ownerType),
-                    nupp.types.optional(decodeErrorType())
+                    nupp.types.optional(DecodeErrorType())
                 })
             ),
             parameters = {"argv"},
