@@ -1386,7 +1386,7 @@ end
 --- @param extra project flags, which are part of what the artifact was compiled
 ---   with wherever a target names them
 --- @return the assembly, or nothing and what the compiler said
---- @raises never; a compiler that refused the C is reported, not thrown
+--- @raises never a compiler that refused the C is reported, not thrown
 function aot.assemble(chain: aot.Toolchain, selected: targets.Target, c: string, extra: {string}?): (string?, string?)
     local base = os.tmpname()
     os.remove(base)
@@ -1437,7 +1437,7 @@ end
 --- @param session the graph the sources are checked through, shared with the
 ---   module build that follows so each import is answered once
 --- @return what was written, or nothing and the first reason it could not be
---- @raises never; a source the subset refuses is reported, not thrown
+--- @raises never a source the subset refuses is reported, not thrown
 function aot.emitC(
     root: string,
     outDir: string,

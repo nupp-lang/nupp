@@ -22,7 +22,8 @@ local index: {[string]: {string}} = found and loaded or {}
 --- Each iteration loads one module; ordinary require caching retains its identity.
 --- @param interface The exported interface whose implementations to discover.
 --- @return A lazy iterator of implementations, returning nil at exhaustion.
---- @raises when an implementation cannot load
+--- @raises any whatever an implementation raised while loading, which is that
+---     module's business rather than this one's
 export function load<I>(interface: string): function(): I?
     local modules = index[interface] or {}
     local position: integer = 0

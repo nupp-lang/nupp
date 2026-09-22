@@ -113,16 +113,19 @@ local function markdownReturns(out, returns, heading)
     out[#out + 1] = ""
 end
 
--- A raise is a condition and nothing else. There is no type to put beside it, so this
--- lists where an argument or a result tabulates.
+-- A raise names the type `error` is called with and says what brings it about, so it
+-- tabulates the way a result does: a reader comparing the ordinary exit with the
+-- exceptional one reads the two tables the same way.
 local function markdownRaises(out, raises, heading)
     if #raises == 0 then
         return
     end
     out[#out + 1] = heading .. " Raises"
     out[#out + 1] = ""
-    for _, condition in ipairs(raises) do
-        out[#out + 1] = "- " .. cell(condition)
+    out[#out + 1] = "| Type | Condition |"
+    out[#out + 1] = "| --- | --- |"
+    for _, raise in ipairs(raises) do
+        out[#out + 1] = "| `" .. markdownEscape(raise.type) .. "` | " .. cell(raise.text) .. " |"
     end
     out[#out + 1] = ""
 end

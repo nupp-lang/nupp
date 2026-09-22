@@ -311,7 +311,7 @@ local nupp: {
         --- checker compares for equality.
         --- @param value the inhabitant to lift into type position
         --- @return the type whose only value is `value`
-        --- @raises when the value is not a string, boolean, or exact integer
+        --- @raises string when the value is not a string, boolean, or exact integer
         readonly literal: comptime function(value: string | boolean | integer): type,
 
         --- The member that keeps a union open, so a switch over it stays inexhaustive.
@@ -321,7 +321,7 @@ local nupp: {
         --- rather than an inferred one. It may be written directly in a type as well
         --- as inside a generator.
         --- @return the open member
-        --- @raises when given any argument
+        --- @raises string when given any argument
         readonly nonExhaustive: comptime function(): type,
 
         --- `base` narrowed to the values from `min` through `max`, both included.
@@ -338,7 +338,8 @@ local nupp: {
         --- @param min the lowest admitted value
         --- @param max the highest admitted value
         --- @return the constrained type
-        --- @raises when the base is unsupported or the bounds are empty or out of range
+        --- @raises string when the base is unsupported or the bounds are empty or out
+        ---     of range
         readonly range: comptime function(base: type, min: integer, max: integer): type,
 
         --- `base` narrowed to the byte lengths from `min` through `max`, both included.
@@ -350,7 +351,7 @@ local nupp: {
         --- @param min the shortest admitted length in bytes
         --- @param max the longest admitted length in bytes
         --- @return the constrained type
-        --- @raises when the base is not a string or the bounds are empty
+        --- @raises string when the base is not a string or the bounds are empty
         readonly length: comptime function(base: type, min: integer, max: integer): type,
 
         --- The Lua array `{element}`, with integer keys and no fixed length.
@@ -414,7 +415,7 @@ local nupp: {
         --- @param representation the underlying representation type
         --- @param terminal the const-function parameter that consumes it
         --- @return the affine type
-        --- @raises when the terminal is not a const-function parameter
+        --- @raises string when the terminal is not a const-function parameter
         readonly affine: comptime function(representation: type): type
         & comptime function(representation: type, const terminal: function): type,
 
@@ -423,7 +424,7 @@ local nupp: {
         --- @param element the element type
         --- @param count the fixed length, or nil for an unsized array
         --- @return the C array type
-        --- @raises when the count is not a non-negative exact integer
+        --- @raises string when the count is not a non-negative exact integer
         readonly carray: comptime function(element: type, count: integer?): type,
 
         --- A type indexed by computed keys rather than by named fields.
@@ -437,7 +438,8 @@ local nupp: {
         --- @param writeKey the key type writes accept
         --- @param writeValue the value type writes accept
         --- @return the indexer type
-        --- @raises when a capability is missing half of its pair, or when neither
+        --- @raises string when a capability is missing half of its pair, or when
+        ---     neither
         ---     capability is supplied
         readonly indexer: comptime function(readKey: type?, readValue: type?, writeKey: type?, writeValue: type?): type,
 
@@ -463,7 +465,8 @@ local nupp: {
         --- @param indexer an indexer handle from `nupp.types.indexer` or
         ---     `nupp.types.map`
         --- @return the shape type
-        --- @raises when a name is empty or repeated, when a field declares neither
+        --- @raises string when a name is empty or repeated, when a field declares
+        ---     neither
         ---     capability, when the indexer did not come from an indexer builder, or
         ---     when there are more than 1000 fields
         readonly shape: comptime function(fields: const{{
@@ -481,7 +484,8 @@ local nupp: {
         --- @param tail the type of the remaining values, or nil for a closed pack
         --- @param modes the ownership mode of each fixed slot
         --- @return the pack
-        --- @raises when there are more modes than slots, or a mode is not one of the
+        --- @raises string when there are more modes than slots, or a mode is not one of
+        ---     the
         ---     five
         readonly pack: comptime function(head: {type}, tail: type?, modes: {string}?): typepack,
 
@@ -503,13 +507,13 @@ local nupp: {
         --- The parameter pack of a function type.
         --- @param callable the function type to inspect
         --- @return its parameters
-        --- @raises when the handle is not a function type
+        --- @raises string when the handle is not a function type
         readonly parameters: comptime function(callable: type): typepack,
 
         --- The result pack of a function type.
         --- @param callable the function type to inspect
         --- @return its results
-        --- @raises when the handle is not a function type
+        --- @raises string when the handle is not a function type
         readonly results: comptime function(callable: type): typepack,
 
         --- What a handle is, as a string, which is the usual way to branch on one.
@@ -589,7 +593,8 @@ local nupp: {
         --- call binds by position or by name, the way it would for `new E(...)`.
         --- @param value the record or struct to inspect
         --- @return its construction contract
-        --- @raises when the declaration has several constructors, which is no single
+        --- @raises string when the declaration has several constructors, which is no
+        ---     single
         ---     contract
         readonly construction: comptime function(value: type): typepack,
 
@@ -601,7 +606,7 @@ local nupp: {
         --- reports the same descriptors.
         --- @param value the shape or nominal type to inspect
         --- @return one descriptor per field, in declaration order
-        --- @raises when the handle is neither a shape nor a nominal declaration
+        --- @raises string when the handle is neither a shape nor a nominal declaration
         readonly fields: comptime function(value: type): {{
             readonly name: string,
             readonly read: type?,
@@ -612,14 +617,14 @@ local nupp: {
         --- plus the indexer's read key when it has one.
         --- @param value the shape or indexer to inspect
         --- @return one handle per readable key
-        --- @raises when the handle is neither a shape nor an indexer
+        --- @raises string when the handle is neither a shape nor an indexer
         readonly readKeys: comptime function(value: type): {type},
 
         --- Every key a type can be written at: one string literal per writable field,
         --- plus the indexer's write key when it has one.
         --- @param value the shape or indexer to inspect
         --- @return one handle per writable key
-        --- @raises when the handle is neither a shape nor an indexer
+        --- @raises string when the handle is neither a shape nor an indexer
         readonly writeKeys: comptime function(value: type): {type},
 
         --- The type read at one key: the named field when the key is a string literal
@@ -627,7 +632,8 @@ local nupp: {
         --- @param value the type to project
         --- @param key the key to read at
         --- @return the value type at that key
-        --- @raises NUPP2420 when the type has no read capability there
+        --- @raises string when the type has no read capability there, reported as
+        ---     NUPP2420
         readonly readAt: comptime function(value: type, key: type): type,
 
         --- The type written at one key: the named field when the key is a string
@@ -635,7 +641,8 @@ local nupp: {
         --- @param value the type to project
         --- @param key the key to write at
         --- @return the value type at that key
-        --- @raises NUPP2420 when the type has no write capability there
+        --- @raises string when the type has no write capability there, reported as
+        ---     NUPP2420
         readonly writeAt: comptime function(value: type, key: type): type,
 
         --- Rejects this type application deliberately, with an authored message.
@@ -666,7 +673,7 @@ local nupp: {
     --- already prove needs neither, and writing this around one is not an error.
     --- @param value the base-typed value to admit
     --- @return the same value, established as the destination's type
-    --- @raises when the value does not satisfy the constraint
+    --- @raises string when the value does not satisfy the constraint
     admit: function<T>(value: any): T,
 
     --- Size in bytes under the build target's declared C ABI.

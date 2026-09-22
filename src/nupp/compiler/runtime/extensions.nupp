@@ -45,7 +45,8 @@ end
 ---
 --- Failures are cached too. Re-entering the same key while it is initializing is an
 --- error rather than unbounded recursion.
---- @raises when the host is foreign, initialization recurs, or the provider fails
+--- @raises string when the host is foreign, initialization recurs, or the provider
+---     fails
 --- @internal
 function extensions.resolve<T>(host: any, key: nupp.reflect.ExtensionKey<T>): T
     local state = states[host]

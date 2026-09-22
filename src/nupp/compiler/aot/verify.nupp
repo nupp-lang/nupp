@@ -159,14 +159,14 @@ end
 --- Raised rather than returned: reaching one is a compiler bug and there is no
 --- partial answer worth carrying on with.
 ---
---- @raises always, with what was wrong
+--- @raises string always, with what was wrong
 local function refuse(why: string): nil
     error(why, 0)
 end
 
 --- Asserts one rule.
 ---
---- @raises when the rule does not hold
+--- @raises string when the rule does not hold
 local function holds(condition: boolean, why: string): nil
     if not condition then
         refuse(why)
@@ -2021,7 +2021,7 @@ local VECTOR_CONTRIBUTIONS: {
 --- is one iteration of the region -- so it is held to the rule on its own and
 --- adds nothing to the sequence around it, which is how a vector loop and its
 --- masked tail both contribute once.
---- @raises when any sequence contributes twice to one reducer
+--- @raises string when any sequence contributes twice to one reducer
 local function contributions(statements: {scalarIR.Statement}, region: {[string]: boolean}): {[string]: integer}
     local counts: {[string]: integer} = {}
 
@@ -3311,7 +3311,7 @@ end
 ---
 --- @param program the lowered function
 --- @return the same program, so a caller may verify and use it in one step
---- @raises when anything about it is not well formed
+--- @raises string when anything about it is not well formed
 function verify.program(program: scalarIR.Program): scalarIR.Program
     loopFrames = {}
     holds(program.version == scalarIR.VERSION, "unknown native C IR version")

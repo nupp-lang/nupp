@@ -29,7 +29,7 @@ const MAX_XOR_VALUES = 262144
 --- @param values the words to xor, at most 262144 of them
 --- @param mask the word every element is xored with
 --- @return a fresh list of the xored words, in the order they were given
---- @raises when WebGPU is unavailable or the request is outside the portable cap
+--- @raises string when WebGPU is unavailable or the request is outside the portable cap
 function browser.xorU32(values: {uint32}, mask: uint32): {uint32}
     if #values == 0 then
         return {}

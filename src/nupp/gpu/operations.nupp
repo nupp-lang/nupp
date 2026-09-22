@@ -155,7 +155,7 @@ end
 --- structure: the controller does not escape, each `run` is a device barrier,
 --- and each stage invocation becomes one local lane.
 --- @export
---- @raises when size is outside the portable workgroup limit
+--- @raises string when size is outside the portable workgroup limit
 function gpu.workgroups(groups: uint32, size: uint32, scoped controller: function(uint32, gpu.Phases): nil): nil
     local groupCount = groups as integer
     local groupSize = size as integer

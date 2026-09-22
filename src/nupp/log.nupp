@@ -571,7 +571,7 @@ end
 ---
 --- @param name the name its lines carry
 --- @return the logger
---- @raises when name is not a string
+--- @raises string when name is not a string
 function log.named(name: string): log.Logger
     if type(name) ~= "string" then
         error("nupp: log name must be a string", 2)
@@ -611,7 +611,7 @@ end
 --- @param name the exact module or logger name
 --- @param level the new threshold, `"inherit"`, or nil to read the effective one
 --- @return the effective threshold this call replaced
---- @raises when name is not a string or level is unknown
+--- @raises string when name is not a string or level is unknown
 function log.setLevel(name: string, level: log.LevelOverride?): log.Level
     if type(name) ~= "string" then
         error("nupp: log module name must be a string", 2)
@@ -650,7 +650,7 @@ end
 ---
 --- @param next a sink function, a file, or nil to read the current destination
 --- @return the destination this call replaced
---- @raises when next is neither a sink function nor a file
+--- @raises string when next is neither a sink function nor a file
 function log.sink(next: log.Target?): log.Target
     if next == nil then
         return target
@@ -674,7 +674,7 @@ end
 ---
 --- @param next the formatter, or nil to read the current one
 --- @return the formatter this call replaced
---- @raises when next is not a function
+--- @raises string when next is not a function
 function log.formatter(next: log.Formatter?): log.Formatter?
     if next == nil then
         return formatter
@@ -699,7 +699,7 @@ end
 ---
 --- @param next the `os.date` format, or nil to read the current one
 --- @return the format this call replaced
---- @raises when next is not a string
+--- @raises string when next is not a string
 function log.timestampFormat(next: string?): string
     if next == nil then
         return dateFormat

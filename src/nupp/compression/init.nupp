@@ -209,7 +209,7 @@ end
 --- An ordinary writer whose consuming `finish` emits the final trailer.
 export affine interface CompressionWriter is io.Writer
     --- Aborts an unfinished stream and raises after releasing owned resources.
-    --- @raises whenever the stream was not consumed by `finish`
+    --- @raises string whenever the stream was not consumed by `finish`
     terminal close: nosuspend function(takes self: CompressionWriter): nil
 
     --- Completes the stream, flushes and closes the owned destination.
@@ -577,7 +577,7 @@ export record Format
     private implementation: provider.Format
 
     --- Wraps and owns a reader, validating the stream before EOF.
-    --- @raises when options are invalid or a format block does not match
+    --- @raises string when options are invalid or a format block does not match
     function newReader(self, takes source: io.Reader, options: ReaderOptions?): io.Reader
         local settings = options or {}
         local capacity = positive(settings.workspaceBytes, DEFAULT_WORKSPACE, "compression workspaceBytes")
@@ -609,13 +609,13 @@ export record Format
     end
 
     --- Wraps and owns a writer. Consume the result with `finish()`.
-    --- @raises when options are invalid or a format block does not match
+    --- @raises string when options are invalid or a format block does not match
     function newWriter(self, takes destination: io.Writer, options: WriterOptions?): CompressionWriter
         return makeWriter(self.implementation, self.name, destination, options)
     end
 
     --- Compresses a borrowed span into a destination buffer.
-    --- @raises when options are invalid or compression fails
+    --- @raises string when options are invalid or compression fails
     function compress(
         self,
         borrows bytes: span.ByteSpan,
@@ -637,14 +637,14 @@ export record Format
     end
 
     --- Compresses a string into a destination buffer.
-    --- @raises when options are invalid or compression fails
+    --- @raises string when options are invalid or compression fails
     function compress(self, bytes: string, exclusive destination: io.Buffer, options: WriterOptions?): nil
         local input = span.fromString(bytes)
         self:compress(input, destination, options)
     end
 
     --- Compresses a borrowed span into a new string.
-    --- @raises when options are invalid or compression fails
+    --- @raises string when options are invalid or compression fails
     function compress(self, borrows bytes: span.ByteSpan, options: WriterOptions?): string
         local destination = io.newBuffer()
         self:compress(bytes, destination, options)
@@ -655,14 +655,15 @@ export record Format
     end
 
     --- Compresses a string into a new string.
-    --- @raises when options are invalid or compression fails
+    --- @raises string when options are invalid or compression fails
     function compress(self, bytes: string, options: WriterOptions?): string
         local input = span.fromString(bytes)
         return self:compress(input, options)
     end
 
     --- Decompresses a borrowed span into a destination buffer.
-    --- @raises when options are invalid, the stream is invalid or a limit is exceeded
+    --- @raises string when options are invalid, the stream is invalid or a limit is
+    ---     exceeded
     function decompress(
         self,
         borrows bytes: span.ByteSpan,
@@ -681,14 +682,16 @@ export record Format
     end
 
     --- Decompresses a string into a destination buffer.
-    --- @raises when options are invalid, the stream is invalid or a limit is exceeded
+    --- @raises string when options are invalid, the stream is invalid or a limit is
+    ---     exceeded
     function decompress(self, bytes: string, exclusive destination: io.Buffer, options: ReaderOptions?): nil
         local input = span.fromString(bytes)
         self:decompress(input, destination, options)
     end
 
     --- Decompresses a borrowed span into a new string with a 64 MiB default cap.
-    --- @raises when options are invalid, the stream is invalid or a limit is exceeded
+    --- @raises string when options are invalid, the stream is invalid or a limit is
+    ---     exceeded
     function decompress(self, borrows bytes: span.ByteSpan, options: ReaderOptions?): string
         local destination = io.newBuffer()
         self:decompress(bytes, destination, options)
@@ -699,7 +702,8 @@ export record Format
     end
 
     --- Decompresses a string into a new string with a 64 MiB default cap.
-    --- @raises when options are invalid, the stream is invalid or a limit is exceeded
+    --- @raises string when options are invalid, the stream is invalid or a limit is
+    ---     exceeded
     function decompress(self, bytes: string, options: ReaderOptions?): string
         local input = span.fromString(bytes)
         return self:decompress(input, options)

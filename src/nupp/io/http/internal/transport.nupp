@@ -545,7 +545,7 @@ local record Client is NativeClient
     --- in the batch be released and its waiters woken; the native transport is
     --- holding each transfer until its release, and leaking the rest of the batch
     --- would outlast the error. The first raise is kept and re-raised at the end.
-    --- @raises with whatever a woken waiter raised first, once the whole batch has
+    --- @raises any whatever a woken waiter raised first, once the whole batch has
     ---     been released
     function poll(self: Client, waitMs: integer): integer
         local count = ffi.new("size_t[1]")

@@ -121,7 +121,7 @@ end
 
 --- Parses a structurally indexed document directly into ordinary Lua values.
 ---
---- @raises when the native builder cannot be loaded, value allocation fails,
+--- @raises string when the native builder cannot be loaded, value allocation fails,
 --- or the builder rejects a malformed escaped string
 @aot
 local function decodeFused<const Variant: integer>(

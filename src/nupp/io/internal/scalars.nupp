@@ -11,7 +11,7 @@ local type Writer = storage.Writer
 local newBuffer = storage.newBuffer
 local physical = require("nupp.runtime.storage")
 
---- @raises when value is not a non-negative integer
+--- @raises string when value is not a non-negative integer
 local function integer_(value: any, what: string, level: integer): integer
     if type(value) ~= "number" or value ~= math.floor(value as number) or (value as number) < 0 then
         error("nupp: " .. what .. " must be a non-negative integer", level)
@@ -53,87 +53,87 @@ export interface ScalarReader
     --- How many bytes are left, when that is knowable.
     --- @param self this reader
     --- @return the remaining byte count, or nil over an open-ended source
-    --- @raises when the reader is closed
+    --- @raises string when the reader is closed
     remaining: function(self: ScalarReader): integer?
 
     --- Whether the source has nothing left.
     --- @param self this reader
     --- @return whether it is at the end
-    --- @raises when the reader is closed, or its source failed
+    --- @raises string when the reader is closed, or its source failed
     atEnd: function(self: ScalarReader): boolean
 
     --- Discards bytes.
     --- @param self this reader
     --- @param count how many to discard
     --- @return this reader
-    --- @raises when there are not that many
+    --- @raises string when there are not that many
     skip: function(self: ScalarReader, count: integer): ScalarReader
 
     --- Reads bytes as they are.
     --- @param self this reader
     --- @param count how many to read
     --- @return the bytes
-    --- @raises when there are not that many
+    --- @raises string when there are not that many
     readBytes: function(self: ScalarReader, count: integer): string
 
     --- Reads one unsigned 8-bit integer.
     --- @param self this reader
     --- @return the value, 0 through 255
-    --- @raises when the source has no bytes left
+    --- @raises string when the source has no bytes left
     readUint8: function(self: ScalarReader): uint32
 
     --- Reads one signed 8-bit integer.
     --- @param self this reader
     --- @return the value, -128 through 127
-    --- @raises when the source has no bytes left
+    --- @raises string when the source has no bytes left
     readInt8: function(self: ScalarReader): int32
 
     --- Reads one unsigned 16-bit integer in the machine's byte order.
     --- @param self this reader
     --- @return the value, 0 through 65535
-    --- @raises when fewer than 2 bytes are left
+    --- @raises string when fewer than 2 bytes are left
     readUint16: function(self: ScalarReader): uint32
 
     --- Reads one signed 16-bit integer in the machine's byte order.
     --- @param self this reader
     --- @return the value, -32768 through 32767
-    --- @raises when fewer than 2 bytes are left
+    --- @raises string when fewer than 2 bytes are left
     readInt16: function(self: ScalarReader): int32
 
     --- Reads one unsigned 32-bit integer in the machine's byte order.
     --- @param self this reader
     --- @return the value, 0 through 4294967295
-    --- @raises when fewer than 4 bytes are left
+    --- @raises string when fewer than 4 bytes are left
     readUint32: function(self: ScalarReader): uint32
 
     --- Reads one signed 32-bit integer in the machine's byte order.
     --- @param self this reader
     --- @return the value
-    --- @raises when fewer than 4 bytes are left
+    --- @raises string when fewer than 4 bytes are left
     readInt32: function(self: ScalarReader): int32
 
     --- Reads one unsigned 64-bit integer in the machine's byte order.
     --- @param self this reader
     --- @return the value, as `uint64` cdata
-    --- @raises when fewer than 8 bytes are left
+    --- @raises string when fewer than 8 bytes are left
     readUint64: function(self: ScalarReader): uint64
 
     --- Reads one signed 64-bit integer in the machine's byte order.
     --- @param self this reader
     --- @return the value, as `int64` cdata
-    --- @raises when fewer than 8 bytes are left
+    --- @raises string when fewer than 8 bytes are left
     readInt64: function(self: ScalarReader): int64
 
     --- Reads one 32-bit float in the machine's byte order.
     --- @param self this reader
     --- @return the value, widened to a Lua number
-    --- @raises when fewer than 4 bytes are left
+    --- @raises string when fewer than 4 bytes are left
     readFloat32: function(self: ScalarReader): float
 
     --- Reads one 64-bit float in the machine's byte order.
     --- @param self this reader
     --- @return the value
-    --- @raises when fewer than 8 bytes are left
+    --- @raises string when fewer than 8 bytes are left
     readFloat64: function(self: ScalarReader): number
 
     --- Closes the reader, and the reader it was built over when there was one.
@@ -292,7 +292,7 @@ export interface ScalarWriter
     --- @param self this writer
     --- @param bytes the bytes to write
     --- @return this writer
-    --- @raises when bytes is not a string
+    --- @raises string when bytes is not a string
     writeBytes: function(self: ScalarWriter, bytes: string): ScalarWriter
 
     --- Writes one unsigned 8-bit integer.
@@ -521,7 +521,7 @@ fill = function(self: ScalarReader, need: integer): (integer, string?)
     return #(state._pending as string), failure
 end
 
---- @raises when the reader is closed, its source failed, or it is short
+--- @raises string when the reader is closed, its source failed, or it is short
 taken = function(self: ScalarReader, need: integer): string
     local state = self as any
     if state._closed then
@@ -540,7 +540,7 @@ taken = function(self: ScalarReader, need: integer): string
     return out
 end
 
---- @raises when the writer is closed, or its destination failed
+--- @raises string when the writer is closed, or its destination failed
 put = function(self: ScalarWriter, bytes: string): ScalarWriter
     local state = self as any
     if state._closed then
@@ -639,7 +639,7 @@ end
 ---
 --- @param source the bytes, snapshot, buffer, reader or queue to read
 --- @return the new reader, owned by the caller
---- @raises when source is none of those
+--- @raises string when source is none of those
 --- @export
 export const newScalarReader: function(source: string | ByteQueue): affine(ScalarReader, destroyOwner)
     & function(borrows source: ByteView | Buffer): affine(ScalarReader, destroyOwner)
@@ -662,7 +662,7 @@ export const newScalarReader: function(source: string | ByteQueue): affine(Scala
 ---
 --- @param destination the buffer or writer to append to, or nothing for a fresh buffer
 --- @return the new writer, owned by the caller
---- @raises when destination is neither a buffer nor a writer
+--- @raises string when destination is neither a buffer nor a writer
 --- @export
 export const newScalarWriter: function(): affine(ScalarWriter, destroyOwner)
     & function(borrows destination: Buffer): affine(ScalarWriter, destroyOwner) borrows (destination)

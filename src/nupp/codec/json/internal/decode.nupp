@@ -15,7 +15,7 @@ const fused.TAPE = 5
 ---
 --- The body lives in `nupp.codec.json.internal.decoder.fused`, monomorphized over the
 --- pull builder.
---- @raises when the native builder cannot be loaded, value allocation fails,
+--- @raises string when the native builder cannot be loaded, value allocation fails,
 --- or the builder rejects a malformed escaped string
 fused.decode = _fused.decodePull as function(
     string,

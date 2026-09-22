@@ -76,7 +76,7 @@ local function decode(path: string): any?, string?
 end
 
 --- Deterministic readable JSON for immutable release records.
---- @raises when the value is cyclic or is not representable as JSON
+--- @raises string when the value is cyclic or is not representable as JSON
 local function pretty(value: any, depth: integer, seen: {[table]: boolean}): string
     if value == json.NULL then
         return "null"

@@ -93,7 +93,8 @@ end
 ---
 --- @param self the pool
 --- @param value the instance, spent by this call
---- @raises when nothing is live, or value was not stamped by the pool's declaration
+--- @raises string when nothing is live, or value was not stamped by the pool's
+---     declaration
 --- @export
 function pool.Pool.release<T is table>(exclusive self: pool.Pool<T>, value: T): nil
     if self.liveCount == 0 then
@@ -119,7 +120,7 @@ end
 ---
 --- @param self the pool
 --- @param count how many free instances to have waiting
---- @raises when count is negative
+--- @raises string when count is negative
 --- @export
 function pool.Pool.reserve<T is table>(exclusive self: pool.Pool<T>, count: integer): nil
     if count < 0 then
@@ -156,7 +157,7 @@ end
 --- one to say it is finished.
 ---
 --- @param self the pool
---- @raises when any instance is live
+--- @raises string when any instance is live
 --- @export
 function pool.Pool.reset<T is table>(exclusive self: pool.Pool<T>): nil
     if self.liveCount > 0 then
@@ -181,7 +182,7 @@ end
 --- @param witness the record declaration, whose metatable stamps every instance
 --- @param capacity how many released instances to retain, 32 when omitted
 --- @return the pool, warmed to capacity
---- @raises when capacity is negative
+--- @raises string when capacity is negative
 --- @export
 function pool.new<T is table>(witness: Type<T>, capacity: integer?): pool.Pool<T>
     local retained = capacity or 32

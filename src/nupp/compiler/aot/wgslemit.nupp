@@ -72,7 +72,7 @@ local outsideReason: string? = nil
 --- A raise rather than a return because the rules are checked wherever the
 --- IR is walked, several closures deep; `program` catches it at its top and
 --- hands the reason back as a value.
---- @raises always, with the sentinel `program` catches
+--- @raises any always, the sentinel `program` catches
 local function refuse(reason: string): nil
     outsideReason = reason
     error(OUTSIDE, 0)
@@ -370,7 +370,7 @@ end
 --- there was a WGSL artifact to carry. Anything else the emission raises is a
 --- bug, and goes on raising.
 --- @return the WGSL source, or nil and the rule the program is outside
---- @raises when passed malformed or unverified IR
+--- @raises string when passed malformed or unverified IR
 function wgslemit.program(
     program: scalarIR.Program,
     readonly: {scalarIR.Param},

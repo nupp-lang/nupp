@@ -9,8 +9,9 @@ raises said so. Parsing the run in one place is what keeps `@raises` meaning one
 thing in `nupp doc` and in `undocumented-raise`.
 
 Nothing here consults the checker. Which run belongs to a declaration, and what
-its tags are, is answered by the parse alone, which is why documentation has
-never needed a type to render a page.
+its tags are, is answered by the parse alone: a `@raises` type is recorded as the
+word it was spelled with, and whether that word names anything is the checker's
+question, asked once the file's declarations are all in.
 ]]
 
 local cst = require("nupp.compiler.cst")
@@ -18,6 +19,19 @@ local lexer = require("nupp.compiler.lexer")
 local syntax = require("nupp.compiler.doc.syntax")
 
 local docblock = {}
+
+--- One `@raises` entry: what a function raises, and when.
+---
+--- A raise is written `@raises Type when the condition holds`. The type is the value
+--- `error` is called with, so a caller reading the page knows what a `pcall` around
+--- the call will hand back, not only that something can come back.
+record docblock.Raise
+    --- The type, exactly as it was spelled. Empty when the line named none.
+    type: string
+
+    --- What makes it raise. Empty when the line was only a type.
+    text: string
+end
 
 --- One `---` run, read as its prose and its tags.
 record docblock.Doc
@@ -31,7 +45,7 @@ record docblock.Doc
     returns: {string}
 
     --- `@raises`, one entry per occurrence, in the order written.
-    raises: {string}
+    raises: {docblock.Raise}
 
     --- `@field name description`, by the field it names.
     fields: {[string]: string}
@@ -45,6 +59,17 @@ end
 
 local function trim(text: string): string
     return (text:gsub("^%s+", ""):gsub("%s+$", ""))
+end
+
+-- `@raises Type the condition`, split where the type ends. The type is one word
+-- because a raise names a declaration rather than writing a type expression: a union
+-- of two is two lines, which is also how the page wants to list them. A line with no
+-- words at all keeps both halves empty and lets the checker say so.
+local function splitRaise(text: string): docblock.Raise
+    local written = trim(text)
+    local name, rest = written:match("^(%S+)%s*(.*)$")
+
+    return new docblock.Raise(type = name or "", text = trim(rest or ""))
 end
 
 -- The first token under a node, trying every child rather than only the first, so a
@@ -114,13 +139,13 @@ function docblock.parse(lines: {string}): docblock.Doc
     local fields: {[string]: string} = {}
     local typeargs: {[string]: string} = {}
     local returns: {string} = {}
-    local raises: {string} = {}
+    local raises: {docblock.Raise} = {}
     local tags: {[string]: any} = {}
-    -- A tag is routed by where its value goes rather than by its own name. `@raises`
-    -- already ends in the letter that pluralizing `@return` adds, so deriving the
-    -- destination from the spelling is what would have to be special-cased.
+    -- A tag is routed by where its value goes rather than by its own name, so the
+    -- three shapes a tag can have each have one table: named, listed, and the raises
+    -- that carry a type ahead of their text.
     local named: {[string]: {[string]: string}} = {param = params, field = fields, typearg = typeargs}
-    local listed: {[string]: {string}} = {["return"] = returns, returns = returns, raises = raises}
+    local listed: {[string]: {string}} = {["return"] = returns, returns = returns}
 
     local body: {string} = {}
     local active: string? = nil
@@ -146,7 +171,9 @@ function docblock.parse(lines: {string}): docblock.Doc
             local text = value or ""
             active, activeName = tag, nil
             local into, list = named[tag], listed[tag]
-            if into then
+            if tag == "raises" then
+                raises[#raises + 1] = splitRaise(text)
+            elseif into then
                 local name, description = syntax.nameValue:match(text)
                 -- `name?` is how LuaCATS, EmmyLua and typed LuaDoc spell an optional
                 -- parameter or field. The marker belongs to the type, which the
@@ -168,7 +195,20 @@ function docblock.parse(lines: {string}): docblock.Doc
         elseif active and syntax.indented:match(line) then
             local continuation = trim(line)
             local into, list = named[active], listed[active]
-            if list then
+            if active == "raises" then
+                -- A wrapped raise continues its condition. The type was the first word
+                -- of the first line and is settled by the time a continuation arrives,
+                -- so a run that wrapped before writing one stays typeless rather than
+                -- borrowing the next line's first word.
+                local raise = raises[#raises]
+                if raise then
+                    if raise.type == "" then
+                        raises[#raises] = splitRaise(continuation)
+                    else
+                        raise.text = trim(raise.text .. " " .. continuation)
+                    end
+                end
+            elseif list then
                 local index = #list
                 list[index] = trim((list[index] or "") .. " " .. continuation)
             elseif into and activeName then

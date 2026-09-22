@@ -157,7 +157,7 @@ const NEVER_NULL = {}
 --- make the tail more cheaply than the body that is already reading the bytes.
 --- Built here it is writes into a buffer the entry already had.
 ---
---- @raises when the builder cannot allocate or publish
+--- @raises string when the builder cannot allocate or publish
 @aot
 local function digestHex(source: string, nullValue: any): any
     local builder = valuebuilder.newSized(nullValue, u32(2), u32(64))
@@ -359,7 +359,7 @@ end
 ---
 --- @param value the bytes to hash
 --- @return the digest, as sixty-four lowercase hexadecimal digits
---- @raises when the input is too long to address as a single buffer
+--- @raises string when the input is too long to address as a single buffer
 --- @export
 function digest.sha256(value: string): string
     if #value > 0x7FFFFFFF then

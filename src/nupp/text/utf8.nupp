@@ -112,7 +112,7 @@ local function bytes(value: string | ByteView): string
     return (value as ByteView):getString()
 end
 
---- @raises when at is not an integer, or is outside the value
+--- @raises string when at is not an integer, or is outside the value
 local function offset(value: string, at: integer, allowEnd: boolean): integer
     if at ~= math.floor(at) then
         error("nupp: UTF-8 byte offset must be an integer", 3)
@@ -268,7 +268,7 @@ end
 --- @param byteOffset the 1-based byte to start at; one past the end is allowed
 --- @return the codepoint, or nil at the end of the value
 --- @return the byte the next codepoint starts at
---- @raises when byteOffset is not an integer, or is outside the value
+--- @raises string when byteOffset is not an integer, or is outside the value
 function utf8.decodeAt(value: string | ByteView, byteOffset: integer): (integer?, integer)
     local source = bytes(value)
 
@@ -294,7 +294,7 @@ end
 --- @param byteOffset the 1-based byte to look back from
 --- @return the codepoint, or nil at the start of the value
 --- @return the byte that codepoint starts at
---- @raises when byteOffset is not an integer, or is outside the value
+--- @raises string when byteOffset is not an integer, or is outside the value
 function utf8.decodeBefore(value: string | ByteView, byteOffset: integer): (integer?, integer)
     local source = bytes(value)
     local at = offset(source, byteOffset, true)
@@ -330,7 +330,7 @@ end
 ---
 --- @param codepoint the codepoint to encode
 --- @return its encoding
---- @raises when the codepoint is not an integer, or is outside Unicode
+--- @raises string when the codepoint is not an integer, or is outside Unicode
 function utf8.encode(codepoint: integer): string
     if codepoint ~= math.floor(codepoint) or codepoint < 0 or codepoint > 1114111 then
         error("nupp: UTF-8 codepoint is out of range", 2)

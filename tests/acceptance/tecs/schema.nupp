@@ -18,10 +18,9 @@ end
 ---
 --- @param fields The field definitions to validate.
 --- @param reservedFields Field names that are reserved and must not be specified.
---- @raises when a field name is empty, reserved, not a C identifier, or repeated
---- @raises when a field type is empty
-function schema.validateFields(fields: {schema.FieldDef},
-    reservedFields: {[string]: boolean}?): nil
+--- @raises string when a field name is empty, reserved, not a C identifier, or repeated
+--- @raises string when a field type is empty
+function schema.validateFields(fields: {schema.FieldDef}, reservedFields: {[string]: boolean}?): nil
     local seen: {[string]: boolean} = {}
     local reserved = reservedFields or {}
 
@@ -34,8 +33,7 @@ function schema.validateFields(fields: {schema.FieldDef},
         end
 
         if reserved[fieldName] then
-            error("Field #" .. i .. ": '" .. fieldName
-                .. "' is reserved and must not be specified manually")
+            error("Field #" .. i .. ": '" .. fieldName .. "' is reserved and must not be specified manually")
         end
 
         if not isValidCIdent(fieldName) then
@@ -48,8 +46,7 @@ function schema.validateFields(fields: {schema.FieldDef},
         seen[fieldName] = true
 
         if not fieldType or fieldType == "" then
-            error("Field #" .. i
-                .. ": field type cannot be empty for field: " .. fieldName)
+            error("Field #" .. i .. ": field type cannot be empty for field: " .. fieldName)
         end
     end
 end

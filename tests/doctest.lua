@@ -125,13 +125,14 @@ function M.tildeDocFencesSuspendTagParsingUntilTheirMatchingCloser()
     local parsed = require("nupp.compiler.docblock").parse({
         "Example:",
         "~~~~nupp",
-        "@raises shown, not declared",
+        "@raises string shown, not declared",
         "~~~",
         "~~~~",
-        "@raises declared",
+        "@raises string declared",
     })
-    assert(parsed.text:find("@raises shown, not declared", 1, true), parsed.text)
-    assert(#parsed.raises == 1 and parsed.raises[1] == "declared")
+    assert(parsed.text:find("@raises string shown, not declared", 1, true), parsed.text)
+    assert(#parsed.raises == 1 and parsed.raises[1].type == "string")
+    assert(parsed.raises[1].text == "declared")
 end
 
 local DECLARATIONS = table.concat(
@@ -249,7 +250,7 @@ function M.documentsComptimeCallablesAndTypeHandlesAsCompilerOnly()
     assert(markdown:find("#### `value` _comptime type_", 1, true), markdown)
 
     local model = require("testjson").decode(doc.json({module}))
-    assert(model.schemaVersion == 2)
+    assert(model.schemaVersion == 3)
     local modelItems = {}
     for _, item in ipairs(model.modules[1].items) do
         modelItems[item.name] = item
@@ -517,7 +518,7 @@ function M.documentsMethodImplementationsUnderTheirOwnType()
             "end",
             "",
             "--- Stops it.",
-            "--- @raises when it already stopped",
+            "--- @raises string when it already stopped",
             "function job.Worker:stop(): nil",
             "end",
             "",
@@ -553,7 +554,8 @@ function M.documentsMethodImplementationsUnderTheirOwnType()
     end
     assert(send and send.text == "Sends a value.", "the declaration keeps its prose")
     assert(stop and stop.text == "Stops it.", "the implementation supplies what it lacked")
-    assert(stop.raises[1] == "when it already stopped", "raises must fold in too")
+    assert(stop.raises[1].type == "string", "raises must fold in too")
+    assert(stop.raises[1].text == "when it already stopped", "with their condition")
     assert(#worker.members == 2, "folding must not duplicate a declared method")
     -- A method hung off a table this module never hands back has no spelling a reader
     -- could call it through, so listing it would only be noise.
@@ -575,7 +577,7 @@ function M.foldsMethodsWrittenWithAnExplicitReceiverAndHidesAPrivateTypesOwn()
             "end",
             "",
             "--- Stops it.",
-            "--- @raises when it already stopped",
+            "--- @raises string when it already stopped",
             "function job.Worker.stop(takes self: job.Worker): nil",
             "end",
             "",
@@ -620,7 +622,8 @@ function M.foldsMethodsWrittenWithAnExplicitReceiverAndHidesAPrivateTypesOwn()
     end
     assert(#worker.members == 2, "folding must not duplicate a declared method")
     assert(stop and stop.text == "Stops it.", "the implementation supplies what it lacked")
-    assert(stop.raises[1] == "when it already stopped", "raises must fold in too")
+    assert(stop.raises[1].type == "string", "raises must fold in too")
+    assert(stop.raises[1].text == "when it already stopped", "with their condition")
 end
 
 -- An explicitly typed or owned receiver has to be written as an ordinary first
@@ -2250,7 +2253,7 @@ function M.jsonDocumentationExposesTheParseOnlyModel()
     local dir = tempProject({["src/math.nupp"] = SOURCE})
     assert(doc.build(dir, {include = {"src"}}, {sources = {"src"}}, {format = "json", output = "api.json"}) == 0)
     local model = json.decode(readFile(dir .. "/api.json"))
-    assert(model.schemaVersion == 2, "documentation model version missing")
+    assert(model.schemaVersion == 3, "documentation model version missing")
     assert(model.modules[1].name == "math", "module name missing from JSON model")
     assert(model.modules[1].items[1].name == "add", "declaration missing from JSON model")
     assert(model.modules[1].items[1].params[1].name == "left", "parameter missing from JSON model")

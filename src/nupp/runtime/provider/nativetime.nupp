@@ -197,7 +197,7 @@ end
 --- ```
 ---
 --- @param milliseconds how long to wait, finite and not negative
---- @raises on an invalid duration or too many timers are already pending
+--- @raises string on an invalid duration or too many timers are already pending
 function time.sleep(milliseconds: number): nil
     const requested = duration(milliseconds, "sleep duration")
     if requested == 0 then
@@ -222,7 +222,7 @@ end
 --- @param deadline an absolute monotonic reading (same as `now` return value)
 --- @param resume what to call when the deadline passes
 --- @return how to cancel it, which is idempotent.
---- @raises when too many timers are already pending
+--- @raises string when too many timers are already pending
 function time.wakeAt(deadline: number, resume: function(boolean)): function(): nil
     -- A deadline only fires when the shared source is polled, and `sleep` is not
     -- the only way one gets here: a wake registered before anything has slept
@@ -239,7 +239,7 @@ end
 --- Waits until an absolute monotonic deadline.
 ---
 --- @param deadline an absolute monotonic reading
---- @raises when too many timers are already pending
+--- @raises string when too many timers are already pending
 function time.sleepUntil(deadline: number): nil
     time.sleep(math.max(0, deadline - time.now()))
 end

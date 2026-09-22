@@ -87,7 +87,7 @@ local READ_LIMIT: integer = 65536
 -- Streams
 ----------------------------------------------------------------------------
 
---- @raises when value is not a positive integer
+--- @raises string when value is not a positive integer
 local function positive(value: integer, what: string, level: integer): integer
     if value ~= math.floor(value) or value < 1 then
         error("nupp: " .. what .. " must be a positive integer", level)
@@ -151,7 +151,7 @@ record process.Reader is Reader2
     --- the stream up and then complained has still given it up, so this end is shut and
     --- the complaint is only reported; one that kept the stream leaves this end open.
     ---
-    --- @raises when the platform reported a problem, released or not
+    --- @raises string when the platform reported a problem, released or not
     private release: function(self: process.Reader): nil
 
     --- Takes whatever is available without waiting: the bytes, `""` when nothing is
@@ -268,7 +268,7 @@ record process.Reader is Reader2
     end
 
     --- Bounds the next completion-oriented read.
-    --- @raises when timeoutMs is outside 0 through 2147483647
+    --- @raises string when timeoutMs is outside 0 through 2147483647
     function setTimeout(self, timeoutMs: integer): nil
         if timeoutMs < 0 or timeoutMs > 2147483647 or math.floor(timeoutMs) ~= timeoutMs then
             error("nupp: process reader timeout must be 0 through 2147483647 milliseconds", 2)
@@ -388,7 +388,7 @@ record process.Writer is Writer2
     --- given up is never offered to a retry. Closing a child's stdin is how it is told
     --- there is no more input.
     ---
-    --- @raises when the platform reported a problem, released or not
+    --- @raises string when the platform reported a problem, released or not
     private release: function(self: process.Writer): nil
 
     --- Writes what the pipe will take without waiting. Answers how many bytes went,
@@ -455,7 +455,7 @@ record process.Writer is Writer2
     end
 
     --- Bounds the next completion-oriented write.
-    --- @raises when timeoutMs is outside 0 through 2147483647
+    --- @raises string when timeoutMs is outside 0 through 2147483647
     function setTimeout(self, timeoutMs: integer): nil
         if timeoutMs < 0 or timeoutMs > 2147483647 or math.floor(timeoutMs) ~= timeoutMs then
             error("nupp: process writer timeout must be 0 through 2147483647 milliseconds", 2)
@@ -668,7 +668,7 @@ record process.Process
     ---
     --- @param self the process being initialized
     --- @param options what to run and how to connect it
-    --- @raises when the options are invalid or the child cannot be started
+    --- @raises string when the options are invalid or the child cannot be started
     constructor(self, options: process.Options): affine(process.Process, process.Process.destroy)
         local backend = provider
         validateOptions(options)
@@ -899,7 +899,7 @@ record process.Process
     --- Closes every stream, ends the child if it is still running, waits for it to
     --- actually finish, and releases it. Idempotent, and what `drop` runs when the
     --- owner goes out of lexical scope.
-    --- @raises when closing one of the child streams fails
+    --- @raises string when closing one of the child streams fails
     function close(self): (boolean, string?)
         if self.reaped then
             return true

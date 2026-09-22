@@ -176,7 +176,7 @@ end
 --- Requires a checksum algorithm descriptor.
 --- @param name the canonical checksum algorithm name
 --- @return the selected descriptor
---- @raises when the algorithm is unavailable
+--- @raises string when the algorithm is unavailable
 export function algorithm(name: string): Algorithm
     local found = lookup(name)
     if found == nil then

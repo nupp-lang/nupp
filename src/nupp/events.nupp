@@ -149,7 +149,7 @@ local nextId: integer = 1
 local INFO_KEY = "__nuppEventInfo"
 
 --- The registry entry for an event type, made on first use.
---- @raises when the type did not derive `events.Event`
+--- @raises string when the type did not derive `events.Event`
 local function infoOf(witness: any): Info
     local known = infos[witness]
     if known ~= nil then
@@ -201,7 +201,7 @@ end
 --- a persistent or wire identity.
 --- @param event the event declaration
 --- @return its identity
---- @raises when the type did not derive `events.Event`
+--- @raises string when the type did not derive `events.Event`
 function events.id<E is events.Emittable>(event: Type<E>): integer
     return infoOf(event).id
 end
@@ -209,7 +209,7 @@ end
 --- The name an event type registered under.
 --- @param event the event declaration
 --- @return the declared or `@event`-given name
---- @raises when the type did not derive `events.Event`
+--- @raises string when the type did not derive `events.Event`
 function events.name<E is events.Emittable>(event: Type<E>): string
     return infoOf(event).name
 end
@@ -495,7 +495,7 @@ end
 --- @param event the event declaration
 --- @param callback what runs when one is delivered
 --- @param id an optional name for removal
---- @raises when the type did not derive `events.Event`, or the name is taken
+--- @raises string when the type did not derive `events.Event`, or the name is taken
 function events.observe<A, S is events.Source<A>, E is events.Emittable>(
     exclusive source: S,
     borrows address: A,
@@ -516,7 +516,7 @@ end
 --- @param event the event declaration
 --- @param callback what runs, once
 --- @param id an optional name for removal
---- @raises when the type did not derive `events.Event`, or the name is taken
+--- @raises string when the type did not derive `events.Event`, or the name is taken
 function events.observeOnce<A, S is events.Source<A>, E is events.Emittable>(
     exclusive source: S,
     borrows address: A,
@@ -670,7 +670,7 @@ end
 --- @param source the bus or world
 --- @param event the event declaration
 --- @param allocator storage of the event's representation
---- @raises when a delivery of that event is active
+--- @raises string when a delivery of that event is active
 function events.setAllocator<A, S is events.Source<A>, E is events.Emittable>(
     exclusive source: S,
     event: Type<E>,
@@ -743,7 +743,7 @@ end
 ---
 --- The lease returns before the source settles, since settling rewinds the
 --- arenas the source owns and a rewind with a live lease is refused.
---- @raises what the delivery raised, once its lease is released
+--- @raises any what the delivery raised, once its lease is released
 local function finish(observers: any, allocator: any, storage: any, ok: boolean, failure: any): nil
     if allocator ~= nil then
         allocator:release(storage)
@@ -771,7 +771,7 @@ end
 --- @param address where to deliver
 --- @param event the event declaration
 --- @param ... the event's constructor arguments, positional or named
---- @raises what an observer or the initializer raised, after the lease is released
+--- @raises any what an observer or the initializer raised, after the lease is released
 function events.emit<A, S is events.Source<A>, E is events.Emittable>(
     exclusive source: S,
     borrows address: A,
@@ -813,7 +813,7 @@ end
 --- @param address where to deliver
 --- @param event the event declaration
 --- @param instance the instance to deliver
---- @raises what an observer raised
+--- @raises any what an observer raised
 function events.deliver<A, S is events.Source<A>, E is events.Emittable>(
     exclusive source: S,
     borrows address: A,

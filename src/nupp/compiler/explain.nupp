@@ -169,7 +169,23 @@ local ENTRIES: {any} = {
         .. "generated documentation promises an argument the function does not accept.",
         wrong = "--- @param valeu the value\nlocal function keep(value: integer): integer\n    return value\nend\nreturn keep(1)\n",
         right = "--- @param value the value\nlocal function keep(value: integer): integer\n    return value\nend\nreturn keep(1)\n",
-        related = {"NUPP2506"},
+        related = {"NUPP1010", "NUPP2506"},
+        docs = "docs/learn/tooling/documentation.md#doc-comments",
+    },
+    {
+        code = "NUPP1010",
+        summary = "A docblock raise does not name a type",
+        rule = "An @raises line is written `@raises Type the condition`. The type is "
+        .. "the value `error` is called with, so a caller reading the page knows what "
+        .. "a `pcall` around the call hands back. Name a type this file can resolve, "
+        .. "or `string` where the raise is an ordinary Lua message.",
+        wrong = "--- Reads a name.\n--- @raises when name is empty\n"
+        .. "local function read(name: string): string\n"
+        .. "    if name == \"\" then error(\"empty name\") end\n    return name\nend\nreturn read\n",
+        right = "--- Reads a name.\n--- @raises string when name is empty\n"
+        .. "local function read(name: string): string\n"
+        .. "    if name == \"\" then error(\"empty name\") end\n    return name\nend\nreturn read\n",
+        related = {"NUPP1007", "NUPP2506"},
         docs = "docs/learn/tooling/documentation.md#doc-comments",
     },
     {
@@ -390,18 +406,19 @@ local ENTRIES: {any} = {
         code = "NUPP2506",
         summary = "A documented function can raise without saying when",
         rule = "A function with a docblock that calls `error` must document the "
-        .. "condition with `@raises`. Callers reading generated documentation "
-        .. "then see the exceptional exit beside the ordinary result.",
+        .. "condition with `@raises Type the condition`. Callers reading generated "
+        .. "documentation then see the exceptional exit, and what it hands back, "
+        .. "beside the ordinary result.",
         wrong = "--- Reads a name.\n--- @param name the name to read\n"
         .. "local function read(name: string): string\n"
         .. "    if name == \"\" then error(\"empty name\") end\n"
         .. "    return name\nend\n\nreturn read\n",
         right = "--- Reads a name.\n--- @param name the name to read\n"
-        .. "--- @raises when name is empty\n"
+        .. "--- @raises string when name is empty\n"
         .. "local function read(name: string): string\n"
         .. "    if name == \"\" then error(\"empty name\") end\n"
         .. "    return name\nend\n\nreturn read\n",
-        related = {"NUPP2507"},
+        related = {"NUPP1010", "NUPP2507"},
         docs = "docs/reference/lints.md#undocumented-raise",
     },
     {

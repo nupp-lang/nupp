@@ -15,6 +15,7 @@ const {type Module} = require("nupp.compiler.doc.extract")
 const {type Page as Page2} = require("nupp.compiler.doc.urls")
 const {type Param} = require("nupp.compiler.doc.extract")
 const {type Result} = require("nupp.compiler.doc.extract")
+const {type Raise} = require("nupp.compiler.docblock")
 const {type Member} = require("nupp.compiler.doc.extract")
 const {type Links} = require("nupp.compiler.doc.urls")
 const files = require("nupp.io.files")
@@ -206,6 +207,12 @@ function doc.json(modules: {extractMod.Module}): string
         return {type = value.type, text = value.text}
     end
 
+    -- Same two fields as a result, and deliberately the same shape: a caller reading
+    -- the JSON asks what comes back and what comes out the other exit with one reader.
+    local function raise(value)
+        return {type = value.type, text = value.text}
+    end
+
     local member
     member = function(value)
         return {
@@ -215,7 +222,7 @@ function doc.json(modules: {extractMod.Module}): string
             path = value.path,
             params = array(value.params, param),
             returns = array(value.returns, result),
-            raises = array(value.raises),
+            raises = array(value.raises, raise),
             isFunction = value.isFunction,
             isMetamethod = value.isMetamethod,
             isType = value.isType,
@@ -240,7 +247,7 @@ function doc.json(modules: {extractMod.Module}): string
                 text = info.text,
                 params = info.params,
                 returns = array(info.returns),
-                raises = array(info.raises),
+                raises = array(info.raises, raise),
                 fields = info.fields,
                 typeargs = info.typeargs,
                 tags = info.tags,
@@ -248,7 +255,7 @@ function doc.json(modules: {extractMod.Module}): string
             members = array(value.members, member),
             params = array(value.params, param),
             returns = array(value.returns, result),
-            raises = array(value.raises),
+            raises = array(value.raises, raise),
             typeargs = array(
                 value.typeargs,
                 function(typearg)
@@ -270,7 +277,7 @@ function doc.json(modules: {extractMod.Module}): string
         }
     end)
 
-    return json.encode({schemaVersion = 2, modules = model}) .. "\n"
+    return json.encode({schemaVersion = 3, modules = model}) .. "\n"
 end
 
 ----------------------------------------------------------------------------
@@ -735,12 +742,18 @@ local function rewriteModuleDocLinks(module: Module, pages: {Page2}, file: strin
         return rewriteConfiguredPageLinks(text, page, pages, file)
     end
 
-    local function rewriteParts(params: {Param}, returns: {Result}): nil
+    local function rewriteParts(params: {Param}, returns: {Result}, raises: {Raise}): nil
         for _, param in ipairs(params) do
             param.text = rewrite(param.text)
         end
         for _, result in ipairs(returns) do
             result.text = rewrite(result.text)
+        end
+        -- Only the condition. The type beside it is a type rather than prose, and the
+        -- link it deserves is the one the highlighter makes out of the declaration it
+        -- names, not one a page path configured for prose would invent.
+        for _, raise in ipairs(raises) do
+            raise.text = rewrite(raise.text)
         end
     end
 
@@ -748,7 +761,7 @@ local function rewriteModuleDocLinks(module: Module, pages: {Page2}, file: strin
     rewriteMembers = function(members)
         for _, member in ipairs(members or {}) do
             member.text = rewrite(member.text)
-            rewriteParts(member.params, member.returns)
+            rewriteParts(member.params, member.returns, member.raises)
             rewriteMembers(member.members)
         end
     end
@@ -761,10 +774,7 @@ local function rewriteModuleDocLinks(module: Module, pages: {Page2}, file: strin
         for index, text in ipairs(item.doc.returns) do
             item.doc.returns[index] = rewrite(text)
         end
-        for index, text in ipairs(item.doc.raises) do
-            item.doc.raises[index] = rewrite(text)
-        end
-        rewriteParts(item.params, item.returns)
+        rewriteParts(item.params, item.returns, item.raises)
         for _, typearg in ipairs(item.typeargs) do
             typearg.text = rewrite(typearg.text)
         end

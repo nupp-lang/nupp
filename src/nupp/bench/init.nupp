@@ -617,7 +617,7 @@ end
 --- inert while listing returns before reporting, which is exactly the case that
 --- silently listed nothing when this was deferred.
 ---
---- @raises when a requested case-list file cannot be opened
+--- @raises string when a requested case-list file cannot be opened
 local function announce(listing: any): nil
     if options.casesOut then
         local handle = io.open(options.casesOut, "a")
@@ -1096,7 +1096,7 @@ end
 --- Declares a comparative suite. Every case, parameter set and variant is a named
 --- benchmark and therefore gets its own process under the set runner.
 ---
---- @raises when the declaration or its sampling bounds are invalid
+--- @raises string when the declaration or its sampling bounds are invalid
 function bench.suite(options: bench.SuiteOptions): nil
     if #options.variants == 0 then
         error("bench: a suite needs at least one variant", 2)
@@ -1242,7 +1242,7 @@ end
 --- needs no second call. `bench.report` is idempotent, so a program with both cases and
 --- frames may still call it itself.
 ---
---- @raises when a gated counter moved, or the record cannot be written
+--- @raises string when a gated counter moved, or the record cannot be written
 function bench.FrameSession:report(): nil
     if self.done then
         return
@@ -1953,7 +1953,7 @@ end
 --- discard the run's own profile and trace-abort reports, which are written after the
 --- chunk returns.
 ---
---- @raises when a gated counter moved, or the record cannot be written
+--- @raises string when a gated counter moved, or the record cannot be written
 function bench.report(): nil
     if options.list then
         return

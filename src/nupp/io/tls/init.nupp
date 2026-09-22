@@ -88,7 +88,7 @@ type tls.ServerOptions = shared.ServerOptions
 
 const READ_SIZE = 65536
 
---- @raises when the value is not a positive integer
+--- @raises string when the value is not a positive integer
 local function positive(value: integer, what: string, level: integer): integer
     if value < 1 or math.floor(value) ~= value then
         error("nupp: " .. what .. " must be a positive integer", level + 1)
@@ -102,7 +102,7 @@ end
 --- Separated by NUL rather than by anything printable, because a protocol name
 --- is arbitrary bytes and any printable delimiter is a name somebody may
 --- legitimately want.
---- @raises when a protocol is empty or longer than 255 bytes
+--- @raises string when a protocol is empty or longer than 255 bytes
 local function packProtocols(protocols: {string}?, level: integer): string
     if protocols == nil or #protocols == 0 then
         return ""
@@ -312,7 +312,7 @@ record tls.Session is Reader, Writer
     --- @param count the most bytes to read
     --- @return the bytes, or nil when the session is closed
     --- @return why it could not read, when unsuccessful
-    --- @raises when count is not a positive integer
+    --- @raises string when count is not a positive integer
     function read(self, count: integer): (string?, string?)
         if self._closed then
             return nil, "the session is closed"
@@ -348,7 +348,7 @@ record tls.Session is Reader, Writer
     end
 
     --- Reads directly into a checked writable span. A zero answer is the end.
-    --- @raises when the destination is empty
+    --- @raises string when the destination is empty
     function readSpan(self, exclusive destination: span.Writable<uint8>): (integer?, string?)
         const wanted = positive(#destination, "tls.Session readSpan destination length", 2)
         const chunk, why = self:read(wanted)
@@ -364,7 +364,7 @@ record tls.Session is Reader, Writer
     end
 
     --- Reads into a buffer. A zero answer is the end.
-    --- @raises when count is not a positive integer
+    --- @raises string when count is not a positive integer
     function readInto(self, exclusive destination: Buffer, offset: integer?, count: integer?): (integer?, string?)
         const wanted = positive(count or READ_SIZE, "tls.Session readInto count", 2)
         const chunk, why = self:read(wanted)
@@ -530,7 +530,7 @@ end
 --- @param options what to expect of the peer
 --- @return the session, which the caller owns and must close
 --- @return why it could not be made, when unsuccessful
---- @raises when verification is asked for without a name to verify against
+--- @raises string when verification is asked for without a name to verify against
 --- @export
 function tls.client(takes stream: net.Stream, options: tls.ClientOptions): (affine(tls.Session)?, string?)
     const chosen = provider

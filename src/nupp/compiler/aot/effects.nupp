@@ -304,7 +304,7 @@ local CONTROL_OPS: {
 }
 
 --- Classifies one expression opcode. Unknown means compiler bug, never pure.
---- @raises when the opcode is not in the closed AOT vocabulary
+--- @raises string when the opcode is not in the closed AOT vocabulary
 function effects.expression(op: string): effects.Facts
     if PURE_OPS[op] == true then
         return PURE
@@ -324,7 +324,7 @@ function effects.expression(op: string): effects.Facts
 end
 
 --- Classifies one statement opcode. Unknown means compiler bug, never pure.
---- @raises when the opcode is not in the closed AOT vocabulary
+--- @raises string when the opcode is not in the closed AOT vocabulary
 function effects.statement(op: string): effects.Facts
     if STATEMENT_LUA_MUTATE_OPS[op] == true then
         return LUA_MUTATE

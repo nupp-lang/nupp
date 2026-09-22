@@ -3278,8 +3278,14 @@ function checkMod.check(
     finalizeCallGuarantees(c, effectQueries)
     finalizeBoundary(c)
     c.privateExport.sweep()
-    -- Both of these needed the whole file before they could answer, so they answer here
-    -- and their diagnostics are put back in source order with everything else.
+    -- These needed the whole file before they could answer, so they answer here and
+    -- their diagnostics are put back in source order with everything else. A `@raises`
+    -- type is among them: one may name a declaration written below the function that
+    -- raises it.
+    -- Ahead of `unused`, because resolving a raise's type is a use of the name it
+    -- qualifies: a module required only so a `@raises` can name what it exports is
+    -- required for a reason.
+    c.raises.sweep()
     c.unused.sweep()
     c.discard.sweep(effectQueries)
     c.nosuspend.sweep(effectQueries)

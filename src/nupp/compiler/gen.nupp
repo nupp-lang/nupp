@@ -375,7 +375,7 @@ end
 
 --- Renders closed compiler-owned data as one Lua expression. Keys are sorted so equal
 --- values produce byte-identical output regardless of table iteration.
---- @raises when the value contains a non-data value or a cycle
+--- @raises string when the value contains a non-data value or a cycle
 function literal.renderData(value: any): string
     local recipeCodec = require("nupp.compiler.materialize.codec")
     local rendered, why = recipeCodec.render(value)

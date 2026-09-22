@@ -18,7 +18,7 @@ int32_t nuppNativeRandomBytes(uint8_t *, size_t);
 --- Returns cryptographically secure random bytes from the selected host.
 --- @param count the requested byte count, from zero through 1048576
 --- @return the generated raw bytes
---- @raises when the count is invalid or the host cannot supply randomness
+--- @raises string when the count is invalid or the host cannot supply randomness
 export function randomBytes(count: integer): string
     if count < 0 or count ~= math.floor(count) or count > 1048576 then
         error("random byte count must be an integer between 0 and 1048576", 2)

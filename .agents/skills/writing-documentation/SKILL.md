@@ -527,7 +527,7 @@ The rules above apply inside `---` blocks, compressed.
 ---
 --- @param id the stable account identifier
 --- @return the open session
---- @raises when the service refuses the connection
+--- @raises string when the service refuses the connection
 local function openSession(id: uint64): affine(Session, closeSession)
 ```
 
@@ -539,7 +539,9 @@ local function openSession(id: uint64): affine(Session, closeSession)
   on a page, linked.
 - Tag descriptions are lowercase fragments with no period:
   `@param id the stable account identifier`.
-- `@raises` says what makes it raise, one line per condition.
+- `@raises <Type> [text]` says what it raises and what brings that about, one
+  line per raise; the type is the value `error` is called with, and a name that
+  resolves to nothing is `NUPP1010`.
 - Module blurbs, the `--[[ ]]` block at the top of a file, open with what the
   module is for, in one sentence, and link the page that owns the concept.
 

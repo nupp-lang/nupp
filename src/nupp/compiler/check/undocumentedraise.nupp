@@ -30,6 +30,14 @@ this checker cannot verify, and enforcing an unverified claim at every
 intermediate frame is the trade that made `throws Exception` ubiquitous. A
 caller gets the same fact by retrieval instead: `nupp lsp inspect` on the call
 returns the callee's `@raises`. See `docs/reference/lints.md`.
+
+What a raise names is checked, separately and always. `@raises Type condition`
+writes a type first, and `NUPP1010` reports one that names nothing here. That is
+not the propagation above: it asks what a line already claims to mean, the way
+`NUPP1007` asks whether an `@param` names a real parameter, rather than deriving
+a claim the function never made. A type is resolved once the file is read
+through, because a raise may name a declaration written below the function that
+raises it.
 ]]
 
 local cst = require("nupp.compiler.cst")
@@ -41,11 +49,16 @@ local undocumentedraise = {}
 --- What the walk calls into this judgement with: one call per named function body, at
 --- the three places one is declared with a `---` run to read.
 type undocumentedraise.Ops = {
-    --- Reports an @param name that the documented callable does not declare.
+    --- Reports an @param name that the documented callable does not declare, and
+    --- takes down this declaration's `@raises` types for `sweep` to resolve.
     checkParams: function(stat: any, params: {any}),
 
     --- Reports when a documented function raises and its documentation does not say so.
-    check: function(stat: any, body: any)
+    check: function(stat: any, body: any),
+
+    --- Resolves every `@raises` type taken down during the walk, once the whole file
+    --- has been read and every declaration it could name exists.
+    sweep: function()
 }
 
 -- Where this body raises on its own account, or nil if it does not. `error` is
@@ -81,12 +94,74 @@ end
 --- @return the operations the walk calls
 function undocumentedraise.install(c: state.Checker): undocumentedraise.Ops
     local ops = {}
+    -- One entry per `@raises` line seen, with the scope it was written in. Resolving
+    -- during the walk would ask about declarations the file has not reached yet, and a
+    -- raise naming a record declared below the function that raises it is ordinary.
+    local written: {any} = {}
+
+    -- A synthetic token standing where the declaration's name does. The type comes out
+    -- of a comment, which has no tokens of its own, so the position a diagnostic wants
+    -- is the one `NUPP1007` already reports a bad `@param` at: the declaration, which
+    -- is what carries the run. It borrows the anchor's trivia arena because that is
+    -- what tells `cst` a token from a node, and claims none of it.
+    local function tokenLike(anchor: any, kind: string, text: string): any
+        return {
+            kind = kind,
+            text = text,
+            offset = anchor.offset,
+            line = anchor.line,
+            col = anchor.col,
+            trivia = anchor.trivia,
+            triviaFirst = anchor.triviaFirst,
+            triviaCount = 0,
+        }
+    end
+
+    -- The written type as the node the resolver reads, so a raise resolves through the
+    -- one path that knows about lexical names, nested declarations, binder
+    -- projections and other modules' exports, rather than through a second reading of
+    -- the same question. `a.b.C` is built the way the parser builds it, dots included,
+    -- because that is how the resolver tells a qualified name from a plain one.
+    local function typeNode(spelling: string, anchor: any): any?
+        local names: {string} = {}
+        -- Split on the dots rather than skipping them, so `a..b` and a trailing dot are
+        -- an empty segment here rather than a name silently shorter than what was
+        -- written. A raise resolving to something its author did not spell is worse
+        -- than one reported.
+        for part in (spelling .. "."):gmatch("([^%.]*)%.") do
+            if not cst.identifier(part) and part ~= "nil" then
+                return nil
+            end
+            names[#names + 1] = part
+        end
+        if #names == 0 then
+            return nil
+        end
+        local node = new cst.Tname(kind = "tname")
+        node.base = cst.add(node, tokenLike(anchor, names[1] == "nil" and "nil" or "name", names[1]))
+        for index = 2, #names do
+            cst.add(node, tokenLike(anchor, ".", "."))
+            cst.add(node, tokenLike(anchor, "name", names[index]))
+        end
+
+        return node
+    end
+
+    -- Takes down what one declaration's run said it raises. `stat` is kept rather than
+    -- its position, so the diagnostic lands on the name the way every other diagnostic
+    -- about this declaration does.
+    local function record(stat: any, info: docblock.Doc)
+        for _, raise in ipairs(info.raises) do
+            written[#written + 1] = {stat = stat, raise = raise, scope = c.scope}
+        end
+    end
 
     function ops.checkParams(stat: any, params: {any})
         local info, documented = docblock.of(stat)
         if not documented then
             return
         end
+        record(stat, info)
         local parameters = {}
         for _, param in ipairs(params or {}) do
             local name = param.name and param.name.text or nil
@@ -153,6 +228,49 @@ function undocumentedraise.install(c: state.Checker): undocumentedraise.Ops
             help = "add an @raises line saying what makes it raise",
             related = {c.related(raiseTok, "raises here")}
         })
+    end
+
+    --- Resolves every `@raises` type the walk took down, reporting the ones that name
+    --- nothing. Run once, after the file is read through, from the scope each line was
+    --- written in.
+    function ops.sweep()
+        local restore = c.scope
+        for _, entry in ipairs(written) do
+            local stat, raise = entry.stat, entry.raise
+            local at = stat.name and cst.lastToken(stat.name) or stat
+            local label = stat.name and (cst.textOf(stat.name):gsub("%s+", "")) or "this declaration"
+            local spelling = raise.type
+            local node = spelling ~= "" and typeNode(spelling, at) or nil
+            local resolved = nil
+            if node then
+                c.scope = entry.scope
+                -- The resolver says what it could not find in the vocabulary of a
+                -- written annotation, which is not where this reader is looking. Its
+                -- diagnostics are dropped and the one below is reported in their place,
+                -- so a raise that names nothing reads as a raise that names nothing.
+                local before = #c.diags
+                resolved = c.resolveType(node)
+                for index = #c.diags, before + 1, -1 do
+                    c.diags[index] = nil
+                end
+                c.scope = restore
+                -- `any` is what recovery returns, so it is the answer both to a name
+                -- that resolved to `any` and to one that resolved to nothing. Spelling
+                -- it is the only thing that tells them apart, and a raise documented as
+                -- `any` has said what it means.
+                if resolved and resolved.tag == "any" and spelling ~= "any" then
+                    resolved = nil
+                end
+            end
+            if not resolved then
+                local msg = spelling == "" and ("@raises on %s names no type"):format(label)
+                    or ("@raises %s on %s names no type here"):format(spelling, label)
+                c.diag("NUPP1010", at, msg, nil, {
+                    help = "write `@raises Type the condition`, naming the type `error` is called with",
+                })
+            end
+        end
+        c.scope = restore
     end
 
     return ops

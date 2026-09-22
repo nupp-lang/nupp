@@ -57,7 +57,7 @@ record extract.Member
     path: string
     params: {extract.Param}
     returns: {extract.Result}
-    raises: {string}
+    raises: {docblock.Raise}
     isFunction: boolean?
     isMetamethod: boolean?
     isType: boolean?
@@ -90,7 +90,7 @@ type extract.Item = {
     members: {extract.Member},
     params: {extract.Param},
     returns: {extract.Result},
-    raises: {string},
+    raises: {docblock.Raise},
     typeargs: {extract.TypeArg},
     annotations: {string}?,
 

@@ -595,7 +595,7 @@ end
 
 --- Opens the preferred WGPU compute device.
 --- @export
---- @raises when WGPU has no compatible compute adapter
+--- @raises string when WGPU has no compatible compute adapter
 
 function gpu.Binding.dispatchWords(borrows self: gpu.Binding, scalars: {uint32}): nil
     error("nupp: native GPU dispatch requires a packed uniform block", 2)

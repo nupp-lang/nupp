@@ -3070,7 +3070,8 @@ local FUNC_FIELDS: {
 --- @param fn the function to copy
 --- @param overrides the fields to replace, by the names `types.Func` declares
 --- @return the interned function
---- @raises when `overrides` names a field no function has, which is a misspelling
+--- @raises string when `overrides` names a field no function has, which is a
+---     misspelling
 function types.funcWith(fn: types.Func, overrides: {[string]: any}): types.Type
     local known: {[string]: boolean} = {}
     local field: {[string]: any} = {}

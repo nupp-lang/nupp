@@ -673,7 +673,7 @@ end
 
 --- One reply or task value as the packed values its native frame carried,
 --- whatever predefined shape it travelled in.
---- @raises when the frame names an encoding no native frame produces
+--- @raises string when the frame names an encoding no native frame produces
 local function packedValue(encoding: string?, bytes: string?, value: any): Packed
     if encoding == "packed" then
         return value as Packed
@@ -1772,7 +1772,7 @@ local function workerReply(outbox: Channel, id: integer, ok: boolean, answer: an
 end
 
 --- Runs the scheduler loop inside a native worker state. Compiler-owned bootstrap only.
---- @raises when called outside the compiler-owned worker bootstrap
+--- @raises string when called outside the compiler-owned worker bootstrap
 function workers.runScheduler(): nil
     local inHandle, outHandle = native.current()
     if inHandle == nil or outHandle == nil then

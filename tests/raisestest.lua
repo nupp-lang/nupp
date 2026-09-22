@@ -123,7 +123,7 @@ end
 function M.isQuietWhenTheRaiseIsDocumented()
    assertQuiet([[
 --- Reads a file.
---- @raises when the path is missing
+--- @raises string when the path is missing
 local function load(path)
    if not path then error("no path") end
    return path
@@ -252,28 +252,39 @@ end
 -- The tag itself, which `nupp doc` renders and the lint reads.
 
 function M.parsesOneRaises()
-   local doc = docblock.parse({"Reads a file.", "@raises when the path is missing"})
+   local doc = docblock.parse({"Reads a file.", "@raises string when the path is missing"})
    assertEq(#doc.raises, 1, "one condition")
-   assertEq(doc.raises[1], "when the path is missing", "its text")
+   assertEq(doc.raises[1].type, "string", "the type it names")
+   assertEq(doc.raises[1].text, "when the path is missing", "its text")
    assertEq(doc.text, "Reads a file.", "the prose keeps the rest")
 end
 
 function M.parsesSeveralRaises()
    local doc = docblock.parse({
-      "@raises when the path is missing",
-      "@raises when the file cannot be read",
+      "@raises string when the path is missing",
+      "@raises io.Problem when the file cannot be read",
    })
    assertEq(#doc.raises, 2, "one entry per occurrence, unlike @param")
-   assertEq(doc.raises[2], "when the file cannot be read", "in the order written")
+   assertEq(doc.raises[2].type, "io.Problem", "a qualified type is one word")
+   assertEq(doc.raises[2].text, "when the file cannot be read", "in the order written")
+end
+
+-- A type with no condition beside it is the whole of what some raises have to say.
+function M.parsesARaisesWithNoCondition()
+   local doc = docblock.parse({"@raises never"})
+   assertEq(#doc.raises, 1, "still an entry")
+   assertEq(doc.raises[1].type, "never", "the type")
+   assertEq(doc.raises[1].text, "", "and nothing after it")
 end
 
 function M.wrapsARaisesDescription()
    local doc = docblock.parse({
-      "@raises when the path is missing,",
+      "@raises string when the path is missing,",
       "    which a caller cannot always tell in advance",
    })
    assertEq(#doc.raises, 1, "a continuation joins rather than starting a second")
-   assertEq(doc.raises[1],
+   assertEq(doc.raises[1].type, "string", "the type stays where the first line put it")
+   assertEq(doc.raises[1].text,
       "when the path is missing, which a caller cannot always tell in advance",
       "joined with a single space")
 end
@@ -281,11 +292,113 @@ end
 function M.keepsRaisesApartFromReturns()
    local doc = docblock.parse({
       "@return the contents",
-      "@raises when the path is missing",
+      "@raises string when the path is missing",
    })
    assertEq(#doc.returns, 1, "the return is its own list")
    assertEq(#doc.raises, 1, "and so is the raise")
    assertEq(doc.returns[1], "the contents", "neither collected the other")
+end
+
+-- The type a raise names, which the checker resolves once the file is read through.
+
+local function raiseTypeDiagnostics(src)
+   local found = {}
+   for _, diag in ipairs(diagnosticsOf(src)) do
+      if diag.code == "NUPP1010" then found[#found + 1] = diag end
+   end
+   return found
+end
+
+function M.acceptsAResolvableRaiseType()
+   local found = raiseTypeDiagnostics([[
+--- Reads a file.
+--- @raises string when the path is missing
+local function load(path)
+   if not path then error("no path") end
+   return path
+end
+]])
+   assertEq(#found, 0, "`string` names a type")
+end
+
+function M.rejectsARaiseTypeThatNamesNothing()
+   local found = raiseTypeDiagnostics([[
+--- Reads a file.
+--- @raises when the path is missing
+local function load(path)
+   if not path then error("no path") end
+   return path
+end
+]])
+   assertEq(#found, 1, "one report")
+   assertEq(found[1].msg, "@raises when on load names no type here", "names the word it read")
+end
+
+function M.rejectsARaiseWithNothingAfterIt()
+   local found = raiseTypeDiagnostics([[
+--- Reads a file.
+--- @raises
+local function load(path)
+   if not path then error("no path") end
+   return path
+end
+]])
+   assertEq(#found, 1, "one report")
+   assertEq(found[1].msg, "@raises on load names no type", "says the line named none")
+end
+
+-- A raise may name a declaration written below the function that raises it, which is
+-- why the type is resolved after the file is read rather than where the run is.
+function M.resolvesARaiseTypeDeclaredLater()
+   local found = raiseTypeDiagnostics([[
+--- Reads a file.
+--- @raises Problem when the path is missing
+local function load(path)
+   if not path then error("no path") end
+   return path
+end
+
+record Problem
+   why: string
+end
+]])
+   assertEq(#found, 0, "declaration order does not decide it")
+end
+
+-- A qualified name is split on its dots rather than having them skipped, so a
+-- spelling with an empty segment is reported rather than quietly resolving to
+-- something shorter than what was written.
+function M.rejectsARaiseTypeWithAnEmptySegment()
+   local found = raiseTypeDiagnostics([[
+--- Reads a file.
+--- @raises string. when the path is missing
+local function load(path)
+   if not path then error("no path") end
+   return path
+end
+]])
+   assertEq(#found, 1, "a trailing dot is not `string`")
+   assertEq(found[1].msg, "@raises string. on load names no type here", "says what it read")
+end
+
+-- Not a lint: a docblock that promises a type it does not have is the same mistake
+-- `@param` makes, and neither is configurable.
+function M.raiseTypeIsNotSuppressible()
+   local found = {}
+   local result = parser.parse([[
+--- Reads a file.
+--- @raises Missing when the path is missing
+local function load(path)
+   if not path then error("no path") end
+   return path
+end
+]], "test.g.nupp")
+   assertEq(#result.errors, 0, "syntax errors in test source")
+   local diags = check.check(result, "test.g.nupp", sharedEnv, {lints = {["undocumented-raise"] = "off"}})
+   for _, diag in ipairs(diags) do
+      if diag.code == "NUPP1010" then found[#found + 1] = diag end
+   end
+   assertEq(#found, 1, "turning the lint off does not turn this off")
 end
 
 return M

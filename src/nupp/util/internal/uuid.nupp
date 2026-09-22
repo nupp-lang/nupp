@@ -9,10 +9,10 @@ local provider = require("nupp.runtime.uuid")
 
 --- Generates a random version 4 UUID.
 --- @return the UUID, hyphenated and lowercase
---- @raises when the system cannot supply randomness
+--- @raises string when the system cannot supply randomness
 export const uuid4: function(): string = provider.uuid4
 
 --- Generates a time-ordered version 7 UUID.
 --- @return the UUID, hyphenated and lowercase
---- @raises when the system cannot supply randomness
+--- @raises string when the system cannot supply randomness
 export const uuid7: function(): string = provider.uuid7

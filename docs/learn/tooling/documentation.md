@@ -92,7 +92,7 @@ somewhere else: `[ownership](docs/learn/runtime/ownership/borrowing.md)`.
 ---
 --- @param id the stable account identifier
 --- @return the open session
---- @raises when the service refuses the connection
+--- @raises string when the service refuses the connection
 local function openSession(id: uint64): affine(Session, closeSession)
 ```
 
@@ -109,7 +109,7 @@ documentation.
 | `@typearg <name> <text>` | Named, by type parameter |
 | `@return <text>` | Listed, one per occurrence, in order |
 | `@returns <text>` | The same tag |
-| `@raises <text>` | Listed, one per occurrence, in order |
+| `@raises <Type> [text]` | Listed, one per occurrence, in order |
 | `@module [text]` | Overrides the file's module blurb |
 | `@export`, `@public` | Force a declaration public |
 | `@local` | Keep a declaration out; `--all` brings it back |
@@ -131,22 +131,46 @@ ownership, but its documentation signature names the method as `Buffer:write`.
 
 ### Raised errors
 
-`@raises` says what makes a function raise, one line per condition. Lua has no
-signature to find that out from, so it is written down:
+`@raises <Type> [text]` says what a function raises and what brings it about,
+one line per raise. Lua has no signature to find that out from, so it is written
+down:
 
 ```nupp
 --- Reads the whole file at `path`.
 ---
---- @raises when the file cannot be opened
---- @raises when a read fails partway through
+--- @raises string when the file cannot be opened
+--- @raises string when a read fails partway through
 local function slurp(path: string): string
 ```
+
+The type is the value `error` is called with. An ordinary Lua message is a
+`string`; a raise that carries a declaration names it, and the generated page
+links the name to that declaration's own documentation:
+
+```nupp
+const tasks = require("nupp.tasks")
+
+--- Waits for the batch to settle.
+---
+--- @raises tasks.Cancellation where one has been requested
+--- @raises any the first failure a child had
+local function settle(): nil
+```
+
+A function that raises more than one kind of thing writes more than one line,
+which is also how the page tabulates it. The type is a name rather than a type
+expression, since the word after the tag ends where the condition begins:
+`string`, `any`, `never`, or a qualified name like `tasks.Cancellation`. Naming the type is a promise the
+checker holds you to: one that does not resolve where the docblock is written is
+`NUPP1010`, the same rule that keeps an `@param` naming a real parameter. A
+module required only so a `@raises` can name what it exports counts as used.
 
 The `undocumented-raise` lint asks a documented function that calls `error` to
 say so. It judges only documented functions, `assert` does not count, and it
 does not propagate through calls, because documenting what a callee raises is a
-claim the checker cannot verify. See [lints.md](../../reference/lints.md) for
-configuring it.
+claim the checker cannot verify. That limit is about deriving a claim the
+function never made; `NUPP1010` above asks only what a line already says. See
+[lints.md](../../reference/lints.md) for configuring it.
 
 ### Namespaces
 
@@ -698,8 +722,10 @@ tables for type parameters, arguments, returns, methods, fields, and values.
 
 **`json`** writes the parse-only documentation model for external generators.
 The top-level `schemaVersion` lets a consumer reject a model shape it does not
-understand; `modules` contains the same declarations, members, doc tags, and
-signatures that the built-in renderers consume. This positional format is
+understand, and is `3`: version 3 gives each `raises` entry the `{type, text}`
+shape a `returns` entry has, where version 2 held a plain string. `modules`
+contains the same declarations, members, doc tags, and signatures that the
+built-in renderers consume. This positional format is
 separate from `--json`, which controls the command's own success report.
 
 **`both`** writes the site plus `api.md` inside the output directory.

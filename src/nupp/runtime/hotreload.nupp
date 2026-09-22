@@ -211,7 +211,7 @@ end
 ---
 --- @param name the watch module's name
 --- @return the slot array that module dispatches through
---- @raises when a patch names a module that has not executed yet
+--- @raises string when a patch names a module that has not executed yet
 function hotreload.module(name: string): hotreload.Slots
     local module = state.modules[name]
     if module then
@@ -253,7 +253,7 @@ end
 --- Marks a module's initial registration complete after its chunk returns.
 ---
 --- @param name the watch module's name
---- @raises when the module is unknown or has already been sealed
+--- @raises string when the module is unknown or has already been sealed
 function hotreload.seal(name: string): nil
     local module = state.modules[name]
     if not module or module.loaded then
@@ -318,7 +318,7 @@ end
 --- @param signature the declaration's signature
 --- @param selfName the recursive binding's name, when the function has one
 --- @param implementation the function body to install
---- @raises when identity, signature, or captured lexical cells are incompatible
+--- @raises string when identity, signature, or captured lexical cells are incompatible
 function hotreload.define(
     slots: hotreload.Slots,
     index: integer,

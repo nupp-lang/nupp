@@ -176,7 +176,7 @@ export record OptParser
 
     --- Returns the current token kind.
     ---
-    --- @raises when the parser has no current token
+    --- @raises string when the parser has no current token
     function kind(self): TokenKind
         local kind = self.currentKind
         if kind == nil then
@@ -188,7 +188,7 @@ export record OptParser
 
     --- Returns the current option's normalized key.
     ---
-    --- @raises when the parser has no current token or it is not an option
+    --- @raises string when the parser has no current token or it is not an option
     function key(self): string
         local kind = self:kind()
         if kind ~= shortOption and kind ~= longOption then
@@ -200,7 +200,7 @@ export record OptParser
 
     --- Returns the current option's value, when it has one.
     ---
-    --- @raises when the parser has no current token or it is not an option
+    --- @raises string when the parser has no current token or it is not an option
     function value(self): string?
         local kind = self:kind()
         if kind ~= shortOption and kind ~= longOption then
@@ -212,7 +212,7 @@ export record OptParser
 
     --- Returns the original argv word for the current token.
     ---
-    --- @raises when the parser has no current token
+    --- @raises string when the parser has no current token
     function raw(self): string
         self:kind()
         return assert(self.currentRaw)
@@ -220,7 +220,7 @@ export record OptParser
 
     --- Returns the one-based argv index of the current token.
     ---
-    --- @raises when the parser has no current token
+    --- @raises string when the parser has no current token
     function index(self): integer
         self:kind()
         return self.currentIndex
@@ -228,7 +228,7 @@ export record OptParser
 
     --- Reports whether the current option carried an attached value.
     ---
-    --- @raises when the parser has no current token or it is not an option
+    --- @raises string when the parser has no current token or it is not an option
     function attached(self): boolean
         local kind = self:kind()
         if kind ~= shortOption and kind ~= longOption then
@@ -240,7 +240,7 @@ export record OptParser
 
     --- Reports whether the current option matched a configured whole-word form.
     ---
-    --- @raises when the parser has no current token or it is not an option
+    --- @raises string when the parser has no current token or it is not an option
     function pattern(self): boolean
         local kind = self:kind()
         if kind ~= shortOption and kind ~= longOption then

@@ -37,7 +37,7 @@ lpeg.setmaxstack(10000)
 --- @param init the caller's position, or nil for the beginning
 --- @param level the error level to report a bad argument at
 --- @return the 1-based position, or nil when it is past the end
---- @raises when subject is not a string, or init is not an integer
+--- @raises string when subject is not a string, or init is not an integer
 --- @export
 export function start(subject: string, init: integer?, level: integer): integer?
     if type(subject) ~= "string" then
@@ -108,7 +108,7 @@ local function findFrom(
     return nil
 end
 
---- @raises when the callback answers anything but a string
+--- @raises string when the callback answers anything but a string
 local function replaced(replacement: any, first: integer, nextPosition: integer, ...: any): string
     local out = replacement(first, nextPosition, ...)
     if type(out) ~= "string" then
@@ -351,7 +351,8 @@ end
 --- @param program the compiled grammar the materializer produced
 --- @param definitions the values its `%name`, `->`, `=>`, `>>` and `~>` slots name
 --- @return the LPeg pattern
---- @raises when a named definition is missing, or the graph names an unknown operation
+--- @raises string when a named definition is missing, or the graph names an unknown
+---     operation
 --- @export
 export function graphPattern(program: any, definitions: any): lpeg.Pattern<{any}>
     local given = definitions or {}
@@ -733,7 +734,7 @@ end
 --- @param program the compiled grammar
 --- @param definitions the values its named slots refer to
 --- @return the matcher
---- @raises when a specialization fails to load
+--- @raises string when a specialization fails to load
 --- @export
 export function codegen(program: any, definitions: any): any
     local scan = program.fastScan
@@ -783,7 +784,7 @@ local patternCache: any = setmetatable({}, {__mode = "v",})
 --- @param source the grammar expression or rule definitions
 --- @param options runtime definitions and backend selection
 --- @return the compiled reusable matcher
---- @raises when source is not a string, or the options name an unknown backend
+--- @raises string when source is not a string, or the options name an unknown backend
 --- @export
 export function compile(source: string, options: any): any
     if type(source) ~= "string" then

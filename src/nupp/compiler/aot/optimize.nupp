@@ -1038,7 +1038,7 @@ end
 
 --- Optimises one verified program in place.
 --- @return counters describing the actual rewrite
---- @raises when an IR opcode has no effect classification
+--- @raises string when an IR opcode has no effect classification
 function optimize.program(program: scalarIR.Program): optimize.Stats
     local before = specialize.nodes(program)
     local helpers: {[string]: scalarIR.Helper} = {}

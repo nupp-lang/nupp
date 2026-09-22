@@ -161,7 +161,7 @@ const http.capabilities = provider.capabilities
 --- @param length how many bytes the reader will produce, when that is known
 --- @param contentType the `content-type` to send, unless the request names one
 --- @return the request body
---- @raises when length is negative, or contentType is not a string
+--- @raises string when length is negative, or contentType is not a string
 function http.reader(takes reader: messages.Reader, length: integer?, contentType: string?): http.ReaderBody
     if length ~= nil then
         assert(length >= 0 and length % 1 == 0, "nupp: HTTP reader body length must be a nonnegative integer")
@@ -178,7 +178,7 @@ end
 --- @param path the file to send
 --- @param contentType the `content-type` to send, unless the request names one
 --- @return the request body
---- @raises when path is neither a string nor a path, or contentType is not a
+--- @raises string when path is neither a string nor a path, or contentType is not a
 ---     string
 function http.file(path: string | Path, contentType: string?): http.FileBody
     if type(path) ~= "string" and type((path as any).toString) ~= "function" then

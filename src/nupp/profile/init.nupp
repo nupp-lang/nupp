@@ -554,7 +554,7 @@ end
 ---
 --- @param options omitted samples every zone at 10 ms to a depth of 16
 --- @return the handle whose `stop` produces the report
---- @raises when a sample session is already running
+--- @raises string when a sample session is already running
 function profile.sample(options: profile.SampleOptions?): profile.SampleSession
     if sampling then
         error("profile.sample: a sample session is already running; stop it first", 2)
@@ -670,7 +670,7 @@ end
 ---
 --- Idempotent.
 ---
---- @raises once the session has stopped
+--- @raises string once the session has stopped
 function profile.SampleSession:pause()
     if self.stopped then
         error("SampleSession:pause: the session has already stopped", 2)
@@ -680,7 +680,7 @@ end
 
 --- Resumes recording. Idempotent.
 ---
---- @raises once the session has stopped
+--- @raises string once the session has stopped
 function profile.SampleSession:resume()
     if self.stopped then
         error("SampleSession:resume: the session has already stopped", 2)
@@ -693,7 +693,7 @@ end
 --- @param filename also write the collapsed-stack text there, replacing
 ---     whatever was in it
 --- @return the report, whose `tostring` is that same text
---- @raises once the session has stopped, so it cannot be called twice
+--- @raises string once the session has stopped, so it cannot be called twice
 function profile.SampleSession:stop(filename: string?): profile.SampleReport
     if self.stopped then
         error("SampleSession:stop: the session has already stopped", 2)
@@ -898,7 +898,7 @@ local tracing = false
 ---
 --- @param options omitted leaves the benign trace-formation events out
 --- @return the handle whose `stop` produces the report
---- @raises when a trace session is already running
+--- @raises string when a trace session is already running
 function profile.trace(options: profile.TraceOptions?): profile.TraceSession
     if tracing then
         error("profile.trace: a trace session is already running; stop it first", 2)
@@ -1000,7 +1000,7 @@ end
 ---
 --- Idempotent.
 ---
---- @raises once the session has stopped
+--- @raises string once the session has stopped
 function profile.TraceSession:pause()
     if self.stopped then
         error("TraceSession:pause: the session has already stopped", 2)
@@ -1010,7 +1010,7 @@ end
 
 --- Resumes counting. Idempotent.
 ---
---- @raises once the session has stopped
+--- @raises string once the session has stopped
 function profile.TraceSession:resume()
     if self.stopped then
         error("TraceSession:resume: the session has already stopped", 2)
@@ -1022,7 +1022,7 @@ end
 ---
 --- @param filename also write the CSV there, replacing whatever was in it
 --- @return the report, whose `tostring` is that CSV
---- @raises once the session has stopped, so it cannot be called twice
+--- @raises string once the session has stopped, so it cannot be called twice
 function profile.TraceSession:stop(filename: string?): profile.TraceReport
     if self.stopped then
         error("TraceSession:stop: the session has already stopped", 2)

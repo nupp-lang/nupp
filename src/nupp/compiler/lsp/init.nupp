@@ -1838,7 +1838,7 @@ function lsp.run(rootDir: string?): integer
 
     --- Reads from the relay through the cell. This frame owns the cell and closes it
     --- after the loop below, so the cell being gone cannot happen here.
-    --- @raises when the cell is gone after all, which is a fault in this file
+    --- @raises string when the cell is gone after all, which is a fault in this file
     local function read(waiting: boolean): string?
         local chunk, problem = relay:with(function(borrows child: process.Process): string?
             local reader = nupp.borrow(child.stdout)

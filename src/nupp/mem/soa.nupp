@@ -115,7 +115,7 @@ record soa.Layout
     readonly fields: {soa.FieldLayout}
 
     --- Computes checked segment offsets for `count` rows without allocating storage.
-    --- @raises when count is negative or the slab size overflows a Lua integer
+    --- @raises string when count is negative or the slab size overflows a Lua integer
     function forCount(self, count: integer): soa.InstanceLayout
         if count < 0 then
             error("SoA row count cannot be negative", 2)
@@ -429,7 +429,7 @@ local record WriteSpanImpl<T> is soa.WriteToken, soa.WriteSpan<T>
 
     --- Copies complete rows field-by-field. Every range is checked before the first
     --- byte moves, and the implementation performs one contiguous copy per column.
-    --- @raises when either requested row range is outside its view
+    --- @raises string when either requested row range is outside its view
     function copyFrom(
         exclusive self,
         targetFirst: integer,
@@ -562,7 +562,8 @@ function soa.Array.drop<T>(takes self: soa.Array<T>): nil
 end
 
 --- Compiler lowering target for `soa.allocate`.
---- @raises when count is negative, layout arithmetic overflows, or allocation fails
+--- @raises string when count is negative, layout arithmetic overflows, or allocation
+---     fails
 function soa._allocate<T>(element: ctype<T>, count: integer, rawLayout: table): affine(soa.Array<T>, soa.destroyArray)
     local layout = soa._layout(rawLayout)
     local instance = layout:forCount(count)
@@ -619,7 +620,8 @@ end
 --- @param count how many rows to allocate
 --- @return the slab, owned by the caller
 --- @export
---- @raises when count is negative, layout arithmetic overflows, or allocation fails
+--- @raises string when count is negative, layout arithmetic overflows, or allocation
+---     fails
 function soa.allocate<T>(element: ctype<T>, count: integer): affine(soa.Array<T>, soa.destroyArray)
     error("soa.allocate requires compiler lowering", 2)
 end
@@ -638,7 +640,7 @@ end
 --- @param element the ctype of one row
 --- @return the count-independent descriptor
 --- @export
---- @raises when compiler lowering is unavailable
+--- @raises string when compiler lowering is unavailable
 function soa.layoutof<T>(element: ctype<T>): soa.Layout
     error("soa.layoutof requires compiler lowering", 2)
 end

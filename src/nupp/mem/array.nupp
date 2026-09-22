@@ -98,7 +98,7 @@ record array.Bytes
 end
 
 --- Allocates zeroed bytes without treating the storage-only uint8 as a value type.
---- @raises when count is not a non-negative integer
+--- @raises string when count is not a non-negative integer
 function array.bytes(count: integer): array.Bytes
     if count < 0 or count ~= math.floor(count) then
         error("byte array count must be a non-negative integer", 2)

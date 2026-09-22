@@ -201,7 +201,7 @@ local nextTaskId: integer = 1
 local laneActive: boolean = false
 
 --- Issues one pool request and answers with the value the host returned.
---- @raises where the pool refused the request or answered nothing
+--- @raises string where the pool refused the request or answered nothing
 local function answered(item: any): any
     if item == nil then
         error("nupp: the worker pool answered nothing", 0)

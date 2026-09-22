@@ -8,7 +8,7 @@ local span = require("nupp.mem.span")
 local SMALLEST = 32
 local DEFAULT_READ = 65536
 
---- @raises when value is not a non-negative integer
+--- @raises string when value is not a non-negative integer
 local function integer_(value: any, what: string, level: integer): integer
     if type(value) ~= "number" or value ~= math.floor(value as number) or (value as number) < 0 then
         error("nupp: " .. what .. " must be a non-negative integer", level)
@@ -17,7 +17,7 @@ local function integer_(value: any, what: string, level: integer): integer
     return value as integer
 end
 
---- @raises when value is not an integer
+--- @raises string when value is not an integer
 local function whole(value: any, what: string, level: integer): integer
     if type(value) ~= "number" or value ~= math.floor(value as number) then
         error("nupp: " .. what .. " must be an integer", level)
@@ -26,7 +26,7 @@ local function whole(value: any, what: string, level: integer): integer
     return value as integer
 end
 
---- @raises when value is not a positive integer
+--- @raises string when value is not a positive integer
 local function positive(value: any, what: string, level: integer): integer
     local answer = whole(value, what, level + 1)
     if answer < 1 then
@@ -36,7 +36,7 @@ local function positive(value: any, what: string, level: integer): integer
     return answer
 end
 
---- @raises when the owner is closed
+--- @raises string when the owner is closed
 local function opened(closed: boolean, what: string, level: integer): nil
     if closed then
         error("nupp: " .. what .. " is closed", level)
@@ -46,7 +46,7 @@ end
 -- An omitted offset is the start and an omitted count is the rest, so a caller that
 -- wants everything says nothing.
 
---- @raises when the range is not within length
+--- @raises string when the range is not within length
 local function range(length: integer, offset: any, count: any, what: string, level: integer): (integer, integer)
     local from = integer_(offset or 0, what .. " offset", level)
     if from > length then
@@ -92,7 +92,7 @@ export affine interface Writer is nupp.Closeable
     --- @param bytes the bytes to append
     --- @return whether they were written
     --- @return why they were not, when unsuccessful
-    --- @raises when bytes is not a string
+    --- @raises string when bytes is not a string
     write: function(exclusive self: Writer, bytes: string): (boolean, string?)
 
     --- Appends bytes from a checked shared span.
@@ -126,7 +126,7 @@ export affine interface Reader is nupp.Closeable
     --- @param count the most bytes to read
     --- @return the bytes, or nil when the reader is closed
     --- @return why it could not read, when unsuccessful
-    --- @raises when count is not a positive integer
+    --- @raises string when count is not a positive integer
     read: function(self: Reader, count: integer): (string?, string?)
 
     --- Reads directly into a checked writable span. A zero answer is the end.
@@ -485,7 +485,7 @@ local record BufferWriter is Writer
     --- @param bytes the bytes to append
     --- @return whether they were written
     --- @return why they were not, when unsuccessful
-    --- @raises when bytes is not a string
+    --- @raises string when bytes is not a string
     function write(exclusive self, bytes: string): (boolean, string?)
         if self._closed then
             return false, "the writer is closed"
@@ -590,7 +590,7 @@ local record StringReader is Reader
     --- @param count the most bytes to read
     --- @return the bytes, or nil when the reader is closed
     --- @return why it could not read, when unsuccessful
-    --- @raises when count is not a positive integer
+    --- @raises string when count is not a positive integer
     function read(self, count: integer): (string?, string?)
         if self._closed then
             return nil, "the reader is closed"
@@ -692,7 +692,7 @@ local record QueueReader is Reader
     --- @param count the most bytes to read
     --- @return the bytes, or nil when the reader is closed
     --- @return why it could not read, when unsuccessful
-    --- @raises when count is not a positive integer
+    --- @raises string when count is not a positive integer
     function read(self, count: integer): (string?, string?)
         if self._closed then
             return nil, "the reader is closed"
@@ -911,7 +911,7 @@ end
 ---
 --- @param initial the starting bytes, a starting capacity, or nothing
 --- @return the buffer, owned by the caller
---- @raises when initial is neither bytes nor a capacity
+--- @raises string when initial is neither bytes nor a capacity
 --- @export
 export function newBuffer(initial: integer | string?): affine(Buffer, destroyOwner)
     if initial ~= nil and type(initial) ~= "number" and type(initial) ~= "string" then
@@ -948,7 +948,7 @@ end
 ---
 --- @param text the bytes to read
 --- @return the reader, owned by the caller
---- @raises when text is not a string
+--- @raises string when text is not a string
 --- @export
 export function newStringReader(text: string): Reader
     if type(text) ~= "string" then
@@ -966,7 +966,7 @@ end
 ---
 --- @param source the queue to read from
 --- @return the reader, owned by the caller
---- @raises when source is not a byte queue
+--- @raises string when source is not a byte queue
 --- @export
 export function newQueueReader(source: ByteQueue): Reader
     if not queueLike(source) then

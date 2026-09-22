@@ -273,7 +273,7 @@ export record URI
     --- @param self this URI
     --- @param value the scheme to use, without the colon
     --- @return the new URI, or this one when nothing changes
-    --- @raises when the scheme cannot be used here
+    --- @raises string when the scheme cannot be used here
     function withScheme(self, value: string): URI
         return assert(newURI(value .. self._text:sub(#self._scheme + 1)))
     end
@@ -282,7 +282,7 @@ export record URI
     --- @param self this URI
     --- @param value the user information, or nil to remove it
     --- @return the new URI, or this one when nothing changes
-    --- @raises when the user information cannot be used here
+    --- @raises string when the user information cannot be used here
     function withUserInfo(self, value: string?): URI
         return assert(
             newURI(
@@ -303,7 +303,7 @@ export record URI
     --- @param self this URI
     --- @param value the host, or nil to remove the authority
     --- @return the new URI, or this one when nothing changes
-    --- @raises when the host cannot be used here
+    --- @raises string when the host cannot be used here
     function withHost(self, value: string?): URI
         return assert(
             newURI(
@@ -324,7 +324,7 @@ export record URI
     --- @param self this URI
     --- @param value the port, 0 through 65535, or nil to remove it
     --- @return the new URI, or this one when nothing changes
-    --- @raises when port is not a port number
+    --- @raises string when port is not a port number
     function withPort(self, value: integer?): URI
         return assert(
             newURI(
@@ -345,7 +345,7 @@ export record URI
     --- @param self this URI
     --- @param value the path
     --- @return the new URI, or this one when nothing changes
-    --- @raises when the path cannot be used here
+    --- @raises string when the path cannot be used here
     function withPath(self, value: string): URI
         if self._authority ~= nil and value ~= "" and value:sub(1, 1) ~= "/" then
             value = "/" .. value
@@ -369,7 +369,7 @@ export record URI
     --- @param self this URI
     --- @param value the query, without the `?`, or nil to remove it
     --- @return the new URI, or this one when nothing changes
-    --- @raises when the query cannot be used here
+    --- @raises string when the query cannot be used here
     function withQuery(self, value: string?): URI
         return assert(
             newURI(
@@ -390,7 +390,7 @@ export record URI
     --- @param self this URI
     --- @param value the fragment, without the `#`, or nil to remove it
     --- @return the new URI, or this one when nothing changes
-    --- @raises when the fragment cannot be used here
+    --- @raises string when the fragment cannot be used here
     function withFragment(self, value: string?): URI
         return assert(
             newURI(
@@ -411,7 +411,7 @@ export record URI
     --- @param self this URI
     --- @param value the path to append
     --- @return the new URI, or this one when path is empty
-    --- @raises when the path cannot be appended
+    --- @raises string when the path cannot be appended
     function concatPath(self, value: string): URI
         return self:withPath(self._path:gsub("/$", "") .. "/" .. value:gsub("^/", ""))
     end
@@ -475,7 +475,7 @@ export record URI
     --- @param self this URI
     --- @param endpoint the URI to take the endpoint from
     --- @return the new URI
-    --- @raises when endpoint is not a URI
+    --- @raises string when endpoint is not a URI
     function withEndpoint(self, endpoint: URI): URI
         return endpoint:concatPath(self._path):withQuery(self._query):withFragment(self._fragment)
     end

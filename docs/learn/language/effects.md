@@ -260,9 +260,10 @@ local function fail(message: string): never
 end
 ```
 
-`raises` is an optimizer effect, not a replacement for API documentation.
-Public failure conditions still belong in `@raises` docblocks, and `never` still
-describes a function that never returns normally.
+`raises` is an optimizer effect, not a replacement for API documentation. It is
+a boolean: it says whether a path can raise, never what is raised. What is
+raised belongs in `@raises <Type> [text]` docblocks, one line per raised type,
+and `never` still describes a function that never returns normally.
 
 For the user-facing control-flow model, including `nosuspend`, cancellation,
 coroutine inheritance, and concurrent combinators, see

@@ -205,7 +205,7 @@ local pattern = S * (m.Cg as any)(m.Cc(false), "G") * exp / mm.P * (-any + patt_
 --- @param defs the values `%name` and the `->`, `=>`, `>>` and `~>` actions refer
 ---     to by name, or nil when the pattern names none
 --- @return the compiled LPeg pattern
---- @raises when the text is not a well-formed pattern, or names something `defs`
+--- @raises string when the text is not a well-formed pattern, or names something `defs`
 ---     does not define
 --- @export
 function re.compile(p, defs): any
@@ -233,7 +233,7 @@ end
 --- @param i the 1-based position to match at, or nil for the beginning
 --- @return the pattern's captures, or the position after the match when it
 ---     captures nothing, or nil when it does not match
---- @raises when the text is not a well-formed pattern
+--- @raises string when the text is not a well-formed pattern
 --- @export
 function re.match(s, p, i): ...any
     local cp = mem[p];
@@ -255,7 +255,7 @@ end
 --- @param i the 1-based position to begin searching at, or nil for the beginning
 --- @return the 1-based positions the match begins and ends at, both inclusive, or
 ---     nil when the pattern matches nowhere at or after `i`
---- @raises when the text is not a well-formed pattern
+--- @raises string when the text is not a well-formed pattern
 --- @export
 function re.find(s, p, i): ((integer, integer) | (nil))
     local cp = fmem[p];
@@ -279,7 +279,7 @@ end
 --- @param rep a replacement string, a table the first capture indexes, or a
 ---     function of the captures
 --- @return the subject with every match replaced
---- @raises when the text is not a well-formed pattern
+--- @raises string when the text is not a well-formed pattern
 --- @export
 function re.gsub(s, p, rep): string
     local g = gmem[p] or {};

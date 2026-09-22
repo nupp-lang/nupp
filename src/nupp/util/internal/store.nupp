@@ -79,7 +79,7 @@ end
 --- retained by nothing but its holders.
 --- @param name the opaque name to register, or nil for an anonymous key
 --- @return the key
---- @raises when the name is empty or already registered, before an id is used
+--- @raises string when the name is empty or already registered, before an id is used
 --- @export
 export function newKey<T>(name: string?): Key<T>
     if name ~= nil then
@@ -112,7 +112,8 @@ export interface Store
     get: function<T>(self: Store, key: Key<T>): T?
 
     --- Stores a non-nil value under a key.
-    --- @raises when value is nil; use [](nupp.util.Store.remove) to delete an entry
+    --- @raises string when value is nil; use [](nupp.util.Store.remove) to delete an
+    ---     entry
     set: function<T>(self: Store, key: Key<T>, value: T): nil
 
     --- Removes the value held under a key.

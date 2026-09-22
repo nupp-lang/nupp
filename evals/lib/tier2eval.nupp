@@ -206,7 +206,7 @@ end
 
 --- Produces a stable unified diff for the `before` and `after` trees in root.
 --- Git's exit status 1 means that the trees differ, not that the command failed.
---- @raises when Git cannot compare the trees
+--- @raises string when Git cannot compare the trees
 function tier2.directoryDiff(root: string): string
     local diff = harness.run(
         {

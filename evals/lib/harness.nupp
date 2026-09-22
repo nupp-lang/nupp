@@ -100,7 +100,7 @@ function harness.remove(path: string): nil
 end
 
 --- Creates a unique directory which the caller removes explicitly.
---- @raises when the platform cannot create or retain the directory
+--- @raises string when the platform cannot create or retain the directory
 function harness.temporaryDirectory(prefix: string): string
     local temporary, reason = files.createTemporaryDirectory(new files.TemporaryOptions(prefix = prefix))
     if temporary == nil then
@@ -228,7 +228,7 @@ local function decodeEvents(output: string): {any}
 end
 
 --- Deterministic readable JSON for evaluation records and scoreboards.
---- @raises when the value is cyclic or cannot be represented as JSON
+--- @raises string when the value is cyclic or cannot be represented as JSON
 local function pretty(value: any, depth: integer, seen: {[table]: boolean}): string
     if value == json.NULL then
         return "null"

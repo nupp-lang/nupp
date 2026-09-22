@@ -125,7 +125,7 @@ end
 ---
 --- @param self the arena
 --- @param row the row whose lease ends
---- @raises when no lease is live
+--- @raises string when no lease is live
 --- @export
 @allow("unused-binding")
 function arena.Arena.release<S>(exclusive self: arena.Arena<S>, row: S): nil
@@ -142,7 +142,7 @@ end
 --- they are next acquired.
 ---
 --- @param self the arena
---- @raises when any lease is live
+--- @raises string when any lease is live
 --- @export
 function arena.Arena.reset<S>(exclusive self: arena.Arena<S>): nil
     if self.liveCount > 0 then
@@ -192,7 +192,7 @@ end
 --- @param witness the struct declaration every row is laid out as
 --- @param pageSize rows per page, 256 when omitted
 --- @return the arena, holding its first page
---- @raises when pageSize is not a positive integer
+--- @raises string when pageSize is not a positive integer
 --- @export
 function arena.new<S>(witness: Type<S>, pageSize: integer?): arena.Arena<S>
     local rows = pageSize or 256

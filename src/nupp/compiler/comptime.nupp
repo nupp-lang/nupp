@@ -1396,7 +1396,8 @@ local execStatement
 --- `until`
 --- condition can both see it.
 ---
---- @raises the control-flow signal of a `break` or `return` inside, and any evaluation
+--- @raises any the control-flow signal of a `break` or `return` inside, and any
+---     evaluation
 ---   failure the statements raise
 local function execStats(state, block)
     for _, stat in ipairs(block and block.stats or {}) do
@@ -1406,7 +1407,8 @@ end
 
 --- Runs one statement.
 ---
---- @raises `RETURN` when the statement is a `return` and `BREAK` when it is a `break`,
+--- @raises any `RETURN` when the statement is a `return` and `BREAK` when it is a
+---     `break`,
 ---   both caught by the construct they leave, and an evaluation failure when the
 ---   statement cannot be run at compile time
 execStatement = function(state, stat)

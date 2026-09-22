@@ -163,7 +163,7 @@ end
 ---
 --- @param name which query
 --- @param key what to compute it for
---- @raises whatever the definition raised, rethrown with its own message, since a
+--- @raises any whatever the definition raised, rethrown with its own message, since a
 ---     query that could not be computed has no value to hand back
 function query.Q:get(name: string, key: any): any
     local byInput = self.inputs[name]

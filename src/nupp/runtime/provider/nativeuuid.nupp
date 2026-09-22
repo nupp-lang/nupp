@@ -29,7 +29,7 @@ native.requireFeature(2, "UUID support")
 --- Generates a random version 4 UUID.
 ---
 --- @return the UUID, hyphenated and lowercase
---- @raises when the system has no randomness to draw on
+--- @raises string when the system has no randomness to draw on
 export function uuid4(): string
     local output = native.ffi.new("uint8_t[37]")
     native.succeeded(C.nuppNativeUuid4(output, 37), 2)
@@ -40,7 +40,7 @@ end
 --- Generates a time-ordered version 7 UUID.
 ---
 --- @return the UUID, hyphenated and lowercase
---- @raises when the system has no randomness to draw on
+--- @raises string when the system has no randomness to draw on
 export function uuid7(): string
     local output = native.ffi.new("uint8_t[37]")
     native.succeeded(C.nuppNativeUuid7(output, 37), 2)

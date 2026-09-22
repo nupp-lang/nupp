@@ -109,7 +109,7 @@ function codec.unsendable(value: any, path: string, depth: integer, state: Trans
 end
 
 --- Validates the captures and arguments of one submission together.
---- @raises where either names a value no copy could reproduce
+--- @raises string where either names a value no copy could reproduce
 function codec.validate(captures: Packed, arguments: Packed): TransferState
     local transfer: TransferState = {seen = {}, records = nil, addresses = nil}
     local rejectedCaptures = codec.unsendable(captures.values, "captures", 0, transfer)
@@ -125,7 +125,7 @@ function codec.validate(captures: Packed, arguments: Packed): TransferState
 end
 
 --- Resolves the record declaration table one address names in this Lua state.
---- @raises where the address is malformed or names no exported record here
+--- @raises string where the address is malformed or names no exported record here
 local function resolveRecord(address: string): any
     local moduleName, memberPath = address:match("^(.-)%z(.+)$")
     if moduleName == nil or moduleName == "" or memberPath == nil then
@@ -312,7 +312,7 @@ local function readValue(bytes: string, cursor: Cursor, depth: integer): any
 end
 
 --- Decodes one value pack, retaining its nil positions.
---- @raises where the bytes are not a pack this codec wrote
+--- @raises string where the bytes are not a pack this codec wrote
 function codec.decode(bytes: string): Packed
     local cursor: Cursor = {at = 1}
     local count = readLength(bytes, cursor)

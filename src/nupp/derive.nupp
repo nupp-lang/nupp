@@ -86,7 +86,7 @@ local function newBuffer(): Buffer
 end
 
 --- Copies a field default so two instances never share one table.
---- @raises when the default refers to itself
+--- @raises string when the default refers to itself
 local function copied(value: any, seen: any): any
     if type(value) ~= "table" then
         return value
@@ -108,7 +108,7 @@ end
 --- The value a field default describes.
 --- @param spec the default the recipe recorded
 --- @return a fresh copy of it
---- @raises when the default is not a literal
+--- @raises string when the default is not a literal
 local function defaultValue(spec: any): any
     if spec ~= nil and spec.kind == "literal" then
         return copied(spec.value, nil)
@@ -626,7 +626,7 @@ end
 ---
 --- Deferred rather than built during `register`, because a program that derives JSON
 --- for a type it never encodes should not load the decoder or walk the schema.
---- @raises when JSON was not derived for the type
+--- @raises string when JSON was not derived for the type
 jsonCodecFor = function(entry: any): any
     local existing = entry.codec
     if existing then
@@ -881,7 +881,7 @@ function derive.fieldCodec(entry: derive.Entry): nupp.reflect.FieldCodec<any>
 end
 
 --- Reads a derived type's registry entry from its type object.
---- @raises when the type has no derived JSON
+--- @raises string when the type has no derived JSON
 local function jsonEntry(typeObject: any): any
     local entry = typeObject and derived[rawget(typeObject, "__nuppDeriveKey")]
     if not entry then

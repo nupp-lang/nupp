@@ -126,7 +126,7 @@ record reducer.OrderedSum
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
     --- That form runs only in compiled code, where vectors exist.
-    --- @raises when given a mask, as ordinary Lua
+    --- @raises string when given a mask, as ordinary Lua
     function add<S>(self, value: number | simd.Vector<number, S>, active: simd.Mask<number, S>?): nil
         if active ~= nil then
             error("a masked reducer contribution runs only in compiled code", 2)
@@ -149,7 +149,7 @@ record reducer.PairwiseSum
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
     --- That form runs only in compiled code, where vectors exist.
-    --- @raises when given a mask, as ordinary Lua
+    --- @raises string when given a mask, as ordinary Lua
     function add<S>(self, value: number | simd.Vector<number, S>, active: simd.Mask<number, S>?): nil
         if active ~= nil then
             error("a masked reducer contribution runs only in compiled code", 2)
@@ -203,7 +203,7 @@ record reducer.AlgebraicSum
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
     --- That form runs only in compiled code, where vectors exist.
-    --- @raises when given a mask, as ordinary Lua
+    --- @raises string when given a mask, as ordinary Lua
     function add<S>(self, value: number | simd.Vector<number, S>, active: simd.Mask<number, S>?): nil
         if active ~= nil then
             error("a masked reducer contribution runs only in compiled code", 2)
@@ -241,7 +241,7 @@ record reducer.CompensatedSum
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
     --- That form runs only in compiled code, where vectors exist.
-    --- @raises when given a mask, as ordinary Lua
+    --- @raises string when given a mask, as ordinary Lua
     function add<S>(self, value: number | simd.Vector<number, S>, active: simd.Mask<number, S>?): nil
         if active ~= nil then
             error("a masked reducer contribution runs only in compiled code", 2)
@@ -269,7 +269,7 @@ record reducer.OrderedProduct
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
     --- That form runs only in compiled code, where vectors exist.
-    --- @raises when given a mask, as ordinary Lua
+    --- @raises string when given a mask, as ordinary Lua
     function multiply<S>(self, value: number | simd.Vector<number, S>, active: simd.Mask<number, S>?): nil
         if active ~= nil then
             error("a masked reducer contribution runs only in compiled code", 2)
@@ -292,7 +292,7 @@ record reducer.PairwiseProduct
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
     --- That form runs only in compiled code, where vectors exist.
-    --- @raises when given a mask, as ordinary Lua
+    --- @raises string when given a mask, as ordinary Lua
     function multiply<S>(self, value: number | simd.Vector<number, S>, active: simd.Mask<number, S>?): nil
         if active ~= nil then
             error("a masked reducer contribution runs only in compiled code", 2)
@@ -343,7 +343,7 @@ record reducer.AlgebraicProduct
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
     --- That form runs only in compiled code, where vectors exist.
-    --- @raises when given a mask, as ordinary Lua
+    --- @raises string when given a mask, as ordinary Lua
     function multiply<S>(self, value: number | simd.Vector<number, S>, active: simd.Mask<number, S>?): nil
         if active ~= nil then
             error("a masked reducer contribution runs only in compiled code", 2)
@@ -365,7 +365,7 @@ record reducer.OrderedDot
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
     --- That form runs only in compiled code, where vectors exist.
-    --- @raises when given a mask, as ordinary Lua
+    --- @raises string when given a mask, as ordinary Lua
     function add<S>(
         self,
         left: number | simd.Vector<number, S>,
@@ -392,7 +392,7 @@ record reducer.PairwiseDot
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
     --- That form runs only in compiled code, where vectors exist.
-    --- @raises when given a mask, as ordinary Lua
+    --- @raises string when given a mask, as ordinary Lua
     function add<S>(
         self,
         left: number | simd.Vector<number, S>,
@@ -419,7 +419,7 @@ record reducer.AlgebraicDot
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
     --- That form runs only in compiled code, where vectors exist.
-    --- @raises when given a mask, as ordinary Lua
+    --- @raises string when given a mask, as ordinary Lua
     function add<S>(
         self,
         left: number | simd.Vector<number, S>,
@@ -515,7 +515,7 @@ record simd.WrappingSum<T is int32 | uint32 | int64 | uint64>
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
     --- That form runs only in compiled code, where vectors exist.
-    --- @raises when given a mask, as ordinary Lua
+    --- @raises string when given a mask, as ordinary Lua
     function add<S>(self, value: T | simd.Vector<T, S>, active: simd.Mask<T, S>?): nil
         if active ~= nil then
             error("a masked reducer contribution runs only in compiled code", 2)
@@ -537,7 +537,7 @@ record simd.WrappingProduct<T is int32 | uint32 | int64 | uint64>
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
     --- That form runs only in compiled code, where vectors exist.
-    --- @raises when given a mask, as ordinary Lua
+    --- @raises string when given a mask, as ordinary Lua
     function multiply<S>(self, value: T | simd.Vector<T, S>, active: simd.Mask<T, S>?): nil
         if active ~= nil then
             error("a masked reducer contribution runs only in compiled code", 2)
@@ -559,7 +559,7 @@ record simd.AndBits<T is int32 | uint32 | int64 | uint64>
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
     --- That form runs only in compiled code, where vectors exist.
-    --- @raises when given a mask, as ordinary Lua
+    --- @raises string when given a mask, as ordinary Lua
     function combine<S>(self, value: T | simd.Vector<T, S>, active: simd.Mask<T, S>?): nil
         if active ~= nil then
             error("a masked reducer contribution runs only in compiled code", 2)
@@ -581,7 +581,7 @@ record simd.OrBits<T is int32 | uint32 | int64 | uint64>
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
     --- That form runs only in compiled code, where vectors exist.
-    --- @raises when given a mask, as ordinary Lua
+    --- @raises string when given a mask, as ordinary Lua
     function combine<S>(self, value: T | simd.Vector<T, S>, active: simd.Mask<T, S>?): nil
         if active ~= nil then
             error("a masked reducer contribution runs only in compiled code", 2)
@@ -603,7 +603,7 @@ record simd.XorBits<T is int32 | uint32 | int64 | uint64>
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
     --- That form runs only in compiled code, where vectors exist.
-    --- @raises when given a mask, as ordinary Lua
+    --- @raises string when given a mask, as ordinary Lua
     function combine<S>(self, value: T | simd.Vector<T, S>, active: simd.Mask<T, S>?): nil
         if active ~= nil then
             error("a masked reducer contribution runs only in compiled code", 2)
@@ -873,7 +873,7 @@ record simd.IntegerMin<T is int32 | uint32 | int64 | uint64>
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
     --- That form runs only in compiled code, where vectors exist.
-    --- @raises when given a mask, as ordinary Lua
+    --- @raises string when given a mask, as ordinary Lua
     function add<S>(self, value: T | simd.Vector<T, S>, active: simd.Mask<T, S>?): nil
         if active ~= nil then
             error("a masked reducer contribution runs only in compiled code", 2)
@@ -929,7 +929,7 @@ record simd.IntegerMax<T is int32 | uint32 | int64 | uint64>
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
     --- That form runs only in compiled code, where vectors exist.
-    --- @raises when given a mask, as ordinary Lua
+    --- @raises string when given a mask, as ordinary Lua
     function add<S>(self, value: T | simd.Vector<T, S>, active: simd.Mask<T, S>?): nil
         if active ~= nil then
             error("a masked reducer contribution runs only in compiled code", 2)
@@ -1002,7 +1002,7 @@ record simd.PropagatingMin
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
     --- That form runs only in compiled code, where vectors exist.
-    --- @raises when given a mask, as ordinary Lua
+    --- @raises string when given a mask, as ordinary Lua
     function add<S>(self, value: number | simd.Vector<number, S>, active: simd.Mask<number, S>?): nil
         if active ~= nil then
             error("a masked reducer contribution runs only in compiled code", 2)
@@ -1060,7 +1060,7 @@ record simd.PropagatingMax
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
     --- That form runs only in compiled code, where vectors exist.
-    --- @raises when given a mask, as ordinary Lua
+    --- @raises string when given a mask, as ordinary Lua
     function add<S>(self, value: number | simd.Vector<number, S>, active: simd.Mask<number, S>?): nil
         if active ~= nil then
             error("a masked reducer contribution runs only in compiled code", 2)
@@ -1118,7 +1118,7 @@ record simd.NumberMin
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
     --- That form runs only in compiled code, where vectors exist.
-    --- @raises when given a mask, as ordinary Lua
+    --- @raises string when given a mask, as ordinary Lua
     function add<S>(self, value: number | simd.Vector<number, S>, active: simd.Mask<number, S>?): nil
         if active ~= nil then
             error("a masked reducer contribution runs only in compiled code", 2)
@@ -1176,7 +1176,7 @@ record simd.NumberMax
     --- `active` selects the lanes of a vector that contribute, in lane order,
     --- as one masked contribution per iteration of the `do` block around it.
     --- That form runs only in compiled code, where vectors exist.
-    --- @raises when given a mask, as ordinary Lua
+    --- @raises string when given a mask, as ordinary Lua
     function add<S>(self, value: number | simd.Vector<number, S>, active: simd.Mask<number, S>?): nil
         if active ~= nil then
             error("a masked reducer contribution runs only in compiled code", 2)
@@ -1588,7 +1588,7 @@ end
 --- Transposes a square tile of Fixed<N> row vectors into N column vectors.
 --- All rows have the same element type; lane bits are preserved. Results are
 --- separate native vectors, not a table, and cannot escape the AOT kernel.
---- @raises outside an AOT-compiled function
+--- @raises string outside an AOT-compiled function
 --- @export
 local transpose: function<Rows...>(
     ...: Rows...
@@ -1606,55 +1606,55 @@ const simd.transpose = transpose
 --- @export
 local horizontal = {}
 
---- @raises outside an AOT-compiled function
+--- @raises string outside an AOT-compiled function
 --- @export
 function horizontal.orderedSum<T, S>(value: simd.Vector<T, S>): T
     error("simd.horizontal.orderedSum is available only inside an AOT-compiled function", 2)
 end
 
---- @raises outside an AOT-compiled function
+--- @raises string outside an AOT-compiled function
 --- @export
 function horizontal.pairwiseSum<T, S>(value: simd.Vector<T, S>): T
     error("simd.horizontal.pairwiseSum is available only inside an AOT-compiled function", 2)
 end
 
---- @raises outside an AOT-compiled function
+--- @raises string outside an AOT-compiled function
 --- @export
 function horizontal.algebraicSum<T, S>(value: simd.Vector<T, S>): T
     error("simd.horizontal.algebraicSum is available only inside an AOT-compiled function", 2)
 end
 
---- @raises outside an AOT-compiled function
+--- @raises string outside an AOT-compiled function
 --- @export
 function horizontal.orderedProduct<T, S>(value: simd.Vector<T, S>): T
     error("simd.horizontal.orderedProduct is available only inside an AOT-compiled function", 2)
 end
 
---- @raises outside an AOT-compiled function
+--- @raises string outside an AOT-compiled function
 --- @export
 function horizontal.pairwiseProduct<T, S>(value: simd.Vector<T, S>): T
     error("simd.horizontal.pairwiseProduct is available only inside an AOT-compiled function", 2)
 end
 
---- @raises outside an AOT-compiled function
+--- @raises string outside an AOT-compiled function
 --- @export
 function horizontal.algebraicProduct<T, S>(value: simd.Vector<T, S>): T
     error("simd.horizontal.algebraicProduct is available only inside an AOT-compiled function", 2)
 end
 
---- @raises outside an AOT-compiled function
+--- @raises string outside an AOT-compiled function
 --- @export
 function horizontal.orderedDot<T, S>(left: simd.Vector<T, S>, right: simd.Vector<T, S>): T
     error("simd.horizontal.orderedDot is available only inside an AOT-compiled function", 2)
 end
 
---- @raises outside an AOT-compiled function
+--- @raises string outside an AOT-compiled function
 --- @export
 function horizontal.pairwiseDot<T, S>(left: simd.Vector<T, S>, right: simd.Vector<T, S>): T
     error("simd.horizontal.pairwiseDot is available only inside an AOT-compiled function", 2)
 end
 
---- @raises outside an AOT-compiled function
+--- @raises string outside an AOT-compiled function
 --- @export
 function horizontal.algebraicDot<T, S>(left: simd.Vector<T, S>, right: simd.Vector<T, S>): T
     error("simd.horizontal.algebraicDot is available only inside an AOT-compiled function", 2)
@@ -1673,25 +1673,25 @@ end
 --- answer does not depend on how many lanes the target chose. `numberMin`
 --- answers the smallest lane that is not NaN, and the canonical NaN only when
 --- every lane is. `-0` is the smaller zero under both.
---- @raises outside an AOT-compiled function
+--- @raises string outside an AOT-compiled function
 --- @export
 function horizontal.propagatingMin<T, S>(value: simd.Vector<T, S>): T
     error("simd.horizontal.propagatingMin is available only inside an AOT-compiled function", 2)
 end
 
---- @raises outside an AOT-compiled function
+--- @raises string outside an AOT-compiled function
 --- @export
 function horizontal.propagatingMax<T, S>(value: simd.Vector<T, S>): T
     error("simd.horizontal.propagatingMax is available only inside an AOT-compiled function", 2)
 end
 
---- @raises outside an AOT-compiled function
+--- @raises string outside an AOT-compiled function
 --- @export
 function horizontal.numberMin<T, S>(value: simd.Vector<T, S>): T
     error("simd.horizontal.numberMin is available only inside an AOT-compiled function", 2)
 end
 
---- @raises outside an AOT-compiled function
+--- @raises string outside an AOT-compiled function
 --- @export
 function horizontal.numberMax<T, S>(value: simd.Vector<T, S>): T
     error("simd.horizontal.numberMax is available only inside an AOT-compiled function", 2)
@@ -1709,25 +1709,25 @@ end
 ---
 --- A lane index rather than a lane and its value, because an AOT expression
 --- answers one value and `extract` already spells the pair.
---- @raises outside an AOT-compiled function
+--- @raises string outside an AOT-compiled function
 --- @export
 function horizontal.propagatingArgMin<T, S>(value: simd.Vector<T, S>): integer
     error("simd.horizontal.propagatingArgMin is available only inside an AOT-compiled function", 2)
 end
 
---- @raises outside an AOT-compiled function
+--- @raises string outside an AOT-compiled function
 --- @export
 function horizontal.propagatingArgMax<T, S>(value: simd.Vector<T, S>): integer
     error("simd.horizontal.propagatingArgMax is available only inside an AOT-compiled function", 2)
 end
 
---- @raises outside an AOT-compiled function
+--- @raises string outside an AOT-compiled function
 --- @export
 function horizontal.numberArgMin<T, S>(value: simd.Vector<T, S>): integer
     error("simd.horizontal.numberArgMin is available only inside an AOT-compiled function", 2)
 end
 
---- @raises outside an AOT-compiled function
+--- @raises string outside an AOT-compiled function
 --- @export
 function horizontal.numberArgMax<T, S>(value: simd.Vector<T, S>): integer
     error("simd.horizontal.numberArgMax is available only inside an AOT-compiled function", 2)

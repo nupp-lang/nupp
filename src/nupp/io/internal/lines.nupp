@@ -136,7 +136,7 @@ end
 --- @param source the reader to take
 --- @param limit the most bytes one line may hold, or 65536
 --- @return the line reader, owned by the caller
---- @raises when limit is not a positive integer
+--- @raises string when limit is not a positive integer
 --- @export
 export function newLines(takes source: Reader, limit: integer?): affine(Lines)
     const bound = limit or 65536

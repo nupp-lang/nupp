@@ -488,7 +488,7 @@ local scratch: function(borrows self: FileReader, count: integer): any
 local usable: function(borrows self: FileReader): (File?, string?)
 local writable: function(borrows self: FileWriter): (File?, string?)
 
---- @raises when value is neither a path nor a string
+--- @raises string when value is neither a path nor a string
 local function named(value: any, what: string, level: integer): string
     if type(value) == "string" then
         return value as string
@@ -502,7 +502,7 @@ local function named(value: any, what: string, level: integer): string
     error("nupp: io.files " .. what .. " must be a path or a string", level)
 end
 
---- @raises when value is not an integer
+--- @raises string when value is not an integer
 local function whole(value: any, what: string, level: integer): integer
     if type(value) ~= "number" or value ~= math.floor(value as number) then
         error("nupp: io.files " .. what .. " must be an integer", level)
@@ -511,7 +511,7 @@ local function whole(value: any, what: string, level: integer): integer
     return value as integer
 end
 
---- @raises when value is not a non-negative integer
+--- @raises string when value is not a non-negative integer
 local function counted(value: any, what: string, level: integer): integer
     if whole(value, what, level + 1) < 0 then
         error("nupp: io.files " .. what .. " must not be negative", level)
@@ -520,7 +520,7 @@ local function counted(value: any, what: string, level: integer): integer
     return value as integer
 end
 
---- @raises when value is not a positive integer
+--- @raises string when value is not a positive integer
 local function positive(value: any, what: string, level: integer): integer
     local answer = whole(value, what, level + 1)
     if answer < 1 then
@@ -579,7 +579,7 @@ export record File
     --- Opens a forward-only reader at the file's current position.
     --- @param self this file
     --- @return the new reader
-    --- @raises when the file is closed
+    --- @raises string when the file is closed
     function newReader(borrows self): affine(FileReader) borrows (self)
         if self._closed then
             error("nupp: io.files File is closed", 2)
@@ -591,7 +591,7 @@ export record File
     --- Opens a forward-only writer at the file's current position.
     --- @param self this file
     --- @return the new writer
-    --- @raises when the file is closed
+    --- @raises string when the file is closed
     function newWriter(borrows self): affine(FileWriter) borrows (self)
         if self._closed then
             error("nupp: io.files File is closed", 2)
@@ -604,7 +604,7 @@ export record File
     --- @param self this file
     --- @return the byte length, or nil on failure
     --- @return a failure reason, when unsuccessful
-    --- @raises when the file is closed
+    --- @raises string when the file is closed
     function size(borrows self): (integer?, string?)
         if self._closed then
             error("nupp: io.files File is closed", 2)
@@ -624,7 +624,7 @@ export record File
     --- @param origin what the offset is measured from, defaulting to the start
     --- @return the new position, or nil on failure
     --- @return a failure reason, when unsuccessful
-    --- @raises when origin names no seek origin
+    --- @raises string when origin names no seek origin
     function seek(exclusive self, offset: integer?, origin: Origin?): (integer?, string?)
         if self._closed then
             error("nupp: io.files File is closed", 2)
@@ -654,7 +654,7 @@ export record File
     --- @param self this file
     --- @return whether the flush succeeded
     --- @return a failure reason, when unsuccessful
-    --- @raises when the file is closed
+    --- @raises string when the file is closed
     function flush(borrows self): (boolean, string?)
         if self._closed then
             error("nupp: io.files File is closed", 2)
@@ -739,7 +739,7 @@ export record FileReader is io.Reader
     --- @param count the most bytes to read
     --- @return the bytes, or nil when the reader or its file is closed
     --- @return why it could not read, when unsuccessful
-    --- @raises when count is not a positive integer
+    --- @raises string when count is not a positive integer
     function read(self, count: integer): (string?, string?)
         local file, reason = usable(self)
         if file == nil then
@@ -857,7 +857,7 @@ export record FileWriter is io.Writer
     --- @param bytes the bytes to write
     --- @return whether they were written
     --- @return why they were not, when unsuccessful
-    --- @raises when bytes is not a string
+    --- @raises string when bytes is not a string
     function write(exclusive self, bytes: string): (boolean, string?)
         local file, reason = writable(self)
         if file == nil then
@@ -1257,7 +1257,7 @@ end
 -- Naming a temporary
 ----------------------------------------------------------------------------
 
---- @raises when value is neither a string nor a field of that name
+--- @raises string when value is neither a string nor a field of that name
 local function optional(options: TemporaryOptions?, field: string, level: integer): string
     local value = options ~= nil and (options as any)[field] or nil
     if value == nil then
@@ -1270,7 +1270,7 @@ local function optional(options: TemporaryOptions?, field: string, level: intege
     return value as string
 end
 
---- @raises when the options name something that is not a path or a string
+--- @raises string when the options name something that is not a path or a string
 local function temporary(options: TemporaryOptions?, directory: boolean, level: integer): (string?, string?)
     local where = options ~= nil and (options as TemporaryOptions).directory or nil
     local root = where ~= nil and named(where, "temporary directory", level + 1) or ""
@@ -1289,7 +1289,7 @@ local function temporary(options: TemporaryOptions?, directory: boolean, level: 
     return answer(status, output)
 end
 
---- @raises when value is neither bytes nor a byte view
+--- @raises string when value is neither bytes nor a byte view
 local function payload(value: any, what: string, level: integer): string
     if type(value) == "string" then
         return value as string
@@ -1391,7 +1391,7 @@ end
 --- @param kind the link kind, defaulting to a file link
 --- @return whether the link was created
 --- @return a failure reason, when unsuccessful
---- @raises when kind names neither a file nor a directory link
+--- @raises string when kind names neither a file nor a directory link
 --- @export
 export function createSymlink(
     target: string | paths.Path,
@@ -1680,7 +1680,7 @@ end
 --- @param mode how it may be used, defaulting to reading
 --- @return the open file, or nil on failure
 --- @return a failure reason, when unsuccessful
---- @raises when mode names no open mode
+--- @raises string when mode names no open mode
 --- @export
 export function open(path: string | paths.Path, mode: Mode?): (affine(File?, contracts.destroyOwner), string?)
     local text = named(path, "path", 2)
@@ -1705,7 +1705,7 @@ end
 --- @param path the file to read
 --- @return an iterator answering each line, or nil on failure
 --- @return a failure reason, when unsuccessful
---- @raises when a read fails once iteration has begun, since the iterator has no
+--- @raises string when a read fails once iteration has begun, since the iterator has no
 --- failure channel to answer through
 --- @export
 export function lines(path: string | paths.Path): (LineIterator?, string?)
@@ -1838,7 +1838,7 @@ end
 --- @param which the folder to locate
 --- @return the folder, or nil when the platform has no such folder
 --- @return a failure reason, when unsuccessful
---- @raises when which names no user folder
+--- @raises string when which names no user folder
 --- @export
 export function userFolder(which: UserFolder): (string?, string?)
     local index = FOLDERS[which]

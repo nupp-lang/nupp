@@ -152,7 +152,7 @@ export record Schema
     end
 
     --- Finds a member or raises when it is absent.
-    --- @raises when the structure has no member with this name
+    --- @raises string when the structure has no member with this name
     function expectMember(self, name: string): Member
         local found = self:member(name)
         if found == nil then
@@ -226,7 +226,7 @@ export function list(target: Schema): Schema
 end
 
 --- Creates an immutable map node.
---- @raises when the key schema is not string-valued: document keys are
+--- @raises string when the key schema is not string-valued: document keys are
 ---     strings, and the codec can neither emit nor read back any other kind
 --- @export
 export function map(key: Schema, value: Schema): Schema
@@ -290,7 +290,7 @@ export record SchemaBuilder
     end
 
     --- Starts a named structure.
-    --- @raises when a root was already selected
+    --- @raises string when a root was already selected
     function structure(self, name: string): SchemaBuilder
         local state = builderMutable(self)
         if state.kind ~= nil then
@@ -329,7 +329,7 @@ export record SchemaBuilder
     end
 
     --- Attaches typed metadata to a named structure member.
-    --- @raises when the member is absent
+    --- @raises string when the member is absent
     function memberMetadata<T>(self, name: string, key: MetadataKey<T>, value: T): SchemaBuilder
         local state = builderMutable(self)
         for _, member in ipairs(state.members) do
@@ -343,7 +343,7 @@ export record SchemaBuilder
     end
 
     --- Freezes and answers the immutable schema.
-    --- @raises when the builder has no root
+    --- @raises string when the builder has no root
     function freeze(self): Schema
         local state = builderMutable(self)
         if state.kind == nil then
@@ -417,7 +417,7 @@ export record DynamicValue
     private readonly token: any
 
     --- Reads a resolved member.
-    --- @raises when the member belongs to another schema
+    --- @raises string when the member belongs to another schema
     function get(self, member: Member): any
         local state = self.token
         if member.owner ~= state.schema then
@@ -435,7 +435,7 @@ export record DynamicValue
     end
 
     --- Sets a resolved member after checking its schema identity.
-    --- @raises when the member belongs to another schema
+    --- @raises string when the member belongs to another schema
     function set(self, member: Member, value: any): nil
         local state = self.token
         if member.owner ~= state.schema then
@@ -508,7 +508,7 @@ local record DynamicBindingImpl is DynamicBinding
 end
 
 --- Creates the indexed dynamic binding for a frozen schema.
---- @raises when the schema is not a structure
+--- @raises string when the schema is not a structure
 --- @export
 export function dynamic(schema: Schema): DynamicBinding
     if schema.kind == "structure" then
@@ -747,7 +747,7 @@ end
 
 --- Retrieves the binding registered by `@derive(nupp.derive.Serde)`.
 --- @export
---- @raises when the type did not derive Serde
+--- @raises string when the type did not derive Serde
 local function bindingOf(type: any): any
     local runtime = _G.nupp and _G.nupp.__derive
     local entry = runtime and runtime.entry(type)
@@ -1754,7 +1754,7 @@ local canonicalJsonProfiles: any = {}
 ---
 --- `fieldNames`, when supplied, runs only during preparation. The fused traversal
 --- sees the resulting immutable wire names.
---- @raises when unknownMembers is not reject or ignore
+--- @raises string when unknownMembers is not reject or ignore
 --- @export
 export function json(options: any?): JsonCodec
     local value = options or {}
@@ -1793,7 +1793,7 @@ local persistedKeys: {[integer]: any} = {}
 --- @param name the opaque name to register
 --- @param binding the binding that encodes and decodes the value
 --- @return the key
---- @raises when the name is empty or already registered
+--- @raises string when the name is empty or already registered
 --- @export
 export function key<T>(name: string, binding: Binding<T>): store.Key<T>
     local created: store.Key<T> = store.newKey(name)
@@ -1808,7 +1808,7 @@ end
 --- so a saved store rides inside whatever document the application encodes.
 --- @param value the store to save
 --- @return a fresh table from name to plain value
---- @raises when an occupied key is anonymous or was declared without a binding
+--- @raises string when an occupied key is anonymous or was declared without a binding
 --- @export
 export function saveStore(borrows value: store.Store): {[string]: any}
     local profile = json().profile
@@ -1835,7 +1835,8 @@ end
 --- @param value the store to write
 --- @param saved the table `saveStore` returned, or one decoded from a document
 --- @return nothing
---- @raises when a name is not registered, its key has no binding, or a value does not
+--- @raises string when a name is not registered, its key has no binding, or a value
+---     does not
 ---     fit
 --- @export
 export function loadStore(exclusive value: store.Store, saved: {[string]: any}): nil

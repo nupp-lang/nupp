@@ -343,7 +343,7 @@ export type Lines = lines.Lines
 ---
 --- @param initial the starting bytes, a starting capacity, or nothing
 --- @return the buffer, owned by the caller
---- @raises when initial is neither bytes nor a capacity
+--- @raises string when initial is neither bytes nor a capacity
 --- @export
 export const newBuffer = bytes.newBuffer
 
@@ -361,7 +361,7 @@ export const newBuffer = bytes.newBuffer
 ---
 --- @param text the bytes to read
 --- @return the reader, owned by the caller
---- @raises when text is not a string
+--- @raises string when text is not a string
 --- @export
 export const newStringReader = bytes.newStringReader
 
@@ -373,7 +373,7 @@ export const newStringReader = bytes.newStringReader
 ---
 --- @param source the queue to read from
 --- @return the reader, owned by the caller
---- @raises when source is not a byte queue
+--- @raises string when source is not a byte queue
 --- @export
 export const newQueueReader = bytes.newQueueReader
 
@@ -397,7 +397,7 @@ export const newQueueReader = bytes.newQueueReader
 ---
 --- @param source the bytes, snapshot, buffer, reader or queue to read
 --- @return the new reader, owned by the caller
---- @raises when source is none of those
+--- @raises string when source is none of those
 --- @export
 export const newScalarReader = scalars.newScalarReader
 
@@ -418,7 +418,7 @@ export const newScalarReader = scalars.newScalarReader
 ---
 --- @param destination the buffer or writer to append to, or nothing for a fresh buffer
 --- @return the new writer, owned by the caller
---- @raises when destination is neither a buffer nor a writer
+--- @raises string when destination is neither a buffer nor a writer
 --- @export
 export const newScalarWriter = scalars.newScalarWriter
 
@@ -430,6 +430,6 @@ export const newScalarWriter = scalars.newScalarWriter
 --- @param source the reader to take
 --- @param limit the most bytes one line may hold, or 65536
 --- @return the line reader, owned by the caller
---- @raises when limit is not a positive integer
+--- @raises string when limit is not a positive integer
 --- @export
 export const newLines = lines.newLines

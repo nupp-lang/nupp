@@ -128,7 +128,7 @@ local lintFixtures = {
          "return load"),
       quiet = source(
          "--- Loads a value.",
-         "--- @raises when the value is missing",
+         "--- @raises string when the value is missing",
          "local function load() error('missing') end",
          "return load"),
    },

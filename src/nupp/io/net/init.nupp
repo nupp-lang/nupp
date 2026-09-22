@@ -174,7 +174,7 @@ const DEFAULT_CONNECT_MS = 30000
 const READ_SIZE = 65536
 
 --- Checks a count the way every byte API here does.
---- @raises when the value is not a positive integer
+--- @raises string when the value is not a positive integer
 local function positive(value: integer, what: string, level: integer): integer
     if value < 1 or math.floor(value) ~= value then
         error("nupp: " .. what .. " must be a positive integer", level + 1)
@@ -183,7 +183,7 @@ local function positive(value: integer, what: string, level: integer): integer
     return value
 end
 
---- @raises when the value is not a port number
+--- @raises string when the value is not a port number
 local function checkedPort(value: integer, what: string, level: integer): integer
     if value < 0 or value > 65535 or math.floor(value) ~= value then
         error("nupp: " .. what .. " must be 0 through 65535", level + 1)
@@ -417,7 +417,7 @@ record net.Stream is Reader, Writer
     --- @param delaySeconds idle seconds before the first probe
     --- @return whether the option was set
     --- @return why it was not, when unsuccessful
-    --- @raises when the delay is not a positive integer
+    --- @raises string when the delay is not a positive integer
     function setKeepAlive(self, enable: boolean, delaySeconds: integer): (boolean, string?)
         if self._closed then
             return false, "the connection is closed"
@@ -438,7 +438,7 @@ record net.Stream is Reader, Writer
     --- @param count the most bytes to read
     --- @return the bytes, or nil when the connection is closed
     --- @return why it could not read, when unsuccessful
-    --- @raises when count is not a positive integer
+    --- @raises string when count is not a positive integer
     function read(self, count: integer): (string?, string?)
         if self._closed then
             return nil, "the connection is closed"
@@ -452,7 +452,7 @@ record net.Stream is Reader, Writer
     --- @param destination the positive-sized range to fill
     --- @return how many bytes were read, or nil when the connection is closed
     --- @return why it could not read, when unsuccessful
-    --- @raises when the destination is empty
+    --- @raises string when the destination is empty
     function readSpan(self, exclusive destination: span.Writable<uint8>): (integer?, string?)
         const wanted = positive(#destination, "net.Stream readSpan destination length", 2)
         const chunk, why = self:read(wanted)
@@ -474,7 +474,7 @@ record net.Stream is Reader, Writer
     --- @param count the most bytes to read
     --- @return how many bytes were read, or nil when the connection is closed
     --- @return why it could not read, when unsuccessful
-    --- @raises when count is not a positive integer
+    --- @raises string when count is not a positive integer
     function readInto(self, exclusive destination: Buffer, offset: integer?, count: integer?): (integer?, string?)
         const wanted = positive(count or READ_SIZE, "net.Stream readInto count", 2)
         const chunk, why = self:read(wanted)
@@ -637,7 +637,7 @@ record net.DirectionView is Reader, Writer
     private _ended: boolean
     private _highWater: integer
 
-    --- @raises when count is not a positive integer
+    --- @raises string when count is not a positive integer
     function read(self, count: integer): (string?, string?)
         if self._ended then
             return nil, "the reader is closed"
@@ -646,7 +646,7 @@ record net.DirectionView is Reader, Writer
         return readOnce(self._provider, self._handle, positive(count, "net.DirectionView read count", 2))
     end
 
-    --- @raises when the destination is empty
+    --- @raises string when the destination is empty
     function readSpan(self, exclusive destination: span.Writable<uint8>): (integer?, string?)
         const wanted = positive(#destination, "net.DirectionView readSpan destination length", 2)
         const chunk, why = self:read(wanted)
@@ -661,7 +661,7 @@ record net.DirectionView is Reader, Writer
         return #chunk as integer
     end
 
-    --- @raises when count is not a positive integer
+    --- @raises string when count is not a positive integer
     function readInto(self, exclusive destination: Buffer, offset: integer?, count: integer?): (integer?, string?)
         const wanted = positive(count or READ_SIZE, "net.DirectionView readInto count", 2)
         const chunk, why = self:read(wanted)
@@ -905,7 +905,7 @@ record net.Datagram is nupp.Closeable
     --- @param maximum the most bytes to take from one datagram
     --- @return what the message was, or nil when the socket failed
     --- @return why there is none, when unsuccessful
-    --- @raises when maximum is not a positive integer
+    --- @raises string when maximum is not a positive integer
     function receiveFrom(self, exclusive destination: Buffer, maximum: integer): (net.Message?, string?)
         if self._closed then
             return nil, "the datagram socket is closed"
@@ -996,7 +996,7 @@ record net.Datagram is nupp.Closeable
     ---
     --- One keeps it on the local segment, which is what discovery on a LAN
     --- wants and what the platform starts at.
-    --- @raises when the hop limit is not 1 through 255
+    --- @raises string when the hop limit is not 1 through 255
     function setMulticastTTL(self, ttl: integer): (boolean, string?)
         if self._closed then
             return false, "the datagram socket is closed"
@@ -1060,7 +1060,7 @@ end
 --- @param options where to bind
 --- @return the socket, which the caller owns and must close
 --- @return why it could not bind, when unsuccessful
---- @raises when the options do not describe a bindable address
+--- @raises string when the options do not describe a bindable address
 --- @export
 function net.bind(options: net.DatagramOptions): (affine(net.Datagram)?, string?)
     const chosen = provider
@@ -1077,7 +1077,7 @@ end
 --- @param options where to bind and how deep a backlog to ask for
 --- @return the listener, which the caller owns and must close
 --- @return why it could not bind, when unsuccessful
---- @raises when the options do not describe a bindable address
+--- @raises string when the options do not describe a bindable address
 --- @export
 function net.listen(options: net.ListenOptions): (affine(net.Listener)?, string?)
     const chosen = provider
@@ -1111,7 +1111,7 @@ end
 --- @param options who to reach and how much may be queued unsent
 --- @return the connection, which the caller owns and must close
 --- @return why it could not connect, when unsuccessful
---- @raises when the options do not describe a reachable peer
+--- @raises string when the options do not describe a reachable peer
 --- @export
 function net.connect(options: net.ConnectOptions): (affine(net.Stream)?, string?)
     const chosen = provider
@@ -1182,7 +1182,7 @@ end
 --- Ordinary code has no use for the opaque value this answers.
 --- @param source the connection to transfer
 --- @return its Rust-native stream handle
---- @raises when the connection was already closed or transferred
+--- @raises string when the connection was already closed or transferred
 --- @internal
 local function takeStreamHandle(takes source: net.Stream): any
     -- The handle leaves with the caller, so the stream's obligation ends here

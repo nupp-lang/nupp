@@ -96,7 +96,7 @@ native.C = setmetatable({}, {
 
 --- Raises the provider's copied thread-local error for a nonzero status.
 --- @export
---- @raises when status is nonzero
+--- @raises string when status is nonzero
 function native.succeeded(status: integer, level: integer): nil
     if status ~= 0 then
         error("nupp: " .. ffi.string(native.C.nuppNativeLastError()), level)
@@ -105,7 +105,7 @@ end
 
 --- Verifies that the selected versioned provider implements one facility.
 --- @export
---- @raises when the provider lacks the feature bit
+--- @raises string when the provider lacks the feature bit
 function native.requireFeature(bit: integer, name: string): nil
     if native.C.nuppNativeFeatures() & bit == 0 then
         error("nupp: the Rust native provider was built without " .. name, 3)
@@ -114,7 +114,7 @@ end
 
 --- Takes an owned byte result from the provider and releases its handle.
 --- @export
---- @raises when the result cannot be copied or released
+--- @raises string when the result cannot be copied or released
 function native.bytes(handle: any): string
     local length = ffi.new("size_t[1]")
     local status = native.C.nuppNativeBytesCopy(handle, nil, 0, length)

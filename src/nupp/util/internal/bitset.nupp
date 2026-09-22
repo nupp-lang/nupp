@@ -160,7 +160,7 @@ record data.Bitset
 
     --- Adds a bit, growing when it is past the end.
     --- @param index the bit position, counting from 0
-    --- @raises when index is negative
+    --- @raises string when index is negative
     function set(self, index: integer): nil
         -- `rshift` is unsigned, so a negative index names a word near 2^27 and
         -- the store below would land far outside the array. `get` and `clear`
@@ -235,7 +235,7 @@ record data.Bitset
     --- @param low the first position added, counting from 0
     --- @param high the last position added. Below `low` adds nothing, so an
     ---     empty range needs no guard at the call site.
-    --- @raises when low is negative
+    --- @raises string when low is negative
     function setRange(self, low: integer, high: integer): nil
         if high < low then
             return
@@ -370,7 +370,7 @@ record data.Bitset
 
     --- Removes every bit, then adds exactly one.
     --- @param index the one position left set, counting from 0
-    --- @raises when index is negative
+    --- @raises string when index is negative
     function setOnly(self, index: integer): nil
         self:clearAll()
         self:set(index)
@@ -458,7 +458,7 @@ record data.Bitset
     --- @param from the lowest position that may be written, counting from 0
     --- @return how many positions were written, and the position to resume from
     ---     when `target` filled first, or -1 when the set is exhausted
-    --- @raises when capacity is negative
+    --- @raises string when capacity is negative
     function positionsInto(self, target: int32[?], capacity: integer, from: integer): (integer, integer)
         if capacity < 0 then
             error("bitset target capacity cannot be negative", 2)

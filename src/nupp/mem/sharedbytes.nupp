@@ -105,7 +105,7 @@ function sharedbytes.Region:size(): integer
     return self._length
 end
 
---- @raises when the bounds fall outside the region
+--- @raises string when the bounds fall outside the region
 function sharedbytes.Region:slice(first: integer, last: integer): sharedbytes.Region
     if first < 1 or last > self._length or first > last + 1 then
         error("nupp: a region slice is out of bounds", 2)
@@ -114,7 +114,7 @@ function sharedbytes.Region:slice(first: integer, last: integer): sharedbytes.Re
     return wrap(self._handle, self._first + first - 1, last - first + 1)
 end
 
---- @raises when the bounds fall outside the region
+--- @raises string when the bounds fall outside the region
 function sharedbytes.Region:view(first: integer?, last: integer?): span.ByteSpan
     local from = first == nil and 1 or first as integer
     local to = last == nil and self._length or last as integer
@@ -125,7 +125,7 @@ function sharedbytes.Region:view(first: integer?, last: integer?): span.ByteSpan
     return foreignByteSpan(self, native.pointer(self._handle), self._first + from - 2, to - from + 1)
 end
 
---- @raises when the region is not aligned or is not a whole number of elements
+--- @raises string when the region is not aligned or is not a whole number of elements
 function sharedbytes.Region:viewAs<T>(element: ctype<T>): span.Span<T>
     local width = ffi.sizeof(element) as integer
     local alignment = ffi.alignof(element) as integer
@@ -140,7 +140,7 @@ function sharedbytes.Region:viewAs<T>(element: ctype<T>): span.Span<T>
     return foreignSpan(self, native.pointer(self._handle), byteOffset // width, self._length // width, element)
 end
 
---- @raises when the region's engine storage has been released
+--- @raises string when the region's engine storage has been released
 function sharedbytes.Region:text(): string
     local text = native.text(self._handle, self._first, self._first + self._length - 1)
     if text == nil then
@@ -151,7 +151,7 @@ function sharedbytes.Region:text(): string
 end
 
 --- Copies `text` once into an engine-owned region.
---- @raises when the engine cannot allocate the region
+--- @raises string when the engine cannot allocate the region
 function sharedbytes.copy(text: string): sharedbytes.Region
     local handle, length = native.fromString(text)
     if handle == nil then
@@ -163,7 +163,7 @@ end
 
 --- Reads a whole file directly into an engine-owned region, with no
 --- intermediate Lua string for the payload.
---- @raises when the file cannot be opened, sized, or read
+--- @raises string when the file cannot be opened, sized, or read
 function sharedbytes.readFile(path: string): sharedbytes.Region
     local handle, problem = native.readFile(path)
     if handle == nil then
@@ -208,7 +208,7 @@ end
 
 local BuilderMT: metatable<sharedbytes.Builder> = {__index = sharedbytes.Builder}
 
---- @raises when a reservation is open or the engine cannot grow the storage
+--- @raises string when a reservation is open or the engine cannot grow the storage
 function sharedbytes.Builder:append(chunk: string): nil
     local accepted, problem = native.builderAppend(self._handle, chunk)
     if not accepted then
@@ -219,7 +219,7 @@ function sharedbytes.Builder:append(chunk: string): nil
     end
 end
 
---- @raises when the count is negative, a reservation is already open, or the
+--- @raises string when the count is negative, a reservation is already open, or the
 ---     engine cannot grow the storage
 function sharedbytes.Builder:reserve(count: integer): span.Writable<uint8>
     if count < 0 then
@@ -238,14 +238,14 @@ function sharedbytes.Builder:reserve(count: integer): span.Writable<uint8>
     return span.writeCarray(typed, count)
 end
 
---- @raises when no reservation is open or `written` exceeds it
+--- @raises string when no reservation is open or `written` exceeds it
 function sharedbytes.Builder:commit(written: integer): nil
     if not native.builderCommit(self._handle, written) then
         error("nupp: a commit does not match the builder's open reservation", 2)
     end
 end
 
---- @raises when the builder was already frozen or a reservation is open,
+--- @raises string when the builder was already frozen or a reservation is open,
 ---     because sealing would silently drop bytes a producer may have written
 function sharedbytes.Builder.freeze(takes self: sharedbytes.Builder): sharedbytes.Region
     -- Sealing spends the builder: the engine hands its bytes to the region, and
@@ -266,7 +266,7 @@ function sharedbytes.Builder.drop(takes self: sharedbytes.Builder): nil
 end
 
 --- Opens an empty builder.
---- @raises when the engine cannot allocate the builder
+--- @raises string when the engine cannot allocate the builder
 function sharedbytes.builder(): affine(sharedbytes.Builder)
     local handle = native.builderNew()
     if handle == nil then

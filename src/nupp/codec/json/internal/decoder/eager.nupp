@@ -16,7 +16,7 @@ const fused.TAPE = 5
 --- The body lives in `nupp.codec.json.internal.decoder.fused`, monomorphized over the
 --- eager builder, which materializes the whole document and validates
 --- escapes as it does.
---- @raises when the native builder cannot be loaded, value allocation fails,
+--- @raises string when the native builder cannot be loaded, value allocation fails,
 --- or the builder rejects a malformed escaped string
 fused.decode = _fused.decodeEager as function(
     string,

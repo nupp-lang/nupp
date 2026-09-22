@@ -550,7 +550,7 @@ end
 --- @param config the project manifest's table
 --- @param rootDir the directory configured paths are relative to
 --- @return canonical paths by loader name, and the configured spellings by name
---- @raises when the `hotreload` section is not the shape it must be
+--- @raises string when the `hotreload` section is not the shape it must be
 function hotSession.libraries(config: any, rootDir: string): {[string]: string}, {[string]: string}
     local configured = config and config.hotreload
     if configured ~= nil and type(configured) ~= "table" then

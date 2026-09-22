@@ -115,7 +115,7 @@ end
 --- them appended rather than included so `emit-c` and the wasm build keep one
 --- self-contained translation unit. What a header is for and what it may be
 --- conditioned on is at its top.
---- @raises when this compiler carries no header by that name
+--- @raises string when this compiler carries no header by that name
 function emit.carried(name: string): string
     local text = bundled.source("/aot/include/" .. name)
     if text == nil then
@@ -395,7 +395,7 @@ end
 --- A vector renders as the typedef the prelude emitted for it, and a pointer to
 --- a reified struct as that struct's own C name.
 ---
---- @raises when the IR names a type this backend has no spelling for
+--- @raises string when the IR names a type this backend has no spelling for
 local function resolveCType(context: emit.Context, typeName: string): string
     local scalar = emit.SCALAR_C[typeName]
     if scalar ~= nil then
@@ -460,7 +460,7 @@ function emit.cType(context: emit.Context, typeName: string): string
 end
 
 --- The physical C element type for a scalar span or field.
---- @raises when the physical source type has no C spelling
+--- @raises string when the physical source type has no C spelling
 function emit.storageC(context: emit.Context, valueType: string, sourceType: string?): string
     if sourceType ~= nil then
         local physical = emit.SOURCE_C[sourceType as string]
@@ -478,7 +478,7 @@ end
 --- The name is the authority rather than a table beside it, because the two
 --- would otherwise be able to disagree about what `f32x8` means.
 ---
---- @raises when the name is not a vector type
+--- @raises string when the name is not a vector type
 function emit.vectorParts(vector: string): (string, integer)
     local element = vector:match("^(%a%d+)x")
     local lanes = tonumber(vector:match("x(%d+)$"))
@@ -655,7 +655,7 @@ function emit.rearrange(context: emit.Context, node: scalarIR.Simd): string
 end
 
 --- Renders the already-selected zero-based span offset.
---- @raises when a span offset was not selected before rendering
+--- @raises string when a span offset was not selected before rendering
 function emit.spanFirst(context: emit.Context, offset: scalarIR.Expr): string
     local selected = context.expressions.starts[offset]
     if selected == nil then
@@ -668,7 +668,7 @@ end
 
 --- The zero-based address shared by ordinary and paired field loads.
 --- Form this address only on the true branch of `cursorSafe`.
---- @raises when a cursor access has no matching proved index
+--- @raises string when a cursor access has no matching proved index
 function emit.cursorAddress(context: emit.Context, access: scalarIR.Simd): string
     local base, _, count = simdbounds.offset(access.args[2])
     if base == nil or (base as scalarIR.Name).cName ~= access.cursorCName then
@@ -691,7 +691,7 @@ end
 
 --- The exact vector end must fit uint32 before its authored index can be
 --- replaced by pointer arithmetic. A larger span does not prove that fact.
---- @raises when a cursor access has no matching proved index or species
+--- @raises string when a cursor access has no matching proved index or species
 function emit.cursorSafe(context: emit.Context, access: scalarIR.Simd): string
     local base, _, count = simdbounds.offset(access.args[2])
     local _, _, lanes = explicitType(context, access.args[1].type)
@@ -710,7 +710,7 @@ end
 
 --- A generic store statement: one whole-vector helper when no mask was
 --- given, the masked one otherwise.
---- @raises when the stored value has no resolved species
+--- @raises string when the stored value has no resolved species
 function emit.genericStore(context: emit.Context, store: scalarIR.Simd): string
     if store.intrinsic == "scatter" or store.intrinsic == "scatterUnchecked" then
         return emit.indexedSimd(context, store)
@@ -773,7 +773,7 @@ record emit.Species
 end
 
 --- Resolves the representation of one explicit SIMD type.
---- @raises when the type is not an explicit SIMD species
+--- @raises string when the type is not an explicit SIMD species
 local function genericSpecies(context: emit.Context, typeName: string): emit.Species
     local _, element, lanes, shape = explicitType(context, typeName)
     if element == nil or lanes == nil or shape == nil then
@@ -851,7 +851,7 @@ end
 --- the field's offset. A verified cursor access reads or writes whole lanes at
 --- the cursor; anything else passes the count and a mask, an all-true one when
 --- the access gave none.
---- @raises when the accessed value has no resolved species
+--- @raises string when the accessed value has no resolved species
 function emit.genericFieldAccess(context: emit.Context, access: scalarIR.Simd, storing: boolean): string
     local species = genericSpecies(context, storing and access.args[3].type or access.type)
     local layoutC = "Ks" .. tostring(access.layout)
@@ -881,7 +881,7 @@ function emit.genericFieldAccess(context: emit.Context, access: scalarIR.Simd, s
 end
 
 --- Indexed memory over logical lanes, including composite representations.
---- @raises when the value and index representations have different lane counts
+--- @raises string when the value and index representations have different lane counts
 function emit.indexedSimd(context: emit.Context, node: scalarIR.Simd): string
     local reading = node.op == "simd_load"
     local vectorType = reading and node.type or node.args[3].type
@@ -1055,7 +1055,7 @@ end
 
 --- One scalar expression, as a C expression.
 --- Parenthesised generously so C preserves the IR tree's precedence.
---- @raises when verified IR names an operation with no backend implementation
+--- @raises string when verified IR names an operation with no backend implementation
 function emit.scalar(context: emit.Context, node: scalarIR.Expr): string
     local operation = node.op
 
@@ -1503,7 +1503,7 @@ end
 --- The scalar forms that render as a call rather than an operator: the closed
 --- math set, the fixed-width operations, and the corrected three.
 ---
---- @raises when the IR names an operation this backend cannot render
+--- @raises string when the IR names an operation this backend cannot render
 function emit.scalarCall(context: emit.Context, node: scalarIR.Expr): string
     local operation = node.op
 
@@ -1635,7 +1635,7 @@ end
 --- masks them, and an arithmetic shift goes through a helper because C's `>>`
 --- on a negative signed value is implementation-defined.
 ---
---- @raises when the IR names an operation this backend cannot render
+--- @raises string when the IR names an operation this backend cannot render
 function emit.scalarBits(context: emit.Context, node: scalarIR.Expr): string
     local operation = node.op
     local binary = node as scalarIR.Binary
@@ -1700,7 +1700,7 @@ end
 --- multiplications rather than library calls, and a two-argument `log` is a
 --- ratio, which is what ordinary Nupp computes.
 ---
---- @raises when the intrinsic is outside the closed set
+--- @raises string when the intrinsic is outside the closed set
 function emit.math(context: emit.Context, node: scalarIR.Math): string
     local parts: {string} = {}
     for position, argument in ipairs(node.args) do
@@ -1717,7 +1717,7 @@ end
 --- them back through the expression renderer meant wrapping each in a fictional
 --- node that had to be a member of the IR without being anything the IR means.
 ---
---- @raises when the intrinsic is outside the closed set
+--- @raises string when the intrinsic is outside the closed set
 function emit.mathFrom(context: emit.Context, intrinsic: string, parts: {string}): string
     if intrinsic == "min" or intrinsic == "max" then
         local helper = "nupp_" .. intrinsic .. "2" .. (context.lua51Math and "_lua51" or "")
@@ -2081,7 +2081,7 @@ end
 --- Complete 256-bit vectors use the compiler's vector type when the target
 --- permits it; other widths are aggregates of native vectors. Both retain
 --- the same logical lane identity and scalar oracle.
---- @raises when a fixed species has fewer than two or more than 64 lanes
+--- @raises string when a fixed species has fewer than two or more than 64 lanes
 local function fixedSimdPrelude(context: emit.Context, width: integer, nativeWidths: {[integer]: boolean}): {string}
     local lines: {string} = {}
     local keys: {string} = {}
@@ -2338,7 +2338,7 @@ record emit.Body
 end
 
 --- Pushes one verified construction value on the Lua stack.
---- @raises when called with a value the construction verifier does not admit
+--- @raises string when called with a value the construction verifier does not admit
 local function luaPush(context: emit.Context, value: scalarIR.Expr, prefix: string): {string}
     if value.type == "lua_table" then
         if value.op == "lua_new_table" then
@@ -2729,7 +2729,7 @@ local function controlFlow(
 end
 
 --- A helper call is evaluated once; its result fields introduce live bindings.
---- @raises when the verified helper has no aggregate result
+--- @raises string when the verified helper has no aggregate result
 local function multiLet(context: emit.Context, statement: scalarIR.MultiLet, prefix: string, temp: string): {string}
     local lines: {string} = {}
     local names = context.explicitScalar and context.scalarHelperNames or context.helperNames
@@ -2759,7 +2759,7 @@ end
 --- Logical handles are C integers naming absolute Lua stack slots. The objects
 --- themselves never leave the stack, so every allocating API call sees all
 --- live construction values rooted.
---- @raises when invalid IR mixes Lua string and scalar assignments
+--- @raises string when invalid IR mixes Lua string and scalar assignments
 function emit.luaBlock(
     context: emit.Context,
     statements: {scalarIR.Statement},
@@ -3297,7 +3297,7 @@ local function neonFieldPair(context: emit.Context, pair: cplan.FieldPair, prefi
 end
 
 --- One block of statements, scalar or lane, indented by `depth`.
---- @raises when a multiple-result binding calls a helper the body does not
+--- @raises string when a multiple-result binding calls a helper the body does not
 ---   declare, which is malformed IR rather than anything about the source
 function emit.block(
     context: emit.Context,
@@ -3680,7 +3680,7 @@ end
 --- against. The oracle must not share the real body's lowering, which is why it
 --- keeps the scalar statements and carries a pragma refusing vectorisation --
 --- including whatever the C compiler would have done on its own.
---- @raises when passed malformed or unverified IR
+--- @raises string when passed malformed or unverified IR
 function emit.program(programs: {scalarIR.Program}, tier: string?, sourceFile: string?): string
     local context = emit.context()
     context.sourceFile = sourceFile

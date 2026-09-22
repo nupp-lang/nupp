@@ -436,7 +436,8 @@ end
 --- @param operation what is being waited for, which is what a stuck host reports
 --- @param subscribe hands over the resumption and the context, answers a cancellation
 --- @return whatever `resume` was given
---- @raises when the subscription resumes twice, answers no cancellation for a real
+--- @raises string when the subscription resumes twice, answers no cancellation for a
+---     real
 ---   park, suspends where the handler forbids it, or is handled by one that returns
 ---   without resuming
 function suspension.suspend<T>(

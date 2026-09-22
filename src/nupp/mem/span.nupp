@@ -252,7 +252,7 @@ local record SpanImpl<T> is span.Span<T>
     readonly count: integer
 
     --- Returns one element after checking the one-based index.
-    --- @raises when index is outside 1 through count
+    --- @raises string when index is outside 1 through count
     function get(self: SpanImpl<T>, index: integer): T
         if index < 1 or index > self.count then
             error("span index out of bounds", 2)
@@ -264,7 +264,7 @@ local record SpanImpl<T> is span.Span<T>
     end
 
     --- Returns a checked subspan, inclusive at both ends.
-    --- @raises when the requested range is outside this span
+    --- @raises string when the requested range is outside this span
     function slice(self: SpanImpl<T>, first: integer, last: integer?): span.Span<T> borrows (self)
         local finish = last or self.count
         if first < 1 or finish < first - 1 or finish > self.count then
@@ -433,7 +433,7 @@ local record WriteSpanImpl<T> is span.WriteSpan<T>
     drop: nosuspend function(takes self: WriteSpanImpl<T>): nil
 
     --- Returns a checked mutable element reference tied to this write borrow.
-    --- @raises when index is outside 1 through count
+    --- @raises string when index is outside 1 through count
     function getMut(exclusive self: WriteSpanImpl<T>, index: integer): T* borrows (self)
         if index < 1 or index > self.count then
             error("write span index out of bounds", 2)
@@ -447,7 +447,7 @@ local record WriteSpanImpl<T> is span.WriteSpan<T>
     end
 
     --- Private checked read used by generated operator fallback code.
-    --- @raises when index is outside 1 through count
+    --- @raises string when index is outside 1 through count
     function get(self: WriteSpanImpl<T>, index: integer): T
         if index < 1 or index > self.count then
             error("write span index out of bounds", 2)
@@ -491,7 +491,7 @@ local record WriteSpanImpl<T> is span.WriteSpan<T>
     end
 
     --- Returns an affine writable subspan, inclusive at both ends.
-    --- @raises when the requested range is outside this span
+    --- @raises string when the requested range is outside this span
     function slice(exclusive self: WriteSpanImpl<T>, first: integer, last: integer?): span.Writable<T> borrows (self)
         local finish = last or self.count
         if first < 1 or finish < first - 1 or finish > self.count then
@@ -507,7 +507,7 @@ local record WriteSpanImpl<T> is span.WriteSpan<T>
     end
 
     --- Partitions this range at a zero-based boundary count.
-    --- @raises when mid is negative or greater than count
+    --- @raises string when mid is negative or greater than count
     function splitAt(exclusive self: WriteSpanImpl<T>, mid: integer): span.WriteSplit<T> borrows (self)
         if mid < 0 or mid > self.count then
             error("write span split point out of bounds", 2)
@@ -557,7 +557,7 @@ local record FixedWriteSpanImpl<T, const N: integer> is span.FixedWriteSpan<T, N
     end
 
     --- Private checked read used by generated operator fallback code.
-    --- @raises when index is outside 1 through count
+    --- @raises string when index is outside 1 through count
     function get(self: FixedWriteSpanImpl<T, N>, index: integer): T
         if index < 1 or index > (self.count as integer) then
             error("write span index out of bounds", 2)
@@ -726,7 +726,7 @@ rawset(span as table, "__foreignSpan", foreignSpan)
 --- @param count how many elements the array holds
 --- @return the view, borrowed from the array
 --- @export
---- @raises when count is negative
+--- @raises string when count is negative
 function span.fromCarray<T>(borrows source: T[?], count: integer): span.Span<T> borrows (source)
     if count < 0 then
         error("span count cannot be negative", 2)
@@ -780,7 +780,7 @@ end
 --- @param count how many elements the array holds
 --- @return the affine writer, borrowed from the array
 --- @export
---- @raises when count is negative
+--- @raises string when count is negative
 function span.writeCarray<T>(exclusive source: T[?], count: integer): span.Writable<T> borrows (source)
     if count < 0 then
         error("write span count cannot be negative", 2)

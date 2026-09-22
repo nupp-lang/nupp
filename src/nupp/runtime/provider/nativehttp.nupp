@@ -363,7 +363,8 @@ record http.Body is io.Reader
     --- @param count the most bytes to read
     --- @return the bytes, or nil when the body is closed or failed
     --- @return why it could not read, when unsuccessful
-    --- @raises when count is not a positive integer, or a second reader is on the body
+    --- @raises string when count is not a positive integer, or a second reader is on
+    ---     the body
     function read(self, count: integer): (string?, string?)
         local wanted = whole(count, "body read count", 1)
         return self:_next(wanted)
@@ -393,7 +394,8 @@ record http.Body is io.Reader
     --- @param count the most bytes to read
     --- @return how many bytes were read, or nil when the body is closed or failed
     --- @return why it could not read, when unsuccessful
-    --- @raises when an argument is not a whole number, or a second reader is on the
+    --- @raises string when an argument is not a whole number, or a second reader is on
+    ---     the
     ---     body
     function readInto(self, exclusive destination: io.Buffer, offset: integer?, count: integer?): (integer?, string?)
         local at = whole(offset or 0, "body destination offset", 0)
@@ -426,7 +428,7 @@ record http.Body is io.Reader
     --- @param destination the writer to fill
     --- @return how many bytes moved, or nil on failure
     --- @return why it could not, when unsuccessful
-    --- @raises when a second reader is on the body
+    --- @raises string when a second reader is on the body
     function transferTo(self, exclusive destination: io.Writer): (integer?, string?)
         local total: integer = 0
         local turn: integer = 0
@@ -627,7 +629,7 @@ record http.Response is contracts.Response
     --- @param self this response
     --- @param name the header to read
     --- @return the header's value, or nil when the response carries none
-    --- @raises when name is not a string
+    --- @raises string when name is not a string
     function header(self, name: string): string?
         if type(name) ~= "string" then
             error("nupp: HTTP header name must be a string", 2)
@@ -645,7 +647,7 @@ record http.Response is contracts.Response
     --- @param self this response
     --- @param name the header to read
     --- @return the values, empty when the response carries none
-    --- @raises when name is not a string
+    --- @raises string when name is not a string
     function getAll(self, name: string): {string}
         if type(name) ~= "string" then
             error("nupp: HTTP header name must be a string", 2)
@@ -788,7 +790,7 @@ record http.Client is BodyClient, contracts.Client
     ---
     --- @param self the client being initialized
     --- @param options connection, redirect, timeout and concurrency options
-    --- @raises when the native client cannot be initialized
+    --- @raises string when the native client cannot be initialized
     constructor(self, options: http.Options?): http.Client
         local copied = copiedOptions(options)
         local backend, reason = newClient(copied)
@@ -882,7 +884,7 @@ end
 --- @param request what to send, borrowed for the call
 --- @return the response, owned by the caller, or nil on failure
 --- @return a failure reason, when unsuccessful
---- @raises when the request names no `http` or `https` URL
+--- @raises string when the request names no `http` or `https` URL
 function http.Client:send(borrows request: http.Request): (http.Response?, string?)
     local given = request
     local state = redirectState[request] or {}

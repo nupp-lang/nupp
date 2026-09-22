@@ -187,7 +187,7 @@ end
 ---   with a species or with nil; absent, vectors are assumed
 --- @return the IR, the reasons it was refused, and where each program was
 ---   written
---- @raises when the IR the source lowered to is not well formed, which is a
+--- @raises string when the IR the source lowered to is not well formed, which is a
 ---   compiler bug rather than something about the source
 function compile.lower(
     source: string,
@@ -281,7 +281,7 @@ end
 --- Carrier parameters disappear from the private ABI, their values seed the IR
 --- environment, and the ordinary optimizer and lane pass consume the result.
 --- The single-source fallback remains for the retained backend harness.
---- @raises when lowering or verification exposes a compiler bug rather than an
+--- @raises string when lowering or verification exposes a compiler bug rather than an
 ---   authored specialization refusal
 function compile.constSpecializations(
     source: string,

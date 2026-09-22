@@ -230,18 +230,19 @@ local function inlineNupp(source, links)
     return "<code>" .. highlightNupp(source, links) .. "</code>"
 end
 
--- A raise is a condition and nothing else. There is no type to put beside it, so this
--- lists where an argument or a result tabulates.
+-- A raise names the type `error` is called with and says what brings it about, so it
+-- tabulates the way a result does. The type goes through the same highlighter a
+-- signature does, which is what makes the declaration it names a link from here.
 local function raisesHtml(raises, heading, links)
     if #raises == 0 then
         return ""
     end
-    local entries = {}
-    for _, condition in ipairs(raises) do
-        entries[#entries + 1] = "<li>" .. markdownHtml(condition, links) .. "</li>"
+    local rows = {}
+    for _, raise in ipairs(raises) do
+        rows[#rows + 1] = {inlineNupp(raise.type, links), markdownHtml(raise.text, links)}
     end
 
-    return "<" .. heading .. ">Raises</" .. heading .. "><ul>" .. table.concat(entries) .. "</ul>"
+    return "<" .. heading .. ">Raises</" .. heading .. ">" .. tableHtml({"Type", "Condition"}, rows)
 end
 
 -- One member's heading: the anchor the members table links to, and the `#` beside it

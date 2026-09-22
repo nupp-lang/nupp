@@ -363,8 +363,12 @@ help: add an @raises line saying what makes it raise
 Only functions with a `---` documentation run are judged. `error` counts but
 `assert` does not, nested functions own their raises, and the lint does not
 propagate through calls. `nupp lsp inspect` shows a callee's documented
-`@raises` at its use site. See [doc.md](../learn/tooling/documentation.md#raised-errors) for the
-tag itself.
+`@raises` at its use site.
+
+The line it asks for is `@raises <Type> [text]`, and the type is checked: one
+that names nothing where the docblock is written is `NUPP1010`, an error rather
+than a lint, and not suppressible. See
+[doc.md](../learn/tooling/documentation.md#raised-errors) for the tag itself.
 
 ### `unused-binding`
 

@@ -796,7 +796,7 @@ end
 --- This is ordinary Nupp. It goes through the checker like anything else, which
 --- is what makes substituting it safe: the ownership annotations, the range
 --- guard and the narrow `@unsafe do` are all checked rather than trusted.
---- @raises when passed malformed or unverified IR
+--- @raises string when passed malformed or unverified IR
 function binding.replacement(
     program: scalarIR.Program,
     library: string?,

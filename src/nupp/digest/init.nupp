@@ -128,7 +128,7 @@ end
 --- Requires an available algorithm descriptor.
 --- @param name the canonical algorithm name
 --- @return the selected descriptor
---- @raises when the algorithm is unavailable or its provider is invalid
+--- @raises string when the algorithm is unavailable or its provider is invalid
 export function algorithm(name: string): Algorithm
     local found = lookup(name)
     if found == nil then
@@ -141,7 +141,7 @@ end
 --- Creates fresh incremental digest state.
 --- @param name the canonical algorithm name
 --- @return an owned unfinished digest
---- @raises when the algorithm is unavailable or cannot be initialized
+--- @raises string when the algorithm is unavailable or cannot be initialized
 export function create(name: string): Digest
     return algorithm(name):create()
 end

@@ -38,6 +38,7 @@ record M.ChunkedArray
             end
         end
         self.alive[id] = true
+
         return id
     end
 
@@ -62,6 +63,7 @@ record M.ChunkedArray
         -- `%` on two integers widens to number, and a `{[integer]: _}` key is
         -- checked, so the cast says what the arithmetic already guarantees.
         const slot = (zero % self.chunkSize) as integer
+
         return (chunk as {[integer]: any})[slot]
     end
 end
@@ -70,13 +72,13 @@ end
 ---
 --- @param ffiType the element's C type name
 --- @param chunkSize how many elements each chunk holds
---- @raises when chunkSize is not positive
+--- @raises string when chunkSize is not positive
 function M.new(ffiType: string, chunkSize: integer?): M.ChunkedArray
     const size = chunkSize or 256
     if size <= 0 then
-        error("StableChunkedArray.new: chunkSize must be a positive integer, got "
-            .. tostring(size))
+        error("StableChunkedArray.new: chunkSize must be a positive integer, got " .. tostring(size))
     end
+
     return new M.ChunkedArray(
         chunks = {},
         chunkSize = size,

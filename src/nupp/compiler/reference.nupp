@@ -2053,7 +2053,7 @@ package provider contract.
 
     new reference.Section(
         title = "Docblocks",
-        codes = {"NUPP1007", "NUPP2506", "NUPP2144"},
+        codes = {"NUPP1007", "NUPP1010", "NUPP2506", "NUPP2144"},
         body = [=[
 A leading `@!internal` annotation restricts checked imports to the first canonical
 package namespace and hides the module from public documentation (`NUPP2144`).
@@ -2070,10 +2070,19 @@ An `@param` name must be one of the declaration's real parameters. A typo is
 `NUPP1007`, so generated documentation cannot publish an argument the function
 does not accept.
 
-`@raises` says what makes a function raise, one line per condition. It is the
-other docblock tag the checker reads as well as renders: a documented function
-that calls `error` without one is `undocumented-raise`. Raising is part of how a
-function is called, and Lua has no signature to find it out from.
+`@raises Type the condition` says what a function raises and what brings it
+about, one line per raise, so several lines are how a function that raises more
+than one thing says so. The type is the value `error` is called with, which for
+an ordinary Lua message is `string`; a raise that carries a declaration names it,
+and the page links to it. It is a name rather than a type expression -- `string`,
+`any`, `never`, or a qualified `tasks.Cancellation` -- because the word after the
+tag ends where the condition begins. One that names nothing this file can resolve
+is `NUPP1010`, the same promise `NUPP1007` holds an `@param` to.
+
+`@raises` is the other docblock tag the checker reads as well as renders: a
+documented function that calls `error` without one is `undocumented-raise`.
+Raising is part of how a function is called, and Lua has no signature to find it
+out from.
 ]=],
         example = [=[
 local m = {}
@@ -2082,7 +2091,7 @@ local m = {}
 ---
 --- @param path where to read from
 --- @return the file's contents
---- @raises when the file cannot be read
+--- @raises string when the file cannot be read
 function m.load(path: string): string
     local file = io.open(path, "r")
     if not file then

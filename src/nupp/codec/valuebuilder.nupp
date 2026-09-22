@@ -11,7 +11,7 @@ it found -- an array opens here, this byte range is a key, that one is a number
 local valuebuilder = nupp.codec.valuebuilder
 
 --- Decodes the fixed document `{"id": 41}`.
---- @raises when the stream is left incomplete
+--- @raises string when the stream is left incomplete
 @aot
 local function decode(source: string, nullValue: any): any
     local builder = valuebuilder.new(nullValue)
@@ -79,7 +79,7 @@ end
 --- @param length the range's length in bytes
 --- @param escaped whether the range may hold backslash escapes
 --- @return the decoded string
---- @raises when an escape is unknown, a `\u` code is not hexadecimal, or a
+--- @raises string when an escape is unknown, a `\u` code is not hexadecimal, or a
 ---     surrogate is unpaired or out of range
 local function decodeString(borrows source: any, first: integer, length: integer, escaped: boolean): string
     local bytes = source:sub(first + 1, first + length)
@@ -176,7 +176,7 @@ end
 --- local valuebuilder = nupp.codec.valuebuilder
 ---
 --- --- Builds `[true, null]` without a source document.
---- --- @raises when the stream is left incomplete
+--- --- @raises string when the stream is left incomplete
 --- @aot
 --- local function pair(nullValue: any): any
 ---     local builder = valuebuilder.new(nullValue)
@@ -240,7 +240,7 @@ end
 --- parsed token so skipped subtrees are validated, but it allocates values only
 --- where `shape` selects them. `arrayShapeMarker` is the private key used by the
 --- JSON provider's [](nupp.codec.json.arrayOf) shapes.
---- @raises outside an AOT-compiled function
+--- @raises string outside an AOT-compiled function
 function valuebuilder.newPull(
     nullValue: any,
     maxDepth: uint32,
@@ -259,7 +259,7 @@ end
 --- This has the same source contract as [](nupp.codec.valuebuilder.newPull), but
 --- its distinct intrinsic identity lets AOT erase pull-only dispatch and emit
 --- serde stage two independently.
---- @raises outside an AOT-compiled function
+--- @raises string outside an AOT-compiled function
 function valuebuilder.newSerde(
     nullValue: any,
     maxDepth: uint32,
@@ -279,7 +279,7 @@ end
 
 --- Publishes one escaped source slice using backslash positions retained by
 --- the structural scan. Internal to AOT JSON stage two.
---- @raises outside an AOT-compiled function
+--- @raises string outside an AOT-compiled function
 function valuebuilder.stringEscapes(
     builder: any,
     borrows source: any,
@@ -294,7 +294,7 @@ end
 
 --- Selects one escaped object key using retained backslash positions. Internal
 --- to AOT JSON stage two.
---- @raises outside an AOT-compiled function
+--- @raises string outside an AOT-compiled function
 function valuebuilder.keyEscapes(
     builder: any,
     borrows source: any,
@@ -309,7 +309,7 @@ end
 
 --- Publishes an integer magnitude accumulated in native uint64 arithmetic.
 --- Internal to AOT codecs that must avoid a decimal rescan.
---- @raises outside an AOT-compiled function
+--- @raises string outside an AOT-compiled function
 function valuebuilder.integer64(builder: any, magnitude: uint64, negative: boolean): nil
     error("integer64 exists only inside an @aot function", 2)
 end
@@ -317,7 +317,7 @@ end
 --- Publishes a decimal from the uint64 mantissa and base-ten exponent already
 --- accumulated by a codec. The native fast path handles Clinger's exact range;
 --- other inputs fall back to the authored source slice for correct rounding.
---- @raises outside an AOT-compiled function or when the source range is invalid
+--- @raises string outside an AOT-compiled function or when the source range is invalid
 function valuebuilder.decimal64(
     builder: any,
     borrows source: any,
@@ -406,7 +406,7 @@ end
 --- array, under the object key waiting for it, or as the single root.
 --- @param builder the stream
 --- @param value the finished value to place
---- @raises when a second root arrives, or an object value arrives with no key
+--- @raises string when a second root arrives, or an object value arrives with no key
 local function put(builder: any, value: any): nil
     local stack = builder.stack
     local frame = stack[#stack]
@@ -474,7 +474,7 @@ end
 --- an interpreted body never reaches this.
 --- @param bytes the rooted string or buffer to view
 --- @return the byte view over it
---- @raises when the bytes are not a string outside an AOT entry
+--- @raises string when the bytes are not a string outside an AOT entry
 function valuebuilder.bytes(borrows bytes: any): ByteSpan borrows (bytes)
     -- A span is a view, so it has nothing to root a buffer's unread bytes
     -- with: only an entry's own parameter is rooted for the call, and that is
@@ -495,7 +495,7 @@ end
 --- @param bytes the rooted string to read
 --- @param offset the zero-based byte offset
 --- @return the byte, 0 through 255
---- @raises when offset is outside bytes
+--- @raises string when offset is outside bytes
 function valuebuilder.byte(borrows bytes: any, offset: uint32): uint32
     local value = bytes:byte(offset + 1)
     if value == nil then
@@ -515,7 +515,7 @@ end
 --- @param bytes the rooted string to read
 --- @param offset the proved in-bounds zero-based byte offset
 --- @return the byte, 0 through 255
---- @raises when offset is outside bytes outside AOT
+--- @raises string when offset is outside bytes outside AOT
 function valuebuilder.byteAt(borrows bytes: any, offset: uint32): uint32
     return valuebuilder.byte(bytes, offset)
 end
@@ -528,7 +528,7 @@ end
 --- @param bytes the rooted string to read
 --- @param index the zero-based word index
 --- @return the word's value
---- @raises when the complete word is outside bytes
+--- @raises string when the complete word is outside bytes
 function valuebuilder.word(bytes: string, index: uint32): uint32
     local offset = index * 4
     if offset > #bytes - 4 then
@@ -603,7 +603,7 @@ end
 --- @param scratch a buffer from [](nupp.codec.valuebuilder.newWordScratch)
 --- @param index the zero-based word index
 --- @return the word's value
---- @raises when the indexed word has not been initialized
+--- @raises string when the indexed word has not been initialized
 function valuebuilder.scratchWord(scratch: any, index: uint32): uint32
     if index >= scratch.length then
         error("value stream scratch read is out of bounds", 2)
@@ -624,13 +624,13 @@ function valuebuilder.scratchLength(scratch: any): uint32
 end
 
 --- Reads one retained escape position in source order.
---- @raises outside an AOT-compiled function
+--- @raises string outside an AOT-compiled function
 function valuebuilder.scratchEscapeWord(scratch: any, index: uint32): uint32
     error("scratchEscapeWord exists only inside an @aot function", 2)
 end
 
 --- Answers how many escape positions the structural scan retained.
---- @raises outside an AOT-compiled function
+--- @raises string outside an AOT-compiled function
 function valuebuilder.scratchEscapeLength(scratch: any): uint32
     error("scratchEscapeLength exists only inside an @aot function", 2)
 end
@@ -644,7 +644,7 @@ end
 --- @param scratch a buffer from [](nupp.codec.valuebuilder.newWordScratch)
 --- @param index the zero-based word index, at most the current length
 --- @param value the word to store
---- @raises when the index leaves a gap or exceeds the capacity
+--- @raises string when the index leaves a gap or exceeds the capacity
 function valuebuilder.setScratchWord(scratch: any, index: uint32, value: uint32): nil
     if index > scratch.length or index >= scratch.capacity then
         error("value stream scratch write is out of bounds", 2)
@@ -713,7 +713,7 @@ end
 --- @param scratch a buffer from [](nupp.codec.valuebuilder.newByteScratch)
 --- @param index the zero-based byte index
 --- @return the byte, 0 through 255
---- @raises when the indexed byte has not been initialized
+--- @raises string when the indexed byte has not been initialized
 function valuebuilder.scratchByte(scratch: any, index: uint32): uint32
     if index >= scratch.length then
         error("value stream byte scratch read is out of bounds", 2)
@@ -728,7 +728,7 @@ end
 --- @param scratch a buffer from [](nupp.codec.valuebuilder.newByteScratch)
 --- @param index the zero-based byte index, at most the current length
 --- @param value the byte to store, 0 through 255
---- @raises when the write leaves a gap, exceeds capacity, or is not a byte
+--- @raises string when the write leaves a gap, exceeds capacity, or is not a byte
 function valuebuilder.setScratchByte(scratch: any, index: uint32, value: uint32): nil
     if index > scratch.length or index >= scratch.capacity or value > 255 then
         error("value stream byte scratch write is out of bounds", 2)
@@ -757,7 +757,8 @@ end
 --- @param scratch a buffer from [](nupp.codec.valuebuilder.newByteScratch)
 --- @param index the zero-based byte index, at most the current length
 --- @param value the four bytes, least significant at `index`
---- @raises when the write leaves a gap, straddles the length, or exceeds capacity
+--- @raises string when the write leaves a gap, straddles the length, or exceeds
+---     capacity
 function valuebuilder.setScratchBytes4(scratch: any, index: uint32, value: uint32): nil
     if index > scratch.length or index + 4 > scratch.capacity then
         error("value stream byte scratch write is out of bounds", 2)
@@ -781,7 +782,7 @@ end
 --- readable, since [](nupp.codec.valuebuilder.scratchByte) admits only initialized
 --- indexes.
 --- @param scratch a buffer from [](nupp.codec.valuebuilder.newByteScratch)
---- @raises when the buffer is a fixed one, which has no fill state to discard
+--- @raises string when the buffer is a fixed one, which has no fill state to discard
 function valuebuilder.resetByteScratch(scratch: any): nil
     -- A fixed buffer's length is its capacity and stays there; setting it to
     -- zero would leave a buffer whose every byte the surface promises is
@@ -813,8 +814,8 @@ end
 --- @param scratch a buffer from [](nupp.codec.valuebuilder.newByteScratch)
 --- @param start the range's zero-based first byte
 --- @param length the range's length in bytes
---- @raises when the range is not initialized
---- @raises when the value would be a second root, or an object value with no key
+--- @raises string when the range is not initialized
+--- @raises string when the value would be a second root, or an object value with no key
 function valuebuilder.stringScratch(builder: any, scratch: any, start: uint32, length: uint32): nil
     if start > scratch.length or length > scratch.length - start then
         error("value stream byte scratch range is out of bounds", 2)
@@ -830,7 +831,7 @@ end
 --- @param scratch a buffer from [](nupp.codec.valuebuilder.newByteScratch)
 --- @param start the range's zero-based first byte
 --- @param length the range's length in bytes
---- @raises when outside an object, when a key is already pending, or when the
+--- @raises string when outside an object, when a key is already pending, or when the
 ---     range is not initialized
 function valuebuilder.keyScratch(builder: any, scratch: any, start: uint32, length: uint32): nil
     local frame = builder.stack[#builder.stack]
@@ -886,7 +887,7 @@ end
 --- Returns the current container's tag: 5 for an array and 6 for an object.
 --- @param builder the stream
 --- @return the innermost open container's tag
---- @raises when the stream has no current container
+--- @raises string when the stream has no current container
 function valuebuilder.kind(builder: any): uint32
     local frame = builder.stack[#builder.stack]
     if frame == nil then
@@ -902,7 +903,7 @@ end
 --- value yet still answers with the count before it.
 --- @param builder the stream
 --- @return how many values the innermost open container holds
---- @raises when the stream has no current container
+--- @raises string when the stream has no current container
 function valuebuilder.count(builder: any): uint32
     local frame = builder.stack[#builder.stack]
     if frame == nil then
@@ -949,8 +950,8 @@ end
 --- @param start the range's zero-based first byte
 --- @param length the range's length in bytes
 --- @param escaped whether the range may hold backslash escapes
---- @raises when outside an object, or when a key is already pending
---- @raises when an escape in the range is malformed
+--- @raises string when outside an object, or when a key is already pending
+--- @raises string when an escape in the range is malformed
 function valuebuilder.key(builder: any, borrows source: any, start: uint32, length: uint32, escaped: boolean): nil
     local frame = builder.stack[#builder.stack]
     if frame == nil or frame.kind ~= 6 or frame.key ~= nil then
@@ -968,8 +969,8 @@ end
 --- @param start the range's zero-based first byte
 --- @param length the range's length in bytes
 --- @param escaped whether the range may hold backslash escapes
---- @raises when an escape in the range is malformed
---- @raises when the value would be a second root, or an object value with no key
+--- @raises string when an escape in the range is malformed
+--- @raises string when the value would be a second root, or an object value with no key
 function valuebuilder.string(builder: any, borrows source: any, start: uint32, length: uint32, escaped: boolean): nil
     put(builder, decodeString(source, start, length, escaped))
 end
@@ -981,7 +982,7 @@ end
 --- of the source, so that the conversion happens without a substring.
 --- @param builder the stream
 --- @param value the number to add
---- @raises when the value would be a second root, or an object value with no key
+--- @raises string when the value would be a second root, or an object value with no key
 function valuebuilder.number(builder: any, value: number): nil
     put(builder, value)
 end
@@ -995,8 +996,8 @@ end
 --- @param source the rooted string the range indexes
 --- @param start the range's zero-based first byte
 --- @param length the range's length in bytes
---- @raises when the source range is not a number token
---- @raises when the value would be a second root, or an object value with no key
+--- @raises string when the source range is not a number token
+--- @raises string when the value would be a second root, or an object value with no key
 function valuebuilder.numberSlice(builder: any, borrows source: any, start: uint32, length: uint32): nil
     local value = tonumber(source:sub(start + 1, start + length))
     if value == nil then
@@ -1015,8 +1016,8 @@ end
 --- @param source the rooted string the range indexes
 --- @param start the range's zero-based first byte
 --- @param length the range's length in bytes
---- @raises when the source range is not an integer token
---- @raises when the value would be a second root, or an object value with no key
+--- @raises string when the source range is not an integer token
+--- @raises string when the value would be a second root, or an object value with no key
 function valuebuilder.integerSlice(builder: any, borrows source: any, start: uint32, length: uint32): nil
     local value = tonumber(source:sub(start + 1, start + length))
     if value == nil then
@@ -1028,7 +1029,7 @@ end
 --- Adds a boolean value.
 --- @param builder the stream
 --- @param value the boolean to add
---- @raises when the value would be a second root, or an object value with no key
+--- @raises string when the value would be a second root, or an object value with no key
 function valuebuilder.boolean(builder: any, value: boolean): nil
     put(builder, value)
 end
@@ -1036,7 +1037,7 @@ end
 --- Adds the null replacement the stream was started with by
 --- [](nupp.codec.valuebuilder.new) or [](nupp.codec.valuebuilder.newSized).
 --- @param builder the stream
---- @raises when the value would be a second root, or an object value with no key
+--- @raises string when the value would be a second root, or an object value with no key
 function valuebuilder.null(builder: any): nil
     put(builder, builder.nullValue)
 end
@@ -1048,8 +1049,8 @@ end
 --- outermost container publishes the root, which [](nupp.codec.valuebuilder.finish)
 --- then returns.
 --- @param builder the stream
---- @raises when no container is open, or when an object key has no value
---- @raises when the closed container would be a second root
+--- @raises string when no container is open, or when an object key has no value
+--- @raises string when the closed container would be a second root
 function valuebuilder.close(builder: any): nil
     local stack = builder.stack
     local frame = stack[#stack]
@@ -1078,7 +1079,7 @@ end
 ---
 --- @param builder the stream
 --- @return the one value the stream published
---- @raises when a container is still open, or when no root was published
+--- @raises string when a container is still open, or when no root was published
 function valuebuilder.finish(builder: any): any
     if #builder.stack ~= 0 then
         error("value stream has an unclosed container", 2)
