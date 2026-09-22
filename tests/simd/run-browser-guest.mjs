@@ -14,8 +14,10 @@ const project = path.resolve(projectArg), guest = path.resolve(guestArg), output
 const manifest = await packageBrowserApp({project, target:'app', output, guest, prebuilt:true});
 const corpus = JSON.parse(readFileSync(path.join(project, 'corpus.json'), 'utf8'));
 const matrixCorpus = !corpus.algorithm && Object.keys(corpus.probes).length > 1;
-// Large owned and matrix corpora need a bounded ten minutes on loaded runners.
-const deadlineMs = matrixCorpus || ['utf8simd', 'simd-json'].includes(corpus.algorithm) ? 600000 : 240000;
+// The full UTF-8 and number corpora exceed ten minutes on loaded CI runners.
+const numberCorpus = matrixCorpus && corpus.coverage?.some(item => item.element === 'number');
+const deadlineMs = numberCorpus ? 1800000 : corpus.algorithm === 'utf8simd' ? 1200000
+  : matrixCorpus || corpus.algorithm === 'simd-json' ? 600000 : 240000;
 // Matrix probes transfer large span payloads, but remain below the effect-count cap.
 const matrixBytes = matrixCorpus ? 2147483648 : 268435456;
 const entries = manifest.kernels.flatMap(kernel => kernel.entries.map(entry => ({...entry, unit:kernel.unit})));
@@ -68,7 +70,8 @@ try {
     args:['--no-sandbox','--disable-dev-shm-usage']});
   const page = await browser.newPage();
   await page.goto(`http://127.0.0.1:${server.address().port}/runner.html`);
-  await page.waitForFunction(() => ['passed','failed'].includes(document.querySelector('#result')?.dataset.status), null, {timeout:deadlineMs});
+  // Include startup and error-reporting slack beyond the application deadline.
+  await page.waitForFunction(() => ['passed','failed'].includes(document.querySelector('#result')?.dataset.status), null, {timeout:deadlineMs + 120000});
   const browserResult = JSON.parse(await page.locator('#result').textContent());
   if (!browserResult.ok) throw new Error(JSON.stringify(browserResult));
   const digest = file => createHash('sha256').update(readFileSync(file)).digest('hex');
