@@ -115,8 +115,8 @@
 }
 
 /* The base theme sets nav links to the muted text color; pull them up to
- * the same tan the header nav links and h1 use instead, rather than
- * something that reads as dimmed-out. */
+ * the same tan the header nav links use instead, rather than something
+ * that reads as dimmed-out. */
 .nuppdoc-sidebar a,
 .nuppdoc-outline a {
   color: var(--nuppdoc-nav-heading);
@@ -332,13 +332,10 @@
 
 /* Headings are the text face throughout; the heading color is what marks
  * them out. */
+.nuppdoc-content h1,
 .nuppdoc-content h2,
 .nuppdoc-content h3 {
   color: var(--nuppdoc-feature-heading);
-}
-
-.nuppdoc-content h1 {
-  color: var(--nuppdoc-nav-heading);
 }
 
 .nuppdoc-content h2 {

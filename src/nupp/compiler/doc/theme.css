@@ -1110,7 +1110,7 @@ details.nuppdoc-admonition>.nuppdoc-admonition-body {
     position: relative;
     margin: 0;
     padding: .24rem .55rem .24rem var(--nuppdoc-sidebar-indent);
-    color: var(--nuppdoc-text);
+    color: var(--nuppdoc-text-muted);
     font-size: .88rem;
     font-weight: 500;
     cursor: pointer;
