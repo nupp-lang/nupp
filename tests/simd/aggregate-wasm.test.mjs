@@ -56,7 +56,7 @@ test('all disjoint shards at one revision complete the inventory', () => {
   const result = run(() => {});
   assert.equal(result.status, 0);
   assert.equal(result.report.full_wasm_inventory_complete, true);
-  assert.equal(result.report.executedShards, 40);
+  assert.equal(result.report.executedShards, shards.length);
 });
 for (const family of ['bitpatterns', 'bitmemory', 'masks', 'maps']) {
   for (const route of ['execution', 'scalarC']) {

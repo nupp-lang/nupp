@@ -340,7 +340,7 @@ function M.wasmSimdShardsCoverEveryTypeAndWidthExactlyOnce()
             test.assert(seen[element][tostring(width)], "every legal Fixed width requested")
         end
     end
-    test.assert(#shards == 40, "ten element types times four width batches")
+    test.assert(#shards == 42, "two oversized floating-point batches are split")
 end
 
 return M
