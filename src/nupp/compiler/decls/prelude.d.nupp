@@ -28,8 +28,8 @@ end
 --- Declaring `is nupp.Closeable` makes construction and bare type annotations carry the
 --- close obligation automatically. A resource that publishes pending work declares
 --- `flush` on its own contract; closing is the lifecycle common to all resources.
-affine interface nupp.Closeable
-    terminal close: nosuspend function(takes self: nupp.Closeable): nil
+interface nupp.Closeable is nupp.Affine<self.close>
+    close: function(takes self: nupp.Closeable): nil
 end
 
 --- A failed operation on a managed alias.

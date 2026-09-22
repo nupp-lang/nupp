@@ -1263,6 +1263,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                     )
                 end
                 node.ownershipIntrinsic = "drop"
+                node.ownerType = valueT
                 node.ownerCleanups = {}
                 node.ownerCleanupGuards = nil
                 local state = args[1] and c.ownershipState((c.ownershipEntry(args[1]))) or nil

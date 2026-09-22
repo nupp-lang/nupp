@@ -30,6 +30,7 @@ See `docs/learn/runtime/concurrency/suspension.md`.
 
 local cst = require("nupp.compiler.cst")
 local state = require("nupp.compiler.check.state")
+local T = require("nupp.compiler.types")
 
 local nosuspend = {}
 
@@ -293,7 +294,13 @@ function nosuspend.install(c: state.Checker): nosuspend.Ops
 
     -- Whether a terminal may park, from its visible body where this file has one and
     -- from its type where it does not.
-    local function cleanupMayYield(cleanup: any, queries: any): boolean
+    local function cleanupMayYield(cleanup: any, queries: any, ownerType: any?): boolean
+        if cleanup and cleanup.kind == "method" then
+            local owner = ownerType and T.unwrapOwnership(ownerType) or nil
+            local method = owner and owner.tag == "nominal" and owner.byname[cleanup.name] or nil
+            method = method and T.unwrapOwnership(method) or nil
+            return method == nil or method.tag ~= "func" or method.noYield ~= true
+        end
         local token = cleanup and cleanup.token
         local info = token and queries and queries.known and queries.known(token) or nil
         local mayYield = false
@@ -329,16 +336,18 @@ function nosuspend.install(c: state.Checker): nosuspend.Ops
 
     -- The terminal a cleanup runs: a field cleanup names the function that closes
     -- the field.
-    local function terminalOf(cleanup: any): any
+    local function terminalOf(cleanup: any, ownerType: any?): any, any?
         local operation = cleanup
         while operation and operation.kind == "field" do
+            local owner = ownerType and T.unwrapOwnership(ownerType) or nil
+            ownerType = owner and owner.tag == "nominal" and owner.byname[operation.field] or nil
             operation = operation.cleanup
         end
-        if operation and operation.kind == "function" then
-            return operation
+        if operation and (operation.kind == "function" or operation.kind == "method") then
+            return operation, ownerType
         end
 
-        return nil
+        return nil, nil
     end
 
     -- Every terminal discharged inside a body, with where it is discharged: an owner
@@ -355,19 +364,19 @@ function nosuspend.install(c: state.Checker): nosuspend.Ops
         end
         for _, owner in ipairs(body.automaticOwners or {}) do
             for _, cleanup in ipairs(owner.cleanups or {}) do
-                into[#into + 1] = {cleanup = cleanup, at = body}
+                into[#into + 1] = {cleanup = cleanup, at = body, ownerType = owner.entry and owner.entry.t}
             end
         end
         if kind == "withStmt" then
             for _, binding in ipairs(body.bindings or {}) do
                 for _, cleanup in ipairs(binding.ownerCleanups or {}) do
-                    into[#into + 1] = {cleanup = cleanup, at = binding.expr or body}
+                    into[#into + 1] = {cleanup = cleanup, at = binding.expr or body, ownerType = binding.acquiredType}
                 end
             end
         end
         if body.ownershipIntrinsic == "drop" or body.ownershipIntrinsic == "attemptAll" then
             for _, cleanup in ipairs(body.ownerCleanups or {}) do
-                into[#into + 1] = {cleanup = cleanup, at = body}
+                into[#into + 1] = {cleanup = cleanup, at = body, ownerType = body.ownerType}
             end
         end
         for _, child in ipairs(body.stats or {}) do
@@ -390,8 +399,8 @@ function nosuspend.install(c: state.Checker): nosuspend.Ops
             dischargedWithin(region.body, discharged)
             local reported = {}
             for _, candidate in ipairs(discharged) do
-                local terminal = terminalOf(candidate.cleanup)
-                if terminal and not reported[terminal] and cleanupMayYield(terminal, queries) then
+                local terminal, receiverType = terminalOf(candidate.cleanup, candidate.ownerType)
+                if terminal and not reported[terminal] and cleanupMayYield(terminal, queries, receiverType) then
                     reported[terminal] = true
                     c.diag(
                         "NUPP2701",

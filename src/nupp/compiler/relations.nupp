@@ -918,7 +918,7 @@ local function check(a: Type, b: Type): boolean, string?
     -- An ownership claim is made by a declared edge, even though ordinary
     -- interface members are structural. The cleanup identity must also agree.
     if btag == "nominal" and b.declKind == "interface" and hasAffineClaim(b) then
-        local source = atag == "affine" and (a as T.Affine).inner or a
+        local source = atag == "affine" and (a as T.Affine).inner or atag == "borrowed" and (a as T.Borrowed).inner or a
         local sourceNominal = source.tag == "nominal" and source as T.Nominal or nil
         local target = b as T.Nominal
         if ((target.origin or target) as T.Nominal).intrinsicAffine then

@@ -7351,6 +7351,7 @@ local function acquireId(): affine(integer, releaseId) return 7 end
 local function consume<C is nupp.Affine<releaseId>>(takes value: C): nil
     print(value)
 end
+
 consume(acquireId())
 
 local record Resource is nupp.Affine<self.finish>
@@ -7372,6 +7373,46 @@ accept(new Incidental())
 ]]
     )
     assert(bad:find("NUPP2116", 1, true), "a compatible method alone is not an Affine claim: " .. bad)
+end
+
+function M.closeableInheritsAffineAndAllowsSuspendingClose()
+    local source = [[
+local park: function(): nil = nil as any
+local interface Stream is nupp.Closeable
+    next: function(exclusive self: Stream): Stream borrows (self)
+end
+local record Input is Stream
+    function close(takes self): nil park() end
+    function next(exclusive self): Stream borrows (self)
+        return self
+    end
+end
+local input = new Input()
+input:next()
+nupp.drop(input)
+]]
+    assertClean(source)
+    local bad = codes(source:gsub("nupp.drop%(input%)", "@nosuspend do nupp.drop(input) end"))
+    assert(bad:find("NUPP2701", 1, true), "a suspending close cannot run in a nosuspend region: " .. bad)
+    assertClean([[
+local record Child is nupp.Closeable
+    @effects(suspends = false) function close(takes self): nil end
+end
+local record Parent
+    child: Child
+end
+@nosuspend do
+    local parent = new Parent(child = new Child())
+end
+]])
+    bad = codes([[
+local record Incidental
+    function close(takes self): nil end
+end
+local function accept<C is nupp.Closeable>(takes value: C): nil end
+accept(new Incidental())
+]])
+    assert(bad:find("NUPP2116", 1, true), "close alone must not claim Closeable: " .. bad)
 end
 
 function M.contextualNoSuspendFrameCallback()

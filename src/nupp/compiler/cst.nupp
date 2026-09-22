@@ -583,6 +583,9 @@ interface cst.Hints
     --- What an owner promised to release.
     ownerCleanups: any
 
+    --- The value carrying a method cleanup at this operation.
+    ownerType: any
+
     --- For a `drop`, the cleanups above that run only under a field's run-time
     --- record, keyed by their index: {owner = automatic, field = name}.
     ownerCleanupGuards: any
