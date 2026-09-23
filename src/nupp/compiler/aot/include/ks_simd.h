@@ -290,18 +290,18 @@ KS_SCALAR_REGION_END
 #define KS_EXP_BYTE_SWIZZLE_PAIR_BODY_64(CTYPE, LANES) KS_EXP_SWIZZLE_PAIR_LOOP(CTYPE, LANES)
 #define KS_EXP_SWIZZLE_1(W, ELEM, CTYPE, LANES) \
 static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_swizzle_##ELEM(ks_exp_##ELEM value, ks_exp_##ELEM indices) { \
-    ks_exp_##ELEM out; ks_exp_##ELEM zeroBased KS_UNUSED = indices - 1; \
+    ks_exp_##ELEM out = {0}; ks_exp_##ELEM zeroBased KS_UNUSED = indices - 1; \
     KS_EXP_BYTE_SWIZZLE_BODY_##W(CTYPE, LANES) \
     return out; \
 } \
 static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_swizzle_pair_##ELEM(ks_exp_##ELEM first, ks_exp_##ELEM indices, ks_exp_##ELEM second) { \
-    ks_exp_##ELEM out; ks_exp_##ELEM zeroBased KS_UNUSED = indices - 1; \
+    ks_exp_##ELEM out = {0}; ks_exp_##ELEM zeroBased KS_UNUSED = indices - 1; \
     KS_EXP_BYTE_SWIZZLE_PAIR_BODY_##W(CTYPE, LANES) \
     return out; \
 }
 #define KS_EXP_SWIZZLE_WIDE(W, ELEM, CTYPE, LANES) \
-static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_swizzle_##ELEM(ks_exp_##ELEM value, ks_exp_##ELEM indices) { ks_exp_##ELEM out; KS_EXP_SWIZZLE_LOOP(CTYPE, LANES) return out; } \
-static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_swizzle_pair_##ELEM(ks_exp_##ELEM first, ks_exp_##ELEM indices, ks_exp_##ELEM second) { ks_exp_##ELEM out; KS_EXP_SWIZZLE_PAIR_LOOP(CTYPE, LANES) return out; }
+static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_swizzle_##ELEM(ks_exp_##ELEM value, ks_exp_##ELEM indices) { ks_exp_##ELEM out = {0}; KS_EXP_SWIZZLE_LOOP(CTYPE, LANES) return out; } \
+static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_swizzle_pair_##ELEM(ks_exp_##ELEM first, ks_exp_##ELEM indices, ks_exp_##ELEM second) { ks_exp_##ELEM out = {0}; KS_EXP_SWIZZLE_PAIR_LOOP(CTYPE, LANES) return out; }
 #define KS_EXP_SWIZZLE_2 KS_EXP_SWIZZLE_WIDE
 #define KS_EXP_SWIZZLE_4 KS_EXP_SWIZZLE_WIDE
 #define KS_EXP_SWIZZLE_8 KS_EXP_SWIZZLE_WIDE
