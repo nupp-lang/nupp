@@ -600,9 +600,13 @@ local function copyModuleRecord(record)
     end
     local projectDependencies = jsonArray({} as {DependencyRecord})
     for _, dependency in ipairs(record.projectDependencies or {}) do
+        local paths = jsonArray({} as {string})
+        for _, path in ipairs(dependency.paths or {}) do
+            paths[#paths + 1] = path
+        end
         projectDependencies[
             #projectDependencies + 1
-        ] = {name = dependency.name, key = dependency.key, fingerprint = dependency.fingerprint,}
+        ] = {name = dependency.name, key = dependency.key, fingerprint = dependency.fingerprint, paths = paths,}
     end
 
     return {
@@ -1550,7 +1554,17 @@ local function buildModules(root: string, outDir: string, config: Config, target
         said[name] = mine
         local materializations = materializeObserve.collect(result.result and result.result.root, path)
         local derives = result.result and result.result.deriveObservations or {}
-        local projectDependencies = inc.projectDependencies(path)
+        local projectDependencies = jsonArray({} as {DependencyRecord})
+        for _, dependency in ipairs(inc.projectDependencies(path)) do
+            projectDependencies[
+                #projectDependencies + 1
+            ] = {
+                name = dependency.name,
+                key = dependency.key,
+                fingerprint = dependency.fingerprint,
+                paths = jsonArray(inc.projectDependencyPaths(dependency.name, dependency.key)),
+            }
+        end
         local checkedExports = result.exports or {}
         records[name] = {
             sourcePath = path,
@@ -1560,7 +1574,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
             dependencies = jsonArray(depNames),
             runtimeModules = runtimeModules,
             compilerRuntime = packagedRuntimeModules[name] or nil,
-            projectDependencies = jsonArray(projectDependencies),
+            projectDependencies = projectDependencies,
             effects = jsonArray(effectNames),
             output = output,
             external = external or nil,

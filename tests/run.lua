@@ -291,6 +291,8 @@ local chosenSet = nil
 -- schedulable suite slices.
 local chosenCases = {}
 local chosenCaseCount = 0
+local requestedCases = {}
+local requestedCaseCount = 0
 local seenCaseIds = {}
 -- A lifecycle-hook failure is a suite failure, not a selectable case. A rerun
 -- executes that whole suite so a repaired beforeAll or afterAll still proves
@@ -315,6 +317,15 @@ local lane = nil
 -- `--list-suites` and `--list-groups` answer what a run would cover without
 -- running it, which is what a workflow author and its review need.
 local listing = nil
+-- Impact selection belongs to the bundled runner. A bare flag compares the
+-- working tree with HEAD; a value compares it with the merge base of that ref
+-- and HEAD. Selection is applied after discovery and explicit positive filters,
+-- but before listing or worker planning.
+local diffRequested = false
+local diffRef = nil
+local explainSelection = false
+local diffShadow = false
+local impactRecordId = nil
 -- Where the work this process is to take from lives, when a parent handed out a
 -- queue rather than a list. Empty means "decide for yourself" the same way an
 -- empty shard does.
@@ -393,6 +404,25 @@ for _, argument in ipairs(arg) do
         listing = "cases"
     elseif argument == "--list-groups" then
         listing = "groups"
+    elseif argument == "--diff" then
+        diffRequested = true
+    elseif argument:match("^%-%-diff=") then
+        diffRequested = true
+        diffRef = argument:sub(#"--diff=" + 1)
+        if diffRef == "" then
+            io.stderr:write("nupp: --diff=REF requires a revision\n")
+            os.exit(2)
+        end
+    elseif argument == "--explain-selection" then
+        explainSelection = true
+    elseif argument == "--shadow" then
+        diffShadow = true
+    elseif argument:match("^%-%-internal%-impact%-record=") then
+        impactRecordId = argument:sub(#"--internal-impact-record=" + 1)
+        if impactRecordId == "" then
+            io.stderr:write("nupp: internal impact recording requires a run ID\n")
+            os.exit(2)
+        end
     elseif argument:match("^%-%-case=") then
         local id = argument:sub(#"--case=" + 1)
         if id == "" then
@@ -402,6 +432,8 @@ for _, argument in ipairs(arg) do
         if not chosenCases[id] then
             chosenCases[id] = true
             chosenCaseCount = chosenCaseCount + 1
+            requestedCases[id] = true
+            requestedCaseCount = requestedCaseCount + 1
         end
     elseif argument:match("^%-%-rerun=") then
         if rerunReport ~= nil then
@@ -420,6 +452,73 @@ end
 if colorProblem then
     io.stderr:write("nupp: " .. colorProblem .. "\n")
     os.exit(2)
+end
+if explainSelection and not diffRequested then
+    io.stderr:write("nupp: --explain-selection requires --diff or --diff=REF\n")
+    os.exit(2)
+end
+if diffShadow and not diffRequested then
+    io.stderr:write("nupp: --shadow requires --diff or --diff=REF\n")
+    os.exit(2)
+end
+local unfilteredTopLevel = #chosen == 0
+    and #chosenGroups == 0
+    and #excludedNames == 0
+    and #excludedGroups == 0
+    and lane == nil
+    and listing == nil
+    and rerunReport == nil
+    and not diffRequested
+    and #shard == 0
+    and queueDir == nil
+    and chosenCaseCount == 0
+local impactFacadeAvailable = package.loaded["runner.impact"] ~= nil
+if not impactFacadeAvailable then
+    local loaded = pcall(require, "runner.impact")
+    impactFacadeAvailable = loaded
+end
+if unfilteredTopLevel and impactFacadeAvailable and os.getenv("NUPP_TEST_IMPACT_RECORD") ~= "0" then
+    impactRecordId = ("%d-%s"):format(os.time(), processSalt)
+end
+local impactRecording = impactRecordId ~= nil
+local impactObserve = impactRecording and require("nupp.compiler.testimpact.observe") or nil
+local impactFs = impactRecording and require("nupp.compiler.fs") or nil
+local impactFragmentDir = impactRecording
+    and impactFs.absolute(buildRoot .. "/.nupp-test-impact-run/" .. impactRecordId)
+    or nil
+if impactFragmentDir then
+    assert(impactFs.mkdir(impactFragmentDir), "cannot create the test-impact fragment directory")
+    if unfilteredTopLevel then
+        local fragmentRoot = impactFs.dirname(impactFragmentDir)
+        local files = require("nupp.io.files")
+        local entries = files.list(fragmentRoot) or {}
+        local staleBefore = os.time() - 86400
+        for _, entry in ipairs(entries) do
+            local timestamp = tonumber(entry.name:match("^(%d+)%-"))
+            if entry.kind == "directory" and timestamp and timestamp < staleBefore then
+                local removed, problem = files.remove(impactFs.join(fragmentRoot, entry.name), true)
+                if not removed then
+                    io.stderr:write(
+                        "nupp: cannot remove abandoned test-impact fragments: " .. tostring(problem) .. "\n"
+                    )
+                end
+            end
+        end
+    end
+end
+local impactObserver = impactObserve and impactObserve.new({
+    runId = impactRecordId,
+    platform = (jit and (jit.os .. "/" .. jit.arch)) or _VERSION,
+    projectRoot = impactFs.absolute("."),
+    fragmentDir = impactFragmentDir,
+}) or nil
+local impactFragments = {}
+local impactSliceSafe = {}
+local selectionReport = nil
+local selectionRequestedSuites = nil
+local selectionRequestedCases = nil
+if impactObserver then
+    impactObserve.activate(impactObserver)
 end
 if rerunReport ~= nil then
     local file, problem = io.open(rerunReport, "rb")
@@ -463,6 +562,8 @@ if rerunReport ~= nil then
                 if not chosenCases[id] then
                     chosenCases[id] = true
                     chosenCaseCount = chosenCaseCount + 1
+                    requestedCases[id] = true
+                    requestedCaseCount = requestedCaseCount + 1
                 end
             end
         end
@@ -846,6 +947,7 @@ local suites = {}
 local byName = {}
 local discovered = {}
 local suiteCatalog = {}
+local explicitlyRemoved = {}
 do
     local function found(f)
         local name, extension = f:match("^(.*test)%.([^.]+)$")
@@ -941,17 +1043,16 @@ do
     -- Exclusion answers "run everything this workflow has not already run",
     -- which is how a focused early gate stops being repeated verbatim inside
     -- the later broad one.
-    local removed = {}
     for _, name in ipairs(excludedNames) do
         if not byName[name] then
             io.stderr:write(("nupp: no test suite named %s to exclude\n"):format(name))
             os.exit(2)
         end
-        removed[name] = true
+        explicitlyRemoved[name] = true
     end
     for _, name in ipairs(excludedGroups) do
         for suite in pairs(expandGroup(name, definitionsOnce())) do
-            removed[suite] = true
+            explicitlyRemoved[suite] = true
         end
     end
 
@@ -974,7 +1075,7 @@ do
 
     for _, info in ipairs(discovered) do
         local name = info.name
-        if not removed[name]
+        if not explicitlyRemoved[name]
             and (not chosenSet or chosenSet[name])
             and (not wanted or wanted[name])
             and not queueDir
@@ -987,6 +1088,232 @@ end
 table.sort(suites, function(a, b)
     return a.name .. "." .. a.extension < b.name .. "." .. b.extension
 end)
+
+local impactStamps = nil
+local impactGraph = nil
+if diffRequested then
+    local requestedSuites = {}
+    for _, info in ipairs(suites) do
+        requestedSuites[#requestedSuites + 1] = info
+    end
+    local requestedCases = {}
+    for id in pairs(chosenCases) do
+        requestedCases[id] = true
+    end
+    local requestedCaseTotal = chosenCaseCount
+    selectionRequestedSuites = requestedSuites
+    selectionRequestedCases = requestedCases
+    local impactDiff = require("nupp.compiler.testimpact.diff")
+    local discoveredDiff = impactDiff.discover({cwd = ".", ref = diffRef})
+    if not discoveredDiff.available then
+        io.stderr:write("nupp: " .. tostring(discoveredDiff.reason) .. "\n")
+        os.exit(2)
+    end
+    impactStamps = {
+        project = discoveredDiff.root,
+        revision = discoveredDiff.base,
+        operatingSystem = (jit and jit.os) or package.config:sub(1, 1),
+        architecture = (jit and jit.arch) or "portable",
+        runtime = (jit and jit.version) or _VERSION,
+        targetProfile = "test",
+        suiteCatalog = suiteCatalog ~= "" and suiteCatalog or "empty",
+        stableIds = "suite-path+case-name/1",
+    }
+    local cacheBefore = now()
+    impactGraph = require("nupp.compiler.testimpact.store").load(buildRoot .. "/.nupp-test-impact.buf", impactStamps)
+    local cacheMs = now() - cacheBefore
+    local selected
+    if impactGraph then
+        selected = require("nupp.compiler.testimpact.selection").select(impactGraph, discoveredDiff)
+    else
+        selected = {
+            base = discoveredDiff.base,
+            changedPaths = discoveredDiff.paths,
+            affectedModules = {},
+            selectedSuites = {},
+            selectedCases = {},
+            promotions = {},
+            fallbacks = {{code = "graph-miss", reason = "no exact compatible impact graph is available",},},
+            completeScope = true,
+            conservative = true,
+        }
+    end
+
+    local function suiteName(path)
+        local file = tostring(path):gsub("\\", "/"):match("([^/]+)$") or tostring(path)
+        return file:match("^(.*test)%.[^.]+$")
+    end
+
+    if not selected.completeScope then
+        local requestedNames = {}
+        for _, info in ipairs(suites) do
+            requestedNames[info.name] = true
+        end
+        if requestedCaseCount > 0 then
+            chosenCases = {}
+            chosenCaseCount = 0
+        end
+        local selectedNames = {}
+        local excludedImpact = {}
+        for _, path in ipairs(selected.selectedSuites or {}) do
+            local name = suiteName(path)
+            if name and requestedNames[name] then
+                if requestedCaseCount > 0 then
+                    for id in pairs(requestedCases) do
+                        if id:sub(1, #name + 1) == name .. "/" then
+                            selectedNames[name] = true
+                            chosenCases[id] = true
+                            chosenCaseCount = chosenCaseCount + 1
+                        end
+                    end
+                else
+                    selectedNames[name] = true
+                    wholeSuites[name] = true
+                end
+            elseif name and explicitlyRemoved[name] then
+                excludedImpact[name] = true
+            end
+        end
+        for _, item in ipairs(selected.selectedCases or {}) do
+            local name = suiteName(item.suite)
+            local id = name and (name .. "/" .. item.caseId) or nil
+            if name and requestedNames[name] and (requestedCaseCount == 0 or requestedCases[id]) then
+                selectedNames[name] = true
+                if not chosenCases[id] then
+                    chosenCases[id] = true
+                    chosenCaseCount = chosenCaseCount + 1
+                end
+            elseif name and explicitlyRemoved[name] then
+                excludedImpact[name] = true
+            end
+        end
+        local excludedImpactNames = {}
+        for name in pairs(excludedImpact) do
+            excludedImpactNames[#excludedImpactNames + 1] = name
+        end
+        table.sort(excludedImpactNames)
+        for _, name in ipairs(excludedImpactNames) do
+            selected.fallbacks[
+                #selected.fallbacks + 1
+            ] = {
+                code = "user-excluded",
+                reason = "an explicit exclusion removed impacted suite " .. name,
+                suite = name,
+            }
+        end
+        local kept = {}
+        for _, info in ipairs(suites) do
+            if selectedNames[info.name] then
+                kept[#kept + 1] = info
+            end
+        end
+        suites = kept
+        if #suites == 0 then
+            selected.emptyReason = selected.emptyReason or "outside-requested-scope"
+        end
+    end
+
+    local selectedSuiteNames = {}
+    for _, info in ipairs(suites) do
+        if wholeSuites[info.name] or selected.completeScope then
+            selectedSuiteNames[#selectedSuiteNames + 1] = info.name
+        end
+    end
+    local selectedCaseIds = {}
+    for id in pairs(chosenCases) do
+        selectedCaseIds[#selectedCaseIds + 1] = id
+    end
+    table.sort(selectedSuiteNames)
+    table.sort(selectedCaseIds)
+    local selectedSuiteSet = {}
+    for _, name in ipairs(selectedSuiteNames) do
+        selectedSuiteSet[name] = true
+    end
+    local selectedCaseSet = {}
+    for _, id in ipairs(selectedCaseIds) do
+        selectedCaseSet[id] = true
+    end
+    local selectionReasons = {}
+    for _, reason in ipairs(selected.reasons or {}) do
+        local name = suiteName(reason.suite)
+        local id = name and reason.caseId and (name .. "/" .. reason.caseId) or nil
+        if name and (selectedSuiteSet[name] or (id and selectedCaseSet[id])) then
+            local kept = {}
+            for key, value in pairs(reason) do
+                kept[key] = value
+            end
+            kept.suite = name
+            selectionReasons[#selectionReasons + 1] = kept
+        end
+    end
+
+    local function reasons(records)
+        local out = {}
+        for _, record in ipairs(records or {}) do
+            out[
+                #out + 1
+            ] = {code = record.code, reason = record.reason, owner = record.suite or record.path or record.caseId,}
+        end
+
+        return out
+    end
+
+    selectionReport = {
+        version = 1,
+        mode = "diff",
+        shadow = diffShadow,
+        base = discoveredDiff.base,
+        graphRevision = impactGraph and discoveredDiff.base or nil,
+        changedPaths = testJson.asArray(discoveredDiff.paths),
+        affectedModules = testJson.asArray(selected.affectedModules or {}),
+        selectedSuites = testJson.asArray(selectedSuiteNames),
+        selectedCases = testJson.asArray(selectedCaseIds),
+        reasons = testJson.asArray(selectionReasons),
+        promotions = testJson.asArray(reasons(selected.promotions)),
+        fallbacks = testJson.asArray(reasons(selected.fallbacks)),
+        complete = selected.completeScope == true,
+        cacheMs = cacheMs,
+        queryMs = now() - cacheBefore,
+        emptyReason = selected.emptyReason,
+    }
+    if diffShadow then
+        suites = requestedSuites
+        chosenCases = requestedCases
+        chosenCaseCount = requestedCaseTotal
+        wholeSuites = {}
+    end
+    local stream = asJson and io.stderr or io.stdout
+    stream:write(
+        (
+            "%s: %d changed paths, %d affected modules, %d suites and %d cases selected\n"
+        ):format(
+            diffShadow and "impact shadow" or "impact",
+            #selectionReport.changedPaths,
+            #selectionReport.affectedModules,
+            #selectionReport.selectedSuites,
+            #selectionReport.selectedCases
+        )
+    )
+    if explainSelection then
+        for _, path in ipairs(selectionReport.changedPaths) do
+            stream:write("  " .. path .. "\n")
+        end
+        for _, reason in ipairs(selectionReport.promotions) do
+            stream:write(("  promote %s: %s\n"):format(reason.owner or "selection", reason.reason))
+        end
+        for _, reason in ipairs(selectionReport.reasons) do
+            local owner = reason.suite or "selection"
+            if reason.caseId then
+                owner = owner .. "/" .. reason.caseId
+            end
+            local through = reason.module and (" <- " .. reason.module) or ""
+            stream:write(("  select %s%s: %s\n"):format(owner, through, reason.reason))
+        end
+        for _, reason in ipairs(selectionReport.fallbacks) do
+            stream:write(("  fallback %s: %s\n"):format(reason.code, reason.reason))
+        end
+    end
+end
 
 local function loadSuite(suite)
     local path = dir .. "/" .. suite.name .. "." .. suite.extension
@@ -1612,6 +1939,54 @@ local function recordedCaseTimings(suite)
     return type(per) == "table" and per or {}
 end
 
+if selectionReport then
+    local function predictedWork(suiteNames, caseIds)
+        local work = 0
+        local whole = {}
+        local selectedBySuite = {}
+        for _, suite in ipairs(suiteNames) do
+            whole[suite] = true
+            work = work + (tonumber(recordedTimings()[suite]) or 0)
+        end
+        for _, id in ipairs(caseIds) do
+            local suite, caseId = id:match("^(.-)/(.*)$")
+            if suite and not whole[suite] then
+                work = work + (tonumber(recordedCaseTimings(suite)[caseId]) or 0)
+                selectedBySuite[suite] = true
+            end
+        end
+        for suite in pairs(selectedBySuite) do
+            local measuredCases = 0
+            for _, ms in pairs(recordedCaseTimings(suite)) do
+                measuredCases = measuredCases + (tonumber(ms) or 0)
+            end
+            work = work + math.max(0, (tonumber(recordedTimings()[suite]) or 0) - measuredCases)
+        end
+
+        return work
+    end
+
+    selectionReport.selectedWorkMs = predictedWork(selectionReport.selectedSuites, selectionReport.selectedCases)
+    local requestedSuiteNames = {}
+    for _, info in ipairs(selectionRequestedSuites or {}) do
+        requestedSuiteNames[#requestedSuiteNames + 1] = info.name
+    end
+    local requestedCaseIds = {}
+    for id in pairs(selectionRequestedCases or {}) do
+        requestedCaseIds[#requestedCaseIds + 1] = id
+    end
+    if #requestedCaseIds > 0 then
+        requestedSuiteNames = {}
+    end
+    table.sort(requestedSuiteNames)
+    table.sort(requestedCaseIds)
+    selectionReport.requestedWorkMs = predictedWork(requestedSuiteNames, requestedCaseIds)
+    selectionReport.predictedSavingsMs = math.max(0, selectionReport.requestedWorkMs - selectionReport.selectedWorkMs)
+    selectionReport.predictedSavingsPercent = selectionReport.requestedWorkMs > 0
+        and selectionReport.predictedSavingsMs / selectionReport.requestedWorkMs * 100
+        or 0
+end
+
 --- Which slice each case of a suite belongs to.
 ---
 --- Position was the rule -- case `n` went to slice `n % count` -- and position
@@ -1887,6 +2262,10 @@ local PROCESS_ISOLATED = {
     loggingtest = true,
     runtimereflectiontest = true,
     serdetest = true,
+    -- Carries a strict interactive-latency gate when run on its own. In a broad
+    -- run it still reports the metric, but gets a fresh process so one worker's
+    -- allocator and JIT history do not become part of the sample.
+    testimpactstoretest = true,
     typeleveltest = true,
     -- Imports cheadertest as a fixture; its top level asks the shell for an
     -- absolute checkout path on hosts where debug information is relative.
@@ -2002,6 +2381,35 @@ if lane then
         end
     end
     suites = kept
+    if selectionReport then
+        local allowed = {}
+        for _, info in ipairs(suites) do
+            allowed[info.name] = true
+        end
+        local selectedSuites = {}
+        for _, name in ipairs(selectionReport.selectedSuites) do
+            if allowed[name] then
+                selectedSuites[#selectedSuites + 1] = name
+            else
+                wholeSuites[name] = nil
+            end
+        end
+        local selectedCases = {}
+        for _, id in ipairs(selectionReport.selectedCases) do
+            local name = id:match("^(.-)/")
+            if name and allowed[name] then
+                selectedCases[#selectedCases + 1] = id
+            elseif chosenCases[id] then
+                chosenCases[id] = nil
+                chosenCaseCount = chosenCaseCount - 1
+            end
+        end
+        selectionReport.selectedSuites = testJson.asArray(selectedSuites)
+        selectionReport.selectedCases = testJson.asArray(selectedCases)
+        if #suites == 0 then
+            selectionReport.emptyReason = selectionReport.emptyReason or "outside-requested-scope"
+        end
+    end
 end
 
 if listing == "suites" then
@@ -2016,7 +2424,10 @@ if listing == "cases" then
         local suite, removeLoader = loadSuite(info)
         local _, names = suiteParts(info, suite)
         for _, name in ipairs(names) do
-            io.stdout:write(info.name .. "/" .. name .. "\n")
+            local id = info.name .. "/" .. name
+            if chosenCaseCount == 0 or wholeSuites[info.name] or chosenCases[id] then
+                io.stdout:write(id .. "\n")
+            end
         end
         if removeLoader then
             removeLoader()
@@ -2137,7 +2548,16 @@ then
                             label = lane.label,
                             index = index,
                             startedAt = now() - started,
-                            task = scope:spawn(job.run, lane.arg, cache, progressFd, verbose, colorMode, suiteCatalog),
+                            task = scope:spawn(
+                                job.run,
+                                lane.arg,
+                                cache,
+                                progressFd,
+                                verbose,
+                                colorMode,
+                                suiteCatalog,
+                                impactRecording and impactRecordId or nil
+                            ),
                         }
                     end
                 end)
@@ -2225,13 +2645,14 @@ then
                     local fresh = executionLane == "isolated" and "NUPP_TEST_FRESH_QUEUE_PIECES=1 " or ""
                     local invocation = rawget(_G, "__NUPP_TEST_RUNNER_COMMAND") or ("luajit '%s'"):format(arg[0])
                     local command = (
-                        "{ %s%s%s%s --json %s --color=%s%s; echo \"__status__:$?\" >&2; } 2>'%s'"
+                        "{ %s%s%s%s --json %s%s --color=%s%s; echo \"__status__:$?\" >&2; } 2>'%s'"
                     ):format(
                         cache,
                         progress,
                         fresh,
                         invocation,
                         lane.arg,
+                        impactRecording and (" --internal-impact-record=" .. impactRecordId) or "",
                         colorMode,
                         verbose and " --verbose" or "",
                         errors
@@ -2356,6 +2777,8 @@ then
             skipped = 0,
             notExecuted = 0,
             failed = 0,
+            impactFragments = {},
+            impactSliceSafe = {},
         }
 
         local function absorb(reports)
@@ -2389,6 +2812,12 @@ then
                         record.alone = report.shard and report.shard.alone or nil
                         record.executionLane = report.shard and report.shard.executionLane or nil
                         sharded.suites[#sharded.suites + 1] = record
+                    end
+                    for _, fragment in ipairs(report.impactFragments or {}) do
+                        sharded.impactFragments[#sharded.impactFragments + 1] = fragment
+                    end
+                    for suite, safe in pairs(report.impactSliceSafe or {}) do
+                        sharded.impactSliceSafe[suite] = safe
                     end
                     if report.shard then
                         sharded.shards[
@@ -2447,7 +2876,7 @@ then
             for index = 1, runnable do
                 lanes[
                     #lanes + 1
-                ] = {arg = "--queue=" .. queue, label = (isolated and "process worker " or "Nupp worker ") .. index}
+                ] = {arg = "--queue=" .. queue, label = (isolated and "process worker " or "Nupp worker ") .. index,}
             end
 
             return {
@@ -2599,11 +3028,145 @@ end
 local restoreLane = function()
 end
 
+local function impactSourcePath(name)
+    if type(name) ~= "string" then
+        return nil
+    end
+    local modulePath = name:gsub("%.", "/")
+    local candidates = {
+        "src/" .. modulePath .. ".nupp",
+        "src/" .. modulePath .. "/init.nupp",
+        "tests/" .. modulePath .. ".nupp",
+        "tests/" .. modulePath .. ".lua",
+    }
+    for _, path in ipairs(candidates) do
+        local file = io.open(path, "rb")
+        if file then
+            file:close()
+            return path
+        end
+    end
+
+    return nil
+end
+
+local impactChildSerial = 0
+
+local function impactShellQuote(value)
+    return "'" .. tostring(value):gsub("'", "'\\''") .. "'"
+end
+
+local function impactCompilerCommand(command)
+    local slashed = tostring(command):gsub("\\", "/")
+    return slashed:lower():find("nupp", 1, true) ~= nil
+end
+
+local function impactChildCommand(command)
+    local _, compilerCount = tostring(command):gsub("[/\\]bin[/\\]nupp", "")
+    if compilerCount > 1 then
+        impactObserver.markUncertain(
+            "child-multiple-compilers",
+            "one shell command launched multiple compiler children"
+        )
+    end
+    impactChildSerial = impactChildSerial + 1
+    local child = "runner-" .. tostring(impactChildSerial)
+    local environment = impactObserver.childEnvironment(child)
+    local names = {}
+    for name in pairs(environment) do
+        names[#names + 1] = name
+    end
+    table.sort(names)
+    local assignments = {}
+    for _, name in ipairs(names) do
+        assignments[#assignments + 1] = name .. "=" .. impactShellQuote(environment[name])
+    end
+
+    return child, "env " .. table.concat(assignments, " ") .. " sh -c " .. impactShellQuote(command)
+end
+
+local function settleImpactChild(child)
+    local path = impactFragmentDir .. "/" .. child .. ".buf"
+    local fragment = impactObserve.readFragment(path)
+    impactObserver.finishChild(child, fragment)
+    impactObserver.markUncertain(
+        "child-nested-unobserved",
+        "a compiler child's own subprocess tree is conservatively owned by its test case"
+    )
+    os.remove(path)
+end
+
 local function runSuite(suiteInfo, slices)
     -- Loading is measured with the suite rather than left out of it. A Nupp suite
     -- is compiled here, and a Lua one runs its top level here, so a suite can cost
     -- seconds before its first case starts.
     local suiteBefore = now()
+    local suiteImpactPath = "tests/" .. suiteInfo.name .. "." .. suiteInfo.extension
+    local savedRequire = require
+    local savedExecute, savedPopen = os.execute, io.popen
+    if impactObserver then
+        impactObserver.beginSuite(suiteImpactPath)
+        if sourceContains(suiteInfo, {'require("nupp.io.process")', "require('nupp.io.process')"}) then
+            impactObserver.markUncertain(
+                "child-uninstrumented",
+                "suite launches through nupp.io.process without runner-owned attribution"
+            )
+        end
+        rawset(_G, "require", function(name)
+            impactObserver.recordRequest(
+                name,
+                impactSourcePath(name),
+                package.loaded[name] ~= nil and "cached-require" or "runtime-require"
+            )
+
+            return savedRequire(name)
+        end)
+        os.execute = function(command)
+            if type(command) ~= "string" or not impactCompilerCommand(command) then
+                return savedExecute(command)
+            end
+            local child, invocation = impactChildCommand(command)
+            local result = {savedExecute(invocation)}
+            settleImpactChild(child)
+
+            return unpack(result)
+        end
+        io.popen = function(command, mode)
+            if type(command) ~= "string" or not impactCompilerCommand(command) then
+                return savedPopen(command, mode)
+            end
+            local child, invocation = impactChildCommand(command)
+            local pipe = savedPopen(invocation, mode)
+            if not pipe then
+                settleImpactChild(child)
+                return nil
+            end
+            local proxy = {}
+            function proxy:read(...)
+                return pipe:read(...)
+            end
+
+            function proxy:lines(...)
+                return pipe:lines(...)
+            end
+
+            function proxy:write(...)
+                return pipe:write(...)
+            end
+
+            function proxy:flush(...)
+                return pipe:flush(...)
+            end
+
+            function proxy:close()
+                local result = {pipe:close()}
+                settleImpactChild(child)
+                return unpack(result)
+            end
+
+            return proxy
+        end
+    end
     local loaded = preloadedSuites[suiteInfo.name]
     preloadedSuites[suiteInfo.name] = nil
     local suite, removeLoader, loadElapsed, hooks, cases
@@ -2631,6 +3194,9 @@ local function runSuite(suiteInfo, slices)
         cases = selected
     end
     local stateful = hooks.beforeAll or hooks.afterAll or hooks.beforeEach or hooks.afterEach
+    if impactObserver then
+        impactSliceSafe[suiteImpactPath] = not stateful
+    end
     -- One slice of the suite, when the parent decided it was too heavy to leave whole.
     -- A suite with lifecycle hooks is never sliced: `beforeAll` would run once per
     -- slice and any state its cases share would be split between processes, so the
@@ -2707,6 +3273,9 @@ local function runSuite(suiteInfo, slices)
             end
             local caseBefore = now()
             local caseContext = {facts = {}, metrics = {}, capabilities = {}, fixtures = {}, fixture = resolveFixture,}
+            if impactObserver then
+                impactObserver.beginCase(name)
+            end
             local ok, err, stdout, stderr = capture(function()
                 rawset(_G, "__NUPP_TEST_CASE_CONTEXT", caseContext)
                 local ran, problem = pcall(runCase, hooks, case)
@@ -2716,6 +3285,9 @@ local function runSuite(suiteInfo, slices)
                 end
             end)
             rawset(_G, "__NUPP_TEST_CASE_CONTEXT", nil)
+            if impactObserver then
+                impactObserver.finishCase()
+            end
             local caseElapsed = now() - caseBefore
             casesElapsed = casesElapsed + caseElapsed
             if caseElapsed > slowestCaseMs then
@@ -2737,6 +3309,11 @@ local function runSuite(suiteInfo, slices)
     end
     if removeLoader then
         removeLoader()
+    end
+    if impactObserver then
+        rawset(_G, "require", savedRequire)
+        os.execute, io.popen = savedExecute, savedPopen
+        impactObserver.finishSuite()
     end
     suiteRecords[
         #suiteRecords + 1
@@ -2844,6 +3421,12 @@ local function mergePieceReport(report)
     for _, record in ipairs(report.suites or {}) do
         suiteRecords[#suiteRecords + 1] = record
     end
+    for _, fragment in ipairs(report.impactFragments or {}) do
+        impactFragments[#impactFragments + 1] = fragment
+    end
+    for suite, safe in pairs(report.impactSliceSafe or {}) do
+        impactSliceSafe[suite] = safe
+    end
 end
 
 local function recordPieceFailure(spec, message)
@@ -2877,9 +3460,16 @@ local function runFreshPiece(spec)
     local invocation = rawget(_G, "__NUPP_TEST_RUNNER_COMMAND") or ("luajit '%s'"):format(arg[0])
     local errors = os.tmpname()
     local command = (
-        "{ NUPP_TEST_SUPERVISED_PIECE=1 %s --json --shard=%s --color=%s%s; "
+        "{ NUPP_TEST_SUPERVISED_PIECE=1 %s --json --shard=%s --color=%s%s%s; "
         .. "printf '\n__piece_status__:%%d\n' $?; } 2>%s"
-    ):format(invocation, shellQuote(spec), colorMode, verbose and " --verbose" or "", shellQuote(errors))
+    ):format(
+        invocation,
+        shellQuote(spec),
+        colorMode,
+        verbose and " --verbose" or "",
+        impactRecording and (" --internal-impact-record=" .. impactRecordId) or "",
+        shellQuote(errors)
+    )
     local pipe = io.popen(command, "r")
     if not pipe then
         os.remove(errors)
@@ -3072,6 +3662,12 @@ if sharded then
     skipped = skipped + sharded.skipped
     notExecutedCount = notExecutedCount + sharded.notExecuted
     failed = failed + sharded.failed
+    for _, fragment in ipairs(sharded.impactFragments or {}) do
+        impactFragments[#impactFragments + 1] = fragment
+    end
+    for suite, safe in pairs(sharded.impactSliceSafe or {}) do
+        impactSliceSafe[suite] = safe
+    end
     table.sort(results, function(a, b)
         if a.suite ~= b.suite then
             return tostring(a.suite) < tostring(b.suite)
@@ -3157,6 +3753,84 @@ end
 table.sort(metricTotals, function(a, b)
     return a.name .. "\0" .. (a.unit or "") < b.name .. "\0" .. (b.unit or "")
 end)
+
+if impactObserver then
+    impactFragments[#impactFragments + 1] = impactObserver.fragment(failed == 0)
+    impactObserve.activate(nil)
+end
+
+if unfilteredTopLevel and impactRecording and failed == 0 then
+    local impact = require("runner.impact")
+    local discoveredHead = impact.discoverChanges({cwd = "."})
+    if discoveredHead.available and #discoveredHead.paths == 0 then
+        local stamps = assert(
+            impact.graphStamps({
+                project = discoveredHead.root,
+                revision = discoveredHead.head,
+                operatingSystem = (jit and jit.os) or package.config:sub(1, 1),
+                architecture = (jit and jit.arch) or "portable",
+                runtime = (jit and jit.version) or _VERSION,
+                targetProfile = "test",
+                suiteCatalog = suiteCatalog ~= "" and suiteCatalog or "empty",
+                stableIds = "suite-path+case-name/1",
+            })
+        )
+        local catalogBySuite = {}
+        for _, fragment in ipairs(impactFragments) do
+            for _, owner in ipairs(fragment.owners or {}) do
+                local suite = catalogBySuite[owner.suite]
+                if not suite then
+                    suite = {
+                        identity = owner.suite,
+                        path = owner.suite,
+                        sliceSafe = impactSliceSafe[owner.suite] == true,
+                        cases = {},
+                        _cases = {},
+                    }
+                    catalogBySuite[owner.suite] = suite
+                end
+                if owner.caseId and not suite._cases[owner.caseId] then
+                    suite._cases[owner.caseId] = true
+                    suite.cases[#suite.cases + 1] = {id = owner.caseId, sliceSafe = suite.sliceSafe,}
+                end
+            end
+        end
+        local catalog = {}
+        for _, suite in pairs(catalogBySuite) do
+            suite._cases = nil
+            table.sort(suite.cases, function(left, right)
+                return left.id < right.id
+            end)
+            catalog[#catalog + 1] = suite
+        end
+        table.sort(catalog, function(left, right)
+            return left.identity < right.identity
+        end)
+        local observation = impact.mergeFragmentsToObservation(impactFragments, catalog, stamps, {
+            runId = impactRecordId,
+            platform = (jit and (jit.os .. "/" .. jit.arch)) or _VERSION,
+            complete = #catalog == #discovered,
+            successful = true,
+            unfiltered = true,
+        })
+        if observation.complete then
+            local published, problem = impact.publish(buildRoot, observation)
+            if not published then
+                io.stderr:write("nupp: cannot publish test impact graph: " .. tostring(problem) .. "\n")
+            end
+        else
+            local problems = {}
+            for _, problem in ipairs(observation.problems or {}) do
+                local example = problem.example and (" (for example " .. problem.example .. ")") or ""
+                problems[#problems + 1] = problem.code .. "=" .. tostring(problem.count) .. example
+            end
+            io.stderr:write("nupp: test impact graph was incomplete: " .. table.concat(problems, "; ") .. "\n")
+        end
+    end
+end
+if unfilteredTopLevel and impactRecording and impactFragmentDir then
+    os.execute("rm -rf " .. string.format("%q", impactFragmentDir))
+end
 
 --- Where the run's time went, in the two units a person can act on.
 ---
@@ -3304,7 +3978,10 @@ local report = {
     metrics = metricTotals,
     suites = suiteRecords,
     shards = sharded and sharded.shards or {},
-    claimed = #claimed > 0 and claimed or nil
+    claimed = #claimed > 0 and claimed or nil,
+    selection = selectionReport,
+    impactFragments = impactRecording and not unfilteredTopLevel and impactFragments or nil,
+    impactSliceSafe = impactRecording and not unfilteredTopLevel and impactSliceSafe or nil,
 }
 
 if embedded then
@@ -3334,7 +4011,10 @@ elseif asJson then
             -- What this process took off a queue, which is how the parent tells work
             -- that ran from work whose worker died holding it. A run that was not
             -- handed a queue took nothing, and says nothing.
-            claimed = #claimed > 0 and json.asArray(claimed) or nil
+            claimed = #claimed > 0 and json.asArray(claimed) or nil,
+            selection = selectionReport,
+            impactFragments = impactRecording and not unfilteredTopLevel and json.asArray(impactFragments) or nil,
+            impactSliceSafe = impactRecording and not unfilteredTopLevel and impactSliceSafe or nil
         }) .. "\n"
     )
 else
@@ -3362,7 +4042,7 @@ end
 -- only where the whole selection is known: a shard child is handed its share of
 -- the work, and a slice of a suite that carries lifecycle hooks is legitimately
 -- empty because slice zero took every case.
-if #shard == 0 and not queueDir and total == 0 then
+if #shard == 0 and not queueDir and total == 0 and not (selectionReport and selectionReport.emptyReason) then
     io.stderr:write("nupp: no tests were discovered\n")
     os.exit(1)
 end

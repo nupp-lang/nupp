@@ -1,0 +1,682 @@
+module nupp.compiler.testimpact.observe
+
+--[[
+Case-aware observation for diff-directed tests.
+
+This module does not replace process launchers or build entry points. Those
+operations are observable at their owners, so the runner opens suite and case
+scopes and calls these methods from its existing seams. A compiler child is the
+one exception: `fromEnvironment` may install a scoped require wrapper in that
+dedicated process before the CLI loads, then writes its private fragment before
+the process exits.
+]]
+
+local observation = {}
+
+observation.FORMAT = 1
+
+local active: any = nil
+
+local CHILD_ENV = {
+    runId = "NUPP_TEST_IMPACT_RUN_ID",
+    format = "NUPP_TEST_IMPACT_FORMAT",
+    platform = "NUPP_TEST_IMPACT_PLATFORM",
+    fragmentDir = "NUPP_TEST_IMPACT_FRAGMENT_DIR",
+    child = "NUPP_TEST_IMPACT_CHILD",
+    suite = "NUPP_TEST_IMPACT_SUITE",
+    caseId = "NUPP_TEST_IMPACT_CASE",
+    projectRoot = "NUPP_TEST_IMPACT_PROJECT_ROOT",
+}
+
+local function requiredString(value: any, label: string): string
+    assert(type(value) == "string" and value ~= "", label .. " must be a non-empty string")
+
+    return value as string
+end
+
+local function childIdentity(value: any): string
+    local child = requiredString(value, "child identity")
+    assert(child:match("^[%w_.-]+$"), "child identity must be safe as one fragment filename")
+
+    return child
+end
+
+local function sortedKeys(values: {[string]: any}): {string}
+    local keys: {string} = {}
+    for key in pairs(values) do
+        keys[#keys + 1] = key
+    end
+    table.sort(keys)
+
+    return keys
+end
+
+local function ownerKey(suite: string, caseId: string?): string
+    return suite .. "\0" .. (caseId or "")
+end
+
+local function normalizedPath(path: string): string
+    local normalized = path:gsub("\\", "/"):gsub("/+", "/"):gsub("/$", "")
+    if normalized:match("^[A-Za-z]:/") then
+        normalized = normalized:sub(1, 1):upper() .. normalized:sub(2)
+    end
+
+    return normalized
+end
+
+local function samePath(left: string, right: string): boolean
+    if package.config:sub(1, 1) == "\\" then
+        return left:lower() == right:lower()
+    end
+
+    return left == right
+end
+
+local function pathWithin(root: string, path: string): boolean
+    if samePath(root, path) then
+        return true
+    end
+    if package.config:sub(1, 1) == "\\" then
+        return path:lower():sub(1, #root + 1) == root:lower() .. "/"
+    end
+
+    return path:sub(1, #root + 1) == root .. "/"
+end
+
+local function cleanRelative(root: string?, path: string?): string?
+    if type(path) ~= "string" or path == "" then
+        return nil
+    end
+    local normalized = (path as string):gsub("\\", "/"):gsub("/+", "/")
+    local normalizedRoot = type(root) == "string" and (root as string):gsub("\\", "/"):gsub("/+$", "") or nil
+    if normalizedRoot and normalized:sub(1, #normalizedRoot + 1) == normalizedRoot .. "/" then
+        normalized = normalized:sub(#normalizedRoot + 2)
+    elseif normalized:sub(1, 1) == "/" or normalized:match("^%a:/") then
+        return nil
+    end
+    normalized = normalized:gsub("^%./", "")
+    if normalized == ".." or normalized:match("^%.%./") or normalized:match("/%.%./") then
+        return nil
+    end
+
+    return normalized ~= "" and normalized or nil
+end
+
+--- Starts one independent observation stream. Begin the suite before loading its
+--- file and finish a case only after teardown and owned children have settled.
+function observation.new(metadata: any): any
+    assert(type(metadata) == "table", "observation metadata must be a table")
+    local runId = requiredString(metadata.runId, "run ID")
+    local platform = requiredString(metadata.platform, "platform identity")
+    local projectRoot = metadata.projectRoot
+    if projectRoot ~= nil then
+        projectRoot = normalizedPath(requiredString(projectRoot, "project root"))
+        assert(projectRoot:sub(1, 1) == "/" or projectRoot:match("^[A-Za-z]:/"), "project root must be absolute")
+    end
+    local format = metadata.format or observation.FORMAT
+    assert(
+        type(format) == "number" and format == math.floor(format) and format > 0,
+        "format must be a positive integer"
+    )
+
+    local fragmentDir = metadata.fragmentDir
+    if fragmentDir ~= nil then
+        requiredString(fragmentDir, "fragment directory")
+    end
+
+    local currentSuite: string? = nil
+    local currentCase: string? = nil
+    local owners: {[string]: any} = {}
+    local dependencies: {[string]: any} = {}
+    local children: {[string]: any} = {}
+    local originalRequire: any = nil
+
+    local function activeOwner(): any
+        assert(currentSuite ~= nil, "test impact observation has no active suite")
+        local key = ownerKey(currentSuite as string, currentCase)
+        local found = owners[key]
+        if not found then
+            found = {suite = currentSuite, caseId = currentCase, roots = {}, uncertainty = {},}
+            owners[key] = found
+        end
+
+        return found
+    end
+
+    local function addUncertainty(code: string, detail: string?): nil
+        requiredString(code, "uncertainty code")
+        local into = activeOwner().uncertainty
+        into[code .. "\0" .. (detail or "")] = {code = code, detail = detail,}
+    end
+
+    local self: any = {}
+
+    function self.beginSuite(suite: string): nil
+        requiredString(suite, "suite identity")
+        assert(currentSuite == nil, "a suite observation is already active")
+        currentSuite = suite
+        currentCase = nil
+        activeOwner()
+    end
+
+    function self.finishSuite(): nil
+        assert(currentSuite ~= nil, "no suite observation is active")
+        assert(currentCase == nil, "finish the active case before its suite")
+        currentSuite = nil
+    end
+
+    function self.beginCase(caseId: string): nil
+        requiredString(caseId, "stable case identity")
+        assert(currentSuite ~= nil, "a case observation requires an active suite")
+        assert(currentCase == nil, "a case observation is already active")
+        currentCase = caseId
+        activeOwner()
+    end
+
+    function self.finishCase(): nil
+        assert(currentCase ~= nil, "no case observation is active")
+        currentCase = nil
+    end
+
+    --- Records every request, not only a loader miss. The runner's require seam
+    --- calls this before Lua resolves the module, which preserves an edge when an
+    --- earlier case already placed the module in package.loaded.
+    function self.recordRequest(name: any, path: string?, provenance: string?): nil
+        if type(name) ~= "string" or name == "" then
+            addUncertainty("unresolved-module", "a module request did not have a stable string name")
+            return
+        end
+        local owner = activeOwner()
+        local stablePath = cleanRelative(projectRoot, path)
+        local key = (name as string) .. "\0" .. (stablePath or "")
+        local edge = owner.roots[key]
+        if not edge then
+            edge = {module = name, path = stablePath, provenance = {},}
+            owner.roots[key] = edge
+        end
+        edge.provenance[provenance or "runtime-require"] = true
+    end
+
+    function self.recordUnresolved(detail: string?): nil
+        addUncertainty("unresolved-module", detail)
+    end
+
+    function self.markUncertain(code: string, detail: string?): nil
+        addUncertainty(code, detail)
+    end
+
+    local function addDependency(from: string, to: string, provenance: string, path: string?): nil
+        local record = dependencies[from]
+        if not record then
+            record = {module = from, dependencies = {},}
+            dependencies[from] = record
+        end
+        local edge = record.dependencies[to]
+        if not edge then
+            edge = {module = to, path = path, provenance = {},}
+            record.dependencies[to] = edge
+        elseif edge.path == nil then
+            edge.path = path
+        end
+        edge.provenance[provenance] = true
+    end
+
+    --- Imports completed compiler state. Reused records carry the same dependency
+    --- fields as fresh records, so cache hits remain observable without another
+    --- compiler event stream. Temporary absolute paths are omitted while stable
+    --- module identities and their graph remain.
+    function self.recordBuildState(state: any, root: string?): nil
+        if type(state) ~= "table" or type(state.modules) ~= "table" then
+            addUncertainty("incomplete-build-state", "the completed build did not expose module records")
+            return
+        end
+        local buildRoot = root
+        if buildRoot == nil or buildRoot == "" then
+            addUncertainty("incomplete-build-state", "the completed build did not expose its project root")
+            return
+        end
+        local fs = require("nupp.compiler.fs")
+        buildRoot = normalizedPath(fs.absolute(buildRoot))
+        local fixtureBuild = projectRoot ~= nil and not samePath(buildRoot, projectRoot)
+
+        local function repositorySource(name: string): string?
+            if projectRoot == nil then
+                return nil
+            end
+            local modulePath = name:gsub("%.", "/")
+            local candidates = {"src/" .. modulePath .. ".nupp", "src/" .. modulePath .. "/init.nupp",}
+            for _, candidate in ipairs(candidates) do
+                if fs.exists(fs.join(projectRoot, candidate)) then
+                    return candidate
+                end
+            end
+
+            return nil
+        end
+
+        local runtimeModules: {[string]: boolean} = {}
+        for name, record in pairs(state.modules) do
+            if type(name) == "string" and type(record) == "table" then
+                if record.compilerRuntime == true then
+                    runtimeModules[name] = true
+                elseif type(record.compilerRuntime) == "string" then
+                    runtimeModules[record.compilerRuntime] = true
+                elseif type(record.compilerRuntime) == "table" then
+                    for _, dependency in ipairs(record.compilerRuntime) do
+                        if type(dependency) == "string" then
+                            runtimeModules[dependency] = true
+                        end
+                    end
+                end
+                for _, dependency in ipairs(record.runtimeModules or {}) do
+                    if type(dependency) == "string" then
+                        runtimeModules[dependency] = true
+                    end
+                end
+            end
+        end
+        local fixtureModules: {[string]: boolean} = {}
+        if fixtureBuild then
+            for name, record in pairs(state.modules) do
+                if type(name) == "string" and type(record) == "table" and type(record.sourcePath) == "string" then
+                    local sourcePath = record.sourcePath
+                    if sourcePath:sub(1, 1) ~= "/" and not sourcePath:match("^[A-Za-z]:/") then
+                        sourcePath = fs.join(buildRoot, sourcePath)
+                    end
+                    sourcePath = normalizedPath(fs.absolute(sourcePath))
+                    local repositoryModule = projectRoot ~= nil and pathWithin(projectRoot, sourcePath)
+                    local runtimeModule = runtimeModules[name] or name:match("^nupp%.") ~= nil
+                    if pathWithin(buildRoot, sourcePath)
+                        and not repositoryModule
+                        and not runtimeModule
+                        and not record.external
+                    then
+                        fixtureModules[name] = true
+                    end
+                end
+            end
+        end
+        local owner = activeOwner()
+        local fixturePrefix = "@fixture/" .. tostring(
+            #owner.suite
+        ) .. ":" .. owner.suite .. "/" .. tostring(#(owner.caseId or "")) .. ":" .. (owner.caseId or "") .. "/"
+
+        local function moduleIdentity(name: string): string
+            return fixtureModules[name] and fixturePrefix .. name or name
+        end
+
+        for name, record in pairs(state.modules) do
+            if type(name) ~= "string" or type(record) ~= "table" then
+                addUncertainty("incomplete-build-state", "a module record had no stable identity")
+            else
+                local identity = moduleIdentity(name)
+                local sourcePath = fixtureModules[name] and nil or record.sourcePath
+                if runtimeModules[name] or name:match("^nupp%.") then
+                    -- Compiler state names the staged copy used by that build.
+                    -- Prefer the repository source when this project owns one;
+                    -- otherwise a compiler-carried module has no project path.
+                    sourcePath = repositorySource(name)
+                end
+                self.recordRequest(identity, sourcePath, "compiler-build")
+                for _, dependency in ipairs(record.dependencies or {}) do
+                    if type(dependency) == "string" then
+                        addDependency(identity, moduleIdentity(dependency), "checked-module")
+                    else
+                        addUncertainty("incomplete-build-state", "a checked dependency was not a module name")
+                    end
+                end
+                for _, dependency in ipairs(record.runtimeModules or {}) do
+                    if type(dependency) == "string" then
+                        addDependency(identity, dependency, "generated-runtime")
+                    else
+                        addUncertainty("incomplete-build-state", "a generated runtime dependency was not a module name")
+                    end
+                end
+                if type(record.compilerRuntime) == "string" then
+                    addDependency(identity, record.compilerRuntime, "compiler-runtime")
+                elseif type(record.compilerRuntime) == "table" then
+                    for _, dependency in ipairs(record.compilerRuntime) do
+                        if type(dependency) == "string" then
+                            addDependency(identity, dependency, "compiler-runtime")
+                        else
+                            addUncertainty(
+                                "incomplete-build-state",
+                                "a compiler runtime dependency was not a module name"
+                            )
+                        end
+                    end
+                end
+                for _, dependency in ipairs(record.projectDependencies or {}) do
+                    if type(dependency) == "table"
+                        and type(dependency.name) == "string"
+                        and type(dependency.key) == "string"
+                    then
+                        local paths = dependency.paths or {}
+                        if #paths == 0 then
+                            addUncertainty("semantic-project-path-missing", dependency.name .. "/" .. dependency.key)
+                        end
+                        for _, path in ipairs(paths) do
+                            if type(path) == "string" and path ~= "" then
+                                local stablePath = cleanRelative(projectRoot, path)
+                                local synthetic = "@project/"
+                                    .. dependency.name
+                                    .. "/"
+                                    .. dependency.key
+                                    .. "/"
+                                    .. tostring(
+                                        #(stablePath or "")
+                                    ) .. ":" .. (stablePath or "external")
+                                addDependency(identity, synthetic, "semantic-project", stablePath)
+                            else
+                                addUncertainty(
+                                    "incomplete-build-state",
+                                    "a semantic project dependency path was invalid"
+                                )
+                            end
+                        end
+                    else
+                        addUncertainty("incomplete-build-state", "a semantic project dependency was incomplete")
+                    end
+                end
+            end
+        end
+    end
+
+    --- Installs the request seam in a dedicated compiler child. The parent runner
+    --- uses recordRequest at its own scoped seam instead, so ordinary suites do not
+    --- observe a replaced global require function.
+    function self.installRequireObserver(): nil
+        assert(originalRequire == nil, "require observation is already installed")
+        originalRequire = require
+        rawset(_G, "require", function(name: any): any
+            self.recordRequest(name, nil, package.loaded[name] ~= nil and "cached-require" or "runtime-require")
+            return originalRequire(name)
+        end)
+    end
+
+    function self.restoreRequire(): nil
+        if originalRequire ~= nil then
+            rawset(_G, "require", originalRequire)
+            originalRequire = nil
+        end
+    end
+
+    --- Describes one child before launch. The process seam overlays this map on
+    --- the inherited environment. A launch path unable to do so calls
+    --- markEscapedChild instead.
+    function self.childEnvironment(child: string): {[string]: string}
+        child = childIdentity(child)
+        local owner = activeOwner()
+        assert(children[child] == nil, "child identity is already active")
+        children[child] = {suite = owner.suite, caseId = owner.caseId,}
+        local env: {
+            [string]: string
+        } = {
+            [CHILD_ENV.runId] = runId,
+            [CHILD_ENV.format] = tostring(format),
+            [CHILD_ENV.platform] = platform,
+            [CHILD_ENV.child] = child,
+            [CHILD_ENV.suite] = owner.suite,
+        }
+        if projectRoot ~= nil then
+            env[CHILD_ENV.projectRoot] = projectRoot
+        end
+        if fragmentDir ~= nil then
+            env[CHILD_ENV.fragmentDir] = fragmentDir
+        end
+        if owner.caseId ~= nil then
+            env[CHILD_ENV.caseId] = owner.caseId
+        end
+
+        return env
+    end
+
+    self.childEnv = self.childEnvironment
+
+    function self.markEscapedChild(detail: string?): nil
+        addUncertainty("child-uninstrumented", detail)
+    end
+
+    local function mergeFragment(fragment: any): (boolean, string?)
+        if type(fragment) ~= "table" then
+            return false, "child fragment was absent or unreadable"
+        end
+        if fragment.format ~= format
+            or fragment.runId ~= runId
+            or fragment.platform ~= platform
+            or fragment.projectRoot ~= projectRoot
+        then
+            return false, "child fragment identity did not match its parent"
+        end
+        for _, owner in ipairs(fragment.owners or {}) do
+            if type(owner) ~= "table" or type(owner.suite) ~= "string" then
+                return false, "child fragment contained an invalid owner"
+            end
+            local key = ownerKey(owner.suite, owner.caseId)
+            local into = owners[key]
+            if not into then
+                into = {suite = owner.suite, caseId = owner.caseId, roots = {}, uncertainty = {},}
+                owners[key] = into
+            end
+            for _, edge in ipairs(owner.roots or {}) do
+                if type(edge) ~= "table" or type(edge.module) ~= "string" then
+                    return false, "child fragment contained an invalid module edge"
+                end
+                local edgeKey = edge.module .. "\0" .. (edge.path or "")
+                local found = into.roots[edgeKey]
+                if not found then
+                    found = {module = edge.module, path = edge.path, provenance = {},}
+                    into.roots[edgeKey] = found
+                end
+                for _, provenance in ipairs(edge.provenance or {}) do
+                    found.provenance[provenance] = true
+                end
+            end
+            for _, uncertain in ipairs(owner.uncertainty or {}) do
+                if type(uncertain) ~= "table" or type(uncertain.code) ~= "string" then
+                    return false, "child fragment contained invalid uncertainty"
+                end
+                into.uncertainty[
+                    uncertain.code .. "\0" .. (uncertain.detail or "")
+                ] = {code = uncertain.code, detail = uncertain.detail,}
+            end
+        end
+        for _, record in ipairs(fragment.dependencies or {}) do
+            if type(record) ~= "table" or type(record.module) ~= "string" then
+                return false, "child fragment contained an invalid dependency owner"
+            end
+            for _, edge in ipairs(record.dependencies or {}) do
+                if type(edge) ~= "table" or type(edge.module) ~= "string" then
+                    return false, "child fragment contained an invalid dependency edge"
+                end
+                for _, provenance in ipairs(edge.provenance or {}) do
+                    addDependency(record.module, edge.module, provenance, edge.path)
+                end
+            end
+        end
+
+        return true
+    end
+
+    --- A nonzero child may still contribute a complete valid fragment. Timeout,
+    --- crash, or a child that never participated supplies no valid fragment and
+    --- marks its owner uncertain.
+    function self.finishChild(child: string, fragment: any): nil
+        local expected = children[child]
+        assert(expected ~= nil, "child identity was not declared")
+        children[child] = nil
+        local savedSuite, savedCase = currentSuite, currentCase
+        currentSuite, currentCase = expected.suite, expected.caseId
+        local ok, problem = mergeFragment(fragment)
+        if not ok then
+            addUncertainty("child-fragment-missing", problem)
+        end
+        currentSuite, currentCase = savedSuite, savedCase
+    end
+
+    function self.fragment(success: boolean?): any
+        for child, expected in pairs(children) do
+            local savedSuite, savedCase = currentSuite, currentCase
+            currentSuite, currentCase = expected.suite, expected.caseId
+            addUncertainty("child-fragment-missing", "child " .. child .. " did not settle")
+            currentSuite, currentCase = savedSuite, savedCase
+        end
+        children = {}
+
+        local encodedOwners: {any} = {}
+        local complete = success ~= false
+        for _, key in ipairs(sortedKeys(owners)) do
+            local owner = owners[key]
+            local roots: {any} = {}
+            for _, rootKey in ipairs(sortedKeys(owner.roots)) do
+                local edge = owner.roots[rootKey]
+                roots[#roots + 1] = {module = edge.module, path = edge.path, provenance = sortedKeys(edge.provenance),}
+            end
+            local uncertainty: {any} = {}
+            for _, uncertainKey in ipairs(sortedKeys(owner.uncertainty)) do
+                uncertainty[#uncertainty + 1] = owner.uncertainty[uncertainKey]
+            end
+            complete = complete and #uncertainty == 0
+            encodedOwners[
+                #encodedOwners + 1
+            ] = {suite = owner.suite, caseId = owner.caseId, roots = roots, uncertainty = uncertainty,}
+        end
+
+        local encodedDependencies: {any} = {}
+        for _, name in ipairs(sortedKeys(dependencies)) do
+            local record = dependencies[name]
+            local edges: {any} = {}
+            for _, dependency in ipairs(sortedKeys(record.dependencies)) do
+                local edge = record.dependencies[dependency]
+                edges[#edges + 1] = {module = edge.module, path = edge.path, provenance = sortedKeys(edge.provenance),}
+            end
+            encodedDependencies[#encodedDependencies + 1] = {module = name, dependencies = edges,}
+        end
+
+        return {
+            format = format,
+            runId = runId,
+            platform = platform,
+            projectRoot = projectRoot,
+            complete = complete,
+            owners = encodedOwners,
+            dependencies = encodedDependencies,
+        }
+    end
+
+    return self
+end
+
+--- Makes an observation visible to compiler/build and process seams in this Lua
+--- state. The returned value is the previous observation, so a scoped caller can
+--- restore it after a nested runner.
+function observation.activate(value: any): any
+    local previous = active
+    active = value
+    rawset(_G, "__NUPP_TEST_IMPACT_OBSERVER", value)
+
+    return previous
+end
+
+function observation.current(): any
+    return active
+end
+
+--- Process-helper form used where carrying the runner's observation through the
+--- call graph would add test-only parameters to product APIs.
+function observation.childEnv(child: string): {[string]: string}?
+    if active == nil then
+        return nil
+    end
+
+    return active.childEnv(child)
+end
+
+--- Build-helper form called after a completed state has settled. It is a no-op for
+--- every ordinary compiler invocation.
+function observation.completedBuild(state: any, root: string?): nil
+    if active ~= nil then
+        active.recordBuildState(state, root)
+    end
+end
+
+--- Opens the observation inherited by a compiler child, or nil for an ordinary
+--- invocation. Call this before requiring the CLI so cached and first-load
+--- compiler modules are both attributed.
+function observation.fromEnvironment(read: (function(string): string?)?): any
+    read = read or os.getenv
+    local runId = read(CHILD_ENV.runId)
+    if not runId then
+        return nil
+    end
+    local format = tonumber(read(CHILD_ENV.format) or "")
+    local child = observation.new({
+        runId = runId,
+        format = format,
+        platform = read(CHILD_ENV.platform),
+        fragmentDir = read(CHILD_ENV.fragmentDir),
+        projectRoot = read(CHILD_ENV.projectRoot),
+    })
+    child._fragmentDir = requiredString(read(CHILD_ENV.fragmentDir), "fragment directory")
+    child._childId = childIdentity(read(CHILD_ENV.child))
+    child.beginSuite(requiredString(read(CHILD_ENV.suite), "suite identity"))
+    local caseId = read(CHILD_ENV.caseId)
+    if caseId and caseId ~= "" then
+        child.beginCase(caseId)
+    end
+    child.installRequireObserver()
+    observation.activate(child)
+
+    return child
+end
+
+--- Encodes one compiler child's private fragment atomically. Failure to write is
+--- returned to the caller, which can preserve the command's status and let the
+--- parent treat the missing fragment as uncertainty.
+function observation.finishProcess(child: any, exitStatus: integer): (boolean?, string?)
+    if child == nil then
+        return true
+    end
+    child.restoreRequire()
+    if observation.current() == child then
+        observation.activate(nil)
+    end
+    if exitStatus ~= 0 then
+        child.markUncertain("child-nonzero", "compiler child exited " .. tostring(exitStatus))
+    end
+    local value = child.fragment(true)
+    value.exitStatus = exitStatus
+    local loaded, buffer = pcall(require, "string.buffer")
+    if not loaded then
+        return false, "binary fragment serialization is unavailable"
+    end
+    local ok, encoded = pcall(buffer.encode, value)
+    if not ok then
+        return false, tostring(encoded)
+    end
+    local fs = require("nupp.compiler.fs")
+
+    return fs.writeFile(fs.join(child._fragmentDir, child._childId .. ".buf"), encoded)
+end
+
+--- Reads one private child fragment. Decode failure is ordinary uncertainty to the
+--- parent rather than an executable or partially trusted value.
+function observation.readFragment(path: string): any, string?
+    local fs = require("nupp.compiler.fs")
+    local bytes, readProblem = fs.readFile(path)
+    if bytes == nil then
+        return nil, readProblem
+    end
+    local loaded, buffer = pcall(require, "string.buffer")
+    if not loaded then
+        return nil, "binary fragment serialization is unavailable"
+    end
+    local ok, value = pcall(buffer.decode, bytes)
+    if not ok or type(value) ~= "table" then
+        return nil, "child fragment is corrupt"
+    end
+
+    return value
+end
+
+export = observation

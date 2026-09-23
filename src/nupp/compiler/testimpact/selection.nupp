@@ -1,0 +1,451 @@
+@!internal
+
+module nupp.compiler.testimpact.selection
+
+-- Pure impact-graph traversal and conservative selection policy.
+local fs = require("nupp.compiler.fs")
+
+local selection = {}
+
+local function normalize(path)
+    return fs.normalize(path):gsub("^%./", "")
+end
+
+local function sortedKeys(values)
+    local keys = {}
+    for key in pairs(values or {}) do
+        keys[#keys + 1] = key
+    end
+    table.sort(keys)
+
+    return keys
+end
+
+local function canonicalModel(graph)
+    if type(graph.moduleDependencies) ~= "table" then
+        return graph
+    end
+    local model = {
+        complete = graph.complete == true and graph.successful == true and graph.unfiltered == true,
+        base = graph.stamps and graph.stamps[2] or nil,
+        modules = {},
+        suites = {},
+        impacts = {},
+        uncertainSuites = {},
+        uncertainCases = {},
+    }
+    for moduleId, moduleName in ipairs(graph.modules or {}) do
+        local paths = {}
+        local pathId = graph.modulePaths and graph.modulePaths[moduleId] or 0
+        if pathId and pathId > 0 and graph.paths[pathId] then
+            paths[1] = graph.paths[pathId]
+        end
+        local dependencies = {}
+        for _, dependencyId in ipairs((graph.moduleDependencies and graph.moduleDependencies[moduleId]) or {}) do
+            if graph.modules[dependencyId] then
+                dependencies[#dependencies + 1] = graph.modules[dependencyId]
+            end
+        end
+        model.modules[moduleName] = {paths = paths, dependencies = dependencies}
+    end
+    local suiteNames = {}
+    for suiteId, pathId in ipairs(graph.suites or {}) do
+        local suitePath = graph.paths[pathId]
+        if suitePath then
+            suiteNames[suiteId] = suitePath
+            model.suites[
+                suitePath
+            ] = {
+                path = suitePath,
+                sliceSafe = graph.suiteSliceSafe[suiteId] == true
+                and #((graph.suiteUncertainty and graph.suiteUncertainty[suiteId]) or {}) == 0,
+                unsafeCases = {},
+            }
+            if #((graph.suiteUncertainty and graph.suiteUncertainty[suiteId]) or {}) > 0 then
+                model.uncertainSuites[suitePath] = true
+            end
+            for _, root in ipairs((graph.suiteRoots and graph.suiteRoots[suiteId]) or {}) do
+                local moduleName = graph.modules[root[1]]
+                if moduleName then
+                    model.impacts[moduleName] = model.impacts[moduleName] or {}
+                    model.impacts[moduleName][#model.impacts[moduleName] + 1] = {suite = suitePath}
+                end
+            end
+        end
+    end
+    for caseIndex, case in ipairs(graph.cases or {}) do
+        local suitePath = suiteNames[case[1]]
+        if suitePath then
+            local caseId = case[2]
+            local caseSafe = graph.caseSliceSafe[caseIndex] == true
+                and #((graph.caseUncertainty and graph.caseUncertainty[caseIndex]) or {}) == 0
+            if not caseSafe then
+                model.suites[suitePath].unsafeCases[caseId] = true
+            end
+            if #((graph.caseUncertainty and graph.caseUncertainty[caseIndex]) or {}) > 0 then
+                model.uncertainCases[#model.uncertainCases + 1] = {suite = suitePath, caseId = caseId}
+            end
+            for _, root in ipairs((graph.caseRoots and graph.caseRoots[caseIndex]) or {}) do
+                local moduleName = graph.modules[root[1]]
+                if moduleName then
+                    model.impacts[moduleName] = model.impacts[moduleName] or {}
+                    model.impacts[moduleName][#model.impacts[moduleName] + 1] = {suite = suitePath, caseId = caseId,}
+                end
+            end
+        end
+    end
+
+    return model
+end
+
+local function sortedSet(values)
+    return sortedKeys(values)
+end
+
+local function add(set, value)
+    if value ~= nil then
+        set[value] = true
+    end
+end
+
+local function allSuites(graph)
+    local suites = {}
+    for suite in pairs(graph.suites or {}) do
+        suites[suite] = true
+    end
+
+    return suites
+end
+
+local function pathIndexes(graph, pathModules)
+    local modules = {}
+    for moduleId, module in pairs(graph.modules or {}) do
+        for _, path in ipairs(module.paths or {}) do
+            local normalized = normalize(path)
+            modules[normalized] = modules[normalized] or {}
+            add(modules[normalized], moduleId)
+        end
+        for _, path in ipairs(module.basePaths or {}) do
+            local normalized = normalize(path)
+            modules[normalized] = modules[normalized] or {}
+            add(modules[normalized], moduleId)
+        end
+    end
+    for path, moduleIds in pairs(pathModules or {}) do
+        local normalized = normalize(path)
+        modules[normalized] = modules[normalized] or {}
+        if type(moduleIds) == "string" then
+            add(modules[normalized], moduleIds)
+        else
+            for _, moduleId in ipairs(moduleIds) do
+                add(modules[normalized], moduleId)
+            end
+        end
+    end
+
+    local suites = {}
+    for suiteId, suite in pairs(graph.suites or {}) do
+        if suite.path then
+            suites[normalize(suite.path)] = suiteId
+        end
+        for _, path in ipairs(suite.paths or {}) do
+            suites[normalize(path)] = suiteId
+        end
+    end
+
+    return modules, suites
+end
+
+local function reverseDependencies(graph)
+    local reverse = {}
+    for moduleId, module in pairs(graph.modules or {}) do
+        reverse[moduleId] = reverse[moduleId] or {}
+        for _, dependency in ipairs(module.dependencies or {}) do
+            reverse[dependency] = reverse[dependency] or {}
+            add(reverse[dependency], moduleId)
+        end
+    end
+
+    return reverse
+end
+
+local function affectedClosure(graph, changed)
+    local reverse = reverseDependencies(graph)
+    local affected = {}
+    local pending = {}
+    for moduleId in pairs(changed) do
+        add(affected, moduleId)
+        pending[#pending + 1] = moduleId
+    end
+    local index = 1
+    while index <= #pending do
+        local moduleId = pending[index]
+        index = index + 1
+        for dependent in pairs(reverse[moduleId] or {}) do
+            if not affected[dependent] then
+                affected[dependent] = true
+                pending[#pending + 1] = dependent
+            end
+        end
+    end
+
+    return affected
+end
+
+local function fallback(result, code, reason, path, scope)
+    result.fallbacks[#result.fallbacks + 1] = {code = code, reason = reason, path = path, scope = scope or "all",}
+end
+
+local function wholeScope(result, graph, code, reason, path)
+    result.selectedSuites = allSuites(graph)
+    result.selectedCases = {}
+    result.completeScope = true
+    result.conservative = true
+    fallback(result, code, reason, path, "all")
+end
+
+local function suiteIsSafe(suite, caseId)
+    if not suite or suite.sliceSafe ~= true then
+        return false
+    end
+    return not (suite.unsafeCases and suite.unsafeCases[caseId])
+end
+
+local function selectSuite(result, suiteId, reason, code)
+    add(result.selectedSuites, suiteId)
+    result.selectedCases[suiteId] = nil
+    result.reasons[
+        #result.reasons + 1
+    ] = {kind = "suite", code = code or "module-impact", suite = suiteId, reason = reason,}
+end
+
+local function selectCase(result, graph, suiteId, caseId, moduleId)
+    if result.selectedSuites[suiteId] then
+        return
+    end
+    local suite = graph.suites and graph.suites[suiteId]
+    if not suiteIsSafe(suite, caseId) then
+        selectSuite(result, suiteId, "case cannot be sliced independently", "unsafe-case-promoted")
+        result.promotions[
+            #result.promotions + 1
+        ] = {
+            code = "unsafe-case-promoted",
+            suite = suiteId,
+            caseId = caseId,
+            module = moduleId,
+            reason = "case cannot be sliced independently",
+        }
+        return
+    end
+    result.selectedCases[suiteId] = result.selectedCases[suiteId] or {}
+    add(result.selectedCases[suiteId], caseId)
+    result.reasons[
+        #result.reasons + 1
+    ] = {
+        kind = "case",
+        code = "module-impact",
+        suite = suiteId,
+        caseId = caseId,
+        module = moduleId,
+        reason = "observed affected module",
+    }
+end
+
+local function selectUncertainOwners(result, graph)
+    for _, suiteId in ipairs(sortedKeys(graph.uncertainSuites)) do
+        selectSuite(result, suiteId, "suite observation is uncertain", "uncertain-suite-selected")
+        result.conservative = true
+        fallback(result, "uncertain-suite-selected", "suite observation may include unattributed work", nil, "suite")
+    end
+    for _, owner in ipairs(graph.uncertainCases or {}) do
+        if not result.selectedSuites[owner.suite] then
+            selectSuite(result, owner.suite, "case observation is uncertain", "uncertain-case-promoted")
+            result.promotions[
+                #result.promotions + 1
+            ] = {
+                code = "uncertain-case-promoted",
+                suite = owner.suite,
+                caseId = owner.caseId,
+                reason = "case observation may include unattributed work",
+            }
+            result.conservative = true
+        end
+    end
+end
+
+local function applyClassifier(result, graph, classification, path)
+    if not classification then
+        wholeScope(result, graph, "unknown-path", "changed path has no module, suite, or fallback rule", path)
+        return
+    end
+    if classification.scope == "none" then
+        result.knownUnaffecting[
+            #result.knownUnaffecting + 1
+        ] = {
+            path = path,
+            code = classification.code or "known-unaffecting",
+            reason = classification.reason or "path is known not to affect the requested tests",
+        }
+    elseif classification.scope == "suite" then
+        for _, suiteId in ipairs(classification.suites or {}) do
+            selectSuite(
+                result,
+                suiteId,
+                classification.reason or "path fallback selected suite",
+                classification.code or "suite-fallback"
+            )
+        end
+        fallback(
+            result,
+            classification.code or "suite-fallback",
+            classification.reason or "path requires suite fallback",
+            path,
+            "suite"
+        )
+    else
+        wholeScope(
+            result,
+            graph,
+            classification.code or "path-fallback",
+            classification.reason or "path requires the complete test scope",
+            path
+        )
+    end
+end
+
+local function publicCases(cases)
+    local out = {}
+    for _, suiteId in ipairs(sortedKeys(cases)) do
+        for _, caseId in ipairs(sortedSet(cases[suiteId])) do
+            out[#out + 1] = {suite = suiteId, caseId = caseId}
+        end
+    end
+
+    return out
+end
+
+--- Selects cases and suites from a complete impact graph and a discovered diff.
+---
+--- Graph shape:
+---   modules[id] = {paths = {...}, basePaths = {...}, dependencies = {...}}
+---   impacts[module] = {{suite = id, caseId = id?}, ...}
+---   suites[id] = {path = path, sliceSafe = boolean, unsafeCases = {id=true}}
+---
+--- `classifyPath(path, change)` may return a structured `none`, `suite`, or
+--- `all` fallback for paths outside the module and suite indexes.
+---
+--- The plain-data result contains base, head, changedPaths, affectedModules,
+--- selectedSuites, selectedCases, promotions, fallbacks, knownUnaffecting,
+--- reasons, completeScope, conservative, emptyReason?, and safe. Selected
+--- cases are `{suite, caseId}` records; every promotion and fallback carries a
+--- stable code and readable reason.
+function selection.select(graph, discovered, options)
+    options = options or {}
+    graph = graph and canonicalModel(graph) or graph
+    local result = {
+        base = discovered and discovered.base or nil,
+        head = discovered and discovered.head or nil,
+        changedPaths = {},
+        affectedModules = {},
+        selectedSuites = {},
+        selectedCases = {},
+        promotions = {},
+        fallbacks = {},
+        knownUnaffecting = {},
+        reasons = {},
+        completeScope = false,
+        conservative = false,
+    }
+
+    if not discovered or discovered.available ~= true then
+        wholeScope(
+            result,
+            graph or {},
+            discovered and discovered.code or "diff-unavailable",
+            discovered and discovered.reason or "diff discovery is unavailable"
+        )
+    elseif not graph or graph.complete ~= true then
+        result.changedPaths = discovered.paths or {}
+        wholeScope(result, graph or {}, "graph-incomplete", "no complete compatible impact graph is available")
+    elseif graph.base and discovered.base and graph.base ~= discovered.base then
+        result.changedPaths = discovered.paths or {}
+        wholeScope(result, graph, "graph-base-mismatch", "impact graph does not describe the resolved base revision")
+    else
+        result.changedPaths = discovered.paths or {}
+        local modulePaths, suitePaths = pathIndexes(graph, options.pathModules)
+        local changedModules = {}
+        local anyChange = false
+
+        for _, change in ipairs(discovered.changes or {}) do
+            anyChange = true
+            local explained = false
+            local endpoints = {}
+            if change.oldPath then
+                endpoints[#endpoints + 1] = normalize(change.oldPath)
+            end
+            endpoints[#endpoints + 1] = normalize(change.path)
+            for _, path in ipairs(endpoints) do
+                for moduleId in pairs(modulePaths[path] or {}) do
+                    add(changedModules, moduleId)
+                    explained = true
+                end
+                local suiteId = suitePaths[path]
+                if suiteId then
+                    selectSuite(result, suiteId, "suite source changed directly", "suite-source-changed")
+                    explained = true
+                end
+            end
+            if not explained then
+                local classifyPath = options.classifyPath
+                applyClassifier(result, graph, classifyPath and classifyPath(change.path, change) or nil, change.path)
+            end
+        end
+
+        local affected = affectedClosure(graph, changedModules)
+        result.affectedModules = sortedSet(affected)
+        for _, moduleId in ipairs(result.affectedModules) do
+            for _, edge in ipairs((graph.impacts and graph.impacts[moduleId]) or {}) do
+                if edge.caseId then
+                    selectCase(result, graph, edge.suite, edge.caseId, moduleId)
+                else
+                    selectSuite(result, edge.suite, "suite observed affected module " .. moduleId, "module-impact")
+                end
+            end
+        end
+
+        if anyChange and not result.completeScope then
+            selectUncertainOwners(result, graph)
+        end
+
+        if not result.completeScope and next(result.selectedSuites) == nil and next(result.selectedCases) == nil then
+            if anyChange and #result.knownUnaffecting ~= #(discovered.changes or {}) then
+                wholeScope(
+                    result,
+                    graph,
+                    "unexplained-empty",
+                    "changed paths produced no detecting case or proven-safe empty selection"
+                )
+            elseif not anyChange then
+                result.emptyReason = "no-changes"
+            else
+                result.emptyReason = "all-changes-known-unaffecting"
+            end
+        end
+    end
+
+    result.selectedSuites = sortedSet(result.selectedSuites)
+    result.selectedCases = publicCases(result.selectedCases)
+    table.sort(result.promotions, function(left, right)
+        return left.suite == right.suite and left.caseId < right.caseId or left.suite < right.suite
+    end)
+    table.sort(result.fallbacks, function(left, right)
+        local leftKey = (left.path or "") .. "\0" .. left.code
+        local rightKey = (right.path or "") .. "\0" .. right.code
+        return leftKey < rightKey
+    end)
+    result.safe = true
+
+    return result
+end
+
+export = selection

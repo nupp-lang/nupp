@@ -23,6 +23,20 @@ function testrunner.run(args: any): integer
     -- The literal require also keeps it in a stamped compiler whose runner source is
     -- loaded dynamically below.
     package.loaded["nupp.test"] = require("nupp.test")
+    -- The runner resource reaches this module dynamically too. Preload one instance
+    -- so suite runtime loaders and the runner share the active observation.
+    package.loaded["nupp.compiler.testimpact.observe"] = require("nupp.compiler.testimpact.observe")
+    package.loaded["nupp.compiler.testimpact.diff"] = require("nupp.compiler.testimpact.diff")
+    package.loaded["nupp.compiler.testimpact.selection"] = require("nupp.compiler.testimpact.selection")
+    package.loaded["nupp.compiler.testimpact.store"] = require("nupp.compiler.testimpact.store")
+
+    local impactSource = assert(require("nupp.compiler.bundled").source("/nupp/test/impact.lua"))
+    local loadImpact, impactProblem = loadstring(impactSource, "@nupp:test-impact")
+    if loadImpact == nil then
+        io.stderr:write("nupp: cannot load bundled test impact support: " .. tostring(impactProblem) .. "\n")
+        return 1
+    end
+    package.loaded["runner.impact"] = loadImpact()
 
     local source = assert(require("nupp.compiler.bundled").source("/nupp/test/runner.lua"))
     local execute, problem = loadstring(source, "@nupp:test-runner")

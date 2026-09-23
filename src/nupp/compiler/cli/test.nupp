@@ -185,6 +185,70 @@ local REPORT_SCHEMA = {
             .. "work gets, and only less work shortens it.",
             properties = {processIsolated = phasePrediction, shared = phasePrediction, shell = phasePrediction},
         },
+        selection = {
+            type = "object",
+            description = "Why a diff-selected run chose its suites and cases. Absent for an ordinary run.",
+            properties = {
+                version = {type = "integer", enum = {1}},
+                mode = {type = "string", enum = {"diff"}},
+                shadow = {
+                    type = "boolean",
+                    description = "The selection was reported while the complete requested scope still ran."
+                },
+                base = {type = "string", description = "The exact revision the working tree was compared with."},
+                graphRevision = {
+                    type = "string",
+                    description = "The exact revision whose complete impact graph justified the selection."
+                },
+                changedPaths = {type = "array", items = {type = "string"}},
+                affectedModules = {type = "array", items = {type = "string"}},
+                selectedSuites = {type = "array", items = {type = "string"}},
+                selectedCases = {type = "array", items = {type = "string"}},
+                reasons = {type = "array", items = {['$ref'] = "#/definitions/testImpactSelectionReason"}},
+                promotions = {type = "array", items = {["$ref"] = "#/definitions/testImpactReason"}},
+                fallbacks = {type = "array", items = {["$ref"] = "#/definitions/testImpactReason"}},
+                complete = {type = "boolean"},
+                cacheMs = {type = "number", description = "Time spent reading and validating the impact graph."},
+                queryMs = {
+                    type = "number",
+                    description = "Milliseconds spent loading and traversing the impact graph and building its report."
+                },
+                emptyReason = {
+                    type = "string",
+                    description = "Why no case was selected when the diff is proven not to affect tests."
+                },
+                selectedWorkMs = {
+                    type = "number",
+                    description = "Work predicted from the runner's persisted suite and case timings."
+                },
+                requestedWorkMs = {
+                    type = "number",
+                    description = "Work predicted for the complete explicitly requested scope."
+                },
+                predictedSavingsMs = {type = "number"},
+                predictedSavingsPercent = {type = "number"},
+            },
+            required = {
+                "version",
+                "mode",
+                "shadow",
+                "base",
+                "changedPaths",
+                "affectedModules",
+                "selectedSuites",
+                "selectedCases",
+                "reasons",
+                "promotions",
+                "fallbacks",
+                "complete",
+                "cacheMs",
+                "queryMs",
+                "selectedWorkMs",
+                "requestedWorkMs",
+                "predictedSavingsMs",
+                "predictedSavingsPercent",
+            },
+        },
     },
     required = {
         "ok",
@@ -223,6 +287,23 @@ local REPORT_SCHEMA = {
             type = "object",
             properties = {name = {type = "string"}, value = {type = "number"}, unit = {type = "string"},},
             required = {"name", "value"},
+        },
+        testImpactReason = {
+            type = "object",
+            properties = {code = {type = "string"}, reason = {type = "string"}, owner = {type = "string"},},
+            required = {"code", "reason"},
+        },
+        testImpactSelectionReason = {
+            type = "object",
+            properties = {
+                kind = {type = "string", enum = {"suite", "case"}},
+                code = {type = "string"},
+                suite = {type = "string"},
+                caseId = {type = "string"},
+                module = {type = "string"},
+                reason = {type = "string"},
+            },
+            required = {"kind", "code", "suite", "reason"},
         },
         coverageMetric = {
             type = "object",
@@ -366,14 +447,14 @@ end
 
 --- Build and run project tests.
 ---
---- Coverage options belong to Nupp. Every other argument is preserved in
---- order for the bundled runner or the project's configured test command.
---- The bundled runner accepts suite names, `--json`, `--verbose`, `--jobs=N`,
---- repeated `--group=NAME`, `--exclude=SUITE`, `--exclude-group=NAME`, one of
---- `--lane=shared|shell|isolated`, `--list-suites`, `--list-cases`,
---- `--list-groups`, `--case=SUITE/CASE`, `--rerun=REPORT`, and
---- `--timings[=N]`. Those remain forwarded arguments rather than fields of this
---- command because a project may configure a different test executable.
+--- Coverage options belong to Nupp. Every other argument is preserved in order for the
+--- bundled runner or the project's configured test command. The bundled runner accepts
+--- suite names, `--json`, `--verbose`, `--jobs=N`, repeated `--group=NAME`,
+--- `--exclude=SUITE`, `--exclude-group=NAME`, one of `--lane=shared|shell|isolated`,
+--- `--list-suites`, `--list-cases`, `--list-groups`, `--case=SUITE/CASE`,
+--- `--rerun=REPORT`, `--diff[=REF]`, `--explain-selection`, `--shadow`, and
+--- `--timings[=N]`. Those remain forwarded arguments rather than fields of this command
+--- because a project may configure a different test executable.
 ---
 --- Coverage uses `build/coverage` without changing the ordinary build cache
 --- and writes under `build/reports/coverage` by default. `--report-json` reads
@@ -384,6 +465,7 @@ end
 ---     nupp test
 ---     nupp test clitest doctest
 ---     nupp test --group=docs --json
+---     nupp test --diff --explain-selection
 ---     nupp test --coverage clitest
 @cli(name = "test", preserveUnknown = true)
 @derive(cliModule.Command)

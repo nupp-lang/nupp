@@ -67,7 +67,8 @@ type cache.ModuleRecord = {
     projectDependencies: {{
         name: string?,
         key: string?,
-        fingerprint: string?
+        fingerprint: string?,
+        paths: {string}?
     }}?,
 
     --- The compiler-recognized runtime features this module needs staging for.

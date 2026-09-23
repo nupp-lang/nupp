@@ -11,6 +11,7 @@ host/notices/*.txt text eol=lf
 # reproduces a different one, which is Windows, so every embedded resource needs
 # one checkout spelling.
 tests/run.lua text eol=lf
+tests/runner/impact.lua text eol=lf
 src/nupp/compiler/doc/theme.css text eol=lf
 src/nupp/compiler/build/stub-catalog.json text eol=lf
 src/nupp/compiler/aot/include/*.h text eol=lf
