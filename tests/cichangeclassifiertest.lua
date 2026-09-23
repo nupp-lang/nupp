@@ -104,9 +104,9 @@ function M.localFleetInputsRemainAnExplicitSimdSurface()
     end
 end
 
-function M.simdSurfaceHasNoGitHubJob()
+function M.simdSurfaceHasNoChangeTriggeredGitHubJob()
     for _, name in ipairs(everyJob()) do
-        test.assert(name ~= "simd-conformance", "the SIMD fleet must stay local")
+        test.assert(name ~= "simd-conformance", "the SIMD fleet must stay out of change-triggered CI")
     end
 end
 

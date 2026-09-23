@@ -1,8 +1,10 @@
 name: SIMD execution conformance
 
 on:
-  # Manual fallback for running the legacy hosted SIMD matrix. The compiler
-  # workflow does not call it; automatic SIMD coverage belongs to test-fleet.
+  # Keep manual fallback for the legacy hosted matrix, and exercise it nightly
+  # when the default branch changed during the preceding day.
+  schedule:
+    - cron: "17 8 * * *"
   workflow_dispatch:
   workflow_call:
 
@@ -10,7 +12,28 @@ permissions:
   contents: read
 
 jobs:
+  changes:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      should-run: ${{ steps.recent.outputs.should-run }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: recent
+        name: Check for changes during the preceding day
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [[ "$EVENT_NAME" != schedule ]] || [[ -n "$(git log -1 --since='24 hours ago' --format=%H)" ]]; then
+            echo "should-run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "should-run=false" >> "$GITHUB_OUTPUT"
+          fi
+
   platforms:
+    needs: changes
+    if: needs.changes.outputs.should-run == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
@@ -117,6 +140,8 @@ jobs:
 
   guest:
     name: Build the LuaJIT browser guest
+    needs: changes
+    if: needs.changes.outputs.should-run == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -280,7 +305,7 @@ jobs:
   wasm-complete:
     name: Complete Wasm inventory
     needs: wasm
-    if: always()
+    if: always() && needs.wasm.result != 'skipped'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
