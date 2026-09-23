@@ -151,6 +151,13 @@ if package.config:sub(1, 1) == "\\" then
     local nativeMarker = "__NUPP_WINDOWS_COMMAND__"
     _G.__NUPP_TEST_CMD_MARKER = nativeMarker
     _G.__NUPP_TEST_BASH = bash
+
+    local function usesTestShell(source)
+        return source == "@nupp:test-runner"
+            or source:find("/tests/", 1, true) ~= nil
+            or source:match("^@?tests/") ~= nil
+    end
+
     -- Asked for when a test wants it, not while this file loads. `io.popen` is
     -- refused in a shared worker lane, and a `pwd` nothing has asked for yet is
     -- no reason to be refused: reading it eagerly failed every Nupp worker on
@@ -196,7 +203,7 @@ if package.config:sub(1, 1) == "\\" then
         end
         local caller = debug.getinfo(2, "S")
         local source = caller and caller.source:gsub("\\", "/") or ""
-        if not source:find("/tests/", 1, true) and not source:match("^@?tests/") then
+        if not usesTestShell(source) then
             return rawExecute(command)
         end
         local path = script(command)
@@ -212,7 +219,7 @@ if package.config:sub(1, 1) == "\\" then
         end
         local caller = debug.getinfo(2, "S")
         local source = caller and caller.source:gsub("\\", "/") or ""
-        if not source:find("/tests/", 1, true) and not source:match("^@?tests/") then
+        if not usesTestShell(source) then
             return rawPopen(command, mode)
         end
         if command == "pwd" then
