@@ -1,0 +1,109 @@
+{
+  "schemaVersion": 1,
+  "domains": {
+    "elements": ["float", "number", "int8", "uint8", "int16", "uint16", "int32", "uint32", "int64", "uint64"],
+    "lanes": {"integerRange": [2, 64], "include": ["preferred"]},
+    "backends": ["native", "wasm"],
+    "representations": ["native-single", "composite-exact", "composite-remainder", "preferred"],
+    "operationCases": [
+      "common/floating", "common/signed-integer", "common/unsigned-integer",
+      "common/wide-signed-integer", "common/wide-unsigned-integer",
+      "integer/signed-integer", "integer/unsigned-integer",
+      "integer/wide-signed-integer", "integer/wide-unsigned-integer",
+      "floating-special/floating", "reducers/floating", "reducers/signed-integer",
+      "reducers/unsigned-integer", "reducers/wide-signed-integer", "reducers/wide-unsigned-integer"
+    ],
+    "tailCases": ["zero", "one", "logical-minus-one", "logical", "chunk-minus-one", "chunk", "chunk-plus-one", "every-tail-representative"],
+    "nativeHosts": ["linux-x64", "linux-arm64", "macos-x64", "macos-arm64", "windows-x64"],
+    "nativeTiers": ["baseline", "avx2", "avx512f", "neon"],
+    "compilerDialects": ["clang", "gcc"],
+    "nativeAlgorithms": ["utf8simd", "base64simd", "simd-json", "fused-json"],
+    "wasmAlgorithms": ["utf8simd", "base64simd", "simd-json"]
+  },
+  "requirements": [
+    {
+      "id": "simd.species-inventory",
+      "description": "Every public element and logical species executes a small kernel on each backend.",
+      "scope": "fleet", "gate": "migration",
+      "expand": {"element": "elements", "lane": "lanes", "backend": "backends"}
+    },
+    {
+      "id": "simd.operation-semantics",
+      "description": "Operation and legal type categories execute at each physical representation class.",
+      "scope": "fleet", "gate": "migration",
+      "expand": {"operationCase": "operationCases", "representation": "representations", "backend": "backends"}
+    },
+    {
+      "id": "simd.conversions",
+      "description": "Every legal numeric source and destination pair executes once on each backend.",
+      "scope": "fleet", "gate": "migration",
+      "expand": {"source": "elements", "destination": "elements", "backend": "backends"}
+    },
+    {
+      "id": "simd.tail-semantics",
+      "description": "Structural and native-chunk tail boundaries execute independently of operation enumeration.",
+      "scope": "fleet", "gate": "migration",
+      "expand": {"tailCase": "tailCases", "backend": "backends"}
+    },
+    {
+      "id": "simd.representation-boundary",
+      "description": "Each lowering shape with distinct generated code has a dedicated witness.",
+      "scope": "fleet", "gate": "migration",
+      "cases": [
+        {"boundary": "native-single"}, {"boundary": "composite-exact"},
+        {"boundary": "composite-remainder"}, {"boundary": "preferred"},
+        {"boundary": "complete-256-bit-float"}, {"boundary": "mask-64-lanes"},
+        {"boundary": "avx512-gather-scatter"}, {"boundary": "neon-field-pairs"},
+        {"boundary": "target-vector-ceiling"}, {"boundary": "frame-width"}
+      ]
+    },
+    {
+      "id": "simd.native.host",
+      "description": "Each required native operating-system and architecture class executes SIMD code.",
+      "scope": "fleet", "gate": "migration", "expand": {"host": "nativeHosts"}
+    },
+    {
+      "id": "simd.native.tier",
+      "description": "Each supported native instruction tier executes on capable hardware.",
+      "scope": "fleet", "gate": "migration", "expand": {"tier": "nativeTiers"}
+    },
+    {
+      "id": "simd.native.compiler-dialect",
+      "description": "One compact generated C pack executes under every supported compiler family.",
+      "scope": "fleet", "gate": "migration", "expand": {"compiler": "compilerDialects"}
+    },
+    {
+      "id": "simd.native.algorithm",
+      "description": "Every owned algorithm executes a compiled native entry at every native tier.",
+      "scope": "fleet", "gate": "migration",
+      "expand": {"algorithm": "nativeAlgorithms", "tier": "nativeTiers"}, "fixed": {"backend": "native"}
+    },
+    {
+      "id": "simd.wasm.algorithm",
+      "description": "Every portable owned algorithm executes through Wasm.",
+      "scope": "fleet", "gate": "migration",
+      "expand": {"algorithm": "wasmAlgorithms"}, "fixed": {"backend": "wasm"}
+    },
+    {
+      "id": "simd.wasm.counted-runtime",
+      "description": "Counted loops execute through Wasm SIMD and scalar-C routes.",
+      "scope": "fleet", "gate": "migration",
+      "cases": [{"backend": "wasm", "route": "simd"}, {"backend": "wasm", "route": "scalar-c"}]
+    },
+    {
+      "id": "simd.runtime-boundary",
+      "description": "Every modeled but unsupported runtime target remains recorded as an explicit boundary.",
+      "scope": "fleet", "gate": "migration",
+      "cases": [
+        {"target": "aarch64-pc-windows-msvc", "status": "unsupported-native-toolchain"},
+        {"target": "i686-pc-windows-msvc", "status": "unsupported-native-toolchain"},
+        {"target": "i686-unknown-linux-gnu", "status": "not-executed"}
+      ]
+    },
+    {
+      "id": "simd.historical-defect",
+      "description": "Each fixed historical defect has an exact witness under the bounded equivalence gate.",
+      "scope": "fleet", "gate": "equivalence", "ledger": "defect-ledger.json"
+    }
+  ]
+}

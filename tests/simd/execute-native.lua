@@ -16,7 +16,7 @@ local corpus = decode(read("corpus.json"))
 package.path = config.directory .. "/build/native/?.lua;" .. root .. "/build/?.lua;" .. package.path
 jit.off()
 local registry = assert(rawget(_G, "__nuppAotCompiled") or {})
-local calls, probes = {}, 0
+local calls, symbols, probes = {}, {}, 0
 local observed = {}
 
 local function pack(...)
@@ -33,6 +33,7 @@ end
 
 for module, names in pairs(corpus.probes) do
     local exports = require(module)
+    local binding = read(assert(package.searchpath(module, package.path)))
     registry = assert(rawget(_G, "__nuppAotCompiled"), "no native replacement registry")
     for _, name in ipairs(names) do
         local fn = assert(exports[name], "missing probe " .. module .. "." .. name)
@@ -45,7 +46,15 @@ for module, names in pairs(corpus.probes) do
                 break
             end
             if upname:match("^ks_.*_native$") and type(value) == "cdata" then
+                local symbol = assert(
+                    binding:match("local%s+" .. upname .. "%s*=%s*([%w_]+)"),
+                    "missing emitted native binding"
+                )
+                local suffix = "__" .. config.tier
+                assert(symbol:sub(-#suffix) == suffix, "native binding uses unexpected tier")
+                assert(not symbol:find("_forced_scalar__", 1, true), "native route resolved the forced-scalar twin")
                 forward(fn, at, value, key)
+                symbols[key] = symbol
                 found = true
             end
         end
@@ -62,7 +71,15 @@ for _, key in ipairs(observed) do
     assert((calls[key] or 0) > 0, key .. " never executed its native C entry")
     total = total + calls[key]
 end
-local report = {ok = true, tier = config.tier, probes = probes, cases = checked, nativeCalls = total, calls = calls}
+local report = {
+    ok = true,
+    tier = config.tier,
+    probes = probes,
+    cases = checked,
+    nativeCalls = total,
+    calls = calls,
+    symbols = symbols,
+}
 local file = assert(io.open("result.json", "wb"))
 file:write(encode(report), "\n")
 file:close()

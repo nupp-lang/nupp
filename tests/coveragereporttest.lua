@@ -30,24 +30,31 @@ local function run(hits)
     local dir = tempdir()
     local source = dir .. "/sample.nupp"
     write(source, "local function named()\n    return 1\nend\n\nlocal fn = function() end\n")
-    write(dir .. "/state.json", json.encode({
-        version = 4,
-        modules = {
-            ["sample"] = {
-                output = dir .. "/sample.lua",
-                coverage = {
-                    path = source,
-                    sites = {
-                        {id = 1, kind = "function", line = 1, endLine = 3, name = "named"},
-                        {id = 2, kind = "statement", line = 2},
-                        {id = 3, kind = "branch", line = 2},
-                        {id = 4, kind = "function", line = 5},
+    write(
+        dir .. "/state.json",
+        json.encode({
+            version = 5,
+            modules = {
+                [
+                    "sample"
+                ] = {
+                    output = dir .. "/sample.lua",
+                    coverage = {
+                        path = source,
+                        sites = {
+                            {id = 1, kind = "function", line = 1, endLine = 3, name = "named"},
+                            {id = 2, kind = "statement", line = 2},
+                            {id = 3, kind = "branch", line = 2},
+                            {id = 4, kind = "function", line = 5},
+                        },
                     },
                 },
             },
-        },
-        dependencies = {}, outputs = {}, targets = {},
-    }))
+            dependencies = {},
+            outputs = {},
+            targets = {},
+        })
+    )
     write(dir .. "/shard.json", json.encode({hits = {[source] = hits}}))
     local model = coverage.collect(dir .. "/state.json", dir .. "/shard.json")
     assert(os.execute("rm -rf " .. string.format("%q", dir)) == 0)
@@ -56,6 +63,7 @@ local function run(hits)
     for _, site in ipairs(model.files[1].sites) do
         sites[site.id] = site
     end
+
     return model, sites
 end
 

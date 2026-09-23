@@ -163,9 +163,10 @@ local REPORT_SCHEMA = {
                     description = "Every activity that took measurable time, longest "
                     .. "first. One activity is current at a time, so these sum to the whole. "
                     .. "A target with an ahead-of-time policy accounts for it separately "
-                    .. "under aot:check, aot:lower, aot:optimize, aot:emit, aot:reuse, "
-                    .. "aot:compile and aot:link -- respectively checking the sources that "
-                    .. "carry an @aot body, lowering them, optimizing the lowered IR, "
+                    .. "under aot:lookup, aot:check, aot:lower, aot:optimize, aot:emit, aot:reuse, "
+                    .. "aot:compile and aot:link -- respectively testing whether a completed policy "
+                    .. "may be reused, checking the sources that carry an @aot body, "
+                    .. "lowering them, optimizing the lowered IR, "
                     .. "writing the C and the bindings, deciding what may be reused, "
                     .. "running the external C or Emscripten compiler, and archiving or "
                     .. "linking what it produced. Plain aot is whatever the policy did "
@@ -186,6 +187,22 @@ local REPORT_SCHEMA = {
                         units = {
                             type = "integer",
                             description = "Translation units the policy emitted, one per source and target tier.",
+                        },
+                        checkedSources = {
+                            type = "integer",
+                            description = "Sources checked by the AOT policy in this build.",
+                        },
+                        loweredPrograms = {
+                            type = "integer",
+                            description = "Programs lowered by the AOT policy in this build.",
+                        },
+                        optimizedPrograms = {
+                            type = "integer",
+                            description = "Programs optimized by the AOT policy in this build.",
+                        },
+                        emittedUnits = {
+                            type = "integer",
+                            description = "Source-tier C units emitted by the AOT policy in this build.",
                         },
                         reusedObjects = {
                             type = "integer",
@@ -208,6 +225,10 @@ local REPORT_SCHEMA = {
                     },
                     required = {
                         "units",
+                        "checkedSources",
+                        "loweredPrograms",
+                        "optimizedPrograms",
+                        "emittedUnits",
                         "reusedObjects",
                         "compiledObjects",
                         "reusedModules",

@@ -3,6 +3,7 @@
 -- Driven through the real binary because artifacts and exit status are the interface.
 
 local test = require("assert")
+local equivalenceMutation = require("tests.simd.equivalence-mutation")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 if not HERE:match("^/") then
@@ -2598,9 +2599,63 @@ return {masks = masks, shifted = shifted}
         decoded.c:find("(uint64_t)(p_a) & (uint64_t)(p_b)", 1, true),
         where .. ": the pattern keeps its width rather than narrowing to 32 bits\n" .. decoded.c
     )
+    local shiftC = decoded.c
+    if equivalenceMutation.active("shift-masking") then
+        local count
+        shiftC, count = shiftC:gsub("UINT64_C%(63%)", "UINT64_C(31)")
+        assert(count > 0, "equivalence mutation fixture did not match shift-masking")
+    end
     assert(
-        decoded.c:find("UINT64_C(63)", 1, true),
-        where .. ": a shift count is masked one bit wider than the 32-bit pair"
+        shiftC:find("UINT64_C(63)", 1, true),
+        equivalenceMutation.active("shift-masking") and equivalenceMutation.marker("shift-masking", "wrong-result")
+        or where .. ": a shift count is masked one bit wider than the 32-bit pair"
+    )
+end
+
+function M.compositeLaneExtractionKeepsNativeVectorsWhole()
+    local source = [[
+local span = require("nupp.mem.span")
+local array = require("nupp.mem.array")
+local simd = require("nupp.simd")
+
+@aot
+local function sum(borrows input: span.Span<int32>): int32
+    local species = assert(simd.species(array.int32, 17))
+    local fold = simd.reducer.i32.wrappingSum(0)
+    do
+        local active = species:tail(#input)
+        local value = species:load(input, 1, active)
+        fold:add(value, active)
+    end
+    return fold:value()
+end
+
+return {sum = sum}
+]]
+    local dir = project{["composite.nupp"] = source}
+    local decoded, raw, code, where = lowered(
+        dir,
+        "--target x86_64-unknown-linux-gnu --features baseline --json composite.nupp"
+    )
+    test.equal(code, 0, raw)
+    local compositeC = decoded.c
+    if equivalenceMutation.active("gcc-sra") then
+        local count
+        compositeC, count = compositeC:gsub(
+            "ks_exp_extract_i32x4%(simd_value_1%.chunk%[0%], 1%)",
+            "simd_value_1.chunk[0][0]"
+        )
+        assert(count == 1, "equivalence mutation fixture did not match gcc-sra")
+    end
+    assert(
+        compositeC:find("ks_exp_extract_i32x4(simd_value_1.chunk[0], 1)", 1, true),
+        equivalenceMutation.active("gcc-sra") and equivalenceMutation.marker("gcc-sra", "wrong-result")
+        or where .. ": composite extraction split a native vector\n" .. compositeC
+    )
+    assert(
+        not compositeC:find("simd_value_1.chunk[0][", 1, true),
+        equivalenceMutation.active("gcc-sra") and equivalenceMutation.marker("gcc-sra", "wrong-result")
+        or where .. ": composite extraction directly indexed a native vector\n" .. compositeC
     )
 end
 
@@ -3329,8 +3384,18 @@ function M.narrowScalarSpansKeepTheirStorageAndUseLanes()
     )
     assert(not ir:find("simd_load", 1, true), where .. ": scalar byte loads are not rewritten: " .. ir)
 
-    local c = decoded.c
-    assert(c:find("uint8_t *restrict p_flags", 1, true), where .. ": the output pointer retains byte storage: " .. c)
+    local c = equivalenceMutation.text(
+        "narrow-scalar-mapping",
+        decoded.c,
+        "uint8_t %*restrict p_flags",
+        "uint32_t *restrict p_flags"
+    )
+    assert(
+        c:find("uint8_t *restrict p_flags", 1, true),
+        equivalenceMutation.active("narrow-scalar-mapping")
+        and equivalenceMutation.marker("narrow-scalar-mapping", "wrong-result")
+        or where .. ": the output pointer retains byte storage: " .. c
+    )
     assert(c:find("const uint8_t *p_bytes", 1, true), where .. ": the input pointer retains const byte storage: " .. c)
     assert(not c:find("ks_exp_store_full_u8x8(p_flags", 1, true), where .. ": no inferred vector store: " .. c)
 

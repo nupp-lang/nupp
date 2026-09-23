@@ -73,6 +73,10 @@ return {
 
     ["gpu"] = {"gputest"},
 
+    -- Compact native and Wasm packs, their executable obligation ledger, and
+    -- the structural checks which keep the replacement corpus bounded.
+    ["simd-conformance"] = {"aotsimdconditiontest", "simd*test"},
+
     -- Packaging and release delivery.
     ["packaging"] = {"bundletest", "compilerpacktest", "releasetest", "rocktest", "spipackagetest", "spitest",},
 

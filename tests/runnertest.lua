@@ -134,10 +134,539 @@ return M
     os.execute("rm -rf " .. string.format("%q", dir))
 end
 
+function M.bundledRunnerCarriesStructuredCasesFixturesAndExactReruns()
+    local dir = os.tmpname()
+    os.remove(dir)
+    assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/tests")) == 0)
+    assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/src")) == 0)
+    write(dir .. "/nupp.lua", 'return {include = {"src"}, build = {entries = {"main"}}}\n')
+    write(dir .. "/src/main.nupp", "return true\n")
+    local fixtureKey = "runner-" .. (dir:match("([^/\\]+)$") or "fixture"):gsub("[^A-Za-z0-9._-]", "-")
+    write(
+        dir .. "/tests/featuretest.lua",
+        (
+            [=[
+local test = require("nupp.test")
+local M = test.cases(
+    {{name = "alpha", value = 20}, {name = "beta", value = 22}},
+    function(row) return row.name end,
+    function(row)
+        local path, value, reused = test.fixture(%q, function(directory)
+            local count = assert(io.open("fixture-productions", "ab"))
+            count:write("made\n")
+            count:close()
+            local artifact = assert(io.open(directory .. "/answer.txt", "wb"))
+            artifact:write("42")
+            artifact:close()
+            return {answer = 42}
+        end)
+        local artifact = assert(io.open(path .. "/answer.txt", "rb"))
+        test.equal(artifact:read("*a"), "42")
+        artifact:close()
+        test.equal(value.answer, 42)
+        test.equal(type(reused), "boolean")
+        test.fact("example.witness", {row = row.name})
+        test.metric("source.bytes", row.value, "bytes")
+        test.work("semantic.cases", 1)
+        test.requireCapability("runtime.lua", true, {engine = _VERSION})
+    end
+)
+function M.unavailable()
+    test.requireCapability("example.absent", false, {probe = "synthetic"})
+end
+return M
+]=]
+        ):format(fixtureKey)
+    )
+    write(dir .. "/tests/reruntest.lua", [[
+return {fails = function() error("rerun sentinel") end}
+]])
+    write(
+        dir .. "/tests/fixturepeertest.lua",
+        (
+            [=[
+local test = require("nupp.test")
+return {peer = function()
+    local path, value = test.fixture(%q, function(directory)
+        local count = assert(io.open("fixture-productions", "ab"))
+        count:write("made\n")
+        count:close()
+        local artifact = assert(io.open(directory .. "/answer.txt", "wb"))
+        artifact:write("42")
+        artifact:close()
+        return {answer = 42}
+    end)
+    test.equal(value.answer, 42)
+    local artifact = assert(io.open(path .. "/answer.txt", "rb"))
+    test.equal(artifact:read("*a"), "42")
+    artifact:close()
+end}
+]=]
+        ):format(fixtureKey)
+    )
+    write(
+        dir .. "/tests/fixturefailuretest.lua",
+        (
+            [=[
+local test = require("nupp.test")
+local function consume()
+    test.fixture(%q, function()
+        local count = assert(io.open("failed-fixture-productions", "ab"))
+        count:write("made\n")
+        count:close()
+        error("producer sentinel")
+    end)
+end
+return {first = consume, second = consume}
+]=]
+        ):format(fixtureKey .. "-failure")
+    )
+
+    local command = ("cd %q && %q test featuretest fixturepeertest --jobs=2 --json 2>/dev/null"):format(dir, NUPP)
+    local output, invocation = capturedRun(command)
+    test.equal(invocation.status, 0, "structured runner case failed" .. evidence(invocation))
+    local report = require("testjson").decode(output)
+    test.equal(report.total, 4)
+    test.equal(report.passed, 3)
+    test.equal(report.notExecuted, 1)
+    test.equal(report.tests[1].id, "featuretest/alpha")
+    test.matches(report.tests[1].file, "tests[/\\]featuretest%.lua$")
+    test.equal(report.tests[1].facts[1].name, "example.witness")
+    test.equal(report.tests[1].fixtures[1].key, fixtureKey)
+    test.equal(report.tests[3].status, "not-executed")
+    test.equal(report.tests[3].capabilities[1].available, false)
+    test.equal(report.metrics[1].name, "semantic.cases")
+    test.equal(report.metrics[1].value, 2)
+    test.equal(report.metrics[2].name, "source.bytes")
+    test.equal(report.metrics[2].value, 42)
+    local produced, reused = 0, 0
+    for _, record in ipairs(report.tests) do
+        for _, fixture in ipairs(record.fixtures or {}) do
+            if fixture.reused then
+                reused = reused + 1
+            else
+                produced = produced + 1
+            end
+        end
+    end
+    test.equal(produced, 1, "one case published the shared fixture")
+    test.equal(reused, 2, "the other fixture consumers reported reuse")
+    test.equal(read(dir .. "/fixture-productions"), "made\n", "the fixture was produced once across cases and workers")
+    local fixturePath = report.tests[1].fixtures[1].path
+    if not fixturePath:match("^[/\\]") and not fixturePath:match("^%a:[/\\]") then
+        fixturePath = dir .. "/" .. fixturePath
+    end
+    local timingsBefore = require("testjson").decode(read(dir .. "/build/.nupp-test-times.json"))
+
+    local listing, listed = capturedRun(("cd %q && %q test --list-cases 2>&1"):format(dir, NUPP))
+    test.equal(listed.status, 0, "case listing failed" .. evidence(listed))
+    test.matches(listing, "featuretest/alpha")
+    test.matches(listing, "featuretest/unavailable")
+
+    local exactOutput, exact = capturedRun(
+        ("cd %q && %q test --case=featuretest/beta --jobs=1 --json 2>/dev/null"):format(dir, NUPP)
+    )
+    test.equal(exact.status, 0, "exact case selection failed" .. evidence(exact))
+    local exactReport = require("testjson").decode(exactOutput)
+    test.equal(exactReport.total, 1)
+    test.equal(exactReport.tests[1].id, "featuretest/beta")
+    test.equal(exactReport.tests[1].fixtures[1].reused, true)
+    test.equal(read(dir .. "/fixture-productions"), "made\n", "the fixture was reused across runs")
+    local timingsAfter = require("testjson").decode(read(dir .. "/build/.nupp-test-times.json"))
+    test.equal(timingsAfter.suites.featuretest, timingsBefore.suites.featuretest)
+    test.equal(timingsAfter.cases.featuretest.alpha, timingsBefore.cases.featuretest.alpha)
+    test.equal(timingsAfter.cases.featuretest.unavailable, timingsBefore.cases.featuretest.unavailable)
+    test.assert(timingsAfter.cases.featuretest.beta ~= nil)
+
+    test.assert(os.remove(fixturePath .. "/answer.txt"))
+    local rebuiltOutput, rebuilt = capturedRun(
+        ("cd %q && %q test --case=featuretest/alpha --jobs=1 --json 2>/dev/null"):format(dir, NUPP)
+    )
+    test.equal(rebuilt.status, 0, "corrupt fixture recovery failed" .. evidence(rebuilt))
+    local rebuiltReport = require("testjson").decode(rebuiltOutput)
+    test.equal(rebuiltReport.tests[1].fixtures[1].reused, false)
+    test.equal(read(fixturePath .. "/answer.txt"), "42")
+    test.equal(read(dir .. "/fixture-productions"), "made\nmade\n", "a missing artifact forced one cold production")
+
+    write(
+        dir .. "/tests/fixturealiastest.lua",
+        [[
+local test = require("nupp.test")
+return {distinctKeys = function()
+    local paths = {}
+    for _, key in ipairs({"Case-Key", "case-key", "."}) do
+        local path, value = test.fixture(key, function(directory)
+            local artifact = assert(io.open(directory .. "/value.txt", "wb"))
+            artifact:write(key)
+            artifact:close()
+            return {key = key}
+        end)
+        paths[#paths + 1] = path
+        test.equal(value.key, key)
+    end
+    test.notEqual(paths[1], paths[2])
+    test.notEqual(paths[1], paths[3])
+    test.notEqual(paths[2], paths[3])
+end}
+]]
+    )
+    local aliasOutput, aliasRun = capturedRun(
+        ("cd %q && %q test fixturealiastest --jobs=1 --json 2>/dev/null"):format(dir, NUPP)
+    )
+    test.equal(aliasRun.status, 0, "fixture key aliases collided" .. evidence(aliasRun))
+    local aliasReport = require("testjson").decode(aliasOutput)
+    test.equal(aliasReport.passed, 1)
+
+    write(
+        dir .. "/infrastructure-failures.json",
+        [[
+{"tests":[
+  {"id":"Nupp worker 1/<shard>","suite":"Nupp worker 1","name":"<shard>","status":"failed"},
+  {"id":"featuretest/<unrun>","suite":"featuretest","name":"<unrun>","status":"failed"}
+]}
+]]
+    )
+    local infrastructureOutput, infrastructure = capturedRun(
+        ("cd %q && %q test --rerun=infrastructure-failures.json --jobs=1 --json 2>/dev/null"):format(dir, NUPP)
+    )
+    test.equal(infrastructure.status, 0, "infrastructure-report rerun failed" .. evidence(infrastructure))
+    local infrastructureReport = require("testjson").decode(infrastructureOutput)
+    test.equal(infrastructureReport.total, 3)
+    test.equal(infrastructureReport.notExecuted, 1)
+
+    write(
+        dir .. "/worker-only-failure.json",
+        [[
+{"tests":[
+  {"id":"Nupp worker 1/<shard>","suite":"Nupp worker 1","name":"<shard>","status":"failed"}
+]}
+]]
+    )
+    local workerOnlyOutput, workerOnly = capturedRun(
+        ("cd %q && %q test --rerun=worker-only-failure.json --jobs=1 2>&1"):format(dir, NUPP)
+    )
+    test.equal(workerOnly.status, 2, "a worker-only failure cannot select every suite" .. evidence(workerOnly))
+    test.matches(workerOnlyOutput, "contains no rerunnable failed tests")
+
+    local failedOutput, failed = capturedRun(
+        ("cd %q && %q test reruntest --jobs=1 --json 2>/dev/null"):format(dir, NUPP)
+    )
+    test.equal(failed.status, 1, "the seed failure had the wrong status" .. evidence(failed))
+    write(dir .. "/failures.json", failedOutput)
+    local rerunOutput, rerun = capturedRun(
+        ("cd %q && %q test --rerun=failures.json --jobs=1 --json 2>/dev/null"):format(dir, NUPP)
+    )
+    test.equal(rerun.status, 1, "failure-report rerun had the wrong status" .. evidence(rerun))
+    local rerunReport = require("testjson").decode(rerunOutput)
+    test.equal(rerunReport.total, 1)
+    test.equal(rerunReport.tests[1].id, "reruntest/fails")
+
+    local fixtureFailureOutput, fixtureFailure = capturedRun(
+        ("cd %q && %q test fixturefailuretest --jobs=1 --json 2>/dev/null"):format(dir, NUPP)
+    )
+    test.equal(fixtureFailure.status, 1, "fixture failure fan-out had the wrong status" .. evidence(fixtureFailure))
+    local fixtureFailureReport = require("testjson").decode(fixtureFailureOutput)
+    test.equal(fixtureFailureReport.failed, 2)
+    test.matches(fixtureFailureReport.tests[1].failure.message, "producer sentinel")
+    test.matches(fixtureFailureReport.tests[2].failure.message, "producer sentinel")
+    test.equal(
+        read(dir .. "/failed-fixture-productions"),
+        "made\n",
+        "a failed fixture was produced once for every blocked case"
+    )
+
+    local retriedOutput, retried = capturedRun(
+        ("cd %q && %q test fixturefailuretest --jobs=1 --json 2>/dev/null"):format(dir, NUPP)
+    )
+    test.equal(retried.status, 1, "fixture retry had the wrong status" .. evidence(retried))
+    require("testjson").decode(retriedOutput)
+    test.equal(
+        read(dir .. "/failed-fixture-productions"),
+        "made\nmade\n",
+        "a new top-level run retried the failed fixture once"
+    )
+
+    local duplicate = test.raises(function()
+        test.cases(
+            {1, 2},
+            function()
+                return "same"
+            end,
+            function()
+            end
+        )
+    end)
+    test.matches(tostring(duplicate), "duplicate parameterized case name")
+    local unsafe = test.raises(function()
+        test.cases(
+            {
+                function()
+                end
+            },
+            function()
+                return "unsafe"
+            end,
+            function()
+            end
+        )
+    end)
+    test.matches(tostring(unsafe), "not serialization%-safe")
+    local sparse = test.raises(function()
+        test.cases(
+            {[1] = {name = "first"}, [3] = {name = "third"}},
+            function(row)
+                return row.name
+            end,
+            function()
+            end
+        )
+    end)
+    test.matches(tostring(sparse), "dense JSON%-compatible sequence")
+    local mixed = test.raises(function()
+        test.cases(
+            {{name = "mixed", value = {[1] = "array", label = "object"}}},
+            function(row)
+                return row.name
+            end,
+            function()
+            end
+        )
+    end)
+    test.matches(tostring(mixed), "not serialization%-safe")
+    local reserved = test.raises(function()
+        test.cases(
+            {{name = "beforeAll"}},
+            function(row)
+                return row.name
+            end,
+            function()
+            end
+        )
+    end)
+    test.matches(tostring(reserved), "reserved for a lifecycle hook")
+    local runnerReserved = test.raises(function()
+        test.cases(
+            {{name = "<unrun>"}},
+            function(row)
+                return row.name
+            end,
+            function()
+            end
+        )
+    end)
+    test.matches(tostring(runnerReserved), "reserved by the test runner")
+    local control = test.raises(function()
+        test.cases(
+            {{name = "line\nbreak"}},
+            function(row)
+                return row.name
+            end,
+            function()
+            end
+        )
+    end)
+    test.matches(tostring(control), "must not contain control characters")
+    os.execute("rm -rf " .. string.format("%q", dir))
+end
+
+function M.bundledRunnerRecoversStaleFixtureLeasesAndKeepsFreshOnes()
+    local dir = os.tmpname()
+    os.remove(dir)
+    assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/tests")) == 0)
+    local digest = require("nupp.compiler.build.cache").contentDigest(true)
+
+    local function fixtureSlot(key)
+        return dir .. "/build/test-fixtures/fixture-" .. digest("nupp-test-fixture\0" .. key)
+    end
+
+    assert(os.execute("mkdir -p " .. string.format("%q", fixtureSlot("wrong-shape"))) == 0)
+    assert(os.execute("mkdir -p " .. string.format("%q", fixtureSlot("malformed"))) == 0)
+    write(dir .. "/tests/run.lua", read(ROOT .. "/tests/run.lua"))
+    write(dir .. "/tests/assert.lua", read(ROOT .. "/tests/assert.lua"))
+    write(
+        dir .. "/tests/stalefixtest.lua",
+        [[
+local test = require("nupp.test")
+local function fixture(key)
+    local _, value, reused = test.fixture(key, function()
+        return {answer = 42}
+    end)
+    test.equal(value.answer, 42)
+    test.equal(reused, false)
+end
+return {
+    recoversInvalidStaleLease = function() fixture("invalid-stale") end,
+    recoversStaleLease = function() fixture("stale-fixture") end,
+    recoversWrongShapedMetadata = function() fixture("wrong-shape") end,
+    recoversMalformedMetadata = function() fixture("malformed") end,
+}
+]]
+    )
+    write(fixtureSlot("stale-fixture") .. ".lock", tostring(os.time() - 16 * 60) .. "\n")
+    write(fixtureSlot("invalid-stale") .. ".lock", "not-a-timestamp\n")
+    assert(os.execute("touch -t 200001010000 " .. string.format("%q", fixtureSlot("invalid-stale") .. ".lock")) == 0)
+    write(fixtureSlot("fresh-fixture") .. ".lock", "not-a-timestamp\n")
+    write(fixtureSlot("wrong-shape") .. "/.nupp-fixture.json", '"not fixture metadata"\n')
+    write(fixtureSlot("malformed") .. "/.nupp-fixture.json", "{not-json\n")
+
+    local output, invocation = capturedRun(
+        (
+            "cd %q && %sNUPP_TEST_BUILD=%q %q stalefixtest --jobs=1 --json 2>/dev/null"
+        ):format(dir, MODULES, dir .. "/build", ROOT .. "/build/nupp-test")
+    )
+    test.equal(invocation.status, 0, "stale fixture lease was not recovered" .. evidence(invocation))
+    local report = require("testjson").decode(output)
+    test.equal(report.total, 4)
+    for _, record in ipairs(report.tests) do
+        test.equal(record.fixtures[1].reused, false)
+    end
+    test.equal(require("testjson").decode(read(fixtureSlot("wrong-shape") .. "/.nupp-fixture.json")).version, 1)
+    test.equal(require("testjson").decode(read(fixtureSlot("malformed") .. "/.nupp-fixture.json")).version, 1)
+    test.equal(io.open(fixtureSlot("stale-fixture") .. ".lock", "rb"), nil)
+    test.equal(io.open(fixtureSlot("invalid-stale") .. ".lock", "rb"), nil)
+    local fresh = assert(io.open(fixtureSlot("fresh-fixture") .. ".lock", "rb"))
+    fresh:close()
+    os.execute("rm -rf " .. string.format("%q", dir))
+end
+
+function M.exactCasesAreValidatedBeforeHooksOrCasesRun()
+    local dir = os.tmpname()
+    os.remove(dir)
+    assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/tests")) == 0)
+    assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/build")) == 0)
+    write(dir .. "/tests/run.lua", read(ROOT .. "/tests/run.lua"))
+    write(dir .. "/tests/assert.lua", read(ROOT .. "/tests/assert.lua"))
+    write(
+        dir .. "/tests/hookselecttest.lua",
+        [[
+local function mark(name)
+    local file = assert(io.open(name, "wb"))
+    file:write("ran")
+    file:close()
+end
+return {
+    beforeAll = function() mark("before-ran") end,
+    present = function() mark("case-ran") end,
+    afterAll = function() mark("after-ran") end,
+}
+]]
+    )
+    local output, invocation = capturedRun(
+        (
+            "cd %q && %sNUPP_TEST_BUILD=%q %q --case=hookselecttest/present --case=hookselecttest/missing --jobs=1 2>&1"
+        ):format(dir, MODULES, dir .. "/build", ROOT .. "/build/nupp-test")
+    )
+    test.equal(invocation.status, 2, "a missing exact case had the wrong status" .. evidence(invocation))
+    test.matches(output, "no test case named hookselecttest/missing")
+    test.equal(io.open(dir .. "/before-ran", "rb"), nil)
+    test.equal(io.open(dir .. "/case-ran", "rb"), nil)
+    test.equal(io.open(dir .. "/after-ran", "rb"), nil)
+
+    local exactOutput, exact = capturedRun(
+        (
+            "cd %q && %sNUPP_TEST_BUILD=%q %q --case=hookselecttest/present --jobs=1 --json 2>/dev/null"
+        ):format(dir, MODULES, dir .. "/build", ROOT .. "/build/nupp-test")
+    )
+    test.equal(exact.status, 0, "a valid exact case failed during load accounting" .. evidence(exact))
+    local exactReport = require("testjson").decode(exactOutput)
+    test.equal(exactReport.tests[1].id, "hookselecttest/present")
+    test.assert(exactReport.suites[1].durationMs >= exactReport.suites[1].loadMs)
+    test.equal(read(dir .. "/before-ran"), "ran")
+    test.equal(read(dir .. "/case-ran"), "ran")
+    test.equal(read(dir .. "/after-ran"), "ran")
+
+    write(dir .. "/tests/invalidnametest.lua", 'return {[""] = function() end}\n')
+    local invalidOutput, invalid = capturedRun(
+        (
+            "cd %q && %sNUPP_TEST_BUILD=%q %q invalidnametest --list-cases 2>&1"
+        ):format(dir, MODULES, dir .. "/build", ROOT .. "/build/nupp-test")
+    )
+    test.equal(invalid.status, 1, "an invalid handwritten case name was accepted" .. evidence(invalid))
+    test.matches(invalidOutput, "case whose name is not a non%-empty string")
+    os.execute("rm -rf " .. string.format("%q", dir))
+end
+
+function M.failureReportRerunsTheWholeSuiteForLifecycleHookFailures()
+    local dir = os.tmpname()
+    os.remove(dir)
+    assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/tests")) == 0)
+    assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/build")) == 0)
+    write(dir .. "/tests/run.lua", read(ROOT .. "/tests/run.lua"))
+    write(dir .. "/tests/assert.lua", read(ROOT .. "/tests/assert.lua"))
+    write(
+        dir .. "/tests/hookreruntest.lua",
+        [[
+return {
+    beforeAll = function()
+        local allowed = io.open("hook-allowed", "rb")
+        if not allowed then error("hook sentinel") end
+        allowed:close()
+    end,
+    caseRunsAfterRepair = function()
+        local marker = assert(io.open("case-ran", "wb"))
+        marker:write("yes")
+        marker:close()
+    end,
+}
+]]
+    )
+    local failedOutput, failed = capturedRun(
+        (
+            "cd %q && %sNUPP_TEST_BUILD=%q %q hookreruntest --jobs=1 --json 2>/dev/null"
+        ):format(dir, MODULES, dir .. "/build", ROOT .. "/build/nupp-test")
+    )
+    test.equal(failed.status, 1, "lifecycle seed failure had the wrong status" .. evidence(failed))
+    local failedReport = require("testjson").decode(failedOutput)
+    test.equal(failedReport.tests[1].id, "hookreruntest/beforeAll")
+    write(dir .. "/failures.json", failedOutput)
+    write(dir .. "/hook-allowed", "yes")
+    local rerunOutput, rerun = capturedRun(
+        (
+            "cd %q && %sNUPP_TEST_BUILD=%q %q --rerun=failures.json --jobs=1 --json 2>/dev/null"
+        ):format(dir, MODULES, dir .. "/build", ROOT .. "/build/nupp-test")
+    )
+    test.equal(rerun.status, 0, "lifecycle rerun failed" .. evidence(rerun))
+    local report = require("testjson").decode(rerunOutput)
+    test.equal(report.total, 1)
+    test.equal(report.tests[1].id, "hookreruntest/caseRunsAfterRepair")
+    test.equal(read(dir .. "/case-ran"), "yes")
+    os.execute("rm -rf " .. string.format("%q", dir))
+end
+
+function M.invalidStructuredMetadataFailsOneCaseWithoutBreakingJson()
+    local dir = os.tmpname()
+    os.remove(dir)
+    assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/tests")) == 0)
+    write(dir .. "/tests/run.lua", read(ROOT .. "/tests/run.lua"))
+    write(dir .. "/tests/assert.lua", read(ROOT .. "/tests/assert.lua"))
+    write(
+        dir .. "/tests/metadatatest.lua",
+        [[
+local test = require("nupp.test")
+return {invalid = function()
+    local evidence = {probe = "valid"}
+    test.requireCapability("runtime.synthetic", true, evidence)
+    evidence.callback = function() end
+end}
+]]
+    )
+    local output, invocation = capturedRun(
+        (
+            "cd %q && %sNUPP_TEST_BUILD=%q %q metadatatest --jobs=1 --json 2>/dev/null"
+        ):format(dir, MODULES, dir .. "/build", ROOT .. "/build/nupp-test")
+    )
+    test.equal(invocation.status, 1, "invalid metadata did not fail its case" .. evidence(invocation))
+    local report = require("testjson").decode(output)
+    test.equal(report.failed, 1)
+    test.matches(report.tests[1].failure.message, "metadata is not JSON%-compatible")
+    test.equal(report.tests[1].capabilities, nil)
+    os.execute("rm -rf " .. string.format("%q", dir))
+end
+
 function M.workerHostDogfoodsNuppWorkersForOrdinarySuites()
     local ordinary, ordinaryRun = runWorkerHost("lexertest --timings=0")
     test.equal(ordinaryRun.status, 0, "the worker host run succeeded" .. evidence(ordinaryRun))
-    test.matches(ordinary, "1 suites across 1 Nupp workers")
+    test.matches(ordinary, "1 suites across 2 Nupp workers")
     test.matches(ordinary, "18 tests, 18 passed")
     test.equal(
         ordinary:find(".................", 1, true),
@@ -185,7 +714,7 @@ return M
     local report = require("testjson").decode(output)
 
     test.equal(invocation.status, 1, "the failed test made the run fail" .. evidence(invocation))
-    test.equal(#report.shards, 1, "the shared shelling suite ran on one reusable worker")
+    test.equal(#report.shards, 2, "the two shelling slices ran on reusable workers")
     test.equal(report.total, 2, "the worker ran both tests")
     test.equal(report.failed, 1, "the command failure failed one test")
     test.equal(report.passed, 1, "the worker continued to the next test")
@@ -256,7 +785,14 @@ return M
     test.equal(invocation.status, 0, "the overlapping run succeeded" .. evidence(invocation))
     test.equal(report.total, 3, "all three execution lanes ran")
     test.equal(report.passed, 3, "isolated work ran first and shell work overlapped")
-    test.equal(#report.shards, 3, "the two process workers and one Nupp worker reported")
+    test.equal(#report.shards, 6, "each execution lane reported both planned slices")
+    local reportedLanes = {}
+    for _, suite in ipairs(report.suites) do
+        if suite.executionLane then
+            reportedLanes[suite.executionLane] = true
+        end
+    end
+    test.assert(reportedLanes.isolated and reportedLanes.shared and reportedLanes.shell)
     os.execute("rm -rf " .. string.format("%q", dir))
 end
 
@@ -281,6 +817,66 @@ function M.aNameMatchingNoSuiteIsAFailure()
     local out, missing = runWorkerHost("nosuchsuitetest --timings=0")
     test.matches(out, "no tests were discovered")
     test.equal(missing.status, 1, "discovering nothing exits unsuccessfully" .. evidence(missing))
+end
+
+function M.unknownRunnerOptionIsRejectedBeforeDiscovery()
+    local output, invocation = runWorkerHost(
+        "--exact=simdobligationtest/nativeMatrixEvidenceMigratesIntoCompactObligations --timings=0"
+    )
+    test.equal(invocation.status, 2, "an unknown runner option exits with usage status" .. evidence(invocation))
+    test.matches(
+        output,
+        "unknown test option: %-%-exact=simdobligationtest/nativeMatrixEvidenceMigratesIntoCompactObligations"
+    )
+    test.equal(output:find("suites across", 1, true), nil, "an unknown option does not start the suite")
+end
+
+function M.indirectSimdProcessesUseTheReusableShellLane()
+    local shell, shellRun = runWorkerHost("--lane=shell --list-suites")
+    test.equal(shellRun.status, 0, "shell lane listing failed" .. evidence(shellRun))
+    test.matches(shell, "simdnativealgorithmdifferentialtest")
+    test.matches(shell, "simdprimitivedifferentialtest")
+    test.matches(shell, "simdwasmalgorithmdifferentialtest")
+    test.matches(shell, "simdwasmtimeconformancetest")
+
+    local shared, sharedRun = runWorkerHost("--lane=shared --list-suites")
+    test.equal(sharedRun.status, 0, "shared lane listing failed" .. evidence(sharedRun))
+    test.matches(shared, "simdreducerdifferentialtest")
+end
+
+function M.caseSlicesDetermineShellWorkerCount()
+    local dir = os.tmpname()
+    os.remove(dir)
+    assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/tests")) == 0)
+    assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/build")) == 0)
+    write(dir .. "/tests/run.lua", read(ROOT .. "/tests/run.lua"))
+    write(dir .. "/tests/assert.lua", read(ROOT .. "/tests/assert.lua"))
+    write(
+        dir .. "/tests/shellingtest.lua",
+        [[
+local M = {}
+function M.alpha() assert(os.execute("exit 0") == 0) end
+function M.beta() assert(os.execute("exit 0") == 0) end
+function M.gamma() assert(os.execute("exit 0") == 0) end
+function M.delta() assert(os.execute("exit 0") == 0) end
+return M
+]]
+    )
+    write(
+        dir .. "/build/.nupp-test-times.json",
+        [[
+{"suites":{"shellingtest":4000},
+ "cases":{"shellingtest":{"alpha":1000,"beta":1000,"gamma":1000,"delta":1000}}}
+]]
+    )
+    local command = (
+        "cd %q && %sNUPP_TEST_BUILD=%q %q shellingtest --lane=shell --jobs=4 --timings=0 --no-color 2>&1"
+    ):format(dir, MODULES, dir .. "/build", ROOT .. "/build/nupp-test")
+    local output, invocation = capturedRun(command)
+    test.equal(invocation.status, 0, "the sliced shell suite succeeded" .. evidence(invocation))
+    test.matches(output, "1 shell suites across 2 process workers")
+    test.matches(output, "4 tests, 4 passed")
+    os.execute("rm -rf " .. string.format("%q", dir))
 end
 
 function M.workerHostColorsOnlyWhenAskedDownAPipe()
@@ -627,6 +1223,64 @@ return M
     local report = require("testjson").decode(output)
     test.equal(report.total, 2, "both queue pieces ran" .. "\n" .. output)
     test.equal(report.passed, 2, output)
+    os.execute("rm -rf " .. string.format("%q", dir))
+end
+
+function M.isolatedQueuePiecesRunInFreshProcesses()
+    local dir = os.tmpname()
+    os.remove(dir)
+    assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/tests")) == 0)
+    assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/build")) == 0)
+    write(dir .. "/tests/run.lua", read(ROOT .. "/tests/run.lua"))
+    write(dir .. "/tests/assert.lua", read(ROOT .. "/tests/assert.lua"))
+    write(
+        dir .. "/tests/isolationmutatortest.lua",
+        [[
+return {mutatesNestedProcessState = function()
+    math.__nupp_runner_isolation_probe = true
+    rawset(_G, "__nupp_runner_top_level_probe", true)
+    local cache = assert(os.getenv("NUPP_CACHE_DIR"), "the supervisor did not provide its lane cache")
+    local marker = assert(io.open("lane-cache", "wb"))
+    marker:write(cache)
+    marker:close()
+end}
+]]
+    )
+    write(
+        dir .. "/tests/isolationobservetest.lua",
+        [[
+return {seesFreshProcessState = function()
+    assert(math.__nupp_runner_isolation_probe == nil, "nested global table state crossed an isolated queue piece")
+    assert(rawget(_G, "__nupp_runner_top_level_probe") == nil, "top-level state crossed an isolated queue piece")
+    local marker = assert(io.open("lane-cache", "rb"))
+    local cache = marker:read("*a")
+    marker:close()
+    assert(cache == os.getenv("NUPP_CACHE_DIR"), "fresh pieces did not inherit the supervisor's lane cache")
+    if false then rawset(_G, "classification-only", true) end
+end}
+]]
+    )
+    write(
+        dir .. "/build/.nupp-test-times.json",
+        [[
+{"suites":{"isolationmutatortest":2000,"isolationobservetest":1000},
+ "cases":{"isolationmutatortest":{"mutatesNestedProcessState":2000},
+          "isolationobservetest":{"seesFreshProcessState":1000}}}
+]]
+    )
+    local output, invocation = capturedRun(
+        (
+            "cd %q && %sNUPP_TEST_BUILD=%q %q isolationmutatortest isolationobservetest --lane=isolated --jobs=1 --json 2>/dev/null"
+        ):format(dir, MODULES, dir .. "/build", ROOT .. "/build/nupp-test")
+    )
+    test.equal(invocation.status, 0, "isolated queue pieces shared process state" .. evidence(invocation))
+    local report = require("testjson").decode(output)
+    test.equal(report.total, 2)
+    test.equal(report.passed, 2)
+    test.equal(#report.shards, 1, "one supervisor respected --jobs=1")
+    test.equal(#report.shards[1].specs, 2, "the supervisor dynamically claimed both pieces")
+    test.equal(report.shards[1].executionLane, "isolated")
+    test.equal(report.shards[1].tests, 2, "the supervisor aggregated both child reports")
     os.execute("rm -rf " .. string.format("%q", dir))
 end
 

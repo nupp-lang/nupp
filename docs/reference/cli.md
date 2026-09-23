@@ -1502,9 +1502,10 @@ Coverage options belong to Nupp. Every other argument is preserved in
 order for the bundled runner or the project's configured test command.
 The bundled runner accepts suite names, `--json`, `--verbose`, `--jobs=N`,
 repeated `--group=NAME`, `--exclude=SUITE`, `--exclude-group=NAME`, one of
-`--lane=shared|shell|isolated`, `--list-suites`, `--list-groups`, and
-`--timings[=N]`. Those remain forwarded arguments rather than fields of
-this command because a project may configure a different test executable.
+`--lane=shared|shell|isolated`, `--list-suites`, `--list-cases`,
+`--list-groups`, `--case=SUITE/CASE`, `--rerun=REPORT`, and
+`--timings[=N]`. Those remain forwarded arguments rather than fields of this
+command because a project may configure a different test executable.
 
 Coverage uses `build/coverage` without changing the ordinary build cache
 and writes under `build/reports/coverage` by default. `--report-json` reads
@@ -1535,9 +1536,10 @@ Options:
 
 These examples run in Nupp's own repository, whose runner takes a suite name.
 Progress prints `.` when a unit
-passes, `S` when all of it is skipped, and `E` when it contains a failure. A
-parallel unit is a suite slice rather than one test, which keeps large runs
-compact; the failure report still names every failing test:
+passes, `S` when all of it is skipped, `N` when it could not execute, and `E`
+when it contains a failure. A parallel unit is a suite slice rather than one
+test, which keeps large runs compact; the failure report still names every
+failing test:
 
 ```text [nupp test elseiftest]
 ........
@@ -1571,13 +1573,16 @@ With `--json` the progress marks go to stderr and one document stays on stdout:
   "total": 8,
   "passed": 8,
   "skipped": 0,
+  "notExecuted": 0,
   "failed": 0,
   "durationMs": 1830.0378417969,
   "tests": [
-    {"suite": "elseiftest", "name": "allowsAnAnnotatedNestedIf",
+    {"id": "elseiftest/allowsAnAnnotatedNestedIf",
+     "suite": "elseiftest", "name": "allowsAnAnnotatedNestedIf",
      "file": "tests/elseiftest.lua", "line": 130,
      "status": "passed", "durationMs": 142.4580078125}
   ],
+  "metrics": [],
   "suites": [
     {"suite": "elseiftest", "durationMs": 1830.037841796875,
      "loadMs": 24.1259765625, "hooksMs": 0.394775390625,
@@ -1588,6 +1593,10 @@ With `--json` the progress marks go to stderr and one document stays on stdout:
   "shards": []
 }
 ```
+
+`notExecuted` counts cases the current runtime could not support. These records
+do not fail the run. `--list-cases` prints stable IDs, `--case` selects one, and
+`--rerun` reads the failed records from an earlier JSON report.
 
 A failing record carries the message and the file and line the error came from.
 `suites` says what a suite cost beyond its cases -- compiling or loading it, and

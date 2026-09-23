@@ -19,6 +19,7 @@
 
 local test = require("assert")
 local json = require("nupp.codec.json")
+local process = require("nupp.compiler.build.process")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 if not HERE:match("^/") then
@@ -194,6 +195,11 @@ function M.rebuildsOnlyWhatChanged()
     local cold = build(dir)
     local coldFacts = cold.timing.aot
     test.equal(coldFacts.reusedObjects, 0, "a cold build reuses nothing")
+    test.equal(coldFacts.checkedSources, SOURCES, "a cold build checks every AOT source")
+    assert(coldFacts.loweredPrograms >= SOURCES, "a cold build lowers every AOT program")
+    test.equal(coldFacts.optimizedPrograms, coldFacts.loweredPrograms, "every lowered program is optimized")
+    assert(coldFacts.emittedUnits >= SOURCES, "every AOT source emits at least one unit")
+    assert(coldFacts.emittedUnits <= coldFacts.units, "compiler-owned units are counted separately")
     assert(coldFacts.compiledObjects >= SOURCES, "a cold build compiles every unit: " .. coldFacts.compiledObjects)
     test.equal(coldFacts.compiledObjects, coldFacts.units, "every emitted unit becomes an object")
     test.equal(coldFacts.linked, true, "a cold build links")
@@ -227,6 +233,10 @@ function M.rebuildsOnlyWhatChanged()
     local unchanged = build(dir)
     local stillFacts = unchanged.timing.aot
     test.equal(stillFacts.externalCommands, 0, "an unchanged build starts no external toolchain process")
+    test.equal(stillFacts.checkedSources, 0, "an unchanged build checks no AOT source")
+    test.equal(stillFacts.loweredPrograms, 0, "an unchanged build lowers no AOT program")
+    test.equal(stillFacts.optimizedPrograms, 0, "an unchanged build optimizes no AOT program")
+    test.equal(stillFacts.emittedUnits, 0, "an unchanged build emits no AOT unit")
     test.equal(stillFacts.compiledObjects, 0, "an unchanged build compiles nothing")
     test.equal(stillFacts.reusedObjects, stillFacts.units, "an unchanged build reuses every object")
     test.equal(stillFacts.linked, false, "an unchanged build links nothing")
@@ -238,6 +248,8 @@ function M.rebuildsOnlyWhatChanged()
     write(dir .. "/src/k2.nupp", edited)
     local afterEdit = build(dir)
     local editFacts = afterEdit.timing.aot
+    assert(editFacts.checkedSources >= SOURCES, "a source edit invalidates the pre-emission fingerprint")
+    assert(editFacts.loweredPrograms >= SOURCES, "a source edit reruns AOT lowering")
     local mine = objectsOf(coldObjects, "k2")
     test.equal(
         editFacts.compiledObjects,
@@ -271,6 +283,7 @@ function M.rebuildsOnlyWhatChanged()
     assert(victim, "no k1 object to remove")
     os.remove(victim)
     local repaired = build(dir)
+    assert(repaired.timing.aot.checkedSources >= SOURCES, "a missing artifact refuses the AOT replay")
     test.equal(repaired.timing.aot.compiledObjects, 1, "a missing object is compiled again")
     test.equal(repaired.timing.aot.reusedObjects, repaired.timing.aot.units - 1, "and nothing else is")
     test.equal(read(victim), editedObjects[victim], "the object compiled again is the object that was there")
@@ -289,6 +302,7 @@ end
 function M.theTimelineNamesTheAheadOfTimePhases()
     local known = {
         ["aot"] = true,
+        ["aot:lookup"] = true,
         ["aot:check"] = true,
         ["aot:lower"] = true,
         ["aot:optimize"] = true,
@@ -316,9 +330,249 @@ function M.theTimelineNamesTheAheadOfTimePhases()
     -- is the same claim the counts make, read off the timeline instead.
     local unchanged = build(dir)
     for _, span in ipairs(unchanged.timing.phases) do
+        assert(span.name ~= "aot:check", "an unchanged build checks no AOT source")
+        assert(span.name ~= "aot:lower", "an unchanged build lowers no AOT program")
+        assert(span.name ~= "aot:optimize", "an unchanged build optimizes no AOT program")
+        assert(span.name ~= "aot:emit", "an unchanged build emits no AOT unit")
         assert(span.name ~= "aot:compile", "an unchanged build has no external compilation to report")
         assert(span.name ~= "aot:link", "and nothing to link")
     end
+end
+
+--- The pre-emission key covers source bytes and every project-level semantic
+--- record supplied before the checker runs. This is tested directly so every
+--- component can be varied without requiring several installed toolchains or
+--- dependency providers merely to observe a cache miss.
+function M.preEmissionInputsInvalidateIndependently()
+    local aot = require("nupp.compiler.build.aot")
+    local dir = os.tmpname()
+    os.remove(dir)
+    assert(os.execute("mkdir -p '" .. dir .. "/src'") == 0)
+    write(dir .. "/src/main.nupp", "module main\nlocal imported = require(\"support\")\nexport = imported\n")
+    write(dir .. "/src/support.nupp", "module support\nexport = {value = 1}\n")
+
+    local semantic = {
+        compiler = "compiler-a",
+        compilerResources = "compiler-resources-a",
+        moduleCompiler = "module-compiler-a",
+        config = "config-a",
+        dependencies = "dependencies-a",
+        generators = "generators-a",
+        spi = "spi-a",
+        target = "native",
+        platform = "host",
+    }
+    local sources = {dir .. "/src/main.nupp", dir .. "/src/support.nupp"}
+    local base = aot.inputFingerprint(sources, semantic)
+    test.equal(aot.inputFingerprint(sources, semantic), base, "identical inputs retain one fingerprint")
+
+    local fields = {
+        "compiler",
+        "compilerResources",
+        "moduleCompiler",
+        "config",
+        "dependencies",
+        "generators",
+        "spi",
+        "target",
+        "platform",
+    }
+    for _, field in ipairs(fields) do
+        local changed = {}
+        for name, value in pairs(semantic) do
+            changed[name] = value
+        end
+        changed[field] = tostring(changed[field]) .. "-changed"
+        assert(aot.inputFingerprint(sources, changed) ~= base, field .. " invalidates the fingerprint")
+    end
+
+    write(dir .. "/src/support.nupp", "module support\nexport = {value = 2}\n")
+    assert(aot.inputFingerprint(sources, semantic) ~= base, "an imported body invalidates the pre-emission fingerprint")
+
+    write(dir .. "/src/plain.lua", "return {value = 1}\n")
+    local mixed = {sources[1], sources[2], dir .. "/src/plain.lua"}
+    local luaBase = aot.inputFingerprint(mixed, semantic)
+    write(dir .. "/src/plain.lua", "return {value = 2}\n")
+    assert(
+        aot.inputFingerprint(mixed, semantic) ~= luaBase,
+        "a Lua graph source invalidates the pre-emission fingerprint"
+    )
+
+    write(dir .. "/src/interface.d.nupp", "module interface\nexport type Value = number\n")
+    local envMod = require("nupp.compiler.env")
+    local declared = envMod.listSourceFilesFor({memoryOnly = false}, dir, {"src"}, dir .. "/build", true)
+    local declarationBase = aot.inputFingerprint(declared, semantic)
+    write(dir .. "/src/interface.d.nupp", "module interface\nexport type Value = string\n")
+    assert(
+        aot.inputFingerprint(declared, semantic) ~= declarationBase,
+        "an authored declaration invalidates the pre-emission fingerprint"
+    )
+
+    assert(os.execute("mkdir -p '" .. dir .. "/build'") == 0)
+    write(dir .. "/root.nupp", "module root\nexport = true\n")
+    write(dir .. "/build/generated.nupp", "module generated\nexport = false\n")
+    local implicit = envMod.listSourceFilesFor({memoryOnly = false}, dir, {}, dir .. "/build", false)
+    local foundRoot, foundBuild = false, false
+    for _, path in ipairs(implicit) do
+        foundRoot = foundRoot or path:match("root%.nupp$") ~= nil
+        foundBuild = foundBuild or path:match("build/generated%.nupp$") ~= nil
+    end
+    assert(foundRoot, "an omitted include list fingerprints the project root")
+    assert(not foundBuild, "an implicit root does not fingerprint generated build output")
+end
+
+function M.replayRequiresTheCurrentlySelectedCompilerCommand()
+    local aot = require("nupp.compiler.build.aot")
+    local remembered = {command = "clang", signature = "signature", version = "clang 18", dialect = "clang"}
+    assert(aot.replayCommandMatches("require", remembered, "clang"), "the remembered native command matches itself")
+    assert(
+        not aot.replayCommandMatches("require", remembered, "/usr/bin/clang"),
+        "an explicit native compiler spelling invalidates replay"
+    )
+    assert(
+        not aot.replayCommandMatches("require-wasm", remembered, "emcc"),
+        "a changed Wasm compiler invalidates replay"
+    )
+    assert(aot.replayCommandMatches("emit-c", nil, nil), "emitting C selects no external compiler")
+end
+
+function M.preEmissionInputsIncludeTheWholeCompilerPackPolicy()
+    local aot = require("nupp.compiler.build.aot")
+    local semantic = {sources = "same", toolchain = nil,}
+
+    local function key(pack)
+        semantic.toolchain = aot.toolchainPolicyRecord("require", "x86_64-unknown-linux-gnu", pack, nil)
+
+        return aot.inputFingerprint({}, semantic)
+    end
+
+    local base = {
+        host = "x86_64-apple-darwin",
+        target = "x86_64-unknown-linux-gnu",
+        version = "pack-1",
+        manifestDigest = "manifest-1",
+        cc = "/packs/cc",
+        cxx = "/packs/cxx",
+        ar = "/packs/ar",
+        linkHost = "/packs/link-host",
+        compileFlags = {"--sysroot=/packs/sdk"},
+        linkFlags = {"--sysroot=/packs/sdk", "-lc"},
+        profile = {target = "x86_64-unknown-linux-gnu", staticAot = true,},
+    }
+    local first = key(base)
+    local fields = {"version", "manifestDigest", "cc", "cxx", "ar", "linkHost", "compileFlags", "linkFlags", "profile",}
+    for _, field in ipairs(fields) do
+        local changed = {}
+        for name, value in pairs(base) do
+            changed[name] = value
+        end
+        if field == "compileFlags" or field == "linkFlags" then
+            changed[field] = {"changed-with-the-same-compiler-command"}
+        elseif field == "profile" then
+            changed[field] = {target = "x86_64-unknown-linux-gnu", staticAot = false,}
+        else
+            changed[field] = tostring(changed[field]) .. "-changed"
+        end
+        assert(key(changed) ~= first, "compiler pack " .. field .. " invalidates pre-emission replay")
+    end
+end
+
+function M.constSpecializedProjectsTakeTheSoundColdPath()
+    local dir = os.tmpname()
+    os.remove(dir)
+    assert(os.execute("mkdir -p '" .. dir .. "/src'") == 0)
+    write(
+        dir .. "/nupp.lua",
+        [[
+return {
+   include = {"src"},
+   build = {targets = {native = {
+      kind = "modules", entries = {"constkernel"}, outDir = "build/native", aot = "require",
+   }}},
+}
+]]
+    )
+    write(
+        dir .. "/src/constkernel.nupp",
+        [[
+module constkernel
+
+@aot
+local function doubled<const N: integer>(value: number, count: N): number
+    local answer = value
+    for _ = 1, count as integer do
+        answer = answer * 2.0
+    end
+    return answer
+end
+
+local function doubled3(value: number): number
+    return doubled(value, 3)
+end
+
+export = {doubled = doubled, doubled3 = doubled3}
+]]
+    )
+
+    local cold = build(dir)
+    assert(cold.timing.aot.loweredPrograms > 0, "the fixture contains a compiled const specialization")
+    local generated = assert(read(dir .. "/build/native/constkernel.lua"))
+    local unchanged = build(dir)
+    assert(
+        unchanged.timing.aot.checkedSources > 0,
+        "a live const selection refuses pre-emission replay instead of changing the module build"
+    )
+    test.equal(read(dir .. "/build/native/constkernel.lua"), generated, "cold and unchanged const dispatch agree")
+    local status, output = process.capture(
+        {
+            "luajit",
+            "-e",
+            'package.path="build/native/?.lua;"..package.path; local m=require("constkernel"); '
+            .. 'assert(m.doubled3(5.0)==40.0); assert(m.doubled(5.0,3)==40.0)',
+        },
+        {cwd = dir}
+    )
+    test.equal(status, 0, "the unchanged const dispatcher remains correct: " .. output)
+end
+
+function M.replayEvidenceDistinguishesWasmMetadataFromFiles()
+    local aot = require("nupp.compiler.build.aot")
+    local dir = os.tmpname()
+    os.remove(dir)
+    assert(os.execute("mkdir -p '" .. dir .. "/aot'") == 0)
+    local unit = dir .. "/aot/kernel.c"
+    local manifest = dir .. "/aot/units.json"
+    local linkManifest = dir .. "/aot/link.json"
+    write(unit, "unit")
+    write(manifest, "units")
+    write(linkManifest, "link")
+    local bridge = {entries = {{call = "kernel", layouts = {},},},}
+    local snapshot = aot.captureReplay("emit-c", {
+        emitted = {
+            {
+                source = "kernel.nupp",
+                tier = "simd128",
+                cacheKey = "kernel\0simd128",
+                output = unit,
+                key = "key",
+                registrar = "nupp_wasm_register_u1234",
+                bridge = bridge,
+                unit = "u1234",
+            },
+        },
+        manifest = manifest,
+        dispatch = {},
+        specializedBodies = 0,
+    })
+    assert(
+        snapshot.payload.files.nupp_wasm_register_u1234 == nil,
+        "a registrar symbol is metadata rather than a path to validate"
+    )
+    test.equal(snapshot.payload.emitted[1].bridge, bridge, "independent Wasm bridge metadata survives capture")
+    local restored = assert(aot.replay(snapshot, nil), "intact replay evidence restores the result")
+    test.equal(restored.emitted[1].bridge, bridge, "independent Wasm bridge metadata survives replay")
+    os.remove(linkManifest)
+    assert(aot.replay(snapshot, nil) == nil, "a missing static link manifest refuses replay")
 end
 
 --- A project flag the last build did not use recompiles every object.
@@ -339,6 +593,7 @@ function M.changedFlagsRecompileEveryObject()
         (manifest:gsub('aot = "require",', 'aot = "require", aotCflags = {"-DNUPP_AOT_TEST=1"},'))
     )
     local reflagged = build(dir)
+    assert(reflagged.timing.aot.checkedSources >= SOURCES, "AOT flags invalidate the pre-emission fingerprint")
     test.equal(reflagged.timing.aot.reusedObjects, 0, "a flag the objects were not compiled with recompiles them")
     test.equal(reflagged.timing.aot.compiledObjects, reflagged.timing.aot.units)
     test.equal(reflagged.timing.aot.linked, true, "and the library is linked again")

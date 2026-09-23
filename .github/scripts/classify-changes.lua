@@ -12,6 +12,13 @@
 
 local classifier = {}
 
+local SIMD_CI_PATHS = {
+    [".github/simd-platforms.json"] = true,
+    [".github/simd-wasm-shards.json"] = true,
+    [".github/workflows/simd-conformance.yml"] = true,
+    [".github/scripts/prepare-simd-compilers.sh"] = true,
+}
+
 -- Ordered, but not first-match-wins: a path contributes every surface whose
 -- pattern it matches. `src/nupp/compiler/aot/lower.nupp` is both the AOT surface
 -- and the compiler surface, and dropping either would lose a real obligation.
@@ -23,18 +30,42 @@ local rules = {
     {"^scripts/docs%-serve%.mjs$", {"docs"}},
     {"^scripts/rust%-dependency%-notices", {"docs", "packaging"}},
 
-    {"^src/nupp/compiler/aot/", {"compiler", "aot", "browser"}},
-    {"^src/nupp/compiler/build/aot%.nupp$", {"compiler", "aot", "browser"}},
+    -- The SIMD fleet is selected by an explicit surface, not by every library
+    -- or compiler change. Keep the AOT pipeline and the target contracts it
+    -- consumes on that surface: each can change emitted SIMD C or Wasm without
+    -- touching the public SIMD modules themselves.
+    {"^src/nupp/compiler/aot/", {"compiler", "aot", "browser", "simd"}},
+    {"^src/nupp/compiler/build/aot%.nupp$", {"compiler", "aot", "browser", "simd"}},
+    {"^src/nupp/compiler/build/compilerpacks%.nupp$", {"compiler", "simd"}},
+    {"^src/nupp/compiler/build/project%.nupp$", {"compiler", "simd"}},
+    {"^src/nupp/compiler/check/aot%.nupp$", {"compiler", "aot", "simd"}},
+    {"^src/nupp/compiler/constspecialize%.nupp$", {"compiler", "simd"}},
+    {"^src/nupp/compiler/scalarintrinsics%.nupp$", {"compiler", "simd"}},
+    {"^src/nupp/compiler/targetlayout%.nupp$", {"compiler", "simd"}},
+    {"^src/nupp/compiler/targetprofile%.nupp$", {"compiler", "simd"}},
     {"^src/nupp/compiler/browserluajit%.nupp$", {"compiler", "browser"}},
     {"^src/nupp/compiler/browser%.nupp$", {"compiler", "browser"}},
-    {"^src/nupp/compiler/capabilities%.nupp$", {"compiler", "browser", "aot"}},
+    {"^src/nupp/compiler/capabilities%.nupp$", {"compiler", "browser", "aot", "simd"}},
     {"^src/nupp/compiler/preludeimage", {"compiler", "browser"}},
     {"^src/nupp/compiler/benchrunner%.nupp$", {"compiler", "measurement"}},
     {"^src/nupp/compiler/cli/bench%.nupp$", {"compiler", "cli", "measurement"}},
     {"^src/nupp/compiler/cli/", {"compiler", "cli"}},
     {"^src/nupp/compiler/", {"compiler"}},
-    {"^src/nupp/simd%.nupp$", {"library", "aot", "browser"}},
-    {"^src/nupp/simd/", {"library", "aot", "browser"}},
+    {"^src/nupp/simd%.nupp$", {"library", "aot", "browser", "simd"}},
+    {"^src/nupp/simd/", {"library", "aot", "browser", "simd"}},
+    -- The generated conformance programs allocate and view their lanes through
+    -- these modules on both native and Wasm routes.
+    {"^src/nupp/mem/array%.nupp$", {"library", "simd"}},
+    {"^src/nupp/mem/span%.nupp$", {"library", "simd"}},
+    {"^src/nupp/mem/soa%.nupp$", {"library", "simd"}},
+    {"^src/nupp/runtime/storage%.nupp$", {"library", "browser", "native", "simd"}},
+    {"^src/nupp/runtime/representation/", {"library", "browser", "native", "simd"}},
+    {"^src/nupp/runtime/provider/nativestorage%.nupp$", {"library", "browser", "native", "simd"}},
+    {"^src/nupp/runtime/provider/wasmstorage", {"library", "browser", "native", "simd"}},
+    {"^src/nupp/text/utf8%.nupp$", {"library", "simd"}},
+    {"^src/nupp/codec/valuebuilder%.nupp$", {"library", "simd"}},
+    {"^src/nupp/codec/json/aot%.nupp$", {"library", "simd"}},
+    {"^src/nupp/codec/json/internal/decoder/fused%.nupp$", {"library", "simd"}},
     {"^src/nupp/gpu/", {"library", "gpu"}},
     {"^src/nupp/bench/", {"library", "measurement"}},
     {"^src/nupp/runtime/", {"library", "browser", "native"}},
@@ -43,7 +74,10 @@ local rules = {
 
     {"^native/", {"native"}},
     {"^runtime/wasm/", {"browser"}},
-    {"^runtime/luajit/", {"browser"}},
+    -- The conformance workflow executes its Wasm packs in this guest. A guest
+    -- runtime change therefore has SIMD execution consequences even though it
+    -- is not compiler or library source.
+    {"^runtime/luajit/", {"browser", "simd"}},
     {"^runtime/", {"native"}},
     {"^host/", {"native"}},
 
@@ -54,10 +88,26 @@ local rules = {
     {"^editors/", {"editors"}},
 
     {"^bench/kernel%-subset%-spike/", {"aot", "measurement"}},
+    -- The owned-algorithm rows copy these projects, but each target consumes a
+    -- narrow source and oracle set. Results, benchmark drivers and prose do not
+    -- change the conformance programs and must not start the full fleet.
+    {"^bench/utf8simd/src/", {"measurement", "simd"}},
+    {"^bench/utf8simd/tests/run%.lua$", {"measurement", "simd"}},
+    {"^bench/utf8simd/nupp%.lua$", {"measurement", "simd"}},
+    {"^bench/base64simd/src/", {"measurement", "simd"}},
+    {"^bench/base64simd/tests/run%.lua$", {"measurement", "simd"}},
+    {"^bench/base64simd/nupp%.lua$", {"measurement", "simd"}},
+    {"^bench/simd%-json/src/simd_json/indexer[^/]*%.nupp$", {"measurement", "simd"}},
+    {"^bench/simd%-json/tests/index%.lua$", {"measurement", "simd"}},
+    {"^bench/simd%-json/nupp%.lua$", {"measurement", "simd"}},
+    {"^bench/fused%-json/prepare%.sh$", {"measurement", "simd"}},
+    {"^bench/fused%-json/tests/differential%.lua$", {"measurement", "simd"}},
+    {"^bench/fused%-json/nupp%.lua$", {"measurement", "simd"}},
     {"^bench/", {"measurement"}},
     {"^evals/", {"evals"}},
 
     {"^tests/benchrunnertest%.lua$", {"tests", "measurement"}},
+    {"^tests/jsonfuseddifferentialtest%.lua$", {"tests", "aot", "simd"}},
     -- The fixtures below are run by nothing but the Wasm job, so classifying
     -- them as ordinary tests means a change to one is never compiled: the
     -- queue in `portable-storage` kept calling a `nupp.text` constructor that
@@ -67,7 +117,8 @@ local rules = {
     {"^tests/lua51%-compat/", {"tests", "compiler"}},
     {"^scripts/lua51%-compat%-corpus%.sh$", {"tests", "compiler"}},
     {"^tests/portable%-storage/", {"tests", "browser"}},
-    {"^tests/simd/", {"tests", "aot", "browser"}},
+    {"^tests/simd/", {"tests", "aot", "browser", "simd"}},
+    {"^tests/simd[^/]*%.lua$", {"tests", "aot", "simd"}},
     {"^tests/wasm%-aot/", {"tests", "browser"}},
     {"^tests/luajit%-browser/", {"tests", "browser"}},
     {"^tests/wasm%-memory/", {"tests", "browser"}},
@@ -76,7 +127,11 @@ local rules = {
 
     -- Everything below decides how the whole tree is built, tested or released,
     -- so it has no smaller blast radius than "all of it".
-    {"^%.github/", {"everything"}},
+    {"^%.github/simd%-platforms%.json$", {"simd"}},
+    {"^%.github/simd%-wasm%-shards%.json$", {"simd"}},
+    {"^%.github/workflows/simd%-conformance%.yml$", {"simd"}},
+    {"^%.github/scripts/prepare%-simd%-compilers%.sh$", {"simd"}},
+    {"^%.github/", {"everything"}, SIMD_CI_PATHS},
     {"^%.githooks/", {"everything"}},
     {"^scripts/toolchain", {"everything"}},
     {"^scripts/", {"everything"}},
@@ -108,7 +163,8 @@ classifier.jobs = {
 function classifier.surfacesOf(path)
     local found, any = {}, false
     for _, rule in ipairs(rules) do
-        if path:match(rule[1]) then
+        local excluded = rule[3]
+        if path:match(rule[1]) and not (excluded and excluded[path]) then
             for _, surface in ipairs(rule[2]) do
                 found[surface], any = true, true
             end
@@ -190,8 +246,8 @@ function classifier.classify(paths)
         select(jobs, "windows-integration", why, reasons)
     end
 
-    if surfaces.compiler or surfaces.aot or surfaces.library or surfaces.native then
-        select(jobs, "simd-conformance", "SIMD compiler, runtime or shared corpus changed", reasons)
+    if surfaces.simd then
+        select(jobs, "simd-conformance", "SIMD library, AOT backend, runtime or corpus changed", reasons)
     end
     if surfaces.compiler or surfaces.aot or surfaces.library or surfaces.native then
         select(jobs, "fixpoint", "the compiler's own inputs changed", reasons)

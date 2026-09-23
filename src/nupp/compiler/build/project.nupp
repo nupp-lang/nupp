@@ -182,6 +182,63 @@ local function checkedTargetNeedsGpu(root: string, config: any, paths: {string}?
     return false
 end
 
+--- Authored files that can change either AOT code or a scoped target's graph.
+---
+--- Include roots are the files the AOT policy can emit. A path entry or an
+--- explicit `build.sources` selection may live elsewhere in the project; even
+--- when it emits no unit itself, changing its imports changes which include-
+--- root units `targetScope` admits. Hash those selectors without paying for the
+--- checked graph the replay is meant to avoid.
+local function aotInputSources(root: string, outDir: string, config: any, target: any, environment: any): {string}
+    local sources = envMod.listSourceFilesFor(environment, root, config.include or {}, join(root, outDir), true)
+    local sourceRoots: {string} = {}
+    for _, directory in ipairs(config.include or {}) do
+        local normalized = normalize(directory)
+        sourceRoots[#sourceRoots + 1] = (normalized:sub(1, 1) == "/" or normalized:match("^[A-Za-z]:/") ~= nil)
+            and normalized
+            or join(root, normalized)
+    end
+    if #sourceRoots == 0 then
+        sourceRoots[1] = root
+    end
+    local outputRoot = normalize(join(root, outDir))
+
+    local function skipsBookkeeping(name: string): boolean
+        return name:sub(1, 1) == "."
+    end
+
+    for _, sourceRoot in ipairs(sourceRoots) do
+        for _, path in ipairs(listFiles(sourceRoot, skipsBookkeeping)) do
+            local normalized = normalize(path)
+            if normalized:match("%.lua$")
+                and normalized ~= outputRoot
+                and normalized:sub(1, #outputRoot + 1) ~= outputRoot .. "/"
+            then
+                sources[#sources + 1] = normalized
+            end
+        end
+    end
+    for _, entry in ipairs(target.entries or {}) do
+        if entry:match("%.nupp$") or entry:match("%.lua$") or entry:find("[/\\]") then
+            sources[#sources + 1] = join(root, entry)
+        end
+    end
+    for _, selected in ipairs(target.sources or {}) do
+        for _, matched in ipairs(deps.expandGlob(root, normalize(selected))) do
+            local files = listFiles(matched)
+            if #files == 0 then
+                sources[#sources + 1] = matched
+            else
+                for _, path in ipairs(files) do
+                    sources[#sources + 1] = path
+                end
+            end
+        end
+    end
+
+    return sources
+end
+
 local bundleText, bundleOutput = packaging.bundleText, packaging.bundleOutput
 local componentOutput = packaging.componentOutput
 local binaryOutput = packaging.binaryOutput
@@ -535,6 +592,60 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
             or "emitting ahead-of-time code"
         )
 
+        -- This key is intentionally available before target-scope discovery,
+        -- because discovering that scope checks the graph. The complete config
+        -- owns policy, target, features, flags and linkage; the other digests
+        -- cover generated inputs, installed declarations and the compiler that
+        -- will interpret them. `inputFingerprint` adds all authored source
+        -- bytes that can affect emission or target-scope discovery.
+        report:at("aot:lookup")
+        local aotToolchainPolicy = aotPolicy.toolchainPolicy(
+            target.aot as string,
+            target.aotTarget as string?,
+            contentDigest
+        )
+        local aotInput = aotPolicy.inputFingerprint(
+            -- Declarations do not emit units, but they do participate in
+            -- checking the sources that do. A changed local `.d.nupp` file
+            -- must therefore invalidate a replay just like an implementation.
+            aotInputSources(root, outDir, config, target, session.inc.env),
+            {
+                compiler = newState.compilerHash,
+                compilerResources = aotPolicy.compilerResourceFingerprint(contentDigest),
+                moduleCompiler = newState.moduleCompilerHash,
+                config = newState.configHash,
+                dependencies = contentDigest(stable(newState.dependencies)),
+                generators = contentDigest(stable(newState.generators)),
+                spi = contentDigest(stable(spiEntries)),
+                target = targetKey,
+                platform = selectedPlatform,
+                toolchainPolicy = aotToolchainPolicy,
+            },
+            contentDigest
+        )
+        newState.aotInput = aotInput
+        local outputsIntact = true
+        for output in pairs(oldState.outputs or {}) do
+            if not fs.exists(output) then
+                outputsIntact = false
+                break
+            end
+        end
+        if outputsIntact then
+            for _, record in pairs(oldState.modules or {}) do
+                if record.output ~= nil
+                    and (record.artifactHash == nil or hashFile(record.output as string) ~= record.artifactHash)
+                then
+                    outputsIntact = false
+                    break
+                end
+            end
+        end
+        local produced = nil
+        if outputsIntact and oldState.aotInput == aotInput then
+            produced = aotPolicy.replay(oldState.aotReplay, aotToolchainPolicy.desiredCommand)
+        end
+
         -- Bounded by what this target bundles rather than by the include roots.
         -- The roots are where `@aot` code is found; the deliverable decides
         -- which of it is this target's to compile. A project whose targets sit
@@ -542,38 +653,44 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         -- scalar and one SIMD128 package out of one source tree -- otherwise
         -- fails the scalar build over the SIMD module it never bundles.
         -- Walking dependencies checks their interfaces through the shared graph.
-        local resumeChecking = report:charging("aot:check")
-        report:at("aot:check")
-        local aotScope, scopeErr = modules.targetScope(root, target, session)
-        report:charging(resumeChecking)
-        report:at("aot")
-        if scopeErr then
-            io.stderr:write("nupp: " .. tostring(scopeErr) .. "\n")
+        local aotErr: string? = nil
+        local aotDiagnostic = nil
+        if produced == nil then
+            local resumeChecking = report:charging("aot:check")
+            report:at("aot:check")
+            local aotScope, scopeErr = modules.targetScope(root, target, session)
+            report:charging(resumeChecking)
+            report:at("aot")
+            if scopeErr then
+                io.stderr:write("nupp: " .. tostring(scopeErr) .. "\n")
 
-            return 1
+                return 1
+            end
+            produced, aotErr, aotDiagnostic = aotPolicy.apply(
+                target.aot as string,
+                root,
+                outDir,
+                config.include or {},
+                (target.name or opts.target or "default") as string,
+                (oldState.aot or {}) as {[string]: string},
+                oldState.aotLibrary,
+                session,
+                target.aotFeatures,
+                target.aotTarget as string?,
+                target.aotCflags as {string}?,
+                aotLinkage,
+                new aotPolicy.Carried(
+                    objects = oldState.aotObjects,
+                    modules = oldState.aotModules,
+                    toolchain = oldState.aotToolchain
+                ),
+                report,
+                aotScope,
+                true
+            )
+        else
+            report:at("aot:reuse")
         end
-        local produced, aotErr, aotDiagnostic = aotPolicy.apply(
-            target.aot as string,
-            root,
-            outDir,
-            config.include or {},
-            (target.name or opts.target or "default") as string,
-            (oldState.aot or {}) as {[string]: string},
-            oldState.aotLibrary,
-            session,
-            target.aotFeatures,
-            target.aotTarget as string?,
-            target.aotCflags as {string}?,
-            aotLinkage,
-            new aotPolicy.Carried(
-                objects = oldState.aotObjects,
-                modules = oldState.aotModules,
-                toolchain = oldState.aotToolchain
-            ),
-            report,
-            aotScope,
-            true
-        )
         report:clear()
         if produced == nil then
             if aotDiagnostic ~= nil and opts.diagnostics ~= nil then
@@ -649,10 +766,17 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         newState.aotObjects = (produced as any).objects
         newState.aotModules = (produced as any).modules
         newState.aotToolchain = (produced as any).remembered
+        newState.aotReplay = aotPolicy.captureReplay(target.aot as string, produced as any)
         report:aotCounted((produced as any).facts)
         aotOverlays = (produced as any).dispatch as {[string]: string}?
         aotAuthoredUnused = (produced as any).authoredUnused as {[string]: {any}}?
         aotGpu = (produced as any).gpu == true
+        -- A cold linked GPU policy stages the compiler-carried GPU runtime
+        -- before checking. Replaying the result must preserve that session side
+        -- effect before the ordinary module build resolves the same imports.
+        if aotGpu and (target.aot == "require" or target.aot == "require-wasm") then
+            session.stageGpuRuntime()
+        end
     end
     local result, buildErr = buildModules(
         root,

@@ -44,6 +44,7 @@ local REPORT_SCHEMA = {
         total = {type = "integer"},
         passed = {type = "integer"},
         skipped = {type = "integer"},
+        notExecuted = {type = "integer"},
         failed = {type = "integer"},
         durationMs = {type = "number", description = "Wall-clock milliseconds for the whole run."},
         tests = {
@@ -51,15 +52,19 @@ local REPORT_SCHEMA = {
             items = {
                 type = "object",
                 properties = {
+                    id = {
+                        type = "string",
+                        description = "Stable suite/case ID for an ordinary case, or a synthetic ID for an infrastructure failure."
+                    },
                     suite = {type = "string", description = "The test file, without its extension."},
                     name = {type = "string"},
-                    status = {type = "string", enum = {"passed", "skipped", "failed"}},
+                    status = {type = "string", enum = {"passed", "skipped", "not-executed", "failed"}},
                     durationMs = {type = "number"},
                     file = {type = "string", description = "Where the test is defined."},
                     line = {type = "integer", description = "1-based, as everywhere else."},
                     failure = {
                         type = "object",
-                        description = "Absent when the test passed.",
+                        description = "Present only when the test failed.",
                         properties = {
                             message = {type = "string"},
                             file = {
@@ -77,7 +82,7 @@ local REPORT_SCHEMA = {
                     },
                     output = {
                         type = "object",
-                        description = "Captured output from a failed test.",
+                        description = "Captured output from a failed test, or from every test under --verbose.",
                         properties = {stdout = {type = "string"}, stderr = {type = "string"},},
                         required = {"stdout", "stderr"},
                     },
@@ -87,9 +92,28 @@ local REPORT_SCHEMA = {
                         properties = {reason = {type = "string"}},
                         required = {"reason"},
                     },
+                    notExecuted = {
+                        type = "object",
+                        description = "Present when the case could not execute on the current runtime.",
+                        properties = {reason = {type = "string"}},
+                        required = {"reason"},
+                    },
+                    capabilities = {type = "array", items = {["$ref"] = "#/definitions/testCapability"}},
+                    fixtures = {type = "array", items = {["$ref"] = "#/definitions/testFixture"}},
+                    facts = {
+                        type = "array",
+                        description = "Structured facts emitted by a passing case.",
+                        items = {["$ref"] = "#/definitions/testFact"},
+                    },
+                    metrics = {type = "array", items = {["$ref"] = "#/definitions/testMetric"}},
                 },
-                required = {"suite", "name", "status", "durationMs"},
+                required = {"id", "suite", "name", "status", "durationMs"},
             },
+        },
+        metrics = {
+            type = "array",
+            description = "Additive metric totals across every reported case.",
+            items = {["$ref"] = "#/definitions/testMetric"},
         },
         suites = {
             type = "array",
@@ -162,8 +186,44 @@ local REPORT_SCHEMA = {
             properties = {processIsolated = phasePrediction, shared = phasePrediction, shell = phasePrediction},
         },
     },
-    required = {"ok", "total", "passed", "skipped", "failed", "tests"},
+    required = {
+        "ok",
+        "total",
+        "passed",
+        "skipped",
+        "notExecuted",
+        "failed",
+        "durationMs",
+        "tests",
+        "metrics",
+        "suites",
+        "shards",
+    },
     definitions = {
+        testCapability = {
+            type = "object",
+            properties = {name = {type = "string"}, available = {type = "boolean"}, evidence = {},},
+            required = {"name", "available"},
+        },
+        testFixture = {
+            type = "object",
+            properties = {
+                key = {type = "string"},
+                path = {type = "string"},
+                reused = {type = "boolean", description = "False only for the case that published the fixture."},
+            },
+            required = {"key", "path", "reused"},
+        },
+        testFact = {
+            type = "object",
+            properties = {name = {type = "string"}, value = {}},
+            required = {"name", "value"},
+        },
+        testMetric = {
+            type = "object",
+            properties = {name = {type = "string"}, value = {type = "number"}, unit = {type = "string"},},
+            required = {"name", "value"},
+        },
         coverageMetric = {
             type = "object",
             properties = {
@@ -310,9 +370,10 @@ end
 --- order for the bundled runner or the project's configured test command.
 --- The bundled runner accepts suite names, `--json`, `--verbose`, `--jobs=N`,
 --- repeated `--group=NAME`, `--exclude=SUITE`, `--exclude-group=NAME`, one of
---- `--lane=shared|shell|isolated`, `--list-suites`, `--list-groups`, and
---- `--timings[=N]`. Those remain forwarded arguments rather than fields of
---- this command because a project may configure a different test executable.
+--- `--lane=shared|shell|isolated`, `--list-suites`, `--list-cases`,
+--- `--list-groups`, `--case=SUITE/CASE`, `--rerun=REPORT`, and
+--- `--timings[=N]`. Those remain forwarded arguments rather than fields of this
+--- command because a project may configure a different test executable.
 ---
 --- Coverage uses `build/coverage` without changing the ordinary build cache
 --- and writes under `build/reports/coverage` by default. `--report-json` reads

@@ -23,6 +23,7 @@ record packs.Pack
     host: string
     target: string
     version: string
+    manifestDigest: string
     cc: string
     cxx: string?
     ar: string
@@ -206,6 +207,7 @@ function packs.resolve(target: string?): (packs.Pack?, string?)
         host = host,
         target = target,
         version = value.version,
+        manifestDigest = hash.digest(text as string),
         cc = cc as string,
         cxx = cxx,
         ar = ar as string,

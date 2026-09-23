@@ -60,6 +60,43 @@ local isFatal = diagnosticMod.isFatal
 
 local aot = {}
 
+local compilerResourceFingerprintMemo: string? = nil
+
+--- The compiler-carried source and headers that can affect AOT checking or C.
+---
+--- The compiler code fingerprint covers generated Lua, and the module compiler
+--- fingerprint separately covers declarations. Neither covers the standard
+--- library sources staged into another project nor the headers copied verbatim
+--- into emitted C. A pre-emission hit has to cover both before it can skip the
+--- checker and emitter that would otherwise observe them.
+function aot.compilerResourceFingerprint(contentDigest: (function(string): string)?): string
+    if compilerResourceFingerprintMemo ~= nil then
+        return compilerResourceFingerprintMemo as string
+    end
+    local digest = contentDigest or hash.digest
+    local bundled = require("nupp.compiler.bundled")
+    local list = require("nupp.compiler.bundledlist").list
+    local paths: {string} = {}
+    for _, prefix in ipairs({"/aot/include", "/nupp"}) do
+        for _, path in ipairs(list(prefix)) do
+            paths[#paths + 1] = path
+        end
+    end
+    -- `re.g.nupp` is the one carried Nupp module outside `/nupp`; it can be an
+    -- ordinary imported dependency of a source the AOT checker reads.
+    if bundled.source("/re.g.nupp") ~= nil then
+        paths[#paths + 1] = "/re.g.nupp"
+    end
+    table.sort(paths)
+    local parts: {string} = {}
+    for _, path in ipairs(paths) do
+        parts[#parts + 1] = path .. "\0" .. digest(bundled.source(path) or "missing")
+    end
+    compilerResourceFingerprintMemo = digest(table.concat(parts, "\0"))
+
+    return compilerResourceFingerprintMemo as string
+end
+
 --- The policies a target may select.
 const aot.POLICIES = {
     ["off"] = true,
@@ -194,6 +231,37 @@ function aot.key(irText: string, selected: targets.Target): string
             compiler = cache.toolFingerprint(),
         })
     )
+end
+
+--- The key that can be asked before any source is checked or lowered.
+---
+--- `semantic` is assembled by the project build beside the inputs it names:
+--- the complete config, dependency and generator records, compiler
+--- fingerprints, SPI selection and target. This function adds every authored
+--- Nupp source the AOT policy can discover and every Lua source that can shape
+--- a scoped target's import graph. It deliberately hashes more than a
+--- target-scoped build may reach; an unnecessary miss is safe, while an
+--- omitted imported body could reuse stale C.
+function aot.inputFingerprint(sources: {string}, semantic: any, contentDigest: (function(string): string)?): string
+    local digest = contentDigest or hash.digest
+    local files: {string} = {}
+    local seen: {[string]: boolean} = {}
+    for _, path in ipairs(sources) do
+        if path:match("%.nupp$") ~= nil or path:match("%.lua$") ~= nil then
+            local canonical = fs.canonical(path)
+            if not seen[canonical] then
+                seen[canonical] = true
+                files[#files + 1] = path
+            end
+        end
+    end
+    table.sort(files)
+    local sources: {any} = {}
+    for _, path in ipairs(files) do
+        sources[#sources + 1] = {path = fs.normalize(path), digest = cache.hashFile(path, digest),}
+    end
+
+    return digest(cache.stable({version = 1, semantic = semantic, sources = sources,}))
 end
 
 --- Every flag the generated C is compiled with, in the order it is given them.
@@ -487,6 +555,83 @@ local function rememberedCommand(candidates: {string}, memo: aot.Remembered?): b
     end
 
     return false
+end
+
+--- Every external toolchain policy input a completed AOT result depends on.
+---
+--- The compiler command alone is not enough. A compiler pack may retain that
+--- command while changing its flags, archiver, version or target profile, and
+--- Windows native linkage can select a different Lua import library without
+--- changing the C compiler. The ordinary post-emission keys cover those
+--- inputs; a pre-emission replay has to carry the same distinctions itself.
+function aot.toolchainPolicyRecord(
+    policy: string,
+    targetTriple: string?,
+    pack: any?,
+    packErr: string?,
+    contentDigest: (function(string): string)?
+): any
+    local described = nil
+    if pack ~= nil then
+        local selected = pack as any
+        described = {
+            host = selected.host,
+            target = selected.target,
+            version = selected.version,
+            manifestDigest = selected.manifestDigest,
+            cc = selected.cc,
+            cxx = selected.cxx,
+            ar = selected.ar,
+            linkHost = selected.linkHost,
+            compileFlags = selected.compileFlags,
+            linkFlags = selected.linkFlags,
+            profile = selected.profile,
+        }
+    end
+
+    local nativeOverride = os.getenv("NUPP_AOT_CC") or os.getenv("NUPP_NATIVE_CC")
+    local desired: string? = nil
+    if policy == "require-wasm" or policy == "emit-wasm" then
+        desired = os.getenv("NUPP_WASM_CC") or "emcc"
+    elseif policy == "require" then
+        desired = nativeOverride or (described ~= nil and described.cc or nil)
+        if desired == nil then
+            local onWindows = (jit and jit.os or ""):lower() == "windows"
+            for _, command in ipairs(onWindows and aot.WINDOWS_CANDIDATES or aot.CANDIDATES) do
+                if resolveCommand(command) ~= nil then
+                    desired = command
+                    break
+                end
+            end
+        end
+    end
+
+    local luaLibrary = policy == "require" and aot.luaImportLibrary() or nil
+
+    return {
+        policy = policy,
+        target = targetTriple,
+        desiredCommand = desired,
+        pack = described,
+        packError = packErr,
+        packDirectory = os.getenv("NUPP_COMPILER_PACK_DIR"),
+        aotCompiler = os.getenv("NUPP_AOT_CC"),
+        nativeCompiler = os.getenv("NUPP_NATIVE_CC"),
+        wasmCompiler = os.getenv("NUPP_WASM_CC"),
+        luaLibrary = luaLibrary,
+        luaLibraryDigest = luaLibrary ~= nil and cache.hashFile(luaLibrary as string, contentDigest) or nil,
+        namedLuaLibrary = os.getenv("NUPP_LUA_LIB"),
+        provisionedLuaJit = os.getenv("NUPP_TOOLCHAIN_LUAJIT"),
+    }
+end
+
+function aot.toolchainPolicy(policy: string, targetTriple: string?, contentDigest: (function(string): string)?): any
+    local pack, packErr = nil, nil
+    if policy == "require" or policy == "emit-c" then
+        pack, packErr = require("nupp.compiler.build.compilerpacks").resolve(targetTriple or targets.hostTriple())
+    end
+
+    return aot.toolchainPolicyRecord(policy, targetTriple, pack, packErr, contentDigest)
 end
 
 --- Finds a C compiler that can build the generated C.
@@ -1448,9 +1593,15 @@ function aot.emitC(
     triple: string?,
     staticLinkage: boolean?,
     reporter: Reporter?,
-    scope: {[string]: boolean}?
+    scope: {[string]: boolean}?,
+    work: any?
 ): ({aot.Emitted}?, string?, {[string]: compile.Artifacts}, {[string]: {any}}, any?, {string}, compile.Diagnostic?)
     local report = reporter or progress.new("never")
+    local counted = work or {}
+    counted.checkedSources = 0
+    counted.loweredPrograms = 0
+    counted.optimizedPrograms = 0
+    counted.emittedUnits = 0
 
     -- Named for the timeline rather than for the function, so `build --json`
     -- reports lowering, optimization and emission as three activities that add
@@ -1477,8 +1628,30 @@ function aot.emitC(
     local sourceListed: {[string]: string} = {}
     local checkedBySource: {[string]: ParseResult} = {}
     local checkedModules: {any} = {}
+    local sourceRoots: {string} = {}
     for _, directory in ipairs(roots) do
-        for _, listed in ipairs(fs.listFiles(fs.join(root, directory))) do
+        sourceRoots[#sourceRoots + 1] = directory
+    end
+    -- Project source defaults to the project root. Use the environment's
+    -- listing rather than a raw recursive walk so build output, dot trees and
+    -- declarations are excluded by the same rule as the module build.
+    if #sourceRoots == 0 then
+        sourceRoots[1] = ""
+    end
+    for _, listed in ipairs(envMod.listSourceFilesFor(session.inc.env, root, roots, fs.join(root, outDir), false)) do
+        local normalized = fs.normalize(listed)
+        local directory: string? = nil
+        local longest: integer = -1
+        for _, candidate in ipairs(sourceRoots) do
+            local base = fs.normalize(fs.join(root, candidate))
+            if (base == "." or normalized == base or normalized:sub(1, #base + 1) == base .. "/")
+                and #base > longest
+            then
+                directory = candidate
+                longest = #base
+            end
+        end
+        if directory ~= nil then
             -- The graph may reach the same file through a relative root. Its
             -- key is also the key the module build uses for replacements.
             local source = listed
@@ -1496,7 +1669,7 @@ function aot.emitC(
                 if text ~= nil then
                     sources[#sources + 1] = source
                     sourceText[source] = text as string
-                    sourceDirectory[source] = directory
+                    sourceDirectory[source] = directory as string
                     sourceListed[source] = listed
                 end
             end
@@ -1529,6 +1702,7 @@ function aot.emitC(
     for _, source in ipairs(sources) do
         local checkedSource, unusedHere = checkedTree(session, source)
         if checkedSource ~= nil then
+            counted.checkedSources = counted.checkedSources + 1
             checkedSources[#checkedSources + 1] = source
             checkedBySource[source] = checkedSource as ParseResult
             checkedModules[
@@ -1587,6 +1761,9 @@ function aot.emitC(
                     if cpuFunctions == 0 then
                         break
                     end
+                    counted.loweredPrograms = counted.loweredPrograms + #(artifacts as compile.Artifacts).programs
+                    counted.optimizedPrograms = counted.optimizedPrograms + #(artifacts as compile.Artifacts).programs
+                    counted.emittedUnits = counted.emittedUnits + 1
                     -- Where the generated C goes, which has to be
                     -- under `outDir` for every source the project
                     -- reaches, including the ones it reaches by
@@ -1752,6 +1929,10 @@ end
 --- something invisible.
 record aot.Facts
     units: integer
+    checkedSources: integer
+    loweredPrograms: integer
+    optimizedPrograms: integer
+    emittedUnits: integer
     reusedObjects: integer
     compiledObjects: integer
     reusedModules: integer
@@ -1770,6 +1951,169 @@ record aot.Carried
 
     --- What the external toolchain said about itself last time.
     toolchain: aot.Remembered?
+end
+
+local function replayFile(files: {[string]: string}, path: string?): nil
+    if path ~= nil then
+        files[path as string] = cache.hashFile(path as string) or "missing"
+    end
+end
+
+--- Captures only plain data needed to replay a completed AOT policy.
+---
+--- Checked trees and const-specialization plans deliberately stay out because
+--- they contain live semantic identities. A result with any such plan is not
+--- replayed; reconstructing it after the AOT dispatch overlays are open would
+--- select a different graph. The replay is also admitted only while every
+--- output of the prior build still exists, so a module that needs regenerating
+--- takes the conservative full AOT path as well.
+function aot.captureReplay(policy: string, result: aot.Result): any
+    local files: {[string]: string} = {}
+    local emitted: {any} = {}
+    for _, one in ipairs(result.emitted) do
+        replayFile(files, one.output)
+        replayFile(files, one.object)
+        replayFile(files, one.wasmSource)
+        replayFile(files, one.wasm)
+        emitted[
+            #emitted + 1
+        ] = {
+            source = one.source,
+            tier = one.tier,
+            cacheKey = one.cacheKey,
+            output = one.output,
+            key = one.key,
+            object = one.object,
+            detector = one.detector,
+            role = one.role,
+            wasmSource = one.wasmSource,
+            wasm = one.wasm,
+            registrar = one.registrar,
+            bridge = one.bridge,
+            unit = one.unit,
+        }
+    end
+    replayFile(files, result.library)
+    replayFile(files, result.manifest)
+    if result.manifest ~= nil then
+        local linkManifest = fs.join(fs.dirname(result.manifest as string), "link.json")
+        if fs.exists(linkManifest) then
+            replayFile(files, linkManifest)
+        end
+    end
+    for _, path in ipairs(result.wasmModules or {}) do
+        replayFile(files, path)
+    end
+
+    local selection = result.constSelection
+    local hasConstSelection = selection ~= nil
+        and type((selection as any).plans) == "table"
+        and #((selection as any).plans) > 0
+    local payload = {
+        version = 1,
+        policy = policy,
+        hasConstSelection = hasConstSelection,
+        files = files,
+        emitted = emitted,
+        specializedBodies = result.specializedBodies,
+        library = result.library,
+        libraryKey = result.libraryKey,
+        toolchain = result.toolchain,
+        manifest = result.manifest,
+        dispatch = result.dispatch,
+        remarks = result.remarks,
+        authoredUnused = result.authoredUnused,
+        wasmModules = result.wasmModules,
+        gpu = result.gpu,
+        gpuSources = result.gpuSources,
+        objects = result.objects,
+        modules = result.modules,
+        remembered = result.remembered,
+    }
+
+    return {payload = payload, digest = hash.digest(cache.stable(payload)),}
+end
+
+local function countMap(values: {[string]: any}?): integer
+    local count: integer = 0
+    for _ in pairs(values or {}) do
+        count = count + 1
+    end
+
+    return count
+end
+
+function aot.replayCommandMatches(policy: string, remembered: aot.Remembered?, desired: string?): boolean
+    if policy ~= "require" and policy ~= "require-wasm" and policy ~= "emit-wasm" then
+        return true
+    end
+
+    return remembered ~= nil and desired ~= nil and desired == (remembered as aot.Remembered).command
+end
+
+--- Restores a completed policy only while all retained evidence agrees.
+--- Any old state, absent output, changed output byte or replaced toolchain is a
+--- miss. The verified-IR and object keys remain in the replayed records; this
+--- path only avoids deriving them again.
+function aot.replay(snapshot: any?, desiredCommand: string?): aot.Result?
+    if snapshot == nil or type(snapshot.payload) ~= "table" or type(snapshot.digest) ~= "string" then
+        return nil
+    end
+    local payload = snapshot.payload
+    if payload.version ~= 1
+        or type(payload.emitted) ~= "table"
+        or payload.hasConstSelection == true
+        or hash.digest(cache.stable(payload)) ~= snapshot.digest
+    then
+        return nil
+    end
+    local native = payload.policy == "require"
+    local wasm = payload.policy == "require-wasm" or payload.policy == "emit-wasm"
+    for path, digest in pairs(payload.files or {}) do
+        if cache.hashFile(path) ~= digest then
+            return nil
+        end
+    end
+    local remembered = payload.remembered
+    if not aot.replayCommandMatches(payload.policy, remembered, desiredCommand) then
+        return nil
+    end
+    if remembered ~= nil and aot.toolSignature(remembered.command) ~= remembered.signature then
+        return nil
+    end
+
+    local units = #payload.emitted
+
+    return new aot.Result(
+        emitted = payload.emitted,
+        specializedBodies = payload.specializedBodies or 0,
+        library = payload.library,
+        libraryKey = payload.libraryKey,
+        toolchain = payload.toolchain,
+        manifest = payload.manifest,
+        dispatch = payload.dispatch or {},
+        remarks = payload.remarks,
+        authoredUnused = payload.authoredUnused,
+        wasmModules = payload.wasmModules,
+        gpu = payload.gpu,
+        gpuSources = payload.gpuSources,
+        objects = payload.objects,
+        modules = payload.modules,
+        remembered = payload.remembered,
+        facts = new aot.Facts(
+            units = units,
+            checkedSources = 0,
+            loweredPrograms = 0,
+            optimizedPrograms = 0,
+            emittedUnits = 0,
+            reusedObjects = native and units or 0,
+            compiledObjects = 0,
+            reusedModules = wasm and countMap(payload.modules) or 0,
+            compiledModules = 0,
+            linked = false,
+            externalCommands = 0
+        )
+    )
 end
 
 --- The component identity every symbol in a static archive carries.
@@ -1992,6 +2336,7 @@ function aot.apply(
         triple = "wasm32-unknown-emscripten"
         features = features or "scalar"
     end
+    local work = {checkedSources = 0, loweredPrograms = 0, optimizedPrograms = 0, emittedUnits = 0,}
     local emitted, emitErr, produced, authoredUnused, constSelection, gpuSources, refusal = aot.emitC(
         root,
         outDir,
@@ -2002,7 +2347,8 @@ function aot.apply(
         triple,
         linkage == "static",
         report,
-        scope
+        scope,
+        work
     )
     if emitted == nil then
         return nil, emitErr, refusal
@@ -2247,6 +2593,10 @@ function aot.apply(
             ),
             facts = new aot.Facts(
                 units = #(emitted as {aot.Emitted}),
+                checkedSources = work.checkedSources,
+                loweredPrograms = work.loweredPrograms,
+                optimizedPrograms = work.optimizedPrograms,
+                emittedUnits = work.emittedUnits,
                 reusedObjects = 0,
                 compiledObjects = 0,
                 reusedModules = sideModules.reused,
@@ -2268,6 +2618,10 @@ function aot.apply(
             constSelection = constSelection,
             facts = new aot.Facts(
                 units = #(emitted as {aot.Emitted}),
+                checkedSources = work.checkedSources,
+                loweredPrograms = work.loweredPrograms,
+                optimizedPrograms = work.optimizedPrograms,
+                emittedUnits = work.emittedUnits,
                 reusedObjects = 0,
                 compiledObjects = 0,
                 reusedModules = 0,
@@ -2309,6 +2663,10 @@ function aot.apply(
             constSelection = constSelection,
             facts = new aot.Facts(
                 units = 0,
+                checkedSources = work.checkedSources,
+                loweredPrograms = work.loweredPrograms,
+                optimizedPrograms = work.optimizedPrograms,
+                emittedUnits = work.emittedUnits,
                 reusedObjects = 0,
                 compiledObjects = 0,
                 reusedModules = 0,
@@ -2336,9 +2694,9 @@ function aot.apply(
     end
 
     local static = linkage == "static"
-    local shared, suffix = aot.linkage(selected, needsLua)
+    local shared, suffix, trailing = aot.linkage(selected, needsLua)
     if static then
-        shared, suffix = {"static"}, ".a"
+        shared, suffix, trailing = {"static"}, ".a", nil
     end
     local library = aot.libraryPath(outDir, name, suffix)
     local reference = nil
@@ -2356,6 +2714,13 @@ function aot.apply(
     keyedFlags[#keyedFlags + 1] = "link"
     for _, flag in ipairs(aot.linkFlags(selected, chain as aot.Toolchain, cflags)) do
         keyedFlags[#keyedFlags + 1] = flag
+    end
+    if trailing ~= nil then
+        keyedFlags[
+            #keyedFlags + 1
+        ] = "link-input=" .. (
+            trailing as string
+        ) .. "\0" .. (cache.hashFile(trailing as string, cache.contentDigest(true)) or "missing")
     end
     local key = aot.libraryKey(keys, chain as aot.Toolchain, keyedFlags, shared)
 
@@ -2471,6 +2836,10 @@ function aot.apply(
         ),
         facts = new aot.Facts(
             units = #(emitted as {aot.Emitted}),
+            checkedSources = work.checkedSources,
+            loweredPrograms = work.loweredPrograms,
+            optimizedPrograms = work.optimizedPrograms,
+            emittedUnits = work.emittedUnits,
             reusedObjects = reusedObjects,
             compiledObjects = compiledObjects,
             reusedModules = 0,

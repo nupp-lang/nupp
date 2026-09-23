@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# Execute every available native tier with both real compiler dialects.
-# Missing hardware is recorded as not-executed, never as compile-only success.
+# Execute the compact native harness packs and owned algorithms at every
+# available requested compiler/tier pair. Missing hardware remains explicit.
 set -euo pipefail
 repo=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$repo"
-# Keep the compiler's provisioned host runtime fixed while NUPP_NATIVE_CC
-# selects each emitted-C compiler. That legacy variable is also a toolchain
-# alias: without a primary NUPP_CC, even an absolute path to the same compiler
-# changes the dependency prefix and hides the already provisioned LPeg.
+
+# Keep the provisioned host runtime fixed while NUPP_NATIVE_CC selects the
+# compiler for emitted C. The legacy NUPP_CC alias also selects dependency
+# prefixes, so changing it per row can hide the provisioned LPeg tree.
 if [[ -z ${NUPP_CC:-} ]]; then
   NUPP_CC=${NUPP_NATIVE_CC:-}
   if [[ -z "$NUPP_CC" ]]; then
@@ -28,9 +28,11 @@ export NUPP_CC
 . ./scripts/luajit.sh
 select_luajit "$repo"
 if command -v cygpath >/dev/null 2>&1; then
-  export NUPP_TEST_BASH=$(cygpath -w "$(command -v bash)")
+  export NUPP_TEST_BASH
+  NUPP_TEST_BASH=$(cygpath -w "$(command -v bash)")
 fi
 ./bin/nupp build
+
 output=${NUPP_SIMD_OUTPUT:-$repo/build/simd-matrix}
 mkdir -p "$output"
 if [[ -f "$output/matrix.tsv" || -f "$output/selection.json" ]]; then
@@ -49,11 +51,9 @@ case $(uname -s) in
   Linux) cat /proc/cpuinfo > "$output/cpu.txt" ;;
   *) printf '%s\n' "${PROCESSOR_IDENTIFIER:-unknown}" > "$output/cpu.txt" ;;
 esac
-printf '%s\n' "${NUPP_SIMD_LANES:-all}" > "$output/lanes.txt"
+
 IFS=, read -r -a compilers <<< "${NUPP_SIMD_COMPILERS:-clang,gcc}"
-IFS=, read -r -a families <<< "${NUPP_SIMD_FAMILIES:-primitives,reducers}"
 IFS=, read -r -a algorithms <<< "${NUPP_SIMD_ALGORITHMS:-utf8simd,base64simd,simd-json,fused-json}"
-IFS=, read -r -a types <<< "${NUPP_SIMD_TYPES:-float,number,int8,uint8,int16,uint16,int32,uint32,int64,uint64}"
 case $(uname -m) in
   arm64|aarch64) tiers=(neon) ;;
   x86_64|amd64) tiers=(baseline avx2 avx512f) ;;
@@ -65,11 +65,10 @@ if [[ -n ${NUPP_SIMD_TIERS:-} ]]; then
     case "$tier" in baseline|avx2|avx512f|neon) ;; *) echo "Unknown tier: $tier" >&2; exit 2 ;; esac
   done
 fi
-# Freeze the request before capability probing or any corpus can fail.
+
 join_csv() { local IFS=,; printf '%s' "$*"; }
-luajit tests/simd/select-native.lua "$output" "$(join_csv "${compilers[@]}")" \
-  "$(join_csv "${tiers[@]}")" "$(join_csv "${families[@]}")" \
-  "$(join_csv "${types[@]}")" "$(join_csv "${algorithms[@]}")" "${NUPP_SIMD_LANES:-all}"
+luajit tests/simd/select-native-packs.lua "$output" "$(join_csv "${compilers[@]}")" \
+  "$(join_csv "${tiers[@]}")" "$(join_csv "${algorithms[@]}")"
 : > "$output/matrix.tsv"
 status=0
 index=0
@@ -96,23 +95,22 @@ for compiler in "${compilers[@]}"; do
       echo "$compiler / $tier: NOT EXECUTED (host capability unavailable)"
       continue
     fi
-    for family in "${families[@]}"; do
-      for element in "${types[@]}"; do
-        directory="$compiler_dir/$tier/$family/$element"
-        mkdir -p "$directory"
-        echo "$compiler / $tier / $family / $element"
-        if NUPP_NATIVE_CC="$compiler" NUPP_SIMD_TIER="$tier" NUPP_SIMD_TYPES="$element" NUPP_SIMD_REPORT="$directory/report.json" \
-            luajit tests/simd/run.lua native "$family" "$directory" > "$directory/driver.log" 2>&1; then
-          printf '%s\t%s\t%s\t%s\texecuted\t%s\n' "$index" "$tier" "$family" "$element" \
-            "$directory/matrix-result.json" >> "$output/matrix.tsv"
-        else
-          printf '%s\t%s\t%s\t%s\tfailed\t%s\n' "$index" "$tier" "$family" "$element" \
-            "$directory/driver.log" >> "$output/matrix.tsv"
-          cat "$directory/driver.log" >&2
-          status=1
-        fi
-      done
-    done
+
+    directory="$compiler_dir/$tier/packs"
+    mkdir -p "$directory"
+    echo "$compiler / $tier / compact native packs"
+    if NUPP_NATIVE_CC="$compiler" NUPP_SIMD_TIER="$tier" \
+        ./bin/nupp test simdprimitivedifferentialtest --jobs=1 --timings=0 --json \
+        > "$directory/report.json" 2> "$directory/driver.log"; then
+      printf '%s\t%s\tpacks\tcompact\texecuted\t%s\n' "$index" "$tier" \
+        "$directory/report.json" >> "$output/matrix.tsv"
+    else
+      printf '%s\t%s\tpacks\tcompact\tfailed\t%s\n' "$index" "$tier" \
+        "$directory/driver.log" >> "$output/matrix.tsv"
+      cat "$directory/driver.log" >&2
+      status=1
+    fi
+
     for algorithm in "${algorithms[@]}"; do
       [[ "$algorithm" == none ]] && continue
       directory="$compiler_dir/$tier/algorithms/$algorithm"
@@ -131,5 +129,5 @@ for compiler in "${compilers[@]}"; do
     done
   done
 done
-luajit tests/simd/summarize.lua "$output"
+luajit tests/simd/summarize-native-packs.lua "$output"
 exit "$status"

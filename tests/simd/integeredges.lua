@@ -30,7 +30,7 @@ function M.generate(options)
         if ty ~= 'float' and ty ~= 'number' then
             for at = 1, #options.lanes, options.batchSize do
                 local module = 'simd_integeredges_' .. ty .. '_' .. at
-                local names, exports, calls = {}, {}, {}
+                local names, exports, calls, selectedLanes = {}, {}, {}, {}
                 local source = {
                     [[local array = require("nupp.mem.array")
 local span = require("nupp.mem.span")
@@ -40,6 +40,7 @@ local u32 = nupp.math.u32
                 }
                 for pos = at, math.min(at + options.batchSize - 1, #options.lanes) do
                     local n = options.lanes[pos]
+                    selectedLanes[#selectedLanes + 1] = n
                     local name = 'edges_' .. n
                     names[#names + 1], exports[#exports + 1] = name, name .. '=' .. name
                     source[
@@ -121,7 +122,8 @@ local u32 = nupp.math.u32
                     operations = operations,
                     oracle = 'ordinary scalar integer operations and exact storage identity',
                     patterns = 16,
-                    lanes = names
+                    lanes = selectedLanes,
+                    probeNames = names
                 }
             end
         end

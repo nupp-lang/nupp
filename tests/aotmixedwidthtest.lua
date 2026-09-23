@@ -1,4 +1,5 @@
 local M = {}
+local equivalenceMutation = require("tests.simd.equivalence-mutation")
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 if not HERE:match("^/") then
     local pipe = assert(io.popen("pwd"));
@@ -51,9 +52,7 @@ return {map = map, fixed = fixed}
         ("cd %q && %q build --target native > %q 2>&1"):format(dir, HERE .. "/../bin/nupp", dir .. "/build.log")
     )
     assert(status == 0, dir .. ": " .. read(dir .. "/build.log"))
-    write(
-        dir .. "/run.lua",
-        [[
+    local runSource = [[
 package.path="build/native/?.lua;" .. package.path
 local m, ffi, span = require("mixed"), require("ffi"), require("nupp.mem.span")
 assert(__nuppAotCompiled[m.map] and __nuppAotCompiled[m.fixed])
@@ -68,9 +67,15 @@ local input, output = ffi.new("int32_t[3]", {11,22,33}), ffi.new("int32_t[4]", {
 m.fixed(span.writeCarray(output,3),span.fromCarray(input,3))
 assert(output[0]==33 and output[1]==22 and output[2]==11 and output[3]==-99)
 ]]
-    )
+    runSource = equivalenceMutation.text("mixed-width-definitions", runSource, "output%[0%]==33", "output[0]==34")
+    write(dir .. "/run.lua", runSource)
     status = os.execute(("cd %q && luajit run.lua > %q 2>&1"):format(dir, dir .. "/run.log"))
-    assert(status == 0, dir .. ": " .. read(dir .. "/run.log"))
+    assert(
+        status == 0,
+        equivalenceMutation.active("mixed-width-definitions")
+        and equivalenceMutation.marker("mixed-width-definitions", "wrong-result")
+        or dir .. ": " .. read(dir .. "/run.log")
+    )
 end
 
 return M

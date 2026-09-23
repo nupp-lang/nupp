@@ -4,6 +4,7 @@
 -- it produces is a file on disk; neither is visible from inside the compiler.
 
 local test = require("assert")
+local equivalenceMutation = require("tests.simd.equivalence-mutation")
 local aot = require("nupp.compiler.build.aot")
 local aotCompile = require("nupp.compiler.aot.compile")
 local aotEmitter = require("nupp.compiler.aot.emit")
@@ -2095,8 +2096,16 @@ function M.aWindowsTargetBuildsNoVectorWiderThanItsFrameCarries()
     test.equal(code, 0, out)
     for _, tier in ipairs({"baseline", "avx2", "avx512f"}) do
         local c = assert(read(tieredC(dir, tier)), tier .. " travels")
+        if tier == "baseline" and equivalenceMutation.active("avx2-windows") then
+            c = c .. "\ntypedef int equivalence_wide __attribute__((vector_size(32)));\n"
+        end
         for bytes in c:gmatch("vector_size%((%d+)%)") do
-            assert(tonumber(bytes) <= 16, tier .. " declares a " .. bytes .. "-byte vector:\n" .. c)
+            assert(
+                tonumber(bytes) <= 16,
+                equivalenceMutation.active("avx2-windows")
+                and equivalenceMutation.marker("avx2-windows", "wrong-result")
+                or tier .. " declares a " .. bytes .. "-byte vector:\n" .. c
+            )
         end
         assert(c:find("#define KS_SIMD_WIDTH 16", 1, true), tier .. " takes the sixteen-byte species:\n" .. c)
         for _, wider in ipairs({"#define KS_SIMD_WIDTH 32", "#define KS_SIMD_WIDTH 64"}) do
@@ -2124,8 +2133,18 @@ function M.onlyAWindowsX86TargetGivesUpItsWiderRegisters()
     local dir = wideSimdProject('aotTarget = "x86_64-unknown-linux-gnu", aotFeatures = "avx512f",')
     local out, code = build(dir)
     test.equal(code, 0, out)
-    local c = assert(read(tieredC(dir, "avx512f")))
-    assert(c:find("KS_SIMD_WIDTH 64", 1, true), "Linux keeps the register its tier names:\n" .. c)
+    local c = equivalenceMutation.text(
+        "target-vector-ceilings",
+        assert(read(tieredC(dir, "avx512f"))),
+        "KS_SIMD_WIDTH 64",
+        "KS_SIMD_WIDTH 32"
+    )
+    assert(
+        c:find("KS_SIMD_WIDTH 64", 1, true),
+        equivalenceMutation.active("target-vector-ceilings")
+        and equivalenceMutation.marker("target-vector-ceilings", "artifact-tier-mismatch")
+        or "Linux keeps the register its tier names:\n" .. c
+    )
     local units = assert(read(dir .. "/build/native/aot/units.json"))
     test.equal(units:find("-mprefer-vector-width", 1, true), nil, units)
 end
@@ -5653,10 +5672,16 @@ end
             for _, active in ipairs({0, 1, count - 1, count}) do
                 local actual = ffi.new(case.ctype .. "[?]", count)
                 lib[symbol](actual, input, count, active)
+                local actualBytes = ffi.string(actual, ffi.sizeof(actual))
+                if equivalenceMutation.active("signed-zero") then
+                    actualBytes = string.char((actualBytes:byte(1) + 1) % 256) .. actualBytes:sub(2)
+                end
                 test.equal(
-                    ffi.string(actual, ffi.sizeof(actual)),
+                    actualBytes,
                     expected[active],
-                    case.name .. suffix .. " tail " .. active
+                    equivalenceMutation.active("signed-zero")
+                    and equivalenceMutation.marker("signed-zero", "raw-word-mismatch")
+                    or case.name .. suffix .. " tail " .. active
                 )
             end
         end
@@ -6500,7 +6525,17 @@ void %s(double *, const NuppFieldPair%s *, size_t);]]
             library[symbol](output, points, count)
             for i = 0, count - 1 do
                 local expected = tonumber(points[i].left) - tonumber(points[i].right)
-                test.equal(output[i], expected, name .. " row " .. i)
+                local actual = tonumber(output[i])
+                if name == "Float" and count == 1 and i == 0 and equivalenceMutation.active("neon-field-pairs") then
+                    actual = actual + 1
+                end
+                test.equal(
+                    actual,
+                    expected,
+                    equivalenceMutation.active("neon-field-pairs")
+                    and equivalenceMutation.marker("neon-field-pairs", "wrong-result")
+                    or name .. " row " .. i
+                )
             end
             for i = count, count + 3 do
                 test.equal(output[i], -991, "tail sentinel")

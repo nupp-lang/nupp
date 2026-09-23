@@ -242,6 +242,8 @@ if package.config:sub(1, 1) == "\\" then
     end
 end
 
+local caseDefinitions = setmetatable({}, {__mode = "k"})
+rawset(_G, "__NUPP_TEST_CASE_DEFINITIONS", caseDefinitions)
 local test = require("nupp.test")
 
 -- Existing suites use Lua's familiar assert spelling.  Give those assertions
@@ -256,6 +258,19 @@ local verbose = false
 local only = nil
 local chosen = {}
 local chosenSet = nil
+-- Exact stable case IDs selected directly or read from a previous report.
+-- Case selection stays serial: a failure rerun is deliberately narrow, and
+-- keeping its IDs out of the suite queue protocol keeps that protocol about
+-- schedulable suite slices.
+local chosenCases = {}
+local chosenCaseCount = 0
+local seenCaseIds = {}
+-- A lifecycle-hook failure is a suite failure, not a selectable case. A rerun
+-- executes that whole suite so a repaired beforeAll or afterAll still proves
+-- its cases rather than turning into an empty green run.
+local wholeSuites = {}
+local SYNTHETIC_CASES = {["<shard>"] = true, ["<unrun>"] = true,}
+local rerunReport = nil
 -- Suites this process is to run, when a parent has split them up. Empty means "decide
 -- for yourself", which is what the run a person starts does.
 local shard = {}
@@ -277,6 +292,11 @@ local listing = nil
 -- queue rather than a list. Empty means "decide for yourself" the same way an
 -- empty shard does.
 local queueDir = nil
+-- An isolated queue worker is a supervisor only. It claims work dynamically,
+-- but runs every claimed piece in a new process so process-global state cannot
+-- cross the suite boundary.
+local freshQueuePieces = os.getenv("NUPP_TEST_FRESH_QUEUE_PIECES") == "1"
+local supervisedPiece = os.getenv("NUPP_TEST_SUPERVISED_PIECE") == "1"
 local jobs = nil
 local colorMode = "auto"
 local colorSeen = false
@@ -342,16 +362,101 @@ for _, argument in ipairs(arg) do
         end
     elseif argument == "--list-suites" then
         listing = "suites"
+    elseif argument == "--list-cases" then
+        listing = "cases"
     elseif argument == "--list-groups" then
         listing = "groups"
+    elseif argument:match("^%-%-case=") then
+        local id = argument:sub(#"--case=" + 1)
+        if id == "" then
+            io.stderr:write("nupp: --case requires a stable case ID\n")
+            os.exit(2)
+        end
+        if not chosenCases[id] then
+            chosenCases[id] = true
+            chosenCaseCount = chosenCaseCount + 1
+        end
+    elseif argument:match("^%-%-rerun=") then
+        if rerunReport ~= nil then
+            io.stderr:write("nupp: --rerun may be specified only once\n")
+            os.exit(2)
+        end
+        rerunReport = argument:sub(#"--rerun=" + 1)
     elseif argument:sub(1, 1) ~= "-" then
         chosen[#chosen + 1] = argument
         only = #chosen == 1 and argument or nil
+    else
+        io.stderr:write("nupp: unknown test option: " .. argument .. "\n")
+        os.exit(2)
     end
 end
 if colorProblem then
     io.stderr:write("nupp: " .. colorProblem .. "\n")
     os.exit(2)
+end
+if rerunReport ~= nil then
+    local file, problem = io.open(rerunReport, "rb")
+    if not file then
+        io.stderr:write(("nupp: cannot read failure report %s: %s\n"):format(rerunReport, tostring(problem)))
+        os.exit(2)
+    end
+    local text = file:read("*a") or ""
+    file:close()
+    local decoded, report = pcall(testJson.decode, text)
+    if not decoded or type(report) ~= "table" or type(report.tests) ~= "table" then
+        io.stderr:write(("nupp: %s is not a test JSON report\n"):format(rerunReport))
+        os.exit(2)
+    end
+    local rerunFailureCount = 0
+    local rerunSelectionCount = 0
+    for _, record in ipairs(report.tests) do
+        if type(record) == "table" and record.status == "failed" then
+            rerunFailureCount = rerunFailureCount + 1
+            local id = record.id
+            if type(id) ~= "string" and type(record.suite) == "string" and type(record.name) == "string" then
+                -- Reports written before stable IDs can still be rerun without
+                -- turning their old shape into the new report contract.
+                id = record.suite .. "/" .. record.name
+            end
+            if type(id) ~= "string" then
+                io.stderr:write(("nupp: failed test in %s has no stable ID\n"):format(rerunReport))
+                os.exit(2)
+            elseif record.name == "<shard>" then
+                -- A worker-level failure is followed by one `<unrun>` record for every
+                -- queue piece it failed to report. Those records name real suites; this
+                -- aggregate names the worker and is not itself a selectable case.
+            elseif (record.name == "beforeAll" or record.name == "afterAll" or record.name == "<unrun>")
+                and type(record.suite) == "string"
+            then
+                wholeSuites[record.suite] = true
+                chosen[#chosen + 1] = record.suite
+                rerunSelectionCount = rerunSelectionCount + 1
+            else
+                rerunSelectionCount = rerunSelectionCount + 1
+                if not chosenCases[id] then
+                    chosenCases[id] = true
+                    chosenCaseCount = chosenCaseCount + 1
+                end
+            end
+        end
+    end
+    if rerunFailureCount == 0 then
+        io.stderr:write(("nupp: %s contains no failed tests\n"):format(rerunReport))
+        os.exit(2)
+    elseif rerunSelectionCount == 0 then
+        io.stderr:write(("nupp: %s contains no rerunnable failed tests\n"):format(rerunReport))
+        os.exit(2)
+    end
+end
+if chosenCaseCount > 0 then
+    for id in pairs(chosenCases) do
+        local suite = id:match("^([^/]+)/.+$")
+        if not suite then
+            io.stderr:write(("nupp: invalid stable case ID %s (expected suite/case)\n"):format(id))
+            os.exit(2)
+        end
+        chosen[#chosen + 1] = suite
+    end
 end
 if #chosen > 0 then
     chosenSet = {}
@@ -368,6 +473,7 @@ local capture
 local progressWrite
 local useColor = false
 local pauseBriefly = nil
+local exclusiveCreate = nil
 local silenceProcessOutput = function()
     return function()
     end
@@ -414,6 +520,7 @@ do
         end
         local C = ffi.C
         local create = ffi.os == "Windows" and 0x0100 or (ffi.os == "OSX" and 0x200 or 0x40)
+        local exclusive = ffi.os == "Windows" and 0x0400 or (ffi.os == "OSX" and 0x800 or 0x80)
         local truncate = ffi.os == "Windows" and 0x0200 or (ffi.os == "OSX" and 0x400 or 0x200)
         local binary = ffi.os == "Windows" and 0x8000 or 0
         local dup = ffi.os == "Windows" and C._dup or C.dup
@@ -422,6 +529,21 @@ do
         local close = ffi.os == "Windows" and C._close or C.close
         local write = ffi.os == "Windows" and C._write or C.write
         local isatty = ffi.os == "Windows" and C._isatty or C.isatty
+        exclusiveCreate = function(path)
+            local fd = open(path, create + exclusive + 1 + binary, tonumber("600", 8))
+            if fd < 0 then
+                return false
+            end
+            local stamp = tostring(os.time()) .. "\n"
+            local stamped = tonumber(write(fd, stamp, #stamp)) == #stamp
+            close(fd)
+            if not stamped then
+                os.remove(path)
+                error("cannot timestamp exclusive lock " .. path, 0)
+            end
+
+            return true
+        end
         pauseBriefly = ffi.os == "Windows" and function()
             C.Sleep(20)
         end or function()
@@ -490,6 +612,8 @@ do
         -- the outer run was invoked, which is what happened the first time CI
         -- ran this variable across a whole group rather than one suite.
         stopExporting("NUPP_TEST_TRACE_CASES")
+        stopExporting("NUPP_TEST_FRESH_QUEUE_PIECES")
+        stopExporting("NUPP_TEST_SUPERVISED_PIECE")
 
         local terminal = false
         local detected, answer = pcall(isatty, statusFd)
@@ -610,6 +734,14 @@ do
             local ok, problem = pcall(run)
             return ok, problem, "", ""
         end
+    end
+end
+
+if supervisedPiece then
+    -- The supervisor owns the one progress mark for this queue piece. The fresh
+    -- child still captures case output normally, but stays silent on the shared
+    -- progress stream so a many-case suite remains one scheduling mark.
+    progressWrite = function()
     end
 end
 
@@ -866,6 +998,10 @@ end
 --- Where a test function is written, which is stable and worth reporting even
 --- when it passes.
 local function definedAt(fn)
+    local parameterized = caseDefinitions[fn]
+    if parameterized ~= nil then
+        return parameterized.file, parameterized.line
+    end
     local info = debug.getinfo(fn, "S")
     if not info then
         return nil, nil
@@ -892,7 +1028,7 @@ local results = {}
 -- and `beforeAll` can be the most expensive thing in the file. None of that
 -- belongs to any single case, so measuring only cases loses it.
 local suiteRecords = {}
-local total, passed, failed, skipped = 0, 0, 0, 0
+local total, passed, failed, skipped, notExecutedCount = 0, 0, 0, 0, 0
 local started = now()
 local progressWidth = 0
 
@@ -910,7 +1046,7 @@ local ownsProgressStream = not sharedProgressStream
 
 local function mark(symbol)
     local styled = symbol == "." and paint("32", symbol)
-        or symbol == "S" and paint("1;33", symbol)
+        or (symbol == "S" or symbol == "N") and paint("1;33", symbol)
         or paint("1;31", symbol)
     progressWrite(styled)
     if not ownsProgressStream then
@@ -954,11 +1090,314 @@ end
 
 local HOOKS = {beforeAll = true, afterAll = true, beforeEach = true, afterEach = true,}
 
+local function suiteParts(suiteInfo, suite)
+    local hooks = {}
+    local cases = {}
+    for name, fn in pairs(suite) do
+        if type(name) ~= "string" or name == "" then
+            error(("test suite %s has a case whose name is not a non-empty string"):format(suiteInfo.name), 0)
+        elseif name:find("[%c]") then
+            error(("test suite %s has a case name containing a control character"):format(suiteInfo.name), 0)
+        elseif SYNTHETIC_CASES[name] then
+            error(("test suite %s uses reserved case name %s"):format(suiteInfo.name, name), 0)
+        elseif type(fn) ~= "function" then
+            error(("test suite %s entry %s is not a function"):format(suiteInfo.name, name), 0)
+        elseif HOOKS[name] then
+            hooks[name] = fn
+        else
+            cases[#cases + 1] = name
+        end
+    end
+    table.sort(cases)
+
+    return hooks, cases
+end
+
 local function call(fn)
     if fn == nil then
         return true
     end
     return pcall(fn)
+end
+
+local fixtureRoot = buildRoot .. "/test-fixtures"
+local fixtureSerial = 0
+local FIXTURE_LEASE_SECONDS = 15 * 60
+local fixtureDigest = require("nupp.compiler.build.cache").contentDigest(true)
+
+local function readJson(path)
+    local file = io.open(path, "rb")
+    if not file then
+        return nil, "missing"
+    end
+    local text = file:read("*a") or ""
+    file:close()
+    local ok, value = pcall(testJson.decode, text)
+
+    return ok and value or nil, ok and "valid" or "invalid"
+end
+
+local function fixtureManifest(root)
+    local files = require("nupp.io.files")
+    local manifest = {}
+
+    local function walk(directory, prefix)
+        for _, entry in ipairs(files.list(directory) or {}) do
+            local relative = prefix == "" and entry.name or prefix .. "/" .. entry.name
+            local path = directory .. "/" .. entry.name
+            if relative ~= ".nupp-fixture.json" then
+                if entry.kind == "directory" then
+                    manifest[#manifest + 1] = {path = relative, kind = "directory"}
+                    local ok, problem = walk(path, relative)
+                    if not ok then
+                        return nil, problem
+                    end
+                elseif entry.kind == "file" then
+                    local file, problem = io.open(path, "rb")
+                    if not file then
+                        return nil, tostring(problem)
+                    end
+                    local content = file:read("*a")
+                    file:close()
+                    if content == nil then
+                        return nil, "cannot read fixture artifact " .. path
+                    end
+                    manifest[#manifest + 1] = {path = relative, kind = "file", digest = fixtureDigest(content)}
+                else
+                    return nil, "fixture artifacts must be regular files or directories: " .. path
+                end
+            end
+        end
+
+        return true
+    end
+
+    local ok, problem = walk(root, "")
+    if not ok then
+        return nil, problem
+    end
+    table.sort(manifest, function(a, b)
+        return a.path < b.path
+    end)
+
+    return manifest
+end
+
+local function fixtureMetadata(path, published, key)
+    local value, state = readJson(path)
+    if state == "missing" then
+        return nil, "missing"
+    elseif state ~= "valid"
+        or type(value) ~= "table"
+        or value.version ~= 1
+        or value.key ~= key
+        or type(value.files) ~= "table"
+    then
+        return nil, "invalid"
+    end
+    local storedCount = 0
+    for index in pairs(value.files) do
+        if type(index) ~= "number" or index < 1 or index ~= math.floor(index) then
+            return nil, "invalid"
+        end
+        storedCount = storedCount + 1
+    end
+    local actual = fixtureManifest(published)
+    if actual == nil or #actual ~= storedCount then
+        return nil, "invalid"
+    end
+    for index = 1, storedCount do
+        local expected = value.files[index]
+        local found = actual[index]
+        if type(expected) ~= "table"
+            or type(expected.path) ~= "string"
+            or (expected.kind ~= "file" and expected.kind ~= "directory")
+            or expected.path ~= found.path
+            or expected.kind ~= found.kind
+            or expected.digest ~= found.digest
+        then
+            return nil, "invalid"
+        end
+    end
+
+    return value, "valid"
+end
+
+local function writeText(path, text)
+    local file, problem = io.open(path, "wb")
+    if not file then
+        error(("cannot write %s: %s"):format(path, tostring(problem)), 0)
+    end
+    file:write(text)
+    file:close()
+end
+
+--- Finds or produces one immutable content-addressed fixture.
+---
+--- The lock is an exclusive-create file rather than a directory existence
+--- check. Directory creation is intentionally idempotent on every supported
+--- provider and therefore cannot say which worker won.
+local function resolveFixture(key, produce)
+    if type(key) ~= "string" or key == "" or not key:match("^[A-Za-z0-9._-]+$") then
+        error("fixture keys must contain only letters, digits, dot, underscore, and hyphen", 2)
+    elseif type(produce) ~= "function" then
+        error("fixture producer must be a function", 2)
+    elseif not exclusiveCreate then
+        error("content-addressed fixtures require exclusive file creation on this runtime", 2)
+    end
+
+    local files = require("nupp.io.files")
+    local made, makeProblem = files.createDirectory(fixtureRoot)
+    if not made then
+        error("cannot create fixture store: " .. tostring(makeProblem), 2)
+    end
+    local slot = "fixture-" .. fixtureDigest("nupp-test-fixture\0" .. key)
+    local published = fixtureRoot .. "/" .. slot
+    local metadata = published .. "/.nupp-fixture.json"
+    local failure = fixtureRoot .. "/" .. slot .. ".failed.json"
+    local lock = fixtureRoot .. "/" .. slot .. ".lock"
+
+    local cached = fixtureMetadata(metadata, published, key)
+    if cached ~= nil then
+        return published, cached.value, true
+    end
+    local failedFixture = readJson(failure)
+    if failedFixture ~= nil then
+        error("fixture " .. key .. " failed: " .. tostring(failedFixture.message), 2)
+    end
+
+    if exclusiveCreate(lock) then
+        fixtureSerial = fixtureSerial + 1
+        -- Recheck after taking the lock: another producer may have published
+        -- between the optimistic read and this exclusive create. If a published
+        -- directory has missing or corrupt metadata, quarantine it atomically
+        -- before rebuilding. Cache corruption costs one cold production and
+        -- never asks the caller to repair the store by hand.
+        cached = fixtureMetadata(metadata, published, key)
+        if cached ~= nil then
+            os.remove(lock)
+            return published, cached.value, true
+        elseif files.exists(published) then
+            local quarantine = fixtureRoot .. "/." .. slot .. ".corrupt-" .. shardSalt .. "-" .. fixtureSerial
+            files.remove(quarantine, true)
+            local quarantined, quarantineProblem = files.rename(published, quarantine)
+            if not quarantined then
+                os.remove(lock)
+                error("cannot quarantine corrupt fixture " .. key .. ": " .. tostring(quarantineProblem), 2)
+            end
+            local removed, removeProblem = files.remove(quarantine, true)
+            if not removed then
+                os.remove(lock)
+                error("cannot remove corrupt fixture " .. key .. ": " .. tostring(removeProblem), 2)
+            end
+        end
+        local temporary = fixtureRoot .. "/." .. slot .. ".tmp-" .. shardSalt .. "-" .. fixtureSerial
+        files.remove(temporary, true)
+        local prepared, prepareProblem = files.createDirectory(temporary)
+        if not prepared then
+            os.remove(lock)
+            error("cannot prepare fixture " .. key .. ": " .. tostring(prepareProblem), 2)
+        end
+        local ok, value = pcall(produce, temporary)
+        if ok then
+            local files, manifestProblem = fixtureManifest(temporary)
+            local encoded, document = false, nil
+            if files == nil then
+                ok, value = false, "fixture artifacts cannot be recorded: " .. tostring(manifestProblem)
+            else
+                encoded, document = pcall(testJson.encode, {version = 1, key = key, value = value, files = files})
+                if not encoded then
+                    ok, value = false, "fixture value is not JSON-compatible: " .. tostring(document)
+                else
+                    local wrote, writeProblem = pcall(writeText, temporary .. "/.nupp-fixture.json", document .. "\n")
+                    if not wrote then
+                        ok, value = false, writeProblem
+                    end
+                end
+            end
+        end
+        if ok then
+            local moved, moveProblem = files.rename(temporary, published)
+            os.remove(lock)
+            if not moved then
+                files.remove(temporary, true)
+                error("cannot publish fixture " .. key .. ": " .. tostring(moveProblem), 2)
+            end
+
+            return published, value, false
+        end
+
+        files.remove(temporary, true)
+        local failureWritten, failureProblem = pcall(
+            writeText,
+            failure,
+            testJson.encode({
+                message = tostring(value)
+            }) .. "\n"
+        )
+        os.remove(lock)
+        if not failureWritten then
+            error("fixture " .. key .. " failed and its result could not be published: " .. tostring(failureProblem), 2)
+        end
+        error("fixture " .. key .. " failed: " .. tostring(value), 2)
+    end
+
+    local deadline = os.time() + 10 * 60
+    while os.time() < deadline do
+        cached = fixtureMetadata(metadata, published, key)
+        if cached ~= nil then
+            return published, cached.value, true
+        end
+        failedFixture = readJson(failure)
+        if failedFixture ~= nil then
+            error("fixture " .. key .. " failed: " .. tostring(failedFixture.message), 2)
+        end
+        if pauseBriefly then
+            pauseBriefly()
+        end
+    end
+    error(
+        "timed out waiting for fixture "
+        .. key
+        .. "; lock is "
+        .. lock
+        .. " (remove it after confirming no producer is running)",
+        2
+    )
+end
+
+-- A failed producer fans its result out to every consumer in one run. A new
+-- top-level run gets one new attempt; immutable successful fixtures remain. A
+-- killed producer can leave its exclusive-create lock behind. Producers belong
+-- under the ten-minute cold-suite budget, so a new top-level run atomically
+-- reaps locks older than fifteen minutes while leaving a live producer alone.
+if not queueDir and #shard == 0 then
+    pcall(function()
+        local files = require("nupp.io.files")
+        for _, entry in ipairs(files.list(fixtureRoot) or {}) do
+            if entry.name:match("%.failed%.json$") then
+                files.remove(fixtureRoot .. "/" .. entry.name)
+            elseif entry.name:match("%.lock$") then
+                local path = fixtureRoot .. "/" .. entry.name
+                local file = io.open(path, "rb")
+                local created = file and tonumber(file:read("*l") or "") or nil
+                if file then
+                    file:close()
+                end
+                local cutoff = os.time() - FIXTURE_LEASE_SECONDS
+                local information = not created and files.info(path) or nil
+                local stale = created and created <= cutoff
+                    or information ~= nil and tonumber(information.modified) <= cutoff
+                if stale then
+                    fixtureSerial = fixtureSerial + 1
+                    local claimed = path .. ".stale-" .. shardSalt .. "-" .. fixtureSerial
+                    if files.rename(path, claimed) then
+                        files.remove(claimed)
+                    end
+                end
+            end
+        end
+    end)
 end
 
 -- afterEach gets a chance to clean up after a failed setup or test. If both
@@ -981,10 +1420,11 @@ local function runCase(hooks, fn)
     end
 end
 
-local function recordResult(suite, name, defined, ok, err, stdout, stderr, elapsed)
+local function recordResult(suite, name, defined, ok, err, stdout, stderr, elapsed, context)
     total = total + 1
     local file, line = definedAt(defined)
     local record = {
+        id = suite .. "/" .. name,
         suite = suite,
         name = name,
         file = file,
@@ -992,6 +1432,32 @@ local function recordResult(suite, name, defined, ok, err, stdout, stderr, elaps
         durationMs = elapsed,
         status = ok and "passed" or "failed"
     }
+    if context ~= nil then
+        local metrics = {}
+        for _, metric in pairs(context.metrics or {}) do
+            metrics[#metrics + 1] = metric
+        end
+        table.sort(metrics, function(a, b)
+            return a.name .. "\0" .. (a.unit or "") < b.name .. "\0" .. (b.unit or "")
+        end)
+        record.capabilities = #(context.capabilities or {}) > 0 and context.capabilities or nil
+        record.fixtures = #(context.fixtures or {}) > 0 and context.fixtures or nil
+        record.metrics = #metrics > 0 and metrics or nil
+        if ok and #(context.facts or {}) > 0 then
+            record.facts = context.facts
+        end
+        local encodes, encodeProblem = pcall(testJson.encode, record)
+        if not encodes then
+            ok = false
+            local metadataProblem = errorPosition(encodeProblem)
+            err = "test result metadata is not JSON-compatible: " .. metadataProblem
+            record.status = "failed"
+            record.capabilities = nil
+            record.fixtures = nil
+            record.facts = nil
+            record.metrics = nil
+        end
+    end
     if ok then
         passed = passed + 1
         if not queueDir then
@@ -1003,6 +1469,13 @@ local function recordResult(suite, name, defined, ok, err, stdout, stderr, elaps
         record.skip = {reason = tostring(test.skipReason(err) or "skipped")}
         if not queueDir then
             mark("S")
+        end
+    elseif test.isNotExecuted(err) then
+        notExecutedCount = notExecutedCount + 1
+        record.status = "not-executed"
+        record.notExecuted = {reason = tostring(test.notExecutedReason(err) or "not executed")}
+        if not queueDir then
+            mark("N")
         end
     else
         failed = failed + 1
@@ -1218,10 +1691,20 @@ local function rememberTimings(records, cases)
         end
     end
     for suite, ms in pairs(per) do
-        suiteTimings[suite] = ms
+        if chosenCaseCount == 0 or wholeSuites[suite] then
+            suiteTimings[suite] = ms
+        end
     end
     for suite, cases in pairs(byCase) do
-        caseTimings[suite] = cases
+        if chosenCaseCount == 0 or wholeSuites[suite] then
+            caseTimings[suite] = cases
+        else
+            local merged = caseTimings[suite] or {}
+            caseTimings[suite] = merged
+            for name, ms in pairs(cases) do
+                merged[name] = ms
+            end
+        end
     end
 
     local json = testJson
@@ -1377,8 +1860,6 @@ local PROCESS_ISOLATED = {
     loggingtest = true,
     runtimereflectiontest = true,
     serdetest = true,
-    simdprimitivedifferentialtest = true,
-    simdreducerdifferentialtest = true,
     typeleveltest = true,
     -- Imports cheadertest as a fixture; its top level asks the shell for an
     -- absolute checkout path on hosts where debug information is relative.
@@ -1418,6 +1899,14 @@ local processCalls = {
 }
 
 local shellCalls = {"os.execute", "io.popen",}
+local SHELLING = {
+    -- Shelling happens in the helper so source inspection would otherwise rely
+    -- on an explanatory comment retaining the implementation's exact spelling.
+    simdnativealgorithmdifferentialtest = true,
+    simdprimitivedifferentialtest = true,
+    simdwasmalgorithmdifferentialtest = true,
+    simdwasmtimeconformancetest = true,
+}
 local sourceBySuite = {}
 
 local function suiteSource(suiteInfo)
@@ -1462,7 +1951,7 @@ local function processIsolated(suiteInfo)
 end
 
 local function usesShell(suiteInfo)
-    return sourceContains(suiteInfo, shellCalls)
+    return suiteInfo ~= nil and (SHELLING[suiteInfo.name] or sourceContains(suiteInfo, shellCalls))
 end
 
 local function suiteLane(suiteInfo)
@@ -1490,6 +1979,56 @@ if listing == "suites" then
     os.exit(0)
 end
 
+if listing == "cases" then
+    for _, info in ipairs(suites) do
+        local suite, removeLoader = loadSuite(info)
+        local _, names = suiteParts(info, suite)
+        for _, name in ipairs(names) do
+            io.stdout:write(info.name .. "/" .. name .. "\n")
+        end
+        if removeLoader then
+            removeLoader()
+        end
+    end
+    os.exit(0)
+end
+
+-- Exact IDs are validated before any lifecycle hook or case runs. Keep the
+-- loaded suites so validation does not execute their top level twice.
+local preloadedSuites = {}
+if chosenCaseCount > 0 then
+    for _, info in ipairs(suites) do
+        local loadBefore = now()
+        local suite, removeLoader = loadSuite(info)
+        local hooks, cases = suiteParts(info, suite)
+        preloadedSuites[
+            info.name
+        ] = {suite = suite, removeLoader = removeLoader, loadMs = now() - loadBefore, hooks = hooks, cases = cases,}
+        for _, name in ipairs(cases) do
+            local id = info.name .. "/" .. name
+            if chosenCases[id] then
+                seenCaseIds[id] = true
+            end
+        end
+    end
+    local missing = {}
+    for id in pairs(chosenCases) do
+        if not seenCaseIds[id] then
+            missing[#missing + 1] = id
+        end
+    end
+    if #missing > 0 then
+        for _, loaded in pairs(preloadedSuites) do
+            if loaded.removeLoader then
+                loaded.removeLoader()
+            end
+        end
+        table.sort(missing)
+        io.stderr:write("nupp: no test case named " .. table.concat(missing, ", ") .. "\n")
+        os.exit(2)
+    end
+end
+
 -- What the packer said each phase could not finish under, kept so the report can
 -- put its prediction beside what the phase actually cost. A plan that is right
 -- and a run that is slow are different problems with different fixes.
@@ -1497,6 +2036,7 @@ local predictions = {}
 local sharded = nil
 if #shard == 0
     and #suites > 0
+    and chosenCaseCount == 0
     and ((workerHost and not processIsolated(only and byName[only])) or (#chosen ~= 1 and #suites > 1 and jobs ~= 1))
     and not os.getenv("NUPP_COVERAGE_FILE")
 then
@@ -1650,10 +2190,20 @@ then
                     local processProgressFd = progressFd and (package.config:sub(1, 1) == "\\" and 2 or progressFd)
                         or nil
                     local progress = processProgressFd and ("NUPP_TEST_PROGRESS_FD=%d "):format(processProgressFd) or ""
+                    local fresh = executionLane == "isolated" and "NUPP_TEST_FRESH_QUEUE_PIECES=1 " or ""
                     local invocation = rawget(_G, "__NUPP_TEST_RUNNER_COMMAND") or ("luajit '%s'"):format(arg[0])
                     local command = (
-                        "{ %s%s%s --json %s --color=%s%s; echo \"__status__:$?\" >&2; } 2>'%s'"
-                    ):format(cache, progress, invocation, lane.arg, colorMode, verbose and " --verbose" or "", errors)
+                        "{ %s%s%s%s --json %s --color=%s%s; echo \"__status__:$?\" >&2; } 2>'%s'"
+                    ):format(
+                        cache,
+                        progress,
+                        fresh,
+                        invocation,
+                        lane.arg,
+                        colorMode,
+                        verbose and " --verbose" or "",
+                        errors
+                    )
                     running[
                         #running + 1
                     ] = {
@@ -1765,7 +2315,16 @@ then
             end
         end
 
-        sharded = {results = {}, suites = {}, shards = {}, total = 0, passed = 0, skipped = 0, failed = 0}
+        sharded = {
+            results = {},
+            suites = {},
+            shards = {},
+            total = 0,
+            passed = 0,
+            skipped = 0,
+            notExecuted = 0,
+            failed = 0,
+        }
 
         local function absorb(reports)
             for _, report in ipairs(reports) do
@@ -1777,15 +2336,18 @@ then
                     sharded.results[
                         #sharded.results + 1
                     ] = {
+                        id = table.concat(report.names, ",") .. "/<shard>",
                         suite = table.concat(report.names, ","),
                         name = "<shard>",
                         status = "failed",
+                        durationMs = 0,
                         failure = {message = report.failure},
                     }
                 elseif report ~= nil then
                     sharded.total = sharded.total + (report.total or 0)
                     sharded.passed = sharded.passed + (report.passed or 0)
                     sharded.skipped = sharded.skipped + (report.skipped or 0)
+                    sharded.notExecuted = sharded.notExecuted + (report.notExecuted or 0)
                     sharded.failed = sharded.failed + (report.failed or 0)
                     for _, record in ipairs(report.tests or {}) do
                         sharded.results[#sharded.results + 1] = record
@@ -1793,6 +2355,7 @@ then
                     for _, record in ipairs(report.suites or {}) do
                         record.shard = report.shard and report.shard.index or nil
                         record.alone = report.shard and report.shard.alone or nil
+                        record.executionLane = report.shard and report.shard.executionLane or nil
                         sharded.suites[#sharded.suites + 1] = record
                     end
                     if report.shard then
@@ -1816,13 +2379,22 @@ then
         -- Prepare a dynamically-fed queue for either Nupp worker states or process
         -- workers. Starting and collecting are separate so the shell queue can join
         -- the end of the Nupp queue without involving process-global suites.
-        local function prepareQueue(list, isolated, count, executionLane, order, prediction)
+        local function prepareQueue(list, isolated, count, executionLane, order, prediction, workerLimit)
             if #list == 0 then
                 return nil
             end
             if not order then
                 order, prediction = planWork(list, count, recordedTimings())
             end
+            -- The plan starts from suite concurrency, then may split a heavy suite
+            -- into several runnable pieces. Those pieces are real parallel work, so
+            -- the worker pool is capped by the plan rather than by the suite count.
+            local runnable = math.min(workerLimit or count, #order)
+            prediction.lanes = runnable
+            prediction.floor = math.max(
+                runnable > 0 and prediction.planned / runnable or prediction.planned,
+                prediction.heaviest
+            )
             predictions[executionLane] = prediction
             local ticket = os.tmpname():match("[^/\\]+$") or tostring(#order)
             local queue = shardCacheRoot .. "/queue-" .. ticket
@@ -1836,7 +2408,7 @@ then
                 piece:close()
             end
             local lanes = {}
-            for index = 1, math.min(count, #order) do
+            for index = 1, runnable do
                 lanes[
                     #lanes + 1
                 ] = {arg = "--queue=" .. queue, label = (isolated and "process worker " or "Nupp worker ") .. index}
@@ -1874,9 +2446,11 @@ then
                     sharded.results[
                         #sharded.results + 1
                     ] = {
+                        id = (spec:match("^(.-)#") or spec) .. "/<unrun>",
                         suite = (spec:match("^(.-)#") or spec),
                         name = "<unrun>",
                         status = "failed",
+                        durationMs = 0,
                         failure = {message = "no worker reported running " .. spec},
                     }
                 end
@@ -1884,9 +2458,33 @@ then
         end
 
         local workerCount = jobs or defaultJobs()
-        local isolatedQueue = prepareQueue(alone, true, math.min(workerCount, #alone), "isolated")
-        local sharedQueue = prepareQueue(shareable, false, math.min(workerCount, #shareable), "shared")
-        local shellQueue = prepareQueue(shelling, true, math.min(workerCount, #shelling), "shell")
+        local isolatedQueue = prepareQueue(
+            alone,
+            true,
+            math.min(workerCount, #alone),
+            "isolated",
+            nil,
+            nil,
+            workerCount
+        )
+        local sharedQueue = prepareQueue(
+            shareable,
+            false,
+            math.min(workerCount, #shareable),
+            "shared",
+            nil,
+            nil,
+            workerCount
+        )
+        local shellQueue = prepareQueue(
+            shelling,
+            true,
+            math.min(workerCount, #shelling),
+            "shell",
+            nil,
+            nil,
+            workerCount
+        )
         if isolatedQueue then
             beginPhase(("%d isolated suites across %d process workers"):format(#alone, #isolatedQueue.lanes))
         elseif sharedQueue then
@@ -1969,19 +2567,33 @@ local function runSuite(suiteInfo, slices)
     -- Loading is measured with the suite rather than left out of it. A Nupp suite
     -- is compiled here, and a Lua one runs its top level here, so a suite can cost
     -- seconds before its first case starts.
-    local loadBefore = now()
-    local suite, removeLoader = loadSuite(suiteInfo)
-    local loadElapsed = now() - loadBefore
-    local hooks = {}
-    local cases = {}
-    for name, fn in pairs(suite) do
-        if HOOKS[name] then
-            hooks[name] = fn
-        else
-            cases[#cases + 1] = name
-        end
+    local suiteBefore = now()
+    local loaded = preloadedSuites[suiteInfo.name]
+    preloadedSuites[suiteInfo.name] = nil
+    local suite, removeLoader, loadElapsed, hooks, cases
+    if loaded ~= nil then
+        suite = loaded.suite
+        removeLoader = loaded.removeLoader
+        loadElapsed = loaded.loadMs
+        hooks = loaded.hooks
+        cases = loaded.cases
+    else
+        local loadBefore = now()
+        suite, removeLoader = loadSuite(suiteInfo)
+        loadElapsed = now() - loadBefore
+        hooks, cases = suiteParts(suiteInfo, suite)
     end
-    table.sort(cases)
+    if chosenCaseCount > 0 and not wholeSuites[suiteInfo.name] then
+        local selected = {}
+        for _, name in ipairs(cases) do
+            local id = suiteInfo.name .. "/" .. name
+            if chosenCases[id] then
+                selected[#selected + 1] = name
+                seenCaseIds[id] = true
+            end
+        end
+        cases = selected
+    end
     local stateful = hooks.beforeAll or hooks.afterAll or hooks.beforeEach or hooks.afterEach
     -- One slice of the suite, when the parent decided it was too heavy to leave whole.
     -- A suite with lifecycle hooks is never sliced: `beforeAll` would run once per
@@ -2058,15 +2670,22 @@ local function runSuite(suiteInfo, slices)
                 io.stderr:write("__case__:", name, "\n")
             end
             local caseBefore = now()
+            local caseContext = {facts = {}, metrics = {}, capabilities = {}, fixtures = {}, fixture = resolveFixture,}
             local ok, err, stdout, stderr = capture(function()
-                runCase(hooks, case)
+                rawset(_G, "__NUPP_TEST_CASE_CONTEXT", caseContext)
+                local ran, problem = pcall(runCase, hooks, case)
+                rawset(_G, "__NUPP_TEST_CASE_CONTEXT", nil)
+                if not ran then
+                    error(problem, 0)
+                end
             end)
+            rawset(_G, "__NUPP_TEST_CASE_CONTEXT", nil)
             local caseElapsed = now() - caseBefore
             casesElapsed = casesElapsed + caseElapsed
             if caseElapsed > slowestCaseMs then
                 slowestCase, slowestCaseMs = name, caseElapsed
             end
-            recordResult(suiteInfo.name, name, case, ok, err, stdout, stderr, caseElapsed)
+            recordResult(suiteInfo.name, name, case, ok, err, stdout, stderr, caseElapsed, caseContext)
         end
     end
     local after = now()
@@ -2087,7 +2706,7 @@ local function runSuite(suiteInfo, slices)
         #suiteRecords + 1
     ] = {
         suite = suiteInfo.name,
-        durationMs = now() - loadBefore,
+        durationMs = now() - suiteBefore + (loaded ~= nil and loadElapsed or 0),
         loadMs = loadElapsed,
         hooksMs = setupElapsed + afterElapsed,
         casesMs = casesElapsed,
@@ -2177,6 +2796,104 @@ end
 --- run from work whose worker died holding it.
 local claimed = {}
 
+local function mergePieceReport(report)
+    total = total + (report.total or 0)
+    passed = passed + (report.passed or 0)
+    skipped = skipped + (report.skipped or 0)
+    notExecutedCount = notExecutedCount + (report.notExecuted or 0)
+    failed = failed + (report.failed or 0)
+    for _, record in ipairs(report.tests or {}) do
+        results[#results + 1] = record
+    end
+    for _, record in ipairs(report.suites or {}) do
+        suiteRecords[#suiteRecords + 1] = record
+    end
+end
+
+local function recordPieceFailure(spec, message)
+    local suite = spec:match("^(.-)#") or spec
+    total = total + 1
+    failed = failed + 1
+    results[
+        #results + 1
+    ] = {
+        id = suite .. "/<unrun>",
+        suite = suite,
+        name = "<unrun>",
+        status = "failed",
+        durationMs = 0,
+        failure = {message = message},
+    }
+end
+
+local function shellQuote(value)
+    return "'" .. tostring(value):gsub("'", "'\\''") .. "'"
+end
+
+--- Runs one claimed isolated piece in a new process.
+---
+--- The long-lived process owns only queue claims and aggregation. The child is
+--- handed a shard rather than the queue, so it cannot claim a second piece and
+--- no module, FFI registration, or nested global table survives into the next
+--- child. The supervisor's cache environment is inherited, retaining the warm
+--- per-lane compiler store without retaining its process state.
+local function runFreshPiece(spec)
+    local invocation = rawget(_G, "__NUPP_TEST_RUNNER_COMMAND") or ("luajit '%s'"):format(arg[0])
+    local errors = os.tmpname()
+    local command = (
+        "{ NUPP_TEST_SUPERVISED_PIECE=1 %s --json --shard=%s --color=%s%s; "
+        .. "printf '\n__piece_status__:%%d\n' $?; } 2>%s"
+    ):format(invocation, shellQuote(spec), colorMode, verbose and " --verbose" or "", shellQuote(errors))
+    local pipe = io.popen(command, "r")
+    if not pipe then
+        os.remove(errors)
+        recordPieceFailure(spec, "the isolated piece could not be started")
+        mark("E")
+        return
+    end
+    local text = pipe:read("*a") or ""
+    pipe:close()
+    local status = tonumber(text:match("__piece_status__:(%d+)%s*$"))
+    text = text:gsub("%s*__piece_status__:%d+%s*$", "")
+    local errorFile = io.open(errors, "rb")
+    local stderr = errorFile and (errorFile:read("*a") or "") or ""
+    if errorFile then
+        errorFile:close()
+    end
+    os.remove(errors)
+    local decoded, report = pcall(testJson.decode, text)
+    if not decoded or type(report) ~= "table" then
+        local detail = {
+            "the isolated piece wrote no report",
+            status and ("exit " .. status) or "unreported exit status",
+            #text .. " bytes on stdout",
+        }
+        if not decoded then
+            detail[#detail + 1] = "JSON decode: " .. tostring(report)
+        end
+        if #text > 0 then
+            detail[#detail + 1] = "stdout: " .. text:sub(-2000)
+        end
+        if #stderr > 0 then
+            detail[#detail + 1] = "stderr: " .. stderr:sub(-2000)
+        end
+        recordPieceFailure(spec, table.concat(detail, "; "))
+        mark("E")
+        return
+    end
+
+    local beforePassed = passed
+    local beforeFailed = failed
+    local beforeNotExecuted = notExecutedCount
+    mergePieceReport(report)
+    mark(
+        failed > beforeFailed and "E"
+        or passed > beforePassed and "."
+        or notExecutedCount > beforeNotExecuted and "N"
+        or "S"
+    )
+end
+
 --- Takes work until there is none left.
 ---
 --- Packing the whole run in advance needs the cost of every suite known in
@@ -2223,29 +2940,43 @@ local function takeWork()
         end
         local spec = specs[took]
         claimed[#claimed + 1] = spec
-        local name, index, count = spec:match("^(.-)#(%d+)/(%d+)$")
-        name = name or spec
-        local suiteInfo = byName[name]
-        if suiteInfo then
-            -- Named before it is run, so that a worker which dies mid-suite says
-            -- which one. A report arrives only when a shard finishes, so a killed
-            -- worker sends nothing and every suite it claimed reads as `<unrun>`,
-            -- including the ones it had already passed -- the crash is somewhere
-            -- in a lane of dozens with nothing to say where. This goes to standard
-            -- error, which for a worker is the file the parent keeps for exactly
-            -- this question, and is marked so the parent can take the last one and
-            -- leave the rest out of what it prints.
+        if freshQueuePieces then
             if sharedProgressStream then
                 io.stderr:write("__suite__:", spec, "\n")
             end
-            local beforeTotal, beforePassed = total, passed
-            local beforeFailed = failed
-            runSuite(suiteInfo, index and {{index = tonumber(index), count = tonumber(count)}} or nil)
-            if total > beforeTotal then
-                mark(failed > beforeFailed and "E" or passed == beforePassed and "S" or ".")
+            runFreshPiece(spec)
+            restoreLane()
+        else
+            local name, index, count = spec:match("^(.-)#(%d+)/(%d+)$")
+            name = name or spec
+            local suiteInfo = byName[name]
+            if suiteInfo then
+                -- Named before it is run, so that a worker which dies mid-suite says
+                -- which one. A report arrives only when a shard finishes, so a killed
+                -- worker sends nothing and every suite it claimed reads as `<unrun>`,
+                -- including the ones it had already passed -- the crash is somewhere
+                -- in a lane of dozens with nothing to say where. This goes to standard
+                -- error, which for a worker is the file the parent keeps for exactly
+                -- this question, and is marked so the parent can take the last one and
+                -- leave the rest out of what it prints.
+                if sharedProgressStream then
+                    io.stderr:write("__suite__:", spec, "\n")
+                end
+                local beforeTotal, beforePassed = total, passed
+                local beforeFailed = failed
+                local beforeNotExecuted = notExecutedCount
+                runSuite(suiteInfo, index and {{index = tonumber(index), count = tonumber(count)}} or nil)
+                if total > beforeTotal then
+                    mark(
+                        failed > beforeFailed and "E"
+                        or passed > beforePassed and "."
+                        or notExecutedCount > beforeNotExecuted and "N"
+                        or "S"
+                    )
+                end
             end
+            restoreLane()
         end
-        restoreLane()
     end
 end
 
@@ -2267,6 +2998,19 @@ else
         runSuite(suiteInfo, wanted and wanted[suiteInfo.name] or nil)
     end
 end
+if chosenCaseCount > 0 then
+    local missing = {}
+    for id in pairs(chosenCases) do
+        if not seenCaseIds[id] then
+            missing[#missing + 1] = id
+        end
+    end
+    if #missing > 0 then
+        table.sort(missing)
+        io.stderr:write("nupp: no test case named " .. table.concat(missing, ", ") .. "\n")
+        os.exit(2)
+    end
+end
 local duration = now() - started
 if sharded then
     -- Added to what this process ran rather than replacing it: the exclusive
@@ -2280,6 +3024,7 @@ if sharded then
     total = total + sharded.total
     passed = passed + sharded.passed
     skipped = skipped + sharded.skipped
+    notExecutedCount = notExecutedCount + sharded.notExecuted
     failed = failed + sharded.failed
     table.sort(results, function(a, b)
         if a.suite ~= b.suite then
@@ -2345,6 +3090,26 @@ table.sort(suiteRecords, function(a, b)
     end
 
     return tostring(a.suite) < tostring(b.suite)
+end)
+
+local metricTotalsByKey = {}
+for _, record in ipairs(results) do
+    for _, metric in ipairs(record.metrics or {}) do
+        local key = metric.name .. "\0" .. (metric.unit or "")
+        local totalMetric = metricTotalsByKey[key]
+        if totalMetric == nil then
+            totalMetric = {name = metric.name, value = 0, unit = metric.unit}
+            metricTotalsByKey[key] = totalMetric
+        end
+        totalMetric.value = totalMetric.value + metric.value
+    end
+end
+local metricTotals = {}
+for _, metric in pairs(metricTotalsByKey) do
+    metricTotals[#metricTotals + 1] = metric
+end
+table.sort(metricTotals, function(a, b)
+    return a.name .. "\0" .. (a.unit or "") < b.name .. "\0" .. (b.unit or "")
 end)
 
 --- Where the run's time went, in the two units a person can act on.
@@ -2486,9 +3251,11 @@ local report = {
     total = total,
     passed = passed,
     skipped = skipped,
+    notExecuted = notExecutedCount,
     failed = failed,
     durationMs = duration,
     tests = results,
+    metrics = metricTotals,
     suites = suiteRecords,
     shards = sharded and sharded.shards or {},
     claimed = #claimed > 0 and claimed or nil
@@ -2504,9 +3271,11 @@ elseif asJson then
             total = total,
             passed = passed,
             skipped = skipped,
+            notExecuted = notExecutedCount,
             failed = failed,
             durationMs = duration,
             tests = json.asArray(results),
+            metrics = json.asArray(metricTotals),
             suites = json.asArray(suiteRecords),
             shards = json.asArray(sharded and sharded.shards or {}),
             -- What the packer said each phase could not finish under, beside
@@ -2533,9 +3302,11 @@ else
             end
         end
     end
-    local summary = (
-        "%d tests, %d passed, %d skipped, %d failed (%.1fms)"
-    ):format(total, passed, skipped, failed, duration)
+    local summary = notExecutedCount > 0
+        and (
+            "%d tests, %d passed, %d skipped, %d not executed, %d failed (%.1fms)"
+        ):format(total, passed, skipped, notExecutedCount, failed, duration)
+        or ("%d tests, %d passed, %d skipped, %d failed (%.1fms)"):format(total, passed, skipped, failed, duration)
     io.write("\n" .. paint(failed == 0 and "1;32" or "1;31", summary) .. "\n")
     if timingRows > 0 and #suiteRecords > 0 then
         io.write(timingReport())

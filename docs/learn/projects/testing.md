@@ -79,9 +79,9 @@ nupp test checktest    # one suite
 
 It puts the build output directory and `tests` on `package.path` first, which
 is how a suite reaches both. While it runs it prints `.` for a pass, `S` for a
-skip, and `E` for a failure, and its summary reports every outcome and elapsed
-time. Output from passing tests is captured, and printed for failures or with
-`--verbose`.
+skip, `N` for a case that could not execute, and `E` for a failure. Its summary
+reports every outcome and elapsed time. Output from passing tests is captured,
+and printed for failures or with `--verbose`.
 
 ## Where the time went
 
@@ -112,7 +112,8 @@ floor no number of further shards moves.
 
 `--timings` prints every row rather than the slowest fifteen, `--timings=N`
 prints N of them, and `--timings=0` prints none. Under `--json` the same
-measurements are `suites` and `shards` beside `tests`.
+measurements are `suites` and `shards` beside `tests`. Named metrics are stored
+on each test and added under the run's `metrics` field.
 
 The `app`, `lib`, and `love` templates include a real suite using `nupp.test`.
 `nupp test` builds first and forwards its remaining arguments to the runner.
@@ -149,6 +150,123 @@ include the relevant values in failures; table values are rendered to make
 structural differences visible. `test.skip("reason")` records a skipped test.
 The runner also upgrades the ordinary global `assert` to report the falsy value
 it received, so existing suites get better failures without being rewritten.
+
+### Parameterized cases
+
+`test.cases` expands data rows into ordinary named cases. Each name is stable,
+unique within the suite, and independent of execution order:
+
+```lua
+local test = require("nupp.test")
+
+return test.cases(
+   {
+      { name = "empty", input = "", expected = 0 },
+      { name = "three", input = "nupp", expected = 4 },
+   },
+   function(row) return row.name end,
+   function(row) test.equal(#row.input, row.expected) end
+)
+```
+
+Rows contain JSON-compatible data so a case remains safe to reconstruct between
+runner processes. Duplicate and empty names are suite errors. Names also cannot
+contain control characters or use `beforeAll`, `afterAll`, `beforeEach`, or
+`afterEach`, which belong to lifecycle hooks. The runner also reserves
+`<shard>` and `<unrun>` for infrastructure failures.
+The same non-empty, control-character, and reserved-name rules apply to
+handwritten case keys.
+
+Every case result has the stable ID `suite/case`. The runner lists IDs, selects
+one, or reads the failed IDs from an earlier JSON report:
+
+```bash
+nupp test --list-cases
+nupp test --case=lengthtest/empty
+nupp test --json > build/test-report.json
+nupp test --rerun=build/test-report.json
+```
+
+Exact selection and report reruns select known failures. They do not infer
+which other tests a source edit can affect. A failed lifecycle hook or an
+unreported worker piece reruns its whole suite because neither is an ordinary
+case.
+
+### Immutable fixtures
+
+`test.fixture` produces an expensive artifact once for a complete content key.
+The runner publishes the directory only after the producer succeeds:
+
+```lua
+local path, manifest, reused = test.fixture("parser-9d30c2-linux-x64", function(dir)
+   buildParser(dir)
+   return { executable = "parser" }
+end)
+
+run(path .. "/" .. manifest.executable)
+if not reused then
+   test.work("compiler.invocations", 1)
+end
+```
+
+The key contains only letters, digits, dots, underscores, and hyphens. It names
+every input that can change the artifact, including source, target, options, and
+toolchain identity. Keys are compared byte for byte; the runner derives an
+opaque storage name so keys that differ only by case remain distinct on every
+supported filesystem. Successful fixtures live under
+`build/test-fixtures`, are shared across cases and worker processes, and may be
+deleted at any time. A producer failure reaches every waiting case without
+publishing partial output; the next top-level run may try again.
+
+A fixture contains regular files and directories. Its metadata records every
+path and file digest, so a missing or changed artifact makes the next use
+produce the fixture again instead of reusing a partial directory.
+
+A producer must finish within the ten-minute cold-suite budget. The runner
+recovers a lock older than fifteen minutes as abandoned, so fixture production
+must not outlive that lease.
+
+The third result is `false` only for the case that produced and published the
+fixture. It is `true` for an immediate cache hit or a case that waited for
+another worker. Use it so warm work counters include only work performed by the
+current run.
+
+Remove `build/test-fixtures` before a run to measure cold fixture production.
+Run the same command again without changing its inputs to measure fixture reuse.
+`nupp clean` also removes the store together with the other build output.
+
+Fixture-backed cases remain independently sliceable because fixture state is
+immutable. Lifecycle hooks remain the right tool for mutable state local to one
+unsliced suite.
+
+### Capabilities and result data
+
+A case reports unavailable hardware or software as not executed. The result is
+distinct from a pass, an authored skip, and a failure:
+
+```lua
+test.requireCapability("cpu.avx2", hasAvx2, { probe = probeOutput })
+```
+
+The third argument records the evidence used by the test. `test.notExecuted`
+is available when the capability check does not fit a Boolean probe. The text
+runner prints `N`, and JSON reports `status: "not-executed"`. A
+`requireCapability` result also carries its evidence. Not executed is a
+successful run outcome, but it does not emit passing facts or satisfy a
+coverage obligation.
+
+Cases can attach JSON-compatible facts, additive metrics, and integer work
+counts:
+
+```lua
+test.fact("simd.operation", { type = "int32", operation = "add" })
+test.metric("generated.source", #source, "bytes")
+test.work("compiler.invocations", 1)
+```
+
+Facts stay attached only when their case passes. Metrics describe attempted
+work for every outcome and also appear as run-wide totals, which makes work
+regressions visible when wall time varies between machines.
 
 ### Lifecycle hooks
 

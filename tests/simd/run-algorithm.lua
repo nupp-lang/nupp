@@ -29,10 +29,24 @@ runner.command(
 local capabilities = runner.command(q(directory .. "/capabilities.exe"), directory .. "/capabilities.log")
     :gsub("\r\n", "\n")
 assert(("\n" .. capabilities):find("\n" .. tier .. "\n", 1, true), "requested algorithm tier is unavailable")
-runner.command(
-    "git -C " .. q(root) .. " archive HEAD " .. q("bench/" .. name) .. " | tar -xf - -C " .. q(workspace),
+local projectPath = "bench/" .. name
+local listed = runner.command(
+    "git -C " .. q(root) .. " ls-files --cached --others --exclude-standard -- " .. q(projectPath),
     directory .. "/copy.log"
 )
+local copied = 0
+for relative in listed:gmatch("[^\r\n]+") do
+    local source = root .. "/" .. relative
+    local exists = io.open(source, "rb")
+    if exists then
+        exists:close()
+        local target = workspace .. "/" .. relative
+        runner.command("mkdir -p " .. q(assert(target:match("^(.*)/"))), directory .. "/copy-directory.log")
+        runner.write(target, runner.read(source))
+        copied = copied + 1
+    end
+end
+assert(copied > 0, "algorithm project contains no tracked or untracked nonignored files")
 runner.command("mkdir -p " .. q(workspace .. "/tests/simd"), directory .. "/helper-directory.log")
 runner.write(workspace .. "/tests/simd/nativeproof.lua", runner.read(root .. "/tests/simd/nativeproof.lua"))
 runner.write(workspace .. "/tests/simd/corpusmath.lua", runner.read(root .. "/tests/simd/corpusmath.lua"))
@@ -48,7 +62,7 @@ if name == "fused-json" then
         workspace .. "/tests/jsonfuseddifferentialtest.lua",
         runner.read(root .. "/tests/jsonfuseddifferentialtest.lua")
     )
-    runner.command("cd " .. q(project) .. " && ./prepare.sh", directory .. "/fused-prepare.log")
+    runner.command("cd " .. q(project) .. " && bash ./prepare.sh", directory .. "/fused-prepare.log")
 end
 local manifest = assert(loadfile(project .. "/nupp.lua"))()
 manifest.include = {"src", root .. "/src"}
@@ -114,6 +128,7 @@ local report = {
     nativeCalls = calls,
     randomFingerprint = output:match("SIMD_CORPUS_RANDOM=([^\r\n]+)"),
     cases = checks,
+    generatedUnits = actual,
     units = units,
     compiler = compiler,
     capabilities = capabilities,

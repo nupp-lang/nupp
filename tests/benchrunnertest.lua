@@ -20,7 +20,13 @@
 local json = require("testjson")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
+if HERE:sub(1, 1) ~= "/" and not HERE:match("^%a:[/\\]") then
+    local pipe = assert(io.popen("pwd"))
+    HERE = assert(pipe:read("*l")) .. "/" .. HERE
+    pipe:close()
+end
 local NUPP = HERE .. "/../bin/nupp"
+local NUPP_SRC = HERE .. "/../src"
 
 local function read(path)
     local file = assert(io.open(path, "rb"))
@@ -53,19 +59,29 @@ end
 
 local M = {}
 
--- The cases share build/bench-case.json, build/remarks.json and the final
--- report. A lifecycle hook keeps the suite together when workers are assigned.
-function M.beforeAll()
+local function workspace()
+    local directory = os.tmpname()
+    os.remove(directory)
+    assertEq(os.execute(("mkdir -p %q"):format(directory)), 0, "create isolated benchmark workspace")
+    local manifest = assert(io.open(directory .. "/nupp.lua", "wb"))
+    manifest:write(("return {include = {%q}}\n"):format(NUPP_SRC))
+    manifest:close()
+
+    return directory
+end
+
+local function inWorkspace(directory, command)
+    return ("cd %q && %s"):format(directory, command)
 end
 
 function M.gpuCostFilesAreUniqueAcrossForksAndCandidates()
-    local directory, stdout = os.tmpname(), os.tmpname()
-    os.remove(directory)
+    local working = workspace()
+    local directory, stdout = working .. "/gpu-costs", working .. "/stdout.json"
     local fixture = HERE .. "/fixtures/bench_fixed_records.g.nupp"
     local command = (
         "%q bench --file %q --case '^fixed$' --forks 2 --against %q --margin 5 --gpu-costs %q --json > %q"
     ):format(NUPP, fixture, NUPP, directory, stdout)
-    assertEq(os.execute(command), 0, "cost routing works without requiring a GPU workload")
+    assertEq(os.execute(inWorkspace(working, command)), 0, "cost routing works without requiring a GPU workload")
     local report = json.decode(read(stdout))
     local seen, count = {}, 0
     for _, side in ipairs({report.benchmarks, report.comparisons[1].baseline.benchmarks}) do
@@ -79,21 +95,22 @@ function M.gpuCostFilesAreUniqueAcrossForksAndCandidates()
         end
     end
     assertEq(count, 4, "both forks of both candidates have separate outputs")
-    os.remove(stdout)
-    os.execute("rm -rf " .. string.format("%q", directory))
+    os.execute(("rm -rf %q"):format(working))
 end
 
 function M.comparisonRecordsRetainBothSidesAndVerdicts()
-    local stdout, history, baseline = os.tmpname(), os.tmpname(), os.tmpname()
+    local working = workspace()
+    local stdout, history, baseline = working
+        .. "/stdout.json", working
+        .. "/history.jsonl", working
+        .. "/baseline.json"
     local fixture = HERE .. "/fixtures/bench_fixed_records.g.nupp"
-    os.remove(history)
-    os.remove(baseline)
 
     local function run(extra)
         local command = ("%q bench --file %q --json %s > %q"):format(NUPP, fixture, extra, stdout)
-        assertEq(os.execute(command), 0, "fixed-record comparison succeeds")
+        assertEq(os.execute(inWorkspace(working, command)), 0, "fixed-record comparison succeeds")
         local output = read(stdout)
-        assertEq(output:gsub("%s+$", ""), read("build/bench-record.json"), "stdout and saved record agree")
+        assertEq(output:gsub("%s+$", ""), read(working .. "/build/bench-record.json"), "stdout and saved record agree")
 
         return json.decode(output)
     end
@@ -141,22 +158,18 @@ function M.comparisonRecordsRetainBothSidesAndVerdicts()
     assertEq(verdict.withheld, "trend-warning", "trend withholding survives serialization")
     assertEq(verdict.interval, nil, "a withheld interval is absent")
     assertEq(verdict.verdict, "inconclusive", "a trend cannot acquire a confident verdict")
-    os.remove(stdout);
-    os.remove(history);
-    os.remove(baseline)
+    os.execute(("rm -rf %q"):format(working))
 end
 
 function M.caseListingIsSeparateFromApplicationOutputAndRunnerNIsFixed()
-    local casesOut = os.tmpname()
-    local stdout = os.tmpname()
-    local recordOut = os.tmpname()
+    local working = workspace()
+    local casesOut = working .. "/cases.jsonl"
+    local stdout = working .. "/stdout.txt"
+    local recordOut = working .. "/record.json"
     local fixture = HERE .. "/fixtures/bench_protocol.g.nupp"
-    os.remove(casesOut)
-    os.remove(stdout)
-    os.remove(recordOut)
 
     local listed = os.execute(
-        ("%q run -O1 %q --list-cases --cases-out %q > %q"):format(NUPP, fixture, casesOut, stdout)
+        inWorkspace(working, ("%q run -O1 %q --list-cases --cases-out %q > %q"):format(NUPP, fixture, casesOut, stdout))
     )
     assertEq(listed, 0, "case listing exits successfully")
     local listing = jsonLines(casesOut)
@@ -165,7 +178,10 @@ function M.caseListingIsSeparateFromApplicationOutputAndRunnerNIsFixed()
     assertEq(read(stdout), "application started\n", "application output stays on stdout")
 
     local ran = os.execute(
-        ("%q run -O1 %q --case protocol --n 3 --out %q > %q"):format(NUPP, fixture, recordOut, stdout)
+        inWorkspace(
+            working,
+            ("%q run -O1 %q --case protocol --n 3 --out %q > %q"):format(NUPP, fixture, recordOut, stdout)
+        )
     )
     assertEq(ran, 0, "the selected case exits successfully")
     local record = json.decode(read(recordOut))
@@ -177,24 +193,19 @@ function M.caseListingIsSeparateFromApplicationOutputAndRunnerNIsFixed()
     assertTrue(resultsAt ~= nil and progressAt < resultsAt, "progress precedes the result table")
     assertTrue(human:find("protocol%s+p50%s+7%s+[%d.]+%s+ns/op") ~= nil, "the result is per operation")
 
-    os.remove(casesOut)
-    os.remove(stdout)
-    os.remove(recordOut)
+    os.execute(("rm -rf %q"):format(working))
 end
 
 function M.suitesExpandParametersAndRequireOneSelectedPair()
-    local casesOut = os.tmpname()
-    local stdout = os.tmpname()
-    local stderr = os.tmpname()
-    local recordOut = os.tmpname()
+    local working = workspace()
+    local casesOut = working .. "/cases.jsonl"
+    local stdout = working .. "/stdout.txt"
+    local stderr = working .. "/stderr.txt"
+    local recordOut = working .. "/record.json"
     local fixture = HERE .. "/fixtures/bench_suite.g.nupp"
-    os.remove(casesOut)
-    os.remove(stdout)
-    os.remove(stderr)
-    os.remove(recordOut)
 
     local listed = os.execute(
-        ("%q run -O1 %q --list-cases --cases-out %q > %q"):format(NUPP, fixture, casesOut, stdout)
+        inWorkspace(working, ("%q run -O1 %q --list-cases --cases-out %q > %q"):format(NUPP, fixture, casesOut, stdout))
     )
     assertEq(listed, 0, "suite listing exits successfully")
     local listing = jsonLines(casesOut)
@@ -220,7 +231,7 @@ function M.suitesExpandParametersAndRequireOneSelectedPair()
     assertEq(listing[2].variant, "other", "the listing identifies its variant")
     assertEq(listing[4].parameters.size, 2, "the listing carries structured parameters")
 
-    local unsafe = os.execute(("%q run -O1 %q > %q 2> %q"):format(NUPP, fixture, stdout, stderr))
+    local unsafe = os.execute(inWorkspace(working, ("%q run -O1 %q > %q 2> %q"):format(NUPP, fixture, stdout, stderr)))
     assertTrue(unsafe ~= 0, "a direct multi-benchmark run fails")
     assertTrue(
         read(stderr):find("defines more than one benchmark", 1, true) ~= nil,
@@ -228,7 +239,9 @@ function M.suitesExpandParametersAndRequireOneSelectedPair()
     )
 
     local selected = "protocol.work.other:size=2"
-    local ran = os.execute(("%q run -O1 %q --case %q --out %q --quiet"):format(NUPP, fixture, selected, recordOut))
+    local ran = os.execute(
+        inWorkspace(working, ("%q run -O1 %q --case %q --out %q --quiet"):format(NUPP, fixture, selected, recordOut))
+    )
     assertEq(ran, 0, "the selected suite pair exits successfully")
     local record = json.decode(read(recordOut))
     local measurement = record.cases[1]
@@ -241,26 +254,24 @@ function M.suitesExpandParametersAndRequireOneSelectedPair()
     assertTrue(#measurement.samplesSec >= 3, "raw normalized samples are retained")
     assertTrue(measurement.meanSec ~= nil and measurement.stdevSec ~= nil, "summary statistics are retained")
 
-    os.remove(casesOut)
-    os.remove(stdout)
-    os.remove(stderr)
-    os.remove(recordOut)
+    os.execute(("rm -rf %q"):format(working))
 end
 
 function M.runnerUsesSpecificFilesAndAppendsMachineReadableHistory()
-    local history = os.tmpname()
-    local stdout = os.tmpname()
-    local profiles = os.tmpname()
+    local working = workspace()
+    local history = working .. "/history.jsonl"
+    local stdout = working .. "/stdout.txt"
+    local profiles = working .. "/profiles"
     local fixture = HERE .. "/fixtures/bench_suite.g.nupp"
     local simpleFixture = HERE .. "/fixtures/bench_protocol.g.nupp"
-    os.remove(history)
-    os.remove(stdout)
-    os.remove(profiles)
 
     local ran = os.execute(
-        (
-            "%q bench --file %q --case %q --variant %q --parameter %q --history %q --label smoke --json > %q"
-        ):format(NUPP, fixture, "^work$", "^base$", "^size=1$", history, stdout)
+        inWorkspace(
+            working,
+            (
+                "%q bench --file %q --case %q --variant %q --parameter %q --history %q --label smoke --json > %q"
+            ):format(NUPP, fixture, "^work$", "^base$", "^size=1$", history, stdout)
+        )
     )
     assertEq(ran, 0, "the process-isolated runner exits successfully")
     local stdoutDocument = json.decode(read(stdout))
@@ -294,9 +305,12 @@ function M.runnerUsesSpecificFilesAndAppendsMachineReadableHistory()
     -- benchmark the filters selected, and a table's column widths depend on the
     -- longest name in it, so the text form would tie this to the fixture's spelling.
     local filtered = os.execute(
-        (
-            "%q bench --list --json --file %q --case %q --case %q --variant %q --parameter %q > %q"
-        ):format(NUPP, fixture, "^absent$", "^work$", "^other$", "^size=2$", stdout)
+        inWorkspace(
+            working,
+            (
+                "%q bench --list --json --file %q --case %q --case %q --variant %q --parameter %q > %q"
+            ):format(NUPP, fixture, "^absent$", "^work$", "^other$", "^size=2$", stdout)
+        )
     )
     assertEq(filtered, 0, "structured Lua-pattern filters select a benchmark")
     local selection = json.decode(read(stdout))
@@ -309,9 +323,12 @@ function M.runnerUsesSpecificFilesAndAppendsMachineReadableHistory()
     assertEq(selection.benchmarks[1].file, fixture, "and the listing says which file declares it")
 
     local profiled = os.execute(
-        (
-            "%q bench --file %q --case %q --profile %q --profile-interval-ms 1 > %q"
-        ):format(NUPP, simpleFixture, "^protocol$", profiles, stdout)
+        inWorkspace(
+            working,
+            (
+                "%q bench --file %q --case %q --profile %q --profile-interval-ms 1 > %q"
+            ):format(NUPP, simpleFixture, "^protocol$", profiles, stdout)
+        )
     )
     assertEq(profiled, 0, "the measured-window sampling pass exits successfully")
     local human = read(stdout)
@@ -331,9 +348,7 @@ function M.runnerUsesSpecificFilesAndAppendsMachineReadableHistory()
     )
     assertTrue(collapsed == "" or collapsed:find(" %d+$") ~= nil, "collected stacks carry sample counts")
 
-    os.remove(history)
-    os.remove(stdout)
-    os.execute(("rm -rf %q"):format(profiles))
+    os.execute(("rm -rf %q"):format(working))
 end
 
 -- The replicated run end to end, against the real binary. What matters here and cannot
@@ -341,11 +356,13 @@ end
 -- of a case counted the same work, and that the permutation actually changes between
 -- rounds rather than being shuffled once and reused.
 function M.replicatedRunKeepsEveryForkAndFixesTheWorkAcrossThem()
-    local stdout = os.tmpname()
+    local working = workspace()
+    local stdout = working .. "/stdout.json"
     local fixture = HERE .. "/fixtures/bench_protocol.g.nupp"
-    os.remove(stdout)
 
-    local ran = os.execute(("%q bench --file %q --forks 12 --seed 4242 --json > %q"):format(NUPP, fixture, stdout))
+    local ran = os.execute(
+        inWorkspace(working, ("%q bench --file %q --forks 12 --seed 4242 --json > %q"):format(NUPP, fixture, stdout))
+    )
     assertEq(ran, 0, "a replicated run exits successfully")
     local document = json.decode(read(stdout))
     assertEq(document.forks, 12, "the record says how many processes ran")
@@ -378,18 +395,18 @@ function M.replicatedRunKeepsEveryForkAndFixesTheWorkAcrossThem()
         "the interval brackets the score"
     )
 
-    os.remove(stdout)
+    os.execute(("rm -rf %q"):format(working))
 end
 
 -- A pilot answers how many processes a precision would take, and must not answer the
 -- benchmark: reporting a score from five forks is exactly the unearned claim the fork
 -- minimum exists to prevent.
 function M.pilotSizesTheRunWithoutReportingAResult()
-    local stdout = os.tmpname()
+    local working = workspace()
+    local stdout = working .. "/stdout.txt"
     local fixture = HERE .. "/fixtures/bench_protocol.g.nupp"
-    os.remove(stdout)
 
-    local ran = os.execute(("%q bench --file %q --pilot > %q 2>&1"):format(NUPP, fixture, stdout))
+    local ran = os.execute(inWorkspace(working, ("%q bench --file %q --pilot > %q 2>&1"):format(NUPP, fixture, stdout)))
     assertEq(ran, 0, "a pilot exits successfully")
     local report = read(stdout)
     assertTrue(report:find("Between%-fork CV") ~= nil, "the pilot reports the variance it observed")
@@ -397,7 +414,7 @@ function M.pilotSizesTheRunWithoutReportingAResult()
     assertTrue(report:find("Coverage") == nil, "a pilot claims no coverage")
     assertTrue(report:find("Winners") == nil, "and declares no winner")
 
-    os.remove(stdout)
+    os.execute(("rm -rf %q"):format(working))
 end
 
 -- Each selector has to actually select.
@@ -410,14 +427,16 @@ end
 -- dimension is asserted on its own rather than in combination, where another
 -- dimension's filtering can cover for it.
 function M.eachSelectorNarrowsOnItsOwn()
-    local stdout = os.tmpname()
+    local working = workspace()
+    local stdout = working .. "/stdout.txt"
     local fixture = HERE .. "/fixtures/bench_suite.g.nupp"
-    os.remove(stdout)
 
     local function listed(...)
         local flags = table.concat({...}, " ")
         assertEq(
-            os.execute(("%q bench --list --file %q %s > %q"):format(NUPP, fixture, flags, stdout)),
+            os.execute(
+                inWorkspace(working, ("%q bench --list --file %q %s > %q"):format(NUPP, fixture, flags, stdout))
+            ),
             0,
             "listing with " .. flags .. " exits successfully"
         )
@@ -445,7 +464,10 @@ function M.eachSelectorNarrowsOnItsOwn()
     -- so a failing exit reads as 256 rather than 1 and the encoding is not portable.
     assertTrue(
         os.execute(
-            ("%q bench --list --file %q --case %q > %q 2>&1"):format(NUPP, fixture, "^nosuchcase$", stdout)
+            inWorkspace(
+                working,
+                ("%q bench --list --file %q --case %q > %q 2>&1"):format(NUPP, fixture, "^nosuchcase$", stdout)
+            )
         ) ~= 0,
         "a case pattern matching nothing selects nothing rather than everything"
     )
@@ -468,7 +490,7 @@ function M.eachSelectorNarrowsOnItsOwn()
         assertTrue(name:find("size=1$") ~= nil, "--parameter selected " .. name .. ", which is not that parameter")
     end
 
-    os.remove(stdout)
+    os.execute(("rm -rf %q"):format(working))
 end
 
 return M

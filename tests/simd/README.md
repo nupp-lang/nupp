@@ -1,7 +1,10 @@
 # Shared SIMD execution matrix
 
-`run-matrix.sh` builds the primitive and reducer generators with real Clang and
-GCC. Each build requests exactly one tier (`minimum == maximum`). On x64 it
+`run-matrix.sh` runs the ordinary `nupp test` harness with real Clang and GCC.
+Each compiler/tier pair builds two immutable fixtures: a cheap species inventory
+for every public type and lane count, and a representative semantic pack for
+each operation/type/representation class. Each build requests exactly one tier
+(`minimum == maximum`). On x64 it
 executes baseline, AVX2 and AVX512F when the CPU and OS advertise support; arm64
 executes NEON. The baseline-compiled capability probe runs before any tier code.
 An unavailable tier is recorded as `not-executed`, with
@@ -21,7 +24,7 @@ recorded as not executed. A target layout is not evidence of a working runtime.
 The CI compiler selector uses Homebrew GCC on macOS, rather than Apple's `gcc`
 alias. Windows Clang targets MinGW and uses the same GNU sysroot as GCC, matching
 the LuaJIT library ABI. Compiler versions, target triples, CPU capabilities,
-revision, generated source, build logs, artifact SHA256s and execution counts are
+revision, harness facts, build logs, artifact SHA256s and deterministic work counts are
 retained under `build/simd-matrix` and uploaded even when a case fails.
 The runner keeps the provisioned host compiler in `NUPP_CC`; each requested
 `NUPP_NATIVE_CC` still compiles the emitted C, without changing the host's
@@ -29,15 +32,22 @@ LuaJIT and LPeg dependency prefix.
 
 ```sh
 NUPP_SIMD_COMPILERS=clang,gcc-16 tests/simd/run-matrix.sh
-NUPP_SIMD_COMPILERS=clang NUPP_SIMD_TYPES=int32 NUPP_SIMD_LANES=2,3,17,64,preferred \
-  NUPP_SIMD_ALGORITHMS=none NUPP_SIMD_OUTPUT=/tmp/simd-smoke tests/simd/run-matrix.sh
+NUPP_SIMD_COMPILERS=clang NUPP_SIMD_TIERS=baseline NUPP_SIMD_ALGORITHMS=none \
+  NUPP_SIMD_OUTPUT=/tmp/simd-smoke tests/simd/run-matrix.sh
 ```
 
-The default inventory is both families, all ten element types, Fixed widths
-2 through 64, and Preferred. `NUPP_SIMD_FAMILIES`, `NUPP_SIMD_TYPES` and
-`NUPP_SIMD_LANES` restrict a local diagnostic run; `NUPP_SIMD_TIERS` selects
-one or more exact native tiers. Its report describes only that
-selection. Matrix output directories cannot overwrite existing evidence.
+The compact pack always preserves all ten element types and every public species;
+`NUPP_SIMD_TIERS` selects one or more exact native tiers. The old `run.lua`
+driver remains available for bounded migration equivalence against arbitrary
+family/type/lane selections. Matrix output directories cannot overwrite existing
+evidence.
+
+`run-equivalence.lua` is the historical-defect gate. It reads the thirteen-entry
+defect ledger and runs each exact case in a fresh process with a test-only
+mutation. A kill counts only when that case fails with its defect-specific marker
+and an accepted failure mode. A survivor, skipped case, setup failure, unrelated
+failure or missing marker fails the gate. Repeat `--defect=ID` to diagnose a
+subset; ordinary suite runs do not enable these mutations.
 
 Each executable native tier also builds isolated copies of the UTF-8 validator,
 Base64 encoder, JSON structural indexer and fused JSON decoder projects with an
@@ -48,7 +58,9 @@ The two-level copied layout retains their existing relative test helper paths;
 it does not modify the source benchmark projects.
 
 Each generator returns source files, an entry module, named native probes and
-coverage metadata. `runner.native()` also accepts `tier`, `compiler`, `directory`,
+coverage metadata. The harness publishes exact `coverage.witness` facts and
+reuses successful fixture directories only by content key. `runner.native()`
+also accepts `tier`, `compiler`, `directory`,
 `report`, `lua` and `nupp` options. `NUPP_SIMD_TIER`, `NUPP_NATIVE_CC` and
 `NUPP_SIMD_REPORT` provide the first, second and fourth options through the
 environment. A directly requested unsupported tier fails before execution.
@@ -61,14 +73,40 @@ A second process forwards those same probe wrappers to the emitted unoptimized
 scalar-C twins and runs the unchanged oracle again; its calls and result are
 recorded separately.
 
-`run-wasm.sh` consumes the **same** generated sources through the LuaJIT browser
-guest and Emscripten 6.0.8. `NUPP_BROWSER_GUEST_DIR`, `NUPP_WASM_CC` and
-`NUPP_SIMD_WASM_OUTPUT` select those paths. The manifest must contain only
-SIMD128 side modules, and every named probe must map to one independent Wasm
-entry. The application is compiled with `aot = "require-wasm"`, so successful
-corpus completion proves those entries were available rather than falling back
-to Lua. The runner records the guest, application and Wasm artifact hashes,
-cases and entry inventory under `build/simd-wasm`.
+`simdwasmtimeconformancetest` consumes the same two compact pack definitions
+through Wasmtime 48 and Emscripten. Its species case covers every public type and
+lane width; its semantic case covers the independent operation, representation,
+conversion, tail and reducer corpora. Each case uses immutable
+content-addressed fixtures and publishes `coverage.witness` facts plus generated
+source, unit, call and case work counts. Missing Rust, Emscripten, Node or child
+LuaJIT tooling is recorded as `not-executed` in an ordinary broad test run.
+
+`run-wasm-wasmtime.sh` invokes that ordinary harness and rejects a report unless
+both packs actually passed. `NUPP_WASM_CC`, `NUPP_WASMTIME_HOST_LIBRARY` and
+`NUPP_SIMD_WASM_OUTPUT` select the compiler, an optional prebuilt host and the
+retained harness report. The generated browser bundle still owns the independently
+authored Lua oracle; host LuaJIT executes it while the test-only Rust bridge routes
+every emitted independent module through Wasmtime. The manifest must contain only
+SIMD128 side modules, and every named probe must map to an executed independent
+Wasm entry. The application uses `aot = "require-wasm"`, so successful completion
+cannot fall back to Lua.
+
+Wasm artifacts retain the browser target's single-number numeric-for lowering.
+When the local oracle runs under a dual-number LuaJIT, the Wasmtime launcher adapts
+only the generated binding's load-time runtime guard in memory, after refusing the
+runtime-sensitive counted corpus. It verifies that no single-number guard remains
+and reports the exact adapted guard count. The focused Chromium smoke below owns
+the numeric-for behavior that differs between the runtimes.
+
+`run-wasm-browser-smoke.sh` retains the real browser contract as a small int32x4
+pack plus the three-probe counted-loop corpus. The counted corpus belongs here
+because Wasm AOT uses the browser guest's single-number numeric-for semantics,
+which a native dual-number LuaJIT must not impersonate. Both SIMD and scalar-C
+routes must execute with distinct Wasm artifacts before the smoke publishes its
+two `simd.wasm.counted-runtime` witnesses. Chrome is not needed for the local
+exhaustive pure-Wasm semantic matrix. The existing
+`run-wasm.sh` remains available while the remote workflow is retired separately;
+this change does not redirect GitHub jobs.
 
 The Wasm runner also preserves a test-only copy of each generated side C file.
 Only the browser bridge's call target changes to the already emitted,
@@ -78,27 +116,27 @@ inventory again. Reports retain the original and scalar-C artifact hashes and na
 each selected twin. This proves the chosen call route; it does not claim that
 the entire Wasm module contains no SIMD instructions.
 
-CI shards Wasm by all ten element types and four disjoint width batches:
+The retained legacy CI path shards Wasm by all ten element types and four disjoint width batches:
 2–17, 18–33, 34–49, and 50–64 plus Preferred. Every shard runs both corpus
 families through SIMD128 and scalar C. The final aggregation rejects missing,
 duplicated, wrong-revision, or partial shards before claiming the complete
 inventory. It derives each type and width from the emitted probe identities that
 returned on each route, so selection metadata cannot turn a smaller corpus into
-complete coverage. Each shard also runs the counted-loop runtime corpus on both routes, covering
-numeric-for loop-entry rounding independently of the type/width inventory. Missing
-counted-loop execution evidence also fails aggregation. These jobs are separate
-from browser application tests.
+complete coverage. `run-wasm.sh` still carries its historical counted-loop row
+until that remote workflow is retired, but migration coverage for the guest
+numeric-for contract now comes from the focused browser smoke above.
 
 These are semantic tests, not benchmarks. The reports do not measure speed or
 claim that a compiler chose a particular machine instruction for every operation.
 
-The dedicated `Wasm / Owned algorithms` job runs UTF-8, Base64 and structural
-JSON once, separately from the forty type/width shards. It reuses the
-shared differential corpora, archives their source hashes, and requires the
-independent Wasm entry through the browser application route. Its summary requires
-all three independently matched native/Wasm case counts and randomized
-corpora's stream fingerprints, and emitted entry identities at the tested commit;
-a missing algorithm, smaller corpus or interpreted-only run cannot pass.
+`simdnativealgorithmdifferentialtest` runs UTF-8, Base64, structural JSON and
+fused JSON through native SIMD entries against their owned scalar differentials.
+The portable `simdwasmalgorithmdifferentialtest` runs UTF-8, Base64 and
+structural JSON through the Rust Wasmtime host against those same independent
+oracles. Both are ordinary parameterized suites with immutable
+fixtures, source hashes, case and call counts, distinct artifact identities and
+`coverage.witness` facts. A missing algorithm, smaller corpus or interpreted-only
+run cannot pass.
 Fused JSON returns a Lua object from its AOT builder, which the independent
 browser bridge deliberately does not expose; its full differential remains in
 every executable native tier instead.

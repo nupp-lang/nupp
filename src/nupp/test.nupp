@@ -52,6 +52,49 @@ local function fail(message: string, level: integer?): never
     error(message, (level or 1) + 1)
 end
 
+local function serializationSafe(value: any, seen: table?): boolean
+    local kind = type(value)
+    if kind == "nil" or kind == "boolean" or kind == "string" then
+        return true
+    elseif kind == "number" then
+        return value == value and value ~= math.huge and value ~= -math.huge
+    elseif kind ~= "table" then
+        return false
+    end
+    seen = seen or {}
+    if seen[value] then
+        return false
+    end
+    seen[value] = true
+    local numericKeys = 0
+    local stringKeys = 0
+    local largestIndex = 0
+    for key, item in pairs(value) do
+        local keyKind = type(key)
+        if keyKind == "string" then
+            stringKeys = stringKeys + 1
+        elseif keyKind == "number" and key == math.floor(key) and key >= 1 and key < math.huge then
+            numericKeys = numericKeys + 1
+            largestIndex = math.max(largestIndex, key)
+        else
+            seen[value] = nil
+            return false
+        end
+        if not serializationSafe(item, seen) then
+            seen[value] = nil
+            return false
+        end
+    end
+    seen[value] = nil
+
+    -- JSON tables are either objects with string keys or dense arrays with
+    -- one-based integer keys. Accepting a mixed or sparse table here would let
+    -- a case claim it can move between workers even though its row has no
+    -- portable JSON representation.
+
+    return numericKeys == 0 or (stringKeys == 0 and largestIndex == numericKeys)
+end
+
 --- Requires a truthy value and returns its complete input pack.
 --- @raises string when value is false or nil
 export function assert(value: any, ...: any): any
@@ -120,6 +163,13 @@ export function raises(fn: function(...: any): any, pattern: string?): any
 end
 
 local skipped = {}
+local notExecutedTag = {}
+local lifecycleNames = {beforeAll = true, afterAll = true, beforeEach = true, afterEach = true,}
+local runnerCaseNames = {["<shard>"] = true, ["<unrun>"] = true,}
+
+local function caseContext(): any
+    return rawget(_G, "__NUPP_TEST_CASE_CONTEXT")
+end
 
 --- Skips the current test case with a reason.
 export function skip(reason: string): never
@@ -134,6 +184,191 @@ end
 --- Returns the reason carried by a skip error.
 export function skipReason(value: any): string?
     if isSkip(value) then
+        return value.reason as string
+    end
+
+    return nil
+end
+
+--- Builds ordinary named cases from a sequence of input rows.
+---
+--- The returned table can be returned directly from a test suite or merged
+--- into a suite containing handwritten cases. Names must be stable and unique.
+---
+--- @param rows the rows to expand
+--- @param name returns the case name for one row
+--- @param run runs one row
+--- @return the named test cases
+export function cases(rows: {any}, name: function(any, integer): string, run: function(any, integer): any): any
+    local rowCount = 0
+    local lastRow = 0
+    if type(rows) == "table" then
+        for key in pairs(rows) do
+            if type(key) ~= "number" or key ~= math.floor(key) or key < 1 or key == math.huge then
+                fail("parameterized case rows must be a dense JSON-compatible sequence", 2)
+            end
+            rowCount = rowCount + 1
+            lastRow = math.max(lastRow, key)
+        end
+    end
+    if type(rows) ~= "table" or lastRow ~= rowCount then
+        fail("parameterized case rows must be a dense JSON-compatible sequence", 2)
+    end
+    local expanded: any = {}
+    for index, item in ipairs(rows) do
+        if not serializationSafe(item) then
+            fail("parameterized case row " .. index .. " is not serialization-safe", 2)
+        end
+        local caseName = name(item, index)
+        if type(caseName) ~= "string" or caseName == "" then
+            fail("parameterized case names must be non-empty strings", 2)
+        elseif caseName:find("[%c]") then
+            fail("parameterized case names must not contain control characters", 2)
+        elseif lifecycleNames[caseName] then
+            fail("parameterized case name " .. show(caseName) .. " is reserved for a lifecycle hook", 2)
+        elseif runnerCaseNames[caseName] then
+            fail("parameterized case name " .. show(caseName) .. " is reserved by the test runner", 2)
+        elseif expanded[caseName] ~= nil then
+            fail("duplicate parameterized case name " .. show(caseName), 2)
+        end
+        local row = item
+        local rowIndex = index
+        local expandedCase = function(): any
+            return run(row, rowIndex)
+        end
+        expanded[caseName] = expandedCase
+        local definitions = rawget(_G, "__NUPP_TEST_CASE_DEFINITIONS")
+        local hostDebug: any = debug
+        if type(definitions) == "table" and hostDebug ~= nil then
+            local definition = hostDebug.getinfo(run, "S")
+            if definition ~= nil then
+                definitions[
+                    expandedCase
+                ] = {file = (definition.source or ""):gsub("^@", ""), line = definition.linedefined,}
+            end
+        end
+    end
+
+    return expanded
+end
+
+--- Marks the current case as unavailable on this runtime.
+--- @param reason why the case could not execute
+export function notExecuted(reason: string): never
+    if caseContext() == nil then
+        fail("notExecuted must be called while a test case is running", 2)
+    elseif type(reason) ~= "string" or reason == "" then
+        fail("not-executed reasons must be non-empty strings", 2)
+    end
+    error({notExecuted = notExecutedTag, reason = reason}, 0)
+end
+
+--- Requires a capability and records the evidence used to decide it.
+---
+--- A false requirement reports the case as not executed rather than passed,
+--- skipped, or failed.
+---
+--- @param name the stable capability name
+--- @param available whether the runtime proved the capability
+--- @param evidence structured evidence supporting the decision
+export function requireCapability(name: string, available: boolean, evidence: any?): nil
+    local activeCase = caseContext()
+    if activeCase == nil then
+        fail("requireCapability must be called while a test case is running", 2)
+    elseif type(name) ~= "string" or name == "" then
+        fail("capability names must be non-empty strings", 2)
+    elseif type(available) ~= "boolean" then
+        fail("capability availability must be a boolean", 2)
+    elseif evidence ~= nil and not serializationSafe(evidence) then
+        fail("capability evidence must be JSON-compatible", 2)
+    end
+    activeCase.capabilities[#activeCase.capabilities + 1] = {name = name, available = available, evidence = evidence,}
+    if not available then
+        notExecuted("missing capability " .. name)
+    end
+end
+
+--- Attaches a structured fact to the current case result.
+--- @param name the fact kind
+--- @param value the JSON-compatible fact value
+export function fact(name: string, value: any): nil
+    local activeCase = caseContext()
+    if activeCase == nil then
+        fail("fact must be called while a test case is running", 2)
+    elseif type(name) ~= "string" or name == "" then
+        fail("fact names must be non-empty strings", 2)
+    elseif value == nil then
+        fail("fact values must not be nil", 2)
+    elseif not serializationSafe(value) then
+        fail("fact values must be JSON-compatible", 2)
+    end
+    activeCase.facts[#activeCase.facts + 1] = {name = name, value = value}
+end
+
+--- Adds a named measurement to the current case result.
+--- @param name the metric name
+--- @param value the additive measurement
+--- @param unit the measurement unit
+export function metric(name: string, value: number, unit: string?): nil
+    local activeCase = caseContext()
+    if activeCase == nil then
+        fail("metric must be called while a test case is running", 2)
+    elseif type(name) ~= "string" or name == "" then
+        fail("metric names must be non-empty strings", 2)
+    elseif type(value) ~= "number" or value ~= value or value == math.huge or value == -math.huge then
+        fail("metric values must be finite numbers", 2)
+    elseif unit ~= nil and type(unit) ~= "string" then
+        fail("metric units must be strings", 2)
+    end
+    local key = name .. "\0" .. (unit or "")
+    local existing = activeCase.metrics[key]
+    if existing == nil then
+        activeCase.metrics[key] = {name = name, value = value, unit = unit}
+    else
+        existing.value = existing.value + value
+    end
+end
+
+--- Adds a deterministic integer work count to the current case result.
+--- @param name the counter name
+--- @param count the additive count
+export function work(name: string, count: integer): nil
+    if type(count) ~= "number" or count ~= math.floor(count) or count == math.huge or count < 0 then
+        fail("work counts must be non-negative integers", 2)
+    end
+    metric(name, count, "count")
+end
+
+--- Resolves a content-addressed immutable fixture for the current case.
+---
+--- The producer receives a private directory. Its JSON-compatible return value
+--- is published with that directory only when production succeeds.
+---
+--- @param key the complete content key
+--- @param produce creates the fixture in a private directory
+--- @return the published directory
+--- @return the producer's persisted value
+--- @return whether this call reused a previously published fixture
+export function fixture(key: string, produce: function(string): any): (string, any, boolean)
+    local activeCase = caseContext()
+    if activeCase == nil then
+        fail("fixture must be called while a test case is running", 2)
+    end
+
+    local path, value, reused = activeCase.fixture(key, produce)
+    activeCase.fixtures[#activeCase.fixtures + 1] = {key = key, path = path, reused = reused}
+
+    return path, value, reused
+end
+
+--- Answers whether a caught error marks a case as not executed.
+export function isNotExecuted(value: any): boolean
+    return type(value) == "table" and value.notExecuted == notExecutedTag
+end
+
+--- Returns the reason carried by a not-executed error.
+export function notExecutedReason(value: any): string?
+    if isNotExecuted(value) then
         return value.reason as string
     end
 

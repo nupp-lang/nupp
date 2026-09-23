@@ -1,13 +1,24 @@
--- The full species matrix is driven by tests/simd's native/Wasm runner in CI.
--- Local focused validation keeps the register, odd aggregate and widest tails.
+-- Reducer execution now belongs to the compact native semantics fixture in
+-- simdprimitivedifferentialtest. This suite keeps the generator boundary
+-- explicit without compiling the same pack a second time.
 local M = {}
 
-function M.horizontalAndLoopContractsReachNativeCode()
-    local generated = require("tests.simd.reducers").generate{
-        lanes = {2, 3, 7, 8, 16, 31, 32, 63, 64, "preferred"},
-    }
-    local report = require("tests.simd.runner").native(generated)
-    assert(report.ok and report.cases > 0 and report.nativeCalls > 0)
+function M.compactNativePackOwnsHorizontalMaskedAndLoopReducers()
+    local generated = require("tests.simd.native-packs").semantics()
+    local groups = {}
+    for _, witness in ipairs(generated.coverage) do
+        if witness.pack == "reducers" then
+            groups[witness.family or witness.group or "horizontal"] = true
+        end
+    end
+    assert(next(groups), "compact native pack has no reducer witnesses")
+    local probes = 0
+    for module, names in pairs(generated.probes) do
+        if module:match("reducer") then
+            probes = probes + #names
+        end
+    end
+    assert(probes > 0, "compact native pack has no reducer probes")
 end
 
 return M

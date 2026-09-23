@@ -225,7 +225,17 @@ type cache.State = {
         signature: string,
         version: string,
         dialect: string
-    }?
+    }?,
+
+    --- The complete semantic input to the AOT pipeline, before checking or
+    --- lowering. Unlike `aot`, whose keys are derived from verified IR, this
+    --- can answer whether the pipeline itself has any work to do.
+    aotInput: string?,
+
+    --- Plain-data result and output digests retained for an exact `aotInput`
+    --- hit. Disposable evidence: a missing field or mismatched byte is a cold
+    --- AOT pipeline, never a trusted stale artifact.
+    aotReplay: any?
 }
 
 local function jsonArray<T>(takes items: {T}): {T} preserves items
@@ -738,7 +748,7 @@ end
 -- Bumped whenever a recorded digest stops meaning what it meant, which discards the
 -- last version's state instead of comparing hex that was computed by a different
 -- function. Version 2 is where the cache keys moved off SHA-256.
-local STATE_VERSION: integer = 4
+local STATE_VERSION: integer = 5
 
 local function emptyState(): cache.State
     return {version = STATE_VERSION, modules = {}, dependencies = {}, outputs = {}, targets = {}} as cache.State

@@ -12,6 +12,7 @@ local diagnosticMod = require("nupp.compiler.diagnostics")
 local envMod = require("nupp.compiler.env")
 local parser = require("nupp.compiler.parser")
 local verify = require("nupp.compiler.aot.verify")
+local equivalenceMutation = require("tests.simd.equivalence-mutation")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 if not HERE:match("^/") then
@@ -1108,6 +1109,13 @@ return {lanes = lanes}
         if preferred then
             program.simdWidth = 32
             program.vectorCeiling = 16
+        end
+        if not preferred and equivalenceMutation.active("lane-bounds") then
+            local original = extract.args[2]
+            extract.args[2] = {op = "constant", type = "f64", value = "5"}
+            local accepted = pcall(verify.program, program)
+            extract.args[2] = original
+            assert(accepted, equivalenceMutation.marker("lane-bounds", "wrong-result"))
         end
         local returned = program.body[#program.body]
         program.body[#program.body] = {op = "block", body = {returned}}

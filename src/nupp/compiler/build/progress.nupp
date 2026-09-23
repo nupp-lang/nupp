@@ -52,6 +52,10 @@ type progress.ModuleSpan = {
 --- can say that it did not.
 type progress.AotFacts = {
     units: number,
+    checkedSources: number,
+    loweredPrograms: number,
+    optimizedPrograms: number,
+    emittedUnits: number,
     reusedObjects: number,
     compiledObjects: number,
     reusedModules: number,

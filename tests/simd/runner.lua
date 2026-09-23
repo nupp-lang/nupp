@@ -84,7 +84,11 @@ end
 
 function M.prepare(generated, options)
     options = options or {}
-    local dir = nativePath((options.directory or os.tmpname()):gsub("\\", "/"))
+    local requested = (options.directory or os.tmpname()):gsub("\\", "/")
+    if requested:sub(1, 1) ~= "/" and not requested:match("^%a:/") then
+        requested = root .. "/" .. requested
+    end
+    local dir = nativePath(requested)
     if not options.directory then
         os.remove(dir)
     end
@@ -119,9 +123,71 @@ local function tierForHost()
     return jit.arch == "arm64" and "neon" or "baseline"
 end
 
+function M.hostTier()
+    return os.getenv("NUPP_SIMD_TIER") or tierForHost()
+end
+
+--- Proves that the selected compiler and CPU tier can execute native SIMD.
+--- Unlike `native`, this returns evidence for `test.requireCapability` rather
+--- than turning unavailable hardware into a failed semantic case.
+function M.nativeCapability(options)
+    options = options or {}
+    local compiler = options.compiler or os.getenv("NUPP_NATIVE_CC") or "cc"
+    local tier = options.tier or M.hostTier()
+    local dir = nativePath(os.tmpname():gsub("\\", "/"))
+    os.remove(dir)
+    directory(dir)
+    local versionLog = dir .. "/compiler.log"
+    local buildLog = dir .. "/capabilities-build.log"
+    local runLog = dir .. "/capabilities.log"
+    local evidence = {compiler = compiler, tier = tier, available = false}
+    local versionCode = execute(M.quote(compiler) .. " --version >" .. M.quote(versionLog) .. " 2>&1")
+    if versionCode ~= 0 then
+        evidence.reason = "compiler command failed"
+    else
+        local versionText = M.read(versionLog)
+        evidence.compilerVersion = (versionText:match("[^\r\n]+"))
+        local lowerVersion = versionText:lower()
+        evidence.compilerDialect = lowerVersion:find("clang", 1, true) and "clang"
+            or (lowerVersion:find("gcc", 1, true) or lowerVersion:find("free software foundation", 1, true)) and "gcc"
+            or "unknown"
+        evidence.compilerSignature = require("nupp.compiler.build.aot").toolSignature(compiler)
+        local built = execute(
+            M.quote(
+                compiler
+            ) .. " -std=c11 -O2 -Wall -Wextra -Werror " .. M.quote(
+                root .. "/tests/simd/capabilities.c"
+            ) .. " -o " .. M.quote(dir .. "/capabilities.exe") .. " >" .. M.quote(buildLog) .. " 2>&1"
+        )
+        if built ~= 0 then
+            evidence.reason = "capability probe did not compile"
+            evidence.log = M.read(buildLog)
+        else
+            local ran = execute(M.quote(dir .. "/capabilities.exe") .. " >" .. M.quote(runLog) .. " 2>&1")
+            if ran ~= 0 then
+                evidence.reason = "capability probe did not execute"
+                evidence.log = M.read(runLog)
+            else
+                local capabilities = M.read(runLog):gsub("\r\n", "\n")
+                evidence.capabilities = capabilities
+                evidence.available = ("\n" .. capabilities):find("\n" .. tier .. "\n", 1, true) ~= nil
+                if not evidence.available then
+                    evidence.reason = "CPU tier is unavailable"
+                end
+            end
+        end
+    end
+    local removed, removeProblem = require("nupp.io.files").remove(dir, true)
+    if not removed then
+        evidence.cleanupProblem = tostring(removeProblem)
+    end
+
+    return evidence
+end
+
 function M.native(generated, options)
     options = options or {}
-    local tier = options.tier or os.getenv("NUPP_SIMD_TIER") or tierForHost()
+    local tier = options.tier or M.hostTier()
     assert(tier == "baseline" or tier == "avx2" or tier == "avx512f" or tier == "neon", "invalid native tier")
     local dir, entries = M.prepare(generated, options)
     local quoted = {}
@@ -139,26 +205,19 @@ aotFeatures={minimum=%q,maximum=%q},
 ]=]
         ):format(table.concat(quoted, ","), tier, tier)
     )
-    local compiler = options.compiler or os.getenv("NUPP_NATIVE_CC")
-    local probeCompiler = compiler or "cc"
-    M.command(
-        M.quote(
-            probeCompiler
-        ) .. " -std=c11 -O2 -Wall -Wextra -Werror " .. M.quote(
-            root .. "/tests/simd/capabilities.c"
-        ) .. " -o " .. M.quote(dir .. "/capabilities.exe"),
-        dir .. "/capabilities-build.log"
-    )
-    local capabilities = M.command(M.quote(dir .. "/capabilities.exe"), dir .. "/capabilities.log"):gsub("\r\n", "\n")
+    local capability = options.capability or M.nativeCapability({compiler = options.compiler, tier = tier})
+    local compiler = options.compiler or capability.compiler or os.getenv("NUPP_NATIVE_CC")
+    local capabilities = capability.capabilities or ""
     assert(
-        ("\n" .. capabilities):find("\n" .. tier .. "\n", 1, true),
-        "requested tier " .. tier .. " cannot execute on this host; see " .. dir .. "/capabilities.log"
+        capability.available and ("\n" .. capabilities):find("\n" .. tier .. "\n", 1, true),
+        "requested tier " .. tier .. " cannot execute on this host: " .. tostring(capability.reason)
     )
     local env = compiler and ("NUPP_NATIVE_CC=" .. M.quote(compiler) .. " ") or ""
     local build = "cd " .. M.quote(
         dir
     ) .. " && " .. env .. M.quote(options.nupp or root .. "/bin/nupp") .. " build --target native"
-    M.command(build, dir .. "/build.log")
+    local buildOutput = M.command(build .. (options.buildJson and " --quiet --format json" or ""), dir .. "/build.log")
+    local buildReport = options.buildJson and decode(buildOutput) or nil
     local units = M.json(dir .. "/build/native/aot/units.json")
     local actual = 0
     for _, unit in ipairs(units.units) do
@@ -191,6 +250,25 @@ aotFeatures={minimum=%q,maximum=%q},
         "scalar C did not execute the same probe inventory"
     )
     result.scalarC = scalar
+    for key in pairs(result.calls) do
+        assert(scalar.calls[key], "scalar-C route missed native oracle probe " .. key)
+        local nativeSymbol = result.symbols and result.symbols[key]
+        local scalarSymbol = scalar.symbols and scalar.symbols[key]
+        local suffix = "__" .. tier
+        assert(
+            type(nativeSymbol) == "string"
+            and nativeSymbol:sub(-#suffix) == suffix
+            and not nativeSymbol:find("_forced_scalar__", 1, true),
+            "native route lacks an exact-tier symbol for " .. key
+        )
+        assert(
+            type(scalarSymbol) == "string" and scalarSymbol:match("_forced_scalar__" .. tier .. "$"),
+            "scalar-C route lacks its exact-tier twin for " .. key
+        )
+        assert(nativeSymbol ~= scalarSymbol, "native and scalar-C routes resolved the same symbol for " .. key)
+    end
+    result.sameOracle = true
+    result.distinctRouteSymbols = true
     result.directory = dir
     result.host = {os = jit.os, arch = jit.arch, capabilities = capabilities}
     local digestCommand = "if command -v sha256sum >/dev/null 2>&1; then digest=sha256sum; flags=; "
@@ -209,6 +287,22 @@ aotFeatures={minimum=%q,maximum=%q},
     assert(#result.artifacts > 0, "no compiled artifact digests")
     result.units = units
     result.coverage = generated.coverage
+    local sourceBytes, sourceFiles = 0, 0
+    for _, text in pairs(generated.files) do
+        sourceBytes = sourceBytes + #text
+        sourceFiles = sourceFiles + 1
+    end
+    result.work = {
+        generatedSourceBytes = sourceBytes,
+        generatedSourceFiles = sourceFiles,
+        generatedUnits = actual,
+        buildCommands = 1,
+        externalCommands = buildReport
+        and buildReport.timing
+        and buildReport.timing.aot
+        and buildReport.timing.aot.externalCommands
+        or nil,
+    }
     if compiler then
         result.compilerCommand = compiler
         result.compilerVersion = M.command(M.quote(compiler) .. " --version", dir .. "/compiler.log"):match("[^\r\n]+")
@@ -225,11 +319,20 @@ function M.wasm(generated, options)
     options = options or {}
     local dir = M.prepare(generated, options)
     local runner = "__nupp_wasm_runner"
+    local probeModules = {}
+    for module in pairs(generated.probes) do
+        probeModules[#probeModules + 1] = module
+    end
+    table.sort(probeModules)
+    local preload = {}
+    for _, module in ipairs(probeModules) do
+        preload[#preload + 1] = ("require(%q)"):format(module)
+    end
     M.write(
         dir .. "/src/" .. runner .. ".g.nupp",
         (
-            "local entry=require(%q)\nlocal cases=entry.run()\nreturn string.format('{\"cases\":%%.0f}',cases)\n"
-        ):format(generated.entry)
+            "local entry=require(%q)\n%s\nif __nuppWasmBeforeRun then __nuppWasmBeforeRun() end\nlocal cases=entry.run()\nreturn string.format('{\"cases\":%%.0f}',cases)\n"
+        ):format(generated.entry, table.concat(preload, "\n"))
     )
     M.write(
         dir .. "/nupp.lua",
@@ -243,12 +346,15 @@ dialect="luajit",host="browser",aot="require-wasm",aotFeatures={minimum="simd128
         ):format(runner)
     )
     local compiler = options.compiler or os.getenv("NUPP_WASM_CC") or os.getenv("EMCC") or "emcc"
+    local environment = (options.environment or "") .. "NUPP_WASM_CC=" .. M.quote(compiler) .. " "
+    if options.emscriptenCache then
+        directory(options.emscriptenCache)
+        environment = "EM_CACHE=" .. M.quote(options.emscriptenCache) .. " " .. environment
+    end
     M.command(
         "cd " .. M.quote(
             dir
-        ) .. " && NUPP_WASM_CC=" .. M.quote(
-            compiler
-        ) .. " " .. M.quote(options.nupp or root .. "/bin/nupp") .. " build --target app",
+        ) .. " && " .. environment .. M.quote(options.nupp or root .. "/bin/nupp") .. " build --target app",
         dir .. "/build.log"
     )
 

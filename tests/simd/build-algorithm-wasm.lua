@@ -115,7 +115,7 @@ local runner = "__nupp_wasm_runner"
 write(
     "src/" .. runner .. ".g.nupp",
     (
-        "local entry=require(%q)\nlocal cases=entry.run()\nlocal fingerprint=entry.randomFingerprint and entry.randomFingerprint()\nif fingerprint then return string.format('{\"cases\":%%.0f,\"randomFingerprint\":\"%%s\"}',cases,fingerprint) end\nreturn string.format('{\"cases\":%%.0f}',cases)\n"
+        "local entry=require(%q)\nif __nuppWasmBeforeRun then __nuppWasmBeforeRun() end\nlocal cases=entry.run()\nlocal fingerprint=entry.randomFingerprint and entry.randomFingerprint()\nif fingerprint then return string.format('{\"cases\":%%.0f,\"randomFingerprint\":\"%%s\"}',cases,fingerprint) end\nreturn string.format('{\"cases\":%%.0f}',cases)\n"
     ):format(entry)
 )
 r.write(
@@ -126,8 +126,13 @@ r.write(
 )
 local compiler = os.getenv("NUPP_WASM_CC") or os.getenv("EMCC") or "emcc"
 local nupp = os.getenv("NUPP_SIMD_NUPP") or root .. "/bin/nupp"
+local resolvedCompiler = r.command("command -v " .. q(compiler), directory .. "/compiler-path.log"):match("[^\r\n]+")
+local compilerDirectory = assert(resolvedCompiler and resolvedCompiler:gsub("\\", "/"):match("^(.*)/[^/]+$"))
+local compilerEnvironment = "PATH=" .. q(compilerDirectory .. ":" .. (os.getenv("PATH") or "")) .. " "
 r.command(
-    "cd " .. q(directory) .. " && NUPP_WASM_CC=" .. q(compiler) .. " " .. q(nupp) .. " build --target app",
+    "cd " .. q(
+        directory
+    ) .. " && " .. compilerEnvironment .. "NUPP_WASM_CC=" .. q(compiler) .. " " .. q(nupp) .. " build --target app",
     directory .. "/build.log"
 )
 r.writeJson(directory .. "/corpus.json", {

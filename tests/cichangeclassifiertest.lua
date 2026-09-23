@@ -52,7 +52,86 @@ function M.compilerChangeSelectsEveryPlatformAndFixpoint()
 end
 
 function M.aotChangeSelectsAotAndFixpoint()
-    selects("src/nupp/compiler/aot/lower.nupp", {"fast-checks", "linux-integration", "fixpoint"})
+    selects("src/nupp/compiler/aot/lower.nupp", {"fast-checks", "linux-integration", "simd-conformance", "fixpoint"})
+end
+
+function M.onlyTheExplicitSimdSurfaceSelectsTheFullConformanceFleet()
+    for _, path in ipairs({
+        "src/nupp/simd.nupp",
+        "src/nupp/simd/horizontal.nupp",
+        "src/nupp/mem/array.nupp",
+        "src/nupp/mem/span.nupp",
+        "src/nupp/mem/soa.nupp",
+        "src/nupp/runtime/storage.nupp",
+        "src/nupp/runtime/representation/init.nupp",
+        "src/nupp/runtime/provider/nativestorage.nupp",
+        "src/nupp/runtime/provider/wasmstoragefactory.nupp",
+        "src/nupp/text/utf8.nupp",
+        "src/nupp/codec/valuebuilder.nupp",
+        "src/nupp/codec/json/aot.nupp",
+        "src/nupp/codec/json/internal/decoder/fused.nupp",
+        "src/nupp/compiler/aot/emit.nupp",
+        "src/nupp/compiler/build/aot.nupp",
+        "src/nupp/compiler/build/compilerpacks.nupp",
+        "src/nupp/compiler/build/project.nupp",
+        "src/nupp/compiler/check/aot.nupp",
+        "src/nupp/compiler/constspecialize.nupp",
+        "src/nupp/compiler/scalarintrinsics.nupp",
+        "src/nupp/compiler/targetlayout.nupp",
+        "src/nupp/compiler/targetprofile.nupp",
+        "src/nupp/compiler/capabilities.nupp",
+        "runtime/luajit/aot.mjs",
+        "tests/simd/primitives.lua",
+        "tests/simdprimitivedifferentialtest.lua",
+        "tests/jsonfuseddifferentialtest.lua",
+        "bench/utf8simd/src/utf8simd.nupp",
+        "bench/utf8simd/src/utf8reference.nupp",
+        "bench/utf8simd/tests/run.lua",
+        "bench/utf8simd/nupp.lua",
+        "bench/base64simd/src/base64simd.nupp",
+        "bench/base64simd/src/base64reference.nupp",
+        "bench/base64simd/tests/run.lua",
+        "bench/base64simd/nupp.lua",
+        "bench/simd-json/src/simd_json/indexer.nupp",
+        "bench/simd-json/src/simd_json/indexer_reference.nupp",
+        "bench/simd-json/tests/index.lua",
+        "bench/simd-json/nupp.lua",
+        "bench/fused-json/prepare.sh",
+        "bench/fused-json/tests/differential.lua",
+        "bench/fused-json/nupp.lua",
+        ".github/simd-platforms.json",
+        ".github/simd-wasm-shards.json",
+        ".github/workflows/simd-conformance.yml",
+        ".github/scripts/prepare-simd-compilers.sh"
+    }) do
+        test.assert(classifier().surfacesOf(path).simd, path .. " should be on the SIMD surface")
+        selects(path, {"simd-conformance"})
+        if path:match("^%.github/") then
+            for _, name in ipairs(everyJob()) do
+                if name ~= "simd-conformance" then
+                    doesNotSelect(path, {name})
+                end
+            end
+        end
+    end
+end
+
+function M.unrelatedSourcesDoNotSelectTheFullSimdConformanceFleet()
+    for _, path in ipairs({
+        "src/nupp/derive.nupp",
+        "src/nupp/text.nupp",
+        "src/nupp/runtime/tasks.nupp",
+        "src/nupp/compiler/check/callexpr.nupp",
+        "native/crates/http/src/lib.rs",
+        "tests/parsertest.lua",
+        "bench/utf8simd/results/run.json",
+        "bench/base64simd/compare.lua",
+        "bench/simd-json/benchmark.lua",
+        "bench/fused-json/README.md"
+    }) do
+        test.assert(not classifier().surfacesOf(path).simd, path .. " should not be on the SIMD surface")
+        doesNotSelect(path, {"simd-conformance"})
+    end
 end
 
 function M.simdMatrixRetainsBothMacArchitecturesAndWindowsImages()
@@ -135,8 +214,9 @@ function M.testHarnessChangeSelectsEveryPlatform()
     selects("tests/lsptest.lua", {"fast-checks", "linux-integration", "macos-integration", "windows-integration"})
 end
 
--- `scripts/toolchain` decides what every job is built with, and `.github`
--- decides what every job is. Neither has a blast radius smaller than all of it.
+-- `scripts/toolchain` decides what every job is built with, and general CI
+-- orchestration decides what every job is. The four self-contained SIMD
+-- workflow inputs above are the deliberate exception.
 function M.compatibilityCorpusSelectsItsStockInterpreterJob()
     selects("tests/lua51-compat/src/main.g.nupp", {"linux-integration", "portable-compiler"})
     selects("scripts/lua51-compat-corpus.sh", {"linux-integration", "portable-compiler"})
