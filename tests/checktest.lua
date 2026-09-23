@@ -866,6 +866,21 @@ function M.propertyCapabilities()
     )
 end
 
+function M.propertyAnnotationsAreStableAcrossRepeatedChecks()
+    local result = parser.parse(
+        table.concat(
+            {"local interface Surface", "   @readonly value: string", "   @writeonly [string]: number", "end",},
+            "\n"
+        ),
+        "repeated.g.nupp"
+    )
+    assertEq(#result.errors, 0, "property annotation syntax")
+    for pass = 1, 2 do
+        local diags = check.check(result, "repeated.g.nupp")
+        assertEq(#diags, 0, ("check %d over the same parsed tree"):format(pass))
+    end
+end
+
 function M.constTableFieldsAreReadOnly()
     assertClean(
         table.concat(

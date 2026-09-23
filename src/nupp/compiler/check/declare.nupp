@@ -433,7 +433,12 @@ function declare.install(
             end
             if e.kind == "fieldDecl" then
                 -- A capability is a property, which a struct has no way to install.
-                if e.capability then
+                local hasCapability = e.capability ~= nil
+                for _, application in ipairs(e.annotations or {}) do
+                    local name = application.name and application.name.text or nil
+                    hasCapability = hasCapability or name == "readonly" or name == "writeonly"
+                end
+                if hasCapability then
                     return
                 end
                 local ft = e.name and n.byname[e.name.text]
@@ -2100,6 +2105,8 @@ function declare.install(
                         c.raises.checkParams(e, (e.type as any).params or {})
                     end
                     local partitionApplication = nil
+                    local capabilityNode = e.capability
+                    local propertyCapability = capabilityNode and capabilityNode.propertyCapability or nil
                     for _, application in ipairs(e.annotations or {}) do
                         local definition2, valid = validateAnnotation(application, e, stat)
                         if definition2 and valid then
@@ -2109,11 +2116,11 @@ function declare.install(
                             elseif qualifier == "private" then
                                 e.privacy = application.name
                             elseif qualifier == "readonly" or qualifier == "writeonly" then
-                                if e.capability then
+                                if capabilityNode then
                                     c.diag("NUPP2118", application.name, "a field has only one property capability")
                                 else
-                                    e.capability = application.name
-                                    e.capability.propertyCapability = qualifier == "readonly" and "read" or "write"
+                                    capabilityNode = application.name
+                                    propertyCapability = qualifier == "readonly" and "read" or "write"
                                 end
                             end
                         end
@@ -2220,19 +2227,18 @@ function declare.install(
                     elseif e.type and e.type.kind == "tpreserves" then
                         c.diag("NUPP2602", e, "preserves is a callable result relation, not a field relation")
                     end
-                    local capability = e.capability and e.capability.propertyCapability or nil
-                    if capability and (stat.declKind == "struct" or stat.isAnnotationDefinition) then
+                    if propertyCapability and (stat.declKind == "struct" or stat.isAnnotationDefinition) then
                         c.diag(
                             "NUPP2118",
-                            e.capability,
-                            e.capability.text
+                            capabilityNode,
+                            capabilityNode.text
                             .. " properties are available on records, "
                             .. "interfaces, and shapes, not "
                             .. (
                                 stat.isAnnotationDefinition and "annotation schemas" or "structs"
                             )
                         )
-                        capability = nil
+                        propertyCapability = nil
                     end
                     local fieldOwnership = T.containedOwnershipKind(ft)
                     if fieldOwnership == "affine" or fieldOwnership == "pinned" then
@@ -2250,8 +2256,8 @@ function declare.install(
                         localMembers[name] = state
                         n.fieldOrder[#n.fieldOrder + 1] = name
                     end
-                    local grantsRead = capability ~= "write"
-                    local grantsWrite = capability ~= "read"
+                    local grantsRead = propertyCapability ~= "write"
+                    local grantsWrite = propertyCapability ~= "read"
                     if (grantsRead and state.read) or (grantsWrite and state.write) then
                         c.diag("NUPP2118", e.name, ("duplicate property capability for %q"):format(name))
                     end
@@ -2369,23 +2375,24 @@ function declare.install(
                         end
                     end
                 elseif e.kind == "indexerDecl" then
+                    local capabilityNode = e.capability
+                    local propertyCapability = capabilityNode and capabilityNode.propertyCapability or nil
                     for _, application in ipairs(e.annotations or {}) do
                         local definition2, valid = validateAnnotation(application, e, stat)
                         if definition2 and valid then
                             local qualifier = application.name.text
                             if qualifier == "readonly" or qualifier == "writeonly" then
-                                if e.capability then
+                                if capabilityNode then
                                     c.diag("NUPP2118", application.name, "an indexer has only one property capability")
                                 else
-                                    e.capability = application.name
-                                    e.capability.propertyCapability = qualifier == "readonly" and "read" or "write"
+                                    capabilityNode = application.name
+                                    propertyCapability = qualifier == "readonly" and "read" or "write"
                                 end
                             end
                         end
                     end
                     local key = c.resolveType(e.key)
                     local value = c.resolveType(e.value)
-                    local capability = e.capability and e.capability.propertyCapability or nil
                     if stat.declKind == "struct" or stat.isAnnotationDefinition then
                         c.diag(
                             "NUPP2118",
@@ -2395,8 +2402,8 @@ function declare.install(
                             )
                         )
                     else
-                        local grantsRead = capability ~= "write"
-                        local grantsWrite = capability ~= "read"
+                        local grantsRead = propertyCapability ~= "write"
+                        local grantsWrite = propertyCapability ~= "read"
                         if grantsRead and n.indexReadValue then
                             c.diag("NUPP2118", e, "duplicate readonly indexer capability")
                         elseif grantsRead then
