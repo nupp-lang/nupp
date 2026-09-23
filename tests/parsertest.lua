@@ -29,6 +29,21 @@ local function assertRoundtrip(src)
     return result
 end
 
+local function applyFix(source, fix)
+    local edits = {}
+    for index, edit in ipairs(fix.edits) do
+        edits[index] = edit
+    end
+    table.sort(edits, function(left, right)
+        return left.offset > right.offset
+    end)
+    for _, edit in ipairs(edits) do
+        source = source:sub(1, edit.offset - 1) .. edit.newText .. source:sub(edit.offset + edit.length)
+    end
+
+    return source
+end
+
 local M = {}
 
 function M.switchExpressionsUseDoBoundary()
@@ -619,6 +634,8 @@ function M.keywordEffectAndComptimeFormsRequireAnnotations()
     end
     local shape = assertRoundtrip("local type Read = {readonly value: integer}")
     assertEq(#shape.errors, 0)
+    local annotated = assertRoundtrip("local type Read = {@readonly value: integer}")
+    assertEq(#annotated.errors, 0)
 end
 
 function M.recoveryMissingPieces()
@@ -821,6 +838,32 @@ unsafe -- keep this comment
  do
     local raw = @unsafe nupp.release(owner)
     local restored = @unsafe nupp.adopt<Owner>((raw or fallback))
+end
+
+function M.legacyOwnershipAndHandlerFormsHaveMachineApplicableFixes()
+    for _, case in ipairs({
+        {
+            source = "local raw = @unsafe release owner",
+            fixed = "local raw = @unsafe nupp.release(owner)",
+        },
+        {
+            source = "local owner = @unsafe adopt raw as affine(integer, close)",
+            fixed = "local owner = @unsafe nupp.adopt<affine(integer, close)>(raw)",
+        },
+        {source = "drop owner", fixed = "nupp.drop(owner)"},
+        {
+            source = "handle suspension with frame.handler do print('inside') end",
+            fixed = "with installation = suspension.install(frame.handler) do print('inside') end",
+        },
+    }) do
+        local parsed = parser.parse(case.source)
+        assertEq(#parsed.errors, 1, case.source)
+        local fix = parsed.errors[1].fixes and parsed.errors[1].fixes[1]
+        assert(fix, "missing fix for " .. case.source)
+        local fixed = applyFix(case.source, fix)
+        assertEq(fixed, case.fixed)
+        assertEq(#parser.parse(fixed).errors, 0, fixed)
+    end
 end
 ]]
     local result = parser.parse(source, 'legacy.g.nupp')

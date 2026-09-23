@@ -165,6 +165,36 @@ function M.judgesTheIteratorOfAGenericFor()
     )
 end
 
+function M.judgesCallableRecordIteratorsByTheirContract()
+    local quiet = table.concat(
+        {
+            "local record Quiet",
+            "    metamethod __call: @nosuspend function(self): integer?",
+            "end",
+            "@nosuspend do",
+            "    for value in new Quiet() do print(value) end",
+            "end",
+        },
+        "\n"
+    )
+    assertEq(#diagnose(quiet), 0, "a nonsuspending callable record iterator is accepted")
+
+    local noisy = table.concat(
+        {
+            "local record Noisy",
+            "    metamethod __call: function(self): integer?",
+            "end",
+            "@nosuspend do",
+            "    for value in new Noisy() do print(value) end",
+            "end",
+        },
+        "\n"
+    )
+    local refusals = diagnose(noisy)
+    assertEq(#refusals, 1, "a callable record iterator that may suspend is refused")
+    assertTrue(refusals[1].msg:find("iterator", 1, true) ~= nil, refusals[1].msg)
+end
+
 function M.judgesADispatchedMetamethod()
     -- An operator reaching a declared contract is a call nobody wrote, judged by the
     -- contract's type exactly as a callable slot is.

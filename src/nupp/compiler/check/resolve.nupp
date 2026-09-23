@@ -753,6 +753,24 @@ function resolve.install(c: state.Checker): nil
     -- Resolving a written type
     ---------------------------------------------------------------------
 
+    local function structuralCapability(node: any): string?
+        local capability = node.capability and node.capability.propertyCapability or nil
+        for _, application in ipairs(node.annotations or {}) do
+            local definition2, valid = c.marks.validateAnnotation(application, node)
+            if definition2 and valid then
+                local written = application.name.text
+                local annotated = written == "readonly" and "read" or "write"
+                if capability then
+                    c.diag("NUPP2118", application.name, "a structural property has only one capability annotation")
+                else
+                    capability = annotated
+                end
+            end
+        end
+
+        return capability
+    end
+
     --- The type an annotation node names.
     ---
     --- @param node the type node, when there is one
@@ -1695,7 +1713,7 @@ function resolve.install(c: state.Checker): nil
         elseif kind == "tmap" then
             local key = c.resolveType(node.key)
             local value = c.resolveType(node.value)
-            local capability = node.capability and node.capability.propertyCapability or nil
+            local capability = structuralCapability(node)
             if capability == "read" then
                 return T.indexer(key, value, nil, nil)
             elseif capability == "write" then
@@ -1714,7 +1732,11 @@ function resolve.install(c: state.Checker): nil
             local value = c.resolveType(node.value)
             local remap = node.remap and c.resolveType(node.remap) or nil
             c.popScope()
-            local capability = node.capability and node.capability.propertyCapability or "read"
+            local capability = structuralCapability(node)
+            if not capability then
+                c.diag("NUPP2118", node, "a mapped field needs @readonly or @writeonly")
+                capability = "read"
+            end
             local term = T.neutral("mapped", nil, nil, capability, binder, keys, value, remap)
             local reduced, reductionError = generics.reduce(term, {}, c.reducerMemo, c.reductionControl)
             if reductionError then
@@ -1790,12 +1812,12 @@ function resolve.install(c: state.Checker): nil
                             fieldName.text,
                             fieldName,
                             c.resolveType(f.type),
-                            f.capability and f.capability.propertyCapability or nil
+                            structuralCapability(f)
                         )
                     end
                 elseif f.kind == "tmap" then
                     local key, value = c.resolveType(f.key), c.resolveType(f.value)
-                    local capability = f.capability and f.capability.propertyCapability or nil
+                    local capability = structuralCapability(f)
                     -- A key admitting exactly one string is a property with that name,
                     -- not an indexer that happens to accept one key. Saying so is what
                     -- lets a shape carry several of them: `{["a"]: T, ["b"]: U}` is two

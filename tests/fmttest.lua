@@ -108,6 +108,14 @@ end
 
 function M.propertyCapabilities()
     assertEq(
+        fmt1("local x:{@readonly value:string,@writeonly value:string|integer}"),
+        "local x: {\n    @readonly value: string,\n    @writeonly value: string | integer\n}\n"
+    )
+    assertEq(
+        fmt1("local x:{@readonly [string]:string,@writeonly [string]:integer}"),
+        "local x: {\n    @readonly [string]: string,\n    @writeonly [string]: integer\n}\n"
+    )
+    assertEq(
         fmt1("local x:{readonly value:string,writeonly value:string|integer}"),
         "local x: {\n    readonly value: string,\n    writeonly value: string | integer\n}\n"
     )

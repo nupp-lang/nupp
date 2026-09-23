@@ -852,35 +852,36 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         elseif kind == "{" then
             local n
             local addOpen = advance()
-            if cur().kind == "name"
-                and (cur().text == "readonly" or cur().text == "writeonly")
-                and tokens[i + 1]
-                and tokens[i + 1].kind == "["
-                and tokens[i + 2]
-                and tokens[i + 2].kind == "name"
-                and tokens[i + 3]
-                and tokens[i + 3].kind == "in"
-            then
-                local mapped = new cst.Tmapped(kind = "tmapped")
-                add(mapped, addOpen)
-                mapped.capability = add(mapped, advance())
-                mapped.capability.propertyCapability = mapped.capability.text == "readonly" and "read" or "write"
-                add(mapped, advance())
-                mapped.binder = add(mapped, advance())
-                add(mapped, advance()).contextualOp = true
-                mapped.keys = add(mapped, parseType())
-                if cur().kind == "name" and cur().text == "as" then
-                    add(mapped, advance()).contextualOp = true
-                    mapped.remap = add(mapped, parseType())
+
+            local function startsAnnotatedShapeMember(at: integer): boolean
+                local found = false
+                while tokens[at] and tokens[at].kind == "@" do
+                    local name = tokens[at + 1]
+                    if not name or name.kind ~= "name" then
+                        return false
+                    end
+                    found = true
+                    at = at + 2
                 end
-                add(mapped, expect("]", "to close mapped member"))
-                annotationColon(mapped, "in mapped member")
-                mapped.value = add(mapped, parseType())
-                add(mapped, expect("}", "to close mapped shape"))
-                return mapped
+                local member = tokens[at]
+                if not found or not member then
+                    return false
+                end
+                if member.kind == "[" then
+                    return true
+                end
+
+                return member.kind == "name" and tokens[at + 1] and tokens[at + 1].kind == ":"
             end
 
             local function shapeMember(): Node
+                local annotations = {}
+                while cur().kind == "@" do
+                    local application = parseAnnotationApplication(new cst.AnnotationApply(kind = "annotationApply"))
+                    application.propertyCapabilityAttachment = true
+                    application.name.propertyCapability = true
+                    annotations[#annotations + 1] = application
+                end
                 local capability = nil
                 if cur().kind == "name"
                     and (cur().text == "readonly" or cur().text == "writeonly")
@@ -891,8 +892,36 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                     capability.propertyCapability = capability.text == "readonly" and "read" or "write"
                 end
                 local member
-                if cur().kind == "[" then
+                if cur().kind == "["
+                    and tokens[i + 1]
+                    and tokens[i + 1].kind == "name"
+                    and tokens[i + 2]
+                    and tokens[i + 2].kind == "in"
+                then
+                    member = new cst.Tmapped(kind = "tmapped", capability = capability, annotations = annotations)
+                    for _, application in ipairs(annotations) do
+                        add(member, application)
+                    end
+                    if capability then
+                        add(member, capability)
+                    end
+                    add(member, advance())
+                    member.binder = add(member, advance())
+                    add(member, advance()).contextualOp = true
+                    member.keys = add(member, parseType())
+                    if cur().kind == "name" and cur().text == "as" then
+                        add(member, advance()).contextualOp = true
+                        member.remap = add(member, parseType())
+                    end
+                    add(member, expect("]", "to close mapped member"))
+                    annotationColon(member, "in mapped member")
+                    member.value = add(member, parseType())
+                elseif cur().kind == "[" then
                     member = new cst.Tmap(kind = "tmap", capability = capability)
+                    member.annotations = annotations
+                    for _, application in ipairs(annotations) do
+                        add(member, application)
+                    end
                     if capability then
                         add(member, capability)
                     end
@@ -903,6 +932,10 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                     member.value = add(member, parseType())
                 else
                     member = new cst.TshapeField(kind = "tshapeField", capability = capability)
+                    member.annotations = annotations
+                    for _, application in ipairs(annotations) do
+                        add(member, application)
+                    end
                     if capability then
                         add(member, capability)
                     end
@@ -914,9 +947,26 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 return member
             end
 
-            if cur().kind == "[" then
+            if cur().kind == "["
+                or startsAnnotatedShapeMember(i)
+                or (
+                    cur().kind == "name"
+                    and (cur().text == "readonly" or cur().text == "writeonly")
+                    and tokens[i + 1]
+                    and tokens[i + 1].kind == "["
+                    and tokens[i + 2]
+                    and tokens[i + 2].kind == "name"
+                    and tokens[i + 3]
+                    and tokens[i + 3].kind == "in"
+                )
+            then
                 -- map: { [K]: V } [CS-8]
                 local first = shapeMember()
+                if first.kind == "tmapped" then
+                    table.insert(first, 1, addOpen)
+                    add(first, expect("}", "to close mapped shape"))
+                    return first
+                end
                 if cur().kind == "," then
                     n = new cst.Tshape(kind = "tshape", fields = {})
                     add(n, addOpen)
@@ -2094,20 +2144,56 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         errAt(token, "use " .. replacement .. " instead", "NUPP1005", "move the annotation before the declaration")
     end
 
+    local function sourceText(node: Node): string
+        local first, last = cst.firstToken(node), cst.lastToken(node)
+        if not first or not last then
+            return ""
+        end
+
+        return source:sub(first.offset, last.offset + #last.text - 1)
+    end
+
     parseOwnership = function(prefix): Node
         local operation = cur().text as 'adopt' | 'release'
-        errAt(
-            cur(),
-            "ownership " .. operation .. " uses a nupp call",
-            "NUPP1005",
-            operation == "adopt" and "write @unsafe nupp.adopt<Owner>(raw)" or "write @unsafe nupp.release(owner)"
-        )
         local n = new cst.ErrorExpr(kind = "errorExpr")
         if prefix then
             add(n, prefix).contextualOp = true
         end
-        add(n, advance()).contextualOp = true
-        add(n, parseExp())
+        local operationToken = advance()
+        add(n, operationToken).contextualOp = true
+        local operand = add(n, parseExp())
+        local replacement = nil
+        if operation == "adopt" and operand.kind == "castExpr" and operand.expr and operand.type then
+            replacement = (
+                prefix and "@unsafe " or ""
+            ) .. "nupp.adopt<" .. sourceText(operand.type) .. ">(" .. sourceText(operand.expr) .. ")"
+        elseif operation == "release" then
+            replacement = (prefix and "@unsafe " or "") .. "nupp.release(" .. sourceText(operand) .. ")"
+        end
+        local start = prefix or operationToken
+        local last = cst.lastToken(operand)
+        local fixes = nil
+        if replacement and last then
+            fixes = {
+                {
+                    title = "use the ownership intrinsic call",
+                    edits = {
+                        {
+                            offset = start.offset,
+                            length = last.offset + #last.text - start.offset,
+                            newText = replacement,
+                        }
+                    },
+                }
+            }
+        end
+        errAt(
+            operationToken,
+            "ownership " .. operation .. " uses a nupp call",
+            "NUPP1005",
+            operation == "adopt" and "write @unsafe nupp.adopt<Owner>(raw)" or "write @unsafe nupp.release(owner)",
+            fixes
+        )
 
         return n
     end
@@ -3288,19 +3374,44 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             -- reserving either.
             local n = new cst.ErrorStmt(kind = "errorStmt")
             local handleTok = add(n, advance())
-            errAt(
-                handleTok,
-                "handle suspension uses an owned with installation",
-                "NUPP1005",
-                "write with installation = suspension.install(handler) do ... end"
-            )
-            add(n, advance()).contextualOp = true
+            local suspensionTok = add(n, advance())
+            suspensionTok.contextualOp = true
+            local withTok = nil
             if cur().kind == "name" and cur().text == "with" then
-                add(n, advance()).contextualOp = true
+                withTok = add(n, advance())
+                withTok.contextualOp = true
             else
                 errAt(cur(), "'with' expected in 'handle suspension'", "NUPP1002")
             end
-            add(n, parseExp())
+            local handler = add(n, parseExp())
+            local handlerFirst, handlerLast = cst.firstToken(handler), cst.lastToken(handler)
+            if withTok and handlerFirst and handlerLast then
+                errAt(
+                    handleTok,
+                    "handle suspension uses an owned with installation",
+                    "NUPP1005",
+                    "write with installation = suspension.install(handler) do ... end",
+                    {
+                        {
+                            title = "install the handler with an owned scope",
+                            edits = {
+                                {
+                                    offset = handleTok.offset,
+                                    length = handlerLast.offset + #handlerLast.text - handleTok.offset,
+                                    newText = "with installation = suspension.install(" .. sourceText(handler) .. ")",
+                                }
+                            },
+                        }
+                    }
+                )
+            else
+                errAt(
+                    handleTok,
+                    "handle suspension uses an owned with installation",
+                    "NUPP1005",
+                    "write with installation = suspension.install(handler) do ... end"
+                )
+            end
             add(n, expect("do", "to open 'handle suspension'"))
             add(n, parseBlock())
             add(n, expect("end", "to close 'handle suspension'"))
@@ -3629,8 +3740,24 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         if kind == "name" and cur().text == "drop" and tokens[i + 1] and tokens[i + 1].kind ~= "(" then
             local n = new cst.ErrorStmt(kind = "errorStmt")
             local dropTok = add(n, advance())
-            errAt(dropTok, "drop uses nupp.drop(value)", "NUPP1005", "write nupp.drop(value)")
-            add(n, parseExp())
+            local value = add(n, parseExp())
+            local last = cst.lastToken(value)
+            local fixes = nil
+            if last then
+                fixes = {
+                    {
+                        title = "use nupp.drop",
+                        edits = {
+                            {
+                                offset = dropTok.offset,
+                                length = last.offset + #last.text - dropTok.offset,
+                                newText = "nupp.drop(" .. sourceText(value) .. ")",
+                            }
+                        },
+                    }
+                }
+            end
+            errAt(dropTok, "drop uses nupp.drop(value)", "NUPP1005", "write nupp.drop(value)", fixes)
             return n
         end
 

@@ -488,6 +488,27 @@ function M.keyAndIndexedMemberOperatorsRespectCapabilities()
     )
 end
 
+function M.propertyCapabilityAnnotationsWorkInStructuralShapes()
+    clean(
+        table.concat(
+            {
+                "local type Cell = {@readonly value: string, @writeonly value: string | integer}",
+                "local readKey: keyof Cell = 'value'",
+                "local writeKey: writekeyof Cell = 'value'",
+                "local readValue: Cell.['value'] = 'ready'",
+                "local writeValue: writeof Cell.['value'] = 4",
+                "local type ReadonlyView<T> = {@readonly [K in keyof T]: T.[K]}",
+                "local type Sink<T> = {@writeonly [K in writekeyof T]: writeof T.[K]}",
+                "local source: ReadonlyView<{name: string}> = {name = 'Ada'}",
+                "local sink: Sink<{name: string}> = nil as any",
+                "sink.name = 'Grace'",
+                "print(source.name)",
+            },
+            "\n"
+        )
+    )
+end
+
 function M.mappedShapesReduceAfterGenericSubstitution()
     clean(
         table.concat(
@@ -2267,31 +2288,46 @@ end
 -- `{readonly [string]: A | B}`. Unification did not follow, so iterating either
 -- bound neither key nor value and the loop variables were `any`.
 function M.pairsBindsItsKeyAndValueOverAnArrayOrAShape()
-    clean(table.concat({
-        "local arr: {string} = {\"a\"}",
-        "for k, v in pairs(arr) do",
-        "    local key: integer = k",
-        "    local value: string = v",
-        "    print(key, value)",
-        "end",
-    }, "\n") .. "\n")
-    clean(table.concat({
-        "local rec: {a: string, b: integer} = {a = \"x\", b = 1}",
-        "for k, v in pairs(rec) do",
-        "    local key: string = k",
-        "    local value: string | integer = v",
-        "    print(key, value)",
-        "end",
-    }, "\n") .. "\n")
+    clean(
+        table.concat(
+            {
+                "local arr: {string} = {\"a\"}",
+                "for k, v in pairs(arr) do",
+                "    local key: integer = k",
+                "    local value: string = v",
+                "    print(key, value)",
+                "end",
+            },
+            "\n"
+        ) .. "\n"
+    )
+    clean(
+        table.concat(
+            {
+                "local rec: {a: string, b: integer} = {a = \"x\", b = 1}",
+                "for k, v in pairs(rec) do",
+                "    local key: string = k",
+                "    local value: string | integer = v",
+                "    print(key, value)",
+                "end",
+            },
+            "\n"
+        ) .. "\n"
+    )
     -- the binding is the argument's own element type, not a widening to `any`
     assertEq(
-        codes(table.concat({
-            "local arr: {string} = {\"a\"}",
-            "for _, v in pairs(arr) do",
-            "    local wrong: integer = v",
-            "    print(wrong)",
-            "end",
-        }, "\n") .. "\n"),
+        codes(
+            table.concat(
+                {
+                    "local arr: {string} = {\"a\"}",
+                    "for _, v in pairs(arr) do",
+                    "    local wrong: integer = v",
+                    "    print(wrong)",
+                    "end",
+                },
+                "\n"
+            ) .. "\n"
+        ),
         "NUPP2001"
     )
 end
@@ -2315,15 +2351,18 @@ end
 -- The parser already recorded a method call's type arguments and nothing read them,
 -- so writing one type-checked and still produced `any`.
 function M.aMethodCallMaySupplyItsTypeArgumentsInWriting()
-    local holder = table.concat({
-        "local record Holder",
-        "    v: integer",
-        "end",
-        "function Holder:pick<T>(): T?",
-        "    return nil",
-        "end",
-        "local h = new Holder(v = 1)",
-    }, "\n") .. "\n"
+    local holder = table.concat(
+        {
+            "local record Holder",
+            "    v: integer",
+            "end",
+            "function Holder:pick<T>(): T?",
+            "    return nil",
+            "end",
+            "local h = new Holder(v = 1)",
+        },
+        "\n"
+    ) .. "\n"
     clean(holder .. "local a: integer? = h:pick<integer>()\nprint(a)")
     assertEq(codes(holder .. "local b: string? = h:pick<integer>()\nprint(b)"), "NUPP2001")
 end

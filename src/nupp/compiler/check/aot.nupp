@@ -64,6 +64,7 @@ local DECLINED: {
     safeIndex = "an optional index",
     safeBracket = "an optional index",
     newExpr = "a constructor call",
+    withStmt = "an owned scope",
     unsafeStmt = "an `@unsafe` construct",
 }
 
@@ -85,6 +86,7 @@ local BECAUSE: {
     safeIndex = "an AOT body indexes only spans, structs, and fixed arrays",
     safeBracket = "an AOT body indexes only spans, structs, and fixed arrays",
     newExpr = "an AOT body creates no owner and allocates nothing",
+    withStmt = "an AOT function creates no owner and has no cleanup region",
     unsafeStmt = "`@aot` is a checked contract and does not admit unsafe operations",
 }
 

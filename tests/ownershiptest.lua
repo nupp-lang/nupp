@@ -34,6 +34,17 @@ local function assertClean(source)
     assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
 end
 
+local function runGenerated(source, label)
+    local result, diags = checked(source)
+    assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+    local code, generated = gen.generate(result, label)
+    assertEq(#generated, 0, generated[1] and generated[1].msg or "generate")
+    local chunk, problem = loadstring(code, "@" .. label)
+    assert(chunk, tostring(problem) .. "\n" .. code)
+
+    return chunk()
+end
+
 local RESOURCE = table.concat(
     {
         "cdef struct resource",
@@ -7521,6 +7532,136 @@ for n in step, nil, acquire() do end
 ]]
     )
     assertEq(bad, "NUPP2622")
+end
+
+function M.genericForHeaderOwnersCloseOnEveryExit()
+    local prelude = [[
+local events: {string} = {}
+local function releaseStep(takes step: function(integer, integer?): integer?): nil
+    events[#events + 1] = "step"
+end
+local function releaseState(takes state: integer): nil
+    events[#events + 1] = "state"
+end
+local function acquireStep(): affine(function(integer, integer?): integer?, releaseStep)
+    return function(_state: integer, control: integer?): integer?
+        if control == nil then return 1 end
+        return nil
+    end
+end
+local function acquireState(): affine(integer, releaseState) return 7 end
+]]
+    local cases = {
+        {
+            name = "exhaustion",
+            body = [[
+local function run(): nil
+    for n in acquireStep(), acquireState(), nil do events[#events + 1] = tostring(n) end
+    events[#events + 1] = "after"
+end
+run()
+]],
+            want = "1,state,step,after",
+        },
+        {
+            name = "return",
+            body = [[
+local function run(): nil
+    for _n in acquireStep(), acquireState(), nil do return end
+end
+run()
+events[#events + 1] = "after"
+]],
+            want = "state,step,after",
+        },
+        {
+            name = "goto",
+            body = [[
+local function run(): nil
+    for _n in acquireStep(), acquireState(), nil do goto done end
+    ::done::
+    events[#events + 1] = "after"
+end
+run()
+]],
+            want = "state,step,after",
+        },
+        {
+            name = "error",
+            body = [[
+local function run(): nil
+    for _n in acquireStep(), acquireState(), nil do error("stop") end
+end
+local ok = pcall(run)
+events[#events + 1] = ok and "missed" or "caught"
+]],
+            want = "state,step,caught",
+        },
+        {
+            name = "later-header-error",
+            body = [[
+local function fail(): integer error("stop") end
+local function run(): nil
+    for _n in acquireStep(), fail(), nil do end
+end
+local ok = pcall(run)
+events[#events + 1] = ok and "missed" or "caught"
+]],
+            want = "step,caught",
+        },
+    }
+    for _, case in ipairs(cases) do
+        local got = runGenerated(prelude .. case.body .. "return table.concat(events, ',')", "for-header-" .. case.name)
+        assertEq(got, case.want, case.name)
+    end
+end
+
+function M.genericForHeaderOwnerRefusesRawYield()
+    local bad = codes(
+        [[
+local function releaseStep(takes step: function(): integer?): nil end
+local function acquireStep(): affine(function(): integer?, releaseStep)
+    return function(): integer? return nil end
+end
+for value in acquireStep() do
+    coroutine.yield(value)
+end
+]]
+    )
+    assert(bad:find("NUPP2603", 1, true), "a raw yield must not strand the header owner: " .. bad)
+end
+
+function M.genericForOwnsAnInherentlyAffineCallableRecord()
+    local got = runGenerated(
+        [[
+local events: {string} = {}
+local record Iterator is nupp.Closeable
+    current: integer
+    function close(takes self): nil
+        events[#events + 1] = "close"
+    end
+    metamethod __call: function(self): integer?
+end
+Iterator.__call = function(self: Iterator): integer?
+    self.current = self.current + 1
+    if self.current > 1 then return nil end
+    return self.current
+end
+for value in new Iterator(current = 0) do
+    events[#events + 1] = tostring(value)
+end
+return table.concat(events, ",")
+]],
+        "for-header-closeable"
+    )
+    assertEq(got, "1,close")
+end
+
+function M.ownershipIntrinsicsCannotBeStoredAsValues()
+    for _, expression in ipairs({"nupp.adopt", "nupp.release", "nupp.drop"}) do
+        local bad = codes("local intrinsic = " .. expression .. "\nprint(intrinsic)")
+        assert(bad ~= "", expression .. " became a first-class value")
+    end
 end
 
 return M

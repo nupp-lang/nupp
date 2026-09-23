@@ -412,6 +412,13 @@ function annotate.install(c: state.Checker): annotate.Ops
         local accepts = target and c.annotationRegistry:accepts(annotation, target)
         if application.typeAttachment then
             accepts = annotation.builtin and annotation.targetSet.type
+        elseif application.propertyCapabilityAttachment then
+            accepts = annotation.builtin
+                and (application.name.text == "readonly" or application.name.text == "writeonly")
+                and (
+                    target.kind == "tshapeField" and annotation.targetSet.field
+                    or (target.kind == "tmap" or target.kind == "tmapped") and annotation.targetSet.indexer
+                )
         elseif application.expressionAttachment then
             local direct = target
             while direct and direct.kind == "paren" do

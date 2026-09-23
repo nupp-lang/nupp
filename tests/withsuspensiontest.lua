@@ -119,6 +119,78 @@ function M.gotoOutDischargesInstallation()
     assert(answer == 1 and released == 1)
 end
 
+function M.breakDischargesInstallation()
+    local released = runGenerated(
+        table.concat(
+            {
+                "local released = 0",
+                "local h = {park = function() end, canPark = function() return true end,",
+                "    shutdown = function() released = released + 1 end}",
+                "while true do",
+                '    with installation = require("nupp.suspension").install(h) do',
+                "        break",
+                "    end",
+                "end",
+                "return released",
+            },
+            "\n"
+        )
+    )
+    assert(released == 1)
+end
+
+function M.errorDischargesInstallation()
+    local ok, released = runGenerated(
+        table.concat(
+            {
+                "local released = 0",
+                "local h = {park = function() end, canPark = function() return true end,",
+                "    shutdown = function() released = released + 1 end}",
+                "local function run(): nil",
+                '    with installation = require("nupp.suspension").install(h) do',
+                '        error("stop")',
+                "    end",
+                "end",
+                "local ok = pcall(run)",
+                "return ok, released",
+            },
+            "\n"
+        )
+    )
+    assert(ok == false and released == 1)
+end
+
+function M.installationCarriesTheSuspensionRuntimeEffect()
+    local diagnostics, result = diagnose(HANDLER .. 'with installation = require("nupp.suspension").install(h) do\nend')
+    assert(#diagnostics == 0, diagnostics[1] and diagnostics[1].msg)
+    assert(result.effects["runtime.suspension"], "the installation lost its runtime effect")
+end
+
+function M.installationKeepsTheAotBoundary()
+    local diagnostics = diagnose(
+        table.concat(
+            {
+                'local suspension = require("nupp.suspension")',
+                HANDLER,
+                "@aot",
+                "local function run(): integer",
+                "    with installation = suspension.install(h) do",
+                "        return 1",
+                "    end",
+                "end",
+            },
+            "\n"
+        )
+    )
+    local found = false
+    for _, diagnostic in ipairs(diagnostics) do
+        if diagnostic.code == "NUPP2903" and diagnostic.msg:find("owned scope", 1, true) then
+            found = true
+        end
+    end
+    assert(found, "a suspension installation crossed the AOT boundary")
+end
+
 function M.nestedInstallationsRestoreTheOuterHandler()
     local outer, inner, restored, cleared = runGenerated(
         table.concat(

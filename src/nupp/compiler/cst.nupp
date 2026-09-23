@@ -1223,6 +1223,9 @@ record cst.AnnotationApply is cst.Hints
 
     --- The `)` closing them.
     close: lexer.Token?
+
+    --- Whether this application qualifies one property in a structural shape.
+    propertyCapabilityAttachment: boolean?
 end
 
 --- One argument of an annotation: `value` or `name = value`.
@@ -2394,6 +2397,9 @@ record cst.Tmap is cst.Hints
 
     --- `readonly` or `writeonly` for a capability-only indexer.
     capability: lexer.Token?
+
+    --- Annotations attached to this structural indexer.
+    annotations: {cst.AnnotationApply}?
 end
 
 --- `{x: T, y: U}`, a table known by its fields.
@@ -2419,6 +2425,9 @@ record cst.TshapeField is cst.Hints
 
     --- `readonly` or `writeonly` when only that capability is exposed.
     capability: lexer.Token?
+
+    --- Annotations attached to this structural field.
+    annotations: {cst.AnnotationApply}?
 
     --- Its type.
     type: cst.Node?
@@ -2603,6 +2612,9 @@ record cst.Tmapped is cst.Hints
     kind: 'tmapped'
 
     capability: lexer.Token?
+
+    --- Annotations attached to this mapped field.
+    annotations: {cst.AnnotationApply}?
 
     binder: lexer.Token?
 
