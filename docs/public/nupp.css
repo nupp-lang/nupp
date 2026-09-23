@@ -46,7 +46,7 @@
   --nuppdoc-dark-muted: #bda892;
   --nuppdoc-accent-contrast: #ffffff;
   --nuppdoc-feature-heading: var(--nupp-woodblock-cinnabar-deep);
-  --nuppdoc-nav-heading: rgb(189, 168, 146);
+  --nuppdoc-nav-heading: var(--nuppdoc-text-muted);
   --nuppdoc-playground-border: color-mix(in srgb, #50676c 70%, white);
   /* Drop the sidebar onto the same paper the content sits on, rather than
    * the base theme's separate panel tone, so the left nav reads as part of
@@ -119,8 +119,10 @@
 }
 
 /* The base theme sets nav links to the muted text color; pull them up to
- * the same tan the header nav links use instead, rather than something
- * that reads as dimmed-out. */
+ * the same color the header nav links use instead, rather than something
+ * that reads as dimmed-out. --nuppdoc-nav-heading used to hardcode the dark
+ * value here, which happened to equal --nuppdoc-dark-muted and so matched
+ * the header only in dark mode, leaving light mode mismatched. */
 .nuppdoc-sidebar a,
 .nuppdoc-outline a {
   color: var(--nuppdoc-nav-heading);
