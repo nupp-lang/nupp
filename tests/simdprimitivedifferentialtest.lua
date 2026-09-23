@@ -224,6 +224,18 @@ for name, case in pairs(generatedCases) do
     M[name] = case
 end
 
+function M.nativeCapabilityUsesTheBuildsCompilerSelection()
+    local selected, problem = require("nupp.compiler.build.aot").toolchain(nil, nil)
+    local capability = runner.nativeCapability()
+    if selected == nil then
+        test.equal(capability.compilerVersion, nil, tostring(problem))
+
+        return
+    end
+    test.equal(capability.compiler, selected.command)
+    test.equal(capability.compilerDialect, selected.dialect)
+end
+
 function M.unsupportedPrimitiveDomainsHavePositionedRefusals()
     local parser = require("nupp.compiler.parser")
     local check = require("nupp.compiler.check")

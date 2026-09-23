@@ -132,7 +132,13 @@ end
 --- than turning unavailable hardware into a failed semantic case.
 function M.nativeCapability(options)
     options = options or {}
-    local compiler = options.compiler or os.getenv("NUPP_NATIVE_CC") or "cc"
+    local compiler = options.compiler
+    local selectionProblem = nil
+    if compiler == nil then
+        local selected, problem = require("nupp.compiler.build.aot").toolchain(nil, nil)
+        compiler = selected and selected.command or nil
+        selectionProblem = problem
+    end
     local tier = options.tier or M.hostTier()
     local dir = nativePath(os.tmpname():gsub("\\", "/"))
     os.remove(dir)
@@ -140,39 +146,41 @@ function M.nativeCapability(options)
     local versionLog = dir .. "/compiler.log"
     local buildLog = dir .. "/capabilities-build.log"
     local runLog = dir .. "/capabilities.log"
-    local evidence = {compiler = compiler, tier = tier, available = false}
-    local versionCode = execute(M.quote(compiler) .. " --version >" .. M.quote(versionLog) .. " 2>&1")
-    if versionCode ~= 0 then
-        evidence.reason = "compiler command failed"
+    local evidence = {compiler = compiler or "", tier = tier, available = false}
+    if compiler == nil then
+        evidence.reason = selectionProblem or "no supported compiler was found"
     else
-        local versionText = M.read(versionLog)
-        evidence.compilerVersion = (versionText:match("[^\r\n]+"))
-        local lowerVersion = versionText:lower()
-        evidence.compilerDialect = lowerVersion:find("clang", 1, true) and "clang"
-            or (lowerVersion:find("gcc", 1, true) or lowerVersion:find("free software foundation", 1, true)) and "gcc"
-            or "unknown"
-        evidence.compilerSignature = require("nupp.compiler.build.aot").toolSignature(compiler)
-        local built = execute(
-            M.quote(
-                compiler
-            ) .. " -std=c11 -O2 -Wall -Wextra -Werror " .. M.quote(
-                root .. "/tests/simd/capabilities.c"
-            ) .. " -o " .. M.quote(dir .. "/capabilities.exe") .. " >" .. M.quote(buildLog) .. " 2>&1"
-        )
-        if built ~= 0 then
-            evidence.reason = "capability probe did not compile"
-            evidence.log = M.read(buildLog)
+        local versionCode = execute(M.quote(compiler) .. " --version >" .. M.quote(versionLog) .. " 2>&1")
+        if versionCode ~= 0 then
+            evidence.reason = "compiler command failed"
         else
-            local ran = execute(M.quote(dir .. "/capabilities.exe") .. " >" .. M.quote(runLog) .. " 2>&1")
-            if ran ~= 0 then
-                evidence.reason = "capability probe did not execute"
-                evidence.log = M.read(runLog)
+            local versionText = M.read(versionLog)
+            evidence.compilerVersion = (versionText:match("[^\r\n]+"))
+            local dialect = require("nupp.compiler.build.aot").identify(versionText)
+            evidence.compilerDialect = dialect or "unknown"
+            evidence.compilerSignature = require("nupp.compiler.build.aot").toolSignature(compiler)
+            local built = execute(
+                M.quote(
+                    compiler
+                ) .. " -std=c11 -O2 -Wall -Wextra -Werror " .. M.quote(
+                    root .. "/tests/simd/capabilities.c"
+                ) .. " -o " .. M.quote(dir .. "/capabilities.exe") .. " >" .. M.quote(buildLog) .. " 2>&1"
+            )
+            if built ~= 0 then
+                evidence.reason = "capability probe did not compile"
+                evidence.log = M.read(buildLog)
             else
-                local capabilities = M.read(runLog):gsub("\r\n", "\n")
-                evidence.capabilities = capabilities
-                evidence.available = ("\n" .. capabilities):find("\n" .. tier .. "\n", 1, true) ~= nil
-                if not evidence.available then
-                    evidence.reason = "CPU tier is unavailable"
+                local ran = execute(M.quote(dir .. "/capabilities.exe") .. " >" .. M.quote(runLog) .. " 2>&1")
+                if ran ~= 0 then
+                    evidence.reason = "capability probe did not execute"
+                    evidence.log = M.read(runLog)
+                else
+                    local capabilities = M.read(runLog):gsub("\r\n", "\n")
+                    evidence.capabilities = capabilities
+                    evidence.available = ("\n" .. capabilities):find("\n" .. tier .. "\n", 1, true) ~= nil
+                    if not evidence.available then
+                        evidence.reason = "CPU tier is unavailable"
+                    end
                 end
             end
         end
