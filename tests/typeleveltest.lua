@@ -2262,6 +2262,40 @@ function M.aConstraintBuiltAtComptimeIsTheOneWrittenInAType()
     )
 end
 
+-- `pairs` takes a read-only indexer, and an array and a record shape both satisfy
+-- one: `{T}` assigns to `{readonly [integer]: T}` and `{a: A, b: B}` to
+-- `{readonly [string]: A | B}`. Unification did not follow, so iterating either
+-- bound neither key nor value and the loop variables were `any`.
+function M.pairsBindsItsKeyAndValueOverAnArrayOrAShape()
+    clean(table.concat({
+        "local arr: {string} = {\"a\"}",
+        "for k, v in pairs(arr) do",
+        "    local key: integer = k",
+        "    local value: string = v",
+        "    print(key, value)",
+        "end",
+    }, "\n") .. "\n")
+    clean(table.concat({
+        "local rec: {a: string, b: integer} = {a = \"x\", b = 1}",
+        "for k, v in pairs(rec) do",
+        "    local key: string = k",
+        "    local value: string | integer = v",
+        "    print(key, value)",
+        "end",
+    }, "\n") .. "\n")
+    -- the binding is the argument's own element type, not a widening to `any`
+    assertEq(
+        codes(table.concat({
+            "local arr: {string} = {\"a\"}",
+            "for _, v in pairs(arr) do",
+            "    local wrong: integer = v",
+            "    print(wrong)",
+            "end",
+        }, "\n") .. "\n"),
+        "NUPP2001"
+    )
+end
+
 -- `as` is erased, so it may say a value is one of these but cannot make it one. A
 -- constraint is exactly the claim that has to be established.
 function M.anErasedCastCannotManufactureAConstraint()

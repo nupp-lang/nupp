@@ -2072,6 +2072,31 @@ function generics.unify(param: Type, arg: Type, map: Bindings): nil
                 unifyInvariant(param.writeKey, arg.writeKey, map)
                 unifyInvariant(param.writeValue, arg.writeValue, map)
             end
+        elseif param.readable then
+            -- An array and a record shape are both read by key, and both already
+            -- satisfy the matching indexer: `{T}` assigns to `{readonly [integer]: T}`
+            -- and `{a: A, b: B}` to `{readonly [string]: A | B}`. Only unification did
+            -- not know it, so `pairs` over either bound neither key nor value and
+            -- handed the caller `any` for both. Read positions bind covariantly, which
+            -- is what the parameter's own `readonly` already says.
+            local key, value = nil, nil
+            if arg.tag == "array" then
+                key, value = T.integer, arg.elem
+            elseif arg.tag == "shape" then
+                local members: {Type} = {}
+                for _, field in ipairs(arg.fields or {}) do
+                    if field.read then
+                        members[#members + 1] = field.read
+                    end
+                end
+                if #members > 0 then
+                    key, value = T.string, T.union(members)
+                end
+            end
+            if key and value then
+                generics.unify(param.key, key, map)
+                generics.unify(param.value, value, map)
+            end
         end
     elseif tag == "union" then
         -- "T?"-style params: subtract the concrete members from the argument, the
