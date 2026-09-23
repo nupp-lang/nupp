@@ -40,6 +40,15 @@ local function exists(path)
     return true
 end
 
+local function lineCount(path)
+    if not exists(path) then
+        return 0
+    end
+    local _, count = read(path):gsub("\n", "")
+
+    return count
+end
+
 local function run(directory, arguments, jsonOnly)
     local redirect = jsonOnly and "2>/dev/null" or "2>&1"
     local command = ("cd %q && NUPP_TEST_IMPACT_RECORD=1 %q test %s %s"):format(directory, NUPP, arguments, redirect)
@@ -94,6 +103,12 @@ function M.completeRunPublishesAndDiffSelectsCasesConservatively()
 local test = require("nupp.test")
 local M = {}
 
+-- os.execute("lane marker") keeps this fixture on the fresh-process queue so
+-- its exact-case selection proves that queue children inherit case metadata.
+local discovery = assert(io.open("build/leaf-impact-discoveries", "ab"))
+discovery:write("loaded\n")
+discovery:close()
+
 function M.usesLeaf(): nil
     local leaf = require("leaf")
     test.equal(leaf.value, 41)
@@ -113,7 +128,14 @@ return M
 local test = require("nupp.test")
 local M = {}
 
+local discovery = assert(io.open("build/hook-impact-discoveries", "ab"))
+discovery:write("loaded\n")
+discovery:close()
+
 function M.beforeAll(): nil
+    local executions = assert(io.open("build/hook-impact-before-all", "ab"))
+    executions:write("called\n")
+    executions:close()
 end
 
 function M.usesHookLeaf(): nil
@@ -123,6 +145,23 @@ end
 
 function M.hookPeer(): nil
     test.equal(20 + 22, 42)
+end
+
+return M
+]]
+    )
+    write(
+        directory .. "/tests/shapeshifttest.nupp",
+        [[
+local test = require("nupp.test")
+local M = {}
+
+function M.first(): nil
+    test.equal(20 + 22, 42)
+end
+
+function M.second(): nil
+    test.equal(6 * 7, 42)
 end
 
 return M
@@ -144,7 +183,7 @@ return {passes = function() assert(true) end}
     local fullOutput, fullStatus, fullCommand = run(directory, "--jobs=1 --json", true)
     test.equal(fullStatus, 0, fullCommand .. " failed:\n" .. fullOutput)
     local full = json.decode(fullOutput)
-    test.equal(full.total, 5)
+    test.equal(full.total, 7)
     local cache = directory .. "/build/.nupp-test-impact.buf"
     test.assert(exists(cache), "a complete successful clean run did not publish " .. cache)
     test.assert(
@@ -152,6 +191,77 @@ return {passes = function() assert(true) end}
         "an abandoned impact fragment directory was not cleaned"
     )
     test.assert(#read(cache) > 0, "the published impact graph was empty")
+
+    write(
+        directory .. "/tests/shapeshifttest.nupp",
+        [[
+local test = require("nupp.test")
+local M = {}
+
+local discovery = assert(io.open("build/shape-impact-discoveries", "ab"))
+discovery:write("loaded\n")
+discovery:close()
+
+function M.beforeAll(): nil
+    local executions = assert(io.open("build/shape-impact-before-all", "ab"))
+    executions:write("called\n")
+    executions:close()
+end
+
+function M.first(): nil
+    test.equal(20 + 22, 42)
+end
+
+function M.second(): nil
+    test.equal(6 * 7, 42)
+end
+
+return M
+]]
+    )
+    local changedSuiteOutput, changedSuiteStatus, changedSuiteCommand = run(directory, "--diff --jobs=2 --json", true)
+    test.equal(changedSuiteStatus, 0, changedSuiteCommand .. " failed:\n" .. changedSuiteOutput)
+    local changedSuite = json.decode(changedSuiteOutput)
+    test.equal(changedSuite.total, 2)
+    test.assert(contains(changedSuite.selection.selectedSuites, "shapeshifttest"))
+    test.assert(reasonWithCode(changedSuite.selection.reasons, "suite-source-changed") ~= nil)
+    test.equal(lineCount(directory .. "/build/shape-impact-discoveries"), 1)
+    test.equal(lineCount(directory .. "/build/shape-impact-before-all"), 1)
+    shell(directory, "git checkout -q -- tests/shapeshifttest.nupp")
+
+    local discoveryBefore = lineCount(directory .. "/build/leaf-impact-discoveries")
+    local hookBefore = lineCount(directory .. "/build/hook-impact-before-all")
+    local exactOutput, exactStatus, exactCommand = run(
+        directory,
+        "--case=leafimpacttest/usesLeaf --case=hookimpacttest/usesHookLeaf "
+        .. "--case=hookimpacttest/hookPeer --jobs=3 --json",
+        true
+    )
+    test.equal(exactStatus, 0, exactCommand .. " failed:\n" .. exactOutput)
+    local exact = json.decode(exactOutput)
+    test.equal(exact.total, 3)
+    test.assert(#exact.shards >= 2, "the exact-case run did not enter the worker queues")
+    test.equal(lineCount(directory .. "/build/leaf-impact-discoveries") - discoveryBefore, 1)
+    test.equal(lineCount(directory .. "/build/hook-impact-before-all") - hookBefore, 1)
+    local hookSuiteRuns = 0
+    for _, suite in ipairs(exact.suites) do
+        if suite.suite == "hookimpacttest" then
+            hookSuiteRuns = hookSuiteRuns + 1
+        end
+    end
+    test.equal(hookSuiteRuns, 1)
+
+    local missingOutput, missingStatus, missingCommand = run(
+        directory,
+        "--case=leafimpacttest/usesLeaf --case=leafimpacttest/missing --jobs=2 --json",
+        false
+    )
+    test.equal(missingStatus, 2, missingCommand .. " did not reject a missing case:\n" .. missingOutput)
+    test.matches(missingOutput, "no test case named leafimpacttest/missing")
+    test.assert(
+        not missingOutput:match("no test case named [^\n]*leafimpacttest/usesLeaf"),
+        "the parent lost a worker's selected-case acknowledgment:\n" .. missingOutput
+    )
 
     write(directory .. "/src/leaf.nupp", "return {value = 41, changed = true}\n")
     local listing, listingStatus, listingCommand = run(directory, "--diff --list-cases --explain-selection", false)
@@ -184,10 +294,44 @@ return {passes = function() assert(true) end}
     test.assert(type(selected.selection.requestedWorkMs) == "number")
     test.assert(type(selected.selection.predictedSavingsPercent) == "number")
 
+    local mixedHookBefore = lineCount(directory .. "/build/hook-impact-before-all")
+    local mixedDiscoveryBefore = lineCount(directory .. "/build/hook-impact-discoveries")
+    write(directory .. "/src/hookleaf.nupp", "return {value = 2, changed = true}\n")
+    local mixedOutput, mixedStatus, mixedCommand = run(directory, "--diff --jobs=2 --json", true)
+    test.equal(mixedStatus, 0, mixedCommand .. " failed:\n" .. mixedOutput)
+    local mixed = json.decode(mixedOutput)
+    test.equal(mixed.total, 3)
+    local mixedIds = {}
+    for _, record in ipairs(mixed.tests) do
+        mixedIds[record.id] = true
+    end
+    test.assert(mixedIds["leafimpacttest/usesLeaf"])
+    test.assert(not mixedIds["leafimpacttest/usesOther"])
+    test.assert(mixedIds["hookimpacttest/usesHookLeaf"])
+    test.assert(mixedIds["hookimpacttest/hookPeer"])
+    test.assert(contains(mixed.selection.selectedCases, "leafimpacttest/usesLeaf"))
+    test.assert(contains(mixed.selection.selectedSuites, "hookimpacttest"))
+    local shardedSuites = {}
+    for _, suite in ipairs(mixed.suites) do
+        if suite.shard ~= nil then
+            shardedSuites[suite.suite] = true
+        end
+    end
+    local schedulingEvidence = "\nsuites: " .. json.encode(mixed.suites) .. "\nshards: " .. json.encode(mixed.shards)
+    test.assert(shardedSuites.leafimpacttest, "the exact-case suite bypassed the worker queue" .. schedulingEvidence)
+    test.assert(
+        shardedSuites.hookimpacttest,
+        "the whole-suite promotion bypassed the worker queue" .. schedulingEvidence
+    )
+    test.assert(#mixed.shards >= 2, "mixed case and suite selection did not use parallel workers")
+    test.equal(lineCount(directory .. "/build/hook-impact-before-all") - mixedHookBefore, 1)
+    test.equal(lineCount(directory .. "/build/hook-impact-discoveries") - mixedDiscoveryBefore, 1)
+    shell(directory, "git checkout -q -- src/hookleaf.nupp")
+
     local shadowOutput, shadowStatus, shadowCommand = run(directory, "--diff --shadow --jobs=1 --json", true)
     test.equal(shadowStatus, 0, shadowCommand .. " failed:\n" .. shadowOutput)
     local shadow = json.decode(shadowOutput)
-    test.equal(shadow.total, 5)
+    test.equal(shadow.total, 7)
     test.equal(shadow.selection.shadow, true)
     test.assert(contains(shadow.selection.selectedCases, "leafimpacttest/usesLeaf"))
 
@@ -217,7 +361,7 @@ return {passes = function() assert(true) end}
     test.equal(excludedGroup.total, 0)
     test.equal(excludedGroup.selection.fallbacks[#excludedGroup.selection.fallbacks].code, "user-excluded")
 
-    local laneOutput, laneStatus, laneCommand = run(directory, "--diff --lane=shared --jobs=2 --json", true)
+    local laneOutput, laneStatus, laneCommand = run(directory, "--diff --lane=shell --jobs=2 --json", true)
     test.equal(laneStatus, 0, laneCommand .. " failed:\n" .. laneOutput)
     local laneSelected = json.decode(laneOutput)
     test.equal(laneSelected.total, 1)
@@ -264,10 +408,10 @@ return {passes = function() assert(true) end}
     local fallbackOutput, fallbackStatus, fallbackCommand = run(directory, "--diff=HEAD --jobs=1 --json", true)
     test.equal(fallbackStatus, 0, fallbackCommand .. " failed:\n" .. fallbackOutput)
     local fallback = json.decode(fallbackOutput)
-    test.equal(fallback.total, 5)
+    test.equal(fallback.total, 7)
     test.equal(fallback.selection.complete, true)
     test.assert(reasonWithCode(fallback.selection.fallbacks, "graph-miss") ~= nil)
-    test.equal(#fallback.selection.selectedSuites, 3)
+    test.equal(#fallback.selection.selectedSuites, 4)
 
     os.execute("rm -rf " .. string.format("%q", directory))
 end

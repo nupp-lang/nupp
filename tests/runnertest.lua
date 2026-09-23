@@ -562,6 +562,21 @@ return {
     test.equal(io.open(dir .. "/case-ran", "rb"), nil)
     test.equal(io.open(dir .. "/after-ran", "rb"), nil)
 
+    local supervisedOutput, supervised = capturedRun(
+        (
+            "cd %q && %sNUPP_TEST_SUPERVISED_PIECE=1 NUPP_TEST_BUILD=%q %q "
+            .. "--shard=hookselecttest --case=hookselecttest/present "
+            .. "--case=hookselecttest/missing --jobs=1 --json 2>/dev/null"
+        ):format(dir, MODULES, dir .. "/build", ROOT .. "/build/nupp-test")
+    )
+    test.equal(supervised.status, 2, "a supervised missing case had the wrong status" .. evidence(supervised))
+    local supervisedReport = require("testjson").decode(supervisedOutput)
+    test.equal(supervisedReport.seenSelectedCases[1], "hookselecttest/present")
+    test.equal(supervisedReport.missingSelectedCases[1], "hookselecttest/missing")
+    test.equal(io.open(dir .. "/before-ran", "rb"), nil)
+    test.equal(io.open(dir .. "/case-ran", "rb"), nil)
+    test.equal(io.open(dir .. "/after-ran", "rb"), nil)
+
     local exactOutput, exact = capturedRun(
         (
             "cd %q && %sNUPP_TEST_BUILD=%q %q --case=hookselecttest/present --jobs=1 --json 2>/dev/null"
@@ -630,6 +645,90 @@ return {
     test.equal(report.total, 1)
     test.equal(report.tests[1].id, "hookreruntest/caseRunsAfterRepair")
     test.equal(read(dir .. "/case-ran"), "yes")
+    os.execute("rm -rf " .. string.format("%q", dir))
+end
+
+function M.rerunWholePromotionAcknowledgesExactCasesBeforeHooks()
+    local dir = os.tmpname()
+    os.remove(dir)
+    assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/tests")) == 0)
+    assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/build")) == 0)
+    write(dir .. "/tests/run.lua", read(ROOT .. "/tests/run.lua"))
+    write(dir .. "/tests/assert.lua", read(ROOT .. "/tests/assert.lua"))
+    write(
+        dir .. "/tests/combinedreruntest.lua",
+        [[
+-- os.execute("lane marker") keeps the suite on a supervised fresh-process queue.
+local function mark(name)
+    local file = assert(io.open(name, "wb"))
+    file:write("ran")
+    file:close()
+end
+return {
+    beforeAll = function() mark("before-ran") end,
+    broken = function()
+        mark("case-ran")
+        local allowed = io.open("case-allowed", "rb")
+        if not allowed then error("case sentinel") end
+        allowed:close()
+    end,
+    afterAll = function()
+        mark("after-ran")
+        local allowed = io.open("after-allowed", "rb")
+        if not allowed then error("after sentinel") end
+        allowed:close()
+    end,
+}
+]]
+    )
+    local failedOutput, failed = capturedRun(
+        (
+            "cd %q && %sNUPP_TEST_BUILD=%q %q combinedreruntest --jobs=1 --json 2>/dev/null"
+        ):format(dir, MODULES, dir .. "/build", ROOT .. "/build/nupp-test")
+    )
+    test.equal(failed.status, 1, "the combined failures had the wrong status" .. evidence(failed))
+    local failedReport = require("testjson").decode(failedOutput)
+    test.equal(failedReport.failed, 2)
+    write(dir .. "/combined.json", failedOutput)
+    write(dir .. "/case-allowed", "yes")
+    write(dir .. "/after-allowed", "yes")
+    os.remove(dir .. "/before-ran")
+    os.remove(dir .. "/case-ran")
+    os.remove(dir .. "/after-ran")
+
+    local rerunOutput, rerun = capturedRun(
+        (
+            "cd %q && %sNUPP_TEST_BUILD=%q %q --rerun=combined.json --jobs=1 --json 2>/dev/null"
+        ):format(dir, MODULES, dir .. "/build", ROOT .. "/build/nupp-test")
+    )
+    test.equal(rerun.status, 0, "the case plus afterAll rerun failed" .. evidence(rerun))
+    local rerunReport = require("testjson").decode(rerunOutput)
+    test.equal(rerunReport.total, 1)
+    test.equal(rerunReport.tests[1].id, "combinedreruntest/broken")
+    test.equal(read(dir .. "/before-ran"), "ran")
+    test.equal(read(dir .. "/case-ran"), "ran")
+    test.equal(read(dir .. "/after-ran"), "ran")
+
+    for _, record in ipairs(failedReport.tests) do
+        if record.name == "broken" then
+            record.id = "combinedreruntest/missing"
+            record.name = "missing"
+        end
+    end
+    write(dir .. "/missing.json", require("testjson").encode(failedReport) .. "\n")
+    os.remove(dir .. "/before-ran")
+    os.remove(dir .. "/case-ran")
+    os.remove(dir .. "/after-ran")
+    local missingOutput, missing = capturedRun(
+        (
+            "cd %q && %sNUPP_TEST_BUILD=%q %q --rerun=missing.json --jobs=1 2>&1"
+        ):format(dir, MODULES, dir .. "/build", ROOT .. "/build/nupp-test")
+    )
+    test.equal(missing.status, 2, "the promoted suite accepted a missing exact case" .. evidence(missing))
+    test.matches(missingOutput, "no test case named combinedreruntest/missing")
+    test.equal(io.open(dir .. "/before-ran", "rb"), nil)
+    test.equal(io.open(dir .. "/case-ran", "rb"), nil)
+    test.equal(io.open(dir .. "/after-ran", "rb"), nil)
     os.execute("rm -rf " .. string.format("%q", dir))
 end
 
