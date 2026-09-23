@@ -544,7 +544,7 @@ local function annotate(root)
             end
             -- A shape of several fields is a list of them and reads as one, however
             -- short. A shape of exactly one is a single type standing where a type
-            -- goes -- `headers: {string: string}?` -- so it stays on the line that
+            -- goes -- `headers: {[string]: string}?` -- so it stays on the line that
             -- names it and breaks only when the width says so, like any other type.
             if kind == "tshape" and #(n.fields or {}) > 1 then
                 for _, field in ipairs(n.fields or {}) do

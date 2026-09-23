@@ -45,7 +45,7 @@ record http.Options
 
     --- Headers sent with every request, which a request's own headers replace by
     --- name.
-    headers: {string: string}?
+    headers: {[string]: string}?
 
     --- How long one request may take end to end, 30000 by default.
     timeoutMs: integer?
@@ -150,7 +150,7 @@ record http.Request is nupp.Closeable
     method: string?
 
     --- Headers for this request, which replace the client's by name.
-    headers: {string: string}?
+    headers: {[string]: string}?
 
     --- What to send as the body, or nothing.
     body: http.RequestBody?

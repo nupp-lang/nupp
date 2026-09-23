@@ -605,7 +605,7 @@ record http.Response is contracts.Response
 
     private _packed: string
     private _values: {[string]: {string}}?
-    private _headers: {string: string}?
+    private _headers: {[string]: string}?
     private _closed: boolean
 
     --- Releases the response and the body with it.
@@ -668,7 +668,7 @@ record http.Response is contracts.Response
     --- rather than building the whole table for it.
     --- @param self this response
     --- @return the headers
-    function headers(self): {string: string}
+    function headers(self): {[string]: string}
         if self._headers == nil then
             self:_decode()
             local out = {}
@@ -678,7 +678,7 @@ record http.Response is contracts.Response
             self._headers = out
         end
         local copy = {}
-        for name, value in pairs(self._headers as {string: string}) do
+        for name, value in pairs(self._headers as {[string]: string}) do
             copy[name] = value
         end
 

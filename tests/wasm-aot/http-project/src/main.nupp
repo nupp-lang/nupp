@@ -6,7 +6,7 @@ local io = require("nupp.io")
 local client = http.client()
 local request = new http.Request(
     url = assert(uri.newURI("http://127.0.0.1:8791/http-response.json")),
-    headers = {accept = "application/json"} as {string: string},
+    headers = {accept = "application/json"} as {[string]: string},
     maxBytes = 4096
 )
 local response, sendProblem = client:send(request)
@@ -19,7 +19,7 @@ local lease = received:reserveWrite(5, 5)
 do
     local output = lease:span()
     assert(response.body:readSpan(output) == 5)
-    drop output
+    nupp.drop(output)
 end
 lease:commit(5)
 local remainder = io.newBuffer()

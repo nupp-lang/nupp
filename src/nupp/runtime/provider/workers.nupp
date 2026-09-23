@@ -331,7 +331,7 @@ local function unsendable(value: any, path: string, depth: integer, state: Trans
     state.seen[value] = true
     -- Match string.buffer's raw table walk. A record may declare __pairs, but worker
     -- transfer copies stored data rather than invoking user iteration behavior.
-    for key, item in next, value as {any: any} do
+    for key, item in next, value as {[any]: any} do
         local keyKind = type(key)
         if not SENDABLE[keyKind] then
             return ("%s has a %s key"):format(path, keyKind)
@@ -558,7 +558,7 @@ local function rewriteAttachments(value: any, regionMT: any, arrayMT: any, state
         return {__nuppMoved = state.count}
     end
     local copy: {[any]: any} = {}
-    for key, item in next, value as {any: any} do
+    for key, item in next, value as {[any]: any} do
         copy[key] = rewriteAttachments(item, regionMT, arrayMT, state)
     end
 
@@ -630,7 +630,7 @@ local function plantAttachments(value: any, flat: {any}, cache: {any}): any
 
         return built
     end
-    for key, item in next, value as {any: any} do
+    for key, item in next, value as {[any]: any} do
         if type(item) == "table" then
             rawset(value as table, key, plantAttachments(item, flat, cache))
         end
@@ -666,7 +666,7 @@ local function releasePlantedMoved(value: any, depth: integer): nil
 
         return
     end
-    for _, item in next, value as {any: any} do
+    for _, item in next, value as {[any]: any} do
         releasePlantedMoved(item, depth + 1)
     end
 end
