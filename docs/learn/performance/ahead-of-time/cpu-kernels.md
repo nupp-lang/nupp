@@ -33,7 +33,7 @@ The human report says whether each function lowered to scalar code, explicit SIM
 
 ## Bounds and ownership
 
-A loop from one through a span's count proves its direct accesses are in bounds. If it writes a second span, an equality guard such as `assert(#output == #input)` relates the two counts. A zero-based append cursor must be guarded by `cursor < #output` before writing `output[cursor + 1]`.
+A loop from one through a span's count proves its direct accesses are in bounds. If it writes a second span, an equality guard such as `assert(#output == #input)` relates the two counts. A zero-based append cursor must be guarded by `cursor < #output` before writing `output[cursor + 1]`, or by a bound on a span the leading guards hold no longer than `output`.
 
 Exclusive writable spans become `restrict` pointers in C when ownership proves they cannot alias other live inputs. Shared reads may alias one another. The generated wrapper checks layout and bounds claims before calling the private native entry; the private entry does not carry Lua values.
 

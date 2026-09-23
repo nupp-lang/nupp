@@ -1207,15 +1207,6 @@ local function withBound(bounds: scalarIR.CursorBounds, cursor: string, root: st
     bounds[cursor] = spans
 end
 
---- Whether a recorded room covers the whole vector an access of `species`
---- reads: its own species, or another one of the same lane count, because the
---- guard compared the count and every `Fixed<N>` species counts the same
---- lanes. A region that loads `float` fields under a `number` guard is the
---- ordinary case, and the verifier reads the proof the same way.
-local function sameRoom(held: string, species: string): boolean
-    return simdbounds.covers(held, species)
-end
-
 --- The cursor a `candidate + 1` index names, when a dominating check bounded
 --- that cursor against this span: with any room, or with room for a whole
 --- vector of `room`'s lane count when one is asked for, which is how a vector
@@ -1234,8 +1225,20 @@ local function provedCursor(indexArg: cst.Node?, spanName: string?, kernel: lowe
     local candidate = lower.nameOf(index.lhs)
     local param = kernel.params[tostring(spanName)]
     local counted = param ~= nil and param.soa ~= nil and param.soa.view or spanName
-    local held = boundRoom(kernel.cursorBounds, candidate, counted)
-    if written == "+" and offset == 1 and held ~= nil and (room == nil or sameRoom(held as string, room as string)) then
+    if written ~= "+" or offset ~= 1 or candidate == nil then
+        return nil
+    end
+    local bounded = room == nil
+        and simdbounds.boundedThrough(kernel.cursorBounds, candidate as string, counted, kernel.spanBounds)
+        or room ~= nil
+        and simdbounds.coveredThrough(
+            kernel.cursorBounds,
+            candidate as string,
+            counted,
+            kernel.spanBounds,
+            room as string
+        )
+    if bounded then
         return candidate
     end
 
@@ -1251,7 +1254,7 @@ local function provedVectorCursor(offset: scalarIR.Expr, spanName: string?, kern
     local name = (base as scalarIR.Name).name
     local param = spanName ~= nil and kernel.params[spanName as string] or nil
     local counted = param ~= nil and param.soa ~= nil and param.soa.view or spanName
-    if simdbounds.covers(boundRoom(kernel.cursorBounds, name, counted), room, (count or 0) + 1) then
+    if simdbounds.coveredThrough(kernel.cursorBounds, name, counted, kernel.spanBounds, room, (count or 0) + 1) then
         return name
     end
 

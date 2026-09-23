@@ -383,6 +383,19 @@ local function explicitType(context: emit.Context, typeName: string): (string?, 
     return family, element, lanes, shape
 end
 
+--- A reassigned mask local, kept in its vector register. A mask a loop
+--- reassigns is what that loop carries, and `ks_exp_keep_mask_*` stops the C
+--- compiler narrowing it to one bit a lane and widening it at every use. The
+--- scalar oracle has no register to keep.
+local function keptMask(context: emit.Context, typeName: string, value: string): string
+    local family, element, lanes = explicitType(context, typeName)
+    if family ~= "mask" or context.explicitScalar then
+        return value
+    end
+
+    return "ks_exp_keep_mask_" .. tostring(element) .. "x" .. tostring(lanes) .. "(" .. value .. ")"
+end
+
 --- Whether an IR type is one general explicit SIMD family application.
 local function genericSimdType(typeName: string): boolean
     return typeName:match("^simd_vector_") ~= nil
@@ -3395,7 +3408,13 @@ function emit.block(
                             context,
                             entry.target.object as scalarIR.Expr
                         ) .. "->" .. (entry.target.field as string) .. ")"
-                    lines[#lines + 1] = prefix .. target .. " = " .. temps[position] .. ";"
+                    lines[
+                        #lines + 1
+                    ] = prefix .. target .. " = " .. keptMask(
+                        context,
+                        entry.target.type as string,
+                        temps[position]
+                    ) .. ";"
                 end
                 yield true
             end

@@ -522,7 +522,12 @@ local function load(node: scalarIR.Load, values: {[string]: string}, scope: veri
         holds(
             node.index == ""
             and values[node.cursor as string] == "u32"
-            and boundRoom(scope.cursorBounds, node.cursor, span.soa ~= nil and span.soa.view or node.span) ~= nil
+            and simdbounds.boundedThrough(
+                scope.cursorBounds,
+                node.cursor as string,
+                span.soa ~= nil and span.soa.view or node.span,
+                scope.countBounds
+            )
             and node.cursorCName ~= nil,
             "unbounded cursor load"
         )
@@ -559,7 +564,7 @@ local function elementRef(node: scalarIR.ElementRef, values: {[string]: string},
     local bounded = node.cursor ~= nil
         and node.index == ""
         and values[node.cursor as string] == "u32"
-        and boundRoom(scope.cursorBounds, node.cursor, node.span) ~= nil
+        and simdbounds.boundedThrough(scope.cursorBounds, node.cursor as string, node.span, scope.countBounds)
         and node.cursorCName ~= nil
         or node.cursor == nil
         and node.index == scope.index
@@ -721,7 +726,7 @@ local function vectorCursor(access: scalarIR.Simd, values: {[string]: string}, s
         and access.cursorCName ~= nil
         and values[cursor] == "u32"
         and (species == nil or simdbounds.covers(species, wanted))
-        and simdbounds.covers(boundRoom(scope.cursorBounds, cursor, counted), wanted, (count or 0) + 1)
+        and simdbounds.coveredThrough(scope.cursorBounds, cursor, counted, scope.countBounds, wanted, (count or 0) + 1)
 end
 
 --- Checks one binary64 operation, comparison, or bitwise operation.
@@ -2125,11 +2130,12 @@ local function block(
             local bounded = statement.cursor ~= nil
                 and statement.index == ""
                 and values[statement.cursor as string] == "u32"
-                and boundRoom(
+                and simdbounds.boundedThrough(
                     scope.cursorBounds,
-                    statement.cursor,
-                    param ~= nil and param.soa ~= nil and param.soa.view or statement.span
-                ) ~= nil
+                    statement.cursor as string,
+                    param ~= nil and param.soa ~= nil and param.soa.view or statement.span,
+                    scope.countBounds
+                )
                 and statement.cursorCName ~= nil
                 or statement.cursor == nil
                 and statement.index == scope.index

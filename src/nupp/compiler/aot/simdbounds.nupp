@@ -46,6 +46,62 @@ function simdbounds.covers(room: string?, species: string, count: number?): bool
     return (held == species or lanes ~= nil and species:match("_fixed(%d+)$") == lanes) and available >= (count or 1)
 end
 
+--- Whether a dominating check bounded a cursor below `counted`: directly, or
+--- below a root the entry guards prove no longer than it. `related` is the
+--- same map `coveredThrough` reads.
+function simdbounds.boundedThrough(
+    bounds: scalarIR.CursorBounds,
+    cursor: string,
+    counted: string?,
+    related: {[string]: {[string]: boolean}}?
+): boolean
+    local spans = bounds[cursor]
+    if spans == nil or counted == nil then
+        return false
+    end
+    if spans[counted as string] ~= nil then
+        return true
+    end
+    for root in pairs(spans) do
+        local reaches = related ~= nil and (related as {[string]: {[string]: boolean}})[root] or nil
+        if reaches ~= nil and reaches[counted as string] == true then
+            return true
+        end
+    end
+
+    return false
+end
+
+--- Whether a cursor has room for `count` vectors of `species` below `counted`:
+--- bounded against it directly, or against a root the entry guards prove no
+--- longer than it. `related[root][span]` holds when the guards prove the root's
+--- count at most the span's, so `assert(#output == #input)` lets a guard on
+--- `#input` bound a store to `output`.
+function simdbounds.coveredThrough(
+    bounds: scalarIR.CursorBounds,
+    cursor: string,
+    counted: string?,
+    related: {[string]: {[string]: boolean}}?,
+    species: string,
+    count: number?
+): boolean
+    local spans = bounds[cursor]
+    if spans == nil or counted == nil then
+        return false
+    end
+    if simdbounds.covers(spans[counted as string], species, count) then
+        return true
+    end
+    for root, room in pairs(spans) do
+        local reaches = related ~= nil and (related as {[string]: {[string]: boolean}})[root] or nil
+        if reaches ~= nil and reaches[counted as string] == true and simdbounds.covers(room, species, count) then
+            return true
+        end
+    end
+
+    return false
+end
+
 --- A named uint32 cursor, including entry and helper parameters.
 function simdbounds.cursor(value: scalarIR.Expr): scalarIR.Name?
     if value.type == "u32" and (value.op == "local" or value.op == "uniform" or value.op == "helper_param") then

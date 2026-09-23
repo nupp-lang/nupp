@@ -306,6 +306,29 @@ static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_swizzle_pair_##ELEM(k
 #define KS_EXP_SWIZZLE_4 KS_EXP_SWIZZLE_WIDE
 #define KS_EXP_SWIZZLE_8 KS_EXP_SWIZZLE_WIDE
 
+/* A mask a loop carries is kept in its vector register. Left to itself,
+ * LLVM folds the loop's phi of sign-extended comparisons into a phi of
+ * one-bit lanes and widens it again before every select and test, which
+ * put six instructions on the critical path of each divergent-loop pass.
+ * The empty asm only says the register may have changed; each native W is
+ * exactly one register on the tier that instantiates it. */
+#if defined(__GNUC__) && defined(__aarch64__)
+#define KS_EXP_KEEP_16(value) __asm__("" : "+w"(value));
+#elif defined(__GNUC__) && (defined(__x86_64__) || defined(__i386__))
+#define KS_EXP_KEEP_16(value) __asm__("" : "+x"(value));
+#define KS_EXP_KEEP_32(value) __asm__("" : "+x"(value));
+#define KS_EXP_KEEP_64(value) __asm__("" : "+v"(value));
+#endif
+#ifndef KS_EXP_KEEP_16
+#define KS_EXP_KEEP_16(value)
+#endif
+#ifndef KS_EXP_KEEP_32
+#define KS_EXP_KEEP_32(value)
+#endif
+#ifndef KS_EXP_KEEP_64
+#define KS_EXP_KEEP_64(value)
+#endif
+
 /* The explicit vector of one element: the vector type, its mask, the
  * scalar oracle of both, and the lane operations the compiler calls by
  * name. ELEM is the full type suffix (f64x4), so it can be pasted
@@ -340,6 +363,7 @@ static inline __attribute__((unused)) uint64_t ks_exp_bits_##ELEM(ks_exp_mask_##
 static inline __attribute__((unused)) bool ks_exp_any_##ELEM(ks_exp_mask_##ELEM value) { \
     KS_EXP_ANY_BODY(W, ELEM, BYTES) \
 } \
+static inline __attribute__((unused)) ks_exp_mask_##ELEM ks_exp_keep_mask_##ELEM(ks_exp_mask_##ELEM value) { KS_EXP_KEEP_##W(value) return value; } \
 static inline __attribute__((unused)) uint32_t ks_exp_first_##ELEM(ks_exp_mask_##ELEM value) { \
     return ks_exp_any_##ELEM(value) ? (uint32_t)__builtin_ctzll(ks_exp_bits_##ELEM(value)) + 1u : 0u; \
 } \
@@ -538,8 +562,11 @@ static inline __attribute__((unused)) void ks_exp_store_full_##ELEM(CTYPE *desti
 static inline __attribute__((unused)) void ks_exp_store_at_##ELEM(CTYPE *destination, ks_exp_##ELEM value) { for (uint32_t c = 0u; (c + 1u) * NLANES##u <= LANES##u; ++c) ks_exp_store_at_##NATIVE(destination + (size_t)(c * NLANES##u), value.chunk[c]); if (LANES##u % NLANES##u != 0u) ks_exp_store_part_##NATIVE(destination + (size_t)(LANES##u / NLANES##u * NLANES##u), LANES##u % NLANES##u, value.chunk[CHUNKS##u - 1u], ks_exp_mask_splat_##NATIVE(true)); } \
 static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_select_##ELEM(ks_exp_mask_##ELEM active, ks_exp_##ELEM yes, ks_exp_##ELEM no) { for (uint32_t c = 0u; c < CHUNKS##u; ++c) yes.chunk[c] = ks_exp_select_##NATIVE(active.chunk[c], yes.chunk[c], no.chunk[c]); return yes; } \
 static inline __attribute__((unused)) uint64_t ks_exp_bits_##ELEM(ks_exp_mask_##ELEM value) { uint64_t out = 0u; for (uint32_t c = 0u; c < CHUNKS##u; ++c) out |= ks_exp_bits_##NATIVE(value.chunk[c]) << (c * NLANES##u); out &= UINT64_MAX >> (64u - LANES##u); return out; } \
+static inline __attribute__((unused)) ks_exp_mask_##ELEM ks_exp_keep_mask_##ELEM(ks_exp_mask_##ELEM value) { for (uint32_t c = 0u; c < CHUNKS##u; ++c) value.chunk[c] = ks_exp_keep_mask_##NATIVE(value.chunk[c]); return value; } \
 static inline __attribute__((unused)) bool ks_exp_any_##ELEM(ks_exp_mask_##ELEM value) { \
-    return ks_exp_bits_##ELEM(value) != UINT64_C(0); \
+    ks_exp_mask_##NATIVE all = (LANES##u % NLANES##u != 0u) ? (value.chunk[CHUNKS##u - 1u] & ks_exp_tail_##NATIVE(LANES##u % NLANES##u)) : value.chunk[CHUNKS##u - 1u]; \
+    for (uint32_t c = 0u; c + 1u < CHUNKS##u; ++c) all = all | value.chunk[c]; \
+    return ks_exp_any_##NATIVE(all); \
 } \
 static inline __attribute__((unused)) uint32_t ks_exp_first_##ELEM(ks_exp_mask_##ELEM value) { \
     return ks_exp_any_##ELEM(value) ? (uint32_t)__builtin_ctzll(ks_exp_bits_##ELEM(value)) + 1u : 0u; \

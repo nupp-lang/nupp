@@ -5100,6 +5100,141 @@ return {other = other, masked = masked, moved = moved}
     )
 end
 
+function M.aGuardProvesASpanTheEntryGuardsHoldNoShorter()
+    -- `assert(#output == #input)` makes a guard on `#input` a guard on
+    -- `#output` too, for whole-vector stores and for a scalar tail store.
+    -- A span the entry guards may hold shorter stays checked.
+    local dir = project{
+        [
+            "related.nupp"
+        ] = [[
+local span = require("nupp.mem.span")
+local array = require("nupp.mem.array")
+local simd = require("nupp.simd")
+
+@aot
+local function equal(exclusive output: span.WriteSpan<number>, borrows input: span.Span<number>): nil
+    assert(#output == #input, "length mismatch")
+    local s = assert(simd.species(array.number, 4))
+    local cursor: uint32 = 0
+    while cursor + s.lanes <= #input do
+        s:store(output, cursor + 1, s:load(input, cursor + 1) * 2.0)
+        cursor = cursor + s.lanes
+    end
+    while cursor < #input do
+        output[cursor + 1] = input[cursor + 1] * 2.0
+        cursor = cursor + 1
+    end
+end
+
+@aot
+local function longer(exclusive output: span.WriteSpan<number>, borrows input: span.Span<number>): nil
+    assert(#output >= #input, "output too short")
+    local s = assert(simd.species(array.number, 4))
+    local cursor: uint32 = 0
+    while cursor + s.lanes <= #input do
+        s:store(output, cursor + 1, s:load(input, cursor + 1))
+        cursor = cursor + s.lanes
+    end
+end
+
+@aot
+local function shorter(exclusive output: span.WriteSpan<number>, borrows input: span.Span<number>): nil
+    assert(#output <= #input, "output too long")
+    local s = assert(simd.species(array.number, 4))
+    local cursor: uint32 = 0
+    while cursor + s.lanes <= #input do
+        s:store(output, cursor + 1, s:load(input, cursor + 1))
+        cursor = cursor + s.lanes
+    end
+end
+return {equal = equal, longer = longer, shorter = shorter}
+]],
+    }
+    local decoded, raw, code = lowered(dir, "--target aarch64-apple-darwin --features neon --json related.nupp")
+    test.equal(code, 0, raw)
+    local c = decoded.c
+    local equal = c:match("KS_API void ks_equal%(.-\n}\n")
+    assert(equal, "the kernel is emitted:\n" .. c)
+    assert(equal:find("ks_exp_store_at_f64x4(p_output + (size_t)v2_cursor, ", 1, true), "an equal span is proven\n" .. equal)
+    assert(equal:find("p_output[((size_t)v2_cursor)] = ", 1, true), "and so is its scalar tail\n" .. equal)
+    local longer = c:match("KS_API void ks_longer%(.-\n}\n")
+    assert(
+        longer and longer:find("ks_exp_store_at_f64x4(p_output + (size_t)v2_cursor, ", 1, true),
+        "a span held no shorter is proven\n" .. c
+    )
+    local shorter = c:match("KS_API void ks_shorter%(.-\n}\n")
+    assert(
+        shorter and shorter:find("ks_exp_store_full_f64x4(p_output, count_output, ", 1, true),
+        "a span that may be shorter stays checked\n" .. c
+    )
+    assert(not shorter:find("store_at_", 1, true), "with no bare copy\n" .. shorter)
+
+    local refused = project{
+        [
+            "tail.nupp"
+        ] = [[
+local span = require("nupp.mem.span")
+
+@aot
+local function tail(exclusive output: span.WriteSpan<number>, borrows input: span.Span<number>): nil
+    assert(#output <= #input, "output too long")
+    local cursor: uint32 = 0
+    while cursor < #input do
+        output[cursor + 1] = input[cursor + 1]
+        cursor = cursor + 1
+    end
+end
+return {tail = tail}
+]],
+    }
+    local out, refusedCode = run(refused, "tail.nupp")
+    test.equal(refusedCode, 1, out)
+    assert(out:find("span stores need a counted-loop index or cursor + 1 under cursor < #span", 1, true), out)
+end
+
+function M.aLoopCarriedMaskStaysInItsRegister()
+    -- A mask a loop reassigns is kept in its vector register, so the C
+    -- compiler does not carry it as one bit a lane. The scalar oracle has no
+    -- register to keep.
+    local dir = project{
+        [
+            "halve.nupp"
+        ] = [[
+local span = require("nupp.mem.span")
+local array = require("nupp.mem.array")
+local simd = require("nupp.simd")
+
+@aot
+local function halve(exclusive output: span.WriteSpan<number>, borrows input: span.Span<number>): nil
+    assert(#output == #input, "length mismatch")
+    local s = assert(simd.species(array.number, 4))
+    local cursor: uint32 = 0
+    while cursor + s.lanes <= #input do
+        local value = s:load(input, cursor + 1)
+        local live = value > 1
+        while live:any() do
+            value = live:select(value * 0.5, value)
+            live = value > 1
+        end
+        s:store(output, cursor + 1, value)
+        cursor = cursor + s.lanes
+    end
+end
+return {halve = halve}
+]],
+    }
+    local decoded, raw, code = lowered(dir, "--target aarch64-apple-darwin --features neon --json halve.nupp")
+    test.equal(code, 0, raw)
+    local c = decoded.c
+    local body = c:match("KS_API void ks_halve%(.-\n}\n")
+    assert(body, "the kernel is emitted:\n" .. c)
+    assert(body:find("_live = ks_exp_keep_mask_f64x4(as", 1, true), "the carried mask is kept\n" .. body)
+    assert(not body:find("= ks_exp_keep_mask_f64x4(ks_exp_gt", 1, true), "its first definition is not\n" .. body)
+    local oracle = c:match("KS_API void ks_halve_forced_scalar%(.-\n}\n")
+    assert(oracle and not oracle:find("keep_mask", 1, true), "the oracle keeps nothing\n" .. c)
+end
+
 function M.aSpeciesBindingIsTheOnlyPlaceItsSpeciesLives()
     local dir = project{
         [

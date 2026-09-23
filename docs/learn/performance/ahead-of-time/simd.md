@@ -40,7 +40,7 @@ Use `nupp aot --emit c FILE` to inspect the C and `nupp aot --emit asm --functio
 
 `simd.species(array.float)` selects a preferred species for the target tier. Prefer it when source need not prescribe a logical lane count. `simd.species(array.float, 4)` asks for four lanes on every target; the backend may implement that value in multiple native registers. An asserted species is appropriate when the target is known to support vectors; a conditional species with a scalar continuation keeps the same source usable without them.
 
-Vector comparisons produce masks. `mask:any()` tests for an active lane, `mask:first()` finds its first position, and `mask:select(yes, no)` chooses values lane by lane. `species:tail(remaining)` activates only lanes backed by remaining elements. Pass that mask to both a partial load and its store. Unmasked loads and stores need a dominating full-width bound.
+Vector comparisons produce masks. `mask:any()` tests for an active lane, `mask:first()` finds its first position, and `mask:select(yes, no)` chooses values lane by lane. `species:tail(remaining)` activates only lanes backed by remaining elements. Pass that mask to both a partial load and its store. Unmasked loads and stores need a dominating full-width bound. A bound on `#input` also covers `output` when the leading guards hold `output` no shorter, as `assert(#output == #input)` does in the example above.
 
 ```nupp
 local cursor: uint32 = 0
