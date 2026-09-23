@@ -883,6 +883,16 @@ function M.indirectSimdProcessesUseTheReusableShellLane()
     test.matches(shared, "simdreducerdifferentialtest")
 end
 
+function M.fixedWidthRuntimeUsesTheFreshProcessLane()
+    local isolated, isolatedRun = runWorkerHost("--lane=isolated --list-suites")
+    test.equal(isolatedRun.status, 0, "isolated lane listing failed" .. evidence(isolatedRun))
+    test.matches(isolated, "fixedwidthtest")
+
+    local shell, shellRun = runWorkerHost("--lane=shell --list-suites")
+    test.equal(shellRun.status, 0, "shell lane listing failed" .. evidence(shellRun))
+    test.equal(shell:find("fixedwidthtest", 1, true), nil, "fixed-width runtime checks do not reuse a shell process")
+end
+
 function M.caseSlicesDetermineShellWorkerCount()
     local dir = os.tmpname()
     os.remove(dir)

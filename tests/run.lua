@@ -1902,6 +1902,10 @@ local PROCESS_ISOLATED = {
     ioscalarstest = true,
     nativefoundationstest = true,
     soatest = true,
+    -- Rebuilds the math runtime through the process root and exercises LuaJIT's
+    -- wide FFI operations. A long-lived shell worker can retain JIT and FFI
+    -- state from unrelated suites even after its Lua globals are restored.
+    fixedwidthtest = true,
     -- Builds and installs the URI provider by replacing the runtime root global.
     uritest = true,
 }
