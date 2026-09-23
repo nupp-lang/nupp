@@ -796,6 +796,45 @@ return M
     os.execute("rm -rf " .. string.format("%q", dir))
 end
 
+function M.nestedRunnerTemporaryNamesStayProcessDistinct()
+    local dir = os.tmpname()
+    os.remove(dir)
+    assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/tests")) == 0)
+    write(dir .. "/tests/run.lua", read(ROOT .. "/tests/run.lua"))
+    write(dir .. "/tests/assert.lua", read(ROOT .. "/tests/assert.lua"))
+    write(
+        dir .. "/tests/tempnametest.lua",
+        [[
+return {names = function()
+    local name = os.tmpname()
+    os.remove(name)
+    local output = assert(io.open(assert(os.getenv("NUPP_TEST_TEMP_OUTPUT")), "wb"))
+    output:write(name)
+    output:close()
+end}
+]]
+    )
+
+    local cache = dir .. "/shard-7"
+
+    local function invoke(output)
+        local command = (
+            "cd %q && NUPP_TEST_TEMP_OUTPUT=%q NUPP_CACHE_DIR=%q %sNUPP_TEST_BUILD=%q "
+            .. "%q tempnametest --jobs=1 --json 2>/dev/null"
+        ):format(dir, output, cache, MODULES, dir .. "/build", ROOT .. "/build/nupp-test")
+        local document, invocation = capturedRun(command)
+        test.equal(invocation.status, 0, "the nested runner succeeded" .. evidence(invocation))
+        test.equal(require("testjson").decode(document).passed, 1)
+    end
+
+    local first = dir .. "/first-name"
+    local second = dir .. "/second-name"
+    invoke(first)
+    invoke(second)
+    test.assert(read(first) ~= read(second), "separate runner processes reserve distinct temporary names")
+    os.execute("rm -rf " .. string.format("%q", dir))
+end
+
 function M.namingSeveralSuitesRunsEveryOneOfThem()
     -- Each name used to overwrite the one before it, so `nupp test a b` ran only `b`
     -- and reported a count that looked like an answer. Summed from the single runs

@@ -75,8 +75,9 @@ local workerHost = rawget(_G, "__NUPP_TEST_WORKER_HOST") == true
 -- never wrote.
 --
 -- Impossible while the whole suite ran in one process, which is what kept it
--- hidden until the shards arrived. Salted with the shard the parent named and
--- counted within the process, so no two names can meet.
+-- hidden until the shards arrived. Salted with both the shard and process, then
+-- counted within the process, so a nested runner cannot restart the same name
+-- sequence inside its parent's shard.
 --
 -- Every platform, not just Windows, which is where this started. A suite that
 -- builds a library into its temporary directory, loads it, and is still holding
@@ -94,7 +95,25 @@ local workerHost = rawget(_G, "__NUPP_TEST_WORKER_HOST") == true
 -- output could then not be read back by name. Callers that want a directory
 -- remove it first, as they did before.
 local rawTmpname = os.tmpname
-local shardSalt = (os.getenv("NUPP_CACHE_DIR") or ""):match("shard%-(%d+)") or "0"
+local processSalt
+do
+    local loaded, ffi = pcall(require, "ffi")
+    if loaded then
+        if ffi.os == "Windows" then
+            ffi.cdef[[int _getpid(void);]]
+            processSalt = tostring(ffi.C._getpid())
+        else
+            ffi.cdef[[int getpid(void);]]
+            processSalt = tostring(ffi.C.getpid())
+        end
+    else
+        -- Official Lua already reserves a process-distinct temporary name on
+        -- the platforms where the portable compiler runs. Retain a state-local
+        -- discriminator as a second boundary when FFI is unavailable.
+        processSalt = tostring({}):match("0x(%x+)") or tostring(os.time())
+    end
+end
+local shardSalt = ((os.getenv("NUPP_CACHE_DIR") or ""):match("shard%-(%d+)") or "0") .. "-" .. processSalt
 local handedOut = 0
 os.tmpname = function()
     handedOut = handedOut + 1
@@ -2397,9 +2416,13 @@ then
                 prediction.heaviest
             )
             predictions[executionLane] = prediction
+            if not madeShardRoot then
+                assert(os.execute("mkdir -p '" .. shardCacheRoot .. "'") == 0, "cannot create the test queue root")
+                madeShardRoot = true
+            end
             local ticket = os.tmpname():match("[^/\\]+$") or tostring(#order)
             local queue = shardCacheRoot .. "/queue-" .. ticket
-            os.execute("rm -rf '" .. queue .. "' && mkdir -p '" .. queue .. "'")
+            assert(os.execute("mkdir '" .. queue .. "'") == 0, "cannot reserve a unique test queue")
             local listing = assert(io.open(queue .. "/order", "wb"))
             listing:write(table.concat(order, "\n") .. "\n")
             listing:close()
