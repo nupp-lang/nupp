@@ -143,7 +143,7 @@ end
 ```
 
 See [ahead-of-time compilation](learn/performance/ahead-of-time/index.md),
-[vectorization](learn/performance/ahead-of-time/vectorization.md), and
+[SIMD](learn/performance/ahead-of-time/simd.md), and
 [GPU compute](learn/performance/ahead-of-time/gpu.md).
 
 ## Portable targets and packaging

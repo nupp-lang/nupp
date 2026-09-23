@@ -462,8 +462,7 @@ record scalarIR.Load
     op: 'load'
     span: string
 
-    --- The loop index. Consecutive access is the whole of the lane rewrite's
-    --- licence to run several iterations at once, so nothing else is admitted.
+    --- The loop index. Only the loop's own consecutive index is admitted.
     index: string
 
     indexCName: string?
@@ -1486,14 +1485,13 @@ record scalarIR.Helper
     params: {scalarIR.Name}
 
     --- One expression per result. A helper is a return list and nothing else,
-    --- which is what makes inlining it into a lane body sound. Empty for a
+    --- which is what makes inlining it sound. Empty for a
     --- native call, which has no body here to inline.
     values: {scalarIR.Expr}
 
     --- Whether this names another compiled entry rather than a body to inline.
     --- The call becomes an ordinary C call to that entry's own symbol, so the
-    --- callee is compiled once and keeps its own contract, and the lane rewriter
-    --- declines rather than inventing a per-lane meaning for it.
+    --- callee is compiled once and keeps its own contract.
     native: boolean?
 
     resultType: scalarIR.Type

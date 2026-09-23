@@ -852,9 +852,9 @@ end
 --- The compile-time lifecycle of one source-visible reducer binding.
 ---
 --- Reducers are region capabilities, not ordinary copyable values: one binding
---- belongs to one authored SIMD loop and is consumed by one finalization after
---- that loop. The IR still carries the binding so the scalar and lane lowerings
---- can implement the selected arithmetic contract independently.
+--- belongs to one authored SIMD region and is consumed by one finalization after
+--- that region. The IR still carries the binding so the scalar oracle and the
+--- vector body can implement the selected arithmetic contract independently.
 record lower.ReducerState
     name: string
     cName: string
@@ -4861,8 +4861,8 @@ end
 --- Lowers one visible pure helper, on first reach.
 ---
 --- A helper is a parameter list and one return list over those parameters, and
---- nothing else. That is what makes inlining it into a lane body substitution
---- rather than a transformation.
+--- nothing else. That is what makes inlining it substitution rather than a
+--- transformation.
 function lower.helper(name: string, at: cst.Node?, kernel: lower.Kernel): scalarIR.Helper
     local context = kernel.context
     if kernel.helperState[name] == "lowering" then

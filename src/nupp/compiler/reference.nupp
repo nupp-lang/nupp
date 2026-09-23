@@ -1957,10 +1957,9 @@ guard is a compile-time refusal rather than an unchecked native access. Reified
 span structs may store `number` fields as physical C `double` values, which is
 what makes them usable as pointer-free parser and codec arenas.
 
-An ordinary loop remains scalar in Nupp IR. Its generated C is optimized and
-may be vectorized by the C compiler, but Nupp makes no vectorization promise.
-An algorithm that requires vectors imports `nupp.simd` inside a block kernel
-and writes the species loop, masks, and tail explicitly. Its vector and mask
+An algorithm that runs in vector lanes imports `nupp.simd` inside a block
+kernel and writes the species loop, masks, and tail explicitly; a loop without
+those operations is scalar. Its vector and mask
 values cannot escape the kernel and have no boxed Lua representation.
 `simd.species` answers `nil` with `aot = "off"`, so the source can supply an
 ordinary scalar continuation. `nupp aot --emit c` and `--emit asm` expose the

@@ -40,13 +40,12 @@ under `aot = "off"`; the scalar continuation above handles that case.
 
 Use explicit vectors when SIMD execution is part of the algorithm: shuffles,
 transposes, prefix scans, fixed-tree reductions, gathers, compress, expand, or
-a loop that C does not vectorize adequately. Ordinary loops compile to optimized
-C and may be vectorized downstream. `simd.reducer` accepts scalar contributions
+any loop that should run in vector lanes. `simd.reducer` accepts scalar contributions
 or explicit vector-plus-mask contributions, and `simd.horizontal` reduces a
 vector to one value.
 
 See
-[vectorization.md](docs/learn/performance/ahead-of-time/vectorization.md) for
+[simd.md](docs/learn/performance/ahead-of-time/simd.md) for
 the whole of it.
 ]]
 

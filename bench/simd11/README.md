@@ -4,10 +4,8 @@ This directory records completion evidence for the explicit SIMD plan. The
 LuaJIT browser migration tracked by #59 is outside this matrix; the existing
 Wasm SIMD128 backend is included.
 
-Results dated before the removal of `@simd` are historical. The current
 `measure.py` compares scalar-source C at `-O3`, the same C with vectorization
-disabled, and authored `nupp.simd`. It does not regenerate the removed loop
-rewrite; its frozen pre-removal artifacts are kept outside the source tree.
+disabled, and authored `nupp.simd`. Results record the revision they measured.
 
 ## Performance protocol (frozen before timing)
 
@@ -126,7 +124,7 @@ and logs remain preserved; the accepted report retains this source revision.
 | Malformed regions, reducers, masks, vectors and lane indices | [Verifier fixtures](../../tests/aotverifytest.lua) |
 | Ordered, pairwise, algebraic and FMA assembly contracts | [AOT CLI checks](../../tests/aotclitest.lua) |
 | Native arithmetic versus a separate optimized no-vector control | Preparation checks and saved assembly in [the measurement harness](measure.py) |
-| Complete-function duration comparisons | New measurements below and the separately identified historical comparisons above |
+| Complete-function duration comparisons | [The measurement harness](measure.py) and the separately identified comparisons above |
 
 Every execution report records its selection, source and artifact identities,
 compiler, tier, assertion count and completed native calls. A compile-only result
@@ -135,33 +133,10 @@ acceptance evidence even when all executable rows pass; modeled layouts outside
 the provisioned runtime matrix are listed in
 [runtime boundaries](../../tests/simd/runtime-boundaries.json).
 
-## New complete-function measurements
+## Complete-function measurements
 
-The [qualified NEON result](results/arm64-macos-20260919-3.md) has eleven
-improved cases and five slower cases against the optimized no-vector control.
-The colocated control's process-median CV is 2.07%. The slower cases are
-refinement at both sizes, cross-lane processing at both sizes, and 63-byte ASCII
-UTF-8. [Artifact analysis](results/arm64-macos-20260919-notes.md) identifies
-their additional work without assigning an unmeasured share of the duration to
-individual instructions.
-
-The [rejected launch](results/arm64-macos-20260919.md) collected no samples
-because another compiler task was active. The [first full run](results/arm64-macos-20260919-2.md)
-failed the frozen 5% control-CV gate at 5.88%. Both remain recorded alongside
-the qualified repeat; inputs, thresholds and statistical rules were unchanged.
-
-At the measured revision, the map and refinement scalar-source twins lacked
-the no-optimization annotation present on the other twins. They could therefore
-be optimized by Clang. These original twins were used only for correctness;
-the timed control was separately compiled with optimization and automatic
-vectorization disabled, with its assembly checked. The raw timing evidence and
-its source revision remain unchanged.
-
-After final integration, all sixteen correctness cases pass on `b2904c7f`.
-[Exact function-body comparison](results/arm64-macos-final-function-equivalence.json)
-finds identical assembly for all fourteen timed native/control functions.
-This compares each complete entry through its end directive; it does not claim
-whole-library identity or constitute another timing run.
+No qualified timing of the current kernels is recorded yet. Run `measure.py`
+under the protocol above to produce one.
 
 ## Expanded-corpus findings
 
@@ -192,7 +167,7 @@ inventories and artifact hashes.
 The [full frozen Wasm sweep](results/wasm-full-historical-20260920.json)
 retains all forty canonical shards from `628d1f02`, including exact probe
 inventories, completed calls and artifact hashes. It predates the expanded
-families and region-proof gate; it does not substitute for final-head coverage.
+families; it does not substitute for final-head coverage.
 
 The [raw-bit and mask-conversion record](results/simd-float-bits-masks-20260920.json)
 includes every legal width for both floating representations and all cross-type
@@ -228,8 +203,8 @@ The [complete Clang NEON matrix](results/native-clang-neon-7e32e50a.json)
 executes all 24 canonical rows at `7e32e50a`, with no failed or unavailable rows.
 Its expanded inventory covers every legal width for all ten primitive/reducer
 types and all four owned algorithms: 1,017,158,254 native and 1,016,654,900
-scalar-C checks. The record retains actual source identities, region proofs,
-compiled artifacts and completed calls; later portable-only and unrelated
+scalar-C checks. The record retains actual source identities, compiled
+artifacts and completed calls; later portable-only and unrelated
 language changes are not relabeled as this execution.
 
 The earlier Windows run at `628d1f02` exposed the already-fixed vector warning
@@ -242,7 +217,6 @@ The [complete GCC16 NEON matrix](results/native-gcc-neon-7e32e50a.json)
 also passes all 24 canonical rows at the same `7e32e50a` source, with no
 failed or unavailable rows. Its selection and comparison/probe/call counts
 match the Clang record. Every formerly failing GCC primitive row now has
-full-width execution on both routes, with strict warnings retained. All 57
-required corpus regions have artifact proof. These are local correctness
+full-width execution on both routes, with strict warnings retained. These are local correctness
 results; execution elapsed time is not a performance measurement, and
 platforms still awaiting CI are not counted as passed.

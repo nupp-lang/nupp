@@ -21,7 +21,3 @@ count.
 The default 1024x768 grid at 256 iterations has checksum `46373131`. The
 runner checks every pixel's iteration count and escape flag against the scalar
 function and the explicit function's forced-scalar oracle.
-
-The [old arm64 result](results/arm64-macos-mandelbrot.md) describes the removed
-`@simd` rewrite at its recorded revision. It is historical evidence, not a
-result that the current runner reproduces.

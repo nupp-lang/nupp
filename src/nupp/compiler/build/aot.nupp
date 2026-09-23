@@ -168,7 +168,7 @@ const aot.DIALECT_FLAGS = {["clang"] = {"-Wno-parentheses-equality"}, ["gcc"] = 
 --- The flag that gives a feature tier its instructions.
 ---
 --- A tier with no entry compiles for the architecture's baseline. That is not
---- an oversight: `target` already decided whether a gang exists, and a flag
+--- an oversight: `target` already decided which vector widths exist, and a flag
 --- here that decided it a second time could disagree with the code it is
 --- compiling.
 const aot.TIER_FLAGS = {["avx2"] = "-mavx2", ["avx512f"] = "-mavx512f", ["simd128"] = "-msimd128"}

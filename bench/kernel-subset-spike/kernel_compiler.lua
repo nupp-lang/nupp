@@ -25,9 +25,8 @@ compiler.renderDiagnostic = aot.renderDiagnostic
 compiler.verifyIR = verify.program
 
 function compiler.compile(source, filename, checked)
-   -- The host, at whatever tier holds a gang. The spike compiles for the machine
-   -- it is about to run on, so a conservative default would only mean the
-   -- differentials stopped testing the lane bodies.
+   -- The host's widest tier. The spike compiles for the machine it is about to
+   -- run on.
    local selected = assert(targets.select(nil, targets.tiers(
       targets.architecture(assert(require("nupp.compiler.targetlayout").hostKey())))[1]))
    local artifacts, diagnostics = aot.artifacts(source, filename, checked, SPIKE_LIBRARY, selected)

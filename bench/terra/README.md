@@ -1,9 +1,5 @@
 # Nupp against Terra
 
-The SIMD figures and `@simd` discussion below are historical measurements of
-the pre-removal compiler. The current Nupp kernels have no loop annotation;
-rerun the benchmark before attributing those figures to current source.
-
 Four numeric kernels, four implementations, one process.
 
 - **Nupp `@aot`** — `src/kernels.nupp` built by the `terra-bench` target, which
@@ -78,13 +74,10 @@ deny the recorder is the proof that it already has the answer.
 
 **`mandelbrot`'s pixels are in raster order.** An earlier draft walked the same
 region of the plane in a scrambled order. It sampled the same mixture of fast
-and slow pixels, so it looked equivalent, and it was not. A lane-parallel body
-runs a group of four until the last of them escapes, so scattering neighbours
-costs it the whole of what lanes are for — and Nupp is the only one of the three
-compiled implementations that vectorizes this kernel at all. The scrambled order
-was quietly measuring one implementation's optimization against data chosen to
-defeat it. Scrambled, `@aot` reports 1.05x on the larger size; in raster order,
-on the same machine and the same build, it reports 1.79x.
+and slow pixels, so it looked equivalent, and it was not: a body that runs
+several pixels together runs them until the last one escapes, and scattering
+neighbours makes that group's escape counts diverge. Raster order is what a
+caller rendering an image passes.
 
 ## Results
 
@@ -96,56 +89,35 @@ Throughput, and the ratio against the colocated C control:
 
 | kernel | elements | Nupp `@aot` | Nupp on LuaJIT | Terra | C |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| `mandelbrot` | 1 024 | 66.6 (**1.374x**) | 18.4 (0.379x) | 48.2 (0.995x) | 48.3 Mpixel/s |
-| `mandelbrot` | 262 144 | 78.2 (**1.785x**) | 19.3 (0.446x) | 43.3 (0.989x) | 43.8 Mpixel/s |
+| `mandelbrot` | 1 024 | — | 18.4 (0.379x) | 48.2 (0.995x) | 48.3 Mpixel/s |
+| `mandelbrot` | 262 144 | — | 19.3 (0.446x) | 43.3 (0.989x) | 43.8 Mpixel/s |
 | `advance` | 1 024 | 1524 (0.998x) | 1194 (0.780x) | 1514 (0.990x) | 1528 Melement/s |
 | `advance` | 262 144 | 1510 (1.000x) | 1199 (0.793x) | 1504 (0.995x) | 1511 Melement/s |
 | `sumSquares` | 1 024 | 2372 (0.995x) | 1686 (0.707x) | 2379 (1.000x) | 2381 Melement/s |
 | `sumSquares` | 262 144 | 2013 (1.001x) | 1671 (0.831x) | 2006 (0.999x) | 2009 Melement/s |
 | `mix` | 1 024 | 2649 (1.000x) | 746 (0.282x) | 2659 (1.005x) | 2646 Melement/s |
 | `mix` | 262 144 | 2671 (1.006x) | 753 (0.284x) | 2654 (1.000x) | 2654 Melement/s |
-| **geometric mean against C** | | **1.119x** | **0.515x** | **0.997x** | 1.000x |
+| **geometric mean against C** | | — | **0.515x** | **0.997x** | 1.000x |
+
+The `@aot` `mandelbrot` cells are withheld: the recorded run compiled a
+different body from the current source's scalar loop, so those figures do not
+describe it. Rerun the benchmark to fill them in.
 
 Every interval is tight. The widest on any compiled route is `sumSquares` at
-1 024, where `@aot` is 0.995x with a 95% bootstrap interval of [0.993, 1.001];
-`mandelbrot`'s two are [1.367, 1.376] and [1.783, 1.793]. A second independent
+1 024, where `@aot` is 0.995x with a 95% bootstrap interval of [0.993, 1.001].
+A second independent
 run of the whole table agrees with this one to within 3.8% on its worst row and
 within about 1% on every headline number.
 
-### Nupp `@aot` matches C and Terra, and beats them where it vectorizes
+### Nupp `@aot` matches C and Terra
 
-On three of the four kernels the three compiled routes are the same number:
-every ratio between 0.989x and 1.006x, which is where two `-O3` transcriptions
-of one loop belong. That is the result the benchmark was built to check, and
-`sumSquares` is the strongest form of it — a floating-point accumulator is a
-dependency chain, no implementation here may split it across lanes, and none
-does, so 0.995x and 1.000x are three compilers agreeing about arithmetic they
-were all forbidden to reorder.
-
-`mandelbrot` is the exception, and it goes Nupp's way: 1.37x at 1 024 pixels and
-1.79x at 262 144. `nupp aot` reports the reason —
-
-```text
-src/kernels.nupp: mandelbrot, kernel, Fixed<4>, 4 lanes
-```
-
-— and disassembling the other two confirms the other half of it. Neither clang
-nor Terra vectorizes `tbMandelbrot`: the loop exits on a data-dependent
-condition, which is not a shape either auto-vectorizer will take. Nupp's backend
-turns the `if` into a mask and the `break` into a lane retiring from the loop,
-so it runs four pixels at a time on a loop LLVM leaves scalar. The source asks
-for this with one `@simd` mark on the loop, and the same source on LuaJIT is
-0.45x.
-
-The gap widens with size, and not because of the call: a 1 024-pixel
-`mandelbrot` call runs about 15 microseconds, so the boundary priced below is a
-hundredth of a percent of it. It is the same mechanism as the raster-order
-finding above. These sizes are square grids over one region of the plane, so
-1 024 pixels is 32x32 and 262 144 is 512x512, and neighbours in the larger grid
-are sixteen times closer together. Closer neighbours escape on more nearly the
-same iteration, a group of four retires more nearly together, and the lanes
-waste less. Lane lowering is worth more on the finer grid because that is where
-the coherence it depends on actually is.
+On the three kernels with current `@aot` figures the three compiled routes are
+the same number: every ratio between 0.989x and 1.006x, which is where two `-O3`
+transcriptions of one loop belong. That is the result the benchmark was built to
+check, and `sumSquares` is the strongest form of it — a floating-point
+accumulator is a dependency chain, no implementation here may split it across
+lanes, and none does, so 0.995x and 1.000x are three compilers agreeing about
+arithmetic they were all forbidden to reorder.
 
 ### What the compiled entry costs to call
 
@@ -260,28 +232,9 @@ built `-ffp-contract=off`; and Terra is asked for no relaxation either. So the
 same program over the same bytes has one answer and all four produce it — 260
 checks, including the `%a` bit patterns of every `float` `advance` writes.
 
-The sizes are chosen around the edges of the lane-lowered loops rather than for
-being round — 0, 1, 2, 3, 4, 5, 7, 8, 9, 16, 17, 63, 64, 65, 1 000, 1 024. A
-kernel that lowers four lanes at a time has a vector body and a masked tail, and
-a length that is a multiple of four never runs the tail. Each kernel is then
+The sizes are chosen around the edges of vector groups rather than for being
+round — 0, 1, 2, 3, 4, 5, 7, 8, 9, 16, 17, 63, 64, 65, 1 000, 1 024. A loop
+compiled to run several elements at a time has a vector body and a scalar tail,
+and a length that is a multiple of the group never runs the tail. Each kernel is then
 required to write something non-trivial at a real size, because four
 implementations agreeing on nothing is not agreement.
-
-## One thing the source had to say twice
-
-`mix` is written with its four xorshift rounds unrolled. Written as a loop —
-
-```nupp
-for _ = 1, 4 do
-    state = state ~ (state << 13)
-    ...
-end
-```
-
-— it lowers to the same `Fixed<8>, 8 lanes` today, a nested numeric loop being a
-shape the lane path now controls; when this bench was written it was not, and
-the `@simd` mark on the outer loop would have failed the build. Clang and Terra
-unroll their own four-round loops without being asked, so all three
-implementations here are written unrolled and the comparison is of one program;
-the constraint was Nupp's and it is recorded here rather than hidden in a
-ratio.

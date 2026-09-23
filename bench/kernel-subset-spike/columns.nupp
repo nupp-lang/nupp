@@ -1,14 +1,9 @@
 -- The same component update over column storage instead of an array of structs.
 --
--- `kernels.nupp` holds five fields in one 20-byte struct, so loading one field
--- for four consecutive entities is four scalar loads, four widenings, and four
--- inserts -- and no interleaved load instruction covers a five-element
--- structure. On a kernel with little arithmetic to amortize that, assembling
--- and disassembling the vectors costs more than the work.
---
--- An entity-component store keeps components in columns, which is what makes
--- them worth having. This is that layout: one span per component, contiguous,
--- so a lane load is a vector load.
+-- `kernels.nupp` holds five fields in one 20-byte struct. An entity-component
+-- store keeps components in columns instead: one span per component,
+-- contiguous. Loads here cross consecutive structs, so this is the strided
+-- layout `columns-soa` is measured against.
 local span = require("nupp.mem.span")
 
 local struct Position

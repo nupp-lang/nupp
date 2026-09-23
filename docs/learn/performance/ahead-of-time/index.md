@@ -30,9 +30,8 @@ Lua-building entries.
 Pure numeric and span bodies keep the small `kernel` ABI, and a body that
 constructs fresh Lua values uses the separate `lua-builder` ABI. GPU entries
 replace the function with a checked `compile`, `bind`, and `dispatch` surface.
-Nothing in the source names an ABI. A loop that requires CPU SIMD states its
-species, masks, and tail through `nupp.simd`; ordinary loops compile to
-optimized C without a vectorization guarantee.
+Nothing in the source names an ABI. A loop that runs in CPU vector lanes states
+its species, masks, and tail through `nupp.simd`.
 
 ## Const-specialized families
 
@@ -98,7 +97,7 @@ Each page owns one part of the AOT pipeline.
   representative measurement.
 - [Lua values](lua-values.md) covers table and string construction through the
   VM-rooted builder ABI.
-- [Vectorization](vectorization.md) covers explicit SIMD, ordinary C optimization, and
+- [SIMD](simd.md) covers `nupp.simd` species, masks, reducers, and
   target feature tiers.
 - [Numeric semantics](numeric-semantics.md) covers arithmetic guarantees and
   verification.
@@ -118,12 +117,11 @@ what the differentials in
 [Verification](numeric-semantics.md#verification) check. `@relax` is the one
 annotation that changes the answer, and it says so per function.
 
-### Why did my loop compile but run one iteration at a time?
+### How does a loop run in vector lanes?
 
-An ordinary loop remains scalar in Nupp IR. Its generated C may or may not be
-vectorized by the C compiler. Inspect `nupp aot --emit asm` before relying on
-that optimization; write explicit SIMD when vectors are required. See
-[AOT vectorization](vectorization.md).
+By saying so with `nupp.simd`: a species, its vector loads and stores, masks,
+and a tail. A loop without those operations is scalar. See
+[AOT SIMD](simd.md).
 
 ### Does a project need a C compiler?
 

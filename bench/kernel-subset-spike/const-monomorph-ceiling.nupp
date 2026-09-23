@@ -51,7 +51,7 @@ end
 
 -- The ordinary-Lua ceiling after const substitution and bounded unrolling.
 -- It stays unannotated because this fixture measures the source-shape win
--- before AOT; `rounds4` remains the native lane ceiling.
+-- before AOT.
 local function rounds4Unrolled(
     exclusive output: span.WriteSpan<number>,
     borrows input: span.Span<number>,

@@ -90,7 +90,7 @@ end
 One Euler step over an array of bodies, with a per-step drag.
 
 Thirty-two bytes move per element for a handful of flops, so this is the
-bandwidth end of the range and the kernel where lane lowering has the least to
+bandwidth end of the range and the kernel where compiled code has the least to
 add. It is here to keep the compute-bound kernels honest: a language that wins
 `mandelbrot` and loses this one has not been shown to be faster.
 ]]
@@ -140,7 +140,8 @@ Four rounds of xorshift over each element.
 The same map shape as `advance` and the same bytes moved, but with enough
 integer work per element that the memory is no longer the limit. Shifts and
 exclusive-ors on `uint32` are exact and associative, so unlike `sumSquares` this
-one may be lowered lane-parallel without any relaxation being asked for.
+one may be run several elements at a time without any relaxation being asked
+for.
 ]]
 @aot
 local function mix(exclusive output: span.WriteSpan<uint32>, borrows input: span.Span<uint32>): nil

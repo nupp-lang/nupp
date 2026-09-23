@@ -2,9 +2,9 @@
 order: 633
 ---
 
-# AOT vectorization
+# AOT SIMD
 
-Ordinary AOT loops keep their scalar meaning in Nupp and compile to optimized C. Write explicit `nupp.simd` operations when vector execution is part of the algorithm.
+AOT code runs in vector lanes through explicit `nupp.simd` operations. A loop written without them is a scalar loop.
 
 ```nupp
 local array = require("nupp.mem.array")
@@ -32,11 +32,9 @@ end
 
 The full-vector guard makes the main loop's accesses safe without per-lane bounds checks. Only the final partial group uses a mask. The scalar branch runs when `simd.species` returns `nil`, including ordinary Lua execution with AOT off.
 
-## Ordinary loops and generated C
+## Inspecting generated code
 
-A loop without explicit vector operations remains scalar in Nupp IR. The generated C is compiled with optimization, and Clang, GCC, or Emscripten may vectorize it when their own proofs and target flags permit. Nupp does not promise or report that downstream decision.
-
-Use `nupp aot --emit c FILE` to inspect the C and `nupp aot --emit asm --function NAME FILE` to inspect the selected machine code. A simple streaming map may be just as fast as explicit SIMD after C optimization; measure before duplicating its scalar source.
+Use `nupp aot --emit c FILE` to inspect the C and `nupp aot --emit asm --function NAME FILE` to inspect the selected machine code. Benchmark the complete exported function, including setup, tails, and reducer finalization, against its scalar form before committing to the vector one.
 
 ## Species, masks, and tails
 
@@ -60,7 +58,7 @@ end
 return 0
 ```
 
-An early-exit scan keeps its scalar continuation after the last full vector. For a divergent algorithm, keep a live mask, update only its active lanes with `select`, and continue while `live:any()`. The source states the control flow that runs in lanes; the compiler does not infer it from a scalar loop.
+An early-exit scan keeps its scalar continuation after the last full vector. For a divergent algorithm, keep a live mask, update only its active lanes with `select`, and continue while `live:any()`. The source states the control flow that runs in lanes; nothing else runs in lanes.
 
 For a filter, count selected lanes before compressing them. The output cursor
 advances by the count, not by the species width:
@@ -124,9 +122,3 @@ A writable row view supplies exclusive ownership; sibling column pointers retain
 Preferred species resolve per artifact tier. Fixed species keep their logical lane count while native legalization chooses the representation. Wasm SIMD128 and native CPU tiers use the same source-level vector and mask operations; GPU invocations are a separate execution model.
 
 `aotFeatures` chooses the tiers an artifact ships and can raise its minimum when its source requires SIMD. A tier without usable vectors makes `simd.species` return `nil`; an asserted species is rejected. Windows x86-64 limits physical vector width to its frame-safe 16 bytes even when a wider tier is selected.
-
-## Migrating an annotated loop
-
-The former `@simd` annotation and `--emit simd` artifact have been removed. Delete the annotation if scalar semantics and downstream C optimization are sufficient. If SIMD is required, write a visible species loop, masks and tail, and a scalar continuation where the source must also run without AOT. Deleting the annotation alone does not preserve its old performance.
-
-Inspect generated C and assembly and benchmark the complete exported function, including setup, tails, and reducer finalization. The historical required-loop benchmarks remain records of their original compiler revision, not commands for the current design.

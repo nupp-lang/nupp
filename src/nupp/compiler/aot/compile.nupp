@@ -767,8 +767,7 @@ function compile.artifacts(
     for position, program in ipairs(programs) do
         numericForRuntime(program, selected)
         optimizations[position] = aotOptimize.program(program)
-        -- Every optimized body is checked, whether or not lane lowering will
-        -- later be requested or accepted.
+        -- Every optimized body is checked before any artifact is built from it.
         verify.program(program)
         if program.executionTarget == "gpu" then
             local artifact, rule = gpuartifact.program(program, browser)

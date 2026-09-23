@@ -46,7 +46,7 @@ const target.TIERS = {
     --- WebAssembly SIMD has one portable 128-bit vector register shape.
     ["simd128"] = 16,
 
-    --- Scalar WebAssembly deliberately admits no vector rewrite.
+    --- Scalar WebAssembly has no vector registers.
     ["scalar"] = 0,
 }
 

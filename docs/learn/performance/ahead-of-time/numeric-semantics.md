@@ -186,8 +186,7 @@ independent level-by-level adjacent-pair tree, including unpaired leaves. The
 seed is the first leaf: seven leaves combine as `block4 + (block2 + leaf1)`,
 not `(block4 + block2) + leaf1`. Integer wrapping, bitwise, predicate, extremum,
 and first-position contracts are exact. NaNs compare by the observable policy
-above, not by unspecified payload bits. Required-loop probes cover empty
-inputs and every tail through forty elements. Explicit vector reducer probes
+above, not by unspecified payload bits. Explicit vector reducer probes
 cover Fixed2 through Fixed64 and Preferred with two complete groups and every
 tail, including positive-only holes and all-false masks. Authored reducers retain their
 one-unconditional-contribution rule. Arg-position and predicate reducers expose

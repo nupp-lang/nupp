@@ -4,7 +4,7 @@ order: 632
 
 # CPU kernels
 
-An `@aot` CPU kernel keeps numeric and span data in a pointer-free native entry. Its ordinary loops lower to scalar C, which the selected C compiler may optimize or vectorize.
+An `@aot` CPU kernel keeps numeric and span data in a pointer-free native entry. Its loops lower to C that the selected C compiler optimizes.
 
 ```nupp
 local span = require("nupp.mem.span")
@@ -29,7 +29,7 @@ nupp aot --emit c bench/simd11/kernels.nupp
 nupp aot --emit asm --function map --features neon bench/simd11/kernels.nupp
 ```
 
-The human report describes scalar, explicit SIMD, or GPU work that Nupp owns. A scalar loop in that report may still be vectorized downstream. Judge that by the assembly, not by the Nupp loop outcome.
+The human report says whether each function lowered to scalar code, explicit SIMD, or GPU invocations. The assembly is the record of the instructions that run.
 
 ## Bounds and ownership
 
@@ -47,10 +47,10 @@ An entry may return several numeric or boolean results through its private aggre
 
 ## Explicit SIMD
 
-When vector execution matters, use [`nupp.simd`](vectorization.md) inside a block kernel. The vector loop, mask, tail, and scalar continuation are visible in the source, and the same C and assembly inspection commands show their lowering. A forced-scalar twin remains available for explicit-SIMD conformance; it is not a performance baseline.
+When vector execution matters, use [`nupp.simd`](simd.md) inside a block kernel. The vector loop, mask, tail, and scalar continuation are visible in the source, and the same C and assembly inspection commands show their lowering. A forced-scalar twin remains available for explicit-SIMD conformance; it is not a performance baseline.
 
 ## Benchmarks
 
-Compare complete exported functions, including guards, setup, tails, and reducer finalization. The `bench/simd11` historical record compares the old required-loop route, ordinary optimized C, its no-vector control, and explicit SIMD with paired samples and archived artifacts. Its `@simd` results describe the revision measured; a current benchmark must use current source.
+Compare complete exported functions, including guards, setup, tails, and reducer finalization. `bench/simd11` compares explicit SIMD kernels against their scalar forms with paired samples and archived artifacts.
 
-High-arithmetic divergent kernels can benefit from explicit SIMD, but a wider logical species also waits for its slowest live lane. Streaming updates may be limited by memory traffic and may already vectorize well in C. Measure the actual target and tier before choosing a vector implementation.
+High-arithmetic divergent kernels can benefit from explicit SIMD, but a wider logical species also waits for its slowest live lane. Streaming updates may be limited by memory traffic rather than arithmetic. Measure the actual target and tier before choosing a vector implementation.

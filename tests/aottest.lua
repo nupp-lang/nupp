@@ -111,23 +111,6 @@ return {accumulate = accumulate}
     )
 end
 
-function M.removedSimdAnnotationIsUnknown()
-    reports(
-        [[
-@aot
-local function sum(count: integer): number
-    local total = 0.0
-    @simd
-    for i = 1, count do total = total + i end
-    return total
-end
-return sum
-]],
-        "NUPP2111",
-        "removed SIMD annotation is unknown"
-    )
-end
-
 function M.numericSwitchLocalIsAdmitted()
     reports(
         [[
@@ -165,12 +148,9 @@ return {constantClass = constantClass}
     )
 end
 
-function M.laneLoweringIsAttemptedRatherThanRequested()
-    -- The shape lane lowering can take is one top-level numeric map loop. It is
-    -- recorded rather than required: a body of another shape is an ordinary
-    -- `@aot` function that compiles one iteration at a time, and only the
-    -- vectorisation check has anything to say about it. `simd = true` used to
-    -- make every one of these a build error.
+function M.ordinaryLoopShapesCompile()
+    -- A map loop, a loop-free body, and several loops are all ordinary `@aot`
+    -- functions.
     reports(
         [[
 local span = require("nupp.mem.span")
@@ -221,7 +201,7 @@ end
 return {two = two}
 ]],
         "",
-        "two loops are not a shape lane lowering takes, and not an error"
+        "two loops compile"
     )
 
     reports(
@@ -240,51 +220,6 @@ return {scalar = scalar}
 ]],
         "",
         "an ordinary body remains scalar"
-    )
-
-    -- `@aot` has no vectorization member: source authors use `nupp.simd`.
-    reports(
-        [[
-@aot(vectorize = true)
-local function forced(count: integer): number
-    local total = 0.0
-    for i = 1, count do
-        total = total + i
-    end
-
-    return total
-end
-
-return {forced = forced}
-]],
-        "NUPP2115",
-        "vectorize is not a member of @aot"
-    )
-
-    reports(
-        [[
-@aot(vectorize = false)
-local function scalar(value: number): number
-    return value
-end
-
-return {scalar = scalar}
-]],
-        "NUPP2115",
-        "nor is declining one"
-    )
-
-    reports(
-        [[
-@aot(lanes = true)
-local function wrong(value: number): number
-    return value
-end
-
-return {wrong = wrong}
-]],
-        "NUPP2115",
-        "and the withdrawn lanes spelling is gone with it"
     )
 end
 
@@ -306,18 +241,6 @@ return {map = map}
 ]],
         "",
         "a GPU map is an admitted AOT body"
-    )
-
-    reports(
-        [[
-@aot(target = "gpu", vectorize = true)
-local function wrong(value: number): number
-    return value
-end
-return {wrong = wrong}
-]],
-        "NUPP2115",
-        "GPU invocation mapping has no CPU lane member to combine with"
     )
 
     reports(

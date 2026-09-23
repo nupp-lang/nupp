@@ -497,7 +497,7 @@ function reducers.accumulate(
 ): string
     local vector = reducers.accumulatorType("exact", element, carrier)
     if element ~= "bool" then
-        -- Mixed gangs carry int32 exactly in binary64. A negative floating
+        -- Mixed-width carriers hold int32 exactly in binary64. A negative floating
         -- value cannot convert directly to uint32: recover its signed value
         -- first, then use the defined modulo signed-to-unsigned conversion.
         if element == "i32" and carrier:match("^f64x") ~= nil then

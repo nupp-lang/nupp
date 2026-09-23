@@ -465,7 +465,7 @@ Options:
 
 The bare command says what every `@aot` function in the file lowered to: its
 entry mode and whether its Nupp IR uses explicit SIMD, scalar control flow,
-or GPU invocations. It does not claim what the C compiler vectorized.
+or GPU invocations.
 
 ```text [nupp aot bench/kernel-subset-spike/mandelbrot.nupp]
 bench/kernel-subset-spike/mandelbrot.nupp: mandelbrot, kernel, scalar
@@ -521,9 +521,8 @@ counts. There are instruction rules for aarch64 and x86-64; another
 architecture is refused rather than reported with empty counts.
 
 The exit status is the one a build would give. An invalid explicit vector
-operation fails at its authored access. An ordinary loop remains scalar in Nupp
-IR; the C compiler may still vectorize it. See
-[vectorization.md](../learn/performance/ahead-of-time/vectorization.md) for
+operation fails at its authored access. See
+[simd.md](../learn/performance/ahead-of-time/simd.md) for
 species and target tiers.
 
 ### `bc`

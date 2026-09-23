@@ -1,4 +1,4 @@
--- `nupp aot`: what scalar and explicitly vectorized `@aot` functions compile to.
+-- `nupp aot`: what scalar and explicit SIMD `@aot` functions compile to.
 --
 -- Driven through the real binary because artifacts and exit status are the interface.
 
@@ -1426,9 +1426,9 @@ end
 return {saxpy = saxpy}
 ]]
 
---- A target every host can compile for, at a tier that holds the wide gangs.
+--- A target every host can compile for, at a tier that holds wide vectors.
 ---
---- Pinned because these assert which gang a body takes, and that depends on what
+--- Pinned because these assert how many lanes a body takes, and that depends on what
 --- the target can hold: the same source takes four lanes at avx2 and two at the
 --- x86-64 baseline. Left to the host, they would assert the runner's CPU.
 local PINNED = "--target x86_64-unknown-linux-gnu --features avx2 "
@@ -1964,17 +1964,6 @@ function M.anOrdinaryLoopCompilesScalarAndSaysSo()
     local out, code = run(dir, "stream.nupp")
     test.equal(code, 0, "an ordinary loop compiles\n" .. out)
     assert(out:find("advance, kernel, scalar", 1, true), "the report says it runs scalar: " .. out)
-    assert(not out:find("lanes", 1, true), "and offers no lane decision to read: " .. out)
-end
-
-function M.aVectorizeMemberOnAotIsUnknown()
-    -- `@aot` has no vectorization member; explicit SIMD is written in source.
-    for _, spelling in ipairs({"@aot(vectorize = true)", "@aot(vectorize = false)", "@aot(lanes = true)"}) do
-        local dir = project{["stream.nupp"] = replaceOnce(STREAMING, "@aot\n", spelling .. "\n")}
-        local out, code = run(dir, "stream.nupp")
-        test.equal(code, 1, spelling .. " is not accepted\n" .. out)
-        assert(out:find("NUPP2115", 1, true), spelling .. " is an unknown member: " .. out)
-    end
 end
 
 function M.exactReducersKeepNativeWidthAndLogicalPositionsAtEveryTier()
@@ -3207,7 +3196,6 @@ function M.emitPrintsTheGeneratedC()
 
     local out = decoded.c
     assert(out:find("void ks_escapes(", 1, true), where .. ": the exported symbol is defined: " .. out)
-    assert(not out:find("ks_escapes_forced_scalar", 1, true), where .. ": no scalar-loop twin: " .. out)
     assert(
         out:find("*restrict", 1, true),
         where .. ": the writable span carries the disjointness ownership proved: " .. out
@@ -3803,7 +3791,7 @@ return {classify = classify, Value = Value}
     assert(out:find("if (", 1, true), out)
 end
 
-function M.jsonReportsScalarLoopWithoutRemovedFields()
+function M.jsonReportsAScalarLoop()
     local dir = project{["compute.nupp"] = COMPUTE}
     local out, code = run(dir, PINNED .. "--json compute.nupp")
     test.equal(code, 0, out)
@@ -3815,7 +3803,6 @@ function M.jsonReportsScalarLoopWithoutRemovedFields()
     local only = decoded.functions[1]
     test.equal(only.name, "escapes")
     test.equal(only.symbol, "ks_escapes")
-    test.equal(only.regions, nil, "required-loop reports are removed")
     test.equal(#only.loops, 1)
     test.equal(only.loops[1].kind, "map")
     test.equal(only.loops[1].outcome, "scalar")

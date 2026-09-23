@@ -519,9 +519,8 @@ operation inside the body reports `NUPP2903` at the construct. Stacking it with
 `@jit` reports `NUPP2901`, and annotating a constructor or inline requirement
 reports `NUPP2902`, since neither is a whole function to compile.
 
-A numeric loop remains scalar in Nupp IR. Its optimized C may be vectorized by
-the C compiler, while code that requires SIMD uses `nupp.simd` explicitly. See
-[vectorization.md](../learn/performance/ahead-of-time/vectorization.md) for the
+Code that runs in vector lanes uses `nupp.simd`. See
+[simd.md](../learn/performance/ahead-of-time/simd.md) for the
 vector loop and scalar continuation patterns, and
 [build-and-artifacts.md](../learn/performance/ahead-of-time/build-and-artifacts.md)
 for a full kernel, the build policy, and what the backend does not do yet.

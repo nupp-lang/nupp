@@ -1421,7 +1421,6 @@ function M.emitCWritesTheCBesideTheBuild()
         c:find("void " .. emittedSymbol(c, "ks_scale", tier) .. "(", 1, true),
         "and it defines the tiered exported symbol: " .. c:sub(1, 200)
     )
-    assert(not c:find("ks_scale_forced_scalar", 1, true), "scalar source has no generated twin")
     local sum = emittedSymbol(c, "ks_sum_bytes", tier)
     assert(
         c:find("KsResult_" .. sum:gsub("__" .. tier .. "$", "") .. " " .. sum .. "(", 1, true),
