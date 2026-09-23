@@ -2179,6 +2179,8 @@ function generics.unify(param: Type, arg: Type, map: Bindings): nil
         local element = sequenceElement(arg)
         if element then
             unifyInvariant(param.elem, element, map)
+        elseif arg == T.table_ then
+            collectBinders(param, gradualFor(map))
         end
     elseif tag == "metatable" then
         -- `metatable<T>` is how a registrar asks for a declaration's own table, so the

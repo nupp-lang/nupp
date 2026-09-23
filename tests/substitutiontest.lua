@@ -385,14 +385,7 @@ function M.anExpectedLiteralInfersItsResults()
 end
 
 function M.anUninferredResultParameterIsAnError()
-    local body = table.concat(
-        {
-            "local function make<T>(): T",
-            "   error('not reached')",
-            "end",
-        },
-        "\n"
-    ) .. "\n"
+    local body = table.concat({"local function make<T>(): T", "   error('not reached')", "end",}, "\n") .. "\n"
     local found = diagnostics(body .. "local value = make()\nreturn value\n")
     assertEq(#found, 1, "one uninferred parameter")
     assertEq(found[1].code, "NUPP2148")
@@ -405,13 +398,7 @@ end
 
 function M.explicitTypeArgumentsStayFixedAgainstArguments()
     reports(
-        table.concat(
-            {
-                "local function identity<T>(value: T): T return value end",
-                "return identity<string>(1)",
-            },
-            "\n"
-        ),
+        table.concat({"local function identity<T>(value: T): T return value end", "return identity<string>(1)",}, "\n"),
         "NUPP2006"
     )
 end
@@ -439,17 +426,20 @@ function M.gradualArgumentsAreInferenceEvidence()
             "end",
             "local function identity<T>(value: T): T return value end",
             "local function unwrap<T>(value: Box<T>): T return value.value end",
+            "local function first<T>(values: const{T}): T return values[1] end",
             "local value: any = nil",
+            "local loose: table = {}",
             "local direct = identity(value)",
             "local nested = unwrap(value)",
-            "return direct, nested",
+            "local fromTable = first(loose)",
+            "return direct, nested, fromTable",
         },
         "\n"
     )
     clean(body)
     reports(
         body:gsub(
-            "return direct, nested",
+            "return direct, nested, fromTable",
             "local function extra<T, U>(value: Box<T>): U error('not reached') end\nlocal missing = extra(value)\nreturn missing"
         ),
         "NUPP2148"
@@ -477,12 +467,7 @@ function M.genericConstructionsNeedInferenceEvidence()
     reports(body .. "local value = new Empty(tag = 'x')\nreturn value\n", "NUPP2148")
     clean(body .. "local value = new Empty<integer>(tag = 'x')\nreturn value\n")
     local declared = table.concat(
-        {
-            "local record Made<T>",
-            "   tag: string",
-            "   constructor(self, tag: string) self.tag = tag end",
-            "end",
-        },
+        {"local record Made<T>", "   tag: string", "   constructor(self, tag: string) self.tag = tag end", "end",},
         "\n"
     ) .. "\n"
     reports(declared .. "local value = new Made('x')\nreturn value\n", "NUPP2148")
@@ -491,12 +476,7 @@ end
 
 function M.genericMethodsNeedInferenceEvidence()
     local body = table.concat(
-        {
-            "local record Holder",
-            "   function pick<T>(self): T? return nil end",
-            "end",
-            "local holder = new Holder()",
-        },
+        {"local record Holder", "   function pick<T>(self): T? return nil end", "end", "local holder = new Holder()",},
         "\n"
     ) .. "\n"
     reports(body .. "local value = holder:pick()\nreturn value\n", "NUPP2148")
@@ -701,12 +681,7 @@ end
 -- parameters, so the recursive field its reference documents carries the argument the
 -- construction inferred rather than losing it.
 function M.aGenericDeclarationStandsForItsOwnInstantiationInItsBody()
-    local node = table.concat({
-        "local record Node<T>",
-        "   value: T",
-        "   next: Node?",
-        "end",
-    }, "\n") .. "\n"
+    local node = table.concat({"local record Node<T>", "   value: T", "   next: Node?", "end",}, "\n") .. "\n"
     clean(
         node
         .. "local tail: Node<integer> = new Node(value = 2)\n"
