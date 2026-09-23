@@ -1,4 +1,4 @@
-# Shared SIMD execution matrix
+# SIMD execution fleet
 
 `run-matrix.sh` runs the ordinary `nupp test` harness with real Clang and GCC.
 Each compiler/tier pair builds two immutable fixtures: a cheap species inventory
@@ -11,21 +11,21 @@ An unavailable tier is recorded as `not-executed`, with
 `requested_native_matrix_complete=false`. A green job therefore means all
 **available** executions passed; it does not certify unavailable hardware.
 
-CI uses separate jobs for each compiler and tier on Linux x64/arm64, macOS arm64
-and x64, and Windows 2022/2025 x64. Each native target is split into three
-disjoint element-type jobs; the owned algorithm corpora run in exactly one of
-them. The ordinary integration jobs stay separate.
+`tests/fleet/plan.json` keeps host, compiler-dialect, and instruction-tier
+obligations orthogonal. It runs the minimum cells needed for Linux x64/arm64,
+macOS x64/arm64, Windows x64, baseline, AVX2, AVX512F, NEON, Clang, and GCC.
+The ordinary integration jobs stay separate.
 `runtime-boundaries.json` records modeled layouts outside those execution rows.
 Windows ARM64 and Windows32 are not supported by the native toolchain: it
 explicitly accepts only x86_64 GNU/GNU-LLVM Rust hosts. Linux32 has a modeled
 layout and SIMD target but no provisioned 32-bit process in this matrix; it is
 recorded as not executed. A target layout is not evidence of a working runtime.
 
-The CI compiler selector uses Homebrew GCC on macOS, rather than Apple's `gcc`
-alias. Windows Clang targets MinGW and uses the same GNU sysroot as GCC, matching
-the LuaJIT library ABI. Compiler versions, target triples, CPU capabilities,
-revision, harness facts, build logs, artifact SHA256s and deterministic work counts are
-retained under `build/simd-matrix` and uploaded even when a case fails.
+The fleet compiler selector uses versioned Homebrew GCC on macOS rather than
+Apple's `gcc` alias. Windows Clang targets MinGW and uses the same GNU sysroot as
+GCC, matching the LuaJIT library ABI. Reports retain compiler versions, target
+triples, CPU capabilities, source identity, harness facts, artifact SHA-256s,
+and deterministic work counts.
 The runner keeps the provisioned host compiler in `NUPP_CC`; each requested
 `NUPP_NATIVE_CC` still compiles the emitted C, without changing the host's
 LuaJIT and LPeg dependency prefix.
@@ -37,17 +37,15 @@ NUPP_SIMD_COMPILERS=clang NUPP_SIMD_TIERS=baseline NUPP_SIMD_ALGORITHMS=none \
 ```
 
 The compact pack always preserves all ten element types and every public species;
-`NUPP_SIMD_TIERS` selects one or more exact native tiers. The old `run.lua`
-driver remains available for bounded migration equivalence against arbitrary
-family/type/lane selections. Matrix output directories cannot overwrite existing
-evidence.
+`NUPP_SIMD_TIERS` selects one or more exact native tiers. Matrix output
+directories cannot overwrite existing evidence.
 
-`run-equivalence.lua` is the historical-defect gate. It reads the thirteen-entry
+`simdfleetequivalencetest` is the fleet's historical-defect gate. It reads the thirteen-entry
 defect ledger and runs each exact case in a fresh process with a test-only
 mutation. A kill counts only when that case fails with its defect-specific marker
 and an accepted failure mode. A survivor, skipped case, setup failure, unrelated
-failure or missing marker fails the gate. Repeat `--defect=ID` to diagnose a
-subset; ordinary suite runs do not enable these mutations.
+failure or missing marker fails the gate. Ordinary suite runs do not enable
+these mutations.
 
 Each executable native tier also builds isolated copies of the UTF-8 validator,
 Base64 encoder, JSON structural indexer and fused JSON decoder projects with an
@@ -98,15 +96,13 @@ runtime-sensitive counted corpus. It verifies that no single-number guard remain
 and reports the exact adapted guard count. The focused Chromium smoke below owns
 the numeric-for behavior that differs between the runtimes.
 
-`run-wasm-browser-smoke.sh` retains the real browser contract as a small int32x4
+`simdwasmbrowsersmoketest` retains the real browser contract as a small int32x4
 pack plus the three-probe counted-loop corpus. The counted corpus belongs here
 because Wasm AOT uses the browser guest's single-number numeric-for semantics,
 which a native dual-number LuaJIT must not impersonate. Both SIMD and scalar-C
 routes must execute with distinct Wasm artifacts before the smoke publishes its
-two `simd.wasm.counted-runtime` witnesses. Chrome is not needed for the local
-exhaustive pure-Wasm semantic matrix. The existing
-`run-wasm.sh` remains available while the remote workflow is retired separately;
-this change does not redirect GitHub jobs.
+two `simd.wasm.counted-runtime` witnesses. Chrome is not needed for the
+exhaustive pure-Wasm semantic matrix.
 
 The Wasm runner also preserves a test-only copy of each generated side C file.
 Only the browser bridge's call target changes to the already emitted,
@@ -115,16 +111,6 @@ probe; the launcher checks source/Wasm hashes and executes the same entry
 inventory again. Reports retain the original and scalar-C artifact hashes and name
 each selected twin. This proves the chosen call route; it does not claim that
 the entire Wasm module contains no SIMD instructions.
-
-The retained legacy CI path shards Wasm by all ten element types and four disjoint width batches:
-2–17, 18–33, 34–49, and 50–64 plus Preferred. Every shard runs both corpus
-families through SIMD128 and scalar C. The final aggregation rejects missing,
-duplicated, wrong-revision, or partial shards before claiming the complete
-inventory. It derives each type and width from the emitted probe identities that
-returned on each route, so selection metadata cannot turn a smaller corpus into
-complete coverage. `run-wasm.sh` still carries its historical counted-loop row
-until that remote workflow is retired, but migration coverage for the guest
-numeric-for contract now comes from the focused browser smoke above.
 
 These are semantic tests, not benchmarks. The reports do not measure speed or
 claim that a compiler chose a particular machine instruction for every operation.

@@ -1,0 +1,696 @@
+#!/usr/bin/env python3
+"""Run Nupp's cross-platform test obligations on owned machines."""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path
+import platform
+import shutil
+import signal
+import subprocess
+import sys
+import tempfile
+import time
+import uuid
+
+
+ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_PLAN = ROOT / "tests/fleet/plan.json"
+DEFAULT_CONFIG = ROOT / ".nupp/fleet.json"
+DEFAULT_STATE = ROOT / ".nupp/fleet"
+IDENTIFIER = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
+
+
+def canonical(value):
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+
+
+def digest_bytes(value):
+    return hashlib.sha256(value).hexdigest()
+
+
+def digest_file(path):
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def read_json(path):
+    with Path(path).open(encoding="utf-8") as source:
+        return json.load(source)
+
+
+def write_json(path, value):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(path.name + ".tmp-" + uuid.uuid4().hex)
+    temporary.write_bytes(canonical(value) + b"\n")
+    temporary.replace(path)
+
+
+def checked_identifier(value, label):
+    if not isinstance(value, str) or not value or any(character not in IDENTIFIER for character in value):
+        raise ValueError(f"{label} must contain only letters, digits, dot, underscore, and hyphen")
+    return value
+
+
+def git(root, *arguments, env=None, text=True):
+    complete = subprocess.run(
+        ["git", *arguments], cwd=root, env=env, check=True,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=text,
+    )
+    return complete.stdout
+
+
+def _synthetic_snapshot(root, temporary):
+    repository = temporary / "repository"
+    bundle = temporary / "snapshot.bundle"
+    repository.mkdir()
+    git(repository, "init", "-q")
+    environment = dict(os.environ)
+    environment.update({
+        "GIT_DIR": str(repository / ".git"),
+        "GIT_WORK_TREE": str(root),
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_AUTHOR_NAME": "Nupp test fleet",
+        "GIT_AUTHOR_EMAIL": "fleet@nupp.invalid",
+        "GIT_AUTHOR_DATE": "1970-01-01T00:00:00Z",
+        "GIT_COMMITTER_NAME": "Nupp test fleet",
+        "GIT_COMMITTER_EMAIL": "fleet@nupp.invalid",
+        "GIT_COMMITTER_DATE": "1970-01-01T00:00:00Z",
+    })
+    git(root, "add", "-A", env=environment)
+    tree = git(root, "write-tree", env=environment).strip()
+    commit = subprocess.run(
+        ["git", "commit-tree", tree], cwd=root, env=environment, input="Nupp fleet snapshot\n",
+        check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    ).stdout.strip()
+    git(root, "update-ref", "refs/heads/snapshot", commit, env=environment)
+    # Disable parallel delta selection so identical trees produce identical
+    # transport bytes as well as the same tree identity.
+    git(
+        root,
+        "-c",
+        "pack.threads=1",
+        "-c",
+        "pack.window=0",
+        "-c",
+        "pack.depth=0",
+        "bundle",
+        "create",
+        str(bundle),
+        "refs/heads/snapshot",
+        env=environment,
+    )
+    return tree, bundle
+
+
+def snapshot(root, cache):
+    """Capture tracked changes, staged changes, deletions, and nonignored files once."""
+    root, cache = Path(root).resolve(), Path(cache).resolve()
+    cache.mkdir(parents=True, exist_ok=True)
+    head = git(root, "rev-parse", "HEAD").strip()
+    dirty = bool(git(root, "status", "--porcelain=v1", "--untracked-files=normal"))
+    # Two independent index captures make an edit racing the snapshot visible.
+    for _ in range(3):
+        with tempfile.TemporaryDirectory(prefix="nupp-fleet-snapshot-") as first_dir, tempfile.TemporaryDirectory(
+            prefix="nupp-fleet-snapshot-"
+        ) as second_dir:
+            first_tree, first_bundle = _synthetic_snapshot(root, Path(first_dir))
+            second_tree, second_bundle = _synthetic_snapshot(root, Path(second_dir))
+            if first_tree != second_tree:
+                continue
+            first_bytes = first_bundle.read_bytes()
+            second_bytes = second_bundle.read_bytes()
+            if first_bytes != second_bytes:
+                continue
+            identity = digest_bytes(first_bytes)
+            destination = cache / "snapshots" / f"{identity}.bundle"
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            if destination.exists():
+                if digest_file(destination) != identity:
+                    raise RuntimeError(f"snapshot cache entry has the wrong digest: {destination}")
+            else:
+                staged = destination.with_name(destination.name + ".tmp-" + uuid.uuid4().hex)
+                staged.write_bytes(first_bytes)
+                staged.replace(destination)
+            return {
+                "snapshotSha256": identity,
+                "treeOid": first_tree,
+                "bundleSha256": identity,
+                "bytes": len(first_bytes),
+                "path": str(destination),
+                "gitCommit": head,
+                "dirty": dirty,
+            }
+    raise RuntimeError("working tree changed while the fleet snapshot was being captured; retry")
+
+
+def _validate_plan(plan):
+    if not isinstance(plan, dict) or plan.get("schemaVersion") != 1:
+        raise ValueError("unsupported fleet plan schema")
+    jobs = plan.get("jobs")
+    if not isinstance(jobs, list) or not jobs:
+        raise ValueError("fleet plan has no jobs")
+    seen = set()
+    for job in jobs:
+        job_id = checked_identifier(job.get("id"), "job id")
+        checked_identifier(job.get("executor"), f"executor for {job_id}")
+        if job_id in seen:
+            raise ValueError(f"duplicate fleet job {job_id}")
+        seen.add(job_id)
+        argv = job.get("argv")
+        if not isinstance(argv, list) or argv[:2] != ["./bin/nupp", "test"] or "--json" not in argv:
+            raise ValueError(f"fleet job {job_id} must invoke ./bin/nupp test with --json")
+        if any(not isinstance(item, str) or not item for item in argv):
+            raise ValueError(f"fleet job {job_id} has an invalid argument")
+        environment = job.get("env", {})
+        if not isinstance(environment, dict) or any(
+            not isinstance(key, str) or not isinstance(value, str) for key, value in environment.items()
+        ):
+            raise ValueError(f"fleet job {job_id} has an invalid environment")
+    return plan
+
+
+def load_plan(path=DEFAULT_PLAN):
+    plan = _validate_plan(read_json(path))
+    result = dict(plan)
+    result["sha256"] = digest_bytes(canonical(plan))
+    return result
+
+
+def _case_counts(report):
+    names = {"passed": "passed", "skipped": "skipped", "not-executed": "notExecuted", "failed": "failed"}
+    counts = {field: 0 for field in names.values()}
+    tests = report.get("tests")
+    if not isinstance(tests, list):
+        raise ValueError("test report has no tests array")
+    for record in tests:
+        if not isinstance(record, dict) or record.get("status") not in names:
+            raise ValueError("test report has an invalid case status")
+        case_id = record.get("id")
+        if not isinstance(case_id, str) or "/" not in case_id:
+            raise ValueError("test report case has no stable ID")
+        counts[names[record["status"]]] += 1
+    if report.get("total") != len(tests):
+        raise ValueError("test report total does not match its cases")
+    for field, count in counts.items():
+        if report.get(field) != count:
+            raise ValueError(f"test report {field} does not match its cases")
+    if report.get("ok") is not (counts["failed"] == 0):
+        raise ValueError("test report ok does not match its failures")
+    return {"total": len(tests), **counts}
+
+
+def _metric_totals(reports):
+    totals = {}
+    for report in reports:
+        for metric in report.get("metrics") or []:
+            if not isinstance(metric, dict) or not isinstance(metric.get("name"), str):
+                raise ValueError("test report has an invalid metric")
+            value = metric.get("value")
+            if not isinstance(value, (int, float)) or isinstance(value, bool):
+                raise ValueError("test report metric is not numeric")
+            unit = metric.get("unit")
+            key = (metric["name"], unit)
+            totals[key] = totals.get(key, 0) + value
+    result = []
+    for (name, unit), value in sorted(totals.items(), key=lambda item: (item[0][0], item[0][1] or "")):
+        metric = {"name": name, "value": value}
+        if unit is not None:
+            metric["unit"] = unit
+        result.append(metric)
+    return result
+
+
+def _proof_artifacts(job_id, record):
+    artifacts = []
+
+    def visit(value, trail):
+        if isinstance(value, dict):
+            sha = value.get("sha256")
+            if isinstance(sha, str) and len(sha) == 64 and all(character in "0123456789abcdefABCDEF" for character in sha):
+                artifacts.append({
+                    "jobId": job_id,
+                    "caseId": record["id"],
+                    "kind": "proof-identity",
+                    "name": value.get("name") or value.get("unit") or trail,
+                    "sha256": sha.lower(),
+                })
+            for key, item in value.items():
+                visit(item, f"{trail}.{key}" if trail else key)
+        elif isinstance(value, list):
+            for index, item in enumerate(value):
+                visit(item, f"{trail}[{index}]")
+
+    if record.get("status") == "passed":
+        visit(record.get("facts") or [], "facts")
+    return artifacts
+
+
+def _final_attempts(plan, records):
+    by_job = {}
+    known = {job["id"] for job in plan["jobs"]}
+    for record in records:
+        job_id = record.get("jobId")
+        if job_id not in known:
+            raise ValueError(f"result names unknown fleet job {job_id}")
+        attempt = record.get("attempt", 1)
+        if not isinstance(attempt, int) or attempt < 1:
+            raise ValueError(f"fleet result for {job_id} has an invalid attempt")
+        by_job.setdefault(job_id, []).append(record)
+    final = {}
+    for job in plan["jobs"]:
+        attempts = sorted(by_job.get(job["id"], []), key=lambda item: item.get("attempt", 1))
+        if attempts:
+            final[job["id"]] = attempts[-1]
+    return by_job, final
+
+
+def aggregate(plan, run_records, output_dir):
+    """Validate child reports and create a fleet-qualified aggregate."""
+    _validate_plan(plan)
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    expected_source = (plan.get("source") or {}).get("snapshotSha256")
+    if not isinstance(expected_source, str) or len(expected_source) != 64:
+        raise ValueError("fleet plan has no source snapshotSha256")
+    by_job, final = _final_attempts(plan, run_records)
+    runs, cases, capabilities, artifacts, valid_reports = [], [], [], [], []
+    totals = {"total": 0, "passed": 0, "skipped": 0, "notExecuted": 0, "failed": 0}
+    infrastructure = False
+
+    for job in sorted(plan["jobs"], key=lambda item: item["id"]):
+        job_id = job["id"]
+        attempts = sorted(by_job.get(job_id, []), key=lambda item: item.get("attempt", 1))
+        if not attempts:
+            attempts = [{"jobId": job_id, "attempt": 1, "sourceSha256": None, "exitCode": None}]
+        for index, supplied in enumerate(attempts):
+            item = {
+                "jobId": job_id,
+                "attempt": supplied.get("attempt", 1),
+                "final": index == len(attempts) - 1,
+                "sourceSha256": supplied.get("sourceSha256"),
+                "exitCode": supplied.get("exitCode"),
+                "durationMs": supplied.get("durationMs", 0),
+                "host": supplied.get("host"),
+            }
+            report = supplied.get("report")
+            problem = None
+            if supplied.get("sourceSha256") != expected_source:
+                problem = "source snapshot identity mismatch" if supplied.get("sourceSha256") else "missing fleet result"
+            elif supplied.get("problem") is not None:
+                problem = str(supplied["problem"])
+            elif not isinstance(report, dict):
+                problem = "missing test report"
+            else:
+                try:
+                    counts = _case_counts(report)
+                except ValueError as error:
+                    problem = str(error)
+                else:
+                    expected_exit = 0 if report["ok"] else 1
+                    if supplied.get("exitCode") != expected_exit:
+                        problem = "exit status does not match the test report"
+            if problem:
+                item["status"] = "infrastructure-failed"
+                item["problem"] = problem
+                if item["final"] and job.get("required", True):
+                    infrastructure = True
+            else:
+                raw = canonical(report) + b"\n"
+                identity = digest_bytes(raw)
+                relative = Path("reports") / job_id / f"attempt-{item['attempt']}-{identity}.report.json"
+                destination = output_dir / relative
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_bytes(raw)
+                item["report"] = {"path": relative.as_posix(), "sha256": identity}
+                item["rawReport"] = report
+                item["totals"] = counts
+                item["status"] = "passed" if report["ok"] else "failed"
+                if item["final"]:
+                    valid_reports.append(report)
+                    for field in totals:
+                        totals[field] += counts[field]
+                    for record in report["tests"]:
+                        copied = dict(record)
+                        copied["jobId"] = job_id
+                        copied["key"] = f"{job_id}::{record['id']}"
+                        if record.get("status") != "passed":
+                            copied.pop("facts", None)
+                        cases.append(copied)
+                        for capability in record.get("capabilities") or []:
+                            capabilities.append({"jobId": job_id, "caseId": record["id"], **capability})
+                        artifacts.extend(_proof_artifacts(job_id, record))
+            runs.append(item)
+
+    cases.sort(key=lambda item: item["key"])
+    failed = totals["failed"] > 0
+    outcome = "incomplete" if infrastructure else "failed" if failed else "passed"
+    aggregate_report = {
+        "schemaVersion": 1,
+        "source": dict(plan.get("source") or {}),
+        "plan": {
+            "id": plan.get("id", "fleet"),
+            "sha256": plan.get("sha256") or digest_bytes(canonical({key: value for key, value in plan.items() if key != "source"})),
+            "jobs": plan["jobs"],
+        },
+        "ok": outcome == "passed",
+        "outcome": outcome,
+        "durationMs": sum(item.get("durationMs") or 0 for item in runs if item["final"]),
+        "workDurationMs": sum(report.get("durationMs") or 0 for report in valid_reports),
+        "totals": totals,
+        "metrics": _metric_totals(valid_reports),
+        "runs": runs,
+        "cases": cases,
+        "capabilities": capabilities,
+        "artifacts": artifacts,
+    }
+    aggregate_report["rerun"] = rerun_plan(aggregate_report)
+    return aggregate_report
+
+
+def rerun_plan(report):
+    planned = []
+    for run in sorted((item for item in report.get("runs", []) if item.get("final")), key=lambda item: item["jobId"]):
+        whole_job = run.get("status") == "infrastructure-failed"
+        case_ids, suites = set(), set()
+        raw = run.get("rawReport") or {}
+        for record in raw.get("tests") or []:
+            if record.get("status") != "failed":
+                continue
+            name, suite = record.get("name"), record.get("suite")
+            if name == "<shard>":
+                whole_job = True
+            elif name in ("beforeAll", "afterAll", "<unrun>") and isinstance(suite, str):
+                suites.add(suite)
+            elif isinstance(record.get("id"), str):
+                case_ids.add(record["id"])
+        if whole_job or case_ids or suites:
+            planned.append({
+                "jobId": run["jobId"],
+                "report": (run.get("report") or {}).get("path"),
+                "caseIds": sorted(case_ids),
+                "wholeSuites": sorted(suites),
+                "wholeJob": whole_job,
+            })
+    return planned
+
+
+def _link_cache(workspace, cache):
+    cache.mkdir(parents=True, exist_ok=True)
+    build = workspace / "build"
+    build.mkdir(exist_ok=True)
+    fixtures = cache / "fixtures"
+    fixtures.mkdir(exist_ok=True)
+    fixture_link = build / "test-fixtures"
+    if not fixture_link.exists():
+        try:
+            fixture_link.symlink_to(fixtures, target_is_directory=True)
+        except OSError:
+            if os.name != "nt":
+                raise
+            subprocess.run(["cmd", "/d", "/c", "mklink", "/J", str(fixture_link), str(fixtures)], check=True)
+
+
+def worker(request_path, cache_path):
+    request = read_json(request_path)
+    workspace = ROOT
+    if request.get("source", {}).get("treeOid") != git(workspace, "rev-parse", "HEAD^{tree}").strip():
+        raise RuntimeError("worker checkout does not match the requested source tree")
+    plan = load_plan(workspace / "tests/fleet/plan.json")
+    if request.get("planSha256") != plan["sha256"]:
+        raise RuntimeError("worker plan does not match the coordinator")
+    job_id = checked_identifier(request.get("jobId"), "job id")
+    job = next((item for item in plan["jobs"] if item["id"] == job_id), None)
+    if job is None:
+        raise RuntimeError(f"worker snapshot has no fleet job {job_id}")
+    cache = Path(cache_path).expanduser().resolve()
+    _link_cache(workspace, cache)
+    environment = dict(os.environ)
+    environment.update(job.get("env") or {})
+    toolchain = Path(request.get("workerToolchain") or cache / "toolchain").expanduser().resolve()
+    environment["NUPP_TOOLCHAIN_DIR"] = str(toolchain)
+    environment["NUPP_RUST_BUILD_DIR"] = str(cache / "rust")
+    environment["NUPP_CACHE_DIR"] = str(cache / "compiler")
+    wasm_compiler = shutil.which(environment.get("NUPP_WASM_CC", environment.get("EMCC", "emcc")), path=environment.get("PATH"))
+    if wasm_compiler:
+        environment["NUPP_WASM_CC"] = str(Path(wasm_compiler).resolve())
+    compiler_family = (job.get("target") or {}).get("compiler")
+    if compiler_family:
+        prepared = subprocess.check_output(
+            [sys.executable, str(workspace / "scripts/prepare-simd-compiler.py"), compiler_family],
+            cwd=workspace, env=environment, text=True,
+        )
+        environment.update(json.loads(prepared)["env"])
+    command = list(job["argv"])
+    rerun = request.get("rerunReport")
+    if rerun is not None:
+        rerun_path = workspace / ".nupp-fleet-rerun.json"
+        write_json(rerun_path, rerun)
+        command = ["./bin/nupp", "test", f"--rerun={rerun_path}", "--json", "--timings=0", "--no-color"]
+    started = time.monotonic()
+    complete = subprocess.run(command, cwd=workspace, env=environment, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    try:
+        report = json.loads(complete.stdout)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        stdout = complete.stdout.decode(errors="replace")[-4096:]
+        stderr = complete.stderr.decode(errors="replace")[-4096:]
+        raise RuntimeError(
+            f"worker produced no valid JSON test report: {error}; stdout={stdout!r}; stderr={stderr!r}"
+        ) from error
+    result = {
+        "jobId": job_id,
+        "attempt": request.get("attempt", 1),
+        "sourceSha256": request["source"]["snapshotSha256"],
+        "exitCode": complete.returncode,
+        "durationMs": (time.monotonic() - started) * 1000,
+        "host": {
+            "name": platform.node(),
+            "os": platform.system().lower(),
+            "arch": platform.machine().lower(),
+            "python": platform.python_version(),
+        },
+        "report": report,
+        "stderr": complete.stderr.decode(errors="replace")[-65536:],
+    }
+    sys.stdout.buffer.write(canonical(result) + b"\n")
+    return 0
+
+
+def _load_config(path):
+    config = read_json(path)
+    if config.get("schemaVersion") != 1 or not isinstance(config.get("executors"), dict):
+        raise ValueError("unsupported fleet executor configuration")
+    return config
+
+
+def _selected_jobs(plan, selected):
+    if not selected:
+        return plan["jobs"]
+    unknown = set(selected)
+    jobs = []
+    for job in plan["jobs"]:
+        if job["id"] in unknown:
+            jobs.append(job)
+            unknown.remove(job["id"])
+    if unknown:
+        raise ValueError("unknown fleet jobs: " + ", ".join(sorted(unknown)))
+    return jobs
+
+
+def _lease_path(state, fleet_id):
+    return state / "active" / f"{checked_identifier(fleet_id, 'fleet id')}.json"
+
+
+def _lease_is_current(path, run_id):
+    try:
+        return read_json(path).get("runId") == run_id
+    except (OSError, ValueError, json.JSONDecodeError):
+        return False
+
+
+def _obligations(report_paths):
+    prefix = subprocess.check_output(["./scripts/toolchain", "luajit"], cwd=ROOT, text=True).strip()
+    lua = str(Path(prefix) / "bin/luajit")
+    complete = subprocess.run(
+        [lua, "./tests/simd/obligations.lua", "--gate=equivalence", "--json", *map(str, report_paths)],
+        cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    )
+    try:
+        result = json.loads(complete.stdout)
+    except json.JSONDecodeError as error:
+        raise RuntimeError("coverage obligation validator produced invalid JSON: " + complete.stderr) from error
+    return result
+
+
+def run_fleet(arguments, previous=None):
+    if previous is None:
+        plan = load_plan(arguments.plan)
+    else:
+        retained = previous.get("plan") or {}
+        plan = {
+            "schemaVersion": 1,
+            "id": retained.get("id", "fleet"),
+            "sha256": retained.get("sha256"),
+            "jobs": retained.get("jobs"),
+        }
+        _validate_plan(plan)
+    jobs = _selected_jobs(plan, arguments.job)
+    config = _load_config(arguments.config)
+    state = Path(arguments.state).resolve()
+    state.mkdir(parents=True, exist_ok=True)
+    if previous is None:
+        source = snapshot(ROOT, state / "cache")
+    else:
+        source = previous["source"]
+        if digest_file(source["path"]) != source["bundleSha256"]:
+            raise RuntimeError("the retained fleet snapshot no longer matches its digest")
+    plan["source"] = source
+    plan["jobs"] = jobs
+    run_id = time.strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:8]
+    output = Path(arguments.output).resolve() if arguments.output else state / "runs" / run_id
+    output.mkdir(parents=True, exist_ok=False)
+    lease = _lease_path(state, plan.get("id", "fleet"))
+    lease.parent.mkdir(parents=True, exist_ok=True)
+    if not arguments.no_cancel:
+        write_json(lease, {"runId": run_id, "pid": os.getpid(), "startedAt": time.time()})
+
+    from test_fleet_transport import dispatch
+    import concurrent.futures
+    import threading
+
+    live, live_lock = set(), threading.Lock()
+    superseded = threading.Event()
+
+    def remember(process):
+        with live_lock:
+            live.add(process)
+
+    def monitor():
+        while not superseded.wait(0.25):
+            if not _lease_is_current(lease, run_id):
+                superseded.set()
+                with live_lock:
+                    processes = list(live)
+                for process in processes:
+                    if process.poll() is None:
+                        process.terminate()
+                return
+
+    watcher = None
+    if not arguments.no_cancel:
+        watcher = threading.Thread(target=monitor, name="nupp-fleet-cancellation", daemon=True)
+        watcher.start()
+
+    def execute(job):
+        executor = config["executors"].get(job["executor"])
+        if executor is None:
+            return {
+                "jobId": job["id"], "attempt": 1, "sourceSha256": source["snapshotSha256"],
+                "exitCode": None, "problem": f"executor {job['executor']} is not configured",
+            }
+        request = {
+            "schemaVersion": 1, "runId": run_id, "jobId": job["id"], "attempt": 1,
+            "source": source, "planSha256": plan["sha256"], "keep": arguments.keep,
+        }
+        if previous:
+            prior = next(item for item in previous.get("runs", []) if item.get("final") and item["jobId"] == job["id"])
+            if prior.get("status") != "infrastructure-failed":
+                request["rerunReport"] = prior.get("rawReport")
+        try:
+            result, transport_log = dispatch(executor, request, source["path"], on_start=remember)
+            (output / "transport").mkdir(exist_ok=True)
+            (output / "transport" / f"{job['id']}.log").write_text(transport_log, encoding="utf-8")
+            return result
+        except Exception as error:  # transport failures are structured fleet results
+            return {
+                "jobId": job["id"], "attempt": 1, "sourceSha256": source["snapshotSha256"],
+                "exitCode": None, "problem": str(error),
+            }
+
+    records = []
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(jobs)) as pool:
+            futures = {pool.submit(execute, job): job for job in jobs}
+            for future in concurrent.futures.as_completed(futures):
+                records.append(future.result())
+        if superseded.is_set():
+            raise RuntimeError("fleet run was superseded")
+        report = aggregate(plan, records, output)
+        report_paths = [output / item["report"]["path"] for item in report["runs"] if item.get("final") and item.get("report")]
+        obligations = _obligations(report_paths) if report_paths else {
+            "schemaVersion": 1, "ok": False, "required": 0, "covered": 0,
+            "missing": [], "invalid": ["no valid worker reports"], "witnesses": 0,
+        }
+        report["obligations"] = obligations
+        if not obligations.get("ok"):
+            report["ok"] = False
+            if report["outcome"] == "passed":
+                report["outcome"] = "incomplete"
+        report["rerun"] = rerun_plan(report)
+        write_json(output / "aggregate.json", report)
+        print(f"fleet {report['outcome']}: {report['totals']['passed']} passed, {report['totals']['failed']} failed")
+        print(output / "aggregate.json")
+        return 0 if report["ok"] else 1
+    finally:
+        superseded.set()
+        if watcher is not None:
+            watcher.join(timeout=1)
+        if not arguments.no_cancel and _lease_is_current(lease, run_id):
+            lease.unlink(missing_ok=True)
+
+
+def list_fleet(arguments):
+    plan = load_plan(arguments.plan)
+    for job in plan["jobs"]:
+        target = job.get("target") or {}
+        detail = "/".join(filter(None, [target.get("os"), target.get("arch"), target.get("tier"), target.get("compiler")]))
+        print(f"{job['id']}: {job['executor']} ({detail})")
+    return 0
+
+
+def parser():
+    result = argparse.ArgumentParser(description=__doc__)
+    result.add_argument("--plan", type=Path, default=DEFAULT_PLAN)
+    result.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
+    result.add_argument("--state", type=Path, default=DEFAULT_STATE)
+    result.add_argument("--output", type=Path)
+    result.add_argument("--job", action="append", default=[])
+    result.add_argument("--list", action="store_true")
+    result.add_argument("--rerun", type=Path)
+    result.add_argument("--keep", action="store_true")
+    result.add_argument("--no-cancel", action="store_true")
+    subcommands = result.add_subparsers(dest="command")
+    worker_parser = subcommands.add_parser("worker", help=argparse.SUPPRESS)
+    worker_parser.add_argument("--request", type=Path, required=True)
+    worker_parser.add_argument("--cache", type=Path, required=True)
+    return result
+
+
+def main(argv=None):
+    arguments = parser().parse_args(argv)
+    if arguments.command == "worker":
+        return worker(arguments.request, arguments.cache)
+    if arguments.list:
+        return list_fleet(arguments)
+    if arguments.rerun:
+        previous = read_json(arguments.rerun)
+        arguments.job = [item["jobId"] for item in rerun_plan(previous)]
+        if not arguments.job:
+            raise ValueError("fleet report has no failures to rerun")
+        return run_fleet(arguments, previous)
+    return run_fleet(arguments)
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main())
+    except (OSError, ValueError, RuntimeError, subprocess.CalledProcessError) as error:
+        raise SystemExit("test-fleet: " + str(error))

@@ -972,6 +972,22 @@ function aot.wasmCommand(): string
     return os.getenv("NUPP_WASM_CC") or "emcc"
 end
 
+--- Finds Emscripten's version line even when a cold cache prints setup first.
+function aot.identifyEmscripten(text: string): (string?, string?, boolean)
+    local sawEmscripten = false
+    for line in text:gmatch("[^\r\n]+") do
+        if line:lower():find("emscripten", 1, true) ~= nil then
+            sawEmscripten = true
+            local release = line:match("(%d+%.%d+%.%d+)")
+            if release ~= nil then
+                return line, release, true
+            end
+        end
+    end
+
+    return nil, nil, sawEmscripten
+end
+
 --- Locates the pinned Emscripten compiler used for side modules.
 function aot.wasmToolchain(memo: aot.Remembered?): (string?, string?)
     local command = aot.wasmCommand()
@@ -988,16 +1004,15 @@ function aot.wasmToolchain(memo: aot.Remembered?): (string?, string?)
     if code ~= 0 then
         return nil, "Wasm AOT needs Emscripten emcc; name it with NUPP_WASM_CC"
     end
-    local first = printed:match("^[^\n]*") or ""
-    if first:lower():find("emscripten", 1, true) == nil then
+    local versionLine, release, sawEmscripten = aot.identifyEmscripten(printed)
+    if not sawEmscripten then
         return nil, tostring(command) .. " is not Emscripten"
     end
-    local release = first:match("(%d+%.%d+%.%d+)")
     if release ~= "6.0.8" then
         return nil, "Wasm AOT requires Emscripten 6.0.8, found " .. tostring(release or "unknown")
     end
 
-    return command, first
+    return command, versionLine
 end
 
 --- One Wasm side module a previous build produced.

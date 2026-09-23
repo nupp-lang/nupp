@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "executors": {
+    "linux-x64": {"kind": "ssh", "host": "nupp-linux-x64", "cache": "~/.cache/nupp-fleet"},
+    "linux-x64-avx2": {"kind": "ssh", "host": "nupp-linux-avx2", "cache": "~/.cache/nupp-fleet"},
+    "linux-x64-avx512f": {"kind": "ssh", "host": "nupp-linux-avx512", "cache": "~/.cache/nupp-fleet"},
+    "linux-arm64": {"kind": "ssh", "host": "nupp-linux-arm64", "cache": "~/.cache/nupp-fleet"},
+    "macos-arm64": {"kind": "local", "cache": "~/.cache/nupp-fleet"},
+    "macos-x64": {"kind": "ssh", "host": "nupp-macos-intel", "cache": "~/.cache/nupp-fleet"},
+    "windows-x64": {"kind": "ssh", "host": "nupp-windows", "cache": "~/.cache/nupp-fleet"},
+    "portable": {"kind": "docker", "image": "registry.example/nupp-fleet@sha256:REPLACE_WITH_IMAGE_DIGEST", "cacheVolume": "nupp-fleet-portable"},
+    "browser": {"kind": "docker", "image": "registry.example/nupp-browser@sha256:REPLACE_WITH_IMAGE_DIGEST", "cacheVolume": "nupp-fleet-browser"}
+  }
+}

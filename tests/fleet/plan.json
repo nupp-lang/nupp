@@ -1,0 +1,94 @@
+{
+  "schemaVersion": 1,
+  "id": "simd-equivalence",
+  "jobs": [
+    {
+      "id": "linux-x64-baseline-clang",
+      "executor": "linux-x64",
+      "required": true,
+      "target": {"os": "linux", "arch": "x64", "tier": "baseline", "compiler": "clang"},
+      "env": {"NUPP_SIMD_TIER": "baseline", "NUPP_NATIVE_CC": "clang"},
+      "argv": ["./bin/nupp", "test", "simdprimitivedifferentialtest", "simdnativealgorithmdifferentialtest", "--json", "--timings=0", "--no-color"]
+    },
+    {
+      "id": "linux-x64-avx2-clang",
+      "executor": "linux-x64-avx2",
+      "required": true,
+      "target": {"os": "linux", "arch": "x64", "tier": "avx2", "compiler": "clang"},
+      "env": {"NUPP_SIMD_TIER": "avx2", "NUPP_NATIVE_CC": "clang"},
+      "argv": ["./bin/nupp", "test", "simdprimitivedifferentialtest", "simdnativealgorithmdifferentialtest", "--json", "--timings=0", "--no-color"]
+    },
+    {
+      "id": "linux-x64-avx512f-clang",
+      "executor": "linux-x64-avx512f",
+      "required": true,
+      "target": {"os": "linux", "arch": "x64", "tier": "avx512f", "compiler": "clang"},
+      "env": {"NUPP_SIMD_TIER": "avx512f", "NUPP_NATIVE_CC": "clang"},
+      "argv": ["./bin/nupp", "test", "simdprimitivedifferentialtest", "simdnativealgorithmdifferentialtest", "--json", "--timings=0", "--no-color"]
+    },
+    {
+      "id": "linux-x64-baseline-gcc",
+      "executor": "linux-x64",
+      "required": true,
+      "target": {"os": "linux", "arch": "x64", "tier": "baseline", "compiler": "gcc"},
+      "env": {"NUPP_SIMD_TIER": "baseline", "NUPP_NATIVE_CC": "gcc"},
+      "argv": ["./bin/nupp", "test", "simdprimitivedifferentialtest", "--json", "--timings=0", "--no-color"]
+    },
+    {
+      "id": "linux-arm64-neon-clang",
+      "executor": "linux-arm64",
+      "required": true,
+      "target": {"os": "linux", "arch": "arm64", "tier": "neon", "compiler": "clang"},
+      "env": {"NUPP_SIMD_TIER": "neon", "NUPP_NATIVE_CC": "clang"},
+      "argv": ["./bin/nupp", "test", "simdprimitivedifferentialtest", "simdnativealgorithmdifferentialtest", "--json", "--timings=0", "--no-color"]
+    },
+    {
+      "id": "macos-arm64-neon-clang",
+      "executor": "macos-arm64",
+      "required": true,
+      "target": {"os": "macos", "arch": "arm64", "tier": "neon", "compiler": "clang"},
+      "env": {"NUPP_SIMD_TIER": "neon", "NUPP_NATIVE_CC": "clang"},
+      "argv": ["./bin/nupp", "test", "simdprimitivedifferentialtest", "--json", "--timings=0", "--no-color"]
+    },
+    {
+      "id": "macos-x64-baseline-clang",
+      "executor": "macos-x64",
+      "required": true,
+      "target": {"os": "macos", "arch": "x64", "tier": "baseline", "compiler": "clang"},
+      "env": {"NUPP_SIMD_TIER": "baseline", "NUPP_NATIVE_CC": "clang"},
+      "argv": ["./bin/nupp", "test", "simdprimitivedifferentialtest", "--json", "--timings=0", "--no-color"]
+    },
+    {
+      "id": "windows-x64-baseline-clang",
+      "executor": "windows-x64",
+      "required": true,
+      "target": {"os": "windows", "arch": "x64", "tier": "baseline", "compiler": "clang"},
+      "env": {"NUPP_SIMD_TIER": "baseline", "NUPP_NATIVE_CC": "clang"},
+      "argv": ["./bin/nupp", "test", "simdprimitivedifferentialtest", "--json", "--timings=0", "--no-color"]
+    },
+    {
+      "id": "wasmtime-portable",
+      "executor": "portable",
+      "required": true,
+      "target": {"os": "linux", "arch": "x64", "tier": "simd128", "runtime": "wasmtime-48"},
+      "env": {},
+      "argv": ["./bin/nupp", "test", "simdwasmtimeconformancetest", "simdwasmalgorithmdifferentialtest", "--json", "--timings=0", "--no-color"]
+    },
+    {
+      "id": "chromium-browser-smoke",
+      "executor": "browser",
+      "required": true,
+      "target": {"os": "linux", "arch": "x64", "tier": "simd128", "runtime": "chromium"},
+      "env": {"NUPP_FLEET_BROWSER_SMOKE": "1"},
+      "argv": ["./bin/nupp", "test", "simdwasmbrowsersmoketest", "--json", "--timings=0", "--no-color"]
+    },
+    {
+      "id": "historical-equivalence",
+      "executor": "portable",
+      "required": true,
+      "target": {"scope": "equivalence"},
+      "env": {"NUPP_FLEET_EQUIVALENCE": "1"},
+      "argv": ["./bin/nupp", "test", "simdfleetequivalencetest", "simdruntimeboundarytest", "--json", "--timings=0", "--no-color"]
+    }
+  ]
+}

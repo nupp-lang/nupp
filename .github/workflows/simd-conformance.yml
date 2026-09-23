@@ -1,7 +1,8 @@
 name: SIMD execution conformance
 
 on:
-  workflow_dispatch:
+  # Retained as rollback evidence until the first complete local fleet report.
+  # No workflow calls it and it cannot be dispatched from GitHub.
   workflow_call:
 
 permissions:

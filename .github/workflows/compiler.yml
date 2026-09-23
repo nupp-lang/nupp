@@ -63,7 +63,6 @@ jobs:
       windows-integration: ${{ steps.classify.outputs.windows-integration }}
       portable-compiler: ${{ steps.classify.outputs.portable-compiler }}
       browser-wasm: ${{ steps.classify.outputs.browser-wasm }}
-      simd-conformance: ${{ steps.classify.outputs.simd-conformance }}
       gpu-linux: ${{ steps.classify.outputs.gpu-linux }}
       gpu-windows: ${{ steps.classify.outputs.gpu-windows }}
       fixpoint: ${{ steps.classify.outputs.fixpoint }}
@@ -162,13 +161,6 @@ jobs:
       # check, which runs before anything expensive is provisioned.
       - name: Validate selected-job aggregation
         run: python3 .github/scripts/test-required-ci.py
-
-      - name: Validate SIMD inventory aggregation
-        run: >-
-          node --test
-          tests/simd/native-shards.test.mjs
-          tests/simd/aggregate-wasm.test.mjs
-          tests/simd/wasm-algorithm-evidence.test.mjs
 
       - name: Validate the workflow against the classifier
         run: luajit .github/scripts/validate-ci-coverage.lua
@@ -285,15 +277,6 @@ jobs:
           key: >-
             nupp-buildcache-${{ runner.os }}-${{ runner.arch }}-${{
             hashFiles('src/**', 'nupp.lua', 'scripts/toolchain.pins') }}
-
-  simd-conformance:
-    name: SIMD execution matrix
-    needs: [classify, fast-checks]
-    if: >-
-      !cancelled() && needs.classify.result == 'success'
-      && needs.fast-checks.result == 'success'
-      && needs.classify.outputs.simd-conformance == 'true'
-    uses: ./.github/workflows/simd-conformance.yml
 
   integration:
     name: ${{ matrix.name }} / LuaJIT 2.1 rolling
@@ -1025,7 +1008,6 @@ jobs:
       - fixpoint
       - portable-compiler
       - browser-wasm
-      - simd-conformance
       - docs-site
       - gpu-conformance
       - gpu-conformance-windows

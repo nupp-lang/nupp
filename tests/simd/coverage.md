@@ -16,8 +16,9 @@ several native vectors; padding lanes are not lanes of the program.
 
 Native tiers are `baseline`, `avx2`, `avx512f`, and `neon`; browser execution
 uses `simd128`. The matrix reports unavailable host tiers rather than claiming
-that inspecting their generated C executed them. Compiler/OS jobs own the
-cross-target execution record.
+that inspecting their generated C executed them. The repository-owned local
+fleet and its executable obligation manifest own the cross-target execution
+record.
 
 ## Primitive families
 

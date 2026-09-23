@@ -12,13 +12,6 @@
 
 local classifier = {}
 
-local SIMD_CI_PATHS = {
-    [".github/simd-platforms.json"] = true,
-    [".github/simd-wasm-shards.json"] = true,
-    [".github/workflows/simd-conformance.yml"] = true,
-    [".github/scripts/prepare-simd-compilers.sh"] = true,
-}
-
 -- Ordered, but not first-match-wins: a path contributes every surface whose
 -- pattern it matches. `src/nupp/compiler/aot/lower.nupp` is both the AOT surface
 -- and the compiler surface, and dropping either would lose a real obligation.
@@ -127,11 +120,7 @@ local rules = {
 
     -- Everything below decides how the whole tree is built, tested or released,
     -- so it has no smaller blast radius than "all of it".
-    {"^%.github/simd%-platforms%.json$", {"simd"}},
-    {"^%.github/simd%-wasm%-shards%.json$", {"simd"}},
-    {"^%.github/workflows/simd%-conformance%.yml$", {"simd"}},
-    {"^%.github/scripts/prepare%-simd%-compilers%.sh$", {"simd"}},
-    {"^%.github/", {"everything"}, SIMD_CI_PATHS},
+    {"^%.github/", {"everything"}},
     {"^%.githooks/", {"everything"}},
     {"^scripts/toolchain", {"everything"}},
     {"^scripts/", {"everything"}},
@@ -153,7 +142,6 @@ classifier.jobs = {
     "windows-integration",
     "portable-compiler",
     "browser-wasm",
-    "simd-conformance",
     "gpu-linux",
     "gpu-windows",
     "fixpoint",
@@ -246,9 +234,8 @@ function classifier.classify(paths)
         select(jobs, "windows-integration", why, reasons)
     end
 
-    if surfaces.simd then
-        select(jobs, "simd-conformance", "SIMD library, AOT backend, runtime or corpus changed", reasons)
-    end
+    -- SIMD remains an affected surface for the repository-owned local fleet.
+    -- It deliberately maps to no GitHub job.
     if surfaces.compiler or surfaces.aot or surfaces.library or surfaces.native then
         select(jobs, "fixpoint", "the compiler's own inputs changed", reasons)
     end

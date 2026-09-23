@@ -591,6 +591,12 @@ return {
 
     tasks = {
         [
+            "test-fleet"
+        ] = {
+            description = "Run cross-platform tests on locally owned workers",
+            argv = {"python3", "scripts/test-fleet"},
+        },
+        [
             "docs-serve"
         ] = {
             description = "Build the docs site and playground, serve both " .. "until stopped",

@@ -1902,6 +1902,7 @@ local shellCalls = {"os.execute", "io.popen",}
 local SHELLING = {
     -- Shelling happens in the helper so source inspection would otherwise rely
     -- on an explanatory comment retaining the implementation's exact spelling.
+    simdfleetequivalencetest = true,
     simdnativealgorithmdifferentialtest = true,
     simdprimitivedifferentialtest = true,
     simdwasmalgorithmdifferentialtest = true,

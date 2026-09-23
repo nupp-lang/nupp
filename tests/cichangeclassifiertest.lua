@@ -52,10 +52,10 @@ function M.compilerChangeSelectsEveryPlatformAndFixpoint()
 end
 
 function M.aotChangeSelectsAotAndFixpoint()
-    selects("src/nupp/compiler/aot/lower.nupp", {"fast-checks", "linux-integration", "simd-conformance", "fixpoint"})
+    selects("src/nupp/compiler/aot/lower.nupp", {"fast-checks", "linux-integration", "fixpoint"})
 end
 
-function M.onlyTheExplicitSimdSurfaceSelectsTheFullConformanceFleet()
+function M.localFleetInputsRemainAnExplicitSimdSurface()
     for _, path in ipairs({
         "src/nupp/simd.nupp",
         "src/nupp/simd/horizontal.nupp",
@@ -98,25 +98,19 @@ function M.onlyTheExplicitSimdSurfaceSelectsTheFullConformanceFleet()
         "bench/simd-json/nupp.lua",
         "bench/fused-json/prepare.sh",
         "bench/fused-json/tests/differential.lua",
-        "bench/fused-json/nupp.lua",
-        ".github/simd-platforms.json",
-        ".github/simd-wasm-shards.json",
-        ".github/workflows/simd-conformance.yml",
-        ".github/scripts/prepare-simd-compilers.sh"
+        "bench/fused-json/nupp.lua"
     }) do
         test.assert(classifier().surfacesOf(path).simd, path .. " should be on the SIMD surface")
-        selects(path, {"simd-conformance"})
-        if path:match("^%.github/") then
-            for _, name in ipairs(everyJob()) do
-                if name ~= "simd-conformance" then
-                    doesNotSelect(path, {name})
-                end
-            end
-        end
     end
 end
 
-function M.unrelatedSourcesDoNotSelectTheFullSimdConformanceFleet()
+function M.simdSurfaceHasNoGitHubJob()
+    for _, name in ipairs(everyJob()) do
+        test.assert(name ~= "simd-conformance", "the SIMD fleet must stay local")
+    end
+end
+
+function M.unrelatedSourcesStayOutsideTheSimdSurface()
     for _, path in ipairs({
         "src/nupp/derive.nupp",
         "src/nupp/text.nupp",
@@ -130,29 +124,7 @@ function M.unrelatedSourcesDoNotSelectTheFullSimdConformanceFleet()
         "bench/fused-json/README.md"
     }) do
         test.assert(not classifier().surfacesOf(path).simd, path .. " should not be on the SIMD surface")
-        doesNotSelect(path, {"simd-conformance"})
     end
-end
-
-function M.simdMatrixRetainsBothMacArchitecturesAndWindowsImages()
-    local decode = assert(loadfile("src/nupp/runtime/vendor/lunajson/decoder.lua"))()()
-    local handle = assert(io.open(".github/simd-platforms.json", "rb"))
-    local rows = decode(handle:read("*a"))
-    handle:close()
-    local found = {}
-    for _, row in ipairs(rows) do
-        local key = row.os .. "/" .. row.tier
-        test.assert(not found[key], "duplicate SIMD platform tier " .. key)
-        found[key] = true
-    end
-    test.assert(found["macos-15/neon"])
-    test.assert(found["ubuntu-24.04-arm/neon"])
-    for _, host in ipairs({"ubuntu-24.04", "macos-15-intel", "windows-2022", "windows-2025"}) do
-        for _, tier in ipairs({"baseline", "avx2", "avx512f"}) do
-            test.assert(found[host .. "/" .. tier], "missing SIMD execution row " .. host .. "/" .. tier)
-        end
-    end
-    test.equal(#rows, 14)
 end
 
 function M.runtimeChangeSelectsBrowserAndNativeCoverage()
@@ -172,12 +144,11 @@ function M.wasmOnlyFixturesSelectTheJobThatRunsThem()
     selects("tests/luajit-browser/prepare-packaged.mjs", {"browser-wasm"})
     selects("tests/simd/primitives.lua", {
         "browser-wasm",
-        "simd-conformance",
         "linux-integration",
         "macos-integration",
         "windows-integration"
     })
-    selects("src/nupp/compiler/aot/compile.nupp", {"browser-wasm", "simd-conformance"})
+    selects("src/nupp/compiler/aot/compile.nupp", {"browser-wasm"})
     selects("src/nupp/compiler/build/aot.nupp", {"browser-wasm"})
     selects("src/nupp/simd.nupp", {"browser-wasm"})
     selects("tests/wasm-memory/run.sh", {"browser-wasm"})
@@ -384,43 +355,6 @@ function M.gatingTheRunnerSuiteDoesNotGateTheRestOfTheBenchSurface()
         not groupsText:find('"benchtest"', 1, true),
         "benchtest is named by no group, so every broad suite run includes it"
     )
-end
-
-function M.wasmSimdShardsCoverEveryTypeAndWidthExactlyOnce()
-    local decode = assert(loadfile("src/nupp/runtime/vendor/lunajson/decoder.lua"))()()
-    local file = assert(io.open(".github/simd-wasm-shards.json", "rb"))
-    local shards = decode(file:read("*a"))
-    file:close()
-    local types = {
-        float = true,
-        number = true,
-        int8 = true,
-        uint8 = true,
-        int16 = true,
-        uint16 = true,
-        int32 = true,
-        uint32 = true,
-        int64 = true,
-        uint64 = true
-    }
-    local seen = {}
-    for _, shard in ipairs(shards) do
-        test.assert(types[shard.element], "known SIMD element type")
-        seen[shard.element] = seen[shard.element] or {}
-        for lane in shard.lanes:gmatch("[^,]+") do
-            local width = tonumber(lane)
-            test.assert(lane == "preferred" or (width and width >= 2 and width <= 64 and width % 1 == 0))
-            test.assert(not seen[shard.element][lane], "Wasm widths must be disjoint")
-            seen[shard.element][lane] = true
-        end
-    end
-    for element in pairs(types) do
-        test.assert(seen[element] and seen[element].preferred, "Preferred execution requested")
-        for width = 2, 64 do
-            test.assert(seen[element][tostring(width)], "every legal Fixed width requested")
-        end
-    end
-    test.assert(#shards == 48, "oversized float and number batches stay split")
 end
 
 return M

@@ -5456,6 +5456,16 @@ function M.aCompilerIsIdentifiedFromWhatItSaysRatherThanItsName()
     end
 end
 
+function M.emscriptenVersionIdentificationSkipsColdCacheSetup()
+    local line, release, found = aot.identifyEmscripten(
+        "shared:INFO: (Emscripten: Running sanity checks)\n"
+        .. "emcc (Emscripten gcc/clang-like replacement + linker emulating GNU ld) 6.0.8-git\n"
+    )
+    test.assert(found)
+    test.equal(release, "6.0.8")
+    test.equal(line, "emcc (Emscripten gcc/clang-like replacement + linker emulating GNU ld) 6.0.8-git")
+end
+
 function M.somethingThatIsNeitherCompilerIsNotGuessedAt()
     local dialect = aot.identify("Microsoft (R) C/C++ Optimizing Compiler Version 19.39\n")
     test.equal(

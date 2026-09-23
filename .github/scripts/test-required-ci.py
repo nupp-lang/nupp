@@ -12,23 +12,8 @@ spec.loader.exec_module(required_ci)
 
 class RequiredJobs(unittest.TestCase):
     jobs = {
-        "simd-conformance": {"selectedBy": "simd-conformance"},
         "integration": {"selectedBy": "linux-integration, macos-integration, windows-integration"},
     }
-
-    def test_selected_simd_cannot_disappear(self):
-        selected = {"simd-conformance": True}
-        for status in (None, "skipped", "cancelled", "failure"):
-            needs = {} if status is None else {"simd-conformance": {"result": status}}
-            self.assertIn("simd-conformance", required_ci.selected_failures(needs, selected, self.jobs))
-        self.assertEqual(required_ci.selected_failures(
-            {"simd-conformance": {"result": "success"}}, selected, self.jobs
-        ), {})
-
-    def test_unselected_simd_can_be_skipped(self):
-        self.assertEqual(required_ci.selected_failures(
-            {"simd-conformance": {"result": "skipped"}}, {"simd-conformance": False}, self.jobs
-        ), {})
 
     def test_platform_alias_selects_aggregate_job(self):
         self.assertEqual(required_ci.selected_failures(
