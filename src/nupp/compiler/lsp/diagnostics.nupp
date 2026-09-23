@@ -173,7 +173,7 @@ function diagnostics.install(s: diagnostics.Session): diagnostics.Api
         if changedUri then
             checkAndPublish(changedUri, true)
         end
-        local uris = {}
+        local uris: {string} = {}
         for uri in pairs(s.documents) do
             if uri ~= changedUri then
                 uris[#uris + 1] = uri

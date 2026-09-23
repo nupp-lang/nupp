@@ -288,7 +288,7 @@ function compat.suspensionPath(effects: {[string]: any}): string
         end
     end
 
-    local names = {}
+    local names: {string} = {}
     for name in pairs(effects) do
         names[#names + 1] = name
     end

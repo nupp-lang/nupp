@@ -185,7 +185,7 @@ function stage.build(
         names: {string},
         providerFeatures: {string}
     }} = {}
-    local providerKeys = {}
+    local providerKeys: {string} = {}
     for _, feature in ipairs(native.features(effects)) do
         if feature.provider then
             if standalone and feature.host then

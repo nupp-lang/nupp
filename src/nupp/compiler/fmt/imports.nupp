@@ -96,7 +96,7 @@ function imports.new(environment: any?, enabled: boolean?): any
         if enabled == false or filename and filename:match("%.lua$") then
             return source
         end
-        local candidates = {}
+        local candidates: {string} = {}
         walk(parsed.root, function(node: any): nil
             if node.kind == "dotIndex" or node.kind == "tname" then
                 local path = names(node)

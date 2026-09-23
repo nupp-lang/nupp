@@ -168,7 +168,7 @@ local function configuredTasks(config: manifest.Config, buildOnly: boolean?): {t
     -- Every caller has already refused a manifest with no build section, which is what
     -- makes this the config's own answer rather than a guess at one.
     local build = config.build as manifest.Build
-    local names, defaultName = {}, nil
+    local names: {string}, defaultName = {}, nil
     if build.targets then
         for name in pairs(build.targets) do
             names[#names + 1] = name
@@ -226,7 +226,7 @@ local function configuredTasks(config: manifest.Config, buildOnly: boolean?): {t
         used[name] = true
     end
     if not buildOnly and config.tasks then
-        local customNames = {}
+        local customNames: {string} = {}
         for customName in pairs(config.tasks) do
             customNames[#customNames + 1] = customName
         end

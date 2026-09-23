@@ -832,7 +832,7 @@ local function finalizeNominalEffects(c: state.Checker)
                 parts[#parts + 1] = path .. ":default:" .. name .. "=" .. stable(default.value)
             end
         end
-        local nested = {}
+        local nested: {string} = {}
         for name in pairs(nominal.nestedTypes or {}) do
             nested[#nested + 1] = name
         end
@@ -1714,7 +1714,7 @@ function checkMod.check(
     -- Binds a generic clause in its surrounding scope and resolves aligned upper bounds
     -- after each binder is visible.
     c.bindGenerics = function(generics, role, predeclared)
-        local params, bounds, packParams, constParams, paramKinds = {}, {}, {}, {}, {}
+        local params, bounds, packParams, constParams, paramKinds: {string} = {}, {}, {}, {}, {}
         local paramDefaults = {}
         local sawPack = false
         for j, nameTok in ipairs(generics and generics.names or {}) do

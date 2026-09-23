@@ -2483,7 +2483,7 @@ end
 
 --- Interns a fixed-head pack with an optional tail.
 function types.pack(head: {types.Type}?, tail: types.PackTail?, modes: {string}?, names: {string}?): types.Pack
-    local hs, ms, copied = {}, {}, {}
+    local hs: {string}, ms, copied = {}, {}, {}
     local named = false
     local copiedNames: {string} = {}
     for j, t in ipairs(head or {}) do
@@ -2931,7 +2931,7 @@ function types.func(
         for result = 1, #rets do
             local fields = partitionResults[result]
             if fields then
-                local fieldNames = {}
+                local fieldNames: {string} = {}
                 for name in pairs(fields) do
                     fieldNames[#fieldNames + 1] = name
                 end

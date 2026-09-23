@@ -1362,7 +1362,7 @@ function project.clean(root: string?, opts: project.CleanOptions?): integer
                 end
             end
             local outDir = normalize(target.outDir or "build")
-            local candidates = {}
+            local candidates: {boolean | string} = {}
             for _, selectedPlatform in ipairs(selected) do
                 local raw = binaryOutput(".", target, target.name or opts.target, outDir, selectedPlatform)
                 candidates[#candidates + 1] = raw
@@ -1415,7 +1415,7 @@ function project.clean(root: string?, opts: project.CleanOptions?): integer
         return 1
     end
     local tasks = opts.target and {described} or described.tasks
-    local candidates = {}
+    local candidates: {boolean | string} = {}
     for _, task in ipairs(tasks) do
         local path, pathErr = safeCleanPath(task.outDir)
         if not path then

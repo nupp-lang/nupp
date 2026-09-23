@@ -718,7 +718,7 @@ function predicate.key(node: predicate.Node?): string
     elseif op == "and" or op == "or" then
         local parts = {}
         predicate.flatten(node, op, parts)
-        local keys = {}
+        local keys: {string} = {}
         for j, part in ipairs(parts) do
             keys[j] = predicate.key(part)
         end

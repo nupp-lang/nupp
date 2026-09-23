@@ -170,7 +170,7 @@ local function run(options: any): integer
     -- account for it. Below, an unreadable path would reach the project walk as a
     -- module with no source, which is indistinguishable from a module that is simply
     -- fine.
-    local readable, sources = {}, {}
+    local readable: {string}, sources = {}, {}
     for _, path in ipairs(paths) do
         local source, err = fs.readFile(path)
         if source then

@@ -594,7 +594,7 @@ function gen.generate(
     -- Structs that have to be emitted as a named C tag rather than an anonymous ctype,
     -- keyed by declaration name. See `planStructTags`.
     local structTag = {}
-    local structTagOrder = {}
+    local structTagOrder: {string} = {}
 
     -- Which structs cannot be anonymous.
     --
@@ -958,7 +958,7 @@ function gen.generate(
     --- declarations carry an identity; any foreign call the checker cannot join to
     --- one deliberately selects the module-wide fallback in the session.
     local function hotCUses(node): ({string}, boolean)
-        local used, unknown = {}, false
+        local used: {boolean}, unknown = {}, false
 
         local function walk(child)
             if not child or cst.isToken(child) then
@@ -4234,7 +4234,7 @@ function gen.generate(
                 firstOffset = offset
             end
         end
-        local captured = {}
+        local captured: {boolean} = {}
         -- A colon-declared method binds its receiver without a source token, so a
         -- `self` in its body resolves to no definition. It is still per-invocation
         -- state: a body reading it must not be parked in the module-wide cache,
@@ -7305,7 +7305,7 @@ function gen.generate(
             -- happened to pass first.
             local names = pluck.paramNames(body.params, true)
             local owner = x.inlineRuntimeOwner
-            local seeded = {}
+            local seeded: {string} = {}
             local nominal = x.ownerNominal
             for _, field in ipairs(nominal and nominal.fieldOrder or {}) do
                 local default = nominal.fieldDefaults and nominal.fieldDefaults[field] or nil
@@ -9074,7 +9074,7 @@ function gen.generate(
 
     planStructTags()
     if hotState and hotState.mode == "patch" then
-        local captured = {}
+        local captured: {boolean} = {}
         for _, planned in ipairs(hotState.functions) do
             if hotSelected(planned) then
                 for _, name in ipairs(planned.captures) do
@@ -9115,7 +9115,7 @@ function gen.generate(
     end
     if declaredModuleName then
         local migrationAssignment = cst.exportAssignment(result.root) ~= nil
-        local exportedFunctions = {}
+        local exportedFunctions: {string} = {}
         local exportedFunctionTypes = {}
         for _, block in ipairs(result.root.blocks or {}) do
             for _, statement in ipairs(block.stats or {}) do
@@ -9358,7 +9358,7 @@ function gen.generate(
             -- give a value that is exactly this record the native schema path even
             -- when its signature only said `any`.
             local schemaRegistry = reservedName("__nuppWorkerRecordSchemas")
-            local schemaDefinitions = {}
+            local schemaDefinitions: {string} = {}
             for _, record in ipairs(exportedRecords) do
                 local plan = record.type ~= nil and recordWorkerTransfer(record.type) or nil
                 if plan ~= nil then
@@ -9635,7 +9635,7 @@ function gen.generate(
     -- that module has to have been loaded. Nothing is bound: the declaration assigned
     -- the global itself.
     if result.implicitSideEffects and next(result.implicitSideEffects) then
-        local effects = {}
+        local effects: {string} = {}
         for moduleName in pairs(result.implicitSideEffects) do
             effects[#effects + 1] = moduleName
         end

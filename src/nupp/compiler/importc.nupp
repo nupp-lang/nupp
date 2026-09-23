@@ -654,7 +654,7 @@ function importc.import(headerPath: string, opts: importc.Options?): string?, {s
 
     for _, declaration in ipairs(parsed.structs) do
         local name = declaration.name
-        local fields = {}
+        local fields: {string} = {}
         local ok = identifier(name) and true or false
         if ok then
             knownStructs[name] = true
@@ -854,7 +854,7 @@ function importc.import(headerPath: string, opts: importc.Options?): string?, {s
     end
 
     local macroArities = functionMacroArities(raw)
-    local macroNames = {}
+    local macroNames: {string} = {}
     local configuredMacros = opts.macros or {}
     for name in pairs(configuredMacros) do
         macroNames[#macroNames + 1] = name
@@ -906,7 +906,7 @@ function importc.import(headerPath: string, opts: importc.Options?): string?, {s
     end
 
     -- constants
-    local constLines = {}
+    local constLines: {string} = {}
     local taken = {}
 
     local function constant(name, typeName, expr)

@@ -48,7 +48,7 @@ end
 local function run(options: any): integer
     local positional: {string} = options.inputs
     local fs = require("nupp.compiler.fs")
-    local paths, selections = {}, {}
+    local paths: {string}, selections: {string} = {}, {}
     for _, value in ipairs(positional as {string}) do
         if fs.exists(value) then
             paths[#paths + 1] = value

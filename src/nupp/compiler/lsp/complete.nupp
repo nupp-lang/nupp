@@ -648,7 +648,7 @@ function complete.install(s: complete.Session, nav: complete.Navigation): comple
                 end
             end
         end
-        local roots = {}
+        local roots: {boolean} = {}
         for moduleName in pairs(s.inc.projectIndex().declaredModules or {}) do
             if not s.inc.env.moduleAccess(s.inc.env, doc.result.moduleName, moduleName) then
                 roots[moduleName:match("^[^.]+") or moduleName] = true

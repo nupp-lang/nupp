@@ -1822,7 +1822,7 @@ function resolve.install(c: state.Checker): nil
             if node.comptimeOnly then
                 c.comptimeFunctionDepth = c.comptimeFunctionDepth + 1
             end
-            local params, rets, paramModes, paramNames = {}, {}, {}, {}
+            local params, rets, paramModes, paramNames: {string} = {}, {}, {}, {}
             local vararg = false
             local varargType = nil
             local varargMode = nil

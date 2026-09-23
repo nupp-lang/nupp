@@ -156,7 +156,7 @@ function process.command(argv: {string}, opts: process.Options?): string
     argv = launchArgs(argv)
     local parts = {}
     if opts.env then
-        local names = {}
+        local names: {string} = {}
         for name in pairs(opts.env) do
             names[#names + 1] = name
         end

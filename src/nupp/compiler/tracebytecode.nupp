@@ -121,7 +121,7 @@ local function controlFlow(instructions: {any}): any
         end
     end
 
-    local all = {}
+    local all: {boolean} = {}
     for pc = 0, count - 1 do
         if reachable[pc] then
             all[pc] = true

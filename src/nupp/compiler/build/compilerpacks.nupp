@@ -116,7 +116,7 @@ function packs.resolve(target: string?): (packs.Pack?, string?)
     if host == nil or target == nil then
         return nil, "compiler pack selection needs modeled host and target triples"
     end
-    local directories = {}
+    local directories: {string} = {}
     if not explicit then
         -- A stamped host publishes the physical path it used to read its own
         -- payload. `arg[0]` remains the source-launcher fallback, where there is

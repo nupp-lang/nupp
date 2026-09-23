@@ -85,7 +85,7 @@ local function orderedNames(byname: {[string]: T.Type}, writeByname: {[string]: 
             names[#names + 1] = name
         end
     end
-    local remaining = {}
+    local remaining: {string} = {}
     for name in pairs(byname) do
         if not seen[name] then
             seen[name] = true

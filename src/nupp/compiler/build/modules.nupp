@@ -74,7 +74,7 @@ local function selectedSourceFiles(root: string, target: Target): ({string}?, st
         if #matches == 0 then
             return nil, "build.sources matched nothing: " .. source
         end
-        local candidates = {}
+        local candidates: {string} = {}
         for _, matched in ipairs(matches) do
             local info = files.info(matched)
             if info and info.kind == "directory" then
@@ -652,7 +652,7 @@ local function openSession(
         envConfig.include[#envConfig.include + 1] = include
     end
     envConfig.include[#envConfig.include + 1] = join(outDir, "generated")
-    local generatorNames = {}
+    local generatorNames: {string} = {}
     for name in pairs(config.generators or {}) do
         generatorNames[#generatorNames + 1] = name
     end

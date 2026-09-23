@@ -978,7 +978,7 @@ function calls.install(c: state.Checker): calls.Ops
         if #survivors < 2 then
             return survivors, originals, choices
         end
-        local scores, best = {}, 0 as integer
+        local scores: {integer}, best = {}, 0 as integer
         for position, candidate in ipairs(survivors) do
             scores[position] = modePreference(candidate, packs[position])
             best = math.max(best, scores[position])

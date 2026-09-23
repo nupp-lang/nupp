@@ -141,7 +141,7 @@ local function bundleText(
         }
         or {banner or ""}
     local collisionIndex
-    local installedModules = {}
+    local installedModules: {string} = {}
     local sharedModules = {}
     local compilerArtifactBundle = target.kind == "binary"
         and target.stub == "nupp"
@@ -272,7 +272,7 @@ local function bundleText(
     end
 
     local built = modules or {}
-    local names = {}
+    local names: {string} = {}
     for name in pairs(built) do
         names[#names + 1] = name
     end

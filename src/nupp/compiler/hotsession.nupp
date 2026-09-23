@@ -374,7 +374,7 @@ local function cDeclarationChange(old, current)
     local nextDeclarations = current.cDeclarations or {}
     local oldUses = old.cUses or {}
     local nextUses = current.cUses or oldUses
-    local identities = {}
+    local identities: {boolean} = {}
     for identity in pairs(oldDeclarations) do
         identities[identity] = true
     end

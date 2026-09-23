@@ -1733,7 +1733,7 @@ local function indexedRangeWalk(result, remarks)
         collect(body, nil)
 
         for _, entry in ipairs(ordered) do
-            local adapters = {}
+            local adapters: {number} = {}
             local soaByView = {}
             local soaBindings = {}
             local declinedNested = false

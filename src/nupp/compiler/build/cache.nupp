@@ -317,7 +317,7 @@ local function toolFingerprint(contentDigest: (function(string): string)?): stri
     if basename(dir) == "build" then
         dir = dirname(dir)
     end
-    local files = {}
+    local files: {string} = {}
     if bundled() then
         files = {(debug.getinfo(1, "S").source:gsub("^@", ""))}
     else
@@ -619,7 +619,7 @@ function cache.subsystemFingerprint(
     contentDigest: (function(string): string)?
 ): string
     local digest = contentDigest or hash.digest
-    local ordered = {}
+    local ordered: {string} = {}
     for index, name in ipairs(roots) do
         ordered[index] = name
     end
