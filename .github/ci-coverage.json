@@ -28,7 +28,10 @@
         },
         {
           "name": "Validate SIMD inventory aggregation",
-          "guarantees": ["missing, duplicate, wrong-head or unexecuted Wasm shards cannot claim the full inventory"]
+          "guarantees": [
+            "native partitions cover every element type and owned algorithm exactly once",
+            "missing, duplicate, wrong-head or unexecuted Wasm shards cannot claim the full inventory"
+          ]
         },
         {
           "name": "Validate the workflow against the classifier",
@@ -63,6 +66,7 @@
       "steps": [],
       "guarantees": [
         "shared primitives and reducers execute through observed C entries under Clang and GCC",
+        "the native type and algorithm corpus is partitioned into bounded jobs without duplicated coverage",
         "exact baseline, AVX2 and AVX512 tiers on capable x64 hosts, or NEON on arm64",
         "Intel macOS and both Windows images have explicit execution rows",
         "unavailable hardware produces missing acceptance evidence, never an execution pass",

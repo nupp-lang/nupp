@@ -164,7 +164,11 @@ jobs:
         run: python3 .github/scripts/test-required-ci.py
 
       - name: Validate SIMD inventory aggregation
-        run: node --test tests/simd/aggregate-wasm.test.mjs tests/simd/wasm-algorithm-evidence.test.mjs
+        run: >-
+          node --test
+          tests/simd/native-shards.test.mjs
+          tests/simd/aggregate-wasm.test.mjs
+          tests/simd/wasm-algorithm-evidence.test.mjs
 
       - name: Validate the workflow against the classifier
         run: luajit .github/scripts/validate-ci-coverage.lua

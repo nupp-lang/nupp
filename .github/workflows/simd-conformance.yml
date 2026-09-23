@@ -13,6 +13,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       targets: ${{ steps.targets.outputs.targets }}
+      native: ${{ steps.targets.outputs.native }}
       wasm: ${{ steps.targets.outputs.wasm }}
     steps:
       - uses: actions/checkout@v5
@@ -21,11 +22,12 @@ jobs:
           python3 - <<'PY' >> "$GITHUB_OUTPUT"
           import json
           print("targets=" + json.dumps(json.load(open(".github/simd-platforms.json"))))
+          print("native=" + json.dumps(json.load(open(".github/simd-native-shards.json"))))
           print("wasm=" + json.dumps(json.load(open(".github/simd-wasm-shards.json"))))
           PY
 
   execute:
-    name: ${{ matrix.target.name }} / ${{ matrix.compiler }} / ${{ matrix.target.tier }}
+    name: ${{ matrix.target.name }} / ${{ matrix.compiler }} / ${{ matrix.target.tier }} / ${{ matrix.shard.name }}
     needs: platforms
     runs-on: ${{ matrix.target.os }}
     timeout-minutes: 150
@@ -34,6 +36,7 @@ jobs:
       matrix:
         target: ${{ fromJSON(needs.platforms.outputs.targets) }}
         compiler: [clang, gcc]
+        shard: ${{ fromJSON(needs.platforms.outputs.native) }}
     steps:
       - name: Check out the repository
         uses: actions/checkout@v5
@@ -80,10 +83,12 @@ jobs:
         shell: bash
         run: python3 tests/simd/test-clang-mingw.py
 
-      - name: Execute the full shared SIMD corpus at this tier
+      - name: Execute the partitioned shared SIMD corpus at this tier
         shell: bash
         env:
+          NUPP_SIMD_ALGORITHMS: ${{ matrix.shard.algorithms }}
           NUPP_SIMD_TIERS: ${{ matrix.target.tier }}
+          NUPP_SIMD_TYPES: ${{ matrix.shard.types }}
         run: tests/simd/run-matrix.sh
 
       # Keep the source, executable identities and actual execution proof. Object
@@ -92,7 +97,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: simd-${{ matrix.target.artifact }}-${{ matrix.compiler }}-${{ matrix.target.tier }}-${{ github.sha }}
+          name: simd-${{ matrix.target.artifact }}-${{ matrix.compiler }}-${{ matrix.target.tier }}-${{ matrix.shard.name }}-${{ github.sha }}
           path: |
             build/simd-matrix/**/*.json
             build/simd-matrix/**/*.log

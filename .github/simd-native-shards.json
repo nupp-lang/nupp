@@ -1,0 +1,17 @@
+[
+  {
+    "name": "floating-small",
+    "types": "float,number,int8,uint8",
+    "algorithms": "utf8simd,base64simd,simd-json,fused-json"
+  },
+  {
+    "name": "medium",
+    "types": "int16,uint16,int32",
+    "algorithms": "none"
+  },
+  {
+    "name": "wide",
+    "types": "uint32,int64,uint64",
+    "algorithms": "none"
+  }
+]

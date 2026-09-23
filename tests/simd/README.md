@@ -9,7 +9,9 @@ An unavailable tier is recorded as `not-executed`, with
 **available** executions passed; it does not certify unavailable hardware.
 
 CI uses separate jobs for each compiler and tier on Linux x64/arm64, macOS arm64
-and x64, and Windows 2022/2025 x64. The ordinary integration jobs stay separate.
+and x64, and Windows 2022/2025 x64. Each native target is split into three
+disjoint element-type jobs; the owned algorithm corpora run in exactly one of
+them. The ordinary integration jobs stay separate.
 `runtime-boundaries.json` records modeled layouts outside those execution rows.
 Windows ARM64 and Windows32 are not supported by the native toolchain: it
 explicitly accepts only x86_64 GNU/GNU-LLVM Rust hosts. Linux32 has a modeled
