@@ -97,20 +97,21 @@ local workerHost = rawget(_G, "__NUPP_TEST_WORKER_HOST") == true
 local rawTmpname = os.tmpname
 local processSalt
 do
+    local stateSalt = tostring({}):match("0x(%x+)") or tostring(os.clock())
     local loaded, ffi = pcall(require, "ffi")
     if loaded then
         if ffi.os == "Windows" then
             ffi.cdef[[int _getpid(void);]]
-            processSalt = tostring(ffi.C._getpid())
+            processSalt = tostring(ffi.C._getpid()) .. "-" .. stateSalt
         else
             ffi.cdef[[int getpid(void);]]
-            processSalt = tostring(ffi.C.getpid())
+            processSalt = tostring(ffi.C.getpid()) .. "-" .. stateSalt
         end
     else
         -- Official Lua already reserves a process-distinct temporary name on
         -- the platforms where the portable compiler runs. Retain a state-local
         -- discriminator as a second boundary when FFI is unavailable.
-        processSalt = tostring({}):match("0x(%x+)") or tostring(os.time())
+        processSalt = stateSalt .. "-" .. tostring(os.time())
     end
 end
 local shardSalt = ((os.getenv("NUPP_CACHE_DIR") or ""):match("shard%-(%d+)") or "0") .. "-" .. processSalt
@@ -2931,10 +2932,10 @@ end
 --- the difference rather than the whole imbalance, and the makespan is the mean
 --- plus one piece.
 ---
---- A claim is `os.rename`, which is atomic on both the filesystems this runs on
---- and needs no lock, no daemon and no subprocess: the parent writes one file
---- per piece and the worker that renames it first owns it. Losing the race
---- returns nil, which is the whole protocol.
+--- A claim is an exclusive file creation when the runtime exposes it. This is
+--- atomic between the Lua states hosted by one process on Windows, where two
+--- concurrent CRT renames have both reported success for one source. Portable
+--- Lua falls back to the rename protocol used by its process workers.
 local function takeWork()
     local file = io.open(queueDir .. "/order", "rb")
     if not file then
@@ -2953,8 +2954,18 @@ local function takeWork()
         local took = nil
         for step = 1, #specs do
             local index = (cursor + step - 1) % #specs + 1
+            local piece = ("%s/piece-%d"):format(queueDir, index)
             local mine = ("%s/taken-%d"):format(queueDir, index)
-            if os.rename(("%s/piece-%d"):format(queueDir, index), mine) then
+            local won
+            if exclusiveCreate then
+                won = exclusiveCreate(mine)
+            else
+                won = os.rename(piece, mine)
+            end
+            if won then
+                if exclusiveCreate then
+                    assert(os.remove(piece), "cannot retire a claimed test queue piece")
+                end
                 took, cursor = index, index
                 break
             end
