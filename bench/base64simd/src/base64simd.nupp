@@ -197,7 +197,7 @@ function base64simd.encode(value: string): string
     local lease = buffer:reserveWrite(0, bound)
     local target = lease:span()
     local written = encode(target, span.fromString(value), ALPHABET_BYTES)
-    drop target
+    nupp.drop(target)
     lease:commit(written)
 
     return buffer:getString(0, written)
@@ -218,7 +218,7 @@ function base64simd.allocOnly(value: string): string
     local lease = buffer:reserveWrite(0, math.max(bound, 1))
     local target = lease:span()
     target[1] = #value % 256
-    drop target
+    nupp.drop(target)
     lease:commit(1)
 
     return buffer:getString(0, 1)
