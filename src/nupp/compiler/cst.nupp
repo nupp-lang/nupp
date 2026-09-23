@@ -1970,6 +1970,9 @@ record cst.Call is cst.Hints
 
     --- The argument list.
     args: cst.Node?
+
+    --- Type arguments written at the call, when it supplied them.
+    typeArgs: {cst.Node}?
 end
 
 --- A call's arguments, however they were written.

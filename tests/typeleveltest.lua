@@ -2296,6 +2296,38 @@ function M.pairsBindsItsKeyAndValueOverAnArrayOrAShape()
     )
 end
 
+-- A type parameter inference cannot reach is written instead. The `<` alone cannot
+-- say whether a generic call or a comparison pair was meant, so the reading commits
+-- only when the list closes with `>` immediately followed by `(`.
+function M.aCallMaySupplyItsTypeArgumentsInWriting()
+    local pick = "local function pick<T>(): T?\n    return nil\nend\n"
+    clean(pick .. "local a: integer? = pick<integer>()\nprint(a)")
+    clean(pick .. "local b: string? = pick<string>()\nprint(b)")
+    -- the written argument is what the result is, not whatever the destination says
+    assertEq(codes(pick .. "local c: string? = pick<integer>()\nprint(c)"), "NUPP2001")
+    -- more arguments than the callee declares is refused
+    assertEq(codes(pick .. "local d = pick<integer, string>()\nprint(d)"), "NUPP2007")
+    -- a comparison pair still reads as one wherever the list does not close into a call
+    clean("local x, y, z = 1, 2, 3\nlocal cmp = x < y or x > (z)\nprint(cmp)")
+    clean("local x, y = 1, 2\nlocal cmp = (x < y) == (y > x)\nprint(cmp)")
+end
+
+-- The parser already recorded a method call's type arguments and nothing read them,
+-- so writing one type-checked and still produced `any`.
+function M.aMethodCallMaySupplyItsTypeArgumentsInWriting()
+    local holder = table.concat({
+        "local record Holder",
+        "    v: integer",
+        "end",
+        "function Holder:pick<T>(): T?",
+        "    return nil",
+        "end",
+        "local h = new Holder(v = 1)",
+    }, "\n") .. "\n"
+    clean(holder .. "local a: integer? = h:pick<integer>()\nprint(a)")
+    assertEq(codes(holder .. "local b: string? = h:pick<integer>()\nprint(b)"), "NUPP2001")
+end
+
 -- `as` is erased, so it may say a value is one of these but cannot make it one. A
 -- constraint is exactly the claim that has to be established.
 function M.anErasedCastCannotManufactureAConstraint()

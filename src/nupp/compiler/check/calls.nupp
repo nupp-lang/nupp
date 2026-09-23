@@ -2156,6 +2156,28 @@ function calls.install(c: state.Checker): calls.Ops
         then
             local map = {}
             genericMap = map
+            -- Written type arguments are supplied evidence, so they seed the map before
+            -- unification and inference fills only what was left out. The parser
+            -- already records them on a method call; nothing read them, so
+            -- `h:pick<integer>()` type-checked and still handed back `any`.
+            local written: {any} = (node as any).typeArgs or {}
+            if #written > 0 then
+                local declared = #(calleeT.typeParams or {})
+                if #written > declared then
+                    c.diag(
+                        "NUPP2007",
+                        node,
+                        ("too many type arguments (expected %d, got %d)"):format(declared, #written)
+                    )
+                else
+                    for j, binder in ipairs(calleeT.typeParams or {}) do
+                        local argument = written[j]
+                        if argument then
+                            map[binder] = c.resolveType(argument)
+                        end
+                    end
+                end
+            end
             local slots = slotBinders(calleeT)
             local unified = {}
             for j, actual in ipairs(argPack.head) do
@@ -2164,36 +2186,36 @@ function calls.install(c: state.Checker): calls.Ops
             end
             unifyPack(paramPack, T.pack(unified, argPack.tail, argPack.modes), map)
             local expectedResult = (node as any).expectedResult
-            local expectedMayInfer = true
+            -- A destination answers the binders the arguments did not. This used to be
+            -- all or nothing -- one binder already bound and the destination was not
+            -- consulted at all -- so `make<T, U>(value: T): U?` into a `string?` left
+            -- `U` unresolved even though the destination said what it was. Freeze what
+            -- is already bound and let the result unification fill the rest.
             local expectedHasBinder = false
             for _, binder in ipairs(calleeT.typeParams or {}) do
-                if map[binder] ~= nil or (binder as T.TypeVar).default ~= nil then
-                    expectedMayInfer = false
-                else
+                if map[binder] == nil and (binder as T.TypeVar).default == nil then
                     expectedHasBinder = true
                 end
             end
             for _, binder in ipairs(calleeT.packParams or {}) do
-                if map[binder] ~= nil then
-                    expectedMayInfer = false
-                else
+                if map[binder] == nil then
                     expectedHasBinder = true
                 end
             end
             for _, binder in ipairs(calleeT.constParams or {}) do
-                if map[binder] ~= nil or (binder as any).default ~= nil then
-                    expectedMayInfer = false
-                else
+                if map[binder] == nil and (binder as any).default == nil then
                     expectedHasBinder = true
                 end
             end
-            if expectedResult ~= nil
-                and expectedMayInfer
-                and expectedHasBinder
-                and #retPack.head == 1
-                and retPack.tail == nil
-            then
+            if expectedResult ~= nil and expectedHasBinder and #retPack.head == 1 and retPack.tail == nil then
+                -- Only a binder the parameters never mention. One a parameter mentions
+                -- is bound by the argument, and a callable argument binds it from its
+                -- body -- later than this, but by the more specific evidence. Letting
+                -- the destination claim it first would check the body against what the
+                -- caller wanted rather than report what the body actually produced.
+                local frozen = generics.fixBound(map, generics.bindersInPack(declaredParamPack))
                 unifyPack(retPack, T.pack({expectedResult}), map)
+                generics.unfix(map, frozen)
             end
             local constProblem = constInferenceProblem(calleeT, map)
             if constProblem then

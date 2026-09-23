@@ -1932,6 +1932,107 @@ local function fixedFor(map: Bindings): {[Type]: boolean}
     return fixed
 end
 
+--- Every binder `t` reaches.
+local function collectBinders(t: Type?, out: {[any]: boolean}): nil
+    if not t or not T.hasTypevar(t) then
+        return
+    end
+    local tag = t.tag
+    if tag == "typevar" then
+        out[t] = true
+    elseif tag == "nominal" then
+        for _, argument in ipairs(t.typeArgs or {}) do
+            collectBinders(argument, out)
+        end
+    elseif tag == "affine" or tag == "borrowed" or tag == "pinned" or tag == "const" then
+        collectBinders(t.inner, out)
+    elseif tag == "ctype" or tag == "metatable" then
+        collectBinders(t.of, out)
+    elseif tag == "ptr" or tag == "carray" or tag == "array" then
+        collectBinders(t.elem, out)
+    elseif tag == "typeHandle" then
+        collectBinders(t.bound, out)
+    elseif tag == "projection" then
+        collectBinders(t.of, out)
+    elseif tag == "map" then
+        collectBinders(t.key, out)
+        collectBinders(t.value, out)
+        collectBinders(t.writeKey, out)
+        collectBinders(t.writeValue, out)
+    elseif tag == "tuple" then
+        for _, member in ipairs(t.elems or {}) do
+            collectBinders(member, out)
+        end
+    elseif tag == "union" or tag == "intersection" then
+        for _, member in ipairs(t.members or {}) do
+            collectBinders(member, out)
+        end
+    elseif tag == "shape" then
+        for _, field in ipairs(t.fields or {}) do
+            collectBinders(field.read, out)
+            collectBinders(field.write, out)
+        end
+    elseif tag == "func" then
+        for _, member in ipairs(t.params or {}) do
+            collectBinders(member, out)
+        end
+        for _, member in ipairs(t.rets or {}) do
+            collectBinders(member, out)
+        end
+    end
+end
+
+--- Every binder a pack reaches, head and tail.
+function generics.bindersInPack(pack: T.Pack): {[any]: boolean}
+    local out: {[any]: boolean} = {}
+    for _, member in ipairs(pack.head or {}) do
+        collectBinders(member, out)
+    end
+    local tail = pack.tail
+    if tail and (tail as any).type then
+        collectBinders((tail as any).type, out)
+    end
+
+    return out
+end
+
+--- Freezes every binding `map` already holds, so a later unification fills only what
+--- is still missing.
+---
+--- A destination says what a result binder is, but only the binders the arguments did
+--- not already answer. Without this the result unification widens an argument-bound
+--- binder into a union with whatever the destination wanted, which is a different
+--- specialization than the arguments asked for.
+function generics.fixBound(map: Bindings, also: {[any]: boolean}?): {[any]: boolean}
+    local fixed = fixedFor(map)
+    local added: {[any]: boolean} = {}
+    for binder in pairs(map) do
+        if not fixed[binder] then
+            fixed[binder] = true
+            added[binder] = true
+        end
+    end
+    for binder in pairs(also or {}) do
+        if not fixed[binder] then
+            fixed[binder] = true
+            added[binder] = true
+        end
+    end
+
+    return added
+end
+
+--- Releases what `fixBound` froze, so the freeze lasts only as long as the unification
+--- it was for. A binder a parameter mentions is bound by its argument, and a callable
+--- argument binds it from its body -- after the destination has been consulted, so the
+--- freeze must not still be in force by then.
+function generics.unfix(map: Bindings, added: {[any]: boolean}): nil
+    local fixed = fixedFor(map)
+    for binder in pairs(added) do
+        fixed[binder] = nil
+    end
+end
+
 local function unifyInvariant(param: Type, arg: Type, map: Bindings)
     if constDepth > 0 then
         generics.unify(param, arg, map)

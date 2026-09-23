@@ -1508,6 +1508,53 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     --- `safeObj` is the `?.` token of `obj?.:m(...)`, which checks the receiver; a `?.`
     --- between the name and the arguments checks the method itself. Both may be
     --- present, as in `obj?.:m?.(...)`.
+    --- The tokens a type-argument list may contain.
+    ---
+    --- Scanning for the closing `>` has to stop at anything a type cannot hold, or a
+    --- comparison two clauses away closes the scan instead: `index < 1 or index >
+    --- (self.count as integer)` reaches a `>` followed by `(` and is not a call at all.
+    --- An allow-list is the safe direction, because a token left out of it only
+    --- declines a generic call that could have been written with a binding instead.
+    local TYPE_ARGUMENT_TOKEN: {[string]: boolean} = {}
+
+    for kind in (
+        "name . , ? | & : < > >> ( ) { } [ ] number string nil true false function "
+        .. "... -> readonly writeonly const borrows takes scoped"
+    ):gmatch("%S+") do
+        TYPE_ARGUMENT_TOKEN[kind] = true
+    end
+
+    --- Whether the `<` at `at` opens a call's type arguments rather than a comparison.
+    ---
+    --- `a < b > (c)` is two comparisons everywhere else in Lua, so the `<` alone cannot
+    --- decide. Scan for the `>` that closes it and require a `(` immediately after:
+    --- that is the one shape the comparison pair also takes, and it is the reading this
+    --- deliberately displaces, because `(a < b) > (c)` compares a boolean with `>` and
+    --- the checker already refuses it. The scan stops at the first token no type
+    --- argument list may contain, so it is bounded lookahead rather than backtracking.
+    --- [CS-11]
+    local function opensCallTypeArguments(at: integer): boolean
+        local depth, j = 0, at
+        while tokens[j] do
+            local k = tokens[j].kind
+            if k == "<" then
+                depth = depth + 1
+            elseif k == ">" or k == ">>" then
+                depth = depth - (k == ">>" and 2 or 1)
+                if depth <= 0 then
+                    local next_ = tokens[j + 1]
+
+                    return depth == 0 and next_ ~= nil and next_.kind == "("
+                end
+            elseif not TYPE_ARGUMENT_TOKEN[k] then
+                return false
+            end
+            j = j + 1
+        end
+
+        return false
+    end
+
     local function parseMethodCall(obj: Node, safeObj: Token?): Node
         local n = new cst.MethodCall(kind = "methodCall")
         n.obj = add(n, obj)
@@ -1605,6 +1652,25 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                     end
                     add(n, expectGenericClose("to close a type argument")).generic = true
                 end
+            elseif kind == "<" and opensCallTypeArguments(i) then
+                local n = new cst.Call(kind = "call")
+                n.obj = add(n, e)
+                add(n, advance()).generic = true
+                n.typeArgs = {}
+                repeat
+                    n.typeArgs[#n.typeArgs + 1] = add(n, parseType())
+                    if cur().kind ~= "," then
+                        break
+                    end
+                    add(n, advance())
+                until false
+                add(n, expectGenericClose("to close call type arguments")).generic = true
+                local args = parseCallargs(false)
+                if not args then
+                    return e
+                end
+                n.args = add(n, args)
+                e = n
             elseif kind == "[" then
                 local n = new cst.BracketIndex(kind = "bracketIndex")
                 n.obj = add(n, e)
