@@ -305,8 +305,8 @@ input {
 
 .nuppdoc-sidebar {
     border-right: 1px solid var(--nuppdoc-border);
-    background: var(--nuppdoc-background-alt);
-    box-shadow: -100vw 0 0 100vw var(--nuppdoc-background-alt)
+    background: var(--nuppdoc-sidebar-background);
+    box-shadow: -100vw 0 0 100vw var(--nuppdoc-sidebar-background)
 }
 
 .nuppdoc-sidebar h2,
@@ -1076,10 +1076,6 @@ details.nuppdoc-admonition>.nuppdoc-admonition-body {
     border: 0;
     opacity: 0;
     pointer-events: none
-}
-
-.nuppdoc-sidebar {
-    background: var(--nuppdoc-sidebar-background)
 }
 
 .nuppdoc-sidebar>ul {

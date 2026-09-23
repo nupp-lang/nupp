@@ -48,6 +48,10 @@
   --nuppdoc-feature-heading: var(--nupp-woodblock-cinnabar-deep);
   --nuppdoc-nav-heading: rgb(189, 168, 146);
   --nuppdoc-playground-border: color-mix(in srgb, #50676c 70%, white);
+  /* Drop the sidebar onto the same paper the content sits on, rather than
+   * the base theme's separate panel tone, so the left nav reads as part of
+   * the page instead of a distinct surface. */
+  --nuppdoc-sidebar-background: var(--nuppdoc-background);
   --nuppdoc-code-block-radius: 4px;
   --nuppdoc-hero-glow-color: var(--nupp-woodblock-vermilion);
   --nuppdoc-syntax-boolean: #836620;
