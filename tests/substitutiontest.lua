@@ -18,12 +18,16 @@ local function assertEq(got, want, label)
     end
 end
 
-local function codes(source)
+local function diagnostics(source)
     env.loaded = {}
     local parsed = parser.parse(source, "test.g.nupp")
     assertEq(#parsed.errors, 0, "syntax: " .. (parsed.errors[1] and parsed.errors[1].msg or ""))
+    return check.check(parsed, "test.g.nupp", env)
+end
+
+local function codes(source)
     local out = {}
-    for j, d in ipairs(check.check(parsed, "test.g.nupp", env)) do
+    for j, d in ipairs(diagnostics(source)) do
         out[j] = d.code
     end
 
@@ -121,18 +125,17 @@ function M.anInheritedSelfFollowsTheReceiver()
     reports(body .. "local wrong: string = node:chain()\nreturn wrong\n", "NUPP2001")
 end
 
--- 5. The other direction, which the split must not break: a binder inference
--- genuinely never reached materializes as `any`, keeping the call gradual rather
--- than leaking an unbound binder into the caller.
-function M.anUninferredBinderMaterializesAsAny()
+-- 5. The other direction, which the split must not break: a destination answers a
+-- result-only binder without leaking that binder or materializing it as `any`.
+function M.aDestinationAnswersAResultOnlyBinder()
     local body = table.concat({"local function pick<T>(): T?", "   return nil", "end",}, "\n") .. "\n"
     clean(body .. "local anything: string? = pick()\nreturn anything\n")
     clean(body .. "local other: integer? = pick()\nreturn other\n")
 end
 
--- The other half of that: a binder inference never reached takes the default its
--- declaration wrote before it falls back to `any`, at a construction and at a call
--- alike, and a default naming an earlier binder follows what that one became.
+-- A binder inference never reached takes the default its declaration wrote at a
+-- construction and at a call alike. A default naming an earlier binder follows what
+-- that one became.
 function M.anUninferredBinderMaterializesAsItsDefault()
     local body = table.concat(
         {
@@ -379,6 +382,138 @@ function M.anExpectedLiteralInfersItsResults()
         ),
         "NUPP2001"
     )
+end
+
+function M.anUninferredResultParameterIsAnError()
+    local body = table.concat(
+        {
+            "local function make<T>(): T",
+            "   error('not reached')",
+            "end",
+        },
+        "\n"
+    ) .. "\n"
+    local found = diagnostics(body .. "local value = make()\nreturn value\n")
+    assertEq(#found, 1, "one uninferred parameter")
+    assertEq(found[1].code, "NUPP2148")
+    assert(found[1].msg:find("T", 1, true), "diagnostic names the parameter")
+    assert(found[1].msg:find("make", 1, true), "diagnostic names the callee")
+    assert(found[1].help and found[1].help:find("make<T>(...)", 1, true), "help shows the explicit form")
+    clean(body .. "local value = make<string>()\nreturn value\n")
+    clean(body .. "local value: string = make()\nreturn value\n")
+end
+
+function M.explicitTypeArgumentsStayFixedAgainstArguments()
+    reports(
+        table.concat(
+            {
+                "local function identity<T>(value: T): T return value end",
+                "return identity<string>(1)",
+            },
+            "\n"
+        ),
+        "NUPP2006"
+    )
+end
+
+function M.onlyResultBindersNeedInferenceEvidence()
+    clean(
+        table.concat(
+            {
+                "local function phantom<T>(): integer return 1 end",
+                "local function defaulted<T = string>(): T return 'ok' as T end",
+                "local one = phantom()",
+                "local two: string = defaulted()",
+                "return one, two",
+            },
+            "\n"
+        )
+    )
+end
+
+function M.gradualArgumentsAreInferenceEvidence()
+    local body = table.concat(
+        {
+            "local record Box<T>",
+            "   value: T",
+            "end",
+            "local function identity<T>(value: T): T return value end",
+            "local function unwrap<T>(value: Box<T>): T return value.value end",
+            "local value: any = nil",
+            "local direct = identity(value)",
+            "local nested = unwrap(value)",
+            "return direct, nested",
+        },
+        "\n"
+    )
+    clean(body)
+    reports(
+        body:gsub(
+            "return direct, nested",
+            "local function extra<T, U>(value: Box<T>): U error('not reached') end\nlocal missing = extra(value)\nreturn missing"
+        ),
+        "NUPP2148"
+    )
+end
+
+function M.typePackResultsNeedInferenceEvidence()
+    reports(
+        table.concat(
+            {
+                "local function makePack<A...>(): A...",
+                "   error('not reached')",
+                "end",
+                "local left, right = makePack()",
+                "return left, right",
+            },
+            "\n"
+        ),
+        "NUPP2148"
+    )
+end
+
+function M.genericConstructionsNeedInferenceEvidence()
+    local body = table.concat({"local record Empty<T>", "   tag: string", "end",}, "\n") .. "\n"
+    reports(body .. "local value = new Empty(tag = 'x')\nreturn value\n", "NUPP2148")
+    clean(body .. "local value = new Empty<integer>(tag = 'x')\nreturn value\n")
+    local declared = table.concat(
+        {
+            "local record Made<T>",
+            "   tag: string",
+            "   constructor(self, tag: string) self.tag = tag end",
+            "end",
+        },
+        "\n"
+    ) .. "\n"
+    reports(declared .. "local value = new Made('x')\nreturn value\n", "NUPP2148")
+    clean(declared .. "local value = new Made<integer>('x')\nreturn value\n")
+end
+
+function M.genericMethodsNeedInferenceEvidence()
+    local body = table.concat(
+        {
+            "local record Holder",
+            "   function pick<T>(self): T? return nil end",
+            "end",
+            "local holder = new Holder()",
+        },
+        "\n"
+    ) .. "\n"
+    reports(body .. "local value = holder:pick()\nreturn value\n", "NUPP2148")
+    clean(body .. "local value: integer? = holder:pick<integer>()\nreturn value\n")
+end
+
+function M.onlyTheWinningOverloadReportsUninferredResults()
+    local body = table.concat(
+        {
+            "local type Pick = function<T>(tag: 'generic'): T",
+            "   & function(tag: 'fixed'): integer",
+            "local pick: Pick = nil as any",
+        },
+        "\n"
+    ) .. "\n"
+    clean(body .. "local value: integer = pick('fixed')\nreturn value\n")
+    reports(body .. "local value = pick('generic')\nreturn value\n", "NUPP2148")
 end
 
 -- A callback returning some other type that satisfies the bound widens the binder

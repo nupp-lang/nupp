@@ -704,7 +704,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     local function parseTypePrimary(): Node
         local kind = cur().kind
         if kind == "@" then
-            local attached = {}
+            local attached: {cst.AnnotationApply} = {}
             while cur().kind == "@" do
                 local application = parseAnnotationApplication(new cst.AnnotationApply(kind = "annotationApply"), true)
                 application.typeAttachment = true
@@ -1399,7 +1399,11 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                         local closeKind = oldSpelling and ")" or "}"
                         local openTok = add(pluck, advance())
                         pluck.names[1] = add(pluck, advance())
-                        local invalidAliases = {}
+                        local invalidAliases: {{
+                            token: lexer.Token,
+                            source: lexer.Token,
+                            alias: lexer.Token
+                        }} = {}
                         if cur().kind == "name" and cur().text == "as" then
                             local asTok = add(pluck, advance())
                             local alias = add(pluck, expectName("after 'as' in plucked arguments"))

@@ -44,7 +44,9 @@ local function admitsNil(t: any): boolean
 end
 
 function reflection.describe(root: any, qualifiedName: string?, includeSources: boolean?): any
-    local indices, types, sources = {}, {}, {}
+    local indices = {}
+    local types: {any} = {}
+    local sources = {}
 
     local intern
 

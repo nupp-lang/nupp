@@ -58,7 +58,8 @@ local function candidate(node: any, filename: string): any?
     if #clause.names == 0 then
         return nil
     end
-    local binders, byName = {}, {}
+    local binders: {any} = {}
+    local byName = {}
     for position, token in ipairs(clause.names) do
         if clause.consts[position] ~= true then
             return nil

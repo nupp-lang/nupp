@@ -809,7 +809,7 @@ local function finalizeNominalEffects(c: state.Checker)
         seen[nominal] = true
 
         local function record(which: string, members: {[string]: Type}, method: boolean)
-            local names = {}
+            local names: {string} = {}
             for name, member in pairs(members) do
                 if effect(member, method) then
                     names[#names + 1] = name
@@ -845,7 +845,7 @@ local function finalizeNominalEffects(c: state.Checker)
         end
     end
 
-    local names = {}
+    local names: {string} = {}
     for name in pairs(c.moduleExports.types or {}) do
         names[#names + 1] = name
     end
@@ -1713,7 +1713,8 @@ function checkMod.check(
     -- Binds a generic clause in its surrounding scope and resolves aligned upper bounds
     -- after each binder is visible.
     c.bindGenerics = function(generics, role, predeclared)
-        local params, bounds, packParams, constParams, paramKinds: {string} = {}, {}, {}, {}, {}
+        local params, bounds, packParams, constParams = {}, {}, {}, {}
+        local paramKinds: {string} = {}
         local paramDefaults = {}
         local sawPack = false
         for j, nameTok in ipairs(generics and generics.names or {}) do
@@ -1850,7 +1851,7 @@ function checkMod.check(
     --- A file that declared nothing gets an empty shape rather than `any`, so
     --- reaching a symbol it never declared is NUPP2004 instead of silence.
     c.cNamespaceType = function(): Type
-        local decls = {}
+        local decls: {[string]: Type} = {}
         local resolved = c.opts._capabilityResolution or capabilities.resolve(c.opts.dialect)
         local cinterop = capabilities.get(resolved, "cinterop")
         if cinterop.kind ~= "missing"
@@ -1873,7 +1874,8 @@ function checkMod.check(
                 c.cDeclared
             )
         end
-        for name, t in pairs(c.cDefinedFunctions) do
+        local definedFunctions: {[string]: Type} = c.cDefinedFunctions
+        for name, t in pairs(definedFunctions) do
             decls[name] = t
         end
         local fields = {}
@@ -1959,7 +1961,8 @@ function checkMod.check(
     end
 
     local function inferListPack(exprs, paramModes)
-        local head, modes, tail = {}, {}, nil
+        local head: {Type} = {}
+        local modes, tail = {}, nil
         exprs = exprs or {}
         for j, e in ipairs(exprs) do
             c.lastCallRets = nil
@@ -2638,7 +2641,7 @@ function checkMod.check(
         -- A non-retaining loan gives the generator that statement as its hidden
         -- cleanup extent; one never loaned, moved, bound, or returned is a leak,
         -- reported here rather than at each position it could have appeared in.
-        local temporaries = {}
+        local temporaries: {any} = {}
         stat.statementCleanupOwners = nil
         c.temporaryOwners[#c.temporaryOwners + 1] = temporaries
         if handle then
@@ -2700,7 +2703,7 @@ function checkMod.check(
     local function hoistDeclarations(block)
         for _, stat in ipairs(block.stats or {}) do
             local decl = stat
-            local deriveApplications = {}
+            local deriveApplications: {Node} = {}
             while decl and decl.kind == "pragmaStmt" do
                 if decl.name and decl.name.text == "derive" then
                     deriveApplications[#deriveApplications + 1] = decl
@@ -2997,7 +3000,11 @@ function checkMod.check(
     -- A goto may leave an exact extent because lowering drops before dispatch, but it
     -- may not enter one and bypass acquisition.
     local function auditWithGotos(block)
-        local labels, gotos = {}, {}
+        local labels = {}
+        local gotos: {{
+            node: any,
+            regions: any
+        }} = {}
 
         local function walk(node, regions)
             if not node or cst.isToken(node) then
@@ -3092,7 +3099,7 @@ function checkMod.check(
         -- that same file happened to mention them. Ordinary modules can leave aliases
         -- lazy, but copying only the already-resolved table here would make an unused
         -- generic such as `Transfer` disappear from the global environment.
-        local pendingNames = {}
+        local pendingNames: {string} = {}
         for name in pairs(c.rootScope.pending) do
             pendingNames[#pendingNames + 1] = name
         end
@@ -3313,7 +3320,8 @@ function checkMod.check(
     end
     require("nupp.compiler.compat").checkSyntax(c)
     require("nupp.compiler.compat").dependencies(c)
-    local comptimeNames, comptimeIdentities = {}, {}
+    local comptimeNames: {string} = {}
+    local comptimeIdentities = {}
     for name in pairs(c.moduleExports.comptimeFunctions or {}) do
         comptimeNames[#comptimeNames + 1] = name
     end

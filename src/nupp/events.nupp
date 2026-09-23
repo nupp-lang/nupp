@@ -270,7 +270,7 @@ end
 --- @return the state, with nothing registered
 function events.newObservers<A>(): events.Observers<A>
     return new events.Observers(
-        byAddress = {},
+        byAddress = {} as {[A]: {[integer]: any}},
         count = 0,
         depth = 0,
         pending = false,
@@ -997,7 +997,8 @@ end
 --- `local bus: events.MessageBus<integer> = events.newMessageBus()`.
 --- @return the bus
 function events.newMessageBus<A>(): events.MessageBus<A>
-    return new events.MessageBus(observers = events.newObservers())
+    local observers: events.Observers<A> = events.newObservers()
+    return new events.MessageBus(observers = observers)
 end
 
 export = events

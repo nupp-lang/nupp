@@ -204,7 +204,7 @@ function narrow.install(c: state.Checker): narrow.Ops
     --- declaration binds, so `function types.Prim:m` finds the record declared as
     --- `record types.Prim`.
     c.funcOwner = function(fname: cst.Funcname): string?, lexer.Token?
-        local names = {}
+        local names: {lexer.Token} = {}
         for _, child in ipairs(fname) do
             if cst.isToken(child) and child.kind == "name" then
                 names[#names + 1] = child
@@ -472,7 +472,12 @@ function narrow.install(c: state.Checker): narrow.Ops
     end
 
     function facts.hideCapturedNarrowing(body)
-        local restore = {}
+        local restore: {{
+            entry: any?,
+            key: any?,
+            map: any?,
+            t: any
+        }} = {}
         -- The writes are recorded on the declaring tokens by the pass that reads
         -- the file, which nothing before this literal need have asked for yet.
         facts.summaries()

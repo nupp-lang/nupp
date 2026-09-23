@@ -336,6 +336,7 @@ function gpu.Context.buffer<T>(
     costMetadata(live(self), handle, false, {format = tostring(element), elementBytes = width, shape = {count}})
 
     return new shared.Buffer(
+        _elementType = nil as T,
         _anchor = self,
         _handle = handle,
         _width = width,

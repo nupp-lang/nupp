@@ -194,7 +194,7 @@ function header.of(path: string, moduleName: string?, parsed: parser.ParseResult
     local moduleLocal = declaredModuleName and (cst.exportedLocal(parsed.root) or "__nuppExports")
         or cst.returnedLocal(parsed.root)
     produced.moduleLocal = moduleLocal
-    local dependencySet = {}
+    local dependencySet: {[string]: boolean} = {}
 
     local function dependencies(node)
         if not node or cst.isToken(node) then
@@ -252,7 +252,8 @@ function header.of(path: string, moduleName: string?, parsed: parser.ParseResult
                     deprecated = deprecated,
                 }
             elseif declaration and exported then
-                local names, kind = {}, nil
+                local names: {lexer.Token} = {}
+                local kind = nil
                 if declaration.kind == "localFuncStmt" then
                     names[1], kind = declaration.name, "function"
                 elseif declaration.kind == "funcStmt" and declaration.name and #declaration.name == 1 then

@@ -1,5 +1,7 @@
 module nupp.compiler.gen
 
+const {type Type} = require("nupp.compiler.types")
+
 --[[
 Type erasure: a checked CST, lowered to LuaJIT 2.1 Lua.
 
@@ -605,7 +607,8 @@ function gen.generate(
     -- targets that need it are named, and only pointers to them change spelling, so a
     -- program without a forward or self reference generates exactly what it did.
     local function planStructTags()
-        local structs, indexOf = {}, {}
+        local structs: {cst.RecordDecl} = {}
+        local indexOf = {}
 
         local function collect(node)
             if not node or cst.isToken(node) then
@@ -711,7 +714,7 @@ function gen.generate(
         while changed do
             changed = false
             for _, decl in ipairs(structs) do
-                if structTag[decl.name.text] then
+                if structTag[(decl.name as lexer.Token).text] then
                     for _, entry in ipairs(decl.entries or {}) do
                         local target = entry.kind == "fieldDecl" and referent(entry)
                         if target and not structTag[target] then
@@ -741,7 +744,10 @@ function gen.generate(
     local needsCleanupRegistry = false
     local cleanupRegistryName
     local cleanupResolvers = {}
-    local cleanupResolverOrder = {}
+    local cleanupResolverOrder: {{
+        cleanup: any,
+        name: string
+    }} = {}
     local newTabName, clearTabName, cloneTabName
     local needsCleanupRegions = false
     local cleanupPackName, cleanupIdName, cleanupFailureName
@@ -756,7 +762,7 @@ function gen.generate(
     -- of cleanup sites in a file cannot exhaust Lua's limit on locals per function.
     local cleanupCacheName
     local cleanupCacheSites = 0
-    local cleanupStack = {}
+    local cleanupStack: {any} = {}
     local emitDepth = {
         loop = 0,
         fn = 0,
@@ -915,7 +921,7 @@ function gen.generate(
     end
 
     local function hotOuterCaptures(node): {string}
-        local captures = {}
+        local captures: {[any]: boolean} = {}
         local first = cst.firstToken(node)
         local last = cst.lastToken(node)
         local firstOffset = first and first.offset or 0
@@ -3101,7 +3107,7 @@ function gen.generate(
             if node.expr then
                 lowerSwitches(node.expr)
             end
-            local pending = {}
+            local pending: {cst.Node} = {}
             for _, arg in ipairs(node.args and node.args.exprs or {}) do
                 local value = (arg.kind == "namedArg" or arg.kind == "pluckArg") and arg.value or arg
                 if switchContains(value) then
@@ -3178,7 +3184,7 @@ function gen.generate(
             return
         end
 
-        local pending = {}
+        local pending: {cst.Node} = {}
         for _, operand in ipairs(operands) do
             if operand and switchContains(operand) then
                 -- Everything to the left has already run in Lua's eager evaluation
@@ -3630,7 +3636,7 @@ function gen.generate(
                 captureSwitchPrefix(stat.target)
             end
         end
-        local pending = {}
+        local pending: {cst.Node} = {}
         for _, expr in ipairs(exprs) do
             if switchContains(expr) then
                 for _, prefix in ipairs(pending) do
@@ -3669,7 +3675,7 @@ function gen.generate(
     end
 
     function emitDepth.lowerValues(values)
-        local pending = {}
+        local pending: {cst.Node} = {}
         for _, value in ipairs(values) do
             if switchContains(value) then
                 for _, prefix in ipairs(pending) do
@@ -4448,7 +4454,13 @@ function gen.generate(
         for index = 1, first - 1 do
             emit(stats[index])
         end
-        local bindings, sequence, bodyStats = {}, {}, {}
+        local bindings = {}
+        local sequence: {{
+            bindings: {any}?,
+            declaration: any?,
+            stat: any?
+        }} = {}
+        local bodyStats: {cst.Node} = {}
         for index = first, #stats do
             local stat = stats[index]
             local owners = stat.automaticOwners or {}
@@ -4758,7 +4770,8 @@ function gen.generate(
             )
             return
         end
-        local actives, seen = {}, {}
+        local actives: {string} = {}
+        local seen = {}
         for _, expr in ipairs(x.exprs or {}) do
             local move = ownershipMoveOf(expr)
             local active = move and activeFlag(move) or nil
@@ -4828,7 +4841,8 @@ function gen.generate(
             return temporary(expression, name)
         end
 
-        local frozen, values = {}, {}
+        local frozen: {any} = {}
+        local values: {any} = {}
         e("do ", sourceLine(statement))
         for index, target in ipairs(targets) do
             local row = soaFieldTarget(target)
@@ -5706,7 +5720,7 @@ function gen.generate(
             return
         end
         if kind == "localStmt" and x.pattern then
-            local values = {}
+            local values: {cst.BindingEntry} = {}
             for _, entry in ipairs(x.pattern) do
                 if not entry.typeOnly then
                     values[#values + 1] = entry
@@ -5969,7 +5983,7 @@ function gen.generate(
             -- to live somewhere a declaration in another module can reach, and the
             -- interface's own table is the only place that travels; an interface that
             -- declares only signatures still emits nothing at all.
-            local defaults = {}
+            local defaults: {cst.InlineMethod} = {}
             for _, entry in ipairs(x.entries or {}) do
                 if entry.kind == "inlineMethod" then
                     defaults[#defaults + 1] = entry
@@ -6190,19 +6204,19 @@ function gen.generate(
                 local rawName = nextTemp()
                 e(('pcall(__nuppFfi.cdef, %q) const %s = %s.%s'):format(sig, rawName, ns, name), line)
                 e((" const %s=function(%s) "):format(name, table.concat(x.countedAbi.logicalNames or {}, ",")))
-                local groups = {}
+                local groups: {[integer]: {any}} = {}
                 for _, mapping in ipairs(x.countedAbi.mappings or {}) do
                     local group = groups[mapping.countIndex] or {}
                     group[#group + 1] = mapping
                     groups[mapping.countIndex] = group
                 end
-                local countIndexes = {}
+                local countIndexes: {integer} = {}
                 for countIndex in pairs(groups) do
                     countIndexes[#countIndexes + 1] = countIndex
                 end
                 table.sort(countIndexes)
                 for _, countIndex in ipairs(countIndexes) do
-                    local group = groups[countIndex]
+                    local group = groups[countIndex] as {any}
                     local first = group[1]
                     for j = 2, #group do
                         e(
@@ -6889,7 +6903,8 @@ function gen.generate(
                 -- moved on only some paths is still held on the others: its cleanup
                 -- runs under the field's run-time record, passed in beside the value.
                 local statements = {"if __nuppV == nil then return end "}
-                local params, guardFlags = "__nuppV", {}
+                local params = "__nuppV"
+                local guardFlags: {string} = {}
                 for index, cleanup in ipairs(x.ownerCleanups or {}) do
                     local call = cleanupCall(cleanup, "__nuppV")
                     local guard = x.ownerCleanupGuards and x.ownerCleanupGuards[index] or nil
@@ -7023,7 +7038,8 @@ function gen.generate(
             end
             local line = sourceLine(x)
             local args = x.args and x.args.exprs or {}
-            local activeNames, seen = {}, {}
+            local activeNames: {string} = {}
+            local seen = {}
             local directMove = ownershipMoveOf(args[1])
             local directActive = directMove and activeFlag(directMove) or nil
             if directActive then
@@ -7128,7 +7144,8 @@ function gen.generate(
             -- the caller's cleanup responsibility. Once the wrapper body begins the
             -- callee is about to receive every `takes` value, so a raise belongs to
             -- the callee's terminal contract rather than this lexical region.
-            local activeNames, seen = {}, {}
+            local activeNames: {string} = {}
+            local seen = {}
             for _, move in ipairs(x.automaticOwnerMoves or {}) do
                 local activeName = activeFlag(move)
                 if activeName and not seen[activeName] then
@@ -8248,7 +8265,7 @@ function gen.generate(
                 end
                 e(" end;")
             end
-            local conditionTags = {}
+            local conditionTags: {string} = {}
             for conditionTag in pairs(ctx.conditionExits or {}) do
                 conditionTags[#conditionTags + 1] = conditionTag
             end
@@ -8259,7 +8276,7 @@ function gen.generate(
                 emitDepth.conditionControl(completion.header, completion.kind)
                 e(" end;")
             end
-            local valueTags = {}
+            local valueTags: {string} = {}
             for valueTag in pairs(ctx.valueExits or {}) do
                 valueTags[#valueTags + 1] = valueTag
             end
@@ -8269,7 +8286,7 @@ function gen.generate(
                 emitDepth.valueExit(ctx.valueExits[valueTag], nil, payload)
                 e(" end;")
             end
-            local gotoTargets = {}
+            local gotoTargets: {string} = {}
             for target in pairs(ctx.gotos) do
                 gotoTargets[#gotoTargets + 1] = target
             end
@@ -8571,7 +8588,7 @@ function gen.generate(
             if not stat or stat.comptimeFunction or stat.comptimeTok or stat.isAnnotationDefinition then
                 return
             end
-            local names = {}
+            local names: {string} = {}
             if stat.kind == "localFuncStmt" then
                 names[1] = stat.name and stat.name.text
             elseif stat.kind == "funcStmt" then
@@ -9070,7 +9087,10 @@ function gen.generate(
             end
         end
         table.sort(exportedFunctions)
-        local exportedRecords = {}
+        local exportedRecords: {{
+            path: string,
+            type: Type
+        }} = {}
 
         local function collectExportedRecords(record, path)
             if record.isAnnotationDefinition then
@@ -9173,7 +9193,10 @@ function gen.generate(
             if exported == nil or resolved.tag ~= "nominal" or resolved.declKind ~= "record" then
                 return nil
             end
-            local fields = {}
+            local fields: {{
+                kind: string,
+                name: string
+            }} = {}
             for field, fieldType in pairs(resolved.byname or {}) do
                 local kind = storedWorkerTransfer(fieldType)
                 if kind == nil then
@@ -9220,7 +9243,11 @@ function gen.generate(
             ):format(plan.schema, plan.address, plan.path, table.concat(fieldNames, ","), table.concat(fieldKinds, ","))
         end
 
-        local preparedFunctions = {}
+        local preparedFunctions: {{
+            input: any,
+            name: string,
+            output: any
+        }} = {}
         for _, name in ipairs(exportedFunctions) do
             local signature = exportedFunctionTypes[name]
             local params = signature and signature.tag == "func" and signature.params or {}
@@ -9753,7 +9780,7 @@ function gen.generate(
         ) .. code
     end
     if hotState then
-        local policies = {}
+        local policies: {string} = {}
         for policy in pairs(hotState.policies) do
             policies[#policies + 1] = policy
         end

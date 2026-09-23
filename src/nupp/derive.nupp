@@ -932,7 +932,12 @@ function derive.install(namespace: any): nil
     local api = require("nupp.codec.json")
     local mutable = api as {[string]: any}
     mutable.decodeAs = function(typeObject: any, text: string): (any, string?)
-        return derive.fromJSON(text, jsonEntry(typeObject))
+        local decodeTable = derive.fromJSON as function(string, derive.Entry): (table?, string?)
+        local decoded: table?
+        local err: string?
+        decoded, err = decodeTable(text, jsonEntry(typeObject))
+
+        return decoded, err
     end
     mutable.writeAs = function(typeObject: any, value: any, out: any): nil
         derive.writeJSON(value, jsonEntry(typeObject), out)

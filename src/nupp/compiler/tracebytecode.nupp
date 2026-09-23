@@ -76,7 +76,8 @@ end
 
 local function controlFlow(instructions: {any}): any
     local count = #instructions
-    local successors, predecessors = {}, {}
+    local successors: {[integer]: {integer}} = {}
+    local predecessors: {[integer]: {integer}} = {}
     for pc = 0, count - 1 do
         successors[pc], predecessors[pc] = {}, {}
     end
@@ -143,9 +144,9 @@ local function controlFlow(instructions: {any}): any
         changed = false
         for pc = 1, count - 1 do
             if reachable[pc] then
-                local nextSet = {[pc] = true}
+                local nextSet: {[integer]: boolean} = {[pc] = true}
                 local first = true
-                for _, before in ipairs(predecessors[pc]) do
+                for _, before in ipairs(predecessors[pc] as {integer}) do
                     if reachable[before] then
                         if first then
                             for candidate in pairs(dominators[before]) do
@@ -182,7 +183,12 @@ local function controlFlow(instructions: {any}): any
         end
     end
 
-    local byHeader = {}
+    local byHeader: {[integer]: {
+        header: integer,
+        latches: {integer},
+        nodes: {[integer]: boolean},
+        size: integer?
+    }} = {}
     for from, list in pairs(successors) do
         for _, to in ipairs(list) do
             if to <= from and dominators[from] and dominators[from][to] then
@@ -207,10 +213,11 @@ local function controlFlow(instructions: {any}): any
     end
     local loops = {}
     for _, loop in pairs(byHeader) do
-        loop.size = 0
+        local size: integer = 0
         for _ in pairs(loop.nodes) do
-            loop.size = loop.size + 1
+            size = (size + 1) as integer
         end
+        loop.size = size
         table.sort(loop.latches)
         loops[#loops + 1] = loop
     end
@@ -355,7 +362,7 @@ end
 function bytecode.analyze(chunk: function(): any): bytecode.Analysis
     local util = require("jit.util")
     local bc = require("jit.bc")
-    local functions = {}
+    local functions: {any} = {}
     collect(util, bc, chunk, 0, functions, {})
     local blockers: integer = 0
     local mustBlockers: integer = 0

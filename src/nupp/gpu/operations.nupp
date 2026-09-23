@@ -208,6 +208,7 @@ function gpu.Buffer.view<T>(borrows buffer: gpu.Buffer<T>, layout: TensorLayout)
     end
 
     return new types.Buffer(
+        _elementType = nil as T,
         _anchor = buffer,
         _handle = buffer._handle,
         _width = buffer._width,
@@ -244,6 +245,7 @@ function gpu.Buffer.subview<T>(
     end
 
     return new types.Buffer(
+        _elementType = nil as T,
         _anchor = self,
         _handle = self._handle,
         _width = self._width,

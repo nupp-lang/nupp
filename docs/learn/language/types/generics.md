@@ -177,14 +177,16 @@ Inference is structural unification over parameters against argument types. It
 sees through arrays, tuples, maps, unions, shapes, function types, pointers,
 and nominal applications, and it strips ownership wrappers first.
 
-Unification makes three decisions a partly-inferred call depends on:
+Unification makes four decisions a partly inferred call depends on:
 
 - **A binder appearing twice unions the two arguments** rather than failing or
   picking the more specific one.
-- **`any` and `nil` arguments do not bind a parameter.** They leave it open.
-- **An unbound parameter substitutes to its declared default, or to `any`
-  without one.** A `T = string` binder no argument reaches is `string`, and a
-  binder with no default keeps a partly-inferred call gradual instead of wrong.
+- **An `any` argument does not bind a parameter.** It is gradual evidence, so a
+  result using that parameter is `any` deliberately.
+- **A destination can answer an otherwise open result parameter.** In
+  `local value: string = make()`, the destination supplies `string`.
+- **A parameter with no evidence takes its declared default.** An open result
+  parameter without a default is an error instead of silently becoming `any`.
 
 A `T?` parameter subtracts the concrete members from the argument, so the
 residue binds. That is how `assert` is typed:
@@ -198,44 +200,33 @@ local sure = assert(name) -- sure is string
 See [Narrowing](narrowing.md#narrowing-tests) for the other route from `T?` to
 `T`.
 
-## Call sites take no explicit type argument
+## Explicit type arguments at a call site
 
-`f<number>(x)` parses as two comparisons, exactly as it does in Lua:
+Write a type argument when neither the values nor the destination supply one:
 
 ```nupp
-local n = id < number > (1)
--- NUPP2003: cannot compare boolean and 1 with '>'
+local value = make<string>()
+local selected = holder:pick<integer>()
 ```
 
-Type arguments appear in *type* position, as in `Box<number>` and
-`a.b.Map<K, V>`, and at the six FFI intrinsics, which are special-cased in the
-grammar:
+The parser commits to call type arguments only when the closing `>` is followed
+immediately by `(`. The ordinary comparison keeps its Lua reading:
 
 ```nupp
-local p = ffi.new<Point>()
-local q = ffi.cast<Point*>(address)
-local t = ffi.typeof<Point>()
-local ok = ffi.istype<Point>(v)
-local n = ffi.sizeof<Point>()
-local a = ffi.alignof<Point>()
+a < b > c
 ```
 
-To pin a parameter that inference will not reach, annotate the binding instead:
+Adding parentheses after `>` selects the generic-call reading instead:
 
 ```nupp
-local empty: {string} = {}
+a < b > (c) -- a<b>(c)
 ```
 
 ::: deepdive
-Nupp's grammar is Lua's grammar with types added, so `f<number>(x)` already has
-a meaning that programs rely on and cannot be reinterpreted. Disambiguating it
-would need unbounded lookahead or a rule about what may follow `>`, and both
-give a reader two readings of a line where Lua has one. Annotating the binding
-reaches every case an explicit argument would, and it puts the type where the
-value is instead of where the call is. The FFI intrinsics are special-cased
-because their argument is a C type that never appears as a value, so no
-comparison is being displaced. See [Calling C safely](../../runtime/c-interop/index.md)
-for what those six do.
+The bounded lookahead keeps `a < b > c` and longer comparison expressions
+unchanged. Only the form that can immediately become a call is reinterpreted.
+Whitespace does not change tokens, so `f < T > ()` is the same generic call as
+`f<T>()`.
 :::
 
 ## Instantiation

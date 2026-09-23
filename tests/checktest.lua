@@ -394,7 +394,7 @@ function M.directRecordConstructionRequiresFields()
         "NUPP2208:4"
     )
     assertEq(diagsOf("local record Box<T>\nvalue: T\nend\nlocal box = new Box()\nreturn box"), "NUPP2208:4")
-    assertClean("local record Box<T>\nvalue: T?\nend\nlocal box = new Box()\nreturn box")
+    assertEq(diagsOf("local record Box<T>\nvalue: T?\nend\nlocal box = new Box()\nreturn box"), "NUPP2148:4")
     assertEq(
         diagsOf(
             "local interface Named\nname: string\nend\nlocal record Item is Named end\nlocal item = new Item()\nreturn item"
@@ -1073,7 +1073,7 @@ function M.genericIndexContracts()
                 "   metamethod __newindex: function<T>(self, key: Key<T>, value: T)",
                 "end",
                 "local store: Store = new Store()",
-                "local key: Key<string> = new Key()",
+                "local key = new Key<string>()",
                 "local value: string = store[key]",
                 "store[key] = 'saved'",
             },

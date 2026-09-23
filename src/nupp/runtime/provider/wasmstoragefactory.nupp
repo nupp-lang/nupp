@@ -351,7 +351,8 @@ function factory.new(memory: any): any
         local cursor: integer = 0
         local bitCursor: integer = 0
         local aggregateAlignment: integer = 1
-        local fields, byName = {}, {}
+        local fields: {table} = {}
+        local byName = {}
         for _, declared in ipairs(layout.fields) do
             local physical = declared.type or provider.scalar(declared.kind)
             local physicalAlignment = physical.alignment as integer
@@ -503,7 +504,16 @@ function factory.new(memory: any): any
     end
 
     function provider.layout(subject: any): any
-        local fields, offsets = {}, {}
+        local fields: {{
+            alignment: any,
+            ctype: any,
+            name: any,
+            offset: any,
+            padding: integer,
+            pointerType: any,
+            size: any
+        }} = {}
+        local offsets = {}
         local fingerprint = {"wasm32", tostring(subject.name), tostring(subject.size), tostring(subject.alignment)}
         for _, field in ipairs(subject.fields or {}) do
             local spelling = field.type.resolve and (tostring(field.type.resolve().ctype) .. " *")
@@ -539,7 +549,7 @@ function factory.new(memory: any): any
         end
         for index, field in ipairs(fields) do
             local after = fields[index + 1] and fields[index + 1].offset or subject.size
-            field.padding = math.max(0, after - field.offset - field.size)
+            field.padding = math.max(0, after - field.offset - field.size) as integer
         end
 
         return {

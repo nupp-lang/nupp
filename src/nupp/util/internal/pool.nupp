@@ -198,7 +198,7 @@ function pool.new<T is table>(witness: Type<T>, capacity: integer?): pool.Pool<T
     local created = new pool.Pool(
         witness = witness,
         capacity = retained,
-        freeList = {},
+        freeList = {} as {T},
         freeCount = 0,
         liveCount = 0
     ) as pool.Pool<T>

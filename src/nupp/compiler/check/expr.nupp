@@ -148,7 +148,13 @@ function expr.install(c: state.Checker): nil
                 break
             end
         end
-        local captures = {}
+        local captures: {{
+            definition: any,
+            name: any,
+            token: any,
+            type: any,
+            unassigned: any
+        }} = {}
         for definition, entry in pairs(watch.entries) do
             if (entry.functionDepth or 0) > 0 then
                 captures[

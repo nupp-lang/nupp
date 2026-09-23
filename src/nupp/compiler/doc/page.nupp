@@ -182,7 +182,8 @@ end
 
 local function pageTree(pages)
     local root = {children = {}, order = {}, pages = {}}
-    local listed, sections = {}, {}
+    local listed: {any} = {}
+    local sections = {}
     for _, candidate in ipairs(pages or {}) do
         -- An unlisted page is reachable and not navigable: a collection publishes one
         -- index that links its documents, and listing every document beside it would
@@ -412,7 +413,8 @@ local function breadcrumbs(route, title, pages, prefix)
         .. 'index.html" class="nuppdoc-breadcrumb-home"'
         .. ' aria-label="Home" title="Home"><span aria-hidden="true">⌂</span></a></li>'
     }
-    local path, segments = "", {}
+    local path = ""
+    local segments: {string} = {}
     for segment in route:gmatch("[^/]+") do
         segments[#segments + 1] = segment
     end

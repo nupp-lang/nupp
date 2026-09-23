@@ -392,7 +392,7 @@ function hotreload.stage(source: string, baseGeneration: integer): hotreload.Tra
     if not ok then
         return nil, tostring(reason)
     end
-    local changedModules = {}
+    local changedModules: {[any]: boolean} = {}
     for _, candidate in ipairs(staging.candidates) do
         changedModules[candidate.module] = true
     end

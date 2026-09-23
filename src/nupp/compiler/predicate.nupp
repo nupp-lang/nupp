@@ -716,7 +716,7 @@ function predicate.key(node: predicate.Node?): string
     elseif op == "not" then
         return "(not " .. predicate.key(node.a) .. ")"
     elseif op == "and" or op == "or" then
-        local parts = {}
+        local parts: {predicate.Node} = {}
         predicate.flatten(node, op, parts)
         local keys: {string} = {}
         for j, part in ipairs(parts) do
@@ -786,7 +786,7 @@ function predicate.normalize(node: predicate.Node?): predicate.Node?
         return node
     end
 
-    local parts = {}
+    local parts: {predicate.Node} = {}
     predicate.flatten(node, op, parts)
     local keyed: {{
         key: string,
@@ -886,7 +886,7 @@ function predicate.decompose(node: predicate.Node?): predicate.Decomposition?
     if not node then
         return nil
     end
-    local parts = {}
+    local parts: {predicate.Node} = {}
     predicate.flatten(node, "and", parts)
     local out = new predicate.Decomposition(others = {})
     for _, part in ipairs(parts) do

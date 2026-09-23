@@ -82,8 +82,7 @@ end
 --- module pulled in, which is what lets a host watch a header without guessing.
 type hotSession.WatchedInput = {
     path: string,
-    kind: string,
-    [string]: any
+    kind: string
 }
 
 --- Loader names whose binary identity the session could not pin, reported once each.
@@ -387,7 +386,7 @@ local function cDeclarationChange(old, current)
             return declaration, "new-use"
         end
     end
-    local ordered = {}
+    local ordered: {integer} = {}
     for identity in pairs(identities) do
         ordered[#ordered + 1] = identity
     end
@@ -855,7 +854,7 @@ function Session:unverifiedNotices(manifests)
 end
 
 function Session:watchedInputs()
-    local byPath = {}
+    local byPath: {[string]: hotSession.WatchedInput} = {}
     for _, path in ipairs(envMod.listProjectFiles(self.inc.env)) do
         byPath[path] = {path = path, kind = "source"}
     end
@@ -864,7 +863,7 @@ function Session:watchedInputs()
             for _, path in ipairs(input.paths or {}) do
                 local prior = byPath[path]
                 if not prior or input.binary then
-                    byPath[path] = {path = path, kind = input.kind}
+                    byPath[path] = {path = path, kind = tostring(input.kind)}
                 end
             end
         end
@@ -873,7 +872,7 @@ function Session:watchedInputs()
         for _, path in ipairs(input.paths or {}) do
             local prior = byPath[path]
             if not prior or input.binary then
-                byPath[path] = {path = path, kind = input.kind}
+                byPath[path] = {path = path, kind = tostring(input.kind)}
             end
         end
     end
@@ -900,7 +899,7 @@ function Session:prepare(paths)
     end
     -- Revalidate every loaded root. Query validation follows cached dependency edges;
     -- only invalidated dependants run their type checks again.
-    local loaded = {}
+    local loaded: {string} = {}
     for module in pairs(self.running) do
         loaded[#loaded + 1] = module
     end

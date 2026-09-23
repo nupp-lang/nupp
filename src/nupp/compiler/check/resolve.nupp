@@ -1435,7 +1435,8 @@ function resolve.install(c: state.Checker): nil
                 return T.any
             end
 
-            local t, def, lookupErr, moduleName, visibility, conflicts = T.builtins[name], nil
+            local t, def, lookupErr, moduleName, visibility = T.builtins[name], nil
+            local conflicts: {any}?
             if not t then
                 t, def, lookupErr, moduleName, visibility, conflicts = c.lookupType(name)
             end
@@ -1774,7 +1775,9 @@ function resolve.install(c: state.Checker): nil
             c.diag("NUPP2121", node, "a type pack may only appear in a value-sequence position")
             return T.any
         elseif kind == "tshape" then
-            local fields, order, byname = {}, {}, {}
+            local fields = {}
+            local order: {string} = {}
+            local byname = {}
             local indexer = {}
             for _, f in ipairs(node.fields) do
                 if f.kind == "tshapeField" then
@@ -1822,7 +1825,8 @@ function resolve.install(c: state.Checker): nil
             if node.comptimeOnly then
                 c.comptimeFunctionDepth = c.comptimeFunctionDepth + 1
             end
-            local params, rets, paramModes, paramNames: {string} = {}, {}, {}, {}
+            local params, rets, paramModes = {}, {}, {}
+            local paramNames: {string} = {}
             local vararg = false
             local varargType = nil
             local varargMode = nil
@@ -1898,7 +1902,7 @@ function resolve.install(c: state.Checker): nil
             end
             local yieldPack = node.yieldPack and c.resolvePack(node.yieldPack) or nil
             local resumePack = node.resumePack and c.resolvePack(node.resumePack) or nil
-            local preservesResults = {}
+            local preservesResults: {Type} = {}
             local byname = {}
             for j, name in ipairs(paramNames) do
                 if name ~= "" then

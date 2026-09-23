@@ -56,7 +56,13 @@ function unused.install(c: state.Checker): unused.Ops
     c.reads = {}
 
     -- Declarations to judge once the file is read, in source order.
-    local candidates = {}
+    local candidates: {{
+        allowed: boolean,
+        definition: any,
+        kind: string,
+        module: any,
+        tok: any
+    }} = {}
 
     --- Registers a binding to judge at the end of the file. Call with the entry
     --- `bindVar` just created, so the ownership state is the one it was bound with.

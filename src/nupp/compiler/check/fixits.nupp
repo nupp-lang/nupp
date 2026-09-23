@@ -306,7 +306,7 @@ function fixits.new(result: state.Parse, env: state.Env?): fixits.Edits
         if not env or not env.modulesNamed then
             return nil, false, nil
         end
-        local candidates = {}
+        local candidates: {string} = {}
         for _, moduleName in ipairs(env.modulesNamed(env, name) or {}) do
             -- a file does not require itself
             if moduleName ~= result.moduleName then

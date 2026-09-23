@@ -40,7 +40,9 @@ type terminalhighlight.Palette = {[string]: terminalhighlight.Paint}
 -- Deliberately unbold. A listing is mostly punctuation and short identifiers,
 -- and bold at this density reads as emphasis nobody meant. Bright variants
 -- carry the same distinctions legibly on either background.
-local CODES = {
+local CODES: {
+    [string]: string
+} = {
     muted = "90",
     comment = "90",
     keyword = "35",

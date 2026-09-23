@@ -6,7 +6,12 @@ local function facility(kind: string, effect: string): any
     return {kind = kind, effect = effect}
 end
 
-local MODULES = {
+local MODULES: {[string]: {
+    kind: string,
+    effect: string?,
+    capability: string?,
+    accelerators: {string}?
+}} = {
     ["bit"] = facility("runtime", "runtime.bitops"),
     ["nupp.text"] = facility("runtime", "runtime.text_buffer"),
     ["nupp.codec.json.provider"] = facility("runtime", "native.json"),

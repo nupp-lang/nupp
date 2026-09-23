@@ -316,7 +316,7 @@ return position
 
     new reference.Section(
         title = "Generics and bounds",
-        codes = {"NUPP2101", "NUPP2131", "NUPP2145", "NUPP2146"},
+        codes = {"NUPP2101", "NUPP2131", "NUPP2145", "NUPP2146", "NUPP2148"},
         body = [=[
 Type parameters go in angle brackets after the name. `T is Bound` constrains
 one, and the bound is an ordinary type such as an interface. A `const Name:
@@ -334,6 +334,11 @@ fewer or more is reported where it is written. Two spellings stand alone on
 purpose: `Type<Box>` and `metatable<Box>` name the declaration rather than one of
 its values, and inside its own body a declaration means itself applied to its own
 parameters, so a generic record's recursive field reads `Node?`.
+
+A call infers type parameters from arguments and, for a single result, its
+destination. A result parameter left without explicit, inferred, gradual,
+defaulted, or destination evidence is an error instead of becoming `any`.
+Write `make<string>()` or `value: string = make()` when no argument can supply it.
 ]=],
         example = [=[
 local m = {}

@@ -1107,7 +1107,8 @@ local function check(a: Type, b: Type): boolean, string?
     if atag == "metatable" and btag == "shape" then
         local owner = a.of
         if owner and owner.tag == "nominal" then
-            local fields, names: {boolean} = {}, {}
+            local fields = {}
+            local names: {[string]: boolean} = {}
             for name in pairs(owner.staticByname or {}) do
                 names[name] = true
             end

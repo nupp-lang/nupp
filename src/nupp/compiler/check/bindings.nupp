@@ -839,7 +839,7 @@ function bindings.install(c: state.Checker): state.StatHandlers
     --- scope, and one destroyed after its root is refused rather than held.
     local function holdProvenance(state, target, written)
         local writtenFacts = c.own.capabilityFacts(written, 1, false)
-        local roots = {}
+        local roots: {any} = {}
         for _, root in ipairs(writtenFacts.roots or {}) do
             -- An owner preserved through a call moved into the value and was recorded
             -- as its root; nothing is rooted in a binding that no longer holds
@@ -875,7 +875,7 @@ function bindings.install(c: state.Checker): state.StatHandlers
             return nil
         end
 
-        local candidates = {}
+        local candidates: {any} = {}
         for _, root in ipairs(roots) do
             candidates[#candidates + 1] = root
         end

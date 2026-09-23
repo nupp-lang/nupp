@@ -283,7 +283,9 @@ function providers.operator(state: any, op: string, left: any, right: any, at: a
 end
 
 local function finalizeTest(state, root)
-    local indices, entries, cursor = {}, {}, root
+    local indices = {}
+    local entries: {any} = {}
+    local cursor = root
     while cursor do
         local existing = indices[cursor]
         if existing then

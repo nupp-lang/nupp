@@ -49,7 +49,8 @@ local function callName(call)
 end
 
 function effectregions.install(c: state.Checker): effectregions.Ops
-    local ops, regions = {}, {}
+    local ops = {}
+    local regions: {any} = {}
 
     function ops.region(stat: any)
         regions[#regions + 1] = stat

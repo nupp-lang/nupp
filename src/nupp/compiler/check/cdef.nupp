@@ -179,10 +179,13 @@ function cdef.install(
     handlers.cdefFunc = function(stat: cst.CdefFunc)
         capabilities.require(c, "cinterop", stat)
         c.raises.checkParams(stat, stat.params or {})
-        local params, paramModes, paramNames = {}, {}, {}
+        local params: {Type} = {}
+        local paramModes = {}
+        local paramNames: {string} = {}
         local abiParams = {}
-        local physicalNodes, physicalDefs = {}, {}
-        local ffiOut = {}
+        local physicalNodes: {cst.Param} = {}
+        local physicalDefs = {}
+        local ffiOut: {any} = {}
         local logicalByName = {}
         for parameterIndex, p in ipairs(stat.params) do
             local declared, pname, modeTok = nil, nil, nil
@@ -284,7 +287,7 @@ function cdef.install(
                     params[#params + 1] = pt
                     paramModes[#params] = mode
                     paramNames[#params] = pname and pname.text or ""
-                    physicalNodes[#params] = p
+                    physicalNodes[#params] = p as cst.Param
                     physicalDefs[#params] = pdef
                     logicalByName[pname and pname.text or ""] = #params
                 end
@@ -441,8 +444,12 @@ function cdef.install(
                     end
                 end
                 if valid then
-                    local isRead = pointerType.elem.tag == "const"
-                    local element = isRead and pointerType.elem.inner or pointerType.elem
+                    local pointer = pointerType as T.Ptr
+                    local element = pointer.elem
+                    local isRead = element.tag == "const"
+                    if isRead then
+                        element = (element as T.Const).inner
+                    end
                     local mapping = {
                         kind = isRead and "read" or "write",
                         pointerIndex = pointerIndex,

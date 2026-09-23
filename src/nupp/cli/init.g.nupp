@@ -459,7 +459,8 @@ local function recipe(info: nupp.derive.Info, command: boolean): any
         return nupp.derive.error("CLI argument records cannot declare a constructor", info.reference)
     end
 
-    local fields, positionals, completers = {}, {}, {}
+    local fields, positionals = {}, {}
+    local completers: {any} = {}
     local remainderField: any = nil
     local usedNames: {string} = {}
     for index, field in ipairs(info.fields) do

@@ -15,6 +15,7 @@ local relations = require("nupp.compiler.relations")
 local narrowing = require("nupp.compiler.narrowing")
 local generics = require("nupp.compiler.generics")
 local cst = require("nupp.compiler.cst")
+local lexer = require("nupp.compiler.lexer")
 local state = require("nupp.compiler.check.state")
 
 local isA = relations.isA
@@ -750,7 +751,8 @@ function control.install(c: state.Checker): state.StatHandlers
             local declaredBorrow = c.borrowReturnStack[#c.borrowReturnStack]
             local borrowContract = declaredBorrow and declaredBorrow.result == j and declaredBorrow.contract or nil
             if borrowContract then
-                local expected, missing = {}, nil
+                local expected: {any} = {}
+                local missing = nil
                 for _, sourceToken in ipairs(borrowContract.params or {borrowContract.param}) do
                     local source = ownershipState(c.lookupEntry(sourceToken.text))
                     if source then
@@ -1635,7 +1637,8 @@ function control.install(c: state.Checker): state.StatHandlers
                 end
             end
         end
-        local headerBlock: any, headerLocal: any, hiddenNames: any
+        local headerBlock: any, headerLocal: any
+        local hiddenNames: {lexer.Token} = {}
         if ownsHeader then
             local first = cst.firstToken(stat)
 
@@ -1651,7 +1654,6 @@ function control.install(c: state.Checker): state.StatHandlers
                 return tok
             end
 
-            hiddenNames = {}
             for slot = 1, 3 do
                 c.loopOwnerCount = (c.loopOwnerCount or 0) + 1
                 hiddenNames[slot] = tokenLike(first, "name", ("__nuppForHeader%d"):format(c.loopOwnerCount))
@@ -1702,7 +1704,8 @@ function control.install(c: state.Checker): state.StatHandlers
         c.facts.forgetWritten(stat.body)
         c.pushScope()
         c.scope.completionScope = stat.body
-        local iteratorRoots, seenRoots = {}, {}
+        local iteratorRoots: {any} = {}
+        local seenRoots = {}
 
         local function addIteratorRoot(root)
             root = root and borrowRoot(root) or nil
@@ -1817,7 +1820,7 @@ function control.install(c: state.Checker): state.StatHandlers
             for key, value in pairs(stat) do
                 original[key] = value
             end
-            local rewritten = {}
+            local rewritten: {any} = {}
             local inHeader, afterHeader = false, false
             for _, child in ipairs(original) do
                 if not inHeader then

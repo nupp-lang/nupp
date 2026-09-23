@@ -50,6 +50,8 @@ export record Key<T>
     name: string?
     @readonly
     _valueType: (function(value: T?): T?)?
+    @readonly
+    _inferredType: T?
 
     --- Finds a registered key by name.
     ---
@@ -92,7 +94,7 @@ export function newKey<T>(name: string?): Key<T>
             error("nupp: key " .. name .. " is already registered", 2)
         end
     end
-    local key: Key<T> = new Key(id = nextId, name = name)
+    local key: Key<T> = new Key(id = nextId, name = name, _valueType = nil, _inferredType = nil as T)
     nextId = nextId + 1
     if name ~= nil then
         named[name] = key

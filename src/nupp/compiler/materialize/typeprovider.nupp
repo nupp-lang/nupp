@@ -37,7 +37,9 @@ typeprovider.SCHEMA = 1
 typeprovider.MAX_NODES = 10000
 typeprovider.MAX_MEMBERS = 1000
 
-local PRIMITIVES = {
+local PRIMITIVES: {
+    [string]: boolean
+} = {
     any = true,
     unknown = true,
     never = true,
@@ -301,7 +303,7 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
     -- up, duplicates dropped, and the rest ordered by key, so `optional(optional(T))`
     -- and `optional(T)` are one handle, as are `optional(A | B)` and `A | B | nil`.
     local function setLikeHandle(at, kind, origin, members)
-        local byKey = {}
+        local byKey: {[string]: any} = {}
 
         local function add(member)
             local found = entry(state, member, "Type")
@@ -317,7 +319,7 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
         for _, member in ipairs(members) do
             add(member)
         end
-        local keys = {}
+        local keys: {string} = {}
         for key in pairs(byKey) do
             keys[#keys + 1] = key
         end
@@ -564,7 +566,12 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
                 return nil, failure("NUPP2415", "nupp.types.shape indexer must come from nupp.types.indexer")
             end
         end
-        local fields, seen = {}, {}
+        local fields: {{
+            name: string,
+            read: any,
+            write: any
+        }} = {}
+        local seen = {}
         for position, field in ipairs(supplied) do
             if type(field) ~= "table" or type(field.name) ~= "string" or field.name == "" or seen[field.name] then
                 return nil, failure(

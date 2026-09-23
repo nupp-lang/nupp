@@ -50,7 +50,7 @@ end
 
 function generators.run(root, outDir, config, records, previous): ({[string]: any}?, string?)
     local result = {}
-    local names = {}
+    local names: {string} = {}
     for name in pairs(config.generators or {}) do
         names[#names + 1] = name
     end

@@ -34,6 +34,8 @@ function runtime.install(
         return {n = select("#", ...), ...}
     end
 
+    local unpackAny = unpack as function(table, integer?, integer?): ...any
+
     -- The compiler lazily requires pieces of itself while `compile` runs, and in a
     -- project whose source is the compiler's own, those names resolve here too.
     -- Recursing into a fresh compile of the checker mid-check reports the module
@@ -91,10 +93,10 @@ function runtime.install(
         -- be an observable stack-frame change.
 
         return function(...)
-            local args = {n = select("#", ...), ...}
+            local args: {any} & {n: integer} = {n = select("#", ...), ...}
             local result
             local ok, failure = pcall(function()
-                result = pack(chunk(unpack(args, 1, args.n)))
+                result = pack(chunk(unpackAny(args, 1, args.n)))
             end)
             loaded(name, path, ok)
             if not ok then

@@ -1463,7 +1463,7 @@ function project.clean(root: string?, opts: project.CleanOptions?): integer
             return 1
         end
         if target.platforms then
-            local selected = {}
+            local selected: {string} = {}
             if opts.platform == nil or opts.platform == "all" then
                 for _, name in ipairs(target.platforms) do
                     selected[#selected + 1] = name
@@ -1486,7 +1486,7 @@ function project.clean(root: string?, opts: project.CleanOptions?): integer
                 end
             end
             local outDir = normalize(target.outDir or "build")
-            local candidates: {boolean | string} = {}
+            local candidates: {string} = {}
             for _, selectedPlatform in ipairs(selected) do
                 local raw = binaryOutput(".", target, target.name or opts.target, outDir, selectedPlatform)
                 candidates[#candidates + 1] = raw
@@ -1539,7 +1539,7 @@ function project.clean(root: string?, opts: project.CleanOptions?): integer
         return 1
     end
     local tasks = opts.target and {described} or described.tasks
-    local candidates: {boolean | string} = {}
+    local candidates: {[string]: boolean} = {}
     for _, task in ipairs(tasks) do
         local path, pathErr = safeCleanPath(task.outDir)
         if not path then
@@ -1548,12 +1548,12 @@ function project.clean(root: string?, opts: project.CleanOptions?): integer
         end
         candidates[path] = true
     end
-    local paths = {}
+    local paths: {string} = {}
     for path in pairs(candidates) do
         paths[#paths + 1] = path
     end
     table.sort(paths)
-    local selected = {}
+    local selected: {string} = {}
     for _, path in ipairs(paths) do
         local covered = false
         for _, parent in ipairs(selected) do

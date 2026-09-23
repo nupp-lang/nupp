@@ -135,7 +135,7 @@ function derive.install(c: state.Checker): derive.Ops
     c.result.deriveAborted = nil
     c.result.deriveObservations = nil
     c.result.deriveInterface = nil
-    local pending = {}
+    local pending: {any} = {}
     local recipeLimitAt = nil
     local keyOccurrences = {}
     local aborted, abortReason = false, nil
@@ -491,7 +491,16 @@ function derive.install(c: state.Checker): derive.Ops
         end
         input.providerFiles = {}
         input.providerInputDescriptors = {}
-        local providerInputs = {}
+        local providerInputs: {{
+            binary: boolean,
+            consumer: string,
+            display: any,
+            fingerprint: string,
+            identity: string,
+            kind: string,
+            paths: {any},
+            provider: any
+        }} = {}
         local fs = c.env and c.env.compilerServices and c.env.compilerServices.fs or nil
         if #filePaths > 0 and not fs then
             c.diag(
@@ -639,7 +648,8 @@ function derive.install(c: state.Checker): derive.Ops
             end
         end
         input.fingerprint = hash.sha256(assert(recipeCodec.canonical(fingerprintInput)))
-        local helperKeys, helperFingerprints = {}, {}
+        local helperKeys: {string} = {}
+        local helperFingerprints = {}
         for key in pairs(provider.sealedProgram.runtimeHelpers or {}) do
             helperKeys[#helperKeys + 1] = key
         end
@@ -764,7 +774,12 @@ function derive.install(c: state.Checker): derive.Ops
                 c.env.observeExternalInput(c.env, observed)
             end
         end
-        local diagnosticCount, addedMembers = #c.diags, {}
+        local diagnosticCount = #c.diags
+        local addedMembers: {{
+            member: table,
+            name: any,
+            static: any
+        }} = {}
         local existingMembers, requestedMembers = 0, 0
         for _ in pairs(n.derivedDefinitions or {}) do
             existingMembers = existingMembers + 1
@@ -800,7 +815,8 @@ function derive.install(c: state.Checker): derive.Ops
             -- canonicalized into the recipe fingerprint, which is a cache key, so a
             -- member list that shuffles makes an unchanged declaration look changed.
             -- Name order is the one order every process agrees on.
-            local byName, methodNames = recipes or {}, {}
+            local byName = recipes or {}
+            local methodNames: {string} = {}
             for methodName in pairs(byName) do
                 methodNames[#methodNames + 1] = methodName
             end
@@ -986,7 +1002,8 @@ function derive.install(c: state.Checker): derive.Ops
                             callable.paramNames[index + (isStatic and 0 or 1)] = parameter
                         end
                     end
-                    local argumentTypes, valid = {}, true
+                    local argumentTypes: {T.Type} = {}
+                    local valid = true
                     local parameterTypes = {}
                     for index, parameterName in ipairs(callable.paramNames or {}) do
                         if index > (isStatic and 0 or 1) and parameterName ~= "" then
@@ -1409,7 +1426,7 @@ function derive.install(c: state.Checker): derive.Ops
         if not probe(stat) then
             return
         end
-        local applications = {}
+        local applications: {any} = {}
         for _, application in ipairs(stat.deriveApplications or {}) do
             applications[#applications + 1] = application
         end
@@ -1636,7 +1653,8 @@ function derive.install(c: state.Checker): derive.Ops
                 contracts[#contracts + 1] = T.tostring(contract)
             end
             table.sort(contracts)
-            local dependencySet, dependencies = {}, {}
+            local dependencySet: {[string]: boolean} = {}
+            local dependencies = {}
             recordDependencies(n.deriveRecipe and n.deriveRecipe.data, dependencySet, {})
             for dependency in pairs(dependencySet) do
                 dependencies[#dependencies + 1] = dependency

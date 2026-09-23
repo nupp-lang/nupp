@@ -436,7 +436,7 @@ local record Codec<T>
     end
 end
 
-local codec: Codec<integer> = new Codec()
+local codec = new Codec<integer>()
 return codec:encode(4), codec:encode({5})
 ```
 

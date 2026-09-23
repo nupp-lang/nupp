@@ -25,7 +25,7 @@ local function stable(value: unknown, seen: {[unknown]: boolean}?): string
         return "<cycle>"
     end
     seen[value] = true
-    local keys = {}
+    local keys: {unknown} = {}
     for key in pairs(entries) do
         keys[#keys + 1] = key
     end

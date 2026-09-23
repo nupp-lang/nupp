@@ -363,7 +363,7 @@ local function mergeIntersection(t: T.Intersection, memo: ViewMemo): members.Vie
             writeValues[#writeValues + 1] = one.writeIndexer.valueType
         end
     end
-    local names = {}
+    local names: {string} = {}
     for name in pairs(present) do
         names[#names + 1] = name
     end

@@ -1464,7 +1464,8 @@ end
 -- folded expression. Only a single primitive scalar initializer can disappear;
 -- calls, ownership, allocation and multi-value adjustment remain untouched.
 local function deadScalarLocals(root)
-    local candidates, declarations, uses = {}, {}, {}
+    local candidates: {any} = {}
+    local declarations, uses = {}, {}
 
     local function collect(node, depth: integer)
         if not node then
@@ -1695,7 +1696,12 @@ end
 -- rediscover length, receiver or induction relationships from source spelling.
 local function indexedRangeWalk(result, remarks)
     for _, body in ipairs(result.analysis and result.analysis.bodies or {}) do
-        local loops, ordered = {}, {}
+        local loops = {}
+        local ordered: {{
+            accesses: {any},
+            loop: any,
+            nested: boolean
+        }} = {}
         local loopDepth = 0
 
         local function collect(node, parent)
@@ -1735,7 +1741,14 @@ local function indexedRangeWalk(result, remarks)
         for _, entry in ipairs(ordered) do
             local adapters: {number} = {}
             local soaByView = {}
-            local soaBindings = {}
+            local soaBindings: {{
+                fieldOrder: {string},
+                fields: {[string]: any},
+                index: any,
+                indexDefinition: any,
+                view: any,
+                viewDefinition: any
+            }} = {}
             local declinedNested = false
             local loopDefinition = entry.loop.var and entry.loop.var.definition
             for _, found in ipairs(entry.accesses) do
@@ -1812,7 +1825,8 @@ local function indexedRangeWalk(result, remarks)
         -- carry one count/finish scalar instead of allocating a wrapper. Generation
         -- composes its physical adapter from the checked producer and semantic chain.
         -- Any unclassified use keeps the ordinary safe object.
-        local candidates, byConstructor = {}, {}
+        local candidates: {[any]: any} = {}
+        local byConstructor: {[any]: any} = {}
 
         local function findCandidates(node)
             if not node or isToken(node) or NESTED_FUNCTION[node.kind] then
@@ -2141,7 +2155,8 @@ end
 -- is never observed. The checked source signature remains a view; generation returns
 -- anchor, offset and count scalars only to these statically resolved calls.
 local function indexedViewReturnTransportWalk(result, remarks)
-    local functions, ordered = {}, {}
+    local functions = {}
+    local ordered: {any} = {}
 
     local function collect(node)
         if not node or isToken(node) then
@@ -2211,7 +2226,8 @@ end
 
 local function indexedViewParameterTransportPlan(result, remarks)
     local bindings = {}
-    local functions, ordered = {}, {}
+    local functions = {}
+    local ordered: {any} = {}
 
     local function collect(node)
         if not node or isToken(node) then
@@ -2748,7 +2764,8 @@ local function inlinableHelpers(root)
                     single = false
                 end
                 if single and not body.varargParam and not body.generics and not hasInlineScope(expr) then
-                    local params, ok = {}, true
+                    local params: {string} = {}
+                    local ok = true
                     for _, param in ipairs(body.params or {}) do
                         local name = param.name and param.name.text or nil
                         if not name or param.modeTok or param.vararg or param.constTok then
@@ -2979,7 +2996,7 @@ local function inlineReturnHelperWalk(result, remarks)
         elseif kind == "funcbody" or kind == "shortfn" then
             local enclosingGrowth = callerGrowth
             callerGrowth = 0
-            local names = {}
+            local names: {string} = {}
             for _, param in ipairs(node.params or {}) do
                 local text = param.name and param.name.text or nil
                 names[#names + 1] = text
@@ -2995,7 +3012,7 @@ local function inlineReturnHelperWalk(result, remarks)
 
             return
         elseif kind == "block" then
-            local introduced = {}
+            local introduced: {string} = {}
             for _, stat in ipairs(node.stats or {}) do
                 walkNode(stat)
                 if stat.kind == "localStmt" then
@@ -3050,7 +3067,7 @@ local function constMonomorphizeWalk(result, remarks, selection: any?, selectedF
         local plans = constspecialize.collect(result, filename)
         accepted, declined = constspecialize.select(plans)
     end
-    local acceptedByOwner = {}
+    local acceptedByOwner: {[any]: {any}} = {}
     local aliasesByOwner = {}
     for _, specialization in ipairs(accepted) do
         local owner = specialization.owner
@@ -3153,7 +3170,7 @@ function optimize.run(result: optimize.Checked, opts: optimize.Options?): ({any}
     opts = opts or {} as optimize.Options
     local level = opts.level or 0
     local disabled = opts.disabled or {}
-    local remarks = {}
+    local remarks: {any} = {}
     if level >= optimize.passes["OPT-1"].level and not disabled["OPT-1"] then
         walk(result.root, remarks)
     end

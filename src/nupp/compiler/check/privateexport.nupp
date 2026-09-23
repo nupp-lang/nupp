@@ -47,7 +47,12 @@ function privateexport.install(c: state.Checker): privateexport.Ops
     local ops = {}
     local localNominals: {[any]: any} = {}
     local publicNominals: {[any]: boolean} = {}
-    local candidates = {}
+    local candidates: {{
+        allowed: boolean,
+        layer: string,
+        name: any,
+        token: any
+    }} = {}
 
     function ops.declared(stat: any, t: T.Type, visibility: string)
         if t.tag == "nominal" and stat.kind == "recordDecl" then
@@ -245,10 +250,13 @@ function privateexport.install(c: state.Checker): privateexport.Ops
                 local exports = c.moduleExports[candidate.layer] or {}
                 local t = exports[candidate.name]
                 if t then
-                    local found = {}
+                    local found: {[any]: any} = {}
                     local origin = aliasedNominalOrigin(t)
                     visitType(t, candidate.layer == "types" and origin or nil, found, {})
-                    local hidden = {}
+                    local hidden: {{
+                        declaration: any,
+                        nominal: any
+                    }} = {}
                     for nominal, declaration in pairs(found) do
                         hidden[#hidden + 1] = {nominal = nominal, declaration = declaration}
                     end

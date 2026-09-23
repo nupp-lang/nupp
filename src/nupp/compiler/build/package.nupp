@@ -142,7 +142,10 @@ local function bundleText(
         or {banner or ""}
     local collisionIndex
     local installedModules: {string} = {}
-    local sharedModules = {}
+    local sharedModules: {{
+        hash: string,
+        name: string
+    }} = {}
     local compilerArtifactBundle = target.kind == "binary"
         and target.stub == "nupp"
         and mainName == "nupp.compiler.main"
@@ -339,7 +342,11 @@ local function bundleText(
     end
 
     local moduleDirPath = normalize(dirname(mainPath))
-    local resources, unreachable = {}, {}
+    local resources: {{
+        name: string,
+        text: string
+    }} = {}
+    local unreachable = {}
     for _, resource in ipairs(target.resources or {}) do
         local pattern: string
         if type(resource) == "table" then

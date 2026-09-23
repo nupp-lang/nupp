@@ -220,7 +220,11 @@ function discard.install(c: state.Checker): discard.Ops
     local ops = {}
 
     -- Call statements to judge once effect inference has settled, in source order.
-    local candidates = {}
+    local candidates: {{
+        allowed: boolean,
+        call: any,
+        tok: any
+    }} = {}
 
     --- Registers a call statement to judge at the end of the file.
     ---

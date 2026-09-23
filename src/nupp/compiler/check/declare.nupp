@@ -655,7 +655,8 @@ function declare.install(
             return current
         end
 
-        for _, super in ipairs(n.supertypes or {}) do
+        for _, rawSuper in ipairs(n.supertypes or {}) do
+            local super = rawSuper as T.Nominal
             if super.predicate then
                 if predicate.satisfiedBy(super.predicate, fieldAt) == false then
                     local at = nil
@@ -957,7 +958,8 @@ function declare.install(
 
     --- The interface a declaration inherits this exact default entry from, if any.
     local function inheritedDefault(n: any, member: string): string?
-        for _, super in ipairs(n.supertypes or {}) do
+        for _, rawSuper in ipairs(n.supertypes or {}) do
+            local super = rawSuper as T.Nominal
             if super.defaultEntries and super.defaultEntries[member] then
                 return super.name
             end
@@ -1098,15 +1100,17 @@ function declare.install(
     --- Two interfaces providing the same name are two implementations and no reason to
     --- prefer either, so the declaration has to say which behaviour it means by writing
     --- the member itself.
-    local function checkInheritedDefaults(stat: any, n: any, localMembers: {[string]: any})
-        n.inheritedDefaults = {}
+    local function checkInheritedDefaults(stat: any, n: T.Nominal, localMembers: {[string]: any})
+        local inheritedDefaults: {[string]: T.Nominal} = {}
+        n.inheritedDefaults = inheritedDefaults
         local providers: {[string]: {any}} = {}
-        for _, super in ipairs(n.supertypes or {}) do
+        for _, rawSuper in ipairs(n.supertypes or {}) do
+            local super = rawSuper as T.Nominal
             for member, inherited in pairs(super.defaultEntries or {}) do
                 local into = providers[member] or {}
                 into[#into + 1] = {name = super.name, methodName = inherited.name, super = super}
                 providers[member] = into
-                n.inheritedDefaults[member] = super
+                inheritedDefaults[member] = super
             end
         end
         local localSlots = {}
@@ -1128,7 +1132,7 @@ function declare.install(
                     nil,
                     {help = ("write %s as a method with @override, or rename the field"):format(methodName)}
                 )
-                n.inheritedDefaults[member] = nil
+                inheritedDefaults[member] = nil
             elseif #from > 1 and not localSlots[member] then
                 local names = {}
                 for j, provider in ipairs(from) do
@@ -1144,25 +1148,26 @@ function declare.install(
                     nil,
                     {help = ("write %s in %s to say which behaviour it means"):format(methodName, n.name)}
                 )
-                n.inheritedDefaults[member] = nil
+                inheritedDefaults[member] = nil
             elseif localSlots[member] then
                 -- This exact overload has a local body; the other entries under the
                 -- same source name may still be inherited.
-                n.inheritedDefaults[member] = nil
+                inheritedDefaults[member] = nil
             end
         end
         -- An interface passes on what it takes, so a chain of them works.
         if stat.declKind == "interface" then
             n.defaults = n.defaults or {}
-            n.defaultEntries = n.defaultEntries or {}
-            for member, super in pairs(n.inheritedDefaults) do
-                local inherited = super.defaultEntries[member]
+            local defaultEntries: {[string]: any} = n.defaultEntries or {}
+            n.defaultEntries = defaultEntries
+            for member, super in pairs(inheritedDefaults) do
+                local inherited = (super.defaultEntries as {[string]: any})[member]
                 n.defaults[inherited.name] = true
-                n.defaultEntries[
+                defaultEntries[
                     member
                 ] = {
                     name = inherited.name,
-                    member = n.overloadedMethods[inherited.name] and member or inherited.member,
+                    member = (n.overloadedMethods or {})[inherited.name] and member or inherited.member,
                     slot = member,
                     entry = inherited.entry
                 }
@@ -1182,15 +1187,15 @@ function declare.install(
             byNominal[contract] = runtimeName
         end
         local taken = {}
-        for member, super in pairs(n.inheritedDefaults) do
+        for member, super in pairs(inheritedDefaults) do
             local from = byNominal[super]
             if from then
-                local inherited = super.defaultEntries[member]
+                local inherited = (super.defaultEntries as {[string]: any})[member]
                 taken[
                     #taken + 1
                 ] = {
                     name = inherited.name,
-                    member = n.overloadedMethods[inherited.name] and member or inherited.member,
+                    member = (n.overloadedMethods or {})[inherited.name] and member or inherited.member,
                     fromMember = inherited.member,
                     from = from
                 }
@@ -1210,7 +1215,11 @@ function declare.install(
     --- keeps normal exits separate from raises and nonterminating paths, and joins
     --- by intersection. Nested functions are declarations, not constructor steps.
     local function assignedFields(body: any): any, boolean
-        local nodes, labels, jumps = {}, {}, {}
+        local nodes, labels = {}, {}
+        local jumps: {{
+            key: any,
+            node: any
+        }} = {}
         local receiver = body.params and body.params[1] and body.params[1].name
 
         local function point(successors: any, field: any): any
@@ -1334,7 +1343,7 @@ function declare.install(
         while index <= #pending do
             local node = pending[index]
             index = index + 1
-            local out = {}
+            local out: {[any]: boolean} = {}
             for field in pairs(node.assigned) do
                 out[field] = true
             end
@@ -1545,12 +1554,13 @@ function declare.install(
         -- Everything the declaration has, not only what it wrote: a field it takes from
         -- an interface is as much a part of the value it hands back as one declared
         -- here, and leaving that one out is the same nil.
-        local order, seen = {}, {}
+        local order: {string} = {}
+        local seen = {}
         for _, name in ipairs(n.fieldOrder or {}) do
             order[#order + 1] = name
             seen[name] = true
         end
-        local inherited = {}
+        local inherited: {string} = {}
         for name in pairs(n.byname or {}) do
             if not seen[name] then
                 inherited[#inherited + 1] = name
@@ -1762,8 +1772,12 @@ function declare.install(
             end
             c.publishType(stat, t, projectEntry)
         elseif kind == "recordDecl" then
-            local n, projectEntry = stat.hoistedType, stat.hoistedEntry
-            if not n then
+            local n: T.Nominal
+            local projectEntry
+            if stat.hoistedType then
+                n = stat.hoistedType as T.Nominal
+                projectEntry = stat.hoistedEntry
+            else
                 n, projectEntry = c.declaredNominal(stat, stat.declKind)
             end
             -- keep what hoisting already published: the methods declared further down
@@ -1774,10 +1788,13 @@ function declare.install(
             n.staticWriteByname = n.staticWriteByname or {}
             n.metamethods = n.metamethods or {}
             n.nestedTypes = n.nestedTypes or {}
-            n.methodEntries = {}
-            n.methodDispatchEntries = {}
+            local methodEntries: {[string]: {any}} = {}
+            local methodDispatchEntries: {[string]: {any}} = {}
+            local staticEntries: {[string]: {any}} = {}
+            n.methodEntries = methodEntries
+            n.methodDispatchEntries = methodDispatchEntries
             n.overloadedMethods = {}
-            n.staticEntries = {}
+            n.staticEntries = staticEntries
             n.overloadedStatics = {}
             n.defaultEntries = {}
             n.constructors = {}
@@ -1824,7 +1841,8 @@ function declare.install(
                 n.constParams, n.paramKinds = nil, nil
                 n.paramDefaults = nil
             end
-            n.fieldOrder = {}
+            local fieldOrder: {string} = {}
+            n.fieldOrder = fieldOrder
             n.fieldDefaults = {}
             n.fieldDefs = {}
             n.writeFieldDefs = {}
@@ -1972,7 +1990,7 @@ function declare.install(
             end
             -- Separate interfaces may each contribute one entry under the same name.
             -- Once inherited together those entries are an overload group too.
-            for name, entries in pairs(n.methodDispatchEntries) do
+            for name, entries in pairs(methodDispatchEntries) do
                 local members, seen = {}, {}
                 for _, entry in ipairs(entries) do
                     if not seen[entry.member] then
@@ -1982,7 +2000,7 @@ function declare.install(
                 end
                 if #members > 1 then
                     n.byname[name] = T.intersection(members)
-                    n.writeByname[name] = n.byname[name]
+                    n.writeByname[name] = n.byname[name] as Type
                     n.overloadedMethods[name] = true
                 end
             end
@@ -2034,7 +2052,8 @@ function declare.install(
                     n.byname[name] = localSignatures[1]
                     n.writeByname[name] = localSignatures[1]
                 else
-                    local byParameters, order = {}, {}
+                    local byParameters = {}
+                    local order: {string} = {}
                     local inherited = n.byname[name]
                     local inheritedMembers = inherited and inherited.tag == "intersection" and inherited.members
                         or (inherited and {inherited} or {})
@@ -2611,12 +2630,13 @@ function declare.install(
                 end
             end
             checkDeclaredConformance(stat, n, localMembers)
-            for field, source in pairs(n.fieldBorrowSources or {}) do
+            local borrowSources = n.fieldBorrowSources or {}
+            for field, source in pairs(borrowSources) do
                 if field == source then
                     c.diag("NUPP2602", stat, ("field %q cannot borrow from itself"):format(field))
                 elseif not n.byname[source] then
                     c.diag("NUPP2109", stat, ("borrowed field %q names no sibling field %q"):format(field, source))
-                elseif n.fieldBorrowSources[source] then
+                elseif borrowSources[source] then
                     c.diag("NUPP2602", stat, "borrowed field relations cannot form chains or cycles")
                 end
                 -- Replacing either half would invalidate the relation. Construction is
@@ -2628,8 +2648,10 @@ function declare.install(
             end
             -- Only a group needs hidden runtime members. A single method keeps the
             -- ordinary Lua spelling and remains extractable like any other field.
-            for name, entries in pairs(n.methodEntries) do
-                local byMember, order, inheritedMembers = {}, {}, {}
+            for name, entries in pairs(methodEntries) do
+                local byMember = {}
+                local order: {string} = {}
+                local inheritedMembers: {[string]: any} = {}
                 for _, entry in ipairs(n.methodDispatchEntries[name] or {}) do
                     if not byMember[entry.member] then
                         order[#order + 1] = entry.member
@@ -2683,7 +2705,7 @@ function declare.install(
                     end
                     byMember[entry.member] = entry
                 end
-                local dispatch = {}
+                local dispatch: {any} = {}
                 for _, member in ipairs(order) do
                     dispatch[#dispatch + 1] = byMember[member]
                 end
@@ -2710,7 +2732,7 @@ function declare.install(
                     end
                 end
             end
-            for _, entries in pairs(n.staticEntries) do
+            for _, entries in pairs(staticEntries) do
                 if #entries > 1 then
                     for _, entry in ipairs(entries) do
                         entry.declaration.overloadMember = entry.member
@@ -2757,7 +2779,7 @@ function declare.install(
             -- to disagree with.
             if stat.declKind == "interface" and not n.predicate then
                 local derived = nil
-                for _, name in ipairs(n.fieldOrder or {}) do
+                for _, name in ipairs(fieldOrder) do
                     local ft = n.byname[name]
                     if ft and ft.tag == "literal" then
                         derived = predicate.both(derived, predicate.equals({name}, ft.constant))
@@ -2768,7 +2790,7 @@ function declare.install(
             if n.intrinsicAffineClaim and n.inherentCleanup then
                 local cleanup = n.inherentCleanup
                 if cleanup.kind == "method" then
-                    local ft = n.byname[cleanup.name]
+                    local ft = n.byname[cleanup.name as string]
                     ft = ft and T.unwrapOwnership(ft) or nil
                     if not ft or ft.tag ~= "func" then
                         c.diag("NUPP2615", stat.name, ("cleanup method %q must be declared"):format(cleanup.name))

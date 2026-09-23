@@ -55,7 +55,8 @@ function fieldcodec.finalize(state: any, value: any): any, fieldcodec.Failure?
     then
         return nil, failure("NUPP2418", "keyed field codecs require a reflected record type")
     end
-    local fields, seen = {}, {}
+    local fields: {string} = {}
+    local seen = {}
     for _, field in ipairs(descriptor.fields) do
         local name = field and field.name
         if type(name) ~= "string" or not name:find("^[%a_][%w_]*$") or seen[name] then
@@ -104,7 +105,8 @@ function fieldcodec.lower(envelope: any, expected: any, env: any): any, fieldcod
     then
         return nil, failure("NUPP2415", "field-codec blueprint has the wrong schema")
     end
-    local fields, seen = {}, {}
+    local fields: {string} = {}
+    local seen: {[string]: boolean} = {}
     for _, name in ipairs(envelope.payload.fields) do
         if type(name) ~= "string" or not name:find("^[%a_][%w_]*$") or seen[name] then
             return nil, failure("NUPP2415", "field-codec blueprint has malformed fields")

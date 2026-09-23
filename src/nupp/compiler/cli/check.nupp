@@ -225,7 +225,7 @@ local function run(options: any): integer
     if config then
         local envMod = require("nupp.compiler.env")
         local roots = envMod.projectRoots(".", config as {[string]: any})
-        local mine = {}
+        local mine: {string} = {}
         for _, path in ipairs(readable) do
             if envMod.moduleNameInRoots(roots, path) then
                 mine[#mine + 1] = path
@@ -236,7 +236,7 @@ local function run(options: any): integer
         -- source set to answer a question about a file somewhere else entirely.
         if #mine > 0 then
             local project = require("nupp.compiler.build.project")
-            local unchecked = {}
+            local unchecked: {string} = {}
             local produced: {[string]: any} = {}
             local code = project.check(".", {
                 strict = strict,

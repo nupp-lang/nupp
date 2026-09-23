@@ -600,7 +600,7 @@ function complete.install(s: complete.Session, nav: complete.Navigation): comple
             return items
         end
 
-        local definitions = {}
+        local definitions: {any} = {}
         for _, def in ipairs(doc.result.symbols or {}) do
             local inScope = not def.scopeFrom or not def.scopeTo or offset >= def.scopeFrom and offset <= def.scopeTo
             if def.lexical

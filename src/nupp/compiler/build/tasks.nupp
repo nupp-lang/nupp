@@ -92,8 +92,8 @@ local function targetConfig(config: manifest.Config, requested: string?): manife
     return build as manifest.Target
 end
 
-local function copyStrings(items)
-    local copied = jsonArray({})
+local function copyStrings(items: {string}?): {string}
+    local copied = jsonArray({} as {string})
     for _, item in ipairs(items or {}) do
         copied[#copied + 1] = item
     end
@@ -101,14 +101,14 @@ local function copyStrings(items)
     return copied
 end
 
-local function copyResources(items)
-    local copied = jsonArray({})
+local function copyResources(items: {string | manifest.Resource}?): {string}
+    local copied = jsonArray({} as {string})
     for _, item in ipairs(items or {}) do
         if type(item) == "table" then
             local resource = item as manifest.Resource
             copied[#copied + 1] = resource.source .. " -> " .. resource.output
         else
-            copied[#copied + 1] = item
+            copied[#copied + 1] = item as string
         end
     end
 

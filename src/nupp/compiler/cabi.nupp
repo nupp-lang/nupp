@@ -316,7 +316,8 @@ local function macroName(name: string): string
 end
 
 function cabi.header(aggregates: {any}, functions: {any}, guard: string?): string?, string?
-    local descriptions, byType = {}, {}
+    local descriptions: {any} = {}
+    local byType = {}
     local visiting, visited = {}, {}
 
     local function visit(t: any): string?

@@ -309,7 +309,7 @@ function nosuspend.install(c: state.Checker): nosuspend.Ops
         elseif info and info.summary then
             mayYield = info.summary.top == true or info.summary.external == true or info.summary.yields == true
             if mayYield and info.body then
-                local calls = {}
+                local calls: {cst.Node} = {}
                 callsWithin(info.body, calls)
                 local allTypedNonYielding = #calls > 0
                 for _, call in ipairs(calls) do

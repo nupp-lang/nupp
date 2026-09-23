@@ -128,7 +128,7 @@ function source.run(
     facts: analysisMod.Facts,
     queries: analysisMod.Queries
 ): source.Analysis
-    local functions = facts.functions or {}
+    local functions: {any} = facts.functions or {}
     local byBody = {}
     for _, info in ipairs(functions) do
         info.traceName = nameOf(info)
@@ -209,7 +209,7 @@ function source.run(
             end
             for _, edge in ipairs(current.traceEdges or {}) do
                 local callee = edge.callee
-                local nextPath = {}
+                local nextPath: {string} = {}
                 for index, name in ipairs(path) do
                     nextPath[index] = name
                 end
@@ -264,7 +264,7 @@ function source.run(
         end
 
         if info.body and info.body.jitRequired and not info.body.jitDisabled then
-            for _, finding in ipairs(info.traceFindings) do
+            for _, finding in ipairs(info.traceFindings as {any}) do
                 local reason = trace.reason(finding.reason)
                 local inherited = finding.body ~= info.body
                 if inherited and reason and reason.contractSeverity == "error" then

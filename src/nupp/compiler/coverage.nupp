@@ -117,7 +117,8 @@ function coverage.collect(statePath: string, shardPath: string): coverage.Model
         -- separator; the cached manifest has already normalized the same path.
         hits[normalize(path)] = counts
     end
-    local files, warnings = {}, {}
+    local files: {[string]: any} = {}
+    local warnings: {string} = {}
     if not shard then
         warnings[#warnings + 1] = shardErr or "coverage runner did not flush a shard"
     end
@@ -187,7 +188,7 @@ function coverage.collect(statePath: string, shardPath: string): coverage.Model
     end
     local list = {}
     for _, file in pairs(files) do
-        local executable = {}
+        local executable: {integer} = {}
         for _, line in pairs(file.executableLines) do
             executable[#executable + 1] = line
         end
@@ -335,7 +336,8 @@ local function treeHtml(files, currentPage, currentPath)
     end
 
     local function render(node, prefix, depth)
-        local out, names = {"<ul>"}, {}
+        local out = {"<ul>"}
+        local names: {string} = {}
         for name in pairs(node.dirs) do
             names[#names + 1] = name
         end
@@ -394,12 +396,13 @@ local function pageHeading(path, currentPage)
     if path == "" or path == "All files" then
         return "<h1>All files</h1>"
     end
-    local out, parts, prefix = {
+    local out, prefix = {
         "<nav class=breadcrumbs aria-label=Breadcrumb><a href='" .. relativeHref(
             currentPage,
             "index.html"
         ) .. "'>All files</a>"
-    }, {}, ""
+    }, ""
+    local parts: {string} = {}
     for part in path:gmatch("[^/]+") do
         parts[#parts + 1] = part
     end
@@ -612,7 +615,8 @@ function coverage.write(model: coverage.Model, outDir: string): {[string]: any}
     assert(writeFile(outDir .. "/coverage.json", report.encode(public) .. "\n"))
     assert(writeFile(outDir .. "/summary.json", report.encode(public.summary) .. "\n"))
     assert(writeFile(outDir .. "/lcov.info", lcov(model)))
-    local dirSet, dirs = {}, {}
+    local dirSet: {[string]: boolean} = {}
+    local dirs: {string} = {}
     for _, file in ipairs(model.files) do
         local dir = parent(file.path)
         while dir ~= "" do

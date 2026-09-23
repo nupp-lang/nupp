@@ -24,6 +24,7 @@ computes it. See docs/learn/performance/index.md.
 ]]
 
 local cst = require("nupp.compiler.cst")
+const {type Cleanup} = require("nupp.compiler.types")
 
 local analysis = {}
 
@@ -742,7 +743,7 @@ local function inferFunction(info, byDefinition)
         if NESTED_FUNCTION[node.kind] then
             return
         end
-        local cleanupsHere = {}
+        local cleanupsHere: {Cleanup} = {}
         for _, owner in ipairs(node.automaticOwners or {}) do
             for _, cleanup in ipairs(owner.cleanups or {}) do
                 cleanupsHere[#cleanupsHere + 1] = cleanup

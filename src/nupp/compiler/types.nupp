@@ -807,6 +807,10 @@ record types.Nominal
 
     deriveClaimsComplete: boolean?
 
+    --- Interfaces introduced by derive providers before declaration bodies are
+    --- checked. They participate in inheritance exactly like written supertypes.
+    deriveClaimedContracts: {types.Nominal}?
+
     --- Set when emitted runtime code needs this declaration's lazy descriptor.
     runtimeReflectionNeeded: boolean?
 
@@ -848,7 +852,7 @@ record types.Nominal
 
     --- The interface each inherited default came from, so the generator knows which
     --- table to reference it out of.
-    inheritedDefaults: {[string]: types.Type}?
+    inheritedDefaults: {[string]: types.Nominal}?
 
     --- Declared fields that carry affine values, in declaration order.
     affineFields: {string}?
@@ -2646,7 +2650,8 @@ function types.tostringConst(term: types.ConstTerm): string
 end
 
 function types.packUnion(alternatives: {types.Pack}): types.Pack
-    local flat, seen, ids = {}, {}, {}
+    local flat: {types.Pack} = {}
+    local seen, ids = {}, {}
     for _, p in ipairs(alternatives) do
         for _, q in ipairs(p.alternatives or {p}) do
             if not seen[q.id] then
@@ -2655,7 +2660,9 @@ function types.packUnion(alternatives: {types.Pack}): types.Pack
             end
         end
     end
-    table.sort(flat, canonicalOrder)
+    table.sort(flat, function(a: types.Pack, b: types.Pack): boolean
+        return a.id < b.id
+    end)
     if #flat == 1 then
         return flat[1]
     end

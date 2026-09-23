@@ -615,7 +615,7 @@ function importc.import(headerPath: string, opts: importc.Options?): string?, {s
     end
 
     local out = {}
-    local exports = {}
+    local exports: {string} = {}
     local knownStructs = {}
     local details = {direct = 0, bridged = 0, skipped = #parsed.rejected, dispositions = {},}
     for _, reject in ipairs(parsed.rejected) do

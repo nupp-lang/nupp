@@ -275,14 +275,26 @@ end
 -- The effect layer holds the payload table until the park encodes it, so a spawn
 -- appends to a batch already queued: a thousand children cost the host one message
 -- and stay well inside an application's effect budget.
-local pendingSubmission: any = nil
+local type Submission = {
+    task: integer,
+    module: string,
+    member: string,
+    payload: string,
+    deadline: number?
+}
+local type SubmissionBatch = {
+    operation: string,
+    tasks: {Submission}
+}
+local pendingSubmission: SubmissionBatch? = nil
 
 --- Adds one submission to the batch this park will carry.
-local function submit(entry: any): nil
+local function submit(entry: Submission): nil
     local batch = pendingSubmission
     if batch == nil then
         batch = {operation = "submit", tasks = {},}
         pendingSubmission = batch
+        local batchTasks: {Submission} = batch.tasks
         poolRequest(batch, function(item: any): nil
             pendingSubmission = nil
             local value = item ~= nil and item.ok == true and item.value or nil
@@ -298,7 +310,7 @@ local function submit(entry: any): nil
                 return
             end
             -- Nothing was accepted, so every child in the batch failed with it.
-            for _, one in ipairs(batch.tasks) do
+            for _, one in ipairs(batchTasks) do
                 local task = unsettled[one.task as integer]
                 if task ~= nil then
                     settle(task, {status = "failed", error = refused,})
@@ -306,7 +318,7 @@ local function submit(entry: any): nil
             end
         end)
     end
-    local tasks = batch.tasks as {any}
+    local tasks = batch.tasks
     tasks[#tasks + 1] = entry
 end
 

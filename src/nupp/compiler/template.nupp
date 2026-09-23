@@ -56,7 +56,7 @@ const BUILTIN_PREFIX = "/templates"
 --- `git` is the only one that runs no code the template supplied, which is why it
 --- is the only one a remote template keeps. The other three all load the
 --- scaffolded `nupp.lua`.
-const STEPS = {git = true, check = true, build = true, test = true}
+const STEPS: {[string]: boolean} = {git = true, check = true, build = true, test = true}
 
 --- The steps that survive for a template nobody here vouched for.
 const REMOTE_STEPS = {git = true}

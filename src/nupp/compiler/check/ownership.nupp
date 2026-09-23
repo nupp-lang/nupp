@@ -136,7 +136,13 @@ type ownership.Ops = {
 --- @return the operations the walk calls
 function ownership.install(c: state.Checker): ownership.Ops
     local own = {}
-    local pendingGenericCleanupBounds = {}
+    local pendingGenericCleanupBounds: {{
+        at: any,
+        bound: any,
+        cleanup: any,
+        code: any,
+        value: Type
+    }} = {}
     local emptyCapabilityFacts = new T.CapabilityFacts()
 
     ---------------------------------------------------------------------
@@ -668,7 +674,7 @@ function ownership.install(c: state.Checker): ownership.Ops
     --- exclusive borrows, which is what a shared use has to stay clear of.
     function own.regionBlocked(root, entry, entryFacts, regionRoot, regionPath, exclusive)
         if regionRoot and regionPath and regionPath ~= "" then
-            local held = {}
+            local held: {[any]: boolean} = {}
 
             local function hold(candidate)
                 candidate = own.ownershipState(candidate)

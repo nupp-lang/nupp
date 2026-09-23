@@ -145,7 +145,8 @@ end
 export function fromCLI(argv: {string}, entry: Entry): any, DecodeError?
     local plan = prepared(entry)
     local schema = plan.schema
-    local values, seen = {}, {}
+    local values: {any} = {}
+    local seen = {}
     local positionals = schema.positionals
     local positionalIndex = 1
     local stream = parser.optParser(argv, {

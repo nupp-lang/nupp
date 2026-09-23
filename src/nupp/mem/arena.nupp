@@ -220,7 +220,7 @@ function arena.new<S>(witness: Type<S>, pageSize: integer?): arena.Arena<S>
         element = element,
         width = storage.sizeOf(element),
         pageSize = rows,
-        pageList = {},
+        pageList = {} as {S[?]},
         rows = {},
         pageIndex = 0,
         cursor = rows,

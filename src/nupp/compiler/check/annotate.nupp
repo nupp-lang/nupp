@@ -14,6 +14,7 @@ See `docs/reference/annotations.md`.
 
 local T = require("nupp.compiler.types")
 local cst = require("nupp.compiler.cst")
+local lexer = require("nupp.compiler.lexer")
 local relations = require("nupp.compiler.relations")
 local state = require("nupp.compiler.check.state")
 local annotationMod = require("nupp.compiler.annotations")
@@ -51,7 +52,7 @@ function annotate.install(c: state.Checker): annotate.Ops
     local ops = {}
 
     function ops.annotationType(expr: any): cst.Tname?
-        local names = {}
+        local names: {lexer.Token} = {}
 
         local function collect(node: any): boolean
             if not node then

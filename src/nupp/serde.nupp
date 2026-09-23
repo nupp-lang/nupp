@@ -407,6 +407,8 @@ local validateValue: function(value: any, schema: Schema, path: string): nil
 
 local record BindingImpl<T> is Binding<T>
     @private
+    valueType: T?
+    @private
     @readonly
     token: any
 
@@ -420,7 +422,7 @@ local record BindingImpl<T> is Binding<T>
 end
 
 local function makeBinding<T>(state: any): Binding<T>
-    local binding = new BindingImpl(token = state)
+    local binding = new BindingImpl(valueType = nil as T, token = state)
     bindingStates[binding] = state
     if state.kind ~= "dynamic" and defaultSchemaBindings[state.schema] == nil then
         defaultSchemaBindings[state.schema] = state
@@ -695,7 +697,7 @@ local function schemaForSpec(spec: any): Schema
         local members: {Member} = {}
         local schemaState: any = {byName = {}}
         local schema = makeSchema("structure", nil, members, schemaState)
-        makeBinding({kind = "shape", schema = schema, fields = spec.fields})
+        local _binding: Binding<any> = makeBinding({kind = "shape", schema = schema, fields = spec.fields})
         for index, field in ipairs(spec.fields or {}) do
             local member = new Member(
                 index = index,
@@ -1064,6 +1066,8 @@ end
 
 local record PreparedDebugImpl<T> is PreparedDebug<T>
     @private
+    valueType: T?
+    @private
     @readonly
     plan: DebugPlan
     -- Pop while in use and return only after reset. Reentrant and interleaved calls
@@ -1094,7 +1098,11 @@ end
 
 buildPreparedDebug = function(binding: any): any
     local access = bindingStates[binding]
-    return new PreparedDebugImpl(plan = debugPlanFor(access.schema, access, access.kind == "dynamic", {}), buffers = {})
+    return new PreparedDebugImpl(
+        valueType = nil as any,
+        plan = debugPlanFor(access.schema, access, access.kind == "dynamic", {}),
+        buffers = {}
+    )
 end
 
 --- Prepares and memoizes Debug formatting for a binding.
@@ -1320,7 +1328,14 @@ local function decodePlanFor(layout: any, access: any, seen: any): any
         end
         if plan.access == "struct" then
             local typeObject = plan.typeObject
-            local fields = plan.fields
+            local fields: {{
+                name: string,
+                wire: string,
+                target: any,
+                required: boolean,
+                hasDefault: boolean,
+                defaultValue: any
+            }} = plan.fields
             plan.factory = function(values: any): any
                 local result = typeObject()
                 for _, field in ipairs(fields) do
@@ -1434,6 +1449,8 @@ local writeDocument: function(
 ): nil
 
 local record PreparedImpl<T> is Prepared<T>
+    @private
+    valueType: T?
     @private
     @readonly
     token: any
@@ -1702,7 +1719,7 @@ export record JsonCodec
             and decodeProvider.compileSerde(decodePlan, self.profile.unknownMembers)
             or nil
         local nativeComplete = nativeDecode ~= nil and nativeDecode.complete == true
-        local prepared = new PreparedImpl(token = binding)
+        local prepared = new PreparedImpl(valueType = nil as T, token = binding)
         preparedStates[prepared] = {
             access = access,
             layout = layout,

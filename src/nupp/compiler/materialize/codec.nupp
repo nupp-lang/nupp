@@ -41,7 +41,7 @@ canonicalValue = function(value, opts, active): (string?, string?)
         return nil, "cycle"
     end
     active[value] = true
-    local keys = {}
+    local keys: {any} = {}
     for key in pairs(value) do
         keys[#keys + 1] = key
     end
@@ -140,7 +140,7 @@ renderValue = function(value, opts, active): (string?, string?)
             return nil, "limit"
         end
     end
-    local keys = {}
+    local keys: {string} = {}
     for key in pairs(value) do
         if type(key) == "string" then
             keys[#keys + 1] = key

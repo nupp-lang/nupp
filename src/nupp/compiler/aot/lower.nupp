@@ -5367,7 +5367,12 @@ local function switchLocal(
         source = lower.site(node.selector)
     )
 
-    local arms = {}
+    local arms: {{
+        case: cst.SwitchCase,
+        never: boolean,
+        setup: {scalarIR.Statement},
+        value: scalarIR.Expr
+    }} = {}
     for _, arm in ipairs(node.cases or {}) do
         local value, setup = lower.capture(arm.expr as cst.Node, environment, kernel.index, kernel)
         value = firstValue(value, kernel, setup)
@@ -5710,7 +5715,8 @@ end
 --- direct return. Any other use reaches normal lowering and is refused rather
 --- than being silently assigned accumulator semantics.
 function lower.stringAccumulators(statements: {cst.Node}): {[string]: boolean}
-    local declared, appended, returned, invalid = {}, {}, {}, {}
+    local declared: {[string]: boolean} = {}
+    local appended, returned, invalid = {}, {}, {}
 
     local function walk(node: cst.Node?): nil
         if node == nil then

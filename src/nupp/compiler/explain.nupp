@@ -877,6 +877,21 @@ local ENTRIES: {any} = {
         docs = "docs/learn/language/types/narrowing.md#type-tests",
     },
     {
+        code = "NUPP2148",
+        summary = "A result type parameter cannot be inferred",
+        rule = "A type or type-pack parameter used by a call's result needs evidence "
+        .. "from an explicit type argument, an argument value, a destination type, "
+        .. "gradual input, or a declared default. Without any of those, substituting "
+        .. "`any` would silently erase the result's type. A parameter absent from the "
+        .. "result does not need evidence.",
+        wrong = "local function make<T>(): T\n    error('not reached')\nend\n\n"
+        .. "local value = make()\n\nreturn value\n",
+        right = "local function make<T>(): T\n    error('not reached')\nend\n\n"
+        .. "local value = make<string>()\n\nreturn value\n",
+        related = {"NUPP2116", "NUPP2131", "NUPP2146"},
+        docs = "docs/learn/language/types/generics.md#inference-at-a-call-site",
+    },
+    {
         code = "NUPP2511",
         summary = "An associated type was erased because inference did not reach its head",
         rule = "A projection is checked as `any` when inference never worked out what "

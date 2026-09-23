@@ -13,6 +13,14 @@ local check = require("nupp.compiler.check")
 local hash = require("nupp.compiler.build.hash")
 
 local imports = {}
+local type Use = {
+    first: integer,
+    last: integer,
+    text: string?,
+    moduleName: string?,
+    member: string?,
+    runtime: boolean?
+}
 local defaultEnvironment: any = nil
 local defaultKey: string? = nil
 
@@ -141,7 +149,7 @@ function imports.new(environment: any?, enabled: boolean?): any
         -- synthetic lowering nodes must never become the formatter's input.
         local checked = parser.parse(source, filename)
         check.check(checked, filename or "format.g.nupp", env)
-        local uses = {}
+        local uses: {Use} = {}
         local covered = {}
         local shadowedRequire = false
         for _, token in ipairs(checked.tokens) do
@@ -275,8 +283,8 @@ function imports.new(environment: any?, enabled: boolean?): any
                 moduleName = moduleName,
                 member = member,
                 runtime = runtime,
-                first = first.offset,
-                last = last.offset + #last.text - 1,
+                first = first.offset as integer,
+                last = (last.offset + #last.text - 1) as integer,
             }
         end)
         if #uses == 0 then
@@ -290,10 +298,10 @@ function imports.new(environment: any?, enabled: boolean?): any
         -- name in an inner scope, an unresolved global, or a generic parameter.
         local occupied = {}
         local previous = nil
-        local useIndex = 1
+        local useIndex: integer = 1
         for _, token in ipairs(parsed.tokens) do
             while uses[useIndex] and uses[useIndex].last < token.offset do
-                useIndex = useIndex + 1
+                useIndex = (useIndex + 1) as integer
             end
             local replaced = uses[useIndex] and token.offset >= uses[useIndex].first
             if not replaced and token.kind == "name" and (not previous or previous.kind ~= ".") then
@@ -400,31 +408,32 @@ function imports.new(environment: any?, enabled: boolean?): any
         local runtimeMembers, typeMembers = {}, {}
         for _, use in ipairs(uses) do
             if use.runtime then
-                runtimeMembers[use.moduleName .. ":" .. use.member] = true
+                runtimeMembers[(use.moduleName as string) .. ":" .. (use.member as string)] = true
             elseif use.member then
-                typeMembers[use.moduleName .. ":" .. use.member] = true
+                typeMembers[(use.moduleName as string) .. ":" .. (use.member as string)] = true
             end
         end
         local bindings, declarations = {}, {}
         for _, use in ipairs(uses) do
             if not use.text then
-                local key = use.moduleName .. (use.member and ":" .. use.member or "")
-                if not bindings[key] and not use.member and existing[use.moduleName] then
-                    bindings[key] = existing[use.moduleName]
+                local moduleName = use.moduleName as string
+                local key = moduleName .. (use.member and ":" .. use.member or "")
+                if not bindings[key] and not use.member and existing[moduleName] then
+                    bindings[key] = existing[moduleName]
                 end
                 if not bindings[key] then
-                    local preferred = use.member or use.moduleName:match("([^.]+)$")
+                    local preferred = use.member or moduleName:match("([^.]+)$") or moduleName
                     local alias = allocate(preferred)
                     bindings[key] = alias
                     local declaration
                     if use.member then
-                        declaration = typeImport(use.moduleName, use.member, alias, runtimeMembers[key])
+                        declaration = typeImport(moduleName, use.member, alias, runtimeMembers[key])
                     else
-                        declaration = "const " .. alias .. " = require(" .. string.format("%q", use.moduleName) .. ")"
+                        declaration = "const " .. alias .. " = require(" .. string.format("%q", moduleName) .. ")"
                     end
                     declarations[#declarations + 1] = declaration
                     if use.member and runtimeMembers[key] and typeMembers[key] then
-                        declarations[#declarations + 1] = typeImport(use.moduleName, use.member, alias)
+                        declarations[#declarations + 1] = typeImport(moduleName, use.member, alias)
                     end
                 end
                 use.text = bindings[key]
@@ -516,7 +525,7 @@ function imports.new(environment: any?, enabled: boolean?): any
         local cursor = insertion
         for _, use in ipairs(uses) do
             out[#out + 1] = source:sub(cursor, use.first - 1)
-            out[#out + 1] = use.text
+            out[#out + 1] = use.text as string
             cursor = use.last + 1
         end
         out[#out + 1] = source:sub(cursor)

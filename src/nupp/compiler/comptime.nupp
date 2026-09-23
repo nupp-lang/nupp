@@ -86,14 +86,15 @@ function comptime.typeFunctionProgram(helper: any, helpers: any): any
     if helper and helper.sealedTypeFunction then
         return helper
     end
-    local reachable, visiting = {}, {}
+    local reachable: {[string]: any} = {}
+    local visiting: {[any]: boolean} = {}
 
     local function collect(current)
         if not current or visiting[current] then
             return
         end
         visiting[current] = true
-        local names = {}
+        local names: {[string]: boolean} = {}
 
         local function scan(value)
             if type(value) ~= "table" or cst.isToken(value) then
@@ -118,7 +119,8 @@ function comptime.typeFunctionProgram(helper: any, helpers: any): any
     end
 
     collect(helper)
-    local names, parts = {}, {"nupp.type-function\0v1", canonicalNode(helper)}
+    local names: {string} = {}
+    local parts = {"nupp.type-function\0v1", canonicalNode(helper)}
     for name in pairs(reachable) do
         names[#names + 1] = name
     end
@@ -1213,7 +1215,7 @@ evalExpr = function(state, node)
         end
         answer = built
     elseif kind == "istring" then
-        local pieces = {}
+        local pieces: {string} = {}
         for _, child in ipairs(node) do
             if isToken(child) then
                 local text = child.text

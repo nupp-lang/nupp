@@ -242,7 +242,7 @@ print(wide)
         codes(
             PRELUDE
             .. [=[
-local narrow: nupp.util.Key<integer> = nupp.util.newKey("fixture.number") as nupp.util.Key<number>
+local narrow: nupp.util.Key<integer> = nupp.util.newKey<number>("fixture.number") as nupp.util.Key<number>
 print(narrow)
 ]=]
         )[1],
@@ -282,13 +282,11 @@ print(store:get(found))
     )
 end
 
-function M.anUnannotatedKeyIsGradual()
-    -- The type argument comes from the annotation and nothing else, so a
-    -- declaration without one resolves to Key<any> and the store checks nothing
-    -- through it. This pins that the checker stays silent, which is the
-    -- language's rule for `any`, so the documentation can say so.
+function M.anUnannotatedKeyNeedsATypeArgument()
+    -- A key's value type is phantom: no runtime argument can answer it. Leaving off
+    -- both the destination and the explicit argument must not produce Key<any>.
     check.equal(
-        #errors(
+        codes(
             PRELUDE
             .. [=[
 local loose = nupp.util.newKey("fixture.loose")
@@ -296,8 +294,8 @@ store:set(loose, 7)
 local text: string? = store:get(loose)
 print(text)
 ]=]
-        ),
-        0
+        )[1],
+        "NUPP2148"
     )
 end
 

@@ -132,7 +132,8 @@ local function canonicalHost(text: string, level: integer): string
 end
 
 local function mergedHeaders(first: any, second: any, contentType: string?): (any, any, {any})
-    local byLower, merged = {}, {}
+    local byLower: {[string]: string} = {}
+    local merged: {[string]: string} = {}
 
     local function add(headers: any): nil
         for name, value in pairs(headers or {}) do

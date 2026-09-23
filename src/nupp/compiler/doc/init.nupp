@@ -91,6 +91,45 @@ type doc.Page = {
     title: string?
 }
 
+local type BuiltPage = {
+    path: string,
+    title: string,
+    source: string?,
+    layout: string?,
+    redirects: {string}?,
+    markdown: string?,
+    module: Module?,
+    overview: string?,
+    symbols: {[string]: string}?,
+    api: boolean?,
+    navigationTitle: string?,
+    unlisted: boolean?,
+    heroText: string?,
+    heroTitle: string?,
+    heroContent: string?,
+    heroImage: string?,
+    heroImageAlt: string?,
+    heroActions: {{
+        path: string?,
+        text: string,
+        theme: string?
+    }}?,
+    features: {{
+        code: string?,
+        codeLanguage: string?,
+        details: string?,
+        icon: string?,
+        image: string?,
+        imageAlt: string?,
+        title: string
+    }}?
+}
+local type SearchEntry = {
+    title: string,
+    url: string,
+    text: string
+}
+
 --- What a manifest configured documentation to do. A build target of kind `docs` is
 --- read as one of these too, which is why `kind` and `targetName` are here.
 type doc.Settings = {
@@ -311,7 +350,13 @@ local function byKindThenName(left, right)
 end
 
 local function loadModules(root, config, settings, requested)
-    local modules, errors = {}, {}
+    local modules: {Module} = {}
+    local errors: {LexError | {
+        filename: string,
+        line: integer,
+        col: integer,
+        msg: string
+    }} = {}
     local namespaceBacked, implied = {}, {}
     for _, path in ipairs(sourceFiles(root, config, settings, requested)) do
         local source, readErr = readFile(path)
@@ -343,7 +388,8 @@ local function loadModules(root, config, settings, requested)
     -- wants both. The module with a file behind it keeps the page and the one an
     -- `@namespace` field implied folds into it, because a page that names a source
     -- should name one a reader can open.
-    local keeper, order = {}, {}
+    local keeper = {}
+    local order: {string} = {}
     for _, module in ipairs(modules) do
         local held = keeper[module.name]
         if not held then
@@ -535,7 +581,7 @@ local function loadModules(root, config, settings, requested)
     end
     -- Which modules the site will not show. Asked twice: once to decide whether a
     -- namespace re-export has a page of its own to point at, and once to drop them.
-    local internalTrees = {}
+    local internalTrees: {string} = {}
     for _, module in ipairs(modules) do
         if module.documentationInternal and module.path and module.path:match("[/\\]init%.nupp$") then
             internalTrees[#internalTrees + 1] = module.name
@@ -604,7 +650,7 @@ local function loadModules(root, config, settings, requested)
     -- An aliased module the site already shows keeps its one page instead of being
     -- copied onto a second. The declaration then spells its target, which the symbol
     -- index links.
-    local aliasedNamespaces = {}
+    local aliasedNamespaces: {Module} = {}
     for _, module in ipairs(modules) do
         local kept = {}
         for _, item in ipairs(module.items) do
@@ -631,7 +677,7 @@ local function loadModules(root, config, settings, requested)
         local kept = {}
         for _, item in ipairs(module.items) do
             local target = item.module and byName[item.module] or nil
-            local nested = target and byName[item.module .. "." .. item.name] or nil
+            local nested = target and byName[(item.module as string) .. "." .. item.name] or nil
             if not settings.includePrivate and item.module and internalModuleName(item.module) then
                 -- Dropped outright. `record nupp.internal.Cache` belongs to a private
                 -- module whether or not a file by that name was read, so it must not
@@ -642,7 +688,7 @@ local function loadModules(root, config, settings, requested)
                     nested.text = item.doc.text
                 end
             elseif target and target ~= module then
-                item.path = item.module .. "." .. item.name
+                item.path = (item.module as string) .. "." .. item.name
                 for _, member in ipairs(item.members) do
                     member.path = item.path .. "." .. member.name
                 end
@@ -842,8 +888,9 @@ local function sweptPages(root, configured, reserved, title)
     return candidates
 end
 
-local function configuredPages(root, settings, title)
-    local pages, seen, home = {}, {}, false
+local function configuredPages(root, settings, title): {BuiltPage}?, string?
+    local pages: {BuiltPage} = {}
+    local seen, home = {}, false
     -- A collection publishes the documents in its directory itself. A glob over the
     -- tree that holds it would publish every one of them a second time at a route of
     -- its own, so the directories are collected before any file is matched.
@@ -892,7 +939,15 @@ local function configuredPages(root, settings, title)
                     return nil, expandErr
                 end
                 member.markdown = embedded
-                pages[#pages + 1] = member
+                pages[
+                    #pages + 1
+                ] = {
+                    path = member.path,
+                    title = member.title,
+                    source = member.source,
+                    markdown = member.markdown,
+                    unlisted = member.unlisted,
+                }
             end
         else
             local route = cleanRoute(configured.path)
@@ -1157,7 +1212,7 @@ local function renderSite(root, outDir, modules, title, settings)
     if not ok then
         return nil, err
     end
-    local pages
+    local pages: {BuiltPage}?
     pages, err = configuredPages(root, settings, title)
     if not pages then
         return nil, err
@@ -1167,7 +1222,9 @@ local function renderSite(root, outDir, modules, title, settings)
     -- in a doc comment that would have to hold a page. It is carried onto the module's
     -- own entry rather than kept beside it, so the module keeps its place in the
     -- navigation and one page still answers at that route.
-    local configured, moduleRoutes, ordered = {}, {}, {}
+    local configured: {[string]: BuiltPage} = {}
+    local moduleRoutes: {[string]: boolean} = {}
+    local ordered: {BuiltPage} = {}
     for _, candidate in ipairs(pages) do
         configured[candidate.path] = candidate
     end
@@ -1201,9 +1258,11 @@ local function renderSite(root, outDir, modules, title, settings)
         }
     end
     pages = ordered
+    local linkPages = pages as {Page2}
+    local navPages = pages as {pageMod.Nav}
     for _, candidate in ipairs(pages) do
         if candidate.module then
-            rewriteModuleDocLinks(candidate.module, pages, routeFile(candidate.path))
+            rewriteModuleDocLinks(candidate.module, linkPages, routeFile(candidate.path))
         end
     end
 
@@ -1213,8 +1272,14 @@ local function renderSite(root, outDir, modules, title, settings)
             generatedLinks[name] = routeFile(candidate.path) .. "#" .. anchor
         end
     end
-    local allMarkdown, linkIndex, searchEntries = {}, symbolLinkIndex(modules, nil, generatedLinks), {}
+    local allMarkdown: {{
+        page: BuiltPage,
+        text: string
+    }} = {}
+    local linkIndex = symbolLinkIndex(modules, nil, generatedLinks)
+    local searchEntries: {SearchEntry} = {}
     for _, candidate in ipairs(pages) do
+        local linkCandidate = candidate as Page2
         local file = routeFile(candidate.path)
         local markdown, body, current = candidate.markdown or "", {}, nil
         local items: {pageMod.Entry} = {}
@@ -1250,7 +1315,9 @@ local function renderSite(root, outDir, modules, title, settings)
             -- An overview is what the author wanted said here, so it replaces the line
             -- that stands in for one rather than repeating the subject above it.
             if overview ~= "" then
-                body[#body + 1] = markdownHtml(rewriteConfiguredPageLinks(overview, candidate, pages, file), links, 0)
+                body[
+                    #body + 1
+                ] = markdownHtml(rewriteConfiguredPageLinks(overview, linkCandidate, linkPages, file), links, 0)
             elseif module.namespace then
                 body[
                     #body + 1
@@ -1297,11 +1364,11 @@ local function renderSite(root, outDir, modules, title, settings)
             -- page's ordinary markdown is routed just below.
             for _, feature in ipairs(candidate.features or {}) do
                 if feature.details then
-                    feature.details = rewriteConfiguredPageLinks(feature.details, candidate, pages, file)
+                    feature.details = rewriteConfiguredPageLinks(feature.details, linkCandidate, linkPages, file)
                 end
             end
             body[#body + 1] = homeHero(candidate, links, function(href)
-                return urlsMod.resolvePageHref(href, candidate, pages, file)
+                return urlsMod.resolvePageHref(href, linkCandidate, linkPages, file)
             end)
             -- A page whose markdown opens on a heading has named its own subject. One
             -- that does not is a file written for somewhere else, most often a module
@@ -1310,7 +1377,7 @@ local function renderSite(root, outDir, modules, title, settings)
             if candidate.path ~= "" and markdown ~= "" and not markdown:match("^#%s") then
                 body[#body + 1] = "<h1>" .. htmlEscape(candidate.title) .. "</h1>"
             end
-            local renderedMarkdown = rewriteConfiguredPageLinks(markdown, candidate, pages, file)
+            local renderedMarkdown = rewriteConfiguredPageLinks(markdown, linkCandidate, linkPages, file)
             local featureStart, featureEnd
             if candidate.path == "" then
                 -- A home page can put its long-form feature tour directly after an
@@ -1320,11 +1387,16 @@ local function renderSite(root, outDir, modules, title, settings)
             if featureStart and featureEnd then
                 local introduction = rewriteConfiguredPageLinks(
                     markdown:sub(1, featureStart - 1),
-                    candidate,
-                    pages,
+                    linkCandidate,
+                    linkPages,
                     file
                 )
-                local remainder = rewriteConfiguredPageLinks(markdown:sub(featureEnd + 1), candidate, pages, file)
+                local remainder = rewriteConfiguredPageLinks(
+                    markdown:sub(featureEnd + 1),
+                    linkCandidate,
+                    linkPages,
+                    file
+                )
                 body[#body + 1] = markdownHtml(introduction, links, 0)
                 body[#body + 1] = homeFeatures(candidate, links)
                 body[#body + 1] = markdownHtml(remainder, links, 0)
@@ -1346,7 +1418,7 @@ local function renderSite(root, outDir, modules, title, settings)
             items,
             file,
             settings,
-            pages,
+            navPages,
             candidate.path,
             candidate.layout
         )
@@ -1386,10 +1458,7 @@ local function renderSite(root, outDir, modules, title, settings)
             local legacy = "modules/" .. candidate.module.name:gsub("[^%w._-]", "-"):gsub("%.", "/") .. ".html"
             ok, err = writeFile(
                 join(outDir, legacy),
-                redirectHtml(
-                    candidate.module.name:match("%.") and candidate.module.name:match("([^.]+)$") .. "/index.html"
-                    or candidate.module.name .. "/index.html"
-                )
+                redirectHtml((candidate.module.name:match("([^.]+)$") or candidate.module.name) .. "/index.html")
             )
             if not ok then
                 return nil, err
@@ -1405,7 +1474,7 @@ local function renderSite(root, outDir, modules, title, settings)
     llms[#llms + 1] = "## Documentation"
     for _, entry in ipairs(allMarkdown) do
         local target = entry.page.path == "" and "index.md" or entry.page.path .. "/llms.txt"
-        llms[#llms + 1] = "- [" .. entry.page.title .. "](" .. target .. ")"
+        llms[#llms + 1] = "- [" .. (entry.page.title or entry.page.path) .. "](" .. target .. ")"
     end
     llms[#llms + 1] = ""
     llms[#llms + 1] = "- [Complete documentation](llms-full.txt)"
@@ -1415,7 +1484,7 @@ local function renderSite(root, outDir, modules, title, settings)
     end
     local full = {"# " .. (settings.name or title)}
     for _, entry in ipairs(allMarkdown) do
-        full[#full + 1] = "\n---\n\n## " .. entry.page.title .. "\n\n" .. trim(entry.text) .. "\n"
+        full[#full + 1] = "\n---\n\n## " .. (entry.page.title or entry.page.path) .. "\n\n" .. trim(entry.text) .. "\n"
     end
     ok, err = writeFile(join(outDir, "llms-full.txt"), table.concat(full, "\n"))
     if not ok then
@@ -1482,7 +1551,7 @@ end
 -- members, then replace the record. Empty route directories are removed on the way up.
 local function reconcileSiteFiles(output: string, written: {string}): boolean?, string?
     local statePath = join(output, ".nupp-doc-files.json")
-    local previous = {}
+    local previous: {string} = {}
     local encoded = readFile(statePath)
     if encoded then
         local ok, decoded = pcall(json.decode, encoded, json.NULL)

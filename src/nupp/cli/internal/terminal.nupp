@@ -48,7 +48,7 @@ local function styler(code: string): function(string): string
     end
 end
 
-local SEVERITY_COLOR = {error = "red", warning = "yellow", note = "cyan", help = "green"}
+local SEVERITY_COLOR: {[string]: string} = {error = "red", warning = "yellow", note = "cyan", help = "green"}
 local plainSeverity: {[string]: function(string): string} = {}
 for name in pairs(SEVERITY_COLOR) do
     plainSeverity[name] = plain

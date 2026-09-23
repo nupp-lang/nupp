@@ -97,7 +97,7 @@ local function withArrayEmpties(value: unknown, seen: {[unknown]: any}?): unknow
     end
     local copied: {[any]: any} = {}
     seen[value] = copied
-    for key, item in pairs(value as table) do
+    for key, item in pairs(value as {[any]: any}) do
         copied[key] = withArrayEmpties(item, seen)
     end
     if next(copied) == nil then

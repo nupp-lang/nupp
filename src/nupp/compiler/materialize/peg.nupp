@@ -539,7 +539,8 @@ local function finalizeGraph(state, rootHandle, backend)
     if not rootEntry then
         return nil, failure("NUPP2417", "PEG blueprint root is not a pattern")
     end
-    local definitions, startName = {}, nil
+    local definitions: {[any]: any} = {}
+    local startName = nil
     local grammarHandle
 
     local function discoverGrammar(handle, seen)
@@ -592,7 +593,9 @@ local function finalizeGraph(state, rootHandle, backend)
         end
     end
 
-    local nodes, origins, indices, literalBytes = {}, {}, {}, 0
+    local nodes: {{any}} = {}
+    local origins: {any} = {}
+    local indices, literalBytes = {}, 0
     local visit
     visit = function(handle)
         if indices[handle] then
@@ -609,7 +612,7 @@ local function finalizeGraph(state, rootHandle, backend)
             return nil, failure("NUPP2416", "PEG blueprint exceeds its 4096-node limit")
         end
         local index = #nodes + 1
-        indices[handle], nodes[index], origins[index] = index, false, entry.provenance
+        indices[handle], nodes[index], origins[index] = index, {}, entry.provenance
         local op, output = entry.payload.op, {entry.payload.op}
         if op == "literal" or op == "set" then
             literalBytes = literalBytes + #entry.payload.data
@@ -652,7 +655,7 @@ local function finalizeGraph(state, rootHandle, backend)
     if not root then
         return nil, why
     end
-    local ruleNames = {}
+    local ruleNames: {string} = {}
     for name in pairs(definitions) do
         ruleNames[#ruleNames + 1] = name
     end
@@ -669,7 +672,7 @@ local function finalizeGraph(state, rootHandle, backend)
     if not result then
         return nil, analysisFailure
     end
-    local slotSet = {}
+    local slotSet: {[string]: boolean} = {}
     for _, node in ipairs(nodes) do
         local op = node[1]
         if op == "matchTime"
@@ -1134,7 +1137,7 @@ local function searchPlan(validated)
     if not collect(root, present, {}) then
         return nil
     end
-    local bytes = {}
+    local bytes: {integer} = {}
     for byte = 0, 255 do
         if present[byte] then
             bytes[#bytes + 1] = byte
@@ -1398,7 +1401,8 @@ local function compilePlan(validated)
             and separator[2] ~= ""
             and (repetition[1] == "zeroOrMore" or repetition[1] == "oneOrMore")
         then
-            local prefixes, prefixFree, maximum = {}, true, 0
+            local prefixes: {string} = {}
+            local prefixFree, maximum = true, 0
 
             local function collectPrefixes(index)
                 local candidate = nodes[index]
@@ -1554,7 +1558,8 @@ local function dataIR(value)
     if type(value) ~= "table" then
         return {tag = "literal", value = value}
     end
-    local array, fields, names = {}, {}, {}
+    local array, fields = {}, {}
+    local names: {string} = {}
     for index = 1, #value do
         array[index] = dataIR(value[index])
     end

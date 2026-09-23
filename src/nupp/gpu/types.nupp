@@ -25,6 +25,7 @@ const gpu.PORTABLE_SCRATCH_BYTES = 16384
 --- CPU-addressable, so upload and download explicitly cross that boundary.
 --- @export
 record gpu.Buffer<T> is api.Buffer<T>
+    _elementType: T?
     @readonly
     _anchor: any
     @readonly

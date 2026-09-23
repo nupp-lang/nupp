@@ -353,7 +353,7 @@ function functions.install(c: state.Checker): state.StatHandlers
             end
         end
 
-        local returns = {}
+        local returns: {cst.ReturnStmt} = {}
 
         local function walk(node)
             if not node or cst.isToken(node) then

@@ -29,7 +29,7 @@ function spi.read(root, config, target, records): ({any}?, string?)
         if not ok or type(document) ~= "table" or json.isArray(document) or document == json.NULL then
             return path .. " must contain an interface-to-module object"
         end
-        local names = {}
+        local names: {string} = {}
         for name in pairs(document) do
             names[#names + 1] = name
         end
@@ -100,7 +100,8 @@ end
 --- Holds each implementation to an ordinary typed assignment and records canonical
 --- names.
 function spi.check(session: any, entries: {any}, root: string, outDir: string): (boolean?, string?)
-    local seen, kept = {}, {}
+    local seen = {}
+    local kept: {any} = {}
     for index, entry in ipairs(entries) do
         local moduleName, typeName = entry.interface:match("^(.*)%.([^.]+)$")
         local path = session.inc.modulePath(moduleName) or session.stageBundled(moduleName)
@@ -160,13 +161,14 @@ end
 
 --- Writes only module names. Loading and selection remain ordinary runtime code.
 function spi.write(root: string, outDir: string, entries: {any}): (boolean?, string?)
-    local interfaces, names = {}, {}
+    local interfaces: {[string]: {string}} = {}
+    local names: {string} = {}
     for _, entry in ipairs(entries) do
         if not interfaces[entry.interface] then
             interfaces[entry.interface] = {}
             names[#names + 1] = entry.interface
         end
-        local modules = interfaces[entry.interface]
+        local modules = interfaces[entry.interface] as {string}
         modules[#modules + 1] = string.format("%q", entry.implementation)
     end
     table.sort(names)
@@ -180,7 +182,7 @@ function spi.write(root: string, outDir: string, entries: {any}): (boolean?, str
         "export = {",
     }
     for _, name in ipairs(names) do
-        lines[#lines + 1] = ("    [%q] = {%s},"):format(name, table.concat(interfaces[name], ", "))
+        lines[#lines + 1] = ("    [%q] = {%s},"):format(name, table.concat(interfaces[name] as {string}, ", "))
     end
     lines[#lines + 1] = "}\n"
 

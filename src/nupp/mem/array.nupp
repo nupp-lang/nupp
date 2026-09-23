@@ -28,6 +28,8 @@ local array = {}
 -- Species queries remain ordinary values even on hosts without native storage.
 record array.Scalar<T>
     @private
+    _elementType: T?
+    @private
     @readonly
     physical: string
 end
@@ -39,19 +41,19 @@ end
 --- width is meaningful, and the compiler this library is first built with
 --- knows no other.
 local function narrow<T>(kind: string, _shape: Span<T>): array.Scalar<T>
-    return new array.Scalar(physical = kind) as array.Scalar<T>
+    return new array.Scalar(_elementType = nil as T, physical = kind)
 end
 
 const array.uint8 = narrow("uint8", (nil as any) as Span<uint8>)
 const array.int8 = narrow("int8", (nil as any) as Span<int8>)
 const array.uint16 = narrow("uint16", (nil as any) as Span<uint16>)
 const array.int16 = narrow("int16", (nil as any) as Span<int16>)
-const array.uint32 = new array.Scalar(physical = "uint32") as array.Scalar<uint32>
-const array.int32 = new array.Scalar(physical = "int32") as array.Scalar<int32>
-const array.uint64 = new array.Scalar(physical = "uint64") as array.Scalar<uint64>
-const array.int64 = new array.Scalar(physical = "int64") as array.Scalar<int64>
-const array.float = new array.Scalar(physical = "float") as array.Scalar<float>
-const array.number = new array.Scalar(physical = "number") as array.Scalar<number>
+const array.uint32 = new array.Scalar(_elementType = nil as uint32, physical = "uint32")
+const array.int32 = new array.Scalar(_elementType = nil as int32, physical = "int32")
+const array.uint64 = new array.Scalar(_elementType = nil as uint64, physical = "uint64")
+const array.int64 = new array.Scalar(_elementType = nil as int64, physical = "int64")
+const array.float = new array.Scalar(_elementType = nil as float, physical = "float")
+const array.number = new array.Scalar(_elementType = nil as number, physical = "number")
 
 record array.Array<T>
     @private

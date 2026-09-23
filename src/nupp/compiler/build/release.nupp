@@ -86,7 +86,7 @@ local function pretty(value: any, depth: integer, seen: {[table]: boolean}): str
     if kind ~= "table" then
         return json.encode(value)
     end
-    local entries = value as table
+    local entries = value as {[any]: any}
     if seen[entries] then
         error("release JSON contains a cycle")
     end

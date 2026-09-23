@@ -641,7 +641,9 @@ local FEATURES: {[string]: native.Feature} = {
     ] = {name = "crypto", module = "nupp.runtime.provider.nativecrypto", requires = {"runtime.native"},},
 }
 
-local byGlobal, byModule, byModuleMember, byName = {}, {}, {}, {}
+local byGlobal: {[string]: string} = {}
+local byModule, byModuleMember = {}, {}
+local byName: {[string]: string} = {}
 for effect, feature in pairs(FEATURES) do
     if feature.binary then
         byName[feature.name] = effect

@@ -155,7 +155,9 @@ local function spread(values: {number}): any
 end
 
 function batch.summarize(records: {any}): any
-    local valid, invalid, passed = {}, {}, {}
+    local valid: {any} = {}
+    local invalid: {any} = {}
+    local passed: {any} = {}
     local withFix, withoutFix = {}, {}
     local costs: {number} = {}
     local tools: {number} = {}

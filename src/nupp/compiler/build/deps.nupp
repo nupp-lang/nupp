@@ -464,7 +464,9 @@ local function buildC(root, outDir, name, dep, previous, childResults, target)
         local archiveVersionCode, archiveVersion = process.capture({archiver, "--version"})
         archiverIdentity = archiver .. "\0" .. tostring(archiveVersionCode) .. "\0" .. archiveVersion
     end
-    local pkgCflags, pkgSharedLibs, pkgStaticLibs = {}, {}, {}
+    local pkgCflags: {string} = {}
+    local pkgSharedLibs: {string} = {}
+    local pkgStaticLibs: {string} = {}
     if dep.pkgConfig then
         local packages = type(dep.pkgConfig) == "table" and dep.pkgConfig or {}
         if type(dep.pkgConfig) == "string" then
@@ -576,7 +578,7 @@ local function buildC(root, outDir, name, dep, previous, childResults, target)
                 mkdir(dirname(staticOutput))
             end
             local objectStem = sharedOutput or staticOutput as string
-            local objects = {}
+            local objects: {string} = {}
             local osName = (jit and jit.os or ""):lower()
 
             local function removeIntermediates()
@@ -1395,7 +1397,7 @@ local function buildDependencies(
             return nil, err
         end
     end
-    local toolNames = {}
+    local toolNames: {[string]: boolean} = {}
     if selected.kind ~= "docs" then
         for _, generator in pairs(config.generators or {}) do
             local name = generator.using:match("^([^/]+)/")
@@ -1429,7 +1431,7 @@ local function typeRoots(root: string, config: Config, records: {[string]: cache
             end
         end
     end
-    local selected = {}
+    local selected: {[string]: boolean} = {}
     for _, name in ipairs(names) do
         selected[name] = true
     end

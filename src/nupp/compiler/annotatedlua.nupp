@@ -837,7 +837,7 @@ function annotated.decorate(result: any, filename: string?, dialect: string?): {
 
     -- Type declarations are file-scoped in the interoperable dialect. Insert them at
     -- the front of the semantic statement list, but not the lossless child list.
-    local declarations = {}
+    local declarations: {cst.Node} = {}
     for index, tag in ipairs(tags) do
         if tag.name == "alias" or tag.name == "class" or tag.name == "enum" then
             local following = {}

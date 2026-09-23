@@ -1830,7 +1830,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 then
                     selected = -(assert(tonumber((selector.operand.token.text:gsub("_", "")))) as integer)
                 end
-                local values = {}
+                local values: {Type} = {}
                 for j = 2, #source.head do
                     values[#values + 1] = source.head[j]
                 end

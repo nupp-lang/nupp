@@ -87,7 +87,8 @@ local function run(options: any): integer
     local env = envMod.new(".", {config = config})
     local parser = require("nupp.compiler.parser")
     local checker = require("nupp.compiler.check")
-    local allDiagnostics, types, functions, sites = {}, {}, {}, {}
+    local allDiagnostics: {any} = {}
+    local types, functions, sites = {}, {}, {}
 
     local function collectCdefFunction(node: any, moduleName: string?): nil
         if node.kind == "cdefFunc" and node.name and node.cAbiSignature then

@@ -423,7 +423,7 @@ local function annotate(root)
             -- while the next stays on a single line is a layout the width pass cannot
             -- produce: either all of them spread or none do.
             if kind == "tintersection" then
-                local peers = {}
+                local peers: {any} = {}
                 for _, child in ipairs(n) do
                     if not cst.isToken(child) then
                         local opener = firstParenthesis(child)
@@ -890,7 +890,7 @@ local function renderComment(rawLines, indentStr, marker)
             -- Prose wraps a paragraph at a time rather than a line at a time, so a
             -- word pushed off the end of one line lands among the words it reads
             -- with instead of alone.
-            local texts = {}
+            local texts: {string} = {}
             while blocks[index] and blocks[index].kind == "text" do
                 texts[#texts + 1] = blocks[index].text
                 index = index + 1
@@ -1656,7 +1656,7 @@ local function canonicalizeSingleValueAnnotations(result, opts)
         end
     end
 
-    local applications = {}
+    local applications: {any} = {}
 
     local function walk(node)
         if not node or cst.isToken(node) then

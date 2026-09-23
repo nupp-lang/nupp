@@ -215,6 +215,7 @@ function gpu.Context.buffer<T>(
     local answer = response.await("gpu", {operation = "runtime-create-buffer", bytes = count * width,})
 
     return new shared.Buffer(
+        _elementType = nil as T,
         _anchor = self,
         _handle = answerHandle(answer, "buffer"),
         _width = width,

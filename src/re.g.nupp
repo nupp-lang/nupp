@@ -87,16 +87,16 @@ local function mult(p, n)
     return np
 end
 
-local function equalcap(s, i, c)
+local function equalcap(s: string, i: integer, c: any): integer | boolean
     if type(c) ~= "string" then
-        return nil
+        return false
     end;
     local e = #c + i;
     if s:sub(i, e - 1) == c then
         return e
     end;
 
-    return nil
+    return false
 end
 
 local S = (Predef.space + "--" * (any - Predef.nl) ^ 0) ^ 0
@@ -185,7 +185,7 @@ local exp = m.P{
     ) * m.V"Exp" * ":}" / function(n, p)
         return (mm.Cg as any)(p, n)
     end + "=" * name / function(n)
-        return mm.Cmt(mm.Cb(n), equalcap)
+        return (mm.Cmt as function(any, any): any)(mm.Cb(n), equalcap)
     end + m.P"{}" / mm.Cp + "{~" * m.V"Exp" * "~}" / mm.Cs + "{|" * m.V"Exp" * "|}" / mm.Ct + "{" * m.V"Exp" * "}" / (
         mm.C as any
     ) + m.P"." * m.Cc(any) + (name * -arrow + "<" * name * ">") * m.Cb("G") / NT,

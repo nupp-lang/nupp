@@ -4,6 +4,16 @@ module nupp.compiler.cli.ownershipaudit
 
 local cliModule = require("nupp.cli")
 
+local type OwnerEntry = {
+    name: string,
+    line: integer,
+    column: integer,
+    capability: string,
+    cleanups: {string},
+    optional: boolean,
+    mayMove: boolean
+}
+
 local REPORT_SCHEMA = {
     type = "object",
     properties = {
@@ -52,7 +62,9 @@ local function run(options: any): integer
     local env = require("nupp.compiler.env").new(".")
     local T = require("nupp.compiler.types")
     local cst = require("nupp.compiler.cst")
-    local foreign, unsafeSites, regions = {}, {}, {}
+    local foreign: {any} = {}
+    local unsafeSites: {any} = {}
+    local regions: {any} = {}
     local failed = false
 
     local function firstToken(node)
@@ -103,7 +115,7 @@ local function run(options: any): integer
             inUnsafe = true
         end
         if options.regions and node.kind == "block" and node.automaticOwners then
-            local owners = {}
+            local owners: {OwnerEntry} = {}
             for _, owner in ipairs(node.automaticOwners) do
                 if owner.lowerable then
                     local cleanups, cleanupIds = {}, {}

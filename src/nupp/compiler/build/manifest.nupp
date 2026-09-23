@@ -262,7 +262,7 @@ end
 -- Generator options cross a process boundary and participate in the cache key. Keep
 -- them to the same deterministic data model as JSON rather than letting a manifest
 -- smuggle functions, metatables, cycles, or sparse/mixed tables into a provider.
-local function validatePlainData(value, label, visiting): boolean?, string?
+local function validatePlainData(value: any, label: string, visiting: {[table]: boolean}?): boolean?, string?
     local valueType = type(value)
     if valueType == "string" or valueType == "boolean" then
         return true
@@ -276,6 +276,7 @@ local function validatePlainData(value, label, visiting): boolean?, string?
     else
         value = value as table
     end
+    local entries = value as {[any]: any}
     if getmetatable(value) ~= nil then
         return nil, label .. " must not contain tables with metatables"
     end
@@ -286,7 +287,7 @@ local function validatePlainData(value, label, visiting): boolean?, string?
     visiting[value] = true
 
     local numeric, stringKeys, highest = 0, 0, 0
-    for key in pairs(value) do
+    for key in pairs(entries) do
         if type(key) == "number" and key >= 1 and key == math.floor(key) then
             numeric = numeric + 1
             highest = math.max(highest, key)
@@ -305,7 +306,7 @@ local function validatePlainData(value, label, visiting): boolean?, string?
         visiting[value] = nil
         return nil, label .. " must not contain gaps"
     end
-    for key, item in pairs(value) do
+    for key, item in pairs(entries) do
         local valid, err = validatePlainData(item, label .. "[" .. tostring(key) .. "]", visiting)
         if not valid then
             visiting[value] = nil

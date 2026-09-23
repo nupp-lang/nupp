@@ -41,7 +41,9 @@ local index = {}
 -- Compiler intrinsics keep precedence over disk modules with the same dotted spelling.
 -- `nupp.derive` is both the compile-time recipe API and the historical module holding
 -- the standard recipes; the latter remains available through explicit require.
-local INTRINSIC_NAMESPACE = {["nupp.derive"] = true, ["nupp.types"] = true, ["nupp.reflect"] = true,}
+local INTRINSIC_NAMESPACE: {
+    [string]: boolean
+} = {["nupp.derive"] = true, ["nupp.types"] = true, ["nupp.reflect"] = true,}
 
 -- Modules projected through builtin namespaces. The source path deliberately lives
 -- apart from the prelude table's runtime shape: LuaJIT does not put these modules on
@@ -134,7 +136,7 @@ function index.install(c: state.Checker): state.ExprHandlers
         end
         local registry = c.env.ensureProjectIndex(c.env)
         local candidate = written
-        local suffix = {}
+        local suffix: {string} = {}
         while candidate do
             -- A module the compiler ships is not in the project index, but it is still
             -- a declared module and a qualified path may name it. Only declared ones: a
@@ -935,7 +937,8 @@ function index.install(c: state.Checker): state.ExprHandlers
             -- Indexing a union indexes every member, which is what makes the `xs or {}`
             -- default usable: the empty table contributes `table`, and reading it
             -- yields any.
-            local outs = {}
+            local outs: {Type} = {}
+            local validOuts = true
             for _, m in ipairs(ot.members) do
                 local mt = rawType(m)
                 if mt == T.any or mt == T.table_ then
@@ -948,7 +951,7 @@ function index.install(c: state.Checker): state.ExprHandlers
                     elseif not writing and mt.readable then
                         outs[#outs + 1] = T.optional(mt.value)
                     else
-                        outs = nil
+                        validOuts = false
                         break
                     end
                 elseif mt.tag == "tuple" then
@@ -960,11 +963,11 @@ function index.install(c: state.Checker): state.ExprHandlers
                 elseif (mt.tag == "shape" or mt.tag == "nominal") and not writing and mt.indexReadValue then
                     outs[#outs + 1] = T.optional(mt.indexReadValue)
                 else
-                    outs = nil
+                    validOuts = false
                     break
                 end
             end
-            if outs and writing then
+            if validOuts and writing then
                 node.postWriteType = false -- re-read the union instead of narrowing
                 local accepted = nil
                 for _, candidate in ipairs(outs) do
@@ -975,7 +978,7 @@ function index.install(c: state.Checker): state.ExprHandlers
                     end
                 end
                 return accepted or T.never
-            elseif outs then
+            elseif validOuts then
                 return T.union(outs)
             end
         end

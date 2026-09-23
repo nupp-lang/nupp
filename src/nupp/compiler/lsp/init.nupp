@@ -497,7 +497,7 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
     -- the ground moved.
     local function reroot(nextFolders)
         setRoots(nextFolders)
-        local uris = {}
+        local uris: {string} = {}
         for uri, doc in pairs(s.documents) do
             uris[#uris + 1] = uri
             doc.checkResult = nil
@@ -633,7 +633,7 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
         -- boundary between projects, and with it which project every file under it is
         -- read as part of. Nothing a graph holds survives that, so the set is rebuilt
         -- rather than patched, the same way a folder change rebuilds it.
-        local changes = {}
+        local changes: {any} = {}
         for _, change in ipairs(params.changes or {}) do
             local uri = type(change.uri) == "string" and change.uri or ""
             if uri:match("^file://") and not uri:find("/%.nupp/") then

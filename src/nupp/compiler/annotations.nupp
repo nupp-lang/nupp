@@ -710,7 +710,9 @@ function annotations.bindBuiltinDeclarations(
     globalTypes: {[string]: any},
     globalTypeDefs: {[string]: any}
 ): nil
-    local schemas = {
+    local schemas: {
+        [string]: string
+    } = {
         json = "nupp.derive.JSONOptions",
         debug = "nupp.derive.DebugOptions",
         event = "nupp.derive.EventOptions",
@@ -718,7 +720,7 @@ function annotations.bindBuiltinDeclarations(
     }
 
     local function resolve(path)
-        local segments = {}
+        local segments: {string} = {}
         for segment in path:gmatch("[^.]+") do
             segments[#segments + 1] = segment
         end

@@ -54,7 +54,8 @@ local function run(options: any): integer
     local dialect = options.dialect or "auto"
     local fs = require("nupp.compiler.fs")
     local planner = require("nupp.compiler.migrate")
-    local plans, errors: {string} = {}, {}
+    local plans: {planner.Plan} = {}
+    local errors: {string} = {}
     for _, path in ipairs(paths) do
         local source, readErr = fs.readFile(path)
         if not source then

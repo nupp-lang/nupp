@@ -1001,7 +1001,8 @@ normalize = function(t: Type, memo: ReductionMemo, budget: ReductionBudget): Typ
         end
     elseif t.tag == "neutral" then
         if t.op == "comptimeCall" then
-            local arguments, open = {}, false
+            local arguments: {any} = {}
+            local open = false
             for position, argument in ipairs(t.comptimeArguments or {}) do
                 if argument.kind == "type" then
                     local reduced
@@ -1922,6 +1923,8 @@ local constDepth: integer = 0
 --- call's map keeps nothing alive.
 local fixedBindings = setmetatable({}, {__mode = "k"})
 
+local gradualBindings = setmetatable({}, {__mode = "k"})
+
 local function fixedFor(map: Bindings): {[Type]: boolean}
     local fixed = fixedBindings[map]
     if not fixed then
@@ -1932,8 +1935,22 @@ local function fixedFor(map: Bindings): {[Type]: boolean}
     return fixed
 end
 
+local function gradualFor(map: Bindings): {[any]: boolean}
+    local gradual = gradualBindings[map]
+    if not gradual then
+        gradual = {}
+        gradualBindings[map] = gradual
+    end
+
+    return gradual
+end
+
+local type BinderSet = {[any]: boolean}
+local collectBinders: function(Type?, BinderSet): nil
+local collectPackBinders: function(T.Pack, BinderSet): nil
+
 --- Every binder `t` reaches.
-local function collectBinders(t: Type?, out: {[any]: boolean}): nil
+function collectBinders(t: Type?, out: {[any]: boolean}): nil
     if not t or not T.hasTypevar(t) then
         return
     end
@@ -1973,27 +1990,38 @@ local function collectBinders(t: Type?, out: {[any]: boolean}): nil
             collectBinders(field.write, out)
         end
     elseif tag == "func" then
-        for _, member in ipairs(t.params or {}) do
-            collectBinders(member, out)
-        end
-        for _, member in ipairs(t.rets or {}) do
-            collectBinders(member, out)
-        end
+        collectPackBinders(t.paramPack, out)
+        collectPackBinders(t.retPack, out)
+    end
+end
+
+function collectPackBinders(pack: T.Pack, out: {[any]: boolean}): nil
+    for _, member in ipairs(pack.head or {}) do
+        collectBinders(member, out)
+    end
+    local tail = pack.tail
+    if tail and tail.kind == "generic" then
+        out[tail.var] = true
+    elseif tail and (tail as any).type then
+        collectBinders((tail as any).type, out)
+    end
+    for _, alternative in ipairs(pack.alternatives or {}) do
+        collectPackBinders(alternative, out)
     end
 end
 
 --- Every binder a pack reaches, head and tail.
 function generics.bindersInPack(pack: T.Pack): {[any]: boolean}
     local out: {[any]: boolean} = {}
-    for _, member in ipairs(pack.head or {}) do
-        collectBinders(member, out)
-    end
-    local tail = pack.tail
-    if tail and (tail as any).type then
-        collectBinders((tail as any).type, out)
-    end
+    collectPackBinders(pack, out)
 
     return out
+end
+
+function generics.wasGradual(map: Bindings, binder: any): boolean
+    local gradual = gradualBindings[map]
+
+    return gradual ~= nil and gradual[binder] == true
 end
 
 --- Freezes every binding `map` already holds, so a later unification fills only what
@@ -2107,6 +2135,10 @@ function generics.unify(param: Type, arg: Type, map: Bindings): nil
         end
     end
     if not T.hasTypevar(param) then
+        return
+    end
+    if arg == T.any then
+        collectBinders(param, gradualFor(map))
         return
     end
     local tag = param.tag

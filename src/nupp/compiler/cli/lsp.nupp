@@ -23,6 +23,42 @@ local type CodeActionContext = {
     only: {string}?
 }
 
+local type LocationValue = {
+    file: string,
+    range: any
+}
+local type OutputEdit = {
+    file: string,
+    range: any,
+    newText: string
+}
+local type SymbolValue = {
+    name: string,
+    kind: string,
+    location: LocationValue,
+    container: string?,
+    children: {any}?
+}
+local type RewriteEdit = {
+    from: integer,
+    to: integer,
+    newText: string,
+    oldText: string,
+    range: any
+}
+local type CodeActionValue = {
+    kind: string,
+    title: string,
+    diagnostic: any?,
+    edits: {OutputEdit}
+}
+local type ArtifactValue = {
+    kind: string,
+    label: string,
+    languageId: string,
+    scope: string
+}
+
 ----------------------------------------------------------------------------
 -- Paths and positions
 ----------------------------------------------------------------------------
@@ -574,8 +610,9 @@ local SYMBOL_KINDS = {
 }
 
 local function editValues(client, changes)
-    local edits = jsonArray({})
-    local uris, seen = {}, {}
+    local edits: {OutputEdit} = jsonArray({} as {OutputEdit})
+    local uris: {string} = {}
+    local seen = {}
     for uri in pairs(changes or {}) do
         uris[#uris + 1] = uri
     end
@@ -727,7 +764,7 @@ local function runDefinition(client, opts, implementation: boolean?)
     -- The server answers with several locations when several declarations contribute:
     -- two independent contracts stating one associated name, or several that fix it
     -- compatibly. None of them is the deciding site, so none is dropped.
-    local values = {}
+    local values: {LocationValue} = {}
     if result and result.uri == nil and result[1] then
         for _, one in ipairs(result) do
             local located = locationValue(client, one)
@@ -769,7 +806,7 @@ local function runReferences(client, opts)
     if requestErr then
         return nil, requestErr
     end
-    local values = jsonArray({})
+    local values: {LocationValue} = jsonArray({} as {LocationValue})
     local seen = {}
     if type(result) ~= "table" then
         result = {}
@@ -824,7 +861,7 @@ local function runSymbols(client, opts)
     if #opts.positional > 1 then
         return nil, "symbols accepts at most one pattern"
     end
-    local values = jsonArray({})
+    local values: {SymbolValue} = jsonArray({} as {SymbolValue})
     local seen = {}
     if opts.file then
         local path = resolvePath(opts.root, opts.file)
@@ -891,7 +928,9 @@ local function latestFirst(left, right)
 end
 
 local function rewrittenFiles(client, rawChanges)
-    local rewritten, previews, grouped, seen = {}, {}, {}, {}
+    local rewritten, previews = {}, {}
+    local grouped: {[string]: {any}} = {}
+    local seen = {}
     for uri, rawEdits in pairs(rawChanges or {}) do
         local path = uriToPath(uri)
         grouped[path] = grouped[path] or {}
@@ -909,7 +948,8 @@ local function rewrittenFiles(client, rawChanges)
                 .. edit.newText
             if not seen[path][key] then
                 seen[path][key] = true
-                grouped[path][#grouped[path] + 1] = edit
+                local pathEdits = grouped[path] as {any}
+                pathEdits[#pathEdits + 1] = edit
             end
         end
     end
@@ -918,7 +958,7 @@ local function rewrittenFiles(client, rawChanges)
         if not source then
             return nil, nil, readErr
         end
-        local edits = {}
+        local edits: {RewriteEdit} = {}
         for _, edit in ipairs(rawEdits) do
             local from = fromLspPosition(source, edit.range.start).offset
             local to = fromLspPosition(source, edit.range["end"]).offset
@@ -989,7 +1029,7 @@ local function runRename(client, opts)
     if not rewritten then
         return nil, rewriteErr
     end
-    local changedFiles = {}
+    local changedFiles: {string} = {}
     for changedPath in pairs(rewritten) do
         changedFiles[#changedFiles + 1] = changedPath
     end
@@ -1053,7 +1093,7 @@ local function runActions(client, opts)
     if requestErr then
         return nil, requestErr
     end
-    local actions = jsonArray({})
+    local actions: {CodeActionValue} = jsonArray({} as {CodeActionValue})
     if type(result) ~= "table" then
         result = {}
     end
@@ -1142,7 +1182,7 @@ local function runArtifacts(client, opts)
     if requestErr then
         return nil, requestErr
     end
-    local available = jsonArray({})
+    local available: {ArtifactValue} = jsonArray({} as {ArtifactValue})
     for _, entry in ipairs(result and result.artifacts or {}) do
         available[
             #available + 1

@@ -158,7 +158,7 @@ that page:
 | Effect contracts | [effects.md](../learn/language/effects.md) | `NUPP2112`, `NUPP2710`, `NUPP2711` |
 | Files | [](nupp.io.files) | `NUPP2701` |
 | Formatter | [fmt.md](../learn/tooling/formatter.md) | `NUPP4001` |
-| Generics | [generics.md](../learn/language/types/generics.md) | `NUPP2003`, `NUPP2116`, `NUPP2122` |
+| Generics | [generics.md](../learn/language/types/generics.md) | `NUPP2003`, `NUPP2116`, `NUPP2122`, `NUPP2148` |
 | Gradual typing | [strictness.md](../learn/language/gradual-typing.md) | `NUPP1006`, `NUPP1008`, `NUPP2105`, `NUPP2106` |
 | Hot reload | [hot-reload.md](../learn/projects/hot-reload.md) | `NUPP5001` |
 | Interfaces | [interfaces.md](../learn/language/types/interfaces.md) | `NUPP2116`, `NUPP2117`, `NUPP2118`, `NUPP2136`, `NUPP3001` |
@@ -184,7 +184,7 @@ that page:
 | Exit suffixes | [exit-suffixes.md](../learn/language/exit-suffixes.md) | `NUPP2002`, `NUPP2146`, `NUPP2517`, `NUPP2605` |
 | Switch expressions | [switch-expressions.md](../learn/language/switch-expressions.md) | `NUPP2137` through `NUPP2142`, `NUPP3001` |
 | Target capability profiles | [build.md](../learn/projects/build.md) | `NUPP2904` |
-| Type packs | [packs.md](../learn/language/types/packs.md) | `NUPP2007`, `NUPP2010`, `NUPP2121`, `NUPP2605` |
+| Type packs | [packs.md](../learn/language/types/packs.md) | `NUPP2007`, `NUPP2010`, `NUPP2121`, `NUPP2148`, `NUPP2605` |
 | Type system | [overview.md](../learn/language/types/index.md) | `NUPP2001`, `NUPP2004`, `NUPP2011`, `NUPP2012`, `NUPP2105`, `NUPP2106` |
 | Unions | [unions.md](../learn/language/types/unions.md) | `NUPP2001`, `NUPP2107`, `NUPP2138`, `NUPP2139`, `NUPP2140` |
 

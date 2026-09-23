@@ -586,19 +586,19 @@ local function resourceOutput(config: Config, resource: string | Resource, sourc
 end
 
 local function copyModuleRecord(record)
-    local dependencies = jsonArray({})
+    local dependencies = jsonArray({} as {string})
     for _, name in ipairs(record.dependencies or {}) do
         dependencies[#dependencies + 1] = name
     end
-    local runtimeModules = jsonArray({})
+    local runtimeModules = jsonArray({} as {string})
     for _, name in ipairs(record.runtimeModules or {}) do
         runtimeModules[#runtimeModules + 1] = name
     end
-    local effects = jsonArray({})
+    local effects = jsonArray({} as {string})
     for _, effect in ipairs(record.effects or {}) do
         effects[#effects + 1] = effect
     end
-    local projectDependencies = jsonArray({})
+    local projectDependencies = jsonArray({} as {DependencyRecord})
     for _, dependency in ipairs(record.projectDependencies or {}) do
         projectDependencies[
             #projectDependencies + 1
@@ -1250,7 +1250,8 @@ local function buildModules(root: string, outDir: string, config: Config, target
     local emptySpecializationHash = contentDigest("")
 
     local records, reused, codeFor, paths = {}, {}, {}, {}
-    local order, queued, cursor = {}, {}, 1
+    local order: {string} = {}
+    local queued, cursor = {}, 1
     -- What the queue holds now is the whole source set; dependencies discovered later
     -- can still add to it, which the step line accounts for by never counting past the
     -- total it is showing.
@@ -1316,7 +1317,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
         end
         addingCarriedRuntime[name] = true
         local required = runtimeImports(name, text)
-        local carriedEffects = jsonArray({})
+        local carriedEffects = jsonArray({} as {string})
         if carriedRecord then
             for _, effect in ipairs(carriedRecord.effects or {}) do
                 carriedEffects[#carriedEffects + 1] = effect
@@ -1343,14 +1344,14 @@ local function buildModules(root: string, outDir: string, config: Config, target
             dependencies = required,
             runtimeModules = required,
             compilerRuntime = true,
-            projectDependencies = jsonArray({}),
+            projectDependencies = jsonArray({} as {DependencyRecord}),
             effects = carriedEffects,
             output = output,
-            diags = jsonArray({}),
-            materializations = jsonArray({}),
-            derives = jsonArray({}),
-            optimizationRemarks = jsonArray({}),
-            allocationSites = jsonArray({}),
+            diags = jsonArray({} as {any}),
+            materializations = jsonArray({} as {any}),
+            derives = jsonArray({} as {any}),
+            optimizationRemarks = jsonArray({} as {any}),
+            allocationSites = jsonArray({} as {any}),
             optimizationAccounted = false,
             specializationHash = emptySpecializationHash,
         }
@@ -1434,7 +1435,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
         -- record replays its diagnostics and the checker's list describes the
         -- rewritten text: replaying it would report the `unused-binding` the first
         -- build had already answered from the file as written.
-        local checkedDiags = {}
+        local checkedDiags: {any} = {}
         -- An `@aot` policy that links hands the checker this source with each
         -- compiled declaration replaced by the wrapper that calls it, body and
         -- all. A binding the removed body was the only reader of then has no
@@ -1462,7 +1463,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
         end
         local fatal = isFatalIn(mine)
         local depNames = inc.moduleDependencies(path)
-        local effectNames = {}
+        local effectNames: {string} = {}
         if fatal or checkOnly or external then
             for effect in pairs(result.result and result.result.effects or {}) do
                 effectNames[#effectNames + 1] = effect
@@ -1474,10 +1475,10 @@ local function buildModules(root: string, outDir: string, config: Config, target
             output = join(root, join(outDir, name:gsub("%.", "/") .. ".lua"))
         end
         local artifactHash, code, coverage
-        local optimizationRemarks = jsonArray({})
-        local allocationSites = jsonArray({})
+        local optimizationRemarks = jsonArray({} as {any})
+        local allocationSites = jsonArray({} as {any})
         local optimizationAccounted = false
-        local runtimeModules = jsonArray({})
+        local runtimeModules = jsonArray({} as {string})
         if not external and not fatal and not checkOnly then
             report:at("generate")
             report:step("generating " .. name)
@@ -1822,7 +1823,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
     -- dependencies and has opinions about them, and reporting those would answer a
     -- question nobody asked -- name one file, hear about thirty. Whether the project as
     -- a whole is well typed is what `nupp check` with no files means.
-    local errors = {}
+    local errors: {any} = {}
     for _, name in ipairs(order) do
         if not asked or asked[name] then
             for _, diag in ipairs(said[name] or {}) do
@@ -1891,7 +1892,11 @@ local function buildModules(root: string, outDir: string, config: Config, target
     -- list can still enqueue a name, but a name that is not a source file has no path
     -- and never entered the queue, and one that is a source file belongs in the build
     -- regardless of who does or does not require it.
-    local pending, outputs = {}, {}
+    local pending: {{
+        path: string,
+        text: string
+    }} = {}
+    local outputs = {}
     local effects = {}
     newState.modules = {}
     for _, name in ipairs(order) do

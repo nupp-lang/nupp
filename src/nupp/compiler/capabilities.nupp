@@ -3,7 +3,10 @@ module nupp.compiler.capabilities
 -- Source representations and calling conventions are fixed by the target dialect.
 local capabilities = {}
 
-local CONTRACTS = {
+local CONTRACTS: {[string]: {
+    effect: string?,
+    compiler: boolean?
+}} = {
     bitops = {effect = "runtime.bitops"},
     int64 = {effect = "runtime.int64"},
     structvalue = {effect = "runtime.structvalue"},

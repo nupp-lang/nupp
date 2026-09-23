@@ -559,7 +559,7 @@ function calls.install(c: state.Checker): calls.Ops
     --- author -- the message still says what to do.
     local function tableConstructionFix(tbl: any): {any}?
         local open, close, trailing = nil, nil, nil
-        local separators = {}
+        local separators: {lexer.Token} = {}
         for _, entry in ipairs(tbl) do
             if cst.isToken(entry) then
                 if entry.kind == "{" then
@@ -956,6 +956,68 @@ function calls.install(c: state.Checker): calls.Ops
         end
     end
 
+    local function seedWrittenTypeArguments(node: any, params: {T.TypeVar}?, map: {[any]: any})
+        local written: {any} = node.typeArgs or {}
+        if #written == 0 then
+            return
+        end
+        local declared = #(params or {})
+        if #written > declared then
+            node.invalidTypeArguments = true
+            c.diag("NUPP2007", node, ("too many type arguments (expected %d, got %d)"):format(declared, #written))
+            return
+        end
+        for j, binder in ipairs(params or {}) do
+            local argument = written[j]
+            if argument then
+                map[binder] = c.resolveType(argument)
+            end
+        end
+    end
+
+    local function callName(node: any, fallback: string?): string
+        if node.kind == "methodCall" and node.name then
+            return node.name.text
+        end
+
+        return c.pathKey(node.obj) or fallback or "this call"
+    end
+
+    local function reportUninferred(
+        node: any,
+        name: string,
+        typeParams: {T.TypeVar}?,
+        packParams: {T.PackVar}?,
+        map: {[any]: any},
+        resultPack: T.Pack
+    )
+        if node.invalidTypeArguments then
+            return
+        end
+        local resultBinders = generics.bindersInPack(resultPack)
+
+        local function report(binder: any, kind: string)
+            if map[binder] == nil and not generics.wasGradual(map, binder) and resultBinders[binder] then
+                c.diag(
+                    "NUPP2148",
+                    node,
+                    ("%s parameter %s cannot be inferred for %s"):format(kind, binder.name, name),
+                    nil,
+                    {help = ("write %s<%s>(...) to supply it explicitly"):format(name, binder.name)}
+                )
+            end
+        end
+
+        for _, binder in ipairs(typeParams or {}) do
+            if (binder as T.TypeVar).default == nil then
+                report(binder, "type")
+            end
+        end
+        for _, binder in ipairs(packParams or {}) do
+            report(binder, "type-pack")
+        end
+    end
+
     -- Parameter modes describe capability flow, so they also break an
     -- otherwise identical overload tie. Ordinary and borrowed callbacks prefer
     -- a scoped arm; values with movable capability prefer a taking arm.
@@ -1008,7 +1070,10 @@ function calls.install(c: state.Checker): calls.Ops
     --- candidate or several accept the call; that is reported here, naming the
     --- `operation` where one is given and attaching `details`.
     local function selectOverload(overloads, probe, site, operation, preferencePack, details)
-        local survivors, originals, choices, rejections = {}, {}, {}, {}
+        local survivors: {T.Func} = {}
+        local originals: {T.Func} = {}
+        local choices: {any} = {}
+        local rejections: {string} = {}
         for _, candidate in ipairs(overloads) do
             local specialized, choice, why = probe(candidate)
             if specialized then
@@ -1221,7 +1286,10 @@ function calls.install(c: state.Checker): calls.Ops
         end
         if constructible then
             local affineValues = {}
-            local deferredAffineRoots = {}
+            local deferredAffineRoots: {[string]: {
+                node: any,
+                type: Type
+            }} = {}
             local tbl = nil
             if argsNode and argsNode.table then
                 tbl = argsNode.table
@@ -1257,19 +1325,23 @@ function calls.install(c: state.Checker): calls.Ops
                 node.isNew = nil
                 local builtSignatures, bySignature = {}, {}
                 local entries = calleeT.constructorEntries or {}
+                local genericInstance = generics.ownInstance(calleeT)
                 for index, signature in ipairs(constructors) do
                     local entry = entries[index]
-                    local result = constructorResult(entry and entry.result or nil, calleeT)
+                    local result = constructorResult(entry and entry.result or nil, genericInstance)
                     local typeParams, typeBounds, anyBound = {}, {}, false
-                    for j, tv in ipairs(signature.typeParams or {}) do
-                        typeParams[#typeParams + 1] = tv
-                        local bound = signature.typeBounds and signature.typeBounds[j] or nil
-                        typeBounds[#typeParams] = bound
-                        anyBound = anyBound or bound ~= nil
-                    end
+                    -- Written arguments after the declaration name apply to the
+                    -- declaration. Constructor-local binders follow and are inferred
+                    -- from the constructor arguments.
                     for j, tv in ipairs(calleeT.typeParams or {}) do
                         typeParams[#typeParams + 1] = tv
                         local bound = calleeT.typeBounds and calleeT.typeBounds[j] or nil
+                        typeBounds[#typeParams] = bound
+                        anyBound = anyBound or bound ~= nil
+                    end
+                    for j, tv in ipairs(signature.typeParams or {}) do
+                        typeParams[#typeParams + 1] = tv
+                        local bound = signature.typeBounds and signature.typeBounds[j] or nil
                         typeBounds[#typeParams] = bound
                         anyBound = anyBound or bound ~= nil
                     end
@@ -1307,8 +1379,11 @@ function calls.install(c: state.Checker): calls.Ops
                     node.constructorEntry = entry
                 end
                 if entry and calleeT.typeParams and node.argumentPack then
-                    local map = {}
-                    unifyPack(entry.signature.paramPack, node.argumentPack, map)
+                    local map = node.genericBindings or {}
+                    if not node.genericBindings then
+                        seedWrittenTypeArguments(node, calleeT.typeParams, map)
+                        unifyPack(entry.signature.paramPack, node.argumentPack, map)
+                    end
                     ops.validateTypeBounds(calleeT.typeParams, calleeT.typeBounds, map, node)
                     local instance = instantiateNominal(calleeT, map)
                     local declaredResult = entry.result and substType(entry.result, map) or nil
@@ -1371,6 +1446,12 @@ function calls.install(c: state.Checker): calls.Ops
                 return calleeT, {calleeT}
             end
             local genericMap = calleeT.typeParams and {} or nil
+            local explicitFrozen: {[any]: boolean} = {}
+            local constructionFailed = false
+            if genericMap then
+                seedWrittenTypeArguments(node, calleeT.typeParams, genericMap)
+                explicitFrozen = generics.fixBound(genericMap)
+            end
             local constructionFields = {}
             if isRecord then
                 -- tell the generator to stamp the metatable
@@ -1599,11 +1680,12 @@ function calls.install(c: state.Checker): calls.Ops
                 end
             end
             if isRecord and not sealedConstruction then
-                local requiredOrder, seen = {}, {}
+                local requiredOrder: {string} = {}
+                local seen = {}
                 for _, field in ipairs(order) do
                     requiredOrder[#requiredOrder + 1], seen[field] = field, true
                 end
-                local inherited = {}
+                local inherited: {string} = {}
                 for field in pairs(calleeT.byname) do
                     if not seen[field] then
                         inherited[#inherited + 1], seen[field] = field, true
@@ -1638,6 +1720,7 @@ function calls.install(c: state.Checker): calls.Ops
                     end
                 end
                 if #missing > 0 then
+                    constructionFailed = true
                     c.diag(
                         "NUPP2208",
                         node,
@@ -1657,6 +1740,19 @@ function calls.install(c: state.Checker): calls.Ops
                 -- the type arguments follow from the values supplied
                 widenLiteralBindings(genericMap)
                 ops.validateTypeBounds(calleeT.typeParams, calleeT.typeBounds, genericMap, node)
+                if not constructionFailed then
+                    reportUninferred(
+                        node,
+                        declared,
+                        calleeT.typeParams,
+                        nil,
+                        genericMap,
+                        T.pack({
+                            generics.ownInstance(calleeT)
+                        })
+                    )
+                end
+                generics.unfix(genericMap, explicitFrozen)
                 return finished(instantiateNominal(calleeT, genericMap))
             end
             for field, source in pairs(calleeT.fieldBorrowSources or {}) do
@@ -1790,10 +1886,19 @@ function calls.install(c: state.Checker): calls.Ops
         local advancedOverloadSelected = false
         local ats = knownAts or {}
         local argPack
-        local argNodes = {}
+        local argNodes: {any} = {}
 
         if advanced then
-            local rawArguments = {}
+            local type RawArgument = {
+                kind: string,
+                name: string?,
+                node: any,
+                source: any,
+                type: Type,
+                field: any?,
+                group: any?
+            }
+            local rawArguments: {RawArgument} = {}
             local namedStarted = false
             for sourceIndex, argument in ipairs(args) do
                 if not cst.isToken(argument) and argument.kind == "namedArg" then
@@ -1891,8 +1996,8 @@ function calls.install(c: state.Checker): calls.Ops
                     end
                 end
                 local named, firstNamed, lastNamed, priorNamed = {}, nil, 0, 0
-                local positional = {}
-                local at = 1
+                local positional: {RawArgument} = {}
+                local at: integer = 1
                 while at <= #rawArguments do
                     local argument = rawArguments[at]
                     if argument.kind ~= "named" then
@@ -2022,9 +2127,12 @@ function calls.install(c: state.Checker): calls.Ops
                 if not winner then
                     return T.any, nil, T.pack({}, {kind = "unknown", type = T.any})
                 end
-                calleeT = winner
+                -- Probing chooses an arm without reporting from candidates that lose.
+                -- Run ordinary inference once more on the winning declaration so an
+                -- unbound result parameter is still distinguishable from `any`.
+                calleeT = original
                 node.overloadWinner = original
-                node.signatureType = calleeT
+                node.signatureType = winner
                 selected = choice
                 advancedOverloadSelected = true
             else
@@ -2103,18 +2211,27 @@ function calls.install(c: state.Checker): calls.Ops
             if not winner then
                 return T.any, nil, T.pack({}, {kind = "unknown", type = T.any})
             end
-            calleeT = winner
+            -- The specialized winner established the overload. The declaration keeps
+            -- binder provenance available for the one inference that may diagnose it.
+            calleeT = original
             node.overloadWinner = original
-            node.signatureType = calleeT
-            if calleeT.ffiOut and #calleeT.ffiOut > 0 then
-                node.ffiOutContracts = calleeT.ffiOut
+            node.signatureType = winner
+            if winner.ffiOut and #winner.ffiOut > 0 then
+                node.ffiOutContracts = winner.ffiOut
             end
         end
         -- Provenance is value-flow metadata rather than part of an interned type. Align
         -- it with the adjusted argument pack so substituting a generic pack can carry a
         -- borrowed slot back out without detaching it from its owner.
         local argumentBorrowOwners = {}
-        local exclusiveRegions, sharedRegions = {}, {}
+        local exclusiveRegions: {{
+            path: string,
+            root: any
+        }} = {}
+        local sharedRegions: {{
+            path: string,
+            root: any
+        }} = {}
         for j, source in ipairs(argNodes) do
             if not cst.isToken(source) then
                 local expandedIndex = 1
@@ -2146,6 +2263,7 @@ function calls.install(c: state.Checker): calls.Ops
         local constInferenceFailed = false
         local packProblem
         local genericMap: {[any]: any}? = nil
+        local explicitFrozen: {[any]: boolean} = {}
         -- Only bind generics introduced by the callable itself. A callback type such as
         -- `function(A...): R...` inside an outer generic function mentions the outer
         -- binders, but calling that callback must preserve those symbolic packs rather
@@ -2157,27 +2275,9 @@ function calls.install(c: state.Checker): calls.Ops
             local map = {}
             genericMap = map
             -- Written type arguments are supplied evidence, so they seed the map before
-            -- unification and inference fills only what was left out. The parser
-            -- already records them on a method call; nothing read them, so
-            -- `h:pick<integer>()` type-checked and still handed back `any`.
-            local written: {any} = (node as any).typeArgs or {}
-            if #written > 0 then
-                local declared = #(calleeT.typeParams or {})
-                if #written > declared then
-                    c.diag(
-                        "NUPP2007",
-                        node,
-                        ("too many type arguments (expected %d, got %d)"):format(declared, #written)
-                    )
-                else
-                    for j, binder in ipairs(calleeT.typeParams or {}) do
-                        local argument = written[j]
-                        if argument then
-                            map[binder] = c.resolveType(argument)
-                        end
-                    end
-                end
-            end
+            -- unification and inference fills only what was left out.
+            seedWrittenTypeArguments(node, calleeT.typeParams, map)
+            explicitFrozen = generics.fixBound(map)
             local slots = slotBinders(calleeT)
             local unified = {}
             for j, actual in ipairs(argPack.head) do
@@ -2369,6 +2469,11 @@ function calls.install(c: state.Checker): calls.Ops
                     end
                 end
             end
+        end
+        if genericMap then
+            reportUninferred(node, callName(node), calleeT.typeParams, calleeT.packParams, genericMap, declaredRetPack)
+            node.genericBindings = genericMap
+            generics.unfix(genericMap, explicitFrozen)
         end
 
         local jitBody = c.functionBodies[#c.functionBodies]
@@ -2856,7 +2961,7 @@ function calls.install(c: state.Checker): calls.Ops
             and calleeT.tag == "func"
             and (calleeT.borrowsParam or calleeT.borrowsSelf or calleeT.borrowsParams)
         then
-            local sources = {}
+            local sources: {any} = {}
             if calleeT.borrowsSelf then
                 sources[#sources + 1] = node.obj
             end
