@@ -1,8 +1,9 @@
 name: SIMD execution conformance
 
 on:
-  # Retained as rollback evidence until the first complete local fleet report.
-  # No workflow calls it and it cannot be dispatched from GitHub.
+  # Manual fallback for running the legacy hosted SIMD matrix. The compiler
+  # workflow does not call it; automatic SIMD coverage belongs to test-fleet.
+  workflow_dispatch:
   workflow_call:
 
 permissions:

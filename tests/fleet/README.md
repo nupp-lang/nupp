@@ -5,6 +5,9 @@ nonignored files in the current checkout, then sends one verified Git bundle to
 every configured worker. No branch, push, pull request, or GitHub Actions run is
 involved.
 
+For an occasional hosted fallback, manually run the **SIMD execution
+conformance** workflow in GitHub Actions. It is never selected by automatic CI.
+
 Copy `tests/fleet/config.example.json` to the ignored `.nupp/fleet.json` and
 replace its endpoint names and Docker image digests. List the fixed repository
 plan before starting it:

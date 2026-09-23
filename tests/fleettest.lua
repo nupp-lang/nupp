@@ -66,9 +66,9 @@ function M.pythonContractTestsPass()
     test.assert(status == 0, read(log))
 end
 
-function M.githubCannotDispatchTheRetiredFleet()
+function M.githubOffersOnlyAManualHostedFleet()
     local workflow = read(".github/workflows/simd-conformance.yml")
-    test.assert(not workflow:find("workflow_dispatch", 1, true))
+    test.assert(workflow:find("workflow_dispatch", 1, true))
     local classifier = dofile(".github/scripts/classify-changes.lua")
     for _, job in ipairs(classifier.jobs) do
         test.assert(job ~= "simd-conformance")
