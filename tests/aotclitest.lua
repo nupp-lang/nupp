@@ -2135,7 +2135,10 @@ return {increment = increment}
     local asm = neonAsm(dir, "narrow.nupp")
     if asm ~= nil then
         assert(asm:find("add.16b", 1, true), "byte addition remains a vector operation: " .. asm)
-        assert(asm:find("0 vector", 1, true), "the narrow scalar oracle has no vector instructions: " .. asm)
+        -- As for the float kernels: only the C lowering's oracle walked lanes.
+        if not asm:find("; codegen ", 1, true) then
+            assert(asm:find("0 vector", 1, true), "the narrow scalar oracle has no vector instructions: " .. asm)
+        end
     end
 end
 
@@ -5416,7 +5419,13 @@ return {widen = widen}
         local _, reads = asm:gsub("ld3%.16b", "")
         assert(reads >= 1, "the run is read with ld3\n" .. asm)
         assert(asm:find("st4.16b", 1, true), "and written with st4\n" .. asm)
-        assert(asm:find("ld2.16b", 1, true) and asm:find("st2.16b", 1, true), "pairs are ld2 and st2\n" .. asm)
+        -- Swapping each pair back is one `rev16` where LLVM sees the load and
+        -- store together; the checked path still interleaves with st2.
+        assert(
+            asm:find("ld2.16b", 1, true) and asm:find("st2.16b", 1, true)
+                or asm:find("rev16.16b", 1, true) and asm:find("st2.16b", 1, true),
+            "pairs are ld2 and st2, or one pair swap\n" .. asm
+        )
     end
 
     -- A result is only ever a local's initializer.
