@@ -94,6 +94,9 @@ record context.Context
     --- partial access then uses instead of a lane loop.
     maskedMemory: boolean
 
+    --- The feature tier compiled for.
+    tier: string
+
     --- Whether this body is the unoptimized scalar oracle, which folds every
     --- reducer contribution lane by lane.
     oracle: boolean
@@ -133,6 +136,7 @@ function context.new(
         facts = stated or facts.all(),
         scope = nil,
         maskedMemory = false,
+        tier = "",
         oracle = false,
         accumulators = {}
     )

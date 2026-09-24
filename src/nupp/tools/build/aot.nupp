@@ -2109,6 +2109,7 @@ function aot.captureReplay(policy: string, result: aot.Result): any
     local payload = {
         version = 1,
         policy = policy,
+        backend = aotllvm.selection(),
         hasConstSelection = hasConstSelection,
         files = files,
         emitted = emitted,
@@ -2171,12 +2172,25 @@ function aot.replay(snapshot: any?, desiredCommand: string?): aot.Result?
             return nil
         end
     end
-    local remembered = payload.remembered
-    if not aot.replayCommandMatches(payload.policy, remembered, desiredCommand) then
+    -- A build lowered through the other backend, or another code generator,
+    -- is not this one's.
+    if payload.backend ~= aotllvm.selection() then
         return nil
     end
-    if remembered ~= nil and aot.toolSignature(remembered.command) ~= remembered.signature then
-        return nil
+    local remembered = payload.remembered
+    if remembered ~= nil and remembered.dialect == "llvm" then
+        -- Every unit went through LLVM: no external command to compare, and
+        -- the code generator was compared above.
+        if remembered.version ~= aotllvm.version() then
+            return nil
+        end
+    else
+        if not aot.replayCommandMatches(payload.policy, remembered, desiredCommand) then
+            return nil
+        end
+        if remembered ~= nil and aot.toolSignature(remembered.command) ~= remembered.signature then
+            return nil
+        end
     end
 
     local units = #payload.emitted

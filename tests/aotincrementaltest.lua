@@ -18,6 +18,9 @@
 -- a failure says which rebuild was wrong.
 
 local test = require("assert")
+
+-- Whether the build lowers through LLVM rather than C, while there are two.
+local LLVM = os.getenv("NUPP_AOT_BACKEND") == "llvm"
 local json = require("nupp.codec.json")
 local process = require("nupp.compiler.process")
 
@@ -203,7 +206,12 @@ function M.rebuildsOnlyWhatChanged()
     assert(coldFacts.compiledObjects >= SOURCES, "a cold build compiles every unit: " .. coldFacts.compiledObjects)
     test.equal(coldFacts.compiledObjects, coldFacts.units, "every emitted unit becomes an object")
     test.equal(coldFacts.linked, true, "a cold build links")
-    assert(coldFacts.externalCommands > coldFacts.compiledObjects, "a cold build runs a compiler and a linker")
+    if LLVM then
+        -- The LLVM route compiles and links in process.
+        test.equal(coldFacts.externalCommands, 0, "a cold LLVM build runs no external command")
+    else
+        assert(coldFacts.externalCommands > coldFacts.compiledObjects, "a cold build runs a compiler and a linker")
+    end
     local remarks = json.decode(assert(read(dir .. "/build/remarks.json")))
     local aotNotes = 0
     for _, note in ipairs(remarks.remarks or {}) do
@@ -260,7 +268,7 @@ function M.rebuildsOnlyWhatChanged()
     test.equal(editFacts.linked, true, "the library is relinked once")
     test.equal(
         editFacts.externalCommands,
-        editFacts.compiledObjects + 1,
+        LLVM and 0 or editFacts.compiledObjects + 1,
         "one compiler run per dirty object and one link"
     )
     local editedObjects = objects(dir)
@@ -324,7 +332,9 @@ function M.theTimelineNamesTheAheadOfTimePhases()
     -- bodies, compiling what it emitted, and linking it.
     assert(seen["aot:check"], "checking the policy's own sources is named")
     assert(seen["aot:compile"], "running the C compiler is named")
-    assert(seen["aot:link"], "linking is named")
+    -- lld in process links a fixture this small in under a millisecond,
+    -- below what the timeline reports.
+    assert(LLVM or seen["aot:link"], "linking is named")
 
     -- And an unchanged build spends none of it on the external compiler, which
     -- is the same claim the counts make, read off the timeline instead.
@@ -581,6 +591,10 @@ end
 --- They are in the object key, because the object does. A build that kept
 --- objects across a flag change would ship a library compiled two ways.
 function M.changedFlagsRecompileEveryObject()
+    if LLVM then
+        -- C flags reach no LLVM object; its own options are in its key.
+        return
+    end
     local dir = project()
     local first = build(dir)
     test.equal(first.timing.aot.reusedObjects, 0)

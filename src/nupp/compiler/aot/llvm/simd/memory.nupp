@@ -270,20 +270,52 @@ local function laneLoop(
     if carry == nil then
         return nil
     end
-    f.lines[carrySlot] = ("  %s = phi %s [ %s, %%%s ], [ %s, %%%s ]"):format(
-        carry as string,
-        carryType as string,
-        initial as string,
-        before,
-        tostring(produced),
-        latch
-    )
+    f.lines[
+        carrySlot
+    ] = (
+        "  %s = phi %s [ %s, %%%s ], [ %s, %%%s ]"
+    ):format(carry as string, carryType as string, initial as string, before, tostring(produced), latch)
 
     return carry
 end
 
+--- Copies element `lane` between two arrays of `a.scalar`, `from[lane]`
+--- to `to[lane]`, when `active` (a mask, or nil for always) has it on.
+local function copyLane(
+    ctx: context.Context,
+    a: memory.Access,
+    from: string,
+    to: string,
+    lane: string,
+    active: string?
+): nil
+    local f = ctx.f
+    local skip: string? = nil
+    if active ~= nil then
+        local on = e(ctx, ("extractelement <%d x i1> %s, i32 %s"):format(a.count, active as string, lane))
+        local write = builder.label(f, "lanes.write")
+        skip = builder.label(f, "lanes.skip")
+        builder.terminate(f, ("br i1 %s, label %%%s, label %%%s"):format(on, write, skip as string))
+        builder.start(f, write)
+    end
+    local at = e(ctx, ("zext i32 %s to i64"):format(lane))
+    local source = e(ctx, ("getelementptr inbounds %s, ptr %s, i64 %s"):format(a.scalar, from, at))
+    local target = e(ctx, ("getelementptr inbounds %s, ptr %s, i64 %s"):format(a.scalar, to, at))
+    local value = e(ctx, ("load %s, ptr %s, align %d"):format(a.scalar, source, a.align))
+    builder.emit(f, ("store %s %s, ptr %s, align %d"):format(a.scalar, value, target, a.align))
+    if skip ~= nil then
+        builder.start(f, skip as string)
+    end
+end
+
+--- A stack buffer one vector of `a` wide.
+local function buffer(ctx: context.Context, a: memory.Access): string
+    return builder.alloca(ctx.f, a.vector, 16)
+end
+
 --- The first `room` lanes read, the rest 0, and with `active` the inactive
---- lanes 0 too.
+--- lanes 0 too: the in-bounds elements copied into a zeroed buffer, which is
+--- then one vector load.
 local function partialLoad(ctx: context.Context, a: memory.Access, room: string, active: string?): string
     local lanesMask = "<" .. tostring(a.count) .. " x i1>"
     if hardwareMasks(ctx, a) then
@@ -293,21 +325,19 @@ local function partialLoad(ctx: context.Context, a: memory.Access, room: string,
         end
         return maskedLoad(ctx, a.vector, lanes.suffix(a.count, a.scalar), a.address, a.align, mask, a.count)
     end
-    local loaded = laneLoop(ctx, room, a.vector, "zeroinitializer", function(lane: string, carry: string?): string?
-        local at = e(ctx, ("zext i32 %s to i64"):format(lane))
-        local pointer = e(ctx, ("getelementptr inbounds %s, ptr %s, i64 %s"):format(a.scalar, a.address, at))
-        local value = e(ctx, ("load %s, ptr %s, align %d"):format(a.scalar, pointer, a.align))
-        return e(ctx, ("insertelement %s %s, %s %s, i32 %s"):format(a.vector, tostring(carry), a.scalar, value, lane))
-    end) as string
-    if active == nil then
-        return loaded
-    end
+    local staging = buffer(ctx, a)
+    builder.emit(ctx.f, ("store %s zeroinitializer, ptr %s, align 16"):format(a.vector, staging))
+    laneLoop(ctx, room, nil, nil, function(lane: string, _: string?): string?
+        copyLane(ctx, a, a.address, staging, lane, active)
+        return nil
+    end)
 
-    return e(ctx, ("select %s %s, %s %s, %s zeroinitializer"):format(lanesMask, active as string, a.vector, loaded, a.vector))
+    return e(ctx, ("load %s, ptr %s, align 16"):format(a.vector, staging))
 end
 
 --- The first `room` lanes of `value` written, and with `active` only the
---- active ones among them.
+--- active ones among them: the vector stored to a buffer and the elements
+--- copied out.
 local function partialStore(ctx: context.Context, a: memory.Access, value: string, room: string, active: string?): nil
     local lanesMask = "<" .. tostring(a.count) .. " x i1>"
     if hardwareMasks(ctx, a) then
@@ -318,23 +348,10 @@ local function partialStore(ctx: context.Context, a: memory.Access, value: strin
         maskedStore(ctx, a.vector, lanes.suffix(a.count, a.scalar), value, a.address, a.align, mask, a.count)
         return
     end
+    local staging = buffer(ctx, a)
+    builder.emit(ctx.f, ("store %s %s, ptr %s, align 16"):format(a.vector, value, staging))
     laneLoop(ctx, room, nil, nil, function(lane: string, _: string?): string?
-        local f = ctx.f
-        local skip: string? = nil
-        if active ~= nil then
-            local on = e(ctx, ("extractelement %s %s, i32 %s"):format(lanesMask, active as string, lane))
-            local write = builder.label(f, "lanes.write")
-            skip = builder.label(f, "lanes.skip")
-            builder.terminate(f, ("br i1 %s, label %%%s, label %%%s"):format(on, write, skip as string))
-            builder.start(f, write)
-        end
-        local at = e(ctx, ("zext i32 %s to i64"):format(lane))
-        local pointer = e(ctx, ("getelementptr inbounds %s, ptr %s, i64 %s"):format(a.scalar, a.address, at))
-        local lanesValue = e(ctx, ("extractelement %s %s, i32 %s"):format(a.vector, value, lane))
-        builder.emit(f, ("store %s %s, ptr %s, align %d"):format(a.scalar, lanesValue, pointer, a.align))
-        if skip ~= nil then
-            builder.start(f, skip as string)
-        end
+        copyLane(ctx, a, staging, a.address, lane, active)
         return nil
     end)
 end
@@ -374,51 +391,44 @@ local function contiguousLoad(
     ) as string
 end
 
---- The `ways * N` elements from `first` as one wide vector, lanes past the
---- span 0.
-local function run(
-    ctx: context.Context,
-    found: species.Species,
-    span: string,
-    first: string,
-    ways: integer
-): (string, string)
+--- Lane `i` of result `part` is element `first + i * ways + part`: the
+--- `ways * N` elements from `first` read as one wide vector (lanes past the
+--- span 0) and the part's lanes picked out of it. The pick sits beside each
+--- load rather than after the join, which is what lets LLVM make the whole
+--- run one de-interleaving load (NEON's `ld2`..`ld4`).
+local function interleavedLoad(ctx: context.Context, found: species.Species, simd: scalarIR.Simd, first: string): string
+    local ways = simdbounds.ways(simd.intrinsic)
     local width = ways * found.lanes
     local wide = "<" .. tostring(width) .. " x " .. found.scalar .. ">"
     local align = math.floor(found.bits / 8) as integer
-    local window = memory.window(ctx, span, first, width, found.scalar)
-    local value = split(
-        ctx,
-        window,
-        width,
-        wide,
-        function(): string?
-            return e(ctx, ("load %s, ptr %s, align %d"):format(wide, window.address, align))
-        end,
-        function(): string?
-            return partialLoad(ctx, access(found.scalar, width, window.address, align), window.room, nil)
-        end
-    ) as string
-
-    return value, wide
-end
-
---- Lane `i` of result `part` is element `first + i * ways + part`.
-local function interleavedLoad(ctx: context.Context, found: species.Species, simd: scalarIR.Simd, first: string): string
-    local ways = simdbounds.ways(simd.intrinsic)
-    local value, wide = run(ctx, found, tostring(simd.span), first, ways)
+    local window = memory.window(ctx, tostring(simd.span), first, width, found.scalar)
     local part = simd.part or 0
     local picks: {string} = {}
     for index = 0, found.lanes - 1 do
         picks[#picks + 1] = "i32 " .. tostring(index * ways + part)
     end
 
-    return e(
+    local function pick(value: string): string
+        return e(
+            ctx,
+            (
+                "shufflevector %s %s, %s poison, <%d x i32> <%s>"
+            ):format(wide, value, wide, found.lanes, table.concat(picks, ", "))
+        )
+    end
+
+    return split(
         ctx,
-        (
-            "shufflevector %s %s, %s poison, <%d x i32> <%s>"
-        ):format(wide, value, wide, found.lanes, table.concat(picks, ", "))
-    )
+        window,
+        width,
+        found.vector,
+        function(): string?
+            return pick(e(ctx, ("load %s, ptr %s, align %d"):format(wide, window.address, align)))
+        end,
+        function(): string?
+            return pick(partialLoad(ctx, access(found.scalar, width, window.address, align), window.room, nil))
+        end
+    ) as string
 end
 
 --- The lanes a gather or scatter may touch, and where each points: element
@@ -457,21 +467,78 @@ local function lanePointers(
     return pointers, enable
 end
 
-local function gather(ctx: context.Context, found: species.Species, pointers: string, enable: string): string
-    local count = found.lanes
-    local align = math.floor(found.bits / 8) as integer
-    local ptrs = "<" .. tostring(count) .. " x ptr>"
-    local callee = prelude.intrinsic(
-        ctx.module,
-        "llvm.masked.gather." .. lanes.suffix(count, found.scalar) .. ".v" .. tostring(count) .. "p0",
-        ("%s @NAME(%s, %s, %s)"):format(found.vector, ptrs, found.mask, found.vector)
-    )
+--- How many lanes a gather or scatter of `found` is issued as. AVX-512F
+--- without VL has only 512-bit gathers, so fewer than eight 32- or 64-bit
+--- lanes are padded to eight disabled ones, as the C lowering batched them;
+--- LLVM would otherwise walk the lanes.
+local function issued(ctx: context.Context, found: species.Species): integer
+    if ctx.tier == "avx512f" and found.bits >= 32 and found.lanes < 8 then
+        return 8
+    end
+
+    return found.lanes
+end
+
+--- `value` (a `count`-lane vector of `scalar`) as `width` lanes, the added
+--- ones taken from `fill`'s lanes (a constant of the same type).
+local function pad(
+    ctx: context.Context,
+    value: string,
+    count: integer,
+    scalar: string,
+    width: integer,
+    fill: string
+): string
+    if width == count then
+        return value
+    end
+    local picks: {string} = {}
+    for lane = 0, width - 1 do
+        picks[#picks + 1] = "i32 " .. tostring(lane < count and lane or count)
+    end
+    local vector = "<" .. tostring(count) .. " x " .. scalar .. ">"
 
     return e(
         ctx,
         (
+            "shufflevector %s %s, %s %s, <%d x i32> <%s>"
+        ):format(vector, value, vector, fill, width, table.concat(picks, ", "))
+    )
+end
+
+local function gather(ctx: context.Context, found: species.Species, pointers: string, enable: string): string
+    local width = issued(ctx, found)
+    local align = math.floor(found.bits / 8) as integer
+    local ptrs = "<" .. tostring(width) .. " x ptr>"
+    local vector = "<" .. tostring(width) .. " x " .. found.scalar .. ">"
+    local mask = "<" .. tostring(width) .. " x i1>"
+    -- Added lanes repeat lane 0's address and are disabled.
+    local wideEnable = pad(ctx, enable, found.lanes, "i1", width, "zeroinitializer")
+    local widePointers = pad(ctx, pointers, found.lanes, "ptr", width, pointers)
+    local callee = prelude.intrinsic(
+        ctx.module,
+        "llvm.masked.gather." .. lanes.suffix(width, found.scalar) .. ".v" .. tostring(width) .. "p0",
+        ("%s @NAME(%s, %s, %s)"):format(vector, ptrs, mask, vector)
+    )
+    local gathered = e(
+        ctx,
+        (
             "call %s %s(%s align %d %s, %s %s, %s zeroinitializer)"
-        ):format(found.vector, callee, ptrs, align, pointers, found.mask, enable, found.vector)
+        ):format(vector, callee, ptrs, align, widePointers, mask, wideEnable, vector)
+    )
+    if width == found.lanes then
+        return gathered
+    end
+    local picks: {string} = {}
+    for lane = 0, found.lanes - 1 do
+        picks[#picks + 1] = "i32 " .. tostring(lane)
+    end
+
+    return e(
+        ctx,
+        (
+            "shufflevector %s %s, %s poison, <%d x i32> <%s>"
+        ):format(vector, gathered, vector, found.lanes, table.concat(picks, ", "))
     )
 end
 
@@ -482,19 +549,24 @@ local function scatter(
     pointers: string,
     enable: string
 ): nil
-    local count = found.lanes
+    local width = issued(ctx, found)
     local align = math.floor(found.bits / 8) as integer
-    local ptrs = "<" .. tostring(count) .. " x ptr>"
+    local ptrs = "<" .. tostring(width) .. " x ptr>"
+    local vector = "<" .. tostring(width) .. " x " .. found.scalar .. ">"
+    local mask = "<" .. tostring(width) .. " x i1>"
+    local wideEnable = pad(ctx, enable, found.lanes, "i1", width, "zeroinitializer")
+    local widePointers = pad(ctx, pointers, found.lanes, "ptr", width, pointers)
+    local wideValue = pad(ctx, value, found.lanes, found.scalar, width, "zeroinitializer")
     local callee = prelude.intrinsic(
         ctx.module,
-        "llvm.masked.scatter." .. lanes.suffix(count, found.scalar) .. ".v" .. tostring(count) .. "p0",
-        ("void @NAME(%s, %s, %s)"):format(found.vector, ptrs, found.mask)
+        "llvm.masked.scatter." .. lanes.suffix(width, found.scalar) .. ".v" .. tostring(width) .. "p0",
+        ("void @NAME(%s, %s, %s)"):format(vector, ptrs, mask)
     )
     builder.emit(
         ctx.f,
         (
             "call void %s(%s %s, %s align %d %s, %s %s)"
-        ):format(callee, found.vector, value, ptrs, align, pointers, found.mask, enable)
+        ):format(callee, vector, wideValue, ptrs, align, widePointers, mask, wideEnable)
     )
 end
 
@@ -568,38 +640,36 @@ local function fieldLoad(ctx: context.Context, node: scalarIR.Expr): (string, st
     return gather(ctx, found, pointers, enable), typeName
 end
 
---- The vectors of an interleaved store laid out as one `ways * N` run.
+--- The vectors of an interleaved store laid out as one `ways * N` run: one
+--- shuffle of two halves (each vector, or a pair concatenated), the shape
+--- LLVM recognizes as an interleaving store.
 local function interleave(ctx: context.Context, found: species.Species, values: {string}): (string, string)
     local n = found.lanes
     local ways = #values
-    -- Concatenate the vectors pairwise until one holds them all, padding an
-    -- odd one out; then pick element `i * ways + j` from vector j, lane i.
-    local level = values
-    local width = n
-    while #level > 1 do
-        local vector = "<" .. tostring(width) .. " x " .. found.scalar .. ">"
-        local next: {string} = {}
-        local index: integer = 1
-        while index <= #level do
-            local picks: {string} = {}
-            for lane = 0, 2 * width - 1 do
-                picks[#picks + 1] = "i32 " .. tostring(lane)
-            end
-            local second = level[index + 1] or "poison"
-            next[
-                #next + 1
-            ] = e(
-                ctx,
-                (
-                    "shufflevector %s %s, %s %s, <%d x i32> <%s>"
-                ):format(vector, level[index], vector, second, 2 * width, table.concat(picks, ", "))
-            )
-            index = index + 2
+    local vector = found.vector
+
+    local function concat(first: string, second: string?): string
+        local picks: {string} = {}
+        for lane = 0, 2 * n - 1 do
+            picks[#picks + 1] = "i32 " .. tostring(lane)
         end
-        level = next
-        width = width * 2
+
+        return e(
+            ctx,
+            (
+                "shufflevector %s %s, %s %s, <%d x i32> <%s>"
+            ):format(vector, first, vector, second or "poison", 2 * n, table.concat(picks, ", "))
+        )
     end
-    local concatenated = "<" .. tostring(width) .. " x " .. found.scalar .. ">"
+
+    local left, right, half = values[1], values[2], vector
+    if ways > 2 then
+        left = concat(values[1], values[2])
+        right = concat(values[3], values[4])
+        half = "<" .. tostring(2 * n) .. " x " .. found.scalar .. ">"
+    end
+    -- Element `lane * ways + way` is lane `lane` of vector `way`, which sits
+    -- at `way * n + lane` in the two halves laid end to end.
     local picks: {string} = {}
     for lane = 0, n - 1 do
         for way = 0, ways - 1 do
@@ -611,8 +681,8 @@ local function interleave(ctx: context.Context, found: species.Species, values: 
     return e(
         ctx,
         (
-            "shufflevector %s %s, %s poison, <%d x i32> <%s>"
-        ):format(concatenated, level[1], concatenated, n * ways, table.concat(picks, ", "))
+            "shufflevector %s %s, %s %s, <%d x i32> <%s>"
+        ):format(half, left, half, right, n * ways, table.concat(picks, ", "))
     ), wide
 end
 
@@ -635,20 +705,55 @@ local function store(ctx: context.Context, node: scalarIR.Statement): nil
         for position = 3, #simd.args do
             values[#values + 1] = operand(ctx, simd.args[position])
         end
-        local wide, wideType = interleave(ctx, found, values)
         local width = found.lanes * #values
         local window = memory.window(ctx, span, first, width, found.scalar)
+        -- Interleaved beside each store, so LLVM sees one interleaving store
+        -- (NEON's `st2`..`st4`).
         split(
             ctx,
             window,
             width,
             nil,
             function(): string?
+                local wide, wideType = interleave(ctx, found, values)
                 builder.emit(ctx.f, ("store %s %s, ptr %s, align %d"):format(wideType, wide, window.address, align))
                 return nil
             end,
             function(): string?
-                partialStore(ctx, access(found.scalar, width, window.address, align), wide, window.room, nil)
+                -- The vectors staged side by side and each element of the run
+                -- copied from its own vector and lane, so this path shares no
+                -- shuffle with the whole one.
+                local staged = access(found.scalar, width, window.address, align)
+                local staging = buffer(ctx, staged)
+                for way, value in ipairs(values) do
+                    local slot = e(
+                        ctx,
+                        (
+                            "getelementptr inbounds %s, ptr %s, i64 %d"
+                        ):format(found.scalar, staging, (way - 1) * found.lanes)
+                    )
+                    builder.emit(ctx.f, ("store %s %s, ptr %s, align %d"):format(found.vector, value, slot, align))
+                end
+                laneLoop(ctx, window.room, nil, nil, function(element: string, _: string?): string?
+                    local way = e(ctx, ("urem i32 %s, %d"):format(element, #values))
+                    local lane = e(ctx, ("udiv i32 %s, %d"):format(element, #values))
+                    local base = e(ctx, ("mul nuw i32 %s, %d"):format(way, found.lanes))
+                    local from = e(ctx, ("add nuw i32 %s, %s"):format(base, lane))
+                    local fromWide = e(ctx, ("zext i32 %s to i64"):format(from))
+                    local toWide = e(ctx, ("zext i32 %s to i64"):format(element))
+                    local source = e(
+                        ctx,
+                        ("getelementptr inbounds %s, ptr %s, i64 %s"):format(found.scalar, staging, fromWide)
+                    )
+                    local target = e(
+                        ctx,
+                        ("getelementptr inbounds %s, ptr %s, i64 %s"):format(found.scalar, window.address, toWide)
+                    )
+                    local value = e(ctx, ("load %s, ptr %s, align %d"):format(found.scalar, source, align))
+                    builder.emit(ctx.f, ("store %s %s, ptr %s, align %d"):format(found.scalar, value, target, align))
+
+                    return nil
+                end)
 
                 return nil
             end

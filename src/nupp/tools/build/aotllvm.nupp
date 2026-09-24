@@ -60,6 +60,16 @@ function aotllvm.factsKey(): string
     return selected ~= nil and facts.key(selected as facts.Facts) or "all"
 end
 
+--- Which backend this build lowers through, as text a remembered build is
+--- compared against: `c`, or the code generator and facts it would use.
+function aotllvm.selection(): string
+    if aotllvm.selected() ~= true then
+        return "c"
+    end
+
+    return "llvm " .. aotllvm.version() .. " facts=" .. aotllvm.factsKey()
+end
+
 --- The code generator's identity, which every LLVM artifact is keyed on.
 function aotllvm.version(): string
     return codegen.version()

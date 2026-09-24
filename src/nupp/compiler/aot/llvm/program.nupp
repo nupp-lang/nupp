@@ -65,6 +65,9 @@ record llvmProgram.Unit
     --- Whether the tier compiled for has masked vector moves.
     maskedMemory: boolean
 
+    --- The tier compiled for.
+    codegenTier: string
+
     target: profile.Profile
     facts: facts.Facts
 
@@ -320,6 +323,8 @@ local function kernel(unit: llvmProgram.Unit, program: scalarIR.Program, oracle:
     -- oracle is the same body left as written.
     local effects = unit.facts.effects and "nofree nosync " or ""
     local inlining = oracle and "noinline optnone " or "noinline "
+    -- Copies stay loops: a libc `memcpy` is nothing a kernel may call.
+    inlining = inlining .. "\"no-builtin-memcpy\" \"no-builtin-memset\" "
     local attrs = builder.attributes(module, inlining .. effects .. functionAttributes(selected, program))
     local scope: string? = nil
     if unit.lines ~= nil then
@@ -351,6 +356,7 @@ local function kernel(unit: llvmProgram.Unit, program: scalarIR.Program, oracle:
     ctx.scope = scope
     ctx.oracle = oracle
     ctx.maskedMemory = unit.maskedMemory
+    ctx.tier = unit.codegenTier
     if resultStruct ~= nil then
         ctx.resultBlock = "%ks_result"
         ctx.resultStruct = resultStruct
@@ -438,6 +444,7 @@ function llvmProgram.module(
         module = module,
         tier = logical ~= true and tier or nil,
         maskedMemory = tier == "avx2" or tier == "avx512f",
+        codegenTier = tier,
         target = selected,
         facts = stated or facts.all(),
         lines = sourceFile ~= nil and dwarf.unit(module, sourceFile as string, selected.format == "macho" and 4 or 5)

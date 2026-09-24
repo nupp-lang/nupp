@@ -2100,7 +2100,11 @@ function M.genericExplicitSimdEmitsRealTargetVectorArithmetic()
     end
     assert(out:find("fmul.4s", 1, true), "binary32 multiplication remains a vector operation: " .. out)
     assert(out:find("fadd.4s", 1, true), "binary32 addition remains a vector operation: " .. out)
-    assert(out:find("0 vector", 1, true), "the separately reported scalar oracle has no vector instructions: " .. out)
+    -- The C lowering's oracle walked lanes one at a time. The LLVM route's is
+    -- the same IR left unoptimized, and the Lua body is the reference.
+    if not out:find("; codegen ", 1, true) then
+        assert(out:find("0 vector", 1, true), "the separately reported scalar oracle has no vector instructions: " .. out)
+    end
 end
 
 function M.narrowIntegerVectorsRetainPhysicalLaneWidth()
@@ -2393,8 +2397,10 @@ function M.indexedSimdUsesNativeAvx512MemoryInstructions()
         local asm, code = run(dir, "--target " .. triple .. " --features avx512f --emit asm indexed.nupp")
         test.equal(code, 0, asm)
         if native then
-            assert(asm:find("vpgather", 1, true), asm)
-            assert(asm:find("vpscatter", 1, true), asm)
+            -- A float gather is `vgatherqps` to LLVM and was an integer
+            -- `vpgatherqd` to the C lowering; either is the native one.
+            assert(asm:find("v%a*gather"), asm)
+            assert(asm:find("v%a*scatter"), asm)
         end
 
         -- The lanes these walk are ordinary arrays, and a Windows worker died
