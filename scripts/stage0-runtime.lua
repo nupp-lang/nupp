@@ -38,7 +38,10 @@ assert(runtimeOutput:close())
 local chunk = assert(loadstring(stage0, '@' .. runtime))
 local ok, reason = pcall(setfenv(chunk, environment))
 assert(not ok and reason == stopped, 'compiler artifact has no isolated entry boundary')
-assert(type(modules['nupp.compiler.build.native']) == 'function', 'compiler artifact has no runtime module catalog')
+assert(
+    type(modules['nupp.compiler.build.native']) == 'function' or type(modules['nupp.tools.build.native']) == 'function',
+    'compiler artifact has no runtime module catalog'
+)
 
 local windows = package.config:sub(1, 1) == '\\'
 
