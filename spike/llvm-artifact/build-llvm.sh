@@ -19,7 +19,8 @@ if [ -z "${LLVM_SRC:-}" ]; then
   [ "$got" = "$sha" ] || { echo "digest mismatch: $got" >&2; exit 1; }
   # Only what the build reads: llvm, cmake, third-party, libc (configure
   # fails without it), lld, and libunwind's headers (lld's Mach-O driver).
-  (cd "$top" && tar -xJf "$tar" llvm-project-23.1.1.src/{llvm,cmake,third-party,libc,lld,libunwind/include})
+  # mlgo-utils holds symlinks MSYS2 cannot create; nothing builds from it.
+  (cd "$top" && tar -xJf "$tar" --exclude='*/mlgo-utils' llvm-project-23.1.1.src/{llvm,cmake,third-party,libc,lld,libunwind/include})
   LLVM_SRC="$top/llvm-project-23.1.1.src"
 fi
 jobs=${JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || nproc)}
