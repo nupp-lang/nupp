@@ -1,0 +1,35 @@
+[package]
+name = "llvm-size-probe"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+# Standalone: not a member of the repository workspace.
+[workspace]
+
+[features]
+default = ["probe"]
+probe = []
+x86 = []
+wasm = []
+# lld's Wasm driver in process (static libraries from build/lld-src).
+lld = ["wasm"]
+# The default pipeline built in C++ instead of parsed by LLVMRunPasses.
+cxx-pipeline = []
+
+[dependencies]
+serde_json = "1"
+llvm-sys = { version = "=231.0.0", features = ["no-llvm-linking"] }
+
+[build-dependencies]
+cc = "1"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[lints.rust]
+unexpected_cfgs = { level = "allow" }

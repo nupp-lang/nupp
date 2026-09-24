@@ -16,6 +16,9 @@ mod loader;
 #[cfg(any(feature = "arm64", feature = "wasm"))]
 #[path = "../../direct-backend/src/sem.rs"]
 mod sem;
+#[cfg(any(feature = "arm64", feature = "wasm"))]
+#[path = "../../direct-backend/src/lir.rs"]
+mod lir;
 #[cfg(feature = "arm64")]
 #[path = "../../direct-backend/src/lower.rs"]
 mod lower;

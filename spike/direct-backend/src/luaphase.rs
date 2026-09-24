@@ -14,7 +14,7 @@ use std::os::raw::{c_char, c_int, c_void};
 use std::process::Command;
 use std::time::Instant;
 
-const RUNTIME_SHIMS: &str = r#"
+pub const RUNTIME_SHIMS: &str = r#"
 /* Host runtime stand-in: restricted-signature wrappers, no struct by value. */
 int ks_rt_count(lua_State *L, double v, const char *site) { return ks_lua_count(L, v, site); }
 int ks_rt_index(lua_State *L, double v, const char *site) { return ks_lua_index(L, v, site); }
@@ -34,7 +34,7 @@ uint32_t ks_rt_string_u32(lua_State *L, const unsigned char *s, size_t n, uint32
 double ks_rt_sin(double x) { return nupp_sin(x); }
 "#;
 
-const HARNESS: &str = r##"
+pub const HARNESS: &str = r##"
 local ours, theirs, quick = ...
 local function ser(v)
   local t = type(v)
@@ -95,31 +95,31 @@ end
 return ok
 "##;
 
-type LuaState = c_void;
-type CFunction = unsafe extern "C" fn(*mut LuaState) -> c_int;
+pub type LuaState = c_void;
+pub type CFunction = unsafe extern "C" fn(*mut LuaState) -> c_int;
 
-struct Lua {
-    new_state: unsafe extern "C" fn() -> *mut LuaState,
-    open_libs: unsafe extern "C" fn(*mut LuaState),
-    load_string: unsafe extern "C" fn(*mut LuaState, *const c_char) -> c_int,
-    pcall: unsafe extern "C" fn(*mut LuaState, c_int, c_int, c_int) -> c_int,
-    push_cclosure: unsafe extern "C" fn(*mut LuaState, CFunction, c_int),
-    create_table: unsafe extern "C" fn(*mut LuaState, c_int, c_int),
-    set_field: unsafe extern "C" fn(*mut LuaState, c_int, *const c_char),
-    to_lstring: unsafe extern "C" fn(*mut LuaState, c_int, *mut usize) -> *const c_char,
-    to_boolean: unsafe extern "C" fn(*mut LuaState, c_int) -> c_int,
-    push_boolean: unsafe extern "C" fn(*mut LuaState, c_int),
-    insert: unsafe extern "C" fn(*mut LuaState, c_int),
+pub struct Lua {
+    pub new_state: unsafe extern "C" fn() -> *mut LuaState,
+    pub open_libs: unsafe extern "C" fn(*mut LuaState),
+    pub load_string: unsafe extern "C" fn(*mut LuaState, *const c_char) -> c_int,
+    pub pcall: unsafe extern "C" fn(*mut LuaState, c_int, c_int, c_int) -> c_int,
+    pub push_cclosure: unsafe extern "C" fn(*mut LuaState, CFunction, c_int),
+    pub create_table: unsafe extern "C" fn(*mut LuaState, c_int, c_int),
+    pub set_field: unsafe extern "C" fn(*mut LuaState, c_int, *const c_char),
+    pub to_lstring: unsafe extern "C" fn(*mut LuaState, c_int, *mut usize) -> *const c_char,
+    pub to_boolean: unsafe extern "C" fn(*mut LuaState, c_int) -> c_int,
+    pub push_boolean: unsafe extern "C" fn(*mut LuaState, c_int),
+    pub insert: unsafe extern "C" fn(*mut LuaState, c_int),
 }
 
-fn sym(name: &str) -> *mut c_void {
+pub fn sym(name: &str) -> *mut c_void {
     let n = CString::new(name).unwrap();
     let p = unsafe { libc::dlsym(libc::RTLD_DEFAULT, n.as_ptr()) };
     assert!(!p.is_null(), "unresolved import {name}");
     p
 }
 
-fn open_global(path: &str) {
+pub fn open_global(path: &str) {
     let c = CString::new(path).unwrap();
     let h = unsafe { libc::dlopen(c.as_ptr(), libc::RTLD_NOW | libc::RTLD_GLOBAL) };
     if h.is_null() {
@@ -128,7 +128,7 @@ fn open_global(path: &str) {
     }
 }
 
-fn lua_api() -> Lua {
+pub fn lua_api() -> Lua {
     unsafe {
         Lua {
             new_state: std::mem::transmute(sym("luaL_newstate")),

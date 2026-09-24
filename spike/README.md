@@ -149,3 +149,8 @@ to C, the 15 Lua cases, embedding, Wasm against JS, and 287/287 AVX2 plus
   bit-identical to the C backend's AVX2 build on the LIR pipeline. The
   AVX-512 tier now uses AVX512F-only mask instructions and unsigned
   `vpcmpuq`; it is still verified by decoding only.
+
+## Fifth round: embedded LLVM for comparison (2026-09-24)
+
+`LLVM.md`: the same LIR through LLVM 23 in process (`direct-backend/src/llvm.rs`,
+`llvmphase.rs`, `spike/llvm-size-probe`), measured beside the direct backend.

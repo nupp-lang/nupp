@@ -1,0 +1,4 @@
+[env]
+# The pinned LLVM (Homebrew `llvm`, 23.1.1): llvm-sys checks it, build.rs
+# links its static component libraries.
+LLVM_SYS_231_PREFIX = "/opt/homebrew/opt/llvm"

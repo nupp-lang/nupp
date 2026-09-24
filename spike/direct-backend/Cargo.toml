@@ -12,13 +12,22 @@ regalloc2 = "=0.15.2"
 serde_json = "1"
 libc = "0.2"
 iced-x86 = { version = "1.21", default-features = false, features = ["std", "code_asm", "decoder", "encoder", "block_encoder", "intel"] }
-object = { version = "=0.39.1", default-features = false, features = ["write", "std"] }
+object = { version = "=0.39.1", default-features = false, features = ["write", "std", "read_core", "macho", "wasm"] }
 ar_archive_writer = "0.5"
 yaxpeax-arm = "0.3"
 yaxpeax-arch = "0.3"
 wasm-encoder = "=0.259.0"
 wasmparser = "=0.259.0"
 gimli = { version = "=0.33.0", default-features = false, features = ["write"] }
+# LLVM 23.1, linked statically by build.rs (llvm-sys only declares the C API).
+llvm-sys = { version = "=231.0.0", features = ["no-llvm-linking"], optional = true }
+
+[build-dependencies]
+cc = "1"
+
+[features]
+default = ["llvm"]
+llvm = ["dep:llvm-sys"]
 
 [profile.release]
 debug = false

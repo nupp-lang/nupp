@@ -7,6 +7,10 @@ mod embedphase;
 mod emit;
 mod emit_x86;
 mod lir;
+#[cfg(feature = "llvm")]
+mod llvm;
+#[cfg(feature = "llvm")]
+mod llvmphase;
 mod loader;
 mod lower;
 mod luaphase;
@@ -174,6 +178,26 @@ fn c_words(dir: &std::path::Path, symbol: &str) -> usize {
 }
 
 fn main() {
+    #[cfg(feature = "llvm")]
+    {
+        let arg = |k: usize| std::env::args().nth(k);
+        match arg(1).as_deref() {
+            Some("llvm") => return llvmphase::run(&arg(2).expect("kernels.json")),
+            Some("llvm-lua") => {
+                let path = arg(2).expect("builders.json");
+                llvmphase::lua(&path);
+                if std::env::var("NUPP_SPIKE_NO_CFI").is_err() {
+                    llvmphase::lua_without_registration(&path);
+                }
+                return;
+            }
+            Some("llvm-x86") => return llvmphase::x86(&arg(2).expect("kernels-avx2.json"), &arg(3).expect("output directory")),
+            Some("llvm-init") => return llvmphase::init(&arg(2).expect("kernels.json")),
+            Some("llvm-profile") => return llvmphase::profile(&arg(2).expect("kernels.json"), &arg(3).expect("kernel")),
+            Some("llvm-wasm") => return llvmphase::wasm(&arg(2).expect("kernels.json"), &arg(3).expect("output directory")),
+            _ => {}
+        }
+    }
     if std::env::args().nth(1).as_deref() == Some("wasm") {
         let path = std::env::args().nth(2).expect("kernels.json");
         let out = std::env::args().nth(3).expect("output directory");
