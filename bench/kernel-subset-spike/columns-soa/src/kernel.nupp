@@ -21,8 +21,10 @@ local function advance(
 
     if floats = simd.species(array.float, 4) then
         local doubles = assert(simd.species(array.number, 4))
-        local cursor: integer = first - 1
-        while cursor + floats.lanes <= last do
+        -- A uint32 cursor bounded by the span proves every whole-vector
+        -- access, so none of them checks its lanes; `last` alone does not.
+        local cursor: uint32 = nupp.math.u32.wrap(first - 1)
+        while cursor + floats.lanes <= #xs and cursor + floats.lanes <= last do
             local x = doubles:convert(floats:load(xs, cursor + 1))
             local y = doubles:convert(floats:load(ys, cursor + 1))
             local vx = doubles:convert(floats:load(vxs, cursor + 1))

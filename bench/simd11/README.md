@@ -272,6 +272,19 @@ hand version runs a two-lane step and one scalar element. Knowing the tail's
 room exactly (it is `#input - cursor` under `cursor < #input`) recovers about
 a third of that in a hand-edited copy, too little to earn an emitter rule.
 
+The explicit SoA columns kernel (`bench/kernel-subset-spike/columns-soa`)
+is timed against the frozen `@simd` build of the same kernel in
+`nupp-plans/evidence/esimd/nupp-esimd-old-soa-build`, calling both libraries'
+entries from C. With its cursor an `integer` no load was proved and the kernel
+ran 1.8x the frozen library's scalar entry; with a `uint32` cursor bounded by
+`#xs` it runs level with it.
+
+| n | Old `@simd` | Explicit | Scalar C | Explicit / old |
+| ---: | ---: | ---: | ---: | ---: |
+| 63 | 227 ns | 28.6 ns | 26.2 ns | 0.13x |
+| 1,024 | 3.42 us | 384 ns | 368 ns | 0.11x |
+| 65,539 | 222 us | 24.1 us | 23.7 us | 0.11x |
+
 ## Complete-function measurements
 
 No qualified timing of the current kernels is recorded yet. Run `measure.py`
