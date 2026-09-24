@@ -303,7 +303,8 @@ pub fn emit(func: &Func, out: &Output) -> Emitted {
                         Op::VAnd if is_k(0) => a.kandw(K[r[0]], K[r[1]], K[r[2]]).unwrap(),
                         Op::VAnd => a.vandpd(Y[r[0]], Y[r[1]], Y[r[2]]).unwrap(),
                         // Lane indices and tail counts are small and non-negative.
-                        Op::VCmHi if is_k(0) => a.vpcmpgtq(K[r[0]], Y[r[1]], Y[r[2]]).unwrap(),
+                        // Unsigned `n > lane`: vpcmpuq with predicate 6 (not-less-or-equal).
+                        Op::VCmHi if is_k(0) => a.vpcmpuq(K[r[0]], Y[r[1]], Y[r[2]], 6).unwrap(),
                         Op::VCmHi => a.vpcmpgtq(Y[r[0]], Y[r[1]], Y[r[2]]).unwrap(),
                         // vblendmpd dst{k}, false, true.
                         Op::Blend => a.vblendmpd(ymm_k(Y[r[0]], r[1]), Y[r[3]], Y[r[2]]).unwrap(),

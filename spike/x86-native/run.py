@@ -23,7 +23,25 @@ for tier in ('avx2', 'avx512'):
         assert n == 1, name
     c = out / f'x86test-{tier}.c'
     exe = out / f'x86test-{tier}'
-    c.write_text(text.replace('MAP_ANONYMOUS', 'MAP_ANON'))
+    text = text.replace('MAP_ANONYMOUS', 'MAP_ANON')
+    # Report where an illegal instruction lands: which image, which offset.
+    text = text.replace('static void *load(const unsigned char *code, size_t n) {', r"""
+#include <signal.h>
+#include <unistd.h>
+#include <sys/ucontext.h>
+static struct { void *base; size_t n; const char *name; } loaded[8];
+static int nloaded;
+static void on_ill(int sig, siginfo_t *info, void *ctx) {
+    unsigned long pc = (unsigned long)((ucontext_t *)ctx)->uc_mcontext->__ss.__rip;
+    for (int k = 0; k < nloaded; k++)
+        if (pc >= (unsigned long)loaded[k].base && pc < (unsigned long)loaded[k].base + loaded[k].n)
+            { printf("@@X86@@\tSIGILL\t%s\toffset 0x%lx\n", loaded[k].name, pc - (unsigned long)loaded[k].base); fflush(stdout); _exit(4); }
+    printf("@@X86@@\tSIGILL\toutside images pc=0x%lx\n", pc); fflush(stdout); _exit(4);
+}
+static void *load(const unsigned char *code, size_t n) {""", 1)
+    text = text.replace('void *ours = load(kn->image, kn->size);', 'void *ours = load(kn->image, kn->size); loaded[nloaded].base = ours; loaded[nloaded].n = kn->size; loaded[nloaded++].name = kn->name;')
+    text = text.replace('int main(void) {', 'int main(void) { struct sigaction sa = {0}; sa.sa_sigaction = on_ill; sa.sa_flags = SA_SIGINFO; sigaction(SIGILL, &sa, 0);', 1)
+    c.write_text(text)
     subprocess.run(['clang', '-arch', 'x86_64', '-std=gnu11', '-O3', '-mavx2', '-mfma', '-ffp-contract=off',
                     '-fno-fast-math', '-w', '-o', exe, c], check=True)
     run = subprocess.run([exe], capture_output=True, text=True)

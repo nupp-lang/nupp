@@ -141,11 +141,11 @@ to C, the 15 Lua cases, embedding, Wasm against JS, and 287/287 AVX2 plus
   constant hoisting, dead-code removal. Unrolling moved into the walker.
   `lower.rs` is now LIR -> machine IR; `wasmphase.rs` is LIR -> Wasm, so Wasm
   gets unrolling and induction variables too.
-- Rosetta (installed 2026-09-24, macOS 26.6) executes AVX2 and some AVX-512
-  without advertising either in CPUID. `spike/x86-native/run.py` runs the x86
-  images: all five AVX2 kernels bit-identical to the C backend's AVX2 build at
-  every tail length (before the LIR change; the LIR emits the same code
-  sizes). The AVX-512 build raised SIGILL; probing single instructions, a
-  `vcmppd` into a k register hung Rosetta's translation daemon, which then
-  wedged every x86 process until `oahd` restarts (needs root or a reboot).
-  AVX-512 execution evidence therefore still needs real hardware.
+- Rosetta (installed 2026-09-24, macOS 26.6) executes AVX2 but no AVX-512:
+  every EVEX instruction raises SIGILL once it really runs (constant-input
+  probes are folded by clang and mislead; the apparent 15-minute hang was
+  first-run translation). `spike/x86-native/run.py` runs the x86 images and
+  reports a SIGILL's image and offset: all five AVX2 kernels are
+  bit-identical to the C backend's AVX2 build on the LIR pipeline. The
+  AVX-512 tier now uses AVX512F-only mask instructions and unsigned
+  `vpcmpuq`; it is still verified by decoding only.
