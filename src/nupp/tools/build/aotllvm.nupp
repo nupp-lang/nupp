@@ -102,17 +102,14 @@ function aotllvm.emit(
             cpu[#cpu + 1] = program
         end
     end
-    local symbolTier: string? = tier
-    if logical == true then
-        symbolTier = nil
-    end
     local ok, module = pcall(
         llvmProgram.module,
         cpu,
-        symbolTier,
+        tier,
         selected as llvmProfile.Profile,
         (aotllvm.facts()),
-        sourceFile
+        sourceFile,
+        logical
     )
     if not ok then
         if llvmProgram.isUnsupported(module) then
@@ -197,6 +194,8 @@ function aotllvm.compile(irPath: string, triple: string, tier: string, object: s
     if compiled == nil then
         return "compiling " .. irPath .. " with LLVM failed: " .. tostring(err)
     end
+    local timings = ((compiled as codegen.Compiled).report:match("^(.-)object%-bytes") or ""):gsub("\n", " ")
+    aotllvm.note(("compile\t%s\t%s\t%d bytes of IR"):format(irPath, timings, #(ir as string)))
     local staged = object .. ".tmp"
     local ok, writeErr = fs.writeFile(staged, compiled.object)
     if not ok then

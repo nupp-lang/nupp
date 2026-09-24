@@ -62,6 +62,9 @@ record llvmProgram.Unit
     --- The tier whose symbols the entries take, or nil for logical symbols.
     tier: string?
 
+    --- Whether the tier compiled for has masked vector moves.
+    maskedMemory: boolean
+
     target: profile.Profile
     facts: facts.Facts
 
@@ -347,6 +350,7 @@ local function kernel(unit: llvmProgram.Unit, program: scalarIR.Program, oracle:
     local ctx = context.new(module, f, program, unit.facts)
     ctx.scope = scope
     ctx.oracle = oracle
+    ctx.maskedMemory = unit.maskedMemory
     if resultStruct ~= nil then
         ctx.resultBlock = "%ks_result"
         ctx.resultStruct = resultStruct
@@ -417,19 +421,23 @@ local function kernel(unit: llvmProgram.Unit, program: scalarIR.Program, oracle:
 end
 
 --- The module for `programs` at feature tier `tier` on `selected`, stating
---- the `stated` facts (all of them when nil).
+--- the `stated` facts (all of them when nil), with line tables into
+--- `sourceFile` when one is given; `logical` keeps each entry's logical
+--- symbol rather than the tier's.
 --- @raises string when a program uses what this backend does not emit
 function llvmProgram.module(
     programs: {scalarIR.Program},
-    tier: string?,
+    tier: string,
     selected: profile.Profile,
     stated: facts.Facts?,
-    sourceFile: string?
+    sourceFile: string?,
+    logical: boolean?
 ): string
     local module = builder.module()
     local unit = new llvmProgram.Unit(
         module = module,
-        tier = tier,
+        tier = logical ~= true and tier or nil,
+        maskedMemory = tier == "avx2" or tier == "avx512f",
         target = selected,
         facts = stated or facts.all(),
         lines = sourceFile ~= nil and dwarf.unit(module, sourceFile as string, selected.format == "macho" and 4 or 5)

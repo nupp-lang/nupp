@@ -21,6 +21,9 @@ end
 local function fixtureKey(pack, generated, capability)
     local parts = {
         "simd-native-pack-v2",
+        -- Which backend lowered the fixture, while there are two.
+        os.getenv("NUPP_AOT_BACKEND") or "c",
+        os.getenv("NUPP_AOT_FACTS") or "all",
         pack,
         generated.entry,
         capability.tier,

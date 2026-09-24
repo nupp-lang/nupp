@@ -205,6 +205,140 @@ local function maskedStore(
     )
 end
 
+--- One partial access's shape: `count` lanes of `scalar` at `address`.
+record memory.Access
+    vector: string
+    scalar: string
+    count: integer
+    address: string
+    align: integer
+end
+
+local function access(scalar: string, count: integer, address: string, align: integer): memory.Access
+    return new memory.Access(
+        vector = "<" .. tostring(count) .. " x " .. scalar .. ">",
+        scalar = scalar,
+        count = count,
+        address = address,
+        align = align
+    )
+end
+
+--- Whether a partial access of this element width is one masked
+--- instruction on this tier. Only AVX2 and AVX-512 have masked moves, and
+--- only of 32- and 64-bit lanes; elsewhere LLVM would expand the masked
+--- intrinsic into a branch per lane, which is what the lane loop below does
+--- in far less code.
+local function hardwareMasks(ctx: context.Context, a: memory.Access): boolean
+    return ctx.maskedMemory and (a.align == 4 or a.align == 8)
+end
+
+--- A loop over lanes `0 .. room - 1`, `step` emitting one lane's work.
+--- With `carryType`, a value starts at `initial`, `step` answers its next
+--- value, and the loop answers the last.
+local function laneLoop(
+    ctx: context.Context,
+    room: string,
+    carryType: string?,
+    initial: string?,
+    step: function(lane: string, carry: string?): string?
+): string?
+    local f = ctx.f
+    local before = f.current
+    local head = builder.label(f, "lanes.head")
+    local body = builder.label(f, "lanes.body")
+    local latch = builder.label(f, "lanes.latch")
+    local done = builder.label(f, "lanes.done")
+    local lane = builder.temp(f)
+    local nextLane = builder.temp(f)
+    local carry: string? = carryType ~= nil and builder.temp(f) or nil
+    builder.start(f, head)
+    builder.emit(f, ("%s = phi i32 [ 0, %%%s ], [ %s, %%%s ]"):format(lane, before, nextLane, latch))
+    local carrySlot: integer = 0
+    if carry ~= nil then
+        builder.emit(f, "")
+        carrySlot = #f.lines
+    end
+    local more = e(ctx, ("icmp ult i32 %s, %s"):format(lane, room))
+    builder.terminate(f, ("br i1 %s, label %%%s, label %%%s"):format(more, body, done))
+    builder.start(f, body)
+    local produced = step(lane, carry)
+    builder.start(f, latch)
+    builder.emit(f, ("%s = add nuw i32 %s, 1"):format(nextLane, lane))
+    builder.terminate(f, "br label %" .. head)
+    builder.start(f, done)
+    if carry == nil then
+        return nil
+    end
+    f.lines[carrySlot] = ("  %s = phi %s [ %s, %%%s ], [ %s, %%%s ]"):format(
+        carry as string,
+        carryType as string,
+        initial as string,
+        before,
+        tostring(produced),
+        latch
+    )
+
+    return carry
+end
+
+--- The first `room` lanes read, the rest 0, and with `active` the inactive
+--- lanes 0 too.
+local function partialLoad(ctx: context.Context, a: memory.Access, room: string, active: string?): string
+    local lanesMask = "<" .. tostring(a.count) .. " x i1>"
+    if hardwareMasks(ctx, a) then
+        local mask = roomMask(ctx, a.count, room)
+        if active ~= nil then
+            mask = e(ctx, ("and %s %s, %s"):format(lanesMask, mask, active as string))
+        end
+        return maskedLoad(ctx, a.vector, lanes.suffix(a.count, a.scalar), a.address, a.align, mask, a.count)
+    end
+    local loaded = laneLoop(ctx, room, a.vector, "zeroinitializer", function(lane: string, carry: string?): string?
+        local at = e(ctx, ("zext i32 %s to i64"):format(lane))
+        local pointer = e(ctx, ("getelementptr inbounds %s, ptr %s, i64 %s"):format(a.scalar, a.address, at))
+        local value = e(ctx, ("load %s, ptr %s, align %d"):format(a.scalar, pointer, a.align))
+        return e(ctx, ("insertelement %s %s, %s %s, i32 %s"):format(a.vector, tostring(carry), a.scalar, value, lane))
+    end) as string
+    if active == nil then
+        return loaded
+    end
+
+    return e(ctx, ("select %s %s, %s %s, %s zeroinitializer"):format(lanesMask, active as string, a.vector, loaded, a.vector))
+end
+
+--- The first `room` lanes of `value` written, and with `active` only the
+--- active ones among them.
+local function partialStore(ctx: context.Context, a: memory.Access, value: string, room: string, active: string?): nil
+    local lanesMask = "<" .. tostring(a.count) .. " x i1>"
+    if hardwareMasks(ctx, a) then
+        local mask = roomMask(ctx, a.count, room)
+        if active ~= nil then
+            mask = e(ctx, ("and %s %s, %s"):format(lanesMask, mask, active as string))
+        end
+        maskedStore(ctx, a.vector, lanes.suffix(a.count, a.scalar), value, a.address, a.align, mask, a.count)
+        return
+    end
+    laneLoop(ctx, room, nil, nil, function(lane: string, _: string?): string?
+        local f = ctx.f
+        local skip: string? = nil
+        if active ~= nil then
+            local on = e(ctx, ("extractelement %s %s, i32 %s"):format(lanesMask, active as string, lane))
+            local write = builder.label(f, "lanes.write")
+            skip = builder.label(f, "lanes.skip")
+            builder.terminate(f, ("br i1 %s, label %%%s, label %%%s"):format(on, write, skip as string))
+            builder.start(f, write)
+        end
+        local at = e(ctx, ("zext i32 %s to i64"):format(lane))
+        local pointer = e(ctx, ("getelementptr inbounds %s, ptr %s, i64 %s"):format(a.scalar, a.address, at))
+        local lanesValue = e(ctx, ("extractelement %s %s, i32 %s"):format(a.vector, value, lane))
+        builder.emit(f, ("store %s %s, ptr %s, align %d"):format(a.scalar, lanesValue, pointer, a.align))
+        if skip ~= nil then
+            builder.start(f, skip as string)
+        end
+        return nil
+    end)
+end
+
 --- A contiguous load of `found` at `first`, optionally masked.
 local function contiguousLoad(
     ctx: context.Context,
@@ -215,7 +349,6 @@ local function contiguousLoad(
 ): string
     local align = math.floor(found.bits / 8) as integer
     local window = memory.window(ctx, span, first, found.lanes, found.scalar)
-    local suffix = lanes.suffix(found.lanes, found.scalar)
 
     return split(
         ctx,
@@ -236,12 +369,7 @@ local function contiguousLoad(
             )
         end,
         function(): string?
-            local mask = roomMask(ctx, found.lanes, window.room)
-            if active ~= nil then
-                mask = e(ctx, ("and %s %s, %s"):format(found.mask, mask, active as string))
-            end
-
-            return maskedLoad(ctx, found.vector, suffix, window.address, align, mask, found.lanes)
+            return partialLoad(ctx, access(found.scalar, found.lanes, window.address, align), window.room, active)
         end
     ) as string
 end
@@ -259,7 +387,6 @@ local function run(
     local wide = "<" .. tostring(width) .. " x " .. found.scalar .. ">"
     local align = math.floor(found.bits / 8) as integer
     local window = memory.window(ctx, span, first, width, found.scalar)
-    local suffix = lanes.suffix(width, found.scalar)
     local value = split(
         ctx,
         window,
@@ -269,7 +396,7 @@ local function run(
             return e(ctx, ("load %s, ptr %s, align %d"):format(wide, window.address, align))
         end,
         function(): string?
-            return maskedLoad(ctx, wide, suffix, window.address, align, roomMask(ctx, width, window.room), width)
+            return partialLoad(ctx, access(found.scalar, width, window.address, align), window.room, nil)
         end
     ) as string
 
@@ -521,16 +648,7 @@ local function store(ctx: context.Context, node: scalarIR.Statement): nil
                 return nil
             end,
             function(): string?
-                maskedStore(
-                    ctx,
-                    wideType,
-                    lanes.suffix(width, found.scalar),
-                    wide,
-                    window.address,
-                    align,
-                    roomMask(ctx, width, window.room),
-                    width
-                )
+                partialStore(ctx, access(found.scalar, width, window.address, align), wide, window.room, nil)
 
                 return nil
             end
@@ -540,13 +658,9 @@ local function store(ctx: context.Context, node: scalarIR.Statement): nil
     local value = operand(ctx, simd.args[3])
     local active = simd.args[4] ~= nil and operand(ctx, simd.args[4] as scalarIR.Expr) or nil
     local window = memory.window(ctx, span, first, found.lanes, found.scalar)
-    local suffix = lanes.suffix(found.lanes, found.scalar)
+    local shape = access(found.scalar, found.lanes, window.address, align)
     if active ~= nil then
-        local mask = e(
-            ctx,
-            ("and %s %s, %s"):format(found.mask, roomMask(ctx, found.lanes, window.room), active as string)
-        )
-        maskedStore(ctx, found.vector, suffix, value, window.address, align, mask, found.lanes)
+        partialStore(ctx, shape, value, window.room, active)
         return
     end
     split(
@@ -559,16 +673,7 @@ local function store(ctx: context.Context, node: scalarIR.Statement): nil
             return nil
         end,
         function(): string?
-            maskedStore(
-                ctx,
-                found.vector,
-                suffix,
-                value,
-                window.address,
-                align,
-                roomMask(ctx, found.lanes, window.room),
-                found.lanes
-            )
+            partialStore(ctx, shape, value, window.room, nil)
 
             return nil
         end

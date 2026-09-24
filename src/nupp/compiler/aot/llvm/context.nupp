@@ -90,6 +90,10 @@ record context.Context
     --- The subprogram locations are scoped to, when the unit has line tables.
     scope: string?
 
+    --- Whether the tier has masked vector moves (AVX2, AVX-512), which a
+    --- partial access then uses instead of a lane loop.
+    maskedMemory: boolean
+
     --- Whether this body is the unoptimized scalar oracle, which folds every
     --- reducer contribution lane by lane.
     oracle: boolean
@@ -128,6 +132,7 @@ function context.new(
         contract = program.fpContract == true,
         facts = stated or facts.all(),
         scope = nil,
+        maskedMemory = false,
         oracle = false,
         accumulators = {}
     )

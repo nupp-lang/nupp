@@ -83,6 +83,9 @@ local function fixtureKey(name, capability)
         jit.os,
         jit.arch,
         fingerprint.toolFingerprint(),
+        -- Which backend lowered the fixture, while there are two.
+        os.getenv("NUPP_AOT_BACKEND") or "c",
+        os.getenv("NUPP_AOT_FACTS") or "all",
     }
     for _, path in ipairs(projectFiles(name)) do
         parts[#parts + 1] = path:sub(#ROOT + 1)
