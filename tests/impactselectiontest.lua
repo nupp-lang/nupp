@@ -107,6 +107,29 @@ function M.invalidRepositoryAndRefAreStructuredDiscoveryFailures()
     os.execute(("rm -rf %q"):format(root))
 end
 
+function M.revisionChecksAvoidWindowsCommandShellMetacharacters()
+    local commands = {}
+
+    local function capture(argv)
+        commands[#commands + 1] = argv
+        if argv[2] == "rev-parse" and argv[3] == "--show-toplevel" then
+            return 0, "C:/fixture\n"
+        elseif argv[2] == "rev-parse" or argv[2] == "merge-base" then
+            return 0, "0123456789abcdef\n"
+        end
+
+        return 0, ""
+    end
+
+    local discovered = impact.discoverChanges({cwd = "C:/fixture", ref = "base", capture = capture})
+    assert(discovered.available, discovered.reason)
+    for _, argv in ipairs(commands) do
+        for _, argument in ipairs(argv) do
+            assert(not argument:find("^", 1, true), "revision check contains cmd.exe's escape character")
+        end
+    end
+end
+
 local function graph()
     return {
         complete = true,

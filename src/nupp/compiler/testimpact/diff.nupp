@@ -182,7 +182,7 @@ function diff.discover(options)
     end
     local root = normalize(trim(rootOutput))
 
-    local headCode, headOutput = capture({"git", "rev-parse", "--verify", "HEAD^{commit}"}, root, captureProcess)
+    local headCode, headOutput = capture({"git", "rev-parse", "--verify", "HEAD"}, root, captureProcess)
     if headCode ~= 0 then
         return failure("head-unavailable", "test impact discovery requires a committed HEAD", trim(headOutput))
     end
@@ -192,7 +192,7 @@ function diff.discover(options)
 
     if options.ref then
         local refCode, refOutput = capture(
-            {"git", "rev-parse", "--verify", tostring(options.ref) .. "^{commit}"},
+            {"git", "rev-parse", "--verify", tostring(options.ref)},
             root,
             captureProcess
         )
