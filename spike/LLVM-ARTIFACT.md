@@ -269,6 +269,44 @@ LLVM.
   than on the M-series, and their LLVM was built by gcc, not clang. Linux's
   are the slowest of the three.
 
+## 2a. Against the C lowering's compile
+
+What the product does today on a miss: the generated C at `aot.CFLAGS`
+(`-std=c11 -O3 -ffp-contract=off -fno-fast-math -Wall -Wextra -Werror`) into
+a dylib.
+
+- **Scope.** The C is cut to the same program: the five kernels (their
+  `_forced_scalar` oracles and the other seven kernels removed, 154 KB) and
+  the builders' C (`waves`, the three builders, the registrar and the
+  `ks_lua_*` helpers it carries, 162 KB).
+- **Method.** Each command is timed whole, 15 interleaved rounds, median,
+  on the M-series at load 2.5-3.4. `spike/llvm-artifact/c-lowering-bench.py`
+  reproduces it.
+
+| to a linked dylib, same program | median | min-max |
+| --- | ---: | ---: |
+| clang -O3, one invocation | 222.7 ms | 208-246 |
+| clang -O3, the two translation units in parallel, then link | 149.1 ms | 145-154 |
+| gcc 16 -O3, one invocation | 520.0 ms | 517-530 |
+| gcc 16 -O3, two units in parallel, then link | 285.7 ms | 283-299 |
+| **LLVM component, spawn to exit** | **27.9 ms** | 27.5-29.0 |
+
+- **LLVM is 5-8x faster than clang and 10-19x faster than gcc.** Most of
+  the gap is parsing, not optimizing. For clang, per unit:
+  - The system headers alone (`arm_neon.h`, `math.h`, stdio...) take 47 ms
+    to parse. The kernel unit takes 82 ms to parse and 110 ms at `-O3 -c`;
+    the builders unit, 54 and 86.
+  - So clang's optimizer and code generator spend 28-32 ms per unit, the
+    same order as the component's 18 ms for all nine functions.
+  - The C lowering also recompiles its `ks_lua_*` helpers in every module.
+    The LLVM path imports them from the runtime.
+- **Loading costs both the same.** Either output is a new file, so on macOS
+  both pay the ~90 ms first load. A C-lowering cold miss is therefore about
+  240-310 ms with clang, against LLVM's 137.
+- **Run time is parity with clang**, which is itself LLVM. Against gcc on
+  x86 the results are mixed (section 3).
+- **Linux and Windows compiles by the system gcc were not timed.**
+
 ## 3. Instruction selectors
 
 Inside the cold miss (median of 21), and run time against the C backend
