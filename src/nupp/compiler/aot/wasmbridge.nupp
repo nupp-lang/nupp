@@ -112,14 +112,18 @@ function bridge.registrar(programs: {scalar.Program}, tier: string): string
         else
             arguments[#arguments + 1] = counts[1] or "0"
         end
-        local call = target.symbol(program.symbol, tier) .. "(" .. table.concat(arguments, ", ") .. ")"
         local results = program.resultTypes or {}
+        if #results > 1 then
+            arguments[#arguments + 1] = "&result"
+        end
+        local call = target.symbol(program.symbol, tier) .. "(" .. table.concat(arguments, ", ") .. ")"
         if #results == 0 then
             lines[#lines + 1] = "    " .. call .. ";"
         elseif #results == 1 then
             lines[#lines + 1] = "    *(" .. TYPES[results[1]] .. " *)r = " .. call .. ";"
         else
-            lines[#lines + 1] = "    " .. scalar.cIdentifier("KsResult", program.symbol) .. " result = " .. call .. ";"
+            lines[#lines + 1] = "    " .. scalar.cIdentifier("KsResult", program.symbol) .. " result;"
+            lines[#lines + 1] = "    " .. call .. ";"
             for position, kind in ipairs(results) do
                 lines[
                     #lines + 1

@@ -158,9 +158,6 @@ end
 --- One kernel entry.
 local function kernel(module: builder.Module, program: scalarIR.Program, tier: string?): nil
     local results = program.resultTypes or {}
-    if #results > 1 then
-        unsupported("multiple results")
-    end
     if program.workgroup ~= nil then
         unsupported("workgroup entries")
     end
@@ -186,7 +183,16 @@ local function kernel(module: builder.Module, program: scalarIR.Program, tier: s
     else
         parameters[#parameters + 1] = "i64 %count"
     end
-    local result = #results == 0 and "void" or types.result(tostring(results[1]))
+    local resultStruct: string? = nil
+    if #results > 1 then
+        local fields: {string} = {}
+        for position, resultType in ipairs(results) do
+            fields[position] = types.field(tostring(resultType))
+        end
+        resultStruct = "{ " .. table.concat(fields, ", ") .. " }"
+        parameters[#parameters + 1] = "ptr noalias captures(none) writeonly %ks_result"
+    end
+    local result = #results ~= 1 and "void" or types.result(tostring(results[1]))
     local symbol = physical(program.symbol, tier)
     local attrs = builder.attributes(module, "noinline " .. functionAttributes(program))
     local f = builder.func(
@@ -194,6 +200,10 @@ local function kernel(module: builder.Module, program: scalarIR.Program, tier: s
         ("define %s @%s(%s) %s {"):format(result, symbol, table.concat(parameters, ", "), attrs)
     )
     local ctx = context.new(module, f, program)
+    if resultStruct ~= nil then
+        ctx.resultBlock = "%ks_result"
+        ctx.resultStruct = resultStruct
+    end
     for _, param in ipairs(program.params) do
         if isSpan(param) then
             ctx.spans[param.name] = new context.Span(pointer = "%p_" .. param.name, param = param)
@@ -208,7 +218,7 @@ local function kernel(module: builder.Module, program: scalarIR.Program, tier: s
 
     if program.body ~= nil then
         statements.block(ctx, program.body as {scalarIR.Statement})
-        builder.finish(f, #results == 0 and "ret void" or "unreachable")
+        builder.finish(f, #results == 1 and "unreachable" or "ret void")
         return
     end
 

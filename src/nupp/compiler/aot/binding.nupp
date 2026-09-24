@@ -177,13 +177,18 @@ function binding.foreign(program: scalarIR.Program, library: string?, symbol: st
         params[#params + 1] = "count: uint64"
     end
 
+    local resultTypes = program.resultTypes or {}
+    -- Several results come back through a caller-provided block rather than
+    -- a returned struct, whose convention differs by platform.
+    if #resultTypes > 1 then
+        params[#params + 1] = "ks_result: " .. resultName(program) .. "*"
+    end
     local lines: {string} = {"cdef function " .. (symbol or program.symbol) .. "("}
     for position, param in ipairs(params) do
         lines[#lines + 1] = "    " .. param .. (position < #params and "," or "")
     end
-    local resultTypes = program.resultTypes or {}
-    local result = #resultTypes == 0 and ""
-        or ": " .. (#resultTypes > 1 and resultName(program) or tostring(binding.ABI_TYPE[resultTypes[1]] or "int32"))
+    local result = (#resultTypes == 0 or #resultTypes > 1) and ""
+        or ": " .. tostring(binding.ABI_TYPE[resultTypes[1]] or "int32")
     lines[#lines + 1] = ")" .. result .. " " .. from(library)
 
     return lines
@@ -375,11 +380,18 @@ function binding.wrapper(program: scalarIR.Program, nativeSymbol: string?): {str
         end
     end
 
-    local lines: {string} = {"local function " .. program.name .. "("}
+    local resultSourceTypes = program.resultSourceTypes or {}
+    local lines: {string} = {}
+    local block = scalarIR.cIdentifier("ks_result_block", program.symbol)
+    if #resultSourceTypes > 1 then
+        -- One result block per wrapper, reused by every call: a kernel never
+        -- re-enters Lua, so nothing can call it again before it is read.
+        lines[#lines + 1] = "local " .. block .. " = new " .. resultName(program) .. "()"
+    end
+    lines[#lines + 1] = "local function " .. program.name .. "("
     for position, param in ipairs(params) do
         lines[#lines + 1] = "    " .. param .. (position < #params and "," or "")
     end
-    local resultSourceTypes = program.resultSourceTypes or {}
     local result = #resultSourceTypes == 0 and "nil"
         or #resultSourceTypes == 1 and resultSourceTypes[1]
         or "(" .. table.concat(resultSourceTypes, ", ") .. ")"
@@ -395,16 +407,19 @@ function binding.wrapper(program: scalarIR.Program, nativeSymbol: string?): {str
     end
     lines[#lines + 1] = "    @unsafe do"
     if #resultSourceTypes > 1 then
+        local withBlock: {string} = {}
+        for position, argument in ipairs(arguments) do
+            withBlock[position] = argument
+        end
+        withBlock[#withBlock + 1] = block
         lines[
             #lines + 1
-        ] = "        local nativeResult = " .. (
-            nativeSymbol or program.symbol
-        ) .. "(" .. table.concat(arguments, ", ") .. ")"
+        ] = "        " .. (nativeSymbol or program.symbol) .. "(" .. table.concat(withBlock, ", ") .. ")"
         local values: {string} = {}
         for position in ipairs(resultSourceTypes) do
             values[
                 position
-            ] = "nativeResult.v" .. tostring(
+            ] = block .. ".v" .. tostring(
                 position
             ) .. (resultSourceTypes[position] == "integer" and " as integer" or "")
         end

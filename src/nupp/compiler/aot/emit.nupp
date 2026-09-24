@@ -4341,11 +4341,12 @@ function emit.block(
                     for position, value in ipairs(statement.values) do
                         values[position] = emit.scalar(context, value)
                     end
+                    -- Several results go through the caller's result block.
                     lines[
                         #lines + 1
-                    ] = prefix .. "return (" .. tostring(
+                    ] = prefix .. "*ks_result = (" .. tostring(
                         body.resultStruct
-                    ) .. "){" .. table.concat(values, ", ") .. "};"
+                    ) .. "){" .. table.concat(values, ", ") .. "}; return;"
                 elseif #statement.values == 1 then
                     lines[#lines + 1] = prefix .. "return " .. emit.scalar(context, statement.values[1]) .. ";"
                 else
@@ -4594,8 +4595,14 @@ function emit.program(programs: {scalarIR.Program}, tier: string?, sourceFile: s
             local touched = emit.pointerSpans(program)
             local independentCounts = scalarIR.independentCounts(program)
             local params = emit.parameters(context, program.params, independentCounts, touched)
+            -- Several results are written through a caller-provided block, so
+            -- no backend depends on how its platform returns a struct.
+            if resultStruct ~= nil then
+                local block = tostring(resultStruct) .. " *restrict ks_result"
+                params = params == "" and block or params .. ", " .. block
+            end
             local cResult = #resultTypes == 0 and "void"
-                or resultStruct ~= nil and resultStruct
+                or resultStruct ~= nil and "void"
                 or emit.cType(context, resultTypes[1])
 
             --- One C definition of the kernel.

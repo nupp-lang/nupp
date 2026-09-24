@@ -46,6 +46,20 @@ function aotllvm.version(): string
     return codegen.version()
 end
 
+--- Appends one line to the coverage report NUPP_AOT_LLVM_REPORT names, if
+--- any: which units the LLVM backend emitted and why the rest fell back.
+function aotllvm.note(line: string): nil
+    local path = os.getenv("NUPP_AOT_LLVM_REPORT")
+    if path == nil or path == "" then
+        return
+    end
+    local file = io.open(path as string, "a")
+    if file ~= nil then
+        file:write(line, "\n")
+        file:close()
+    end
+end
+
 --- One unit's programs as LLVM IR, or nil and why this backend cannot emit
 --- them (the build then emits C for the unit).
 --- @raises string when emission fails for a reason other than coverage: a

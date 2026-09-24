@@ -139,15 +139,19 @@ function wasmemit.registrar(programs: {scalarIR.Program}, unit: string, tier: st
             else
                 arguments[#arguments + 1] = tostring(commonCount)
             end
-            local call = target.symbol(program.symbol, tier) .. "(" .. table.concat(arguments, ", ") .. ")"
             local resultTypes = program.resultTypes or {}
+            if #resultTypes > 1 then
+                arguments[#arguments + 1] = "&result"
+            end
+            local call = target.symbol(program.symbol, tier) .. "(" .. table.concat(arguments, ", ") .. ")"
             if #resultTypes == 0 then
                 lines[#lines + 1] = "    " .. call .. ";"
             elseif #resultTypes == 1 then
                 pushResult(lines, call, resultTypes[1])
             else
                 local resultName = scalarIR.cIdentifier("KsResult", program.symbol)
-                lines[#lines + 1] = "    " .. resultName .. " result = " .. call .. ";"
+                lines[#lines + 1] = "    " .. resultName .. " result;"
+                lines[#lines + 1] = "    " .. call .. ";"
                 for position, resultType in ipairs(resultTypes) do
                     pushResult(lines, "result.v" .. tostring(position), resultType)
                 end

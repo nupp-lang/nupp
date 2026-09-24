@@ -1422,9 +1422,10 @@ function M.emitCWritesTheCBesideTheBuild()
         "and it defines the tiered exported symbol: " .. c:sub(1, 200)
     )
     local sum = emittedSymbol(c, "ks_sum_bytes", tier)
+    local pack = "KsResult_" .. sum:gsub("__" .. tier .. "$", "")
     assert(
-        c:find("KsResult_" .. sum:gsub("__" .. tier .. "$", "") .. " " .. sum .. "(", 1, true),
-        "a block kernel keeps its scalar result pack in the native ABI"
+        c:find("void " .. sum .. "(", 1, true) and c:find(pack .. " *restrict ks_result)", 1, true),
+        "a block kernel writes its scalar result pack through the caller's block"
     )
     assert(
         c:find("size_t count_first, size_t count_second", 1, true),
@@ -3697,8 +3698,9 @@ function M.theBuiltLibraryLoadsAndComputes()
       typedef struct { double v1; uint32_t v2; uint32_t v3; } KsResult_ks_sum_bytes;
       void %s(NuppAotSample *samples, const NuppAotSample *source,
          double first, double last, double factor, size_t count);
-      KsResult_ks_sum_bytes %s(const uint8_t *first, const uint8_t *second,
-         size_t count_first, size_t count_second);
+      void %s(const uint8_t *first, const uint8_t *second,
+         size_t count_first, size_t count_second,
+         KsResult_ks_sum_bytes *ks_result);
       uint32_t %s(void);
    ]=]
         ):format(scale, sum, layout)
@@ -3722,7 +3724,8 @@ function M.theBuiltLibraryLoadsAndComputes()
 
     local first = ffi.new("uint8_t[2]", {1, 2})
     local second = ffi.new("uint8_t[3]", {3, 4, 250})
-    local result = lib[sum](first, second, 2, 3)
+    local result = ffi.new("KsResult_ks_sum_bytes")
+    lib[sum](first, second, 2, 3, result)
     test.equal(result.v1, 260, "independent block loops read their own span bounds and return a scalar")
     test.equal(tonumber(result.v2), 2, "the second scalar result crosses the result aggregate")
     test.equal(tonumber(result.v3), 3, "the third scalar result crosses the result aggregate")
@@ -4071,14 +4074,14 @@ function M.scopedPackedBytesHandleEveryTailWithoutOverreading()
       uint32_t %s(const uint8_t *source, size_t count_source);
       uint32_t %s(const uint8_t *source, size_t count_source);
       typedef struct { uint64_t v1, v2; uint32_t v3, v4; } KsMaskOpsResult;
-      KsMaskOpsResult %s(uint32_t low, uint32_t high);
+      void %s(uint32_t low, uint32_t high, KsMaskOpsResult *ks_result);
       uint32_t %s(const uint8_t *source, size_t count_source);
       uint32_t %s(const uint8_t *source, size_t count_source);
       typedef struct { uint64_t v1, v2; uint32_t v3, v4; } KsMaskShapesResult;
-      KsMaskShapesResult %s(const uint8_t *source, size_t count_source);
-      KsMaskShapesResult %s(const uint8_t *source, size_t count_source);
+      void %s(const uint8_t *source, size_t count_source, KsMaskShapesResult *ks_result);
+      void %s(const uint8_t *source, size_t count_source, KsMaskShapesResult *ks_result);
       typedef struct { uint64_t v1, v2; } KsMaskAddResult;
-      KsMaskAddResult %s(uint32_t low, uint32_t high, uint32_t addend);
+      void %s(uint32_t low, uint32_t high, uint32_t addend, KsMaskAddResult *ks_result);
    ]=]
         ):format(
             countQuotes,
@@ -4115,9 +4118,11 @@ function M.scopedPackedBytesHandleEveryTailWithoutOverreading()
         -- scalar oracle does not share, so each one is compared rather than only
         -- the reduction that happens to consume them.
         trace("tail length " .. count .. " packed shapes")
-        local packed = lib[shapes](source, count)
+        local packed = ffi.new("KsMaskShapesResult")
+        lib[shapes](source, count, packed)
         trace("tail length " .. count .. " scalar shapes")
-        local oracle = lib[shapesScalar](source, count)
+        local oracle = ffi.new("KsMaskShapesResult")
+        lib[shapesScalar](source, count, oracle)
         test.equal(packed.v1, oracle.v1, "packed bits agree with the scalar oracle at length " .. count)
         test.equal(packed.v2, oracle.v2, "packed tail agrees with the scalar oracle at length " .. count)
         test.equal(
@@ -4135,17 +4140,21 @@ function M.scopedPackedBytesHandleEveryTailWithoutOverreading()
     -- which is the whole reason run parity is stated as an addition.
     trace("mask addition")
     local add = librarySymbol(dir, lib, "ks_mask_add")
-    local carried = lib[add](0xFFFFFFFF, 0, 1)
+    local carried = ffi.new("KsMaskAddResult")
+    lib[add](0xFFFFFFFF, 0, 1, carried)
     test.equal(tonumber(carried.v1), 0, "the low word wraps")
     test.equal(tonumber(carried.v2), 1, "and carries into the high word")
-    local plain = lib[add](2, 7, 3)
+    local plain = ffi.new("KsMaskAddResult")
+    lib[add](2, 7, 3, plain)
     test.equal(tonumber(plain.v1), 5, "an add that does not carry stays put")
     test.equal(tonumber(plain.v2), 7, "and leaves the high word alone")
-    local saturated = lib[add](0xFFFFFFFF, 0xFFFFFFFF, 1)
+    local saturated = ffi.new("KsMaskAddResult")
+    lib[add](0xFFFFFFFF, 0xFFFFFFFF, 1, saturated)
     test.equal(tonumber(saturated.v1), 0, "the low word wraps at the top")
     test.equal(tonumber(saturated.v2), 0, "and the carry out of the high word is dropped")
     trace("mask operations")
-    local mask = lib[maskOps](5, 1)
+    local mask = ffi.new("KsMaskOpsResult")
+    lib[maskOps](5, 1, mask)
     test.equal(tonumber(mask.v1), 3, "prefix XOR crosses the low mask word")
     test.equal(tonumber(mask.v2), 0xFFFFFFFF, "prefix XOR carries into the high mask word")
     test.equal(tonumber(mask.v3), 0, "firstSet finds the first logical bit")
@@ -5990,13 +5999,13 @@ function M.genericVocabularyOperationsAgreeAcrossLuaScalarAndLaneExecution()
         ffi.cdef(("void %s(float *, const float *, size_t, size_t);"):format(symbol))
     end
     for _, symbol in ipairs(symbols.sums) do
-        ffi.cdef(("NuppAotSums %s(const double *, double, size_t);"):format(symbol))
+        ffi.cdef(("void %s(const double *, double, size_t, NuppAotSums *);"):format(symbol))
     end
     for _, symbol in ipairs(symbols.dot) do
         ffi.cdef(("double %s(const double *, double, size_t);"):format(symbol))
     end
     for _, symbol in ipairs(symbols.exact) do
-        ffi.cdef(("NuppAotExact %s(const int32_t *, int32_t, size_t);"):format(symbol))
+        ffi.cdef(("void %s(const int32_t *, int32_t, size_t, NuppAotExact *);"):format(symbol))
     end
 
     -- Mask splat, select, mask conversion and a widening numeric conversion.
@@ -6101,7 +6110,8 @@ function M.genericVocabularyOperationsAgreeAcrossLuaScalarAndLaneExecution()
                 dot:add(samples[i], samples[i])
             end
             for _, symbol in ipairs(symbols.sums) do
-                local actual = lib[symbol](samples, seed, count)
+                local actual = ffi.new("NuppAotSums")
+                lib[symbol](samples, seed, count, actual)
                 local label = symbol .. " seed " .. seed .. " count " .. count
                 test.equal(actual.v1, ordered:value(), label .. " ordered")
                 test.equal(actual.v2, pairwise:value(), label .. " pairwise")
@@ -6125,7 +6135,8 @@ function M.genericVocabularyOperationsAgreeAcrossLuaScalarAndLaneExecution()
             expected = expected + whole[i]
         end
         for _, symbol in ipairs(symbols.sums) do
-            local actual = lib[symbol](whole, 2, count)
+            local actual = ffi.new("NuppAotSums")
+            lib[symbol](whole, 2, count, actual)
             test.equal(actual.v4, expected, symbol .. " algebraic count " .. count)
             test.equal(actual.v1, expected, symbol .. " ordered whole count " .. count)
         end
@@ -6144,7 +6155,8 @@ function M.genericVocabularyOperationsAgreeAcrossLuaScalarAndLaneExecution()
                 least:add(integers[i])
             end
             for _, symbol in ipairs(symbols.exact) do
-                local actual = lib[symbol](integers, seed, count)
+                local actual = ffi.new("NuppAotExact")
+                lib[symbol](integers, seed, count, actual)
                 local label = symbol .. " seed " .. seed .. " count " .. count
                 test.equal(actual.v1, sum:value(), label .. " wrapping sum")
                 test.equal(actual.v2, bits:value(), label .. " xor")
@@ -6229,8 +6241,8 @@ function M.crossLaneOperationsAgreeWithTheirScalarExecutableSemantics()
         local reducing = librarySymbol(dir, lib, "ks_horizontals" .. suffix)
         local extreme = librarySymbol(dir, lib, "ks_extrema" .. suffix)
         ffi.cdef(("void %s(int32_t *, const int32_t *, size_t, size_t);"):format(packing))
-        ffi.cdef(("NuppAotHorizontals %s(const double *, size_t);"):format(reducing))
-        ffi.cdef(("NuppAotExtrema %s(const double *, size_t);"):format(extreme))
+        ffi.cdef(("void %s(const double *, size_t, NuppAotHorizontals *);"):format(reducing))
+        ffi.cdef(("void %s(const double *, size_t, NuppAotExtrema *);"):format(extreme))
         crossLane[#crossLane + 1] = packing
         horizontals[#horizontals + 1] = reducing
         extrema[#extrema + 1] = extreme
@@ -6323,8 +6335,9 @@ function M.crossLaneOperationsAgreeWithTheirScalarExecutableSemantics()
         local expected = {ordered, pairwise, product, dot, least, greatest}
         local answers = {}
         for index, symbol in ipairs(horizontals) do
-            local sums = lib[symbol](lanes, 4)
-            local ends = lib[extrema[index]](lanes, 4)
+            local sums, ends = ffi.new("NuppAotHorizontals"), ffi.new("NuppAotExtrema")
+            lib[symbol](lanes, 4, sums)
+            lib[extrema[index]](lanes, 4, ends)
             answers[#answers + 1] = {symbol, {sums.v1, sums.v2, sums.v3, sums.v4, ends.v1, ends.v2}}
         end
         for _, answer in ipairs(answers) do

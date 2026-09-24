@@ -64,6 +64,11 @@ record context.Context
 
     --- Whether ordinary binary64 arithmetic may contract (`@relax`).
     contract: boolean
+
+    --- The result block a multi-result entry writes, and its LLVM struct type.
+    resultBlock: string?
+
+    resultStruct: string?
 end
 
 --- A fresh context for one function of `program`.

@@ -11,9 +11,7 @@ answers the LLVM type and `signed`/`unsigned` answer how to treat it.
 local types = {}
 
 --- The LLVM type of each scalar IR value type.
-const VALUE: {
-    [string]: string
-} = {
+const VALUE: {[string]: string} = {
     ["f64"] = "double",
     ["f32"] = "float",
     ["i32"] = "i32",
@@ -21,6 +19,8 @@ const VALUE: {
     ["i64"] = "i64",
     ["u64"] = "i64",
     ["bool"] = "i1",
+    -- A struct element a span access resolved to; locals may hold one.
+    ["ptr"] = "ptr",
 }
 
 --- The LLVM type of each physical storage type a span or field holds.
@@ -125,6 +125,16 @@ function types.parameter(typeName: string): string
     local value = types.require(typeName)
     if value == "i1" then
         return "i1 zeroext"
+    end
+
+    return value
+end
+
+--- A value's field type inside a C struct: a `bool` is a byte there.
+function types.field(typeName: string): string
+    local value = types.require(typeName)
+    if value == "i1" then
+        return "i8"
     end
 
     return value

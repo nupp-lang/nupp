@@ -243,8 +243,26 @@ end
 --- passes them through a result pointer.
 local function returnStatement(ctx: context.Context, statement: scalarIR.Return): nil
     local results = ctx.program.resultTypes or {}
-    if #statement.values > 1 or #results > 1 then
-        unsupported("multiple results")
+    if #results > 1 then
+        -- Written through the caller's block, field by field.
+        for position, valueNode in ipairs(statement.values) do
+            local value, t = expressions.value(ctx, valueNode)
+            local resultType = tostring(results[position])
+            local converted = expressions.convert(ctx, value, t, resultType)
+            local field = types.field(resultType)
+            if field ~= types.require(resultType) then
+                converted = builder.value(ctx.f, ("zext i1 %s to i8"):format(converted))
+            end
+            local address = builder.value(
+                ctx.f,
+                (
+                    "getelementptr inbounds %s, ptr %s, i32 0, i32 %d"
+                ):format(tostring(ctx.resultStruct), tostring(ctx.resultBlock), position - 1)
+            )
+            builder.emit(ctx.f, ("store %s %s, ptr %s"):format(field, converted, address))
+        end
+        builder.terminate(ctx.f, "ret void")
+        return
     end
     if #statement.values == 0 or #results == 0 then
         builder.terminate(ctx.f, "ret void")
@@ -266,10 +284,8 @@ function statements.statement(ctx: context.Context, node: scalarIR.Statement): n
             unsupported("explicit SIMD locals")
         end
         local value, t = expressions.value(ctx, statement.value)
-        if t == "ptr" then
-            unsupported("struct element locals")
-        end
-        local slot = statements.slot(ctx, statement.cName, tostring(statement.type))
+        -- A struct element binds its address; everything else its value.
+        local slot = statements.slot(ctx, statement.cName, t == "ptr" and "ptr" or tostring(statement.type))
         assignLocal(ctx, slot, value, t)
     elseif operation == "assign" then
         assign(ctx, node as scalarIR.Assign)

@@ -1865,7 +1865,12 @@ function aot.emitC(
                     -- yet keeps its C, and a static archive stays C until the
                     -- code generator writes archives.
                     if useLlvm == true and not staticLinkage then
-                        local ir = aotllvm.emit(artifacts.programs, tierTarget.tier, tierTarget.triple)
+                        local ir, why = aotllvm.emit(artifacts.programs, tierTarget.tier, tierTarget.triple)
+                        aotllvm.note(
+                            (
+                                ir ~= nil and "llvm\t%s\t%s" or "fallback\t%s\t%s\t" .. tostring(why)
+                            ):format(source, tierTarget.tier)
+                        )
                         if ir ~= nil then
                             output = output:gsub("%.c$", ".ll")
                             content = ir as string
