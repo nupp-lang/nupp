@@ -268,7 +268,7 @@ local function assembly(artifacts: any, selected: Target, wanted: string?, sourc
     if useLlvm == nil then
         return nil, tostring(backendErr)
     elseif useLlvm == true then
-        text = aotllvm.assembly(artifacts.programs, selected.tier, selected.triple)
+        text = aotllvm.assembly(artifacts.programs, selected.tier, selected.triple, sourceFile)
         if text ~= nil then
             selectedChain = new buildAot.Toolchain(command = "<llvm>", version = aotllvm.version(), dialect = "llvm")
         end

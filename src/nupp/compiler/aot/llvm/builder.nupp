@@ -35,6 +35,12 @@ record builder.Module
 
     metadataByText: {[string]: integer}
 
+    --- Named metadata (`!llvm.module.flags`, ...) by name, each a list of
+    --- node references, and the names in the order first used.
+    named: {[string]: {string}}
+
+    namedOrder: {string}
+
     functions: {string}
 
     serial: integer
@@ -48,6 +54,8 @@ function builder.module(): builder.Module
         attributeOrder = {},
         metadata = {},
         metadataByText = {},
+        named = {},
+        namedOrder = {},
         functions = {},
         serial = 0
     )
@@ -102,6 +110,17 @@ function builder.distinct(module: builder.Module, body: string): string
     return "!" .. tostring(number)
 end
 
+--- Appends `node` to the named metadata list `name`.
+function builder.named(module: builder.Module, name: string, node: string): nil
+    local list = module.named[name]
+    if list == nil then
+        list = {}
+        module.named[name] = list
+        module.namedOrder[#module.namedOrder + 1] = name
+    end
+    (list as {string})[#(list as {string}) + 1] = node
+end
+
 --- A private constant array of bytes, as a global name, shared by content.
 function builder.bytes(module: builder.Module, value: string, align: integer?): string
     local key = "bytes " .. value
@@ -136,6 +155,9 @@ function builder.render(module: builder.Module): string
     for number, body in ipairs(module.attributeOrder) do
         lines[#lines + 1] = "attributes #" .. tostring(number - 1) .. " = { " .. body .. " }"
     end
+    for _, name in ipairs(module.namedOrder) do
+        lines[#lines + 1] = "!" .. name .. " = !{" .. table.concat(module.named[name] as {string}, ", ") .. "}"
+    end
     for number, body in ipairs(module.metadata) do
         lines[#lines + 1] = "!" .. tostring(number - 1) .. " = " .. body
     end
@@ -167,6 +189,9 @@ record builder.Function
 
     --- The label of the block being filled.
     current: string
+
+    --- The `!DILocation` following instructions carry, if any.
+    location: string?
 end
 
 function builder.func(module: builder.Module, header: string): builder.Function
@@ -178,7 +203,8 @@ function builder.func(module: builder.Module, header: string): builder.Function
         serial = 0,
         labelSerial = 0,
         terminated = false,
-        current = "body"
+        current = "body",
+        location = nil
     )
 end
 
@@ -203,7 +229,8 @@ function builder.emit(f: builder.Function, instruction: string): nil
     if f.terminated then
         builder.start(f, builder.label(f, "dead"))
     end
-    f.lines[#f.lines + 1] = "  " .. instruction
+    f.lines[#f.lines + 1] = f.location ~= nil and "  " .. instruction .. ", !dbg " .. tostring(f.location)
+        or "  " .. instruction
 end
 
 --- An instruction producing a value; returns the temporary holding it.

@@ -17,6 +17,7 @@ emit yet.
 local builder = require("nupp.compiler.aot.llvm.builder")
 local context = require("nupp.compiler.aot.llvm.context")
 local countRules = require("nupp.compiler.aot.counts")
+local dwarf = require("nupp.compiler.aot.llvm.dwarf")
 local expressions = require("nupp.compiler.aot.llvm.expressions")
 local facts = require("nupp.compiler.aot.llvm.facts")
 local profile = require("nupp.compiler.aot.llvm.profile")
@@ -36,6 +37,9 @@ record llvmProgram.Unit
 
     target: profile.Profile
     facts: facts.Facts
+
+    --- The compile unit locations belong to, when the unit has line tables.
+    lines: dwarf.Unit?
 end
 
 --- @raises string always
@@ -206,6 +210,22 @@ local function layoutReporters(unit: llvmProgram.Unit, program: scalarIR.Program
     end
 end
 
+--- The first authored line of a program, where its subprogram starts.
+local function firstLine(program: scalarIR.Program): integer
+    local loop = program.loop
+    if loop ~= nil and loop.source ~= nil then
+        return (loop.source as scalarIR.Source).line
+    end
+    for _, statement in ipairs(program.body or {}) do
+        local source = (statement as any).source as scalarIR.Source?
+        if source ~= nil then
+            return (source as scalarIR.Source).line
+        end
+    end
+
+    return 1
+end
+
 --- One kernel entry.
 local function kernel(unit: llvmProgram.Unit, program: scalarIR.Program): nil
     local module = unit.module
@@ -254,6 +274,11 @@ local function kernel(unit: llvmProgram.Unit, program: scalarIR.Program): nil
     -- writes is settled once the unit is complete (`llvmProgram.module`).
     local effects = unit.facts.effects and "nofree nosync " or ""
     local attrs = builder.attributes(module, "noinline " .. effects .. functionAttributes(selected, program))
+    local scope: string? = nil
+    if unit.lines ~= nil then
+        scope = dwarf.subprogram(module, unit.lines as dwarf.Unit, program.name, firstLine(program))
+        attrs = attrs .. " !dbg " .. tostring(scope)
+    end
     local f = builder.func(
         module,
         ("define %s @%s(%s) %s {"):format(result, symbol, table.concat(parameters, ", "), attrs)
@@ -276,6 +301,7 @@ local function kernel(unit: llvmProgram.Unit, program: scalarIR.Program): nil
         count("%count")
     end
     local ctx = context.new(module, f, program, unit.facts)
+    ctx.scope = scope
     if resultStruct ~= nil then
         ctx.resultBlock = "%ks_result"
         ctx.resultStruct = resultStruct
@@ -300,6 +326,7 @@ local function kernel(unit: llvmProgram.Unit, program: scalarIR.Program): nil
 
     -- The map form: `for (i = first; i < last; ++i)` over zero-based indices.
     local loopShape = program.loop as scalarIR.Loop
+    dwarf.at(f, scope, loopShape.source)
     local first = "0"
     local last = "%count"
     local guard = program.rangeGuard
@@ -342,10 +369,18 @@ function llvmProgram.module(
     programs: {scalarIR.Program},
     tier: string?,
     selected: profile.Profile,
-    stated: facts.Facts?
+    stated: facts.Facts?,
+    sourceFile: string?
 ): string
     local module = builder.module()
-    local unit = new llvmProgram.Unit(module = module, tier = tier, target = selected, facts = stated or facts.all())
+    local unit = new llvmProgram.Unit(
+        module = module,
+        tier = tier,
+        target = selected,
+        facts = stated or facts.all(),
+        lines = sourceFile ~= nil and dwarf.unit(module, sourceFile as string, selected.format == "macho" and 4 or 5)
+        or nil
+    )
     local kernels: {[integer]: boolean} = {}
     for _, program in ipairs(programs) do
         if program.executionTarget == "gpu" then

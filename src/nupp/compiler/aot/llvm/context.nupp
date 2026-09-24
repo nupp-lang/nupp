@@ -73,6 +73,9 @@ record context.Context
 
     --- The proved facts this unit states.
     facts: facts.Facts
+
+    --- The subprogram locations are scoped to, when the unit has line tables.
+    scope: string?
 end
 
 --- A fresh context for one function of `program`.
@@ -102,7 +105,8 @@ function context.new(
         loops = {},
         lua51Math = program.numericForRuntime == "lua51",
         contract = program.fpContract == true,
-        facts = stated or facts.all()
+        facts = stated or facts.all(),
+        scope = nil
     )
 end
 

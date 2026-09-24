@@ -81,10 +81,17 @@ end
 
 --- One unit's programs as LLVM IR, or nil and why this backend cannot emit
 --- them (the build then emits C for the unit). `logical` keeps each entry's
---- logical symbol rather than its tier's, the way an inspection names them.
+--- logical symbol rather than its tier's, the way an inspection names them,
+--- and `sourceFile` gives the unit line tables pointing into that file.
 --- @raises string when emission fails for a reason other than coverage: a
 ---   defect in the backend, which must not be hidden by falling back
-function aotllvm.emit(programs: {scalarIR.Program}, tier: string, triple: string, logical: boolean?): (string?, string?)
+function aotllvm.emit(
+    programs: {scalarIR.Program},
+    tier: string,
+    triple: string,
+    logical: boolean?,
+    sourceFile: string?
+): (string?, string?)
     local selected, profileErr = llvmProfile.of(triple)
     if selected == nil then
         return nil, profileErr
@@ -99,7 +106,14 @@ function aotllvm.emit(programs: {scalarIR.Program}, tier: string, triple: string
     if logical == true then
         symbolTier = nil
     end
-    local ok, module = pcall(llvmProgram.module, cpu, symbolTier, selected as llvmProfile.Profile, (aotllvm.facts()))
+    local ok, module = pcall(
+        llvmProgram.module,
+        cpu,
+        symbolTier,
+        selected as llvmProfile.Profile,
+        (aotllvm.facts()),
+        sourceFile
+    )
     if not ok then
         if llvmProgram.isUnsupported(module) then
             return nil, tostring(module)
@@ -143,8 +157,13 @@ end
 
 --- One unit's programs as target assembly, or nil and why not: the IR
 --- this backend emits for them, compiled as a build would.
-function aotllvm.assembly(programs: {scalarIR.Program}, tier: string, triple: string): (string?, string?)
-    local ir, why = aotllvm.emit(programs, tier, triple, true)
+function aotllvm.assembly(
+    programs: {scalarIR.Program},
+    tier: string,
+    triple: string,
+    sourceFile: string?
+): (string?, string?)
+    local ir, why = aotllvm.emit(programs, tier, triple, true, sourceFile)
     if ir == nil then
         return nil, why
     end

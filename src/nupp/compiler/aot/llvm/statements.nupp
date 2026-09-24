@@ -17,6 +17,7 @@ normalizations of a binary64 counter are applied as the runtime would.
 
 local builder = require("nupp.compiler.aot.llvm.builder")
 local context = require("nupp.compiler.aot.llvm.context")
+local dwarf = require("nupp.compiler.aot.llvm.dwarf")
 local expressions = require("nupp.compiler.aot.llvm.expressions")
 local prelude = require("nupp.compiler.aot.llvm.prelude")
 local scalarIR = require("nupp.compiler.aot.scalar")
@@ -277,6 +278,7 @@ end
 --- Emits one statement.
 --- @raises string for a statement this backend does not emit yet
 function statements.statement(ctx: context.Context, node: scalarIR.Statement): nil
+    dwarf.at(ctx.f, ctx.scope, (node as any).source as scalarIR.Source?)
     local operation = node.op
     if operation == "let" then
         local statement = node as scalarIR.Let
