@@ -203,22 +203,74 @@ UTF-8 library as `compare`'s second argument
 Base64 encoding compares `bench/base64simd`'s encoder with
 `bench/base64/base64_control.c`'s NEON one, which de-interleaves with `vld3q`,
 looks the alphabet up with `vqtbl4q` and interleaves with `vst4q`;
-`handwritten/base64.c` says how to build the comparison. The generated
-encoder gathers with a three-table `swizzle` and looks up with a four-table
-one, both single table instructions on NEON, and still interleaves in two
-rounds of `interleave`.
+`handwritten/base64.c` says how to build the comparison. The generated encoder
+now does the same: `loadTriples` and `storeQuads` are `ld3` and `st4`, and the
+four-table `swizzle` is one `tbl`. Before them it gathered each triple with a
+three-table `swizzle`, and that gather was the whole 10% it trailed by at
+1 KiB and up; replacing its two rounds of `interleave` with `st4` alone moved
+nothing on this core.
 
 | n | Generated | Hand NEON | Scalar C | Generated / hand |
 | ---: | ---: | ---: | ---: | ---: |
-| 64 | 9.4 ns | 6.0 ns | 14.8 ns | 1.57x |
-| 1,024 | 51.1 ns | 46.4 ns | 282 ns | 1.10x |
-| 65,536 | 3.13 us | 2.85 us | 17.0 us | 1.10x |
+| 64 | 11.6 ns | 7.3 ns | 18.3 ns | 1.58x |
+| 1,024 | 49.8 ns | 49.4 ns | 300 ns | 1.01x |
+| 65,536 | 3.23 us | 3.20 us | 19.1 us | 1.01x |
+
+The 64-byte case is the byte tail: one vector iteration covers 48 bytes and
+the other 16 go through the byte loop, which needs seven bound checks a triple
+and a checked alphabet read a symbol. Replacing that loop with the hand
+encoder's scalar tail brings the call to 1.07x. The checks are the language's:
+a span read is proved only at `cursor + 1` under `cursor < #span`, and proving
+`source[at + 3]` from `at + 3 <= #source` is not sound while `at + 3` wraps at
+2^32, as it does in the compiled body and in Lua alike. Finishing with one
+masked vector step instead was slower still (1.40x), because the partial
+interleaved copies cost more than the five triples they replace.
+
+The JSON scanners are compared the same way, each against the same algorithm
+written with NEON intrinsics:
+
+- `handwritten/jsonindex.c` times `bench/simd-json`'s structural indexer
+  against a hand version that classifies the same events, drains them the same
+  way and runs the same state machine.
+- `handwritten/jsonscan.c` times the fused decoder's scan -- classification,
+  lookup4 UTF-8 validation and the event drain, lifted out of
+  `src/nupp/codec/json/internal/decoder/fused.nupp` into
+  `handwritten/jsonscan.nupp` because in the decoder it shares a native entry
+  with the value builder -- against the same scan by hand.
+
+Each file says how to build it; both check tapes, statuses and error positions
+before timing, over records, ASCII text and mixed-script text of 256 bytes,
+4 KiB and 64 KiB. The machine was loaded by other work for all of these, so
+they are ranges over repeated in-process A/B runs rather than single figures.
+
+| Scanner | Records | ASCII | Mixed scripts |
+| --- | ---: | ---: | ---: |
+| Structural indexer | 0.90-1.03x | 0.94-1.02x | 0.91-1.02x |
+| Fused scan | 0.93-1.10x | 1.01-1.10x | 1.05-1.14x |
+
+The indexer is at the hand version. The fused scan's remaining few percent,
+where it shows, is within the noise of these runs, and the hand version points
+at two differences that come from its being C. It carries the block before a
+Unicode block in a register, where the Nupp source reads it again because a
+vector cannot outlive the loop iteration that holds its species; and it reads
+masks four bits a lane through `shrn`, where `Mask.bits` is exactly one bit a
+lane. Making the hand version do either the generated way costs it a few
+percent. The converse attempts on the generated side did not hold up under
+repeated runs: carrying the block in a hand-edited copy of the generated C,
+skipping the reload after a block that ends in ASCII (which is exact), and an
+emitter rule that kept a drained mask word in the `shrn` form. That rule sped
+the indexer's ASCII case by 3-8% and slowed the scan's mixed-script case by
+about 5%, so it was dropped.
 
 Map's scalar source is vectorized by clang, so all three map columns run the
-same vector loop. What remains behind is the 63-element tails, where a
-four-lane masked step costs a few cycles more than the hand versions' two-lane
-step and one scalar element, and map at 1,024, where the hand loop issues both
-loads of an iteration before its first store.
+same vector loop. At 1,024 the generated loop was 1.04-1.06x the hand one,
+whose unrolled iteration issues both loads before its first store; the
+emitter's unrolled copies now read every span the body never writes first,
+each copy at its own cursor, which brings it to 0.99-1.01x. The 63-element
+tails remain 1.10-1.13x: a four-lane masked step decides per chunk where the
+hand version runs a two-lane step and one scalar element. Knowing the tail's
+room exactly (it is `#input - cursor` under `cursor < #input`) recovers about
+a third of that in a hand-edited copy, too little to earn an emitter rule.
 
 ## Complete-function measurements
 

@@ -1,0 +1,321 @@
+--[[
+The fused JSON decoder's structural scan, lifted out of
+`src/nupp/codec/json/internal/decoder/fused.nupp` so it can be timed apart
+from the value builder that shares its native entry, against the same scan
+written with NEON intrinsics in `jsonscan.c`.
+
+The loop is the decoder's, line for line: sixteen bytes classified into
+events, blocks with non-ASCII bytes validated by the lookup4 tables against
+the block before, events drained lowest first into the string and
+backslash-parity state machine, and the tail finished a byte at a time from
+a seeded UTF-8 carry. What differs is the plumbing. The source is a span
+rather than an entry's rooted string, the tape a span of words rather than a
+scratch buffer, and a status comes back where the decoder would go on to
+build values. The decoder states the tape's bound in its scratch write; here
+it is the span's.
+
+Keep it in step with the decoder when the scan changes there.
+]]
+
+local array = require("nupp.mem.array")
+local simd = require("nupp.simd")
+local span = require("nupp.mem.span")
+
+--- One sixteen-entry nibble table, as the decoder builds it.
+local function nibbleTable(
+    zero: simd.Vector<uint8, simd.Preferred>,
+    e0: uint32,
+    e1: uint32,
+    e2: uint32,
+    e3: uint32,
+    e4: uint32,
+    e5: uint32,
+    e6: uint32,
+    e7: uint32,
+    e8: uint32,
+    e9: uint32,
+    e10: uint32,
+    e11: uint32,
+    e12: uint32,
+    e13: uint32,
+    e14: uint32,
+    e15: uint32
+): simd.Vector<uint8, simd.Preferred>
+    return zero:insert(1, e0)
+        :insert(2, e1)
+        :insert(3, e2)
+        :insert(4, e3)
+        :insert(5, e4)
+        :insert(6, e5)
+        :insert(7, e6)
+        :insert(8, e7)
+        :insert(9, e8)
+        :insert(10, e9)
+        :insert(11, e10)
+        :insert(12, e11)
+        :insert(13, e12)
+        :insert(14, e13)
+        :insert(15, e14)
+        :insert(16, e15)
+end
+
+--- Scans `source` into `tape` and answers the words written, a status (0,
+--- or the decoder's: 1 a full tape, 2 bad UTF-8, 3 a control byte, 4 a
+--- backslash outside a string) and the one-based position that raised it.
+@aot
+local function scan(borrows source: span.Span<uint8>, exclusive tape: span.WriteSpan<uint32>): (uint32, uint32, uint32)
+    local scanCursor: uint32 = 0
+    local tapeCount: uint32 = 0
+    local inString = false
+    local stringEscaped = false
+    local slashOdd = false
+    local haveSlash = false
+    local lastSlash: uint32 = 0
+    local owed: uint32 = 0
+    local constraint: uint32 = 0
+    local haveNonAscii = false
+    local lastNonAscii: uint32 = 0
+    local seeded = false
+    local previousNonAscii = false
+    local one: uint64 = 1
+    local vectorsOff = false
+
+    while scanCursor < #source or not seeded do
+        local events: uint64 = 0
+        local width: uint32 = 0
+        if species = simd.species(array.uint8) then
+            if not vectorsOff and scanCursor + species.lanes <= #source then
+                local block = species:load(source, scanCursor + 1)
+                local structural = (block == 123) | (block == 125) | (block == 91) | (block == 93)
+                local separators = (block == 58) | (block == 44)
+                local strings = (block == 34) | (block == 92)
+                local eventMask = structural | separators | strings | (block < 32)
+                local validateUtf8 = false
+                if previousNonAscii then
+                    events = eventMask:bits()
+                    validateUtf8 = true
+                else
+                    local nonAscii = block >= 128
+                    events = (eventMask | nonAscii):bits()
+                    if events ~= 0 then
+                        validateUtf8 = nonAscii:any()
+                        if validateUtf8 then
+                            events = eventMask:bits()
+                        end
+                    end
+                end
+                if validateUtf8 then
+                    local previous = species:load(source, scanCursor - species.lanes + 1)
+                    local previous1 = block:align(previous, 1)
+                    local previous2 = block:align(previous, 2)
+                    local previous3 = block:align(previous, 3)
+                    local zero = species:splat(0)
+                    local byte1High = nibbleTable(zero, 2, 2, 2, 2, 2, 2, 2, 2, 128, 128, 128, 128, 33, 1, 21, 73)
+                    local byte1Low = nibbleTable(
+                        zero,
+                        231,
+                        163,
+                        131,
+                        131,
+                        139,
+                        203,
+                        203,
+                        203,
+                        203,
+                        203,
+                        203,
+                        203,
+                        203,
+                        219,
+                        203,
+                        203
+                    )
+                    local byte2High = nibbleTable(zero, 1, 1, 1, 1, 1, 1, 1, 1, 230, 174, 186, 186, 1, 1, 1, 1)
+                    local special = byte1High:swizzle((previous1 >> 4) + 1)
+                        & byte1Low:swizzle((previous1 & 15) + 1)
+                        & byte2High:swizzle((block >> 4) + 1)
+                    local required = ((previous2 >= 224) | (previous3 >= 240)):select(128, 0)
+                    if ((special ~ required) ~= 0):any() then
+                        vectorsOff = true
+                    else
+                        previousNonAscii = block:align(block, 1):extract(1) >= 128
+                    end
+                else
+                    previousNonAscii = false
+                end
+                if not vectorsOff then
+                    width = species.lanes
+                else
+                    events = 0
+                end
+            end
+        end
+        if width == 0 and not seeded then
+            seeded = true
+            local back: uint32 = 1
+            local walking = true
+            while walking and back <= 3 and back <= scanCursor do
+                local earlierAt: uint32 = scanCursor - back
+                local earlier: uint32 = 0
+                if earlierAt < #source then
+                    earlier = source[earlierAt + 1]
+                end
+                if earlier < 128 then
+                    walking = false
+                elseif earlier >= 192 then
+                    if earlier < 194 or earlier > 244 then
+                        return tapeCount, 2, earlierAt + 1
+                    end
+                    local need: uint32 = 3
+                    if earlier <= 223 then
+                        need = 1
+                    elseif earlier <= 239 then
+                        need = 2
+                    end
+                    if need >= back then
+                        owed = need - back + 1
+                        haveNonAscii = true
+                        lastNonAscii = scanCursor - 1
+                        if back == 1 then
+                            if earlier == 224 then
+                                constraint = 1
+                            elseif earlier == 237 then
+                                constraint = 2
+                            elseif earlier == 240 then
+                                constraint = 3
+                            elseif earlier == 244 then
+                                constraint = 4
+                            end
+                        end
+                    end
+                    walking = false
+                else
+                    back = back + 1
+                end
+            end
+        elseif width == 0 then
+            if scanCursor < #source then
+                local byte: uint32 = source[scanCursor + 1]
+                if byte == 34
+                    or byte == 92
+                    or byte < 32
+                    or byte == 123
+                    or byte == 125
+                    or byte == 91
+                    or byte == 93
+                    or byte == 58
+                    or byte == 44
+                    or byte >= 128
+                then
+                    events = one
+                end
+            end
+            width = 1
+        end
+
+        while events ~= 0 do
+            local lane: uint32 = nupp.math.u64.trailingZeros(events)
+            events = events & (events - 1)
+            local position: uint32 = scanCursor + lane
+            if position < #source then
+                local byte: uint32 = source[position + 1]
+                if owed ~= 0 and (not haveNonAscii or position ~= lastNonAscii + 1) then
+                    return tapeCount, 2, lastNonAscii + 2
+                end
+                if byte >= 128 then
+                    local isContinuation = byte <= 191
+                    if owed ~= 0 then
+                        if not isContinuation then
+                            return tapeCount, 2, position + 1
+                        end
+                        local constrained = constraint == 1 and byte < 160
+                            or constraint == 2 and byte > 159
+                            or constraint == 3 and byte < 144
+                            or constraint == 4 and byte > 143
+                        if constrained then
+                            return tapeCount, 2, position + 1
+                        end
+                        owed = owed - 1
+                        constraint = 0
+                    elseif isContinuation or byte < 194 or byte > 244 then
+                        return tapeCount, 2, position + 1
+                    elseif byte <= 223 then
+                        owed = 1
+                    elseif byte <= 239 then
+                        owed = 2
+                        if byte == 224 then
+                            constraint = 1
+                        elseif byte == 237 then
+                            constraint = 2
+                        end
+                    else
+                        owed = 3
+                        if byte == 240 then
+                            constraint = 3
+                        elseif byte == 244 then
+                            constraint = 4
+                        end
+                    end
+                    haveNonAscii = true
+                    lastNonAscii = position
+                    haveSlash = false
+                    slashOdd = false
+                elseif owed ~= 0 then
+                    return tapeCount, 2, position + 1
+                elseif byte == 92 then
+                    if not inString then
+                        return tapeCount, 4, position + 1
+                    end
+                    if haveSlash and position == lastSlash + 1 then
+                        slashOdd = not slashOdd
+                    else
+                        slashOdd = true
+                    end
+                    haveSlash = true
+                    lastSlash = position
+                    stringEscaped = true
+                else
+                    local escaped = haveSlash and position == lastSlash + 1 and slashOdd
+                    if byte == 34 and not escaped then
+                        local word: uint32 = position
+                        if inString and stringEscaped then
+                            word = nupp.math.u32.orBits(position, 0x80000000)
+                        end
+                        if tapeCount < #tape then
+                            tape[tapeCount + 1] = word
+                        else
+                            return tapeCount, 1, position + 1
+                        end
+                        stringEscaped = stringEscaped and inString
+                        inString = not inString
+                        tapeCount = tapeCount + 1
+                    elseif byte < 32 then
+                        local whitespace = byte == 9 or byte == 10 or byte == 13
+                        if inString or not whitespace then
+                            return tapeCount, 3, position + 1
+                        end
+                    elseif not inString then
+                        if tapeCount < #tape then
+                            tape[tapeCount + 1] = position
+                        else
+                            return tapeCount, 1, position + 1
+                        end
+                        tapeCount = tapeCount + 1
+                    end
+                    haveSlash = false
+                    slashOdd = false
+                end
+            end
+        end
+
+        scanCursor = scanCursor + width
+    end
+
+    if owed ~= 0 then
+        return tapeCount, 2, lastNonAscii + 2
+    end
+
+    return tapeCount, 0, 0
+end
+
+return {scan = scan}
