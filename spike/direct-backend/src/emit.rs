@@ -1,0 +1,286 @@
+//! Machine IR plus allocations to AArch64 code. The prologue saves only the
+//! callee-saved registers the allocator actually used; blocks that are a bare
+//! jump with no edits are forwarded away; branches to the next block fall
+//! through.
+
+use crate::asm::{self, Asm, Label, FP, LR, SP};
+use crate::mir::{Func, Op};
+use regalloc2::{Allocation, Block, Edit, Function, InstOrEdit, MachineEnv, Output, PReg, PRegSet, RegClass};
+
+/// Scratch registers the emitter may use inside one machine-IR instruction.
+/// Neither is allocatable; x17 and v31 are the allocator's move scratch.
+const XS: u32 = 16;
+const VS: u32 = 30;
+
+pub fn machine_env() -> MachineEnv {
+    let mut int_pref = PRegSet::empty();
+    let mut int_non = PRegSet::empty();
+    let mut f_pref = PRegSet::empty();
+    let mut f_non = PRegSet::empty();
+    for r in 0..16 {
+        int_pref.add(PReg::new(r, RegClass::Int));
+    }
+    for r in 19..29 {
+        int_non.add(PReg::new(r, RegClass::Int));
+    }
+    for r in (0..8).chain(16..30) {
+        f_pref.add(PReg::new(r, RegClass::Float));
+    }
+    for r in 8..16 {
+        f_non.add(PReg::new(r, RegClass::Float));
+    }
+    MachineEnv {
+        preferred_regs_by_class: [int_pref, f_pref, PRegSet::empty()],
+        non_preferred_regs_by_class: [int_non, f_non, PRegSet::empty()],
+        scratch_by_class: [Some(PReg::new(17, RegClass::Int)), Some(PReg::new(31, RegClass::Float)), None],
+        fixed_stack_slots: vec![],
+    }
+}
+
+pub struct Stats {
+    pub words: usize,
+    pub spill_slots: usize,
+    pub moves: usize,
+    pub saved: usize,
+}
+
+fn reg(a: Allocation) -> u32 {
+    a.as_reg().expect("operand in a register").hw_enc() as u32
+}
+
+pub fn emit(func: &Func, out: &Output) -> (Vec<u8>, Stats) {
+    // Callee-saved registers the allocation touched.
+    let mut saved_x = std::collections::BTreeSet::new();
+    let mut saved_d = std::collections::BTreeSet::new();
+    let mut note = |a: &Allocation| {
+        if let Some(p) = a.as_reg() {
+            let n = p.hw_enc() as u32;
+            match p.class() {
+                RegClass::Int if (19..29).contains(&n) => {
+                    saved_x.insert(n);
+                }
+                RegClass::Float if (8..16).contains(&n) => {
+                    saved_d.insert(n);
+                }
+                _ => {}
+            }
+        }
+    };
+    out.allocs.iter().for_each(&mut note);
+    let mut moves = 0;
+    for (_, Edit::Move { from, to }) in &out.edits {
+        note(from);
+        note(to);
+        moves += 1;
+    }
+    let saved: Vec<(u32, bool)> =
+        saved_x.iter().map(|r| (*r, false)).chain(saved_d.iter().map(|r| (*r, true))).collect();
+    let spill_bytes = (out.num_spillslots * 8 + 15) & !15;
+    let save_bytes = (saved.len() * 8 + 15) & !15;
+    let frame = (spill_bytes + save_bytes) as u32;
+
+    let mut a = Asm::new();
+    let prologue = |a: &mut Asm| {
+        a.emit(asm::stp_x_pre(FP, LR, SP, -16));
+        a.emit(asm::mov_from_sp(FP));
+        if frame > 0 {
+            a.emit(asm::sub_sp(frame));
+        }
+        for (k, (r, d)) in saved.iter().enumerate() {
+            let off = (spill_bytes + k * 8) as u32;
+            a.emit(if *d { asm::str_d_imm(*r, SP, off) } else { asm::str_x_imm(*r, SP, off) });
+        }
+    };
+    let epilogue = |a: &mut Asm| {
+        for (k, (r, d)) in saved.iter().enumerate() {
+            let off = (spill_bytes + k * 8) as u32;
+            a.emit(if *d { asm::ldr_d_imm(*r, SP, off) } else { asm::ldr_x_imm(*r, SP, off) });
+        }
+        if frame > 0 {
+            a.emit(asm::add_sp(frame));
+        }
+        a.emit(asm::ldp_x_post(FP, LR, SP, 16));
+        a.emit(asm::ret());
+    };
+    let slot = |a: Allocation| (a.as_stack().unwrap().index() * 8) as u32;
+
+    // Which blocks are a bare jump with no edits: forward their label.
+    let nblocks = func.num_blocks();
+    let mut forward: Vec<Option<usize>> = vec![None; nblocks];
+    for b in 0..nblocks {
+        let block = Block::new(b);
+        let items: Vec<_> = out.block_insts_and_edits(func, block).collect();
+        if b != 0 && items.len() == 1 {
+            if let InstOrEdit::Inst(i) = items[0] {
+                let inst = &func.insts[i.index()];
+                if matches!(inst.op, Op::Jump) && inst.args[0].is_empty() {
+                    forward[b] = Some(inst.succs[0].index());
+                }
+            }
+        }
+    }
+    let resolve = |mut b: usize| {
+        while let Some(n) = forward[b] {
+            b = n;
+        }
+        b
+    };
+    let labels: Vec<Label> = (0..nblocks).map(|_| a.label()).collect();
+    let emitted: Vec<usize> = (0..nblocks).filter(|b| forward[*b].is_none()).collect();
+
+    prologue(&mut a);
+    for (pos, &b) in emitted.iter().enumerate() {
+        let next = emitted.get(pos + 1).copied();
+        a.bind(labels[b]);
+        for item in out.block_insts_and_edits(func, Block::new(b)) {
+            match item {
+                InstOrEdit::Edit(Edit::Move { from, to }) => {
+                    let class = from.as_reg().map(|r| r.class()).or(to.as_reg().map(|r| r.class())).unwrap();
+                    let float = class != RegClass::Int;
+                    match (from.as_reg(), to.as_reg()) {
+                        (Some(f), Some(t)) => a.emit(if float {
+                            asm::mov_16b(t.hw_enc() as u32, f.hw_enc() as u32)
+                        } else {
+                            asm::mov_reg(true, t.hw_enc() as u32, f.hw_enc() as u32)
+                        }),
+                        (Some(f), None) => a.emit(if float {
+                            asm::str_q_imm(f.hw_enc() as u32, SP, slot(*to))
+                        } else {
+                            asm::str_x_imm(f.hw_enc() as u32, SP, slot(*to))
+                        }),
+                        (None, Some(t)) => a.emit(if float {
+                            asm::ldr_q_imm(t.hw_enc() as u32, SP, slot(*from))
+                        } else {
+                            asm::ldr_x_imm(t.hw_enc() as u32, SP, slot(*from))
+                        }),
+                        (None, None) => unreachable!("stack-to-stack move"),
+                    }
+                }
+                InstOrEdit::Inst(i) => {
+                    let inst = &func.insts[i.index()];
+                    let r: Vec<u32> = out.inst_allocs(i).iter().map(|x| reg(*x)).collect();
+                    let target = |k: usize| resolve(inst.succs[k].index());
+                    // A two-way branch: fall through to whichever successor
+                    // comes next, inverting the condition when needed.
+                    let two_way = |a: &mut Asm, cond: u32| {
+                        let (t, f) = (target(0), target(1));
+                        if Some(t) == next {
+                            a.b_cond(cond ^ 1, labels[f]);
+                        } else {
+                            a.b_cond(cond, labels[t]);
+                            if Some(f) != next {
+                                a.b(labels[f]);
+                            }
+                        }
+                    };
+                    match &inst.op {
+                        Op::Args => {}
+                        Op::Ret => epilogue(&mut a),
+                        Op::Imm { value } => {
+                            let v = *value;
+                            a.emit(asm::movz(true, r[0], (v & 0xFFFF) as u32, 0));
+                            for hw in 1..4 {
+                                let part = ((v >> (16 * hw)) & 0xFFFF) as u32;
+                                if part != 0 {
+                                    a.emit(asm::movk(true, r[0], part, hw));
+                                }
+                            }
+                        }
+                        Op::LitD { bits } => {
+                            let mut bytes = [0u8; 16];
+                            bytes[..8].copy_from_slice(&bits.to_le_bytes());
+                            a.ldr_literal(r[0], bytes, false);
+                        }
+                        Op::LitQ { bytes } => a.ldr_literal(r[0], *bytes, true),
+                        Op::Add { sf } => a.emit(asm::add_reg(*sf, r[0], r[1], r[2], 0)),
+                        Op::Sub { sf } => a.emit(asm::sub_reg(*sf, r[0], r[1], r[2])),
+                        Op::AddImm { sf, imm } => a.emit(asm::add_imm(*sf, r[0], r[1], *imm)),
+                        Op::AddrIdx => a.emit(asm::add_reg(true, r[0], r[1], r[2], 3)),
+                        Op::UcvtfW => a.emit(asm::ucvtf_d_w(r[0], r[1])),
+                        Op::UcvtfX => a.emit(asm::ucvtf_d_x(r[0], r[1])),
+                        Op::FcvtzuW => a.emit(asm::fcvtzu_w_d(r[0], r[1])),
+                        Op::FAdd => a.emit(asm::fadd_d(r[0], r[1], r[2])),
+                        Op::FSub => a.emit(asm::fsub_d(r[0], r[1], r[2])),
+                        Op::FMul => a.emit(asm::fmul_d(r[0], r[1], r[2])),
+                        Op::VFAdd => a.emit(asm::fadd_2d(r[0], r[1], r[2])),
+                        Op::VFMul => a.emit(asm::fmul_2d(r[0], r[1], r[2])),
+                        Op::VFCmGt => a.emit(asm::fcmgt_2d(r[0], r[1], r[2])),
+                        Op::VAnd => a.emit(asm::and_16b(r[0], r[1], r[2])),
+                        Op::VCmHi => a.emit(asm::cmhi_2d(r[0], r[1], r[2])),
+                        Op::Bsl => {
+                            debug_assert_eq!(r[0], r[1]);
+                            a.emit(asm::bsl_16b(r[0], r[2], r[3]));
+                        }
+                        Op::DupD => a.emit(asm::dup_2d_elem0(r[0], r[1])),
+                        Op::DupX => a.emit(asm::dup_2d_x(r[0], r[1])),
+                        Op::SumPair => {
+                            a.emit(asm::fadd_2d(VS, r[1], r[2]));
+                            a.emit(asm::faddp_d(r[0], VS));
+                        }
+                        Op::LdrIdx => a.emit(asm::ldr_d_idx(r[0], r[1], r[2])),
+                        Op::StrIdx => a.emit(asm::str_d_idx(r[0], r[1], r[2])),
+                        Op::Ldp { off } => a.emit(asm::ldp_q(r[0], r[1], r[2], *off)),
+                        Op::Stp { off } => a.emit(asm::stp_q(r[0], r[1], r[2], *off)),
+                        Op::MaskedLoad => {
+                            let (lo, hi, addr, m0, m1) = (r[0], r[1], r[2], r[3], r[4]);
+                            a.emit(asm::movi_2d_zero(lo));
+                            a.emit(asm::movi_2d_zero(hi));
+                            for k in 0..4u32 {
+                                let (m, dst, j) = if k < 2 { (m0, lo, k) } else { (m1, hi, k - 2) };
+                                let skip = a.label();
+                                a.emit(asm::umov_x_d(XS, m, j));
+                                a.cbz(XS, skip);
+                                a.emit(asm::ldr_d_imm(VS, addr, 8 * k));
+                                a.emit(asm::ins_d(dst, j, VS));
+                                a.bind(skip);
+                            }
+                        }
+                        Op::MaskedStore => {
+                            let (lo, hi, addr, m0, m1) = (r[0], r[1], r[2], r[3], r[4]);
+                            for k in 0..4u32 {
+                                let (m, src, j) = if k < 2 { (m0, lo, k) } else { (m1, hi, k - 2) };
+                                let skip = a.label();
+                                a.emit(asm::umov_x_d(XS, m, j));
+                                a.cbz(XS, skip);
+                                a.emit(asm::dup_d_elem(VS, src, j));
+                                a.emit(asm::str_d_imm(VS, addr, 8 * k));
+                                a.bind(skip);
+                            }
+                        }
+                        Op::Jump => {
+                            let t = target(0);
+                            if Some(t) != next {
+                                a.b(labels[t]);
+                            }
+                        }
+                        Op::CmpBr { sf, cond } => {
+                            a.emit(asm::cmp_reg(*sf, r[0], r[1]));
+                            two_way(&mut a, *cond);
+                        }
+                        Op::FCmpBr { cond } => {
+                            a.emit(asm::fcmp_d(r[0], r[1]));
+                            two_way(&mut a, *cond);
+                        }
+                        Op::AnyBr => {
+                            a.emit(asm::orr_16b(VS, r[0], r[1]));
+                            a.emit(asm::addp_d(VS, VS));
+                            a.emit(asm::fmov_x_d(XS, VS));
+                            let (t, f) = (target(0), target(1));
+                            if Some(t) == next {
+                                a.cbz(XS, labels[f]);
+                            } else {
+                                a.cbnz(XS, labels[t]);
+                                if Some(f) != next {
+                                    a.b(labels[f]);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let bytes = a.finish();
+    let stats = Stats { words: bytes.len() / 4, spill_slots: out.num_spillslots, moves, saved: saved.len() };
+    (bytes, stats)
+}
