@@ -37,6 +37,18 @@ pub fn machine_env() -> MachineEnv {
     }
 }
 
+/// NZCV flags under which `cond` is false: what a conditional compare sets
+/// when its own condition already failed.
+fn false_flags(cond: u32) -> u32 {
+    use crate::asm::cond::*;
+    match cond {
+        NE | GT => 0b0100,
+        LO | LS => 0b0010,
+        GE => 0b1000,
+        _ => 0,
+    }
+}
+
 pub struct Stats {
     pub words: usize,
     pub spill_slots: usize,
@@ -262,6 +274,16 @@ pub fn emit(func: &Func, out: &Output) -> (Vec<u8>, Stats) {
                         Op::FCmpBr { cond } => {
                             a.emit(asm::fcmp_d(r[0], r[1]));
                             two_way(&mut a, *cond);
+                        }
+                        Op::CmpAndBr { sf, c1, c2 } => {
+                            a.emit(asm::cmp_reg(*sf, r[0], r[1]));
+                            a.emit(asm::ccmp_reg(*sf, r[2], r[3], false_flags(*c2), *c1));
+                            two_way(&mut a, *c2);
+                        }
+                        Op::FCmpAndBr { c1, c2 } => {
+                            a.emit(asm::fcmp_d(r[0], r[1]));
+                            a.emit(asm::fccmp_d(r[2], r[3], false_flags(*c2), *c1));
+                            two_way(&mut a, *c2);
                         }
                         Op::AnyBr => {
                             a.emit(asm::orr_16b(VS, r[0], r[1]));

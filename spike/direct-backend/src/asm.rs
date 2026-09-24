@@ -35,6 +35,14 @@ pub fn sub_reg(sf: bool, rd: R, rn: R, rm: R) -> u32 {
 pub fn cmp_reg(sf: bool, rn: R, rm: R) -> u32 {
     (if sf { 0xEB00_0000 } else { 0x6B00_0000 }) | (rm << 16) | (rn << 5) | ZR
 }
+/// `ccmp xN, xM, #nzcv, cond`
+pub fn ccmp_reg(sf: bool, rn: R, rm: R, nzcv: u32, cond: u32) -> u32 {
+    (if sf { 0xFA40_0000 } else { 0x7A40_0000 }) | (rm << 16) | (cond << 12) | (rn << 5) | nzcv
+}
+/// `fccmp dN, dM, #nzcv, cond`
+pub fn fccmp_d(rn: R, rm: R, nzcv: u32, cond: u32) -> u32 {
+    0x1E60_0400 | (rm << 16) | (cond << 12) | (rn << 5) | nzcv
+}
 pub fn add_imm(sf: bool, rd: R, rn: R, imm: u32) -> u32 {
     assert!(imm < 4096);
     (if sf { 0x9100_0000 } else { 0x1100_0000 }) | (imm << 10) | (rn << 5) | rd
@@ -416,6 +424,10 @@ mod tests {
             (ins_d(1, 1, 2), "mov v1.d[1], v2.d[0]"),
             (dup_d_elem(1, 2, 1), "mov d1, v2.d[1]"),
             (dup_d_elem(1, 2, 0), "mov d1, v2.d[0]"),
+            (ccmp_reg(true, 1, 2, 2, cond::LS), "ccmp x1, x2, #2, ls"),
+            (ccmp_reg(false, 1, 2, 0, cond::GT), "ccmp w1, w2, #0, gt"),
+            (fccmp_d(3, 4, 0, cond::GT), "fccmp d3, d4, #0, gt"),
+            (fccmp_d(3, 4, 4, cond::MI), "fccmp d3, d4, #4, mi"),
             (b(8), "b #8"),
             (b_cond(cond::LS, -8), "b.ls #-8"),
             (cbnz(true, 3, 12), "cbnz x3, #12"),

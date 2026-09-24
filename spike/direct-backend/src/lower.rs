@@ -413,6 +413,24 @@ impl Lower {
 
     fn cond(&mut self, e: &J, t: &Target, f: &Target) {
         match op(e) {
+            "and" if Self::compare(&e["left"]) && Self::compare(&e["right"]) => {
+                // Tree pattern: two comparisons under `and` become a compare,
+                // a conditional compare and one branch.
+                let (l1, r1, c1, float1) = self.compare_operands(&e["left"]);
+                let (l2, r2, c2, float2) = self.compare_operands(&e["right"]);
+                let sf = true;
+                if float1 == float2 {
+                    let op = if float1 { Op::FCmpAndBr { c1, c2 } } else { Op::CmpAndBr { sf, c1, c2 } };
+                    self.branch(op, &[l1, r1, l2, r2], t, f);
+                } else {
+                    let mid = self.block();
+                    let o1 = if float1 { Op::FCmpBr { cond: c1 } } else { Op::CmpBr { sf, cond: c1 } };
+                    self.branch(o1, &[l1, r1], &(mid, vec![]), f);
+                    self.switch(mid);
+                    let o2 = if float2 { Op::FCmpBr { cond: c2 } } else { Op::CmpBr { sf, cond: c2 } };
+                    self.branch(o2, &[l2, r2], t, f);
+                }
+            }
             "and" => {
                 let mid = self.block();
                 self.cond(&e["left"], &(mid, vec![]), f);
@@ -453,6 +471,66 @@ impl Lower {
             }
             other => panic!("unsupported condition {other}"),
         }
+    }
+
+    fn compare(e: &J) -> bool {
+        matches!(op(e), "lt" | "le" | "gt" | "ge")
+    }
+
+    /// Lowers a comparison's operands: (left, right, condition, float).
+    /// Integer comparisons are made 64-bit, which is exact for the u32 and
+    /// u64 values the IR compares.
+    fn compare_operands(&mut self, e: &J) -> (VReg, VReg, u32, bool) {
+        use crate::asm::cond::*;
+        let l = self.expr(&e["left"]);
+        let r = self.expr(&e["right"]);
+        if matches!(l, Val::F(_)) || matches!(r, Val::F(_)) {
+            let (l, r) = (self.as_f(l), self.as_f(r));
+            let c = match op(e) {
+                "lt" => MI,
+                "le" => LS,
+                "gt" => GT,
+                _ => GE,
+            };
+            (l, r, c, true)
+        } else {
+            let (l, r) = (self.as_i(l), self.as_i(r));
+            let c = match op(e) {
+                "lt" => LO,
+                "le" => LS,
+                "gt" => HI,
+                _ => HS,
+            };
+            (l, r, c, false)
+        }
+    }
+
+    /// The `cursor + 2 * lanes <= #span` form of a `cursor + lanes <= #span`
+    /// guard (or a conjunction of them), for a loop that runs two bodies per
+    /// iteration. None when the condition is not that shape.
+    fn doubled(cond: &J) -> Option<J> {
+        match op(cond) {
+            "and" => {
+                let mut c = cond.clone();
+                c["left"] = Self::doubled(&cond["left"])?;
+                c["right"] = Self::doubled(&cond["right"])?;
+                Some(c)
+            }
+            "le" if op(&cond["left"]) == "u64_add" && op(&cond["right"]) == "span_count" => {
+                let sum = &cond["left"];
+                if op(&sum["right"]) != "numeric_cast" || op(&sum["right"]["value"]) != "simd_lanes_generic" {
+                    return None;
+                }
+                let mut c = cond.clone();
+                c["left"] = serde_json::json!({"op": "u64_add", "type": "u64", "left": sum.clone(), "right": sum["right"].clone()});
+                Some(c)
+            }
+            _ => None,
+        }
+    }
+
+    fn straight_line(body: &J) -> bool {
+        body.as_array().unwrap().iter().all(|s| matches!(op(s), "let" | "assign" | "simd_store" | "store"))
     }
 
     fn assigned(v: &J, into: &mut Vec<String>) {
@@ -542,6 +620,21 @@ impl Lower {
                 }
             }
             "block" => self.stmts(&s["body"]),
+            "while" if s.get("unrolled").is_none() && Self::straight_line(&s["body"]) && Self::doubled(&s["condition"]).is_some() => {
+                // Two bodies per iteration while two fit, then the original
+                // loop for the rest: the C emitter's `wideUnroll`, which the
+                // plan moves into the IR, done here in lowering.
+                let mut twice = s.clone();
+                twice["unrolled"] = J::Bool(true);
+                twice["condition"] = Self::doubled(&s["condition"]).unwrap();
+                let mut body = s["body"].as_array().unwrap().clone();
+                body.extend(s["body"].as_array().unwrap().clone());
+                twice["body"] = J::Array(body);
+                self.stmt(&twice);
+                let mut once = s.clone();
+                once["unrolled"] = J::Bool(true);
+                self.stmt(&once);
+            }
             "while" => {
                 // Rotated: a guard, then a body that tests at its bottom, so an
                 // iteration takes one branch. Both exits meet in `exit`, which

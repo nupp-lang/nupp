@@ -47,6 +47,9 @@ pub enum Op {
     FCmpBr { cond: u32 },
     /// Branch if any lane of a two-register mask is set.
     AnyBr,
+    /// `a c1 b and c c2 d`: compare, conditional compare, one branch.
+    CmpAndBr { sf: bool, c1: u32, c2: u32 },
+    FCmpAndBr { c1: u32, c2: u32 },
 }
 
 #[derive(Clone, Debug)]
@@ -65,7 +68,10 @@ impl MInst {
         MInst { op, operands, succs: Vec::new(), args: Vec::new() }
     }
     pub fn is_branch(&self) -> bool {
-        matches!(self.op, Op::Jump | Op::CmpBr { .. } | Op::FCmpBr { .. } | Op::AnyBr)
+        matches!(
+            self.op,
+            Op::Jump | Op::CmpBr { .. } | Op::FCmpBr { .. } | Op::AnyBr | Op::CmpAndBr { .. } | Op::FCmpAndBr { .. }
+        )
     }
 }
 
