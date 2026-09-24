@@ -6246,6 +6246,59 @@ function M.statementOwnedTemporariesRunTheirTerminalsAtCompletion()
     assertEq(calls, "uabbapqmvre")
 end
 
+-- A local declared by a statement that owns a temporary is bound after it: the
+-- statement runs inside the cleanup region's function, and the name used to be
+-- declared there and lost with it. Each activation keeps its own binding, so a
+-- region reused by a loop or a recursive call never writes another one's.
+function M.aLocalInitializedThroughAStatementOwnedTemporaryIsBound()
+    local source = table.concat(
+        {
+            "local calls = ''",
+            "local record Res is nupp.Closeable",
+            "   name: string",
+            "   function close(takes self): nil calls = calls .. self.name end",
+            "end",
+            "local function open(name: string): Res return new Res(name = name) end",
+            "local function view(borrows value: Res): string",
+            "   calls = calls .. 'v'",
+            "   return value.name",
+            "end",
+            "local function both(borrows value: Res): (string, integer) return value.name, #value.name end",
+            "local top = view(open('t'))",
+            "local name, size = both(open('pq'))",
+            "local kept: {function(): string} = {}",
+            "for i = 1, 3 do",
+            "   local each = view(open(tostring(i)))",
+            "   kept[#kept + 1] = function(): string return each end",
+            "end",
+            "local function nest(level: integer): string",
+            "   local here = view(open(tostring(level)))",
+            "   if level < 3 then",
+            "      local deeper = nest(level + 1)",
+            "      return here .. deeper",
+            "   end",
+            "   return here",
+            "end",
+            "local nested = nest(1)",
+            "return top, name, size, kept[1]() .. kept[2]() .. kept[3](), nested, calls",
+        },
+        "\n"
+    )
+    local result, diags = checked(source)
+    assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+    local code, genDiags = gen.generate(result, "statement-owned-locals")
+    assertEq(#genDiags, 0, genDiags[1] and genDiags[1].msg or "generate")
+    local chunk, loadErr = loadstring(code, "@statement-owned-locals")
+    assert(chunk, tostring(loadErr) .. "\n" .. code)
+    local top, name, size, loop, nested, calls = chunk()
+    assertEq(top, "t")
+    assertEq(name, "pq")
+    assertEq(size, 2)
+    assertEq(loop, "123")
+    assertEq(nested, "123")
+    assertEq(calls, "vtpqv1v2v3v1v2v3")
+end
+
 function M.anOwnedTemporaryWithoutANonRetainingLoanIsReported()
     local header = CONSUMABLE .. "\nlocal function use(borrows r: Res): nil print(r.id) end\n"
     assertEq(codes(header .. "print(open(2).id)"), "NUPP2603")

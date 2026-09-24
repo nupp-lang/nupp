@@ -4573,9 +4573,72 @@ function gen.generate(
         )
     end
 
+    -- Whether a local declaration is emitted as its tokens, so declaring its names
+    -- ahead and assigning them is the same declaration. The rest have emissions of
+    -- their own and keep the statement whole.
+    local function plainDeclaration(stat): boolean
+        if stat.kind ~= "localStmt" or stat.pattern or stat.concatBuffer or #(stat.exprs or {}) == 0 then
+            return false
+        end
+        for _, name in ipairs(stat.names or {}) do
+            if name.definition and name.definition.virtualIndexedView then
+                return false
+            end
+        end
+        for _, expression in ipairs(stat.exprs) do
+            if expression.virtualIndexedView then
+                return false
+            end
+        end
+
+        return true
+    end
+
     function pluck.emitStatementCleanup(stat): nil
+        -- The region's body runs inside a function, so a local it declared would
+        -- end with that function. Its names are declared here instead, and the
+        -- region assigns them. The region is told they come before it, so a body
+        -- that writes them is never shared by a cache with another activation's
+        -- locals.
+        if plainDeclaration(stat) then
+            e("local ", sourceLine(stat))
+            local assignment: any = {
+                kind = "assignStmt",
+                targets = {},
+                exprs = stat.exprs,
+                statementCleanupOwners = stat.statementCleanupOwners,
+            }
+            for index, name in ipairs(stat.names) do
+                if index > 1 then
+                    e(",")
+                    assignment[#assignment + 1] = {kind = "assignmentTemporary", name = ","}
+                end
+                emit(name)
+                local target = {name, kind = "name", token = name}
+                assignment.targets[index] = target
+                assignment[#assignment + 1] = target
+            end
+            e(";")
+            assignment[#assignment + 1] = {kind = "assignmentTemporary", name = "="}
+            for index, expression in ipairs(stat.exprs) do
+                if index > 1 then
+                    assignment[#assignment + 1] = {kind = "assignmentTemporary", name = ","}
+                end
+                assignment[#assignment + 1] = expression
+            end
+            pluck.emitStatementRegion(assignment, cst.firstToken(stat.exprs[1]))
+            return
+        end
+        pluck.emitStatementRegion(stat, nil)
+    end
+
+    -- `stat` inside a cleanup region for its statement-owned temporaries. What the
+    -- region reads from outside is judged from `from`, or from the statement's own
+    -- first token.
+    function pluck.emitStatementRegion(stat, from): nil
         local first = cst.firstToken(stat)
         local last = cst.lastToken(stat)
+        local start = from or first
         local stateName = nextTemp()
         local definition = {}
         local binding: any = {
@@ -4584,7 +4647,7 @@ function gen.generate(
                 kind = "name",
                 text = stateName,
                 line = first and first.line or sourceLine(stat),
-                offset = first and first.offset or 0,
+                offset = start and start.offset or 0,
                 definition = definition,
             },
             expr = {kind = "statementCleanupStateExpr", line = first and first.line or sourceLine(stat)},
