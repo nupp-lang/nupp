@@ -2,25 +2,23 @@ module base64simd
 
 --[[
 Base64 encoding a vector at a time, written on the general `nupp.simd`
-algebra: a byte species, `swizzle` over several vectors for the byte shuffles
-and the alphabet, and `interleave` for the output layout. Three vectors of
-input become four of output per iteration -- forty-eight bytes to sixty-four
-on a sixteen-lane species.
+algebra: a byte species, interleaved loads and stores for the byte layout, and
+`swizzle` over four vectors for the alphabet. Three vectors of input become
+four of output per iteration -- forty-eight bytes to sixty-four on a
+sixteen-lane species.
 
-The shape is the one the literature describes. Three vectors `a`, `b`, `c`
-hold `3 * lanes` consecutive bytes; the three bytes of every triple are
-gathered into `b0`, `b1`, `b2` by one swizzle over all three, whose index
-vector is an arithmetic sequence with stride three. Four six-bit indexes come
-out of shifts and masks, and each is looked up in the sixty-four-byte alphabet
-held as four table vectors -- one table instruction on NEON, whatever the
-lane count otherwise. Two rounds of `interleave` put the four symbol vectors
-back into byte order, and four stores write them.
+The shape is the one the literature describes. `loadTriples` reads `3 * lanes`
+consecutive bytes and deals the three bytes of every triple into `b0`, `b1`,
+`b2`. Four six-bit indexes come out of shifts and masks, and each is looked up
+in the sixty-four-byte alphabet held as four table vectors -- one table
+instruction on NEON, whatever the lane count otherwise. `storeQuads` writes
+the four symbol vectors back a quantum at a time. On NEON the load and the
+store are `ld3` and `st4`.
 
 Every vector load and store is proved in range by the loop condition, which
-bounds the input by three vectors and the output by four. Every access is
-an offset from one of those two cursors. What the vector loop does not
-cover, the byte loop below it finishes, and the last one or two bytes get their
-padding after that.
+bounds the input by three vectors and the output by four. What the vector loop
+does not cover, the byte loop below it finishes, and the last one or two bytes
+get their padding after that.
 ]]
 
 const io = require("nupp.io")
@@ -38,9 +36,8 @@ const ALPHABET_BYTES = span.fromString(ALPHABET)
 --- bytes, and answers how many bytes it wrote. `alphabet` is the sixty-four
 --- symbols, which the byte tail reads by index.
 ---
---- Three input cursors and four output cursors advance together, one per
---- vector, because the loop condition proves each load and store from the
---- cursor it names and a `+ lanes` offset is not a cursor.
+--- The loop condition proves the interleaved load and store from the two
+--- cursors it names.
 @aot
 local function encode(
     exclusive output: span.WriteSpan<uint8>,
@@ -51,11 +48,6 @@ local function encode(
     local out: uint32 = 0
     if species = simd.species(array.uint8) then
         local lanes: uint32 = species.lanes
-        -- Lane `i` of `b_k` is byte `3i + k` of the group: index `3i + k + 1`
-        -- across `a`, `b` and `c` numbered as one run.
-        local gather0 = species:iota(1, 3)
-        local gather1 = species:iota(2, 3)
-        local gather2 = species:iota(3, 3)
         -- The alphabet as four table vectors. A wider species holds it in
         -- fewer, and the loads past its end read zero.
         local t0 = species:load(alphabet, 1)
@@ -63,13 +55,7 @@ local function encode(
         local t2 = species:load(alphabet, 2 * lanes + 1)
         local t3 = species:load(alphabet, 3 * lanes + 1)
         while at + 3 * lanes <= #source and out + 4 * lanes <= #output do
-            local a = species:load(source, at + 1)
-            local b = species:load(source, at + lanes + 1)
-            local c = species:load(source, at + 2 * lanes + 1)
-
-            local b0 = a:swizzle(gather0, b, c)
-            local b1 = a:swizzle(gather1, b, c)
-            local b2 = a:swizzle(gather2, b, c)
+            local b0, b1, b2 = species:loadTriples(source, at + 1)
 
             local d0 = b0 >> 2
             local d1 = ((b0 & 3) << 4) | (b1 >> 4)
@@ -81,16 +67,7 @@ local function encode(
             local e2 = t0:swizzle(d2 + 1, t1, t2, t3)
             local e3 = t0:swizzle(d3 + 1, t1, t2, t3)
 
-            -- Symbols of one quantum are consecutive in the output: first
-            -- the even and odd symbols pair up, then the pairs do.
-            local p, q = e0:interleave(e2)
-            local r, s = e1:interleave(e3)
-            local w0, w1 = p:interleave(r)
-            local w2, w3 = q:interleave(s)
-            species:store(output, out + 1, w0)
-            species:store(output, out + lanes + 1, w1)
-            species:store(output, out + 2 * lanes + 1, w2)
-            species:store(output, out + 3 * lanes + 1, w3)
+            species:storeQuads(output, out + 1, e0, e1, e2, e3)
 
             at = at + 3 * lanes
             out = out + 4 * lanes

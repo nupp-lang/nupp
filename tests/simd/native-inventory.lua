@@ -62,7 +62,7 @@ function M.execution(execution, family, element, requested)
             end
             local valid = {
                 primitives = {probe = true},
-                memory = {fields = true, indexed = true},
+                memory = {fields = true, indexed = true, interleaved = true},
                 transpose = {transpose = true},
                 conversions = {convert = true},
                 integeredges = {edges = true},
@@ -105,6 +105,7 @@ function M.execution(execution, family, element, requested)
         expected = {
             probe = {widths, 1},
             fields = {widths, 1},
+            interleaved = {widths, 1},
             indexed = {
                 (element == "int8" or element == "uint8" or element == "int16" or element == "uint16") and fixed
                 or widths,

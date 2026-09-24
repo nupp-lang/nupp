@@ -37,7 +37,7 @@ record.
 | raw-bit floating indexed/strided memory and write canaries | `bitmemory.lua`, both floating elements at every species, all admitted index types, independently seeded read/write spans and record fields; all 64 logical lanes plus 64 prefix and 64 suffix guard lanes checked after every write |
 | cross-element `Species.mask` | `masks.lua`, all 100 Fixed element pairs and same-width Preferred pairs, every tail and four independent boolean patterns |
 | numeric conversion | `conversions.lua`, all 100 numeric pairs at every Fixed width, same-width Preferred pairs, every tail; independent ordinary scalar storage conversions |
-| indexed load/store and strided fields | `memory.lua`, all elements/species, four admitted index types, every tail, zero/out-of-range indices and scalar address oracle |
+| indexed load/store, strided fields and interleaved runs | `memory.lua`, all elements/species, four admitted index types, every tail, zero/out-of-range indices and scalar address oracle; two- to four-way interleaved loads and stores under a whole-run proof and without one, at runs inside the span, across its end and past it |
 | scalar helper and closed math map | `primitives.lua` covers scalar helpers for every element/species; `maps.lua` covers all 22 admitted native math identities and arities on float/number, plus corrected f32 min/max/fma, at every species; Wasm executes the 18 identities admitted by the portable math surface, with explicit positioned refusals for atan2/sinh/cosh/tanh |
 | horizontal reductions and exact reducers | `reducers.lua`, maintained separately from primitive lane operations |
 

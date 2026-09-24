@@ -746,6 +746,11 @@ record scalarIR.Simd
 
     cursorCName: string?
 
+    --- On a `simd_load` of `loadPairs`, `loadTriples` or `loadQuads`, which
+    --- of the interleaved runs this result is, from zero. Each result is a
+    --- load of the whole run in its own right.
+    part: integer?
+
     type: scalarIR.Type
     source: scalarIR.Source?
 end

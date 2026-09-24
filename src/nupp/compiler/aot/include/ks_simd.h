@@ -612,10 +612,65 @@ KS_EXP_INT_EXTREME(P, ELEM, CTYPE, LANES, VIA, number, min, <) \
 KS_EXP_INT_EXTREME(P, ELEM, CTYPE, LANES, VIA, propagating, max, >) \
 KS_EXP_INT_EXTREME(P, ELEM, CTYPE, LANES, VIA, number, max, >)
 
+/* The proved forms, whose whole run is inside the span. */
+#define KS_EXP_WAYS_AT(P, ELEM, CTYPE, LANES) \
+static inline __attribute__((unused)) ks_##P##_##ELEM ks_##P##_load_ways_at_##ELEM(const CTYPE *source, uint32_t ways, uint32_t part) { CTYPE lanes[LANES##u] KS_LANE_ARRAY_ALIGN(CTYPE); for (uint32_t i = 0u; i < LANES##u; ++i) lanes[i] = source[(size_t)i * ways + part]; return ks_##P##_load_at_##ELEM(lanes); } \
+static inline __attribute__((unused)) void ks_##P##_store_ways_at_##ELEM(CTYPE *destination, uint32_t ways, const ks_##P##_##ELEM *values) { for (uint32_t j = 0u; j < ways; ++j) { CTYPE lanes[LANES##u] KS_LANE_ARRAY_ALIGN(CTYPE); ks_##P##_store_at_##ELEM(lanes, values[j]); for (uint32_t i = 0u; i < LANES##u; ++i) destination[(size_t)i * ways + j] = lanes[i]; } }
+#if defined(__aarch64__)
+/* On aarch64 a proved run is the instruction: ld2-ld4 and st2-st4 over one
+ * register a vector, of the element's own type. */
+#define KS_EXP_NEON_WAYS(ELEM, CTYPE, T, S) \
+static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_load_ways_at_##ELEM(const CTYPE *source, uint32_t ways, uint32_t part) { \
+    ks_exp_##ELEM out; \
+    if (ways == 2u) { T##x2_t t = vld2q_##S(source); memcpy(&out, &t.val[part & 1u], 16u); } \
+    else if (ways == 3u) { T##x3_t t = vld3q_##S(source); memcpy(&out, &t.val[part % 3u], 16u); } \
+    else { T##x4_t t = vld4q_##S(source); memcpy(&out, &t.val[part & 3u], 16u); } \
+    return out; \
+} \
+static inline __attribute__((unused)) void ks_exp_store_ways_at_##ELEM(CTYPE *destination, uint32_t ways, const ks_exp_##ELEM *values) { \
+    if (ways == 2u) { T##x2_t t; memcpy(&t.val[0], &values[0], 16u); memcpy(&t.val[1], &values[1], 16u); vst2q_##S(destination, t); } \
+    else if (ways == 3u) { T##x3_t t; memcpy(&t.val[0], &values[0], 16u); memcpy(&t.val[1], &values[1], 16u); memcpy(&t.val[2], &values[2], 16u); vst3q_##S(destination, t); } \
+    else { T##x4_t t; memcpy(&t.val[0], &values[0], 16u); memcpy(&t.val[1], &values[1], 16u); memcpy(&t.val[2], &values[2], 16u); memcpy(&t.val[3], &values[3], 16u); vst4q_##S(destination, t); } \
+}
+#define KS_EXP_WAYS_AT_f64x2(CTYPE, LANES) KS_EXP_NEON_WAYS(f64x2, CTYPE, float64x2, f64)
+#define KS_EXP_WAYS_AT_f32x4(CTYPE, LANES) KS_EXP_NEON_WAYS(f32x4, CTYPE, float32x4, f32)
+#define KS_EXP_WAYS_AT_i8x16(CTYPE, LANES) KS_EXP_NEON_WAYS(i8x16, CTYPE, int8x16, s8)
+#define KS_EXP_WAYS_AT_u8x16(CTYPE, LANES) KS_EXP_NEON_WAYS(u8x16, CTYPE, uint8x16, u8)
+#define KS_EXP_WAYS_AT_i16x8(CTYPE, LANES) KS_EXP_NEON_WAYS(i16x8, CTYPE, int16x8, s16)
+#define KS_EXP_WAYS_AT_u16x8(CTYPE, LANES) KS_EXP_NEON_WAYS(u16x8, CTYPE, uint16x8, u16)
+#define KS_EXP_WAYS_AT_i32x4(CTYPE, LANES) KS_EXP_NEON_WAYS(i32x4, CTYPE, int32x4, s32)
+#define KS_EXP_WAYS_AT_u32x4(CTYPE, LANES) KS_EXP_NEON_WAYS(u32x4, CTYPE, uint32x4, u32)
+#define KS_EXP_WAYS_AT_i64x2(CTYPE, LANES) KS_EXP_NEON_WAYS(i64x2, CTYPE, int64x2, s64)
+#define KS_EXP_WAYS_AT_u64x2(CTYPE, LANES) KS_EXP_NEON_WAYS(u64x2, CTYPE, uint64x2, u64)
+#define KS_EXP_WAYS_NATIVE_16(ELEM, CTYPE, LANES) KS_EXP_WAYS_AT_##ELEM(CTYPE, LANES)
+#else
+#define KS_EXP_WAYS_NATIVE_16(ELEM, CTYPE, LANES) KS_EXP_WAYS_AT(exp, ELEM, CTYPE, LANES)
+#endif
+#define KS_EXP_WAYS_NATIVE_32(ELEM, CTYPE, LANES) KS_EXP_WAYS_AT(exp, ELEM, CTYPE, LANES)
+#define KS_EXP_WAYS_NATIVE_64(ELEM, CTYPE, LANES) KS_EXP_WAYS_AT(exp, ELEM, CTYPE, LANES)
+
+/* Interleaved runs: WAYS vectors through one run of WAYS * LANES
+ * elements, lane i of vector j at element i * WAYS + j. A load answers one
+ * vector, PART, of the run; the compiler asks once per vector and the C
+ * compiler reads the run once. Lane arrays and the representation's own
+ * whole-vector copies define every form over every representation, the
+ * oracle included. The checked forms read zero past COUNT and write nothing
+ * there; a whole run inside the span takes the proved form, and only a run
+ * crossing the end walks its lanes, out of line. */
+#define KS_EXP_WAYS(P, ELEM, CTYPE, LANES) \
+static __attribute__((noinline, cold, unused)) ks_##P##_##ELEM ks_##P##_load_ways_part_##ELEM(const CTYPE *source, size_t count, size_t first, uint32_t ways, uint32_t part) { CTYPE lanes[LANES##u] KS_LANE_ARRAY_ALIGN(CTYPE); for (uint32_t i = 0u; i < LANES##u; ++i) { size_t at = first + (size_t)i * ways + part; lanes[i] = first < count && at < count ? source[at] : (CTYPE)0; } return ks_##P##_load_at_##ELEM(lanes); } \
+static __attribute__((noinline, cold, unused)) void ks_##P##_store_ways_part_##ELEM(CTYPE *destination, size_t count, size_t first, uint32_t ways, const ks_##P##_##ELEM *values) { if (first >= count) return; for (uint32_t j = 0u; j < ways; ++j) { CTYPE lanes[LANES##u] KS_LANE_ARRAY_ALIGN(CTYPE); ks_##P##_store_at_##ELEM(lanes, values[j]); for (uint32_t i = 0u; i < LANES##u; ++i) { size_t at = first + (size_t)i * ways + j; if (at < count) destination[at] = lanes[i]; } } } \
+static inline __attribute__((unused)) ks_##P##_##ELEM ks_##P##_load_ways_##ELEM(const CTYPE *source, size_t count, size_t first, uint32_t ways, uint32_t part) { if (first < count && count - first >= (size_t)ways * LANES##u) return ks_##P##_load_ways_at_##ELEM(source + first, ways, part); return ks_##P##_load_ways_part_##ELEM(source, count, first, ways, part); } \
+static inline __attribute__((unused)) void ks_##P##_store_ways_##ELEM(CTYPE *destination, size_t count, size_t first, uint32_t ways, const ks_##P##_##ELEM *values) { if (first < count && count - first >= (size_t)ways * LANES##u) { ks_##P##_store_ways_at_##ELEM(destination + first, ways, values); return; } ks_##P##_store_ways_part_##ELEM(destination, count, first, ways, values); }
+
 /* One element, KIND being FLOAT or INT. */
 #define KS_EXP_ELEMENT(W, ELEM, CTYPE, MASK, LANES, BYTES, KIND) \
 KS_EXP_VECTOR(W, ELEM, CTYPE, MASK, LANES, BYTES) \
 KS_EXP_SCALAR(ELEM, CTYPE, MASK, LANES) \
+KS_EXP_WAYS_NATIVE_##W(ELEM, CTYPE, LANES) \
+KS_EXP_WAYS(exp, ELEM, CTYPE, LANES) \
+KS_EXP_WAYS_AT(scalar_exp, ELEM, CTYPE, LANES) \
+KS_EXP_WAYS(scalar_exp, ELEM, CTYPE, LANES) \
 KS_EXP_##KIND##_ONLY(ELEM, CTYPE, LANES) \
 KS_EXP_HORIZONTAL(exp, ELEM, CTYPE, LANES, VECTOR) \
 KS_EXP_EXTREMES_##KIND(exp, ELEM, CTYPE, LANES, VECTOR) \
@@ -735,6 +790,10 @@ static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_not_##ELEM(ks_exp_##E
 KS_EXP_FIXED_VECTOR(ELEM, CTYPE, MASK, LANES, NATIVE, NLANES, CHUNKS) \
 KS_EXP_FIXED_##KIND(ELEM, CTYPE, LANES, CHUNKS) \
 KS_EXP_SCALAR(ELEM, CTYPE, MASK, LANES) \
+KS_EXP_WAYS_AT(exp, ELEM, CTYPE, LANES) \
+KS_EXP_WAYS(exp, ELEM, CTYPE, LANES) \
+KS_EXP_WAYS_AT(scalar_exp, ELEM, CTYPE, LANES) \
+KS_EXP_WAYS(scalar_exp, ELEM, CTYPE, LANES) \
 KS_EXP_##KIND##_SCALAR(ELEM, CTYPE, LANES) \
 KS_EXP_HORIZONTAL(exp, ELEM, CTYPE, LANES, CHUNKED) \
 KS_EXP_EXTREMES_##KIND(exp, ELEM, CTYPE, LANES, CHUNKED) \

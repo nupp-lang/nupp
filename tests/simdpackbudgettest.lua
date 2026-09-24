@@ -3,8 +3,8 @@ local M = {}
 
 local ceilings = {
     species = {files = 41, bytes = 400000, probes = 640},
-    native = {files = 128, bytes = 2600000, probes = 800},
-    wasm = {files = 128, bytes = 2600000, probes = 800},
+    native = {files = 128, bytes = 2700000, probes = 850},
+    wasm = {files = 128, bytes = 2700000, probes = 850},
 }
 
 local function measure(generated)

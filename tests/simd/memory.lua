@@ -7,7 +7,7 @@ local function sourceFor(ty, lanes)
             'local array = require("nupp.mem.array")\nlocal span = require("nupp.mem.span")\nlocal simd = require("nupp.simd")\nlocal u32 = nupp.math.u32\nlocal struct Pair\n    first: %s\n    second: %s\nend\n'
         ):format(ty, ty)
     }
-    local probes, fields, indexed, exports = {}, {}, {}, {}
+    local probes, fields, indexed, interleaved, exports = {}, {}, {}, {}, {}
     for _, n in ipairs(lanes) do
         local species = 'assert(simd.species(array.' .. ty .. (n == 'preferred' and '' or ', ' .. n) .. '))'
         local fieldName = 'fields_' .. n
@@ -30,6 +30,21 @@ local function %s(exclusive output: span.WriteSpan<Pair>, borrows input: span.Sp
 end
 ]=]
         ):format(fieldName, species)
+        local interleavedName = 'interleaved_' .. n
+        probes[#probes + 1], exports[#exports + 1] = interleavedName, interleavedName .. '=' .. interleavedName
+        interleaved[#interleaved + 1] = interleavedName
+        source[#source + 1] = ('@aot\nlocal function %s(exclusive output: span.WriteSpan<%s>, borrows input: span.Span<%s>, ways: uint32, first: uint32): uint32\n    local s = %s\n'):format(interleavedName, ty, ty, species)
+        -- Each width twice: under a guard proving the whole run, and without
+        -- one, so both the proved and the checked forms run. The store puts
+        -- the vectors back in another order, so a vector read from the wrong
+        -- place or written to the wrong one cannot cancel out.
+        for ways, access in ipairs({false, {'Pairs', 'a, b', 'b, a'}, {'Triples', 'a, b, c', 'c, a, b'}, {'Quads', 'a, b, c, d', 'd, c, a, b'}}) do
+            if access then
+                local body = ('local %s = s:load%s(input, first + 1)\n            s:store%s(output, first + 1, %s)'):format(access[2], access[1], access[1], access[3])
+                source[#source + 1] = ('    %s ways == %d then\n        if first + %d * s.lanes <= #input and first + %d * s.lanes <= #output then\n            %s\n        else\n            %s\n        end\n'):format(ways == 2 and 'if' or 'elseif', ways, ways, ways, body, body)
+            end
+        end
+        source[#source + 1] = '    end\n    return s.lanes\nend\n'
         local indices = {'int32', 'uint32', 'int64', 'uint64'}
         if n == 'preferred' then
             if ty == 'float' or ty == 'int32' or ty == 'uint32' then
@@ -158,12 +173,61 @@ local function checkFields(probe: FieldProbe): number
     return cases
 end
 
+local type InterleavedProbe = function(exclusive output: span.WriteSpan<%s>, borrows input: span.Span<%s>, ways: uint32, first: uint32): uint32
+
+-- Vector j of an interleaved run holds elements j, j + ways, ... of it, and
+-- the probe stores the vectors back in the order `orders[ways]` names. Runs
+-- start inside the span, across its end and past it; what the run does not
+-- reach keeps its canary.
+local function checkInterleaved(probe: InterleavedProbe): number
+    local orders: {[integer]: {integer}} = {[2] = {2, 1}, [3] = {3, 1, 2}, [4] = {4, 3, 1, 2}}
+    local probeInput = array.scalar(array.%s, 1)
+    local probeOutput = array.scalar(array.%s, 1)
+    local probeWrite = probeOutput:write()
+    local n = assert(tonumber(probe(probeWrite, probeInput:read(), 0, 0))) as integer
+    local count = 4 * n + 3
+    local input = array.scalar(array.%s, count)
+    local output = array.scalar(array.%s, count)
+    do
+        local writable = input:write()
+        for i = 1, count do writable[u32.wrap(i)] = (i * 7) %% 100 + 1 end
+    end
+    local readable = input:read()
+    local writable = output:write()
+    local cases = 0
+    for ways = 2, 4 do
+        local run = ways * n
+        for _, first in ipairs({0, 1, 2, count - run - 1, count - run, count - run + 1, count - 2, count - 1, count, count + 1}) do
+            if first >= 0 then
+                for i = 1, count do writable[u32.wrap(i)] = 61 end
+                probe(writable, readable, u32.wrap(ways), u32.wrap(first))
+                for p = 1, count do
+                    local expected = 61
+                    local offset = p - first - 1
+                    if offset >= 0 and offset < run then
+                        local lane = offset // ways
+                        local from = first + lane * ways + assert(orders[ways])[offset - lane * ways + 1]
+                        expected = from <= count and assert(tonumber(readable[u32.wrap(from)])) or 0
+                    end
+                    local actual = assert(tonumber(writable[u32.wrap(p)]))
+                    assert(actual == expected, "interleaved %s lanes=" .. n .. " ways=" .. ways .. " first=" .. first .. " at=" .. p .. " actual=" .. actual .. " expected=" .. expected)
+                    cases = cases + 1
+                end
+            end
+        end
+    end
+    return cases
+end
+
 local function run(): number
     local cases = 0
 ]=]
-    ):format(ty, ty, ty, ty, ty, ty, ty)
+    ):format(ty, ty, ty, ty, ty, ty, ty, ty, ty, ty, ty, ty, ty, ty)
     for _, name in ipairs(fields) do
         source[#source + 1] = '    cases = cases + checkFields(' .. name .. ')\n'
+    end
+    for _, name in ipairs(interleaved) do
+        source[#source + 1] = '    cases = cases + checkInterleaved(' .. name .. ')\n'
     end
     for _, probe in ipairs(indexed) do
         source[#source + 1] = ('    cases = cases + checkIndexed(%s, %d)\n'):format(probe[1], probe[2])
@@ -206,7 +270,19 @@ function M.generate(options)
                 family = 'memory',
                 element = ty,
                 lanes = lanes,
-                operations = {'fieldLoad', 'fieldStore', 'gather', 'scatter', 'scatterUnchecked'},
+                operations = {
+                    'fieldLoad',
+                    'fieldStore',
+                    'gather',
+                    'scatter',
+                    'scatterUnchecked',
+                    'loadPairs',
+                    'loadTriples',
+                    'loadQuads',
+                    'storePairs',
+                    'storeTriples',
+                    'storeQuads'
+                },
                 indexTypes = {'int32', 'uint32', 'int64', 'uint64'},
                 tails = '0..lanes',
                 preferredIndexRule = 'same physical element width'

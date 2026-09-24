@@ -890,6 +890,12 @@ record lower.Kernel
     gpuTarget: boolean?
 
     reassignedNames: {[string]: boolean} = {}
+
+    --- Which result of `loadPairs`, `loadTriples` or `loadQuads` the local
+    --- being bound asks for, from zero. Nil everywhere else, which is where
+    --- those loads are refused.
+    interleavedPart: integer?
+
     pending: {scalarIR.Statement} = {}
     expressionFrame: lower.ExpressionFrame?
     valueFrame: lower.ValueFrame?
@@ -1245,8 +1251,15 @@ local function provedCursor(indexArg: cst.Node?, spanName: string?, kernel: lowe
     return nil
 end
 
---- A verified base plus a compile-time vector displacement.
-local function provedVectorCursor(offset: scalarIR.Expr, spanName: string?, kernel: lower.Kernel, room: string): string?
+--- A verified base plus a compile-time vector displacement, with room for
+--- `ways` whole vectors from there -- one unless the access is interleaved.
+local function provedVectorCursor(
+    offset: scalarIR.Expr,
+    spanName: string?,
+    kernel: lower.Kernel,
+    room: string,
+    ways: integer?
+): string?
     local base, species, count = simdbounds.offset(offset)
     if base == nil or species ~= nil and not simdbounds.covers(species, room) then
         return nil
@@ -1254,7 +1267,14 @@ local function provedVectorCursor(offset: scalarIR.Expr, spanName: string?, kern
     local name = (base as scalarIR.Name).name
     local param = spanName ~= nil and kernel.params[spanName as string] or nil
     local counted = param ~= nil and param.soa ~= nil and param.soa.view or spanName
-    if simdbounds.coveredThrough(kernel.cursorBounds, name, counted, kernel.spanBounds, room, (count or 0) + 1) then
+    if simdbounds.coveredThrough(
+        kernel.cursorBounds,
+        name,
+        counted,
+        kernel.spanBounds,
+        room,
+        (count or 0) + (ways or 1)
+    ) then
         return name
     end
 
@@ -3300,6 +3320,117 @@ local function rootedLoad(
 end
 
 --- One operation on a source-visible AOT-only SIMD value.
+--- The species methods that move two to four vectors through one run of
+--- `ways * lanes` elements, lane `i` of vector `j` at element `(i - 1) * ways +
+--- j` of the run.
+local INTERLEAVED: {
+    [string]: integer
+} = {loadPairs = 2, loadTriples = 3, loadQuads = 4, storePairs = 2, storeTriples = 3, storeQuads = 4,}
+
+local INTERLEAVED_NAMES: {[integer]: string} = {[2] = "pairs", [3] = "triples", [4] = "quads"}
+
+--- One result of an interleaved load, or a whole interleaved store.
+---
+--- A load lowers once for each local it binds, as `kernel.interleavedPart`
+--- says, and every result is a load of the whole run: each carries the
+--- bounds proof a single load of that width would, and the C compiler
+--- merges the identical reads into the one instruction that de-interleaves
+--- them.
+local function interleavedAccess(
+    node: cst.MethodCall,
+    receiver: scalarIR.Expr,
+    method: string,
+    raw: {cst.Node},
+    vectorType: scalarIR.Type,
+    element: scalarIR.Type,
+    environment: {[string]: any},
+    activeIndex: string?,
+    kernel: lower.Kernel
+): scalarIR.Expr
+    local source = lower.site(node)
+    local ways = INTERLEAVED[method] or 1
+    local reading = method:sub(1, 4) == "load"
+    local part = kernel.interleavedPart
+    kernel.interleavedPart = nil
+    if #raw ~= (reading and 2 or 2 + ways) then
+        kernel.context.reject(source, "SIMD " .. method .. " has an unsupported argument count")
+    end
+    if reading and (part == nil or (part as integer) >= ways) then
+        kernel.context.reject(
+            source,
+            "SIMD " .. method .. " initializes up to " .. tostring(ways) .. " locals, one per interleaved vector"
+        )
+    end
+    local spanName = lower.nameOf(raw[1])
+    local span = spanName ~= nil and kernel.params[spanName as string] or nil
+    local wantedKind = reading and "read_span" or "write_span"
+    if span == nil
+        or (span.kind ~= wantedKind and not (reading and span.kind == "write_span"))
+        or genericSimdSpanElement(span as scalarIR.Param) ~= element
+    then
+        kernel.context.reject(
+            source,
+            "SIMD " .. method .. " needs a matching " .. (
+                reading and "borrowed Span or WriteSpan" or "exclusive WriteSpan"
+            )
+        )
+    end
+    local offset = lower.convert(
+        lower.expression(raw[2], environment, activeIndex, kernel),
+        "f64",
+        source,
+        kernel.context
+    )
+    local cursor = provedVectorCursor(offset, spanName, kernel, tostring(receiver.type), ways)
+    local cursorBinding = cursor ~= nil and environment[cursor as string] or nil
+    local cursorCName = cursorBinding ~= nil and cursorBinding.cName or nil
+    local intrinsic = (reading and "load_" or "store_") .. tostring(INTERLEAVED_NAMES[ways])
+    if reading then
+        return new scalarIR.Simd(
+            op = "simd_load",
+            args = {receiver, offset},
+            span = spanName,
+            intrinsic = intrinsic,
+            part = part,
+            cursor = cursor,
+            cursorCName = cursorCName,
+            type = vectorType,
+            source = source
+        )
+    end
+    local args: {scalarIR.Expr} = {receiver, offset}
+    for position = 3, 2 + ways do
+        local value = lower.expression(raw[position], environment, activeIndex, kernel)
+        if value.type ~= vectorType then
+            kernel.context.reject(source, "SIMD " .. method .. " values have a different element or species type")
+        end
+        args[#args + 1] = value
+    end
+
+    return new scalarIR.Simd(
+        op = "simd_store",
+        args = args,
+        span = spanName,
+        intrinsic = intrinsic,
+        cursor = cursor,
+        cursorCName = cursorCName,
+        type = "lua_effect",
+        source = source
+    )
+end
+
+--- How many vectors a local initialized by `expression` binds when it is an
+--- interleaved load, or nil.
+local function interleavedLoadWays(expression: cst.Node): integer?
+    if expression.kind ~= "methodCall" then
+        return nil
+    end
+    local name = (expression as cst.MethodCall).name
+    local method = name ~= nil and (name as lexer.Token).text or ""
+
+    return method:sub(1, 4) == "load" and INTERLEAVED[method] or nil
+end
+
 local function simdMethod(
     node: cst.MethodCall,
     environment: {[string]: any},
@@ -3515,6 +3646,18 @@ local function simdMethod(
                 intrinsic = "tail",
                 type = maskType,
                 source = source
+            )
+        elseif genericFamily == "species" and INTERLEAVED[method] ~= nil then
+            return interleavedAccess(
+                node,
+                receiver as scalarIR.Expr,
+                method,
+                raw,
+                vectorType,
+                genericElement as scalarIR.Type,
+                environment,
+                activeIndex,
+                kernel
             )
         elseif genericFamily == "species"
             and (
@@ -5898,7 +6041,16 @@ local function localStmt(
     end
 
     local values: {scalarIR.Expr} = {}
-    if #exprs == 1 then
+    local interleaved = #exprs == 1 and interleavedLoadWays(exprs[1]) or nil
+    if interleaved ~= nil then
+        -- An interleaved load, once per name: each result is its own load of
+        -- the run, and a name past the last vector is an initializer too few.
+        for position = 1, math.min(#names, interleaved as integer) do
+            kernel.interleavedPart = position - 1
+            values[position] = lower.expression(exprs[1], environment, kernel.index, kernel)
+        end
+        kernel.interleavedPart = nil
+    elseif #exprs == 1 then
         local previousType = kernel.expectedType
         kernel.expectedType = annotatedValueType(stat.types ~= nil and (stat.types as {cst.Node})[1] or nil, context)
         local only = lower.expression(exprs[1], environment, kernel.index, kernel)

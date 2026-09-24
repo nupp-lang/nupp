@@ -102,6 +102,21 @@ function simdbounds.coveredThrough(
     return false
 end
 
+local WAYS: {
+    [string]: integer
+} = {load_pairs = 2, load_triples = 3, load_quads = 4, store_pairs = 2, store_triples = 3, store_quads = 4,}
+
+--- How many vectors a contiguous load or store moves: two to four for the
+--- interleaved forms, one for everything else.
+function simdbounds.ways(intrinsic: string?): integer
+    return intrinsic ~= nil and WAYS[intrinsic as string] or 1
+end
+
+--- Whether an intrinsic is one of the interleaved loads or stores.
+function simdbounds.interleaved(intrinsic: string?): boolean
+    return intrinsic ~= nil and WAYS[intrinsic as string] ~= nil
+end
+
 --- A named uint32 cursor, including entry and helper parameters.
 function simdbounds.cursor(value: scalarIR.Expr): scalarIR.Name?
     if value.type == "u32" and (value.op == "local" or value.op == "uniform" or value.op == "helper_param") then

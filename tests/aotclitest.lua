@@ -5351,6 +5351,89 @@ return {lookup = lookup}
     assert(oracle and oracle:find("ks_scalar_exp_swizzle_quad_u8x16(", 1, true), "the oracle walks the lanes\n" .. c)
 end
 
+function M.anInterleavedLoadIsOneLd3AndTheStoreOneSt4()
+    -- Each result of `loadTriples` is its own load of the whole run, proved by
+    -- the loop condition like a load of three vectors; clang reads the run
+    -- once, with `ld3`. `storeQuads` is one store of four vectors, `st4`.
+    -- Outside the proof both take their checked forms, and the scalar oracle
+    -- walks the lanes.
+    local dir = project{
+        [
+            "records.nupp"
+        ] = [[
+local span = require("nupp.mem.span")
+local array = require("nupp.mem.array")
+local simd = require("nupp.simd")
+
+@aot
+local function widen(exclusive output: span.WriteSpan<uint8>, borrows input: span.Span<uint8>): uint32
+    local s = assert(simd.species(array.uint8))
+    local at: uint32 = 0
+    local out: uint32 = 0
+    while at + 3 * s.lanes <= #input and out + 4 * s.lanes <= #output do
+        local r, g, b = s:loadTriples(input, at + 1)
+        s:storeQuads(output, out + 1, b, g, r, s:splat(255))
+        at = at + 3 * s.lanes
+        out = out + 4 * s.lanes
+    end
+    while at + 2 * s.lanes <= #input and out + 2 * s.lanes <= #output do
+        local x, y = s:loadPairs(input, at + 1)
+        s:storePairs(output, out + 1, y, x)
+        at = at + 2 * s.lanes
+        out = out + 2 * s.lanes
+    end
+    local r, g, b = s:loadTriples(input, at + 1)
+    s:storeTriples(output, out + 1, b, g, r)
+    return out
+end
+return {widen = widen}
+]],
+    }
+    local decoded, raw, code = lowered(dir, "--target aarch64-apple-darwin --features neon --json records.nupp")
+    test.equal(code, 0, raw)
+    local c = decoded.c
+    local body = c:match("KS_API uint32_t ks_widen%(.-\n}\n")
+    assert(body, "the entry\n" .. c)
+    for part = 0, 2 do
+        assert(body:find("ks_exp_load_ways_at_u8x16(p_input + (size_t)v", 1, true), "a proved run\n" .. body)
+        assert(body:find(", 3u, " .. part .. "u)", 1, true), "part " .. part .. "\n" .. body)
+    end
+    assert(body:find("ks_exp_store_ways_at_u8x16(p_output + (size_t)v", 1, true), "a proved store\n" .. body)
+    assert(body:find("ks_exp_load_ways_u8x16(p_input, count_input, ", 1, true), "an unproved run is checked\n" .. body)
+    assert(body:find("ks_exp_store_ways_u8x16(p_output, count_output, ", 1, true), "and so is its store\n" .. body)
+    local oracle = c:match("KS_API uint32_t ks_widen_forced_scalar%(.-\n}\n")
+    assert(oracle and oracle:find("ks_scalar_exp_load_ways_at_u8x16(", 1, true), "the oracle walks the lanes\n" .. c)
+    assert(not oracle:find("ks_exp_load_ways", 1, true), "and never takes the native form\n" .. oracle)
+
+    local asm = neonAsm(dir, "records.nupp")
+    if asm ~= nil then
+        local _, reads = asm:gsub("ld3%.16b", "")
+        assert(reads >= 1, "the run is read with ld3\n" .. asm)
+        assert(asm:find("st4.16b", 1, true), "and written with st4\n" .. asm)
+        assert(asm:find("ld2.16b", 1, true) and asm:find("st2.16b", 1, true), "pairs are ld2 and st2\n" .. asm)
+    end
+
+    -- A result is only ever a local's initializer.
+    local refused = project{
+        [
+            "misplaced.nupp"
+        ] = [[
+local span = require("nupp.mem.span")
+local array = require("nupp.mem.array")
+local simd = require("nupp.simd")
+
+@aot
+local function misplaced(exclusive output: span.WriteSpan<uint8>, borrows input: span.Span<uint8>): nil
+    local s = assert(simd.species(array.uint8))
+    s:store(output, 1, s:loadPairs(input, 1) + 1)
+end
+return {misplaced = misplaced}
+]],
+    }
+    local out, refusedCode = run(refused, "--target aarch64-apple-darwin --features neon misplaced.nupp")
+    assert(refusedCode ~= 0 and out:find("initializes up to 2 locals", 1, true), out)
+end
+
 function M.aLoopCarriedMaskStaysInItsRegister()
     -- A mask a loop reassigns is kept in its vector register, so the C
     -- compiler does not carry it as one bit a lane. The scalar oracle has no

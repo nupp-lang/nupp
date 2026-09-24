@@ -923,9 +923,11 @@ function emit.cursorSafe(context: emit.Context, access: scalarIR.Simd): string
         error("cursor access has no matching proved index or species", 0)
     end
 
+    local reach = (count or 0) + simdbounds.ways(access.intrinsic)
+
     return "((uint64_t)" .. tostring(
         access.cursorCName
-    ) .. " + UINT64_C(" .. tostring((count or 0) + 1) .. ") * UINT64_C(" .. tostring(lanes) .. ") <= UINT32_MAX)"
+    ) .. " + UINT64_C(" .. tostring(reach) .. ") * UINT64_C(" .. tostring(lanes) .. ") <= UINT32_MAX)"
 end
 
 local function cursorChoice(context: emit.Context, access: scalarIR.Simd, unchecked: string, checked: string): string
@@ -936,7 +938,8 @@ local function cursorChoice(context: emit.Context, access: scalarIR.Simd, unchec
     if guarded ~= nil then
         local _, _, count = simdbounds.offset(access.args[2])
         local _, _, lanes = explicitType(context, access.args[1].type)
-        if (count or 0) == 0 and lanes ~= nil and (lanes as integer) <= (guarded as integer) then
+        local ways = simdbounds.ways(access.intrinsic)
+        if (count or 0) == 0 and lanes ~= nil and (lanes as integer) * ways <= (guarded as integer) then
             return unchecked
         end
     end
@@ -958,6 +961,27 @@ function emit.genericStore(context: emit.Context, store: scalarIR.Simd): string
     local suffix = element .. "x" .. tostring(lanes)
     local helper = context.explicitScalar and "ks_scalar_exp_" or "ks_exp_"
     local count = emit.spanCount(context, tostring(store.span))
+    if simdbounds.interleaved(store.intrinsic) then
+        -- The vectors travel as one array, the order they interleave in.
+        local vectors: {string} = {}
+        for position = 3, #store.args do
+            vectors[#vectors + 1] = emit.scalar(context, store.args[position])
+        end
+        local ways = tostring(
+            #vectors
+        ) .. "u, (" .. emit.cType(context, store.args[3].type) .. "[]){" .. table.concat(vectors, ", ") .. "}"
+        local checked = helper .. "store_ways_" .. suffix .. "(p_" .. tostring(
+            store.span
+        ) .. ", " .. count .. ", " .. emit.spanFirst(context, store.args[2]) .. ", " .. ways .. ")"
+        if store.cursor ~= nil then
+            local unchecked = helper .. "store_ways_at_" .. suffix .. "(" .. emit.cursorAddress(
+                context,
+                store
+            ) .. ", " .. ways .. ")"
+            return cursorChoice(context, store, unchecked, checked)
+        end
+        return checked
+    end
     local at = "p_" .. tostring(
         store.span
     ) .. ", " .. count .. ", " .. emit.spanFirst(context, store.args[2]) .. ", " .. emit.scalar(context, store.args[3])
@@ -1593,6 +1617,24 @@ function emit.scalar(context: emit.Context, node: scalarIR.Expr): string
                 local count = rooted ~= nil and "ks_length_" .. tostring((rooted as scalarIR.Name).cName)
                     or emit.spanCount(context, tostring(simd.span))
                 local at = pointer .. ", " .. count .. ", " .. emit.spanFirst(context, args[2])
+                if simdbounds.interleaved(simd.intrinsic) then
+                    -- One run of the interleaved vectors; the C compiler reads
+                    -- it once for all of them.
+                    local which = tostring(simdbounds.ways(simd.intrinsic)) .. "u, " .. tostring(simd.part) .. "u"
+                    local checked = genericHelper .. "load_ways_" .. genericSuffix .. "(" .. at .. ", " .. which .. ")"
+                    if simd.cursor ~= nil then
+                        local unchecked = genericHelper
+                            .. "load_ways_at_"
+                            .. genericSuffix
+                            .. "("
+                            .. emit.cursorAddress(
+                                context,
+                                simd
+                            ) .. ", " .. which .. ")"
+                        return cursorChoice(context, simd, unchecked, checked)
+                    end
+                    return checked
+                end
                 local prefix = tailPrefix(context, args[3])
                 local checked = args[3] == nil and genericHelper .. "load_full_" .. genericSuffix .. "(" .. at .. ")"
                     or prefix ~= nil

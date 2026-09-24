@@ -726,7 +726,14 @@ local function vectorCursor(access: scalarIR.Simd, values: {[string]: string}, s
         and access.cursorCName ~= nil
         and values[cursor] == "u32"
         and (species == nil or simdbounds.covers(species, wanted))
-        and simdbounds.coveredThrough(scope.cursorBounds, cursor, counted, scope.countBounds, wanted, (count or 0) + 1)
+        and simdbounds.coveredThrough(
+            scope.cursorBounds,
+            cursor,
+            counted,
+            scope.countBounds,
+            wanted,
+            (count or 0) + simdbounds.ways(access.intrinsic)
+        )
 end
 
 --- Checks one binary64 operation, comparison, or bitwise operation.
@@ -1170,13 +1177,27 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
                 )
             end
         elseif op == "simd_load" then
-            holds(family == "vector" and (#args == 2 or #args == 3), "invalid generic SIMD load")
-            holds(simd.intrinsic == "load" or simd.intrinsic == "gather", "invalid SIMD load addressing")
+            local interleaved = simdbounds.interleaved(simd.intrinsic)
+            holds(family == "vector" and (#args == 2 or #args == 3 and not interleaved), "invalid generic SIMD load")
+            holds(
+                simd.intrinsic == "load" or simd.intrinsic == "gather" or interleaved and simd.rooted == nil,
+                "invalid SIMD load addressing"
+            )
+            -- Each result of an interleaved load names one of its runs.
+            holds(
+                interleaved
+                and simd.part ~= nil
+                and (simd.part as integer) >= 0
+                and (simd.part as integer) < simdbounds.ways(simd.intrinsic)
+                and (simd.part as integer) % 1 == 0
+                or not interleaved and simd.part == nil,
+                "invalid interleaved SIMD load part"
+            )
             holds(
                 args[1].type == "simd_species_" .. tostring(element) .. "_" .. tostring(shape)
                 and (
                     simd.intrinsic == "gather" and simdindices.matches(args[2].type, args[1].type)
-                    or simd.intrinsic == "load" and args[2].type == "f64"
+                    or simd.intrinsic ~= "gather" and args[2].type == "f64"
                 )
                 and (args[3] == nil or args[3].type == "simd_mask_" .. tostring(element) .. "_" .. tostring(shape)),
                 "generic SIMD load operands do not match"
@@ -1214,7 +1235,7 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
             end
             if simd.cursor ~= nil then
                 holds(
-                    simd.intrinsic == "load" and args[3] == nil and vectorCursor(simd, values, scope),
+                    simd.intrinsic ~= "gather" and args[3] == nil and vectorCursor(simd, values, scope),
                     "unbounded SIMD cursor load"
                 )
             end
@@ -2301,11 +2322,28 @@ local function block(
         elseif statement.op == "simd_store" then
             local store = statement as scalarIR.Simd
             local vectorFamily, element, shape = genericSimdType(store.args[3].type)
-            holds(store.type == "lua_effect" and (#store.args == 3 or #store.args == 4), "invalid generic SIMD store")
+            local interleaved = simdbounds.interleaved(store.intrinsic)
             holds(
-                store.intrinsic == "store" or store.intrinsic == "scatter" or store.intrinsic == "scatterUnchecked",
+                store.type == "lua_effect"
+                and (
+                    interleaved and #store.args == 2 + simdbounds.ways(store.intrinsic)
+                    or not interleaved and (#store.args == 3 or #store.args == 4)
+                ),
+                "invalid generic SIMD store"
+            )
+            holds(
+                store.intrinsic == "store"
+                or store.intrinsic == "scatter"
+                or store.intrinsic == "scatterUnchecked"
+                or interleaved,
                 "invalid SIMD store addressing"
             )
+            if interleaved then
+                -- Every vector an interleaved store writes is of one species.
+                for position = 4, #store.args do
+                    holds(store.args[position].type == store.args[3].type, "generic SIMD store operands do not match")
+                end
+            end
             if store.intrinsic == "scatter" then
                 holds(simdindices.unique(store.args[2]), "SIMD scatter lost its index uniqueness proof")
             end
@@ -2313,11 +2351,13 @@ local function block(
                 vectorFamily == "vector"
                 and store.args[1].type == "simd_species_" .. tostring(element) .. "_" .. tostring(shape)
                 and (
-                    store.intrinsic ~= "store" and simdindices.matches(store.args[2].type, store.args[1].type)
-                    or store.intrinsic == "store" and store.args[2].type == "f64"
+                    (store.intrinsic == "scatter" or store.intrinsic == "scatterUnchecked")
+                    and simdindices.matches(store.args[2].type, store.args[1].type)
+                    or (store.intrinsic == "store" or interleaved) and store.args[2].type == "f64"
                 )
                 and (
-                    store.args[4] == nil
+                    interleaved
+                    or store.args[4] == nil
                     or store.args[4].type == "simd_mask_" .. tostring(element) .. "_" .. tostring(shape)
                 ),
                 "generic SIMD store operands do not match"
@@ -2331,7 +2371,8 @@ local function block(
             )
             if store.cursor ~= nil then
                 holds(
-                    store.intrinsic == "store" and store.args[4] == nil and vectorCursor(store, values, scope),
+                    (store.intrinsic == "store" and store.args[4] == nil or interleaved)
+                    and vectorCursor(store, values, scope),
                     "unbounded SIMD cursor store"
                 )
             end

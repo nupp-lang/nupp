@@ -1521,6 +1521,84 @@ sealed interface simd.Species<T, S>
             active: simd.Mask<T, S>?
         ): nil
 
+    --- The next `2 * lanes` elements from `offset`, dealt out a lane at a
+    --- time: the first vector holds the elements at odd positions of the run
+    --- and the second those at even ones, so interleaved pairs arrive as two
+    --- vectors of their halves. Elements past the span read zero. The
+    --- results initialize locals, `local re, im = s:loadPairs(zs, at + 1)`.
+    ---
+    --- On NEON this is one `ld2`; `loadTriples` and `loadQuads` are `ld3` and
+    --- `ld4`, which is what a three-byte or four-byte record costs to
+    --- de-interleave there.
+    loadPairs: function(
+        borrows self: simd.Species<T, S>,
+        borrows source: Span<T>,
+        offset: integer
+    ): (simd.Vector<T, S>, simd.Vector<T, S>)
+        & function(
+            borrows self: simd.Species<T, S>,
+            borrows source: WriteSpan<T>,
+            offset: integer
+        ): (simd.Vector<T, S>, simd.Vector<T, S>)
+
+    --- The next `3 * lanes` elements, lane `i` of the `j`th vector reading
+    --- element `3 * (i - 1) + j` of the run.
+    loadTriples: function(
+        borrows self: simd.Species<T, S>,
+        borrows source: Span<T>,
+        offset: integer
+    ): (simd.Vector<T, S>, simd.Vector<T, S>, simd.Vector<T, S>)
+        & function(
+            borrows self: simd.Species<T, S>,
+            borrows source: WriteSpan<T>,
+            offset: integer
+        ): (simd.Vector<T, S>, simd.Vector<T, S>, simd.Vector<T, S>)
+
+    --- The next `4 * lanes` elements, lane `i` of the `j`th vector reading
+    --- element `4 * (i - 1) + j` of the run.
+    loadQuads: function(
+        borrows self: simd.Species<T, S>,
+        borrows source: Span<T>,
+        offset: integer
+    ): (simd.Vector<T, S>, simd.Vector<T, S>, simd.Vector<T, S>, simd.Vector<T, S>)
+        & function(
+            borrows self: simd.Species<T, S>,
+            borrows source: WriteSpan<T>,
+            offset: integer
+        ): (simd.Vector<T, S>, simd.Vector<T, S>, simd.Vector<T, S>, simd.Vector<T, S>)
+
+    --- The inverse of `loadPairs`: `2 * lanes` elements from `offset`,
+    --- alternating a lane of `first` with the same lane of `second`. Elements
+    --- past the span are not written.
+    storePairs: function(
+        borrows self: simd.Species<T, S>,
+        exclusive destination: WriteSpan<T>,
+        offset: integer,
+        first: simd.Vector<T, S>,
+        second: simd.Vector<T, S>
+    ): nil
+
+    --- The inverse of `loadTriples`.
+    storeTriples: function(
+        borrows self: simd.Species<T, S>,
+        exclusive destination: WriteSpan<T>,
+        offset: integer,
+        first: simd.Vector<T, S>,
+        second: simd.Vector<T, S>,
+        third: simd.Vector<T, S>
+    ): nil
+
+    --- The inverse of `loadQuads`.
+    storeQuads: function(
+        borrows self: simd.Species<T, S>,
+        exclusive destination: WriteSpan<T>,
+        offset: integer,
+        first: simd.Vector<T, S>,
+        second: simd.Vector<T, S>,
+        third: simd.Vector<T, S>,
+        fourth: simd.Vector<T, S>
+    ): nil
+
     --- Reads one-based element indices. Inactive or out-of-range lanes return
     --- zero. Indices use int32, uint32, int64 or uint64 and must have the same
     --- logical lane count as this species at every emitted tier.

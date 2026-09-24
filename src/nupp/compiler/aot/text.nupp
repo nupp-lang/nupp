@@ -253,6 +253,9 @@ function text.expression(node: scalarIR.Expr): string
         if simd.helper ~= nil then
             values[#values + 1] = "helper:" .. (simd.helper as string)
         end
+        if simd.part ~= nil then
+            values[#values + 1] = "part:" .. tostring(simd.part)
+        end
         local name = tostring(op) .. (simd.intrinsic ~= nil and "." .. (simd.intrinsic as string) or "")
         return name .. ":" .. simd.type .. "(" .. table.concat(values, ", ") .. ")"
     elseif text.ONE_OPERAND[tostring(op)] == true then

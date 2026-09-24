@@ -456,7 +456,7 @@ function M.witnesses(pack, identity, generated)
         return result
     end
 
-    validateProbes(generated, 793)
+    validateProbes(generated, 841)
     local packs, converted = {}, {}
     for _, item in ipairs(generated.coverage) do
         if item.pack then

@@ -81,6 +81,21 @@ while live:any() do
 end
 ```
 
+## Interleaved records
+
+Records of two to four elements stored one after another, like pixels or the bytes of a Base64 group, load a field to a vector with `species:loadPairs`, `loadTriples` or `loadQuads`. Each one reads the next `ways * lanes` elements and gives vector `j` elements `j`, `j + ways`, and so on. `storePairs`, `storeTriples` and `storeQuads` do the reverse. The results can only initialize locals:
+
+```nupp
+while at + 3 * species.lanes <= #rgb and out + 4 * species.lanes <= #rgba do
+    local r, g, b = species:loadTriples(rgb, at + 1)
+    species:storeQuads(rgba, out + 1, r, g, b, species:splat(255))
+    at = at + 3 * species.lanes
+    out = out + 4 * species.lanes
+end
+```
+
+A guard for the whole run makes each access a single copy. On NEON that is `ld2`, `ld3` or `ld4` and `st2`, `st3` or `st4`. A run that crosses the end of the span reads zero past it and writes nothing there, one lane at a time. The same layout change written as rounds of `deinterleave` or a stride-three `swizzle` costs several shuffles, where the load instruction does it for free.
+
 ## Table lookups
 
 `value:swizzle(indices)` reads lane `indices[i]` of `value` into lane `i`, and zero where the index is outside `1..lanes`. A small table is a vector, so a lookup is one swizzle. Up to three more vectors continue the run of lanes: an index in `lanes+1..2*lanes` reads the second, and so on through the fourth. A sixty-four-byte alphabet on a sixteen-lane byte species is four table vectors and one lookup:
