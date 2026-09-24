@@ -567,6 +567,7 @@ local impactSliceSafe = {}
 local selectionReport = nil
 local selectionRequestedSuites = nil
 local selectionRequestedCases = nil
+local selectionRequestedCaseScope = false
 if impactObserver then
     impactObserve.activate(impactObserver)
 end
@@ -1142,6 +1143,7 @@ end)
 local impactStamps = nil
 local impactGraph = nil
 local impactSuiteSliceSafe = nil
+local runnablePlan = nil
 if diffRequested then
     local requestedSuites = {}
     for _, info in ipairs(suites) do
@@ -1154,6 +1156,7 @@ if diffRequested then
     local requestedCaseTotal = chosenCaseCount
     selectionRequestedSuites = requestedSuites
     selectionRequestedCases = requestedCases
+    selectionRequestedCaseScope = requestedCaseTotal > 0
     local impactDiff = require("nupp.compiler.testimpact.diff")
     local discoveredDiff = impactDiff.discover({cwd = ".", ref = diffRef})
     if not discoveredDiff.available then
@@ -1287,15 +1290,95 @@ if diffRequested then
         end
     end
 
+    -- Turn the selection into the runnable shape before prediction, lane
+    -- filtering, and sharding. The graph's case catalog is exact for its
+    -- revision, so selecting that complete catalog is equivalent to selecting
+    -- the whole suite. Keep the exact IDs as validation witnesses even after
+    -- coalescing: workers must still acknowledge every ID the query selected.
+    local graphCatalog = {}
+    if impactGraph then
+        for suiteId, pathId in ipairs(impactGraph.suites or {}) do
+            local name = suiteName(impactGraph.paths and impactGraph.paths[pathId])
+            if name then
+                graphCatalog[name] = {cases = {}, count = 0,}
+            end
+        end
+        for _, item in ipairs(impactGraph.cases or {}) do
+            local pathId = impactGraph.suites and impactGraph.suites[item[1]]
+            local name = suiteName(impactGraph.paths and impactGraph.paths[pathId])
+            local catalog = name and graphCatalog[name] or nil
+            local caseName = item[2]
+            if catalog and type(caseName) == "string" and not catalog.cases[caseName] then
+                catalog.cases[caseName] = true
+                catalog.count = catalog.count + 1
+            end
+        end
+    end
+    runnablePlan = {}
+    for _, info in ipairs(suites) do
+        local prefix = info.name .. "/"
+        local caseIds = {}
+        local caseNames = {}
+        for id in pairs(chosenCases) do
+            if id:sub(1, #prefix) == prefix then
+                caseIds[#caseIds + 1] = id
+                caseNames[#caseNames + 1] = id:sub(#prefix + 1)
+            end
+        end
+        table.sort(caseIds)
+        table.sort(caseNames)
+
+        local whole = wholeSuites[info.name] == true or (selected.completeScope == true and requestedCaseTotal == 0)
+        local catalog = graphCatalog[info.name]
+        local catalogEqual = catalog ~= nil and #caseNames == catalog.count
+        if catalogEqual then
+            for _, caseName in ipairs(caseNames) do
+                if not catalog.cases[caseName] then
+                    catalogEqual = false
+                    break
+                end
+            end
+        end
+        if not whole and #caseNames > 0 and catalogEqual then
+            whole = true
+            wholeSuites[info.name] = true
+        end
+
+        local sliceSafe = nil
+        if impactSuiteSliceSafe then
+            sliceSafe = impactSuiteSliceSafe[info.name]
+        end
+        -- An ID absent from the recorded catalog proves that the positive shape
+        -- fact cannot describe this request. Run it as one piece so validation
+        -- fails before lifecycle state or duplicate top-level discovery.
+        if catalog and #caseNames > 0 then
+            for _, caseName in ipairs(caseNames) do
+                if not catalog.cases[caseName] then
+                    sliceSafe = false
+                    break
+                end
+            end
+        elseif #caseNames > 0 then
+            sliceSafe = false
+        end
+
+        runnablePlan[info.name] = {whole = whole, caseIds = caseIds, caseNames = caseNames, sliceSafe = sliceSafe,}
+    end
+
     local selectedSuiteNames = {}
     for _, info in ipairs(suites) do
-        if wholeSuites[info.name] or selected.completeScope then
+        if runnablePlan[info.name] and runnablePlan[info.name].whole then
             selectedSuiteNames[#selectedSuiteNames + 1] = info.name
         end
     end
     local selectedCaseIds = {}
-    for id in pairs(chosenCases) do
-        selectedCaseIds[#selectedCaseIds + 1] = id
+    for _, info in ipairs(suites) do
+        local plan = runnablePlan[info.name]
+        if plan and not plan.whole then
+            for _, id in ipairs(plan.caseIds) do
+                selectedCaseIds[#selectedCaseIds + 1] = id
+            end
+        end
     end
     table.sort(selectedSuiteNames)
     table.sort(selectedCaseIds)
@@ -1355,6 +1438,7 @@ if diffRequested then
         chosenCases = requestedCases
         chosenCaseCount = requestedCaseTotal
         wholeSuites = {}
+        runnablePlan = nil
     end
     local stream = asJson and io.stderr or io.stdout
     stream:write(
@@ -2013,7 +2097,11 @@ local function recordedCaseTimings(suite)
     return type(per) == "table" and per or {}
 end
 
-if selectionReport then
+local function updateSelectionPrediction()
+    if not selectionReport then
+        return
+    end
+
     local function predictedWork(suiteNames, caseIds)
         local work = 0
         local whole = {}
@@ -2049,7 +2137,7 @@ if selectionReport then
     for id in pairs(selectionRequestedCases or {}) do
         requestedCaseIds[#requestedCaseIds + 1] = id
     end
-    if #requestedCaseIds > 0 then
+    if selectionRequestedCaseScope then
         requestedSuiteNames = {}
     end
     table.sort(requestedSuiteNames)
@@ -2060,6 +2148,8 @@ if selectionReport then
         and selectionReport.predictedSavingsMs / selectionReport.requestedWorkMs * 100
         or 0
 end
+
+updateSelectionPrediction()
 
 --- Which slice each case of a suite belongs to.
 ---
@@ -2231,9 +2321,14 @@ local function planWork(list, shards, timings)
         end
         local overhead = measuredCases > 0 and math.max(0, fullCost - fullCaseWork) or 0
         local names = {}
-        local whole = chosenCaseCount == 0 or wholeSuites[suite.name]
+        local normalized = runnablePlan and runnablePlan[suite.name]
+        local whole = normalized and normalized.whole or chosenCaseCount == 0 or wholeSuites[suite.name]
         if whole then
             for name in pairs(caseCosts) do
+                names[#names + 1] = name
+            end
+        elseif normalized then
+            for _, name in ipairs(normalized.caseNames) do
                 names[#names + 1] = name
             end
         else
@@ -2255,7 +2350,15 @@ local function planWork(list, shards, timings)
         end
         costs[
             #costs + 1
-        ] = {name = suite.name, cost = cost, caseCosts = caseCosts, names = names, overhead = overhead, whole = whole,}
+        ] = {
+            name = suite.name,
+            cost = cost,
+            caseCosts = caseCosts,
+            names = names,
+            overhead = overhead,
+            whole = whole,
+            normalized = normalized,
+        }
         planned = planned + cost
     end
 
@@ -2284,7 +2387,15 @@ local function planWork(list, shards, timings)
         -- defense, but cannot prevent each discarded piece from loading the suite.
         -- Ordinary runs have no recorded fact here and retain their existing plan.
         local recordedSliceSafe = impactSuiteSliceSafe and impactSuiteSliceSafe[item.name]
-        if item.whole and recordedSliceSafe ~= false and target > 0 and item.cost > target then
+        local maySlice = item.whole and recordedSliceSafe ~= false
+        if item.normalized then
+            if item.normalized.sliceSafe ~= nil then
+                maySlice = item.normalized.sliceSafe == true
+            elseif not item.whole then
+                maySlice = false
+            end
+        end
+        if maySlice and target > 0 and item.cost > target then
             pieces = math.ceil(item.cost / target)
             if #names > 0 then
                 pieces = math.min(pieces, #names)
@@ -2484,17 +2595,49 @@ if lane then
         end
     end
     suites = kept
-    if selectionReport then
-        local allowed = {}
-        for _, info in ipairs(suites) do
-            allowed[info.name] = true
+    local allowed = {}
+    for _, info in ipairs(suites) do
+        allowed[info.name] = true
+    end
+    for id in pairs(chosenCases) do
+        local name = id:match("^(.-)/")
+        if not name or not allowed[name] then
+            chosenCases[id] = nil
+            chosenCaseCount = chosenCaseCount - 1
         end
+    end
+    for name in pairs(wholeSuites) do
+        if not allowed[name] then
+            wholeSuites[name] = nil
+        end
+    end
+    if runnablePlan then
+        for name in pairs(runnablePlan) do
+            if not allowed[name] then
+                runnablePlan[name] = nil
+            end
+        end
+    end
+    local requestedAllowed = {}
+    local keptRequestedSuites = {}
+    for _, info in ipairs(selectionRequestedSuites or {}) do
+        if lane == suiteLane(info) then
+            requestedAllowed[info.name] = true
+            keptRequestedSuites[#keptRequestedSuites + 1] = info
+        end
+    end
+    selectionRequestedSuites = keptRequestedSuites
+    for id in pairs(selectionRequestedCases or {}) do
+        local name = id:match("^(.-)/")
+        if not name or not requestedAllowed[name] then
+            selectionRequestedCases[id] = nil
+        end
+    end
+    if selectionReport then
         local selectedSuites = {}
         for _, name in ipairs(selectionReport.selectedSuites) do
             if allowed[name] then
                 selectedSuites[#selectedSuites + 1] = name
-            else
-                wholeSuites[name] = nil
             end
         end
         local selectedCases = {}
@@ -2502,13 +2645,35 @@ if lane then
             local name = id:match("^(.-)/")
             if name and allowed[name] then
                 selectedCases[#selectedCases + 1] = id
-            elseif chosenCases[id] then
-                chosenCases[id] = nil
-                chosenCaseCount = chosenCaseCount - 1
             end
         end
         selectionReport.selectedSuites = testJson.asArray(selectedSuites)
         selectionReport.selectedCases = testJson.asArray(selectedCases)
+        local selectionReasons = {}
+        for _, reason in ipairs(selectionReport.reasons) do
+            if not reason.suite or allowed[reason.suite] then
+                selectionReasons[#selectionReasons + 1] = reason
+            end
+        end
+        selectionReport.reasons = testJson.asArray(selectionReasons)
+
+        local function filterOwners(records)
+            local filtered = {}
+            for _, record in ipairs(records) do
+                local owner = record.owner
+                local file = type(owner) == "string" and owner:gsub("\\", "/"):match("([^/]+)$") or nil
+                local name = file and file:match("^(.*test)%.[^.]+$") or (owner and byName[owner] and owner or nil)
+                if not name or allowed[name] then
+                    filtered[#filtered + 1] = record
+                end
+            end
+
+            return testJson.asArray(filtered)
+        end
+
+        selectionReport.promotions = filterOwners(selectionReport.promotions)
+        selectionReport.fallbacks = filterOwners(selectionReport.fallbacks)
+        updateSelectionPrediction()
         if #suites == 0 then
             selectionReport.emptyReason = selectionReport.emptyReason or "outside-requested-scope"
         end

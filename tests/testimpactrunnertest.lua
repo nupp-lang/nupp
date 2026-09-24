@@ -84,6 +84,20 @@ local function reasonWithCode(reasons, wanted)
     end
 end
 
+local function plannedPieces(report, suite)
+    local count = 0
+    for _, shard in ipairs(report.shards or {}) do
+        for _, spec in ipairs(shard.specs or {}) do
+            local name = tostring(spec):match("^(.-)#") or spec
+            if name == suite then
+                count = count + 1
+            end
+        end
+    end
+
+    return count
+end
+
 function M.completeRunPublishesAndDiffSelectsCasesConservatively()
     local directory = os.tmpname()
     os.remove(directory)
@@ -99,6 +113,8 @@ function M.completeRunPublishesAndDiffSelectsCasesConservatively()
     write(directory .. "/src/leaf.nupp", "return {value = 41}\n")
     write(directory .. "/src/other.nupp", "return {value = 1}\n")
     write(directory .. "/src/hookleaf.nupp", "return {value = 2}\n")
+    write(directory .. "/src/planall.nupp", "return {value = 40}\n")
+    write(directory .. "/src/planshared.nupp", "return {value = 2}\n")
     write(directory .. "/failing-project/nupp.lua", 'return {include = {"src"}, build = {entries = {"main"}}}\n')
     write(directory .. "/failing-project/src/main.g.nupp", 'return require("leaf")\n')
     write(directory .. "/failing-project/src/leaf.g.nupp", "local =\n")
@@ -168,6 +184,20 @@ return M
 ]]
     )
     write(
+        directory .. "/tests/hookpeerimpacttest.nupp",
+        [[
+local test = require("nupp.test")
+local M = {}
+
+function M.peer(): nil
+    local leaf = require("hookleaf")
+    test.equal(leaf.value, 2)
+end
+
+return M
+]]
+    )
+    write(
         directory .. "/tests/shapeshifttest.nupp",
         [[
 local test = require("nupp.test")
@@ -179,6 +209,52 @@ end
 
 function M.second(): nil
     test.equal(6 * 7, 42)
+end
+
+return M
+]]
+    )
+    write(
+        directory .. "/tests/planimpacttest.nupp",
+        [[
+local test = require("nupp.test")
+local M = {}
+
+function M.alpha(): nil
+    local all = require("planall")
+    local shared = require("planshared")
+    test.equal(all.value + shared.value, 42)
+end
+
+function M.beta(): nil
+    local all = require("planall")
+    local shared = require("planshared")
+    test.equal(all.value + shared.value, 42)
+end
+
+function M.gamma(): nil
+    local all = require("planall")
+    test.equal(all.value + 2, 42)
+end
+
+function M.delta(): nil
+    local all = require("planall")
+    test.equal(all.value + 2, 42)
+end
+
+return M
+]]
+    )
+    write(
+        directory .. "/tests/planpeerimpacttest.nupp",
+        [[
+local test = require("nupp.test")
+local M = {}
+
+function M.peer(): nil
+    local all = require("planall")
+    local shared = require("planshared")
+    test.equal(all.value + shared.value, 42)
 end
 
 return M
@@ -295,7 +371,7 @@ return {passes = function() assert(true) end}
     local fullOutput, fullStatus, fullCommand = run(directory, "--jobs=2 --json", true)
     test.equal(fullStatus, 0, fullCommand .. " failed:\n" .. fullOutput)
     local full = json.decode(fullOutput)
-    test.equal(full.total, 15)
+    test.equal(full.total, 21)
     local cache = directory .. "/build/.nupp-test-impact.buf"
     test.assert(exists(cache), "a complete successful clean run did not publish " .. cache)
     test.assert(
@@ -303,6 +379,118 @@ return {passes = function() assert(true) end}
         "an abandoned impact fragment directory was not cleaned"
     )
     test.assert(#read(cache) > 0, "the published impact graph was empty")
+
+    local function seedPlanTimings()
+        write(
+            directory .. "/build/.nupp-test-times.json",
+            [[
+{"suites":{"planimpacttest":4000,"planpeerimpacttest":100,"hookimpacttest":2000,"hookpeerimpacttest":100,"unrelatedtest":500},
+ "cases":{"planimpacttest":{"alpha":1000,"beta":1000,"gamma":1000,"delta":1000},
+          "planpeerimpacttest":{"peer":100},
+          "hookimpacttest":{"usesHookLeaf":1000,"hookPeer":1000},
+          "hookpeerimpacttest":{"peer":100},
+          "unrelatedtest":{"passes":500}}}
+]]
+        )
+    end
+
+    seedPlanTimings()
+    write(directory .. "/src/planshared.nupp", "return {value = 2, changed = true}\n")
+    local partialOutput, partialStatus, partialCommand = run(
+        directory,
+        "planimpacttest planpeerimpacttest --diff --jobs=2 --json",
+        true
+    )
+    test.equal(partialStatus, 0, partialCommand .. " failed:\n" .. partialOutput)
+    local partial = json.decode(partialOutput)
+    test.equal(partial.total, 3, partialOutput)
+    test.assert(contains(partial.selection.selectedCases, "planimpacttest/alpha"))
+    test.assert(contains(partial.selection.selectedCases, "planimpacttest/beta"))
+    test.equal(plannedPieces(partial, "planimpacttest"), 2, partialOutput)
+    shell(directory, "git checkout -q -- src/planshared.nupp")
+
+    seedPlanTimings()
+    write(directory .. "/src/planall.nupp", "return {value = 40, changed = true}\n")
+    local wholeOutput, wholeStatus, wholeCommand = run(
+        directory,
+        "planimpacttest planpeerimpacttest --diff --jobs=2 --json",
+        true
+    )
+    test.equal(wholeStatus, 0, wholeCommand .. " failed:\n" .. wholeOutput)
+    local whole = json.decode(wholeOutput)
+    test.equal(whole.total, 5, wholeOutput)
+    test.assert(contains(whole.selection.selectedSuites, "planimpacttest"))
+    test.equal(#whole.selection.selectedCases, 0)
+    local wholePieces = plannedPieces(whole, "planimpacttest")
+    test.assert(wholePieces > 1, "a complete safe case catalog did not coalesce and shard:\n" .. wholeOutput)
+    local laneFilteredOutput, laneFilteredStatus, laneFilteredCommand = run(
+        directory,
+        "planimpacttest planpeerimpacttest --diff --lane=shell --jobs=2 --json",
+        true
+    )
+    test.equal(laneFilteredStatus, 0, laneFilteredCommand .. " failed:\n" .. laneFilteredOutput)
+    local laneFiltered = json.decode(laneFilteredOutput)
+    test.equal(laneFiltered.total, 0, laneFilteredOutput)
+    test.equal(laneFiltered.selection.emptyReason, "outside-requested-scope")
+    shell(directory, "git checkout -q -- src/planall.nupp")
+
+    seedPlanTimings()
+    local statefulDiscoveries = lineCount(directory .. "/build/hook-impact-discoveries")
+    local statefulHooks = lineCount(directory .. "/build/hook-impact-before-all")
+    write(directory .. "/src/hookleaf.nupp", "return {value = 2, changed = true}\n")
+    local statefulOutput, statefulStatus, statefulCommand = run(
+        directory,
+        "--diff --case=hookimpacttest/usesHookLeaf --case=hookpeerimpacttest/peer --jobs=2 --json",
+        true
+    )
+    test.equal(statefulStatus, 0, statefulCommand .. " failed:\n" .. statefulOutput)
+    local stateful = json.decode(statefulOutput)
+    test.equal(stateful.total, 2, statefulOutput)
+    test.assert(contains(stateful.selection.selectedCases, "hookimpacttest/usesHookLeaf"))
+    test.equal(plannedPieces(stateful, "hookimpacttest"), 1, statefulOutput)
+    test.equal(lineCount(directory .. "/build/hook-impact-discoveries") - statefulDiscoveries, 1)
+    test.equal(lineCount(directory .. "/build/hook-impact-before-all") - statefulHooks, 1)
+    shell(directory, "git checkout -q -- src/hookleaf.nupp")
+
+    seedPlanTimings()
+    local unsafeDiscoveries = lineCount(directory .. "/build/hook-impact-discoveries")
+    local unsafeHooks = lineCount(directory .. "/build/hook-impact-before-all")
+    write(directory .. "/src/hookleaf.nupp", "return {value = 2, changed = true}\n")
+    local unsafeOutput, unsafeStatus, unsafeCommand = run(
+        directory,
+        "--diff --case=hookimpacttest/usesHookLeaf --case=hookimpacttest/hookPeer "
+        .. "--case=hookpeerimpacttest/peer --jobs=2 --json",
+        true
+    )
+    test.equal(unsafeStatus, 0, unsafeCommand .. " failed:\n" .. unsafeOutput)
+    local unsafe = json.decode(unsafeOutput)
+    test.equal(unsafe.total, 3, unsafeOutput)
+    test.assert(contains(unsafe.selection.selectedSuites, "hookimpacttest"))
+    test.equal(#unsafe.selection.selectedCases, 0)
+    test.equal(plannedPieces(unsafe, "hookimpacttest"), 1, unsafeOutput)
+    test.equal(lineCount(directory .. "/build/hook-impact-discoveries") - unsafeDiscoveries, 1)
+    test.equal(lineCount(directory .. "/build/hook-impact-before-all") - unsafeHooks, 1)
+    shell(directory, "git checkout -q -- src/hookleaf.nupp")
+
+    seedPlanTimings()
+    local guardDiscoveries = lineCount(directory .. "/build/hook-impact-discoveries")
+    local guardHooks = lineCount(directory .. "/build/hook-impact-before-all")
+    write(directory .. "/src/hookleaf.nupp", "return {value = 2, changed = true}\n")
+    local guardOutput, guardStatus, guardCommand = run(
+        directory,
+        "--diff --case=hookimpacttest/usesHookLeaf --case=hookimpacttest/hookPeer "
+        .. "--case=hookimpacttest/missing --case=hookpeerimpacttest/peer --jobs=2 --json",
+        false
+    )
+    test.equal(guardStatus, 2, guardCommand .. " did not reject a missing selected ID:\n" .. guardOutput)
+    test.matches(guardOutput, "no test case named hookimpacttest/missing")
+    test.assert(
+        not guardOutput:match("no test case named [^\n]*hookimpacttest/usesHookLeaf"),
+        "the coalescing guard lost a valid worker acknowledgment:\n" .. guardOutput
+    )
+    test.equal(lineCount(directory .. "/build/hook-impact-discoveries") - guardDiscoveries, 1)
+    test.equal(lineCount(directory .. "/build/hook-impact-before-all") - guardHooks, 0)
+    shell(directory, "git checkout -q -- src/hookleaf.nupp")
 
     for _, side in ipairs({"a", "b"}) do
         local other = side == "a" and "b" or "a"
@@ -333,7 +521,7 @@ return {passes = function() assert(true) end}
     shell(directory, "git commit -qm exercise-noncheck-failures")
     local commandOutput, commandStatus, commandLine = run(directory, "--jobs=2 --json", true)
     test.equal(commandStatus, 0, commandLine .. " failed:\n" .. commandOutput)
-    test.equal(json.decode(commandOutput).total, 15)
+    test.equal(json.decode(commandOutput).total, 21)
     write(directory .. "/nupp.lua", 'return {include = {"src"}, build = {entries = {"main"}, optimize = 1}}\n')
     local commandListing, commandListingStatus, commandListingLine = run(directory, "--diff --list-cases", false)
     test.equal(commandListingStatus, 0, commandListingLine .. " failed:\n" .. commandListing)
@@ -344,7 +532,7 @@ return {passes = function() assert(true) end}
     shell(directory, "git commit -qm stabilize-process-impact")
     local refreshedOutput, refreshedStatus, refreshedCommand = run(directory, "--jobs=2 --json", true)
     test.equal(refreshedStatus, 0, refreshedCommand .. " failed:\n" .. refreshedOutput)
-    test.equal(json.decode(refreshedOutput).total, 15)
+    test.equal(json.decode(refreshedOutput).total, 21)
 
     write(
         directory .. "/successful-project/nupp.lua",
@@ -457,13 +645,37 @@ return M
     test.assert(type(selected.selection.requestedWorkMs) == "number")
     test.assert(type(selected.selection.predictedSavingsPercent) == "number")
 
+    for _, expectation in ipairs({
+        {lane = "shared", id = "planimpacttest/alpha"},
+        {lane = "shell", id = "leafimpacttest/usesLeaf"},
+    }) do
+        local shadowLaneOutput, shadowLaneStatus, shadowLaneCommand = run(
+            directory,
+            (
+                "--diff --shadow --lane=%s --case=leafimpacttest/usesLeaf "
+            ):format(expectation.lane) .. "--case=planimpacttest/alpha --jobs=1 --json",
+            true
+        )
+        test.equal(shadowLaneStatus, 0, shadowLaneCommand .. " failed:\n" .. shadowLaneOutput)
+        local shadowLane = json.decode(shadowLaneOutput)
+        test.equal(shadowLane.total, 1, shadowLaneOutput)
+        test.equal(shadowLane.tests[1].id, expectation.id)
+        for _, reason in ipairs(shadowLane.selection.reasons) do
+            if expectation.lane == "shared" then
+                test.assert(reason.suite ~= "leafimpacttest", shadowLaneOutput)
+            end
+        end
+    end
+
     local mixedHookBefore = lineCount(directory .. "/build/hook-impact-before-all")
     local mixedDiscoveryBefore = lineCount(directory .. "/build/hook-impact-discoveries")
+    seedPlanTimings()
     write(directory .. "/src/hookleaf.nupp", "return {value = 2, changed = true}\n")
+    write(directory .. "/src/planshared.nupp", "return {value = 2, changed = true}\n")
     local mixedOutput, mixedStatus, mixedCommand = run(directory, "--diff --jobs=2 --json", true)
     test.equal(mixedStatus, 0, mixedCommand .. " failed:\n" .. mixedOutput)
     local mixed = json.decode(mixedOutput)
-    test.equal(mixed.total, 3)
+    test.equal(mixed.total, 7)
     local mixedIds = {}
     for _, record in ipairs(mixed.tests) do
         mixedIds[record.id] = true
@@ -472,6 +684,12 @@ return M
     test.assert(not mixedIds["leafimpacttest/usesOther"])
     test.assert(mixedIds["hookimpacttest/usesHookLeaf"])
     test.assert(mixedIds["hookimpacttest/hookPeer"])
+    test.assert(mixedIds["hookpeerimpacttest/peer"])
+    test.assert(mixedIds["planimpacttest/alpha"])
+    test.assert(mixedIds["planimpacttest/beta"])
+    test.assert(not mixedIds["planimpacttest/gamma"])
+    test.assert(not mixedIds["planimpacttest/delta"])
+    test.assert(mixedIds["planpeerimpacttest/peer"])
     test.assert(contains(mixed.selection.selectedCases, "leafimpacttest/usesLeaf"))
     test.assert(contains(mixed.selection.selectedSuites, "hookimpacttest"))
     local shardedSuites = {}
@@ -487,14 +705,31 @@ return M
         "the whole-suite promotion bypassed the worker queue" .. schedulingEvidence
     )
     test.assert(#mixed.shards >= 2, "mixed case and suite selection did not use parallel workers")
+    test.equal(plannedPieces(mixed, "planimpacttest"), 2, mixedOutput)
+    test.equal(plannedPieces(mixed, "hookimpacttest"), 1, mixedOutput)
     test.equal(lineCount(directory .. "/build/hook-impact-before-all") - mixedHookBefore, 1)
     test.equal(lineCount(directory .. "/build/hook-impact-discoveries") - mixedDiscoveryBefore, 1)
+
+    seedPlanTimings()
+    local lanePlanOutput, lanePlanStatus, lanePlanCommand = run(directory, "--diff --lane=shared --jobs=2 --json", true)
+    test.equal(lanePlanStatus, 0, lanePlanCommand .. " failed:\n" .. lanePlanOutput)
+    local lanePlan = json.decode(lanePlanOutput)
+    test.equal(lanePlan.total, 6, lanePlanOutput)
+    test.equal(lanePlan.selection.selectedWorkMs, 4200)
+    test.equal(lanePlan.selection.requestedWorkMs, 6700)
+    test.equal(lanePlan.selection.predictedSavingsMs, 2500)
+    for _, reason in ipairs(lanePlan.selection.reasons) do
+        test.assert(reason.suite ~= "leafimpacttest", lanePlanOutput)
+    end
+    test.assert(not contains(lanePlan.selection.selectedCases, "leafimpacttest/usesLeaf"))
+    test.assert(not contains(lanePlan.selection.selectedSuites, "leafimpacttest"))
     shell(directory, "git checkout -q -- src/hookleaf.nupp")
+    shell(directory, "git checkout -q -- src/planshared.nupp")
 
     local shadowOutput, shadowStatus, shadowCommand = run(directory, "--diff --shadow --jobs=1 --json", true)
     test.equal(shadowStatus, 0, shadowCommand .. " failed:\n" .. shadowOutput)
     local shadow = json.decode(shadowOutput)
-    test.equal(shadow.total, 15)
+    test.equal(shadow.total, 21)
     test.equal(shadow.selection.shadow, true)
     test.assert(contains(shadow.selection.selectedCases, "leafimpacttest/usesLeaf"))
 
@@ -562,19 +797,31 @@ return M
     local promotedOutput, promotedStatus, promotedCommand = run(directory, "--diff --jobs=1 --json", true)
     test.equal(promotedStatus, 0, promotedCommand .. " failed:\n" .. promotedOutput)
     local promoted = json.decode(promotedOutput)
-    test.equal(promoted.total, 2, promotedOutput)
+    test.equal(promoted.total, 3, promotedOutput)
     test.assert(contains(promoted.selection.selectedSuites, "hookimpacttest"))
     test.equal(#promoted.selection.selectedCases, 0)
     test.assert(#promoted.selection.promotions > 0)
 
     assert(os.remove(cache))
+    local scopedFallbackOutput, scopedFallbackStatus, scopedFallbackCommand = run(
+        directory,
+        "--diff=HEAD --case=leafimpacttest/usesLeaf --jobs=1 --json",
+        true
+    )
+    test.equal(scopedFallbackStatus, 0, scopedFallbackCommand .. " failed:\n" .. scopedFallbackOutput)
+    local scopedFallback = json.decode(scopedFallbackOutput)
+    test.equal(scopedFallback.total, 1, scopedFallbackOutput)
+    test.equal(scopedFallback.tests[1].id, "leafimpacttest/usesLeaf")
+    test.assert(contains(scopedFallback.selection.selectedCases, "leafimpacttest/usesLeaf"))
+    test.assert(reasonWithCode(scopedFallback.selection.fallbacks, "graph-miss") ~= nil)
+
     local fallbackOutput, fallbackStatus, fallbackCommand = run(directory, "--diff=HEAD --jobs=1 --json", true)
     test.equal(fallbackStatus, 0, fallbackCommand .. " failed:\n" .. fallbackOutput)
     local fallback = json.decode(fallbackOutput)
-    test.equal(fallback.total, 15)
+    test.equal(fallback.total, 21)
     test.equal(fallback.selection.complete, true)
     test.assert(reasonWithCode(fallback.selection.fallbacks, "graph-miss") ~= nil)
-    test.equal(#fallback.selection.selectedSuites, 8)
+    test.equal(#fallback.selection.selectedSuites, 11)
 
     os.execute("rm -rf " .. string.format("%q", directory))
 end
