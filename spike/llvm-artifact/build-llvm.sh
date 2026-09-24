@@ -36,6 +36,7 @@ cmake -G Ninja -S "$LLVM_SRC/llvm" -B "$build" \
   -DLLVM_INCLUDE_UTILS=OFF -DLLVM_ENABLE_BINDINGS=OFF \
   "$@" > "$build/configure.log"
 configured=$(date +%s)
-ninja -C "$build" -j"$jobs" > "$build/build.log"
+# llvm-config is a tool, outside `all` with LLVM_BUILD_TOOLS off.
+ninja -C "$build" -j"$jobs" all llvm-config > "$build/build.log"
 done_=$(date +%s)
 echo "configure $((configured - start)) s, build $((done_ - configured)) s, $jobs jobs"

@@ -62,7 +62,7 @@ jobs:
       # A cached tree skips the build; the clean-build time is the first run's.
       - name: Restore the pinned LLVM
         id: llvm
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: build/llvm
           key: spike-llvm-${{ runner.os }}-${{ hashFiles('spike/llvm-artifact/build-llvm.sh') }}
@@ -74,11 +74,20 @@ jobs:
           spike/llvm-artifact/build-llvm.sh "$PWD/build/llvm" | tee build/llvm-build-time.txt
           rm -rf build/llvm-project-23.1.1.src.tar.xz
 
+      # Saved at once, so a later step's failure does not cost the build.
+      - name: Save the pinned LLVM
+        if: steps.llvm.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: build/llvm
+          key: ${{ steps.llvm.outputs.cache-primary-key }}
+
       - name: Build the component and the host
         run: |
           root=$PWD
           # Mirror the source path the build tree was configured with.
           [ -d build/llvm-project-23.1.1.src ] || { mkdir -p build && cd build && curl -fsSL https://github.com/llvm/llvm-project/releases/download/llvmorg-23.1.1/llvm-project-23.1.1.src.tar.xz | tar -xJf - llvm-project-23.1.1.src/{llvm/include,lld/include}; cd "$root"; }
+          [ -x build/llvm/bin/llvm-config ] || [ -x build/llvm/bin/llvm-config.exe ] || ninja -C build/llvm llvm-config
           export NUPP_LLVM_PREFIX=$root/build/llvm NUPP_LLD_INCLUDE=$root/build/llvm-project-23.1.1.src/lld/include
           start=$(date +%s)
           (cd spike/llvm-artifact/component && CARGO_TARGET_DIR=$root/build/component cargo build --release)
