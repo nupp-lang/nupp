@@ -680,7 +680,7 @@ function M.workerHostDogfoodsNuppWorkersForOrdinarySuites()
         "parallel progress is one mark per suite slice, not one per case"
     )
 
-    local popen, popenRun = runWorkerHost("absoluteentrytest --lane=shell --timings=0")
+    local popen, popenRun = runWorkerHost("absoluteentrytest --lane=shell --jobs=1 --timings=0")
     test.equal(popenRun.status, 0, "the popen run succeeded" .. evidence(popenRun))
     test.matches(popen, "1 shell suites across 1 process workers")
     test.matches(popen, "1 tests, 1 passed")
