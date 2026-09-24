@@ -1,0 +1,87 @@
+module nupp.compiler.aot.llvm.detector
+
+--[[
+The baseline runtime detector shared by every wrapper in one AOT library.
+
+`ks_aot_feature_tier` answers 0 for the baseline, 1 when AVX2 may run and 2
+when AVX-512F may, asking CPUID and XGETBV directly the way the C lowering did
+for the Microsoft runtime. It needs no support library, so it is the one form
+for every x86-64 target. It is compiled without an optional tier, so asking
+the question never executes the instructions it asks about, and an instruction
+set counts only when the operating system also saves its register state.
+]]
+
+local builder = require("nupp.compiler.aot.llvm.builder")
+
+local detector = {}
+
+--- The name the generated wrappers call.
+const detector.SYMBOL = "ks_aot_feature_tier"
+
+const CPUID = "call { i32, i32, i32, i32 } asm sideeffect \"cpuid\", "
+    .. "\"={ax},={bx},={cx},={dx},{ax},{cx},~{dirflag},~{fpsr},~{flags}\"(i32 %d, i32 0)"
+
+const XGETBV = "call { i32, i32 } asm sideeffect \"xgetbv\", "
+    .. "\"={ax},={dx},{cx},~{dirflag},~{fpsr},~{flags}\"(i32 0)"
+
+--- Whether `ax & mask` is all of `mask` (`all`) or any of it.
+local function bits(f: builder.Function, value: string, mask: integer, all: boolean): string
+    local masked = builder.value(f, ("and i32 %s, %d"):format(value, mask))
+    if all then
+        return builder.value(f, ("icmp eq i32 %s, %d"):format(masked, mask))
+    end
+
+    return builder.value(f, ("icmp ne i32 %s, 0"):format(masked))
+end
+
+--- The detector as a whole module, given the target's function attributes.
+function detector.module(attributes: string): string
+    local module = builder.module()
+    local attrs = builder.attributes(module, "noinline nounwind uwtable " .. attributes)
+    local f = builder.func(module, ("define i32 @%s() %s {"):format(detector.SYMBOL, attrs))
+    local none = builder.label(f, "none")
+
+    -- Leaf 7 is where both extended feature bits live.
+    local leaf0 = builder.value(f, CPUID:format(0))
+    local highest = builder.value(f, ("extractvalue { i32, i32, i32, i32 } %s, 0"):format(leaf0))
+    local hasLeaf7 = builder.value(f, ("icmp uge i32 %s, 7"):format(highest))
+    local leaf1Label = builder.label(f, "leaf1")
+    builder.terminate(f, ("br i1 %s, label %%%s, label %%%s"):format(hasLeaf7, leaf1Label, none))
+
+    -- Without OSXSAVE the operating system has enabled no wider register state
+    -- and XGETBV is not available to ask which.
+    builder.start(f, leaf1Label)
+    local leaf1 = builder.value(f, CPUID:format(1))
+    local ecx = builder.value(f, ("extractvalue { i32, i32, i32, i32 } %s, 2"):format(leaf1))
+    local osxsave = bits(f, ecx, 0x8000000, false)
+    local enabledLabel = builder.label(f, "enabled")
+    builder.terminate(f, ("br i1 %s, label %%%s, label %%%s"):format(osxsave, enabledLabel, none))
+
+    -- XMM and YMM state: a processor with AVX2 whose operating system saves
+    -- neither cannot run it.
+    builder.start(f, enabledLabel)
+    local xcr = builder.value(f, XGETBV)
+    local enabled = builder.value(f, ("extractvalue { i32, i32 } %s, 0"):format(xcr))
+    local ymm = bits(f, enabled, 0x6, true)
+    local leaf7Label = builder.label(f, "leaf7")
+    builder.terminate(f, ("br i1 %s, label %%%s, label %%%s"):format(ymm, leaf7Label, none))
+
+    -- And opmask, ZMM_Hi256 and Hi16_ZMM on top of those for AVX-512.
+    builder.start(f, leaf7Label)
+    local leaf7 = builder.value(f, CPUID:format(7))
+    local ebx = builder.value(f, ("extractvalue { i32, i32, i32, i32 } %s, 1"):format(leaf7))
+    local zmm = bits(f, enabled, 0xE6, true)
+    local avx512f = bits(f, ebx, 0x10000, false)
+    local avx2 = bits(f, ebx, 0x20, false)
+    local wide = builder.value(f, ("and i1 %s, %s"):format(zmm, avx512f))
+    local narrow = builder.value(f, ("select i1 %s, i32 1, i32 0"):format(avx2))
+    local tier = builder.value(f, ("select i1 %s, i32 2, i32 %s"):format(wide, narrow))
+    builder.terminate(f, "ret i32 " .. tier)
+
+    builder.start(f, none)
+    builder.finish(f, "ret i32 0")
+
+    return builder.render(module)
+end
+
+export = detector

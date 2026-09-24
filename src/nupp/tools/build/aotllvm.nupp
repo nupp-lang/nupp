@@ -12,6 +12,7 @@ without the code generator is refused rather than silently given C.
 
 local codegen = require("nupp.compiler.aot.llvm.codegen")
 local fs = require("nupp.compiler.fs")
+local llvmDetector = require("nupp.compiler.aot.llvm.detector")
 local llvmProgram = require("nupp.compiler.aot.llvm.program")
 local llvmProfile = require("nupp.compiler.aot.llvm.profile")
 local scalarIR = require("nupp.compiler.aot.scalar")
@@ -75,7 +76,7 @@ function aotllvm.emit(programs: {scalarIR.Program}, tier: string, triple: string
             cpu[#cpu + 1] = program
         end
     end
-    local ok, module = pcall(llvmProgram.module, cpu, tier, (selected as llvmProfile.Profile).functionAttributes)
+    local ok, module = pcall(llvmProgram.module, cpu, tier, selected as llvmProfile.Profile)
     if not ok then
         if llvmProgram.isUnsupported(module) then
             return nil, tostring(module)
@@ -84,6 +85,17 @@ function aotllvm.emit(programs: {scalarIR.Program}, tier: string, triple: string
     end
 
     return module as string, nil
+end
+
+--- The baseline feature detector as LLVM IR, or nil when this backend has no
+--- profile for `triple` (the build then emits the C one).
+function aotllvm.detector(triple: string): string?
+    local selected = llvmProfile.of(triple)
+    if selected == nil then
+        return nil
+    end
+
+    return llvmDetector.module((selected as llvmProfile.Profile).functionAttributes)
 end
 
 --- The options a tier's unit is compiled with, as the strings its key holds.

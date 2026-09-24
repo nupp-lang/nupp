@@ -18,6 +18,7 @@ local builder = require("nupp.compiler.aot.llvm.builder")
 local context = require("nupp.compiler.aot.llvm.context")
 local countRules = require("nupp.compiler.aot.counts")
 local expressions = require("nupp.compiler.aot.llvm.expressions")
+local profile = require("nupp.compiler.aot.llvm.profile")
 local scalarIR = require("nupp.compiler.aot.scalar")
 local statements = require("nupp.compiler.aot.llvm.statements")
 local target = require("nupp.compiler.aot.target")
@@ -97,14 +98,11 @@ local function spanParameter(program: scalarIR.Program, param: scalarIR.Param): 
     return table.concat(attributes, " ")
 end
 
---- Target attributes (frame pointers, vector preference) for this module.
-local targetAttributes = ""
-
 --- The function attributes every entry and helper of this module carries.
-local function functionAttributes(program: scalarIR.Program, extra: string?): string
+local function functionAttributes(selected: profile.Profile, program: scalarIR.Program, extra: string?): string
     local parts: {string} = {"nounwind", "uwtable"}
-    if targetAttributes ~= "" then
-        parts[#parts + 1] = targetAttributes
+    if selected.functionAttributes ~= "" then
+        parts[#parts + 1] = selected.functionAttributes
     end
     if program.fpContract == true then
         parts[#parts + 1] = "\"nupp-fp-contract\""
@@ -118,7 +116,12 @@ end
 
 --- Defines the program's pure helpers as internal functions, and declares
 --- the native entries it calls.
-local function helpers(module: builder.Module, ctx: context.Context, program: scalarIR.Program): nil
+local function helpers(
+    module: builder.Module,
+    ctx: context.Context,
+    program: scalarIR.Program,
+    selected: profile.Profile
+): nil
     for _, helper in ipairs(program.helpers or {}) do
         if #helper.resultTypes > 1 then
             unsupported("multiple-result helpers")
@@ -138,7 +141,7 @@ local function helpers(module: builder.Module, ctx: context.Context, program: sc
         if helper.native == true then
             builder.declare(module, name, ("declare %s %s(%s)"):format(result, name, table.concat(paramTypes, ", ")))
         else
-            local attrs = builder.attributes(module, "alwaysinline " .. functionAttributes(program))
+            local attrs = builder.attributes(module, "alwaysinline " .. functionAttributes(selected, program))
             local f = builder.func(
                 module,
                 ("define internal %s %s(%s) %s {"):format(result, name, table.concat(params, ", "), attrs)
@@ -155,8 +158,43 @@ local function helpers(module: builder.Module, ctx: context.Context, program: sc
     end
 end
 
+--- What the compiled object says about one struct's layout: its size, and
+--- each field's offset and size, as `size_t` functions the generated wrapper
+--- compares against what Nupp believes. The answers are LLVM's own layout of
+--- the struct, the one the kernel indexes with.
+local function layoutReporters(
+    module: builder.Module,
+    program: scalarIR.Program,
+    layout: scalarIR.Layout,
+    symbol: string,
+    selected: profile.Profile
+): nil
+    local attrs = builder.attributes(module, functionAttributes(selected, program))
+    local size = selected.sizeType
+    local ctx = context.new(module, builder.func(module, ""), program)
+    local structType = expressions.layoutType(ctx, layout.name)
+
+    local function reporter(name: string, address: string): nil
+        local f = builder.func(module, ("define %s @%s() %s {"):format(size, name, attrs))
+        builder.finish(f, ("ret %s ptrtoint (ptr %s to %s)"):format(size, address, size))
+    end
+
+    local prefix = symbol .. "_layout_" .. layout.name
+    reporter(prefix .. "_size", ("getelementptr (%s, ptr null, i32 1)"):format(structType))
+    for position, field in ipairs(layout.fields) do
+        reporter(
+            prefix .. "_offset_" .. field.name,
+            ("getelementptr (%s, ptr null, i32 0, i32 %d)"):format(structType, position - 1)
+        )
+        reporter(
+            prefix .. "_size_" .. field.name,
+            ("getelementptr (%s, ptr null, i32 1)"):format(types.storage(field.type, field.sourceType))
+        )
+    end
+end
+
 --- One kernel entry.
-local function kernel(module: builder.Module, program: scalarIR.Program, tier: string?): nil
+local function kernel(module: builder.Module, program: scalarIR.Program, tier: string?, selected: profile.Profile): nil
     local results = program.resultTypes or {}
     if program.workgroup ~= nil then
         unsupported("workgroup entries")
@@ -165,6 +203,8 @@ local function kernel(module: builder.Module, program: scalarIR.Program, tier: s
     local roots = countRules.roots(program)
     local aliases = countRules.equal(program, roots)
     local parameters: {string} = {}
+    local narrowCounts = selected.sizeType ~= "i64"
+    local countSuffix = narrowCounts and ".arg" or ""
     for _, param in ipairs(program.params) do
         if isSpan(param) then
             parameters[#parameters + 1] = spanParameter(program, param)
@@ -177,11 +217,11 @@ local function kernel(module: builder.Module, program: scalarIR.Program, tier: s
     if independent then
         for _, param in ipairs(program.params) do
             if isSpan(param) and (param.soa == nil or param.soa.ordinal == 1) then
-                parameters[#parameters + 1] = "i64 %count_" .. param.name
+                parameters[#parameters + 1] = selected.sizeType .. " %count_" .. param.name .. countSuffix
             end
         end
     else
-        parameters[#parameters + 1] = "i64 %count"
+        parameters[#parameters + 1] = selected.sizeType .. " %count" .. countSuffix
     end
     local resultStruct: string? = nil
     if #results > 1 then
@@ -194,11 +234,28 @@ local function kernel(module: builder.Module, program: scalarIR.Program, tier: s
     end
     local result = #results ~= 1 and "void" or types.result(tostring(results[1]))
     local symbol = physical(program.symbol, tier)
-    local attrs = builder.attributes(module, "noinline " .. functionAttributes(program))
+    local attrs = builder.attributes(module, "noinline " .. functionAttributes(selected, program))
     local f = builder.func(
         module,
         ("define %s @%s(%s) %s {"):format(result, symbol, table.concat(parameters, ", "), attrs)
     )
+
+    -- Counts arrive as `size_t` and are used as i64 throughout.
+    local function count(name: string): nil
+        if narrowCounts then
+            builder.emit(f, ("%s = zext %s %s.arg to i64"):format(name, selected.sizeType, name))
+        end
+    end
+
+    if independent then
+        for _, param in ipairs(program.params) do
+            if isSpan(param) and (param.soa == nil or param.soa.ordinal == 1) then
+                count("%count_" .. param.name)
+            end
+        end
+    else
+        count("%count")
+    end
     local ctx = context.new(module, f, program)
     if resultStruct ~= nil then
         ctx.resultBlock = "%ks_result"
@@ -214,7 +271,7 @@ local function kernel(module: builder.Module, program: scalarIR.Program, tier: s
             ctx.uniforms[param.name] = "%p_" .. param.name
         end
     end
-    helpers(module, ctx, program)
+    helpers(module, ctx, program, selected)
 
     if program.body ~= nil then
         statements.block(ctx, program.body as {scalarIR.Statement})
@@ -259,11 +316,9 @@ local function kernel(module: builder.Module, program: scalarIR.Program, tier: s
     builder.finish(f, "ret void")
 end
 
---- The module for `programs` at feature tier `tier`. `attributes` are the
---- target's own function attributes (frame pointers, vector preference).
+--- The module for `programs` at feature tier `tier` on `selected`.
 --- @raises string when a program uses what this backend does not emit
-function llvmProgram.module(programs: {scalarIR.Program}, tier: string?, attributes: string?): string
-    targetAttributes = attributes or ""
+function llvmProgram.module(programs: {scalarIR.Program}, tier: string?, selected: profile.Profile): string
     local module = builder.module()
     for _, program in ipairs(programs) do
         if program.executionTarget == "gpu" then
@@ -273,7 +328,10 @@ function llvmProgram.module(programs: {scalarIR.Program}, tier: string?, attribu
         elseif program.usesSimd == true then
             unsupported("explicit SIMD programs")
         else
-            kernel(module, program, tier)
+            kernel(module, program, tier, selected)
+            for _, layout in ipairs(program.layouts or {}) do
+                layoutReporters(module, program, layout, physical(program.symbol, tier), selected)
+            end
         end
     end
 

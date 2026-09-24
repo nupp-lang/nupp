@@ -1140,12 +1140,27 @@ local function tieredC(dir, tier, stem)
     return dir .. "/build/native/aot/src/" .. (stem or "kernel") .. "." .. tier .. ".c"
 end
 
+-- The unit a tier was emitted as, whichever backend emitted it: C, or LLVM IR
+-- when the LLVM route took the unit.
+local function tieredUnit(dir, tier, stem)
+    local c = tieredC(dir, tier, stem)
+    local ll = c:gsub("%.c$", ".ll")
+    local handle = io.open(ll, "rb")
+    if handle then
+        handle:close()
+        return ll
+    end
+
+    return c
+end
+
 -- Discover the build-qualified entry from the actual translation unit rather
 -- than duplicating the build's module identity calculation in the test.
-local function emittedSymbol(c, logical, tier)
+local function emittedSymbol(unit, logical, tier)
     local suffix = logical:gsub("^ks_", "") .. "__" .. tier
     local symbol = assert(
-        c:match("KS_API%s+[%w_%*]+%s+(ks_[0-9a-f]+_" .. suffix .. ")%s*%("),
+        unit:match("KS_API%s+[%w_%*]+%s+(ks_[0-9a-f]+_" .. suffix .. ")%s*%(")
+            or unit:match("\ndefine [^@\n]*@(ks_[0-9a-f]+_" .. suffix .. ")%("),
         "missing qualified native entry " .. suffix
     )
 
@@ -2573,7 +2588,7 @@ end
 
 local function librarySymbol(dir, lib, logical, stem)
     local tier = libraryTier(lib)
-    return emittedSymbol(assert(read(tieredC(dir, tier, stem))), logical, tier)
+    return emittedSymbol(assert(read(tieredUnit(dir, tier, stem))), logical, tier)
 end
 
 -- Call every executable tier directly. Dispatching the best symbol alone does
@@ -2583,7 +2598,7 @@ local function executableLibrarySymbols(dir, lib, logical)
     local names = {}
     for _, tier in ipairs(buildTiers(nil, nil)) do
         if targets.rank(tier.tier) <= ceiling then
-            names[#names + 1] = emittedSymbol(assert(read(tieredC(dir, tier.tier))), logical, tier.tier)
+            names[#names + 1] = emittedSymbol(assert(read(tieredUnit(dir, tier.tier))), logical, tier.tier)
         end
     end
 
@@ -4856,7 +4871,7 @@ function M.twoAotFunctionsOverOneStructBuild()
     assert(
         lua:find(
             emittedSymbol(
-                assert(read(tieredC(dir, firstHostTier()))),
+                assert(read(tieredUnit(dir, firstHostTier()))),
                 "ks_scale_both",
                 firstHostTier()
             ) .. "_PointLayout",
@@ -4868,7 +4883,7 @@ function M.twoAotFunctionsOverOneStructBuild()
     assert(
         lua:find(
             emittedSymbol(
-                assert(read(tieredC(dir, firstHostTier()))),
+                assert(read(tieredUnit(dir, firstHostTier()))),
                 "ks_shift_both",
                 firstHostTier()
             ) .. "_PointLayout",
@@ -5307,10 +5322,10 @@ function M.requireCrossCompilesToAnotherMachine()
             "the cross-built wrapper asks the destination rather than the build host"
         )
         assert(
-            wrapper:find(emittedSymbol(assert(read(tieredC(dir, "baseline"))), "ks_scale", "baseline"), 1, true),
+            wrapper:find(emittedSymbol(assert(read(tieredUnit(dir, "baseline"))), "ks_scale", "baseline"), 1, true),
             wrapper
         )
-        assert(wrapper:find(emittedSymbol(assert(read(tieredC(dir, "avx2"))), "ks_scale", "avx2"), 1, true), wrapper)
+        assert(wrapper:find(emittedSymbol(assert(read(tieredUnit(dir, "avx2"))), "ks_scale", "avx2"), 1, true), wrapper)
         assert(wrapper:match("ks_[0-9a-f]+_scale_native"), wrapper)
     end
 end

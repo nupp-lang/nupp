@@ -1915,14 +1915,23 @@ function aot.emitC(
     -- One compiler-owned baseline unit asks which optional x86-64 state the
     -- destination enabled. It exists only when there is something to select.
     if #emitted > 0 and #(selected as {targets.Target}) > 1 then
+        local triple = (selected as {targets.Target})[1].triple
         local detector = emitter.featureDetector()
         local output = outDir .. "/aot/features.c"
+        local backend: string? = nil
+        local llvmDetector = useLlvm == true and not staticLinkage and aotllvm.detector(triple) or nil
+        if llvmDetector ~= nil then
+            detector = llvmDetector as string
+            output = outDir .. "/aot/features.ll"
+            backend = aotllvm.BACKEND
+        end
         local cacheKey = "@feature-detector"
         local key = hash.digest(
             stable({
                 c = detector,
-                triple = (selected as {targets.Target})[1].triple,
+                triple = triple,
                 compiler = compilerFingerprint.toolFingerprint(),
+                backend = backend,
             })
         )
         if previous[cacheKey] ~= key or fs.readFile(output) ~= detector then
@@ -1940,7 +1949,8 @@ function aot.emitC(
             output = output,
             key = key,
             detector = true,
-            role = "feature-detector"
+            role = "feature-detector",
+            backend = backend
         )
     end
 

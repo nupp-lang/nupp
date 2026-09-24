@@ -35,6 +35,9 @@ record profile.Profile
 
     --- lld's `-arch`/`-m` spelling.
     machine: string
+
+    --- The LLVM type of `size_t`.
+    sizeType: string
 end
 
 local PROFILES: {[string]: profile.Profile} = {
@@ -48,7 +51,8 @@ local PROFILES: {[string]: profile.Profile} = {
         format = "macho",
         minimum = "11.0.0",
         functionAttributes = "\"frame-pointer\"=\"non-leaf\"",
-        machine = "arm64"
+        machine = "arm64",
+        sizeType = "i64"
     ),
     [
         "x86_64-apple-darwin"
@@ -60,7 +64,8 @@ local PROFILES: {[string]: profile.Profile} = {
         format = "macho",
         minimum = "10.14.0",
         functionAttributes = "\"frame-pointer\"=\"all\"",
-        machine = "x86_64"
+        machine = "x86_64",
+        sizeType = "i64"
     ),
     [
         "x86_64-unknown-linux-gnu"
@@ -71,7 +76,8 @@ local PROFILES: {[string]: profile.Profile} = {
         baseFeatures = "",
         format = "elf",
         functionAttributes = "",
-        machine = "elf_x86_64"
+        machine = "elf_x86_64",
+        sizeType = "i64"
     ),
     [
         "aarch64-unknown-linux-gnu"
@@ -82,7 +88,8 @@ local PROFILES: {[string]: profile.Profile} = {
         baseFeatures = "+neon",
         format = "elf",
         functionAttributes = "\"frame-pointer\"=\"non-leaf\"",
-        machine = "aarch64linux"
+        machine = "aarch64linux",
+        sizeType = "i64"
     ),
     [
         "i686-unknown-linux-gnu"
@@ -93,7 +100,8 @@ local PROFILES: {[string]: profile.Profile} = {
         baseFeatures = "",
         format = "elf",
         functionAttributes = "",
-        machine = "elf_i386"
+        machine = "elf_i386",
+        sizeType = "i32"
     ),
     ["x86_64-pc-windows-msvc"] = new profile.Profile(
         public = "x86_64-pc-windows-msvc",
@@ -104,7 +112,8 @@ local PROFILES: {[string]: profile.Profile} = {
         -- GCC's Win64 frames misalign wider spills; the C lowering asked for
         -- 128-bit vectors there, and generated code keeps that preference.
         functionAttributes = "\"prefer-vector-width\"=\"128\"",
-        machine = "x64"
+        machine = "x64",
+        sizeType = "i64"
     ),
 }
 
