@@ -11,7 +11,7 @@ baseline lazily after their initial chunk has completed successfully.
 local incremental = require("nupp.compiler.incremental")
 local diagnostics = require("nupp.compiler.diagnostics")
 local buildModules = require("nupp.compiler.build.modules")
-local hash = require("nupp.compiler.build.hash")
+local hash = require("nupp.compiler.hash")
 local cst = require("nupp.compiler.cst")
 local envMod = require("nupp.compiler.env")
 local gen = require("nupp.compiler.gen")

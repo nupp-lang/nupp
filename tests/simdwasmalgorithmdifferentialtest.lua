@@ -1,8 +1,8 @@
 local test = require("nupp.test")
 local runner = require("tests.simd.runner")
 local wasmtime = require("tests.simd.wasmtime")
-local hash = require("nupp.compiler.build.hash")
-local cache = require("nupp.compiler.build.cache")
+local hash = require("nupp.compiler.hash")
+local fingerprint = require("nupp.compiler.fingerprint")
 local M = {}
 
 local ROOT = runner.root()
@@ -78,7 +78,7 @@ local function fixtureKey(name, capabilities, host)
         capabilities.lua.os,
         capabilities.lua.arch,
         host.key,
-        cache.toolFingerprint(),
+        fingerprint.toolFingerprint(),
     }
     for _, path in ipairs(projectFiles(name)) do
         parts[#parts + 1] = path:sub(#ROOT + 1)

@@ -12,7 +12,7 @@ ninety: nearly all of what a small command costs is the prelude, computed again
 from bytes that did not change.
 
 So it is computed once and kept. What `nupp.compiler.env` restores from an image
-is eight roots, and this turns those roots into a value `nupp.compiler.build.store`
+is eight roots, and this turns those roots into a value `nupp.compiler.store`
 can hold and back again.
 
 This is not `nupp.compiler.preludeimage`, and the two are not interchangeable.
@@ -120,7 +120,7 @@ end
 local WALK_DEPTH = 8
 
 --- That the `require` in `resolveOwned` is reflection, not a dependency, for
---- `nupp.compiler.build.cache`'s module graph.
+--- `nupp.compiler.fingerprint`'s module graph.
 ---
 --- The name it resolves came out of an image this process is deciding whether to
 --- believe, and a name that no longer resolves to the same object discards the image.

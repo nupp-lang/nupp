@@ -22,7 +22,7 @@ local parser = require("nupp.compiler.parser")
 local cst = require("nupp.compiler.cst")
 local check = require("nupp.compiler.check")
 local envMod = require("nupp.compiler.env")
-local storeMod = require("nupp.compiler.build.store")
+local storeMod = require("nupp.compiler.store")
 local T = require("nupp.compiler.types")
 
 local incremental = {}
@@ -381,8 +381,8 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
         return envMod.buildProjectIndex(headers, projectNominals)
     end)
 
-    local hash = require("nupp.compiler.build.hash")
-    local stable = require("nupp.compiler.build.cache").stable
+    local hash = require("nupp.compiler.hash")
+    local stable = require("nupp.compiler.stable")
     -- Fingerprints are asked for thousands of times a run, once per recorded
     -- dependency of every module considered for reuse. The native digest a host
     -- carries answers identically, so take it where the session has one.

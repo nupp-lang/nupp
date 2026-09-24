@@ -47,9 +47,10 @@ local emitter = require("nupp.compiler.aot.emit")
 local diagnosticMod = require("nupp.compiler.diagnostics")
 local fs = require("nupp.compiler.fs")
 local envMod = require("nupp.compiler.env")
-local cache = require("nupp.compiler.build.cache")
-local hash = require("nupp.compiler.build.hash")
-local process = require("nupp.compiler.build.process")
+local compilerFingerprint = require("nupp.compiler.fingerprint")
+local stable = require("nupp.compiler.stable")
+local hash = require("nupp.compiler.hash")
+local process = require("nupp.compiler.process")
 local progress = require("nupp.compiler.build.progress")
 local toolruns = require("nupp.compiler.build.toolruns")
 local scalarIR = require("nupp.compiler.aot.scalar")
@@ -220,7 +221,7 @@ const aot.BACKEND = "generated-c"
 --- `aot.libraryKey` covers.
 function aot.key(irText: string, selected: targets.Target): string
     return hash.digest(
-        cache.stable({
+        stable({
             ir = irText,
             irVersion = scalarIR.VERSION,
             numericContract = scalarIR.NUMERIC_CONTRACT,
@@ -228,7 +229,7 @@ function aot.key(irText: string, selected: targets.Target): string
             triple = selected.triple,
             tier = selected.tier,
             backend = aot.BACKEND,
-            compiler = cache.toolFingerprint(),
+            compiler = compilerFingerprint.toolFingerprint(),
         })
     )
 end
@@ -258,10 +259,10 @@ function aot.inputFingerprint(sources: {string}, semantic: any, contentDigest: (
     table.sort(files)
     local sources: {any} = {}
     for _, path in ipairs(files) do
-        sources[#sources + 1] = {path = fs.normalize(path), digest = cache.hashFile(path, digest),}
+        sources[#sources + 1] = {path = fs.normalize(path), digest = compilerFingerprint.hashFile(path, digest),}
     end
 
-    return digest(cache.stable({version = 1, semantic = semantic, sources = sources,}))
+    return digest(stable({version = 1, semantic = semantic, sources = sources,}))
 end
 
 --- Every flag the generated C is compiled with, in the order it is given them.
@@ -362,14 +363,7 @@ function aot.libraryKey(keys: {string}, chain: aot.Toolchain, flags: {string}, l
     -- be a cache that never hit.
     table.sort(ordered)
 
-    return hash.digest(
-        cache.stable({
-            artifacts = ordered,
-            toolchain = chain.version,
-            flags = flags,
-            linkage = linkage,
-        })
-    )
+    return hash.digest(stable({artifacts = ordered, toolchain = chain.version, flags = flags, linkage = linkage,}))
 end
 
 --- What one source produced.
@@ -619,7 +613,8 @@ function aot.toolchainPolicyRecord(
         nativeCompiler = os.getenv("NUPP_NATIVE_CC"),
         wasmCompiler = os.getenv("NUPP_WASM_CC"),
         luaLibrary = luaLibrary,
-        luaLibraryDigest = luaLibrary ~= nil and cache.hashFile(luaLibrary as string, contentDigest) or nil,
+        luaLibraryDigest = luaLibrary ~= nil and compilerFingerprint.hashFile(luaLibrary as string, contentDigest)
+        or nil,
         namedLuaLibrary = os.getenv("NUPP_LUA_LIB"),
         provisionedLuaJit = os.getenv("NUPP_TOOLCHAIN_LUAJIT"),
     }
@@ -628,7 +623,7 @@ end
 function aot.toolchainPolicy(policy: string, targetTriple: string?, contentDigest: (function(string): string)?): any
     local pack, packErr = nil, nil
     if policy == "require" or policy == "emit-c" then
-        pack, packErr = require("nupp.compiler.build.compilerpacks").resolve(targetTriple or targets.hostTriple())
+        pack, packErr = require("nupp.compiler.compilerpacks").resolve(targetTriple or targets.hostTriple())
     end
 
     return aot.toolchainPolicyRecord(policy, targetTriple, pack, packErr, contentDigest)
@@ -646,7 +641,7 @@ end
 --- @return the toolchain, or nothing and why there is none
 function aot.toolchain(targetTriple: string?, memo: aot.Remembered?): (aot.Toolchain?, string?)
     local named = os.getenv("NUPP_AOT_CC") or os.getenv("NUPP_NATIVE_CC")
-    local pack, packErr = require("nupp.compiler.build.compilerpacks").resolve(targetTriple or targets.hostTriple())
+    local pack, packErr = require("nupp.compiler.compilerpacks").resolve(targetTriple or targets.hostTriple())
     if packErr ~= nil and named == nil then
         return nil, packErr
     end
@@ -1054,7 +1049,7 @@ end
 --- the tier that chose its instructions; and the project flags handed to it.
 function aot.wasmModuleKey(source: string, version: string, tier: string, extra: {string}?): string
     return hash.digest(
-        cache.stable({
+        stable({
             c = source,
             toolchain = version,
             tier = tier,
@@ -1334,7 +1329,7 @@ end
 --- something changed.
 function aot.objectKey(unitKey: string, tier: string, chain: aot.Toolchain, flags: {string}): string
     return hash.digest(
-        cache.stable({
+        stable({
             unit = unitKey,
             tier = tier,
             toolchain = chain.version,
@@ -1848,10 +1843,10 @@ function aot.emitC(
         local output = outDir .. "/aot/features.c"
         local cacheKey = "@feature-detector"
         local key = hash.digest(
-            cache.stable({
+            stable({
                 c = detector,
                 triple = (selected as {targets.Target})[1].triple,
-                compiler = cache.toolFingerprint(),
+                compiler = compilerFingerprint.toolFingerprint(),
             })
         )
         if previous[cacheKey] ~= key or fs.readFile(output) ~= detector then
@@ -1970,7 +1965,7 @@ end
 
 local function replayFile(files: {[string]: string}, path: string?): nil
     if path ~= nil then
-        files[path as string] = cache.hashFile(path as string) or "missing"
+        files[path as string] = compilerFingerprint.hashFile(path as string) or "missing"
     end
 end
 
@@ -2046,7 +2041,7 @@ function aot.captureReplay(policy: string, result: aot.Result): any
         remembered = result.remembered,
     }
 
-    return {payload = payload, digest = hash.digest(cache.stable(payload)),}
+    return {payload = payload, digest = hash.digest(stable(payload)),}
 end
 
 local function countMap(values: {[string]: any}?): integer
@@ -2078,14 +2073,14 @@ function aot.replay(snapshot: any?, desiredCommand: string?): aot.Result?
     if payload.version ~= 1
         or type(payload.emitted) ~= "table"
         or payload.hasConstSelection == true
-        or hash.digest(cache.stable(payload)) ~= snapshot.digest
+        or hash.digest(stable(payload)) ~= snapshot.digest
     then
         return nil
     end
     local native = payload.policy == "require"
     local wasm = payload.policy == "require-wasm" or payload.policy == "emit-wasm"
     for path, digest in pairs(payload.files or {}) do
-        if cache.hashFile(path) ~= digest then
+        if compilerFingerprint.hashFile(path) ~= digest then
             return nil
         end
     end
@@ -2184,7 +2179,13 @@ function aot.writeArchiveProbe(
         tier = selected.tier,
         cacheKey = "@archive-probe",
         output = output,
-        key = hash.digest(cache.stable({c = unit, triple = selected.triple, compiler = cache.toolFingerprint(),})),
+        key = hash.digest(
+            stable({
+                c = unit,
+                triple = selected.triple,
+                compiler = compilerFingerprint.toolFingerprint(),
+            })
+        ),
         detector = true,
         role = "archive-probe"
     ), new bindingRules.Archive(symbol = symbol, fingerprint = fingerprint), nil
@@ -2469,7 +2470,7 @@ function aot.apply(
     local archive: Archive? = nil
     local staticProfile: profiles.Profile? = nil
     if linkage == "static" then
-        local profile, profileErr = require("nupp.compiler.build.compilerpacks").profile(selectedTriple)
+        local profile, profileErr = require("nupp.compiler.compilerpacks").profile(selectedTriple)
         if profile == nil then
             return nil, tostring(profileErr)
         end
@@ -2735,7 +2736,9 @@ function aot.apply(
             #keyedFlags + 1
         ] = "link-input=" .. (
             trailing as string
-        ) .. "\0" .. (cache.hashFile(trailing as string, cache.contentDigest(true)) or "missing")
+        ) .. "\0" .. (
+            compilerFingerprint.hashFile(trailing as string, compilerFingerprint.contentDigest(true)) or "missing"
+        )
     end
     local key = aot.libraryKey(keys, chain as aot.Toolchain, keyedFlags, shared)
 

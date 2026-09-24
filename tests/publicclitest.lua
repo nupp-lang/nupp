@@ -1,4 +1,4 @@
-local process = require("nupp.compiler.build.process")
+local process = require("nupp.compiler.process")
 local json = require("testjson")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))

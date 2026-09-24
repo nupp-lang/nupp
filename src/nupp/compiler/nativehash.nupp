@@ -2,9 +2,9 @@
 
 module nupp.compiler.nativehash
 
--- The native spelling of the compiler's portable content digest. This lives in
--- host services rather than build/hash because the portable lua51 compiler has
--- no FFI and must remain able to compute every cache key itself.
+-- The native spelling of the compiler's portable content digest. This lives in host
+-- services rather than `nupp.compiler.hash` because the portable lua51 compiler has no
+-- FFI and must remain able to compute every cache key itself.
 const native = require("nupp.runtime.native")
 
 native.ffi.cdef[[
@@ -16,7 +16,7 @@ const C = native.C
 local ffiString: function(borrows source: const uint8[?], count: integer): string = ffi.string as any
 local hash = {}
 
---- The same 32 lowercase hex digits as `nupp.compiler.build.hash.digest`.
+--- The same 32 lowercase hex digits as `nupp.compiler.hash.digest`.
 function hash.digest(input: string): string
     local output = ffi.new<uint8[32]>()
     native.succeeded(C.nuppNativeXxh64Digest(input, #input, output, 32), 2)

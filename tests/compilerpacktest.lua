@@ -1,6 +1,6 @@
-local packs = require("nupp.compiler.build.compilerpacks")
+local packs = require("nupp.compiler.compilerpacks")
 local layouts = require("nupp.compiler.targetlayout")
-local hash = require("nupp.compiler.build.hash")
+local hash = require("nupp.compiler.hash")
 local json = require("testjson")
 
 local M = {}

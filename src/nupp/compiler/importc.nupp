@@ -19,8 +19,8 @@ emitted. A name declared twice keeps its first meaning.
 
 local importc = {}
 local cdecl = require("nupp.compiler.cdecl")
-local process = require("nupp.compiler.build.process")
-local hash = require("nupp.compiler.build.hash")
+local process = require("nupp.compiler.process")
+local hash = require("nupp.compiler.hash")
 
 ----------------------------------------------------------------------------
 -- Running the preprocessor

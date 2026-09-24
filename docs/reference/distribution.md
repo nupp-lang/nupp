@@ -107,7 +107,7 @@ to every command, against a tool whose design goal is that an unchanged project
 answers in about the time it takes to start. XXH64 answers the same question in
 under a millisecond.
 
-`src/nupp/compiler/build/hash.nupp` writes it and the Rust base provider
+`src/nupp/compiler/hash.nupp` writes it and the Rust base provider
 checks it. They are one contract with two spellings, and the input is read
 little-endian in both so a binary stamped on one machine verifies on another.
 

@@ -9,7 +9,7 @@ acquisition waits until the standalone compiler carries HTTP/TLS itself.
 ]]
 
 local fs = require("nupp.compiler.fs")
-local hash = require("nupp.compiler.build.hash")
+local hash = require("nupp.compiler.hash")
 local packaging = require("nupp.compiler.build.package")
 local distribution = require("nupp.compiler.build.platform")
 

@@ -1,6 +1,6 @@
 -- Turn the small real-browser integration run into ordinary coverage facts.
 local runner = require("tests.simd.runner")
-local hash = require("nupp.compiler.build.hash")
+local hash = require("nupp.compiler.hash")
 local directory = assert(arg[1], "browser smoke directory required")
 local output = assert(arg[2], "browser smoke report required")
 local simd = runner.json(directory .. "/result.json")

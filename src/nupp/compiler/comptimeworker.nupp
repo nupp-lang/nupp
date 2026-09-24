@@ -10,7 +10,7 @@ the boundary materialization will later use.
 ]]
 
 local json = require("nupp.codec.json")
-local process = require("nupp.compiler.build.process")
+local process = require("nupp.compiler.process")
 
 type worker.Failure = {
     readonly code: string,

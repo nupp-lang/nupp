@@ -1,4 +1,4 @@
-module nupp.compiler.doc.syntax
+module nupp.compiler.docsyntax
 
 -- Fixed line recognizers shared by documentation extraction, rendering, and
 -- formatting. Keeping them as checked source avoids a compiler-startup PEG runtime.

@@ -66,7 +66,7 @@ local parser = require("nupp.compiler.parser")
 local lexer = require("nupp.compiler.lexer")
 local cst = require("nupp.compiler.cst")
 local displayWidth = require("nupp.compiler.fmt.displaywidth").displayWidth
-local docSyntax = require("nupp.compiler.doc.syntax")
+local docSyntax = require("nupp.compiler.docsyntax")
 
 local imports = require("nupp.compiler.fmt.imports")
 

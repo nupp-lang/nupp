@@ -16,7 +16,7 @@ what its heading does, and `redirects` carries the routes it used to answer at.
 local filesMod = require("nupp.compiler.doc.files")
 local frontmatterMod = require("nupp.compiler.doc.frontmatter")
 local urlsMod = require("nupp.compiler.doc.urls")
-local syntax = require("nupp.compiler.build.syntax")
+local syntax = require("nupp.compiler.shellsyntax")
 
 local sweep = {}
 

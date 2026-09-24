@@ -1,7 +1,7 @@
 -- Ordinary-harness support for the compact pure-Wasm conformance packs.
 local M = {}
 local runner = require("tests.simd.runner")
-local hash = require("nupp.compiler.build.hash")
+local hash = require("nupp.compiler.hash")
 local root = runner.root()
 
 local function exists(path)
@@ -233,7 +233,7 @@ function M.fixtureKey(pack, generated, capabilities, host)
     extra[#extra + 1] = capabilities.lua.os
     extra[#extra + 1] = capabilities.lua.arch
     extra[#extra + 1] = host.key
-    extra[#extra + 1] = require("nupp.compiler.build.cache").toolFingerprint()
+    extra[#extra + 1] = require("nupp.compiler.fingerprint").toolFingerprint()
 
     return "simd-wasmtime-pack-" .. digestFiles("simd-wasmtime-pack-v2", paths, extra)
 end

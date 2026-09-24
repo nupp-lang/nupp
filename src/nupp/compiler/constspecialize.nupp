@@ -11,7 +11,7 @@ the calls it will rewrite.
 ]]
 
 local cst = require("nupp.compiler.cst")
-local hash = require("nupp.compiler.build.hash")
+local hash = require("nupp.compiler.hash")
 local types = require("nupp.compiler.types")
 
 local constspecialize = {}

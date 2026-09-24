@@ -11,7 +11,7 @@ different root trace cannot compile.
 ]]
 
 local trace = require("nupp.profile.trace")
-local hash = require("nupp.compiler.build.hash")
+local hash = require("nupp.compiler.hash")
 
 local bytecode = {}
 

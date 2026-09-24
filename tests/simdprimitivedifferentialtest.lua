@@ -29,7 +29,7 @@ local function fixtureKey(pack, generated, capability)
         capability.compilerSignature,
         jit.os,
         jit.arch,
-        require("nupp.compiler.build.cache").toolFingerprint(),
+        require("nupp.compiler.fingerprint").toolFingerprint(),
     }
     local paths = {}
     for path in pairs(generated.files) do
@@ -62,7 +62,7 @@ local function fixtureKey(pack, generated, capability)
         parts[#parts + 1] = read(runner.root() .. path)
     end
 
-    return "simd-native-" .. require("nupp.compiler.build.hash").digest(table.concat(parts, "\0"))
+    return "simd-native-" .. require("nupp.compiler.hash").digest(table.concat(parts, "\0"))
 end
 
 local function hostClass(host)
@@ -87,7 +87,7 @@ local function symbolEvidence(report)
         scalar[#scalar + 1] = key .. "=" .. assert(report.scalarC.symbols[key], "scalar-C symbol inventory differs")
     end
     assert(#native == report.probes, "native symbol inventory differs from probe inventory")
-    local digest = require("nupp.compiler.build.hash").digest
+    local digest = require("nupp.compiler.hash").digest
     local examples = {}
     for _, at in ipairs({1, math.min(2, #keys), #keys}) do
         local key = keys[at]

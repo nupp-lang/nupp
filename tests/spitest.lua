@@ -1,6 +1,6 @@
 local fs = require("nupp.compiler.fs")
 local project = require("nupp.compiler.build.project")
-local process = require("nupp.compiler.build.process")
+local process = require("nupp.compiler.process")
 local discovery = require("nupp.compiler.build.spi")
 local M = {}
 

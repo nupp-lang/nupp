@@ -17,6 +17,7 @@ need `cc -E` first, which the caller asks for explicitly.
 
 local T = require("nupp.compiler.types")
 local cdecl = require("nupp.compiler.cdecl")
+local hash = require("nupp.compiler.hash")
 
 local cheader = {}
 
@@ -222,7 +223,7 @@ local function toolchainTag(opts)
     if hit then
         return hit
     end
-    local code, output = hostService("build.process").capture(argv)
+    local code, output = hostService("process").capture(argv)
     local version = code == 0 and output:match("[^\r\n]+") or "unknown"
     toolchainCache[key] = version
 
@@ -252,7 +253,7 @@ local function compilerArgv(opts, ...)
 end
 
 local function dependencyPaths(text, sourcePath)
-    local paths = hostService("build.syntax").depfile:match(text) or {}
+    local paths = hostService("shellsyntax").depfile:match(text) or {}
     if #paths == 0 then
         paths[1] = sourcePath
     end
@@ -272,7 +273,7 @@ end
 local function preprocessHeader(path, opts)
     local depPath = os.tmpname()
     local argv = compilerArgv(opts, "-E", "-MD", "-MF", depPath, "-MT", "nupp_header", "-xc", path)
-    local code, expanded = hostService("build.process").capture(argv)
+    local code, expanded = hostService("process").capture(argv)
     local depText = hostService("fs").readFile(depPath)
     os.remove(depPath)
     if code ~= 0 then
@@ -314,9 +315,9 @@ local function provenance(path: string, opts: cheader.Options?): cheader.Provena
         dependencies = discovered
     end
     text = stripDirectives(text)
-    local semanticFingerprint = hostService(
-        "build.hash"
-    ).digest(table.concat({"cheader-v2", cdecl.abiTag(), toolchainIdentity(opts), semanticText(text)}, "\0"))
+    local semanticFingerprint = hash.digest(
+        table.concat({"cheader-v2", cdecl.abiTag(), toolchainIdentity(opts), semanticText(text)}, "\0")
+    )
 
     return {cdef = text, sourcePath = path, dependencies = dependencies, semanticFingerprint = semanticFingerprint,}
 end

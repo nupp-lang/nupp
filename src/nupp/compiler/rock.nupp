@@ -11,7 +11,7 @@ it from a new consumer.
 ]]
 
 local fs = require("nupp.compiler.fs")
-local process = require("nupp.compiler.build.process")
+local process = require("nupp.compiler.process")
 local diagnostics = require("nupp.compiler.diagnostics")
 
 local join, normalize, dirname, basename = fs.join, fs.normalize, fs.dirname, fs.basename

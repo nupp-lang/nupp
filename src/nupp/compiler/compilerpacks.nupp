@@ -1,4 +1,4 @@
-module nupp.compiler.build.compilerpacks
+module nupp.compiler.compilerpacks
 
 --[[
 Resolving an installed, target-indexed native compiler pack.
@@ -13,7 +13,7 @@ const {type Profile} = require("nupp.compiler.targetprofile")
 const json = require("nupp.codec.json")
 
 local fs = require("nupp.compiler.fs")
-local hash = require("nupp.compiler.build.hash")
+local hash = require("nupp.compiler.hash")
 local layouts = require("nupp.compiler.targetlayout")
 local profiles = require("nupp.compiler.targetprofile")
 

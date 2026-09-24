@@ -8,7 +8,7 @@ and write them instead of carrying another implementation in workflow scripts.
 ]]
 
 local fs = require("nupp.compiler.fs")
-local hash = require("nupp.compiler.build.hash")
+local hash = require("nupp.compiler.hash")
 local packaging = require("nupp.compiler.build.package")
 local platform = require("nupp.compiler.build.platform")
 local stubs = require("nupp.compiler.build.stubs")

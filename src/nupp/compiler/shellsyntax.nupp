@@ -1,4 +1,4 @@
-module nupp.compiler.build.syntax
+module nupp.compiler.shellsyntax
 
 -- The three tiny languages emitted or consumed by native builds.
 

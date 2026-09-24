@@ -16,7 +16,7 @@ module nupp.compiler.benchrunner
 --- Called by `nupp bench`.
 local json = require("nupp.codec.json")
 
-local buildProcess = require("nupp.compiler.build.process")
+local buildProcess = require("nupp.compiler.process")
 local cli = require("nupp.cli")
 local files = require("nupp.io.files")
 local process = require("nupp.io.process")
@@ -315,8 +315,8 @@ end
 --- under `bench/`, not just the file being listed, because a case file may require a
 --- neighbour and the names it declares may come from there. Both are cheap beside one
 --- listing child, which is seconds.
-local function buildCache(): any?
-    local ok, loaded = pcall(require, "nupp.compiler.build.cache")
+local function compilerFingerprint(): any?
+    local ok, loaded = pcall(require, "nupp.compiler.fingerprint")
     if not ok or not loaded then
         return nil
     end
@@ -327,21 +327,21 @@ end
 --- What one listed file's own contents come to. Nil when it cannot be read, which
 --- keeps it out of the cache rather than storing it under a key nothing can match.
 local function sourceDigest(path: string): string?
-    local cache = buildCache()
-    if cache == nil then
+    local fingerprint = compilerFingerprint()
+    if fingerprint == nil then
         return nil
     end
 
-    return cache.hashFile(path, cache.contentDigest(true))
+    return fingerprint.hashFile(path, fingerprint.contentDigest(true))
 end
 
 local function listingKey(): string?
-    local cache = buildCache()
-    if cache == nil then
+    local fingerprint = compilerFingerprint()
+    if fingerprint == nil then
         return nil
     end
-    local digest = cache.contentDigest(true)
-    local parts: {string} = {cache.toolFingerprint(digest)}
+    local digest = fingerprint.contentDigest(true)
+    local parts: {string} = {fingerprint.toolFingerprint(digest)}
     local sources: {string} = {}
     for _, pattern in ipairs({"bench/**/*.nupp", "bench/**/*.lua", "bench/*.nupp", "bench/*.lua"}) do
         for _, path in ipairs(files.glob(pattern) or {}) do
@@ -352,7 +352,7 @@ local function listingKey(): string?
     local last: string? = nil
     for _, path in ipairs(sources) do
         if path ~= last then
-            parts[#parts + 1] = path .. "\0" .. (cache.hashFile(path, digest) or "missing")
+            parts[#parts + 1] = path .. "\0" .. (fingerprint.hashFile(path, digest) or "missing")
             last = path
         end
     end
@@ -1514,7 +1514,7 @@ function runner.run(options: runner.Options): integer
                     .. "/"
                     .. tostring(round)
                     .. "-"
-                    .. require("nupp.compiler.build.hash").digest(entry.path .. "\0" .. entry.name):sub(1, 16)
+                    .. require("nupp.compiler.hash").digest(entry.path .. "\0" .. entry.name):sub(1, 16)
                     .. "-"
                     .. slug(entry.name):sub(1, 72)
                 )

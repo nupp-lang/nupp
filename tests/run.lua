@@ -1150,7 +1150,7 @@ end
 local fixtureRoot = buildRoot .. "/test-fixtures"
 local fixtureSerial = 0
 local FIXTURE_LEASE_SECONDS = 15 * 60
-local fixtureDigest = require("nupp.compiler.build.cache").contentDigest(true)
+local fixtureDigest = require("nupp.compiler.fingerprint").contentDigest(true)
 
 local function readJson(path)
     local file = io.open(path, "rb")

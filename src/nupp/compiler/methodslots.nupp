@@ -140,7 +140,7 @@ end
 --- The valid Lua identifier used as one overload's hidden runtime member. `ft` is the
 --- callable as seen at a method call, with its receiver removed.
 function methodslots.member(name: string, ft: any): string
-    return "__nupp_m_" .. hash.digest(name .. ":" .. packFingerprint(ft, true))
+    return "__nupp_m_" .. hash.sha256(name .. ":" .. packFingerprint(ft, true))
 end
 
 --- The parameter-pack identity used to reject return-only overloads.

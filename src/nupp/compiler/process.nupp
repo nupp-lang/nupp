@@ -1,4 +1,4 @@
-module nupp.compiler.build.process
+module nupp.compiler.process
 
 --[[
 Running a subprocess, given its argument vector.

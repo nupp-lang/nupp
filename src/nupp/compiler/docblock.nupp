@@ -16,7 +16,7 @@ question, asked once the file's declarations are all in.
 
 local cst = require("nupp.compiler.cst")
 local lexer = require("nupp.compiler.lexer")
-local syntax = require("nupp.compiler.doc.syntax")
+local syntax = require("nupp.compiler.docsyntax")
 
 local docblock = {}
 

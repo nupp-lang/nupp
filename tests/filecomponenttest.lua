@@ -1,5 +1,5 @@
 local test = require("assert")
-local process = require("nupp.compiler.build.process")
+local process = require("nupp.compiler.process")
 
 local here = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 if not here:match("^/") then

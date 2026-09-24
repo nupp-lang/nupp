@@ -10,7 +10,7 @@ local cst = require("nupp.compiler.cst")
 local lexer = require("nupp.compiler.lexer")
 local envMod = require("nupp.compiler.env")
 local check = require("nupp.compiler.check")
-local hash = require("nupp.compiler.build.hash")
+local hash = require("nupp.compiler.hash")
 
 local imports = {}
 local type Use = {

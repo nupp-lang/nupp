@@ -131,7 +131,7 @@ local function run(options: any): integer
     -- entirely.
     local settled = reporting and envMod.formatStore(env) or nil
     local textNeeded = write and true or false
-    local hashMod = require("nupp.compiler.build.hash")
+    local hashMod = require("nupp.compiler.hash")
     local digest = env.compilerServices and env.compilerServices.hash and env.compilerServices.hash.digest
         or hashMod.digest
     local optionsKey = nil

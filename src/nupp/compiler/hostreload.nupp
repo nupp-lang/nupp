@@ -289,7 +289,7 @@ function hostreload.attach(root: string?, strict: boolean?): (hostreload.Session
         return nil, "no component in this runtime was built with reload = true"
     end
     local hotRuntime = require("nupp.runtime.hotreload")
-    local hash = require("nupp.compiler.build.hash")
+    local hash = require("nupp.compiler.hash")
     local watch = require("nupp.compiler.cli.watch")
     local session: any = require("nupp.compiler.hotsession").new(root or ".", {strict = strict})
     local driver: any = nil

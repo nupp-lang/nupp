@@ -9,7 +9,7 @@ Computing one reads the parse tree and the tokens under it, so this module
 requires the parser and stops there.
 
 That boundary is the point. The stored header is stamped with a digest of the
-compiler that computed it (`nupp.compiler.build.cache`), and a stamp is only as
+compiler that computed it (`nupp.compiler.fingerprint`), and a stamp is only as
 narrow as the code it covers. While this lived in `nupp.compiler.env` the
 narrowest honest answer was the whole environment -- the checker, the code
 generator and everything they reach -- so editing any of them threw away every

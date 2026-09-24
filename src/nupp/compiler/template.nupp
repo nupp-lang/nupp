@@ -35,8 +35,8 @@ const files2 = require("nupp.io.files")
 
 local bundled = require("nupp.compiler.bundledlist")
 local fs = require("nupp.compiler.fs")
-local process = require("nupp.compiler.build.process")
-local syntax = require("nupp.compiler.build.syntax")
+local process = require("nupp.compiler.process")
+local syntax = require("nupp.compiler.shellsyntax")
 
 local join, normalize = fs.join, fs.normalize
 local basename = fs.basename

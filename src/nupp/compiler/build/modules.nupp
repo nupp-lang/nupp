@@ -19,16 +19,17 @@ const {type Resource} = require("nupp.compiler.build.manifest")
 const {type DependencyRecord} = require("nupp.compiler.build.cache")
 const {type Reporter} = require("nupp.compiler.build.progress")
 const {type Observer} = require("nupp.compiler.incremental")
-const {type Value} = require("nupp.compiler.build.store")
+const {type Value} = require("nupp.compiler.store")
 
 local envMod = require("nupp.compiler.env")
 local gen = require("nupp.compiler.gen")
 local optimize = require("nupp.compiler.optimize")
-local hash = require("nupp.compiler.build.hash")
+local hash = require("nupp.compiler.hash")
 local incremental = require("nupp.compiler.incremental")
 local diagnosticMod = require("nupp.compiler.diagnostics")
 local fs = require("nupp.compiler.fs")
 local cache = require("nupp.compiler.build.cache")
+local fingerprint = require("nupp.compiler.fingerprint")
 local deps = require("nupp.compiler.build.deps")
 local materializeObserve = require("nupp.compiler.materialize.observe")
 local progress = require("nupp.compiler.build.progress")
@@ -38,7 +39,8 @@ local moduleTargets = require("nupp.compiler.standardsurface")
 
 local normalize, join = fs.normalize, fs.join
 local readFile, writeFile = fs.readFile, fs.writeFile
-local stable, hashFile, jsonArray = cache.stable, cache.hashFile, cache.jsonArray
+local stable = require("nupp.compiler.stable")
+local hashFile, jsonArray = fingerprint.hashFile, cache.jsonArray
 local expandGlob = deps.expandGlob
 local isFatal, printErrors = diagnosticMod.isFatal, diagnosticMod.report
 
@@ -829,10 +831,10 @@ local function buildModules(root: string, outDir: string, config: Config, target
     -- is never visible in a record -- only in how long the run took. The wrapper
     -- shadows the module-level `hashFile` so every site below reaches it without
     -- carrying the digest through its own signature.
-    local contentDigest = cache.contentDigest(true)
+    local contentDigest = fingerprint.contentDigest(true)
 
     local function hashFile(path: string): string?
-        return cache.hashFile(path, contentDigest)
+        return fingerprint.hashFile(path, contentDigest)
     end
 
     local substituted: {[string]: string} = {}

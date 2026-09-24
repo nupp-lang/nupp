@@ -3,11 +3,12 @@ module nupp.compiler.build.generators
 const files2 = require("nupp.io.files")
 
 local capabilities = require("nupp.compiler.build.capabilities")
-local cache = require("nupp.compiler.build.cache")
+local fingerprint = require("nupp.compiler.fingerprint")
+local stable = require("nupp.compiler.stable")
 local deps = require("nupp.compiler.build.deps")
 local fs = require("nupp.compiler.fs")
-local hash = require("nupp.compiler.build.hash")
-local process = require("nupp.compiler.build.process")
+local hash = require("nupp.compiler.hash")
+local process = require("nupp.compiler.process")
 local json = require("nupp.codec.json")
 
 local generators = {}
@@ -74,16 +75,16 @@ function generators.run(root, outDir, config, records, previous): ({[string]: an
         local staged = output .. ".nupp-staged"
         local old = previous and previous[name]
         local key = hash.digest(
-            cache.stable(
+            stable(
                 configured
-            ) .. "\0" .. cache.stable(capability) .. "\0" .. tostring(record.key) .. "\0" .. cache.hashFiles(inputs)
+            ) .. "\0" .. stable(capability) .. "\0" .. tostring(record.key) .. "\0" .. fingerprint.hashFiles(inputs)
         )
         local oldFiles = old and old.files or {}
         local currentFiles = fs.listFiles(output)
         if old
             and old.key == key
-            and cache.stable(currentFiles) == cache.stable(oldFiles)
-            and cache.hashFiles(currentFiles) == old.outputHash
+            and stable(currentFiles) == stable(oldFiles)
+            and fingerprint.hashFiles(currentFiles) == old.outputHash
         then
             result[name] = old
         else
@@ -180,7 +181,7 @@ function generators.run(root, outDir, config, records, previous): ({[string]: an
             end
             removeTree(backup)
             local outputFiles = fs.listFiles(output)
-            result[name] = {key = key, files = outputFiles, outputHash = cache.hashFiles(outputFiles)}
+            result[name] = {key = key, files = outputFiles, outputHash = fingerprint.hashFiles(outputFiles)}
         end
     end
 

@@ -15,7 +15,7 @@ module nupp.runtime.browser.workercodec
 -- for them when it targets a browser.
 
 --- That the `require` in `resolveRecord` is reflection, not a dependency, for
---- `nupp.compiler.build.cache`'s module graph.
+--- `nupp.compiler.fingerprint`'s module graph.
 ---
 --- The name it resolves came out of a message, and it names a module of the
 --- application whose record the message carried rather than code this one is

@@ -155,7 +155,7 @@ end
 --- executes a program: spawning it directly answers that the file is not there,
 --- which is what the evaluation self-test reported on that platform while the
 --- file sat in front of it. `NUPP_TEST_BASH` names the shell that can, the same
---- variable and the same rule `nupp.compiler.build.process` uses for this, and
+--- variable and the same rule `nupp.compiler.process` uses for this, and
 --- it is set only where the question arises.
 local function launchable(argv: {string}): {string}
     local shell = os.getenv("NUPP_TEST_BASH")

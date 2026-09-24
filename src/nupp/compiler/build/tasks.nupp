@@ -13,6 +13,7 @@ local json = require("nupp.codec.json")
 local cache = require("nupp.compiler.build.cache")
 local manifest = require("nupp.compiler.build.manifest")
 local dialects = require("nupp.compiler.dialects")
+local projectconfig = require("nupp.compiler.projectconfig")
 
 local jsonArray = cache.jsonArray
 
@@ -54,42 +55,15 @@ type tasks.Task = {
 --- caller already knows which it asked for.
 type tasks.Description = {[string]: any}
 
-local function targetConfig(config: manifest.Config, requested: string?): manifest.Target?, string?
-    local build = (config.build or {}) as manifest.Build
-    if build.targets then
-        local name = requested or build.default
-        if not name then
-            local names = {}
-            for candidate in pairs(build.targets) do
-                names[#names + 1] = candidate
-            end
-            table.sort(names)
-            name = names[1]
-        end
-        local target = (name and build.targets[name]) as manifest.Target
-        if type(target) ~= "table" then
-            return nil, "unknown build target " .. tostring(name)
-        end
-        local merged: manifest.Target = {}
-        for key, value in pairs(build) do
-            if key ~= "targets" and key ~= "default" then
-                merged[key] = value
-            end
-        end
-        for key, value in pairs(target) do
-            merged[key] = value
-        end
-        if merged.kind == "docs" then
-            merged.targetName = name
-        else
-            merged.name = name
-        end
-        return merged
-    end
-    -- A build section that names no targets is the target, which is what the manifest
-    -- means by leaving them out.
+--- The target a build would select: `requested`, or the manifest's default, merged
+--- over the settings the build section shares with every target.
+---
+--- @return the merged target
+--- @return why there is none, ready to print
+local function targetConfig(config: manifest.Config, requested: string?): (manifest.Target?, string?)
+    local target, err = projectconfig.targetConfig(config, requested)
 
-    return build as manifest.Target
+    return target, err
 end
 
 local function copyStrings(items: {string}?): {string}

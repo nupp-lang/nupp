@@ -24,7 +24,7 @@ descriptor is verified here, once, and is the same shape the built-in table has.
 Two things this deliberately does not do. It does not let a project declare its
 own capabilities: a target's capabilities are the target's, and a manifest that
 could assert a loader into existence would only move the failure later. And it
-carries no toolchain: `nupp.compiler.build.compilerpacks` owns where `cc` is,
+carries no toolchain: `nupp.compiler.compilerpacks` owns where `cc` is,
 and a profile that also named one would give two answers to one question.
 ]]
 

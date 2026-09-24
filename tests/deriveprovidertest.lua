@@ -1,7 +1,7 @@
 -- End-to-end coverage for public and compiler-shipped comptime providers.
 
 local json = require("testjson")
-local process = require("nupp.compiler.build.process")
+local process = require("nupp.compiler.process")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local NUPP = HERE .. "/../bin/nupp"

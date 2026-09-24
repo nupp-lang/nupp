@@ -12,8 +12,8 @@ rather than by anything the filesystem has to be asked.
 const {type ModuleRecord as ModuleRecord2} = require("nupp.compiler.build.cache")
 const {type Resource} = require("nupp.compiler.build.manifest")
 
-local hash = require("nupp.compiler.build.hash")
-local process = require("nupp.compiler.build.process")
+local hash = require("nupp.compiler.hash")
+local process = require("nupp.compiler.process")
 local fs = require("nupp.compiler.fs")
 local deps = require("nupp.compiler.build.deps")
 local modulesMod = require("nupp.compiler.build.modules")

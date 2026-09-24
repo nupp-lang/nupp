@@ -7,7 +7,7 @@ target before emission.
 ]]
 
 local bindingRules = require("nupp.compiler.aot.binding")
-local hash = require("nupp.compiler.build.hash")
+local hash = require("nupp.compiler.hash")
 local cst = require("nupp.compiler.cst")
 local lexer = require("nupp.compiler.lexer")
 local emit = require("nupp.compiler.aot.emit")

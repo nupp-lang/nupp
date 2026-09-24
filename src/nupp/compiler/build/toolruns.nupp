@@ -29,7 +29,7 @@ came from, so the first failure a caller reports is the first failing job rather
 than whichever process happened to exit first.
 ]]
 
-local process = require("nupp.compiler.build.process")
+local process = require("nupp.compiler.process")
 
 local toolruns = {}
 

@@ -29,7 +29,7 @@ local rules = {
     -- touching the public SIMD modules themselves.
     {"^src/nupp/compiler/aot/", {"compiler", "aot", "browser", "simd"}},
     {"^src/nupp/compiler/build/aot%.nupp$", {"compiler", "aot", "browser", "simd"}},
-    {"^src/nupp/compiler/build/compilerpacks%.nupp$", {"compiler", "simd"}},
+    {"^src/nupp/compiler/compilerpacks%.nupp$", {"compiler", "simd"}},
     {"^src/nupp/compiler/build/project%.nupp$", {"compiler", "simd"}},
     {"^src/nupp/compiler/check/aot%.nupp$", {"compiler", "aot", "simd"}},
     {"^src/nupp/compiler/constspecialize%.nupp$", {"compiler", "simd"}},

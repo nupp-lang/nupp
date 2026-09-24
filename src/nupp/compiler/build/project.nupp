@@ -11,10 +11,11 @@ in the build cache, not by timestamps.
 const {type Stats} = require("nupp.compiler.build.modules")
 
 local envMod = require("nupp.compiler.env")
-local hash = require("nupp.compiler.build.hash")
-local process = require("nupp.compiler.build.process")
+local hash = require("nupp.compiler.hash")
+local process = require("nupp.compiler.process")
 local fs = require("nupp.compiler.fs")
 local cache = require("nupp.compiler.build.cache")
+local fingerprint = require("nupp.compiler.fingerprint")
 local manifest = require("nupp.compiler.build.manifest")
 local tasks = require("nupp.compiler.build.tasks")
 local deps = require("nupp.compiler.build.deps")
@@ -23,7 +24,7 @@ local spi = require("nupp.compiler.build.spi")
 local modules = require("nupp.compiler.build.modules")
 local packaging = require("nupp.compiler.build.package")
 local buildPlatform = require("nupp.compiler.build.platform")
-local storeMod = require("nupp.compiler.build.store")
+local storeMod = require("nupp.compiler.store")
 local native = require("nupp.compiler.build.native")
 local nativeFeatures = require("nupp.compiler.native")
 local materializeObserve = require("nupp.compiler.materialize.observe")
@@ -149,9 +150,10 @@ local dirname, basename = fs.dirname, fs.basename
 local readFile, writeFile = fs.readFile, fs.writeFile
 local copyFile, listFiles = fs.copyFile, fs.listFiles
 
-local stable, hashFile = cache.stable, cache.hashFile
+local stable = require("nupp.compiler.stable")
+local hashFile = fingerprint.hashFile
 local loadState, saveState = cache.loadState, cache.saveState
-local toolFingerprint = cache.toolFingerprint
+local toolFingerprint = fingerprint.toolFingerprint
 local targetConfig = tasks.targetConfig
 local buildDependencies = deps.build
 local buildModules = modules.build
@@ -485,7 +487,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     -- Every cache key below this line goes through one digest. A native host has a
     -- compiled one that answers identically, so resolve it once here and hand it
     -- down rather than letting each site fall back to the portable spelling.
-    local contentDigest = cache.contentDigest(true)
+    local contentDigest = fingerprint.contentDigest(true)
     newState.compilerHash = toolFingerprint(contentDigest)
     -- Dated here, before a single source has been read, and published by the rename
     -- below once they all have been.
@@ -502,7 +504,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     -- rebuilt the project. The carried declarations are part of it: a module is
     -- checked against `lua.d.nupp` as much as against the checker.
     newState.moduleCompilerHash = cache.moduleCompilerFingerprint(
-        cache.sharedCacheDir(join(root, join(outDir, "cache"))),
+        fingerprint.sharedCacheDir(join(root, join(outDir, "cache"))),
         contentDigest
     )
     newState.configHash = contentDigest(stable(config))

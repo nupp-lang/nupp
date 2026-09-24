@@ -13,7 +13,7 @@ const {type Target} = require("nupp.compiler.build.manifest")
 local envMod = require("nupp.compiler.env")
 local native = require("nupp.compiler.native")
 local fs = require("nupp.compiler.fs")
-local process = require("nupp.compiler.build.process")
+local process = require("nupp.compiler.process")
 local deps = require("nupp.compiler.build.deps")
 
 local stage = {}
@@ -124,7 +124,7 @@ function stage.linkHost(
 ): (string?, string?)
     local selected = target.layoutTarget
     local host = require("nupp.compiler.build.platform").hostKey()
-    local pack, packErr = require("nupp.compiler.build.compilerpacks").resolve(selected or host)
+    local pack, packErr = require("nupp.compiler.compilerpacks").resolve(selected or host)
     if packErr ~= nil then
         return nil, packErr
     end

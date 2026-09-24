@@ -1348,7 +1348,7 @@ function M.inliningKeepsAComputedRequireComputed()
         .. "local function packs(): any return private(\"compilerpacks\") end\nreturn packs"
     )
     assertTrue(
-        code:find("\"nupp.compiler.build.compilerpacks\"", 1, true) == nil,
+        code:find("\"nupp.compiler.compilerpacks\"", 1, true) == nil,
         "the require's argument stays computed: " .. code
     )
 end

@@ -1,4 +1,4 @@
-module nupp.compiler.build.store
+module nupp.compiler.store
 
 --[[
 A keyed blob of results that survives between commands.

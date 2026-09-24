@@ -2,8 +2,8 @@
 -- corpus itself runs through the embedded Wasmtime host.
 local test = require("nupp.test")
 local runner = require("tests.simd.runner")
-local hash = require("nupp.compiler.build.hash")
-local cache = require("nupp.compiler.build.cache")
+local hash = require("nupp.compiler.hash")
+local fingerprint = require("nupp.compiler.fingerprint")
 local M = {}
 
 local ROOT = runner.root()
@@ -37,7 +37,7 @@ local function browserGuest()
 end
 
 local function fixtureKey(guest, compiler)
-    local parts = {"simd-browser-smoke-v2", guest, compiler, cache.toolFingerprint()}
+    local parts = {"simd-browser-smoke-v2", guest, compiler, fingerprint.toolFingerprint()}
     for _, relative in ipairs({
         "scripts/toolchain.pins",
         "tests/simd/build-wasm-browser-smoke.lua",

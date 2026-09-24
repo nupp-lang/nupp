@@ -72,7 +72,7 @@ function M.localFleetInputsRemainAnExplicitSimdSurface()
         "src/nupp/codec/json/internal/decoder/fused.nupp",
         "src/nupp/compiler/aot/emit.nupp",
         "src/nupp/compiler/build/aot.nupp",
-        "src/nupp/compiler/build/compilerpacks.nupp",
+        "src/nupp/compiler/compilerpacks.nupp",
         "src/nupp/compiler/build/project.nupp",
         "src/nupp/compiler/check/aot.nupp",
         "src/nupp/compiler/constspecialize.nupp",

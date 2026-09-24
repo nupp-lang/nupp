@@ -19,7 +19,7 @@
 
 local test = require("assert")
 local json = require("nupp.codec.json")
-local process = require("nupp.compiler.build.process")
+local process = require("nupp.compiler.process")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 if not HERE:match("^/") then

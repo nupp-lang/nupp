@@ -408,7 +408,7 @@ return convert
         "source identity resolves independently of the invocation directory"
     )
     test.equal(shader.sourceLine, 2)
-    test.equal(shader.artifactId, require("nupp.compiler.build.hash").digest(module))
+    test.equal(shader.artifactId, require("nupp.compiler.hash").digest(module))
     assert(report.binding:find(shader.artifactId, 1, true), "runtime and inspection share the shader digest")
     assert(report.binding:find('sourceLine = 2', 1, true), report.binding)
     assert(report.binding:find('artifactId = "', 1, true), report.binding)

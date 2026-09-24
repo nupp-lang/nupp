@@ -6,6 +6,7 @@
 -- recomputes -- so nothing else in the suite notices, and the project quietly reparses
 -- itself on every command. These are the tests that notice.
 local cache = require("nupp.compiler.build.cache")
+local fingerprint = require("nupp.compiler.fingerprint")
 local envMod = require("nupp.compiler.env")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
@@ -50,7 +51,7 @@ local M = {}
 -- anywhere in the compiler, and every stamp below becomes the whole compiler again.
 -- Nothing breaks, every command just goes back to throwing away the last one's work.
 function M.eachSubsystemIsStampedWithItselfRatherThanTheWholeCompiler()
-    local whole = cache.toolFingerprint()
+    local whole = fingerprint.toolFingerprint()
     local seen = {}
     for _, name in ipairs({
         "nupp.compiler.header",
@@ -58,7 +59,7 @@ function M.eachSubsystemIsStampedWithItselfRatherThanTheWholeCompiler()
         "nupp.compiler.check",
         "nupp.compiler.build.modules",
     }) do
-        local stamp = cache.subsystemFingerprint({name})
+        local stamp = fingerprint.subsystemFingerprint({name})
         assert(stamp ~= whole, ("%s is stamped with the whole compiler, so the graph could not be read"):format(name))
         assert(not seen[stamp], ("%s has the same stamp as %s"):format(name, tostring(seen[stamp])))
         seen[stamp] = name
@@ -68,11 +69,11 @@ end
 -- The generated SPI index is data. Its dependency declarations connect the lazy
 -- loader to the implementation code, and a qualified global require still counts.
 function M.spiIndexDependenciesRetainNarrowImplementationStamps()
-    local source = assert(io.open(ROOT .. "/build/nupp/compiler/build/cache.lua", "rb"))
+    local source = assert(io.open(ROOT .. "/build/nupp/compiler/fingerprint.lua", "rb"))
     local cacheCode = source:read("*a")
     source:close()
     local dir = tempProject({
-        ["nupp/compiler/build/cache.lua"] = cacheCode,
+        ["nupp/compiler/fingerprint.lua"] = cacheCode,
         ["nupp/compiler/entry.lua"] = 'return _G.require("nupp.spi")',
         [
             "nupp/spi.lua"
@@ -91,14 +92,14 @@ return {["example.spi.Provider"] = {"nupp.fixture"}}
     })
 
     local function stamp()
-        local prior = package.loaded["nupp.compiler.build.cache"]
+        local prior = package.loaded["nupp.compiler.fingerprint"]
         local ok, result = pcall(function()
-            local isolated = dofile(dir .. "/nupp/compiler/build/cache.lua")
+            local isolated = dofile(dir .. "/nupp/compiler/fingerprint.lua")
             local narrow = isolated.subsystemFingerprint({"nupp.compiler.entry"})
             assert(narrow ~= isolated.toolFingerprint(), "SPI discovery made the graph incomplete")
             return narrow
         end)
-        package.loaded["nupp.compiler.build.cache"] = prior
+        package.loaded["nupp.compiler.fingerprint"] = prior
         assert(ok, result)
 
         return result
@@ -117,9 +118,9 @@ end
 -- makes it the right thing to do about a question this cannot answer.
 function M.anUnreadableSubsystemFallsBackToTheWholeCompiler()
     assert(
-        cache.subsystemFingerprint({
+        fingerprint.subsystemFingerprint({
             "nupp.compiler.no.such.module"
-        }) == cache.toolFingerprint(),
+        }) == fingerprint.toolFingerprint(),
         "an unknown module has to leave the stamp covering everything"
     )
 end
@@ -129,11 +130,11 @@ end
 -- build in the same process never wrote the store and every later command lexed the
 -- compiler again.
 function M.aCallerWithSomewhereToKeepTheGraphKeepsItAfterOneThatHadNot()
-    assert(cache.subsystemFingerprint({"nupp.compiler.fmt"}), "computed with nowhere to keep it")
+    assert(fingerprint.subsystemFingerprint({"nupp.compiler.fmt"}), "computed with nowhere to keep it")
     local dir = os.tmpname()
     os.remove(dir)
     os.execute("mkdir -p '" .. dir .. "'")
-    cache.subsystemFingerprint({"nupp.compiler.build.cache", "nupp.compiler.stable"}, dir)
+    fingerprint.subsystemFingerprint({"nupp.compiler.fingerprint", "nupp.compiler.stable"}, dir)
     assert(
         exists(dir .. "/modulegraph.buf"),
         "the store handed to a later caller receives the graph the earlier one computed"
@@ -160,10 +161,10 @@ function M.theModuleStampMovesWhenACarriedDeclarationChanges()
     end
 
     local before, after = reader("function(a, b)"), reader("function(a: T, b: T)")
-    local declared = cache.declarationFingerprint(nil, list, before)
-    assert(declared == cache.declarationFingerprint(nil, list, before), "the same declarations have to stamp the same")
+    local declared = fingerprint.declarationFingerprint(nil, list, before)
+    assert(declared == fingerprint.declarationFingerprint(nil, list, before), "the same declarations have to stamp the same")
     assert(
-        declared ~= cache.declarationFingerprint(nil, list, after),
+        declared ~= fingerprint.declarationFingerprint(nil, list, after),
         "an edited declaration left the declaration stamp where it was"
     )
     assert(
@@ -176,13 +177,13 @@ function M.theModuleStampMovesWhenACarriedDeclarationChanges()
         "the module stamp does not reach the declarations"
     )
     assert(
-        cache.moduleCompilerFingerprint(nil, nil, list, before) ~= cache.subsystemFingerprint({
+        cache.moduleCompilerFingerprint(nil, nil, list, before) ~= fingerprint.subsystemFingerprint({
             "nupp.compiler.build.modules"
         }),
         "the module stamp is the code alone"
     )
     assert(
-        cache.declarationFingerprint() ~= cache.declarationFingerprint(nil, function()
+        fingerprint.declarationFingerprint() ~= fingerprint.declarationFingerprint(nil, function()
             return {}
         end),
         "the compiler's own declarations were not read"
@@ -268,7 +269,7 @@ function M.aNarrowCheckDoesNotHandOnAnotherCompilersRecordsAsItsOwn()
         return passed, output
     end
 
-    local store = require("nupp.compiler.build.store")
+    local store = require("nupp.compiler.store")
     local path = dir .. "/build/cache/checks.buf"
 
     local function stored()
@@ -332,7 +333,7 @@ local function cachedTree(name, text)
     local file = assert(io.open(path, "wb"))
     file:write(text)
     file:close()
-    local digest = require("nupp.compiler.build.hash").digest(text)
+    local digest = require("nupp.compiler.hash").digest(text)
     bytecodecache.refresh(out, {[name] = {output = path, artifactHash = digest}})
 
     return dir, out, path
@@ -408,7 +409,7 @@ function M.rewritingTheCacheRemovesTheEntriesNothingPointsAt()
     file:write(text)
     file:close()
     bytecodecache.refresh(out, {
-        [name] = {output = path, artifactHash = require("nupp.compiler.build.hash").digest(text)},
+        [name] = {output = path, artifactHash = require("nupp.compiler.hash").digest(text)},
     })
     assert(entries() == 1, "and after an edit still one, rather than one per edit")
     os.execute("rm -rf '" .. dir .. "'")
@@ -431,7 +432,7 @@ function M.aMovedTreeGetsItsEntriesWrittenAgainRatherThanReused()
 
     local path = moved .. "/" .. name .. ".lua"
     bytecodecache.refresh(moved, {
-        [name] = {output = path, artifactHash = require("nupp.compiler.build.hash").digest(text)},
+        [name] = {output = path, artifactHash = require("nupp.compiler.hash").digest(text)},
     })
     local cached = assert(assert(bytecodecache.searcher(moved))(name), "and is read once it is")
     assert(cached() == "@" .. path, "with the name it has now, not the one it had: " .. tostring(cached()))

@@ -1,14 +1,14 @@
 local project = require("nupp.compiler.build.project")
 local deps = require("nupp.compiler.build.deps")
-local hash = require("nupp.compiler.build.hash")
-local process = require("nupp.compiler.build.process")
-local store = require("nupp.compiler.build.store")
+local hash = require("nupp.compiler.hash")
+local process = require("nupp.compiler.process")
+local store = require("nupp.compiler.store")
 local nativeStage = require("nupp.compiler.build.native")
 local buildPlatform = require("nupp.compiler.build.platform")
 local fs = require("nupp.compiler.fs")
 local compilerEnv = require("nupp.compiler.env")
 local json = require("testjson")
-local buildSyntax = require("nupp.compiler.build.syntax")
+local buildSyntax = require("nupp.compiler.shellsyntax")
 
 local function assertEq(got, want, label)
     if got ~= want then
@@ -244,7 +244,7 @@ end
 function M.theToolFingerprintDoesNotDependOnHowTheCompilerWasFound()
     local function fingerprintUnder(prefix)
         local script = (
-            "package.path=%q..package.path " .. "print(require('nupp.compiler.build.cache').toolFingerprint())"
+            "package.path=%q..package.path " .. "print(require('nupp.compiler.fingerprint').toolFingerprint())"
         ):format(prefix .. "build/?.lua;")
         local code, out = process.capture({"luajit", "-e", script})
 
