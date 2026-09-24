@@ -10,6 +10,7 @@ mod loader;
 mod lower;
 mod luaphase;
 mod mir;
+mod wasmphase;
 mod x86phase;
 
 use regalloc2::{Algorithm, RegallocOptions};
@@ -171,6 +172,12 @@ fn c_words(dir: &std::path::Path, symbol: &str) -> usize {
 }
 
 fn main() {
+    if std::env::args().nth(1).as_deref() == Some("wasm") {
+        let path = std::env::args().nth(2).expect("kernels.json");
+        let out = std::env::args().nth(3).expect("output directory");
+        wasmphase::run(&path, &out);
+        return;
+    }
     if std::env::args().nth(1).as_deref() == Some("embed") {
         let path = std::env::args().nth(2).expect("kernels.json");
         let out = std::env::args().nth(3).expect("output directory");

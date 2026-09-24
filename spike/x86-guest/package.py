@@ -9,7 +9,7 @@ initramfs that replaces the guest's test script with one running x86test.
 import gzip, shutil, sys
 from pathlib import Path
 
-CPU = 'qemu64,+xsave,+osxsave,+avx,+avx2,+fma,+f16c,+bmi1,+bmi2,+popcnt,+sse4.1,+sse4.2,+ssse3,+movbe'
+CPU = 'qemu64,+xsave,+avx,+avx2,+fma,+f16c,+bmi1,+bmi2,+popcnt,+sse4.1,+sse4.2,+ssse3,+movbe'
 source = Path(sys.argv[1])       # build/qemu-wasm-spike/web
 out = Path(sys.argv[2])          # build/x86-guest-spike
 binary = out / 'x86test'
