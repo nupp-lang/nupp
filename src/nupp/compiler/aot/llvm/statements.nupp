@@ -159,6 +159,48 @@ local function provedSpans(statement: scalarIR.Statement): {string}
     return spans
 end
 
+--- How many times the check-free copy of a cursor loop is unrolled: the C
+--- lowering's choice, 4 for vectors up to 16 bytes and 2 up to 32, for a
+--- body with no loop, `break` or `continue` of its own; otherwise 1.
+local function unrollFactor(ctx: context.Context, statement: scalarIR.While): integer
+    local widest = 0
+    local plain = true
+
+    local function note(node: any): nil
+        local op = tostring(node.op)
+        if op == "while" or op == "repeat" or op == "fornum" or op == "break" or op == "continue" then
+            plain = false
+        elseif op:match("^simd_") ~= nil and node.cursor ~= nil then
+            local typeName = node.type
+            if op == "simd_store" or op == "simd_field_store" then
+                typeName = node.args[3].type
+            end
+            local found = context.species(ctx, tostring(typeName))
+            if found ~= nil then
+                local bytes = math.floor((found as any).lanes * (found as any).bits / 8)
+                widest = math.max(widest, bytes) as integer
+            end
+        end
+    end
+
+    visit.block(
+        statement.body,
+        new visit.Visitor(
+            scalarExpression = function(node: scalarIR.Expr): nil
+                note(node)
+            end,
+            scalarStatement = function(node: scalarIR.Statement): nil
+                note(node)
+            end
+        )
+    )
+    if not plain or widest == 0 then
+        return 1
+    end
+
+    return widest <= 16 and 4 or widest <= 32 and 2 or 1
+end
+
 local whileLoop: function(ctx: context.Context, statement: scalarIR.While, checked: boolean?): nil
 
 --- A loop with proved cursor accesses, twice: when every span they reach
@@ -210,7 +252,13 @@ whileLoop = function(ctx: context.Context, statement: scalarIR.While, checked: b
     loop(ctx, exit, head, function(): nil
         statements.block(ctx, statement.body)
     end)
-    builder.jump(f, head)
+    local unroll = ctx.wideCursors and unrollFactor(ctx, statement) or 1
+    if unroll > 1 and not f.terminated then
+        local metadata = builder.loopMetadata(ctx.module, {('!{!"llvm.loop.unroll.count", i32 %d}'):format(unroll)})
+        builder.terminate(f, ("br label %%%s, !llvm.loop %s"):format(head, metadata))
+    else
+        builder.jump(f, head)
+    end
     builder.start(f, exit)
 end
 

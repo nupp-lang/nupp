@@ -121,6 +121,24 @@ function builder.named(module: builder.Module, name: string, node: string): nil
     (list as {string})[#(list as {string}) + 1] = node
 end
 
+--- A loop's `!llvm.loop` node: distinct, naming itself first, then each
+--- property (itself a node, such as `!{!"llvm.loop.unroll.count", i32 2}`).
+function builder.loopMetadata(module: builder.Module, properties: {string}): string
+    local references: {string} = {}
+    for _, property in ipairs(properties) do
+        references[#references + 1] = builder.metadata(module, property)
+    end
+    local number = #module.metadata
+    local self = "!" .. tostring(number)
+    local operands = {self}
+    for _, reference in ipairs(references) do
+        operands[#operands + 1] = reference
+    end
+    module.metadata[number + 1] = "distinct !{" .. table.concat(operands, ", ") .. "}"
+
+    return self
+end
+
 --- A private constant array of bytes, as a global name, shared by content.
 function builder.bytes(module: builder.Module, value: string, align: integer?): string
     local key = "bytes " .. value
