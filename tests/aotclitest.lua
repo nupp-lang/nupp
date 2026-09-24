@@ -5434,6 +5434,57 @@ return {misplaced = misplaced}
     assert(refusedCode ~= 0 and out:find("initializes up to 2 locals", 1, true), out)
 end
 
+function M.anUnrolledLoopReadsEveryCopyBeforeItWrites()
+    -- The unrolled copies of a versioned loop read the spans they never write
+    -- first, every copy at its own cursor, and then do their work; a store no
+    -- longer separates one copy from the next copy's loads. A span the body
+    -- writes keeps its reads in place, and the scalar oracle is not unrolled.
+    local dir = project{
+        [
+            "unrolled.nupp"
+        ] = [[
+local span = require("nupp.mem.span")
+local array = require("nupp.mem.array")
+local simd = require("nupp.simd")
+
+@aot
+local function scale(exclusive output: span.WriteSpan<number>, borrows input: span.Span<number>, factor: number): nil
+    assert(#output == #input)
+    local s = assert(simd.species(array.number, 4))
+    local cursor: uint32 = 0
+    while cursor + s.lanes <= #input do
+        s:store(output, cursor + 1, s:load(input, cursor + 1) * factor)
+        cursor = cursor + s.lanes
+    end
+end
+
+@aot
+local function double(exclusive values: span.WriteSpan<number>): nil
+    local s = assert(simd.species(array.number, 4))
+    local cursor: uint32 = 0
+    while cursor + s.lanes <= #values do
+        s:store(values, cursor + 1, s:load(values, cursor + 1) * 2)
+        cursor = cursor + s.lanes
+    end
+end
+return {scale = scale, double = double}
+]],
+    }
+    local decoded, raw, code = lowered(dir, "--target aarch64-apple-darwin --features neon --json unrolled.nupp")
+    test.equal(code, 0, raw)
+    local c = decoded.c
+    local body = c:match("KS_API void ks_scale%(.-\n}\n")
+    assert(body, "the entry\n" .. c)
+    local first = body:find("_1_1 = ks_exp_load_at_f64x4(p_input", 1, true)
+    local second = body:find("_2_1 = ks_exp_load_at_f64x4(p_input", 1, true)
+    local store = body:find("ks_exp_store_at_f64x4(p_output", 1, true)
+    assert(first and second and store and first < second and second < store, "both copies read first\n" .. body)
+    local inPlace = c:match("KS_API void ks_double%(.-\n}\n")
+    assert(inPlace and not inPlace:find("ks_unroll_", 1, true), "a written span keeps its reads\n" .. c)
+    local oracle = c:match("KS_API void ks_scale_forced_scalar%(.-\n}\n")
+    assert(oracle and not oracle:find("ks_unroll_", 1, true), "the oracle is not unrolled\n" .. c)
+end
+
 function M.aLoopCarriedMaskStaysInItsRegister()
     -- A mask a loop reassigns is kept in its vector register, so the C
     -- compiler does not carry it as one bit a lane. The scalar oracle has no

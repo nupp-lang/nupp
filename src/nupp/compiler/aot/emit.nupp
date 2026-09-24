@@ -54,6 +54,10 @@ record emit.Context
     --- The emitting body's 64-bit cursors; see `emit.Body.wideCursors`.
     wideCursors: {[string]: integer}
 
+    --- Loads an unrolled copy reads from a temporary its loop filled first,
+    --- by node; see `emit.Body.preloaded`.
+    preloaded: {[scalarIR.Expr]: string}
+
     --- Mask locals bound once to `species:tail(n)`, by C name. Such a mask
     --- activates exactly the first `n` lanes, so an access it masks is a
     --- prefix access of `n` elements; its count is kept beside it.
@@ -147,6 +151,7 @@ function emit.context(parent: emit.Context?, program: scalarIR.Program?, scalar:
         explicitScalar = scalar == true,
         tailMasks = parent ~= nil and parent.tailMasks or {},
         wideCursors = parent ~= nil and parent.wideCursors or {},
+        preloaded = parent ~= nil and parent.preloaded or {},
         independentSpanCounts = parent == nil or parent.independentSpanCounts,
         countRoots = parent ~= nil and parent.countRoots or {},
         countAliases = parent ~= nil and parent.countAliases or {},
@@ -1600,6 +1605,10 @@ function emit.scalar(context: emit.Context, node: scalarIR.Expr): string
                 end
                 return genericAggregate(context, species, perLane)
             elseif operation == "simd_load" then
+                local preloaded = context.preloaded[node]
+                if preloaded ~= nil then
+                    return preloaded
+                end
                 if simd.intrinsic == "gather" then
                     return emit.indexedSimd(context, simd)
                 end
@@ -2640,6 +2649,12 @@ record emit.Body
     --- the guard's lanes needs no wrap check. Shared with the context.
     wideCursors: {[string]: integer} = {}
 
+    --- The context's `preloaded`, while the body emitting is a native kernel's:
+    --- an unrolled loop there reads each copy's loads into temporaries before
+    --- any copy runs, and names them here for the copy's statements. Nil where
+    --- no emitter would read it back, which is where loads are not hoisted.
+    preloaded: {[scalarIR.Expr]: string}?
+
     --- Labels are emitted only when an edge names them.
     controlUsed: {[string]: boolean} = {}
 
@@ -3037,6 +3052,68 @@ local function wideCursorLoop(statement: scalarIR.While): (string?, {scalarIR.Ex
     return cName, counts, not one, lanes
 end
 
+--- The loads an unrolled copy of `body` can make before any copy runs: whole
+--- vectors at the loop's own proved cursor, from spans nothing in the body
+--- writes, so reading them early reads the same lanes. Only when the body's
+--- last statement is the cursor's one increment, since the copies are then
+--- told their cursor rather than stepping it. Nil when there are none.
+local function hoistableLoads(statements: {scalarIR.Statement}, cursor: string): {scalarIR.Simd}?
+    local last = statements[#statements]
+    if last == nil
+        or last.op ~= "assign"
+        or #(last as scalarIR.Assign).values ~= 1
+        or (last as scalarIR.Assign).values[1].target.cName ~= cursor
+    then
+        return nil
+    end
+    local leading: {scalarIR.Statement} = {}
+    for position = 1, #statements - 1 do
+        leading[position] = statements[position]
+    end
+    local written: {[string]: boolean} = {}
+    local loads: {scalarIR.Simd} = {}
+    local writes = function(node: any): nil
+        local span = node.span
+        if (node.op == "simd_store" or node.op == "store" or node.op == "simd_field_store") and span ~= nil then
+            written[span as string] = true
+        end
+
+        return nil
+    end
+    visit.block(
+        leading,
+        new visit.Visitor(
+            scalarStatement = function(node: scalarIR.Statement): nil
+                return writes(node)
+            end,
+            scalarExpression = function(node: scalarIR.Expr): nil
+                writes(node)
+                if node.op == "simd_load" then
+                    local load = node as scalarIR.Simd
+                    if load.cursor ~= nil
+                    and load.cursorCName == cursor
+                    and load.rooted == nil
+                    and load.intrinsic ~= "gather"
+                    and load.args[3] == nil
+                    then
+                        loads[#loads + 1] = load
+                    end
+                end
+
+                return nil
+            end
+        )
+    )
+    local kept: {scalarIR.Simd} = {}
+    for _, load in ipairs(loads) do
+        if not written[tostring(load.span)] then
+            kept[#kept + 1] = load
+        end
+    end
+
+    return #kept > 0 and kept or nil
+end
+
 --- The C control structure is shared; each backend supplies its expressions
 --- and recursive block renderer, retaining its own leaf effects and returns.
 local function controlFlow(
@@ -3179,12 +3256,79 @@ local function controlFlow(
                             end
                         end
                         lines[#lines + 1] = inner .. "while (" .. table.concat(bounds, " && ") .. ") {"
-                        for _ = 1, unroll do
-                            lines[#lines + 1] = inner .. "    {"
-                            for _, line in ipairs(block(statement.body, depth + 4, body, nil)) do
-                                lines[#lines + 1] = line
+                        local preloaded = body.preloaded
+                        local loads = preloaded ~= nil and hoistableLoads(statement.body, cursor as string) or nil
+                        if loads ~= nil and preloaded ~= nil then
+                            -- Every copy's loads first, each at its own cursor,
+                            -- then every copy's work: a store no longer stands
+                            -- between one copy and the next copy's reads, which
+                            -- the C compiler would otherwise keep in order.
+                            body.controlSerial = body.controlSerial + 1
+                            local base = "ks_unroll_" .. tostring(body.controlSerial)
+                            local statements: {scalarIR.Statement} = {}
+                            for position = 1, #statement.body - 1 do
+                                statements[position] = statement.body[position]
                             end
-                            lines[#lines + 1] = inner .. "    }"
+                            lines[
+                                #lines + 1
+                            ] = inner .. "    const uint64_t " .. base .. " = " .. tostring(cursor) .. ";"
+                            local names: {{string}} = {}
+                            for copy = 1, unroll do
+                                local shadow = "const uint64_t " .. tostring(
+                                    cursor
+                                ) .. " KS_UNUSED = " .. base .. " + UINT64_C(" .. tostring(
+                                    copy - 1
+                                ) .. ") * (uint64_t)" .. tostring(lanesText) .. ";"
+                                names[copy] = {}
+                                for position, load in ipairs(loads) do
+                                    local name = base .. "_" .. tostring(copy) .. "_" .. tostring(position)
+                                    names[copy][position] = name
+                                    lines[
+                                        #lines + 1
+                                    ] = inner .. "    __typeof__(" .. expression(load) .. ") " .. name .. ";"
+                                end
+                                lines[#lines + 1] = inner .. "    { " .. shadow
+                                for position, load in ipairs(loads) do
+                                    lines[
+                                        #lines + 1
+                                    ] = inner .. "        " .. names[copy][position] .. " = " .. expression(load) .. ";"
+                                end
+                                lines[#lines + 1] = inner .. "    }"
+                            end
+                            for copy = 1, unroll do
+                                for position, load in ipairs(loads) do
+                                    preloaded[load] = names[copy][position]
+                                end
+                                lines[
+                                    #lines + 1
+                                ] = inner .. "    { const uint64_t " .. tostring(
+                                    cursor
+                                ) .. " KS_UNUSED = " .. base .. " + UINT64_C(" .. tostring(
+                                    copy - 1
+                                ) .. ") * (uint64_t)" .. tostring(lanesText) .. ";"
+                                for _, line in ipairs(block(statements, depth + 4, body, nil)) do
+                                    lines[#lines + 1] = line
+                                end
+                                lines[#lines + 1] = inner .. "    }"
+                                for _, load in ipairs(loads) do
+                                    preloaded[load] = nil
+                                end
+                            end
+                            lines[
+                                #lines + 1
+                            ] = inner .. "    " .. tostring(
+                                cursor
+                            ) .. " = " .. base .. " + UINT64_C(" .. tostring(
+                                unroll
+                            ) .. ") * (uint64_t)" .. tostring(lanesText) .. ";"
+                        else
+                            for _ = 1, unroll do
+                                lines[#lines + 1] = inner .. "    {"
+                                for _, line in ipairs(block(statement.body, depth + 4, body, nil)) do
+                                    lines[#lines + 1] = line
+                                end
+                                lines[#lines + 1] = inner .. "    }"
+                            end
                         end
                         lines[#lines + 1] = inner .. "}"
                     end
@@ -4515,6 +4659,7 @@ function emit.program(programs: {scalarIR.Program}, tier: string?, sourceFile: s
             local function implementation(symbol: string, forced: boolean): nil
                 local context = emit.context(context, nil, forced and program.usesSimd == true)
                 context.wideCursors = body.wideCursors
+                body.preloaded = not forced and context.preloaded or nil
                 if forced then
                     context.countAliases = {}
                 end
