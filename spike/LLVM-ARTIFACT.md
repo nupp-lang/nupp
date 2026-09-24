@@ -38,7 +38,7 @@ Against the direct backend's 0.6 ms for the same five kernels:
 
 | median, host start to first call | macOS arm64 | Linux x86-64 | Windows x86-64 |
 | --- | ---: | ---: | ---: |
-| **cold miss** | **137 ms** (93 of it the first load of a new file) | **75 ms** | **73 ms** |
+| **cold miss** | **137 ms** (93 of it the first load of a new file) | **75 ms** (71 on a rerun) | **73 ms** (101 on a slower runner) |
 | **warm hit** | **3.0 ms** | **1.6 ms** | **2.8 ms** |
 | of which loading the entry | 0.18 ms | 0.04 ms | 0.05 ms |
 
@@ -261,6 +261,10 @@ LLVM.
   static initializers, which a dylib component pays too. The 11.4 ms inside
   the cold miss adds the host's `posix_spawn` with pipes under load; 7.1 ms
   was measured from Python at load 8.
+- **Runner hardware varies from run to run.** The final green run gave
+  71.0 ms cold and 1.57 ms warm on Linux. On Windows it gave 101.0 ms cold
+  and 3.9 ms warm: that runner was an EPYC 9V74, with `default<O3>` at
+  30.1 ms and codegen at 32.5, while loading the entry stayed at 0.38 ms.
 - **Code generation and optimization are 2.5-4x slower on the runners**
   than on the M-series, and their LLVM was built by gcc, not clang. Linux's
   are the slowest of the three.
