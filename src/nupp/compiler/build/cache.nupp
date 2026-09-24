@@ -68,6 +68,9 @@ type cache.ModuleRecord = {
         name: string?,
         key: string?,
         fingerprint: string?,
+
+        --- Repository-relative source facts. Negative keyed lookups name the
+        --- project catalog fact instead of carrying an empty, uncertain list.
         paths: {string}?
     }}?,
 
@@ -749,7 +752,7 @@ end
 -- Bumped whenever a recorded digest stops meaning what it meant, which discards the
 -- last version's state instead of comparing hex that was computed by a different
 -- function. Version 2 is where the cache keys moved off SHA-256.
-local STATE_VERSION: integer = 5
+local STATE_VERSION: integer = 6
 
 local function emptyState(): cache.State
     return {version = STATE_VERSION, modules = {}, dependencies = {}, outputs = {}, targets = {}} as cache.State

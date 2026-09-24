@@ -194,6 +194,38 @@ if package.config:sub(1, 1) == "\\" then
         return ('""%s" "%s""'):format(bash:gsub('"', '\\"'), path:gsub('"', '\\"'))
     end
 
+    local function shellExecute(command)
+        local path = script(command)
+        local result = rawExecute(invocation(path))
+        os.remove(path)
+
+        return result
+    end
+
+    local function shellPopen(command, mode)
+        local path = script(command)
+        local pipe = assert(rawPopen(invocation(path), mode))
+        local proxy = {}
+        function proxy:read(...)
+            return pipe:read(...)
+        end
+
+        function proxy:lines(...)
+            return pipe:lines(...)
+        end
+
+        function proxy:close()
+            local result = {pipe:close()}
+            os.remove(path)
+            return unpack(result)
+        end
+
+        return proxy
+    end
+
+    _G.__NUPP_TEST_SHELL_EXECUTE = shellExecute
+    _G.__NUPP_TEST_SHELL_POPEN = shellPopen
+
     os.execute = function(command)
         if type(command) ~= "string" then
             return rawExecute(command)
@@ -206,11 +238,8 @@ if package.config:sub(1, 1) == "\\" then
         if not usesTestShell(source) then
             return rawExecute(command)
         end
-        local path = script(command)
-        local result = rawExecute(invocation(path))
-        os.remove(path)
 
-        return result
+        return shellExecute(command)
     end
 
     io.popen = function(command, mode)
@@ -248,24 +277,8 @@ if package.config:sub(1, 1) == "\\" then
                 end,
             }
         end
-        local path = script(command)
-        local pipe = assert(rawPopen(invocation(path), mode))
-        local proxy = {}
-        function proxy:read(...)
-            return pipe:read(...)
-        end
 
-        function proxy:lines(...)
-            return pipe:lines(...)
-        end
-
-        function proxy:close()
-            local result = {pipe:close()}
-            os.remove(path)
-            return unpack(result)
-        end
-
-        return proxy
+        return shellPopen(command, mode)
     end
 end
 
@@ -546,6 +559,8 @@ local impactObserver = impactObserve and impactObserve.new({
     platform = (jit and (jit.os .. "/" .. jit.arch)) or _VERSION,
     projectRoot = impactFs.absolute("."),
     fragmentDir = impactFragmentDir,
+    compiler = os.getenv("NUPP_TEST_BIN") or tostring(arg[0]),
+    childNamespace = processSalt,
 }) or nil
 local impactFragments = {}
 local impactSliceSafe = {}
@@ -3162,8 +3177,13 @@ local function impactSourcePath(name)
     local modulePath = name:gsub("%.", "/")
     local candidates = {
         "src/" .. modulePath .. ".nupp",
+        "src/" .. modulePath .. ".g.nupp",
+        "src/" .. modulePath .. ".lua",
         "src/" .. modulePath .. "/init.nupp",
+        "src/" .. modulePath .. "/init.g.nupp",
+        "src/" .. modulePath .. "/init.lua",
         "tests/" .. modulePath .. ".nupp",
+        "tests/" .. modulePath .. ".g.nupp",
         "tests/" .. modulePath .. ".lua",
     }
     for _, path in ipairs(candidates) do
@@ -3177,52 +3197,6 @@ local function impactSourcePath(name)
     return nil
 end
 
-local impactChildSerial = 0
-
-local function impactShellQuote(value)
-    return "'" .. tostring(value):gsub("'", "'\\''") .. "'"
-end
-
-local function impactCompilerCommand(command)
-    local slashed = tostring(command):gsub("\\", "/")
-    return slashed:lower():find("nupp", 1, true) ~= nil
-end
-
-local function impactChildCommand(command)
-    local _, compilerCount = tostring(command):gsub("[/\\]bin[/\\]nupp", "")
-    if compilerCount > 1 then
-        impactObserver.markUncertain(
-            "child-multiple-compilers",
-            "one shell command launched multiple compiler children"
-        )
-    end
-    impactChildSerial = impactChildSerial + 1
-    local child = "runner-" .. tostring(impactChildSerial)
-    local environment = impactObserver.childEnvironment(child)
-    local names = {}
-    for name in pairs(environment) do
-        names[#names + 1] = name
-    end
-    table.sort(names)
-    local assignments = {}
-    for _, name in ipairs(names) do
-        assignments[#assignments + 1] = name .. "=" .. impactShellQuote(environment[name])
-    end
-
-    return child, "env " .. table.concat(assignments, " ") .. " sh -c " .. impactShellQuote(command)
-end
-
-local function settleImpactChild(child)
-    local path = impactFragmentDir .. "/" .. child .. ".buf"
-    local fragment = impactObserve.readFragment(path)
-    impactObserver.finishChild(child, fragment)
-    impactObserver.markUncertain(
-        "child-nested-unobserved",
-        "a compiler child's own subprocess tree is conservatively owned by its test case"
-    )
-    os.remove(path)
-end
-
 local function runSuite(suiteInfo, slices)
     -- Loading is measured with the suite rather than left out of it. A Nupp suite
     -- is compiled here, and a Lua one runs its top level here, so a suite can cost
@@ -3230,7 +3204,6 @@ local function runSuite(suiteInfo, slices)
     local suiteBefore = now()
     local suiteImpactPath = "tests/" .. suiteInfo.name .. "." .. suiteInfo.extension
     local savedRequire = require
-    local savedExecute, savedPopen = os.execute, io.popen
     if impactObserver then
         impactObserver.beginSuite(suiteImpactPath)
         if sourceContains(suiteInfo, {'require("nupp.io.process")', "require('nupp.io.process')"}) then
@@ -3248,51 +3221,7 @@ local function runSuite(suiteInfo, slices)
 
             return savedRequire(name)
         end)
-        os.execute = function(command)
-            if type(command) ~= "string" or not impactCompilerCommand(command) then
-                return savedExecute(command)
-            end
-            local child, invocation = impactChildCommand(command)
-            local result = {savedExecute(invocation)}
-            settleImpactChild(child)
-
-            return unpack(result)
-        end
-        io.popen = function(command, mode)
-            if type(command) ~= "string" or not impactCompilerCommand(command) then
-                return savedPopen(command, mode)
-            end
-            local child, invocation = impactChildCommand(command)
-            local pipe = savedPopen(invocation, mode)
-            if not pipe then
-                settleImpactChild(child)
-                return nil
-            end
-            local proxy = {}
-            function proxy:read(...)
-                return pipe:read(...)
-            end
-
-            function proxy:lines(...)
-                return pipe:lines(...)
-            end
-
-            function proxy:write(...)
-                return pipe:write(...)
-            end
-
-            function proxy:flush(...)
-                return pipe:flush(...)
-            end
-
-            function proxy:close()
-                local result = {pipe:close()}
-                settleImpactChild(child)
-                return unpack(result)
-            end
-
-            return proxy
-        end
+        impactObserver.installProcessObserver()
     end
     local loaded = preloadedSuites[suiteInfo.name]
     preloadedSuites[suiteInfo.name] = nil
@@ -3316,7 +3245,7 @@ local function runSuite(suiteInfo, slices)
         end
         if impactObserver then
             rawset(_G, "require", savedRequire)
-            os.execute, io.popen = savedExecute, savedPopen
+            impactObserver.restoreProcessObserver()
             impactObserver.finishSuite()
         end
     end
@@ -3470,7 +3399,7 @@ local function runSuite(suiteInfo, slices)
     end
     if impactObserver then
         rawset(_G, "require", savedRequire)
-        os.execute, io.popen = savedExecute, savedPopen
+        impactObserver.restoreProcessObserver()
         impactObserver.finishSuite()
     end
     suiteRecords[

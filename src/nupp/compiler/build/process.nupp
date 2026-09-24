@@ -278,12 +278,32 @@ end
 --- protocol input and cancel the child on every quiet wait.
 function process.captureIsolated(argv: {string}, opts: process.Options?): integer, string
     opts = (opts or {}) as process.Options
+    local testImpact: any = rawget(_G, "__NUPP_TEST_IMPACT_OBSERVER")
+    local impactChild: string? = nil
+    local childEnv: {[string]: string}? = nil
+    if testImpact then
+        childEnv, impactChild = testImpact.nativeChildEnvironment(
+            argv,
+            "compiler launched through captureIsolated",
+            opts.cwd
+        )
+    end
+    local environment = opts.env
+    if childEnv then
+        environment = {}
+        for name, value in pairs(opts.env or {}) do
+            environment[name] = value
+        end
+        for name, value in pairs(childEnv) do
+            environment[name] = value
+        end
+    end
     local args = boundedArgs(argv, opts)
     local native = require("nupp.io.process")
     local nativeOptions: native.Options = {
         args = args,
         cwd = opts.cwd,
-        env = opts.env,
+        env = environment,
         stdin = "null",
         stdout = "pipe",
         stderr = "stdout",
@@ -333,6 +353,9 @@ function process.captureIsolated(argv: {string}, opts: process.Options?): intege
     end
     local exit = child:wait()
     child:close()
+    if impactChild then
+        testImpact.finishNativeChild(impactChild)
+    end
     if cancelled then
         return 125, table.concat(chunks)
     end
@@ -355,6 +378,10 @@ end
 --- caller must drain the second pipe; nothing else empties it.
 function process.startIsolated(argv: {string}, opts: process.Options?): (affine(process.IsolatedProcess?), string?)
     opts = (opts or {}) as process.Options
+    local testImpact: any = rawget(_G, "__NUPP_TEST_IMPACT_OBSERVER")
+    if testImpact then
+        testImpact.markUnattributedProcess(argv, "compiler launched through startIsolated")
+    end
     local args = boundedArgs(argv, opts)
     local native = require("nupp.io.process")
     local nativeOptions: native.Options = {

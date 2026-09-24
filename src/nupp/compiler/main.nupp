@@ -20,7 +20,7 @@ if package.config:sub(1, 1) == "\\" then
 end
 
 local impactModule = os.getenv("NUPP_TEST_IMPACT_RUN_ID") and require("nupp.compiler.testimpact.observe") or nil
-local impact = impactModule and impactModule.fromEnvironment() or nil
+local impact = impactModule and impactModule.fromEnvironment(nil, arg) or nil
 -- Before the compiler is required, because what it does decides how the rest
 -- gets loaded. Impact observation starts first so this participating module is
 -- not the one compiler dependency omitted from an attributed child.

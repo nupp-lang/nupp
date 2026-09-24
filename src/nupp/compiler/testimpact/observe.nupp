@@ -26,6 +26,20 @@ local CHILD_ENV = {
     suite = "NUPP_TEST_IMPACT_SUITE",
     caseId = "NUPP_TEST_IMPACT_CASE",
     projectRoot = "NUPP_TEST_IMPACT_PROJECT_ROOT",
+    compiler = "NUPP_TEST_IMPACT_COMPILER",
+    cwd = "NUPP_TEST_IMPACT_CWD",
+}
+local CHILD_ENV_NAMES = {
+    CHILD_ENV.runId,
+    CHILD_ENV.format,
+    CHILD_ENV.platform,
+    CHILD_ENV.fragmentDir,
+    CHILD_ENV.child,
+    CHILD_ENV.suite,
+    CHILD_ENV.caseId,
+    CHILD_ENV.projectRoot,
+    CHILD_ENV.compiler,
+    CHILD_ENV.cwd,
 }
 
 local function requiredString(value: any, label: string): string
@@ -56,9 +70,26 @@ local function ownerKey(suite: string, caseId: string?): string
 end
 
 local function normalizedPath(path: string): string
-    local normalized = path:gsub("\\", "/"):gsub("/+", "/"):gsub("/$", "")
-    if normalized:match("^[A-Za-z]:/") then
-        normalized = normalized:sub(1, 1):upper() .. normalized:sub(2)
+    local slashed = path:gsub("\\", "/"):gsub("/+", "/")
+    local drive = slashed:match("^([A-Za-z]:)/")
+    local absolute = drive ~= nil or slashed:sub(1, 1) == "/"
+    local start = drive and #drive + 2 or absolute and 2 or 1
+    local parts: {string} = {}
+    for part in slashed:sub(start):gmatch("[^/]+") do
+        if part == ".." then
+            if #parts > 0 and parts[#parts] ~= ".." then
+                parts[#parts] = nil
+            elseif not absolute then
+                parts[#parts + 1] = part
+            end
+        elseif part ~= "." and part ~= "" then
+            parts[#parts + 1] = part
+        end
+    end
+    local prefix = drive and (drive:sub(1, 1):upper() .. ":/") or absolute and "/" or ""
+    local normalized = prefix .. table.concat(parts, "/")
+    if normalized == "" and absolute then
+        normalized = prefix
     end
 
     return normalized
@@ -83,12 +114,425 @@ local function pathWithin(root: string, path: string): boolean
     return path:sub(1, #root + 1) == root .. "/"
 end
 
+local function compilerCandidate(word: string): boolean
+    local path = word:gsub("\\", "/")
+
+    return path == "nupp"
+        or path == "nupp.exe"
+        or path == "bin/nupp"
+        or path == "./bin/nupp"
+        or path:match("/bin/nupp$") ~= nil
+end
+
+local function compilerExecutable(word: string, expected: string?, root: string?): boolean
+    if not compilerCandidate(word) then
+        return false
+    end
+    if expected == nil then
+        return true
+    end
+    local path = normalizedPath(word)
+    local wanted = normalizedPath(expected)
+    if path:sub(1, 1) ~= "/" and not path:match("^[A-Za-z]:/") then
+        if root == nil then
+            return false
+        end
+        path = normalizedPath(root .. "/" .. path:gsub("^%./", ""))
+    end
+    if samePath(path, wanted) then
+        return true
+    end
+
+    return false
+end
+
+local function compilerInterpreter(word: string): boolean
+    local name = word:gsub("\\", "/"):match("([^/]+)$") or word
+
+    return name == "lua" or name == "lua.exe" or name == "luajit" or name == "luajit.exe"
+end
+
+local function compilerScript(word: string): boolean
+    local path = word:gsub("\\", "/")
+
+    return path:match("/bootstrap/nupp%.lua$") ~= nil
+        or path:match("/compiler/main%.lua$") ~= nil
+        or path == "bootstrap/nupp.lua"
+end
+
+local WINDOWS_COMMAND_MARKER = "__NUPP_WINDOWS_COMMAND__"
+
+--- Tokenizes enough shell syntax to distinguish a command's executable from an
+--- argument or a path merely containing `nupp`. Unsupported substitutions stay
+--- ordinary word text; they never turn an unproven launch into an attributed one.
+local function shellTokens(command: string): {any}?, boolean
+    local tokens: {any} = {}
+    local word: {string} = {}
+    local quote: string? = nil
+    local substitution = false
+    local index = 1
+
+    local function pushWord(): nil
+        if #word > 0 then
+            tokens[#tokens + 1] = {kind = "word", value = table.concat(word),}
+            word = {}
+        end
+    end
+
+    while index <= #command do
+        local character = command:sub(index, index)
+        if quote == "'" then
+            if character == "'" then
+                quote = nil
+            else
+                word[#word + 1] = character
+            end
+        elseif quote == '"' then
+            if character == '"' then
+                quote = nil
+            elseif character == "`" or (character == "$" and command:sub(index + 1, index + 1) == "(") then
+                substitution = true
+                word[#word + 1] = character
+            elseif character == "\\" and index < #command then
+                local following = command:sub(index + 1, index + 1)
+                if following == '"' or following == "\\" or following == "$" or following == "`" then
+                    word[#word + 1] = following
+                    index = index + 1
+                else
+                    word[#word + 1] = character
+                end
+            else
+                word[#word + 1] = character
+            end
+        elseif character == "'" or character == '"' then
+            quote = character
+        elseif character == "`" or (character == "$" and command:sub(index + 1, index + 1) == "(") then
+            substitution = true
+            word[#word + 1] = character
+        elseif character == "\\" and index < #command then
+            word[#word + 1] = command:sub(index + 1, index + 1)
+            index = index + 1
+        elseif character == "\n" or character == "\r" then
+            pushWord()
+            tokens[#tokens + 1] = {kind = "operator", value = ";",}
+        elseif character:match("%s") then
+            pushWord()
+        elseif character:match("[;&|()<>%{%}]") then
+            if (character == ">" or character == "<") and table.concat(word):match("^%d+$") then
+                word = {}
+            else
+                pushWord()
+            end
+            local operator = character
+            local following = command:sub(index + 1, index + 1)
+            if (character == ">" or character == "<") and following == "&" then
+                operator = character .. following
+                index = index + 1
+            elseif character == "&" and following == ">" then
+                operator = character .. following
+                index = index + 1
+            elseif (character == "&" or character == "|" or character == ">" or character == "<")
+                and following == character
+            then
+                operator = character .. following
+                index = index + 1
+            end
+            tokens[#tokens + 1] = {kind = "operator", value = operator,}
+        else
+            word[#word + 1] = character
+        end
+        index = index + 1
+    end
+    if quote ~= nil then
+        return nil, substitution
+    end
+    pushWord()
+
+    return tokens, substitution
+end
+
+--- Describes literal checkout-compiler launches in a shell command. A positive
+--- result requires `bin/nupp` to be the executable token of a simple command;
+--- mentioning that path as data is not a launch.
+function observation.compilerLaunch(command: any, expected: string?, root: string?): any
+    if type(command) ~= "string" then
+        return {count = 0, candidates = 0, concurrent = false, unknown = false, risky = false, nativeCommand = false,}
+    end
+    local nativeCommand = false
+    if command:sub(1, #WINDOWS_COMMAND_MARKER) == WINDOWS_COMMAND_MARKER then
+        nativeCommand = true
+        command = command:sub(#WINDOWS_COMMAND_MARKER + 1)
+    end
+    local tokens, substitution = shellTokens(command as string)
+    if not tokens then
+        return {
+            count = 0,
+            candidates = 0,
+            concurrent = false,
+            unknown = false,
+            risky = false,
+            nativeCommand = nativeCommand,
+        }
+    end
+    local result = {
+        count = 0,
+        candidates = 0,
+        concurrent = false,
+        unknown = false,
+        risky = false,
+        nativeCommand = nativeCommand,
+        cwd = nil,
+    }
+    local cwd = root and normalizedPath(root) or nil
+    local words: {string} = {}
+
+    local function candidateIn(values: {string}, first: integer): boolean
+        for index = first, #values do
+            local slashed = values[index]:gsub("\\", "/")
+            if compilerCandidate(values[index]) or slashed:find("/bin/nupp", 1, true) ~= nil then
+                return true
+            end
+        end
+
+        return false
+    end
+
+    local function wrapped(values: {string}, first: integer): nil
+        if candidateIn(values, first) then
+            result.candidates = result.candidates + 1
+            result.unknown = true
+        end
+    end
+
+    local function processSimple(values: {string}): nil
+        local index: integer = 1
+        while index <= #values and values[index]:match("^[%a_][%w_]*=") do
+            index = index + 1
+        end
+        while index <= #values
+            and (
+                values[index] == "if"
+                or values[index] == "then"
+                or values[index] == "else"
+                or values[index] == "elif"
+                or values[index] == "do"
+            ) do
+            index = index + 1
+        end
+        while values[index] == "!" do
+            index = index + 1
+        end
+        local executable = values[index]
+        if executable == nil
+            or executable == "fi"
+            or executable == "done"
+            or executable == "}"
+            or executable == "{"
+        then
+            return
+        end
+        if executable == "cd" then
+            local destination = values[index + 1]
+            if destination == nil or destination:find("[$`~]", 1) then
+                cwd = nil
+            elseif destination:sub(1, 1) == "/" or destination:match("^[A-Za-z]:/") then
+                cwd = normalizedPath(destination)
+            elseif cwd ~= nil then
+                cwd = normalizedPath(cwd .. "/" .. destination)
+            end
+            return
+        end
+        if executable == "sh" or executable == "/bin/sh" or executable == "bash" or executable == "/bin/bash" then
+            local position: integer = index + 1
+            while position <= #values - 1 do
+                if values[position] == "-c" then
+                    local script = values[position + 1]
+                    if script:find("[$`]", 1) then
+                        if script:lower():find("nupp", 1, true) then
+                            result.candidates = result.candidates + 1
+                            result.unknown = true
+                        end
+                        return
+                    end
+                    local nested = observation.compilerLaunch(script, expected, cwd)
+                    result.count = result.count + nested.count
+                    result.candidates = result.candidates + nested.candidates
+                    result.concurrent = result.concurrent or nested.concurrent
+                    result.unknown = result.unknown or nested.unknown
+                    result.risky = result.risky or nested.risky
+                    result.cwd = result.count == 1 and nested.cwd or nil
+                    return
+                end
+                position = position + 1
+            end
+            wrapped(values, index + 1)
+            return
+        end
+        if executable == "env" then
+            local savedCwd = cwd
+            index = index + 1
+            while index <= #values do
+                local value = values[index]
+                if value == "--" then
+                    index = index + 1
+                    break
+                elseif value == "-u" or value == "--unset" then
+                    index = index + 2
+                elseif value == "-C" or value == "--chdir" then
+                    local destination = values[index + 1]
+                    if destination == nil or destination:find("[$`~]", 1) then
+                        cwd = nil
+                    elseif destination:sub(1, 1) == "/" or destination:match("^[A-Za-z]:/") then
+                        cwd = normalizedPath(destination)
+                    elseif cwd ~= nil then
+                        cwd = normalizedPath(cwd .. "/" .. destination)
+                    end
+                    index = index + 2
+                elseif value:match("^%-%-chdir=") then
+                    local destination = value:match("^%-%-chdir=(.*)$")
+                    if destination == nil or destination:find("[$`~]", 1) then
+                        cwd = nil
+                    elseif destination:sub(1, 1) == "/" or destination:match("^[A-Za-z]:/") then
+                        cwd = normalizedPath(destination)
+                    elseif cwd ~= nil then
+                        cwd = normalizedPath(cwd .. "/" .. destination)
+                    end
+                    index = index + 1
+                elseif value:match("^%-%-unset=") or value:match("^[%a_][%w_]*=") then
+                    index = index + 1
+                elseif value:sub(1, 1) == "-" then
+                    index = index + 1
+                else
+                    break
+                end
+            end
+            if index > #values then
+                cwd = savedCwd
+                return
+            end
+            local remaining: {string} = {}
+            local position: integer = index
+            while position <= #values do
+                remaining[#remaining + 1] = values[position]
+                position = position + 1
+            end
+            processSimple(remaining)
+            cwd = savedCwd
+            return
+        end
+        if executable == "command" or executable == "exec" then
+            index = index + 1
+            while values[index] and values[index]:sub(1, 1) == "-" do
+                index = index + 1
+            end
+            local remaining: {string} = {}
+            local position: integer = index
+            while position <= #values do
+                remaining[#remaining + 1] = values[position]
+                position = position + 1
+            end
+            processSimple(remaining)
+            return
+        end
+        if executable == "time"
+            or executable == "nice"
+            or executable == "timeout"
+            or executable == "sudo"
+            or executable == "while"
+            or executable == "until"
+        then
+            wrapped(values, index + 1)
+            return
+        end
+        if compilerCandidate(executable) then
+            result.candidates = result.candidates + 1
+            if compilerExecutable(executable, expected, cwd) then
+                result.count = result.count + 1
+                result.cwd = result.count == 1 and cwd or nil
+                local subcommand = values[index + 1]
+                if subcommand == "bench" then
+                    result.risky = true
+                elseif subcommand == "test" then
+                    result.risky = true
+                end
+            elseif cwd == nil and executable:sub(1, 1) ~= "/" and not executable:match("^[A-Za-z]:/") then
+                result.unknown = true
+            end
+            return
+        end
+        if executable:find("[$`]", 1) then
+            result.unknown = true
+            return
+        end
+        if compilerInterpreter(executable) then
+            local position: integer = index + 1
+            while position <= #values do
+                if compilerScript(values[position]) then
+                    result.candidates = result.candidates + 1
+                    result.unknown = true
+                    return
+                end
+                position = position + 1
+            end
+        end
+    end
+
+    local redirect = false
+
+    local function flush(): nil
+        if #words > 0 then
+            processSimple(words)
+            words = {}
+        end
+    end
+
+    for _, token in ipairs(tokens) do
+        if token.kind == "operator" then
+            if token.value == "&" then
+                result.concurrent = true
+            end
+            if token.value == ";"
+                or token.value == "&&"
+                or token.value == "||"
+                or token.value == "|"
+                or token.value == "&"
+                or token.value == "("
+                or token.value == ")"
+                or token.value == "{"
+                or token.value == "}"
+            then
+                flush()
+                redirect = false
+            else
+                redirect = true
+            end
+        elseif redirect then
+            redirect = false
+        else
+            words[#words + 1] = token.value
+        end
+    end
+    flush()
+    local slashed = (command as string):gsub("\\", "/")
+    result.unknown = result.unknown
+        or (
+            substitution
+            and (
+                result.candidates > 0
+                or slashed:find("/bin/nupp", 1, true) ~= nil
+                or slashed:find("`nupp", 1, true) ~= nil
+            )
+        )
+
+    return result
+end
+
 local function cleanRelative(root: string?, path: string?): string?
     if type(path) ~= "string" or path == "" then
         return nil
     end
-    local normalized = (path as string):gsub("\\", "/"):gsub("/+", "/")
-    local normalizedRoot = type(root) == "string" and (root as string):gsub("\\", "/"):gsub("/+$", "") or nil
+    local normalized = normalizedPath(path as string)
+    local normalizedRoot = type(root) == "string" and normalizedPath(root as string) or nil
     if normalizedRoot and normalized:sub(1, #normalizedRoot + 1) == normalizedRoot .. "/" then
         normalized = normalized:sub(#normalizedRoot + 2)
     elseif normalized:sub(1, 1) == "/" or normalized:match("^%a:/") then
@@ -114,6 +558,11 @@ function observation.new(metadata: any): any
         assert(projectRoot:sub(1, 1) == "/" or projectRoot:match("^[A-Za-z]:/"), "project root must be absolute")
     end
     local format = metadata.format or observation.FORMAT
+    local compiler = metadata.compiler
+    if compiler ~= nil then
+        compiler = normalizedPath(requiredString(compiler, "compiler executable"))
+    end
+    local childNamespace = childIdentity(metadata.childNamespace or "runner")
     assert(
         type(format) == "number" and format == math.floor(format) and format > 0,
         "format must be a positive integer"
@@ -130,6 +579,9 @@ function observation.new(metadata: any): any
     local dependencies: {[string]: any} = {}
     local children: {[string]: any} = {}
     local originalRequire: any = nil
+    local originalExecute: any = nil
+    local originalPopen: any = nil
+    local childSerial = 0
 
     local function activeOwner(): any
         assert(currentSuite ~= nil, "test impact observation has no active suite")
@@ -150,6 +602,8 @@ function observation.new(metadata: any): any
     end
 
     local self: any = {}
+    self._compiler = compiler
+    self._failureEvidence = false
 
     function self.beginSuite(suite: string): nil
         requiredString(suite, "suite identity")
@@ -205,6 +659,54 @@ function observation.new(metadata: any): any
         addUncertainty(code, detail)
     end
 
+    --- Records literal source operands before a command can fail during setup.
+    --- Only commands whose positional operands are all source files are complete
+    --- negative evidence; a target, directory or computed operand remains unknown.
+    function self.recordCommandInputs(argv: any, commandCwd: string?): nil
+        if type(argv) ~= "table" or projectRoot == nil or commandCwd == nil then
+            return
+        end
+        local command = argv[1]
+        if command ~= "check" and command ~= "build" and command ~= "run" and command ~= "aot" then
+            return
+        end
+        local fs = require("nupp.compiler.fs")
+        local sawInput = false
+        local complete = true
+        local allMissing = true
+        commandCwd = normalizedPath(commandCwd)
+        for index = 2, #argv do
+            local value = argv[index]
+            if type(value) ~= "string" then
+                complete = false
+            elseif value:sub(1, 1) ~= "-" then
+                if value:match("%.nupp$") or value:match("%.lua$") then
+                    local absolute = value
+                    if absolute:sub(1, 1) ~= "/" and not absolute:match("^[A-Za-z]:/") then
+                        absolute = commandCwd .. "/" .. absolute
+                    end
+                    absolute = normalizedPath(absolute)
+                    local stable = cleanRelative(projectRoot, absolute)
+                    if stable == nil then
+                        complete = false
+                    else
+                        sawInput = true
+                        local exists = fs.exists(absolute)
+                        allMissing = allMissing and not exists
+                        self.recordRequest(
+                            "@input/" .. tostring(#stable) .. ":" .. stable,
+                            absolute,
+                            exists and "compiler-input" or "compiler-negative-input"
+                        )
+                    end
+                else
+                    complete = false
+                end
+            end
+        end
+        self._failureEvidence = command == "check" and sawInput and complete and allMissing
+    end
+
     local function addDependency(from: string, to: string, provenance: string, path: string?): nil
         local record = dependencies[from]
         if not record then
@@ -219,6 +721,31 @@ function observation.new(metadata: any): any
             edge.path = path
         end
         edge.provenance[provenance] = true
+    end
+
+    local repositoryFs: any = nil
+
+    local function repositorySource(name: string): string?
+        if projectRoot == nil then
+            return nil
+        end
+        local fs = repositoryFs or require("nupp.compiler.fs")
+        local modulePath = name:gsub("%.", "/")
+        local candidates = {
+            "src/" .. modulePath .. ".nupp",
+            "src/" .. modulePath .. ".g.nupp",
+            "src/" .. modulePath .. ".lua",
+            "src/" .. modulePath .. "/init.nupp",
+            "src/" .. modulePath .. "/init.g.nupp",
+            "src/" .. modulePath .. "/init.lua",
+        }
+        for _, candidate in ipairs(candidates) do
+            if fs.exists(fs.join(projectRoot, candidate)) then
+                return candidate
+            end
+        end
+
+        return nil
     end
 
     --- Imports completed compiler state. Reused records carry the same dependency
@@ -237,21 +764,29 @@ function observation.new(metadata: any): any
         end
         local fs = require("nupp.compiler.fs")
         buildRoot = normalizedPath(fs.absolute(buildRoot))
+        self._buildEvidence = true
+        local manifest = normalizedPath(buildRoot .. "/nupp.lua")
+        local stableManifest = cleanRelative(projectRoot, manifest)
+        self.recordRequest(
+            "@manifest/" .. tostring(#(stableManifest or "external")) .. ":" .. (stableManifest or "external"),
+            manifest,
+            fs.exists(manifest) and "compiler-manifest" or "compiler-negative-manifest"
+        )
         local fixtureBuild = projectRoot ~= nil and not samePath(buildRoot, projectRoot)
 
-        local function repositorySource(name: string): string?
-            if projectRoot == nil then
+        local function rebasedPath(path: any): string?
+            if type(path) ~= "string" or path == "" then
                 return nil
             end
-            local modulePath = name:gsub("%.", "/")
-            local candidates = {"src/" .. modulePath .. ".nupp", "src/" .. modulePath .. "/init.nupp",}
-            for _, candidate in ipairs(candidates) do
-                if fs.exists(fs.join(projectRoot, candidate)) then
-                    return candidate
-                end
+            if path == "@project/catalog" then
+                return path
+            end
+            local absolute = path as string
+            if absolute:sub(1, 1) ~= "/" and not absolute:match("^[A-Za-z]:/") then
+                absolute = fs.join(buildRoot, absolute)
             end
 
-            return nil
+            return normalizedPath(fs.absolute(absolute))
         end
 
         local runtimeModules: {[string]: boolean} = {}
@@ -279,11 +814,7 @@ function observation.new(metadata: any): any
         if fixtureBuild then
             for name, record in pairs(state.modules) do
                 if type(name) == "string" and type(record) == "table" and type(record.sourcePath) == "string" then
-                    local sourcePath = record.sourcePath
-                    if sourcePath:sub(1, 1) ~= "/" and not sourcePath:match("^[A-Za-z]:/") then
-                        sourcePath = fs.join(buildRoot, sourcePath)
-                    end
-                    sourcePath = normalizedPath(fs.absolute(sourcePath))
+                    local sourcePath = rebasedPath(record.sourcePath) as string
                     local repositoryModule = projectRoot ~= nil and pathWithin(projectRoot, sourcePath)
                     local runtimeModule = runtimeModules[name] or name:match("^nupp%.") ~= nil
                     if pathWithin(buildRoot, sourcePath)
@@ -310,7 +841,7 @@ function observation.new(metadata: any): any
                 addUncertainty("incomplete-build-state", "a module record had no stable identity")
             else
                 local identity = moduleIdentity(name)
-                local sourcePath = fixtureModules[name] and nil or record.sourcePath
+                local sourcePath = fixtureModules[name] and nil or rebasedPath(record.sourcePath)
                 if runtimeModules[name] or name:match("^nupp%.") then
                     -- Compiler state names the staged copy used by that build.
                     -- Prefer the repository source when this project owns one;
@@ -357,7 +888,9 @@ function observation.new(metadata: any): any
                         end
                         for _, path in ipairs(paths) do
                             if type(path) == "string" and path ~= "" then
-                                local stablePath = cleanRelative(projectRoot, path)
+                                local rebased = rebasedPath(path)
+                                local stablePath = rebased == "@project/catalog" and rebased
+                                    or cleanRelative(projectRoot, rebased)
                                 local synthetic = "@project/"
                                     .. dependency.name
                                     .. "/"
@@ -388,8 +921,10 @@ function observation.new(metadata: any): any
     function self.installRequireObserver(): nil
         assert(originalRequire == nil, "require observation is already installed")
         originalRequire = require
+        repositoryFs = originalRequire("nupp.compiler.fs")
         rawset(_G, "require", function(name: any): any
-            self.recordRequest(name, nil, package.loaded[name] ~= nil and "cached-require" or "runtime-require")
+            local path = type(name) == "string" and repositorySource(name as string) or nil
+            self.recordRequest(name, path, package.loaded[name] ~= nil and "cached-require" or "runtime-require")
             return originalRequire(name)
         end)
     end
@@ -404,7 +939,7 @@ function observation.new(metadata: any): any
     --- Describes one child before launch. The process seam overlays this map on
     --- the inherited environment. A launch path unable to do so calls
     --- markEscapedChild instead.
-    function self.childEnvironment(child: string): {[string]: string}
+    function self.childEnvironment(child: string, childCwd: string?): {[string]: string}
         child = childIdentity(child)
         local owner = activeOwner()
         assert(children[child] == nil, "child identity is already active")
@@ -427,17 +962,52 @@ function observation.new(metadata: any): any
         if owner.caseId ~= nil then
             env[CHILD_ENV.caseId] = owner.caseId
         end
+        if compiler ~= nil then
+            env[CHILD_ENV.compiler] = compiler
+        end
+        if childCwd ~= nil then
+            env[CHILD_ENV.cwd] = normalizedPath(childCwd)
+        end
 
         return env
     end
 
     self.childEnv = self.childEnvironment
 
+    local function nextChildIdentity(): string
+        childSerial = childSerial + 1
+        local parent = self._childId
+        if type(parent) == "string" and parent ~= "" then
+            return childIdentity(parent .. "." .. tostring(childSerial))
+        end
+
+        return childIdentity(childNamespace .. "-" .. tostring(childSerial))
+    end
+
     function self.markEscapedChild(detail: string?): nil
         addUncertainty("child-uninstrumented", detail)
     end
 
-    local function mergeFragment(fragment: any): (boolean, string?)
+    local function comptimeWorker(argv: any): boolean
+        return type(argv) == "table" and (argv[2] == "__comptime-worker" or argv[2] == "__comptime-worker-service")
+    end
+
+    function self.markUnattributedProcess(argv: any, detail: string?): nil
+        if type(argv) ~= "table" or type(argv[1]) ~= "string" then
+            return
+        end
+        -- These workers evaluate a sealed program received over a file or framed
+        -- pipe. They cannot discover project modules themselves; the compiler
+        -- process that serialized the program already observed its inputs.
+        if comptimeWorker(argv) then
+            return
+        end
+        if compilerExecutable(argv[1], compiler, projectRoot) or compilerCandidate(argv[1]) then
+            self.markEscapedChild(detail or "compiler launched through an unattributed process provider")
+        end
+    end
+
+    local function mergeFragment(fragment: any, expectedOwner: any): (boolean, string?)
         if type(fragment) ~= "table" then
             return false, "child fragment was absent or unreadable"
         end
@@ -448,48 +1018,113 @@ function observation.new(metadata: any): any
         then
             return false, "child fragment identity did not match its parent"
         end
-        for _, owner in ipairs(fragment.owners or {}) do
-            if type(owner) ~= "table" or type(owner.suite) ~= "string" then
+        if fragment.complete ~= true then
+            return false, "child fragment was incomplete"
+        end
+        if type(fragment.owners) ~= "table" or #fragment.owners == 0 or type(fragment.dependencies) ~= "table" then
+            return false, "child fragment omitted its observation envelope"
+        end
+        -- Validate the whole envelope before merging any edge. A corrupt tail
+        -- cannot leave a trusted-looking prefix behind in the parent graph.
+        local sawExpectedOwner = false
+        for _, owner in ipairs(fragment.owners) do
+            local inheritedSuiteOwner = type(owner) == "table"
+                and expectedOwner.caseId ~= nil
+                and owner.caseId == nil
+                and type(owner.roots) == "table"
+                and #owner.roots == 0
+                and type(owner.uncertainty) == "table"
+                and #owner.uncertainty == 0
+            if type(owner) ~= "table"
+                or owner.suite ~= expectedOwner.suite
+                or (owner.caseId ~= expectedOwner.caseId and not inheritedSuiteOwner)
+                or type(owner.roots) ~= "table"
+                or type(owner.uncertainty) ~= "table"
+            then
                 return false, "child fragment contained an invalid owner"
             end
+            if owner.caseId == expectedOwner.caseId then
+                sawExpectedOwner = true
+            end
+            for _, edge in ipairs(owner.roots) do
+                if type(edge) ~= "table"
+                    or type(edge.module) ~= "string"
+                    or edge.module == ""
+                    or (edge.path ~= nil and type(edge.path) ~= "string")
+                    or type(edge.provenance) ~= "table"
+                then
+                    return false, "child fragment contained an invalid module edge"
+                end
+                for _, provenance in ipairs(edge.provenance) do
+                    if type(provenance) ~= "string" or provenance == "" then
+                        return false, "child fragment contained invalid module provenance"
+                    end
+                end
+            end
+            for _, uncertain in ipairs(owner.uncertainty) do
+                if type(uncertain) ~= "table"
+                    or type(uncertain.code) ~= "string"
+                    or uncertain.code == ""
+                    or (uncertain.detail ~= nil and type(uncertain.detail) ~= "string")
+                then
+                    return false, "child fragment contained invalid uncertainty"
+                end
+            end
+        end
+        if not sawExpectedOwner then
+            return false, "child fragment omitted its declared owner"
+        end
+        for _, record in ipairs(fragment.dependencies) do
+            if type(record) ~= "table"
+                or type(record.module) ~= "string"
+                or record.module == ""
+                or type(record.dependencies) ~= "table"
+            then
+                return false, "child fragment contained an invalid dependency owner"
+            end
+            for _, edge in ipairs(record.dependencies) do
+                if type(edge) ~= "table"
+                    or type(edge.module) ~= "string"
+                    or edge.module == ""
+                    or (edge.path ~= nil and type(edge.path) ~= "string")
+                    or type(edge.provenance) ~= "table"
+                then
+                    return false, "child fragment contained an invalid dependency edge"
+                end
+                for _, provenance in ipairs(edge.provenance) do
+                    if type(provenance) ~= "string" or provenance == "" then
+                        return false, "child fragment contained invalid dependency provenance"
+                    end
+                end
+            end
+        end
+        for _, owner in ipairs(fragment.owners) do
             local key = ownerKey(owner.suite, owner.caseId)
             local into = owners[key]
             if not into then
                 into = {suite = owner.suite, caseId = owner.caseId, roots = {}, uncertainty = {},}
                 owners[key] = into
             end
-            for _, edge in ipairs(owner.roots or {}) do
-                if type(edge) ~= "table" or type(edge.module) ~= "string" then
-                    return false, "child fragment contained an invalid module edge"
-                end
+            for _, edge in ipairs(owner.roots) do
                 local edgeKey = edge.module .. "\0" .. (edge.path or "")
                 local found = into.roots[edgeKey]
                 if not found then
                     found = {module = edge.module, path = edge.path, provenance = {},}
                     into.roots[edgeKey] = found
                 end
-                for _, provenance in ipairs(edge.provenance or {}) do
+                for _, provenance in ipairs(edge.provenance) do
                     found.provenance[provenance] = true
                 end
             end
-            for _, uncertain in ipairs(owner.uncertainty or {}) do
-                if type(uncertain) ~= "table" or type(uncertain.code) ~= "string" then
-                    return false, "child fragment contained invalid uncertainty"
-                end
+            for _, uncertain in ipairs(owner.uncertainty) do
                 into.uncertainty[
                     uncertain.code .. "\0" .. (uncertain.detail or "")
                 ] = {code = uncertain.code, detail = uncertain.detail,}
             end
         end
-        for _, record in ipairs(fragment.dependencies or {}) do
-            if type(record) ~= "table" or type(record.module) ~= "string" then
-                return false, "child fragment contained an invalid dependency owner"
-            end
-            for _, edge in ipairs(record.dependencies or {}) do
-                if type(edge) ~= "table" or type(edge.module) ~= "string" then
-                    return false, "child fragment contained an invalid dependency edge"
-                end
-                for _, provenance in ipairs(edge.provenance or {}) do
+        for _, record in ipairs(fragment.dependencies) do
+            for _, edge in ipairs(record.dependencies) do
+                for _, provenance in ipairs(edge.provenance) do
                     addDependency(record.module, edge.module, provenance, edge.path)
                 end
             end
@@ -501,17 +1136,180 @@ function observation.new(metadata: any): any
     --- A nonzero child may still contribute a complete valid fragment. Timeout,
     --- crash, or a child that never participated supplies no valid fragment and
     --- marks its owner uncertain.
-    function self.finishChild(child: string, fragment: any): nil
+    function self.finishChild(child: string, fragment: any, readProblem: string?): nil
         local expected = children[child]
         assert(expected ~= nil, "child identity was not declared")
         children[child] = nil
         local savedSuite, savedCase = currentSuite, currentCase
         currentSuite, currentCase = expected.suite, expected.caseId
-        local ok, problem = mergeFragment(fragment)
+        local ok, problem = mergeFragment(fragment, expected)
         if not ok then
-            addUncertainty("child-fragment-missing", problem)
+            addUncertainty("child-fragment-missing", readProblem or problem)
         end
         currentSuite, currentCase = savedSuite, savedCase
+    end
+
+    local function shellQuote(value: any): string
+        return "'" .. tostring(value):gsub("'", "'\\''") .. "'"
+    end
+
+    local function instrumentedCommand(command: string, child: string, childCwd: string?): string
+        local environment = self.childEnvironment(child, childCwd)
+        local names = sortedKeys(environment)
+        local assignments: {string} = {}
+        for _, name in ipairs(names) do
+            assignments[#assignments + 1] = name .. "=" .. shellQuote(environment[name])
+        end
+
+        return "env " .. table.concat(assignments, " ") .. " sh -c " .. shellQuote(command)
+    end
+
+    local function settleChild(child: string): nil
+        local path = tostring(fragmentDir) .. "/" .. child .. ".buf"
+        local fragment, problem = observation.readFragment(path)
+        self.finishChild(child, fragment, problem)
+        os.remove(path)
+    end
+
+    --- Gives a synchronous argv-based compiler child the same private fragment
+    --- environment as the shell seam. Persistent comptime workers are exempt:
+    --- they only evaluate the sealed program the observed parent sent them and
+    --- cannot load project modules. Other native launches must either call this
+    --- and settle the returned identity, or mark themselves unattributed.
+    function self.nativeChildEnvironment(argv: any, detail: string?, childCwd: string?): ({[string]: string}?, string?)
+        if type(argv) ~= "table" or type(argv[1]) ~= "string" then
+            return nil, nil
+        end
+        if comptimeWorker(argv) then
+            return nil, nil
+        end
+        if not compilerExecutable(argv[1], compiler, projectRoot) then
+            if compilerCandidate(argv[1]) then
+                self.markEscapedChild(detail or "a noncanonical compiler executable used a native process provider")
+            end
+            return nil, nil
+        end
+        local child = nextChildIdentity()
+        if childCwd ~= nil
+            and childCwd:sub(1, 1) ~= "/"
+            and not childCwd:match("^[A-Za-z]:/")
+            and projectRoot ~= nil
+        then
+            childCwd = normalizedPath(projectRoot .. "/" .. childCwd)
+        end
+
+        return self.childEnvironment(child, childCwd or projectRoot), child
+    end
+
+    function self.finishNativeChild(child: string): nil
+        settleChild(child)
+    end
+
+    --- Installs the same exact process seam in the runner and each participating
+    --- compiler. A nested compiler therefore receives its own fragment identity
+    --- and is merged before its parent writes that parent's fragment.
+    function self.installProcessObserver(): nil
+        assert(originalExecute == nil and originalPopen == nil, "process observation is already installed")
+        originalExecute, originalPopen = os.execute, io.popen
+        local shellExecute: any = rawget(_G, "__NUPP_TEST_SHELL_EXECUTE")
+        local shellPopen: any = rawget(_G, "__NUPP_TEST_SHELL_POPEN")
+        os.execute = function(command: any): any
+            local launch = observation.compilerLaunch(command, compiler, projectRoot)
+            if launch.nativeCommand then
+                if launch.count > 0 or launch.candidates > 0 or launch.unknown then
+                    self.markEscapedChild("a native Windows compiler command bypassed child attribution")
+                end
+                return originalExecute(command)
+            end
+            if launch.candidates > launch.count or launch.unknown then
+                self.markEscapedChild("a noncanonical or dynamically composed compiler launch was not attributable")
+            end
+            if launch.count == 0 then
+                return originalExecute(command)
+            end
+            local child = nextChildIdentity()
+            if launch.count > 1 or launch.concurrent then
+                self.markEscapedChild(
+                    launch.count > 1 and "one shell command launched multiple compiler children"
+                    or "a compiler child was launched without a join"
+                )
+            end
+            if launch.risky then
+                self.markEscapedChild("compiler command may launch through an unattributed native process provider")
+            end
+            local result = {
+                (shellExecute or originalExecute)(instrumentedCommand(command as string, child, launch.cwd))
+            }
+            settleChild(child)
+
+            return unpack(result)
+        end
+        io.popen = function(command: any, mode: string?): any
+            local launch = observation.compilerLaunch(command, compiler, projectRoot)
+            if launch.nativeCommand then
+                if launch.count > 0 or launch.candidates > 0 or launch.unknown then
+                    self.markEscapedChild("a native Windows compiler command bypassed child attribution")
+                end
+                return originalPopen(command, mode)
+            end
+            if launch.candidates > launch.count or launch.unknown then
+                self.markEscapedChild("a noncanonical or dynamically composed compiler launch was not attributable")
+            end
+            if launch.count == 0 then
+                return originalPopen(command, mode)
+            end
+            local child = nextChildIdentity()
+            if launch.count > 1 or launch.concurrent then
+                self.markEscapedChild(
+                    launch.count > 1 and "one shell command launched multiple compiler children"
+                    or "a compiler child was launched without a join"
+                )
+            end
+            if launch.risky then
+                self.markEscapedChild("compiler command may launch through an unattributed native process provider")
+            end
+            local pipe = (shellPopen or originalPopen)(instrumentedCommand(command as string, child, launch.cwd), mode)
+            if not pipe then
+                settleChild(child)
+                return nil
+            end
+            local proxy: any = {}
+            function proxy:read(...): any
+                return pipe:read(...)
+            end
+
+            function proxy:lines(...): any
+                return pipe:lines(...)
+            end
+
+            function proxy:write(...): any
+                return pipe:write(...)
+            end
+
+            function proxy:flush(...): any
+                return pipe:flush(...)
+            end
+
+            function proxy:close(): any
+                local result = {pipe:close()}
+                settleChild(child)
+
+                return unpack(result)
+            end
+
+            return proxy
+        end
+    end
+
+    function self.restoreProcessObserver(): nil
+        if originalExecute ~= nil then
+            os.execute = originalExecute
+            originalExecute = nil
+        end
+        if originalPopen ~= nil then
+            io.popen = originalPopen
+            originalPopen = nil
+        end
     end
 
     function self.fragment(success: boolean?): any
@@ -600,10 +1398,31 @@ function observation.completedBuild(state: any, root: string?): nil
     end
 end
 
+local function stopExportingChildEnvironment(): boolean
+    local loaded, ffi = pcall(require, "ffi")
+    if not loaded then
+        return false
+    end
+    if ffi.os == "Windows" then
+        ffi.cdef[[int _putenv_s(const char *, const char *);]]
+        for _, name in ipairs(CHILD_ENV_NAMES) do
+            pcall(ffi.C._putenv_s, name, "")
+        end
+    else
+        ffi.cdef[[int unsetenv(const char *);]]
+        for _, name in ipairs(CHILD_ENV_NAMES) do
+            pcall(ffi.C.unsetenv, name)
+        end
+    end
+
+    return true
+end
+
 --- Opens the observation inherited by a compiler child, or nil for an ordinary
 --- invocation. Call this before requiring the CLI so cached and first-load
 --- compiler modules are both attributed.
-function observation.fromEnvironment(read: (function(string): string?)?): any
+function observation.fromEnvironment(read: (function(string): string?)?, argv: any?): any
+    local inherited = read == nil
     read = read or os.getenv
     local runId = read(CHILD_ENV.runId)
     if not runId then
@@ -616,15 +1435,22 @@ function observation.fromEnvironment(read: (function(string): string?)?): any
         platform = read(CHILD_ENV.platform),
         fragmentDir = read(CHILD_ENV.fragmentDir),
         projectRoot = read(CHILD_ENV.projectRoot),
+        compiler = read(CHILD_ENV.compiler),
     })
     child._fragmentDir = requiredString(read(CHILD_ENV.fragmentDir), "fragment directory")
     child._childId = childIdentity(read(CHILD_ENV.child))
+    local commandCwd = read(CHILD_ENV.cwd)
     child.beginSuite(requiredString(read(CHILD_ENV.suite), "suite identity"))
     local caseId = read(CHILD_ENV.caseId)
     if caseId and caseId ~= "" then
         child.beginCase(caseId)
     end
+    if inherited and not stopExportingChildEnvironment() then
+        child.markUncertain("child-environment-escaped", "compiler child could not consume its attribution environment")
+    end
     child.installRequireObserver()
+    child.installProcessObserver()
+    child.recordCommandInputs(argv, commandCwd)
     observation.activate(child)
 
     return child
@@ -637,12 +1463,16 @@ function observation.finishProcess(child: any, exitStatus: integer): (boolean?, 
     if child == nil then
         return true
     end
+    child.restoreProcessObserver()
     child.restoreRequire()
     if observation.current() == child then
         observation.activate(nil)
     end
-    if exitStatus ~= 0 then
-        child.markUncertain("child-nonzero", "compiler child exited " .. tostring(exitStatus))
+    if exitStatus ~= 0 and not child._failureEvidence and not child._buildEvidence then
+        child.markUncertain(
+            "child-nonzero-unobserved",
+            "compiler child failed before emitting complete input or build provenance"
+        )
     end
     local value = child.fragment(true)
     value.exitStatus = exitStatus

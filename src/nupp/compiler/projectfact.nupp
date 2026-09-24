@@ -1,0 +1,62 @@
+@!internal
+
+module nupp.compiler.projectfact
+
+-- Stable source facts shared by incremental project queries and test-impact
+-- selection. A negative keyed lookup has no declaring source to point at, but
+-- it can change when the project's declaration catalog changes. Naming that
+-- catalog explicitly keeps the dependency conservative without making the
+-- observation uncertain.
+local fs = require("nupp.compiler.fs")
+
+local projectfact = {}
+
+projectfact.CATALOG_PATH = "@project/catalog"
+
+--- A source path as persisted semantic dependency metadata should name it.
+--- Absolute paths inside the project become repository-relative; external and
+--- escaping paths have no stable project identity.
+function projectfact.relative(root: string, path: any): string?
+    if type(path) ~= "string" or path == "" then
+        return nil
+    end
+    local normalized = fs.normalize(path as string):gsub("^%./", "")
+    local normalizedRoot = fs.normalize(fs.absolute(root)):gsub("/$", "")
+    if normalized:sub(1, 1) == "/" or normalized:match("^[A-Za-z]:/") then
+        local absolute = fs.normalize(fs.absolute(normalized))
+        if absolute:sub(1, #normalizedRoot + 1) ~= normalizedRoot .. "/" then
+            return nil
+        end
+        normalized = absolute:sub(#normalizedRoot + 2)
+    end
+    if normalized == "" or normalized == ".." or normalized:match("^%.%./") or normalized:match("/%.%./") then
+        return nil
+    end
+
+    return normalized
+end
+
+--- Whether a repository change can alter project membership or a keyed header
+--- answer. Existing declarations can be added or removed by editing a source;
+--- `nupp.lua` can change which source roots form the project.
+function projectfact.affectsCatalog(path: any, status: any): boolean
+    if type(path) ~= "string" then
+        return false
+    end
+    local normalized = fs.normalize(path as string):gsub("^%./", "")
+    local manifest = normalized == "nupp.lua" or normalized:match("/nupp%.lua$") ~= nil
+    if normalized:match("%.nupp$") or manifest then
+        return true
+    end
+    if not normalized:match("%.lua$") then
+        return false
+    end
+
+    -- A Lua module has no Nupp declaration header whose content can change a
+    -- keyed answer. Its presence and module name still belong to the catalog,
+    -- so membership-changing and unknown statuses invalidate that fact.
+
+    return status ~= "modified"
+end
+
+export = projectfact

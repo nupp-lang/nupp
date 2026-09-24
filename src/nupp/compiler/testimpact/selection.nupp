@@ -4,6 +4,7 @@ module nupp.compiler.testimpact.selection
 
 -- Pure impact-graph traversal and conservative selection policy.
 local fs = require("nupp.compiler.fs")
+local projectfact = require("nupp.compiler.projectfact")
 
 local selection = {}
 
@@ -392,6 +393,16 @@ function selection.select(graph, discovered, options)
                 local suiteId = suitePaths[path]
                 if suiteId then
                     selectSuite(result, suiteId, "suite source changed directly", "suite-source-changed")
+                    explained = true
+                end
+            end
+            local catalogChanged = false
+            for _, path in ipairs(endpoints) do
+                catalogChanged = catalogChanged or projectfact.affectsCatalog(path, change.status)
+            end
+            if catalogChanged then
+                for moduleId in pairs(modulePaths[projectfact.CATALOG_PATH] or {}) do
+                    add(changedModules, moduleId)
                     explained = true
                 end
             end

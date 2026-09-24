@@ -89,6 +89,8 @@ function M.completeRunPublishesAndDiffSelectsCasesConservatively()
     os.remove(directory)
     assert(os.execute("mkdir -p " .. string.format("%q", directory .. "/src")) == 0)
     assert(os.execute("mkdir -p " .. string.format("%q", directory .. "/tests")) == 0)
+    assert(os.execute("mkdir -p " .. string.format("%q", directory .. "/failing-project/src")) == 0)
+    assert(os.execute("mkdir -p " .. string.format("%q", directory .. "/successful-project/src")) == 0)
 
     write(directory .. "/.gitignore", "build/\n")
     write(directory .. "/nupp.lua", 'return {include = {"src"}, build = {entries = {"main"}}}\n')
@@ -97,6 +99,21 @@ function M.completeRunPublishesAndDiffSelectsCasesConservatively()
     write(directory .. "/src/leaf.nupp", "return {value = 41}\n")
     write(directory .. "/src/other.nupp", "return {value = 1}\n")
     write(directory .. "/src/hookleaf.nupp", "return {value = 2}\n")
+    write(directory .. "/failing-project/nupp.lua", 'return {include = {"src"}, build = {entries = {"main"}}}\n')
+    write(directory .. "/failing-project/src/main.g.nupp", 'return require("leaf")\n')
+    write(directory .. "/failing-project/src/leaf.g.nupp", "local =\n")
+    write(
+        directory .. "/successful-project/nupp.lua",
+        'return {include = {"src"}, build = {entries = {"nestedmain"}}}\n'
+    )
+    write(directory .. "/successful-project/src/nestedmain.nupp", "return true\n")
+    write(directory .. "/src/parallel-a.nupp", "return {value = 'a'}\n")
+    write(directory .. "/src/parallel-b.nupp", "return {value = 'b'}\n")
+    write(directory .. "/process-impact-mode", "failing\n")
+    write(
+        directory .. "/src/nested.g.nupp",
+        ("assert(os.execute(%q) == 0)\nreturn true\n"):format(("%q check src/main.nupp"):format(NUPP))
+    )
     write(
         directory .. "/tests/leafimpacttest.nupp",
         [[
@@ -167,6 +184,101 @@ end
 return M
 ]]
     )
+    write(
+        directory .. "/tests/processimpacttest.lua",
+        (
+            [=[
+local M = {}
+local NUPP = %q
+
+function M.argumentContainingNuppIsNotACompilerLaunch()
+    assert(os.execute("mkdir -p build/path-containing-nupp") == 0)
+end
+
+function M.expectedCompilerFailureStillHasACompleteFragment()
+    assert(os.execute(("%%q check missing-impact-file.nupp"):format(NUPP)) ~= 0)
+end
+
+function M.missingBuildRunAndAotRemainConservative()
+    local mode = assert(io.open("process-impact-mode", "rb"))
+    local value = mode:read("*l")
+    mode:close()
+    if value ~= "commands" then
+        assert(os.execute(("%%q check missing-command-input.nupp"):format(NUPP)) ~= 0)
+        return
+    end
+    for _, command in ipairs({"build", "run", "aot"}) do
+        assert(os.execute(("%%q %%s missing-command-input.nupp"):format(NUPP, command)) ~= 0)
+    end
+end
+
+function M.failingExistingImportRemainsConservativelyUncertain()
+    local mode = assert(io.open("process-impact-mode", "rb"))
+    local value = mode:read("*l")
+    mode:close()
+    if value == "missing" then
+        assert(os.execute(("%%q check process-clean-missing.nupp"):format(NUPP)) ~= 0)
+        return
+    end
+    assert(os.execute(("cd failing-project && %%q build"):format(NUPP)) ~= 0)
+end
+
+function M.nestedCompilerFragmentsMergeRecursively()
+    assert(os.execute(("%%q run src/nested.g.nupp"):format(NUPP)) == 0)
+end
+
+return M
+]=]
+        ):format(NUPP)
+    )
+    write(
+        directory .. "/tests/manifestimpacttest.lua",
+        (
+            [=[
+local M = {}
+local NUPP = %q
+
+function M.successfulNestedBuildOwnsItsManifest()
+    assert(os.execute(("cd successful-project && %%q build"):format(NUPP)) == 0)
+end
+
+return M
+]=]
+        ):format(NUPP)
+    )
+    for _, side in ipairs({"a", "b"}) do
+        local other = side == "a" and "b" or "a"
+        write(
+            directory .. "/tests/parallelimpact" .. side .. "test.lua",
+            (
+                [=[
+local M = {}
+local NUPP = %q
+
+function M.launchesDistinctCompilerChild()
+    local marker = "build/parallel-impact-%s-ready"
+    local other = "build/parallel-impact-%s-ready"
+    local file = assert(io.open(marker, "wb"))
+    file:write("ready\n")
+    file:close()
+    local deadline = os.time() + 30
+    repeat
+        local ready = io.open(other, "rb")
+        if ready then
+            ready:close()
+            break
+        end
+    until os.time() >= deadline
+    local ready = assert(io.open(other, "rb"), "parallel compiler barrier timed out")
+    ready:close()
+    assert(os.execute(("%%q check src/parallel-%s.nupp"):format(NUPP)) == 0)
+end
+
+return M
+]=]
+            ):format(NUPP, side, other, side)
+        )
+    end
     write(directory .. "/tests/unrelatedtest.lua", [[
 return {passes = function() assert(true) end}
 ]])
@@ -180,10 +292,10 @@ return {passes = function() assert(true) end}
     assert(os.execute("mkdir -p " .. string.format("%q", directory .. "/build/.nupp-test-impact-run/1-stale")) == 0)
     write(directory .. "/build/.nupp-test-impact-run/1-stale/fragment.buf", "abandoned")
 
-    local fullOutput, fullStatus, fullCommand = run(directory, "--jobs=1 --json", true)
+    local fullOutput, fullStatus, fullCommand = run(directory, "--jobs=2 --json", true)
     test.equal(fullStatus, 0, fullCommand .. " failed:\n" .. fullOutput)
     local full = json.decode(fullOutput)
-    test.equal(full.total, 7)
+    test.equal(full.total, 15)
     local cache = directory .. "/build/.nupp-test-impact.buf"
     test.assert(exists(cache), "a complete successful clean run did not publish " .. cache)
     test.assert(
@@ -191,6 +303,57 @@ return {passes = function() assert(true) end}
         "an abandoned impact fragment directory was not cleaned"
     )
     test.assert(#read(cache) > 0, "the published impact graph was empty")
+
+    for _, side in ipairs({"a", "b"}) do
+        local other = side == "a" and "b" or "a"
+        write(directory .. "/src/parallel-" .. side .. ".nupp", "return {value = 'changed'}\n")
+        local parallelListing, parallelStatus, parallelCommand = run(directory, "--diff --list-cases", false)
+        test.equal(parallelStatus, 0, parallelCommand .. " failed:\n" .. parallelListing)
+        test.matches(parallelListing, "parallelimpact" .. side .. "test/launchesDistinctCompilerChild")
+        test.assert(
+            not parallelListing:match("parallelimpact" .. other .. "test/launchesDistinctCompilerChild"),
+            "parallel child fragments crossed owners:\n" .. parallelListing
+        )
+        shell(directory, "git checkout -q -- src/parallel-" .. side .. ".nupp")
+    end
+
+    write(directory .. "/missing-impact-file.nupp", "return true\n")
+    local addedListing, addedStatus, addedCommand = run(directory, "--diff --list-cases", false)
+    test.equal(addedStatus, 0, addedCommand .. " failed:\n" .. addedListing)
+    test.matches(addedListing, "processimpacttest/expectedCompilerFailureStillHasACompleteFragment")
+    assert(os.remove(directory .. "/missing-impact-file.nupp"))
+
+    write(directory .. "/failing-project/src/leaf.g.nupp", "local function =\n")
+    local failingListing, failingStatus, failingCommand = run(directory, "--diff --list-cases", false)
+    test.equal(failingStatus, 0, failingCommand .. " failed:\n" .. failingListing)
+    test.matches(failingListing, "processimpacttest/failingExistingImportRemainsConservativelyUncertain")
+    shell(directory, "git checkout -q -- failing-project/src/leaf.g.nupp")
+    write(directory .. "/process-impact-mode", "commands\n")
+    shell(directory, "git add process-impact-mode")
+    shell(directory, "git commit -qm exercise-noncheck-failures")
+    local commandOutput, commandStatus, commandLine = run(directory, "--jobs=2 --json", true)
+    test.equal(commandStatus, 0, commandLine .. " failed:\n" .. commandOutput)
+    test.equal(json.decode(commandOutput).total, 15)
+    write(directory .. "/nupp.lua", 'return {include = {"src"}, build = {entries = {"main"}, optimize = 1}}\n')
+    local commandListing, commandListingStatus, commandListingLine = run(directory, "--diff --list-cases", false)
+    test.equal(commandListingStatus, 0, commandListingLine .. " failed:\n" .. commandListing)
+    test.matches(commandListing, "processimpacttest/missingBuildRunAndAotRemainConservative")
+    shell(directory, "git checkout -q -- nupp.lua")
+    write(directory .. "/process-impact-mode", "missing\n")
+    shell(directory, "git add process-impact-mode")
+    shell(directory, "git commit -qm stabilize-process-impact")
+    local refreshedOutput, refreshedStatus, refreshedCommand = run(directory, "--jobs=2 --json", true)
+    test.equal(refreshedStatus, 0, refreshedCommand .. " failed:\n" .. refreshedOutput)
+    test.equal(json.decode(refreshedOutput).total, 15)
+
+    write(
+        directory .. "/successful-project/nupp.lua",
+        'return {include = {"src"}, build = {entries = {"nestedmain"}, outDir = "nested-out"}}\n'
+    )
+    local manifestListing, manifestStatus, manifestCommand = run(directory, "--diff --list-cases", false)
+    test.equal(manifestStatus, 0, manifestCommand .. " failed:\n" .. manifestListing)
+    test.matches(manifestListing, "manifestimpacttest/successfulNestedBuildOwnsItsManifest")
+    shell(directory, "git checkout -q -- successful-project/nupp.lua")
 
     write(
         directory .. "/tests/shapeshifttest.nupp",
@@ -222,7 +385,7 @@ return M
     local changedSuiteOutput, changedSuiteStatus, changedSuiteCommand = run(directory, "--diff --jobs=2 --json", true)
     test.equal(changedSuiteStatus, 0, changedSuiteCommand .. " failed:\n" .. changedSuiteOutput)
     local changedSuite = json.decode(changedSuiteOutput)
-    test.equal(changedSuite.total, 2)
+    test.equal(changedSuite.total, 2, changedSuiteOutput)
     test.assert(contains(changedSuite.selection.selectedSuites, "shapeshifttest"))
     test.assert(reasonWithCode(changedSuite.selection.reasons, "suite-source-changed") ~= nil)
     test.equal(lineCount(directory .. "/build/shape-impact-discoveries"), 1)
@@ -331,7 +494,7 @@ return M
     local shadowOutput, shadowStatus, shadowCommand = run(directory, "--diff --shadow --jobs=1 --json", true)
     test.equal(shadowStatus, 0, shadowCommand .. " failed:\n" .. shadowOutput)
     local shadow = json.decode(shadowOutput)
-    test.equal(shadow.total, 7)
+    test.equal(shadow.total, 15)
     test.equal(shadow.selection.shadow, true)
     test.assert(contains(shadow.selection.selectedCases, "leafimpacttest/usesLeaf"))
 
@@ -399,7 +562,7 @@ return M
     local promotedOutput, promotedStatus, promotedCommand = run(directory, "--diff --jobs=1 --json", true)
     test.equal(promotedStatus, 0, promotedCommand .. " failed:\n" .. promotedOutput)
     local promoted = json.decode(promotedOutput)
-    test.equal(promoted.total, 2)
+    test.equal(promoted.total, 2, promotedOutput)
     test.assert(contains(promoted.selection.selectedSuites, "hookimpacttest"))
     test.equal(#promoted.selection.selectedCases, 0)
     test.assert(#promoted.selection.promotions > 0)
@@ -408,10 +571,10 @@ return M
     local fallbackOutput, fallbackStatus, fallbackCommand = run(directory, "--diff=HEAD --jobs=1 --json", true)
     test.equal(fallbackStatus, 0, fallbackCommand .. " failed:\n" .. fallbackOutput)
     local fallback = json.decode(fallbackOutput)
-    test.equal(fallback.total, 7)
+    test.equal(fallback.total, 15)
     test.equal(fallback.selection.complete, true)
     test.assert(reasonWithCode(fallback.selection.fallbacks, "graph-miss") ~= nil)
-    test.equal(#fallback.selection.selectedSuites, 4)
+    test.equal(#fallback.selection.selectedSuites, 8)
 
     os.execute("rm -rf " .. string.format("%q", directory))
 end

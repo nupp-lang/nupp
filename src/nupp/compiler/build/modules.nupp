@@ -1665,11 +1665,23 @@ local function buildModules(root: string, outDir: string, config: Config, target
                         local dependencyName = dependency.name
                         local dependencyKey = dependency.key
                         local dependencyFingerprint = dependency.fingerprint
+                        local dependencyPaths: any = dependency.paths
                         if type(dependencyName) ~= "string"
                             or type(dependencyKey) ~= "string"
                             or type(dependencyFingerprint) ~= "string"
+                            or type(dependencyPaths) ~= "table"
+                            or #dependencyPaths == 0
                         then
                             usable = false
+                            break
+                        end
+                        for _, dependencyPath in ipairs(dependencyPaths) do
+                            if type(dependencyPath) ~= "string" or dependencyPath == "" then
+                                usable = false
+                                break
+                            end
+                        end
+                        if not usable then
                             break
                         end
                         if not GUARANTEE_QUERY[dependencyName]
