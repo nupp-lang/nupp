@@ -1,0 +1,45 @@
+local valueBuilder = require("nupp.codec.valuebuilder")
+local simd = require("nupp.simd")
+
+@aot
+local function rows(count: integer): {number}
+    local result = table.new(count, 0)
+    for index = 1, count do
+        result[index] = index * 2
+    end
+    return result
+end
+
+@aot
+local function object(name: string): {[string]: any}
+    local result = {name = name, nested = {1, 2, 3}}
+    result["ready"] = true
+    return result
+end
+
+@aot
+local function stream(source: string, tape: string, nullValue: any): (any, uint32, uint32)
+    local state = valueBuilder.new(nullValue)
+    valueBuilder.openObject(state, nupp.math.u32.wrap(2))
+    valueBuilder.key(state, source, nupp.math.u32.wrap(0), nupp.math.u32.wrap(4), false)
+    valueBuilder.numberSlice(state, source, nupp.math.u32.wrap(4), nupp.math.u32.wrap(2))
+    valueBuilder.key(state, source, nupp.math.u32.wrap(6), nupp.math.u32.wrap(4), false)
+    valueBuilder.boolean(state, true)
+    valueBuilder.close(state)
+    return valueBuilder.finish(state), valueBuilder.byte(source, nupp.math.u32.wrap(4)),
+        valueBuilder.word(tape, nupp.math.u32.wrap(0))
+end
+
+local span = require("nupp.mem.span")
+
+@aot
+local function waves(exclusive output: span.WriteSpan<number>, borrows input: span.Span<number>, scale: number): nil
+    if #output ~= #input then
+        error("length mismatch", 2)
+    end
+    for i = 1, #input do
+        output[i] = math.exp(input[i] * scale) + math.sin(input[i])
+    end
+end
+
+export = {rows = rows, object = object, stream = stream, waves = waves}

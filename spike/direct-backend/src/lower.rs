@@ -19,6 +19,12 @@ enum Val {
     /// A span's element count: a u64 in a register, which the IR types as
     /// f64 and compares against u64 cursors.
     Count(VReg),
+    /// A value on the Lua stack, by absolute index.
+    Slot(VReg),
+    /// A Lua string argument: its bytes, length, and stack index.
+    Str(VReg, VReg, VReg),
+    /// A builder's state in frame memory, by offset.
+    Builder(u32),
 }
 
 impl Val {
@@ -26,7 +32,9 @@ impl Val {
         match self {
             Val::I(r) | Val::F(r) | Val::Count(r) => vec![*r],
             Val::V(a, b) | Val::M(a, b) => vec![*a, *b],
-            Val::Species => vec![],
+            Val::Species | Val::Builder(_) => vec![],
+            Val::Slot(r) => vec![*r],
+            Val::Str(a, b, c) => vec![*a, *b, *c],
         }
     }
 }
@@ -120,6 +128,26 @@ pub struct Lower {
     iv: Option<Iv>,
     /// Masks made by `simd_tail(n)`, to the register holding `n`.
     tails: HashMap<(VReg, VReg), VReg>,
+    imports: Vec<String>,
+    locals: u32,
+    /// The `lua_State *` of a Lua-builder entry.
+    lua: Option<VReg>,
+    /// Stack index below a Lua-builder's reserved locals, and how many of
+    /// them are taken.
+    lua_base: Option<VReg>,
+    lua_locals: u32,
+    builder_size: u32,
+}
+
+/// An argument to an imported function.
+#[derive(Clone, Copy)]
+enum Arg {
+    I(VReg),
+    F(VReg),
+}
+
+fn site(v: &J) -> String {
+    format!("{}:{}", v["source"]["line"], v["source"]["column"])
 }
 
 /// A loop cursor's addresses carried as pointers: `ptrs[span]` is
@@ -211,6 +239,170 @@ impl Lower {
         self.consts.insert((kind, bytes), d);
         d
     }
+    /// A call through the import table, under the platform ABI: integer
+    /// arguments in x0.., doubles in d0.., the result in x0 or d0, and every
+    /// caller-saved register clobbered -- all vector registers, since only the
+    /// low halves of v8-v15 survive a call.
+    fn call(&mut self, name: &str, args: &[Arg], ret: Option<RegClass>) -> Option<VReg> {
+        let import = match self.imports.iter().position(|n| n == name) {
+            Some(k) => k,
+            None => {
+                self.imports.push(name.to_string());
+                self.imports.len() - 1
+            }
+        };
+        let mut ops = Vec::new();
+        let (mut ni, mut nf) = (0, 0);
+        for a in args {
+            match a {
+                Arg::I(v) => {
+                    ops.push(Operand::reg_fixed_use(*v, PReg::new(ni, RegClass::Int)));
+                    ni += 1;
+                }
+                Arg::F(v) => {
+                    ops.push(Operand::reg_fixed_use(*v, PReg::new(nf, f_class())));
+                    nf += 1;
+                }
+            }
+        }
+        let result = ret.map(|class| {
+            let d = self.vreg(class);
+            ops.push(Operand::reg_fixed_def(d, PReg::new(0, class)));
+            d
+        });
+        let mut clobbers = regalloc2::PRegSet::empty();
+        for r in 0..16 {
+            if !(ret == Some(RegClass::Int) && r == 0) {
+                clobbers.add(PReg::new(r, RegClass::Int));
+            }
+        }
+        for r in 0..30 {
+            if !(ret == Some(f_class()) && r == 0) {
+                clobbers.add(PReg::new(r, f_class()));
+            }
+        }
+        let mut inst = MInst::new(Op::Call { import }, ops);
+        inst.clobbers = clobbers;
+        self.push(inst);
+        result
+    }
+    fn call_i(&mut self, name: &str, args: &[Arg]) -> VReg {
+        self.call(name, args, Some(RegClass::Int)).unwrap()
+    }
+    fn frame(&mut self, bytes: u32) -> u32 {
+        let off = (self.locals + 15) & !15;
+        self.locals = off + bytes;
+        off
+    }
+    fn frame_addr(&mut self, off: u32) -> VReg {
+        self.def1(Op::FrameAddr { off }, RegClass::Int, &[])
+    }
+    fn data(&mut self, bytes: &[u8]) -> VReg {
+        self.def1(Op::AdrData { bytes: bytes.to_vec() }, RegClass::Int, &[])
+    }
+    fn lua(&self) -> VReg {
+        self.lua.expect("Lua operation outside a builder entry")
+    }
+    fn push_string(&mut self, text: &str) {
+        let l = self.lua();
+        let p = self.data(text.as_bytes());
+        let n = self.imm(text.len() as u64);
+        self.call("lua_pushlstring", &[Arg::I(l), Arg::I(p), Arg::I(n)], None);
+    }
+    fn push_number(&mut self, f: VReg) {
+        let l = self.lua();
+        self.call("lua_pushnumber", &[Arg::I(l), Arg::F(f)], None);
+    }
+    fn slot_index(&mut self, v: &Val) -> VReg {
+        match v {
+            Val::Slot(r) | Val::Str(_, _, r) => *r,
+            other => panic!("not on the Lua stack: {other:?}"),
+        }
+    }
+    /// Pushes one value onto the Lua stack.
+    fn push_value(&mut self, e: &J) {
+        let l = self.lua();
+        match (op(e), ty(e)) {
+            ("lua_new_table", _) => {
+                self.new_table(e);
+            }
+            ("lua_string", _) => self.push_string(e["value"].as_str().unwrap()),
+            ("bool", _) => {
+                let b = self.imm(e["value"].as_bool().unwrap() as u64);
+                self.call("lua_pushboolean", &[Arg::I(l), Arg::I(b)], None);
+            }
+            ("lua_builder_finish", _) => {
+                let b = self.expr(&e["builder"]);
+                let Val::Builder(off) = b else { panic!("finish of a non-builder") };
+                let addr = self.frame_addr(off);
+                self.call("ks_rt_builder_finish", &[Arg::I(l), Arg::I(addr)], Some(RegClass::Int));
+            }
+            (_, "lua_table" | "lua_string" | "lua_value") => {
+                let v = self.expr(e);
+                let idx = self.slot_index(&v);
+                self.call("lua_pushvalue", &[Arg::I(l), Arg::I(idx)], None);
+            }
+            (_, "u32") => {
+                let v = self.expr(e);
+                let r = self.as_i(v);
+                let f = self.def1(Op::UcvtfW, f_class(), &[r]);
+                self.push_number(f);
+            }
+            _ => {
+                let v = self.expr(e);
+                let f = self.as_f(v);
+                self.push_number(f);
+            }
+        }
+    }
+    /// A number the IR spells as a double or as an integer constant.
+    fn number(&mut self, e: &J) -> VReg {
+        if op(e) == "constant_i32" {
+            let x: f64 = e["value"].as_str().unwrap().parse().unwrap();
+            return self.lit(x);
+        }
+        let v = self.expr(e);
+        self.as_f(v)
+    }
+    /// Creates a table on top of the Lua stack, fills its fields, and returns
+    /// its absolute index.
+    fn new_table(&mut self, e: &J) -> VReg {
+        let l = self.lua();
+        let arr = self.number(&e["arrayCapacity"]);
+        let hash = self.number(&e["hashCapacity"]);
+        let s1 = self.data(format!("array capacity at {}", site(e)).as_bytes());
+        let narr = self.call_i("ks_rt_count", &[Arg::I(l), Arg::F(arr), Arg::I(s1)]);
+        let s2 = self.data(format!("hash capacity at {}", site(e)).as_bytes());
+        let nhash = self.call_i("ks_rt_count", &[Arg::I(l), Arg::F(hash), Arg::I(s2)]);
+        self.call("lua_createtable", &[Arg::I(l), Arg::I(narr), Arg::I(nhash)], None);
+        let top = self.call_i("lua_gettop", &[Arg::I(l)]);
+        for f in e["fields"].as_array().map(|a| a.clone()).unwrap_or_default() {
+            if f["indexed"].as_bool().unwrap_or(false) {
+                self.push_value(&f["value"]);
+                let key = self.number(&f["key"]);
+                let sp = self.data(site(&f["value"]).as_bytes());
+                let idx = self.call_i("ks_rt_index", &[Arg::I(l), Arg::F(key), Arg::I(sp)]);
+                self.call("lua_rawseti", &[Arg::I(l), Arg::I(top), Arg::I(idx)], None);
+            } else {
+                self.push_value(&f["key"]);
+                self.push_value(&f["value"]);
+                self.call("lua_rawset", &[Arg::I(l), Arg::I(top)], None);
+            }
+        }
+        top
+    }
+    fn builder_addr(&mut self, e: &J) -> VReg {
+        let b = self.expr(&e["builder"]);
+        let Val::Builder(off) = b else { panic!("not a builder") };
+        self.frame_addr(off)
+    }
+    fn str_parts(&mut self, e: &J) -> (VReg, VReg) {
+        match self.expr(e) {
+            Val::Str(p, n, _) => (p, n),
+            other => panic!("not a string: {other:?}"),
+        }
+    }
+
     fn imm(&mut self, value: u64) -> VReg {
         self.constant(Op::Imm { value })
     }
@@ -288,7 +480,10 @@ impl Lower {
     fn expr(&mut self, e: &J) -> Val {
         match op(e) {
             "local" => self.env[&cname(e)].clone(),
-            "uniform" => Val::F(self.uniforms[&cname(e)]),
+            "uniform" => match self.uniforms.get(&cname(e)) {
+                Some(v) => Val::F(*v),
+                None => self.env[&cname(e)].clone(),
+            },
             "constant" => {
                 let x: f64 = e["value"].as_str().unwrap().parse().unwrap();
                 Val::F(self.lit(x))
@@ -352,6 +547,25 @@ impl Lower {
                 let base = self.bases[e["span"].as_str().unwrap()];
                 let i = self.loop_index.expect("scalar load outside the map loop");
                 Val::F(self.def1(Op::LdrIdx, f_class(), &[base, i]))
+            }
+            "bool" => Val::I(self.imm(e["value"].as_bool().unwrap() as u64)),
+            "math" => {
+                let x = self.expr(&args(e)[0]);
+                let x = self.as_f(x);
+                let name = match e["intrinsic"].as_str().unwrap() {
+                    "exp" => "exp",
+                    "sin" => "ks_rt_sin",
+                    other => panic!("math.{other}"),
+                };
+                Val::F(self.call(name, &[Arg::F(x)], Some(f_class())).unwrap())
+            }
+            "lua_string_byte" | "lua_string_u32" => {
+                let l = self.lua();
+                let (p, n) = self.str_parts(&e["bytes"]);
+                let i = self.expr(&e["index"]);
+                let i = self.as_i(i);
+                let name = if op(e) == "lua_string_byte" { "ks_rt_string_byte" } else { "ks_rt_string_u32" };
+                Val::I(self.call_i(name, &[Arg::I(l), Arg::I(p), Arg::I(n), Arg::I(i)]))
             }
             "simd_species" => Val::Species,
             "simd_lanes_generic" => Val::I(self.imm(4)),
@@ -694,6 +908,28 @@ impl Lower {
 
     fn stmt(&mut self, s: &J) {
         match op(s) {
+            "let" if ty(s) == "lua_table" => {
+                // Into the next reserved slot above the entry's base.
+                let l = self.lua();
+                self.new_table(&s["value"]);
+                self.lua_locals += 1;
+                let base = self.lua_base.unwrap();
+                let slot = self.def1(Op::AddImm { sf: false, imm: self.lua_locals }, RegClass::Int, &[base]);
+                self.call("lua_replace", &[Arg::I(l), Arg::I(slot)], None);
+                self.env.insert(cname(s), Val::Slot(slot));
+            }
+            "let" if ty(s) == "lua_builder" => {
+                let l = self.lua();
+                let off = self.frame(self.builder_size);
+                let addr = self.frame_addr(off);
+                let null = self.expr(&s["value"]["nullValue"]);
+                let null = self.slot_index(&null);
+                let zero = self.imm(0);
+                let depth = self.imm(1024);
+                let a = [Arg::I(addr), Arg::I(l), Arg::I(null), Arg::I(zero), Arg::I(zero), Arg::I(depth), Arg::I(zero)];
+                self.call("ks_rt_eager_builder_new", &a, None);
+                self.env.insert(cname(s), Val::Builder(off));
+            }
             "let" => {
                 let v = self.expr(&s["value"]);
                 self.env.insert(cname(s), v);
@@ -761,6 +997,120 @@ impl Lower {
                 }
             }
             "block" => self.stmts(&s["body"]),
+            "lua_set_index" => {
+                let l = self.lua();
+                let t = self.expr(&s["table"]);
+                let t = self.slot_index(&t);
+                self.push_value(&s["value"]);
+                let key = self.number(&s["key"]);
+                let sp = self.data(site(s).as_bytes());
+                let idx = self.call_i("ks_rt_index", &[Arg::I(l), Arg::F(key), Arg::I(sp)]);
+                self.call("lua_rawseti", &[Arg::I(l), Arg::I(t), Arg::I(idx)], None);
+            }
+            "lua_set_key" => {
+                let l = self.lua();
+                let t = self.expr(&s["table"]);
+                let t = self.slot_index(&t);
+                self.push_value(&s["key"]);
+                self.push_value(&s["value"]);
+                self.call("lua_rawset", &[Arg::I(l), Arg::I(t)], None);
+            }
+            "lua_builder_open_object" | "lua_builder_open_array" => {
+                let l = self.lua();
+                let b = self.builder_addr(s);
+                let kind = self.imm(if op(s) == "lua_builder_open_array" { 5 } else { 6 });
+                let cap = self.expr(&s["capacity"]);
+                let cap = self.as_i(cap);
+                let eager = self.imm(1);
+                self.call("ks_rt_builder_open", &[Arg::I(l), Arg::I(b), Arg::I(kind), Arg::I(cap), Arg::I(eager)], None);
+            }
+            "lua_builder_key" | "lua_builder_string" => {
+                let l = self.lua();
+                let b = self.builder_addr(s);
+                let (p, n) = self.str_parts(&s["sourceBytes"]);
+                let start = self.expr(&s["start"]);
+                let start = self.as_i(start);
+                let len = self.expr(&s["length"]);
+                let len = self.as_i(len);
+                let esc = self.expr(&s["escaped"]);
+                let esc = self.as_i(esc);
+                let key = self.imm((op(s) == "lua_builder_key") as u64);
+                let eager = self.imm(1);
+                let a = [Arg::I(l), Arg::I(b), Arg::I(p), Arg::I(n), Arg::I(start), Arg::I(len), Arg::I(esc), Arg::I(key), Arg::I(eager)];
+                self.call("ks_rt_builder_string", &a, None);
+            }
+            "lua_builder_number_slice" => {
+                let l = self.lua();
+                let b = self.builder_addr(s);
+                let (p, n) = self.str_parts(&s["sourceBytes"]);
+                let start = self.expr(&s["start"]);
+                let start = self.as_i(start);
+                let len = self.expr(&s["length"]);
+                let len = self.as_i(len);
+                let eager = self.imm(1);
+                let a = [Arg::I(l), Arg::I(b), Arg::I(p), Arg::I(n), Arg::I(start), Arg::I(len), Arg::I(eager)];
+                self.call("ks_rt_builder_number_slice", &a, None);
+            }
+            "lua_builder_boolean" => {
+                let l = self.lua();
+                let b = self.builder_addr(s);
+                let v = self.expr(&s["value"]);
+                let v = self.as_i(v);
+                let eager = self.imm(1);
+                self.call("ks_rt_builder_boolean", &[Arg::I(l), Arg::I(b), Arg::I(v), Arg::I(eager)], None);
+            }
+            "lua_builder_close" => {
+                let l = self.lua();
+                let b = self.builder_addr(s);
+                let eager = self.imm(1);
+                self.call("ks_rt_builder_close", &[Arg::I(l), Arg::I(b), Arg::I(eager)], None);
+            }
+            "fornum" => {
+                // `for i = from, to` over doubles: `to` evaluated once, rotated.
+                let binding = cname(&s["binding"]);
+                let from = self.number(&s["from"]);
+                let last = self.number(&s["to"]);
+                let carried: Vec<String> =
+                    s["carried"].as_array().unwrap().iter().map(|c| c["cName"].as_str().unwrap().to_string()).collect();
+                let (body, exit) = (self.block(), self.block());
+                let counter = self.freg();
+                let mut body_params = vec![counter];
+                let mut exit_params = Vec::new();
+                let mut body_env = Vec::new();
+                let mut exit_env = Vec::new();
+                for c in &carried {
+                    let now = self.env[c].clone();
+                    let b = self.fresh_like(&now);
+                    let x = self.fresh_like(&now);
+                    body_params.extend(b.regs());
+                    exit_params.extend(x.regs());
+                    body_env.push((c.clone(), b));
+                    exit_env.push((c.clone(), x));
+                }
+                self.blocks[body].params = body_params;
+                self.blocks[exit].params = exit_params;
+                let before: Vec<VReg> = carried.iter().flat_map(|c| self.env[c].regs()).collect();
+                let mut entry = vec![from];
+                entry.extend(before.iter().copied());
+                let le = crate::asm::cond::LS;
+                self.branch(Op::FCmpBr { cond: le }, &[from, last], &(body, entry), &(exit, before));
+                self.switch(body);
+                for (k, v) in body_env {
+                    self.env.insert(k, v);
+                }
+                self.env.insert(binding, Val::F(counter));
+                self.stmts(&s["body"]);
+                let one = self.lit(1.0);
+                let next = self.def1(Op::FAdd, f_class(), &[counter, one]);
+                let after: Vec<VReg> = carried.iter().flat_map(|c| self.env[c].regs()).collect();
+                let mut back = vec![next];
+                back.extend(after.iter().copied());
+                self.branch(Op::FCmpBr { cond: le }, &[next, last], &(body, back), &(exit, after));
+                self.switch(exit);
+                for (k, v) in exit_env {
+                    self.env.insert(k, v);
+                }
+            }
             "while" if s.get("unrolled").is_none() && Self::straight_line(&s["body"]) && Self::doubled(&s["condition"]).is_some() => {
                 // Two bodies per iteration while two fit, then the original
                 // loop for the rest: the C emitter's `wideUnroll`, which the
@@ -887,6 +1237,14 @@ impl Lower {
                 }
                 self.switch(merge);
             }
+            "return" if self.lua.is_some() => {
+                let values = s["values"].as_array().unwrap().clone();
+                for v in &values {
+                    self.push_value(v);
+                }
+                let n = self.imm(values.len() as u64);
+                self.push(MInst::new(Op::Ret, vec![Operand::reg_fixed_use(n, PReg::new(0, RegClass::Int))]));
+            }
             "return" => {
                 let values = s["values"].as_array().unwrap();
                 let mut ops = Vec::new();
@@ -905,9 +1263,8 @@ impl Lower {
     }
 }
 
-/// Lowers one program to machine IR.
-pub fn lower(program: &J, sig: &Signature) -> Func {
-    let mut l = Lower {
+fn fresh() -> Lower {
+    Lower {
         blocks: Vec::new(),
         order: Vec::new(),
         cur: 0,
@@ -920,7 +1277,89 @@ pub fn lower(program: &J, sig: &Signature) -> Func {
         consts: HashMap::new(),
         iv: None,
         tails: HashMap::new(),
-    };
+        imports: Vec::new(),
+        locals: 0,
+        lua: None,
+        lua_base: None,
+        lua_locals: 0,
+        builder_size: 0,
+    }
+}
+
+fn finish(l: Lower) -> Func {
+    let imports = l.imports.clone();
+    let locals = l.locals;
+    let blocks = l.blocks.into_iter().map(|b| (b.params, b.insts)).collect();
+    let mut f = Func::build(&l.order, blocks, l.classes.len());
+    f.imports = imports;
+    f.locals = locals;
+    f
+}
+
+fn count_lua_locals(v: &J) -> u32 {
+    match v {
+        J::Object(m) => {
+            let own = (op(v) == "let" && ty(v) == "lua_table") as u32;
+            own + m.iter().filter(|(k, _)| *k != "source").map(|(_, c)| count_lua_locals(c)).sum::<u32>()
+        }
+        J::Array(items) => items.iter().map(count_lua_locals).sum(),
+        _ => 0,
+    }
+}
+
+/// Lowers a Lua-builder entry: a `lua_CFunction`, `int (lua_State *)`,
+/// calling the Lua C API and the Nupp runtime through the import table.
+pub fn lower_builder(program: &J, builder_size: u32) -> Func {
+    let mut l = fresh();
+    l.builder_size = builder_size;
+    let entry = l.block();
+    l.switch(entry);
+    let lua = l.ireg();
+    l.push(MInst::new(Op::Args, vec![Operand::reg_fixed_def(lua, PReg::new(0, RegClass::Int))]));
+    l.lua = Some(lua);
+
+    // lua_checkstack failing raises, like the C entry's `luaL_error`.
+    let depth = l.imm(32);
+    let ok = l.call_i("lua_checkstack", &[Arg::I(lua), Arg::I(depth)]);
+    let zero = l.imm(0);
+    let (fail, fine) = (l.block(), l.block());
+    l.branch(Op::CmpBr { sf: false, cond: crate::asm::cond::EQ }, &[ok, zero], &(fail, vec![]), &(fine, vec![]));
+    l.switch(fail);
+    let r = l.call_i("ks_rt_stack_error", &[Arg::I(lua)]);
+    l.push(MInst::new(Op::Ret, vec![Operand::reg_fixed_use(r, PReg::new(0, RegClass::Int))]));
+    l.switch(fine);
+
+    for (k, p) in program["params"].as_array().unwrap().iter().enumerate() {
+        let index = l.imm(k as u64 + 1);
+        let name = p["cName"].as_str().unwrap().to_string();
+        let v = match p["type"].as_str().unwrap() {
+            "f64" => Val::F(l.call("luaL_checknumber", &[Arg::I(lua), Arg::I(index)], Some(f_class())).unwrap()),
+            "lua_string" => {
+                let off = l.frame(8);
+                let len_at = l.frame_addr(off);
+                let bytes = l.call_i("luaL_checklstring", &[Arg::I(lua), Arg::I(index), Arg::I(len_at)]);
+                let len_at = l.frame_addr(off);
+                let len = l.def1(Op::LdrX { off: 0 }, RegClass::Int, &[len_at]);
+                Val::Str(bytes, len, index)
+            }
+            "lua_value" => Val::Slot(index),
+            other => panic!("builder parameter {other}"),
+        };
+        l.env.insert(name, v);
+    }
+    let base = l.call_i("lua_gettop", &[Arg::I(lua)]);
+    l.lua_base = Some(base);
+    let reserved = count_lua_locals(&program["body"]);
+    let top = l.def1(Op::AddImm { sf: false, imm: reserved }, RegClass::Int, &[base]);
+    l.call("lua_settop", &[Arg::I(lua), Arg::I(top)], None);
+
+    l.stmts(&program["body"]);
+    finish(l)
+}
+
+/// Lowers one program to machine IR.
+pub fn lower(program: &J, sig: &Signature) -> Func {
+    let mut l = fresh();
     let entry = l.block();
     l.switch(entry);
 
@@ -991,6 +1430,5 @@ pub fn lower(program: &J, sig: &Signature) -> Func {
         }
     }
 
-    let blocks = l.blocks.into_iter().map(|b| (b.params, b.insts)).collect();
-    Func::build(&l.order, blocks, l.classes.len())
+    finish(l)
 }

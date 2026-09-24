@@ -56,11 +56,32 @@ pub struct Stats {
     pub saved: usize,
 }
 
+/// What an unwinder needs to walk one generated frame: the prologue is
+/// `stp x29, x30, [sp, #-16]!; mov x29, sp; sub sp, sp, #frame` and then the
+/// callee-saved stores, so after `prologue_end` the CFA is `x29 + 16` and each
+/// saved register sits at a fixed CFA offset.
+pub struct Frame {
+    pub prologue_end: u32,
+    /// DWARF register number and CFA-relative offset of each saved register.
+    pub saved: Vec<(u16, i32)>,
+}
+
+pub struct Emitted {
+    pub layout: asm::Layout,
+    pub stats: Stats,
+    pub frame: Frame,
+}
+
 fn reg(a: Allocation) -> u32 {
     a.as_reg().expect("operand in a register").hw_enc() as u32
 }
 
 pub fn emit(func: &Func, out: &Output) -> (Vec<u8>, Stats) {
+    let e = emit_image(func, out);
+    (e.layout.bytes, e.stats)
+}
+
+pub fn emit_image(func: &Func, out: &Output) -> Emitted {
     // Callee-saved registers the allocation touched.
     let mut saved_x = std::collections::BTreeSet::new();
     let mut saved_d = std::collections::BTreeSet::new();
@@ -88,8 +109,11 @@ pub fn emit(func: &Func, out: &Output) -> (Vec<u8>, Stats) {
     let saved: Vec<(u32, bool)> =
         saved_x.iter().map(|r| (*r, false)).chain(saved_d.iter().map(|r| (*r, true))).collect();
     let spill_bytes = (out.num_spillslots * 8 + 15) & !15;
+    let locals_base = spill_bytes;
+    let locals_bytes = ((func.locals as usize) + 15) & !15;
+    let save_base = spill_bytes + locals_bytes;
     let save_bytes = (saved.len() * 8 + 15) & !15;
-    let frame = (spill_bytes + save_bytes) as u32;
+    let frame = (spill_bytes + locals_bytes + save_bytes) as u32;
 
     let mut a = Asm::new();
     let prologue = |a: &mut Asm| {
@@ -99,13 +123,13 @@ pub fn emit(func: &Func, out: &Output) -> (Vec<u8>, Stats) {
             a.emit(asm::sub_sp(frame));
         }
         for (k, (r, d)) in saved.iter().enumerate() {
-            let off = (spill_bytes + k * 8) as u32;
+            let off = (save_base + k * 8) as u32;
             a.emit(if *d { asm::str_d_imm(*r, SP, off) } else { asm::str_x_imm(*r, SP, off) });
         }
     };
     let epilogue = |a: &mut Asm| {
         for (k, (r, d)) in saved.iter().enumerate() {
-            let off = (spill_bytes + k * 8) as u32;
+            let off = (save_base + k * 8) as u32;
             a.emit(if *d { asm::ldr_d_imm(*r, SP, off) } else { asm::ldr_x_imm(*r, SP, off) });
         }
         if frame > 0 {
@@ -143,6 +167,19 @@ pub fn emit(func: &Func, out: &Output) -> (Vec<u8>, Stats) {
     let emitted: Vec<usize> = (0..nblocks).filter(|b| forward[*b].is_none()).collect();
 
     prologue(&mut a);
+    let prologue_end = a.here() as u32;
+    // x29 = CFA - 16 and sp = x29 - frame, so [sp + off] is CFA - 16 - frame + off.
+    let frame_info = Frame {
+        prologue_end,
+        saved: saved
+            .iter()
+            .enumerate()
+            .map(|(k, (r, d))| {
+                let dwarf = if *d { 64 + *r as u16 } else { *r as u16 };
+                (dwarf, -16 - frame as i32 + (save_base + k * 8) as i32)
+            })
+            .collect(),
+    };
     for (pos, &b) in emitted.iter().enumerate() {
         let next = emitted.get(pos + 1).copied();
         a.bind(labels[b]);
@@ -249,6 +286,13 @@ pub fn emit(func: &Func, out: &Output) -> (Vec<u8>, Stats) {
                                 a.bind(skip);
                             }
                         }
+                        Op::Call { import } => {
+                            a.ldr_slot(XS, *import);
+                            a.emit(asm::blr(XS));
+                        }
+                        Op::FrameAddr { off } => a.emit(asm::add_imm(true, r[0], SP, locals_base as u32 + *off)),
+                        Op::LdrX { off } => a.emit(asm::ldr_x_imm(r[0], r[1], *off)),
+                        Op::AdrData { bytes } => a.adr_data(r[0], bytes),
                         Op::TailLoad => {
                             let (lo, hi, addr, n) = (r[0], r[1], r[2], r[3]);
                             let (full, lt2, done) = (a.label(), a.label(), a.label());
@@ -346,7 +390,7 @@ pub fn emit(func: &Func, out: &Output) -> (Vec<u8>, Stats) {
             }
         }
     }
-    let bytes = a.finish();
-    let stats = Stats { words: bytes.len() / 4, spill_slots: out.num_spillslots, moves, saved: saved.len() };
-    (bytes, stats)
+    let layout = a.finish_layout(func.imports.len());
+    let stats = Stats { words: layout.code_len / 4, spill_slots: out.num_spillslots, moves, saved: saved.len() };
+    Emitted { layout, stats, frame: frame_info }
 }

@@ -1,1 +1,4 @@
-nupp: sources changed, building the compiler
+spike/direct-backend/builders.g.nupp:2:7: warning: NUPP2507 unused-binding: nothing uses simd, so requiring "nupp.simd" does nothing here
+ 2 | local simd = require("nupp.simd")
+   |       ^~~~
+help: delete the require

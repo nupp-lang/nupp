@@ -81,6 +81,16 @@ pub fn cbnz(sf: bool, rt: R, off: i32) -> u32 {
 pub fn cbz(sf: bool, rt: R, off: i32) -> u32 {
     (if sf { 0xB400_0000 } else { 0x3400_0000 }) | ((((off >> 2) as u32) & 0x7FFFF) << 5) | rt
 }
+pub fn blr(rn: R) -> u32 {
+    0xD63F_0000 | (rn << 5)
+}
+pub fn adr(rd: R, off: i32) -> u32 {
+    let imm = off as u32;
+    0x1000_0000 | ((imm & 3) << 29) | (((imm >> 2) & 0x7FFFF) << 5) | rd
+}
+pub fn ldr_x_literal(rt: R, off: i32) -> u32 {
+    0x5800_0000 | ((((off >> 2) as u32) & 0x7FFFF) << 5) | rt
+}
 pub fn ret() -> u32 {
     0xD65F_03C0
 }
@@ -249,7 +259,20 @@ enum Fixup {
     BCond,
     Cb,
     LdrLiteral,
+    Adr,
 }
+
+/// Where the finished image keeps its import slots: one 8-byte slot per
+/// import, on their own page after the code so they can be made read-only
+/// once the loader has filled them.
+pub struct Layout {
+    pub bytes: Vec<u8>,
+    pub code_len: usize,
+    pub slots_offset: usize,
+    pub slots: usize,
+}
+
+pub const PAGE: usize = 16384;
 
 pub struct Asm {
     pub words: Vec<u32>,
@@ -257,11 +280,22 @@ pub struct Asm {
     fixups: Vec<(usize, Label, Fixup)>,
     /// 16-byte literals, each placed in the pool after the code.
     literals: Vec<([u8; 16], Label)>,
+    /// Byte strings placed after the literals, 8-byte aligned.
+    data: Vec<(Vec<u8>, Label)>,
+    /// One label per import slot.
+    slots: Vec<Label>,
 }
 
 impl Asm {
     pub fn new() -> Asm {
-        Asm { words: Vec::new(), labels: Vec::new(), fixups: Vec::new(), literals: Vec::new() }
+        Asm {
+            words: Vec::new(),
+            labels: Vec::new(),
+            fixups: Vec::new(),
+            literals: Vec::new(),
+            data: Vec::new(),
+            slots: Vec::new(),
+        }
     }
     pub fn label(&mut self) -> Label {
         self.labels.push(None);
@@ -303,10 +337,44 @@ impl Asm {
         self.fixups.push((self.words.len(), l, Fixup::LdrLiteral));
         self.words.push(if q { 0x9C00_0000 | rt } else { 0x5C00_0000 | rt });
     }
-    pub fn finish(mut self) -> Vec<u8> {
-        // Pool after the code, 16-byte aligned.
+    /// `ldr xT, <import slot k>`
+    pub fn ldr_slot(&mut self, rt: R, k: usize) {
+        while self.slots.len() <= k {
+            let l = self.label();
+            self.slots.push(l);
+        }
+        let l = self.slots[k];
+        self.fixups.push((self.words.len(), l, Fixup::LdrLiteral));
+        self.words.push(0x5800_0000 | rt);
+    }
+    /// `adr xD, <bytes>`: the address of constant data in the image.
+    pub fn adr_data(&mut self, rd: R, bytes: &[u8]) {
+        let l = match self.data.iter().find(|(b, _)| b == bytes) {
+            Some((_, l)) => *l,
+            None => {
+                let l = self.label();
+                self.data.push((bytes.to_vec(), l));
+                l
+            }
+        };
+        self.fixups.push((self.words.len(), l, Fixup::Adr));
+        self.words.push(0x1000_0000 | rd);
+    }
+    pub fn here(&self) -> usize {
+        self.words.len() * 4
+    }
+    pub fn finish(self) -> Vec<u8> {
+        self.finish_layout(0).bytes
+    }
+    /// Code, literal pool, data, then `slots` import slots on their own page.
+    pub fn finish_layout(mut self, imports: usize) -> Layout {
+        while self.slots.len() < imports {
+            let l = self.label();
+            self.slots.push(l);
+        }
+        let code_len = self.words.len() * 4;
         while self.words.len() % 4 != 0 {
-            self.words.push(0xD503_201F); // nop
+            self.words.push(0xD503_201F);
         }
         let literals = std::mem::take(&mut self.literals);
         for (bytes, l) in &literals {
@@ -315,6 +383,36 @@ impl Asm {
                 self.words.push(u32::from_le_bytes([c[0], c[1], c[2], c[3]]));
             }
         }
+        let data = std::mem::take(&mut self.data);
+        for (bytes, l) in &data {
+            while self.words.len() % 2 != 0 {
+                self.words.push(0);
+            }
+            self.bind(*l);
+            let mut padded = bytes.clone();
+            padded.push(0);
+            while padded.len() % 4 != 0 {
+                padded.push(0);
+            }
+            for c in padded.chunks(4) {
+                self.words.push(u32::from_le_bytes([c[0], c[1], c[2], c[3]]));
+            }
+        }
+        let slots = std::mem::take(&mut self.slots);
+        let slots_offset = if slots.is_empty() { self.words.len() * 4 } else { (self.words.len() * 4 + PAGE - 1) / PAGE * PAGE };
+        while self.words.len() * 4 < slots_offset {
+            self.words.push(0);
+        }
+        for l in &slots {
+            self.bind(*l);
+            self.words.push(0);
+            self.words.push(0);
+        }
+        let n = slots.len();
+        let bytes = self.finish_words();
+        Layout { bytes, code_len, slots_offset, slots: n }
+    }
+    fn finish_words(mut self) -> Vec<u8> {
         for (at, l, kind) in &self.fixups {
             let target = self.labels[l.0].expect("unbound label");
             let off = (target as i32 - *at as i32) * 4;
@@ -322,6 +420,11 @@ impl Asm {
             match kind {
                 Fixup::B => {
                     *w |= ((off >> 2) as u32) & 0x03FF_FFFF;
+                }
+                Fixup::Adr => {
+                    assert!((-(1 << 20)..(1 << 20)).contains(&off));
+                    let imm = off as u32;
+                    *w |= ((imm & 3) << 29) | (((imm >> 2) & 0x7FFFF) << 5);
                 }
                 Fixup::BCond | Fixup::Cb | Fixup::LdrLiteral => {
                     assert!((-(1 << 20)..(1 << 20)).contains(&off));
@@ -428,6 +531,10 @@ mod tests {
             (ccmp_reg(false, 1, 2, 0, cond::GT), "ccmp w1, w2, #0, gt"),
             (fccmp_d(3, 4, 0, cond::GT), "fccmp d3, d4, #0, gt"),
             (fccmp_d(3, 4, 4, cond::MI), "fccmp d3, d4, #4, mi"),
+            (blr(16), "blr x16"),
+            (adr(3, 12), "adr x3, #12"),
+            (adr(3, -8), "adr x3, #-8"),
+            (ldr_x_literal(16, 16), "ldr x16, #16"),
             (b(8), "b #8"),
             (b_cond(cond::LS, -8), "b.ls #-8"),
             (cbnz(true, 3, 12), "cbnz x3, #12"),

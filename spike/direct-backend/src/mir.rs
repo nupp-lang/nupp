@@ -42,6 +42,15 @@ pub enum Op {
     Stp { off: i32 },
     MaskedLoad,
     MaskedStore,
+    /// Call through import slot `import`: fixed-register arguments and result,
+    /// every other caller-saved register clobbered.
+    Call { import: usize },
+    /// def = sp + locals base + off: the address of frame memory.
+    FrameAddr { off: u32 },
+    /// def = [use0 + off], 64-bit.
+    LdrX { off: u32 },
+    /// def = address of constant bytes in the image.
+    AdrData { bytes: Vec<u8> },
     /// Loads/stores the first `n` lanes: a mask known to be `simd_tail(n)`.
     TailLoad,
     TailStore,
@@ -64,11 +73,12 @@ pub struct MInst {
     pub succs: Vec<Block>,
     /// Outgoing block arguments, one list per successor.
     pub args: Vec<Vec<VReg>>,
+    pub clobbers: PRegSet,
 }
 
 impl MInst {
     pub fn new(op: Op, operands: Vec<Operand>) -> MInst {
-        MInst { op, operands, succs: Vec::new(), args: Vec::new() }
+        MInst { op, operands, succs: Vec::new(), args: Vec::new(), clobbers: PRegSet::empty() }
     }
     pub fn is_branch(&self) -> bool {
         matches!(
@@ -89,6 +99,10 @@ pub struct Func {
     pub insts: Vec<MInst>,
     pub blocks: Vec<BlockInfo>,
     pub num_vregs: usize,
+    /// Import names, by slot.
+    pub imports: Vec<String>,
+    /// Bytes of frame memory the body addresses (builder state, out-params).
+    pub locals: u32,
 }
 
 impl Func {
@@ -123,7 +137,7 @@ impl Func {
                 infos[s.index()].preds.push(Block::new(b));
             }
         }
-        Func { insts, blocks: infos, num_vregs }
+        Func { insts, blocks: infos, num_vregs, imports: Vec::new(), locals: 0 }
     }
 }
 
@@ -161,8 +175,8 @@ impl regalloc2::Function for Func {
     fn inst_operands(&self, insn: Inst) -> &[Operand] {
         &self.insts[insn.index()].operands
     }
-    fn inst_clobbers(&self, _insn: Inst) -> PRegSet {
-        PRegSet::empty()
+    fn inst_clobbers(&self, insn: Inst) -> PRegSet {
+        self.insts[insn.index()].clobbers
     }
     fn num_vregs(&self) -> usize {
         self.num_vregs

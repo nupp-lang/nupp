@@ -6,6 +6,7 @@ mod asm;
 mod emit;
 mod loader;
 mod lower;
+mod luaphase;
 mod mir;
 
 use regalloc2::{Algorithm, RegallocOptions};
@@ -167,6 +168,14 @@ fn c_words(dir: &std::path::Path, symbol: &str) -> usize {
 }
 
 fn main() {
+    if std::env::args().nth(1).as_deref() == Some("lua") {
+        let path = std::env::args().nth(2).expect("builders.json");
+        luaphase::run(&path);
+        if std::env::var("NUPP_SPIKE_NO_CFI").is_err() {
+            luaphase::without_cfi(&path);
+        }
+        return;
+    }
     let path = std::env::args().nth(1).expect("kernels.json");
     let dump = std::env::args().nth(2);
     let doc: J = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
