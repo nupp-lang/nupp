@@ -1,0 +1,808 @@
+module nupp.compiler.aot.llvm.expressions
+
+--[[
+Scalar IR expressions as LLVM instructions.
+
+`expressions.value` emits one expression into the current block and answers the
+LLVM value and the IR type it has. Numeric meaning is the IR's, which the C
+lowering expressed through C's rules and this states outright:
+
+- binary64 arithmetic carries no fast-math flags, except `contract` inside a
+  function the source relaxed with `@relax("fp-contract")`;
+- a comparison of two numbers of different types compares their values, never
+  their bit patterns, so a signed and an unsigned integer are compared as
+  mathematical integers and anything involving a float in binary64;
+- `!=` on floats is unordered-or-unequal, as C's is, and the ordered
+  comparisons are false for NaN;
+- conversions from floating point to an integer saturate rather than leave the
+  out-of-range case undefined, and the modular `wrap` is LuaJIT's own
+  reduction.
+
+An operation this backend does not emit yet raises an error beginning with
+`expressions.UNSUPPORTED`, which the build reads as "use the C lowering for
+this unit" while both backends exist.
+]]
+
+local builder = require("nupp.compiler.aot.llvm.builder")
+local context = require("nupp.compiler.aot.llvm.context")
+local prelude = require("nupp.compiler.aot.llvm.prelude")
+local scalarIR = require("nupp.compiler.aot.scalar")
+local text = require("nupp.compiler.aot.llvm.text")
+local types = require("nupp.compiler.aot.llvm.types")
+
+local expressions = {}
+
+--- The prefix of every error that means "not yet", as opposed to "wrong".
+const expressions.UNSUPPORTED = "llvm backend does not yet emit "
+
+--- @raises string always
+local function unsupported(what: string): never
+    error(expressions.UNSUPPORTED .. what, 0)
+end
+
+local function emit(ctx: context.Context, instruction: string): string
+    return builder.value(ctx.f, instruction)
+end
+
+----------------------------------------------------------------------------
+-- Conversions
+----------------------------------------------------------------------------
+
+--- Converts `value` of IR type `from` to IR type `to`, with C's value
+--- semantics (saturating where C leaves overflow undefined).
+function expressions.convert(ctx: context.Context, value: string, from: string, to: string): string
+    if from == to then
+        return value
+    end
+    local target = types.require(to)
+    local source = types.require(from)
+    if source == target and types.isInteger(from) and types.isInteger(to) then
+        -- A signedness change of one width reinterprets.
+        return value
+    end
+    if to == "bool" then
+        if types.isFloat(from) then
+            return emit(ctx, ("fcmp une %s %s, 0.0"):format(source, value))
+        end
+
+        return emit(ctx, ("icmp ne %s %s, 0"):format(source, value))
+    end
+    if from == "bool" then
+        if types.isFloat(to) then
+            return emit(ctx, ("uitofp i1 %s to %s"):format(value, target))
+        end
+
+        return emit(ctx, ("zext i1 %s to %s"):format(value, target))
+    end
+    if types.isFloat(from) and types.isFloat(to) then
+        local op = types.bits(from) < types.bits(to) and "fpext" or "fptrunc"
+
+        return emit(ctx, ("%s %s %s to %s"):format(op, source, value, target))
+    end
+    if types.isInteger(from) and types.isFloat(to) then
+        local op = types.signed(from) and "sitofp" or "uitofp"
+
+        return emit(ctx, ("%s %s %s to %s"):format(op, source, value, target))
+    end
+    if types.isFloat(from) and types.isInteger(to) then
+        local sat = types.signed(to) and "fptosi" or "fptoui"
+        local name = ("llvm.%s.sat.%s.%s"):format(sat, target, source == "double" and "f64" or "f32")
+        local callee = prelude.intrinsic(ctx.module, name, ("%s @NAME(%s)"):format(target, source))
+
+        return emit(ctx, ("call %s %s(%s %s)"):format(target, callee, source, value))
+    end
+    -- Integer to integer of another width.
+    local fromBits, toBits = types.bits(from), types.bits(to)
+    if fromBits > toBits then
+        return emit(ctx, ("trunc %s %s to %s"):format(source, value, target))
+    end
+    local op = types.signed(from) and "sext" or "zext"
+
+    return emit(ctx, ("%s %s %s to %s"):format(op, source, value, target))
+end
+
+--- `value` of `from` as a double.
+local function toDouble(ctx: context.Context, value: string, from: string): string
+    return expressions.convert(ctx, value, from, "f64")
+end
+
+--- `value` as C's `nupp_u32` sees it: an integer's low 32 bits, or a double
+--- reduced the way LuaJIT's `tobit` reduces it.
+local function u32Bits(ctx: context.Context, value: string, from: string): string
+    if from == "i32" or from == "u32" then
+        return value
+    elseif from == "i64" or from == "u64" then
+        return emit(ctx, ("trunc i64 %s to i32"):format(value))
+    elseif from == "bool" then
+        return emit(ctx, ("zext i1 %s to i32"):format(value))
+    elseif from == "f32" then
+        value = emit(ctx, ("fpext float %s to double"):format(value))
+    end
+    local wrap = prelude.use(ctx.module, "nupp.wrap.u32")
+
+    return emit(ctx, ("call i32 %s(double %s)"):format(wrap, value))
+end
+
+--- `value` as a 64-bit unsigned operand, the way `(uint64_t)(x)` reads it.
+local function u64Bits(ctx: context.Context, value: string, from: string): string
+    return expressions.convert(ctx, value, from, "u64")
+end
+
+----------------------------------------------------------------------------
+-- Comparisons
+----------------------------------------------------------------------------
+
+const FLOAT_PREDICATE: {
+    [string]: string
+} = {["lt"] = "olt", ["le"] = "ole", ["gt"] = "ogt", ["ge"] = "oge", ["eq"] = "oeq", ["ne"] = "une",}
+
+const SIGNED_PREDICATE: {
+    [string]: string
+} = {["lt"] = "slt", ["le"] = "sle", ["gt"] = "sgt", ["ge"] = "sge", ["eq"] = "eq", ["ne"] = "ne",}
+
+const UNSIGNED_PREDICATE: {
+    [string]: string
+} = {["lt"] = "ult", ["le"] = "ule", ["gt"] = "ugt", ["ge"] = "uge", ["eq"] = "eq", ["ne"] = "ne",}
+
+--- A comparison of two values by what they denote.
+function expressions.compare(
+    ctx: context.Context,
+    operation: string,
+    left: string,
+    leftType: string,
+    right: string,
+    rightType: string
+): string
+    if leftType == "bool" and rightType == "bool" then
+        return emit(ctx, ("icmp %s i1 %s, %s"):format(SIGNED_PREDICATE[operation] as string, left, right))
+    end
+    if types.isFloat(leftType) or types.isFloat(rightType) then
+        -- C promotes to the wider floating type; binary64 holds every value of
+        -- every type here, so comparing there is exact.
+        local a, b = toDouble(ctx, left, leftType), toDouble(ctx, right, rightType)
+
+        return emit(ctx, ("fcmp %s double %s, %s"):format(FLOAT_PREDICATE[operation] as string, a, b))
+    end
+    if leftType == rightType then
+        local t = types.require(leftType)
+        local predicate = types.signed(leftType) and SIGNED_PREDICATE[operation] or UNSIGNED_PREDICATE[operation]
+
+        return emit(ctx, ("icmp %s %s %s, %s"):format(predicate as string, t, left, right))
+    end
+
+    -- Mixed integers: widen both to 65 bits, where every int64 and uint64 is
+    -- representable, and compare signed. Exact, and LLVM legalizes it.
+    local function widen(value: string, typeName: string): string
+        return emit(
+            ctx,
+            ("%s %s %s to i65"):format(types.signed(typeName) and "sext" or "zext", types.require(typeName), value)
+        )
+    end
+
+    return emit(
+        ctx,
+        (
+            "icmp %s i65 %s, %s"
+        ):format(SIGNED_PREDICATE[operation] as string, widen(left, leftType), widen(right, rightType))
+    )
+end
+
+----------------------------------------------------------------------------
+-- Math
+----------------------------------------------------------------------------
+
+const LIBM: {
+    [string]: integer
+} = {
+    ["cos"] = 1,
+    ["tan"] = 1,
+    ["asin"] = 1,
+    ["acos"] = 1,
+    ["atan"] = 1,
+    ["atan2"] = 2,
+    ["sinh"] = 1,
+    ["cosh"] = 1,
+    ["tanh"] = 1,
+    ["exp"] = 1,
+    ["log"] = 1,
+    ["pow"] = 2,
+    ["fmod"] = 2,
+}
+
+const EXACT_INTRINSIC: {
+    [string]: string
+} = {["sqrt"] = "llvm.sqrt.f64", ["abs"] = "llvm.fabs.f64", ["floor"] = "llvm.floor.f64", ["ceil"] = "llvm.ceil.f64",}
+
+--- One operation from the closed math set, over arguments already emitted as
+--- doubles.
+function expressions.math(ctx: context.Context, intrinsic: string, args: {string}): string
+    if intrinsic == "min" or intrinsic == "max" then
+        local helper = prelude.use(ctx.module, "nupp." .. intrinsic .. "2" .. (ctx.lua51Math and ".lua51" or ""))
+        local current = args[1]
+        for position = 2, #args do
+            current = emit(ctx, ("call double %s(double %s, double %s)"):format(helper, current, args[position]))
+        end
+
+        return current
+    end
+    if intrinsic == "log" and #args == 2 then
+        local log = prelude.libm(ctx.module, "log", 1)
+        local a = emit(ctx, ("call double %s(double %s)"):format(log, args[1]))
+        local b = emit(ctx, ("call double %s(double %s)"):format(log, args[2]))
+
+        return emit(ctx, ("fdiv double %s, %s"):format(a, b))
+    end
+    if intrinsic == "deg" then
+        return emit(ctx, ("fmul double %s, %s"):format(args[1], text.double(180.0 / math.pi)))
+    elseif intrinsic == "rad" then
+        return emit(ctx, ("fmul double %s, %s"):format(args[1], text.double(math.pi / 180.0)))
+    elseif intrinsic == "sin" then
+        return emit(ctx, ("call double %s(double %s)"):format(prelude.use(ctx.module, "nupp.sin"), args[1]))
+    end
+    local exact = EXACT_INTRINSIC[intrinsic]
+    if exact ~= nil then
+        local callee = prelude.intrinsic(ctx.module, exact as string, "double @NAME(double)")
+
+        return emit(ctx, ("call double %s(double %s)"):format(callee, args[1]))
+    end
+    local arity = LIBM[intrinsic]
+    if arity == nil then
+        unsupported("math operation " .. intrinsic)
+    end
+    local callee = prelude.libm(ctx.module, intrinsic, arity as integer)
+    local rendered: {string} = {}
+    for position, value in ipairs(args) do
+        rendered[position] = "double " .. value
+    end
+
+    return emit(ctx, ("call double %s(%s)"):format(callee, table.concat(rendered, ", ")))
+end
+
+----------------------------------------------------------------------------
+-- Memory
+----------------------------------------------------------------------------
+
+--- The zero-based element index a span access names, as an i64.
+--- @raises string when the index names no bound local, or the map index is
+---   read outside the map loop
+function expressions.index(ctx: context.Context, indexCName: string?, cursorCName: string?): string
+    if cursorCName ~= nil then
+        local slot = ctx.locals[cursorCName as string]
+        if slot == nil then
+            error("no local " .. tostring(cursorCName), 0)
+        end
+        local cursor = emit(ctx, ("load %s, ptr %s"):format(types.require(slot.type), slot.pointer))
+
+        return expressions.convert(ctx, cursor, slot.type, "u64")
+    end
+    if indexCName == "i" then
+        if ctx.mapIndex == nil then
+            error("map index read outside the map loop", 0)
+        end
+
+        return ctx.mapIndex as string
+    end
+    local slot = ctx.locals[tostring(indexCName)]
+    if slot == nil then
+        error("no local " .. tostring(indexCName), 0)
+    end
+    local loaded = emit(ctx, ("load %s, ptr %s"):format(types.require(slot.type), slot.pointer))
+    if types.isFloat(slot.type) then
+        -- `(size_t)(index - 1)`.
+        local less = emit(ctx, ("fsub double %s, 1.0"):format(toDouble(ctx, loaded, slot.type)))
+
+        return expressions.convert(ctx, less, "f64", "u64")
+    end
+    local wide = expressions.convert(ctx, loaded, slot.type, "u64")
+
+    return emit(ctx, ("sub i64 %s, 1"):format(wide))
+end
+
+--- The address of element `index` of span `name`.
+--- @raises string when the entry has no span by that name
+function expressions.element(ctx: context.Context, name: string, index: string, storage: string): string
+    local span = ctx.spans[name]
+    if span == nil then
+        error("no span " .. name, 0)
+    end
+
+    return emit(ctx, ("getelementptr inbounds %s, ptr %s, i64 %s"):format(storage, span.pointer, index))
+end
+
+--- A loaded storage value widened to the IR value type it establishes.
+--- @raises string when the storage cannot hold that value type
+function expressions.widen(
+    ctx: context.Context,
+    value: string,
+    storage: string,
+    valueType: string,
+    sourceType: string?
+): string
+    local target = types.require(valueType)
+    if storage == target then
+        return value
+    end
+    if storage == "i8" or storage == "i16" then
+        local op = types.storageSigned(sourceType) and "sext" or "zext"
+        local widened = emit(ctx, ("%s %s %s to i32"):format(op, storage, value))
+
+        return expressions.convert(ctx, widened, types.storageSigned(sourceType) and "i32" or "u32", valueType)
+    end
+    if storage == "float" and target == "double" then
+        return emit(ctx, ("fpext float %s to double"):format(value))
+    end
+    error(("cannot widen %s to %s"):format(storage, valueType), 0)
+end
+
+--- A value narrowed to the storage it is written to.
+--- @raises string when the value type cannot be stored there
+function expressions.narrow(ctx: context.Context, value: string, valueType: string, storage: string): string
+    local source = types.require(valueType)
+    if storage == source then
+        return value
+    end
+    if storage == "float" and source == "double" then
+        return emit(ctx, ("fptrunc double %s to float"):format(value))
+    end
+    if storage == "i8" or storage == "i16" then
+        local bits = types.isInteger(valueType) and value or u32Bits(ctx, value, valueType)
+
+        return emit(ctx, ("trunc %s %s to %s"):format(types.isInteger(valueType) and source or "i32", bits, storage))
+    end
+    if storage == "i1" or storage == "i8" and valueType == "bool" then
+        return emit(ctx, ("zext i1 %s to i8"):format(value))
+    end
+    error(("cannot narrow %s to %s"):format(valueType, storage), 0)
+end
+
+----------------------------------------------------------------------------
+-- Expressions
+----------------------------------------------------------------------------
+
+--- The LLVM struct type of a reified layout.
+--- @raises string when the program declares no such layout
+function expressions.layoutType(ctx: context.Context, layoutName: string): string
+    local layout = ctx.layouts[layoutName]
+    if layout == nil then
+        error("no layout " .. layoutName, 0)
+    end
+    local name = "%struct." .. layout.cName
+    local fields: {string} = {}
+    for position, field in ipairs(layout.fields) do
+        fields[position] = types.storage(field.type, field.sourceType)
+    end
+    builder.once(ctx.module, "type " .. name, name .. " = type { " .. table.concat(fields, ", ") .. " }")
+
+    return name
+end
+
+local function fieldIndex(ctx: context.Context, layoutName: string, field: string): (integer, scalarIR.Field)
+    local layout = ctx.layouts[layoutName] as scalarIR.Layout
+    for position, candidate in ipairs(layout.fields) do
+        if candidate.name == field then
+            return position - 1, candidate
+        end
+    end
+    error("layout " .. layoutName .. " has no field " .. field, 0)
+end
+
+--- The address of one field of the struct `object` points at.
+function expressions.fieldAddress(
+    ctx: context.Context,
+    object: string,
+    layoutName: string,
+    field: string
+): (string, scalarIR.Field)
+    local structType = expressions.layoutType(ctx, layoutName)
+    local index, found = fieldIndex(ctx, layoutName, field)
+
+    return emit(ctx, ("getelementptr inbounds %s, ptr %s, i32 0, i32 %d"):format(structType, object, index)), found
+end
+
+local function binaryFloat(ctx: context.Context, instruction: string, t: string, a: string, b: string): string
+    local flags = ctx.contract and " contract" or ""
+
+    return emit(ctx, ("%s%s %s %s, %s"):format(instruction, flags, t, a, b))
+end
+
+const F64_BINARY: {[string]: string} = {["add"] = "fadd", ["sub"] = "fsub", ["mul"] = "fmul", ["div"] = "fdiv",}
+const F32_BINARY: {
+    [string]: string
+} = {["f32_add"] = "fadd", ["f32_sub"] = "fsub", ["f32_mul"] = "fmul", ["f32_div"] = "fdiv",}
+const I32_WRAPPING: {[string]: string} = {["i32_add"] = "add", ["i32_sub"] = "sub", ["i32_mul"] = "mul",}
+const U32_BINARY: {
+    [string]: string
+} = {
+    ["u32_add"] = "add",
+    ["u32_sub"] = "sub",
+    ["u32_mul"] = "mul",
+    ["u32_and"] = "and",
+    ["u32_or"] = "or",
+    ["u32_xor"] = "xor",
+}
+const WIDE_BINARY: {
+    [string]: string
+} = {
+    ["u64_add"] = "add",
+    ["u64_sub"] = "sub",
+    ["u64_mul"] = "mul",
+    ["u64_and"] = "and",
+    ["u64_or"] = "or",
+    ["u64_xor"] = "xor",
+    ["i64_add"] = "add",
+    ["i64_sub"] = "sub",
+    ["i64_mul"] = "mul",
+}
+const BITWISE: {[string]: string} = {["band"] = "and", ["bor"] = "or", ["bxor"] = "xor",}
+
+--- `node`'s operands, emitted in order.
+local function operands(
+    ctx: context.Context,
+    left: scalarIR.Expr,
+    right: scalarIR.Expr
+): (string, string, string, string)
+    local a, at = expressions.value(ctx, left)
+    local b, bt = expressions.value(ctx, right)
+
+    return a, at, b, bt
+end
+
+--- `a and b` / `a or b` on booleans, evaluating `right` only when it decides.
+local function logical(ctx: context.Context, operation: string, left: scalarIR.Expr, right: scalarIR.Expr): string
+    local a, at = expressions.value(ctx, left)
+    a = expressions.convert(ctx, a, at, "bool")
+    local from = ctx.f.current
+    local rhs = builder.label(ctx.f, operation .. ".rhs")
+    local done = builder.label(ctx.f, operation .. ".end")
+    if operation == "and" then
+        builder.terminate(ctx.f, ("br i1 %s, label %%%s, label %%%s"):format(a, rhs, done))
+    else
+        builder.terminate(ctx.f, ("br i1 %s, label %%%s, label %%%s"):format(a, done, rhs))
+    end
+    builder.start(ctx.f, rhs)
+    local b, bt = expressions.value(ctx, right)
+    b = expressions.convert(ctx, b, bt, "bool")
+    local last = ctx.f.current
+    builder.start(ctx.f, done)
+    local short = operation == "and" and "false" or "true"
+
+    return emit(ctx, ("phi i1 [ %s, %%%s ], [ %s, %%%s ]"):format(short, from, b, last))
+end
+
+--- Emits `node` and answers its LLVM value and IR type.
+--- @raises string when the operation is not one this backend emits yet
+function expressions.value(ctx: context.Context, node: scalarIR.Expr): (string, string)
+    local operation = node.op
+    local nodeType = tostring(node.type)
+
+    if operation == "constant" then
+        local constant = node as scalarIR.Constant
+        if nodeType == "f32" then
+            return text.float(text.roundToFloat(tonumber(constant.value) or 0)), "f32"
+        elseif types.isInteger(nodeType) then
+            return text.integer(tonumber(constant.value) or 0), nodeType
+        end
+
+        return text.decimal(constant.value), "f64"
+    elseif operation == "constant_i32" then
+        return text.integer(tonumber((node as scalarIR.IntConstant).value) or 0), nodeType
+    elseif operation == "constant_i64" then
+        return (node as scalarIR.Int64Constant).value, nodeType
+    elseif operation == "bool" then
+        return (node as scalarIR.Bool).value and "true" or "false", "bool"
+    elseif operation == "uniform" then
+        local name = (node as scalarIR.Name).name
+        local value = ctx.uniforms[name]
+        if value == nil then
+            error("no uniform " .. name, 0)
+        end
+
+        return value as string, nodeType
+    elseif operation == "local" or operation == "helper_param" then
+        local named = node as scalarIR.Name
+        if nodeType:match("^simd_") ~= nil then
+            unsupported("explicit SIMD values")
+        end
+        local param = ctx.helperParams[tostring(named.cName)]
+        if param ~= nil then
+            return param as string, nodeType
+        end
+        local slot = ctx.locals[tostring(named.cName)]
+        if slot == nil then
+            error("no local " .. tostring(named.cName), 0)
+        end
+
+        return emit(ctx, ("load %s, ptr %s"):format(types.require(slot.type), slot.pointer)), slot.type
+    elseif operation == "span_count" then
+        local count = context.count(ctx, (node as scalarIR.SpanCount).span)
+
+        return emit(ctx, ("uitofp i64 %s to double"):format(count)), "f64"
+    elseif operation == "loop_index" then
+        if ctx.mapIndex == nil then
+            error("loop index outside the map loop", 0)
+        end
+        local next = emit(ctx, ("add nuw i64 %s, 1"):format(ctx.mapIndex as string))
+
+        return emit(ctx, ("uitofp i64 %s to double"):format(next)), "f64"
+    elseif operation == "load" then
+        local loaded = node as scalarIR.Load
+        local storage = types.storage(nodeType, loaded.sourceType)
+        local index = expressions.index(ctx, loaded.indexCName, loaded.cursorCName)
+        local address = expressions.element(ctx, loaded.span, index, storage)
+        local raw = emit(
+            ctx,
+            ("load %s, ptr %s, align %d"):format(storage, address, types.storageBytes(nodeType, loaded.sourceType))
+        )
+
+        return expressions.widen(ctx, raw, storage, nodeType, loaded.sourceType), nodeType
+    elseif operation == "element_ref" then
+        local referenced = node as scalarIR.ElementRef
+        local structType = expressions.layoutType(ctx, referenced.layout)
+        local index = expressions.index(ctx, referenced.indexCName, referenced.cursorCName)
+
+        return expressions.element(ctx, referenced.span, index, structType), "ptr"
+    elseif operation == "field_load" then
+        local field = node as scalarIR.FieldLoad
+        local object = expressions.value(ctx, field.object)
+        local address, declared = expressions.fieldAddress(ctx, object, field.layout, field.field)
+        local storage = types.storage(nodeType, declared.sourceType)
+        local raw = emit(ctx, ("load %s, ptr %s"):format(storage, address))
+
+        return expressions.widen(ctx, raw, storage, nodeType, declared.sourceType), nodeType
+    elseif operation == "neg" then
+        local value, t = expressions.value(ctx, (node as scalarIR.Unary).value)
+        if types.isFloat(t) then
+            return emit(ctx, ("fneg %s %s"):format(types.require(t), value)), t
+        end
+
+        return emit(ctx, ("sub %s 0, %s"):format(types.require(t), value)), t
+    elseif operation == "not" then
+        local value, t = expressions.value(ctx, (node as scalarIR.Unary).value)
+
+        return emit(ctx, ("xor i1 %s, true"):format(expressions.convert(ctx, value, t, "bool"))), "bool"
+    elseif operation == "bnot" then
+        local value, t = expressions.value(ctx, (node as scalarIR.Unary).value)
+
+        return emit(ctx, ("xor i32 %s, -1"):format(u32Bits(ctx, value, t))), "i32"
+    elseif operation == "and" or operation == "or" then
+        local binary = node as scalarIR.Binary
+
+        return logical(ctx, operation, binary.left, binary.right), "bool"
+    elseif FLOAT_PREDICATE[operation] ~= nil then
+        local binary = node as scalarIR.Binary
+        local a, at, b, bt = operands(ctx, binary.left, binary.right)
+
+        return expressions.compare(ctx, operation, a, at, b, bt), "bool"
+    elseif F64_BINARY[operation] ~= nil then
+        local binary = node as scalarIR.Binary
+        local a, at, b, bt = operands(ctx, binary.left, binary.right)
+        if types.isInteger(nodeType) then
+            unsupported("integer-typed " .. operation)
+        end
+
+        return binaryFloat(
+            ctx,
+            F64_BINARY[operation] as string,
+            "double",
+            toDouble(ctx, a, at),
+            toDouble(ctx, b, bt)
+        ), "f64"
+    elseif operation == "mod" then
+        local binary = node as scalarIR.Binary
+        local a, at, b, bt = operands(ctx, binary.left, binary.right)
+        local helper = prelude.use(ctx.module, "nupp.mod")
+
+        return emit(
+            ctx,
+            ("call double %s(double %s, double %s)"):format(helper, toDouble(ctx, a, at), toDouble(ctx, b, bt))
+        ), "f64"
+    elseif operation == "pow" then
+        local binary = node as scalarIR.Binary
+        local a, at, b, bt = operands(ctx, binary.left, binary.right)
+
+        return expressions.math(ctx, "pow", {toDouble(ctx, a, at), toDouble(ctx, b, bt)}), "f64"
+    elseif BITWISE[operation] ~= nil then
+        local binary = node as scalarIR.Binary
+        local a, at, b, bt = operands(ctx, binary.left, binary.right)
+
+        return emit(
+            ctx,
+            ("%s i32 %s, %s"):format(BITWISE[operation] as string, u32Bits(ctx, a, at), u32Bits(ctx, b, bt))
+        ), "i32"
+    elseif operation == "lshift" or operation == "rshift" or operation == "arshift" then
+        local binary = node as scalarIR.Binary
+        local a, at, b, bt = operands(ctx, binary.left, binary.right)
+        local shift = emit(ctx, ("and i32 %s, 31"):format(u32Bits(ctx, b, bt)))
+        local op = operation == "lshift" and "shl" or operation == "rshift" and "lshr" or "ashr"
+
+        return emit(ctx, ("%s i32 %s, %s"):format(op, u32Bits(ctx, a, at), shift)), "i32"
+    elseif F32_BINARY[operation] ~= nil then
+        local binary = node as scalarIR.Fixed
+        local a, at, b, bt = operands(ctx, binary.left, binary.right)
+
+        return binaryFloat(
+            ctx,
+            F32_BINARY[operation] as string,
+            "float",
+            expressions.convert(ctx, a, at, "f32"),
+            expressions.convert(ctx, b, bt, "f32")
+        ), "f32"
+    elseif I32_WRAPPING[operation] ~= nil then
+        local binary = node as scalarIR.Fixed
+        local a, at, b, bt = operands(ctx, binary.left, binary.right)
+
+        return emit(
+            ctx,
+            ("%s i32 %s, %s"):format(I32_WRAPPING[operation] as string, u32Bits(ctx, a, at), u32Bits(ctx, b, bt))
+        ), "i32"
+    elseif U32_BINARY[operation] ~= nil then
+        local binary = node as scalarIR.Fixed
+        local a, at, b, bt = operands(ctx, binary.left, binary.right)
+
+        return emit(
+            ctx,
+            ("%s i32 %s, %s"):format(U32_BINARY[operation] as string, u32Bits(ctx, a, at), u32Bits(ctx, b, bt))
+        ), "u32"
+    elseif operation == "u32_div" or operation == "u32_mod" then
+        local binary = node as scalarIR.Fixed
+        local a, at, b, bt = operands(ctx, binary.left, binary.right)
+        local helper = prelude.use(ctx.module, operation == "u32_div" and "nupp.u32.div" or "nupp.u32.mod")
+
+        return emit(
+            ctx,
+            ("call i32 %s(i32 %s, i32 %s)"):format(helper, u32Bits(ctx, a, at), u32Bits(ctx, b, bt))
+        ), "u32"
+    elseif operation == "u32_shl" or operation == "u32_shr" then
+        local binary = node as scalarIR.Fixed
+        local a, at, b, bt = operands(ctx, binary.left, binary.right)
+        local shift = emit(ctx, ("and i32 %s, 31"):format(u32Bits(ctx, b, bt)))
+
+        return emit(
+            ctx,
+            ("%s i32 %s, %s"):format(operation == "u32_shl" and "shl" or "lshr", u32Bits(ctx, a, at), shift)
+        ), "u32"
+    elseif operation == "u64_shl" or operation == "u64_shr" then
+        local binary = node as scalarIR.Fixed
+        local a, at, b, bt = operands(ctx, binary.left, binary.right)
+        local shift = emit(ctx, ("and i64 %s, 63"):format(u64Bits(ctx, b, bt)))
+
+        return emit(
+            ctx,
+            ("%s i64 %s, %s"):format(operation == "u64_shl" and "shl" or "lshr", u64Bits(ctx, a, at), shift)
+        ), "u64"
+    elseif WIDE_BINARY[operation] ~= nil then
+        local binary = node as scalarIR.Fixed
+        local a, at, b, bt = operands(ctx, binary.left, binary.right)
+        local result = emit(
+            ctx,
+            ("%s i64 %s, %s"):format(WIDE_BINARY[operation] as string, u64Bits(ctx, a, at), u64Bits(ctx, b, bt))
+        )
+
+        return result, operation:sub(1, 1) == "u" and "u64" or "i64"
+    elseif operation == "f32_sqrt" then
+        local value, t = expressions.value(ctx, (node as scalarIR.FixedUnary).value)
+        local sqrt = prelude.intrinsic(ctx.module, "llvm.sqrt.f32", "float @NAME(float)")
+
+        return emit(ctx, ("call float %s(float %s)"):format(sqrt, expressions.convert(ctx, value, t, "f32"))), "f32"
+    elseif operation == "f32_exp" then
+        local value, t = expressions.value(ctx, (node as scalarIR.FixedUnary).value)
+        local operand = expressions.convert(ctx, value, t, "f32")
+        if ctx.program.fpTranscendentals == true then
+            return emit(
+                ctx,
+                ("call float %s(float %s)"):format(prelude.libm(ctx.module, "expf", 1, true), operand)
+            ), "f32"
+        end
+
+        return emit(ctx, ("call float %s(float %s)"):format(prelude.use(ctx.module, "nupp.f32.exp"), operand)), "f32"
+    elseif operation == "u32_not" or operation == "u64_not" then
+        local value, t = expressions.value(ctx, (node as scalarIR.FixedUnary).value)
+        if operation == "u32_not" then
+            return emit(ctx, ("xor i32 %s, -1"):format(u32Bits(ctx, value, t))), "u32"
+        end
+
+        return emit(ctx, ("xor i64 %s, -1"):format(u64Bits(ctx, value, t))), "u64"
+    elseif operation == "u32_popcount" or operation == "u32_ctz" or operation == "u32_clz" then
+        local value, t = expressions.value(ctx, (node as scalarIR.FixedUnary).value)
+        local bits = u32Bits(ctx, value, t)
+        if operation == "u32_popcount" then
+            local callee = prelude.intrinsic(ctx.module, "llvm.ctpop.i32", "i32 @NAME(i32)")
+
+            return emit(ctx, ("call i32 %s(i32 %s)"):format(callee, bits)), "u32"
+        end
+        -- `false`: a zero operand is defined and answers 32, as the helper did.
+        local counter = operation == "u32_ctz" and "llvm.cttz.i32" or "llvm.ctlz.i32"
+        local callee = prelude.intrinsic(ctx.module, counter, "i32 @NAME(i32, i1)")
+
+        return emit(ctx, ("call i32 %s(i32 %s, i1 false)"):format(callee, bits)), "u32"
+    elseif operation == "u64_popcount" or operation == "u64_ctz" or operation == "u64_clz" then
+        local value, t = expressions.value(ctx, (node as scalarIR.FixedUnary).value)
+        local bits = u64Bits(ctx, value, t)
+        local counted: string
+        if operation == "u64_popcount" then
+            local callee = prelude.intrinsic(ctx.module, "llvm.ctpop.i64", "i64 @NAME(i64)")
+            counted = emit(ctx, ("call i64 %s(i64 %s)"):format(callee, bits))
+        else
+            local counter = operation == "u64_ctz" and "llvm.cttz.i64" or "llvm.ctlz.i64"
+            local callee = prelude.intrinsic(ctx.module, counter, "i64 @NAME(i64, i1)")
+            counted = emit(ctx, ("call i64 %s(i64 %s, i1 false)"):format(callee, bits))
+        end
+
+        return emit(ctx, ("trunc i64 %s to i32"):format(counted)), "u32"
+    elseif operation == "u64_prefix_xor" then
+        local value, t = expressions.value(ctx, (node as scalarIR.FixedUnary).value)
+        local bits = u64Bits(ctx, value, t)
+        for _, shift in ipairs({1, 2, 4, 8, 16, 32}) do
+            local shifted = emit(ctx, ("shl i64 %s, %d"):format(bits, shift))
+            bits = emit(ctx, ("xor i64 %s, %s"):format(bits, shifted))
+        end
+
+        return bits, "u64"
+    elseif operation == "f32_min" or operation == "f32_max" or operation == "f32_fma" then
+        local corrected = node as scalarIR.Corrected
+        local parts: {scalarIR.Expr} = corrected.args ~= nil and corrected.args as {scalarIR.Expr}
+            or {corrected.left as scalarIR.Expr, corrected.right as scalarIR.Expr}
+        local rendered: {string} = {}
+        for position, part in ipairs(parts) do
+            local value, t = expressions.value(ctx, part)
+            rendered[position] = "float " .. expressions.convert(ctx, value, t, "f32")
+        end
+        local helper = prelude.use(ctx.module, "nupp." .. operation:gsub("_", "."))
+
+        return emit(ctx, ("call float %s(%s)"):format(helper, table.concat(rendered, ", "))), "f32"
+    elseif operation == "narrow_f64_f32" or operation == "widen_f32_f64" or operation == "int_to_f64" then
+        local value, t = expressions.value(ctx, (node as scalarIR.Convert).value)
+
+        return expressions.convert(ctx, value, t, nodeType), nodeType
+    elseif operation == "numeric_cast" then
+        local value, t = expressions.value(ctx, (node as scalarIR.Convert).value)
+        if (nodeType == "u32" or nodeType == "i32") and types.isFloat(t) then
+            -- `wrap`: modular, never saturating.
+            return u32Bits(ctx, value, t), nodeType
+        end
+
+        return expressions.convert(ctx, value, t, nodeType), nodeType
+    elseif operation == "helper_call" then
+        local call = node as scalarIR.HelperCall
+        local callee = ctx.helpers[call.helper]
+        if callee == nil then
+            error("no LLVM helper for " .. call.helper, 0)
+        end
+        if call.resultTypes ~= nil and #(call.resultTypes as {scalarIR.Type}) > 1 then
+            unsupported("multiple-result helper calls")
+        end
+        local rendered: {string} = {}
+        for _, argument in ipairs(call.args) do
+            if tostring(argument.type):match("^simd_") ~= nil then
+                unsupported("explicit SIMD helper arguments")
+            end
+            local value, t = expressions.value(ctx, argument)
+            rendered[#rendered + 1] = types.require(t) .. " " .. value
+        end
+
+        return emit(
+            ctx,
+            ("call %s %s(%s)"):format(types.require(nodeType), callee as string, table.concat(rendered, ", "))
+        ), nodeType
+    elseif operation == "math" then
+        local math = node as scalarIR.Math
+        local rendered: {string} = {}
+        for position, argument in ipairs(math.args) do
+            local value, t = expressions.value(ctx, argument)
+            rendered[position] = toDouble(ctx, value, t)
+        end
+
+        return expressions.math(ctx, math.intrinsic, rendered), "f64"
+    end
+
+    if tostring(operation):match("^simd_") ~= nil then
+        unsupported("explicit SIMD operation " .. operation)
+    elseif tostring(operation):match("^lua_") ~= nil then
+        unsupported("Lua value operation " .. operation)
+    elseif tostring(operation):match("^reducer_") ~= nil then
+        unsupported("reducer " .. operation)
+    end
+    unsupported("operation " .. tostring(operation))
+end
+
+export = expressions

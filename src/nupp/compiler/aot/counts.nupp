@@ -1,0 +1,85 @@
+module nupp.compiler.aot.counts
+
+--[[
+Which span counts a native entry receives, and which of them are one number.
+
+Shared by every backend that writes an entry's private ABI, because the
+generated wrapper passes counts by these rules and a backend that disagreed
+would read the wrong one.
+]]
+
+local scalarIR = require("nupp.compiler.aot.scalar")
+
+local counts = {}
+
+--- Each span the program's relations hold at exactly another's length, mapped
+--- to the first of its class in parameter order. `left <= right + 0` both ways
+--- is equality; anything looser is not.
+function counts.equal(program: scalarIR.Program, roots: {[string]: string}): {[string]: string}
+    local order: {[string]: integer} = {}
+    for position, param in ipairs(program.params) do
+        if (param.kind == "write_span" or param.kind == "read_span") and roots[param.name] == nil then
+            order[param.name] = position
+        end
+    end
+    local atMost: {[string]: boolean} = {}
+    for _, relation in ipairs(program.relations or {}) do
+        local left, right = relation.left, relation.right
+        if relation.offset == 0 and left.kind == "count" and right.kind == "count" then
+            atMost[tostring(left.name) .. " " .. tostring(right.name)] = true
+        end
+    end
+    local parent: {[string]: string} = {}
+
+    local function find(name: string): string
+        local next = parent[name]
+        while next ~= nil and next ~= name do
+            name = next as string
+            next = parent[name]
+        end
+
+        return name
+    end
+
+    for key in pairs(atMost) do
+        local left, right = key:match("^(%S+) (%S+)$")
+        if left ~= nil
+            and right ~= nil
+            and order[left] ~= nil
+            and order[right] ~= nil
+            and atMost[tostring(right) .. " " .. tostring(left)]
+        then
+            local a, b = find(left as string), find(right as string)
+            if a ~= b then
+                if order[a] < order[b] then
+                    parent[b] = a
+                else
+                    parent[a] = b
+                end
+            end
+        end
+    end
+    local aliases: {[string]: string} = {}
+    for name in pairs(order) do
+        local root = find(name)
+        if root ~= name then
+            aliases[name] = root
+        end
+    end
+
+    return aliases
+end
+
+--- The row view each SoA column's count is carried under, by column name.
+function counts.roots(program: scalarIR.Program): {[string]: string}
+    local roots: {[string]: string} = {}
+    for _, param in ipairs(program.params) do
+        if param.soa ~= nil then
+            roots[param.name] = param.soa.view
+        end
+    end
+
+    return roots
+end
+
+export = counts

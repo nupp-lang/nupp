@@ -1,0 +1,265 @@
+module nupp.compiler.aot.llvm.builder
+
+--[[
+Assembling LLVM IR text.
+
+A `Module` collects what one compilation unit declares once: external
+declarations, private constants, attribute groups and metadata, each deduplicated
+by its text so the same request made twice produces one definition. A `Function`
+is built block by block. Every value is a numbered temporary, locals live in
+entry-block `alloca`s (LLVM's SROA promotes them), and a block that has already
+branched refuses further instructions rather than emitting unreachable text LLVM
+would reject.
+
+The builder knows LLVM's syntax and nothing about Nupp.
+]]
+
+local text = require("nupp.compiler.aot.llvm.text")
+
+local builder = {}
+
+record builder.Module
+    --- Declarations and definitions in the order first requested.
+    order: {string}
+
+    --- Each piece of module text by its key, so a second request is a lookup.
+    pieces: {[string]: string}
+
+    --- Attribute groups by their body, to the number they were given.
+    attributes: {[string]: integer}
+
+    attributeOrder: {string}
+
+    --- Metadata nodes in order; `!N` is `metadata[N + 1]`.
+    metadata: {string}
+
+    metadataByText: {[string]: integer}
+
+    functions: {string}
+
+    serial: integer
+end
+
+function builder.module(): builder.Module
+    return new builder.Module(
+        order = {},
+        pieces = {},
+        attributes = {},
+        attributeOrder = {},
+        metadata = {},
+        metadataByText = {},
+        functions = {},
+        serial = 0
+    )
+end
+
+--- Adds module text once under `key`; later requests with the same key are
+--- ignored. Returns whether it was new.
+function builder.once(module: builder.Module, key: string, piece: string): boolean
+    if module.pieces[key] ~= nil then
+        return false
+    end
+    module.pieces[key] = piece
+    module.order[#module.order + 1] = key
+
+    return true
+end
+
+--- `declare`s an external function once.
+function builder.declare(module: builder.Module, name: string, signature: string): nil
+    builder.once(module, "declare " .. name, signature)
+end
+
+--- An attribute group for a set of attributes, as `#N`.
+function builder.attributes(module: builder.Module, body: string): string
+    local number = module.attributes[body]
+    if number == nil then
+        number = #module.attributeOrder
+        module.attributes[body] = number
+        module.attributeOrder[number + 1] = body
+    end
+
+    return "#" .. tostring(number)
+end
+
+--- A metadata node, as `!N`, shared with any identical node.
+function builder.metadata(module: builder.Module, body: string): string
+    local number = module.metadataByText[body]
+    if number == nil then
+        number = #module.metadata
+        module.metadataByText[body] = number
+        module.metadata[number + 1] = body
+    end
+
+    return "!" .. tostring(number)
+end
+
+--- A fresh metadata node that is never shared (a distinct scope or loop id).
+function builder.distinct(module: builder.Module, body: string): string
+    local number = #module.metadata
+    module.metadata[number + 1] = "distinct " .. body
+
+    return "!" .. tostring(number)
+end
+
+--- A private constant array of bytes, as a global name, shared by content.
+function builder.bytes(module: builder.Module, value: string, align: integer?): string
+    local key = "bytes " .. value
+    local existing = module.pieces[key]
+    if existing ~= nil then
+        return (existing as string):match("^(@[^ ]+)") as string
+    end
+    module.serial = module.serial + 1
+    local name = "@nupp.bytes." .. tostring(module.serial)
+    builder.once(
+        module,
+        key,
+        (
+            "%s = private unnamed_addr constant [%d x i8] c\"%s\", align %d"
+        ):format(name, #value, text.bytes(value), align or 1)
+    )
+
+    return name
+end
+
+--- The whole module's text.
+function builder.render(module: builder.Module): string
+    local lines: {string} = {}
+    for _, key in ipairs(module.order) do
+        lines[#lines + 1] = module.pieces[key] as string
+    end
+    for _, definition in ipairs(module.functions) do
+        lines[#lines + 1] = ""
+        lines[#lines + 1] = definition
+    end
+    lines[#lines + 1] = ""
+    for number, body in ipairs(module.attributeOrder) do
+        lines[#lines + 1] = "attributes #" .. tostring(number - 1) .. " = { " .. body .. " }"
+    end
+    for number, body in ipairs(module.metadata) do
+        lines[#lines + 1] = "!" .. tostring(number - 1) .. " = " .. body
+    end
+
+    return table.concat(lines, "\n") .. "\n"
+end
+
+----------------------------------------------------------------------------
+-- Functions
+----------------------------------------------------------------------------
+
+record builder.Function
+    module: builder.Module
+
+    --- `define ...` up to and including the opening brace.
+    header: string
+
+    --- Entry-block allocas, emitted before everything else.
+    allocas: {string}
+
+    --- Body lines after the entry allocas.
+    lines: {string}
+
+    serial: integer
+    labelSerial: integer
+
+    --- Whether the current block has its terminator.
+    terminated: boolean
+
+    --- The label of the block being filled.
+    current: string
+end
+
+function builder.func(module: builder.Module, header: string): builder.Function
+    return new builder.Function(
+        module = module,
+        header = header,
+        allocas = {},
+        lines = {},
+        serial = 0,
+        labelSerial = 0,
+        terminated = false,
+        current = "body"
+    )
+end
+
+--- A fresh temporary name.
+function builder.temp(f: builder.Function): string
+    f.serial = f.serial + 1
+
+    return "%t" .. tostring(f.serial)
+end
+
+--- A fresh block label (without the `%`).
+function builder.label(f: builder.Function, hint: string): string
+    f.labelSerial = f.labelSerial + 1
+
+    return hint .. "." .. tostring(f.labelSerial)
+end
+
+--- Appends one instruction to the current block. An instruction after a
+--- terminator starts an unreachable block of its own, so emission never has to
+--- ask whether a path fell through.
+function builder.emit(f: builder.Function, instruction: string): nil
+    if f.terminated then
+        builder.start(f, builder.label(f, "dead"))
+    end
+    f.lines[#f.lines + 1] = "  " .. instruction
+end
+
+--- An instruction producing a value; returns the temporary holding it.
+function builder.value(f: builder.Function, instruction: string): string
+    local name = builder.temp(f)
+    builder.emit(f, name .. " = " .. instruction)
+
+    return name
+end
+
+--- Ends the current block.
+function builder.terminate(f: builder.Function, instruction: string): nil
+    builder.emit(f, instruction)
+    f.terminated = true
+end
+
+--- Branches to `label` unless the current block has already ended.
+function builder.jump(f: builder.Function, label: string): nil
+    if not f.terminated then
+        builder.terminate(f, "br label %" .. label)
+    end
+end
+
+--- Starts a new block. Falls through into it when the current one is open.
+function builder.start(f: builder.Function, label: string): nil
+    builder.jump(f, label)
+    f.lines[#f.lines + 1] = label .. ":"
+    f.current = label
+    f.terminated = false
+end
+
+--- A stack slot in the entry block, returned as a pointer.
+function builder.alloca(f: builder.Function, type: string, align: integer?): string
+    f.serial = f.serial + 1
+    local name = "%slot" .. tostring(f.serial)
+    f.allocas[#f.allocas + 1] = "  " .. name .. " = alloca " .. type .. ", align " .. tostring(align or 8)
+
+    return name
+end
+
+--- Finishes the function and adds it to its module.
+function builder.finish(f: builder.Function, fallthrough: string): nil
+    if not f.terminated then
+        builder.terminate(f, fallthrough)
+    end
+    local lines: {string} = {f.header, "entry:"}
+    for _, line in ipairs(f.allocas) do
+        lines[#lines + 1] = line
+    end
+    lines[#lines + 1] = "  br label %body"
+    lines[#lines + 1] = "body:"
+    for _, line in ipairs(f.lines) do
+        lines[#lines + 1] = line
+    end
+    lines[#lines + 1] = "}"
+    f.module.functions[#f.module.functions + 1] = table.concat(lines, "\n")
+end
+
+export = builder

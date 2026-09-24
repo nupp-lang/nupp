@@ -1,0 +1,278 @@
+module nupp.compiler.aot.llvm.program
+
+--[[
+One compilation unit's programs as one LLVM module.
+
+Each kernel entry keeps exactly the private C ABI the generated wrapper calls:
+span pointers, then uniforms, then the span counts as `size_t`, and the scalar
+result. What the IR proved about those parameters is stated on them rather than
+dropped: a span disjoint from every span that is written is `noalias`, a span
+the body only reads is `readonly`, and none of them escape.
+
+`llvmProgram.module` answers the module text, or raises; an error beginning with
+`expressions.UNSUPPORTED` means the unit uses something this backend does not
+emit yet.
+]]
+
+local builder = require("nupp.compiler.aot.llvm.builder")
+local context = require("nupp.compiler.aot.llvm.context")
+local countRules = require("nupp.compiler.aot.counts")
+local expressions = require("nupp.compiler.aot.llvm.expressions")
+local scalarIR = require("nupp.compiler.aot.scalar")
+local statements = require("nupp.compiler.aot.llvm.statements")
+local target = require("nupp.compiler.aot.target")
+local types = require("nupp.compiler.aot.llvm.types")
+
+local llvmProgram = {}
+
+--- @raises string always
+local function unsupported(what: string): never
+    error(expressions.UNSUPPORTED .. what, 0)
+end
+
+local function physical(symbol: string, tier: string?): string
+    return tier ~= nil and target.symbol(symbol, tier as string) or symbol
+end
+
+local function isSpan(param: scalarIR.Param): boolean
+    return param.kind == "write_span" or param.kind == "read_span"
+end
+
+--- Whether every alias fact between `param`'s region and a written span's
+--- region says disjoint: then accesses through it never meet a store through
+--- another pointer, which is what `noalias` promises.
+local function disjointFromWrites(program: scalarIR.Program, param: scalarIR.Param): boolean
+    local regionOf: {[string]: scalarIR.Param} = {}
+    for _, other in ipairs(program.params) do
+        if other.region ~= nil then
+            regionOf[other.region as string] = other
+        end
+    end
+    local disjoint: {[string]: boolean} = {}
+    for _, fact in ipairs(program.aliasFacts) do
+        if fact.relation == "disjoint" then
+            disjoint[fact.left .. " " .. fact.right] = true
+            disjoint[fact.right .. " " .. fact.left] = true
+        end
+    end
+    for _, other in ipairs(program.params) do
+        if other ~= param and isSpan(other) and other.kind == "write_span" then
+            if param.region == nil or other.region == nil then
+                return false
+            end
+            if not disjoint[tostring(param.region) .. " " .. tostring(other.region)] then
+                return false
+            end
+        end
+    end
+    if param.kind == "write_span" then
+        -- A written span must also be disjoint from every span read.
+        for _, other in ipairs(program.params) do
+            if other ~= param and isSpan(other) then
+                if param.region == nil or other.region == nil then
+                    return false
+                end
+                if not disjoint[tostring(param.region) .. " " .. tostring(other.region)] then
+                    return false
+                end
+            end
+        end
+    end
+
+    return true
+end
+
+--- The spelling of one span parameter with its proved attributes.
+local function spanParameter(program: scalarIR.Program, param: scalarIR.Param): string
+    local attributes: {string} = {"ptr"}
+    if disjointFromWrites(program, param) then
+        attributes[#attributes + 1] = "noalias"
+    end
+    attributes[#attributes + 1] = "captures(none)"
+    if param.kind == "read_span" then
+        attributes[#attributes + 1] = "readonly"
+    end
+    attributes[#attributes + 1] = "%p_" .. param.name
+
+    return table.concat(attributes, " ")
+end
+
+--- Target attributes (frame pointers, vector preference) for this module.
+local targetAttributes = ""
+
+--- The function attributes every entry and helper of this module carries.
+local function functionAttributes(program: scalarIR.Program, extra: string?): string
+    local parts: {string} = {"nounwind", "uwtable"}
+    if targetAttributes ~= "" then
+        parts[#parts + 1] = targetAttributes
+    end
+    if program.fpContract == true then
+        parts[#parts + 1] = "\"nupp-fp-contract\""
+    end
+    if extra ~= nil then
+        parts[#parts + 1] = extra as string
+    end
+
+    return table.concat(parts, " ")
+end
+
+--- Defines the program's pure helpers as internal functions, and declares
+--- the native entries it calls.
+local function helpers(module: builder.Module, ctx: context.Context, program: scalarIR.Program): nil
+    for _, helper in ipairs(program.helpers or {}) do
+        if #helper.resultTypes > 1 then
+            unsupported("multiple-result helpers")
+        end
+        local name = "@" .. helper.cName
+        local params: {string} = {}
+        local paramTypes: {string} = {}
+        for _, param in ipairs(helper.params) do
+            if tostring(param.type):match("^simd_") ~= nil then
+                unsupported("explicit SIMD helpers")
+            end
+            paramTypes[#paramTypes + 1] = types.require(tostring(param.type))
+            params[#params + 1] = types.require(tostring(param.type)) .. " %h_" .. tostring(param.cName)
+        end
+        local result = types.require(tostring(helper.resultType))
+        ctx.helpers[helper.name] = name
+        if helper.native == true then
+            builder.declare(module, name, ("declare %s %s(%s)"):format(result, name, table.concat(paramTypes, ", ")))
+        else
+            local attrs = builder.attributes(module, "alwaysinline " .. functionAttributes(program))
+            local f = builder.func(
+                module,
+                ("define internal %s %s(%s) %s {"):format(result, name, table.concat(params, ", "), attrs)
+            )
+            local inner = context.new(module, f, program)
+            inner.helpers = ctx.helpers
+            for _, param in ipairs(helper.params) do
+                inner.helperParams[tostring(param.cName)] = "%h_" .. tostring(param.cName)
+            end
+            local value, t = expressions.value(inner, helper.values[1])
+            local converted = expressions.convert(inner, value, t, tostring(helper.resultType))
+            builder.finish(f, ("ret %s %s"):format(result, converted))
+        end
+    end
+end
+
+--- One kernel entry.
+local function kernel(module: builder.Module, program: scalarIR.Program, tier: string?): nil
+    local results = program.resultTypes or {}
+    if #results > 1 then
+        unsupported("multiple results")
+    end
+    if program.workgroup ~= nil then
+        unsupported("workgroup entries")
+    end
+    local independent = scalarIR.independentCounts(program)
+    local roots = countRules.roots(program)
+    local aliases = countRules.equal(program, roots)
+    local parameters: {string} = {}
+    for _, param in ipairs(program.params) do
+        if isSpan(param) then
+            parameters[#parameters + 1] = spanParameter(program, param)
+        elseif param.kind == "uniform" then
+            parameters[#parameters + 1] = types.parameter(tostring(param.type)) .. " %p_" .. param.name
+        else
+            unsupported("scalar parameters of kind " .. param.kind)
+        end
+    end
+    if independent then
+        for _, param in ipairs(program.params) do
+            if isSpan(param) and (param.soa == nil or param.soa.ordinal == 1) then
+                parameters[#parameters + 1] = "i64 %count_" .. param.name
+            end
+        end
+    else
+        parameters[#parameters + 1] = "i64 %count"
+    end
+    local result = #results == 0 and "void" or types.result(tostring(results[1]))
+    local symbol = physical(program.symbol, tier)
+    local attrs = builder.attributes(module, "noinline " .. functionAttributes(program))
+    local f = builder.func(
+        module,
+        ("define %s @%s(%s) %s {"):format(result, symbol, table.concat(parameters, ", "), attrs)
+    )
+    local ctx = context.new(module, f, program)
+    for _, param in ipairs(program.params) do
+        if isSpan(param) then
+            ctx.spans[param.name] = new context.Span(pointer = "%p_" .. param.name, param = param)
+            ctx.counts[param.name] = independent
+                and "%count_" .. (roots[param.name] or aliases[param.name] or param.name)
+                or "%count"
+        elseif param.kind == "uniform" then
+            ctx.uniforms[param.name] = "%p_" .. param.name
+        end
+    end
+    helpers(module, ctx, program)
+
+    if program.body ~= nil then
+        statements.block(ctx, program.body as {scalarIR.Statement})
+        builder.finish(f, #results == 0 and "ret void" or "unreachable")
+        return
+    end
+
+    -- The map form: `for (i = first; i < last; ++i)` over zero-based indices.
+    local loopShape = program.loop as scalarIR.Loop
+    local first = "0"
+    local last = "%count"
+    local guard = program.rangeGuard
+    if guard ~= nil then
+        local from = builder.value(f, ("fsub double %%p_%s, 1.0"):format((guard as scalarIR.RangeGuard).first))
+        first = expressions.convert(ctx, from, "f64", "u64")
+        last = expressions.convert(ctx, "%p_" .. (guard as scalarIR.RangeGuard).last, "f64", "u64")
+    elseif independent then
+        last = independent and "%count_" .. (roots[loopShape.count] or aliases[loopShape.count] or loopShape.count)
+            or "%count"
+    end
+    local index = builder.alloca(f, "i64", 8)
+    builder.emit(f, ("store i64 %s, ptr %s"):format(first, index))
+    local head = builder.label(f, "map.head")
+    local body = builder.label(f, "map.body")
+    local latch = builder.label(f, "map.next")
+    local exit = builder.label(f, "map.end")
+    builder.start(f, head)
+    local current = builder.value(f, ("load i64, ptr %s"):format(index))
+    local more = builder.value(f, ("icmp ult i64 %s, %s"):format(current, last))
+    builder.terminate(f, ("br i1 %s, label %%%s, label %%%s"):format(more, body, exit))
+    builder.start(f, body)
+    ctx.mapIndex = current
+    ctx.loops[#ctx.loops + 1] = new context.Loop(breakLabel = exit, continueLabel = latch)
+    statements.block(ctx, loopShape.statements)
+    ctx.loops[#ctx.loops] = nil
+    ctx.mapIndex = nil
+    builder.start(f, latch)
+    local stepped = builder.value(f, ("add nuw i64 %s, 1"):format(current))
+    builder.emit(f, ("store i64 %s, ptr %s"):format(stepped, index))
+    builder.jump(f, head)
+    builder.start(f, exit)
+    builder.finish(f, "ret void")
+end
+
+--- The module for `programs` at feature tier `tier`. `attributes` are the
+--- target's own function attributes (frame pointers, vector preference).
+--- @raises string when a program uses what this backend does not emit
+function llvmProgram.module(programs: {scalarIR.Program}, tier: string?, attributes: string?): string
+    targetAttributes = attributes or ""
+    local module = builder.module()
+    for _, program in ipairs(programs) do
+        if program.executionTarget == "gpu" then
+            -- Shader programs have their own artifacts.
+        elseif program.entryMode == "lua-builder" then
+            unsupported("Lua-builder entries")
+        elseif program.usesSimd == true then
+            unsupported("explicit SIMD programs")
+        else
+            kernel(module, program, tier)
+        end
+    end
+
+    return builder.render(module)
+end
+
+--- Whether `err` is this backend saying "not yet" rather than "wrong".
+function llvmProgram.isUnsupported(err: any): boolean
+    return type(err) == "string" and (err as string):sub(1, #expressions.UNSUPPORTED) == expressions.UNSUPPORTED
+end
+
+export = llvmProgram

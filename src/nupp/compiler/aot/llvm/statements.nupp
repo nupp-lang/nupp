@@ -1,0 +1,307 @@
+module nupp.compiler.aot.llvm.statements
+
+--[[
+Scalar IR statements as LLVM blocks.
+
+Structured control becomes basic blocks directly: a loop is a header, a body,
+a latch and an exit, and `break` and `continue` are branches to the innermost
+loop's exit and latch. Every local is a stack slot; LLVM promotes them to
+registers, which is how a frontend avoids building SSA itself.
+
+The numeric `for` keeps the private control state the C lowering gave it: the
+visible binding is rebound from a counter at the start of each iteration, so
+assigning it never changes progression, the counter is an int64 when both
+bounds are int32 and a binary64 otherwise, and the LuaJIT and Lua 5.1 entry
+normalizations of a binary64 counter are applied as the runtime would.
+]]
+
+local builder = require("nupp.compiler.aot.llvm.builder")
+local context = require("nupp.compiler.aot.llvm.context")
+local expressions = require("nupp.compiler.aot.llvm.expressions")
+local prelude = require("nupp.compiler.aot.llvm.prelude")
+local scalarIR = require("nupp.compiler.aot.scalar")
+local types = require("nupp.compiler.aot.llvm.types")
+
+local statements = {}
+
+--- @raises string always
+local function unsupported(what: string): never
+    error(expressions.UNSUPPORTED .. what, 0)
+end
+
+local function emit(ctx: context.Context, instruction: string): nil
+    builder.emit(ctx.f, instruction)
+end
+
+--- A slot for `cName` holding IR type `typeName`, created on first binding.
+--- A loop body's `let` binds the same name every iteration; one slot serves.
+function statements.slot(ctx: context.Context, cName: string, typeName: string): context.Slot
+    local existing = ctx.locals[cName]
+    if existing ~= nil then
+        return existing as context.Slot
+    end
+    local llvmType = types.require(typeName)
+    local slot = new context.Slot(
+        pointer = builder.alloca(ctx.f, llvmType, types.bits(typeName) >= 64 and 8 or 4),
+        type = typeName
+    )
+    ctx.locals[cName] = slot
+
+    return slot
+end
+
+--- Stores `value` (of `valueType`) into a local of `slotType`.
+local function assignLocal(ctx: context.Context, slot: context.Slot, value: string, valueType: string): nil
+    local converted = expressions.convert(ctx, value, valueType, slot.type)
+    emit(ctx, ("store %s %s, ptr %s"):format(types.require(slot.type), converted, slot.pointer))
+end
+
+--- A condition as an i1.
+local function condition(ctx: context.Context, node: scalarIR.Expr): string
+    local value, t = expressions.value(ctx, node)
+
+    return expressions.convert(ctx, value, t, "bool")
+end
+
+local function loop(ctx: context.Context, breakLabel: string, continueLabel: string, body: function(): nil): nil
+    ctx.loops[#ctx.loops + 1] = new context.Loop(breakLabel = breakLabel, continueLabel = continueLabel)
+    body()
+    ctx.loops[#ctx.loops] = nil
+end
+
+local function fornum(ctx: context.Context, statement: scalarIR.Fornum): nil
+    local f = ctx.f
+    local integral = statement.from.type == "i32" and statement.to.type == "i32"
+    local control = integral and "i64" or "f64"
+    local from, fromType = expressions.value(ctx, statement.from)
+    from = expressions.convert(ctx, from, fromType, control)
+    local to, toType = expressions.value(ctx, statement.to)
+    to = expressions.convert(ctx, to, toType, control)
+    local llvmControl = types.require(control)
+    local counter = builder.alloca(f, llvmControl, 8)
+    builder.emit(f, ("store %s %s, ptr %s"):format(llvmControl, from, counter))
+    local runtime = ctx.program.numericForRuntime
+    if runtime == "luajit-dual" and not integral and statement.from.type == "f64" then
+        -- Dual-number LuaJIT narrows int32 controls; with an implicit +1 step
+        -- only a -0 start differs, and it becomes +0.
+        local wrap = prelude.use(ctx.module, "nupp.wrap.u32")
+        local wrapped = builder.value(f, ("call i32 %s(double %s)"):format(wrap, to))
+        local back = builder.value(f, ("sitofp i32 %s to double"):format(wrapped))
+        local lastInt = builder.value(f, ("fcmp oeq double %s, %s"):format(to, back))
+        local zero = builder.value(f, ("fcmp oeq double %s, 0.0"):format(from))
+        local both = builder.value(f, ("and i1 %s, %s"):format(zero, lastInt))
+        local normalized = builder.value(f, ("select i1 %s, double 0.0, double %s"):format(both, from))
+        builder.emit(f, ("store double %s, ptr %s"):format(normalized, counter))
+    end
+    if runtime == "lua51" and not integral then
+        local start = builder.value(f, ("load double, ptr %s"):format(counter))
+        local less = builder.value(f, ("fsub double %s, 1.0"):format(start))
+        local again = builder.value(f, ("fadd double %s, 1.0"):format(less))
+        builder.emit(f, ("store double %s, ptr %s"):format(again, counter))
+    end
+    local head = builder.label(f, "for.head")
+    local bodyLabel = builder.label(f, "for.body")
+    local latch = builder.label(f, "for.next")
+    local exit = builder.label(f, "for.end")
+    builder.start(f, head)
+    local current = builder.value(f, ("load %s, ptr %s"):format(llvmControl, counter))
+    local continues = integral and builder.value(f, ("icmp sle i64 %s, %s"):format(current, to))
+        or builder.value(f, ("fcmp ole double %s, %s"):format(current, to))
+    builder.terminate(f, ("br i1 %s, label %%%s, label %%%s"):format(continues, bodyLabel, exit))
+    builder.start(f, bodyLabel)
+    local bindingType = statement.binding.type == "i32" and "i32" or "f64"
+    local slot = statements.slot(ctx, statement.binding.cName, bindingType)
+    assignLocal(ctx, slot, current, control)
+    loop(ctx, exit, latch, function(): nil
+        statements.block(ctx, statement.body)
+    end)
+    builder.start(f, latch)
+    local again = builder.value(f, ("load %s, ptr %s"):format(llvmControl, counter))
+    local stepped = integral and builder.value(f, ("add nsw i64 %s, 1"):format(again))
+        or builder.value(f, ("fadd double %s, 1.0"):format(again))
+    builder.emit(f, ("store %s %s, ptr %s"):format(llvmControl, stepped, counter))
+    builder.jump(f, head)
+    builder.start(f, exit)
+end
+
+local function whileLoop(ctx: context.Context, statement: scalarIR.While): nil
+    local f = ctx.f
+    local head = builder.label(f, "while.head")
+    local bodyLabel = builder.label(f, "while.body")
+    local exit = builder.label(f, "while.end")
+    builder.start(f, head)
+    loop(ctx, exit, head, function(): nil
+        if statement.conditionBody ~= nil then
+            statements.block(ctx, statement.conditionBody as {scalarIR.Statement})
+        end
+        local test = condition(ctx, statement.condition)
+        builder.terminate(f, ("br i1 %s, label %%%s, label %%%s"):format(test, bodyLabel, exit))
+        builder.start(f, bodyLabel)
+        statements.block(ctx, statement.body)
+        builder.jump(f, head)
+    end)
+    builder.start(f, exit)
+end
+
+local function repeatLoop(ctx: context.Context, statement: scalarIR.Repeat): nil
+    local f = ctx.f
+    local bodyLabel = builder.label(f, "repeat.body")
+    local test = builder.label(f, "repeat.test")
+    local exit = builder.label(f, "repeat.end")
+    builder.start(f, bodyLabel)
+    loop(ctx, exit, test, function(): nil
+        statements.block(ctx, statement.body)
+        builder.start(f, test)
+        if statement.conditionBody ~= nil then
+            statements.block(ctx, statement.conditionBody as {scalarIR.Statement})
+        end
+        local done = condition(ctx, statement.condition)
+        builder.terminate(f, ("br i1 %s, label %%%s, label %%%s"):format(done, exit, bodyLabel))
+    end)
+    builder.start(f, exit)
+end
+
+local function ifStatement(ctx: context.Context, statement: scalarIR.If): nil
+    local f = ctx.f
+    local done = builder.label(f, "if.end")
+    for _, clause in ipairs(statement.clauses) do
+        local test = condition(ctx, clause.condition)
+        local thenLabel = builder.label(f, "if.then")
+        local elseLabel = builder.label(f, "if.else")
+        builder.terminate(f, ("br i1 %s, label %%%s, label %%%s"):format(test, thenLabel, elseLabel))
+        builder.start(f, thenLabel)
+        statements.block(ctx, clause.body)
+        builder.jump(f, done)
+        builder.start(f, elseLabel)
+    end
+    if statement.elseBody ~= nil then
+        statements.block(ctx, statement.elseBody as {scalarIR.Statement})
+    end
+    builder.start(f, done)
+end
+
+--- Stores one element of a span, narrowed to the span's storage.
+--- @raises string when the entry has no span by that name
+local function spanStore(ctx: context.Context, statement: scalarIR.Store): nil
+    local span = ctx.spans[statement.span]
+    if span == nil then
+        error("no span " .. statement.span, 0)
+    end
+    local param = span.param
+    local value, t = expressions.value(ctx, statement.value)
+    local elementType = tostring(param.type)
+    if elementType:match("^struct:") ~= nil then
+        unsupported("whole-struct span stores")
+    end
+    local storage = types.storage(elementType, param.sourceType)
+    local converted = expressions.convert(ctx, value, t, elementType)
+    local stored = expressions.narrow(ctx, converted, elementType, storage)
+    local index = expressions.index(ctx, statement.indexCName, statement.cursorCName)
+    local address = expressions.element(ctx, statement.span, index, storage)
+    emit(
+        ctx,
+        (
+            "store %s %s, ptr %s, align %d"
+        ):format(storage, stored, address, types.storageBytes(elementType, param.sourceType))
+    )
+end
+
+--- Every value computed before any is stored.
+--- @raises string when a target names an unbound local
+local function assign(ctx: context.Context, statement: scalarIR.Assign): nil
+    local computed: {{string}} = {}
+    for position, entry in ipairs(statement.values) do
+        local value, t = expressions.value(ctx, entry.value)
+        computed[position] = {value, t}
+    end
+    for position, entry in ipairs(statement.values) do
+        local value, t = computed[position][1], computed[position][2]
+        local target = entry.target
+        if target.kind == "local" then
+            local slot = ctx.locals[tostring(target.cName)]
+            if slot == nil then
+                error("assignment to unbound local " .. tostring(target.cName), 0)
+            end
+            assignLocal(ctx, slot as context.Slot, value, t)
+        else
+            local object = expressions.value(ctx, target.object as scalarIR.Expr)
+            local address, declared = expressions.fieldAddress(
+                ctx,
+                object,
+                tostring(target.layout),
+                tostring(target.field)
+            )
+            local fieldType = tostring(declared.type)
+            local storage = types.storage(fieldType, declared.sourceType)
+            local stored = expressions.narrow(ctx, expressions.convert(ctx, value, t, fieldType), fieldType, storage)
+            emit(ctx, ("store %s %s, ptr %s"):format(storage, stored, address))
+        end
+    end
+end
+
+--- Returns from the entry. Several values are refused until the entry ABI
+--- passes them through a result pointer.
+local function returnStatement(ctx: context.Context, statement: scalarIR.Return): nil
+    local results = ctx.program.resultTypes or {}
+    if #statement.values > 1 or #results > 1 then
+        unsupported("multiple results")
+    end
+    if #statement.values == 0 or #results == 0 then
+        builder.terminate(ctx.f, "ret void")
+        return
+    end
+    local value, t = expressions.value(ctx, statement.values[1])
+    local resultType = tostring(results[1])
+    local converted = expressions.convert(ctx, value, t, resultType)
+    builder.terminate(ctx.f, ("ret %s %s"):format(types.require(resultType), converted))
+end
+
+--- Emits one statement.
+--- @raises string for a statement this backend does not emit yet
+function statements.statement(ctx: context.Context, node: scalarIR.Statement): nil
+    local operation = node.op
+    if operation == "let" then
+        local statement = node as scalarIR.Let
+        if tostring(statement.type):match("^simd_") ~= nil then
+            unsupported("explicit SIMD locals")
+        end
+        local value, t = expressions.value(ctx, statement.value)
+        if t == "ptr" then
+            unsupported("struct element locals")
+        end
+        local slot = statements.slot(ctx, statement.cName, tostring(statement.type))
+        assignLocal(ctx, slot, value, t)
+    elseif operation == "assign" then
+        assign(ctx, node as scalarIR.Assign)
+    elseif operation == "store" then
+        spanStore(ctx, node as scalarIR.Store)
+    elseif operation == "if" then
+        ifStatement(ctx, node as scalarIR.If)
+    elseif operation == "while" then
+        whileLoop(ctx, node as scalarIR.While)
+    elseif operation == "repeat" then
+        repeatLoop(ctx, node as scalarIR.Repeat)
+    elseif operation == "fornum" then
+        fornum(ctx, node as scalarIR.Fornum)
+    elseif operation == "block" then
+        statements.block(ctx, (node as scalarIR.Block).body)
+    elseif operation == "break" then
+        builder.jump(ctx.f, context.loop(ctx).breakLabel)
+    elseif operation == "continue" then
+        builder.jump(ctx.f, context.loop(ctx).continueLabel)
+    elseif operation == "return" then
+        returnStatement(ctx, node as scalarIR.Return)
+    elseif operation == "multi_let" then
+        unsupported("multiple-result helper bindings")
+    else
+        unsupported("statement " .. tostring(operation))
+    end
+end
+
+function statements.block(ctx: context.Context, body: {scalarIR.Statement}): nil
+    for _, statement in ipairs(body) do
+        statements.statement(ctx, statement)
+    end
+end
+
+export = statements

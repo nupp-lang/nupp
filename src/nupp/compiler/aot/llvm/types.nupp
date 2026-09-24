@@ -1,0 +1,143 @@
+module nupp.compiler.aot.llvm.types
+
+--[[
+How scalar IR types are represented in LLVM IR.
+
+LLVM integers have no sign; the IR type decides which instruction a
+conversion, division, shift or comparison needs, so both are kept: `value`
+answers the LLVM type and `signed`/`unsigned` answer how to treat it.
+]]
+
+local types = {}
+
+--- The LLVM type of each scalar IR value type.
+const VALUE: {
+    [string]: string
+} = {
+    ["f64"] = "double",
+    ["f32"] = "float",
+    ["i32"] = "i32",
+    ["u32"] = "i32",
+    ["i64"] = "i64",
+    ["u64"] = "i64",
+    ["bool"] = "i1",
+}
+
+--- The LLVM type of each physical storage type a span or field holds.
+const STORAGE: {
+    [string]: string
+} = {
+    ["number"] = "double",
+    ["float"] = "float",
+    ["int8"] = "i8",
+    ["int16"] = "i16",
+    ["int32"] = "i32",
+    ["uint8"] = "i8",
+    ["uint16"] = "i16",
+    ["uint32"] = "i32",
+    ["int64"] = "i64",
+    ["uint64"] = "i64",
+    ["boolean"] = "i8",
+}
+
+const STORAGE_SIGNED: {[string]: boolean} = {["int8"] = true, ["int16"] = true, ["int32"] = true, ["int64"] = true,}
+
+const STORAGE_BYTES: {
+    [string]: integer
+} = {
+    ["number"] = 8,
+    ["float"] = 4,
+    ["int8"] = 1,
+    ["int16"] = 2,
+    ["int32"] = 4,
+    ["uint8"] = 1,
+    ["uint16"] = 2,
+    ["uint32"] = 4,
+    ["int64"] = 8,
+    ["uint64"] = 8,
+    ["boolean"] = 1,
+}
+
+--- The LLVM type of a scalar value, or nil for one this backend has no scalar
+--- representation of (vectors, Lua values, `multi`).
+function types.value(typeName: string): string?
+    return VALUE[typeName]
+end
+
+--- Like `value`, raising for an unrepresentable type.
+--- @raises string when the type has no scalar LLVM form
+function types.require(typeName: string): string
+    local found = VALUE[typeName]
+    if found == nil then
+        error("no LLVM scalar type for " .. typeName, 0)
+    end
+
+    return found as string
+end
+
+function types.isFloat(typeName: string): boolean
+    return typeName == "f64" or typeName == "f32"
+end
+
+function types.isInteger(typeName: string): boolean
+    return typeName == "i32" or typeName == "u32" or typeName == "i64" or typeName == "u64"
+end
+
+function types.signed(typeName: string): boolean
+    return typeName == "i32" or typeName == "i64"
+end
+
+function types.bits(typeName: string): integer
+    if typeName == "i64" or typeName == "u64" or typeName == "f64" then
+        return 64
+    elseif typeName == "bool" then
+        return 1
+    end
+
+    return 32
+end
+
+--- The storage LLVM type of a physical source type, defaulting to the value
+--- type when the source type is absent (the value is stored as it is).
+function types.storage(valueType: string, sourceType: string?): string
+    if sourceType ~= nil and STORAGE[sourceType as string] ~= nil then
+        return STORAGE[sourceType as string] as string
+    end
+
+    return types.require(valueType)
+end
+
+function types.storageSigned(sourceType: string?): boolean
+    return sourceType ~= nil and STORAGE_SIGNED[sourceType as string] == true
+end
+
+function types.storageBytes(valueType: string, sourceType: string?): integer
+    if sourceType ~= nil and STORAGE_BYTES[sourceType as string] ~= nil then
+        return STORAGE_BYTES[sourceType as string] as integer
+    end
+
+    return math.max(math.floor(types.bits(valueType) / 8), 1) as integer
+end
+
+--- A value's parameter spelling in a C-ABI signature. A C `bool` is passed
+--- zero-extended, as clang declares it.
+function types.parameter(typeName: string): string
+    local value = types.require(typeName)
+    if value == "i1" then
+        return "i1 zeroext"
+    end
+
+    return value
+end
+
+--- A result's spelling in a C-ABI signature.
+function types.result(typeName: string): string
+    local value = types.require(typeName)
+    if value == "i1" then
+        return "zeroext i1"
+    end
+
+    return value
+end
+
+export = types

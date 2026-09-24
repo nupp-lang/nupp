@@ -1,0 +1,151 @@
+module nupp.tools.build.aotllvm
+
+--[[
+The AOT build's LLVM route: emitting a unit as LLVM IR, compiling it in
+process, and linking the objects with lld.
+
+The C route stays the default until the LLVM backend reaches parity; while both
+exist, `NUPP_AOT_BACKEND=llvm` selects this one, and a unit using something it
+does not emit yet falls back to C on its own. A build that selected it on a host
+without the code generator is refused rather than silently given C.
+]]
+
+local codegen = require("nupp.compiler.aot.llvm.codegen")
+local fs = require("nupp.compiler.fs")
+local llvmProgram = require("nupp.compiler.aot.llvm.program")
+local llvmProfile = require("nupp.compiler.aot.llvm.profile")
+local scalarIR = require("nupp.compiler.aot.scalar")
+
+local aotllvm = {}
+
+--- What produced an artifact, for its key: the backend, the code generator's
+--- version, and the lowering's.
+const aotllvm.BACKEND = "llvm"
+
+--- Whether this build uses the LLVM route, or nil and why it cannot.
+--- @return true to use it, false to use C, or nil and the reason the
+---   requested route is unavailable
+function aotllvm.selected(): (boolean?, string?)
+    local wanted = os.getenv("NUPP_AOT_BACKEND")
+    if wanted == nil or wanted == "" or wanted == "c" then
+        return false, nil
+    end
+    if wanted ~= "llvm" then
+        return nil, "NUPP_AOT_BACKEND must be c or llvm, not " .. tostring(wanted)
+    end
+    local available, why = codegen.available()
+    if not available then
+        return nil, "NUPP_AOT_BACKEND=llvm: " .. tostring(why)
+    end
+
+    return true, nil
+end
+
+--- The code generator's identity, which every LLVM artifact is keyed on.
+function aotllvm.version(): string
+    return codegen.version()
+end
+
+--- One unit's programs as LLVM IR, or nil and why this backend cannot emit
+--- them (the build then emits C for the unit).
+--- @raises string when emission fails for a reason other than coverage: a
+---   defect in the backend, which must not be hidden by falling back
+function aotllvm.emit(programs: {scalarIR.Program}, tier: string, triple: string): (string?, string?)
+    local selected, profileErr = llvmProfile.of(triple)
+    if selected == nil then
+        return nil, profileErr
+    end
+    local cpu: {scalarIR.Program} = {}
+    for _, program in ipairs(programs) do
+        if program.executionTarget ~= "gpu" then
+            cpu[#cpu + 1] = program
+        end
+    end
+    local ok, module = pcall(llvmProgram.module, cpu, tier, (selected as llvmProfile.Profile).functionAttributes)
+    if not ok then
+        if llvmProgram.isUnsupported(module) then
+            return nil, tostring(module)
+        end
+        error(module, 0)
+    end
+
+    return module as string, nil
+end
+
+--- The options a tier's unit is compiled with, as the strings its key holds.
+function aotllvm.flags(triple: string, tier: string): {string}
+    local selected = llvmProfile.of(triple)
+    if selected == nil then
+        return {"triple=" .. triple, "tier=" .. tier}
+    end
+    local options = llvmProfile.options(selected as llvmProfile.Profile, tier)
+    local keys: {string} = {}
+    for key in pairs(options) do
+        keys[#keys + 1] = key
+    end
+    table.sort(keys)
+    local flags: {string} = {}
+    for _, key in ipairs(keys) do
+        flags[#flags + 1] = key .. "=" .. (options[key] as string)
+    end
+
+    return flags
+end
+
+--- Compiles one emitted unit's IR file into `object`.
+--- @return nil, or what went wrong
+function aotllvm.compile(irPath: string, triple: string, tier: string, object: string): string?
+    local selected, profileErr = llvmProfile.of(triple)
+    if selected == nil then
+        return profileErr
+    end
+    local ir = fs.readFile(irPath)
+    if ir == nil then
+        return "could not read " .. irPath
+    end
+    local compiled, err = codegen.compile(
+        ir as string,
+        irPath,
+        llvmProfile.options(selected as llvmProfile.Profile, tier)
+    )
+    if compiled == nil then
+        return "compiling " .. irPath .. " with LLVM failed: " .. tostring(err)
+    end
+    local staged = object .. ".tmp"
+    local ok, writeErr = fs.writeFile(staged, compiled.object)
+    if not ok then
+        return tostring(writeErr)
+    end
+    local installed, installErr = fs.installStaged(staged, object)
+    if not installed then
+        return tostring(installErr)
+    end
+
+    return nil
+end
+
+--- Links `objects` into the shared library `output` with lld.
+--- @return nil, or what went wrong
+function aotllvm.link(triple: string, objects: {string}, output: string): string?
+    local selected, profileErr = llvmProfile.of(triple)
+    if selected == nil then
+        return profileErr
+    end
+    local staged = output .. ".tmp"
+    os.remove(staged)
+    local argv = llvmProfile.sharedLink(selected as llvmProfile.Profile, staged, objects, fs.basename(output))
+    local _, err = codegen.link(argv)
+    if err ~= nil then
+        os.remove(staged)
+
+        return "linking the LLVM objects failed: " .. tostring(err)
+    end
+    local installed, installErr = fs.installStaged(staged, output)
+    if not installed then
+        return tostring(installErr)
+    end
+
+    return nil
+end
+
+export = aotllvm

@@ -41,6 +41,7 @@ local gpuBinding = require("nupp.compiler.aot.gpubinding")
 local wasmBinding = require("nupp.compiler.aot.wasmbinding")
 local wasmBridge = require("nupp.compiler.aot.wasmbridge")
 local wasmEmitter = require("nupp.compiler.aot.wasmemit")
+local aotllvm = require("nupp.tools.build.aotllvm")
 local compile = require("nupp.compiler.aot.compile")
 local constspecialize = require("nupp.compiler.lua.constspecialize")
 local emitter = require("nupp.compiler.aot.emit")
@@ -271,6 +272,9 @@ end
 --- keyed on cannot come apart. A relink that used a flag the key never saw
 --- would produce a library the build could not account for.
 function aot.compileFlags(selected: targets.Target, chain: aot.Toolchain, extra: {string}?): {string}
+    if chain.dialect == "llvm" then
+        return aotllvm.flags(selected.triple, selected.tier)
+    end
     local flags: {string} = {}
     for _, flag in ipairs(aot.CFLAGS) do
         flags[#flags + 1] = flag
@@ -332,6 +336,9 @@ end
 
 --- Flags used only while linking already tiered objects.
 function aot.linkFlags(selected: targets.Target, chain: aot.Toolchain, extra: {string}?): {string}
+    if chain.dialect == "llvm" then
+        return {"lld"}
+    end
     local flags: {string} = {}
     if selected.triple ~= targets.hostTriple() and chain.dialect == "clang" then
         flags[#flags + 1] = "-target"
@@ -402,6 +409,15 @@ record aot.Emitted
     registrar: string?
     bridge: any?
     unit: string?
+
+    --- `llvm` when the LLVM backend emitted this unit (its `output` is LLVM IR),
+    --- absent for generated C.
+    backend: string?
+end
+
+--- The object one emitted unit compiles to.
+function aot.objectOf(output: string): string
+    return (output:gsub("%.ll$", ".o"):gsub("%.c$", ".o"))
 end
 
 --- The commands to try, in order, when nothing named one.
@@ -1384,6 +1400,7 @@ function aot.link(
     local argvs: {{string}} = {}
     local staged: {string} = {}
     local reused: integer = 0
+    local llvmDirty: {integer} = {}
 
     report:at("aot:reuse")
     for index, one in ipairs(emitted) do
@@ -1391,8 +1408,9 @@ function aot.link(
         if tierTarget == nil then
             return tostring(tierErr), nil
         end
-        local object = one.output:gsub("%.c$", ".o")
-        local flags = aot.compileFlags(tierTarget as targets.Target, chain, extra)
+        local object = aot.objectOf(one.output)
+        local flags = one.backend == aotllvm.BACKEND and aotllvm.flags(selected.triple, one.tier)
+            or aot.compileFlags(tierTarget as targets.Target, chain, extra)
         local objectKey = aot.objectKey(one.key, one.tier, chain, flags)
         objectKeys[one.cacheKey] = objectKey
         one.object = object
@@ -1402,6 +1420,8 @@ function aot.link(
         -- digest agreed is a wrong answer, where recompiling one costs a second.
         if known[one.cacheKey] == objectKey and fs.exists(object) then
             reused = reused + 1
+        elseif one.backend == aotllvm.BACKEND then
+            llvmDirty[#llvmDirty + 1] = index
         else
             dirty[#dirty + 1] = index
             local stagedObject = object .. ".tmp"
@@ -1456,10 +1476,36 @@ function aot.link(
             end
         end
     end
+    if #llvmDirty > 0 then
+        report:at("aot:compile")
+        for _, index in ipairs(llvmDirty) do
+            local one = emitted[index] as aot.Emitted
+            local compileErr = aotllvm.compile(one.output, selected.triple, one.tier, one.object as string)
+            if compileErr ~= nil then
+                return compileErr, nil
+            end
+        end
+    end
     table.sort(objects)
 
-    local outcome = new aot.LinkOutcome(objects = objectKeys, reused = reused, compiled = #argvs, linked = true)
+    local outcome = new aot.LinkOutcome(
+        objects = objectKeys,
+        reused = reused,
+        compiled = #argvs + #llvmDirty,
+        linked = true
+    )
     report:at("aot:link")
+    if chain.dialect == "llvm" then
+        if static then
+            return "the LLVM backend does not write static archives yet", nil
+        end
+        local linkErr = aotllvm.link(selected.triple, objects, output)
+        if linkErr ~= nil then
+            return linkErr, nil
+        end
+
+        return nil, outcome
+    end
     if static then
         local probeCode, probed = toolruns.capture({chain.command, "-print-prog-name=ar"})
         local archiver = chain.archiver or (probeCode == 0 and probed:match("^%s*(.-)%s*$") or nil)
@@ -1622,6 +1668,10 @@ function aot.emitC(
 
     local produced: {[string]: compile.Artifacts} = {}
     local gpuSources: {string} = {}
+    local useLlvm, backendErr = aotllvm.selected()
+    if useLlvm == nil then
+        return nil, tostring(backendErr), produced, {}, nil, gpuSources
+    end
     -- Kept for every source read here, and used only for the ones that end up
     -- rewritten, since only those are checked again as something else.
     local authoredUnused: {[string]: {any}} = {}
@@ -1809,14 +1859,34 @@ function aot.emitC(
                     local output = outDir .. "/aot/" .. stem .. "." .. tierTarget.tier .. ".c"
                     local cacheKey = source .. "#" .. tierTarget.tier
                     local key = aot.key(artifacts.irText, tierTarget)
+                    local content = artifacts.c
+                    local backend: string? = nil
+                    -- The LLVM route while both exist: a unit it cannot emit
+                    -- yet keeps its C, and a static archive stays C until the
+                    -- code generator writes archives.
+                    if useLlvm == true and not staticLinkage then
+                        local ir = aotllvm.emit(artifacts.programs, tierTarget.tier, tierTarget.triple)
+                        if ir ~= nil then
+                            output = output:gsub("%.c$", ".ll")
+                            content = ir as string
+                            backend = aotllvm.BACKEND
+                            key = hash.digest(
+                                stable({
+                                    base = key,
+                                    backend = aotllvm.BACKEND,
+                                    codegen = aotllvm.version()
+                                })
+                            )
+                        end
+                    end
 
                     -- The state is evidence, not authority: the bytes
                     -- still have to be the ones this compiler emitted.
                     report:at("aot:reuse")
-                    local reused = previous[cacheKey] == key and fs.readFile(output) == artifacts.c
+                    local reused = previous[cacheKey] == key and fs.readFile(output) == content
                     report:at("aot:emit")
                     if not reused then
-                        local ok, err = fs.writeFile(output, artifacts.c)
+                        local ok, err = fs.writeFile(output, content)
                         if not ok then
                             return nil, tostring(err), produced, authoredUnused, constSelection, gpuSources
                         end
@@ -1828,7 +1898,8 @@ function aot.emitC(
                         tier = tierTarget.tier,
                         cacheKey = cacheKey,
                         output = output,
-                        key = key
+                        key = key,
+                        backend = backend
                     )
                     produced[cacheKey] = artifacts as compile.Artifacts
                 end
@@ -2695,7 +2766,21 @@ function aot.apply(
 
     local selected = (selectedForManifest as {targets.Target})[1]
     report:at("aot:reuse")
-    local chain, chainErr = aot.toolchain(selected.triple, held.toolchain)
+    -- Every unit through LLVM needs no C compiler at all; otherwise the C
+    -- toolchain compiles the C units and links, LLVM objects included.
+    local allLlvm = true
+    for _, one in ipairs(emitted as {aot.Emitted}) do
+        if one.backend ~= aotllvm.BACKEND then
+            allLlvm = false
+        end
+    end
+    local chain: aot.Toolchain? = nil
+    local chainErr: string? = nil
+    if allLlvm then
+        chain = new aot.Toolchain(command = "<llvm>", version = aotllvm.version(), dialect = "llvm")
+    else
+        chain, chainErr = aot.toolchain(selected.triple, held.toolchain)
+    end
     if chain == nil then
         return nil, tostring(chainErr)
     end
@@ -2761,7 +2846,7 @@ function aot.apply(
     -- which is what the same rule about the library itself costs.
     local intact = true
     for _, one in ipairs(emitted as {aot.Emitted}) do
-        if not fs.exists((one.output:gsub("%.c$", ".o"))) then
+        if not fs.exists(aot.objectOf(one.output)) then
             intact = false
         end
     end
@@ -2788,7 +2873,7 @@ function aot.apply(
         -- still what the library was made from, so the record carries forward
         -- unchanged rather than being forgotten and recompiled next time.
         for _, one in ipairs(emitted as {aot.Emitted}) do
-            one.object = one.output:gsub("%.c$", ".o")
+            one.object = aot.objectOf(one.output)
         end
     end
     report:at("aot")
@@ -2848,7 +2933,8 @@ function aot.apply(
         objects = objects,
         remembered = new aot.Remembered(
             command = (chain as aot.Toolchain).command,
-            signature = aot.toolSignature((chain as aot.Toolchain).command),
+            signature = allLlvm and (chain as aot.Toolchain).version
+            or aot.toolSignature((chain as aot.Toolchain).command),
             version = (chain as aot.Toolchain).version,
             dialect = (chain as aot.Toolchain).dialect
         ),

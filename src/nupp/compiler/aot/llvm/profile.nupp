@@ -1,0 +1,210 @@
+module nupp.compiler.aot.llvm.profile
+
+--[[
+What each target is to LLVM and lld.
+
+A Nupp target triple is a public name, and it is not always the triple LLVM or
+Rust needs: `x86_64-pc-windows-msvc` is built and linked as MinGW. One record per
+public target owns that translation, so code generation, cache keys and linking
+all read the same answer and nothing rewrites a triple string on its own.
+]]
+
+local profile = {}
+
+record profile.Profile
+    --- The public Nupp target.
+    public: string
+
+    --- The triple LLVM generates code for.
+    llvmTriple: string
+
+    --- The baseline CPU; tiers add features on top.
+    cpu: string
+
+    --- Features every function on this target has.
+    baseFeatures: string
+
+    --- `macho`, `elf`, `coff` or `wasm`.
+    format: string
+
+    --- The minimum OS version a Mach-O image states.
+    minimum: string?
+
+    --- Extra function attributes clang would give this target.
+    functionAttributes: string
+
+    --- lld's `-arch`/`-m` spelling.
+    machine: string
+end
+
+local PROFILES: {[string]: profile.Profile} = {
+    [
+        "aarch64-apple-darwin"
+    ] = new profile.Profile(
+        public = "aarch64-apple-darwin",
+        llvmTriple = "arm64-apple-macosx11.0.0",
+        cpu = "apple-m1",
+        baseFeatures = "+neon",
+        format = "macho",
+        minimum = "11.0.0",
+        functionAttributes = "\"frame-pointer\"=\"non-leaf\"",
+        machine = "arm64"
+    ),
+    [
+        "x86_64-apple-darwin"
+    ] = new profile.Profile(
+        public = "x86_64-apple-darwin",
+        llvmTriple = "x86_64-apple-macosx10.14.0",
+        cpu = "x86-64",
+        baseFeatures = "",
+        format = "macho",
+        minimum = "10.14.0",
+        functionAttributes = "\"frame-pointer\"=\"all\"",
+        machine = "x86_64"
+    ),
+    [
+        "x86_64-unknown-linux-gnu"
+    ] = new profile.Profile(
+        public = "x86_64-unknown-linux-gnu",
+        llvmTriple = "x86_64-unknown-linux-gnu",
+        cpu = "x86-64",
+        baseFeatures = "",
+        format = "elf",
+        functionAttributes = "",
+        machine = "elf_x86_64"
+    ),
+    [
+        "aarch64-unknown-linux-gnu"
+    ] = new profile.Profile(
+        public = "aarch64-unknown-linux-gnu",
+        llvmTriple = "aarch64-unknown-linux-gnu",
+        cpu = "generic",
+        baseFeatures = "+neon",
+        format = "elf",
+        functionAttributes = "\"frame-pointer\"=\"non-leaf\"",
+        machine = "aarch64linux"
+    ),
+    [
+        "i686-unknown-linux-gnu"
+    ] = new profile.Profile(
+        public = "i686-unknown-linux-gnu",
+        llvmTriple = "i686-unknown-linux-gnu",
+        cpu = "pentium4",
+        baseFeatures = "",
+        format = "elf",
+        functionAttributes = "",
+        machine = "elf_i386"
+    ),
+    ["x86_64-pc-windows-msvc"] = new profile.Profile(
+        public = "x86_64-pc-windows-msvc",
+        llvmTriple = "x86_64-w64-windows-gnu",
+        cpu = "x86-64",
+        baseFeatures = "",
+        format = "coff",
+        -- GCC's Win64 frames misalign wider spills; the C lowering asked for
+        -- 128-bit vectors there, and generated code keeps that preference.
+        functionAttributes = "\"prefer-vector-width\"=\"128\"",
+        machine = "x64"
+    ),
+}
+
+--- The feature string each tier adds.
+const TIER_FEATURES: {
+    [string]: string
+} = {
+    ["baseline"] = "",
+    ["avx2"] = "+avx2",
+    ["avx512f"] = "+avx512f",
+    ["neon"] = "+neon",
+    ["simd128"] = "+simd128",
+    ["scalar"] = "",
+}
+
+--- The profile of a public target, or nil and why there is none.
+function profile.of(public: string): (profile.Profile?, string?)
+    local found = PROFILES[public]
+    if found == nil then
+        return nil, "the LLVM backend has no profile for " .. public
+    end
+
+    return found, nil
+end
+
+--- The features a function of `tier` is compiled with.
+function profile.features(selected: profile.Profile, tier: string): string
+    local parts: {string} = {}
+    if selected.baseFeatures ~= "" then
+        parts[#parts + 1] = selected.baseFeatures
+    end
+    local extra = TIER_FEATURES[tier]
+    if extra ~= nil and extra ~= "" and extra ~= selected.baseFeatures then
+        parts[#parts + 1] = extra as string
+    end
+
+    return table.concat(parts, ",")
+end
+
+--- The codegen options for one tier's module.
+function profile.options(selected: profile.Profile, tier: string): {[string]: string}
+    return {triple = selected.llvmTriple, cpu = selected.cpu, features = profile.features(selected, tier), opt = "3"}
+end
+
+--- lld's arguments linking `objects` into the shared library `output`.
+---
+--- Undefined symbols -- the Lua C API, the runtime, libm -- bind when the
+--- library is loaded, against what the process already has.
+function profile.sharedLink(selected: profile.Profile, output: string, objects: {string}, soname: string): {string}
+    local argv: {string}
+    if selected.format == "macho" then
+        argv = {
+            "ld64.lld",
+            "-arch",
+            selected.machine,
+            "-platform_version",
+            "macos",
+            tostring(selected.minimum),
+            tostring(selected.minimum),
+            "-dylib",
+            "-install_name",
+            "@rpath/" .. soname,
+            "-undefined",
+            "dynamic_lookup",
+            "-o",
+            output,
+        }
+    elseif selected.format == "elf" then
+        argv = {
+            "ld.lld",
+            "-m",
+            selected.machine,
+            "-shared",
+            "--eh-frame-hdr",
+            "-z",
+            "noexecstack",
+            "-z",
+            "now",
+            "--hash-style=gnu",
+            "-soname",
+            soname,
+            "-o",
+            output,
+        }
+    else
+        argv = {
+            "lld-link",
+            "-lldmingw",
+            "/dll",
+            "/noentry",
+            "/machine:" .. selected.machine,
+            "/nodefaultlib",
+            "/out:" .. output
+        }
+    end
+    for _, object in ipairs(objects) do
+        argv[#argv + 1] = object
+    end
+
+    return argv
+end
+
+export = profile

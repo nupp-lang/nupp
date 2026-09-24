@@ -4,7 +4,8 @@ module nupp.tools.cli.aot
 `nupp aot`: what an `@aot` function compiles to.
 
 An `@aot` body is compiled somewhere a reader cannot see, so `--emit ir` shows
-the verified IR, `--emit c` shows the generated C, `--emit spirv` writes the
+the verified IR, `--emit c` shows the generated C, `--emit llvm` shows the LLVM
+IR the LLVM backend emits for it, `--emit spirv` writes the
 native WGPU module, `--emit wgsl` shows the browser WebGPU integer artifact,
 `--emit asm` shows the instructions that C became, and `--emit binding` shows
 the module that stands in front of it. Reading the C is how you tell a mask
@@ -517,6 +518,20 @@ local function run(options: any): integer
         io.write(artifacts.irText)
     elseif emit == "c" then
         io.write(options.sourceLocations and inspectionC(artifacts, path) or artifacts.c)
+    elseif emit == "llvm" then
+        local programs: {any} = {}
+        for _, program in ipairs(artifacts.programs) do
+            if program.executionTarget ~= "gpu" then
+                programs[#programs + 1] = program
+            end
+        end
+        local ok, module = pcall(require("nupp.compiler.aot.llvm.program").module, programs, nil)
+        if not ok then
+            io.stderr:write("nupp: " .. tostring(module) .. "\n")
+
+            return 1
+        end
+        io.write(module as string)
     elseif emit == "spirv" then
         io.write(spirvParts[1])
     elseif emit == "wgsl" then
@@ -564,7 +579,7 @@ end
 @derive(cliModule.Command)
 local record Aot
     --- Artifact to print: ir, c, spirv, wgsl, asm, or binding.
-    @cli(value = "ARTIFACT", choices = {"ir", "c", "spirv", "wgsl", "asm", "binding"})
+    @cli(value = "ARTIFACT", choices = {"ir", "c", "llvm", "spirv", "wgsl", "asm", "binding"})
     emit: string?
 
     --- Include authored #line locations in emitted C (assembly always carries them).

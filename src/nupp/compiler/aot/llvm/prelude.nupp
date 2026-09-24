@@ -1,0 +1,337 @@
+module nupp.compiler.aot.llvm.prelude
+
+--[[
+The scalar helpers generated code calls, as LLVM IR.
+
+Each is the IR form of one function the C lowering carried in `ks_scalar.h`,
+with the same answer bit for bit: Lua's floored modulo, LuaJIT's modular
+`wrap`, the NaN-propagating binary32 corrections, and so on. A helper is defined
+in a module only when something in it asks for one, `internal` and
+`alwaysinline`, so it costs nothing where it is not used and disappears into
+its caller where it is.
+]]
+
+local builder = require("nupp.compiler.aot.llvm.builder")
+
+local prelude = {}
+
+--- The attributes every helper carries.
+local function inline(module: builder.Module): string
+    return builder.attributes(module, "alwaysinline nounwind")
+end
+
+--- A libm function, declared once.
+function prelude.libm(module: builder.Module, name: string, arity: integer, float: boolean?): string
+    local t = float and "float" or "double"
+    local params: {string} = {}
+    for position = 1, arity do
+        params[position] = t
+    end
+    builder.declare(module, "@" .. name, ("declare %s @%s(%s)"):format(t, name, table.concat(params, ", ")))
+
+    return "@" .. name
+end
+
+--- An LLVM intrinsic, declared once.
+function prelude.intrinsic(module: builder.Module, name: string, signature: string): string
+    builder.declare(module, "@" .. name, "declare " .. signature:gsub("@NAME", "@" .. name))
+
+    return "@" .. name
+end
+
+local DEFINITIONS: {[string]: function(module: builder.Module, attrs: string): string} = {}
+
+--- Lua's `%`: fmod, then moved into the divisor's sign.
+DEFINITIONS["nupp.mod"] = function(_: builder.Module, attrs: string): string
+    return table.concat(
+        {
+            "define internal double @nupp.mod(double %a, double %b) " .. attrs .. " {",
+            "  %r = frem double %a, %b",
+            "  %rn = fcmp olt double %r, 0.0",
+            "  %bn = fcmp olt double %b, 0.0",
+            "  %differ = xor i1 %rn, %bn",
+            "  %nonzero = fcmp une double %r, 0.0",
+            "  %fix = and i1 %differ, %nonzero",
+            "  %moved = fadd double %r, %b",
+            "  %out = select i1 %fix, double %moved, double %r",
+            "  ret double %out",
+            "}",
+        },
+        "\n"
+    )
+end
+
+DEFINITIONS["nupp.u32.div"] = function(_: builder.Module, attrs: string): string
+    return table.concat(
+        {
+            "define internal i32 @nupp.u32.div(i32 %a, i32 %b) " .. attrs .. " {",
+            "  %zero = icmp eq i32 %b, 0",
+            "  %safe = select i1 %zero, i32 1, i32 %b",
+            "  %q = udiv i32 %a, %safe",
+            "  %out = select i1 %zero, i32 0, i32 %q",
+            "  ret i32 %out",
+            "}",
+        },
+        "\n"
+    )
+end
+
+DEFINITIONS["nupp.u32.mod"] = function(_: builder.Module, attrs: string): string
+    return table.concat(
+        {
+            "define internal i32 @nupp.u32.mod(i32 %a, i32 %b) " .. attrs .. " {",
+            "  %zero = icmp eq i32 %b, 0",
+            "  %safe = select i1 %zero, i32 1, i32 %b",
+            "  %r = urem i32 %a, %safe",
+            "  %out = select i1 %zero, i32 0, i32 %r",
+            "  ret i32 %out",
+            "}",
+        },
+        "\n"
+    )
+end
+
+--- LuaJIT's own reduction: adding 2^52 + 2^51 leaves the answer's low 32 bits
+--- where an integer read of the mantissa finds them.
+DEFINITIONS["nupp.wrap.u32"] = function(_: builder.Module, attrs: string): string
+    return table.concat(
+        {
+            "define internal i32 @nupp.wrap.u32(double %v) " .. attrs .. " {",
+            "  %shifted = fadd double %v, 0x4338000000000000",
+            "  %bits = bitcast double %shifted to i64",
+            "  %out = trunc i64 %bits to i32",
+            "  ret i32 %out",
+            "}",
+        },
+        "\n"
+    )
+end
+
+DEFINITIONS["nupp.arshift"] = function(_: builder.Module, attrs: string): string
+    -- A shift already masked to 0..31 is exactly `ashr`.
+    return table.concat(
+        {
+            "define internal i32 @nupp.arshift(i32 %v, i32 %s) " .. attrs .. " {",
+            "  %out = ashr i32 %v, %s",
+            "  ret i32 %out",
+            "}",
+        },
+        "\n"
+    )
+end
+
+--- LuaJIT's min/max select the second operand on ties and unordered pairs;
+--- stock Lua 5.1 keeps the first.
+DEFINITIONS["nupp.min2"] = function(_: builder.Module, attrs: string): string
+    return table.concat(
+        {
+            "define internal double @nupp.min2(double %a, double %b) " .. attrs .. " {",
+            "  %lt = fcmp olt double %a, %b",
+            "  %out = select i1 %lt, double %a, double %b",
+            "  ret double %out",
+            "}",
+        },
+        "\n"
+    )
+end
+
+DEFINITIONS["nupp.max2"] = function(_: builder.Module, attrs: string): string
+    return table.concat(
+        {
+            "define internal double @nupp.max2(double %a, double %b) " .. attrs .. " {",
+            "  %gt = fcmp ogt double %a, %b",
+            "  %out = select i1 %gt, double %a, double %b",
+            "  ret double %out",
+            "}",
+        },
+        "\n"
+    )
+end
+
+DEFINITIONS["nupp.min2.lua51"] = function(_: builder.Module, attrs: string): string
+    return table.concat(
+        {
+            "define internal double @nupp.min2.lua51(double %a, double %b) " .. attrs .. " {",
+            "  %lt = fcmp olt double %b, %a",
+            "  %out = select i1 %lt, double %b, double %a",
+            "  ret double %out",
+            "}",
+        },
+        "\n"
+    )
+end
+
+DEFINITIONS["nupp.max2.lua51"] = function(_: builder.Module, attrs: string): string
+    return table.concat(
+        {
+            "define internal double @nupp.max2.lua51(double %a, double %b) " .. attrs .. " {",
+            "  %gt = fcmp ogt double %b, %a",
+            "  %out = select i1 %gt, double %b, double %a",
+            "  ret double %out",
+            "}",
+        },
+        "\n"
+    )
+end
+
+--- `sin` keeping the authored signed zero, which a library rewrite into a
+--- combined sin/cos may lose.
+DEFINITIONS["nupp.sin"] = function(module: builder.Module, attrs: string): string
+    local sin = prelude.libm(module, "sin", 1)
+    return table.concat(
+        {
+            "define internal double @nupp.sin(double %v) " .. attrs .. " {",
+            "  %zero = fcmp oeq double %v, 0.0",
+            "  br i1 %zero, label %keep, label %call",
+            "keep:",
+            "  ret double %v",
+            "call:",
+            "  %out = call double " .. sin .. "(double %v)",
+            "  ret double %out",
+            "}",
+        },
+        "\n"
+    )
+end
+
+--- The canonical quiet binary32 NaN `nupp.math.f32` answers.
+local F32_NAN = "0x7FF8000000000000"
+
+DEFINITIONS["nupp.f32.min"] = function(_: builder.Module, attrs: string): string
+    return table.concat(
+        {
+            "define internal float @nupp.f32.min(float %a, float %b) " .. attrs .. " {",
+            "  %nan = fcmp uno float %a, %b",
+            "  br i1 %nan, label %isnan, label %ordered",
+            "isnan:",
+            "  ret float " .. F32_NAN,
+            "ordered:",
+            "  %eq = fcmp oeq float %a, %b",
+            "  br i1 %eq, label %equal, label %differ",
+            "equal:",
+            "  %bits = bitcast float %a to i32",
+            "  %neg = icmp slt i32 %bits, 0",
+            "  %pick = select i1 %neg, float %a, float %b",
+            "  ret float %pick",
+            "differ:",
+            "  %lt = fcmp olt float %a, %b",
+            "  %out = select i1 %lt, float %a, float %b",
+            "  ret float %out",
+            "}",
+        },
+        "\n"
+    )
+end
+
+DEFINITIONS["nupp.f32.max"] = function(_: builder.Module, attrs: string): string
+    return table.concat(
+        {
+            "define internal float @nupp.f32.max(float %a, float %b) " .. attrs .. " {",
+            "  %nan = fcmp uno float %a, %b",
+            "  br i1 %nan, label %isnan, label %ordered",
+            "isnan:",
+            "  ret float " .. F32_NAN,
+            "ordered:",
+            "  %eq = fcmp oeq float %a, %b",
+            "  br i1 %eq, label %equal, label %differ",
+            "equal:",
+            "  %bits = bitcast float %a to i32",
+            "  %pos = icmp sge i32 %bits, 0",
+            "  %pick = select i1 %pos, float %a, float %b",
+            "  ret float %pick",
+            "differ:",
+            "  %gt = fcmp ogt float %a, %b",
+            "  %out = select i1 %gt, float %a, float %b",
+            "  ret float %out",
+            "}",
+        },
+        "\n"
+    )
+end
+
+DEFINITIONS["nupp.f32.fma"] = function(module: builder.Module, attrs: string): string
+    local fma = prelude.intrinsic(module, "llvm.fma.f32", "float @NAME(float, float, float)")
+    return table.concat(
+        {
+            "define internal float @nupp.f32.fma(float %a, float %b, float %c) \"nupp-fp-contract\" " .. attrs .. " {",
+            "  %r = call float " .. fma .. "(float %a, float %b, float %c)",
+            "  %nan = fcmp uno float %r, %r",
+            "  %out = select i1 %nan, float " .. F32_NAN .. ", float %r",
+            "  ret float %out",
+            "}",
+        },
+        "\n"
+    )
+end
+
+--- The IR-owned binary32 exp: a clamped degree-12 polynomial in x/128, then
+--- seven squarings, every step the corrected fused multiply-add.
+DEFINITIONS["nupp.f32.exp"] = function(module: builder.Module, attrs: string): string
+    local min = prelude.use(module, "nupp.f32.min")
+    local max = prelude.use(module, "nupp.f32.max")
+    local fma = prelude.use(module, "nupp.f32.fma")
+    local text = require("nupp.compiler.aot.llvm.text")
+
+    local function f(value: number): string
+        return text.float(text.roundToFloat(value))
+    end
+
+    local coefficients = {
+        0.000000025052108,
+        0.00000027557319,
+        0.0000027557319,
+        0.000024801587,
+        0.0001984127,
+        0.0013888889,
+        0.0083333333,
+        0.041666667,
+        0.16666667,
+        0.5,
+        1.0,
+        1.0,
+    }
+    local lines: {
+        string
+    } = {
+        "define internal float @nupp.f32.exp(float %v) " .. attrs .. " {",
+        "  %hi = call float " .. min .. "(float %v, float " .. f(88) .. ")",
+        "  %x = call float " .. max .. "(float " .. f(-104) .. ", float %hi)",
+        "  %y = fmul float %x, " .. f(0.0078125),
+    }
+    local current = f(0.0000000020876757)
+    for position, coefficient in ipairs(coefficients) do
+        local name = "%p" .. tostring(position)
+        lines[
+            #lines + 1
+        ] = "  " .. name .. " = call float " .. fma .. "(float " .. current .. ", float %y, float " .. f(
+            coefficient
+        ) .. ")"
+        current = name
+    end
+    for square = 1, 7 do
+        local name = "%s" .. tostring(square)
+        lines[#lines + 1] = "  " .. name .. " = fmul float " .. current .. ", " .. current
+        current = name
+    end
+    lines[#lines + 1] = "  ret float " .. current
+    lines[#lines + 1] = "}"
+
+    return table.concat(lines, "\n")
+end
+
+--- The name of `helper`, defining it in `module` on first use.
+--- @raises string when no helper has that name
+function prelude.use(module: builder.Module, helper: string): string
+    local define = DEFINITIONS[helper]
+    if define == nil then
+        error("no LLVM prelude helper " .. helper, 0)
+    end
+    local key = "define " .. helper
+    if module.pieces[key] == nil then
+        builder.once(module, key, define(module, inline(module)))
+    end
+
+    return "@" .. helper
+end
+
+export = prelude

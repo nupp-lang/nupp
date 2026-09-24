@@ -1,0 +1,116 @@
+module nupp.compiler.aot.llvm.context
+
+--[[
+What emitting one function needs to know about the program around it.
+
+A `Context` is one function definition's state: the builder it writes into, the
+program it is a rendering of, where each local lives, which LLVM value each
+parameter and count is, and the break and continue targets of the loops around
+the statement being emitted. Expressions and statements read it; only the entry
+and statement emitters change it.
+]]
+
+local builder = require("nupp.compiler.aot.llvm.builder")
+local scalarIR = require("nupp.compiler.aot.scalar")
+
+local context = {}
+
+--- One local: the stack slot it lives in and its IR type.
+record context.Slot
+    pointer: string
+    type: string
+end
+
+--- One span parameter as the function receives it.
+record context.Span
+    pointer: string
+    param: scalarIR.Param
+end
+
+--- The targets `break` and `continue` jump to inside one loop.
+record context.Loop
+    breakLabel: string
+    continueLabel: string
+end
+
+record context.Context
+    f: builder.Function
+    module: builder.Module
+    program: scalarIR.Program
+
+    locals: {[string]: context.Slot}
+    uniforms: {[string]: string}
+    spans: {[string]: context.Span}
+
+    --- The count each span's bounds use, as an i64 value.
+    counts: {[string]: string}
+
+    --- The map loop's zero-based iteration, as an i64 value, inside it.
+    mapIndex: string?
+
+    --- Each visible helper's LLVM function, by IR name.
+    helpers: {[string]: string}
+
+    --- Helper parameters' values while a helper body is emitted, by C name.
+    helperParams: {[string]: string}
+
+    --- Reified layouts by IR name.
+    layouts: {[string]: scalarIR.Layout}
+
+    loops: {context.Loop}
+
+    --- Lua 5.1 rather than LuaJIT min/max tie-breaking.
+    lua51Math: boolean
+
+    --- Whether ordinary binary64 arithmetic may contract (`@relax`).
+    contract: boolean
+end
+
+--- A fresh context for one function of `program`.
+function context.new(module: builder.Module, f: builder.Function, program: scalarIR.Program): context.Context
+    local layouts: {[string]: scalarIR.Layout} = {}
+    for _, layout in ipairs(program.layouts or {}) do
+        layouts[layout.name] = layout
+    end
+
+    return new context.Context(
+        f = f,
+        module = module,
+        program = program,
+        locals = {},
+        uniforms = {},
+        spans = {},
+        counts = {},
+        mapIndex = nil,
+        helpers = {},
+        helperParams = {},
+        layouts = layouts,
+        loops = {},
+        lua51Math = program.numericForRuntime == "lua51",
+        contract = program.fpContract == true
+    )
+end
+
+--- The i64 count bounding `span`.
+--- @raises string when the entry received no count for it
+function context.count(ctx: context.Context, span: string): string
+    local found = ctx.counts[span]
+    if found == nil then
+        error("no count for span " .. span, 0)
+    end
+
+    return found as string
+end
+
+--- The innermost enclosing loop.
+--- @raises string outside every loop
+function context.loop(ctx: context.Context): context.Loop
+    local found = ctx.loops[#ctx.loops]
+    if found == nil then
+        error("break or continue outside a loop", 0)
+    end
+
+    return found as context.Loop
+end
+
+export = context
