@@ -490,6 +490,19 @@ local function keptMask(context: emit.Context, typeName: string, value: string):
     return "ks_exp_keep_mask_" .. tostring(element) .. "x" .. tostring(lanes) .. "(" .. value .. ")"
 end
 
+--- The C type of a local some statement reassigns. A reassigned boolean is an
+--- `int`: clang carries a C `bool` a loop reassigns as a value it rebuilds
+--- from the comparison each pass, where an `int` stays a flag the branches
+--- set, which cost the UTF-8 validator two instructions in a sixteen-byte
+--- step. Every boolean the IR produces is 0 or 1, so nothing reads differently.
+local function carriedCType(context: emit.Context, typeName: string): string
+    if typeName == "bool" then
+        return "int"
+    end
+
+    return emit.cType(context, typeName)
+end
+
 --- An integer operand of a binary64 difference, as C text of a 64-bit integer:
 --- a 32-bit integer widened to binary64, which is exact, or a span count, which
 --- is exact below 2^53. The second result says it was a count.
@@ -551,6 +564,47 @@ local function tailLet(context: emit.Context, statement: scalarIR.Let, prefix: s
         .. counted
         .. ");",
     }
+end
+
+--- `(x op bound):any()` over integer lanes, with `bound` one splatted scalar,
+--- as the helper that answers it without forming the mask: a horizontal max
+--- or min where the target has one. `(x ~= 0):any()` is whether any bit is
+--- set. Nothing for any other shape.
+local function anyCompare(context: emit.Context, mask: scalarIR.Expr, suffix: string): string?
+    if mask.op ~= "simd_compare" or suffix:match("^[iu]%d") == nil then
+        return nil
+    end
+    local compare = mask as scalarIR.Simd
+    local named = tostring(compare.intrinsic)
+    local value, bound = compare.args[1], compare.args[2]
+    if value.op == "simd_splat" and bound.op ~= "simd_splat" then
+        value, bound = bound, value
+        named = named == "ge" and "le"
+            or named == "le" and "ge"
+            or named == "gt" and "lt"
+            or named == "lt" and "gt"
+            or named
+    end
+    if bound.op ~= "simd_splat" then
+        return nil
+    end
+    local scalar = (bound as scalarIR.Simd).args[1]
+    if named == "ne" then
+        local constant = scalar.op == "numeric_cast" and (scalar as scalarIR.Convert).value or scalar
+        local zero = (constant.op == "constant_i32" or constant.op == "constant")
+            and tonumber(tostring((constant as scalarIR.IntConstant).value)) == 0
+        if not zero then
+            return nil
+        end
+        return "ks_exp_any_nonzero_" .. suffix .. "(" .. emit.scalar(context, value) .. ")"
+    elseif named == "ge" or named == "gt" or named == "le" or named == "lt" then
+        return "ks_exp_any_" .. named .. "_" .. suffix .. "(" .. emit.scalar(
+            context,
+            value
+        ) .. ", " .. emit.scalar(context, scalar) .. ")"
+    end
+
+    return nil
 end
 
 --- Whether an IR type is one general explicit SIMD family application.
@@ -1422,6 +1476,12 @@ function emit.scalar(context: emit.Context, node: scalarIR.Expr): string
             local genericHelper = context.explicitScalar and "ks_scalar_exp_" or "ks_exp_"
             local elementBits = tonumber(element:match("%d+")) or 0
             local composite = compositeSpecies(context, element, lanes, shape)
+            if operation == "simd_mask_any" and not context.explicitScalar and not composite then
+                local reduced = anyCompare(context, args[1], genericSuffix)
+                if reduced ~= nil then
+                    return reduced as string
+                end
+            end
             if operation == "simd_mask_bits" and lanes > 64 then
                 error("explicit SIMD masks with more than 64 lanes have no uint64 representation", 0)
             end
@@ -3437,9 +3497,9 @@ function emit.luaBlock(
                 else
                     lines[
                         #lines + 1
-                    ] = prefix .. emit.cType(
-                        context,
-                        statement.type
+                    ] = prefix .. (
+                        statement.assigned == true and carriedCType(context, statement.type)
+                        or emit.cType(context, statement.type)
                     ) .. " " .. statement.cName .. " = " .. emit.scalar(context, statement.value) .. ";"
                     if statement.type:match("^simd_species_") ~= nil then
                         lines[#lines + 1] = prefix .. "(void)" .. statement.cName .. ";"
@@ -3850,10 +3910,9 @@ function emit.block(
                 elseif statement.type:match("^simd_species_") == nil then
                     lines[
                         #lines + 1
-                    ] = prefix .. localCType(
-                        context,
-                        statement.type,
-                        (statement.value as scalarIR.ElementRef).mutable == true
+                    ] = prefix .. (
+                        statement.assigned == true and carriedCType(context, statement.type) .. " "
+                        or localCType(context, statement.type, (statement.value as scalarIR.ElementRef).mutable == true)
                     ) .. statement.cName .. " = " .. emit.scalar(context, statement.value) .. ";"
                 end
                 yield true
@@ -3902,7 +3961,7 @@ function emit.block(
                     else
                         lines[
                             #lines + 1
-                        ] = prefix .. emit.cType(
+                        ] = prefix .. carriedCType(
                             context,
                             entry.target.type as string
                         ) .. " " .. temps[position] .. " = " .. emit.scalar(context, entry.value) .. ";"

@@ -5267,6 +5267,53 @@ return {scale = scale, twice = twice}
     assert(oracle:find("count_input", 1, true), "and checks each span against its own count\n" .. oracle)
 end
 
+function M.anIntegerCompareFeedingAnyIsOneReductionAndAFlagIsAnInt()
+    -- `(x >= c):any()` over integer lanes asks one horizontal question of
+    -- `x`, and `(x ~= 0):any()` whether any bit is set; neither forms the mask.
+    -- A boolean the loop reassigns is an `int` in C, which clang keeps as a
+    -- flag rather than rebuilding from the comparison every pass.
+    local dir = project{
+        [
+            "scan.nupp"
+        ] = [[
+local span = require("nupp.mem.span")
+local array = require("nupp.mem.array")
+local simd = require("nupp.simd")
+
+@aot
+local function scan(borrows input: span.Span<uint8>): uint32
+    local s = assert(simd.species(array.uint8))
+    local cursor: uint32 = 0
+    local ascii = true
+    while cursor + s.lanes <= #input do
+        local bytes = s:load(input, cursor + 1)
+        if (bytes >= 0x80):any() then
+            ascii = false
+        end
+        if ((bytes ~ 0x20) ~= 0):any() and not ascii then
+            break
+        end
+        cursor = cursor + s.lanes
+    end
+    return cursor
+end
+return {scan = scan}
+]],
+    }
+    local decoded, raw, code = lowered(dir, "--target aarch64-apple-darwin --features neon --json scan.nupp")
+    test.equal(code, 0, raw)
+    local c = decoded.c
+    local body = c:match("KS_API uint32_t ks_scan%(.-\n}\n")
+    assert(body, "the kernel is emitted:\n" .. c)
+    assert(body:find("ks_exp_any_ge_u8x16(", 1, true), "a compare against a bound is one reduction\n" .. body)
+    assert(body:find("ks_exp_any_nonzero_u8x16(", 1, true), "and so is a test for any set bit\n" .. body)
+    assert(body:find("int v%d+_ascii = ") or body:match("int v%d+_ascii = "), "the flag is an int\n" .. body)
+    assert(
+        c:find("#define KS_EXP_ANY_COMPARE(ELEM, OP, REDUCE) return __builtin_reduce_##REDUCE(value) OP bound;", 1, true),
+        "aarch64 answers it with a horizontal max or min\n"
+    )
+end
+
 function M.aLoopCarriedMaskStaysInItsRegister()
     -- A mask a loop reassigns is kept in its vector register, so the C
     -- compiler does not carry it as one bit a lane. The scalar oracle has no

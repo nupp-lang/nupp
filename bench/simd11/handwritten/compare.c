@@ -7,6 +7,7 @@
  *
  * usage: compare LIBRARY   (bench/simd11/build/native.dylib after --prepare) */
 #include <dlfcn.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -19,6 +20,8 @@ typedef double (*dot_fn)(const double *, const double *, size_t);
 double hand_ordered(const double *left, const double *right, size_t count);
 double hand_pairwise(const double *left, const double *right, size_t count);
 double hand_algebraic(const double *left, const double *right, size_t count);
+uint32_t hand_utf8_valid_prefix(const uint8_t *source, size_t count);
+typedef uint32_t (*utf8_fn)(const uint8_t *, size_t);
 void hand_map(double *restrict output, const double *input, double scale, double bias, size_t count);
 void hand_refine(double *restrict output, const double *input, size_t count);
 void hand_refine_tuned(double *restrict output, const double *input, size_t count);
@@ -46,7 +49,7 @@ static double now(void) {
 }
 
 int main(int argc, char **argv) {
-    if (argc != 2) { fprintf(stderr, "usage: compare LIBRARY\n"); return 2; }
+    if (argc != 2 && argc != 3) { fprintf(stderr, "usage: compare LIBRARY [UTF8-LIBRARY]\n"); return 2; }
     void *library = dlopen(argv[1], RTLD_NOW);
     if (!library) { fprintf(stderr, "%s\n", dlerror()); return 1; }
     scalar_map = (map_fn)dlsym(library, "ks_map");
@@ -141,6 +144,43 @@ int main(int argc, char **argv) {
             (void)sink;
             printf("%-9s %7zu %10.2fns %10.2fns %10.2fns %12s %9.3fx\n", names[kernel], n, best[0], best[1], best[2], "", best[1] / best[2]);
             free(left); free(right);
+        }
+    }
+    if (argc == 3) {
+        void *utf8 = dlopen(argv[2], RTLD_NOW);
+        if (!utf8) { fprintf(stderr, "%s\n", dlerror()); return 1; }
+        utf8_fn generated_utf8 = (utf8_fn)dlsym(utf8, "ks_valid_prefix");
+        if (!generated_utf8) { fprintf(stderr, "the UTF-8 library lacks ks_valid_prefix\n"); return 1; }
+        const char *kinds[2] = {"utf8-ascii", "utf8-unicode"};
+        const char *units[2] = {"abcdefg", "\xc3\xa9\xe2\x82\xac\xf0\x9f\x98\x80"};
+        const size_t lengths[] = {63, 1024, 65539};
+        for (int kind = 0; kind < 2; kind++) {
+            for (size_t s = 0; s < sizeof lengths / sizeof lengths[0]; s++) {
+                size_t n = lengths[s];
+                size_t unit = strlen(units[kind]);
+                uint8_t *bytes = malloc(n);
+                for (size_t i = 0; i < n; i++) bytes[i] = (uint8_t)units[kind][i % unit];
+                uint32_t want = generated_utf8(bytes, n), got = hand_utf8_valid_prefix(bytes, n);
+                if (want != got) { fprintf(stderr, "%s %zu: generated %u, hand %u\n", kinds[kind], n, want, got); return 1; }
+                size_t calls = 4000000 / n + 1;
+                double best[2] = {1e30, 1e30};
+                volatile uint32_t sink = 0;
+                for (int sample = 0; sample < 101; sample++) {
+                    for (int step = 0; step < 2; step++) {
+                        int which = (sample & 1) ? 1 - step : step;
+                        double start = now();
+                        for (size_t c = 0; c < calls; c++) {
+                            sink = which == 0 ? generated_utf8(bytes, n) : hand_utf8_valid_prefix(bytes, n);
+                            __asm__ volatile("" ::: "memory");
+                        }
+                        double each = (now() - start) / (double)calls * 1e9;
+                        if (each < best[which]) best[which] = each;
+                    }
+                }
+                (void)sink;
+                printf("%-12s %7zu %10s %10.2fns %10.2fns %12s %9.3fx\n", kinds[kind], n, "", best[0], best[1], "", best[0] / best[1]);
+                free(bytes);
+            }
         }
     }
     return 0;

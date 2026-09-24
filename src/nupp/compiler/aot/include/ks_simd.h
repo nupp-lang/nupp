@@ -469,8 +469,30 @@ static inline __attribute__((unused)) ks_scalar_exp_##ELEM ks_scalar_exp_sar_##E
 static inline __attribute__((unused)) ks_scalar_exp_##ELEM ks_scalar_exp_not_##ELEM(ks_scalar_exp_##ELEM value) { for (uint32_t i = 0u; i < LANES##u; ++i) value.lane[i] = ~value.lane[i]; return value; }
 #define KS_EXP_FLOAT_SCALAR(ELEM, CTYPE, LANES)
 
+/* Whether any integer lane compares true against one bound. On aarch64 one
+ * horizontal max or min answers it -- `umaxv` rather than a compare, a
+ * pairwise fold and a move -- where x86 and Wasm answer a compare faster with
+ * a movemask, so they keep it. GCC has no `__builtin_reduce_*`. */
+#if defined(__aarch64__) && defined(__clang__) && defined(__has_builtin)
+#if __has_builtin(__builtin_reduce_max) && __has_builtin(__builtin_reduce_min) && __has_builtin(__builtin_reduce_or)
+#define KS_EXP_REDUCE_COMPARES 1
+#endif
+#endif
+#if defined(KS_EXP_REDUCE_COMPARES)
+#define KS_EXP_ANY_COMPARE(ELEM, OP, REDUCE) return __builtin_reduce_##REDUCE(value) OP bound;
+#define KS_EXP_ANY_NONZERO(ELEM) return __builtin_reduce_or(value) != 0;
+#else
+#define KS_EXP_ANY_COMPARE(ELEM, OP, REDUCE) return ks_exp_any_##ELEM((ks_exp_mask_##ELEM)(value OP ks_exp_splat_##ELEM(bound)));
+#define KS_EXP_ANY_NONZERO(ELEM) return ks_exp_any_##ELEM((ks_exp_mask_##ELEM)(value != ks_exp_splat_##ELEM(0)));
+#endif
+
 /* The same, over the vector. */
 #define KS_EXP_INT_ONLY(ELEM, CTYPE, LANES) \
+static inline __attribute__((unused)) bool ks_exp_any_ge_##ELEM(ks_exp_##ELEM value, CTYPE bound) { KS_EXP_ANY_COMPARE(ELEM, >=, max) } \
+static inline __attribute__((unused)) bool ks_exp_any_gt_##ELEM(ks_exp_##ELEM value, CTYPE bound) { KS_EXP_ANY_COMPARE(ELEM, >, max) } \
+static inline __attribute__((unused)) bool ks_exp_any_le_##ELEM(ks_exp_##ELEM value, CTYPE bound) { KS_EXP_ANY_COMPARE(ELEM, <=, min) } \
+static inline __attribute__((unused)) bool ks_exp_any_lt_##ELEM(ks_exp_##ELEM value, CTYPE bound) { KS_EXP_ANY_COMPARE(ELEM, <, min) } \
+static inline __attribute__((unused)) bool ks_exp_any_nonzero_##ELEM(ks_exp_##ELEM value) { KS_EXP_ANY_NONZERO(ELEM) } \
 static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_prefix_xor_##ELEM(ks_exp_##ELEM value) { for (uint32_t i = 1u; i < LANES##u; ++i) value[i] = value[i - 1u] ^ value[i]; return value; } \
 KS_EXP_INT_SCALAR(ELEM, CTYPE, LANES)
 #define KS_EXP_FLOAT_ONLY(ELEM, CTYPE, LANES)

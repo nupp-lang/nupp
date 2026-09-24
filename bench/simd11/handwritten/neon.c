@@ -168,3 +168,57 @@ double hand_algebraic(const double *left, const double *right, size_t count) {
     for (; i < count; i++) total = total + left[i] * right[i];
     return total;
 }
+
+/* The prefix of `source` that spells whole, well-formed UTF-8 scalars, by the
+ * same lookup validator as bench/utf8simd/src/utf8simd.nupp: sixteen bytes at
+ * a time until a vector holds an error, then the same scalar ladder from the
+ * last scalar start at or before it. */
+uint32_t hand_utf8_valid_prefix(const uint8_t *source, size_t count) {
+    static const uint8_t high1[16] = {2, 2, 2, 2, 2, 2, 2, 2, 128, 128, 128, 128, 33, 1, 21, 73};
+    static const uint8_t low1[16] = {231, 163, 131, 131, 139, 203, 203, 203, 203, 203, 203, 203, 203, 219, 203, 203};
+    static const uint8_t high2[16] = {1, 1, 1, 1, 1, 1, 1, 1, 230, 174, 186, 186, 1, 1, 1, 1};
+    static const uint8_t limits[16] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xEF, 0xDF, 0xBF};
+    const uint8x16_t byte1High = vld1q_u8(high1), byte1Low = vld1q_u8(low1), byte2High = vld1q_u8(high2);
+    const uint8x16_t incompleteLimit = vld1q_u8(limits);
+    const uint8x16_t nibble = vdupq_n_u8(15);
+    uint8x16_t previous = vdupq_n_u8(0);
+    int previousAscii = 1;
+    size_t at = 0;
+    while (at + 16 <= count) {
+        uint8x16_t input = vld1q_u8(source + at);
+        if (vmaxvq_u8(input) >= 0x80) {
+            uint8x16_t prev1 = vextq_u8(previous, input, 15);
+            uint8x16_t special = vandq_u8(
+                vandq_u8(vqtbl1q_u8(byte1High, vshrq_n_u8(prev1, 4)), vqtbl1q_u8(byte1Low, vandq_u8(prev1, nibble))),
+                vqtbl1q_u8(byte2High, vshrq_n_u8(input, 4)));
+            uint8x16_t prev2 = vextq_u8(previous, input, 14);
+            uint8x16_t prev3 = vextq_u8(previous, input, 13);
+            uint8x16_t must = vandq_u8(vorrq_u8(vcgeq_u8(prev2, vdupq_n_u8(0xE0)), vcgeq_u8(prev3, vdupq_n_u8(0xF0))), vdupq_n_u8(0x80));
+            if (vmaxvq_u8(veorq_u8(special, must)) != 0) break;
+            previousAscii = 0;
+        } else if (!previousAscii) {
+            if (vmaxvq_u8(vcgtq_u8(previous, incompleteLimit)) != 0) break;
+            previousAscii = 1;
+        }
+        previous = input;
+        at += 16;
+    }
+    size_t stop = at;
+    at = at >= 3 ? at - 3 : 0;
+    while (at < stop && at < count && source[at] >= 128 && source[at] <= 191) at++;
+    while (at < count) {
+        uint32_t lead = source[at];
+        if (lead < 128) { at++; continue; }
+        uint32_t low = 128, high = 191, need;
+        if (lead < 194) return (uint32_t)at;
+        else if (lead < 224) need = 1;
+        else if (lead < 240) { need = 2; if (lead == 224) low = 160; else if (lead == 237) high = 159; }
+        else if (lead < 245) { need = 3; if (lead == 240) low = 144; else if (lead == 244) high = 143; }
+        else return (uint32_t)at;
+        if (at + 1 >= count || source[at + 1] < low || source[at + 1] > high) return (uint32_t)at;
+        if (need > 1 && (at + 2 >= count || source[at + 2] < 128 || source[at + 2] > 191)) return (uint32_t)at;
+        if (need > 2 && (at + 3 >= count || source[at + 3] < 128 || source[at + 3] > 191)) return (uint32_t)at;
+        at += need + 1;
+    }
+    return (uint32_t)count;
+}

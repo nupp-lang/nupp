@@ -185,6 +185,21 @@ time over the best hand-written time.
 | algebraic | 1,024 | 679 ns | 136 ns | 137 ns | 1.00x |
 | algebraic | 65,539 | 42.8 us | 9.77 us | 10.1 us | 0.97x |
 
+UTF-8 validation compares `bench/utf8simd`'s `validPrefix` with the same
+lookup validator written in NEON (`hand_utf8_valid_prefix`), over the harness's
+ASCII and mixed-width inputs; the two must return the same prefix. Pass the
+UTF-8 library as `compare`'s second argument
+(`bench/simd11/build/utf8/native.dylib`).
+
+| Input | n | Generated | Hand NEON | Generated / hand |
+| --- | ---: | ---: | ---: | ---: |
+| ASCII | 63 | 6.93 ns | 6.50 ns | 1.07x |
+| ASCII | 1,024 | 18.9 ns | 20.0 ns | 0.95x |
+| ASCII | 65,539 | 1.06 us | 1.16 us | 0.92x |
+| mixed | 63 | 9.15 ns | 9.32 ns | 0.98x |
+| mixed | 1,024 | 70.6 ns | 70.1 ns | 1.01x |
+| mixed | 65,539 | 4.52 us | 4.48 us | 1.01x |
+
 Map's scalar source is vectorized by clang, so all three map columns run the
 same vector loop. What remains behind is the 63-element tails, where a
 four-lane masked step costs a few cycles more than the hand versions' two-lane
