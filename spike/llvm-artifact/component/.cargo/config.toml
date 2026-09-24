@@ -1,0 +1,3 @@
+[env]
+# The size-built LLVM 23.1.1 (MinSizeRel; AArch64, X86, WebAssembly; lld).
+LLVM_SYS_231_PREFIX = "/Users/dowling/projects/nupp/.claude/worktrees/spike-llvm-backend/build/lld-src/llvm-minsize"

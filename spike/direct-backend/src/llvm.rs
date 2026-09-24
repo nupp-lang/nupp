@@ -12,7 +12,9 @@ use crate::lir::{self, Inst, K, Node, T, V};
 use crate::sem::{Cmp, CmpKind, Cond, Ret, Scalar, Signature, Vector};
 use llvm_sys::core::*;
 use llvm_sys::error::*;
+#[cfg(not(feature = "no-jit"))]
 use llvm_sys::orc2::lljit::*;
+#[cfg(not(feature = "no-jit"))]
 use llvm_sys::orc2::*;
 use llvm_sys::prelude::*;
 use llvm_sys::target_machine::*;
@@ -53,8 +55,19 @@ pub enum Tier {
     Wasm32Simd,
 }
 
+/// Another OS for the same ISA tier: the artifact component builds ELF and
+/// COFF as well as Mach-O. Set once, before any module or target machine.
+static TRIPLE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+pub fn set_triple(triple: &str) {
+    TRIPLE.set(triple.to_string()).expect("triple set twice");
+}
+
 impl Tier {
     pub fn triple(self) -> &'static str {
+        if let Some(t) = TRIPLE.get() {
+            return t;
+        }
         match self {
             Tier::Arm64Neon => "arm64-apple-macosx11.0.0",
             Tier::X86Avx2 | Tier::X86Avx512 => "x86_64-apple-macosx10.15.0",
@@ -259,6 +272,7 @@ impl Module {
     }
 
     /// Hands the module to ORC, which owns its context from here on.
+    #[cfg(not(feature = "no-jit"))]
     fn into_thread_safe(mut self) -> LLVMOrcThreadSafeModuleRef {
         unsafe {
             let tsc = LLVMOrcCreateNewThreadSafeContextFromLLVMContext(self.ctx);
@@ -931,11 +945,13 @@ pub fn exclusive_params(program: &serde_json::Value, sig: &Signature) -> Vec<u32
 
 /// ORC's LLJIT, linking through JITLink, resolving undefined symbols against
 /// the process (the Lua C API, libm, the runtime wrappers).
+#[cfg(not(feature = "no-jit"))]
 pub struct Jit {
     j: LLVMOrcLLJITRef,
     jd: LLVMOrcJITDylibRef,
 }
 
+#[cfg(not(feature = "no-jit"))]
 extern "C" fn plain_linking_layer(_ctx: *mut c_void, es: LLVMOrcExecutionSessionRef, _triple: *const c_char) -> LLVMOrcObjectLayerRef {
     // JITLink with no plugins: nothing registers the object's unwind info.
     let mut layer = std::ptr::null_mut();
@@ -943,6 +959,7 @@ extern "C" fn plain_linking_layer(_ctx: *mut c_void, es: LLVMOrcExecutionSession
     layer
 }
 
+#[cfg(not(feature = "no-jit"))]
 impl Jit {
     /// `register_unwind`: false builds the linking layer without LLJIT's
     /// eh-frame registration plugin.
@@ -992,6 +1009,7 @@ impl Jit {
     }
 }
 
+#[cfg(not(feature = "no-jit"))]
 impl Drop for Jit {
     fn drop(&mut self) {
         unsafe {
