@@ -264,7 +264,10 @@ local function assembly(artifacts: any, selected: Target, wanted: string?, sourc
     local text: string? = nil
     local selectedChain: Toolchain? = nil
     local debugFlags: {string} = {}
-    if aotllvm.selected() == true then
+    local useLlvm, backendErr = aotllvm.selected()
+    if useLlvm == nil then
+        return nil, tostring(backendErr)
+    elseif useLlvm == true then
         text = aotllvm.assembly(artifacts.programs, selected.tier, selected.triple)
         if text ~= nil then
             selectedChain = new buildAot.Toolchain(command = "<llvm>", version = aotllvm.version(), dialect = "llvm")
@@ -533,6 +536,12 @@ local function run(options: any): integer
     elseif emit == "llvm" then
         local aotllvm = require("nupp.tools.build.aotllvm")
         local target = selected as targets.Target
+        local _, factsErr = aotllvm.facts()
+        if factsErr ~= nil then
+            io.stderr:write("nupp: NUPP_AOT_FACTS: " .. tostring(factsErr) .. "\n")
+
+            return 1
+        end
         local ok, module, why = pcall(aotllvm.emit, artifacts.programs, target.tier, target.triple)
         if not ok or module == nil then
             io.stderr:write("nupp: " .. tostring(ok and why or module) .. "\n")

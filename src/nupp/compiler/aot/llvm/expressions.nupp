@@ -297,7 +297,13 @@ function expressions.index(ctx: context.Context, indexCName: string?, cursorCNam
 
     -- A proved index is at least 1.
 
-    return emit(ctx, ("sub nuw i64 %s, 1"):format(wide))
+    return emit(ctx, ("sub %si64 %s, 1"):format(ctx.facts.bounds and "nuw " or "", wide))
+end
+
+--- The flags a proved address carries, with a trailing space, or nothing
+--- when the `bounds` facts are off.
+function expressions.inbounds(ctx: context.Context): string
+    return ctx.facts.bounds and "inbounds nuw " or ""
 end
 
 --- The address of element `index` of span `name`.
@@ -311,7 +317,10 @@ function expressions.element(ctx: context.Context, name: string, index: string, 
     -- The verifier proved the index inside the span, so the offset is
     -- non-negative and the address stays in the span's object.
 
-    return emit(ctx, ("getelementptr inbounds nuw %s, ptr %s, i64 %s"):format(storage, span.pointer, index))
+    return emit(
+        ctx,
+        ("getelementptr %s%s, ptr %s, i64 %s"):format(expressions.inbounds(ctx), storage, span.pointer, index)
+    )
 end
 
 --- A loaded storage value widened to the IR value type it establishes.
@@ -401,7 +410,10 @@ function expressions.fieldAddress(
     local structType = expressions.layoutType(ctx, layoutName)
     local index, found = fieldIndex(ctx, layoutName, field)
 
-    return emit(ctx, ("getelementptr inbounds nuw %s, ptr %s, i32 0, i32 %d"):format(structType, object, index)), found
+    return emit(
+        ctx,
+        ("getelementptr %s%s, ptr %s, i32 0, i32 %d"):format(expressions.inbounds(ctx), structType, object, index)
+    ), found
 end
 
 local function binaryFloat(ctx: context.Context, instruction: string, t: string, a: string, b: string): string

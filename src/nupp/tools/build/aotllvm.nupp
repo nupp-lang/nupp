@@ -11,6 +11,7 @@ without the code generator is refused rather than silently given C.
 ]]
 
 local codegen = require("nupp.compiler.aot.llvm.codegen")
+local facts = require("nupp.compiler.aot.llvm.facts")
 local fs = require("nupp.compiler.fs")
 local llvmDetector = require("nupp.compiler.aot.llvm.detector")
 local llvmProgram = require("nupp.compiler.aot.llvm.program")
@@ -38,8 +39,25 @@ function aotllvm.selected(): (boolean?, string?)
     if not available then
         return nil, "NUPP_AOT_BACKEND=llvm: " .. tostring(why)
     end
+    local _, factsErr = aotllvm.facts()
+    if factsErr ~= nil then
+        return nil, "NUPP_AOT_FACTS: " .. tostring(factsErr)
+    end
 
     return true, nil
+end
+
+--- The proved facts this build states: `NUPP_AOT_FACTS`, `all` when unset
+--- (see `nupp.compiler.aot.llvm.facts`), or nil and why the value is wrong.
+function aotllvm.facts(): (facts.Facts?, string?)
+    return facts.parse(os.getenv("NUPP_AOT_FACTS") or "all")
+end
+
+--- The fact selection as it goes into an artifact's key.
+function aotllvm.factsKey(): string
+    local selected = aotllvm.facts()
+
+    return selected ~= nil and facts.key(selected as facts.Facts) or "all"
 end
 
 --- The code generator's identity, which every LLVM artifact is keyed on.
@@ -81,7 +99,7 @@ function aotllvm.emit(programs: {scalarIR.Program}, tier: string, triple: string
     if logical == true then
         symbolTier = nil
     end
-    local ok, module = pcall(llvmProgram.module, cpu, symbolTier, selected as llvmProfile.Profile)
+    local ok, module = pcall(llvmProgram.module, cpu, symbolTier, selected as llvmProfile.Profile, (aotllvm.facts()))
     if not ok then
         if llvmProgram.isUnsupported(module) then
             return nil, tostring(module)

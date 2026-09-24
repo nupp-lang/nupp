@@ -1879,7 +1879,8 @@ function aot.emitC(
                                 stable({
                                     base = key,
                                     backend = aotllvm.BACKEND,
-                                    codegen = aotllvm.version()
+                                    codegen = aotllvm.version(),
+                                    facts = aotllvm.factsKey()
                                 })
                             )
                         end

@@ -11,6 +11,7 @@ and statement emitters change it.
 ]]
 
 local builder = require("nupp.compiler.aot.llvm.builder")
+local facts = require("nupp.compiler.aot.llvm.facts")
 local scalarIR = require("nupp.compiler.aot.scalar")
 
 local context = {}
@@ -69,10 +70,18 @@ record context.Context
     resultBlock: string?
 
     resultStruct: string?
+
+    --- The proved facts this unit states.
+    facts: facts.Facts
 end
 
 --- A fresh context for one function of `program`.
-function context.new(module: builder.Module, f: builder.Function, program: scalarIR.Program): context.Context
+function context.new(
+    module: builder.Module,
+    f: builder.Function,
+    program: scalarIR.Program,
+    stated: facts.Facts?
+): context.Context
     local layouts: {[string]: scalarIR.Layout} = {}
     for _, layout in ipairs(program.layouts or {}) do
         layouts[layout.name] = layout
@@ -92,7 +101,8 @@ function context.new(module: builder.Module, f: builder.Function, program: scala
         layouts = layouts,
         loops = {},
         lua51Math = program.numericForRuntime == "lua51",
-        contract = program.fpContract == true
+        contract = program.fpContract == true,
+        facts = stated or facts.all()
     )
 end
 

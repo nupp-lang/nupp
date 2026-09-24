@@ -1,0 +1,76 @@
+module nupp.compiler.aot.llvm.facts
+
+--[[
+Which proved facts the LLVM lowering states.
+
+Every fact the lowering hands LLVM comes from a proof, and every family of them
+can be turned off, so a differential run can compile with a family off and
+compare: a fact that changes a result is a bug in its proof.
+
+- `alias`: `noalias` on spans proved disjoint from every written span.
+- `access`: `readonly`, `writeonly` and `captures(none)` on spans.
+- `effects`: `nofree`, `nosync` and `memory(...)` on kernels.
+- `bounds`: `inbounds nuw` addressing and `nuw` index arithmetic.
+]]
+
+local facts = {}
+
+const facts.FAMILIES = {"alias", "access", "effects", "bounds"}
+
+--- The set of families stated.
+record facts.Facts
+    alias: boolean
+    access: boolean
+    effects: boolean
+    bounds: boolean
+end
+
+function facts.all(): facts.Facts
+    return new facts.Facts(alias = true, access = true, effects = true, bounds = true)
+end
+
+function facts.none(): facts.Facts
+    return new facts.Facts(alias = false, access = false, effects = false, bounds = false)
+end
+
+--- `all`, `none`, or a comma-separated list of families, or nil and why not.
+function facts.parse(text: string): (facts.Facts?, string?)
+    if text == "" or text == "all" then
+        return facts.all(), nil
+    elseif text == "none" then
+        return facts.none(), nil
+    end
+    local selected = facts.none()
+    for name in text:gmatch("[^,%s]+") do
+        if name == "alias" then
+            selected.alias = true
+        elseif name == "access" then
+            selected.access = true
+        elseif name == "effects" then
+            selected.effects = true
+        elseif name == "bounds" then
+            selected.bounds = true
+        else
+            return nil, "unknown AOT fact family " .. name .. "; the families are " .. table.concat(
+                facts.FAMILIES,
+                ", "
+            )
+        end
+    end
+
+    return selected, nil
+end
+
+--- The selection as stable text, for a cache key.
+function facts.key(selected: facts.Facts): string
+    local names: {string} = {}
+    for _, name in ipairs(facts.FAMILIES) do
+        if (selected as any)[name] == true then
+            names[#names + 1] = name
+        end
+    end
+
+    return #names == #facts.FAMILIES and "all" or #names == 0 and "none" or table.concat(names, ",")
+end
+
+export = facts
