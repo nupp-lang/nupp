@@ -558,6 +558,24 @@ impl<B: Backend> Walker<B> {
     }
 
     pub fn stmt(&mut self, s: &J) {
+        if op(s) == "while" && s.get("unrolled").is_none() && straight_line(&s["body"]) {
+            if let Some(cond) = doubled(&s["condition"]) {
+                // Two bodies per iteration while two fit, then the original
+                // loop for the rest: the C emitter's `wideUnroll`, for every
+                // target (the plan moves it into Nupp's own IR).
+                let mut twice = s.clone();
+                twice["unrolled"] = J::Bool(true);
+                twice["condition"] = cond;
+                let mut body = s["body"].as_array().unwrap().clone();
+                body.extend(s["body"].as_array().unwrap().clone());
+                twice["body"] = J::Array(body);
+                self.stmt(&twice);
+                let mut once = s.clone();
+                once["unrolled"] = J::Bool(true);
+                self.stmt(&once);
+                return;
+            }
+        }
         if B::statement(self, s) {
             return;
         }

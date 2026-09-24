@@ -6,6 +6,7 @@ mod asm;
 mod embedphase;
 mod emit;
 mod emit_x86;
+mod lir;
 mod loader;
 mod lower;
 mod luaphase;

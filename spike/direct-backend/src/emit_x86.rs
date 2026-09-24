@@ -199,9 +199,9 @@ pub fn emit(func: &Func, out: &Output) -> Emitted {
                     let int = class == RegClass::Int;
                     if class == RegClass::Vector {
                         match (from.as_reg(), to.as_reg()) {
-                            (Some(f), Some(t)) => a.kmovq(K[t.hw_enc()], K[f.hw_enc()]).unwrap(),
-                            (Some(f), None) => a.kmovq(qword_ptr(rsp + slot(*to)), K[f.hw_enc()]).unwrap(),
-                            (None, Some(t)) => a.kmovq(K[t.hw_enc()], qword_ptr(rsp + slot(*from))).unwrap(),
+                            (Some(f), Some(t)) => a.kmovw(K[t.hw_enc()], K[f.hw_enc()]).unwrap(),
+                            (Some(f), None) => a.kmovw(word_ptr(rsp + slot(*to)), K[f.hw_enc()]).unwrap(),
+                            (None, Some(t)) => a.kmovw(K[t.hw_enc()], word_ptr(rsp + slot(*from))).unwrap(),
                             (None, None) => unreachable!(),
                         }
                         continue;
@@ -300,7 +300,7 @@ pub fn emit(func: &Func, out: &Output) -> Emitted {
                         // _CMP_GT_OQ: false for NaN, like NEON's fcmgt.
                         Op::VFCmGt if is_k(0) => a.vcmppd(K[r[0]], Y[r[1]], Y[r[2]], 0x1E).unwrap(),
                         Op::VFCmGt => a.vcmppd(Y[r[0]], Y[r[1]], Y[r[2]], 0x1E).unwrap(),
-                        Op::VAnd if is_k(0) => a.kandb(K[r[0]], K[r[1]], K[r[2]]).unwrap(),
+                        Op::VAnd if is_k(0) => a.kandw(K[r[0]], K[r[1]], K[r[2]]).unwrap(),
                         Op::VAnd => a.vandpd(Y[r[0]], Y[r[1]], Y[r[2]]).unwrap(),
                         // Lane indices and tail counts are small and non-negative.
                         Op::VCmHi if is_k(0) => a.vpcmpgtq(K[r[0]], Y[r[1]], Y[r[2]]).unwrap(),
@@ -379,7 +379,7 @@ pub fn emit(func: &Func, out: &Output) -> Emitted {
                         }
                         Op::AnyBr => {
                             if is_k(0) {
-                                a.kortestb(K[r[0]], K[r[0]]).unwrap();
+                                a.kortestw(K[r[0]], K[r[0]]).unwrap();
                             } else {
                                 a.vptest(Y[r[0]], Y[r[0]]).unwrap();
                             }
