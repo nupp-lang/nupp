@@ -13,6 +13,9 @@ and statement emitters change it.
 local builder = require("nupp.compiler.aot.llvm.builder")
 local facts = require("nupp.compiler.aot.llvm.facts")
 local scalarIR = require("nupp.compiler.aot.scalar")
+local species = require("nupp.compiler.aot.llvm.simd.species")
+local states = require("nupp.compiler.aot.llvm.simd.states")
+local types = require("nupp.compiler.aot.llvm.types")
 
 local context = {}
 
@@ -26,6 +29,16 @@ end
 record context.Span
     pointer: string
     param: scalarIR.Param
+end
+
+--- A reducer a region accumulates lane-wise in a vector, folded into the
+--- reducer's state when the region ends.
+record context.Accumulator
+    --- The vector slot.
+    pointer: string
+
+    --- Its LLVM vector type.
+    vector: string
 end
 
 --- The targets `break` and `continue` jump to inside one loop.
@@ -76,6 +89,14 @@ record context.Context
 
     --- The subprogram locations are scoped to, when the unit has line tables.
     scope: string?
+
+    --- Whether this body is the unoptimized scalar oracle, which folds every
+    --- reducer contribution lane by lane.
+    oracle: boolean
+
+    --- The vector accumulators of the reducer region being emitted, by
+    --- reducer name.
+    accumulators: {[string]: context.Accumulator}
 end
 
 --- A fresh context for one function of `program`.
@@ -106,7 +127,9 @@ function context.new(
         lua51Math = program.numericForRuntime == "lua51",
         contract = program.fpContract == true,
         facts = stated or facts.all(),
-        scope = nil
+        scope = nil,
+        oracle = false,
+        accumulators = {}
     )
 end
 
@@ -119,6 +142,36 @@ function context.count(ctx: context.Context, span: string): string
     end
 
     return found as string
+end
+
+--- The bytes one register holds for the program's explicit SIMD species.
+function context.width(ctx: context.Context): integer
+    return ctx.program.simdWidth or 16
+end
+
+--- The explicit SIMD species an IR type names, if it names one.
+function context.species(ctx: context.Context, typeName: string): species.Species?
+    return species.of(context.width(ctx), typeName)
+end
+
+--- The LLVM type a value of IR type `typeName` is carried in: a scalar's,
+--- a vector or mask's, or a reducer's state. A species has no runtime value;
+--- it answers `i32`, the type its lane count is spelled in.
+--- @raises string when nothing carries the type
+function context.llvmType(ctx: context.Context, typeName: string): string
+    local scalar = types.value(typeName)
+    if scalar ~= nil then
+        return scalar as string
+    end
+    local found = context.species(ctx, typeName)
+    if found ~= nil then
+        return species.carrier(found as species.Species) or "i32"
+    end
+    local state = states.type(typeName)
+    if state ~= nil then
+        return state as string
+    end
+    error("no LLVM type for " .. typeName, 0)
 end
 
 --- The innermost enclosing loop.

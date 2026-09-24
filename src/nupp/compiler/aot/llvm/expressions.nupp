@@ -488,13 +488,13 @@ end
 
 --- The LLVM result type of a helper: its one value's type, or a literal
 --- struct of each result's for a helper returning several.
-function expressions.helperResult(resultTypes: {scalarIR.Type}): string
+function expressions.helperResult(ctx: context.Context, resultTypes: {scalarIR.Type}): string
     if #resultTypes == 1 then
-        return types.require(tostring(resultTypes[1]))
+        return context.llvmType(ctx, tostring(resultTypes[1]))
     end
     local fields: {string} = {}
     for position, resultType in ipairs(resultTypes) do
-        fields[position] = types.require(tostring(resultType))
+        fields[position] = context.llvmType(ctx, tostring(resultType))
     end
 
     return "{ " .. table.concat(fields, ", ") .. " }"
@@ -510,11 +510,12 @@ function expressions.helperCall(ctx: context.Context, call: scalarIR.HelperCall)
     end
     local rendered: {string} = {}
     for _, argument in ipairs(call.args) do
-        if tostring(argument.type):match("^simd_") ~= nil then
-            unsupported("explicit SIMD helper arguments")
+        local named = context.species(ctx, tostring(argument.type))
+        -- A species is known here; the helper takes no parameter for it.
+        if named == nil or (named as any).family ~= "species" then
+            local value, t = expressions.value(ctx, argument)
+            rendered[#rendered + 1] = context.llvmType(ctx, t) .. " " .. value
         end
-        local value, t = expressions.value(ctx, argument)
-        rendered[#rendered + 1] = types.require(t) .. " " .. value
     end
     local results = call.resultTypes or {call.type}
 
@@ -522,15 +523,27 @@ function expressions.helperCall(ctx: context.Context, call: scalarIR.HelperCall)
         ctx,
         (
             "call %s %s(%s)"
-        ):format(expressions.helperResult(results as {scalarIR.Type}), callee as string, table.concat(rendered, ", "))
+        ):format(
+            expressions.helperResult(ctx, results as {scalarIR.Type}),
+            callee as string,
+            table.concat(rendered, ", ")
+        )
     )
 end
+
+--- Lowerings of operations defined outside this module (SIMD, reducers), by
+--- operation. Installed by `llvmProgram`.
+expressions.handlers = {} as {[string]: function(ctx: context.Context, node: scalarIR.Expr): (string, string)}
 
 --- Emits `node` and answers its LLVM value and IR type.
 --- @raises string when the operation is not one this backend emits yet
 function expressions.value(ctx: context.Context, node: scalarIR.Expr): (string, string)
     local operation = node.op
     local nodeType = tostring(node.type)
+    local handler = expressions.handlers[operation]
+    if handler ~= nil then
+        return handler(ctx, node)
+    end
 
     if operation == "constant" then
         local constant = node as scalarIR.Constant
@@ -544,11 +557,19 @@ function expressions.value(ctx: context.Context, node: scalarIR.Expr): (string, 
     elseif operation == "constant_i32" then
         return text.integer(tonumber((node as scalarIR.IntConstant).value) or 0), nodeType
     elseif operation == "constant_i64" then
-        return (node as scalarIR.Int64Constant).value, nodeType
+        local spelled = (node as scalarIR.Int64Constant).value
+        local hex = spelled:match("^0[xX](%x+)$")
+        -- LLVM spells a hexadecimal integer `u0x...`; a bare `0x` is a float.
+        return hex ~= nil and "u0x" .. (hex as string) or spelled, nodeType
     elseif operation == "bool" then
         return (node as scalarIR.Bool).value and "true" or "false", "bool"
     elseif operation == "uniform" then
         local name = (node as scalarIR.Name).name
+        -- A body may assign a parameter; then it lives in its slot.
+        local slot = ctx.locals["p_" .. name]
+        if slot ~= nil then
+            return emit(ctx, ("load %s, ptr %s"):format(context.llvmType(ctx, slot.type), slot.pointer)), slot.type
+        end
         local value = ctx.uniforms[name]
         if value == nil then
             error("no uniform " .. name, 0)
@@ -557,8 +578,10 @@ function expressions.value(ctx: context.Context, node: scalarIR.Expr): (string, 
         return value as string, nodeType
     elseif operation == "local" or operation == "helper_param" then
         local named = node as scalarIR.Name
-        if nodeType:match("^simd_") ~= nil then
-            unsupported("explicit SIMD values")
+        local found = context.species(ctx, nodeType)
+        if found ~= nil and (found as any).family == "species" then
+            -- A species reads as its lane count.
+            return tostring((found as any).lanes), nodeType
         end
         local param = ctx.helperParams[tostring(named.cName)]
         if param ~= nil then
@@ -569,7 +592,7 @@ function expressions.value(ctx: context.Context, node: scalarIR.Expr): (string, 
             error("no local " .. tostring(named.cName), 0)
         end
 
-        return emit(ctx, ("load %s, ptr %s"):format(types.require(slot.type), slot.pointer)), slot.type
+        return emit(ctx, ("load %s, ptr %s"):format(context.llvmType(ctx, slot.type), slot.pointer)), slot.type
     elseif operation == "span_count" then
         local count = context.count(ctx, (node as scalarIR.SpanCount).span)
 

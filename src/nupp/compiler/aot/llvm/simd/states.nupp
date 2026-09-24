@@ -1,0 +1,418 @@
+module nupp.compiler.aot.llvm.simd.states
+
+--[[
+Reducer state as LLVM values, and the operations on it.
+
+A reducer lives in a stack slot of its state type and is updated through a
+pointer to that slot, so a contribution is a call and the state a local like
+any other. What each state holds and how a contribution changes it is the
+reducer contract in `nupp.simd.reducer`, bit for bit what `ks_scalar.h` did:
+
+- `ordered` and `algebraic` sum, product and dot: a bare binary64 accumulator,
+  updated in the body, so they have no functions here;
+- `pairwise`: a binary counter of partial sums, `{ [64 x double], i64 }`;
+- `compensated`: Neumaier's sum, `{ double, double }`;
+- every contract with an element: `{ T, i64 count, i64 position }`.
+
+Each operation is an `internal alwaysinline` function defined on first use.
+]]
+
+local builder = require("nupp.compiler.aot.llvm.builder")
+local reducers = require("nupp.compiler.aot.reducers")
+
+local states = {}
+
+const PAIRWISE = "{ [64 x double], i64 }"
+const COMPENSATED = "{ double, double }"
+
+--- The canonical quiet binary64 NaN a NaN-state reducer answers.
+const NAN = "0x7FF8000000000000"
+
+const ELEMENT_TYPES: {
+    [string]: string
+} = {["i32"] = "i32", ["u32"] = "i32", ["i64"] = "i64", ["u64"] = "i64", ["f64"] = "double", ["bool"] = "i1",}
+
+--- The LLVM type of an element-carrying reducer's `total`.
+function states.elementType(element: string): string?
+    return ELEMENT_TYPES[element]
+end
+
+--- The state type of a reducer IR type, or nil when it is not one.
+function states.type(typeName: string): string?
+    local order, operation = typeName:match("^simd_reducer_(%a+)_(%a+)$")
+    if order == "ordered" or order == "algebraic" then
+        return "double"
+    elseif order == "pairwise" then
+        return PAIRWISE
+    elseif order == "compensated" then
+        return COMPENSATED
+    end
+    if operation ~= nil then
+        return nil
+    end
+    local _, _, element = reducers.parse(typeName)
+    if element == nil then
+        return nil
+    end
+    local total = ELEMENT_TYPES[element as string]
+    if total == nil then
+        return nil
+    end
+
+    return "{ " .. (total as string) .. ", i64, i64 }"
+end
+
+--- Whether a contract keeps a bare accumulator updated in the body.
+function states.bare(order: string): boolean
+    return order == "ordered" or order == "algebraic"
+end
+
+local function attrs(module: builder.Module): string
+    return builder.attributes(module, "alwaysinline nounwind")
+end
+
+--- Defines `name` from `lines` once and answers `@name`.
+local function define(module: builder.Module, name: string, lines: {string}): string
+    builder.once(module, "define " .. name, table.concat(lines, "\n"))
+
+    return "@" .. name
+end
+
+--- `init`, `add` and `value` of the pairwise tree; `operator` is `fadd` or
+--- `fmul` and `empty` the value of a tree with no leaves.
+local function pairwise(module: builder.Module, operator: string, empty: string): (string, string, string)
+    local stem = "nupp.pairwise." .. (operator == "fadd" and "sum" or "product")
+    local a = attrs(module)
+    local add = define(module, stem .. ".add", {
+        "define internal void @" .. stem .. ".add(ptr %state, double %value) " .. a .. " {",
+        "entry:",
+        "  %countp = getelementptr inbounds " .. PAIRWISE .. ", ptr %state, i32 0, i32 1",
+        "  %count = load i64, ptr %countp",
+        "  br label %carry",
+        "carry:",
+        "  %occupied = phi i64 [ %count, %entry ], [ %shifted, %merge ]",
+        "  %level = phi i64 [ 0, %entry ], [ %next, %merge ]",
+        "  %carried = phi double [ %value, %entry ], [ %combined, %merge ]",
+        "  %low = and i64 %occupied, 1",
+        "  %busy = icmp ne i64 %low, 0",
+        "  br i1 %busy, label %merge, label %place",
+        "merge:",
+        "  %slot = getelementptr inbounds " .. PAIRWISE .. ", ptr %state, i32 0, i32 0, i64 %level",
+        "  %partial = load double, ptr %slot",
+        "  %combined = " .. operator .. " double %partial, %carried",
+        "  %shifted = lshr i64 %occupied, 1",
+        "  %next = add i64 %level, 1",
+        "  br label %carry",
+        "place:",
+        "  %target = getelementptr inbounds " .. PAIRWISE .. ", ptr %state, i32 0, i32 0, i64 %level",
+        "  store double %carried, ptr %target",
+        "  %more = add i64 %count, 1",
+        "  store i64 %more, ptr %countp",
+        "  ret void",
+        "}",
+    })
+    local init = define(module, stem .. ".init", {
+        "define internal void @" .. stem .. ".init(ptr %state, double %initial) " .. a .. " {",
+        "  %countp = getelementptr inbounds " .. PAIRWISE .. ", ptr %state, i32 0, i32 1",
+        "  store i64 0, ptr %countp",
+        "  call void " .. add .. "(ptr %state, double %initial)",
+        "  ret void",
+        "}",
+    })
+    local value = define(module, stem .. ".value", {
+        "define internal double @" .. stem .. ".value(ptr %state) " .. a .. " {",
+        "entry:",
+        "  %countp = getelementptr inbounds " .. PAIRWISE .. ", ptr %state, i32 0, i32 1",
+        "  %count = load i64, ptr %countp",
+        "  br label %walk",
+        "walk:",
+        "  %level = phi i64 [ 0, %entry ], [ %next, %step ]",
+        "  %result = phi double [ " .. empty .. ", %entry ], [ %kept, %step ]",
+        "  %have = phi i1 [ false, %entry ], [ %had, %step ]",
+        "  %bits = lshr i64 %count, %level",
+        "  %bit = and i64 %bits, 1",
+        "  %set = icmp ne i64 %bit, 0",
+        "  br i1 %set, label %take, label %step",
+        "take:",
+        "  %slot = getelementptr inbounds " .. PAIRWISE .. ", ptr %state, i32 0, i32 0, i64 %level",
+        "  %partial = load double, ptr %slot",
+        "  %joined = " .. operator .. " double %partial, %result",
+        "  %taken = select i1 %have, double %joined, double %partial",
+        "  br label %step",
+        "step:",
+        "  %kept = phi double [ %result, %walk ], [ %taken, %take ]",
+        "  %had = phi i1 [ %have, %walk ], [ true, %take ]",
+        "  %next = add i64 %level, 1",
+        "  %done = icmp eq i64 %next, 64",
+        "  br i1 %done, label %out, label %walk",
+        "out:",
+        "  ret double %kept",
+        "}",
+    })
+
+    return init, add, value
+end
+
+local function compensated(module: builder.Module): (string, string, string)
+    local a = attrs(module)
+    local init = define(module, "nupp.compensated.init", {
+        "define internal void @nupp.compensated.init(ptr %state, double %initial) " .. a .. " {",
+        "  store double %initial, ptr %state",
+        "  %cp = getelementptr inbounds " .. COMPENSATED .. ", ptr %state, i32 0, i32 1",
+        "  store double 0.0, ptr %cp",
+        "  ret void",
+        "}",
+    })
+    local add = define(module, "nupp.compensated.add", {
+        "define internal void @nupp.compensated.add(ptr %state, double %value) " .. a .. " {",
+        "  %total = load double, ptr %state",
+        "  %cp = getelementptr inbounds " .. COMPENSATED .. ", ptr %state, i32 0, i32 1",
+        "  %compensation = load double, ptr %cp",
+        "  %sum = fadd double %total, %value",
+        "  %tneg = fcmp olt double %total, 0.0",
+        "  %tflip = fneg double %total",
+        "  %tabs = select i1 %tneg, double %tflip, double %total",
+        "  %vneg = fcmp olt double %value, 0.0",
+        "  %vflip = fneg double %value",
+        "  %vabs = select i1 %vneg, double %vflip, double %value",
+        "  %larger = fcmp oge double %tabs, %vabs",
+        "  %tlost = fsub double %total, %sum",
+        "  %tpart = fadd double %tlost, %value",
+        "  %vlost = fsub double %value, %sum",
+        "  %vpart = fadd double %vlost, %total",
+        "  %part = select i1 %larger, double %tpart, double %vpart",
+        "  %kept = fadd double %compensation, %part",
+        "  store double %kept, ptr %cp",
+        "  store double %sum, ptr %state",
+        "  ret void",
+        "}",
+    })
+    local value = define(module, "nupp.compensated.value", {
+        "define internal double @nupp.compensated.value(ptr %state) " .. a .. " {",
+        "  %total = load double, ptr %state",
+        "  %cp = getelementptr inbounds " .. COMPENSATED .. ", ptr %state, i32 0, i32 1",
+        "  %compensation = load double, ptr %cp",
+        "  %out = fadd double %total, %compensation",
+        "  ret double %out",
+        "}",
+    })
+
+    return init, add, value
+end
+
+--- The comparison deciding `v` replaces `total` for an integer extreme.
+local function better(element: string, operation: string): string
+    local signed = element == "i32" or element == "i64"
+    if operation == "min" or operation == "argmin" then
+        return signed and "slt" or "ult"
+    end
+
+    return signed and "sgt" or "ugt"
+end
+
+--- The body lines deciding `%better` for a NaN-aware binary64 extreme.
+local function floatBetter(order: string, operation: string): {string}
+    local less = operation == "min" or operation == "argmin"
+    local lines = {
+        "  %vnan = fcmp uno double %value, 0.0",
+        "  %tnan = fcmp uno double %total, 0.0",
+        "  %strict = fcmp " .. (less and "olt" or "ogt") .. " double %value, %total",
+        "  %vzero = fcmp oeq double %value, 0.0",
+        "  %tzero = fcmp oeq double %total, 0.0",
+        "  %vbits = bitcast double %value to i64",
+        "  %tbits = bitcast double %total to i64",
+        "  %vsign = icmp slt i64 %vbits, 0",
+        "  %tsign = icmp slt i64 %tbits, 0",
+    }
+    -- A zero tie goes to -0 for a minimum and +0 for a maximum.
+    if less then
+        lines[#lines + 1] = "  %tsignclear = xor i1 %tsign, true"
+        lines[#lines + 1] = "  %signs = and i1 %vsign, %tsignclear"
+    else
+        lines[#lines + 1] = "  %vsignclear = xor i1 %vsign, true"
+        lines[#lines + 1] = "  %signs = and i1 %vsignclear, %tsign"
+    end
+    lines[#lines + 1] = "  %zeros = and i1 %vzero, %tzero"
+    lines[#lines + 1] = "  %tie = and i1 %zeros, %signs"
+    lines[#lines + 1] = "  %ordered = or i1 %strict, %tie"
+    if order == "propagating" then
+        -- A NaN total sticks; a NaN contribution replaces a number.
+        lines[#lines + 1] = "  %either = or i1 %vnan, %ordered"
+        lines[#lines + 1] = "  %tnum = xor i1 %tnan, true"
+        lines[#lines + 1] = "  %better = and i1 %tnum, %either"
+    else
+        -- A NaN contribution is skipped; a number replaces a NaN total.
+        lines[#lines + 1] = "  %either = or i1 %tnan, %ordered"
+        lines[#lines + 1] = "  %vnum = xor i1 %vnan, true"
+        lines[#lines + 1] = "  %better = and i1 %vnum, %either"
+    end
+
+    return lines
+end
+
+--- `init`, `add` and `value` for an element-carrying contract.
+--- @raises string when the contract has no state operations
+local function elemental(
+    module: builder.Module,
+    order: string,
+    operation: string,
+    element: string
+): (string, string, string)
+    local t = ELEMENT_TYPES[element]
+    if t == nil then
+        error("no reducer state for element " .. element, 0)
+    end
+    local total = t as string
+    local state = "{ " .. total .. ", i64, i64 }"
+    local stem = "nupp.reduce." .. order .. "." .. operation .. "." .. element
+    local a = attrs(module)
+    local init = define(module, stem .. ".init", {
+        "define internal void @" .. stem .. ".init(ptr %state, " .. total .. " %initial) " .. a .. " {",
+        "  store " .. total .. " %initial, ptr %state",
+        "  %countp = getelementptr inbounds " .. state .. ", ptr %state, i32 0, i32 1",
+        "  store i64 0, ptr %countp",
+        "  %positionp = getelementptr inbounds " .. state .. ", ptr %state, i32 0, i32 2",
+        "  store i64 0, ptr %positionp",
+        "  ret void",
+        "}",
+    })
+    local head = {
+        "define internal void @" .. stem .. ".add(ptr %state, " .. total .. " %value) " .. a .. " {",
+        "  %total = load " .. total .. ", ptr %state",
+        "  %countp = getelementptr inbounds " .. state .. ", ptr %state, i32 0, i32 1",
+        "  %positionp = getelementptr inbounds " .. state .. ", ptr %state, i32 0, i32 2",
+    }
+    local lines = head
+
+    local function add(line: string): nil
+        lines[#lines + 1] = "  " .. line
+    end
+
+    local result = total
+    local valueLines: {string} = {"  %total = load " .. total .. ", ptr %state", "  ret " .. total .. " %total"}
+    if order == "exact" and element == "bool" then
+        if operation == "any" or operation == "all" then
+            add(("%%next = %s i1 %%total, %%value"):format(operation == "any" and "or" or "and"))
+            add("store i1 %next, ptr %state")
+        else
+            add("%count = load i64, ptr %countp")
+            add("%one = zext i1 %value to i64")
+            add("%more = add i64 %count, %one")
+            add("store i64 %more, ptr %countp")
+            result = "i64"
+            valueLines = {
+                "  %countp = getelementptr inbounds " .. state .. ", ptr %state, i32 0, i32 1",
+                "  %count = load i64, ptr %countp",
+                "  ret i64 %count",
+            }
+        end
+    elseif order == "exact" then
+        local instruction = ({sum = "add", product = "mul", ["and"] = "and", ["or"] = "or", xor = "xor"})[operation]
+        if instruction == nil then
+            error("no exact reducer " .. operation, 0)
+        end
+        add(("%%next = %s %s %%total, %%value"):format(instruction as string, total))
+        add(("store %s %%next, ptr %%state"):format(total))
+    elseif operation == "min" or operation == "max" then
+        if order == "integer" then
+            add(("%%better = icmp %s %s %%value, %%total"):format(better(element, operation), total))
+        else
+            for _, line in ipairs(floatBetter(order, operation)) do
+                lines[#lines + 1] = line
+            end
+        end
+        add(("%%next = select i1 %%better, %s %%value, %s %%total"):format(total, total))
+        add(("store %s %%next, ptr %%state"):format(total))
+        if order ~= "integer" then
+            valueLines = {
+                "  %total = load double, ptr %state",
+                "  %nan = fcmp uno double %total, 0.0",
+                "  %out = select i1 %nan, double " .. NAN .. ", double %total",
+                "  ret double %out",
+            }
+        end
+    else
+        -- argmin / argmax: count every contribution, remember the first
+        -- position holding the extreme.
+        add("%count = load i64, ptr %countp")
+        add("%more = add i64 %count, 1")
+        add("store i64 %more, ptr %countp")
+        add("%position = load i64, ptr %positionp")
+        add("%first = icmp eq i64 %position, 0")
+        if order == "integer" then
+            add(("%%better = icmp %s %s %%value, %%total"):format(better(element, operation), total))
+        else
+            for _, line in ipairs(floatBetter(order, operation)) do
+                lines[#lines + 1] = line
+            end
+        end
+        add("%take = or i1 %first, %better")
+        add(("%%next = select i1 %%take, %s %%value, %s %%total"):format(total, total))
+        add("%at = select i1 %take, i64 %more, i64 %position")
+        add(("store %s %%next, ptr %%state"):format(total))
+        add("store i64 %at, ptr %positionp")
+        result = "double"
+        valueLines = {
+            "  %positionp = getelementptr inbounds " .. state .. ", ptr %state, i32 0, i32 2",
+            "  %position = load i64, ptr %positionp",
+            "  %out = uitofp i64 %position to double",
+            "  ret double %out",
+        }
+    end
+    lines[#lines + 1] = "  ret void"
+    lines[#lines + 1] = "}"
+    local addName = define(module, stem .. ".add", lines)
+    local valueName = define(module, stem .. ".value", {
+        "define internal " .. result .. " @" .. stem .. ".value(ptr %state) " .. a .. " {",
+        table.concat(valueLines, "\n"),
+        "}"
+    })
+
+    return init, addName, valueName
+end
+
+--- The operations of one stateful contract: `init(ptr, T)`, `add(ptr, T)`
+--- and `value(ptr)`, and the LLVM types `add` takes and `value` answers.
+record states.Operations
+    init: string
+    add: string
+    value: string
+
+    --- What one contribution is passed as.
+    input: string
+
+    --- What `value` answers.
+    result: string
+end
+
+--- The operations of a stateful contract, or nil for a bare accumulator.
+--- @raises string when the contract is not one this lowering knows
+function states.operations(
+    module: builder.Module,
+    order: string,
+    operation: string,
+    element: string?
+): states.Operations?
+    if states.bare(order) then
+        return nil
+    elseif order == "pairwise" then
+        local product = operation == "product"
+        local init, add, value = pairwise(module, product and "fmul" or "fadd", product and "1.0" or "0.0")
+        return new states.Operations(init = init, add = add, value = value, input = "double", result = "double")
+    elseif order == "compensated" then
+        local init, add, value = compensated(module)
+        return new states.Operations(init = init, add = add, value = value, input = "double", result = "double")
+    end
+    if element == nil then
+        error("reducer " .. order .. " " .. operation .. " names no element", 0)
+    end
+    local init, add, value = elemental(module, order, operation, element as string)
+    local input = ELEMENT_TYPES[element as string] as string
+    local result = operation == "count" and "i64"
+        or (operation == "argmin" or operation == "argmax") and "double"
+        or input
+
+    return new states.Operations(init = init, add = add, value = value, input = input, result = result)
+end
+
+export = states

@@ -41,9 +41,10 @@ function statements.slot(ctx: context.Context, cName: string, typeName: string):
     if existing ~= nil then
         return existing as context.Slot
     end
-    local llvmType = types.require(typeName)
+    local llvmType = context.llvmType(ctx, typeName)
+    local scalar = types.value(typeName) ~= nil
     local slot = new context.Slot(
-        pointer = builder.alloca(ctx.f, llvmType, types.bits(typeName) >= 64 and 8 or 4),
+        pointer = builder.alloca(ctx.f, llvmType, not scalar and 16 or types.bits(typeName) >= 64 and 8 or 4),
         type = typeName
     )
     ctx.locals[cName] = slot
@@ -54,7 +55,7 @@ end
 --- Stores `value` (of `valueType`) into a local of `slotType`.
 local function assignLocal(ctx: context.Context, slot: context.Slot, value: string, valueType: string): nil
     local converted = expressions.convert(ctx, value, valueType, slot.type)
-    emit(ctx, ("store %s %s, ptr %s"):format(types.require(slot.type), converted, slot.pointer))
+    emit(ctx, ("store %s %s, ptr %s"):format(context.llvmType(ctx, slot.type), converted, slot.pointer))
 end
 
 --- A condition as an i1.
@@ -277,13 +278,33 @@ end
 
 --- Emits one statement.
 --- @raises string for a statement this backend does not emit yet
+--- Lowerings of statements defined outside this module (SIMD stores,
+--- reducers), by operation. Installed by `llvmProgram`.
+statements.handlers = {} as {[string]: function(ctx: context.Context, node: scalarIR.Statement): nil}
+
+--- Lowerings of `let` values that initialize their slot in place rather
+--- than producing a value (a reducer's state), by the value's operation.
+statements.binders = {} as {[string]: function(ctx: context.Context, slot: context.Slot, value: scalarIR.Expr): nil}
+
 function statements.statement(ctx: context.Context, node: scalarIR.Statement): nil
     dwarf.at(ctx.f, ctx.scope, (node as any).source as scalarIR.Source?)
     local operation = node.op
+    local handler = statements.handlers[operation]
+    if handler ~= nil then
+        handler(ctx, node)
+        return
+    end
     if operation == "let" then
         local statement = node as scalarIR.Let
-        if tostring(statement.type):match("^simd_") ~= nil then
-            unsupported("explicit SIMD locals")
+        local named = context.species(ctx, tostring(statement.type))
+        if named ~= nil and (named as any).family == "species" then
+            -- A species is its lane count, known here; nothing is stored.
+            return
+        end
+        local binder = statements.binders[statement.value.op]
+        if binder ~= nil then
+            binder(ctx, statements.slot(ctx, statement.cName, tostring(statement.type)), statement.value)
+            return
         end
         local value, t = expressions.value(ctx, statement.value)
         -- A struct element binds its address; everything else its value.
@@ -312,7 +333,7 @@ function statements.statement(ctx: context.Context, node: scalarIR.Statement): n
     elseif operation == "multi_let" then
         local statement = node as scalarIR.MultiLet
         local aggregate = expressions.helperCall(ctx, statement.call)
-        local resultType = expressions.helperResult(statement.call.resultTypes as {scalarIR.Type})
+        local resultType = expressions.helperResult(ctx, statement.call.resultTypes as {scalarIR.Type})
         for position, bound in ipairs(statement.bindings) do
             local value = builder.value(ctx.f, ("extractvalue %s %s, %d"):format(resultType, aggregate, position - 1))
             assignLocal(ctx, statements.slot(ctx, bound.cName, bound.type), value, bound.type)

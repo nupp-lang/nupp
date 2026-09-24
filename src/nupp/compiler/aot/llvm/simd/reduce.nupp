@@ -1,0 +1,293 @@
+module nupp.compiler.aot.llvm.simd.reduce
+
+--[[
+Folding a vector's lanes: mask queries, prefix scans and horizontal reductions.
+
+A horizontal reduction names its association, and the answer depends on it,
+so each order is the exact tree its contract states over the lanes in logical
+order: `ordered` left to right from the identity, `pairwise` the balanced tree
+carrying an odd lane up unchanged, `algebraic` even and odd lanes apart then
+joined, its dot fused. None of them is `reassoc`, which would let LLVM pick
+the tree. Extremes answer the same whatever the order; their `arg` forms keep
+the lowest lane among equals under the zero-sign and NaN rules.
+]]
+
+local context = require("nupp.compiler.aot.llvm.context")
+local expressions = require("nupp.compiler.aot.llvm.expressions")
+local lanes = require("nupp.compiler.aot.llvm.simd.lanes")
+local prelude = require("nupp.compiler.aot.llvm.prelude")
+local scalarIR = require("nupp.compiler.aot.scalar")
+local species = require("nupp.compiler.aot.llvm.simd.species")
+
+local reduce = {}
+
+--- @raises string always
+local function unsupported(what: string): never
+    error(expressions.UNSUPPORTED .. what, 0)
+end
+
+local function e(ctx: context.Context, instruction: string): string
+    return lanes.emit(ctx, instruction)
+end
+
+local function operand(ctx: context.Context, node: scalarIR.Expr): string
+    local value = expressions.value(ctx, node)
+
+    return value
+end
+
+--- The mask as an integer of N bits, lane i at bit i, zero-extended to i64.
+function reduce.bits(ctx: context.Context, found: species.Species, mask: string): string
+    local packed = e(ctx, ("bitcast %s %s to i%d"):format(found.mask, mask, found.lanes))
+    if found.lanes == 64 then
+        return packed
+    end
+
+    return e(ctx, ("zext i%d %s to i64"):format(found.lanes, packed))
+end
+
+local function maskQuery(ctx: context.Context, node: scalarIR.Expr): (string, string)
+    local simd = node as scalarIR.Simd
+    local found = lanes.of(ctx, tostring(simd.args[1].type))
+    local mask = operand(ctx, simd.args[1])
+    local suffix = lanes.suffix(found.lanes, "i1")
+    local query = tostring(simd.op)
+    if query == "simd_mask_any" or query == "simd_mask_all" then
+        local verb = query == "simd_mask_any" and "or" or "and"
+        local callee = prelude.intrinsic(
+            ctx.module,
+            "llvm.vector.reduce." .. verb .. "." .. suffix,
+            ("i1 @NAME(%s)"):format(found.mask)
+        )
+        return e(ctx, ("call i1 %s(%s %s)"):format(callee, found.mask, mask)), "bool"
+    end
+    local bits = reduce.bits(ctx, found, mask)
+    if query == "simd_mask_bits" then
+        return bits, "u64"
+    elseif query == "simd_mask_count" then
+        local ctpop = prelude.intrinsic(ctx.module, "llvm.ctpop.i64", "i64 @NAME(i64)")
+        local count = e(ctx, ("call i64 %s(i64 %s)"):format(ctpop, bits))
+        return e(ctx, ("trunc i64 %s to i32"):format(count)), "u32"
+    end
+    -- `first`: the 1-based lowest active lane, 0 when none is.
+    local cttz = prelude.intrinsic(ctx.module, "llvm.cttz.i64", "i64 @NAME(i64, i1)")
+    local zeros = e(ctx, ("call i64 %s(i64 %s, i1 false)"):format(cttz, bits))
+    local lane = e(ctx, ("add i64 %s, 1"):format(zeros))
+    local none = e(ctx, ("icmp eq i64 %s, 0"):format(bits))
+    local picked = e(ctx, ("select i1 %s, i64 0, i64 %s"):format(none, lane))
+
+    return e(ctx, ("trunc i64 %s to i32"):format(picked)), "u32"
+end
+
+--- Every lane of `vector` as a scalar, in order.
+local function unpack(ctx: context.Context, found: species.Species, vector: string): {string}
+    local values: {string} = {}
+    for index = 0, found.lanes - 1 do
+        values[#values + 1] = lanes.extract(ctx, found, vector, index)
+    end
+
+    return values
+end
+
+--- The inclusive scan in lane order.
+local function prefix(ctx: context.Context, node: scalarIR.Expr): (string, string)
+    local simd = node as scalarIR.Simd
+    local typeName = tostring(simd.type)
+    local found = lanes.of(ctx, typeName)
+    local values = unpack(ctx, found, operand(ctx, simd.args[1]))
+    local instruction = simd.intrinsic == "prefix_xor" and "xor" or found.float and "fadd" or "add"
+    local out = lanes.insert(ctx, found, "poison", values[1], 0)
+    local running = values[1]
+    for index = 2, #values do
+        running = e(ctx, ("%s %s %s, %s"):format(instruction, found.scalar, running, values[index]))
+        out = lanes.insert(ctx, found, out, running, index - 1)
+    end
+
+    return out, typeName
+end
+
+--- `op` over two lane scalars.
+local function combine(ctx: context.Context, found: species.Species, operation: string, a: string, b: string): string
+    local instruction = operation == "product" and (found.float and "fmul" or "mul")
+        or (found.float and "fadd" or "add")
+
+    return e(ctx, ("%s %s %s, %s"):format(instruction, found.scalar, a, b))
+end
+
+--- The balanced pairwise tree: neighbours joined level by level, an odd
+--- last value carried up unchanged.
+local function pairwise(ctx: context.Context, found: species.Species, operation: string, values: {string}): string
+    local level = values
+    while #level > 1 do
+        local next: {string} = {}
+        local index: integer = 1
+        while index + 1 <= #level do
+            next[#next + 1] = combine(ctx, found, operation, level[index], level[index + 1])
+            index = index + 2
+        end
+        if index <= #level then
+            next[#next + 1] = level[index]
+        end
+        level = next
+    end
+
+    return level[1]
+end
+
+--- The lane-wise products of two vectors, each rounded.
+local function products(ctx: context.Context, found: species.Species, a: {string}, b: {string}): {string}
+    local out: {string} = {}
+    for index = 1, #a do
+        out[index] = combine(ctx, found, "product", a[index], b[index])
+    end
+
+    return out
+end
+
+--- The fused `a * b + c` of one lane.
+local function fused(ctx: context.Context, found: species.Species, a: string, b: string, c: string): string
+    local t = found.scalar
+    local fma = prelude.intrinsic(
+        ctx.module,
+        "llvm.fma." .. (t == "double" and "f64" or "f32"),
+        ("%s @NAME(%s, %s, %s)"):format(t, t, t, t)
+    )
+
+    return e(ctx, ("call %s %s(%s %s, %s %s, %s %s)"):format(t, fma, t, a, t, b, t, c))
+end
+
+--- Whether lane value `v` replaces `best` in an arg fold.
+local function argBetter(
+    ctx: context.Context,
+    found: species.Species,
+    v: string,
+    best: string,
+    minimum: boolean,
+    propagating: boolean
+): string
+    local t = found.scalar
+    if not found.float then
+        local predicate = (found.signed and "s" or "u") .. (minimum and "lt" or "gt")
+        return e(ctx, ("icmp %s %s %s, %s"):format(predicate, t, v, best))
+    end
+    local bitsType = lanes.bitsType(found)
+    local vNan = e(ctx, ("fcmp uno %s %s, %s"):format(t, v, v))
+    local bestNan = e(ctx, ("fcmp uno %s %s, %s"):format(t, best, best))
+    local strict = e(ctx, ("fcmp %s %s %s, %s"):format(minimum and "olt" or "ogt", t, v, best))
+    local equal = e(ctx, ("fcmp oeq %s %s, %s"):format(t, v, best))
+    local vBits = e(ctx, ("bitcast %s %s to %s"):format(t, v, bitsType))
+    local bestBits = e(ctx, ("bitcast %s %s to %s"):format(t, best, bitsType))
+    local vSign = e(ctx, ("icmp slt %s %s, 0"):format(bitsType, vBits))
+    local bestSign = e(ctx, ("icmp slt %s %s, 0"):format(bitsType, bestBits))
+    -- On an equal pair of zeros, -0 wins a minimum and +0 a maximum.
+    local winner = minimum and vSign or bestSign
+    local loser = minimum and bestSign or vSign
+    local loserClear = e(ctx, ("xor i1 %s, true"):format(loser))
+    local signs = e(ctx, ("and i1 %s, %s"):format(winner, loserClear))
+    local tie = e(ctx, ("and i1 %s, %s"):format(equal, signs))
+    local ordered = e(ctx, ("or i1 %s, %s"):format(strict, tie))
+    if propagating then
+        local either = e(ctx, ("or i1 %s, %s"):format(vNan, ordered))
+        local bestNumber = e(ctx, ("xor i1 %s, true"):format(bestNan))
+        return e(ctx, ("and i1 %s, %s"):format(bestNumber, either))
+    end
+    local either = e(ctx, ("or i1 %s, %s"):format(bestNan, ordered))
+    local vNumber = e(ctx, ("xor i1 %s, true"):format(vNan))
+
+    return e(ctx, ("and i1 %s, %s"):format(vNumber, either))
+end
+
+local function horizontal(ctx: context.Context, node: scalarIR.Expr): (string, string)
+    local simd = node as scalarIR.Simd
+    local found = lanes.of(ctx, tostring(simd.args[1].type))
+    local intrinsic = tostring(simd.intrinsic)
+    local order, kind = intrinsic:match("^(%a+)_(.+)$")
+    local values = unpack(ctx, found, operand(ctx, simd.args[1]))
+    local t = found.scalar
+    local zero = found.float and "0.0" or "0"
+    local one = found.float and "1.0" or "1"
+
+    if kind == "sum" or kind == "product" or kind == "dot" then
+        local operation = kind == "product" and "product" or "sum"
+        local identity = kind == "product" and one or zero
+        local leaves = values
+        if kind == "dot" then
+            local right = unpack(ctx, found, operand(ctx, simd.args[2]))
+            if order == "algebraic" then
+                -- Even and odd lanes fused into their own partials.
+                local even, odd = zero, zero
+                local index: integer = 1
+                while index + 1 <= #values do
+                    even = fused(ctx, found, values[index], right[index], even)
+                    odd = fused(ctx, found, values[index + 1], right[index + 1], odd)
+                    index = index + 2
+                end
+                if index <= #values then
+                    even = fused(ctx, found, values[index], right[index], even)
+                end
+                return lanes.fromLane(ctx, found, combine(ctx, found, "sum", even, odd))
+            end
+            leaves = products(ctx, found, values, right)
+        end
+        local result: string
+        if order == "ordered" then
+            result = identity
+            for _, value in ipairs(leaves) do
+                result = combine(ctx, found, operation, result, value)
+            end
+        elseif order == "pairwise" then
+            result = pairwise(ctx, found, operation, leaves)
+        elseif order == "algebraic" then
+            local even, odd = identity, identity
+            local index: integer = 1
+            while index + 1 <= #leaves do
+                even = combine(ctx, found, operation, even, leaves[index])
+                odd = combine(ctx, found, operation, odd, leaves[index + 1])
+                index = index + 2
+            end
+            if index <= #leaves then
+                even = combine(ctx, found, operation, even, leaves[index])
+            end
+            result = combine(ctx, found, operation, even, odd)
+        else
+            unsupported("horizontal order " .. tostring(order))
+        end
+        return lanes.fromLane(ctx, found, result)
+    end
+
+    local propagating = order == "propagating"
+    if kind == "min" or kind == "max" then
+        local shape = lanes.scalarShape(found)
+        local result = values[1]
+        for index = 2, #values do
+            result = found.float and lanes.floatExtreme(ctx, shape, result, values[index], kind == "min", propagating)
+                or lanes.integerExtreme(ctx, shape, result, values[index], kind == "min", found.signed)
+        end
+        return lanes.fromLane(ctx, found, result)
+    elseif kind == "arg_min" or kind == "arg_max" then
+        local minimum = kind == "arg_min"
+        local best = values[1]
+        local at = "0"
+        for index = 2, #values do
+            local take = argBetter(ctx, found, values[index], best, minimum, propagating)
+            best = e(ctx, ("select i1 %s, %s %s, %s %s"):format(take, t, values[index], t, best))
+            at = e(ctx, ("select i1 %s, i32 %d, i32 %s"):format(take, index - 1, at))
+        end
+        local lane = e(ctx, ("add i32 %s, 1"):format(at))
+        return e(ctx, ("uitofp i32 %s to double"):format(lane)), "f64"
+    end
+
+    unsupported("horizontal operation " .. intrinsic)
+end
+
+reduce.EXPRESSIONS = {
+    ["simd_mask_any"] = maskQuery,
+    ["simd_mask_all"] = maskQuery,
+    ["simd_mask_count"] = maskQuery,
+    ["simd_mask_first"] = maskQuery,
+    ["simd_mask_bits"] = maskQuery,
+    ["simd_prefix"] = prefix,
+    ["simd_horizontal"] = horizontal,
+} as {[string]: function(ctx: context.Context, node: scalarIR.Expr): (string, string)}
+
+export = reduce

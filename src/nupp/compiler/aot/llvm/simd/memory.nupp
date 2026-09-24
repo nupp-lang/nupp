@@ -1,0 +1,598 @@
+module nupp.compiler.aot.llvm.simd.memory
+
+--[[
+Vector loads and stores against spans.
+
+Every access is clamped rather than faulting. A vector at 1-based `offset`
+starts at element `first = offset - 1`, and an offset that is not a positive
+integer becomes an unreachable `first`. Then `room = min(count - first, N)`
+lanes are in the span (none when `first >= count`). A load reads the in-bounds
+lanes and answers 0 for the rest; a store writes only the in-bounds lanes; a
+mask narrows either further, and an inactive lane of a load reads as 0.
+
+The whole-vector case is one plain load or store, and only a partial vector
+takes the masked form. Gathers, scatters and struct-field accesses use lane
+pointers, and disabled lanes address element 0 so no pointer leaves its span.
+]]
+
+local builder = require("nupp.compiler.aot.llvm.builder")
+local context = require("nupp.compiler.aot.llvm.context")
+local expressions = require("nupp.compiler.aot.llvm.expressions")
+local lanes = require("nupp.compiler.aot.llvm.simd.lanes")
+local prelude = require("nupp.compiler.aot.llvm.prelude")
+local scalarIR = require("nupp.compiler.aot.scalar")
+local simdbounds = require("nupp.compiler.aot.simdbounds")
+local species = require("nupp.compiler.aot.llvm.simd.species")
+local types = require("nupp.compiler.aot.llvm.types")
+
+local memory = {}
+
+--- @raises string always
+local function unsupported(what: string): never
+    error(expressions.UNSUPPORTED .. what, 0)
+end
+
+local function e(ctx: context.Context, instruction: string): string
+    return lanes.emit(ctx, instruction)
+end
+
+local function operand(ctx: context.Context, node: scalarIR.Expr): string
+    local value = expressions.value(ctx, node)
+
+    return value
+end
+
+--- The zero-based first element a 1-based offset names, as an i64, or
+--- all ones when the offset names no element.
+function memory.first(ctx: context.Context, offset: scalarIR.Expr): string
+    if offset.op == "int_to_f64" then
+        local inner = (offset as scalarIR.Convert).value
+        local value, t = expressions.value(ctx, inner)
+        local wide = expressions.convert(ctx, value, t, types.signed(t) and "i64" or "u64")
+        local positive = types.signed(t) and e(ctx, ("icmp sgt i64 %s, 0"):format(wide))
+            or e(ctx, ("icmp ne i64 %s, 0"):format(wide))
+        local less = e(ctx, ("sub i64 %s, 1"):format(wide))
+
+        return e(ctx, ("select i1 %s, i64 %s, i64 -1"):format(positive, less))
+    end
+    local value, t = expressions.value(ctx, offset)
+    local x = expressions.convert(ctx, value, t, "f64")
+    local floor = prelude.intrinsic(ctx.module, "llvm.floor.f64", "double @NAME(double)")
+    local atLeastOne = e(ctx, ("fcmp oge double %s, 1.0"):format(x))
+    local floored = e(ctx, ("call double %s(double %s)"):format(floor, x))
+    local integral = e(ctx, ("fcmp oeq double %s, %s"):format(x, floored))
+    local less = e(ctx, ("fsub double %s, 1.0"):format(x))
+    -- (double)SIZE_MAX rounds to 2^64.
+    local small = e(ctx, ("fcmp olt double %s, 0x43F0000000000000"):format(less))
+    local both = e(ctx, ("and i1 %s, %s"):format(atLeastOne, integral))
+    local valid = e(ctx, ("and i1 %s, %s"):format(both, small))
+    local converted = e(ctx, ("fptoui double %s to i64"):format(less))
+
+    return e(ctx, ("select i1 %s, i64 %s, i64 -1"):format(valid, converted))
+end
+
+--- Where an access starts and how much of it is in the span.
+record memory.Window
+    --- The first element's address (the span's start when nothing is in
+    --- bounds, so it never points outside).
+    address: string
+
+    --- How many lanes are in bounds, as an i32 in [0, lanes].
+    room: string
+
+    --- The first element, as an i64.
+    first: string
+
+    --- Whether `first` is inside the span.
+    inside: string
+end
+
+--- The window `lanes` elements wide at `first` in span `name` of `storage`.
+--- @raises string when the entry has no span by that name
+function memory.window(
+    ctx: context.Context,
+    name: string,
+    first: string,
+    width: integer,
+    storage: string
+): memory.Window
+    local span = ctx.spans[name]
+    if span == nil then
+        error("no span " .. name, 0)
+    end
+    local count = context.count(ctx, name)
+    local inside = e(ctx, ("icmp ult i64 %s, %s"):format(first, count))
+    local left = e(ctx, ("sub i64 %s, %s"):format(count, first))
+    local capped = e(
+        ctx,
+        ("select i1 %s, i64 %s, i64 %d"):format(e(ctx, ("icmp ult i64 %s, %d"):format(left, width)), left, width)
+    )
+    local room64 = e(ctx, ("select i1 %s, i64 %s, i64 0"):format(inside, capped))
+    local room = e(ctx, ("trunc i64 %s to i32"):format(room64))
+    local start = e(ctx, ("select i1 %s, i64 %s, i64 0"):format(inside, first))
+    local address = e(
+        ctx,
+        ("getelementptr inbounds %s, ptr %s, i64 %s"):format(storage, (span as context.Span).pointer, start)
+    )
+
+    return new memory.Window(address = address, room = room, first = first, inside = inside)
+end
+
+--- The lanes below `room` of a `count`-lane access.
+local function roomMask(ctx: context.Context, count: integer, room: string): string
+    local bound = lanes.splat(ctx, count, "i32", room)
+
+    return e(ctx, ("icmp ult %s, %s"):format(lanes.indices(count, "i32"), bound))
+end
+
+--- Runs `whole` when all `count` lanes are in the window and `partial`
+--- otherwise, joining the vectors they answer (or nothing, for stores).
+local function split(
+    ctx: context.Context,
+    window: memory.Window,
+    count: integer,
+    resultType: string?,
+    whole: function(): string?,
+    partial: function(): string?
+): string?
+    local f = ctx.f
+    local full = e(ctx, ("icmp eq i32 %s, %d"):format(window.room, count))
+    local wholeLabel = builder.label(f, "simd.whole")
+    local partLabel = builder.label(f, "simd.part")
+    local joinLabel = builder.label(f, "simd.join")
+    builder.terminate(f, ("br i1 %s, label %%%s, label %%%s"):format(full, wholeLabel, partLabel))
+    builder.start(f, wholeLabel)
+    local a = whole()
+    local aEnd = f.current
+    builder.jump(f, joinLabel)
+    builder.start(f, partLabel)
+    local b = partial()
+    local bEnd = f.current
+    builder.start(f, joinLabel)
+    if resultType == nil then
+        return nil
+    end
+
+    return e(
+        ctx,
+        ("phi %s [ %s, %%%s ], [ %s, %%%s ]"):format(resultType as string, tostring(a), aEnd, tostring(b), bEnd)
+    )
+end
+
+local function maskedLoad(
+    ctx: context.Context,
+    vector: string,
+    suffix: string,
+    address: string,
+    align: integer,
+    mask: string,
+    count: integer
+): string
+    local callee = prelude.intrinsic(
+        ctx.module,
+        "llvm.masked.load." .. suffix .. ".p0",
+        ("%s @NAME(ptr, <%d x i1>, %s)"):format(vector, count, vector)
+    )
+
+    return e(
+        ctx,
+        (
+            "call %s %s(ptr align %d %s, <%d x i1> %s, %s zeroinitializer)"
+        ):format(vector, callee, align, address, count, mask, vector)
+    )
+end
+
+local function maskedStore(
+    ctx: context.Context,
+    vector: string,
+    suffix: string,
+    value: string,
+    address: string,
+    align: integer,
+    mask: string,
+    count: integer
+): nil
+    local callee = prelude.intrinsic(
+        ctx.module,
+        "llvm.masked.store." .. suffix .. ".p0",
+        ("void @NAME(%s, ptr, <%d x i1>)"):format(vector, count)
+    )
+    builder.emit(
+        ctx.f,
+        (
+            "call void %s(%s %s, ptr align %d %s, <%d x i1> %s)"
+        ):format(callee, vector, value, align, address, count, mask)
+    )
+end
+
+--- A contiguous load of `found` at `first`, optionally masked.
+local function contiguousLoad(
+    ctx: context.Context,
+    found: species.Species,
+    span: string,
+    first: string,
+    active: string?
+): string
+    local align = math.floor(found.bits / 8) as integer
+    local window = memory.window(ctx, span, first, found.lanes, found.scalar)
+    local suffix = lanes.suffix(found.lanes, found.scalar)
+
+    return split(
+        ctx,
+        window,
+        found.lanes,
+        found.vector,
+        function(): string?
+            local loaded = e(ctx, ("load %s, ptr %s, align %d"):format(found.vector, window.address, align))
+            if active == nil then
+                return loaded
+            end
+
+            return e(
+                ctx,
+                (
+                    "select %s %s, %s %s, %s zeroinitializer"
+                ):format(found.mask, active, found.vector, loaded, found.vector)
+            )
+        end,
+        function(): string?
+            local mask = roomMask(ctx, found.lanes, window.room)
+            if active ~= nil then
+                mask = e(ctx, ("and %s %s, %s"):format(found.mask, mask, active as string))
+            end
+
+            return maskedLoad(ctx, found.vector, suffix, window.address, align, mask, found.lanes)
+        end
+    ) as string
+end
+
+--- The `ways * N` elements from `first` as one wide vector, lanes past the
+--- span 0.
+local function run(
+    ctx: context.Context,
+    found: species.Species,
+    span: string,
+    first: string,
+    ways: integer
+): (string, string)
+    local width = ways * found.lanes
+    local wide = "<" .. tostring(width) .. " x " .. found.scalar .. ">"
+    local align = math.floor(found.bits / 8) as integer
+    local window = memory.window(ctx, span, first, width, found.scalar)
+    local suffix = lanes.suffix(width, found.scalar)
+    local value = split(
+        ctx,
+        window,
+        width,
+        wide,
+        function(): string?
+            return e(ctx, ("load %s, ptr %s, align %d"):format(wide, window.address, align))
+        end,
+        function(): string?
+            return maskedLoad(ctx, wide, suffix, window.address, align, roomMask(ctx, width, window.room), width)
+        end
+    ) as string
+
+    return value, wide
+end
+
+--- Lane `i` of result `part` is element `first + i * ways + part`.
+local function interleavedLoad(ctx: context.Context, found: species.Species, simd: scalarIR.Simd, first: string): string
+    local ways = simdbounds.ways(simd.intrinsic)
+    local value, wide = run(ctx, found, tostring(simd.span), first, ways)
+    local part = simd.part or 0
+    local picks: {string} = {}
+    for index = 0, found.lanes - 1 do
+        picks[#picks + 1] = "i32 " .. tostring(index * ways + part)
+    end
+
+    return e(
+        ctx,
+        (
+            "shufflevector %s %s, %s poison, <%d x i32> <%s>"
+        ):format(wide, value, wide, found.lanes, table.concat(picks, ", "))
+    )
+end
+
+--- The lanes a gather or scatter may touch, and where each points: element
+--- `index - 1` for an active index in [1, count], element 0 otherwise.
+local function lanePointers(
+    ctx: context.Context,
+    found: species.Species,
+    span: string,
+    indexNode: scalarIR.Expr,
+    active: string?
+): (string, string)
+    local indexSpecies = lanes.of(ctx, tostring(indexNode.type))
+    local indices = operand(ctx, indexNode)
+    local count = found.lanes
+    local i64s = "<" .. tostring(count) .. " x i64>"
+    local wide = indices
+    if indexSpecies.bits < 64 then
+        wide = e(
+            ctx,
+            ("%s %s %s to %s"):format(indexSpecies.signed and "sext" or "zext", indexSpecies.vector, indices, i64s)
+        )
+    end
+    local positive = indexSpecies.signed and e(ctx, ("icmp sgt %s %s, zeroinitializer"):format(i64s, wide))
+        or e(ctx, ("icmp ne %s %s, zeroinitializer"):format(i64s, wide))
+    local spanCount = lanes.splat(ctx, count, "i64", context.count(ctx, span))
+    local within = e(ctx, ("icmp ule %s %s, %s"):format(i64s, wide, spanCount))
+    local enable = e(ctx, ("and %s %s, %s"):format(found.mask, positive, within))
+    if active ~= nil then
+        enable = e(ctx, ("and %s %s, %s"):format(found.mask, enable, active as string))
+    end
+    local less = e(ctx, ("sub %s %s, splat (i64 1)"):format(i64s, wide))
+    local safe = e(ctx, ("select %s %s, %s %s, %s zeroinitializer"):format(found.mask, enable, i64s, less, i64s))
+    local base = (ctx.spans[span] as context.Span).pointer
+    local pointers = e(ctx, ("getelementptr %s, ptr %s, %s %s"):format(found.scalar, base, i64s, safe))
+
+    return pointers, enable
+end
+
+local function gather(ctx: context.Context, found: species.Species, pointers: string, enable: string): string
+    local count = found.lanes
+    local align = math.floor(found.bits / 8) as integer
+    local ptrs = "<" .. tostring(count) .. " x ptr>"
+    local callee = prelude.intrinsic(
+        ctx.module,
+        "llvm.masked.gather." .. lanes.suffix(count, found.scalar) .. ".v" .. tostring(count) .. "p0",
+        ("%s @NAME(%s, %s, %s)"):format(found.vector, ptrs, found.mask, found.vector)
+    )
+
+    return e(
+        ctx,
+        (
+            "call %s %s(%s align %d %s, %s %s, %s zeroinitializer)"
+        ):format(found.vector, callee, ptrs, align, pointers, found.mask, enable, found.vector)
+    )
+end
+
+local function scatter(
+    ctx: context.Context,
+    found: species.Species,
+    value: string,
+    pointers: string,
+    enable: string
+): nil
+    local count = found.lanes
+    local align = math.floor(found.bits / 8) as integer
+    local ptrs = "<" .. tostring(count) .. " x ptr>"
+    local callee = prelude.intrinsic(
+        ctx.module,
+        "llvm.masked.scatter." .. lanes.suffix(count, found.scalar) .. ".v" .. tostring(count) .. "p0",
+        ("void @NAME(%s, %s, %s)"):format(found.vector, ptrs, found.mask)
+    )
+    builder.emit(
+        ctx.f,
+        (
+            "call void %s(%s %s, %s align %d %s, %s %s)"
+        ):format(callee, found.vector, value, ptrs, align, pointers, found.mask, enable)
+    )
+end
+
+--- The pointers to field `field` of elements `first .. first + N - 1` of a
+--- struct span, and the lanes in bounds and active.
+local function fieldPointers(
+    ctx: context.Context,
+    found: species.Species,
+    simd: scalarIR.Simd,
+    first: string,
+    active: string?
+): (string, string)
+    local layoutName = tostring(simd.layout)
+    local structType = expressions.layoutType(ctx, layoutName)
+    local layout = ctx.layouts[layoutName] as scalarIR.Layout
+    local fieldIndex = 0
+    for position, candidate in ipairs(layout.fields) do
+        if candidate.name == simd.field then
+            fieldIndex = position - 1
+        end
+    end
+    local window = memory.window(ctx, tostring(simd.span), first, found.lanes, structType)
+    local enable = roomMask(ctx, found.lanes, window.room)
+    if active ~= nil then
+        enable = e(ctx, ("and %s %s, %s"):format(found.mask, enable, active as string))
+    end
+    local i64s = "<" .. tostring(found.lanes) .. " x i64>"
+    local offsets = e(
+        ctx,
+        ("select %s %s, %s, %s zeroinitializer"):format(found.mask, enable, lanes.indices(found.lanes, "i64"), i64s)
+    )
+    local pointers = e(
+        ctx,
+        ("getelementptr %s, ptr %s, %s %s, i32 %d"):format(structType, window.address, i64s, offsets, fieldIndex)
+    )
+
+    return pointers, enable
+end
+
+--- A vector load, by its intrinsic.
+local function load(ctx: context.Context, node: scalarIR.Expr): (string, string)
+    local simd = node as scalarIR.Simd
+    local typeName = tostring(simd.type)
+    local found = lanes.of(ctx, typeName)
+    if simd.rooted ~= nil then
+        unsupported("rooted byte-view loads")
+    end
+    local intrinsic = tostring(simd.intrinsic)
+    if intrinsic == "gather" then
+        local active = simd.args[3] ~= nil and operand(ctx, simd.args[3] as scalarIR.Expr) or nil
+        local pointers, enable = lanePointers(ctx, found, tostring(simd.span), simd.args[2], active)
+        return gather(ctx, found, pointers, enable), typeName
+    end
+    local first = memory.first(ctx, simd.args[2])
+    if simdbounds.interleaved(intrinsic) then
+        return interleavedLoad(ctx, found, simd, first), typeName
+    end
+    local active = simd.args[3] ~= nil and operand(ctx, simd.args[3] as scalarIR.Expr) or nil
+
+    return contiguousLoad(ctx, found, tostring(simd.span), first, active), typeName
+end
+
+local function fieldLoad(ctx: context.Context, node: scalarIR.Expr): (string, string)
+    local simd = node as scalarIR.Simd
+    local typeName = tostring(simd.type)
+    local found = lanes.of(ctx, typeName)
+    local first = memory.first(ctx, simd.args[2])
+    local active = simd.args[3] ~= nil and operand(ctx, simd.args[3] as scalarIR.Expr) or nil
+    local pointers, enable = fieldPointers(ctx, found, simd, first, active)
+
+    return gather(ctx, found, pointers, enable), typeName
+end
+
+--- The vectors of an interleaved store laid out as one `ways * N` run.
+local function interleave(ctx: context.Context, found: species.Species, values: {string}): (string, string)
+    local n = found.lanes
+    local ways = #values
+    -- Concatenate the vectors pairwise until one holds them all, padding an
+    -- odd one out; then pick element `i * ways + j` from vector j, lane i.
+    local level = values
+    local width = n
+    while #level > 1 do
+        local vector = "<" .. tostring(width) .. " x " .. found.scalar .. ">"
+        local next: {string} = {}
+        local index: integer = 1
+        while index <= #level do
+            local picks: {string} = {}
+            for lane = 0, 2 * width - 1 do
+                picks[#picks + 1] = "i32 " .. tostring(lane)
+            end
+            local second = level[index + 1] or "poison"
+            next[
+                #next + 1
+            ] = e(
+                ctx,
+                (
+                    "shufflevector %s %s, %s %s, <%d x i32> <%s>"
+                ):format(vector, level[index], vector, second, 2 * width, table.concat(picks, ", "))
+            )
+            index = index + 2
+        end
+        level = next
+        width = width * 2
+    end
+    local concatenated = "<" .. tostring(width) .. " x " .. found.scalar .. ">"
+    local picks: {string} = {}
+    for lane = 0, n - 1 do
+        for way = 0, ways - 1 do
+            picks[lane * ways + way + 1] = "i32 " .. tostring(way * n + lane)
+        end
+    end
+    local wide = "<" .. tostring(n * ways) .. " x " .. found.scalar .. ">"
+
+    return e(
+        ctx,
+        (
+            "shufflevector %s %s, %s poison, <%d x i32> <%s>"
+        ):format(concatenated, level[1], concatenated, n * ways, table.concat(picks, ", "))
+    ), wide
+end
+
+local function store(ctx: context.Context, node: scalarIR.Statement): nil
+    local simd = node as scalarIR.Simd
+    local intrinsic = tostring(simd.intrinsic)
+    local found = lanes.of(ctx, tostring(simd.args[3].type))
+    local span = tostring(simd.span)
+    if intrinsic == "scatter" or intrinsic == "scatterUnchecked" then
+        local value = operand(ctx, simd.args[3])
+        local active = simd.args[4] ~= nil and operand(ctx, simd.args[4] as scalarIR.Expr) or nil
+        local pointers, enable = lanePointers(ctx, found, span, simd.args[2], active)
+        scatter(ctx, found, value, pointers, enable)
+        return
+    end
+    local first = memory.first(ctx, simd.args[2])
+    local align = math.floor(found.bits / 8) as integer
+    if simdbounds.interleaved(intrinsic) then
+        local values: {string} = {}
+        for position = 3, #simd.args do
+            values[#values + 1] = operand(ctx, simd.args[position])
+        end
+        local wide, wideType = interleave(ctx, found, values)
+        local width = found.lanes * #values
+        local window = memory.window(ctx, span, first, width, found.scalar)
+        split(
+            ctx,
+            window,
+            width,
+            nil,
+            function(): string?
+                builder.emit(ctx.f, ("store %s %s, ptr %s, align %d"):format(wideType, wide, window.address, align))
+                return nil
+            end,
+            function(): string?
+                maskedStore(
+                    ctx,
+                    wideType,
+                    lanes.suffix(width, found.scalar),
+                    wide,
+                    window.address,
+                    align,
+                    roomMask(ctx, width, window.room),
+                    width
+                )
+
+                return nil
+            end
+        )
+        return
+    end
+    local value = operand(ctx, simd.args[3])
+    local active = simd.args[4] ~= nil and operand(ctx, simd.args[4] as scalarIR.Expr) or nil
+    local window = memory.window(ctx, span, first, found.lanes, found.scalar)
+    local suffix = lanes.suffix(found.lanes, found.scalar)
+    if active ~= nil then
+        local mask = e(
+            ctx,
+            ("and %s %s, %s"):format(found.mask, roomMask(ctx, found.lanes, window.room), active as string)
+        )
+        maskedStore(ctx, found.vector, suffix, value, window.address, align, mask, found.lanes)
+        return
+    end
+    split(
+        ctx,
+        window,
+        found.lanes,
+        nil,
+        function(): string?
+            builder.emit(ctx.f, ("store %s %s, ptr %s, align %d"):format(found.vector, value, window.address, align))
+            return nil
+        end,
+        function(): string?
+            maskedStore(
+                ctx,
+                found.vector,
+                suffix,
+                value,
+                window.address,
+                align,
+                roomMask(ctx, found.lanes, window.room),
+                found.lanes
+            )
+
+            return nil
+        end
+    )
+end
+
+local function fieldStore(ctx: context.Context, node: scalarIR.Statement): nil
+    local simd = node as scalarIR.Simd
+    local found = lanes.of(ctx, tostring(simd.args[3].type))
+    local first = memory.first(ctx, simd.args[2])
+    local value = operand(ctx, simd.args[3])
+    local active = simd.args[4] ~= nil and operand(ctx, simd.args[4] as scalarIR.Expr) or nil
+    local pointers, enable = fieldPointers(ctx, found, simd, first, active)
+    scatter(ctx, found, value, pointers, enable)
+end
+
+memory.EXPRESSIONS = {
+    ["simd_load"] = load,
+    ["simd_field_load"] = fieldLoad,
+} as {[string]: function(ctx: context.Context, node: scalarIR.Expr): (string, string)}
+
+memory.STATEMENTS = {
+    ["simd_store"] = store,
+    ["simd_field_store"] = fieldStore,
+} as {[string]: function(ctx: context.Context, node: scalarIR.Statement): nil}
+
+export = memory

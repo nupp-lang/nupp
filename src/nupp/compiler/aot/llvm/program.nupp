@@ -19,6 +19,11 @@ local context = require("nupp.compiler.aot.llvm.context")
 local countRules = require("nupp.compiler.aot.counts")
 local dwarf = require("nupp.compiler.aot.llvm.dwarf")
 local expressions = require("nupp.compiler.aot.llvm.expressions")
+local memory = require("nupp.compiler.aot.llvm.simd.memory")
+local rearrange = require("nupp.compiler.aot.llvm.simd.rearrange")
+local reduce = require("nupp.compiler.aot.llvm.simd.reduce")
+local simdReducers = require("nupp.compiler.aot.llvm.simd.reducers")
+local vectors = require("nupp.compiler.aot.llvm.simd.vectors")
 local facts = require("nupp.compiler.aot.llvm.facts")
 local profile = require("nupp.compiler.aot.llvm.profile")
 local scalarIR = require("nupp.compiler.aot.scalar")
@@ -27,6 +32,28 @@ local target = require("nupp.compiler.aot.target")
 local types = require("nupp.compiler.aot.llvm.types")
 
 local llvmProgram = {}
+
+-- The lowerings outside the scalar core, installed where the expression and
+-- statement emitters look them up.
+for _, lowering in ipairs({
+    vectors.EXPRESSIONS,
+    rearrange.EXPRESSIONS,
+    reduce.EXPRESSIONS,
+    memory.EXPRESSIONS,
+    simdReducers.EXPRESSIONS
+}) do
+    for operation, lower in pairs(lowering) do
+        expressions.handlers[operation] = lower
+    end
+end
+for _, lowering in ipairs({memory.STATEMENTS, simdReducers.STATEMENTS}) do
+    for operation, lower in pairs(lowering) do
+        statements.handlers[operation] = lower
+    end
+end
+for operation, bind in pairs(simdReducers.BINDERS) do
+    statements.binders[operation] = bind
+end
 
 --- What every function of one module is emitted against.
 record llvmProgram.Unit
@@ -40,6 +67,9 @@ record llvmProgram.Unit
 
     --- The compile unit locations belong to, when the unit has line tables.
     lines: dwarf.Unit?
+
+    --- Functions already defined or declared, by LLVM name.
+    defined: {[string]: boolean}
 end
 
 --- @raises string always
@@ -141,17 +171,23 @@ local function helpers(unit: llvmProgram.Unit, ctx: context.Context, program: sc
         local params: {string} = {}
         local paramTypes: {string} = {}
         for _, param in ipairs(helper.params) do
-            if tostring(param.type):match("^simd_") ~= nil then
-                unsupported("explicit SIMD helpers")
+            local named = context.species(ctx, tostring(param.type))
+            -- A species parameter is a compile-time lane count: dropped.
+            if named == nil or (named as any).family ~= "species" then
+                local t = context.llvmType(ctx, tostring(param.type))
+                paramTypes[#paramTypes + 1] = t
+                params[#params + 1] = t .. " %h_" .. tostring(param.cName)
             end
-            paramTypes[#paramTypes + 1] = types.require(tostring(param.type))
-            params[#params + 1] = types.require(tostring(param.type)) .. " %h_" .. tostring(param.cName)
         end
-        local result = expressions.helperResult(helper.resultTypes)
+        local result = expressions.helperResult(ctx, helper.resultTypes)
         ctx.helpers[helper.name] = name
-        if helper.native == true then
+        if unit.defined[name] then
+            -- The oracle twin shares its kernel's helpers.
+        elseif helper.native == true then
+            unit.defined[name] = true
             builder.declare(module, name, ("declare %s %s(%s)"):format(result, name, table.concat(paramTypes, ", ")))
         else
+            unit.defined[name] = true
             local attrs = builder.attributes(module, "alwaysinline " .. functionAttributes(unit.target, program))
             local f = builder.func(
                 module,
@@ -171,7 +207,13 @@ local function helpers(unit: llvmProgram.Unit, ctx: context.Context, program: sc
                         f,
                         (
                             "insertvalue %s %s, %s %s, %d"
-                        ):format(result, returned, types.require(tostring(resultType)), converted, position - 1)
+                        ):format(
+                            result,
+                            returned,
+                            context.llvmType(inner, tostring(resultType)),
+                            converted,
+                            position - 1
+                        )
                     )
             end
             builder.finish(f, ("ret %s %s"):format(result, returned))
@@ -227,7 +269,7 @@ local function firstLine(program: scalarIR.Program): integer
 end
 
 --- One kernel entry.
-local function kernel(unit: llvmProgram.Unit, program: scalarIR.Program): nil
+local function kernel(unit: llvmProgram.Unit, program: scalarIR.Program, oracle: boolean): nil
     local module = unit.module
     local selected = unit.target
     local results = program.resultTypes or {}
@@ -269,11 +311,13 @@ local function kernel(unit: llvmProgram.Unit, program: scalarIR.Program): nil
             or "ptr %ks_result"
     end
     local result = #results ~= 1 and "void" or types.result(tostring(results[1]))
-    local symbol = physical(program.symbol, unit.tier)
+    local symbol = physical(program.symbol .. (oracle and "_forced_scalar" or ""), unit.tier)
     -- A kernel frees nothing and synchronizes with nothing; what it reads and
-    -- writes is settled once the unit is complete (`llvmProgram.module`).
+    -- writes is settled once the unit is complete (`llvmProgram.module`). The
+    -- oracle is the same body left as written.
     local effects = unit.facts.effects and "nofree nosync " or ""
-    local attrs = builder.attributes(module, "noinline " .. effects .. functionAttributes(selected, program))
+    local inlining = oracle and "noinline optnone " or "noinline "
+    local attrs = builder.attributes(module, inlining .. effects .. functionAttributes(selected, program))
     local scope: string? = nil
     if unit.lines ~= nil then
         scope = dwarf.subprogram(module, unit.lines as dwarf.Unit, program.name, firstLine(program))
@@ -302,6 +346,7 @@ local function kernel(unit: llvmProgram.Unit, program: scalarIR.Program): nil
     end
     local ctx = context.new(module, f, program, unit.facts)
     ctx.scope = scope
+    ctx.oracle = oracle
     if resultStruct ~= nil then
         ctx.resultBlock = "%ks_result"
         ctx.resultStruct = resultStruct
@@ -314,6 +359,15 @@ local function kernel(unit: llvmProgram.Unit, program: scalarIR.Program): nil
                 or "%count"
         elseif param.kind == "uniform" then
             ctx.uniforms[param.name] = "%p_" .. param.name
+            -- A body may assign its parameters, which C spells `p_<name>`:
+            -- each one gets a slot, promoted back to a register by SROA.
+            local slot = statements.slot(ctx, "p_" .. param.name, tostring(param.type))
+            builder.emit(
+                f,
+                (
+                    "store %s %%p_%s, ptr %s"
+                ):format(context.llvmType(ctx, tostring(param.type)), param.name, slot.pointer)
+            )
         end
     end
     helpers(unit, ctx, program)
@@ -379,7 +433,8 @@ function llvmProgram.module(
         target = selected,
         facts = stated or facts.all(),
         lines = sourceFile ~= nil and dwarf.unit(module, sourceFile as string, selected.format == "macho" and 4 or 5)
-        or nil
+        or nil,
+        defined = {}
     )
     local kernels: {[integer]: boolean} = {}
     for _, program in ipairs(programs) do
@@ -387,10 +442,14 @@ function llvmProgram.module(
             -- Shader programs have their own artifacts.
         elseif program.entryMode == "lua-builder" then
             unsupported("Lua-builder entries")
-        elseif program.usesSimd == true then
-            unsupported("explicit SIMD programs")
         else
-            kernel(unit, program)
+            -- A SIMD kernel has an unoptimized twin the differential tests
+            -- compare it against, emitted first as the C lowering did.
+            if program.usesSimd == true then
+                kernel(unit, program, true)
+                kernels[#module.functions] = true
+            end
+            kernel(unit, program, false)
             kernels[#module.functions] = true
             for _, layout in ipairs(program.layouts or {}) do
                 layoutReporters(unit, program, layout)
