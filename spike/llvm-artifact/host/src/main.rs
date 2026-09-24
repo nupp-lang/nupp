@@ -336,7 +336,9 @@ fn check(cfg: &Config) {
         let lib = entry(cfg, &isel(cfg), tables, size).path;
         let out = Command::new(&me).arg("lua-quick").args(&cfg.args).arg("--library").arg(&lib).output().unwrap();
         let stderr = String::from_utf8_lossy(&out.stderr);
-        let panicked = stderr.contains("PANIC: unprotected error");
+        // LuaJIT raises Lua errors as SEH exceptions on Windows: unhandled,
+        // the process ends with LJ_EXCODE | LUA_ERRRUN instead of a PANIC line.
+        let panicked = stderr.contains("PANIC: unprotected error") || out.status.code().map(|c| (c as u32) & 0xffff_ff00 == 0xe24c_4a00).unwrap_or(false);
         println!(
             "  {}: exit {:?}{}; stdout {:?}; stderr {:?}",
             if tables { "with unwind tables   " } else { "without unwind tables" },
