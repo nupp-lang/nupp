@@ -340,32 +340,27 @@
 
 /* A `::: columns` block (see the home page's Learning Nupp / Language
  * reference / Performance / Guides groups) reads as peer lists rather than
- * one long stack. Nothing pins a given heading to a given column: content
- * simply flows top-to-bottom and wraps into the next column when a column
- * fills, so the block adapts on its own to however many groups it holds. */
+ * one long stack. Each `##` inside opens its own `.nuppdoc-column` grid item,
+ * three to a row, so a heading and its list always land together instead of
+ * splitting wherever a balanced multi-column layout happens to break. */
 .nuppdoc-columns {
-  column-count: 3;
-  column-gap: 2.75rem;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 2.75rem;
   margin-top: 2.5rem;
   padding-top: 2.5rem;
   border-top: 2px solid var(--nuppdoc-border);
 }
 
-.nuppdoc-columns h2 {
+.nuppdoc-column h2 {
   margin-top: 0;
   padding-top: 0;
   border-top: 0;
-  break-after: avoid-column;
-  break-inside: avoid-column;
-}
-
-.nuppdoc-columns ul {
-  break-inside: avoid-column;
 }
 
 @media (max-width: 760px) {
   .nuppdoc-columns {
-    column-count: 1;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
