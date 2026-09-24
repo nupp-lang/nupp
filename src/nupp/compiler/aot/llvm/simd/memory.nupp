@@ -197,8 +197,11 @@ local function proved(ctx: context.Context, simd: scalarIR.Simd, found: species.
     local k = math.floor(count or 0) as integer
     local cursor = e(ctx, ("load i32, ptr %s"):format((slot as context.Slot).pointer))
     local wide = e(ctx, ("zext i32 %s to i64"):format(cursor))
-    local reach = e(ctx, ("add nuw i64 %s, %d"):format(wide, (k + ways) * found.lanes))
-    local safe = e(ctx, ("icmp ule i64 %s, 4294967295"):format(reach))
+    local safe = "true"
+    if not ctx.wideCursors then
+        local reach = e(ctx, ("add nuw i64 %s, %d"):format(wide, (k + ways) * found.lanes))
+        safe = e(ctx, ("icmp ule i64 %s, 4294967295"):format(reach))
+    end
     local start = e(ctx, ("add nuw i64 %s, %d"):format(wide, k * found.lanes))
     local storage = found.scalar
     if simd.layout ~= nil then
@@ -507,16 +510,40 @@ local function partialStore(ctx: context.Context, a: memory.Access, value: strin
     end)
 end
 
+--- The lane count of `mask` when it is a local bound once to
+--- `species:tail(n)`, whose active lanes are exactly the first `n`.
+local function tailCount(ctx: context.Context, mask: scalarIR.Expr?): string?
+    if mask == nil or (mask as scalarIR.Expr).op ~= "local" then
+        return nil
+    end
+
+    return ctx.tailCounts[tostring(((mask as scalarIR.Expr) as scalarIR.Name).cName)]
+end
+
+--- `window`'s room narrowed to the first `count` lanes.
+local function prefixRoom(ctx: context.Context, window: memory.Window, count: string): memory.Window
+    local fewer = e(ctx, ("icmp ult i32 %s, %s"):format(count, window.room))
+    local room = e(ctx, ("select i1 %s, i32 %s, i32 %s"):format(fewer, count, window.room))
+
+    return new memory.Window(address = window.address, room = room, first = window.first, inside = window.inside)
+end
+
 --- A contiguous load of `found` at `first`, optionally masked.
 local function contiguousLoad(
     ctx: context.Context,
     found: species.Species,
     span: string,
     first: string,
-    active: string?
+    active: string?,
+    prefix: string?
 ): string
     local align = math.floor(found.bits / 8) as integer
     local window = memory.window(ctx, span, first, found.lanes, found.scalar)
+    if prefix ~= nil then
+        -- A tail mask is the first `prefix` lanes: a narrower unmasked load.
+        window = prefixRoom(ctx, window, prefix as string)
+        active = nil
+    end
 
     return split(
         ctx,
@@ -780,7 +807,7 @@ local function load(ctx: context.Context, node: scalarIR.Expr): (string, string)
             return interleavedLoad(ctx, found, simd, first)
         end
 
-        return contiguousLoad(ctx, found, tostring(simd.span), first, active)
+        return contiguousLoad(ctx, found, tostring(simd.span), first, active, tailCount(ctx, simd.args[3]))
     end
 
     local ways = simdbounds.ways(intrinsic)
@@ -947,9 +974,15 @@ local function checkedStore(
     first: string,
     value: string,
     active: string?,
-    align: integer
+    align: integer,
+    prefix: string?
 ): nil
     local window = memory.window(ctx, span, first, found.lanes, found.scalar)
+    if prefix ~= nil then
+        -- A tail mask is the first `prefix` lanes: a narrower unmasked store.
+        window = prefixRoom(ctx, window, prefix as string)
+        active = nil
+    end
     local shape = access(found.scalar, found.lanes, window.address, align)
     if active ~= nil then
         partialStore(ctx, shape, value, window.room, active)
@@ -998,7 +1031,7 @@ local function store(ctx: context.Context, node: scalarIR.Statement): nil
         if interleaved then
             checkedInterleavedStore(ctx, found, span, first, values, align)
         else
-            checkedStore(ctx, found, span, first, values[1], active, align)
+            checkedStore(ctx, found, span, first, values[1], active, align, tailCount(ctx, simd.args[4]))
         end
 
         return nil

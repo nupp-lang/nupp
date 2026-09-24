@@ -10,6 +10,7 @@ lane selects among the tables' lanes, and an index outside every table answers
 lanes with a running position.
 ]]
 
+local builder = require("nupp.compiler.aot.llvm.builder")
 local context = require("nupp.compiler.aot.llvm.context")
 local expressions = require("nupp.compiler.aot.llvm.expressions")
 local lanes = require("nupp.compiler.aot.llvm.simd.lanes")
@@ -187,44 +188,60 @@ local function permute(ctx: context.Context, node: scalarIR.Expr): (string, stri
 end
 
 --- The active lanes of `v`, in order, packed from lane 0; the rest are 0.
+---
+--- Branch-free through a buffer one lane longer than the vector: every lane
+--- is written at the running position, which only an active lane advances,
+--- so an inactive lane is overwritten by the next active one or left past
+--- the count, where the final select zeroes it.
 local function compress(ctx: context.Context, node: scalarIR.Expr): (string, string)
     local simd = node as scalarIR.Simd
     local typeName = tostring(simd.type)
     local found = lanes.of(ctx, typeName)
     local value = operand(ctx, simd.args[1])
     local mask = operand(ctx, simd.args[2])
-    local out = "zeroinitializer"
+    local slots = "[" .. tostring(found.lanes + 1) .. " x " .. found.scalar .. "]"
+    local buffer = builder.alloca(ctx.f, slots, 16)
     local at = "0"
     for index = 0, found.lanes - 1 do
         local active = e(ctx, ("extractelement %s %s, i32 %d"):format(found.mask, mask, index))
         local lane = lanes.extract(ctx, found, value, index)
-        -- `at` never exceeds `index`, so the insert stays inside the vector.
-        local placed = lanes.insert(ctx, found, out, lane, at)
-        out = e(ctx, ("select i1 %s, %s %s, %s %s"):format(active, found.vector, placed, found.vector, out))
+        local place = e(ctx, ("getelementptr inbounds %s, ptr %s, i32 0, i32 %s"):format(slots, buffer, at))
+        builder.emit(ctx.f, ("store %s %s, ptr %s"):format(found.scalar, lane, place))
         local step = e(ctx, ("zext i1 %s to i32"):format(active))
-        at = e(ctx, ("add i32 %s, %s"):format(at, step))
+        at = e(ctx, ("add nuw i32 %s, %s"):format(at, step))
     end
+    local packed = e(ctx, ("load %s, ptr %s, align 16"):format(found.vector, buffer))
+    local bound = lanes.splat(ctx, found.lanes, "i32", at)
+    local kept = e(ctx, ("icmp ult %s, %s"):format(lanes.indices(found.lanes, "i32"), bound))
 
-    return out, typeName
+    return e(
+        ctx,
+        ("select %s %s, %s %s, %s zeroinitializer"):format(found.mask, kept, found.vector, packed, found.vector)
+    ), typeName
 end
 
---- Lane i takes the next unread lane of `v` when active, 0 otherwise.
+--- Lane i takes the next unread lane of `v` when active, 0 otherwise: `v`
+--- stored once and read back at the running position.
 local function expand(ctx: context.Context, node: scalarIR.Expr): (string, string)
     local simd = node as scalarIR.Simd
     local typeName = tostring(simd.type)
     local found = lanes.of(ctx, typeName)
     local value = operand(ctx, simd.args[1])
     local mask = operand(ctx, simd.args[2])
+    local buffer = builder.alloca(ctx.f, found.vector, 16)
+    builder.emit(ctx.f, ("store %s %s, ptr %s, align 16"):format(found.vector, value, buffer))
     local out = "zeroinitializer"
     local at = "0"
     local zero = found.float and "0.0" or "0"
     for index = 0, found.lanes - 1 do
         local active = e(ctx, ("extractelement %s %s, i32 %d"):format(found.mask, mask, index))
-        local lane = lanes.extract(ctx, found, value, at)
+        -- `at` never passes `index`, so the read stays inside the buffer.
+        local place = e(ctx, ("getelementptr inbounds %s, ptr %s, i32 %s"):format(found.scalar, buffer, at))
+        local lane = e(ctx, ("load %s, ptr %s"):format(found.scalar, place))
         local chosen = e(ctx, ("select i1 %s, %s %s, %s %s"):format(active, found.scalar, lane, found.scalar, zero))
         out = lanes.insert(ctx, found, out, chosen, index)
         local step = e(ctx, ("zext i1 %s to i32"):format(active))
-        at = e(ctx, ("add i32 %s, %s"):format(at, step))
+        at = e(ctx, ("add nuw i32 %s, %s"):format(at, step))
     end
 
     return out, typeName

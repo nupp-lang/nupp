@@ -105,6 +105,15 @@ record context.Context
     --- (`w` on AArch64, `x` on x86), or empty where there is none to use.
     vectorRegister: string
 
+    --- The lane counts of masks bound once to `species:tail(n)`, by C name:
+    --- such a mask is exactly the first `n` lanes, as an i32 value.
+    tailCounts: {[string]: string}
+
+    --- Whether every span a proved cursor access in scope reaches is known
+    --- to hold at most `UINT32_MAX` elements, so no cursor offset can wrap
+    --- and a proof needs no check.
+    wideCursors: boolean
+
     --- Whether this body is the unoptimized scalar oracle, which folds every
     --- reducer contribution lane by lane.
     oracle: boolean
@@ -147,6 +156,8 @@ function context.new(
         tier = "",
         vectorRegister = "",
         oracle = false,
+        wideCursors = false,
+        tailCounts = {},
         accumulators = {}
     )
 end

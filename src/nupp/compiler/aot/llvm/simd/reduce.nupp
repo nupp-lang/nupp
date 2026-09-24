@@ -94,25 +94,43 @@ registerTest = function(
         local bits = e(ctx, ("call i32 %s(<16 x i8> %s)"):format(movemask, tostring(combined)))
         return e(ctx, ("icmp %s i32 %s, %s"):format(any and "ne" or "eq", bits, any and "0" or "65535"))
     end
-    local name = any and "llvm.aarch64.neon.umaxv.i32.v4i32" or "llvm.aarch64.neon.uminv.i32.v4i32"
-    local reduce = prelude.intrinsic(ctx.module, name, "i32 @NAME(<4 x i32>)")
-    local folded = e(ctx, ("call i32 %s(<4 x i32> %s)"):format(reduce, tostring(combined)))
+    -- A pairwise max (min) folds the register into its low 64 bits, which
+    -- are then tested whole: shorter than `umaxv`, as the C lowering found.
+    local name = any and "llvm.aarch64.neon.umaxp.v4i32" or "llvm.aarch64.neon.uminp.v4i32"
+    local pairwise = prelude.intrinsic(ctx.module, name, "<4 x i32> @NAME(<4 x i32>, <4 x i32>)")
+    local folded = e(
+        ctx,
+        ("call <4 x i32> %s(<4 x i32> %s, <4 x i32> %s)"):format(pairwise, tostring(combined), tostring(combined))
+    )
+    local halves = e(ctx, ("bitcast <4 x i32> %s to <2 x i64>"):format(folded))
+    local low = e(ctx, ("extractelement <2 x i64> %s, i32 0"):format(halves))
 
-    return e(ctx, ("icmp %s i32 %s, %s"):format(any and "ne" or "eq", folded, any and "0" or "-1"))
+    return e(ctx, ("icmp %s i64 %s, %s"):format(any and "ne" or "eq", low, any and "0" or "-1"))
 end
 
 local function maskQuery(ctx: context.Context, node: scalarIR.Expr): (string, string)
     local simd = node as scalarIR.Simd
     local found = lanes.of(ctx, tostring(simd.args[1].type))
-    local mask = operand(ctx, simd.args[1])
-    local suffix = lanes.suffix(found.lanes, "i1")
     local query = tostring(simd.op)
-    if (query == "simd_mask_any" or query == "simd_mask_all") and ctx.tier ~= "avx512f" then
+    local wide = "<" .. tostring(found.lanes) .. " x i" .. tostring(found.bits) .. ">"
+    local laneWide = (query == "simd_mask_any" or query == "simd_mask_all") and ctx.tier ~= "avx512f"
+    -- A mask local a loop carries is already lane-wide in its slot: read that
+    -- register itself rather than compare it back to i1 and widen it again.
+    local carried: string? = nil
+    if laneWide and simd.args[1].op == "local" then
+        local slot = ctx.locals[tostring((simd.args[1] as scalarIR.Name).cName)]
+        if slot ~= nil and (slot as context.Slot).carried then
+            carried = e(ctx, ("load %s, ptr %s"):format(wide, (slot as context.Slot).pointer))
+        end
+    end
+    local mask = carried == nil and operand(ctx, simd.args[1]) or ""
+    local suffix = lanes.suffix(found.lanes, "i1")
+    if laneWide then
         -- Reduced as lanes as wide as the mask's, the register a vector
         -- compare fills; reducing `<N x i1>` narrows it first on NEON.
-        local wide = "<" .. tostring(found.lanes) .. " x i" .. tostring(found.bits) .. ">"
         -- Opaque, or LLVM folds the widening back into an i1 reduction.
-        local widened = context.opaque(ctx, e(ctx, ("sext %s %s to %s"):format(found.mask, mask, wide)), wide)
+        local widened = carried
+            or context.opaque(ctx, e(ctx, ("sext %s %s to %s"):format(found.mask, mask, wide)), wide)
         local any = query == "simd_mask_any"
         local total = found.lanes * found.bits
         local element = "i" .. tostring(found.bits)
@@ -171,8 +189,32 @@ local function prefix(ctx: context.Context, node: scalarIR.Expr): (string, strin
     local simd = node as scalarIR.Simd
     local typeName = tostring(simd.type)
     local found = lanes.of(ctx, typeName)
-    local values = unpack(ctx, found, operand(ctx, simd.args[1]))
+    local vector = operand(ctx, simd.args[1])
     local instruction = simd.intrinsic == "prefix_xor" and "xor" or found.float and "fadd" or "add"
+    if not found.float then
+        -- Integer sums wrap and xor is exact, so any association answers the
+        -- same: log2(N) steps, each adding the vector shifted up by `d` lanes.
+        local running = vector
+        local distance = 1
+        while distance < found.lanes do
+            local picks: {string} = {}
+            for lane = 0, found.lanes - 1 do
+                -- Lanes below `d` take 0 (lane 0 of the zero vector); the rest
+                -- take lane `lane - d` of the running vector.
+                picks[#picks + 1] = "i32 " .. tostring(lane < distance and 0 or found.lanes + lane - distance)
+            end
+            local shifted = e(
+                ctx,
+                (
+                    "shufflevector %s zeroinitializer, %s %s, <%d x i32> <%s>"
+                ):format(found.vector, found.vector, running, found.lanes, table.concat(picks, ", "))
+            )
+            running = e(ctx, ("%s %s %s, %s"):format(instruction, found.vector, running, shifted))
+            distance = distance * 2
+        end
+        return running, typeName
+    end
+    local values = unpack(ctx, found, vector)
     local out = lanes.insert(ctx, found, "poison", values[1], 0)
     local running = values[1]
     for index = 2, #values do

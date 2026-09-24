@@ -40,6 +40,7 @@ local function unsupported(what: string): never
     error(expressions.UNSUPPORTED .. what, 0)
 end
 
+local exactNarrowing: function(ctx: context.Context, converted: scalarIR.Expr, target: string): string?
 local integralOperand: function(node: scalarIR.Expr): boolean
 local integerValue: function(ctx: context.Context, node: scalarIR.Expr): (string, string)
 
@@ -557,6 +558,65 @@ integerValue = function(ctx: context.Context, node: scalarIR.Expr): (string, str
     return expressions.value(ctx, node)
 end
 
+--- A 32-bit integer operand of a binary64 difference as an exact i64, and
+--- whether it was a span count (exact only below 2^53).
+local function exactInteger(ctx: context.Context, value: scalarIR.Expr): (string?, boolean)
+    if value.op == "int_to_f64" then
+        local widened = (value as scalarIR.Convert).value
+        if widened.type == "u32" or widened.type == "i32" then
+            local inner, t = expressions.value(ctx, widened)
+            return expressions.convert(ctx, inner, t, t == "i32" and "i64" or "u64"), false
+        end
+    elseif value.op == "span_count" then
+        return context.count(ctx, (value as scalarIR.SpanCount).span), true
+    end
+
+    return nil, false
+end
+
+--- The 32 bits a binary64 value wraps to, computed without binary64 when it
+--- is a promoted 32-bit integer or a difference of exact integers -- the way
+--- `#span - cursor` reaches a lane count -- or nil to take the binary64 path.
+exactNarrowing = function(ctx: context.Context, converted: scalarIR.Expr, target: string): string?
+    if converted.op == "int_to_f64" then
+        local widened = (converted as scalarIR.Convert).value
+        if widened.type == "i32" or widened.type == "u32" then
+            local value = expressions.value(ctx, widened)
+            return value
+        end
+        return nil
+    end
+    if converted.op ~= "sub" then
+        return nil
+    end
+    local difference = converted as scalarIR.Binary
+    local left, leftCount = exactInteger(ctx, difference.left)
+    local right, rightCount = exactInteger(ctx, difference.right)
+    if left == nil or right == nil then
+        return nil
+    end
+    local wide = emit(ctx, ("sub i64 %s, %s"):format(left as string, right as string))
+    local integer = emit(ctx, ("trunc i64 %s to i32"):format(wide))
+    if not leftCount and not rightCount then
+        return integer
+    end
+    -- A count past 2^53 is not exact in binary64, and the source's value is
+    -- then the binary64 one.
+    local limit = "9007199254740992"
+    local exact = "true"
+    if leftCount then
+        exact = emit(ctx, ("icmp ule i64 %s, %s"):format(left as string, limit))
+    end
+    if rightCount then
+        local within = emit(ctx, ("icmp ule i64 %s, %s"):format(right as string, limit))
+        exact = exact == "true" and within or emit(ctx, ("and i1 %s, %s"):format(exact, within))
+    end
+    local value, t = expressions.value(ctx, converted)
+    local wrapped = u32Bits(ctx, value, t)
+
+    return emit(ctx, ("select i1 %s, i32 %s, i32 %s"):format(exact, integer, wrapped))
+end
+
 --- Lowerings of operations defined outside this module (SIMD, reducers), by
 --- operation. Installed by `llvmProgram`.
 expressions.handlers = {} as {[string]: function(ctx: context.Context, node: scalarIR.Expr): (string, string)}
@@ -881,7 +941,14 @@ function expressions.value(ctx: context.Context, node: scalarIR.Expr): (string, 
 
         return expressions.convert(ctx, value, t, nodeType), nodeType
     elseif operation == "numeric_cast" then
-        local value, t = expressions.value(ctx, (node as scalarIR.Convert).value)
+        local converted = (node as scalarIR.Convert).value
+        if (nodeType == "u32" or nodeType == "i32") and converted.type == "f64" then
+            local exact = exactNarrowing(ctx, converted, nodeType)
+            if exact ~= nil then
+                return exact as string, nodeType
+            end
+        end
+        local value, t = expressions.value(ctx, converted)
         if (nodeType == "u32" or nodeType == "i32") and types.isFloat(t) then
             -- `wrap`: modular, never saturating.
             return u32Bits(ctx, value, t), nodeType

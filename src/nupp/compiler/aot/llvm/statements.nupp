@@ -21,6 +21,7 @@ local dwarf = require("nupp.compiler.aot.llvm.dwarf")
 local expressions = require("nupp.compiler.aot.llvm.expressions")
 local prelude = require("nupp.compiler.aot.llvm.prelude")
 local scalarIR = require("nupp.compiler.aot.scalar")
+local visit = require("nupp.compiler.aot.visit")
 local types = require("nupp.compiler.aot.llvm.types")
 
 local statements = {}
@@ -127,7 +128,72 @@ local function fornum(ctx: context.Context, statement: scalarIR.Fornum): nil
     builder.start(f, exit)
 end
 
-local function whileLoop(ctx: context.Context, statement: scalarIR.While): nil
+--- The spans the proved cursor accesses inside `statement` address.
+local function provedSpans(statement: scalarIR.Statement): {string}
+    local seen: {[string]: boolean} = {}
+    local spans: {string} = {}
+
+    local function note(node: any): nil
+        if tostring(node.op):match("^simd_") ~= nil
+            and node.cursor ~= nil
+            and node.span ~= nil
+            and not seen[node.span] then
+            seen[node.span] = true
+            spans[#spans + 1] = node.span
+        end
+    end
+
+    visit.block(
+        {statement},
+        new visit.Visitor(
+            scalarExpression = function(node: scalarIR.Expr): nil
+                note(node)
+            end,
+            scalarStatement = function(node: scalarIR.Statement): nil
+                note(node)
+            end
+        )
+    )
+    table.sort(spans)
+
+    return spans
+end
+
+local whileLoop: function(ctx: context.Context, statement: scalarIR.While, checked: boolean?): nil
+
+--- A loop with proved cursor accesses, twice: when every span they reach
+--- holds at most `UINT32_MAX` elements no cursor offset can wrap, and that
+--- copy runs without the checks, which is the C lowering's wide-cursor
+--- loop; otherwise the checked one.
+local function versionedLoop(ctx: context.Context, statement: scalarIR.While, spans: {string}): nil
+    local f = ctx.f
+    local fits = "true"
+    for _, span in ipairs(spans) do
+        local small = builder.value(f, ("icmp ule i64 %s, 4294967295"):format(context.count(ctx, span)))
+        fits = fits == "true" and small or builder.value(f, ("and i1 %s, %s"):format(fits, small))
+    end
+    local wide = builder.label(f, "cursors.wide")
+    local narrow = builder.label(f, "cursors.narrow")
+    local done = builder.label(f, "cursors.done")
+    builder.terminate(f, ("br i1 %s, label %%%s, label %%%s"):format(fits, wide, narrow))
+    builder.start(f, wide)
+    ctx.wideCursors = true
+    whileLoop(ctx, statement)
+    ctx.wideCursors = false
+    builder.jump(f, done)
+    builder.start(f, narrow)
+    whileLoop(ctx, statement, true)
+    builder.start(f, done)
+end
+
+whileLoop = function(ctx: context.Context, statement: scalarIR.While, checked: boolean?): nil
+    if not ctx.wideCursors and not ctx.oracle and checked ~= true then
+        local spans = provedSpans(statement)
+        if #spans > 0 then
+            versionedLoop(ctx, statement, spans)
+            return
+        end
+    end
     local f = ctx.f
     local head = builder.label(f, "while.head")
     local bodyLabel = builder.label(f, "while.body")
@@ -303,6 +369,35 @@ function statements.statement(ctx: context.Context, node: scalarIR.Statement): n
         local named = context.species(ctx, tostring(statement.type))
         if named ~= nil and (named as any).family == "species" then
             -- A species is its lane count, known here; nothing is stored.
+            return
+        end
+        if statement.value.op == "simd_tail" and statement.assigned ~= true and not ctx.oracle then
+            -- A tail mask bound once: its count is kept beside it, so an
+            -- access it masks can be a prefix access instead.
+            local found = context.species(ctx, tostring(statement.type)) as any
+            local count, countType = expressions.value(ctx, (statement.value as scalarIR.Simd).args[1])
+            local lanes = expressions.convert(ctx, count, countType, "u32")
+            local indices: {string} = {}
+            for index = 0, found.lanes - 1 do
+                indices[#indices + 1] = "i32 " .. tostring(index)
+            end
+            local splatOne = builder.value(
+                ctx.f,
+                ("insertelement <%d x i32> poison, i32 %s, i64 0"):format(found.lanes, lanes)
+            )
+            local bound = builder.value(
+                ctx.f,
+                (
+                    "shufflevector <%d x i32> %s, <%d x i32> poison, <%d x i32> zeroinitializer"
+                ):format(found.lanes, splatOne, found.lanes, found.lanes)
+            )
+            local mask = builder.value(
+                ctx.f,
+                ("icmp ult <%d x i32> <%s>, %s"):format(found.lanes, table.concat(indices, ", "), bound)
+            )
+            local slot = statements.slot(ctx, statement.cName, tostring(statement.type))
+            context.storeSlot(ctx, slot, mask)
+            ctx.tailCounts[statement.cName] = lanes
             return
         end
         local binder = statements.binders[statement.value.op]

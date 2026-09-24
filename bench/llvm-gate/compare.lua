@@ -60,6 +60,17 @@ for line in read(unitPath):gmatch("[^\n]+") do
     end
 end
 table.sort(kernels, function(a, b) return a.name < b.name end)
+-- GATE_ONLY=name keeps one kernel, for rerunning a single measurement.
+local only = os.getenv("GATE_ONLY")
+if only then
+    local kept = {}
+    for _, kernel in ipairs(kernels) do
+        if kernel.name == only then
+            kept[#kept + 1] = kernel
+        end
+    end
+    kernels = kept
+end
 
 local CTYPE = {double = "double", float = "float", i64 = "uint64_t", i32 = "uint32_t", ptr = "void *", void = "void"}
 local declarations = {}
