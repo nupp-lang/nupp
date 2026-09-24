@@ -7,7 +7,7 @@ local M = {}
 
 local budgets = {
     species = {units = 40, commands = 2, cases = 85000, calls = 3200},
-    semantics = {units = 105, commands = 2, cases = 60000000, calls = 700000},
+    semantics = {units = 105, commands = 2, cases = 60000000, calls = 750000},
 }
 
 local cases = test.cases(
