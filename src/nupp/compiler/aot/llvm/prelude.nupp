@@ -319,6 +319,162 @@ DEFINITIONS["nupp.f32.exp"] = function(module: builder.Module, attrs: string): s
     return table.concat(lines, "\n")
 end
 
+--- The half-precision conversions work on the bits, the way `ks_scalar.h`
+--- did: `fpext` and `fptrunc` through `half` would be libcalls on an x86
+--- without F16C, which nothing here links. Every NaN becomes the canonical
+--- quiet one.
+DEFINITIONS["nupp.f16.to.f32"] = function(_: builder.Module, attrs: string): string
+    return table.concat(
+        {
+            "define internal float @nupp.f16.to.f32(i32 %input) " .. attrs .. " {",
+            "  %bits = and i32 %input, 65535",
+            "  %signbit = and i32 %bits, 32768",
+            "  %sign = shl i32 %signbit, 16",
+            "  %high = lshr i32 %bits, 10",
+            "  %exponent = and i32 %high, 31",
+            "  %mantissa = and i32 %bits, 1023",
+            "  %special = icmp eq i32 %exponent, 31",
+            "  br i1 %special, label %infnan, label %finite",
+            "infnan:",
+            "  %isinf = icmp eq i32 %mantissa, 0",
+            "  %inf = or i32 %sign, 2139095040",
+            "  %special.bits = select i1 %isinf, i32 %inf, i32 2143289344",
+            "  %special.out = bitcast i32 %special.bits to float",
+            "  ret float %special.out",
+            "finite:",
+            "  %small = icmp eq i32 %exponent, 0",
+            "  br i1 %small, label %subnormal, label %normal",
+            "subnormal:",
+            -- mantissa * 2^-24 is exact and normal in binary32.
+            "  %scaled.int = uitofp i32 %mantissa to float",
+            "  %scaled = fmul float %scaled.int, 0x3E70000000000000",
+            "  %scaled.bits = bitcast float %scaled to i32",
+            "  %sub.bits = or i32 %scaled.bits, %sign",
+            "  %sub.out = bitcast i32 %sub.bits to float",
+            "  ret float %sub.out",
+            "normal:",
+            "  %rebiased = add i32 %exponent, 112",
+            "  %placed = shl i32 %rebiased, 23",
+            "  %fraction = shl i32 %mantissa, 13",
+            "  %partial = or i32 %sign, %placed",
+            "  %normal.bits = or i32 %partial, %fraction",
+            "  %normal.out = bitcast i32 %normal.bits to float",
+            "  ret float %normal.out",
+            "}",
+        },
+        "\n"
+    )
+end
+
+DEFINITIONS["nupp.f32.to.f16"] = function(_: builder.Module, attrs: string): string
+    return table.concat(
+        {
+            "define internal i32 @nupp.f32.to.f16(float %value) " .. attrs .. " {",
+            "  %bits = bitcast float %value to i32",
+            "  %high = lshr i32 %bits, 16",
+            "  %sign = and i32 %high, 32768",
+            "  %magnitude = and i32 %bits, 2147483647",
+            "  %special = icmp uge i32 %magnitude, 2139095040",
+            "  br i1 %special, label %infnan, label %finite",
+            "infnan:",
+            "  %isinf = icmp eq i32 %magnitude, 2139095040",
+            "  %inf = or i32 %sign, 31744",
+            "  %special.out = select i1 %isinf, i32 %inf, i32 32256",
+            "  ret i32 %special.out",
+            "finite:",
+            "  %overflow = icmp uge i32 %magnitude, 1199566848",
+            "  br i1 %overflow, label %huge, label %inrange",
+            "huge:",
+            "  %huge.out = or i32 %sign, 31744",
+            "  ret i32 %huge.out",
+            "inrange:",
+            "  %underflow = icmp ult i32 %magnitude, 855638016",
+            "  br i1 %underflow, label %zero, label %representable",
+            "zero:",
+            "  ret i32 %sign",
+            "representable:",
+            "  %exponent = lshr i32 %magnitude, 23",
+            "  %mantissa = and i32 %magnitude, 8388607",
+            "  %isnormal = icmp uge i32 %exponent, 113",
+            "  br i1 %isnormal, label %normal, label %subnormal",
+            "normal:",
+            "  %rebiased = sub i32 %exponent, 112",
+            "  %placed = shl i32 %rebiased, 10",
+            "  %kept = lshr i32 %mantissa, 13",
+            "  %signed = or i32 %sign, %placed",
+            "  %truncated = or i32 %signed, %kept",
+            "  %rest = and i32 %mantissa, 8191",
+            "  %above = icmp ugt i32 %rest, 4096",
+            "  %tie = icmp eq i32 %rest, 4096",
+            "  %odd.bit = and i32 %truncated, 1",
+            "  %odd = icmp ne i32 %odd.bit, 0",
+            "  %tie.up = and i1 %tie, %odd",
+            "  %up = or i1 %above, %tie.up",
+            "  %step = zext i1 %up to i32",
+            "  %normal.out = add i32 %truncated, %step",
+            "  ret i32 %normal.out",
+            "subnormal:",
+            "  %significand = or i32 %mantissa, 8388608",
+            "  %shift = sub i32 126, %exponent",
+            "  %whole = lshr i32 %significand, %shift",
+            "  %unit = shl i32 1, %shift",
+            "  %below = sub i32 %unit, 1",
+            "  %remainder = and i32 %significand, %below",
+            "  %halfshift = sub i32 %shift, 1",
+            "  %halfway = shl i32 1, %halfshift",
+            "  %sub.above = icmp ugt i32 %remainder, %halfway",
+            "  %sub.tie = icmp eq i32 %remainder, %halfway",
+            "  %sub.odd.bit = and i32 %whole, 1",
+            "  %sub.odd = icmp ne i32 %sub.odd.bit, 0",
+            "  %sub.tie.up = and i1 %sub.tie, %sub.odd",
+            "  %sub.up = or i1 %sub.above, %sub.tie.up",
+            "  %sub.step = zext i1 %sub.up to i32",
+            "  %rounded = add i32 %whole, %sub.step",
+            "  %sub.out = or i32 %sign, %rounded",
+            "  ret i32 %sub.out",
+            "}",
+        },
+        "\n"
+    )
+end
+
+DEFINITIONS["nupp.bf16.to.f32"] = function(_: builder.Module, attrs: string): string
+    return table.concat(
+        {
+            "define internal float @nupp.bf16.to.f32(i32 %input) " .. attrs .. " {",
+            "  %low = and i32 %input, 65535",
+            "  %bits = shl i32 %low, 16",
+            "  %magnitude = and i32 %bits, 2147483647",
+            "  %nan = icmp ugt i32 %magnitude, 2139095040",
+            "  %canonical = select i1 %nan, i32 2143289344, i32 %bits",
+            "  %out = bitcast i32 %canonical to float",
+            "  ret float %out",
+            "}",
+        },
+        "\n"
+    )
+end
+
+DEFINITIONS["nupp.f32.to.bf16"] = function(_: builder.Module, attrs: string): string
+    return table.concat(
+        {
+            "define internal i32 @nupp.f32.to.bf16(float %value) " .. attrs .. " {",
+            "  %bits = bitcast float %value to i32",
+            "  %magnitude = and i32 %bits, 2147483647",
+            "  %nan = icmp ugt i32 %magnitude, 2139095040",
+            "  %upper = lshr i32 %bits, 16",
+            "  %odd = and i32 %upper, 1",
+            "  %biased = add i32 %bits, 32767",
+            "  %rounding = add i32 %biased, %odd",
+            "  %rounded = lshr i32 %rounding, 16",
+            "  %out = select i1 %nan, i32 32704, i32 %rounded",
+            "  ret i32 %out",
+            "}",
+        },
+        "\n"
+    )
+end
+
 --- The name of `helper`, defining it in `module` on first use.
 --- @raises string when no helper has that name
 function prelude.use(module: builder.Module, helper: string): string

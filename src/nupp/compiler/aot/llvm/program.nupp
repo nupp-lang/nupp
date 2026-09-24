@@ -123,9 +123,6 @@ local function helpers(
     selected: profile.Profile
 ): nil
     for _, helper in ipairs(program.helpers or {}) do
-        if #helper.resultTypes > 1 then
-            unsupported("multiple-result helpers")
-        end
         local name = "@" .. helper.cName
         local params: {string} = {}
         local paramTypes: {string} = {}
@@ -136,7 +133,7 @@ local function helpers(
             paramTypes[#paramTypes + 1] = types.require(tostring(param.type))
             params[#params + 1] = types.require(tostring(param.type)) .. " %h_" .. tostring(param.cName)
         end
-        local result = types.require(tostring(helper.resultType))
+        local result = expressions.helperResult(helper.resultTypes)
         ctx.helpers[helper.name] = name
         if helper.native == true then
             builder.declare(module, name, ("declare %s %s(%s)"):format(result, name, table.concat(paramTypes, ", ")))
@@ -151,9 +148,19 @@ local function helpers(
             for _, param in ipairs(helper.params) do
                 inner.helperParams[tostring(param.cName)] = "%h_" .. tostring(param.cName)
             end
-            local value, t = expressions.value(inner, helper.values[1])
-            local converted = expressions.convert(inner, value, t, tostring(helper.resultType))
-            builder.finish(f, ("ret %s %s"):format(result, converted))
+            local returned = "undef"
+            for position, resultType in ipairs(helper.resultTypes) do
+                local value, t = expressions.value(inner, helper.values[position])
+                local converted = expressions.convert(inner, value, t, tostring(resultType))
+                returned = #helper.resultTypes == 1 and converted
+                    or builder.value(
+                        f,
+                        (
+                            "insertvalue %s %s, %s %s, %d"
+                        ):format(result, returned, types.require(tostring(resultType)), converted, position - 1)
+                    )
+            end
+            builder.finish(f, ("ret %s %s"):format(result, returned))
         end
     end
 end

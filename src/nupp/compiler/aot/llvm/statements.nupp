@@ -308,7 +308,13 @@ function statements.statement(ctx: context.Context, node: scalarIR.Statement): n
     elseif operation == "return" then
         returnStatement(ctx, node as scalarIR.Return)
     elseif operation == "multi_let" then
-        unsupported("multiple-result helper bindings")
+        local statement = node as scalarIR.MultiLet
+        local aggregate = expressions.helperCall(ctx, statement.call)
+        local resultType = expressions.helperResult(statement.call.resultTypes as {scalarIR.Type})
+        for position, bound in ipairs(statement.bindings) do
+            local value = builder.value(ctx.f, ("extractvalue %s %s, %d"):format(resultType, aggregate, position - 1))
+            assignLocal(ctx, statements.slot(ctx, bound.cName, bound.type), value, bound.type)
+        end
     else
         unsupported("statement " .. tostring(operation))
     end

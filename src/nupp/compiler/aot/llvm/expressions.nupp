@@ -469,6 +469,46 @@ local function logical(ctx: context.Context, operation: string, left: scalarIR.E
     return emit(ctx, ("phi i1 [ %s, %%%s ], [ %s, %%%s ]"):format(short, from, b, last))
 end
 
+--- The LLVM result type of a helper: its one value's type, or a literal
+--- struct of each result's for a helper returning several.
+function expressions.helperResult(resultTypes: {scalarIR.Type}): string
+    if #resultTypes == 1 then
+        return types.require(tostring(resultTypes[1]))
+    end
+    local fields: {string} = {}
+    for position, resultType in ipairs(resultTypes) do
+        fields[position] = types.require(tostring(resultType))
+    end
+
+    return "{ " .. table.concat(fields, ", ") .. " }"
+end
+
+--- One call of a helper, evaluated once; a helper with several results
+--- answers the struct `helperResult` names, which `multi_let` takes apart.
+--- @raises string when the helper was not declared or takes SIMD values
+function expressions.helperCall(ctx: context.Context, call: scalarIR.HelperCall): string
+    local callee = ctx.helpers[call.helper]
+    if callee == nil then
+        error("no LLVM helper for " .. call.helper, 0)
+    end
+    local rendered: {string} = {}
+    for _, argument in ipairs(call.args) do
+        if tostring(argument.type):match("^simd_") ~= nil then
+            unsupported("explicit SIMD helper arguments")
+        end
+        local value, t = expressions.value(ctx, argument)
+        rendered[#rendered + 1] = types.require(t) .. " " .. value
+    end
+    local results = call.resultTypes or {call.type}
+
+    return emit(
+        ctx,
+        (
+            "call %s %s(%s)"
+        ):format(expressions.helperResult(results as {scalarIR.Type}), callee as string, table.concat(rendered, ", "))
+    )
+end
+
 --- Emits `node` and answers its LLVM value and IR type.
 --- @raises string when the operation is not one this backend emits yet
 function expressions.value(ctx: context.Context, node: scalarIR.Expr): (string, string)
@@ -695,6 +735,18 @@ function expressions.value(ctx: context.Context, node: scalarIR.Expr): (string, 
         end
 
         return emit(ctx, ("call float %s(float %s)"):format(prelude.use(ctx.module, "nupp.f32.exp"), operand)), "f32"
+    elseif operation == "f16_to_f32" or operation == "bf16_to_f32" then
+        local value, t = expressions.value(ctx, (node as scalarIR.Convert).value)
+        local bits = expressions.convert(ctx, value, t, "u32")
+        local helper = prelude.use(ctx.module, operation == "f16_to_f32" and "nupp.f16.to.f32" or "nupp.bf16.to.f32")
+
+        return emit(ctx, ("call float %s(i32 %s)"):format(helper, bits)), "f32"
+    elseif operation == "f32_to_f16" or operation == "f32_to_bf16" then
+        local value, t = expressions.value(ctx, (node as scalarIR.Convert).value)
+        local operand = expressions.convert(ctx, value, t, "f32")
+        local helper = prelude.use(ctx.module, operation == "f32_to_f16" and "nupp.f32.to.f16" or "nupp.f32.to.bf16")
+
+        return emit(ctx, ("call i32 %s(float %s)"):format(helper, operand)), "u32"
     elseif operation == "u32_not" or operation == "u64_not" then
         local value, t = expressions.value(ctx, (node as scalarIR.FixedUnary).value)
         if operation == "u32_not" then
@@ -763,27 +815,7 @@ function expressions.value(ctx: context.Context, node: scalarIR.Expr): (string, 
 
         return expressions.convert(ctx, value, t, nodeType), nodeType
     elseif operation == "helper_call" then
-        local call = node as scalarIR.HelperCall
-        local callee = ctx.helpers[call.helper]
-        if callee == nil then
-            error("no LLVM helper for " .. call.helper, 0)
-        end
-        if call.resultTypes ~= nil and #(call.resultTypes as {scalarIR.Type}) > 1 then
-            unsupported("multiple-result helper calls")
-        end
-        local rendered: {string} = {}
-        for _, argument in ipairs(call.args) do
-            if tostring(argument.type):match("^simd_") ~= nil then
-                unsupported("explicit SIMD helper arguments")
-            end
-            local value, t = expressions.value(ctx, argument)
-            rendered[#rendered + 1] = types.require(t) .. " " .. value
-        end
-
-        return emit(
-            ctx,
-            ("call %s %s(%s)"):format(types.require(nodeType), callee as string, table.concat(rendered, ", "))
-        ), nodeType
+        return expressions.helperCall(ctx, node as scalarIR.HelperCall), nodeType
     elseif operation == "math" then
         local math = node as scalarIR.Math
         local rendered: {string} = {}
