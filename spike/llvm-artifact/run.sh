@@ -13,7 +13,7 @@ Darwin) ext=dylib; kernels=$here/../direct-backend/kernels.json ;;
 Linux) ext=so; kernels=$here/../direct-backend/kernels-avx2.json ;;
 *) ext=dll; kernels=$here/../direct-backend/kernels-avx2.json ;;
 esac
-luajit=$(cd "$root" && ./scripts/toolchain luajit)
+luajit=$(cd "$root" && ./scripts/toolchain luajit) || { echo "no LuaJIT" >&2; exit 1; }
 case $ext in
 dylib) lj=$luajit/lib/libluajit-5.1.dylib ;;
 so) lj=$luajit/lib/libluajit-5.1.so ;;
