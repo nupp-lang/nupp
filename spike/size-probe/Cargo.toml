@@ -1,0 +1,35 @@
+[package]
+name = "size-probe"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[features]
+default = ["probe"]
+probe = []
+arm64 = ["dep:regalloc2", "dep:gimli"]
+x86 = ["arm64", "dep:iced-x86"]
+wasm = ["dep:wasm-encoder"]
+embed = ["dep:object", "dep:ar_archive_writer"]
+
+[dependencies]
+serde_json = "1"
+libc = "0.2"
+regalloc2 = { version = "=0.15.2", optional = true }
+gimli = { version = "=0.33.0", default-features = false, features = ["write"], optional = true }
+iced-x86 = { version = "1.21", default-features = false, features = ["std", "code_asm"], optional = true }
+wasm-encoder = { version = "=0.259.0", optional = true }
+object = { version = "=0.39.1", default-features = false, features = ["write", "std"], optional = true }
+ar_archive_writer = { version = "0.5", optional = true }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[lints.rust]
+unexpected_cfgs = { level = "allow" }

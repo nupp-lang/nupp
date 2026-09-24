@@ -22,3 +22,6 @@ gimli = { version = "=0.33.0", default-features = false, features = ["write"] }
 
 [profile.release]
 debug = false
+
+[lints.rust]
+unexpected_cfgs = { level = "allow" }

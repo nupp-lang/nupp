@@ -87,3 +87,30 @@ In order, each measured:
 2,223 lines of Rust: lowering 996, emission 352, encoder 335 (+112 lines of
 assembler-checked tests), machine IR and the `regalloc2` bridge 176, loader
 42, driver 210. It covers about 35 IR operations on one target.
+
+## Second round (2026-09-24)
+
+Run order, from the repository root:
+
+```sh
+# arm64 SIMD kernels (above)
+./build/rust/target/release/nupp-direct-backend-spike spike/direct-backend/kernels.json
+# imports and Lua-builder entries in the pinned LuaJIT; also runs the no-CFI child
+NUPP_SPIKE_LUAJIT=$(./scripts/toolchain luajit)/lib/libluajit-5.1.dylib \
+  ./build/rust/target/release/nupp-direct-backend-spike lua spike/direct-backend/builders.json
+# x86-64 AVX2 + AVX-512 images, listings and the guest test program
+./build/rust/target/release/nupp-direct-backend-spike x86 spike/direct-backend/kernels-avx2.json build/x86-guest-spike
+# embedding through object + ar_archive_writer + the system linker
+./build/rust/target/release/nupp-direct-backend-spike embed spike/direct-backend/kernels.json build/embed-spike
+# direct Wasm, then run it in Node
+./build/rust/target/release/nupp-direct-backend-spike wasm spike/direct-backend/kernels.json build/wasm-spike
+node spike/wasm/run.mjs build/wasm-spike/kernels.wasm
+# backend size by piece
+(cd spike/size-probe && cargo build --release --features arm64,x86,wasm,embed)
+```
+
+`builders.g.nupp` holds the Lua-builder fixture from `tests/aotbuildtest.lua`
+plus `waves`, a kernel importing libm. `spike/x86-guest/` stages the earlier
+QEMU-Wasm spike's page with the x86 test; the guest boots with the default
+CPU but hangs with any AVX-capable model, so x86 was verified by decoding
+only. Results and the reassessment are in the plan.

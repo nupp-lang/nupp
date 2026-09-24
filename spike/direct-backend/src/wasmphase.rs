@@ -621,6 +621,7 @@ pub fn module(doc: &J) -> Vec<u8> {
     module.finish()
 }
 
+#[cfg(not(feature = "probe"))]
 pub fn run(path: &str, out_dir: &str) {
     let doc: J = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
     let bytes = module(&doc);

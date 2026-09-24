@@ -75,6 +75,7 @@ pub fn run(path: &str, out_dir: &str) {
         let code_len = e.bytes.len();
         println!("{name}: {} bytes, {} spill slots, {} moves, compile {:.0}us", e.words, e.spill_slots, e.moves, us);
         let _ = writeln!(listing, "{name}:\n{}", disassemble(&e.bytes, code_len));
+        std::fs::write(format!("{out_dir}/{name}.avx2.bin"), &e.bytes).unwrap();
         let _ = write!(images, "static const unsigned char image_{name}[] = {{");
         for (k, b) in e.bytes.iter().enumerate() {
             if k % 24 == 0 {
