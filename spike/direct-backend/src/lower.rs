@@ -116,6 +116,18 @@ pub struct Lower {
     loop_index: Option<VReg>,
     /// Constants, each defined once in the entry block.
     consts: HashMap<(u8, [u8; 16]), VReg>,
+    /// Pointer induction variables of the innermost loop being lowered.
+    iv: Option<Iv>,
+}
+
+/// A loop cursor's addresses carried as pointers: `ptrs[span]` is
+/// `base + cursor_at_iteration_start * 8`, and `offset` is how many elements
+/// the cursor has advanced since, so an access is `[ptr, #offset * 8]`.
+struct Iv {
+    cursor: String,
+    step: u64,
+    ptrs: Vec<(String, VReg)>,
+    offset: u64,
 }
 
 fn f_class() -> RegClass {
@@ -223,6 +235,34 @@ impl Lower {
         }
     }
 
+    /// The cursor a one-based index `int_to_f64(u32_add(local c, 1))` names.
+    fn cursor_of(index: &J) -> Option<String> {
+        if op(index) == "int_to_f64" && op(&index["value"]) == "u32_add" {
+            let sum = &index["value"];
+            if op(&sum["right"]) == "constant_i32" && sum["right"]["value"] == "1" && op(&sum["left"]) == "local" {
+                return Some(cname(&sum["left"]));
+            }
+        }
+        None
+    }
+
+    /// Address of a one-based SIMD index in `span`, as a register and a
+    /// byte offset: `[ptr, #off]` through a pointer induction variable when
+    /// the loop carries one, `[base + x * 8]` otherwise.
+    fn address_at(&mut self, index: &J, span: &str) -> (VReg, i32) {
+        if let (Some(c), Some(iv)) = (Self::cursor_of(index), self.iv.as_ref()) {
+            if c == iv.cursor {
+                if let Some((_, p)) = iv.ptrs.iter().find(|(s, _)| s == span) {
+                    let off = (iv.offset * 8) as i32;
+                    if off < 1008 {
+                        return (*p, off);
+                    }
+                }
+            }
+        }
+        (self.address(index, span), 0)
+    }
+
     /// The element address a one-based SIMD index names in `span`.
     fn address(&mut self, index: &J, span: &str) -> VReg {
         let base = self.bases[span];
@@ -275,14 +315,21 @@ impl Lower {
             }
             "u32_add" | "u64_add" => {
                 let sf = op(e) == "u64_add";
-                let l = self.expr(&e["left"]);
-                let l = self.as_i(l);
-                if op(&e["right"]) == "constant_i32" {
-                    let imm: u32 = e["right"]["value"].as_str().unwrap().parse().unwrap();
-                    if imm < 4096 {
-                        return Val::I(self.def1(Op::AddImm { sf, imm }, RegClass::Int, &[l]));
+                // `x + c1 + c2` with constant c's is one immediate add.
+                if let Some(k) = Self::known(&e["right"]) {
+                    let (inner, k0) = match (op(&e["left"]), Self::known(&e["left"]["right"])) {
+                        ("u32_add" | "u64_add", Some(k0)) if op(&e["left"]) == op(e) => (&e["left"]["left"], k0),
+                        _ => (&e["left"], 0),
+                    };
+                    let total = k + k0;
+                    if total < 4096 {
+                        let l = self.expr(inner);
+                        let l = self.as_i(l);
+                        return Val::I(self.def1(Op::AddImm { sf, imm: total as u32 }, RegClass::Int, &[l]));
                     }
                 }
+                let l = self.expr(&e["left"]);
+                let l = self.as_i(l);
                 let r = self.expr(&e["right"]);
                 let r = self.as_i(r);
                 Val::I(self.def1(Op::Add { sf }, RegClass::Int, &[l, r]))
@@ -314,9 +361,9 @@ impl Lower {
             }
             "simd_load" => {
                 let a = args(e);
-                let addr = self.address(&a[1], e["span"].as_str().unwrap());
                 let (lo, hi) = (self.freg(), self.freg());
                 if a.len() > 2 {
+                    let addr = self.address(&a[1], e["span"].as_str().unwrap());
                     let m = self.expr(&a[2]);
                     let (m0, m1) = Self::pair(m);
                     self.push(MInst::new(
@@ -330,8 +377,9 @@ impl Lower {
                         ],
                     ));
                 } else {
+                    let (addr, off) = self.address_at(&a[1], e["span"].as_str().unwrap());
                     self.push(MInst::new(
-                        Op::Ldp { off: 0 },
+                        Op::Ldp { off },
                         vec![Operand::reg_def(lo), Operand::reg_def(hi), Operand::reg_use(addr)],
                     ));
                 }
@@ -473,6 +521,17 @@ impl Lower {
         }
     }
 
+    /// The value of an integer expression known at compile time: a constant,
+    /// a fixed species' lane count, or a widening of one.
+    fn known(e: &J) -> Option<u64> {
+        match op(e) {
+            "constant_i32" | "constant_i64" => e["value"].as_str()?.parse().ok(),
+            "simd_lanes_generic" => Some(4),
+            "numeric_cast" if ty(&e["value"]) == "u32" && ty(e) == "u64" => Self::known(&e["value"]),
+            _ => None,
+        }
+    }
+
     fn compare(e: &J) -> bool {
         matches!(op(e), "lt" | "le" | "gt" | "ge")
     }
@@ -529,6 +588,56 @@ impl Lower {
         }
     }
 
+    /// When a loop's only write to a carried u32 cursor is a top-level
+    /// `cursor = cursor + k` with k known, and its full-vector accesses index
+    /// by that cursor: the cursor, k, and the spans to carry pointers for.
+    fn iv_plan(s: &J, carried: &[String]) -> Option<(String, u64, Vec<String>)> {
+        let body = s["body"].as_array()?;
+        let mut found = None;
+        for st in body {
+            if op(st) == "assign" {
+                for a in st["values"].as_array()? {
+                    let target = cname(&a["target"]);
+                    let v = &a["value"];
+                    if carried.contains(&target)
+                        && ty(&a["target"]) == "u32"
+                        && op(v) == "u32_add"
+                        && op(&v["left"]) == "local"
+                        && cname(&v["left"]) == target
+                    {
+                        found = Some((target, Self::known(&v["right"])?));
+                    }
+                }
+            }
+        }
+        let (cursor, step) = found?;
+        let mut spans = Vec::new();
+        fn walk(v: &J, cursor: &str, spans: &mut Vec<String>) {
+            match v {
+                J::Object(m) => {
+                    if matches!(op(v), "simd_load" | "simd_store") && args(v).len() >= 2 {
+                        let masked = args(v).iter().any(|a| ty(a).starts_with("simd_mask"));
+                        if !masked && Lower::cursor_of(&args(v)[1]).as_deref() == Some(cursor) {
+                            let span = v["span"].as_str().unwrap().to_string();
+                            if !spans.contains(&span) {
+                                spans.push(span);
+                            }
+                        }
+                    }
+                    for (k, c) in m {
+                        if k != "source" {
+                            walk(c, cursor, spans);
+                        }
+                    }
+                }
+                J::Array(items) => items.iter().for_each(|i| walk(i, cursor, spans)),
+                _ => {}
+            }
+        }
+        walk(&s["body"], &cursor, &mut spans);
+        if spans.is_empty() { None } else { Some((cursor, step, spans)) }
+    }
+
     fn straight_line(body: &J) -> bool {
         body.as_array().unwrap().iter().all(|s| matches!(op(s), "let" | "assign" | "simd_store" | "store"))
     }
@@ -575,6 +684,13 @@ impl Lower {
                 self.env.insert(cname(s), v);
             }
             "assign" => {
+                if let Some(iv) = self.iv.as_mut() {
+                    for a in s["values"].as_array().unwrap() {
+                        if cname(&a["target"]) == iv.cursor {
+                            iv.offset += iv.step;
+                        }
+                    }
+                }
                 let values: Vec<(String, Val)> = s["values"]
                     .as_array()
                     .unwrap()
@@ -594,7 +710,6 @@ impl Lower {
             }
             "simd_store" => {
                 let a = args(s);
-                let addr = self.address(&a[1], s["span"].as_str().unwrap());
                 let mut value = None;
                 let mut mask = None;
                 for x in &a[2..] {
@@ -607,16 +722,20 @@ impl Lower {
                 let (v0, v1) = Self::pair(value.unwrap());
                 match mask {
                     Some(m) => {
+                        let addr = self.address(&a[1], s["span"].as_str().unwrap());
                         let (m0, m1) = Self::pair(m);
                         self.push(MInst::new(
                             Op::MaskedStore,
                             [v0, v1, addr, m0, m1].iter().map(|r| Operand::reg_use(*r)).collect(),
                         ));
                     }
-                    None => self.push(MInst::new(
-                        Op::Stp { off: 0 },
-                        vec![Operand::reg_use(v0), Operand::reg_use(v1), Operand::reg_use(addr)],
-                    )),
+                    None => {
+                        let (addr, off) = self.address_at(&a[1], s["span"].as_str().unwrap());
+                        self.push(MInst::new(
+                            Op::Stp { off },
+                            vec![Operand::reg_use(v0), Operand::reg_use(v1), Operand::reg_use(addr)],
+                        ))
+                    }
                 }
             }
             "block" => self.stmts(&s["body"]),
@@ -641,7 +760,19 @@ impl Lower {
                 // takes the carried values as parameters.
                 let carried: Vec<String> =
                     s["carried"].as_array().unwrap().iter().map(|c| c["cName"].as_str().unwrap().to_string()).collect();
-                let entry_args: Vec<VReg> = carried.iter().flat_map(|c| self.env[c].regs()).collect();
+                let mut entry_args: Vec<VReg> = carried.iter().flat_map(|c| self.env[c].regs()).collect();
+                // Pointer induction variables for the cursor this loop steps.
+                let plan = Self::iv_plan(s, &carried);
+                let mut iv_entry = Vec::new();
+                if let Some((cursor, _, spans)) = &plan {
+                    let c = self.env[cursor].clone();
+                    let c = self.as_i(c);
+                    for span in spans {
+                        let base = self.bases[span.as_str()];
+                        iv_entry.push(self.def1(Op::AddrIdx, RegClass::Int, &[base, c]));
+                    }
+                }
+                entry_args.extend(iv_entry.iter().copied());
                 let (body, exit) = (self.block(), self.block());
                 let mut body_params = Vec::new();
                 let mut exit_params = Vec::new();
@@ -656,6 +787,13 @@ impl Lower {
                     body_env.push((c.clone(), b));
                     exit_env.push((c.clone(), x));
                 }
+                let mut iv_params = Vec::new();
+                for _ in &iv_entry {
+                    let (b, x) = (self.ireg(), self.ireg());
+                    body_params.push(b);
+                    exit_params.push(x);
+                    iv_params.push(b);
+                }
                 self.blocks[body].params = body_params;
                 self.blocks[exit].params = exit_params;
                 self.cond(&s["condition"], &(body, entry_args.clone()), &(exit, entry_args));
@@ -663,8 +801,25 @@ impl Lower {
                 for (k, v) in body_env {
                     self.env.insert(k, v);
                 }
+                let outer_iv = self.iv.take();
+                if let Some((cursor, step, spans)) = &plan {
+                    self.iv = Some(Iv {
+                        cursor: cursor.clone(),
+                        step: *step,
+                        ptrs: spans.iter().cloned().zip(iv_params.iter().copied()).collect(),
+                        offset: 0,
+                    });
+                }
                 self.stmts(&s["body"]);
-                let back: Vec<VReg> = carried.iter().flat_map(|c| self.env[c].regs()).collect();
+                let mut back: Vec<VReg> = carried.iter().flat_map(|c| self.env[c].regs()).collect();
+                if let Some(iv) = self.iv.take() {
+                    let bytes = (iv.offset * 8) as u32;
+                    for (_, p) in &iv.ptrs {
+                        let next = if bytes == 0 { *p } else { self.def1(Op::AddImm { sf: true, imm: bytes }, RegClass::Int, &[*p]) };
+                        back.push(next);
+                    }
+                }
+                self.iv = outer_iv;
                 self.cond(&s["condition"], &(body, back.clone()), &(exit, back));
                 self.switch(exit);
                 for (k, v) in exit_env {
@@ -741,6 +896,7 @@ pub fn lower(program: &J, sig: &Signature) -> Func {
         counts: HashMap::new(),
         loop_index: None,
         consts: HashMap::new(),
+        iv: None,
     };
     let entry = l.block();
     l.switch(entry);
