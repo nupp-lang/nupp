@@ -114,3 +114,20 @@ plus `waves`, a kernel importing libm. `spike/x86-guest/` stages the earlier
 QEMU-Wasm spike's page with the x86 test; the guest boots with the default
 CPU but hangs with any AVX-capable model, so x86 was verified by decoding
 only. Results and the reassessment are in the plan.
+
+## Third round: the simplifications (2026-09-24)
+
+- `sem.rs` is the shared walker: what every IR expression and generic
+  statement means, once. `lower.rs` (native: arm64, AVX2, AVX-512) and
+  `wasmphase.rs` implement only primitives and their own control flow (SSA
+  blocks versus structured blocks over mutable locals).
+- Vectors are register groups sized by the target (`f64_lanes`), with
+  elementwise operations run once per distinct operand tuple; the pair and
+  `wide()` special cases are gone.
+- One masked load and one masked store carry the mask and, when known, the
+  `simd_tail` prefix count; each emitter picks its tail strategy.
+
+Lowering: 2,239 lines before (native 1,606 + Wasm 633), 2,171 after (walker
+619 + native 1,102 + Wasm 450). Every check still passes: arm64 bit-identical
+to C, the 15 Lua cases, embedding, Wasm against JS, and 287/287 AVX2 plus
+270/270 AVX-512 decoder agreement.

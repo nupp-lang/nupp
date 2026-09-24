@@ -313,7 +313,8 @@ pub fn emit(func: &Func, out: &Output) -> Emitted {
                             a.vmovq(X[r[0]], G64[r[1]]).unwrap();
                             a.vpbroadcastq(Y[r[0]], X[r[0]]).unwrap();
                         }
-                        Op::SumV => {
+                        Op::Sum => {
+                            assert_eq!(r.len(), 2, "x86 holds a species in one register");
                             // (a0 + a2) + (a1 + a3), the association NEON's path uses.
                             a.vextractf128(X[T0], Y[r[1]], 1).unwrap();
                             a.vaddpd(X[T0], X[T0], X[r[1]]).unwrap();
@@ -322,14 +323,15 @@ pub fn emit(func: &Func, out: &Output) -> Emitted {
                         }
                         Op::LdrIdx => a.vmovsd(X[r[0]], qword_ptr(G64[r[1]] + G64[r[2]] * 8)).unwrap(),
                         Op::StrIdx => a.vmovsd(qword_ptr(G64[r[1]] + G64[r[2]] * 8), X[r[0]]).unwrap(),
-                        Op::LoadV { off } => a.vmovupd(Y[r[0]], ymmword_ptr(G64[r[1]] + *off)).unwrap(),
-                        Op::StoreV { off } => a.vmovupd(ymmword_ptr(G64[r[1]] + *off), Y[r[0]]).unwrap(),
+                        Op::Load { off } => a.vmovupd(Y[r[0]], ymmword_ptr(G64[r[1]] + *off)).unwrap(),
+                        Op::Store { off } => a.vmovupd(ymmword_ptr(G64[r[1]] + *off), Y[r[0]]).unwrap(),
                         // Masked-off lanes neither fault nor load: the tail stays in bounds.
                         // AVX-512 masked moves suppress faults on masked-off lanes too.
-                        Op::MaskLoadV if is_k(2) => a.vmovupd(ymm_k(Y[r[0]], r[2]).z(), ymmword_ptr(G64[r[1]])).unwrap(),
-                        Op::MaskStoreV if is_k(2) => a.vmovupd(mem_k(ymmword_ptr(G64[r[1]]), r[2]), Y[r[0]]).unwrap(),
-                        Op::MaskLoadV => a.vmaskmovpd(Y[r[0]], Y[r[2]], ymmword_ptr(G64[r[1]])).unwrap(),
-                        Op::MaskStoreV => a.vmaskmovpd(ymmword_ptr(G64[r[1]]), Y[r[2]], Y[r[0]]).unwrap(),
+                        // The mask does the work on x86; a known prefix count adds nothing.
+                        Op::MaskedLoad { .. } if is_k(2) => a.vmovupd(ymm_k(Y[r[0]], r[2]).z(), ymmword_ptr(G64[r[1]])).unwrap(),
+                        Op::MaskedStore { .. } if is_k(2) => a.vmovupd(mem_k(ymmword_ptr(G64[r[1]]), r[2]), Y[r[0]]).unwrap(),
+                        Op::MaskedLoad { .. } => a.vmaskmovpd(Y[r[0]], Y[r[2]], ymmword_ptr(G64[r[1]])).unwrap(),
+                        Op::MaskedStore { .. } => a.vmaskmovpd(ymmword_ptr(G64[r[1]]), Y[r[2]], Y[r[0]]).unwrap(),
                         Op::Jump => {
                             let t = target(0);
                             if Some(t) != next {
@@ -375,7 +377,7 @@ pub fn emit(func: &Func, out: &Output) -> Emitted {
                                 }
                             }
                         }
-                        Op::AnyV => {
+                        Op::AnyBr => {
                             if is_k(0) {
                                 a.kortestb(K[r[0]], K[r[0]]).unwrap();
                             } else {

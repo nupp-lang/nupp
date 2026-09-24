@@ -1,118 +1,25 @@
-//! Nupp AOT IR (structured, typed expression trees) straight to machine IR.
-//! Structured control flow becomes blocks during the same walk; mutable
-//! locals become SSA values through block parameters, using the IR's own
-//! `carried` lists for loops.
+//! The native backend: the shared walker's primitives as machine IR over
+//! virtual registers, and its control flow as SSA blocks. Structured loops
+//! become rotated blocks whose parameters are the IR's `carried` values.
 
 use crate::mir::{Func, MInst, Op};
+use crate::sem::{self, Addr, Backend, Cmp, CmpKind, Cond, Ext, Scalar, Val, Vector, Walker, cname, op, ty};
+pub use crate::sem::{Class, Ret, Signature, signature};
 use regalloc2::{Block, Operand, OperandConstraint, OperandKind, OperandPos, PReg, RegClass, VReg};
 use serde_json::Value as J;
 use std::collections::HashMap;
 
-/// One lowered value. A `fixed4` f64 species spans two 128-bit registers.
-#[derive(Clone, Debug)]
-enum Val {
-    I(VReg),
-    F(VReg),
-    V(VReg, VReg),
-    M(VReg, VReg),
-    Species,
-    /// A span's element count: a u64 in a register, which the IR types as
-    /// f64 and compares against u64 cursors.
-    Count(VReg),
-    /// A value on the Lua stack, by absolute index.
-    Slot(VReg),
-    /// A Lua string argument: its bytes, length, and stack index.
-    Str(VReg, VReg, VReg),
-    /// A builder's state in frame memory, by offset.
-    Builder(u32),
-}
-
-impl Val {
-    fn regs(&self) -> Vec<VReg> {
-        match self {
-            Val::I(r) | Val::F(r) | Val::Count(r) => vec![*r],
-            Val::V(a, b) | Val::M(a, b) => vec![*a, *b],
-            Val::Species | Val::Builder(_) => vec![],
-            Val::Slot(r) => vec![*r],
-            Val::Str(a, b, c) => vec![*a, *b, *c],
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Class {
-    Int,
-    Float,
-}
-
-/// What the lowering targets. AVX2 holds a `fixed4` f64 species in one
-/// ymm register, where NEON needs a pair of q registers.
+/// What the lowering targets. AVX2 holds a `fixed4` f64 species in one ymm
+/// register, where NEON needs a pair of q registers; AVX-512 also moves masks
+/// into k registers.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Target {
     Arm64,
     X86Avx2,
-    /// AVX2's ymm vectors with masks in AVX-512 k registers.
     X86Avx512,
 }
 
-pub struct Param {
-    pub name: String,
-    pub class: Class,
-}
-
-pub enum Ret {
-    Void,
-    F64,
-    U32,
-}
-
-pub struct Signature {
-    pub symbol: String,
-    pub params: Vec<Param>,
-    pub ret: Ret,
-}
-
-/// Reads the exported C signature for `symbol` out of the generated C, so the
-/// spike's entry takes exactly the arguments the C entry does.
-pub fn signature(c: &str, symbol: &str) -> Signature {
-    let needle = format!(" {symbol}(");
-    let line = c.lines().find(|l| l.starts_with("KS_API") && l.contains(&needle)).expect("signature");
-    let ret = if line.starts_with("KS_API void") {
-        Ret::Void
-    } else if line.starts_with("KS_API double") {
-        Ret::F64
-    } else if line.starts_with("KS_API uint32_t") {
-        Ret::U32
-    } else {
-        panic!("unsupported result: {line}")
-    };
-    let inside = &line[line.find(&needle).unwrap() + needle.len()..];
-    let inside = &inside[..inside.find(')').unwrap()];
-    let params = inside
-        .split(',')
-        .filter(|p| !p.trim().is_empty())
-        .map(|p| {
-            let p = p.replace("KS_UNUSED", "");
-            let name = p.split_whitespace().last().unwrap().trim_start_matches('*').to_string();
-            let class = if p.trim_start().starts_with("double ") && !p.contains('*') { Class::Float } else { Class::Int };
-            Param { name, class }
-        })
-        .collect();
-    Signature { symbol: symbol.to_string(), params, ret }
-}
-
-fn op(v: &J) -> &str {
-    v["op"].as_str().unwrap_or("")
-}
-fn ty(v: &J) -> &str {
-    v["type"].as_str().unwrap_or("")
-}
-fn cname(v: &J) -> String {
-    v["cName"].as_str().or(v["name"].as_str()).unwrap().to_string()
-}
-fn args(v: &J) -> &Vec<J> {
-    v["args"].as_array().unwrap()
-}
+type W = Walker<Native>;
 
 /// A branch target and the block arguments passed to it.
 type Dest = (usize, Vec<VReg>);
@@ -120,47 +27,6 @@ type Dest = (usize, Vec<VReg>);
 struct B {
     params: Vec<VReg>,
     insts: Vec<MInst>,
-}
-
-pub struct Lower {
-    blocks: Vec<B>,
-    order: Vec<usize>,
-    cur: usize,
-    classes: Vec<RegClass>,
-    env: HashMap<String, Val>,
-    uniforms: HashMap<String, VReg>,
-    bases: HashMap<String, VReg>,
-    counts: HashMap<String, VReg>,
-    loop_index: Option<VReg>,
-    /// Constants, each defined once in the entry block.
-    consts: HashMap<(u8, [u8; 16]), VReg>,
-    /// Pointer induction variables of the innermost loop being lowered.
-    iv: Option<Iv>,
-    /// Masks made by `simd_tail(n)`, to the register holding `n`.
-    tails: HashMap<(VReg, VReg), VReg>,
-    imports: Vec<String>,
-    locals: u32,
-    /// The `lua_State *` of a Lua-builder entry.
-    lua: Option<VReg>,
-    /// Stack index below a Lua-builder's reserved locals, and how many of
-    /// them are taken.
-    lua_base: Option<VReg>,
-    lua_locals: u32,
-    builder_size: u32,
-    /// Vectors in their own register class; see `emit::machine_env_for`.
-    partitioned: bool,
-    target: Target,
-}
-
-/// An argument to an imported function.
-#[derive(Clone, Copy)]
-enum Arg {
-    I(VReg),
-    F(VReg),
-}
-
-fn site(v: &J) -> String {
-    format!("{}:{}", v["source"]["line"], v["source"]["column"])
 }
 
 /// A loop cursor's addresses carried as pointers: `ptrs[span]` is
@@ -173,11 +39,68 @@ struct Iv {
     offset: u64,
 }
 
+/// An argument to an imported function.
+#[derive(Clone, Copy)]
+enum Arg {
+    I(VReg),
+    F(VReg),
+}
+
+pub struct Native {
+    blocks: Vec<B>,
+    order: Vec<usize>,
+    cur: usize,
+    classes: Vec<RegClass>,
+    bases: HashMap<String, VReg>,
+    counts: HashMap<String, VReg>,
+    loop_index: Option<VReg>,
+    /// Constants, each defined once in the entry block.
+    consts: HashMap<(u8, Vec<u8>), VReg>,
+    /// `DupX` of each tail count, so a tail's masks share it.
+    dups: HashMap<VReg, VReg>,
+    iv: Option<Iv>,
+    imports: Vec<String>,
+    locals: u32,
+    lua: Option<VReg>,
+    lua_base: Option<VReg>,
+    lua_locals: u32,
+    builder_size: u32,
+    /// Doubles and vectors in separate classes; see `emit::machine_env_for`.
+    partitioned: bool,
+    target: Target,
+}
+
 fn f_class() -> RegClass {
     RegClass::Float
 }
 
-impl Lower {
+fn site(v: &J) -> String {
+    format!("{}:{}", v["source"]["line"], v["source"]["column"])
+}
+
+impl Native {
+    fn new(target: Target) -> Native {
+        Native {
+            blocks: Vec::new(),
+            order: Vec::new(),
+            cur: 0,
+            classes: Vec::new(),
+            bases: HashMap::new(),
+            counts: HashMap::new(),
+            loop_index: None,
+            consts: HashMap::new(),
+            dups: HashMap::new(),
+            iv: None,
+            imports: Vec::new(),
+            locals: 0,
+            lua: None,
+            lua_base: None,
+            lua_locals: 0,
+            builder_size: 0,
+            partitioned: false,
+            target,
+        }
+    }
     fn vreg(&mut self, class: RegClass) -> VReg {
         let v = VReg::new(self.classes.len(), class);
         self.classes.push(class);
@@ -189,30 +112,12 @@ impl Lower {
     fn freg(&mut self) -> VReg {
         self.vreg(f_class())
     }
-    /// The registers a value occupies as block arguments or parameters. A
-    /// wide target holds a vector in one register, so its pair collapses.
-    fn regs_of(&self, v: &Val) -> Vec<VReg> {
-        match v {
-            Val::V(a, b) | Val::M(a, b) if self.wide() => {
-                debug_assert_eq!(a, b);
-                vec![*a]
-            }
-            other => other.regs(),
-        }
-    }
-    fn wide(&self) -> bool {
-        matches!(self.target, Target::X86Avx2 | Target::X86Avx512)
-    }
-    /// The class masks live in: k registers on AVX-512, vectors elsewhere.
-    fn mclass(&self) -> RegClass {
-        if self.target == Target::X86Avx512 { RegClass::Vector } else { self.vclass() }
-    }
     fn vclass(&self) -> RegClass {
         if self.partitioned { RegClass::Vector } else { f_class() }
     }
-    fn qreg(&mut self) -> VReg {
-        let c = self.vclass();
-        self.vreg(c)
+    /// Masks: k registers on AVX-512, vector registers elsewhere.
+    fn mclass(&self) -> RegClass {
+        if self.target == Target::X86Avx512 { RegClass::Vector } else { self.vclass() }
     }
     fn block(&mut self) -> usize {
         self.blocks.push(B { params: Vec::new(), insts: Vec::new() });
@@ -251,32 +156,75 @@ impl Lower {
         self.switch(fb);
         self.jump(f.0, f.1.clone());
     }
+    fn cmp_op(c: Cmp, kind: CmpKind) -> (u32, bool) {
+        use crate::asm::cond::*;
+        match kind {
+            // Ordered: false when either side is NaN.
+            CmpKind::F64 => (
+                match c {
+                    Cmp::Lt => MI,
+                    Cmp::Le => LS,
+                    Cmp::Gt => GT,
+                    Cmp::Ge => GE,
+                },
+                true,
+            ),
+            _ => (
+                match c {
+                    Cmp::Lt => LO,
+                    Cmp::Le => LS,
+                    Cmp::Gt => HI,
+                    Cmp::Ge => HS,
+                },
+                false,
+            ),
+        }
+    }
+    /// Branches on a condition tree. On arm64 a conjunction of two
+    /// comparisons is one compare, one conditional compare, one branch.
+    fn branch_on(&mut self, c: Cond<VReg>, t: &Dest, f: &Dest) {
+        match c {
+            Cond::Cmp(k, kind, a, b) => {
+                let (cond, float) = Self::cmp_op(k, kind);
+                let op = if float { Op::FCmpBr { cond } } else { Op::CmpBr { sf: kind == CmpKind::U64, cond } };
+                self.branch(op, &[a, b], t, f);
+            }
+            Cond::And(l, r) => match (*l, *r) {
+                (Cond::Cmp(k1, t1, a1, b1), Cond::Cmp(k2, t2, a2, b2))
+                    if self.target == Target::Arm64 && (t1 == CmpKind::F64) == (t2 == CmpKind::F64) =>
+                {
+                    let (c1, float) = Self::cmp_op(k1, t1);
+                    let (c2, _) = Self::cmp_op(k2, t2);
+                    // u32 values are zero-extended, so a 64-bit compare is exact.
+                    let op = if float { Op::FCmpAndBr { c1, c2 } } else { Op::CmpAndBr { sf: true, c1, c2 } };
+                    self.branch(op, &[a1, b1, a2, b2], t, f);
+                }
+                (l, r) => {
+                    let mid = self.block();
+                    self.branch_on(l, &(mid, vec![]), f);
+                    self.switch(mid);
+                    self.branch_on(r, t, f);
+                }
+            },
+            Cond::Any(g) => {
+                let mut uniq = g.clone();
+                uniq.dedup();
+                self.branch(Op::AnyBr, &uniq, t, f);
+            }
+        }
+    }
 
     /// A constant, materialized once in the entry block right after `Args`,
     /// so no loop reloads it.
     fn constant(&mut self, op: Op) -> VReg {
         let (kind, bytes, class) = match &op {
-            Op::Imm { value } => {
-                let mut b = [0u8; 16];
-                b[..8].copy_from_slice(&value.to_le_bytes());
-                (0u8, b, RegClass::Int)
-            }
-            Op::LitD { bits } => {
-                let mut b = [0u8; 16];
-                b[..8].copy_from_slice(&bits.to_le_bytes());
-                (1, b, f_class())
-            }
-            Op::LitQ { bytes } => (2, *bytes, self.vclass()),
-            Op::LitY { bytes } => {
-                // Keyed by the first 16 bytes plus a kind of its own.
-                let mut b = [0u8; 16];
-                b.copy_from_slice(&bytes[..16]);
-                b[15] ^= bytes[16..].iter().fold(0u8, |x, y| x.wrapping_mul(31).wrapping_add(*y));
-                (3, b, self.vclass())
-            }
+            Op::Imm { value } => (0u8, value.to_le_bytes().to_vec(), RegClass::Int),
+            Op::LitD { bits } => (1, bits.to_le_bytes().to_vec(), f_class()),
+            Op::LitQ { bytes } => (2, bytes.to_vec(), self.vclass()),
+            Op::LitY { bytes } => (3, bytes.to_vec(), self.vclass()),
             other => panic!("not a constant: {other:?}"),
         };
-        if let Some(v) = self.consts.get(&(kind, bytes)) {
+        if let Some(v) = self.consts.get(&(kind, bytes.clone())) {
             return *v;
         }
         let d = self.vreg(class);
@@ -284,10 +232,16 @@ impl Lower {
         self.consts.insert((kind, bytes), d);
         d
     }
-    /// A call through the import table, under the platform ABI: integer
-    /// arguments in x0.., doubles in d0.., the result in x0 or d0, and every
-    /// caller-saved register clobbered -- all vector registers, since only the
-    /// low halves of v8-v15 survive a call.
+    fn imm(&mut self, value: u64) -> VReg {
+        self.constant(Op::Imm { value })
+    }
+    fn lit(&mut self, x: f64) -> VReg {
+        self.constant(Op::LitD { bits: x.to_bits() })
+    }
+
+    /// A call through the import table under the platform ABI, every other
+    /// caller-saved register clobbered (all vectors: only the low halves of
+    /// v8-v15 survive a call).
     fn call(&mut self, name: &str, args: &[Arg], ret: Option<RegClass>) -> Option<VReg> {
         let import = match self.imports.iter().position(|n| n == name) {
             Some(k) => k,
@@ -321,20 +275,15 @@ impl Lower {
                 clobbers.add(PReg::new(r, RegClass::Int));
             }
         }
-        if self.partitioned {
-            for r in 0..8 {
-                if !(ret == Some(f_class()) && r == 0) {
-                    clobbers.add(PReg::new(r, f_class()));
-                }
+        let float_clobbered = if self.partitioned { 0..8 } else { 0..30 };
+        for r in float_clobbered {
+            if !(ret == Some(f_class()) && r == 0) {
+                clobbers.add(PReg::new(r, f_class()));
             }
+        }
+        if self.partitioned {
             for r in 16..30 {
                 clobbers.add(PReg::new(r, RegClass::Vector));
-            }
-        } else {
-            for r in 0..30 {
-                if !(ret == Some(f_class()) && r == 0) {
-                    clobbers.add(PReg::new(r, f_class()));
-                }
             }
         }
         let mut inst = MInst::new(Op::Call { import }, ops);
@@ -342,9 +291,11 @@ impl Lower {
         self.push(inst);
         result
     }
-    /// `ks_lua_index`/`ks_lua_count` with the check inline: a double that
-    /// round-trips through a 32-bit signed conversion and is at least `lo` is
-    /// the answer; anything else takes the runtime call, which raises.
+    fn call_i(&mut self, name: &str, args: &[Arg]) -> VReg {
+        self.call(name, args, Some(RegClass::Int)).unwrap()
+    }
+    /// `ks_lua_index`/`ks_lua_count` with the check inline and only the
+    /// raising path out of line.
     fn checked_int(&mut self, value: VReg, lo: u64, slow: &str, site: VReg) -> VReg {
         use crate::asm::cond::*;
         let l = self.lua();
@@ -362,9 +313,6 @@ impl Lower {
         self.jump(join, vec![r]);
         self.switch(join);
         result
-    }
-    fn call_i(&mut self, name: &str, args: &[Arg]) -> VReg {
-        self.call(name, args, Some(RegClass::Int)).unwrap()
     }
     fn frame(&mut self, bytes: u32) -> u32 {
         let off = (self.locals + 15) & !15;
@@ -390,1068 +338,621 @@ impl Lower {
         let l = self.lua();
         self.call("lua_pushnumber", &[Arg::I(l), Arg::F(f)], None);
     }
-    fn slot_index(&mut self, v: &Val) -> VReg {
+    fn fresh_like(&mut self, v: &Val<VReg>) -> Val<VReg> {
         match v {
-            Val::Slot(r) | Val::Str(_, _, r) => *r,
-            other => panic!("not on the Lua stack: {other:?}"),
-        }
-    }
-    /// Pushes one value onto the Lua stack.
-    fn push_value(&mut self, e: &J) {
-        let l = self.lua();
-        match (op(e), ty(e)) {
-            ("lua_new_table", _) => {
-                self.new_table(e);
+            Val::U32(_) => Val::U32(self.ireg()),
+            Val::U64(_) | Val::Count(_) => Val::U64(self.ireg()),
+            Val::F64(_) => Val::F64(self.freg()),
+            Val::Vec(g) => {
+                let c = self.vclass();
+                Val::Vec(g.iter().map(|_| self.vreg(c)).collect())
             }
-            ("lua_string", _) => self.push_string(e["value"].as_str().unwrap()),
-            ("bool", _) => {
-                let b = self.imm(e["value"].as_bool().unwrap() as u64);
-                self.call("lua_pushboolean", &[Arg::I(l), Arg::I(b)], None);
-            }
-            ("lua_builder_finish", _) => {
-                let b = self.expr(&e["builder"]);
-                let Val::Builder(off) = b else { panic!("finish of a non-builder") };
-                let addr = self.frame_addr(off);
-                self.call("ks_rt_builder_finish", &[Arg::I(l), Arg::I(addr)], Some(RegClass::Int));
-            }
-            (_, "lua_table" | "lua_string" | "lua_value") => {
-                let v = self.expr(e);
-                let idx = self.slot_index(&v);
-                self.call("lua_pushvalue", &[Arg::I(l), Arg::I(idx)], None);
-            }
-            (_, "u32") => {
-                let v = self.expr(e);
-                let r = self.as_i(v);
-                let f = self.def1(Op::UcvtfW, f_class(), &[r]);
-                self.push_number(f);
-            }
-            _ => {
-                let v = self.expr(e);
-                let f = self.as_f(v);
-                self.push_number(f);
-            }
-        }
-    }
-    /// A number the IR spells as a double or as an integer constant.
-    fn number(&mut self, e: &J) -> VReg {
-        if op(e) == "constant_i32" {
-            let x: f64 = e["value"].as_str().unwrap().parse().unwrap();
-            return self.lit(x);
-        }
-        let v = self.expr(e);
-        self.as_f(v)
-    }
-    /// Creates a table on top of the Lua stack, fills its fields, and returns
-    /// its absolute index.
-    fn new_table(&mut self, e: &J) -> VReg {
-        let l = self.lua();
-        let arr = self.number(&e["arrayCapacity"]);
-        let hash = self.number(&e["hashCapacity"]);
-        let s1 = self.data(format!("array capacity at {}", site(e)).as_bytes());
-        let narr = self.checked_int(arr, 0, "ks_rt_count", s1);
-        let s2 = self.data(format!("hash capacity at {}", site(e)).as_bytes());
-        let nhash = self.checked_int(hash, 0, "ks_rt_count", s2);
-        self.call("lua_createtable", &[Arg::I(l), Arg::I(narr), Arg::I(nhash)], None);
-        let top = self.call_i("lua_gettop", &[Arg::I(l)]);
-        for f in e["fields"].as_array().map(|a| a.clone()).unwrap_or_default() {
-            if f["indexed"].as_bool().unwrap_or(false) {
-                self.push_value(&f["value"]);
-                let key = self.number(&f["key"]);
-                let sp = self.data(site(&f["value"]).as_bytes());
-                let idx = self.checked_int(key, 1, "ks_rt_index", sp);
-                self.call("lua_rawseti", &[Arg::I(l), Arg::I(top), Arg::I(idx)], None);
-            } else {
-                self.push_value(&f["key"]);
-                self.push_value(&f["value"]);
-                self.call("lua_rawset", &[Arg::I(l), Arg::I(top)], None);
-            }
-        }
-        top
-    }
-    fn builder_addr(&mut self, e: &J) -> VReg {
-        let b = self.expr(&e["builder"]);
-        let Val::Builder(off) = b else { panic!("not a builder") };
-        self.frame_addr(off)
-    }
-    fn str_parts(&mut self, e: &J) -> (VReg, VReg) {
-        match self.expr(e) {
-            Val::Str(p, n, _) => (p, n),
-            other => panic!("not a string: {other:?}"),
-        }
-    }
-
-    fn imm(&mut self, value: u64) -> VReg {
-        self.constant(Op::Imm { value })
-    }
-    fn lit(&mut self, x: f64) -> VReg {
-        self.constant(Op::LitD { bits: x.to_bits() })
-    }
-    fn as_f(&mut self, v: Val) -> VReg {
-        match v {
-            Val::F(r) => r,
-            Val::Count(r) => self.def1(Op::UcvtfX, f_class(), &[r]),
-            other => panic!("not a float: {other:?}"),
-        }
-    }
-    fn as_i(&self, v: Val) -> VReg {
-        match v {
-            Val::I(r) | Val::Count(r) => r,
-            other => panic!("not an integer: {other:?}"),
-        }
-    }
-    fn pair(v: Val) -> (VReg, VReg) {
-        match v {
-            Val::V(a, b) | Val::M(a, b) => (a, b),
-            other => panic!("not a vector: {other:?}"),
-        }
-    }
-
-    /// The cursor a one-based index `int_to_f64(u32_add(local c, 1))` names.
-    fn cursor_of(index: &J) -> Option<String> {
-        if op(index) == "int_to_f64" && op(&index["value"]) == "u32_add" {
-            let sum = &index["value"];
-            if op(&sum["right"]) == "constant_i32" && sum["right"]["value"] == "1" && op(&sum["left"]) == "local" {
-                return Some(cname(&sum["left"]));
-            }
-        }
-        None
-    }
-
-    /// Address of a one-based SIMD index in `span`, as a register and a
-    /// byte offset: `[ptr, #off]` through a pointer induction variable when
-    /// the loop carries one, `[base + x * 8]` otherwise.
-    fn address_at(&mut self, index: &J, span: &str) -> (VReg, i32) {
-        if let (Some(c), Some(iv)) = (Self::cursor_of(index), self.iv.as_ref()) {
-            if c == iv.cursor {
-                if let Some((_, p)) = iv.ptrs.iter().find(|(s, _)| s == span) {
-                    let off = (iv.offset * 8) as i32;
-                    if off < 1008 {
-                        return (*p, off);
-                    }
-                }
-            }
-        }
-        (self.address(index, span), 0)
-    }
-
-    /// The element address a one-based SIMD index names in `span`.
-    fn address(&mut self, index: &J, span: &str) -> VReg {
-        let base = self.bases[span];
-        // `int_to_f64(u32_add(x, 1))`: element `x`, already zero-extended.
-        if op(index) == "int_to_f64" && op(&index["value"]) == "u32_add" {
-            let sum = &index["value"];
-            if op(&sum["right"]) == "constant_i32" && sum["right"]["value"] == "1" {
-                let x = self.expr(&sum["left"]);
-                let x = self.as_i(x);
-                return self.def1(Op::AddrIdx, RegClass::Int, &[base, x]);
-            }
-        }
-        let f = self.expr(index);
-        let f = self.as_f(f);
-        let one_based = self.def1(Op::FcvtzuW, RegClass::Int, &[f]);
-        let one = self.imm(1);
-        let x = self.def1(Op::Sub { sf: false }, RegClass::Int, &[one_based, one]);
-        self.def1(Op::AddrIdx, RegClass::Int, &[base, x])
-    }
-
-    fn expr(&mut self, e: &J) -> Val {
-        match op(e) {
-            "local" => self.env[&cname(e)].clone(),
-            "uniform" => match self.uniforms.get(&cname(e)) {
-                Some(v) => Val::F(*v),
-                None => self.env[&cname(e)].clone(),
-            },
-            "constant" => {
-                let x: f64 = e["value"].as_str().unwrap().parse().unwrap();
-                Val::F(self.lit(x))
-            }
-            "constant_i32" | "constant_i64" => {
-                let x: u64 = e["value"].as_str().unwrap().parse().unwrap();
-                Val::I(self.imm(x))
-            }
-            "span_count" => Val::Count(self.counts[e["span"].as_str().unwrap()]),
-            "numeric_cast" => {
-                let v = self.expr(&e["value"]);
-                match (ty(&e["value"]), ty(e)) {
-                    ("u32", "u64") => Val::I(self.as_i(v)),
-                    ("f64", "u32") => {
-                        let f = self.as_f(v);
-                        Val::I(self.def1(Op::FcvtzuW, RegClass::Int, &[f]))
-                    }
-                    (a, b) => panic!("numeric_cast {a} -> {b}"),
-                }
-            }
-            "int_to_f64" => {
-                let v = self.expr(&e["value"]);
-                let r = self.as_i(v);
-                let op = if ty(&e["value"]) == "u32" { Op::UcvtfW } else { Op::UcvtfX };
-                Val::F(self.def1(op, f_class(), &[r]))
-            }
-            "u32_add" | "u64_add" => {
-                let sf = op(e) == "u64_add";
-                // `x + c1 + c2` with constant c's is one immediate add.
-                if let Some(k) = Self::known(&e["right"]) {
-                    let (inner, k0) = match (op(&e["left"]), Self::known(&e["left"]["right"])) {
-                        ("u32_add" | "u64_add", Some(k0)) if op(&e["left"]) == op(e) => (&e["left"]["left"], k0),
-                        _ => (&e["left"], 0),
-                    };
-                    let total = k + k0;
-                    if total < 4096 {
-                        let l = self.expr(inner);
-                        let l = self.as_i(l);
-                        return Val::I(self.def1(Op::AddImm { sf, imm: total as u32 }, RegClass::Int, &[l]));
-                    }
-                }
-                let l = self.expr(&e["left"]);
-                let l = self.as_i(l);
-                let r = self.expr(&e["right"]);
-                let r = self.as_i(r);
-                Val::I(self.def1(Op::Add { sf }, RegClass::Int, &[l, r]))
-            }
-            "add" | "sub" | "mul" => {
-                let l = self.expr(&e["left"]);
-                let l = self.as_f(l);
-                let r = self.expr(&e["right"]);
-                let r = self.as_f(r);
-                let o = match op(e) {
-                    "add" => Op::FAdd,
-                    "sub" => Op::FSub,
-                    _ => Op::FMul,
-                };
-                Val::F(self.def1(o, f_class(), &[l, r]))
-            }
-            "load" => {
-                let base = self.bases[e["span"].as_str().unwrap()];
-                let i = self.loop_index.expect("scalar load outside the map loop");
-                Val::F(self.def1(Op::LdrIdx, f_class(), &[base, i]))
-            }
-            "bool" => Val::I(self.imm(e["value"].as_bool().unwrap() as u64)),
-            "math" => {
-                let x = self.expr(&args(e)[0]);
-                let x = self.as_f(x);
-                let name = match e["intrinsic"].as_str().unwrap() {
-                    "exp" => "exp",
-                    // libm `sin` already returns ±0 for ±0, which is all `nupp_sin` adds.
-                    "sin" => "sin",
-                    other => panic!("math.{other}"),
-                };
-                Val::F(self.call(name, &[Arg::F(x)], Some(f_class())).unwrap())
-            }
-            "lua_string_byte" | "lua_string_u32" => {
-                let l = self.lua();
-                let (p, n) = self.str_parts(&e["bytes"]);
-                let i = self.expr(&e["index"]);
-                let i = self.as_i(i);
-                let name = if op(e) == "lua_string_byte" { "ks_rt_string_byte" } else { "ks_rt_string_u32" };
-                Val::I(self.call_i(name, &[Arg::I(l), Arg::I(p), Arg::I(n), Arg::I(i)]))
-            }
-            "simd_species" => Val::Species,
-            "simd_lanes_generic" => Val::I(self.imm(4)),
-            "simd_splat" => {
-                let v = self.expr(&args(e)[0]);
-                let d = self.as_f(v);
-                let vc = self.vclass();
-                let q = self.def1(Op::DupD, vc, &[d]);
-                Val::V(q, q)
-            }
-            "simd_load" if self.wide() => {
-                let a = args(e);
-                let q = self.qreg();
-                if a.len() > 2 {
-                    let addr = self.address(&a[1], e["span"].as_str().unwrap());
-                    let m = self.expr(&a[2]);
-                    let (m0, _) = Self::pair(m);
-                    self.push(MInst::new(Op::MaskLoadV, vec![Operand::reg_def(q), Operand::reg_use(addr), Operand::reg_use(m0)]));
-                } else {
-                    let (addr, off) = self.address_at(&a[1], e["span"].as_str().unwrap());
-                    self.push(MInst::new(Op::LoadV { off }, vec![Operand::reg_def(q), Operand::reg_use(addr)]));
-                }
-                Val::V(q, q)
-            }
-            "simd_load" => {
-                let a = args(e);
-                let (lo, hi) = (self.qreg(), self.qreg());
-                if a.len() > 2 {
-                    let addr = self.address(&a[1], e["span"].as_str().unwrap());
-                    let m = self.expr(&a[2]);
-                    let (m0, m1) = Self::pair(m);
-                    if let Some(n) = self.tails.get(&(m0, m1)).copied() {
-                        self.push(MInst::new(
-                            Op::TailLoad,
-                            vec![
-                                Operand::new(lo, OperandConstraint::Reg, OperandKind::Def, OperandPos::Early),
-                                Operand::new(hi, OperandConstraint::Reg, OperandKind::Def, OperandPos::Early),
-                                Operand::reg_use(addr),
-                                Operand::reg_use(n),
-                            ],
-                        ));
-                        return Val::V(lo, hi);
-                    }
-                    self.push(MInst::new(
-                        Op::MaskedLoad,
-                        vec![
-                            Operand::new(lo, OperandConstraint::Reg, OperandKind::Def, OperandPos::Early),
-                            Operand::new(hi, OperandConstraint::Reg, OperandKind::Def, OperandPos::Early),
-                            Operand::reg_use(addr),
-                            Operand::reg_use(m0),
-                            Operand::reg_use(m1),
-                        ],
-                    ));
-                } else {
-                    let (addr, off) = self.address_at(&a[1], e["span"].as_str().unwrap());
-                    self.push(MInst::new(
-                        Op::Ldp { off },
-                        vec![Operand::reg_def(lo), Operand::reg_def(hi), Operand::reg_use(addr)],
-                    ));
-                }
-                Val::V(lo, hi)
-            }
-            "simd_binary" => {
-                let a = args(e);
-                let l = self.expr(&a[0]);
-                let r = self.expr(&a[1]);
-                let mask = matches!(l, Val::M(..));
-                let ((l0, l1), (r0, r1)) = (Self::pair(l), Self::pair(r));
-                let o = |x: &str| match x {
-                    "add" => Op::VFAdd,
-                    "mul" => Op::VFMul,
-                    "and" => Op::VAnd,
-                    other => panic!("simd_binary {other}"),
-                };
-                let intrinsic = e["intrinsic"].as_str().unwrap();
-                let vc = if mask { self.mclass() } else { self.vclass() };
-                let lo = self.def1(o(intrinsic), vc, &[l0, r0]);
-                let hi = if l0 == l1 && r0 == r1 { lo } else { self.def1(o(intrinsic), vc, &[l1, r1]) };
-                if mask { Val::M(lo, hi) } else { Val::V(lo, hi) }
-            }
-            "simd_compare" => {
-                let a = args(e);
-                let l = self.expr(&a[0]);
-                let r = self.expr(&a[1]);
-                let ((l0, l1), (r0, r1)) = (Self::pair(l), Self::pair(r));
-                let (x0, x1, y0, y1) = match e["intrinsic"].as_str().unwrap() {
-                    "gt" => (l0, l1, r0, r1),
-                    "lt" => (r0, r1, l0, l1),
-                    other => panic!("simd_compare {other}"),
-                };
-                let vc = self.mclass();
-                let lo = self.def1(Op::VFCmGt, vc, &[x0, y0]);
-                let hi = if x0 == x1 && y0 == y1 { lo } else { self.def1(Op::VFCmGt, vc, &[x1, y1]) };
-                Val::M(lo, hi)
-            }
-            "simd_select" => {
-                let a = args(e);
-                let m = self.expr(&a[0]);
-                let t = self.expr(&a[1]);
-                let f = self.expr(&a[2]);
-                let ((m0, m1), (t0, t1), (f0, f1)) = (Self::pair(m), Self::pair(t), Self::pair(f));
-                let mut halves = Vec::new();
-                let pairs = if m0 == m1 && t0 == t1 && f0 == f1 { vec![(m0, t0, f0)] } else { vec![(m0, t0, f0), (m1, t1, f1)] };
-                if self.target == Target::X86Avx512 {
-                    let (m, t, f) = pairs[0];
-                    let d = self.qreg();
-                    self.push(MInst::new(
-                        Op::Blend,
-                        vec![Operand::reg_def(d), Operand::reg_use(m), Operand::reg_use(t), Operand::reg_use(f)],
-                    ));
-                    return Val::V(d, d);
-                }
-                for (m, t, f) in pairs {
-                    let d = self.qreg();
-                    self.push(MInst::new(
-                        Op::Bsl,
-                        vec![Operand::reg_reuse_def(d, 1), Operand::reg_use(m), Operand::reg_use(t), Operand::reg_use(f)],
-                    ));
-                    halves.push(d);
-                }
-                Val::V(halves[0], *halves.last().unwrap())
-            }
-            "simd_tail" => {
-                let n = self.expr(&args(e)[0]);
-                let n = self.as_i(n);
-                let vc = self.vclass();
-                let nv = self.def1(Op::DupX, vc, &[n]);
-                let lanes = |a: u64, b: u64| {
-                    let mut bytes = [0u8; 16];
-                    bytes[..8].copy_from_slice(&a.to_le_bytes());
-                    bytes[8..].copy_from_slice(&b.to_le_bytes());
-                    bytes
-                };
-                if self.wide() {
-                    let mut bytes = [0u8; 32];
-                    for k in 0..4u64 {
-                        bytes[k as usize * 8..k as usize * 8 + 8].copy_from_slice(&k.to_le_bytes());
-                    }
-                    let idx = self.constant(Op::LitY { bytes });
-                    let mc = self.mclass();
-                    let m = self.def1(Op::VCmHi, mc, &[nv, idx]);
-                    return Val::M(m, m);
-                }
-                let lo_idx = self.constant(Op::LitQ { bytes: lanes(0, 1) });
-                let hi_idx = self.constant(Op::LitQ { bytes: lanes(2, 3) });
-                let lo = self.def1(Op::VCmHi, vc, &[nv, lo_idx]);
-                let hi = self.def1(Op::VCmHi, vc, &[nv, hi_idx]);
-                self.tails.insert((lo, hi), n);
-                Val::M(lo, hi)
-            }
-            "simd_horizontal" => {
-                assert_eq!(e["intrinsic"], "algebraic_sum");
-                let v = self.expr(&args(e)[0]);
-                let (a, b) = Self::pair(v);
-                if self.wide() {
-                    return Val::F(self.def1(Op::SumV, f_class(), &[a]));
-                }
-                Val::F(self.def1(Op::SumPair, f_class(), &[a, b]))
-            }
-            other => panic!("unsupported expression {other}"),
-        }
-    }
-
-    fn cond(&mut self, e: &J, t: &Dest, f: &Dest) {
-        match op(e) {
-            "and" if self.target == Target::Arm64 && Self::compare(&e["left"]) && Self::compare(&e["right"]) => {
-                // Tree pattern: two comparisons under `and` become a compare,
-                // a conditional compare and one branch.
-                let (l1, r1, c1, float1) = self.compare_operands(&e["left"]);
-                let (l2, r2, c2, float2) = self.compare_operands(&e["right"]);
-                let sf = true;
-                if float1 == float2 {
-                    let op = if float1 { Op::FCmpAndBr { c1, c2 } } else { Op::CmpAndBr { sf, c1, c2 } };
-                    self.branch(op, &[l1, r1, l2, r2], t, f);
-                } else {
-                    let mid = self.block();
-                    let o1 = if float1 { Op::FCmpBr { cond: c1 } } else { Op::CmpBr { sf, cond: c1 } };
-                    self.branch(o1, &[l1, r1], &(mid, vec![]), f);
-                    self.switch(mid);
-                    let o2 = if float2 { Op::FCmpBr { cond: c2 } } else { Op::CmpBr { sf, cond: c2 } };
-                    self.branch(o2, &[l2, r2], t, f);
-                }
-            }
-            "and" => {
-                let mid = self.block();
-                self.cond(&e["left"], &(mid, vec![]), f);
-                self.switch(mid);
-                self.cond(&e["right"], t, f);
-            }
-            "lt" | "le" | "gt" | "ge" => {
-                let l = self.expr(&e["left"]);
-                let r = self.expr(&e["right"]);
-                let float = matches!(l, Val::F(_)) || matches!(r, Val::F(_));
-                use crate::asm::cond::*;
-                if float {
-                    let (l, r) = (self.as_f(l), self.as_f(r));
-                    // Ordered conditions: false when either side is NaN.
-                    let c = match op(e) {
-                        "lt" => MI,
-                        "le" => LS,
-                        "gt" => GT,
-                        _ => GE,
-                    };
-                    self.branch(Op::FCmpBr { cond: c }, &[l, r], t, f);
-                } else {
-                    let sf = !(ty(&e["left"]) == "u32" && ty(&e["right"]) == "u32");
-                    let (l, r) = (self.as_i(l), self.as_i(r));
-                    let c = match op(e) {
-                        "lt" => LO,
-                        "le" => LS,
-                        "gt" => HI,
-                        _ => HS,
-                    };
-                    self.branch(Op::CmpBr { sf, cond: c }, &[l, r], t, f);
-                }
-            }
-            "simd_mask_any" => {
-                let m = self.expr(&args(e)[0]);
-                let (m0, m1) = Self::pair(m);
-                if self.wide() {
-                    self.branch(Op::AnyV, &[m0], t, f);
-                } else {
-                    self.branch(Op::AnyBr, &[m0, m1], t, f);
-                }
-            }
-            other => panic!("unsupported condition {other}"),
-        }
-    }
-
-    /// The value of an integer expression known at compile time: a constant,
-    /// a fixed species' lane count, or a widening of one.
-    fn known(e: &J) -> Option<u64> {
-        match op(e) {
-            "constant_i32" | "constant_i64" => e["value"].as_str()?.parse().ok(),
-            "simd_lanes_generic" => Some(4),
-            "numeric_cast" if ty(&e["value"]) == "u32" && ty(e) == "u64" => Self::known(&e["value"]),
-            _ => None,
-        }
-    }
-
-    fn compare(e: &J) -> bool {
-        matches!(op(e), "lt" | "le" | "gt" | "ge")
-    }
-
-    /// Lowers a comparison's operands: (left, right, condition, float).
-    /// Integer comparisons are made 64-bit, which is exact for the u32 and
-    /// u64 values the IR compares.
-    fn compare_operands(&mut self, e: &J) -> (VReg, VReg, u32, bool) {
-        use crate::asm::cond::*;
-        let l = self.expr(&e["left"]);
-        let r = self.expr(&e["right"]);
-        if matches!(l, Val::F(_)) || matches!(r, Val::F(_)) {
-            let (l, r) = (self.as_f(l), self.as_f(r));
-            let c = match op(e) {
-                "lt" => MI,
-                "le" => LS,
-                "gt" => GT,
-                _ => GE,
-            };
-            (l, r, c, true)
-        } else {
-            let (l, r) = (self.as_i(l), self.as_i(r));
-            let c = match op(e) {
-                "lt" => LO,
-                "le" => LS,
-                "gt" => HI,
-                _ => HS,
-            };
-            (l, r, c, false)
-        }
-    }
-
-    /// The `cursor + 2 * lanes <= #span` form of a `cursor + lanes <= #span`
-    /// guard (or a conjunction of them), for a loop that runs two bodies per
-    /// iteration. None when the condition is not that shape.
-    fn doubled(cond: &J) -> Option<J> {
-        match op(cond) {
-            "and" => {
-                let mut c = cond.clone();
-                c["left"] = Self::doubled(&cond["left"])?;
-                c["right"] = Self::doubled(&cond["right"])?;
-                Some(c)
-            }
-            "le" if op(&cond["left"]) == "u64_add" && op(&cond["right"]) == "span_count" => {
-                let sum = &cond["left"];
-                if op(&sum["right"]) != "numeric_cast" || op(&sum["right"]["value"]) != "simd_lanes_generic" {
-                    return None;
-                }
-                let mut c = cond.clone();
-                c["left"] = serde_json::json!({"op": "u64_add", "type": "u64", "left": sum.clone(), "right": sum["right"].clone()});
-                Some(c)
-            }
-            _ => None,
-        }
-    }
-
-    /// When a loop's only write to a carried u32 cursor is a top-level
-    /// `cursor = cursor + k` with k known, and its full-vector accesses index
-    /// by that cursor: the cursor, k, and the spans to carry pointers for.
-    fn iv_plan(s: &J, carried: &[String]) -> Option<(String, u64, Vec<String>)> {
-        let body = s["body"].as_array()?;
-        let mut found = None;
-        for st in body {
-            if op(st) == "assign" {
-                for a in st["values"].as_array()? {
-                    let target = cname(&a["target"]);
-                    let v = &a["value"];
-                    if carried.contains(&target)
-                        && ty(&a["target"]) == "u32"
-                        && op(v) == "u32_add"
-                        && op(&v["left"]) == "local"
-                        && cname(&v["left"]) == target
-                    {
-                        found = Some((target, Self::known(&v["right"])?));
-                    }
-                }
-            }
-        }
-        let (cursor, step) = found?;
-        let mut spans = Vec::new();
-        fn walk(v: &J, cursor: &str, spans: &mut Vec<String>) {
-            match v {
-                J::Object(m) => {
-                    if matches!(op(v), "simd_load" | "simd_store") && args(v).len() >= 2 {
-                        let masked = args(v).iter().any(|a| ty(a).starts_with("simd_mask"));
-                        if !masked && Lower::cursor_of(&args(v)[1]).as_deref() == Some(cursor) {
-                            let span = v["span"].as_str().unwrap().to_string();
-                            if !spans.contains(&span) {
-                                spans.push(span);
-                            }
-                        }
-                    }
-                    for (k, c) in m {
-                        if k != "source" {
-                            walk(c, cursor, spans);
-                        }
-                    }
-                }
-                J::Array(items) => items.iter().for_each(|i| walk(i, cursor, spans)),
-                _ => {}
-            }
-        }
-        walk(&s["body"], &cursor, &mut spans);
-        if spans.is_empty() { None } else { Some((cursor, step, spans)) }
-    }
-
-    fn straight_line(body: &J) -> bool {
-        body.as_array().unwrap().iter().all(|s| matches!(op(s), "let" | "assign" | "simd_store" | "store"))
-    }
-
-    fn assigned(v: &J, into: &mut Vec<String>) {
-        match v {
-            J::Object(map) => {
-                if map.get("op").and_then(|o| o.as_str()) == Some("assign") {
-                    for a in map["values"].as_array().unwrap() {
-                        into.push(cname(&a["target"]));
-                    }
-                }
-                for (k, child) in map {
-                    if k != "source" {
-                        Self::assigned(child, into);
-                    }
-                }
-            }
-            J::Array(items) => items.iter().for_each(|i| Self::assigned(i, into)),
-            _ => {}
-        }
-    }
-
-    fn fresh_like(&mut self, v: &Val) -> Val {
-        match v {
-            Val::I(_) => Val::I(self.ireg()),
-            Val::F(_) => Val::F(self.freg()),
-            Val::V(a, b) => {
-                let _ = (a, b);
-                let x = self.qreg();
-                let y = if self.wide() { x } else { self.qreg() };
-                Val::V(x, y)
-            }
-            Val::M(a, b) => {
+            Val::Mask(g) => {
                 let c = self.mclass();
-                let x = self.vreg(c);
-                // A single-register mask stays single across a merge.
-                let _ = (a, b);
-                let y = if self.wide() { x } else { self.vreg(c) };
-                Val::M(x, y)
+                Val::Mask(g.iter().map(|_| self.vreg(c)).collect())
             }
             other => panic!("cannot carry {other:?}"),
         }
     }
+}
 
-    fn stmts(&mut self, list: &J) {
-        for s in list.as_array().unwrap() {
-            self.stmt(s);
+fn slot_index(v: &Val<VReg>) -> VReg {
+    match v {
+        Val::Ext(Ext::Slot(r)) | Val::Ext(Ext::Str(_, _, r)) => *r,
+        other => panic!("not on the Lua stack: {other:?}"),
+    }
+}
+
+/// Pushes one value onto the Lua stack.
+fn push_value(w: &mut W, e: &J) {
+    let l = w.b.lua();
+    match (op(e), ty(e)) {
+        ("lua_new_table", _) => {
+            new_table(w, e);
+        }
+        ("lua_string", _) => w.b.push_string(e["value"].as_str().unwrap()),
+        ("bool", _) => {
+            let b = w.b.imm(e["value"].as_bool().unwrap() as u64);
+            w.b.call("lua_pushboolean", &[Arg::I(l), Arg::I(b)], None);
+        }
+        ("lua_builder_finish", _) => {
+            let addr = builder_addr(w, e);
+            w.b.call("ks_rt_builder_finish", &[Arg::I(l), Arg::I(addr)], Some(RegClass::Int));
+        }
+        (_, "lua_table" | "lua_string" | "lua_value") => {
+            let v = w.expr(e);
+            let idx = slot_index(&v);
+            w.b.call("lua_pushvalue", &[Arg::I(l), Arg::I(idx)], None);
+        }
+        (_, "u32") => {
+            let v = w.expr(e);
+            let r = w.u32(v);
+            let f = w.b.def1(Op::UcvtfW, f_class(), &[r]);
+            w.b.push_number(f);
+        }
+        _ => {
+            let v = w.expr(e);
+            let f = w.f64(v);
+            w.b.push_number(f);
         }
     }
+}
 
-    fn stmt(&mut self, s: &J) {
-        match op(s) {
-            "let" if ty(s) == "lua_table" => {
-                // Into the next reserved slot above the entry's base.
-                let l = self.lua();
-                self.new_table(&s["value"]);
-                self.lua_locals += 1;
-                let base = self.lua_base.unwrap();
-                let slot = self.def1(Op::AddImm { sf: false, imm: self.lua_locals }, RegClass::Int, &[base]);
-                self.call("lua_replace", &[Arg::I(l), Arg::I(slot)], None);
-                self.env.insert(cname(s), Val::Slot(slot));
+/// Creates a table on top of the Lua stack, fills its fields, and returns its
+/// absolute index.
+fn new_table(w: &mut W, e: &J) -> VReg {
+    let l = w.b.lua();
+    let arr = w.number(&e["arrayCapacity"]);
+    let hash = w.number(&e["hashCapacity"]);
+    let s1 = w.b.data(format!("array capacity at {}", site(e)).as_bytes());
+    let narr = w.b.checked_int(arr, 0, "ks_rt_count", s1);
+    let s2 = w.b.data(format!("hash capacity at {}", site(e)).as_bytes());
+    let nhash = w.b.checked_int(hash, 0, "ks_rt_count", s2);
+    w.b.call("lua_createtable", &[Arg::I(l), Arg::I(narr), Arg::I(nhash)], None);
+    let top = w.b.call_i("lua_gettop", &[Arg::I(l)]);
+    for f in e["fields"].as_array().cloned().unwrap_or_default() {
+        if f["indexed"].as_bool().unwrap_or(false) {
+            push_value(w, &f["value"]);
+            let key = w.number(&f["key"]);
+            let sp = w.b.data(site(&f["value"]).as_bytes());
+            let idx = w.b.checked_int(key, 1, "ks_rt_index", sp);
+            w.b.call("lua_rawseti", &[Arg::I(l), Arg::I(top), Arg::I(idx)], None);
+        } else {
+            push_value(w, &f["key"]);
+            push_value(w, &f["value"]);
+            w.b.call("lua_rawset", &[Arg::I(l), Arg::I(top)], None);
+        }
+    }
+    top
+}
+
+fn builder_addr(w: &mut W, e: &J) -> VReg {
+    match w.expr(&e["builder"]) {
+        Val::Ext(Ext::Builder(off)) => w.b.frame_addr(off),
+        other => panic!("not a builder: {other:?}"),
+    }
+}
+
+fn str_parts(w: &mut W, e: &J) -> (VReg, VReg) {
+    match w.expr(e) {
+        Val::Ext(Ext::Str(p, n, _)) => (p, n),
+        other => panic!("not a string: {other:?}"),
+    }
+}
+
+/// When a loop's only write to a carried u32 cursor is a top-level
+/// `cursor = cursor + k` with k known, and its full-vector accesses index by
+/// that cursor: the cursor, k, and the spans to carry pointers for.
+fn iv_plan(s: &J, carried: &[String]) -> Option<(String, u64, Vec<String>)> {
+    let body = s["body"].as_array()?;
+    let mut found = None;
+    for st in body {
+        if op(st) == "assign" {
+            for a in st["values"].as_array()? {
+                let target = cname(&a["target"]);
+                let v = &a["value"];
+                if carried.contains(&target)
+                    && ty(&a["target"]) == "u32"
+                    && op(v) == "u32_add"
+                    && op(&v["left"]) == "local"
+                    && cname(&v["left"]) == target
+                {
+                    found = Some((target, sem::known(&v["right"])?));
+                }
             }
-            "let" if ty(s) == "lua_builder" => {
-                let l = self.lua();
-                let off = self.frame(self.builder_size);
-                let addr = self.frame_addr(off);
-                let null = self.expr(&s["value"]["nullValue"]);
-                let null = self.slot_index(&null);
-                let zero = self.imm(0);
-                let depth = self.imm(1024);
-                let a = [Arg::I(addr), Arg::I(l), Arg::I(null), Arg::I(zero), Arg::I(zero), Arg::I(depth), Arg::I(zero)];
-                self.call("ks_rt_eager_builder_new", &a, None);
-                self.env.insert(cname(s), Val::Builder(off));
-            }
-            "let" => {
-                let v = self.expr(&s["value"]);
-                self.env.insert(cname(s), v);
-            }
-            "assign" => {
-                if let Some(iv) = self.iv.as_mut() {
-                    for a in s["values"].as_array().unwrap() {
-                        if cname(&a["target"]) == iv.cursor {
-                            iv.offset += iv.step;
+        }
+    }
+    let (cursor, step) = found?;
+    let mut spans = Vec::new();
+    fn walk(v: &J, cursor: &str, spans: &mut Vec<String>) {
+        match v {
+            J::Object(m) => {
+                if matches!(op(v), "simd_load" | "simd_store") && sem::args(v).len() >= 2 {
+                    let masked = sem::args(v).iter().any(|a| ty(a).starts_with("simd_mask"));
+                    if !masked && sem::cursor_of(&sem::args(v)[1]).as_deref() == Some(cursor) {
+                        let span = v["span"].as_str().unwrap().to_string();
+                        if !spans.contains(&span) {
+                            spans.push(span);
                         }
                     }
                 }
-                let values: Vec<(String, Val)> = s["values"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .map(|a| (cname(&a["target"]), self.expr(&a["value"])))
-                    .collect();
-                for (k, v) in values {
-                    self.env.insert(k, v);
-                }
-            }
-            "store" => {
-                let v = self.expr(&s["value"]);
-                let v = self.as_f(v);
-                let base = self.bases[s["span"].as_str().unwrap()];
-                let i = self.loop_index.unwrap();
-                self.push(MInst::new(Op::StrIdx, vec![Operand::reg_use(v), Operand::reg_use(base), Operand::reg_use(i)]));
-            }
-            "simd_store" => {
-                let a = args(s);
-                let mut value = None;
-                let mut mask = None;
-                for x in &a[2..] {
-                    let v = self.expr(x);
-                    match v {
-                        Val::M(..) => mask = Some(v),
-                        _ => value = Some(v),
-                    }
-                }
-                let (v0, v1) = Self::pair(value.unwrap());
-                if self.wide() {
-                    match mask {
-                        Some(m) => {
-                            let addr = self.address(&a[1], s["span"].as_str().unwrap());
-                            let (m0, _) = Self::pair(m);
-                            self.push(MInst::new(
-                                Op::MaskStoreV,
-                                vec![Operand::reg_use(v0), Operand::reg_use(addr), Operand::reg_use(m0)],
-                            ));
-                        }
-                        None => {
-                            let (addr, off) = self.address_at(&a[1], s["span"].as_str().unwrap());
-                            self.push(MInst::new(Op::StoreV { off }, vec![Operand::reg_use(v0), Operand::reg_use(addr)]));
-                        }
-                    }
-                    return;
-                }
-                match mask {
-                    Some(m) => {
-                        let addr = self.address(&a[1], s["span"].as_str().unwrap());
-                        let (m0, m1) = Self::pair(m);
-                        if let Some(n) = self.tails.get(&(m0, m1)).copied() {
-                            self.push(MInst::new(
-                                Op::TailStore,
-                                [v0, v1, addr, n].iter().map(|r| Operand::reg_use(*r)).collect(),
-                            ));
-                            return;
-                        }
-                        self.push(MInst::new(
-                            Op::MaskedStore,
-                            [v0, v1, addr, m0, m1].iter().map(|r| Operand::reg_use(*r)).collect(),
-                        ));
-                    }
-                    None => {
-                        let (addr, off) = self.address_at(&a[1], s["span"].as_str().unwrap());
-                        self.push(MInst::new(
-                            Op::Stp { off },
-                            vec![Operand::reg_use(v0), Operand::reg_use(v1), Operand::reg_use(addr)],
-                        ))
+                for (k, c) in m {
+                    if k != "source" {
+                        walk(c, cursor, spans);
                     }
                 }
             }
-            "block" => self.stmts(&s["body"]),
-            "lua_set_index" => {
-                let l = self.lua();
-                let t = self.expr(&s["table"]);
-                let t = self.slot_index(&t);
-                self.push_value(&s["value"]);
-                let key = self.number(&s["key"]);
-                let sp = self.data(site(s).as_bytes());
-                let idx = self.checked_int(key, 1, "ks_rt_index", sp);
-                self.call("lua_rawseti", &[Arg::I(l), Arg::I(t), Arg::I(idx)], None);
-            }
-            "lua_set_key" => {
-                let l = self.lua();
-                let t = self.expr(&s["table"]);
-                let t = self.slot_index(&t);
-                self.push_value(&s["key"]);
-                self.push_value(&s["value"]);
-                self.call("lua_rawset", &[Arg::I(l), Arg::I(t)], None);
-            }
-            "lua_builder_open_object" | "lua_builder_open_array" => {
-                let l = self.lua();
-                let b = self.builder_addr(s);
-                let kind = self.imm(if op(s) == "lua_builder_open_array" { 5 } else { 6 });
-                let cap = self.expr(&s["capacity"]);
-                let cap = self.as_i(cap);
-                let eager = self.imm(1);
-                self.call("ks_rt_builder_open", &[Arg::I(l), Arg::I(b), Arg::I(kind), Arg::I(cap), Arg::I(eager)], None);
-            }
-            "lua_builder_key" | "lua_builder_string" => {
-                let l = self.lua();
-                let b = self.builder_addr(s);
-                let (p, n) = self.str_parts(&s["sourceBytes"]);
-                let start = self.expr(&s["start"]);
-                let start = self.as_i(start);
-                let len = self.expr(&s["length"]);
-                let len = self.as_i(len);
-                let esc = self.expr(&s["escaped"]);
-                let esc = self.as_i(esc);
-                let key = self.imm((op(s) == "lua_builder_key") as u64);
-                let eager = self.imm(1);
-                let a = [Arg::I(l), Arg::I(b), Arg::I(p), Arg::I(n), Arg::I(start), Arg::I(len), Arg::I(esc), Arg::I(key), Arg::I(eager)];
-                self.call("ks_rt_builder_string", &a, None);
-            }
-            "lua_builder_number_slice" => {
-                let l = self.lua();
-                let b = self.builder_addr(s);
-                let (p, n) = self.str_parts(&s["sourceBytes"]);
-                let start = self.expr(&s["start"]);
-                let start = self.as_i(start);
-                let len = self.expr(&s["length"]);
-                let len = self.as_i(len);
-                let eager = self.imm(1);
+            J::Array(items) => items.iter().for_each(|i| walk(i, cursor, spans)),
+            _ => {}
+        }
+    }
+    walk(&s["body"], &cursor, &mut spans);
+    if spans.is_empty() { None } else { Some((cursor, step, spans)) }
+}
+
+fn native_while(w: &mut W, s: &J) {
+    if s.get("unrolled").is_none() && sem::straight_line(&s["body"]) && sem::doubled(&s["condition"]).is_some() {
+        // Two bodies per iteration while two fit, then the original loop for
+        // the rest: the C emitter's `wideUnroll`, which the plan moves into
+        // the IR, done here meanwhile.
+        let mut twice = s.clone();
+        twice["unrolled"] = J::Bool(true);
+        twice["condition"] = sem::doubled(&s["condition"]).unwrap();
+        let mut body = s["body"].as_array().unwrap().clone();
+        body.extend(s["body"].as_array().unwrap().clone());
+        twice["body"] = J::Array(body);
+        w.stmt(&twice);
+        let mut once = s.clone();
+        once["unrolled"] = J::Bool(true);
+        w.stmt(&once);
+        return;
+    }
+    // Rotated: a guard, then a body that tests at its bottom, so an iteration
+    // takes one branch. Both exits meet in `exit`, which takes the carried
+    // values as parameters.
+    let carried = sem::carried(s);
+    let mut entry_args: Vec<VReg> = carried.iter().flat_map(|c| w.env[c].regs()).collect();
+    let plan = iv_plan(s, &carried);
+    let mut iv_entry = Vec::new();
+    if let Some((cursor, _, spans)) = &plan {
+        let c = w.env[cursor].regs()[0];
+        for span in spans {
+            let base = w.b.bases[span.as_str()];
+            iv_entry.push(w.b.def1(Op::AddrIdx, RegClass::Int, &[base, c]));
+        }
+    }
+    entry_args.extend(iv_entry.iter().copied());
+    let (body, exit) = (w.b.block(), w.b.block());
+    let (mut body_params, mut exit_params, mut body_env, mut exit_env) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+    for c in &carried {
+        let now = w.env[c].clone();
+        let b = w.b.fresh_like(&now);
+        let x = w.b.fresh_like(&now);
+        body_params.extend(b.regs());
+        exit_params.extend(x.regs());
+        body_env.push((c.clone(), b));
+        exit_env.push((c.clone(), x));
+    }
+    let mut iv_params = Vec::new();
+    for _ in &iv_entry {
+        let (b, x) = (w.b.ireg(), w.b.ireg());
+        body_params.push(b);
+        exit_params.push(x);
+        iv_params.push(b);
+    }
+    w.b.blocks[body].params = body_params;
+    w.b.blocks[exit].params = exit_params;
+    let guard = w.cond(&s["condition"]);
+    w.b.branch_on(guard, &(body, entry_args.clone()), &(exit, entry_args));
+    w.b.switch(body);
+    for (k, v) in body_env {
+        w.env.insert(k, v);
+    }
+    let outer_iv = w.b.iv.take();
+    if let Some((cursor, step, spans)) = &plan {
+        w.b.iv = Some(Iv { cursor: cursor.clone(), step: *step, ptrs: spans.iter().cloned().zip(iv_params).collect(), offset: 0 });
+    }
+    w.stmts(&s["body"]);
+    let mut back: Vec<VReg> = carried.iter().flat_map(|c| w.env[c].regs()).collect();
+    if let Some(iv) = w.b.iv.take() {
+        let bytes = (iv.offset * 8) as u32;
+        for (_, p) in &iv.ptrs {
+            let next = if bytes == 0 { *p } else { w.b.def1(Op::AddImm { sf: true, imm: bytes }, RegClass::Int, &[*p]) };
+            back.push(next);
+        }
+    }
+    w.b.iv = outer_iv;
+    let bottom = w.cond(&s["condition"]);
+    w.b.branch_on(bottom, &(body, back.clone()), &(exit, back));
+    w.b.switch(exit);
+    for (k, v) in exit_env {
+        w.env.insert(k, v);
+    }
+}
+
+fn native_if(w: &mut W, s: &J) {
+    let mut outer: Vec<String> = Vec::new();
+    sem::assigned(s, &mut outer);
+    outer.retain(|c| w.env.contains_key(c));
+    outer.sort();
+    outer.dedup();
+    let merge = w.b.block();
+    let before = w.env.clone();
+    let mut params = Vec::new();
+    let mut merged = Vec::new();
+    for c in &outer {
+        let fresh = w.b.fresh_like(&before[c]);
+        params.extend(fresh.regs());
+        merged.push((c.clone(), fresh));
+    }
+    w.b.blocks[merge].params = params;
+    for clause in s["clauses"].as_array().unwrap() {
+        let (then, next) = (w.b.block(), w.b.block());
+        w.env = before.clone();
+        let c = w.cond(&clause["condition"]);
+        w.b.branch_on(c, &(then, vec![]), &(next, vec![]));
+        w.b.switch(then);
+        w.stmts(&clause["body"]);
+        let out: Vec<VReg> = outer.iter().flat_map(|c| w.env[c].regs()).collect();
+        w.b.jump(merge, out);
+        w.b.switch(next);
+    }
+    w.env = before.clone();
+    if let Some(e) = s.get("elseBody").filter(|e| !e.is_null()) {
+        w.stmts(e);
+    }
+    let out: Vec<VReg> = outer.iter().flat_map(|c| w.env[c].regs()).collect();
+    w.b.jump(merge, out);
+    w.env = before;
+    for (k, v) in merged {
+        w.env.insert(k, v);
+    }
+    w.b.switch(merge);
+}
+
+fn native_fornum(w: &mut W, s: &J) {
+    // `for i = from, to` over doubles: `to` evaluated once, rotated.
+    let binding = cname(&s["binding"]);
+    let from = w.number(&s["from"]);
+    let last = w.number(&s["to"]);
+    let carried = sem::carried(s);
+    let (body, exit) = (w.b.block(), w.b.block());
+    let counter = w.b.freg();
+    let (mut body_params, mut exit_params, mut body_env, mut exit_env) = (vec![counter], Vec::new(), Vec::new(), Vec::new());
+    for c in &carried {
+        let now = w.env[c].clone();
+        let b = w.b.fresh_like(&now);
+        let x = w.b.fresh_like(&now);
+        body_params.extend(b.regs());
+        exit_params.extend(x.regs());
+        body_env.push((c.clone(), b));
+        exit_env.push((c.clone(), x));
+    }
+    w.b.blocks[body].params = body_params;
+    w.b.blocks[exit].params = exit_params;
+    let before: Vec<VReg> = carried.iter().flat_map(|c| w.env[c].regs()).collect();
+    let mut entry = vec![from];
+    entry.extend(before.iter().copied());
+    let le = crate::asm::cond::LS;
+    w.b.branch(Op::FCmpBr { cond: le }, &[from, last], &(body, entry), &(exit, before));
+    w.b.switch(body);
+    for (k, v) in body_env {
+        w.env.insert(k, v);
+    }
+    w.env.insert(binding, Val::F64(counter));
+    w.stmts(&s["body"]);
+    let one = w.b.lit(1.0);
+    let next = w.b.def1(Op::FAdd, f_class(), &[counter, one]);
+    let after: Vec<VReg> = carried.iter().flat_map(|c| w.env[c].regs()).collect();
+    let mut back = vec![next];
+    back.extend(after.iter().copied());
+    w.b.branch(Op::FCmpBr { cond: le }, &[next, last], &(body, back), &(exit, after));
+    w.b.switch(exit);
+    for (k, v) in exit_env {
+        w.env.insert(k, v);
+    }
+}
+
+/// Lua-builder statements: the Lua C API and runtime wrappers, by import.
+fn lua_statement(w: &mut W, s: &J) -> bool {
+    let l = match w.b.lua {
+        Some(l) => l,
+        None => return false,
+    };
+    match op(s) {
+        "let" if ty(s) == "lua_table" => {
+            // Into the next reserved slot above the entry's base.
+            new_table(w, &s["value"]);
+            w.b.lua_locals += 1;
+            let base = w.b.lua_base.unwrap();
+            let slot = w.b.def1(Op::AddImm { sf: false, imm: w.b.lua_locals }, RegClass::Int, &[base]);
+            w.b.call("lua_replace", &[Arg::I(l), Arg::I(slot)], None);
+            w.env.insert(cname(s), Val::Ext(Ext::Slot(slot)));
+        }
+        "let" if ty(s) == "lua_builder" => {
+            let off = w.b.frame(w.b.builder_size);
+            let addr = w.b.frame_addr(off);
+            let null = w.expr(&s["value"]["nullValue"]);
+            let null = slot_index(&null);
+            let zero = w.b.imm(0);
+            let depth = w.b.imm(1024);
+            let a = [Arg::I(addr), Arg::I(l), Arg::I(null), Arg::I(zero), Arg::I(zero), Arg::I(depth), Arg::I(zero)];
+            w.b.call("ks_rt_eager_builder_new", &a, None);
+            w.env.insert(cname(s), Val::Ext(Ext::Builder(off)));
+        }
+        "lua_set_index" => {
+            let t = w.expr(&s["table"]);
+            let t = slot_index(&t);
+            push_value(w, &s["value"]);
+            let key = w.number(&s["key"]);
+            let sp = w.b.data(site(s).as_bytes());
+            let idx = w.b.checked_int(key, 1, "ks_rt_index", sp);
+            w.b.call("lua_rawseti", &[Arg::I(l), Arg::I(t), Arg::I(idx)], None);
+        }
+        "lua_set_key" => {
+            let t = w.expr(&s["table"]);
+            let t = slot_index(&t);
+            push_value(w, &s["key"]);
+            push_value(w, &s["value"]);
+            w.b.call("lua_rawset", &[Arg::I(l), Arg::I(t)], None);
+        }
+        "lua_builder_open_object" | "lua_builder_open_array" => {
+            let b = builder_addr(w, s);
+            let kind = w.b.imm(if op(s) == "lua_builder_open_array" { 5 } else { 6 });
+            let cap = w.expr(&s["capacity"]);
+            let cap = w.u32(cap);
+            let eager = w.b.imm(1);
+            w.b.call("ks_rt_builder_open", &[Arg::I(l), Arg::I(b), Arg::I(kind), Arg::I(cap), Arg::I(eager)], None);
+        }
+        "lua_builder_key" | "lua_builder_string" | "lua_builder_number_slice" => {
+            let b = builder_addr(w, s);
+            let (p, n) = str_parts(w, &s["sourceBytes"]);
+            let start = w.expr(&s["start"]);
+            let start = w.u32(start);
+            let len = w.expr(&s["length"]);
+            let len = w.u32(len);
+            let eager = w.b.imm(1);
+            if op(s) == "lua_builder_number_slice" {
                 let a = [Arg::I(l), Arg::I(b), Arg::I(p), Arg::I(n), Arg::I(start), Arg::I(len), Arg::I(eager)];
-                self.call("ks_rt_builder_number_slice", &a, None);
+                w.b.call("ks_rt_builder_number_slice", &a, None);
+            } else {
+                let esc = w.expr(&s["escaped"]);
+                let esc = w.u32(esc);
+                let key = w.b.imm((op(s) == "lua_builder_key") as u64);
+                let a = [Arg::I(l), Arg::I(b), Arg::I(p), Arg::I(n), Arg::I(start), Arg::I(len), Arg::I(esc), Arg::I(key), Arg::I(eager)];
+                w.b.call("ks_rt_builder_string", &a, None);
             }
-            "lua_builder_boolean" => {
-                let l = self.lua();
-                let b = self.builder_addr(s);
-                let v = self.expr(&s["value"]);
-                let v = self.as_i(v);
-                let eager = self.imm(1);
-                self.call("ks_rt_builder_boolean", &[Arg::I(l), Arg::I(b), Arg::I(v), Arg::I(eager)], None);
+        }
+        "lua_builder_boolean" => {
+            let b = builder_addr(w, s);
+            let v = w.expr(&s["value"]);
+            let v = w.u32(v);
+            let eager = w.b.imm(1);
+            w.b.call("ks_rt_builder_boolean", &[Arg::I(l), Arg::I(b), Arg::I(v), Arg::I(eager)], None);
+        }
+        "lua_builder_close" => {
+            let b = builder_addr(w, s);
+            let eager = w.b.imm(1);
+            w.b.call("ks_rt_builder_close", &[Arg::I(l), Arg::I(b), Arg::I(eager)], None);
+        }
+        "return" => {
+            let values = s["values"].as_array().unwrap().clone();
+            for v in &values {
+                push_value(w, v);
             }
-            "lua_builder_close" => {
-                let l = self.lua();
-                let b = self.builder_addr(s);
-                let eager = self.imm(1);
-                self.call("ks_rt_builder_close", &[Arg::I(l), Arg::I(b), Arg::I(eager)], None);
-            }
-            "fornum" => {
-                // `for i = from, to` over doubles: `to` evaluated once, rotated.
-                let binding = cname(&s["binding"]);
-                let from = self.number(&s["from"]);
-                let last = self.number(&s["to"]);
-                let carried: Vec<String> =
-                    s["carried"].as_array().unwrap().iter().map(|c| c["cName"].as_str().unwrap().to_string()).collect();
-                let (body, exit) = (self.block(), self.block());
-                let counter = self.freg();
-                let mut body_params = vec![counter];
-                let mut exit_params = Vec::new();
-                let mut body_env = Vec::new();
-                let mut exit_env = Vec::new();
-                for c in &carried {
-                    let now = self.env[c].clone();
-                    let b = self.fresh_like(&now);
-                    let x = self.fresh_like(&now);
-                    body_params.extend(self.regs_of(&b));
-                    exit_params.extend(self.regs_of(&x));
-                    body_env.push((c.clone(), b));
-                    exit_env.push((c.clone(), x));
-                }
-                self.blocks[body].params = body_params;
-                self.blocks[exit].params = exit_params;
-                let before: Vec<VReg> = carried.iter().flat_map(|c| self.regs_of(&self.env[c])).collect();
-                let mut entry = vec![from];
-                entry.extend(before.iter().copied());
-                let le = crate::asm::cond::LS;
-                self.branch(Op::FCmpBr { cond: le }, &[from, last], &(body, entry), &(exit, before));
-                self.switch(body);
-                for (k, v) in body_env {
-                    self.env.insert(k, v);
-                }
-                self.env.insert(binding, Val::F(counter));
-                self.stmts(&s["body"]);
-                let one = self.lit(1.0);
-                let next = self.def1(Op::FAdd, f_class(), &[counter, one]);
-                let after: Vec<VReg> = carried.iter().flat_map(|c| self.regs_of(&self.env[c])).collect();
-                let mut back = vec![next];
-                back.extend(after.iter().copied());
-                self.branch(Op::FCmpBr { cond: le }, &[next, last], &(body, back), &(exit, after));
-                self.switch(exit);
-                for (k, v) in exit_env {
-                    self.env.insert(k, v);
-                }
-            }
-            "while" if s.get("unrolled").is_none() && Self::straight_line(&s["body"]) && Self::doubled(&s["condition"]).is_some() => {
-                // Two bodies per iteration while two fit, then the original
-                // loop for the rest: the C emitter's `wideUnroll`, which the
-                // plan moves into the IR, done here in lowering.
-                let mut twice = s.clone();
-                twice["unrolled"] = J::Bool(true);
-                twice["condition"] = Self::doubled(&s["condition"]).unwrap();
-                let mut body = s["body"].as_array().unwrap().clone();
-                body.extend(s["body"].as_array().unwrap().clone());
-                twice["body"] = J::Array(body);
-                self.stmt(&twice);
-                let mut once = s.clone();
-                once["unrolled"] = J::Bool(true);
-                self.stmt(&once);
-            }
-            "while" => {
-                // Rotated: a guard, then a body that tests at its bottom, so an
-                // iteration takes one branch. Both exits meet in `exit`, which
-                // takes the carried values as parameters.
-                let carried: Vec<String> =
-                    s["carried"].as_array().unwrap().iter().map(|c| c["cName"].as_str().unwrap().to_string()).collect();
-                let mut entry_args: Vec<VReg> = carried.iter().flat_map(|c| self.regs_of(&self.env[c])).collect();
-                // Pointer induction variables for the cursor this loop steps.
-                let plan = Self::iv_plan(s, &carried);
-                let mut iv_entry = Vec::new();
-                if let Some((cursor, _, spans)) = &plan {
-                    let c = self.env[cursor].clone();
-                    let c = self.as_i(c);
-                    for span in spans {
-                        let base = self.bases[span.as_str()];
-                        iv_entry.push(self.def1(Op::AddrIdx, RegClass::Int, &[base, c]));
+            let n = w.b.imm(values.len() as u64);
+            w.b.push(MInst::new(Op::Ret, vec![Operand::reg_fixed_use(n, PReg::new(0, RegClass::Int))]));
+        }
+        _ => return false,
+    }
+    true
+}
+
+impl Backend for Native {
+    type R = VReg;
+
+    fn f64_lanes(&self) -> usize {
+        if self.target == Target::Arm64 { 2 } else { 4 }
+    }
+    fn f64_const(&mut self, x: f64) -> VReg {
+        self.lit(x)
+    }
+    fn int_const(&mut self, x: u64, _wide: bool) -> VReg {
+        self.imm(x)
+    }
+    fn scalar(&mut self, op: Scalar, a: &[VReg]) -> VReg {
+        let (o, class) = match op {
+            Scalar::FAdd => (Op::FAdd, f_class()),
+            Scalar::FSub => (Op::FSub, f_class()),
+            Scalar::FMul => (Op::FMul, f_class()),
+            Scalar::U32Add => (Op::Add { sf: false }, RegClass::Int),
+            Scalar::U64Add => (Op::Add { sf: true }, RegClass::Int),
+            Scalar::U32ToF64 => (Op::UcvtfW, f_class()),
+            Scalar::U64ToF64 => (Op::UcvtfX, f_class()),
+            Scalar::F64ToU32 => (Op::FcvtzuW, RegClass::Int),
+            // A u32 register is already zero-extended.
+            Scalar::U32ToU64 => return a[0],
+        };
+        self.def1(o, class, a)
+    }
+    fn add_imm(&mut self, a: VReg, imm: u64, wide: bool) -> VReg {
+        if imm < 4096 {
+            return self.def1(Op::AddImm { sf: wide, imm: imm as u32 }, RegClass::Int, &[a]);
+        }
+        let k = self.imm(imm);
+        self.def1(Op::Add { sf: wide }, RegClass::Int, &[a, k])
+    }
+    fn count(&mut self, span: &str) -> VReg {
+        self.counts[span]
+    }
+    fn index_load(&mut self, span: &str) -> VReg {
+        let (base, i) = (self.bases[span], self.loop_index.expect("map loop"));
+        self.def1(Op::LdrIdx, f_class(), &[base, i])
+    }
+    fn index_store(&mut self, span: &str, v: VReg) {
+        let (base, i) = (self.bases[span], self.loop_index.expect("map loop"));
+        self.push(MInst::new(Op::StrIdx, vec![Operand::reg_use(v), Operand::reg_use(base), Operand::reg_use(i)]));
+    }
+    fn element(&mut self, span: &str, cursor: Option<&str>, x: VReg, full: bool) -> Addr<VReg> {
+        if let (true, Some(c), Some(iv)) = (full, cursor, self.iv.as_ref()) {
+            if c == iv.cursor {
+                if let Some((_, p)) = iv.ptrs.iter().find(|(s, _)| s == span) {
+                    let off = (iv.offset * 8) as i32;
+                    if off < 1008 {
+                        return Addr { reg: *p, off };
                     }
                 }
-                entry_args.extend(iv_entry.iter().copied());
-                let (body, exit) = (self.block(), self.block());
-                let mut body_params = Vec::new();
-                let mut exit_params = Vec::new();
-                let mut body_env = Vec::new();
-                let mut exit_env = Vec::new();
-                for c in &carried {
-                    let now = self.env[c].clone();
-                    let b = self.fresh_like(&now);
-                    let x = self.fresh_like(&now);
-                    body_params.extend(self.regs_of(&b));
-                    exit_params.extend(self.regs_of(&x));
-                    body_env.push((c.clone(), b));
-                    exit_env.push((c.clone(), x));
-                }
-                let mut iv_params = Vec::new();
-                for _ in &iv_entry {
-                    let (b, x) = (self.ireg(), self.ireg());
-                    body_params.push(b);
-                    exit_params.push(x);
-                    iv_params.push(b);
-                }
-                self.blocks[body].params = body_params;
-                self.blocks[exit].params = exit_params;
-                self.cond(&s["condition"], &(body, entry_args.clone()), &(exit, entry_args));
-                self.switch(body);
-                for (k, v) in body_env {
-                    self.env.insert(k, v);
-                }
-                let outer_iv = self.iv.take();
-                if let Some((cursor, step, spans)) = &plan {
-                    self.iv = Some(Iv {
-                        cursor: cursor.clone(),
-                        step: *step,
-                        ptrs: spans.iter().cloned().zip(iv_params.iter().copied()).collect(),
-                        offset: 0,
-                    });
-                }
-                self.stmts(&s["body"]);
-                let mut back: Vec<VReg> = carried.iter().flat_map(|c| self.regs_of(&self.env[c])).collect();
-                if let Some(iv) = self.iv.take() {
-                    let bytes = (iv.offset * 8) as u32;
-                    for (_, p) in &iv.ptrs {
-                        let next = if bytes == 0 { *p } else { self.def1(Op::AddImm { sf: true, imm: bytes }, RegClass::Int, &[*p]) };
-                        back.push(next);
-                    }
-                }
-                self.iv = outer_iv;
-                self.cond(&s["condition"], &(body, back.clone()), &(exit, back));
-                self.switch(exit);
-                for (k, v) in exit_env {
-                    self.env.insert(k, v);
-                }
             }
-            "if" => {
-                let mut outer: Vec<String> = Vec::new();
-                Self::assigned(s, &mut outer);
-                outer.retain(|c| self.env.contains_key(c));
-                outer.sort();
-                outer.dedup();
-                let merge = self.block();
-                let before: HashMap<String, Val> = self.env.clone();
-                let mut params = Vec::new();
-                let mut merged = Vec::new();
-                for c in &outer {
-                    let fresh = self.fresh_like(&before[c]);
-                    params.extend(self.regs_of(&fresh));
-                    merged.push((c.clone(), fresh));
-                }
-                self.blocks[merge].params = params;
-                let clauses = s["clauses"].as_array().unwrap();
-                for clause in clauses {
-                    let (then, next) = (self.block(), self.block());
-                    self.env = before.clone();
-                    self.cond(&clause["condition"], &(then, vec![]), &(next, vec![]));
-                    self.switch(then);
-                    self.stmts(&clause["body"]);
-                    let out: Vec<VReg> = outer.iter().flat_map(|c| self.regs_of(&self.env[c])).collect();
-                    self.jump(merge, out);
-                    self.switch(next);
-                }
-                self.env = before.clone();
-                if let Some(e) = s.get("elseBody").filter(|e| !e.is_null()) {
-                    self.stmts(e);
-                }
-                let out: Vec<VReg> = outer.iter().flat_map(|c| self.regs_of(&self.env[c])).collect();
-                self.jump(merge, out);
-                self.env = before;
-                for (k, v) in merged {
-                    self.env.insert(k, v);
-                }
-                self.switch(merge);
+        }
+        let base = self.bases[span];
+        Addr { reg: self.def1(Op::AddrIdx, RegClass::Int, &[base, x]), off: 0 }
+    }
+    fn load(&mut self, at: Addr<VReg>, regs: usize) -> Vec<VReg> {
+        let group: Vec<VReg> = (0..regs).map(|_| self.vreg(self.vclass())).collect();
+        let mut ops: Vec<Operand> = group.iter().map(|d| Operand::reg_def(*d)).collect();
+        ops.push(Operand::reg_use(at.reg));
+        self.push(MInst::new(Op::Load { off: at.off }, ops));
+        group
+    }
+    fn store(&mut self, at: Addr<VReg>, vals: &[VReg]) {
+        let mut ops: Vec<Operand> = vals.iter().map(|v| Operand::reg_use(*v)).collect();
+        ops.push(Operand::reg_use(at.reg));
+        self.push(MInst::new(Op::Store { off: at.off }, ops));
+    }
+    fn masked_load(&mut self, at: Addr<VReg>, mask: &[VReg], prefix: Option<VReg>) -> Vec<VReg> {
+        assert_eq!(at.off, 0);
+        let group: Vec<VReg> = mask.iter().map(|_| self.vreg(self.vclass())).collect();
+        let mut ops: Vec<Operand> = group
+            .iter()
+            .map(|d| Operand::new(*d, OperandConstraint::Reg, OperandKind::Def, OperandPos::Early))
+            .collect();
+        ops.push(Operand::reg_use(at.reg));
+        ops.extend(mask.iter().map(|m| Operand::reg_use(*m)));
+        ops.extend(prefix.iter().map(|n| Operand::reg_use(*n)));
+        self.push(MInst::new(Op::MaskedLoad { prefix: prefix.is_some() }, ops));
+        group
+    }
+    fn masked_store(&mut self, at: Addr<VReg>, vals: &[VReg], mask: &[VReg], prefix: Option<VReg>) {
+        assert_eq!(at.off, 0);
+        let mut ops: Vec<Operand> = vals.iter().map(|v| Operand::reg_use(*v)).collect();
+        ops.push(Operand::reg_use(at.reg));
+        ops.extend(mask.iter().map(|m| Operand::reg_use(*m)));
+        ops.extend(prefix.iter().map(|n| Operand::reg_use(*n)));
+        self.push(MInst::new(Op::MaskedStore { prefix: prefix.is_some() }, ops));
+    }
+    fn vector(&mut self, op: Vector, a: &[VReg]) -> VReg {
+        let (vc, mc) = (self.vclass(), self.mclass());
+        match op {
+            Vector::Splat => self.def1(Op::DupD, vc, a),
+            Vector::FAdd => self.def1(Op::VFAdd, vc, a),
+            Vector::FMul => self.def1(Op::VFMul, vc, a),
+            Vector::MaskAnd => self.def1(Op::VAnd, mc, a),
+            Vector::CmpGt => self.def1(Op::VFCmGt, mc, a),
+            Vector::Select if self.target == Target::X86Avx512 => self.def1(Op::Blend, vc, a),
+            Vector::Select => {
+                let d = self.vreg(vc);
+                let ops = vec![Operand::reg_reuse_def(d, 1), Operand::reg_use(a[0]), Operand::reg_use(a[1]), Operand::reg_use(a[2])];
+                self.push(MInst::new(Op::Bsl, ops));
+                d
             }
-            "return" if self.lua.is_some() => {
-                let values = s["values"].as_array().unwrap().clone();
-                for v in &values {
-                    self.push_value(v);
-                }
-                let n = self.imm(values.len() as u64);
-                self.push(MInst::new(Op::Ret, vec![Operand::reg_fixed_use(n, PReg::new(0, RegClass::Int))]));
+        }
+    }
+    fn tail_mask(&mut self, n: VReg, first: usize) -> VReg {
+        let nv = match self.dups.get(&n) {
+            Some(v) => *v,
+            None => {
+                let vc = self.vclass();
+                let v = self.def1(Op::DupX, vc, &[n]);
+                self.dups.insert(n, v);
+                v
             }
+        };
+        let lanes = self.f64_lanes();
+        let mut bytes = vec![0u8; lanes * 8];
+        for k in 0..lanes {
+            bytes[k * 8..k * 8 + 8].copy_from_slice(&((first + k) as u64).to_le_bytes());
+        }
+        let idx = if lanes == 2 {
+            self.constant(Op::LitQ { bytes: bytes.try_into().unwrap() })
+        } else {
+            self.constant(Op::LitY { bytes: bytes.try_into().unwrap() })
+        };
+        let mc = self.mclass();
+        self.def1(Op::VCmHi, mc, &[nv, idx])
+    }
+    fn sum(&mut self, regs: &[VReg]) -> VReg {
+        self.def1(Op::Sum, f_class(), regs)
+    }
+    fn math(&mut self, name: &str, x: VReg) -> VReg {
+        // libm `sin` already returns ±0 for ±0, which is all `nupp_sin` adds.
+        let import = match name {
+            "exp" | "sin" => name,
+            other => panic!("math.{other}"),
+        };
+        self.call(import, &[Arg::F(x)], Some(f_class())).unwrap()
+    }
+    fn bind(&mut self, v: Val<VReg>) -> Val<VReg> {
+        v
+    }
+    fn assign(&mut self, _old: &Val<VReg>, new: Val<VReg>) -> Val<VReg> {
+        new
+    }
+    fn assigning(&mut self, name: &str) {
+        if let Some(iv) = self.iv.as_mut() {
+            if name == iv.cursor {
+                iv.offset += iv.step;
+            }
+        }
+    }
+    fn statement(w: &mut W, s: &J) -> bool {
+        if lua_statement(w, s) {
+            return true;
+        }
+        match op(s) {
+            "while" => native_while(w, s),
+            "if" => native_if(w, s),
+            "fornum" => native_fornum(w, s),
             "return" => {
-                let values = s["values"].as_array().unwrap();
                 let mut ops = Vec::new();
-                if let Some(v) = values.first() {
-                    let v = self.expr(v);
-                    match v {
-                        Val::F(r) => ops.push(Operand::reg_fixed_use(r, PReg::new(0, f_class()))),
-                        Val::I(r) => ops.push(Operand::reg_fixed_use(r, PReg::new(0, RegClass::Int))),
+                if let Some(v) = s["values"].as_array().unwrap().first() {
+                    match w.expr(v) {
+                        Val::F64(r) => ops.push(Operand::reg_fixed_use(r, PReg::new(0, f_class()))),
+                        Val::U32(r) | Val::U64(r) => ops.push(Operand::reg_fixed_use(r, PReg::new(0, RegClass::Int))),
                         other => panic!("return {other:?}"),
                     }
                 }
-                self.push(MInst::new(Op::Ret, ops));
+                w.b.push(MInst::new(Op::Ret, ops));
             }
-            other => panic!("unsupported statement {other}"),
+            _ => return false,
+        }
+        true
+    }
+    fn expression(w: &mut W, e: &J) -> Option<Val<VReg>> {
+        match op(e) {
+            "lua_string_byte" | "lua_string_u32" => {
+                let l = w.b.lua();
+                let (p, n) = str_parts(w, &e["bytes"]);
+                let i = w.expr(&e["index"]);
+                let i = w.u32(i);
+                let name = if op(e) == "lua_string_byte" { "ks_rt_string_byte" } else { "ks_rt_string_u32" };
+                Some(Val::U32(w.b.call_i(name, &[Arg::I(l), Arg::I(p), Arg::I(n), Arg::I(i)])))
+            }
+            _ => None,
         }
     }
 }
 
-fn fresh() -> Lower {
-    Lower {
-        blocks: Vec::new(),
-        order: Vec::new(),
-        cur: 0,
-        classes: Vec::new(),
-        env: HashMap::new(),
-        uniforms: HashMap::new(),
-        bases: HashMap::new(),
-        counts: HashMap::new(),
-        loop_index: None,
-        consts: HashMap::new(),
-        iv: None,
-        tails: HashMap::new(),
-        imports: Vec::new(),
-        locals: 0,
-        lua: None,
-        lua_base: None,
-        lua_locals: 0,
-        builder_size: 0,
-        partitioned: false,
-        target: Target::Arm64,
-    }
-}
-
-fn finish(l: Lower) -> Func {
-    let imports = l.imports.clone();
-    let locals = l.locals;
-    let partitioned = l.partitioned;
-    let target = l.target;
+fn finish(w: W) -> Func {
+    let l = w.b;
+    let wide = l.target != Target::Arm64;
+    let (imports, locals, partitioned, avx512) = (l.imports.clone(), l.locals, l.partitioned, l.target == Target::X86Avx512);
     let blocks = l.blocks.into_iter().map(|b| (b.params, b.insts)).collect();
     let mut f = Func::build(&l.order, blocks, l.classes.len());
     f.imports = imports;
     f.locals = locals;
     f.partitioned = partitioned;
-    f.vector_slots = if matches!(target, Target::X86Avx2 | Target::X86Avx512) { 4 } else { 2 };
-    f.third_slots = if target == Target::X86Avx512 { 1 } else { 2 };
+    f.vector_slots = if wide { 4 } else { 2 };
+    f.third_slots = if avx512 { 1 } else { 2 };
     f
 }
 
@@ -1466,75 +967,74 @@ fn count_lua_locals(v: &J) -> u32 {
     }
 }
 
-/// Lowers a Lua-builder entry: a `lua_CFunction`, `int (lua_State *)`,
-/// calling the Lua C API and the Nupp runtime through the import table.
+/// Lowers a Lua-builder entry: a `lua_CFunction`, `int (lua_State *)`, calling
+/// the Lua C API and the Nupp runtime through the import table.
 pub fn lower_builder(program: &J, builder_size: u32) -> Func {
-    let mut l = fresh();
-    l.builder_size = builder_size;
-    l.partitioned = true;
-    let entry = l.block();
-    l.switch(entry);
-    let lua = l.ireg();
-    l.push(MInst::new(Op::Args, vec![Operand::reg_fixed_def(lua, PReg::new(0, RegClass::Int))]));
-    l.lua = Some(lua);
+    let mut n = Native::new(Target::Arm64);
+    n.builder_size = builder_size;
+    n.partitioned = true;
+    let mut w = Walker::new(n);
+    let entry = w.b.block();
+    w.b.switch(entry);
+    let lua = w.b.ireg();
+    w.b.push(MInst::new(Op::Args, vec![Operand::reg_fixed_def(lua, PReg::new(0, RegClass::Int))]));
+    w.b.lua = Some(lua);
 
     // lua_checkstack failing raises, like the C entry's `luaL_error`.
-    let depth = l.imm(32);
-    let ok = l.call_i("lua_checkstack", &[Arg::I(lua), Arg::I(depth)]);
-    let zero = l.imm(0);
-    let (fail, fine) = (l.block(), l.block());
-    l.branch(Op::CmpBr { sf: false, cond: crate::asm::cond::EQ }, &[ok, zero], &(fail, vec![]), &(fine, vec![]));
-    l.switch(fail);
-    let r = l.call_i("ks_rt_stack_error", &[Arg::I(lua)]);
-    l.push(MInst::new(Op::Ret, vec![Operand::reg_fixed_use(r, PReg::new(0, RegClass::Int))]));
-    l.switch(fine);
+    let depth = w.b.imm(32);
+    let ok = w.b.call_i("lua_checkstack", &[Arg::I(lua), Arg::I(depth)]);
+    let zero = w.b.imm(0);
+    let (fail, fine) = (w.b.block(), w.b.block());
+    w.b.branch(Op::CmpBr { sf: false, cond: crate::asm::cond::EQ }, &[ok, zero], &(fail, vec![]), &(fine, vec![]));
+    w.b.switch(fail);
+    let r = w.b.call_i("ks_rt_stack_error", &[Arg::I(lua)]);
+    w.b.push(MInst::new(Op::Ret, vec![Operand::reg_fixed_use(r, PReg::new(0, RegClass::Int))]));
+    w.b.switch(fine);
 
     for (k, p) in program["params"].as_array().unwrap().iter().enumerate() {
-        let index = l.imm(k as u64 + 1);
+        let index = w.b.imm(k as u64 + 1);
         let name = p["cName"].as_str().unwrap().to_string();
         let v = match p["type"].as_str().unwrap() {
-            "f64" => Val::F(l.call("luaL_checknumber", &[Arg::I(lua), Arg::I(index)], Some(f_class())).unwrap()),
+            "f64" => Val::F64(w.b.call("luaL_checknumber", &[Arg::I(lua), Arg::I(index)], Some(f_class())).unwrap()),
             "lua_string" => {
-                let off = l.frame(8);
-                let len_at = l.frame_addr(off);
-                let bytes = l.call_i("luaL_checklstring", &[Arg::I(lua), Arg::I(index), Arg::I(len_at)]);
-                let len_at = l.frame_addr(off);
-                let len = l.def1(Op::LdrX { off: 0 }, RegClass::Int, &[len_at]);
-                Val::Str(bytes, len, index)
+                let off = w.b.frame(8);
+                let len_at = w.b.frame_addr(off);
+                let bytes = w.b.call_i("luaL_checklstring", &[Arg::I(lua), Arg::I(index), Arg::I(len_at)]);
+                let len_at = w.b.frame_addr(off);
+                let len = w.b.def1(Op::LdrX { off: 0 }, RegClass::Int, &[len_at]);
+                Val::Ext(Ext::Str(bytes, len, index))
             }
-            "lua_value" => Val::Slot(index),
+            "lua_value" => Val::Ext(Ext::Slot(index)),
             other => panic!("builder parameter {other}"),
         };
-        l.env.insert(name, v);
+        w.env.insert(name, v);
     }
-    let base = l.call_i("lua_gettop", &[Arg::I(lua)]);
-    l.lua_base = Some(base);
+    let base = w.b.call_i("lua_gettop", &[Arg::I(lua)]);
+    w.b.lua_base = Some(base);
     let reserved = count_lua_locals(&program["body"]);
-    let top = l.def1(Op::AddImm { sf: false, imm: reserved }, RegClass::Int, &[base]);
-    l.call("lua_settop", &[Arg::I(lua), Arg::I(top)], None);
+    let top = w.b.def1(Op::AddImm { sf: false, imm: reserved }, RegClass::Int, &[base]);
+    w.b.call("lua_settop", &[Arg::I(lua), Arg::I(top)], None);
 
-    l.stmts(&program["body"]);
-    finish(l)
+    w.stmts(&program["body"]);
+    finish(w)
 }
 
-/// Lowers one program to machine IR.
+/// Lowers one kernel for arm64.
 pub fn lower(program: &J, sig: &Signature) -> Func {
     lower_for(program, sig, Target::Arm64)
 }
 
 /// SysV x86-64 integer argument registers, by hardware number.
-#[allow(dead_code)]
-const _TARGETS: [Target; 3] = [Target::Arm64, Target::X86Avx2, Target::X86Avx512];
 const SYSV_INT: [usize; 6] = [7, 6, 2, 1, 8, 9];
 
 pub fn lower_for(program: &J, sig: &Signature, target: Target) -> Func {
-    let mut l = fresh();
-    l.target = target;
-    l.partitioned = program.to_string().contains("\"op\":\"math\"") && std::env::var("NUPP_SPIKE_UNPARTITIONED").is_err();
-    let entry = l.block();
-    l.switch(entry);
+    let mut n = Native::new(target);
+    n.partitioned = program.to_string().contains("\"op\":\"math\"") && std::env::var("NUPP_SPIKE_UNPARTITIONED").is_err();
+    let mut w = Walker::new(n);
+    let entry = w.b.block();
+    w.b.switch(entry);
 
-    // Incoming arguments, Apple arm64: integers in x0.., doubles in d0...
+    // Incoming arguments: integers in x0.. (SysV order on x86), doubles in d0...
     let spans: Vec<String> = program["params"]
         .as_array()
         .unwrap()
@@ -1545,62 +1045,58 @@ pub fn lower_for(program: &J, sig: &Signature, target: Target) -> Func {
     let mut defs = Vec::new();
     let (mut ni, mut nf) = (0, 0);
     for p in &sig.params {
-        let v = match p.class {
-            Class::Int => l.ireg(),
-            Class::Float => l.freg(),
-        };
-        let preg = match p.class {
+        let (v, preg) = match p.class {
             Class::Int => {
                 ni += 1;
                 let n = if target == Target::Arm64 { ni - 1 } else { SYSV_INT[ni - 1] };
-                PReg::new(n, RegClass::Int)
+                (w.b.ireg(), PReg::new(n, RegClass::Int))
             }
             Class::Float => {
                 nf += 1;
-                PReg::new(nf - 1, f_class())
+                (w.b.freg(), PReg::new(nf - 1, f_class()))
             }
         };
         defs.push(Operand::reg_fixed_def(v, preg));
         if let Some(span) = p.name.strip_prefix("count_") {
-            l.counts.insert(span.to_string(), v);
+            w.b.counts.insert(span.to_string(), v);
         } else if p.name == "count" {
             for s in &spans {
-                l.counts.insert(s.clone(), v);
+                w.b.counts.insert(s.clone(), v);
             }
         } else {
             let name = p.name.strip_prefix("p_").unwrap();
             if spans.iter().any(|s| s == name) {
-                l.bases.insert(name.to_string(), v);
+                w.b.bases.insert(name.to_string(), v);
             } else {
-                l.uniforms.insert(p.name.clone(), v);
+                w.env.insert(p.name.clone(), Val::F64(v));
             }
         }
     }
-    l.push(MInst::new(Op::Args, defs));
+    w.b.push(MInst::new(Op::Args, defs));
 
     if let Some(lp) = program.get("loop").filter(|v| !v.is_null()) {
         // The map form: `for i = 1, #count do statements end`, zero-based here.
-        let count = l.counts[lp["count"].as_str().unwrap()];
-        let zero = l.imm(0);
-        let (body, exit) = (l.block(), l.block());
-        let i = l.ireg();
-        l.blocks[body].params = vec![i];
+        let count = w.b.counts[lp["count"].as_str().unwrap()];
+        let zero = w.b.imm(0);
+        let (body, exit) = (w.b.block(), w.b.block());
+        let i = w.b.ireg();
+        w.b.blocks[body].params = vec![i];
         let lo = crate::asm::cond::LO;
-        l.branch(Op::CmpBr { sf: true, cond: lo }, &[zero, count], &(body, vec![zero]), &(exit, vec![]));
-        l.switch(body);
-        l.loop_index = Some(i);
-        l.stmts(&lp["statements"]);
-        let next = l.def1(Op::AddImm { sf: true, imm: 1 }, RegClass::Int, &[i]);
-        l.branch(Op::CmpBr { sf: true, cond: lo }, &[next, count], &(body, vec![next]), &(exit, vec![]));
-        l.switch(exit);
-        l.push(MInst::new(Op::Ret, vec![]));
+        w.b.branch(Op::CmpBr { sf: true, cond: lo }, &[zero, count], &(body, vec![zero]), &(exit, vec![]));
+        w.b.switch(body);
+        w.b.loop_index = Some(i);
+        w.stmts(&lp["statements"]);
+        let next = w.b.def1(Op::AddImm { sf: true, imm: 1 }, RegClass::Int, &[i]);
+        w.b.branch(Op::CmpBr { sf: true, cond: lo }, &[next, count], &(body, vec![next]), &(exit, vec![]));
+        w.b.switch(exit);
+        w.b.push(MInst::new(Op::Ret, vec![]));
     } else {
-        l.stmts(&program["body"]);
-        let last = l.blocks[l.cur].insts.last().map(|i| matches!(i.op, Op::Ret)).unwrap_or(false);
+        w.stmts(&program["body"]);
+        let cur = w.b.cur;
+        let last = w.b.blocks[cur].insts.last().map(|i| matches!(i.op, Op::Ret)).unwrap_or(false);
         if !last {
-            l.push(MInst::new(Op::Ret, vec![]));
+            w.b.push(MInst::new(Op::Ret, vec![]));
         }
     }
-
-    finish(l)
+    finish(w)
 }

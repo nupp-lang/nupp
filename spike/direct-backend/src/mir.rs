@@ -14,15 +14,17 @@ pub enum Op {
     Imm { value: u64 },
     LitD { bits: u64 },
     LitQ { bytes: [u8; 16] },
+    /// A 32-byte constant.
+    LitY { bytes: [u8; 32] },
     Add { sf: bool },
     Sub { sf: bool },
     AddImm { sf: bool, imm: u32 },
     /// def = use0 + (use1 << 3)
     AddrIdx,
     UcvtfW,
+    UcvtfX,
     ScvtfW,
     FcvtzsW,
-    UcvtfX,
     FcvtzuW,
     FAdd,
     FSub,
@@ -34,18 +36,24 @@ pub enum Op {
     VCmHi,
     /// def (reuses the mask) = mask ? a : b
     Bsl,
+    /// def = mask ? a : b with the mask in a k register (AVX-512).
+    Blend,
     DupD,
     DupX,
-    /// def d = horizontal sum of two 2d registers
-    SumPair,
     LdrIdx,
     StrIdx,
-    Ldp { off: i32 },
-    Stp { off: i32 },
-    MaskedLoad,
-    MaskedStore,
-    /// Call through import slot `import`: fixed-register arguments and result,
-    /// every other caller-saved register clobbered.
+    /// A whole vector group from [use0 + off]: one def per register.
+    Load { off: i32 },
+    /// A whole vector group to [addr + off]: the group's uses, then addr.
+    Store { off: i32 },
+    /// defs (early) = group; uses = addr, masks..., then the prefix count
+    /// when `prefix`. The emitter picks the tail strategy.
+    MaskedLoad { prefix: bool },
+    /// uses = group..., addr, masks..., prefix count when `prefix`.
+    MaskedStore { prefix: bool },
+    /// def d = horizontal sum of the group's registers.
+    Sum,
+    /// Call through import slot `import`.
     Call { import: usize },
     /// def = sp + locals base + off: the address of frame memory.
     FrameAddr { off: u32 },
@@ -53,25 +61,10 @@ pub enum Op {
     LdrX { off: u32 },
     /// def = address of constant bytes in the image.
     AdrData { bytes: Vec<u8> },
-    /// One full-width vector register (AVX2 ymm): load, store, masked load
-    /// and store (fault-suppressing), horizontal sum, any-lane branch.
-    LoadV { off: i32 },
-    StoreV { off: i32 },
-    MaskLoadV,
-    MaskStoreV,
-    SumV,
-    AnyV,
-    /// A 32-byte constant.
-    LitY { bytes: [u8; 32] },
-    /// def = mask ? a : b with the mask in a k register (AVX-512).
-    Blend,
-    /// Loads/stores the first `n` lanes: a mask known to be `simd_tail(n)`.
-    TailLoad,
-    TailStore,
     Jump,
     CmpBr { sf: bool, cond: u32 },
     FCmpBr { cond: u32 },
-    /// Branch if any lane of a two-register mask is set.
+    /// Branch if any lane of the mask group is set.
     AnyBr,
     /// `a c1 b and c c2 d`: compare, conditional compare, one branch.
     CmpAndBr { sf: bool, c1: u32, c2: u32 },
@@ -97,13 +90,7 @@ impl MInst {
     pub fn is_branch(&self) -> bool {
         matches!(
             self.op,
-            Op::Jump
-                | Op::CmpBr { .. }
-                | Op::FCmpBr { .. }
-                | Op::AnyBr
-                | Op::AnyV
-                | Op::CmpAndBr { .. }
-                | Op::FCmpAndBr { .. }
+            Op::Jump | Op::CmpBr { .. } | Op::FCmpBr { .. } | Op::AnyBr | Op::CmpAndBr { .. } | Op::FCmpAndBr { .. }
         )
     }
 }

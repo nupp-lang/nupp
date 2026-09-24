@@ -313,36 +313,111 @@ pub fn emit_image(func: &Func, out: &Output) -> Emitted {
                         }
                         Op::DupD => a.emit(asm::dup_2d_elem0(r[0], r[1])),
                         Op::DupX => a.emit(asm::dup_2d_x(r[0], r[1])),
-                        Op::SumPair => {
-                            a.emit(asm::fadd_2d(VS, r[1], r[2]));
-                            a.emit(asm::faddp_d(r[0], VS));
+                        Op::Sum => {
+                            // Pairs first, then across: (a0 + a2) + (a1 + a3) for two registers.
+                            if r.len() == 3 {
+                                a.emit(asm::fadd_2d(VS, r[1], r[2]));
+                                a.emit(asm::faddp_d(r[0], VS));
+                            } else {
+                                a.emit(asm::faddp_d(r[0], r[1]));
+                            }
                         }
                         Op::LdrIdx => a.emit(asm::ldr_d_idx(r[0], r[1], r[2])),
                         Op::StrIdx => a.emit(asm::str_d_idx(r[0], r[1], r[2])),
-                        Op::Ldp { off } => a.emit(asm::ldp_q(r[0], r[1], r[2], *off)),
-                        Op::Stp { off } => a.emit(asm::stp_q(r[0], r[1], r[2], *off)),
-                        Op::MaskedLoad => {
-                            let (lo, hi, addr, m0, m1) = (r[0], r[1], r[2], r[3], r[4]);
-                            a.emit(asm::movi_2d_zero(lo));
-                            a.emit(asm::movi_2d_zero(hi));
-                            for k in 0..4u32 {
-                                let (m, dst, j) = if k < 2 { (m0, lo, k) } else { (m1, hi, k - 2) };
-                                let skip = a.label();
-                                a.emit(asm::umov_x_d(XS, m, j));
-                                a.cbz(XS, skip);
-                                a.emit(asm::ldr_d_imm(VS, addr, 8 * k));
-                                a.emit(asm::ins_d(dst, j, VS));
-                                a.bind(skip);
+                        Op::Load { off } => {
+                            let n = r.len() - 1;
+                            let addr = r[n];
+                            if n == 2 {
+                                a.emit(asm::ldp_q(r[0], r[1], addr, *off));
+                            } else {
+                                for k in 0..n {
+                                    a.emit(asm::ldr_q_imm(r[k], addr, (*off + 16 * k as i32) as u32));
+                                }
                             }
                         }
-                        Op::LoadV { .. }
-                        | Op::StoreV { .. }
-                        | Op::MaskLoadV
-                        | Op::MaskStoreV
-                        | Op::SumV
-                        | Op::AnyV
-                        | Op::LitY { .. }
-                        | Op::Blend => panic!("x86 operation in AArch64 emission"),
+                        Op::Store { off } => {
+                            let n = r.len() - 1;
+                            let addr = r[n];
+                            if n == 2 {
+                                a.emit(asm::stp_q(r[0], r[1], addr, *off));
+                            } else {
+                                for k in 0..n {
+                                    a.emit(asm::str_q_imm(r[k], addr, (*off + 16 * k as i32) as u32));
+                                }
+                            }
+                        }
+                        Op::MaskedLoad { prefix } => {
+                            // Group, address, masks, then the prefix count.
+                            let n = (r.len() - 1 - *prefix as usize) / 2;
+                            let (group, addr) = (&r[..n], r[n]);
+                            let masks = &r[n + 1..2 * n + 1];
+                            for q in group {
+                                a.emit(asm::movi_2d_zero(*q));
+                            }
+                            if *prefix {
+                                // simd_tail(count): register k holds lanes 2k and 2k+1.
+                                let count = r[2 * n + 1];
+                                let done = a.label();
+                                for (k, q) in group.iter().enumerate() {
+                                    let (one, next) = (a.label(), a.label());
+                                    a.emit(asm::cmp_imm(true, count, 2 * k as u32 + 1));
+                                    a.b_cond(asm::cond::LO, done);
+                                    a.b_cond(asm::cond::EQ, one);
+                                    a.emit(asm::ldr_q_imm(*q, addr, 16 * k as u32));
+                                    a.b(next);
+                                    a.bind(one);
+                                    a.emit(asm::ldr_d_imm(*q, addr, 16 * k as u32));
+                                    a.b(done);
+                                    a.bind(next);
+                                }
+                                a.bind(done);
+                            } else {
+                                for (k, (q, m)) in group.iter().zip(masks).enumerate() {
+                                    for j in 0..2u32 {
+                                        let skip = a.label();
+                                        a.emit(asm::umov_x_d(XS, *m, j));
+                                        a.cbz(XS, skip);
+                                        a.emit(asm::ldr_d_imm(VS, addr, 16 * k as u32 + 8 * j));
+                                        a.emit(asm::ins_d(*q, j, VS));
+                                        a.bind(skip);
+                                    }
+                                }
+                            }
+                        }
+                        Op::MaskedStore { prefix } => {
+                            let n = (r.len() - 1 - *prefix as usize) / 2;
+                            let (group, addr) = (&r[..n], r[n]);
+                            let masks = &r[n + 1..2 * n + 1];
+                            if *prefix {
+                                let count = r[2 * n + 1];
+                                let done = a.label();
+                                for (k, q) in group.iter().enumerate() {
+                                    let (one, next) = (a.label(), a.label());
+                                    a.emit(asm::cmp_imm(true, count, 2 * k as u32 + 1));
+                                    a.b_cond(asm::cond::LO, done);
+                                    a.b_cond(asm::cond::EQ, one);
+                                    a.emit(asm::str_q_imm(*q, addr, 16 * k as u32));
+                                    a.b(next);
+                                    a.bind(one);
+                                    a.emit(asm::str_d_imm(*q, addr, 16 * k as u32));
+                                    a.b(done);
+                                    a.bind(next);
+                                }
+                                a.bind(done);
+                            } else {
+                                for (k, (q, m)) in group.iter().zip(masks).enumerate() {
+                                    for j in 0..2u32 {
+                                        let skip = a.label();
+                                        a.emit(asm::umov_x_d(XS, *m, j));
+                                        a.cbz(XS, skip);
+                                        a.emit(asm::dup_d_elem(VS, *q, j));
+                                        a.emit(asm::str_d_imm(VS, addr, 16 * k as u32 + 8 * j));
+                                        a.bind(skip);
+                                    }
+                                }
+                            }
+                        }
+                        Op::LitY { .. } | Op::Blend => panic!("x86 operation in AArch64 emission"),
                         Op::Call { import } => {
                             a.ldr_slot(XS, *import);
                             a.emit(asm::blr(XS));
@@ -350,60 +425,6 @@ pub fn emit_image(func: &Func, out: &Output) -> Emitted {
                         Op::FrameAddr { off } => a.emit(asm::add_imm(true, r[0], SP, locals_base as u32 + *off)),
                         Op::LdrX { off } => a.emit(asm::ldr_x_imm(r[0], r[1], *off)),
                         Op::AdrData { bytes } => a.adr_data(r[0], bytes),
-                        Op::TailLoad => {
-                            let (lo, hi, addr, n) = (r[0], r[1], r[2], r[3]);
-                            let (full, lt2, done) = (a.label(), a.label(), a.label());
-                            a.emit(asm::movi_2d_zero(lo));
-                            a.emit(asm::movi_2d_zero(hi));
-                            a.emit(asm::cmp_imm(true, n, 4));
-                            a.b_cond(asm::cond::HS, full);
-                            a.emit(asm::cmp_imm(true, n, 2));
-                            a.b_cond(asm::cond::LO, lt2);
-                            a.emit(asm::ldr_q_imm(lo, addr, 0));
-                            a.emit(asm::cmp_imm(true, n, 3));
-                            a.b_cond(asm::cond::LO, done);
-                            a.emit(asm::ldr_d_imm(hi, addr, 16));
-                            a.b(done);
-                            a.bind(lt2);
-                            a.cbz(n, done);
-                            a.emit(asm::ldr_d_imm(lo, addr, 0));
-                            a.b(done);
-                            a.bind(full);
-                            a.emit(asm::ldp_q(lo, hi, addr, 0));
-                            a.bind(done);
-                        }
-                        Op::TailStore => {
-                            let (lo, hi, addr, n) = (r[0], r[1], r[2], r[3]);
-                            let (full, lt2, done) = (a.label(), a.label(), a.label());
-                            a.emit(asm::cmp_imm(true, n, 4));
-                            a.b_cond(asm::cond::HS, full);
-                            a.emit(asm::cmp_imm(true, n, 2));
-                            a.b_cond(asm::cond::LO, lt2);
-                            a.emit(asm::str_q_imm(lo, addr, 0));
-                            a.emit(asm::cmp_imm(true, n, 3));
-                            a.b_cond(asm::cond::LO, done);
-                            a.emit(asm::str_d_imm(hi, addr, 16));
-                            a.b(done);
-                            a.bind(lt2);
-                            a.cbz(n, done);
-                            a.emit(asm::str_d_imm(lo, addr, 0));
-                            a.b(done);
-                            a.bind(full);
-                            a.emit(asm::stp_q(lo, hi, addr, 0));
-                            a.bind(done);
-                        }
-                        Op::MaskedStore => {
-                            let (lo, hi, addr, m0, m1) = (r[0], r[1], r[2], r[3], r[4]);
-                            for k in 0..4u32 {
-                                let (m, src, j) = if k < 2 { (m0, lo, k) } else { (m1, hi, k - 2) };
-                                let skip = a.label();
-                                a.emit(asm::umov_x_d(XS, m, j));
-                                a.cbz(XS, skip);
-                                a.emit(asm::dup_d_elem(VS, src, j));
-                                a.emit(asm::str_d_imm(VS, addr, 8 * k));
-                                a.bind(skip);
-                            }
-                        }
                         Op::Jump => {
                             let t = target(0);
                             if Some(t) != next {
@@ -429,8 +450,12 @@ pub fn emit_image(func: &Func, out: &Output) -> Emitted {
                             two_way(&mut a, *c2);
                         }
                         Op::AnyBr => {
-                            a.emit(asm::orr_16b(VS, r[0], r[1]));
-                            a.emit(asm::addp_d(VS, VS));
+                            if r.len() == 2 {
+                                a.emit(asm::orr_16b(VS, r[0], r[1]));
+                                a.emit(asm::addp_d(VS, VS));
+                            } else {
+                                a.emit(asm::addp_d(VS, r[0]));
+                            }
                             a.emit(asm::fmov_x_d(XS, VS));
                             let (t, f) = (target(0), target(1));
                             if Some(t) == next {

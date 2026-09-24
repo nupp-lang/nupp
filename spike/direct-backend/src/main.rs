@@ -10,6 +10,7 @@ mod loader;
 mod lower;
 mod luaphase;
 mod mir;
+mod sem;
 mod wasmphase;
 mod x86phase;
 

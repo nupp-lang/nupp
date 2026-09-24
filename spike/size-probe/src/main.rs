@@ -13,6 +13,9 @@ mod emit_x86;
 #[cfg(feature = "arm64")]
 #[path = "../../direct-backend/src/loader.rs"]
 mod loader;
+#[cfg(any(feature = "arm64", feature = "wasm"))]
+#[path = "../../direct-backend/src/sem.rs"]
+mod sem;
 #[cfg(feature = "arm64")]
 #[path = "../../direct-backend/src/lower.rs"]
 mod lower;
