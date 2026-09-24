@@ -72,3 +72,17 @@ end
 write(output .. "/kernel.ir", artifacts.irText)
 write(output .. "/kernel.c", artifacts.c)
 write(output .. "/checked.nupp", artifacts.binding)
+
+-- The LLVM route builds the library itself, with the same logical symbols.
+if os.getenv("NUPP_AOT_BACKEND") == "llvm" then
+    local aotllvm = require("nupp.tools.build.aotllvm")
+    local ir, why = aotllvm.emit(artifacts.programs, selected.tier, selected.triple, true)
+    assert(ir, why)
+    write(output .. "/kernel.ll", ir)
+    local object = output .. "/kernel.o"
+    local compileErr = aotllvm.compile(output .. "/kernel.ll", selected.triple, selected.tier, object)
+    assert(compileErr == nil, compileErr)
+    local suffix = jit.os == "OSX" and ".dylib" or ".so"
+    local linkErr = aotllvm.link(selected.triple, {object}, output .. "/libmandelbrot" .. suffix)
+    assert(linkErr == nil, linkErr)
+end
