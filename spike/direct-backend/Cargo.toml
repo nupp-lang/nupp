@@ -1,0 +1,16 @@
+[package]
+name = "nupp-direct-backend-spike"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+# Standalone: not a member of the repository workspace.
+[workspace]
+
+[dependencies]
+regalloc2 = "=0.15.2"
+serde_json = "1"
+libc = "0.2"
+
+[profile.release]
+debug = false

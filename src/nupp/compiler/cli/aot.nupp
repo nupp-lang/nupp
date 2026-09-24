@@ -492,6 +492,8 @@ local function run(options: any): integer
                 registrar = program.registrar,
                 optimization = artifacts.optimizations[position],
                 loops = artifacts.loops[position],
+                -- Spike only: the structured IR for the direct-backend probe.
+                tree = os.getenv("NUPP_SPIKE_IR_TREE") ~= nil and program or nil,
             }
         end
         io.write(

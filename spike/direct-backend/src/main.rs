@@ -1,0 +1,2 @@
+mod asm;
+fn main() {}
