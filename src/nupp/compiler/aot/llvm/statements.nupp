@@ -36,16 +36,17 @@ end
 
 --- A slot for `cName` holding IR type `typeName`, created on first binding.
 --- A loop body's `let` binds the same name every iteration; one slot serves.
-function statements.slot(ctx: context.Context, cName: string, typeName: string): context.Slot
+function statements.slot(ctx: context.Context, cName: string, typeName: string, carried: boolean?): context.Slot
     local existing = ctx.locals[cName]
     if existing ~= nil then
         return existing as context.Slot
     end
-    local llvmType = context.llvmType(ctx, typeName)
+    local llvmType = context.slotType(ctx, typeName, carried == true)
     local scalar = types.value(typeName) ~= nil
     local slot = new context.Slot(
         pointer = builder.alloca(ctx.f, llvmType, not scalar and 16 or types.bits(typeName) >= 64 and 8 or 4),
-        type = typeName
+        type = typeName,
+        carried = carried == true
     )
     ctx.locals[cName] = slot
 
@@ -55,7 +56,7 @@ end
 --- Stores `value` (of `valueType`) into a local of `slotType`.
 local function assignLocal(ctx: context.Context, slot: context.Slot, value: string, valueType: string): nil
     local converted = expressions.convert(ctx, value, valueType, slot.type)
-    emit(ctx, ("store %s %s, ptr %s"):format(context.llvmType(ctx, slot.type), converted, slot.pointer))
+    context.storeSlot(ctx, slot, converted)
 end
 
 --- A condition as an i1.
@@ -311,7 +312,12 @@ function statements.statement(ctx: context.Context, node: scalarIR.Statement): n
         end
         local value, t = expressions.value(ctx, statement.value)
         -- A struct element binds its address; everything else its value.
-        local slot = statements.slot(ctx, statement.cName, t == "ptr" and "ptr" or tostring(statement.type))
+        local slot = statements.slot(
+            ctx,
+            statement.cName,
+            t == "ptr" and "ptr" or tostring(statement.type),
+            statement.assigned == true
+        )
         assignLocal(ctx, slot, value, t)
     elseif operation == "assign" then
         assign(ctx, node as scalarIR.Assign)
@@ -339,7 +345,7 @@ function statements.statement(ctx: context.Context, node: scalarIR.Statement): n
         local resultType = expressions.helperResult(ctx, statement.call.resultTypes as {scalarIR.Type})
         for position, bound in ipairs(statement.bindings) do
             local value = builder.value(ctx.f, ("extractvalue %s %s, %d"):format(resultType, aggregate, position - 1))
-            assignLocal(ctx, statements.slot(ctx, bound.cName, bound.type), value, bound.type)
+            assignLocal(ctx, statements.slot(ctx, bound.cName, bound.type, bound.assigned == true), value, bound.type)
         end
     else
         unsupported("statement " .. tostring(operation))

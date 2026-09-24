@@ -594,7 +594,7 @@ function expressions.value(ctx: context.Context, node: scalarIR.Expr): (string, 
         -- A body may assign a parameter; then it lives in its slot.
         local slot = ctx.locals["p_" .. name]
         if slot ~= nil then
-            return emit(ctx, ("load %s, ptr %s"):format(context.llvmType(ctx, slot.type), slot.pointer)), slot.type
+            return context.loadSlot(ctx, slot), slot.type
         end
         local value = ctx.uniforms[name]
         if value == nil then
@@ -618,7 +618,7 @@ function expressions.value(ctx: context.Context, node: scalarIR.Expr): (string, 
             error("no local " .. tostring(named.cName), 0)
         end
 
-        return emit(ctx, ("load %s, ptr %s"):format(context.llvmType(ctx, slot.type), slot.pointer)), slot.type
+        return context.loadSlot(ctx, slot), slot.type
     elseif operation == "span_count" then
         local count = context.count(ctx, (node as scalarIR.SpanCount).span)
 

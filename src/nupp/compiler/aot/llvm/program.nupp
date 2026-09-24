@@ -357,6 +357,10 @@ local function kernel(unit: llvmProgram.Unit, program: scalarIR.Program, oracle:
     ctx.oracle = oracle
     ctx.maskedMemory = unit.maskedMemory
     ctx.tier = unit.codegenTier
+    local architecture = unit.target.llvmTriple:match("^([^-]+)")
+    ctx.vectorRegister = (architecture == "arm64" or architecture == "aarch64") and "w"
+        or (architecture == "x86_64" or architecture == "i686") and "x"
+        or ""
     if resultStruct ~= nil then
         ctx.resultBlock = "%ks_result"
         ctx.resultStruct = resultStruct

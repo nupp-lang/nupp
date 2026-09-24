@@ -26,6 +26,15 @@ local function unsupported(what: string): never
     error(expressions.UNSUPPORTED .. what, 0)
 end
 
+local registerTest: function(
+    ctx: context.Context,
+    widened: string,
+    count: integer,
+    element: string,
+    total: integer,
+    any: boolean
+): string
+
 local function e(ctx: context.Context, instruction: string): string
     return lanes.emit(ctx, instruction)
 end
@@ -46,12 +55,80 @@ function reduce.bits(ctx: context.Context, found: species.Species, mask: string)
     return e(ctx, ("zext i%d %s to i64"):format(found.lanes, packed))
 end
 
+--- Whether any (or every) lane of a lane-wide mask is set, asked the way
+--- the target asks it: the 128-bit registers OR-ed (AND-ed) together, then
+--- NEON's `umaxv`/`uminv` or x86's `pmovmskb`. The target-neutral
+--- reductions are canonicalized back into an i1 reduction that NEON narrows.
+registerTest = function(
+    ctx: context.Context,
+    widened: string,
+    count: integer,
+    element: string,
+    total: integer,
+    any: boolean
+): string
+    local vector = "<" .. tostring(count) .. " x " .. element .. ">"
+    local registers = math.floor(total / 128) as integer
+    local x86 = ctx.vectorRegister == "x"
+    local piece = x86 and "<16 x i8>" or "<4 x i32>"
+    local pieces = x86 and 16 or 4
+    local whole = "<" .. tostring(registers * pieces) .. " x " .. (x86 and "i8" or "i32") .. ">"
+    local cast = e(ctx, ("bitcast %s %s to %s"):format(vector, widened, whole))
+    local combined: string? = nil
+    for register = 0, registers - 1 do
+        local picks: {string} = {}
+        for lane = 0, pieces - 1 do
+            picks[#picks + 1] = "i32 " .. tostring(register * pieces + lane)
+        end
+        local one = e(
+            ctx,
+            (
+                "shufflevector %s %s, %s poison, <%d x i32> <%s>"
+            ):format(whole, cast, whole, pieces, table.concat(picks, ", "))
+        )
+        combined = combined == nil and one
+            or e(ctx, ("%s %s %s, %s"):format(any and "or" or "and", piece, combined as string, one))
+    end
+    if x86 then
+        local movemask = prelude.intrinsic(ctx.module, "llvm.x86.sse2.pmovmskb.128", "i32 @NAME(<16 x i8>)")
+        local bits = e(ctx, ("call i32 %s(<16 x i8> %s)"):format(movemask, tostring(combined)))
+        return e(ctx, ("icmp %s i32 %s, %s"):format(any and "ne" or "eq", bits, any and "0" or "65535"))
+    end
+    local name = any and "llvm.aarch64.neon.umaxv.i32.v4i32" or "llvm.aarch64.neon.uminv.i32.v4i32"
+    local reduce = prelude.intrinsic(ctx.module, name, "i32 @NAME(<4 x i32>)")
+    local folded = e(ctx, ("call i32 %s(<4 x i32> %s)"):format(reduce, tostring(combined)))
+
+    return e(ctx, ("icmp %s i32 %s, %s"):format(any and "ne" or "eq", folded, any and "0" or "-1"))
+end
+
 local function maskQuery(ctx: context.Context, node: scalarIR.Expr): (string, string)
     local simd = node as scalarIR.Simd
     local found = lanes.of(ctx, tostring(simd.args[1].type))
     local mask = operand(ctx, simd.args[1])
     local suffix = lanes.suffix(found.lanes, "i1")
     local query = tostring(simd.op)
+    if (query == "simd_mask_any" or query == "simd_mask_all") and ctx.tier ~= "avx512f" then
+        -- Reduced as lanes as wide as the mask's, the register a vector
+        -- compare fills; reducing `<N x i1>` narrows it first on NEON.
+        local wide = "<" .. tostring(found.lanes) .. " x i" .. tostring(found.bits) .. ">"
+        -- Opaque, or LLVM folds the widening back into an i1 reduction.
+        local widened = context.opaque(ctx, e(ctx, ("sext %s %s to %s"):format(found.mask, mask, wide)), wide)
+        local any = query == "simd_mask_any"
+        local total = found.lanes * found.bits
+        local element = "i" .. tostring(found.bits)
+        local reduced = widened
+        local verb = any and "or" or "and"
+        if total % 128 == 0 and ctx.vectorRegister ~= "" then
+            return registerTest(ctx, widened, found.lanes, element, total, any), "bool"
+        end
+        local callee = prelude.intrinsic(
+            ctx.module,
+            "llvm.vector.reduce." .. verb .. "." .. lanes.suffix(found.lanes, element),
+            ("%s @NAME(%s)"):format(element, wide)
+        )
+        local folded = e(ctx, ("call %s %s(%s %s)"):format(element, callee, wide, reduced))
+        return e(ctx, ("icmp %s %s %s, %s"):format(any and "ne" or "eq", element, folded, any and "0" or "-1")), "bool"
+    end
     if query == "simd_mask_any" or query == "simd_mask_all" then
         local verb = query == "simd_mask_any" and "or" or "and"
         local callee = prelude.intrinsic(

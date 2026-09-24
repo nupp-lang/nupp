@@ -206,7 +206,9 @@ local function proved(ctx: context.Context, simd: scalarIR.Simd, found: species.
     end
     local address = e(
         ctx,
-        ("getelementptr %s%s, ptr %s, i64 %s"):format(expressions.inbounds(ctx), storage, (span as context.Span).pointer, start)
+        (
+            "getelementptr %s%s, ptr %s, i64 %s"
+        ):format(expressions.inbounds(ctx), storage, (span as context.Span).pointer, start)
     )
 
     return new memory.Proof(safe = safe, address = address)
@@ -398,12 +400,9 @@ local function cascade(
             else
                 incoming = e(
                     ctx,
-                    ("phi %s [ zeroinitializer, %%%s ], [ %s, %%%s ]"):format(
-                        carryType as string,
-                        top,
-                        previous as string,
-                        previousLabel as string
-                    )
+                    (
+                        "phi %s [ zeroinitializer, %%%s ], [ %s, %%%s ]"
+                    ):format(carryType as string, top, previous as string, previousLabel as string)
                 )
             end
         end
@@ -418,12 +417,9 @@ local function cascade(
 
     return e(
         ctx,
-        ("phi %s [ zeroinitializer, %%%s ], [ %s, %%%s ]"):format(
-            carryType as string,
-            top,
-            tostring(previous),
-            tostring(previousLabel)
-        )
+        (
+            "phi %s [ zeroinitializer, %%%s ], [ %s, %%%s ]"
+        ):format(carryType as string, top, tostring(previous), tostring(previousLabel))
     )
 end
 
@@ -498,6 +494,7 @@ local function partialStore(ctx: context.Context, a: memory.Access, value: strin
             if skip ~= nil then
                 builder.start(f, skip as string)
             end
+
             return nil
         end)
         return
@@ -776,13 +773,16 @@ local function load(ctx: context.Context, node: scalarIR.Expr): (string, string)
     end
     local interleaved = simdbounds.interleaved(intrinsic)
     local active = not interleaved and simd.args[3] ~= nil and operand(ctx, simd.args[3] as scalarIR.Expr) or nil
+
     local function checked(): string?
         local first = memory.first(ctx, simd.args[2])
         if interleaved then
             return interleavedLoad(ctx, found, simd, first)
         end
+
         return contiguousLoad(ctx, found, tostring(simd.span), first, active)
     end
+
     local ways = simdbounds.ways(intrinsic)
     local proof = active == nil and proved(ctx, simd, found, ways) or nil
     if proof == nil then
@@ -790,21 +790,33 @@ local function load(ctx: context.Context, node: scalarIR.Expr): (string, string)
     end
     local align = math.floor(found.bits / 8) as integer
 
-    return choose(ctx, (proof as memory.Proof).safe, found.vector, function(): string?
-        if not interleaved then
-            return e(ctx, ("load %s, ptr %s, align %d"):format(found.vector, (proof as memory.Proof).address, align))
-        end
-        local wide = "<" .. tostring(ways * found.lanes) .. " x " .. found.scalar .. ">"
-        local run = e(ctx, ("load %s, ptr %s, align %d"):format(wide, (proof as memory.Proof).address, align))
-        local picks: {string} = {}
-        for index = 0, found.lanes - 1 do
-            picks[#picks + 1] = "i32 " .. tostring(index * ways + (simd.part or 0))
-        end
-        return e(
-            ctx,
-            ("shufflevector %s %s, %s poison, <%d x i32> <%s>"):format(wide, run, wide, found.lanes, table.concat(picks, ", "))
-        )
-    end, checked) as string, typeName
+    return choose(
+        ctx,
+        (proof as memory.Proof).safe,
+        found.vector,
+        function(): string?
+            if not interleaved then
+                return e(
+                    ctx,
+                    ("load %s, ptr %s, align %d"):format(found.vector, (proof as memory.Proof).address, align)
+                )
+            end
+            local wide = "<" .. tostring(ways * found.lanes) .. " x " .. found.scalar .. ">"
+            local run = e(ctx, ("load %s, ptr %s, align %d"):format(wide, (proof as memory.Proof).address, align))
+            local picks: {string} = {}
+            for index = 0, found.lanes - 1 do
+                picks[#picks + 1] = "i32 " .. tostring(index * ways + (simd.part or 0))
+            end
+
+            return e(
+                ctx,
+                (
+                    "shufflevector %s %s, %s poison, <%d x i32> <%s>"
+                ):format(wide, run, wide, found.lanes, table.concat(picks, ", "))
+            )
+        end,
+        checked
+    ) as string, typeName
 end
 
 local function fieldLoad(ctx: context.Context, node: scalarIR.Expr): (string, string)
@@ -897,9 +909,7 @@ local function checkedInterleavedStore(
             for way, value in ipairs(values) do
                 local slot = e(
                     ctx,
-                    (
-                        "getelementptr inbounds %s, ptr %s, i64 %d"
-                    ):format(found.scalar, staging, (way - 1) * found.lanes)
+                    ("getelementptr inbounds %s, ptr %s, i64 %d"):format(found.scalar, staging, (way - 1) * found.lanes)
                 )
                 builder.emit(ctx.f, ("store %s %s, ptr %s, align %d"):format(found.vector, value, slot, align))
             end
@@ -982,6 +992,7 @@ local function store(ctx: context.Context, node: scalarIR.Statement): nil
         values[#values + 1] = operand(ctx, simd.args[position])
     end
     local active = not interleaved and simd.args[4] ~= nil and operand(ctx, simd.args[4] as scalarIR.Expr) or nil
+
     local function checked(): string?
         local first = memory.first(ctx, simd.args[2])
         if interleaved then
@@ -989,28 +1000,39 @@ local function store(ctx: context.Context, node: scalarIR.Statement): nil
         else
             checkedStore(ctx, found, span, first, values[1], active, align)
         end
+
         return nil
     end
+
     local proof = active == nil and proved(ctx, simd, found, simdbounds.ways(intrinsic)) or nil
     if proof == nil then
         checked()
         return
     end
-    choose(ctx, (proof as memory.Proof).safe, nil, function(): string?
-        if interleaved then
-            local wide, wideType = interleave(ctx, found, values)
-            builder.emit(
-                ctx.f,
-                ("store %s %s, ptr %s, align %d"):format(wideType, wide, (proof as memory.Proof).address, align)
-            )
-        else
-            builder.emit(
-                ctx.f,
-                ("store %s %s, ptr %s, align %d"):format(found.vector, values[1], (proof as memory.Proof).address, align)
-            )
-        end
-        return nil
-    end, checked)
+    choose(
+        ctx,
+        (proof as memory.Proof).safe,
+        nil,
+        function(): string?
+            if interleaved then
+                local wide, wideType = interleave(ctx, found, values)
+                builder.emit(
+                    ctx.f,
+                    ("store %s %s, ptr %s, align %d"):format(wideType, wide, (proof as memory.Proof).address, align)
+                )
+            else
+                builder.emit(
+                    ctx.f,
+                    (
+                        "store %s %s, ptr %s, align %d"
+                    ):format(found.vector, values[1], (proof as memory.Proof).address, align)
+                )
+            end
+
+            return nil
+        end,
+        checked
+    )
 end
 
 local function fieldStore(ctx: context.Context, node: scalarIR.Statement): nil

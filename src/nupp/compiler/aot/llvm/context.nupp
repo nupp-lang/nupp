@@ -23,6 +23,10 @@ local context = {}
 record context.Slot
     pointer: string
     type: string
+
+    --- Whether the value is reassigned after its binding, and so carried
+    --- around a loop.
+    carried: boolean
 end
 
 --- One span parameter as the function receives it.
@@ -97,6 +101,10 @@ record context.Context
     --- The feature tier compiled for.
     tier: string
 
+    --- The inline-asm constraint of one vector register on this target
+    --- (`w` on AArch64, `x` on x86), or empty where there is none to use.
+    vectorRegister: string
+
     --- Whether this body is the unoptimized scalar oracle, which folds every
     --- reducer contribution lane by lane.
     oracle: boolean
@@ -137,6 +145,7 @@ function context.new(
         scope = nil,
         maskedMemory = false,
         tier = "",
+        vectorRegister = "",
         oracle = false,
         accumulators = {}
     )
@@ -181,6 +190,107 @@ function context.llvmType(ctx: context.Context, typeName: string): string
         return state as string
     end
     error("no LLVM type for " .. typeName, 0)
+end
+
+--- The LLVM type a local of IR type `typeName` is kept in. A mask the body
+--- reassigns is kept as wide as its lanes -- all ones or all zeros, the form
+--- a vector compare produces -- except on AVX-512, whose mask registers are
+--- one bit a lane: a loop carrying `<N x i1>` elsewhere narrows and widens
+--- it every pass. A mask bound once stays `<N x i1>`, which folds.
+function context.slotType(ctx: context.Context, typeName: string, carried: boolean): string
+    local found = context.species(ctx, typeName)
+    if carried and found ~= nil and (found as species.Species).family == "mask" and ctx.tier ~= "avx512f" then
+        local mask = found as species.Species
+        return "<" .. tostring(mask.lanes) .. " x i" .. tostring(mask.bits) .. ">"
+    end
+
+    return context.llvmType(ctx, typeName)
+end
+
+--- `value` passed through an empty inline asm, one register at a time, so
+--- the optimizer cannot see what produced it. A lane-wide mask needs this:
+--- otherwise LLVM folds the widening back through the loop's phi and
+--- carries `<N x i1>` again, as the C lowering's `keep_mask` also found.
+function context.opaque(ctx: context.Context, value: string, vector: string): string
+    local register = ctx.vectorRegister
+    if register == "" then
+        return value
+    end
+    local lanes, element = vector:match("^<(%d+) x i(%d+)>$")
+    if lanes == nil then
+        return value
+    end
+    local count = tonumber(lanes) as integer
+    local bits = tonumber(element) as integer
+    local perRegister = math.floor(context.width(ctx) * 8 / bits) as integer
+    if perRegister < 1 or count % perRegister ~= 0 then
+        return value
+    end
+    local chunk = "<" .. tostring(perRegister) .. " x i" .. tostring(bits) .. ">"
+    local pieces: {string} = {}
+    for start = 0, count - perRegister, perRegister do
+        local picks: {string} = {}
+        for lane = start, start + perRegister - 1 do
+            picks[#picks + 1] = "i32 " .. tostring(lane)
+        end
+        local piece = count == perRegister and value
+            or builder.value(
+                ctx.f,
+                (
+                    "shufflevector %s %s, %s poison, %s <%s>"
+                ):format(vector, value, vector, "<" .. tostring(perRegister) .. " x i32>", table.concat(picks, ", "))
+            )
+        pieces[
+            #pieces + 1
+        ] = builder.value(ctx.f, ("call %s asm \"\", \"=%s,0\"(%s %s)"):format(chunk, register, chunk, piece))
+    end
+    -- Reassemble the registers pairwise.
+    local width = perRegister
+    while #pieces > 1 do
+        local joined: {string} = {}
+        local type = "<" .. tostring(width) .. " x i" .. tostring(bits) .. ">"
+        for index = 1, #pieces, 2 do
+            local picks: {string} = {}
+            for lane = 0, 2 * width - 1 do
+                picks[#picks + 1] = "i32 " .. tostring(lane)
+            end
+            joined[
+                #joined + 1
+            ] = builder.value(
+                ctx.f,
+                (
+                    "shufflevector %s %s, %s %s, <%d x i32> <%s>"
+                ):format(type, pieces[index], type, pieces[index + 1] or "poison", 2 * width, table.concat(picks, ", "))
+            )
+        end
+        pieces = joined
+        width = width * 2
+    end
+
+    return pieces[1]
+end
+
+--- Reads a local's value from its slot.
+function context.loadSlot(ctx: context.Context, slot: context.Slot): string
+    local kept = context.slotType(ctx, slot.type, slot.carried)
+    local loaded = builder.value(ctx.f, ("load %s, ptr %s"):format(kept, slot.pointer))
+    if kept == context.llvmType(ctx, slot.type) then
+        return loaded
+    end
+
+    return builder.value(ctx.f, ("icmp ne %s %s, zeroinitializer"):format(kept, loaded))
+end
+
+--- Writes a local's value (of its LLVM type) to its slot.
+function context.storeSlot(ctx: context.Context, slot: context.Slot, value: string): nil
+    local kept = context.slotType(ctx, slot.type, slot.carried)
+    local carried = context.llvmType(ctx, slot.type)
+    local stored = value
+    if kept ~= carried then
+        stored = builder.value(ctx.f, ("sext %s %s to %s"):format(carried, value, kept))
+        stored = context.opaque(ctx, stored, kept)
+    end
+    builder.emit(ctx.f, ("store %s %s, ptr %s"):format(kept, stored, slot.pointer))
 end
 
 --- The innermost enclosing loop.
