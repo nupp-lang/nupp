@@ -242,11 +242,20 @@ KS_SCALAR_REGION_END
     for (uint32_t i = 0u; i < LANES##u; ++i) { uint32_t at = (uint32_t)indices[i]; out[i] = (at - 1u) < LANES##u ? value[at - 1u] : (CTYPE)0; }
 #define KS_EXP_SWIZZLE_PAIR_LOOP(CTYPE, LANES) \
     for (uint32_t i = 0u; i < LANES##u; ++i) { uint32_t at = (uint32_t)indices[i] - 1u; out[i] = at < LANES##u ? first[at] : (at - LANES##u) < LANES##u ? second[at - LANES##u] : (CTYPE)0; }
-/* Three and four tables in one run of lanes, the general form of the pair. */
+/* Three and four tables in one run of lanes, the general form of the pair.
+ * The scalar fallback indexes arrays copied from the vectors. GCC otherwise
+ * diagnoses a fully initialized vector parameter as maybe uninitialized after
+ * inlining a three-table lookup. The copies optimize away. */
 #define KS_EXP_SWIZZLE_TRIPLE_LOOP(CTYPE, LANES) \
-    for (uint32_t i = 0u; i < LANES##u; ++i) { uint32_t at = (uint32_t)indices[i] - 1u; out[i] = at < LANES##u ? first[at] : (at - LANES##u) < LANES##u ? second[at - LANES##u] : (at - 2u * LANES##u) < LANES##u ? third[at - 2u * LANES##u] : (CTYPE)0; }
+    CTYPE firstLanes[LANES], secondLanes[LANES], thirdLanes[LANES], outLanes[LANES]; \
+    memcpy(firstLanes, &first, sizeof(first)); memcpy(secondLanes, &second, sizeof(second)); memcpy(thirdLanes, &third, sizeof(third)); \
+    for (uint32_t i = 0u; i < LANES##u; ++i) { uint32_t at = (uint32_t)indices[i] - 1u; outLanes[i] = at < LANES##u ? firstLanes[at] : (at - LANES##u) < LANES##u ? secondLanes[at - LANES##u] : (at - 2u * LANES##u) < LANES##u ? thirdLanes[at - 2u * LANES##u] : (CTYPE)0; } \
+    memcpy(&out, outLanes, sizeof(out));
 #define KS_EXP_SWIZZLE_QUAD_LOOP(CTYPE, LANES) \
-    for (uint32_t i = 0u; i < LANES##u; ++i) { uint32_t at = (uint32_t)indices[i] - 1u; out[i] = at < LANES##u ? first[at] : (at - LANES##u) < LANES##u ? second[at - LANES##u] : (at - 2u * LANES##u) < LANES##u ? third[at - 2u * LANES##u] : (at - 3u * LANES##u) < LANES##u ? fourth[at - 3u * LANES##u] : (CTYPE)0; }
+    CTYPE firstLanes[LANES], secondLanes[LANES], thirdLanes[LANES], fourthLanes[LANES], outLanes[LANES]; \
+    memcpy(firstLanes, &first, sizeof(first)); memcpy(secondLanes, &second, sizeof(second)); memcpy(thirdLanes, &third, sizeof(third)); memcpy(fourthLanes, &fourth, sizeof(fourth)); \
+    for (uint32_t i = 0u; i < LANES##u; ++i) { uint32_t at = (uint32_t)indices[i] - 1u; outLanes[i] = at < LANES##u ? firstLanes[at] : (at - LANES##u) < LANES##u ? secondLanes[at - LANES##u] : (at - 2u * LANES##u) < LANES##u ? thirdLanes[at - 2u * LANES##u] : (at - 3u * LANES##u) < LANES##u ? fourthLanes[at - 3u * LANES##u] : (CTYPE)0; } \
+    memcpy(&out, outLanes, sizeof(out));
 #if defined(__aarch64__)
 #define KS_EXP_BYTE_SWIZZLE_BODY_16(CTYPE, LANES) \
     uint8x16_t t, x; memcpy(&t, &value, 16u); memcpy(&x, &zeroBased, 16u); x = vqtbl1q_u8(t, x); memcpy(&out, &x, 16u);
