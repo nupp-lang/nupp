@@ -1,0 +1,107 @@
+# Spike only (branch spike-llvm-artifact, never merged): LLVM as a lazy
+# component on Linux and Windows MinGW. See spike/LLVM-ARTIFACT.md.
+name: Spike LLVM artifact
+on:
+  push:
+    branches:
+      - spike-llvm-artifact
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux x86-64
+            os: ubuntu-24.04
+            shell: bash
+          - name: Windows x86-64 MinGW
+            os: windows-2022
+            shell: msys2 {0}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 360
+    defaults:
+      run:
+        shell: ${{ matrix.shell }}
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v5
+
+      - name: Install MSYS2 MinGW64 (GCC, CMake, Ninja, Python)
+        if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: false
+          path-type: inherit
+          install: >-
+            mingw-w64-x86_64-gcc mingw-w64-x86_64-cmake mingw-w64-x86_64-ninja
+            mingw-w64-x86_64-python make curl tar xz
+
+      - name: Install Ninja
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -q && sudo apt-get install -y -q ninja-build
+
+      - name: Install the MinGW Rust toolchain
+        if: runner.os == 'Windows'
+        run: |
+          channel=$(sed -n 's/^channel = "\([^"]*\)"$/\1/p' rust-toolchain.toml)
+          rustup toolchain install "${channel}-x86_64-pc-windows-gnu" --profile minimal
+          echo "RUSTUP_TOOLCHAIN=${channel}-x86_64-pc-windows-gnu" >> "$GITHUB_ENV"
+
+      - name: Describe the runner
+        run: |
+          uname -a; nproc; gcc --version | head -1; cmake --version | head -1
+          (lscpu 2>/dev/null || wmic cpu get name,numberofcores,numberoflogicalprocessors 2>/dev/null) | head -20
+
+      # A cached tree skips the build; the clean-build time is the first run's.
+      - name: Restore the pinned LLVM
+        id: llvm
+        uses: actions/cache@v4
+        with:
+          path: build/llvm
+          key: spike-llvm-${{ runner.os }}-${{ hashFiles('spike/llvm-artifact/build-llvm.sh') }}
+
+      - name: Build the pinned LLVM (23.1.1, MinSizeRel, lld)
+        if: steps.llvm.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p build
+          spike/llvm-artifact/build-llvm.sh "$PWD/build/llvm" | tee build/llvm-build-time.txt
+          rm -rf build/llvm-project-23.1.1.src.tar.xz
+
+      - name: Build the component and the host
+        run: |
+          root=$PWD
+          # Mirror the source path the build tree was configured with.
+          [ -d build/llvm-project-23.1.1.src ] || { mkdir -p build && cd build && curl -fsSL https://github.com/llvm/llvm-project/releases/download/llvmorg-23.1.1/llvm-project-23.1.1.src.tar.xz | tar -xJf - llvm-project-23.1.1.src/{llvm/include,lld/include}; cd "$root"; }
+          export NUPP_LLVM_PREFIX=$root/build/llvm NUPP_LLD_INCLUDE=$root/build/llvm-project-23.1.1.src/lld/include
+          start=$(date +%s)
+          (cd spike/llvm-artifact/component && CARGO_TARGET_DIR=$root/build/component cargo build --release)
+          echo "component clean build: $(( $(date +%s) - start )) s" | tee build/component-build-time.txt
+          (cd spike/llvm-artifact/host && CARGO_TARGET_DIR=$root/build/host cargo build --release)
+          ls -l build/component/release build/host/release
+
+      - name: Run the checks and the measurements
+        run: |
+          exe=; [ "$RUNNER_OS" = Windows ] && exe=.exe
+          c=$PWD/build/component/release/nupp-llvm$exe h=$PWD/build/host/release/nupp-artifact-host$exe
+          ls -l "$c" "$h"
+          if [ "$RUNNER_OS" = Linux ]; then ldd "$h"; ldd "$c"; nm -D "$h" | grep -ci llvm || true; fi
+          if [ "$RUNNER_OS" = Windows ]; then objdump -p "$h" | grep 'DLL Name'; objdump -p "$c" | grep 'DLL Name'; fi
+          spike/llvm-artifact/run.sh "$c" "$h" "$PWD/build/results"
+
+      - name: Upload the results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: spike-llvm-artifact-${{ runner.os }}
+          path: |
+            build/results
+            !build/results/cache*
+            build/*-time.txt
+          if-no-files-found: warn

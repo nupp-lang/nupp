@@ -21,7 +21,10 @@ wasm = []
 [dependencies]
 serde_json = "1"
 object = { version = "=0.39.1", default-features = false, features = ["read_core", "macho", "elf", "coff", "archive", "std"] }
-llvm-sys = { version = "=231.0.0", features = ["no-llvm-linking"] }
+# The C API's declarations only: build.rs links LLVM, and targets are
+# initialized one by one, so llvm-sys needs no llvm-config (a cross build
+# has none that runs).
+llvm-sys = { version = "=231.0.0", features = ["no-llvm-linking", "disable-alltargets-init"] }
 
 [build-dependencies]
 cc = "1"

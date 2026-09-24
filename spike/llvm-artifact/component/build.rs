@@ -1,5 +1,5 @@
 //! Static LLVM (only the components the component uses) and lld's drivers,
-//! chosen by feature. `LLVM_SYS_231_PREFIX` names an LLVM build or install
+//! chosen by feature. `NUPP_LLVM_PREFIX` names an LLVM build or install
 //! tree; its `llvm-config` lists the libraries, unless `NUPP_LLVM_LIBS` does
 //! (a cross-built tree whose `llvm-config` cannot run here).
 
@@ -9,14 +9,14 @@ fn main() {
     for f in ["src/glue.cpp", "../../direct-backend/src/glue.cpp"] {
         println!("cargo:rerun-if-changed={f}");
     }
-    for v in ["LLVM_SYS_231_PREFIX", "NUPP_LLVM_LIBS", "NUPP_LLVM_INCLUDES", "NUPP_LLD_INCLUDE", "NUPP_LLVM_SYSTEM_LIBS"] {
+    for v in ["NUPP_LLVM_PREFIX", "LLVM_SYS_231_PREFIX", "NUPP_LLVM_LIBS", "NUPP_LLVM_INCLUDES", "NUPP_LLD_INCLUDE", "NUPP_LLVM_SYSTEM_LIBS"] {
         println!("cargo:rerun-if-env-changed={v}");
     }
     // The LLVM backend's loading section (ORC) is compiled out: the component
     // never loads what it compiles.
     println!("cargo:rustc-cfg=feature=\"no-jit\"");
     let feature = |f: &str| std::env::var_os(format!("CARGO_FEATURE_{}", f.to_uppercase())).is_some();
-    let prefix = std::env::var("LLVM_SYS_231_PREFIX").expect("LLVM_SYS_231_PREFIX");
+    let prefix = std::env::var("NUPP_LLVM_PREFIX").or_else(|_| std::env::var("LLVM_SYS_231_PREFIX")).expect("NUPP_LLVM_PREFIX");
     let target = std::env::var("TARGET").unwrap();
     let windows = target.contains("windows");
     let drivers: Vec<&str> = ["macho", "elf", "coff", "wasm"].into_iter().filter(|d| feature(d)).collect();
@@ -81,13 +81,24 @@ fn main() {
         println!("cargo:rustc-link-lib=static={}", lib.trim_start_matches("-l").trim_end_matches(".lib"));
     }
     std::fs::write(std::path::Path::new(&std::env::var("OUT_DIR").unwrap()).join("components.txt"), format!("{}\n{libs}", components.join(" "))).unwrap();
-    if windows {
-        // MinGW: libstdc++ and the Win32 libraries LLVM Support uses, static.
-        let sys = std::env::var("NUPP_LLVM_SYSTEM_LIBS").unwrap_or("psapi shell32 ole32 uuid advapi32 ws2_32 ntdll".into());
-        println!("cargo:rustc-link-lib=static=stdc++");
-        for l in sys.split_whitespace() {
-            println!("cargo:rustc-link-lib={l}");
+    // What this LLVM was configured against (Win32 libraries on MinGW;
+    // nothing beyond libc elsewhere, with zlib, zstd and libxml2 off).
+    let system = std::env::var("NUPP_LLVM_SYSTEM_LIBS").unwrap_or_else(|_| {
+        if std::env::var("NUPP_LLVM_LIBS").is_ok() {
+            if windows { "psapi shell32 ole32 uuid advapi32 ws2_32 ntdll".into() } else { String::new() }
+        } else {
+            run(&["--link-static", "--system-libs"])
         }
+    });
+    for l in system.split_whitespace() {
+        let name = l.trim_start_matches("-l").trim_end_matches(".lib");
+        if !["m", "xml2", "z", "zstd"].contains(&name) && !name.is_empty() {
+            println!("cargo:rustc-link-lib={name}");
+        }
+    }
+    if windows {
+        // MinGW: libstdc++ and winpthread linked in, so the component is one file.
+        println!("cargo:rustc-link-lib=static=stdc++");
         println!("cargo:rustc-link-arg=-static");
     } else if target.contains("apple") {
         println!("cargo:rustc-link-lib=c++");
