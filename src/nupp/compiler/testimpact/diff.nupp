@@ -62,6 +62,11 @@ local function parseNameStatus(output, source)
     while index <= #fields do
         local rawStatus = fields[index]
         index = index + 1
+        -- process.capture has one combined stdout/stderr stream. Git for Windows
+        -- may put a line-ending warning before otherwise valid -z output, so the
+        -- first status field can be "warning...\r\nM". The machine token is the
+        -- final line and is the only part this parser consumes.
+        rawStatus = rawStatus:match("([ACDMRTUX][0-9]*)$") or rawStatus
         local statusCode = rawStatus:sub(1, 1)
         local oldPath
         local path
@@ -210,7 +215,7 @@ function diff.discover(options)
         end
         base = trim(baseOutput)
         local committedCode, committedOutput = capture(
-            {"git", "diff", "--name-status", "-z", "-M", base, head, "--"},
+            {"git", "-c", "core.safecrlf=false", "diff", "--name-status", "-z", "-M", base, head, "--"},
             root,
             captureProcess
         )
@@ -225,7 +230,7 @@ function diff.discover(options)
     end
 
     local stagedCode, stagedOutput = capture(
-        {"git", "diff", "--cached", "--name-status", "-z", "-M", head, "--"},
+        {"git", "-c", "core.safecrlf=false", "diff", "--cached", "--name-status", "-z", "-M", head, "--"},
         root,
         captureProcess
     )
@@ -239,7 +244,7 @@ function diff.discover(options)
     groups[#groups + 1] = staged
 
     local unstagedCode, unstagedOutput = capture(
-        {"git", "diff", "--name-status", "-z", "-M", "--"},
+        {"git", "-c", "core.safecrlf=false", "diff", "--name-status", "-z", "-M", "--"},
         root,
         captureProcess
     )

@@ -130,6 +130,33 @@ function M.revisionChecksAvoidWindowsCommandShellMetacharacters()
     end
 end
 
+function M.gitWarningsDoNotCorruptMachineReadableStatuses()
+    local commands = {}
+
+    local function capture(argv)
+        commands[#commands + 1] = argv
+        if argv[2] == "rev-parse" and argv[3] == "--show-toplevel" then
+            return 0, "C:/fixture\n"
+        elseif argv[2] == "rev-parse" then
+            return 0, "0123456789abcdef\n"
+        elseif argv[2] == "-c" and argv[4] == "diff" and argv[5] ~= "--cached" then
+            return 0, "warning: LF will be replaced by CRLF\r\nM\0keep.txt\0"
+        end
+
+        return 0, ""
+    end
+
+    local discovered = impact.discoverChanges({cwd = "C:/fixture", capture = capture})
+    assert(discovered.available, discovered.reason)
+    equal(changeByPath(discovered, "keep.txt").status, "modified", "warning-prefixed status")
+    for _, argv in ipairs(commands) do
+        if argv[4] == "diff" then
+            equal(argv[2], "-c", "diff configuration flag")
+            equal(argv[3], "core.safecrlf=false", "line-ending warning suppression")
+        end
+    end
+end
+
 local function graph()
     return {
         complete = true,
