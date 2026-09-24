@@ -34,6 +34,20 @@ LPEG_URL='https://www.inf.puc-rio.br/~roberto/lpeg/lpeg-${LPEG_VERSION}.tar.gz'
 LPEG_MARKER=lptree.c
 LPEG_DIRECTORY='lpeg-${LPEG_VERSION}'
 
+# LLVM, the AOT code generator linked into `nupp`: its optimizer, its AArch64,
+# X86 and WebAssembly back ends, and lld's Mach-O, ELF, COFF/MinGW and Wasm
+# linkers. Built from the release source (the digest Homebrew pins) by
+# `scripts/toolchain llvm`, MinSizeRel, with nothing optional. It has its own
+# cache key, because a build takes most of an hour on a CI runner and should
+# not follow a LuaJIT or LPeg bump; only what links it (the codegen crate) is
+# rebuilt when it moves. The tarball holds the whole monorepo; only `llvm`,
+# `cmake`, `third-party`, `libc` (configure reads it), `lld` and
+# `libunwind/include` (lld's Mach-O driver) are extracted.
+LLVM_VERSION=23.1.1
+LLVM_SHA256=ebe9be46fe8756d58c5b198ffad0fa2a766257add81a4dc52179bfacc7888ee6
+LLVM_URL='https://github.com/llvm/llvm-project/releases/download/llvmorg-${LLVM_VERSION}/llvm-project-${LLVM_VERSION}.src.tar.xz'
+LLVM_DIRECTORY='llvm-project-${LLVM_VERSION}.src'
+
 # The stage-zero compiler: the previous release's own compiler, lowered to one
 # Lua file, which is what compiles this tree's Nupp the first time. It is the
 # one pin whose subject is Nupp itself, and it is why the compiler's sources are

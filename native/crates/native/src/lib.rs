@@ -7,6 +7,8 @@ use std::ffi::c_char;
 use std::ptr;
 use std::sync::{Mutex, OnceLock};
 
+#[cfg(feature = "codegen")]
+mod codegen;
 #[cfg(feature = "compression")]
 mod compression;
 #[cfg(any(feature = "files", feature = "filesystem"))]
@@ -35,6 +37,7 @@ const FEATURE_FILES: u64 = 1 << 7;
 const FEATURE_NET: u64 = 1 << 8;
 const FEATURE_TLS: u64 = 1 << 9;
 const FEATURE_COMPRESSION: u64 = 1 << 10;
+const FEATURE_CODEGEN: u64 = 1 << 11;
 
 fn bytes() -> &'static Mutex<Arena<Box<[u8]>>> {
     static BYTES: OnceLock<Mutex<Arena<Box<[u8]>>>> = OnceLock::new();
@@ -128,6 +131,11 @@ pub extern "C" fn nuppNativeFeatures() -> u64 {
         }
         | if cfg!(feature = "compression") {
             FEATURE_COMPRESSION
+        } else {
+            0
+        }
+        | if cfg!(feature = "codegen") {
+            FEATURE_CODEGEN
         } else {
             0
         }

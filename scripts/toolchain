@@ -34,7 +34,7 @@ usage: scripts/toolchain COMPONENT...
        scripts/toolchain --all
        scripts/toolchain --prefix
 
-Components: luajit luarocks lpeg lpeg-source stage0
+Components: luajit luarocks lpeg lpeg-source stage0 llvm
             browser-sources browser-emulator browser-guest
             native-rust FEATURES
             rust-vendor OUTPUT
@@ -55,6 +55,10 @@ Environment:
   NUPP_HOST_SOURCE_DIR       a directory of already-downloaded pinned archives.
   NUPP_HOST_SOURCE_BASE_URL  a flat mirror to fetch archives from.
   NUPP_HOST_OFFLINE          refuse to reach the network.
+  NUPP_LLVM_PREFIX           an existing build of the pinned LLVM to use as is.
+
+`llvm --available` prints the pinned LLVM's prefix if it is already built (or
+named by NUPP_LLVM_PREFIX) and exits 1 otherwise, building nothing.
 USAGE
     exit 2
 }
@@ -158,7 +162,7 @@ sha256() { sha256_stdin < "$1"; }
 # than a cache generation.
 pins_digest() {
     grep '^[A-Z][A-Z0-9_]*=' "$ROOT/scripts/toolchain.pins" \
-        | grep -v -e '^STAGE0_' -e '^BROWSER_' | sha256_stdin
+        | grep -v -e '^STAGE0_' -e '^BROWSER_' -e '^LLVM_' | sha256_stdin
 }
 
 # Public embedding headers are staged beside the Rust libraries rather than
@@ -667,13 +671,29 @@ provision_rust_vendor() {
 # Rust entry points are content-addressed under the checkout's build/rust tree.
 # They always build the locked workspace with default features disabled so the
 # compiler-selected feature union is the dependency union.
+# A feature list naming the code generator needs the pinned LLVM: it is built
+# (or found) first, handed to cargo, and folded into the artifact's key, since
+# the LLVM pin is deliberately not part of the ordinary native key.
+llvm_for_features() {
+    RUST_LLVM_MATERIAL=
+    case ",$1," in
+        *,codegen,*|*,native-codegen,*)
+            build_llvm
+            NUPP_LLVM_PREFIX=$LLVM_OUT
+            export NUPP_LLVM_PREFIX
+            RUST_LLVM_MATERIAL="llvm $LLVM_VERSION $LLVM_SHA256 $LLVM_OUT"
+            ;;
+    esac
+}
+
 build_rust_native() {
     sorted=$(normalize_rust_features "${1:-}")
     select_rust_tools
+    llvm_for_features "$sorted"
     rust_environment=$(rust_environment_material)
     digest=$({
-        printf '%s|%s|%s|%s|%s\n' \
-            nupp-native "$sorted" "$RUST_TOOL_MATERIAL" "$(rust_sources_digest)" "$KEY"
+        printf '%s|%s|%s|%s|%s|%s\n' \
+            nupp-native "$sorted" "$RUST_TOOL_MATERIAL" "$(rust_sources_digest)" "$KEY" "$RUST_LLVM_MATERIAL"
         printf '%s\n' "$rust_environment"
     } | sha256_stdin | cut -c1-16)
     out="$RUST_BUILD_ROOT/native/$digest"
@@ -752,6 +772,9 @@ select_host_features() {
             native-compression|compression)
                 host_cargo_features="$host_cargo_features,native-compression"
                 ;;
+            native-codegen|codegen)
+                host_cargo_features="$host_cargo_features,native-codegen"
+                ;;
             base) ;;
             *) die "unknown host feature $feature" ;;
         esac
@@ -781,11 +804,12 @@ build_rust_host() {
     # dependencies whose archives that Rust host would be unable to consume.
     select_rust_tools
     select_host_features "${2:-}"
+    llvm_for_features "$host_cargo_features"
     rust_environment=$(rust_environment_material)
     digest=$({
-        printf '%s|%s|%s|%s|%s\n' \
+        printf '%s|%s|%s|%s|%s|%s\n' \
             nupp-native-host "$host_kind" "$host_cargo_features" \
-            "$RUST_TOOL_MATERIAL" "$(rust_sources_digest)|$KEY"
+            "$RUST_TOOL_MATERIAL" "$(rust_sources_digest)|$KEY" "$RUST_LLVM_MATERIAL"
         printf '%s\n' "$rust_environment"
     } | sha256_stdin | cut -c1-16)
     out="$RUST_BUILD_ROOT/host-$host_kind/$digest"
@@ -1403,6 +1427,140 @@ EOF
     native_path "$output"
 }
 
+# --- LLVM ---------------------------------------------------------------------
+
+# The configuration of the pinned LLVM. Every line decides what the libraries
+# contain, so the list is part of the cache key: change a line and the next
+# request builds beside the old tree rather than over it.
+llvm_cmake_options() {
+    cat <<'OPTIONS'
+-DCMAKE_BUILD_TYPE=MinSizeRel
+-DLLVM_TARGETS_TO_BUILD=AArch64;X86;WebAssembly
+-DLLVM_ENABLE_PROJECTS=lld
+-DLLD_BUILD_TOOLS=OFF
+-DLLVM_BUILD_TOOLS=OFF
+-DLLVM_INCLUDE_TESTS=OFF
+-DLLVM_INCLUDE_EXAMPLES=OFF
+-DLLVM_INCLUDE_BENCHMARKS=OFF
+-DLLVM_INCLUDE_DOCS=OFF
+-DLLVM_INCLUDE_UTILS=OFF
+-DLLVM_ENABLE_BINDINGS=OFF
+-DLLVM_ENABLE_ASSERTIONS=OFF
+-DLLVM_ENABLE_ZLIB=OFF
+-DLLVM_ENABLE_ZSTD=OFF
+-DLLVM_ENABLE_LIBXML2=OFF
+-DLLVM_ENABLE_LIBEDIT=OFF
+-DLLVM_ENABLE_TERMINFO=OFF
+-DLLVM_ENABLE_Z3_SOLVER=OFF
+OPTIONS
+    # The deployment floor LuaJIT is built for; the libraries link into the
+    # same binary and must not ask for a newer macOS than it does.
+    if [ "$PLATFORM" = darwin ]; then
+        case "$(uname -m 2>/dev/null)" in
+            x86_64) printf '%s\n' -DCMAKE_OSX_DEPLOYMENT_TARGET=10.14 ;;
+            *)      printf '%s\n' -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 ;;
+        esac
+    fi
+}
+
+llvm_key() {
+    {
+        printf '%s\n%s\n' "$LLVM_VERSION" "$LLVM_SHA256"
+        llvm_cmake_options
+        printf '%s\n%s\n' "$CC" "$CXX"
+        "$CC" --version 2>&1 | head -n 2 || true
+        "$CXX" --version 2>&1 | head -n 2 || true
+        printf '%s %s\n' "$UNAME" "$(uname -m 2>/dev/null || echo unknown)"
+    } | sha256_stdin | cut -c1-16
+}
+
+# A usable tree answers llvm-config and carries lld's libraries.
+llvm_complete() {
+    tree=$1
+    [ -f "$tree/.complete" ] || [ -n "${NUPP_LLVM_PREFIX:-}" ] || return 1
+    [ -x "$tree/bin/llvm-config" ] || [ -x "$tree/bin/llvm-config.exe" ] || return 1
+    for library in lldCommon lldMachO lldELF lldCOFF lldMinGW lldWasm; do
+        [ -f "$tree/lib/lib$library.a" ] || return 1
+    done
+    return 0
+}
+
+# The pins spell their templates the way the other components' do.
+LLVM_DIRECTORY=$(eval "printf '%s' \"$LLVM_DIRECTORY\"")
+LLVM_URL=$(eval "printf '%s' \"$LLVM_URL\"")
+
+# The source, extracted once per machine beside the other pinned sources.
+llvm_source() {
+    tree="$SOURCES/$LLVM_DIRECTORY"
+    if [ -f "$tree/llvm/CMakeLists.txt" ] && [ -f "$tree/lld/CMakeLists.txt" ]; then
+        printf '%s\n' "$tree"
+        return 0
+    fi
+    file=$(archive "$LLVM_DIRECTORY" "$LLVM_URL" "$LLVM_SHA256" .tar.xz)
+    mkdir -p "$SOURCES"
+    staging="$SOURCES/.$LLVM_DIRECTORY.$$"
+    rm -rf "$staging"
+    mkdir -p "$staging"
+    # mlgo-utils holds symlinks MSYS2 cannot create, and nothing builds from it.
+    tar -xJf "$file" -C "$staging" --exclude='*/mlgo-utils' \
+        "$LLVM_DIRECTORY/llvm" "$LLVM_DIRECTORY/cmake" "$LLVM_DIRECTORY/third-party" \
+        "$LLVM_DIRECTORY/libc" "$LLVM_DIRECTORY/lld" "$LLVM_DIRECTORY/libunwind/include" \
+        || die "$LLVM_DIRECTORY.tar.xz did not extract"
+    [ -f "$staging/$LLVM_DIRECTORY/llvm/CMakeLists.txt" ] \
+        || die "$LLVM_DIRECTORY.tar.xz did not extract llvm/CMakeLists.txt"
+    rm -rf "$tree"
+    mv "$staging/$LLVM_DIRECTORY" "$tree"
+    rm -rf "$staging"
+    printf '%s\n' "$tree"
+}
+
+# The pinned LLVM, as a build tree: `bin/llvm-config`, `lib/*.a`, generated
+# headers under `include`, and the source's headers found through llvm-config.
+# NUPP_LLVM_PREFIX names an existing tree to use as is (it is checked, not
+# built). Sets LLVM_OUT.
+build_llvm() {
+    if [ -n "${NUPP_LLVM_PREFIX:-}" ]; then
+        llvm_complete "$NUPP_LLVM_PREFIX" \
+            || die "NUPP_LLVM_PREFIX names $NUPP_LLVM_PREFIX, which has no llvm-config or lld libraries"
+        LLVM_OUT=$NUPP_LLVM_PREFIX
+        return 0
+    fi
+    out="$CACHE/llvm/$(llvm_key)"
+    LLVM_OUT=$out
+    LLVM_SOURCE="$SOURCES/$LLVM_DIRECTORY"
+    llvm_complete "$out" && return 0
+    [ "${1:-}" = available ] && return 1
+    for tool in cmake ninja; do
+        command -v "$tool" >/dev/null 2>&1 \
+            || die "building LLVM needs $tool on PATH (and Python 3)"
+    done
+    take_lock "llvm-$(llvm_key)" "$out/.complete" || return 0
+    llvm_complete "$out" && { release_lock; return 0; }
+    source=$(llvm_source)
+    LLVM_SOURCE=$source
+    jobs=${NUPP_LLVM_JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || echo 4)}
+    note "building LLVM $LLVM_VERSION with $CC/$CXX, $jobs jobs (this takes a while)"
+    rm -rf "$out"
+    mkdir -p "$out"
+    set -- cmake -G Ninja -S "$(native_path "$source/llvm")" -B "$(native_path "$out")" \
+        -DCMAKE_C_COMPILER="$CC" -DCMAKE_CXX_COMPILER="$CXX"
+    while IFS= read -r option; do
+        set -- "$@" "$option"
+    done <<EOF
+$(llvm_cmake_options)
+EOF
+    started=$(date +%s)
+    "$@" > "$out/configure.log" 2>&1 \
+        || { tail -n 40 "$out/configure.log" >&2; die "configuring LLVM failed; see $out/configure.log"; }
+    # llvm-config is a tool, outside `all` when LLVM_BUILD_TOOLS is off.
+    ninja -C "$(native_path "$out")" -j "$jobs" all llvm-config > "$out/build.log" 2>&1 \
+        || { tail -n 40 "$out/build.log" >&2; die "building LLVM failed; see $out/build.log"; }
+    printf 'LLVM %s built in %ss with %s jobs\n' "$LLVM_VERSION" "$(( $(date +%s) - started ))" "$jobs" \
+        > "$out/.complete"
+    note "$(cat "$out/.complete")"
+    release_lock
+}
+
 # --- entry ------------------------------------------------------------------
 
 [ "$#" -ge 1 ] || usage
@@ -1456,6 +1614,15 @@ case "$1" in
         shift
         exec "${NUPP_PYTHON:-python3}" "$ROOT/scripts/browser-toolchain.py" "$browser_component" "$CACHE" "$@"
         ;;
+    llvm)
+        if [ "${2:-}" = --available ]; then
+            build_llvm available || exit 1
+        else
+            build_llvm
+        fi
+        native_path "$LLVM_OUT"
+        exit 0
+        ;;
     -h|--help) usage ;;
 esac
 
@@ -1465,6 +1632,7 @@ for component in "$@"; do
         luarocks) build_luarocks; native_path "$PREFIX/luarocks" ;;
         lpeg)     build_lpeg;     native_path "$PREFIX/lpeg" ;;
         lpeg-source) native_path "$(lpeg_source)" ;;
+        llvm)     build_llvm;     native_path "$LLVM_OUT" ;;
         stage0)   stage0 ;;
         *) note "unknown component $component"; usage ;;
     esac

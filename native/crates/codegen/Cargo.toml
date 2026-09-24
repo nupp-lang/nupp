@@ -1,0 +1,25 @@
+[package]
+name = "nupp-native-codegen"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+build = "build.rs"
+
+[lib]
+path = "src/lib.rs"
+
+# `llvm` links the pinned LLVM named by NUPP_LLVM_PREFIX (scripts/toolchain
+# llvm). Without it the crate builds anywhere and every entry point reports that
+# this build carries no code generator, so a workspace build never needs LLVM.
+[features]
+default = []
+llvm = ["dep:llvm-sys"]
+
+[dependencies]
+# The C API's declarations only: build.rs links the libraries, and targets are
+# initialized one by one, so llvm-sys never runs llvm-config itself.
+llvm-sys = { version = "=231.0.0", features = ["no-llvm-linking", "disable-alltargets-init"], optional = true }
+
+[build-dependencies]
+cc = "1"

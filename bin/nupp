@@ -214,13 +214,37 @@ export NUPP_NATIVE_LIBRARY="$LUA_ROOT/build/lib/$RUST_NATIVE_FILENAME"
 # `scripts/toolchain` decides where the build lands and how it is cached, which
 # is why nothing here names a directory: the answer is keyed by the compiler
 # this machine has, and shared by every worktree of this checkout.
+# A directory test, not a build: whether any pinned LLVM tree has finished
+# under the shared toolchain cache, or one is named outright.
+llvm_is_available() {
+    [ -n "${NUPP_LLVM_PREFIX:-}" ] && return 0
+    for complete in "$(dirname "$TOOLCHAIN_PREFIX")"/llvm/*/.complete; do
+        [ -f "$complete" ] && return 0
+    done
+    return 1
+}
+
 build_native() {
     # `files` because stage 0 lists its own sources through it. The rest are
     # optional stdlib facilities a program run by this launcher may select;
     # unlike a packaged build, `nupp run` loads this one development provider
     # rather than staging a target-specific union beside the program.
-    built=$("$ROOT/scripts/toolchain" native-rust base,compression,files,gpu,http,net,process,tls,uri,uuid) || return 1
+    #
+    # The AOT code generator joins the union only when the pinned LLVM is
+    # already built (or named by NUPP_LLVM_PREFIX): building LLVM takes minutes
+    # to an hour, and nothing but AOT compilation needs it. A tree without it
+    # still builds and runs the compiler; `@aot` then says what is missing.
+    features=base,compression,files,gpu,http,net,process,tls,uri,uuid
+    if llvm_is_available; then
+        features=$features,codegen
+    fi
+    built=$("$ROOT/scripts/toolchain" native-rust "$features") || return 1
     mkdir -p "$ROOT/build/lib"
+    if llvm_is_available; then
+        : > "$NUPP_NATIVE_LIBRARY.codegen"
+    else
+        rm -f "$NUPP_NATIVE_LIBRARY.codegen"
+    fi
     # Copied beside the destination and renamed onto it, never written in place.
     # A rename within one directory is atomic, so a command loading the library
     # while this runs sees the old file or the new one. Writing over it directly
@@ -484,7 +508,9 @@ native_is_current() {
     [ ! "$ROOT/scripts/toolchain" -nt "$NUPP_NATIVE_LIBRARY" ] || return 1
     [ ! "$ROOT/scripts/toolchain.pins" -nt "$NUPP_NATIVE_LIBRARY" ] || return 1
     [ ! "$ROOT/rust-toolchain.toml" -nt "$NUPP_NATIVE_LIBRARY" ] || return 1
-    [ ! "$ROOT/.cargo/config.toml" -nt "$NUPP_NATIVE_LIBRARY" ]
+    [ ! "$ROOT/.cargo/config.toml" -nt "$NUPP_NATIVE_LIBRARY" ] || return 1
+    # A provider built before the pinned LLVM existed lacks the code generator.
+    [ -f "$NUPP_NATIVE_LIBRARY.codegen" ] || ! llvm_is_available
 }
 
 if [ "$needs_native" = yes ] && ! native_is_current; then

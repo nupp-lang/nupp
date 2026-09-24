@@ -23,6 +23,8 @@ tls = ["net", "dep:nupp-native-tls"]
 filesystem = ["base", "dep:nupp-native-files"]
 files = ["filesystem", "nupp-native-files/lane"]
 compression = ["base", "dep:nupp-native-compression"]
+# The AOT code generator: LLVM and lld, linked in (NUPP_LLVM_PREFIX).
+codegen = ["base", "dep:nupp-native-codegen", "nupp-native-codegen/llvm"]
 
 [dependencies]
 nupp-native-abi = { path = "../abi" }
@@ -35,4 +37,5 @@ nupp-native-platform = { path = "../platform" }
 nupp-native-process = { path = "../process", optional = true }
 nupp-native-runtime = { path = "../runtime" }
 nupp-native-compression = { path = "../compression", optional = true }
+nupp-native-codegen = { path = "../codegen", optional = true }
 url = { version = "2.5.7", optional = true }
