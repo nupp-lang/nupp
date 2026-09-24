@@ -4846,10 +4846,9 @@ function M.aProvenVectorAccessIsOneCopyAndAnIntegerCompare()
     -- an unmasked load or store is the `_at` helper: one memcpy the C
     -- compiler turns into the vector instruction. An overflow guard retains
     -- the checked helper for wrapping uint32 indices on very large spans.
-    -- The masked tail keeps the checked helper, tests all-active
-    -- with a vector compare rather than a lane loop, and moves its partial
-    -- vector through general registers rather than a stack array. Nothing
-    -- in the loop goes through a double.
+    -- The tail is a checked prefix access of the lanes its mask names, and
+    -- moves its partial vector through general registers rather than a
+    -- stack array. Nothing in the loop goes through a double.
     local dir = project{
         [
             "map.nupp"
@@ -4897,14 +4896,17 @@ return {add = add}
         loop:find("ks_exp_load_full_u8x16(p_input, count_input, nupp_first", 1, true),
         "wrapping indices keep the original checked access\n" .. body
     )
+    -- A `tail(n)` mask activates the first n lanes, so the tail is a prefix
+    -- access of n elements, still bounded by the span's count.
     assert(
-        body:find("ks_exp_load_u8x16(p_input, count_input, nupp_first_u64(", 1, true),
-        "the masked tail load is checked\n" .. body
+        body:find("ks_exp_load_prefix_u8x16(p_input, count_input, nupp_first_u64(", 1, true),
+        "the tail load is a checked prefix\n" .. body
     )
     assert(
-        body:find("ks_exp_store_u8x16(p_output, count_output, nupp_first_u64(", 1, true),
-        "and so is the masked tail store\n" .. body
+        body:find("ks_exp_store_prefix_u8x16(p_output, count_output, nupp_first_u64(", 1, true),
+        "and so is the tail store\n" .. body
     )
+    assert(body:find("_active_prefix KS_UNUSED = ", 1, true), "the lane count is taken once, where the mask is\n" .. body)
 
     -- The helpers themselves are authored C, carried as ks_simd.h and
     -- instantiated per element by macro, so their shape is read from the
@@ -5191,6 +5193,68 @@ return {tail = tail}
     local out, refusedCode = run(refused, "tail.nupp")
     test.equal(refusedCode, 1, out)
     assert(out:find("span stores need a counted-loop index or cursor + 1 under cursor < #span", 1, true), out)
+end
+
+function M.aGuardedCursorLoopCarriesItsCursorIn64Bits()
+    -- Under `cursor + s.lanes <= #input` with one `cursor = cursor + s.lanes`,
+    -- the cursor cannot wrap once `#input` fits in 32 bits, so that copy of
+    -- the loop carries it in 64 and unrolls to about 64 bytes an iteration.
+    -- A larger span runs the loop as written. A cursor written twice is not
+    -- versioned.
+    local dir = project{
+        [
+            "wide.nupp"
+        ] = [[
+local span = require("nupp.mem.span")
+local array = require("nupp.mem.array")
+local simd = require("nupp.simd")
+
+@aot
+local function scale(exclusive output: span.WriteSpan<number>, borrows input: span.Span<number>): nil
+    assert(#output == #input, "length mismatch")
+    local s = assert(simd.species(array.number, 4))
+    local cursor: uint32 = 0
+    while cursor + s.lanes <= #input do
+        s:store(output, cursor + 1, s:load(input, cursor + 1) * 2.0)
+        cursor = cursor + s.lanes
+    end
+end
+
+@aot
+local function twice(exclusive output: span.WriteSpan<number>, borrows input: span.Span<number>): nil
+    assert(#output == #input, "length mismatch")
+    local s = assert(simd.species(array.number, 4))
+    local cursor: uint32 = 0
+    while cursor + s.lanes <= #input do
+        s:store(output, cursor + 1, s:load(input, cursor + 1))
+        cursor = cursor + 1
+        cursor = cursor + 1
+    end
+end
+return {scale = scale, twice = twice}
+]],
+    }
+    local decoded, raw, code = lowered(dir, "--target aarch64-apple-darwin --features neon --json wide.nupp")
+    test.equal(code, 0, raw)
+    local c = decoded.c
+    local scale = c:match("KS_API void ks_scale%(.-\n}\n")
+    assert(scale, "the kernel is emitted:\n" .. c)
+    assert(scale:find("if ((uint64_t)(count_input) <= UINT32_MAX) {", 1, true), "the loop is versioned\n" .. scale)
+    assert(scale:find("uint64_t v2_cursor = ks_wide_", 1, true), "onto a 64-bit cursor\n" .. scale)
+    assert(
+        scale:find("uint64_t as1 = (uint64_t)v2_cursor + (uint64_t)UINT32_C(4);", 1, true),
+        "whose increment is not truncated\n" .. scale
+    )
+    assert(scale:find("KS_UNROLL_2\n", 1, true), "and a 32-byte vector unrolls twice\n" .. scale)
+    assert(scale:find("} else {\n        while (", 1, true), "a larger span runs the loop as written\n" .. scale)
+    assert(
+        scale:find("uint32_t as2 = ((uint32_t)(v2_cursor + UINT32_C(4)));", 1, true),
+        "with its wrapping cursor\n" .. scale
+    )
+    local twice = c:match("KS_API void ks_twice%(.-\n}\n")
+    assert(twice and not twice:find("ks_wide_", 1, true), "a cursor written twice is not versioned\n" .. c)
+    local oracle = c:match("KS_API void ks_scale_forced_scalar%(.-\n}\n")
+    assert(oracle and not oracle:find("KS_UNROLL", 1, true), "the oracle is not unrolled\n" .. c)
 end
 
 function M.aLoopCarriedMaskStaysInItsRegister()

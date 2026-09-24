@@ -197,12 +197,14 @@ KS_SCALAR_REGION_END
     uint64_t out = 0u; uint8x16_t v; \
     KS_EXP_BITS_REGISTERS_##W(BYTES) \
     return out;
+/* A mask lane is all ones or all zeros, which `select` already relies on,
+ * so any set bit is an active lane: one pairwise max folds the register
+ * into its low 64 bits. */
 #define KS_EXP_ANY_BODY(W, ELEM, BYTES) \
-    static const uint8_t ks_lane_signs[16] = { KS_LANE_SIGNS_##BYTES }; \
-    const uint8x16_t signs = vld1q_u8(ks_lane_signs); \
     uint8x16_t v, all; \
     KS_EXP_ANY_REGISTERS_##W \
-    return vmaxvq_u8(vandq_u8(all, signs)) != 0u;
+    uint32x4_t words = vreinterpretq_u32_u8(all); \
+    return vgetq_lane_u64(vreinterpretq_u64_u32(vpmaxq_u32(words, words)), 0) != 0u;
 #define KS_EXP_ANY_REGISTERS_16 memcpy(&v, ((const uint8_t *)&value) + 0u, 16u); all = v;
 #define KS_EXP_ANY_REGISTERS_32 memcpy(&v, ((const uint8_t *)&value) + 0u, 16u); all = v; \
     memcpy(&v, ((const uint8_t *)&value) + 16u, 16u); all = vorrq_u8(all, v);
@@ -306,6 +308,21 @@ static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_swizzle_pair_##ELEM(k
 #define KS_EXP_SWIZZLE_4 KS_EXP_SWIZZLE_WIDE
 #define KS_EXP_SWIZZLE_8 KS_EXP_SWIZZLE_WIDE
 
+/* A vector loop the compiler versioned onto a 64-bit cursor, unrolled until
+ * one iteration moves about 64 bytes: a register-wide body otherwise pays
+ * its increment, compare and branch every 16 bytes, which is what bounds an
+ * L2-resident stream, not the memory. */
+#if defined(__clang__)
+#define KS_UNROLL_2 _Pragma("clang loop unroll_count(2)")
+#define KS_UNROLL_4 _Pragma("clang loop unroll_count(4)")
+#elif defined(__GNUC__)
+#define KS_UNROLL_2 _Pragma("GCC unroll 2")
+#define KS_UNROLL_4 _Pragma("GCC unroll 4")
+#else
+#define KS_UNROLL_2
+#define KS_UNROLL_4
+#endif
+
 /* A mask a loop carries is kept in its vector register. Left to itself,
  * LLVM folds the loop's phi of sign-extended comparisons into a phi of
  * one-bit lanes and widens it again before every select and test, which
@@ -355,6 +372,8 @@ static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_load_##ELEM(const CTY
 static inline __attribute__((unused)) void ks_exp_store_full_##ELEM(CTYPE *destination, size_t count, size_t first, ks_exp_##ELEM value) { if (first >= count) return; size_t room = count - first; if (room >= LANES##u) { memcpy(destination + first, &value, sizeof value); return; } ks_exp_store_part_##ELEM(destination + first, room, value, ~(ks_exp_mask_##ELEM){0}); } \
 static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_load_at_##ELEM(const CTYPE *source) { ks_exp_##ELEM out; memcpy(&out, source, sizeof out); return out; } \
 static inline __attribute__((unused)) void ks_exp_store_at_##ELEM(CTYPE *destination, ks_exp_##ELEM value) { memcpy(destination, &value, sizeof value); } \
+static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_load_prefix_##ELEM(const CTYPE *source, size_t count, size_t first, uint32_t active) { if (first >= count || active == 0u) return (ks_exp_##ELEM){0}; size_t room = count - first; if (room > active) room = active; if (room >= LANES##u) return ks_exp_load_at_##ELEM(source + first); return ks_exp_load_part_##ELEM(source + first, room); } \
+static inline __attribute__((unused)) void ks_exp_store_prefix_##ELEM(CTYPE *destination, size_t count, size_t first, ks_exp_##ELEM value, uint32_t active) { if (first >= count || active == 0u) return; size_t room = count - first; if (room > active) room = active; if (room >= LANES##u) { ks_exp_store_at_##ELEM(destination + first, value); return; } ks_exp_store_part_##ELEM(destination + first, room, value, ~(ks_exp_mask_##ELEM){0}); } \
 static inline __attribute__((unused)) void ks_exp_store_##ELEM(CTYPE *destination, size_t count, size_t first, ks_exp_##ELEM value, ks_exp_mask_##ELEM active) { if (ks_exp_full_##ELEM(active)) { ks_exp_store_full_##ELEM(destination, count, first, value); return; } if (first >= count) return; size_t room = count - first; if (room > LANES##u) room = LANES##u; ks_exp_store_part_##ELEM(destination + first, room, value, active); } \
 static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_select_##ELEM(ks_exp_mask_##ELEM active, ks_exp_##ELEM yes, ks_exp_##ELEM no) { return (ks_exp_##ELEM)((active & (ks_exp_mask_##ELEM)yes) | (~active & (ks_exp_mask_##ELEM)no)); } \
 static inline __attribute__((unused)) uint64_t ks_exp_bits_##ELEM(ks_exp_mask_##ELEM value) { \
@@ -560,6 +579,8 @@ static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_load_at_##ELEM(const 
 static inline __attribute__((unused)) void ks_exp_store_##ELEM(CTYPE *destination, size_t count, size_t first, ks_exp_##ELEM value, ks_exp_mask_##ELEM active) { for (uint32_t c = 0u; c < CHUNKS##u; ++c) ks_exp_store_##NATIVE(destination, count, first >= count ? SIZE_MAX : first + (size_t)(c * NLANES##u), value.chunk[c], active.chunk[c]); } \
 static inline __attribute__((unused)) void ks_exp_store_full_##ELEM(CTYPE *destination, size_t count, size_t first, ks_exp_##ELEM value) { for (uint32_t c = 0u; (c + 1u) * NLANES##u <= LANES##u; ++c) ks_exp_store_full_##NATIVE(destination, count, first >= count ? SIZE_MAX : first + (size_t)(c * NLANES##u), value.chunk[c]); if (LANES##u % NLANES##u != 0u) ks_exp_store_##NATIVE(destination, count, first >= count ? SIZE_MAX : first + (size_t)(LANES##u / NLANES##u * NLANES##u), value.chunk[CHUNKS##u - 1u], ks_exp_tail_##NATIVE(LANES##u % NLANES##u)); } \
 static inline __attribute__((unused)) void ks_exp_store_at_##ELEM(CTYPE *destination, ks_exp_##ELEM value) { for (uint32_t c = 0u; (c + 1u) * NLANES##u <= LANES##u; ++c) ks_exp_store_at_##NATIVE(destination + (size_t)(c * NLANES##u), value.chunk[c]); if (LANES##u % NLANES##u != 0u) ks_exp_store_part_##NATIVE(destination + (size_t)(LANES##u / NLANES##u * NLANES##u), LANES##u % NLANES##u, value.chunk[CHUNKS##u - 1u], ks_exp_mask_splat_##NATIVE(true)); } \
+static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_load_prefix_##ELEM(const CTYPE *source, size_t count, size_t first, uint32_t active) { ks_exp_##ELEM out; if (active > LANES##u) active = LANES##u; for (uint32_t c = 0u; c < CHUNKS##u; ++c) { uint32_t base = c * NLANES##u; out.chunk[c] = ks_exp_load_prefix_##NATIVE(source, count, first >= count ? SIZE_MAX : first + (size_t)base, active > base ? active - base : 0u); } return out; } \
+static inline __attribute__((unused)) void ks_exp_store_prefix_##ELEM(CTYPE *destination, size_t count, size_t first, ks_exp_##ELEM value, uint32_t active) { if (active > LANES##u) active = LANES##u; for (uint32_t c = 0u; c < CHUNKS##u; ++c) { uint32_t base = c * NLANES##u; ks_exp_store_prefix_##NATIVE(destination, count, first >= count ? SIZE_MAX : first + (size_t)base, value.chunk[c], active > base ? active - base : 0u); } } \
 static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_select_##ELEM(ks_exp_mask_##ELEM active, ks_exp_##ELEM yes, ks_exp_##ELEM no) { for (uint32_t c = 0u; c < CHUNKS##u; ++c) yes.chunk[c] = ks_exp_select_##NATIVE(active.chunk[c], yes.chunk[c], no.chunk[c]); return yes; } \
 static inline __attribute__((unused)) uint64_t ks_exp_bits_##ELEM(ks_exp_mask_##ELEM value) { uint64_t out = 0u; for (uint32_t c = 0u; c < CHUNKS##u; ++c) out |= ks_exp_bits_##NATIVE(value.chunk[c]) << (c * NLANES##u); out &= UINT64_MAX >> (64u - LANES##u); return out; } \
 static inline __attribute__((unused)) ks_exp_mask_##ELEM ks_exp_keep_mask_##ELEM(ks_exp_mask_##ELEM value) { for (uint32_t c = 0u; c < CHUNKS##u; ++c) value.chunk[c] = ks_exp_keep_mask_##NATIVE(value.chunk[c]); return value; } \

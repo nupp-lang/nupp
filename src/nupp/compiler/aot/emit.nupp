@@ -50,6 +50,12 @@ record emit.Context
     vectorCeiling: integer
 
     explicitScalar: boolean
+
+    --- Mask locals bound once to `species:tail(n)`, by C name. Such a mask
+    --- activates exactly the first `n` lanes, so an access it masks is a
+    --- prefix access of `n` elements; its count is kept beside it.
+    tailMasks: {[string]: boolean}
+
     independentSpanCounts: boolean
     countRoots: {[string]: string}
     explicitFixedTypes: {[string]: boolean}
@@ -71,6 +77,7 @@ function emit.context(parent: emit.Context?, program: scalarIR.Program?, scalar:
         explicitWidth = parent ~= nil and parent.explicitWidth or 0,
         vectorCeiling = parent ~= nil and parent.vectorCeiling or 0,
         explicitScalar = scalar == true,
+        tailMasks = parent ~= nil and parent.tailMasks or {},
         independentSpanCounts = parent == nil or parent.independentSpanCounts,
         countRoots = parent ~= nil and parent.countRoots or {},
         explicitFixedTypes = parent ~= nil and parent.explicitFixedTypes or {},
@@ -85,6 +92,20 @@ function emit.context(parent: emit.Context?, program: scalarIR.Program?, scalar:
         expressions = parent ~= nil and parent.expressions or new cplan.Expressions(comparisons = {}, starts = {})
     )
     if program ~= nil then
+        context.tailMasks = {}
+        if not context.explicitScalar then
+            visit.program(
+                program,
+                new visit.Visitor(scalarStatement = function(statement: scalarIR.Statement): nil
+                    if statement.op == "let" then
+                        local binding = statement as scalarIR.Let
+                        if binding.value.op == "simd_tail" and binding.assigned ~= true then
+                            context.tailMasks[binding.cName] = true
+                        end
+                    end
+                end)
+            )
+        end
         context.explicitWidth = program.simdWidth or 0
         context.vectorCeiling = program.vectorCeiling or 0
         context.independentSpanCounts = scalarIR.independentCounts(program)
@@ -394,6 +415,50 @@ local function keptMask(context: emit.Context, typeName: string, value: string):
     end
 
     return "ks_exp_keep_mask_" .. tostring(element) .. "x" .. tostring(lanes) .. "(" .. value .. ")"
+end
+
+--- The C name holding the lane count of a tail mask an access is masked by,
+--- when the mask is one `species:tail(n)` local nothing reassigns: the access
+--- is then a prefix of `n` elements, which needs no mask at all. The scalar
+--- oracle keeps the masked form so the two stay independent.
+local function tailPrefix(context: emit.Context, mask: scalarIR.Expr?): string?
+    if mask == nil or context.explicitScalar or (mask as scalarIR.Expr).op ~= "local" then
+        return nil
+    end
+    local named = (mask as scalarIR.Name).cName
+    if named == nil or not context.tailMasks[named as string] then
+        return nil
+    end
+
+    return (named as string) .. "_prefix"
+end
+
+--- The declaration of a tail mask `tailPrefix` answers for: its lane count in
+--- its own `uint32_t`, then the mask built from it. Nothing for any other let.
+local function tailLet(context: emit.Context, statement: scalarIR.Let, prefix: string): {string}?
+    if context.explicitScalar or not context.tailMasks[statement.cName] then
+        return nil
+    end
+    local _, element, lanes = explicitType(context, statement.type)
+    local counted = statement.cName .. "_prefix"
+    local suffix = tostring(element) .. "x" .. tostring(lanes)
+
+    return {
+        prefix .. "uint32_t " .. counted .. " KS_UNUSED = " .. emit.scalar(
+            context,
+            (statement.value as scalarIR.Simd).args[1]
+        ) .. ";",
+        prefix
+        .. "ks_exp_mask_"
+        .. suffix
+        .. " "
+        .. statement.cName
+        .. " KS_UNUSED = ks_exp_tail_"
+        .. suffix
+        .. "("
+        .. counted
+        .. ");",
+    }
 end
 
 --- Whether an IR type is one general explicit SIMD family application.
@@ -738,7 +803,9 @@ function emit.genericStore(context: emit.Context, store: scalarIR.Simd): string
     local at = "p_" .. tostring(
         store.span
     ) .. ", " .. count .. ", " .. emit.spanFirst(context, store.args[2]) .. ", " .. emit.scalar(context, store.args[3])
+    local prefix = tailPrefix(context, store.args[4])
     local checked = store.args[4] == nil and helper .. "store_full_" .. suffix .. "(" .. at .. ")"
+        or prefix ~= nil and helper .. "store_prefix_" .. suffix .. "(" .. at .. ", " .. tostring(prefix) .. ")"
         or helper .. "store_" .. suffix .. "(" .. at .. ", " .. emit.scalar(context, store.args[4]) .. ")"
     if store.cursor ~= nil then
         local unchecked = helper .. "store_at_" .. suffix .. "(" .. emit.cursorAddress(
@@ -1362,7 +1429,10 @@ function emit.scalar(context: emit.Context, node: scalarIR.Expr): string
                 local count = rooted ~= nil and "ks_length_" .. tostring((rooted as scalarIR.Name).cName)
                     or emit.spanCount(context, tostring(simd.span))
                 local at = pointer .. ", " .. count .. ", " .. emit.spanFirst(context, args[2])
+                local prefix = tailPrefix(context, args[3])
                 local checked = args[3] == nil and genericHelper .. "load_full_" .. genericSuffix .. "(" .. at .. ")"
+                    or prefix ~= nil
+                    and genericHelper .. "load_prefix_" .. genericSuffix .. "(" .. at .. ", " .. tostring(prefix) .. ")"
                     or genericHelper .. "load_" .. genericSuffix .. "(" .. at .. ", " .. emit.scalar(
                         context,
                         args[3]
@@ -2316,6 +2386,10 @@ end
 record emit.Body
     numericForRuntime: string?
 
+    --- Cursors a versioned loop is carrying in 64 bits, by C name: their one
+    --- increment cannot wrap there, so it is written without truncation.
+    wideCursors: {[string]: boolean} = {}
+
     --- Labels are emitted only when an edge names them.
     controlUsed: {[string]: boolean} = {}
 
@@ -2335,8 +2409,9 @@ record emit.Body
     --- The private aggregate returned by a multi-result entry.
     resultStruct: string?
 
-    --- Erase required lane regions while emitting the independent scalar
-    --- oracle from the same scalar IR.
+    --- Emitting the independent scalar oracle from the same scalar IR: none
+    --- of the native-only loop rewrites apply, so a bug in one of them shows
+    --- up as a difference rather than in both bodies at once.
     forceScalar: boolean?
 
     --- Backend-selected lane accumulators for algebraic loop reducers.
@@ -2519,6 +2594,160 @@ local function hasConditionBody(statements: cplan.Block): boolean
     return false
 end
 
+--- Whether two lane-count operands are the same expression: one constant, or
+--- the lanes of one species local.
+local function sameLanes(left: scalarIR.Expr, right: scalarIR.Expr): boolean
+    if left.op == "numeric_cast" then
+        left = (left as scalarIR.Convert).value
+    end
+    if right.op == "numeric_cast" then
+        right = (right as scalarIR.Convert).value
+    end
+    if left.op == "constant_i32" and right.op == "constant_i32" then
+        return (left as scalarIR.IntConstant).value == (right as scalarIR.IntConstant).value
+    elseif left.op == "simd_lanes_generic" and right.op == "simd_lanes_generic" then
+        local a = (left as scalarIR.Simd).args[1]
+        local b = (right as scalarIR.Simd).args[1]
+        return a.op == "local" and b.op == "local" and (a as scalarIR.Name).cName == (b as scalarIR.Name).cName
+    end
+
+    return false
+end
+
+--- Every `assign` in a statement tree, however deeply nested. The IR is a
+--- tree of plain tables, so walking every field finds an assignment inside a
+--- statement kind this module does not name, which is the direction that
+--- fails safe.
+local function assignmentsTo(node: any, cName: string, out: {scalarIR.Assignment}, seen: {[any]: boolean}): nil
+    if type(node) ~= "table" or seen[node] then
+        return
+    end
+    seen[node] = true
+    if node.op == "assign" then
+        for _, entry in ipairs((node as scalarIR.Assign).values) do
+            if entry.target.kind == "local" and entry.target.cName == cName then
+                out[#out + 1] = entry
+            end
+        end
+    end
+    for _, child in pairs(node as {[any]: any}) do
+        assignmentsTo(child, cName, out, seen)
+    end
+end
+
+--- Whether a statement tree holds a loop anywhere.
+local function holdsLoop(node: any, seen: {[any]: boolean}): boolean
+    if type(node) ~= "table" or seen[node] then
+        return false
+    end
+    seen[node] = true
+    if node.op == "while" or node.op == "repeat" or node.op == "fornum" then
+        return true
+    end
+    for _, child in pairs(node as {[any]: any}) do
+        if holdsLoop(child, seen) then
+            return true
+        end
+    end
+
+    return false
+end
+
+--- How many times to unroll a versioned vector loop so one iteration moves
+--- about 64 bytes, or 1. Only a leaf loop is unrolled: copying a body that
+--- holds a divergent inner loop multiplies the code and not the work.
+local function wideUnroll(statement: scalarIR.While, lanesText: string?): integer
+    local lanes = statement.condition.op == "le"
+        and ((statement.condition as scalarIR.Binary).left as scalarIR.Fixed).right
+        or nil
+    if lanes ~= nil and lanes.op == "numeric_cast" then
+        lanes = (lanes as scalarIR.Convert).value
+    end
+    if lanes == nil or lanes.op ~= "simd_lanes_generic" or lanesText == nil or holdsLoop(statement.body, {}) then
+        return 1
+    end
+    local count = tonumber((lanesText as string):match("^%(*UINT32_C%((%d+)%)%)*$"))
+    local bits = tonumber(tostring((lanes as scalarIR.Simd).args[1].type):match("^simd_species_[fiu](%d+)_"))
+    if count == nil or bits == nil then
+        return 1
+    end
+    local bytes = count * bits / 8
+    if bytes <= 16 then
+        return 4
+    elseif bytes <= 32 then
+        return 2
+    end
+
+    return 1
+end
+
+--- A `while` whose `uint32` cursor provably never wraps once the count its
+--- guard compares against fits in 32 bits: the guard is `cursor + lanes <=
+--- #span` or `cursor < #span`, and the body's only write to the cursor is one
+--- top-level `cursor = cursor + lanes` (or `+ 1`) no larger than the guard's
+--- room. Such a loop can carry its cursor in 64 bits, which is what lets the C
+--- compiler strength-reduce the addresses and unroll it; a `uint32` that might
+--- wrap it has to re-derive every iteration. Returns the cursor's C name and
+--- the guarded count, or nothing.
+local function wideCursorLoop(statement: scalarIR.While): (string?, scalarIR.Expr?)
+    if statement.conditionBody ~= nil then
+        return nil, nil
+    end
+    local condition = statement.condition
+    if condition.op ~= "le" and condition.op ~= "lt" then
+        return nil, nil
+    end
+    local comparison = condition as scalarIR.Binary
+    if comparison.right.op ~= "span_count" then
+        return nil, nil
+    end
+    local cursor: scalarIR.Expr? = nil
+    local lanes: scalarIR.Expr? = nil
+    if condition.op == "lt" then
+        cursor = comparison.left
+    elseif comparison.left.op == "u64_add" then
+        local sum = comparison.left as scalarIR.Fixed
+        cursor = sum.left.op == "numeric_cast" and (sum.left as scalarIR.Convert).value or nil
+        lanes = sum.right
+    end
+    if cursor == nil or (cursor as scalarIR.Expr).op ~= "local" or (cursor as scalarIR.Expr).type ~= "u32" then
+        return nil, nil
+    end
+    local named = (cursor as scalarIR.Name).cName
+    if named == nil then
+        return nil, nil
+    end
+    local cName = named as string
+    local writes: {scalarIR.Assignment} = {}
+    assignmentsTo(statement.body, cName, writes, {})
+    if #writes ~= 1 then
+        return nil, nil
+    end
+    local topLevel = false
+    for _, child in ipairs(statement.body) do
+        if child.op == "assign"
+            and #(child as scalarIR.Assign).values == 1
+            and (child as scalarIR.Assign).values[1] == writes[1]
+        then
+            topLevel = true
+        end
+    end
+    local step = writes[1].value
+    if not topLevel or step.op ~= "u32_add" then
+        return nil, nil
+    end
+    local sum = step as scalarIR.Fixed
+    if sum.left.op ~= "local" or (sum.left as scalarIR.Name).cName ~= cName then
+        return nil, nil
+    end
+    local one = sum.right.op == "constant_i32" and tostring((sum.right as scalarIR.IntConstant).value) == "1"
+    if not one and (lanes == nil or not sameLanes(sum.right, lanes as scalarIR.Expr)) then
+        return nil, nil
+    end
+
+    return cName, comparison.right
+end
+
 --- The C control structure is shared; each backend supplies its expressions
 --- and recursive block renderer, retaining its own leaf effects and returns.
 local function controlFlow(
@@ -2610,6 +2839,53 @@ local function controlFlow(
         if body.headerControl ~= true and body.controlBreak == nil then
             if node.op == "while" then
                 local statement = node as scalarIR.While
+                local cursor, count = nil, nil
+                if body.forceScalar ~= true then
+                    cursor, count = wideCursorLoop(statement)
+                end
+                if cursor ~= nil then
+                    -- The same loop twice: with the cursor carried in 64 bits
+                    -- when the guarded count fits in 32, where it cannot wrap,
+                    -- and as written otherwise. The inner declaration shadows
+                    -- the `uint32_t` one, so the body renders unchanged.
+                    body.controlSerial = body.controlSerial + 1
+                    local holder = "ks_wide_" .. tostring(body.controlSerial)
+                    local inner = prefix .. "        "
+                    local rendered = expression(count as scalarIR.Expr)
+                    rendered = rendered:match("^%(%(double%)(.+)%)$") or rendered
+                    lines[#lines + 1] = prefix .. "if ((uint64_t)(" .. rendered .. ") <= UINT32_MAX) {"
+                    lines[#lines + 1] = prefix .. "    uint64_t " .. holder .. " = " .. tostring(cursor) .. ";"
+                    lines[#lines + 1] = prefix .. "    {"
+                    lines[#lines + 1] = inner .. "uint64_t " .. tostring(cursor) .. " = " .. holder .. ";"
+                    local lanes = statement.condition.op == "le"
+                        and ((statement.condition as scalarIR.Binary).left as scalarIR.Fixed).right
+                        or nil
+                    if lanes ~= nil and lanes.op == "numeric_cast" then
+                        lanes = (lanes as scalarIR.Convert).value
+                    end
+                    local unroll = wideUnroll(statement, lanes ~= nil and expression(lanes as scalarIR.Expr) or nil)
+                    if unroll > 1 then
+                        lines[#lines + 1] = inner .. "KS_UNROLL_" .. tostring(unroll)
+                    end
+                    lines[#lines + 1] = inner .. "while (" .. expression(statement.condition) .. ") {"
+                    body.wideCursors[cursor as string] = true
+                    for _, line in ipairs(block(statement.body, depth + 3, body, nil)) do
+                        lines[#lines + 1] = line
+                    end
+                    body.wideCursors[cursor as string] = nil
+                    lines[#lines + 1] = inner .. "}"
+                    lines[#lines + 1] = inner .. holder .. " = " .. tostring(cursor) .. ";"
+                    lines[#lines + 1] = prefix .. "    }"
+                    lines[#lines + 1] = prefix .. "    " .. tostring(cursor) .. " = (uint32_t)" .. holder .. ";"
+                    lines[#lines + 1] = prefix .. "} else {"
+                    lines[#lines + 1] = prefix .. "    while (" .. expression(statement.condition) .. ") {"
+                    for _, line in ipairs(block(statement.body, depth + 2, body, nil)) do
+                        lines[#lines + 1] = line
+                    end
+                    lines[#lines + 1] = prefix .. "    }"
+                    lines[#lines + 1] = prefix .. "}"
+                    return lines
+                end
                 lines[#lines + 1] = prefix .. "while (" .. expression(statement.condition) .. ") {"
                 nested(statement.body, nil)
                 lines[#lines + 1] = prefix .. "}"
@@ -2805,7 +3081,10 @@ function emit.luaBlock(
         return switch node.op do
             case "let" -> do
                 local statement = node as scalarIR.Let
-                if statement.type == "lua_string_buffer" then
+                local tail = tailLet(context, statement, prefix)
+                if tail ~= nil then
+                    append(tail as {string})
+                elseif statement.type == "lua_string_buffer" then
                     local started = statement.value as scalarIR.LuaStringBuffer
                     lines[#lines + 1] = prefix .. "KsLuaStringBuffer " .. statement.cName .. ";"
                     lines[#lines + 1] = prefix .. "ks_lua_string_buffer_init(L, &" .. statement.cName .. ");"
@@ -3356,7 +3635,10 @@ function emit.block(
                 elseif pairs[position - 1] ~= nil then
                     yield true
                 end
-                if statement.type:match("^simd_species_") == nil then
+                local tail = tailLet(context, statement, prefix)
+                if tail ~= nil then
+                    append(tail as {string})
+                elseif statement.type:match("^simd_species_") == nil then
                     lines[
                         #lines + 1
                     ] = prefix .. localCType(
@@ -3395,12 +3677,27 @@ function emit.block(
                 for position, entry in ipairs(statement.values) do
                     body.temporarySerial = body.temporarySerial + 1
                     temps[position] = "as" .. tostring(body.temporarySerial)
-                    lines[
-                        #lines + 1
-                    ] = prefix .. emit.cType(
-                        context,
-                        entry.target.type as string
-                    ) .. " " .. temps[position] .. " = " .. emit.scalar(context, entry.value) .. ";"
+                    local wide = entry.target.kind == "local"
+                        and body.wideCursors[tostring(entry.target.cName)] == true
+                        and entry.value.op == "u32_add"
+                    if wide then
+                        local step = entry.value as scalarIR.Fixed
+                        lines[
+                            #lines + 1
+                        ] = prefix .. "uint64_t " .. temps[
+                            position
+                        ] .. " = (uint64_t)" .. emit.scalar(
+                            context,
+                            step.left
+                        ) .. " + (uint64_t)" .. emit.scalar(context, step.right) .. ";"
+                    else
+                        lines[
+                            #lines + 1
+                        ] = prefix .. emit.cType(
+                            context,
+                            entry.target.type as string
+                        ) .. " " .. temps[position] .. " = " .. emit.scalar(context, entry.value) .. ";"
+                    end
                 end
                 for position, entry in ipairs(statement.values) do
                     local target = entry.target.kind == "local" and (entry.target.cName as string)
