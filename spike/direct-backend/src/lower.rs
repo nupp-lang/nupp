@@ -96,6 +96,9 @@ fn args(v: &J) -> &Vec<J> {
     v["args"].as_array().unwrap()
 }
 
+/// A branch target and the block arguments passed to it.
+type Target = (usize, Vec<VReg>);
+
 struct B {
     params: Vec<VReg>,
     insts: Vec<MInst>,
@@ -111,6 +114,8 @@ pub struct Lower {
     bases: HashMap<String, VReg>,
     counts: HashMap<String, VReg>,
     loop_index: Option<VReg>,
+    /// Constants, each defined once in the entry block.
+    consts: HashMap<(u8, [u8; 16]), VReg>,
 }
 
 fn f_class() -> RegClass {
@@ -155,23 +160,48 @@ impl Lower {
     }
     /// A two-way branch whose successors are fresh single-predecessor blocks,
     /// so no edge is critical; each forwards to its real target.
-    fn branch(&mut self, op: Op, uses: &[VReg], t: usize, f: usize) {
+    fn branch(&mut self, op: Op, uses: &[VReg], t: &Target, f: &Target) {
         let (tb, fb) = (self.block(), self.block());
         let mut i = MInst::new(op, uses.iter().map(|u| Operand::reg_use(*u)).collect());
         i.succs = vec![Block::new(tb), Block::new(fb)];
         i.args = vec![vec![], vec![]];
         self.push(i);
         self.switch(tb);
-        self.jump(t, vec![]);
+        self.jump(t.0, t.1.clone());
         self.switch(fb);
-        self.jump(f, vec![]);
+        self.jump(f.0, f.1.clone());
     }
 
+    /// A constant, materialized once in the entry block right after `Args`,
+    /// so no loop reloads it.
+    fn constant(&mut self, op: Op) -> VReg {
+        let (kind, bytes, class) = match &op {
+            Op::Imm { value } => {
+                let mut b = [0u8; 16];
+                b[..8].copy_from_slice(&value.to_le_bytes());
+                (0u8, b, RegClass::Int)
+            }
+            Op::LitD { bits } => {
+                let mut b = [0u8; 16];
+                b[..8].copy_from_slice(&bits.to_le_bytes());
+                (1, b, f_class())
+            }
+            Op::LitQ { bytes } => (2, *bytes, f_class()),
+            other => panic!("not a constant: {other:?}"),
+        };
+        if let Some(v) = self.consts.get(&(kind, bytes)) {
+            return *v;
+        }
+        let d = self.vreg(class);
+        self.blocks[0].insts.insert(1, MInst::new(op, vec![Operand::reg_def(d)]));
+        self.consts.insert((kind, bytes), d);
+        d
+    }
     fn imm(&mut self, value: u64) -> VReg {
-        self.def1(Op::Imm { value }, RegClass::Int, &[])
+        self.constant(Op::Imm { value })
     }
     fn lit(&mut self, x: f64) -> VReg {
-        self.def1(Op::LitD { bits: x.to_bits() }, f_class(), &[])
+        self.constant(Op::LitD { bits: x.to_bits() })
     }
     fn as_f(&mut self, v: Val) -> VReg {
         match v {
@@ -365,8 +395,8 @@ impl Lower {
                     bytes[8..].copy_from_slice(&b.to_le_bytes());
                     bytes
                 };
-                let lo_idx = self.def1(Op::LitQ { bytes: lanes(0, 1) }, f_class(), &[]);
-                let hi_idx = self.def1(Op::LitQ { bytes: lanes(2, 3) }, f_class(), &[]);
+                let lo_idx = self.constant(Op::LitQ { bytes: lanes(0, 1) });
+                let hi_idx = self.constant(Op::LitQ { bytes: lanes(2, 3) });
                 let lo = self.def1(Op::VCmHi, f_class(), &[nv, lo_idx]);
                 let hi = self.def1(Op::VCmHi, f_class(), &[nv, hi_idx]);
                 Val::M(lo, hi)
@@ -381,11 +411,11 @@ impl Lower {
         }
     }
 
-    fn cond(&mut self, e: &J, t: usize, f: usize) {
+    fn cond(&mut self, e: &J, t: &Target, f: &Target) {
         match op(e) {
             "and" => {
                 let mid = self.block();
-                self.cond(&e["left"], mid, f);
+                self.cond(&e["left"], &(mid, vec![]), f);
                 self.switch(mid);
                 self.cond(&e["right"], t, f);
             }
@@ -513,30 +543,40 @@ impl Lower {
             }
             "block" => self.stmts(&s["body"]),
             "while" => {
+                // Rotated: a guard, then a body that tests at its bottom, so an
+                // iteration takes one branch. Both exits meet in `exit`, which
+                // takes the carried values as parameters.
                 let carried: Vec<String> =
                     s["carried"].as_array().unwrap().iter().map(|c| c["cName"].as_str().unwrap().to_string()).collect();
-                let header = self.block();
                 let entry_args: Vec<VReg> = carried.iter().flat_map(|c| self.env[c].regs()).collect();
-                let mut params = Vec::new();
-                for c in &carried {
-                    let fresh = self.fresh_like(&self.env[c].clone());
-                    params.extend(fresh.regs());
-                    self.env.insert(c.clone(), fresh);
-                }
-                let header_env: Vec<(String, Val)> = carried.iter().map(|c| (c.clone(), self.env[c].clone())).collect();
-                self.blocks[header].params = params;
-                self.jump(header, entry_args);
-                self.switch(header);
                 let (body, exit) = (self.block(), self.block());
-                self.cond(&s["condition"], body, exit);
+                let mut body_params = Vec::new();
+                let mut exit_params = Vec::new();
+                let mut body_env = Vec::new();
+                let mut exit_env = Vec::new();
+                for c in &carried {
+                    let now = self.env[c].clone();
+                    let b = self.fresh_like(&now);
+                    let x = self.fresh_like(&now);
+                    body_params.extend(b.regs());
+                    exit_params.extend(x.regs());
+                    body_env.push((c.clone(), b));
+                    exit_env.push((c.clone(), x));
+                }
+                self.blocks[body].params = body_params;
+                self.blocks[exit].params = exit_params;
+                self.cond(&s["condition"], &(body, entry_args.clone()), &(exit, entry_args));
                 self.switch(body);
-                self.stmts(&s["body"]);
-                let back: Vec<VReg> = carried.iter().flat_map(|c| self.env[c].regs()).collect();
-                self.jump(header, back);
-                for (k, v) in header_env {
+                for (k, v) in body_env {
                     self.env.insert(k, v);
                 }
+                self.stmts(&s["body"]);
+                let back: Vec<VReg> = carried.iter().flat_map(|c| self.env[c].regs()).collect();
+                self.cond(&s["condition"], &(body, back.clone()), &(exit, back));
                 self.switch(exit);
+                for (k, v) in exit_env {
+                    self.env.insert(k, v);
+                }
             }
             "if" => {
                 let mut outer: Vec<String> = Vec::new();
@@ -558,7 +598,7 @@ impl Lower {
                 for clause in clauses {
                     let (then, next) = (self.block(), self.block());
                     self.env = before.clone();
-                    self.cond(&clause["condition"], then, next);
+                    self.cond(&clause["condition"], &(then, vec![]), &(next, vec![]));
                     self.switch(then);
                     self.stmts(&clause["body"]);
                     let out: Vec<VReg> = outer.iter().flat_map(|c| self.env[c].regs()).collect();
@@ -607,6 +647,7 @@ pub fn lower(program: &J, sig: &Signature) -> Func {
         bases: HashMap::new(),
         counts: HashMap::new(),
         loop_index: None,
+        consts: HashMap::new(),
     };
     let entry = l.block();
     l.switch(entry);
@@ -658,18 +699,16 @@ pub fn lower(program: &J, sig: &Signature) -> Func {
         // The map form: `for i = 1, #count do statements end`, zero-based here.
         let count = l.counts[lp["count"].as_str().unwrap()];
         let zero = l.imm(0);
-        let header = l.block();
-        let i = l.ireg();
-        l.blocks[header].params = vec![i];
-        l.jump(header, vec![zero]);
-        l.switch(header);
         let (body, exit) = (l.block(), l.block());
-        l.branch(Op::CmpBr { sf: true, cond: crate::asm::cond::LO }, &[i, count], body, exit);
+        let i = l.ireg();
+        l.blocks[body].params = vec![i];
+        let lo = crate::asm::cond::LO;
+        l.branch(Op::CmpBr { sf: true, cond: lo }, &[zero, count], &(body, vec![zero]), &(exit, vec![]));
         l.switch(body);
         l.loop_index = Some(i);
         l.stmts(&lp["statements"]);
         let next = l.def1(Op::AddImm { sf: true, imm: 1 }, RegClass::Int, &[i]);
-        l.jump(header, vec![next]);
+        l.branch(Op::CmpBr { sf: true, cond: lo }, &[next, count], &(body, vec![next]), &(exit, vec![]));
         l.switch(exit);
         l.push(MInst::new(Op::Ret, vec![]));
     } else {

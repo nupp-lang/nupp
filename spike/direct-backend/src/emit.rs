@@ -113,7 +113,9 @@ pub fn emit(func: &Func, out: &Output) -> (Vec<u8>, Stats) {
         if b != 0 && items.len() == 1 {
             if let InstOrEdit::Inst(i) = items[0] {
                 let inst = &func.insts[i.index()];
-                if matches!(inst.op, Op::Jump) && inst.args[0].is_empty() {
+                // With no edits in the block, any arguments are already in
+                // place: the jump is pure control and can be forwarded.
+                if matches!(inst.op, Op::Jump) {
                     forward[b] = Some(inst.succs[0].index());
                 }
             }

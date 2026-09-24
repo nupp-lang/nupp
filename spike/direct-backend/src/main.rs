@@ -197,7 +197,7 @@ fn main() {
         }
         check(name, image.entry(), theirs);
         let c_count = c_words(&dir, &sig.symbol);
-        for n in [63usize, 65539] {
+        for n in [63usize, 1000, 65539] {
             let (ours, theirs_ns) = time(name, image.entry(), theirs, n);
             println!(
                 "{:<18} {:>6} {:>6} {:>5} {:>5} {:>6.0}us {:>6} {:>10.1} {:>10.1} {:>7.2}",
