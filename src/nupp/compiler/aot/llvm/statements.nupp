@@ -132,16 +132,18 @@ local function whileLoop(ctx: context.Context, statement: scalarIR.While): nil
     local bodyLabel = builder.label(f, "while.body")
     local exit = builder.label(f, "while.end")
     builder.start(f, head)
+    -- A condition block belongs to the enclosing loop: its `break` and
+    -- `continue` leave or restart that one, not the loop it tests for.
+    if statement.conditionBody ~= nil then
+        statements.block(ctx, statement.conditionBody as {scalarIR.Statement})
+    end
+    local test = condition(ctx, statement.condition)
+    builder.terminate(f, ("br i1 %s, label %%%s, label %%%s"):format(test, bodyLabel, exit))
+    builder.start(f, bodyLabel)
     loop(ctx, exit, head, function(): nil
-        if statement.conditionBody ~= nil then
-            statements.block(ctx, statement.conditionBody as {scalarIR.Statement})
-        end
-        local test = condition(ctx, statement.condition)
-        builder.terminate(f, ("br i1 %s, label %%%s, label %%%s"):format(test, bodyLabel, exit))
-        builder.start(f, bodyLabel)
         statements.block(ctx, statement.body)
-        builder.jump(f, head)
     end)
+    builder.jump(f, head)
     builder.start(f, exit)
 end
 
@@ -153,13 +155,14 @@ local function repeatLoop(ctx: context.Context, statement: scalarIR.Repeat): nil
     builder.start(f, bodyLabel)
     loop(ctx, exit, test, function(): nil
         statements.block(ctx, statement.body)
-        builder.start(f, test)
-        if statement.conditionBody ~= nil then
-            statements.block(ctx, statement.conditionBody as {scalarIR.Statement})
-        end
-        local done = condition(ctx, statement.condition)
-        builder.terminate(f, ("br i1 %s, label %%%s, label %%%s"):format(done, exit, bodyLabel))
     end)
+    builder.start(f, test)
+    -- As for `while`: the condition block's exits are the enclosing loop's.
+    if statement.conditionBody ~= nil then
+        statements.block(ctx, statement.conditionBody as {scalarIR.Statement})
+    end
+    local done = condition(ctx, statement.condition)
+    builder.terminate(f, ("br i1 %s, label %%%s, label %%%s"):format(done, exit, bodyLabel))
     builder.start(f, exit)
 end
 
