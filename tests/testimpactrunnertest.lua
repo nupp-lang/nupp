@@ -126,7 +126,8 @@ function M.completeRunPublishesAndDiffSelectsCasesConservatively()
     write(directory .. "/src/parallel-a.nupp", "return {value = 'a'}\n")
     write(directory .. "/src/parallel-b.nupp", "return {value = 'b'}\n")
     write(directory .. "/process-impact-mode", "failing\n")
-    write(directory .. "/nested-compiler.cmd", ('@"%s" %%*\r\n'):format(NUPP:gsub("/", "\\")))
+    local bash = os.getenv("NUPP_TEST_BASH") or "bash"
+    write(directory .. "/nested-compiler.cmd", ('@"%s" "%s" %%*\r\n'):format(bash, NUPP))
     write(
         directory .. "/src/nested.g.nupp",
         (
