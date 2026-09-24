@@ -87,7 +87,17 @@ function cast.emit(
     local fromBytes = (tonumber(from:sub(2)) or 0) / 8
     local toBytes = (tonumber(to:sub(2)) or 0) / 8
     if reinterpret then
-        lines[#lines + 1] = "__builtin_memcpy(&ks_cast_result, &ks_cast_input, " .. tostring(lanes * fromBytes) .. ");"
+        -- The whole object when both sides are laid out alike, which a
+        -- reinterpret between equal lane widths always is: a partial last
+        -- chunk's spare lanes are never read, and GCC 13 on aarch64 fills the
+        -- last lane of a three-lane result from the wrong source lane when only
+        -- the logical lanes are copied.
+        lines[
+            #lines + 1
+        ] = "__builtin_memcpy(&ks_cast_result, &ks_cast_input, sizeof(ks_cast_result) == sizeof(ks_cast_input) ? sizeof(ks_cast_result) : "
+            .. tostring(
+                lanes * fromBytes
+            ) .. ");"
     elseif reference then
         lines[
             #lines + 1
