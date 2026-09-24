@@ -1,0 +1,11 @@
+[package]
+name = "dynasm-probe"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+dynasm = "3"
+dynasmrt = "3"
