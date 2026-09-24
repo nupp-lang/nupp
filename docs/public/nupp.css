@@ -142,16 +142,6 @@
   text-decoration: underline;
 }
 
-@media (prefers-color-scheme: dark) {
-  .nuppdoc-outline ol {
-    border-left-color: #c7913d;
-  }
-}
-
-:root[data-theme="dark"] .nuppdoc-outline ol {
-  border-left-color: #c7913d;
-}
-
 /* The base theme tints the header off the page background; give it the same
  * panel color as the left sidebar instead, so the two navs read as one
  * surface wrapping the content on three sides. */

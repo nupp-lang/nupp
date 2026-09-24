@@ -557,6 +557,7 @@ input {
 }
 
 .nuppdoc-footer {
+    position: relative;
     padding: 1.25rem;
     color: var(--nuppdoc-text-muted);
     border-top: 1px solid var(--nuppdoc-border);
