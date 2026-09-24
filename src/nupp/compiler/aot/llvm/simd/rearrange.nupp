@@ -14,6 +14,7 @@ local builder = require("nupp.compiler.aot.llvm.builder")
 local context = require("nupp.compiler.aot.llvm.context")
 local expressions = require("nupp.compiler.aot.llvm.expressions")
 local lanes = require("nupp.compiler.aot.llvm.simd.lanes")
+local prelude = require("nupp.compiler.aot.llvm.prelude")
 local scalarIR = require("nupp.compiler.aot.scalar")
 local species = require("nupp.compiler.aot.llvm.simd.species")
 local vectors = require("nupp.compiler.aot.llvm.simd.vectors")
@@ -87,6 +88,28 @@ local function swizzle(ctx: context.Context, found: species.Species, simd: scala
     end
     local indices = operand(ctx, simd.args[2])
     local count = found.lanes
+    if ctx.vectorRegister == "w" and found.bits == 8 and count == 16 and #tables <= 4 then
+        -- NEON's table lookup is this operation: `tbl1`..`tbl4` over up to
+        -- four sixteen-byte tables, 0 for an index past them. Taking one off
+        -- in bytes sends index 0, every negative and every index past 64 to
+        -- a byte of at least 64, which the lookup answers 0 for.
+        local zeroBased = e(ctx, ("sub <16 x i8> %s, splat (i8 1)"):format(indices))
+        local operands: {string} = {}
+        for _, table in ipairs(tables) do
+            operands[#operands + 1] = "<16 x i8> " .. table
+        end
+        operands[#operands + 1] = "<16 x i8> " .. zeroBased
+        local signature: {string} = {}
+        for _ = 1, #operands do
+            signature[#signature + 1] = "<16 x i8>"
+        end
+        local callee = prelude.intrinsic(
+            ctx.module,
+            "llvm.aarch64.neon.tbl" .. tostring(#tables) .. ".v16i8",
+            "<16 x i8> @NAME(" .. table.concat(signature, ", ") .. ")"
+        )
+        return e(ctx, ("call <16 x i8> %s(%s)"):format(callee, table.concat(operands, ", ")))
+    end
     local i32s = "<" .. tostring(count) .. " x i32>"
     local widened = indices
     if found.bits < 32 then
