@@ -129,7 +129,15 @@ local function run(options: any): integer
     -- formatted bytes for a file that is not formatted, so a negative verdict tells it
     -- nothing it can use; the filter form needs them for every file, and is excluded
     -- entirely.
-    local settled = reporting and envMod.formatStore(env) or nil
+    --
+    -- Its own store rather than a corner of the header store, because a project may
+    -- format without checking or check without formatting, and one file per question
+    -- keeps a run that only does one from rewriting what it does not know about.
+    local settled = reporting and envMod.openStore(env, "formatStore", "formatStoreOpened", "format.buf", {
+        "nupp.tools.fmt",
+        "nupp.tools.fmt.imports",
+        "nupp.compiler.check"
+    }) or nil
     local textNeeded = write and true or false
     local hashMod = require("nupp.compiler.hash")
     local digest = env.compilerServices and env.compilerServices.hash and env.compilerServices.hash.digest

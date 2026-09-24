@@ -11,7 +11,8 @@ inner annotation keeps this module and every `nupp.tools.*` descendant out of pu
 API documentation while still allowing private documentation builds to inspect it.
 
 The dependency runs one way. A tool may use anything in `nupp.compiler`; no
-`nupp.compiler` module may reach back into here.
+`nupp.compiler` module may reach back into here, which `tests/toollayeringtest.lua`
+holds it to.
 ]]
 
 export = {}
