@@ -1774,10 +1774,10 @@ end
 
 --- Why an evaluation stopped, sited where the reader should look.
 type comptime.Failure = {
-    readonly code: string,
-    readonly node: cst.Node?,
-    readonly message: string,
-    readonly help: string?
+    @readonly code: string,
+    @readonly node: cst.Node?,
+    @readonly message: string,
+    @readonly help: string?
 }
 
 ----------------------------------------------------------------------------

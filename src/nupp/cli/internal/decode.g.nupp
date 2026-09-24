@@ -6,13 +6,13 @@ local parser = require("nupp.cli.internal.optparser")
 local derive = require("nupp.derive")
 
 export type DecodeError = {
-    readonly kind: string,
-    readonly message: string,
-    readonly index: integer?,
-    readonly raw: string?,
-    readonly option: string?,
-    readonly field: string?,
-    readonly destination: string?
+    @readonly kind: string,
+    @readonly message: string,
+    @readonly index: integer?,
+    @readonly raw: string?,
+    @readonly option: string?,
+    @readonly field: string?,
+    @readonly destination: string?
 }
 
 local function failure(kind: string, message: string, token: parser.OptParser?, field: any?): DecodeError

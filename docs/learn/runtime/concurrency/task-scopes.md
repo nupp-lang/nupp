@@ -232,7 +232,7 @@ or `open(limit = 8, deadline = 500)`.
 `nupp.tasks.settle` is the terminal `open` carries, and what leaving the `with`
 calls. It is a settling terminal: it parks until every child has settled and the
 owned worker scope has been closed through the suspension-aware path, and so it
-is refused inside a `nosuspend` region. A scope may be settled by hand before its
+is refused inside a `@nosuspend` region. A scope may be settled by hand before its
 block ends; it settles once. Operations on a settled scope raise.
 
 Direct `workers.scope()` remains useful in blocking programs. Its terminal

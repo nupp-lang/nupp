@@ -1806,7 +1806,7 @@ function M.highlightsAssociatedTypeAndDirectiveKeywordsWithTheParser()
     )
     assert(html:find("keyword-associated", 1, true), html)
     assert(html:find("keyword-type", 1, true), html)
-    -- `comptime`/`nosuspend` get the directive colour, not the ordinary keyword one.
+    -- `comptime`/`@nosuspend` get the directive colour, not the ordinary keyword one.
     assert(html:find('class="token directive nuppdoc-token-meta">comptime<', 1, true), html)
     assert(
         html:find(
@@ -1854,8 +1854,8 @@ function M.scintilluaLexerUnderstandsCurrentNuppSyntax()
             table.concat(
                 {
                     "@!internal",
-                    "local type Events<T> = {readonly [K in keyof T as `${K}Changed`]: @nosuspend function(value: T.[K]): nil}",
-                    "local type Writable<T> = {writeonly [K in writekeyof T]: writeof T.[K]}",
+                    "local type Events<T> = {@readonly [K in keyof T as `${K}Changed`]: @nosuspend function(value: T.[K]): nil}",
+                    "local type Writable<T> = {@writeonly [K in writekeyof T]: writeof T.[K]}",
                     "local type First<T> = T.[1]",
                     "local function worker<P..., const Format: string>(...: unpackof Arguments<Format>): unpackof Results<Format>",
                     "   yields (number) resumes (boolean)",
@@ -1894,7 +1894,7 @@ function M.scintilluaLexerUnderstandsCurrentNuppSyntax()
     assert(html:find("keyword-associated-type", 1, true), html)
     assert(html:find("nuppdoc-token-type", 1, true), html)
     assert(html:find("nuppdoc-token-number", 1, true), html)
-    -- `comptime`/`nosuspend` get the directive colour, not the ordinary keyword one.
+    -- `comptime`/`@nosuspend` get the directive colour, not the ordinary keyword one.
     assert(html:find('class="token directive nuppdoc-token-meta">comptime<', 1, true), html)
     assert(html:find('class="token directive nuppdoc-token-meta">@nosuspend<', 1, true), html)
 end

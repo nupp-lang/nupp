@@ -592,7 +592,7 @@ function M.comptimeTypeAliasesAreDeclarations()
     local source = table.concat(
         {
             "@comptime local type Field = {name: string, read: type?}",
-            "@comptime type Shared = {readonly value: type}",
+            "@comptime type Shared = {@readonly value: type}",
             "@comptime global type Global = {write: type?}",
             "@comptime export type Public = {name: string}",
         },
@@ -613,28 +613,37 @@ function M.comptimeTypeAliasesAreDeclarations()
     assert(stats[4].kind == "exportStmt" and stats[4].stat.comptimeOnly)
 end
 
-function M.keywordEffectAndComptimeFormsRequireAnnotations()
-    for _, source in ipairs({
-        "local callback: nosuspend function(): nil",
-        "local callback: sendable function(): nil",
-        "local value: comptime type",
-        "comptime function build(): integer return 1 end",
-        "local comptime function build(): integer return 1 end",
-        "local comptime type Field = {name: string}",
-        "nosuspend do end",
-        "noalloc do end",
-        "noraise do end",
-        "local record R readonly value: integer end",
-        "local record R writeonly value: integer end",
-        "local record R private value: integer end",
-        "local record R readonly [integer]: integer end",
+function M.removedKeywordFormsAreNotMigrationGrammar()
+    for _, case in ipairs({
+        {source = "local callback: nosuspend function(): nil"},
+        {source = "local callback: sendable function(): nil"},
+        {source = "local value: comptime type"},
+        {source = "comptime function build(): integer return 1 end"},
+        {source = "local comptime function build(): integer return 1 end", ordinary = true},
+        {source = "local comptime type Field = {name: string}", ordinary = true},
+        {source = "nosuspend do end"},
+        {source = "noalloc do end"},
+        {source = "noraise do end"},
+        {source = "local affine interface R end", ordinary = true},
+        {source = "local record R terminal close: function(takes self: R): nil end"},
+        {source = "local record R readonly value: integer end"},
+        {source = "local record R writeonly value: integer end"},
+        {source = "local record R private value: integer end"},
+        {source = "local record R readonly [integer]: integer end"},
+        {source = "local type R = {readonly value: integer}"},
+        {source = "local type R = {writeonly [integer]: integer}"},
     }) do
-        local result = assertRoundtrip(source)
-        assertEq(result.errors[1] and result.errors[1].code, "NUPP1005", source)
+        local result = parser.parse(case.source, "removed-keyword-form.nupp")
+        if case.ordinary then
+            assertEq(result.root.blocks[1].stats[1].kind, "localStmt", case.source)
+        else
+            assert(#result.errors > 0, case.source)
+        end
+        for _, diagnostic in ipairs(result.errors) do
+            assert(not diagnostic.fixes or #diagnostic.fixes == 0, case.source .. " still has a migration fix")
+        end
     end
-    local shape = assertRoundtrip("local type Read = {readonly value: integer}")
-    assertEq(#shape.errors, 0)
-    local annotated = assertRoundtrip("local type Read = {@readonly value: integer}")
+    local annotated = assertRoundtrip("local type Surface = {@readonly value: integer, @writeonly [integer]: integer}")
     assertEq(#annotated.errors, 0)
 end
 

@@ -1,4 +1,4 @@
--- S1: `nosuspend` regions.
+-- S1: `@nosuspend` regions.
 --
 -- Lexical, static, and erased. What is asserted here is the verdict and the erasure:
 -- a call that may suspend is refused, one that provably cannot is silent, and the
@@ -780,7 +780,7 @@ end
 
 -- A record's method is qualified only once the file's effects have settled, so what
 -- an interface asks of it on that score is compared then: an implementation that
--- provably suspends does not satisfy a member the interface declared `nosuspend`.
+-- provably suspends does not satisfy a member the interface declared `@nosuspend`.
 function M.anImplementationOfANoSuspendMemberMayNotSuspend()
     local iface = table.concat({"local interface Flusher", "    flush: @nosuspend function(self): nil", "end",}, "\n")
     local _, diags = diagnose(

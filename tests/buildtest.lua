@@ -237,10 +237,10 @@ function M.declarationFilesPreservePropertyCapabilities()
         ] = table.concat(
             {
                 "local cell: {",
-                "    readonly value: string,",
-                "    writeonly value: string | integer,",
-                "    readonly [string]: string,",
-                "    writeonly [string]: string | integer",
+                "    @readonly value: string,",
+                "    @writeonly value: string | integer,",
+                "    @readonly [string]: string,",
+                "    @writeonly [string]: string | integer",
                 "}",
                 "return cell",
             },
@@ -255,8 +255,8 @@ function M.declarationFilesPreservePropertyCapabilities()
                 "local value: string = cell.value",
                 "cell['answer'] = 42",
                 "local indexed: string? = cell['answer']",
-                "local input: {readonly value: string | integer} = cell",
-                "local output: {writeonly value: string} = cell",
+                "local input: {@readonly value: string | integer} = cell",
+                "local output: {@writeonly value: string} = cell",
                 "return {value, indexed, input, output}",
             },
             "\n"

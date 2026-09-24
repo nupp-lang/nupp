@@ -44,7 +44,7 @@ local aot = {}
 local type Node = cst.Node
 
 --- What `install` answers with.
-type aot.Ops = {readonly body: function(any)}
+type aot.Ops = {@readonly body: function(any)}
 
 --- The constructs with no AOT IR representation, and what to call each one where a
 --- diagnostic has to name it. A kind absent from here is not thereby admitted; it is

@@ -369,7 +369,6 @@ fielddecl      = Name ":" type ["=" exp]
                                                 ; with a targeted error
 indexerdecl    = "[" type "]" ":" type
 ; `@readonly`, `@writeonly`, and `@private` use annotatedentry above.
-propertycap    = %s"readonly" / %s"writeonly" ; type shape capability
 metamethoddecl = "metamethod" Name ":" functype
 inlinemethod   = "function" Name funcbody       ; implicit self receiver
 constructordecl = %s"constructor" funcbody      ; optional result is the construction policy [CS-20]
@@ -455,7 +454,8 @@ carraysuffix   = "[" ("?" / constintexp) "]"    ; T[?] variable-length,
 memberindex    = ".[" type "]"                 ; T.[K], never a C array
 constintexp    = constintterm *(("+" / "-" / "*" / "//" / "%") constintterm)
 constintterm   = Numeral / Name / "(" constintexp ")"
-primtype       = ["const"] primtype              ; read-only view [CS-15]
+primtype       = annotation primtype            ; type contract annotations
+               / ["const"] primtype             ; read-only view [CS-15]
                / %s"keyof" primtype
                / %s"writekeyof" primtype
                / %s"writeof" posttype
@@ -483,9 +483,12 @@ tablebody      = mappedfield
 tuplebody      = type "," [tupleitems]
 tupleitems     = %s"unpackof" type
                / type *("," type) ["," [%s"unpackof" type]]
-shapefield     = [propertycap] Name ":" type
-indexer        = [propertycap] "[" type "]" ":" type
-mappedfield    = propertycap "[" Name %s"in" type [%s"as" type] "]" ":" type
+; Shape annotations parse generally so unknown applications receive the same
+; semantic diagnostic as annotations elsewhere. Only @readonly and @writeonly
+; are admitted here, and a mapped field requires one of them.
+shapefield     = *annotation Name ":" type
+indexer        = *annotation "[" type "]" ":" type
+mappedfield    = 1*annotation "[" Name %s"in" type [%s"as" type] "]" ":" type
 templatetype   = istringOpen type *(istringMid type) istringClose
 functype       = "function" [generics] "(" [ftparams] ")"
                  [":" typepack] [coroutineprotocol]
@@ -552,9 +555,9 @@ packunion      = typepack 1*("|" typepack)
 ;   directly after "local" or "global", only when the next token is a Name.
 ;   In every other position they are ordinary identifiers ("local record = 5",
 ;   "global = 5", and "type(x)" keep their level-0 meaning). The contextual
-;   declaration shape keeps Lua's `type(x)` builtin unambiguous. A top-level alias
-;   may put contextual `comptime` immediately before `type`; its body may name
-;   compiler-only value types and the alias is available only in comptime code. The
+;   declaration shape keeps Lua's `type(x)` builtin unambiguous. A type alias
+;   annotated `@comptime` may name compiler-only value types and is available only
+;   in comptime code. The
 ;   ordinary declaration forms apply inside recordbody for nested declarations. A
 ;   local alias has one deliberate
 ;   overlap with level 0: Lua reads `local type Alias = value` as the two

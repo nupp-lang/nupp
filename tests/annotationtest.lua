@@ -189,6 +189,11 @@ function M.sealedAnnotationIsRemoved()
     assertEq(checked("@sealed\nlocal interface Token end"), "NUPP2111")
 end
 
+function M.ownershipAnnotationTwinsAreRemoved()
+    assertEq(checked("@affine\nlocal interface Owner end"), "NUPP2111")
+    assertEq(checked("local record Owner\n@terminal close: function(takes self: Owner): nil\nend"), "NUPP2111")
+end
+
 function M.partitionContractsRequireASealedInterfaceAndRealFields()
     assertEq(
         checked(

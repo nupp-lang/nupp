@@ -9,9 +9,9 @@ const NUPP_KEYWORDS = new Set([
   "as", "associated", "borrows", "cdef", "const", "constructor", "continue",
   "each", "exclusive", "from", "global", "handle", "infer", "interface", "is",
   "keyof", "match", "matches", "metamethod", "new", "out", "preserves",
-  "readonly", "record", "releases", "resumes", "retains", "scoped", "struct",
+  "record", "releases", "resumes", "retains", "scoped", "struct",
   "suspension", "takes", "type", "typeerror", "unpackof", "when",
-  "where", "with", "writekeyof", "writeof", "writeonly", "yields",
+  "where", "with", "writekeyof", "writeof", "yields",
 ]);
 
 const LUA_KEYWORDS = new Set([
@@ -20,7 +20,7 @@ const LUA_KEYWORDS = new Set([
 ]);
 
 const LITERAL_KEYWORDS = new Set(["false", "nil", "true"]);
-const DIRECTIVE_KEYWORDS = new Set(["comptime", "nosuspend"]);
+const DIRECTIVE_KEYWORDS = new Set(["comptime"]);
 const TYPE_DECLARATIONS = new Set(["interface", "record", "struct", "type"]);
 const BUILTIN_FUNCTIONS = new Set([
   "assert", "collectgarbage", "dofile", "error", "getfenv", "getmetatable", "ipairs",

@@ -13,9 +13,9 @@ local json = require("nupp.codec.json")
 local process = require("nupp.compiler.process")
 
 type worker.Failure = {
-    readonly code: string,
-    readonly message: string,
-    readonly help: string?
+    @readonly code: string,
+    @readonly message: string,
+    @readonly help: string?
 }
 
 local record worker

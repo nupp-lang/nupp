@@ -500,29 +500,29 @@ end
 --- it needs to find what the header includes, and the library the generated
 --- declarations load from.
 type importc.Options = {
-    readonly cc: string?,
-    readonly cppflags: {string}?,
-    readonly lib: string?,
+    @readonly cc: string?,
+    @readonly cppflags: {string}?,
+    @readonly lib: string?,
 
     --- Canonical name for a generated declared module. Direct library callers may
     --- omit this to retain the legacy fragment form.
-    readonly module: string?,
+    @readonly module: string?,
 
     --- Generate C wrappers for target-header static inline functions.
-    readonly bridge: boolean?,
+    @readonly bridge: boolean?,
 
     --- Explicit signatures for selected function-like macros.
-    readonly macros: {[string]: any}?,
+    @readonly macros: {[string]: any}?,
 
     --- Ownership facts the C header cannot express. A returned pointer may name
     --- its cleanup, and a function may name the parameter positions it consumes.
-    readonly ownership: {
+    @readonly ownership: {
         returns: {[string]: string}?,
         takes: {[string]: {integer}}?
     }?,
 
     --- Header spelling used by the generated translation unit.
-    readonly bridgeInclude: string?
+    @readonly bridgeInclude: string?
 }
 
 type importc.Disposition = {

@@ -20,9 +20,9 @@ local pegRe = require("nupp.compiler.comptime.materialize.pegre")
 ----------------------------------------------------------------------------
 
 type peg.Failure = {
-    readonly code: string,
-    readonly message: string,
-    readonly help: string?
+    @readonly code: string,
+    @readonly message: string,
+    @readonly help: string?
 }
 
 local record peg

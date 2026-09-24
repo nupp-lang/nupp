@@ -31,7 +31,7 @@ local function source(bodyDelta, publicDelta)
     lines[#lines + 1] = "end"
     lines[#lines + 1] = "local record Box<T> value: T end"
     if MAPPED then
-        lines[#lines + 1] = "local type View<T> = {readonly [K in keyof T]: T.[K]}"
+        lines[#lines + 1] = "local type View<T> = {@readonly [K in keyof T]: T.[K]}"
     end
     local resultType = MAPPED and "View<Box<T>>" or "Box<T>"
     lines[#lines + 1] = "function M.box<T>(takes value: T): " .. resultType .. " preserves value"

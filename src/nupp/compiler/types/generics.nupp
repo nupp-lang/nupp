@@ -2207,11 +2207,11 @@ function generics.unify(param: Type, arg: Type, map: Bindings): nil
             end
         elseif param.readable then
             -- An array and a record shape are both read by key, and both already
-            -- satisfy the matching indexer: `{T}` assigns to `{readonly [integer]: T}`
-            -- and `{a: A, b: B}` to `{readonly [string]: A | B}`. Only unification did
+            -- satisfy the matching indexer: `{T}` assigns to `{@readonly [integer]: T}`
+            -- and `{a: A, b: B}` to `{@readonly [string]: A | B}`. Only unification did
             -- not know it, so `pairs` over either bound neither key nor value and
             -- handed the caller `any` for both. Read positions bind covariantly, which
-            -- is what the parameter's own `readonly` already says.
+            -- is what the parameter's own `@readonly` already says.
             local key, value = nil, nil
             if arg.tag == "array" then
                 key, value = T.integer, arg.elem

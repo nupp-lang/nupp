@@ -127,8 +127,8 @@ a value that is already proved is deliberate rather than an error, because a
 bound can move and the source that said what it meant should keep compiling when
 it does.
 
-Because a retained admission raises, a `noraise` region refuses one and reports
-it at the call. A comparison allocates nothing, so a `noalloc` region does not
+Because a retained admission raises, a `@noraise` region refuses one and reports
+it at the call. A comparison allocates nothing, so a `@noalloc` region does not
 mind it.
 
 ## Computed constraints

@@ -1822,17 +1822,17 @@ end
 --- type resolution for canonical imports.
 type fmt.Options = {
     --- Project resolution for module and type imports.
-    readonly environment: any?,
+    @readonly environment: any?,
 
     --- False for isolated syntax fragments that have no file to import into.
-    readonly bindImports: boolean?,
-    readonly annotations: any?,
-    readonly resolveAnnotation: (function(name: string): any)?,
-    readonly methodParens: boolean?,
+    @readonly bindImports: boolean?,
+    @readonly annotations: any?,
+    @readonly resolveAnnotation: (function(name: string): any)?,
+    @readonly methodParens: boolean?,
 
     --- The code column past which a line breaks. Defaults to 120; docblock text keeps
     --- wrapping at 88 regardless.
-    readonly width: integer?
+    @readonly width: integer?
 }
 
 --- Options resolved once, so a caller formatting many files does that resolution once

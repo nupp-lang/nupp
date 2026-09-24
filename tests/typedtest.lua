@@ -57,8 +57,8 @@ function M.typeExpressions()
         typeDump("{x: number, y: number}"),
         "(tshape { (tshapeField x : (tname number)) , " .. "(tshapeField y : (tname number)) })"
     )
-    clean("local x: {readonly value: string, writeonly value: string | integer}")
-    clean("local x: {readonly [string]: string, writeonly [string]: string | integer}")
+    clean("local x: {@readonly value: string, @writeonly value: string | integer}")
+    clean("local x: {@readonly [string]: string, @writeonly [string]: string | integer}")
     clean("local x: {name: string, [string]: string}")
     assertEq(typeDump("a.b.C<K, V?>"), "(tname a . b . C < (tname K) , (topt (tname V) ?) >)")
 end

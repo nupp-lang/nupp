@@ -42,9 +42,9 @@ local deriveprovider = require("nupp.compiler.comptime.materialize.derive") as {
 }
 
 type providers.Failure = {
-    readonly code: string,
-    readonly message: string,
-    readonly help: string?
+    @readonly code: string,
+    @readonly message: string,
+    @readonly help: string?
 }
 
 local record providers

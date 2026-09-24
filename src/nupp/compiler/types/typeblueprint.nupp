@@ -14,8 +14,8 @@ local hash = require("nupp.compiler.hash")
 local stable = require("nupp.compiler.stable")
 
 type typeblueprint.Failure = {
-    readonly code: string,
-    readonly message: string
+    @readonly code: string,
+    @readonly message: string
 }
 
 local record typeblueprint

@@ -249,7 +249,7 @@ Two applications of one generic compare member by member, with the usual
 read and write variance: `Box<integer>` is accepted where `Box<number>` is
 wanted only as far as a writable `value` field lets it, which is not at all,
 since `Box<number>` would write a float into the integer box. Readonly members
-read covariantly, so `{readonly value: T}` applications are covariant in `T`.
+read covariantly, so `{@readonly value: T}` applications are covariant in `T`.
 An application that exposes no members of its own is opaque, and its arguments
 compare covariantly, since nothing can be written through it.
 

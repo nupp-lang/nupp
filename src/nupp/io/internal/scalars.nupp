@@ -46,7 +46,7 @@ export interface ScalarReader
     --- Releases it as an ownership terminal.
     ---
     --- Repeated calls are safe. Declared rather than written inline: a cleanup
-    --- contract is `nosuspend`, and an inline method cannot carry one.
+    --- contract is `@nosuspend`, and an inline method cannot carry one.
     --- @param self this owner, spent by the call
     drop: @nosuspend function(takes self: ScalarReader): nil
 
@@ -288,7 +288,7 @@ export interface ScalarWriter
     --- Releases it as an ownership terminal.
     ---
     --- Repeated calls are safe. Declared rather than written inline: a cleanup
-    --- contract is `nosuspend`, and an inline method cannot carry one.
+    --- contract is `@nosuspend`, and an inline method cannot carry one.
     --- @param self this owner, spent by the call
     drop: @nosuspend function(takes self: ScalarWriter): nil
 

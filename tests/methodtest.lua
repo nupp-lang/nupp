@@ -1038,7 +1038,7 @@ function M.aGenericContractIsCheckedAsInstantiated()
     )
 end
 
--- A capability the record withholds is withheld: `readonly` beside `is I` keeps the
+-- A capability the record withholds is withheld: `@readonly` beside `is I` keeps the
 -- field read-only whatever I grants, and the disagreement is reported rather than
 -- I's write entry grafted over the record's own.
 function M.aReadonlyFieldStaysReadonlyUnderAWritableContract()

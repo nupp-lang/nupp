@@ -1239,8 +1239,8 @@ types.uint8 = prim("uint8")
 types.uint16 = prim("uint16")
 types.uint32 = prim("uint32")
 types.uint64 = prim("uint64")
--- Compiler-only handles admitted only while checking and evaluating `comptime function`
--- functions. They have no runtime value or code-generation representation.
+-- Compiler-only handles admitted only while checking and evaluating `@comptime
+-- function` functions. They have no runtime value or code-generation representation.
 types.type_ = prim("type")
 types.typepack = prim("typepack")
 types.functionConst = prim("functionconst")
@@ -2374,7 +2374,7 @@ local function preservedPath(t: types.Type, target: types.Type, seen: {[any]: bo
         end
     elseif t.tag == "neutral" and t.op == "mapped" and not t.remap then
         -- Preserve through the still-symbolic identity mapped form
-        -- `{readonly [K in keyof S]: S.[K]}`. Its keys and member projection are
+        -- `{@readonly [K in keyof S]: S.[K]}`. Its keys and member projection are
         -- structurally known even when a field value still mentions a binder, so
         -- waiting for call-site reduction would wrongly reject the declaration.
         local keys = t.keys
@@ -3723,10 +3723,10 @@ function types.tostring(t: types.Type): string
         end
         local parts = {}
         if t.readable then
-            parts[#parts + 1] = "readonly [" .. types.tostring(t.key) .. "]: " .. types.tostring(t.value)
+            parts[#parts + 1] = "@readonly [" .. types.tostring(t.key) .. "]: " .. types.tostring(t.value)
         end
         if t.writeKey and t.writeValue then
-            parts[#parts + 1] = "writeonly [" .. types.tostring(t.writeKey) .. "]: " .. types.tostring(t.writeValue)
+            parts[#parts + 1] = "@writeonly [" .. types.tostring(t.writeKey) .. "]: " .. types.tostring(t.writeValue)
         end
         return "{" .. table.concat(parts, ", ") .. "}"
     elseif tag == "tuple" then
@@ -3745,22 +3745,22 @@ function types.tostring(t: types.Type): string
                 parts[#parts + 1] = f.name .. ": " .. types.tostring(f.read)
             else
                 if f.read then
-                    parts[#parts + 1] = "readonly " .. f.name .. ": " .. types.tostring(f.read)
+                    parts[#parts + 1] = "@readonly " .. f.name .. ": " .. types.tostring(f.read)
                 end
                 if f.write then
-                    parts[#parts + 1] = "writeonly " .. f.name .. ": " .. types.tostring(f.write)
+                    parts[#parts + 1] = "@writeonly " .. f.name .. ": " .. types.tostring(f.write)
                 end
             end
         end
         if t.indexReadKey and t.indexReadValue then
             parts[
                 #parts + 1
-            ] = "readonly [" .. types.tostring(t.indexReadKey) .. "]: " .. types.tostring(t.indexReadValue)
+            ] = "@readonly [" .. types.tostring(t.indexReadKey) .. "]: " .. types.tostring(t.indexReadValue)
         end
         if t.indexWriteKey and t.indexWriteValue then
             parts[
                 #parts + 1
-            ] = "writeonly [" .. types.tostring(t.indexWriteKey) .. "]: " .. types.tostring(t.indexWriteValue)
+            ] = "@writeonly [" .. types.tostring(t.indexWriteKey) .. "]: " .. types.tostring(t.indexWriteValue)
         end
         return "{" .. table.concat(parts, ", ") .. "}"
     elseif tag == "union" then
@@ -3844,7 +3844,7 @@ function types.tostring(t: types.Type): string
             ) .. types.tostring(t.subject as types.Type) .. ".[" .. types.tostring(t.key as types.Type) .. "]"
         elseif t.op == "mapped" then
             return "{" .. (
-                t.capability == "write" and "writeonly" or "readonly"
+                t.capability == "write" and "@writeonly" or "@readonly"
             ) .. " [" .. (
                 t.binder and t.binder.name or "K"
             ) .. " in " .. types.tostring(t.keys as types.Type) .. "]: " .. types.tostring(t.value as types.Type) .. "}"

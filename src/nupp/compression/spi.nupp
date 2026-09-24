@@ -21,7 +21,7 @@ export const NEED_OUTPUT = 2
 export const FINISHED = 3
 
 --- The selected format's structural option block.
-export type FormatOptions = {readonly [string]: any}
+export type FormatOptions = {@readonly [string]: any}
 
 --- Independent incremental compression state.
 export interface Encoder is nupp.Closeable

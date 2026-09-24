@@ -1225,7 +1225,7 @@ type analysis.Queries = {
 --- What `run` annotates and reports through: a checked parse, and the checker to say a
 --- broken `@effects` contract to.
 type analysis.Target = {
-    readonly root: any,
+    @readonly root: any,
     analysis: analysis.Facts?
 }
 
@@ -1234,7 +1234,7 @@ type analysis.Target = {
 --- naming
 --- its
 --- record here would close the require graph into a loop.
-type analysis.Reporter = {readonly diag: function(code: string, at: any, msg: string, fixes: any?, details: any?)}
+type analysis.Reporter = {@readonly diag: function(code: string, at: any, msg: string, fixes: any?, details: any?)}
 
 --- The questions, bound to what one run worked out.
 ---

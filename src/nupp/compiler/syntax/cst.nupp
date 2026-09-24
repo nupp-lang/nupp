@@ -951,8 +951,8 @@ record cst.FuncStmt is cst.Hints
     --- Names the production this node stands for.
     kind: 'funcStmt'
 
-    --- The contextual `comptime` declaration modifier, when this function exists only
-    --- for compile-time evaluation.
+    --- The `@comptime` annotation name, when this function exists only for
+    --- compile-time evaluation.
     comptimeTok: lexer.Token?
 
     --- The `funcname` naming what it attaches to.
@@ -982,8 +982,8 @@ record cst.Funcname is cst.Hints
     method: lexer.Token?
 end
 
---- `local function f(...) ... end`, its `const` spelling, and their compile-time-only
---- `comptime` forms.
+--- `local function f(...) ... end`, its `const` spelling, and their
+--- compile-time-only `@comptime` forms.
 record cst.LocalFuncStmt is cst.Hints
     {cst.Node | lexer.Token}
 
@@ -993,7 +993,7 @@ record cst.LocalFuncStmt is cst.Hints
     --- Whether it was written `const`.
     isConst: boolean?
 
-    --- The contextual `comptime` declaration modifier, when present.
+    --- The `@comptime` annotation name, when present.
     comptimeTok: lexer.Token?
 
     --- The name it binds.
@@ -1303,7 +1303,7 @@ record cst.TypeAlias is cst.Hints
     --- The `local` or `global` before it, when one was written.
     modifier: lexer.Token?
 
-    --- The contextual `comptime` before `type`, when this is a compiler-only alias.
+    --- The `@comptime` annotation name, when this is a compiler-only alias.
     comptimeTok: lexer.Token?
 
     --- Whether the alias may only be named while checking comptime code.
@@ -1391,10 +1391,8 @@ record cst.FieldDecl is cst.Hints
     --- The field's name.
     name: lexer.Token?
 
-    --- `readonly` or `writeonly` when only that capability is granted.
-    capability: lexer.Token?
-
-    --- `private` when only the declaration's canonical module may reach the field.
+    --- The `@private` annotation name when only the declaration's canonical module
+    --- may reach the field.
     privacy: lexer.Token?
 
     --- Its type.
@@ -1410,13 +1408,11 @@ record cst.FieldDecl is cst.Hints
     annotations: {cst.Node}?
 end
 
---- `[K]: V`, optionally prefixed by `readonly` or `writeonly`, in a declaration.
+--- `[K]: V` in a declaration.
 record cst.IndexerDecl is cst.Hints
     {cst.Node | lexer.Token}
 
     kind: 'indexerDecl'
-
-    capability: lexer.Token?
 
     key: cst.Node?
 
@@ -2130,7 +2126,7 @@ record cst.Unop is cst.Hints
     operand: cst.Node?
 
     --- Set when the result is a 64-bit integer, which LuaJIT boxes in a fresh
-    --- cdata object: an allocation a `noalloc` region has to hear about.
+    --- cdata object: an allocation a `@noalloc` region has to hear about.
     wideArithmetic: boolean?
 
     --- Unsigned fixed-width complement keeps its canonical numeric range.
@@ -2154,7 +2150,7 @@ record cst.Binop is cst.Hints
     rhs: cst.Node?
 
     --- Set when the result is a 64-bit integer, which LuaJIT boxes in a fresh
-    --- cdata object: an allocation a `noalloc` region has to hear about.
+    --- cdata object: an allocation a `@noalloc` region has to hear about.
     wideArithmetic: boolean?
 
     --- Set when both sides are established at one thirty-two bit width, to the
@@ -2360,7 +2356,7 @@ record cst.Tname is cst.Hints
     cdefSuccess: string?
 end
 
---- A closed or deferred `comptime function` call in type position.
+--- A closed or deferred `@comptime function` call in type position.
 record cst.Ttypecall is cst.Hints
     {cst.Node | lexer.Token}
 
@@ -2395,9 +2391,6 @@ record cst.Tmap is cst.Hints
     --- The value type.
     value: cst.Node?
 
-    --- `readonly` or `writeonly` for a capability-only indexer.
-    capability: lexer.Token?
-
     --- Annotations attached to this structural indexer.
     annotations: {cst.AnnotationApply}?
 end
@@ -2422,9 +2415,6 @@ record cst.TshapeField is cst.Hints
 
     --- The field's name.
     name: lexer.Token?
-
-    --- `readonly` or `writeonly` when only that capability is exposed.
-    capability: lexer.Token?
 
     --- Annotations attached to this structural field.
     annotations: {cst.AnnotationApply}?
@@ -2490,7 +2480,7 @@ record cst.Tfunc is cst.Hints
     --- Names the production this node stands for.
     kind: 'tfunc'
 
-    --- Written `nosuspend function(...)`: calling it provably cannot suspend.
+    --- Written `@nosuspend function(...)`: calling it provably cannot suspend.
     ---
     --- A positive guarantee, so an unmarked function type stays conservatively
     --- may-yield. It is the one way to state the fact about something whose body this
@@ -2499,7 +2489,7 @@ record cst.Tfunc is cst.Hints
     --- aliasing, and substitution like everything else a type says.
     noSuspend: boolean?
 
-    --- Written `sendable function(...)`: another isolated Lua state can reproduce the
+    --- Written `@sendable function(...)`: another isolated Lua state can reproduce the
     --- callable from a module member and a copied capture environment.
     ---
     --- A positive guarantee like `noSuspend`, minted for module members and eligible
@@ -2507,7 +2497,7 @@ record cst.Tfunc is cst.Hints
     --- parameter can all state it.
     sendable: boolean?
 
-    --- Written `comptime function(...)`: the callable exists only while evaluating
+    --- Written `@comptime function(...)`: the callable exists only while evaluating
     --- compile-time code and may mention compiler-only handle types.
     comptimeOnly: boolean?
 
@@ -2605,13 +2595,11 @@ record cst.Tmember is cst.Hints
     key: cst.Node?
 end
 
---- `{readonly [K in Keys]: Value}` or its write-only counterpart.
+--- `{@readonly [K in Keys]: Value}` or its write-only counterpart.
 record cst.Tmapped is cst.Hints
     {cst.Node | lexer.Token}
 
     kind: 'tmapped'
-
-    capability: lexer.Token?
 
     --- Annotations attached to this mapped field.
     annotations: {cst.AnnotationApply}?

@@ -66,7 +66,7 @@ local function setIndexer(
     local keyName = which .. "Key"
     local valueName = which .. "Value"
     if indexer[valueName] then
-        local spelling = which == "read" and "readonly" or "writeonly"
+        local spelling = which == "read" and "@readonly" or "@writeonly"
         c.diag("NUPP2118", at, "duplicate " .. spelling .. " indexer capability")
     else
         indexer[keyName], indexer[valueName] = key, value
@@ -102,13 +102,13 @@ local function setField(
     end
     if capability == "read" then
         if entry.read then
-            c.diag("NUPP2118", at, ("duplicate readonly capability for property %q"):format(name))
+            c.diag("NUPP2118", at, ("duplicate @readonly capability for property %q"):format(name))
         else
             entry.read = ft
         end
     elseif capability == "write" then
         if entry.write then
-            c.diag("NUPP2118", at, ("duplicate writeonly capability for property %q"):format(name))
+            c.diag("NUPP2118", at, ("duplicate @writeonly capability for property %q"):format(name))
         else
             entry.write = ft
         end
@@ -754,7 +754,7 @@ function resolve.install(c: state.Checker): nil
     ---------------------------------------------------------------------
 
     local function structuralCapability(node: any): string?
-        local capability = node.capability and node.capability.propertyCapability or nil
+        local capability = nil
         for _, application in ipairs(node.annotations or {}) do
             local definition2, valid = c.marks.validateAnnotation(application, node)
             if definition2 and valid then
@@ -1998,7 +1998,7 @@ function resolve.install(c: state.Checker): nil
                 packParams,
                 yieldPack,
                 resumePack,
-                -- `nosuspend function(...)`: the one way to state the guarantee about
+                -- `@nosuspend function(...)`: the one way to state the guarantee about
                 -- something whose body is never seen here.
                 node.noSuspend,
                 paramNames,
@@ -2016,7 +2016,7 @@ function resolve.install(c: state.Checker): nil
 
                     return written
                 end)() or nil,
-                -- `sendable function(...)`: the way to require a reproducible callable
+                -- `@sendable function(...)`: the way to require a reproducible callable
                 -- where its origin is not visible here, such as a parameter or field.
                 node.sendable,
                 borrowsResult

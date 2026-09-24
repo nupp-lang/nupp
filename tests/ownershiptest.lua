@@ -267,7 +267,7 @@ function M.genericPreservationReducesIdentityMappedResults()
     assertClean(
         table.concat(
             {
-                "local type View<T> = {readonly [K in keyof T]: T.[K]}",
+                "local type View<T> = {@readonly [K in keyof T]: T.[K]}",
                 "local record Box<T>",
                 "   value: T",
                 "end",

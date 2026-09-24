@@ -3,7 +3,7 @@ module nupp.compiler.check.comptimefunction
 --[[
 A compile-time-only function declaration.
 
-`comptime function` and `local comptime function` are declarations, not
+`@comptime function` and `@comptime local function` are declarations, not
 annotations: this module validates the declaration, registers its body with the
 compile-time evaluator, checks it in a compile-time context, and publishes a sealed
 program when it is a direct module member. The generator erases the declaration.

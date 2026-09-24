@@ -99,7 +99,7 @@ function M.typeTostring()
     )
     assertEq(
         T.tostring(T.indexer(T.string, T.string, T.string, T.number)),
-        "{readonly [string]: string, writeonly [string]: number}"
+        "{@readonly [string]: string, @writeonly [string]: number}"
     )
     assertEq(
         T.tostring(
@@ -107,7 +107,7 @@ function M.typeTostring()
                 {name = "value", read = T.string, write = T.number}
             })
         ),
-        "{readonly value: string, writeonly value: number}"
+        "{@readonly value: string, @writeonly value: number}"
     )
     assertEq(T.tostring(T.tuple({T.string})), "{string,}")
     assertEq(T.tostring(T.array(T.string)), "{string}")
@@ -430,7 +430,7 @@ function M.aShapeFitsAWritableMapOnlyThroughWritableFields()
     assertEq(
         diagsOf(
             table.concat(
-                {"local h: {readonly name: string} = {name = 'x'}", "local m: {[string]: string?} = h", "return m",},
+                {"local h: {@readonly name: string} = {name = 'x'}", "local m: {[string]: string?} = h", "return m",},
                 "\n"
             )
         ),
@@ -450,8 +450,8 @@ function M.aShapeFitsAWritableMapOnlyThroughWritableFields()
             {
                 "local h: {name: string?} = {name = 'x'}",
                 "local m: {[string]: string?} = h",
-                "local r: {readonly name: string} = {name = 'x'}",
-                "local view: {readonly [string]: string?} = r",
+                "local r: {@readonly name: string} = {name = 'x'}",
+                "local view: {@readonly [string]: string?} = r",
                 "local literal: {[string]: string?} = {name = 'x'}",
                 "return {m, view, literal}",
             },
@@ -469,9 +469,9 @@ function M.anArrayIsAnIntegerKeyedMap()
             {
                 "local xs: {integer} = {1, 2}",
                 "local same: {[integer]: integer} = xs",
-                "local wider: {readonly [integer]: number} = xs",
+                "local wider: {@readonly [integer]: number} = xs",
                 "local t: {string, integer} = {'a', 1}",
-                "local positions: {readonly [integer]: string | integer} = t",
+                "local positions: {@readonly [integer]: string | integer} = t",
                 "return {same, wider, positions}",
             },
             "\n"
@@ -781,8 +781,8 @@ function M.propertyCapabilities()
                 "local value: string = cell.value",
                 "cell['answer'] = 42",
                 "local indexed: string? = cell['answer']",
-                "local readView: {readonly value: Animal} = cell",
-                "local writeView: {writeonly value: string} = cell",
+                "local readView: {@readonly value: Animal} = cell",
+                "local writeView: {@writeonly value: string} = cell",
                 "return {value, indexed, readView, writeView}",
             },
             "\n"
@@ -792,8 +792,8 @@ function M.propertyCapabilities()
     local denied, details = diagsOf(
         table.concat(
             {
-                "local readView: {readonly value: string} = {value = 'x'}",
-                "local writeView: {writeonly value: string} = {}",
+                "local readView: {@readonly value: string} = {value = 'x'}",
+                "local writeView: {@writeonly value: string} = {}",
                 "readView.value = 'y'",
                 "local value = writeView.value",
                 "readView.value ..= 'z'",
@@ -808,15 +808,15 @@ function M.propertyCapabilities()
         table.concat(
             {
                 "local type Animal = string | integer",
-                "local readString: {readonly value: string} = {value = 'x'}",
-                "local readAnimal: {readonly value: Animal} = {value = 'x'}",
-                "local writeString: {writeonly value: string} = {}",
-                "local writeAnimal: {writeonly value: Animal} = {}",
+                "local readString: {@readonly value: string} = {value = 'x'}",
+                "local readAnimal: {@readonly value: Animal} = {value = 'x'}",
+                "local writeString: {@writeonly value: string} = {}",
+                "local writeAnimal: {@writeonly value: Animal} = {}",
                 "local ordinaryString: {value: string} = {value = 'x'}",
-                "local okRead: {readonly value: Animal} = readString",
-                "local okWrite: {writeonly value: string} = writeAnimal",
-                "local badRead: {readonly value: string} = readAnimal",
-                "local badWrite: {writeonly value: Animal} = writeString",
+                "local okRead: {@readonly value: Animal} = readString",
+                "local okWrite: {@writeonly value: string} = writeAnimal",
+                "local badRead: {@readonly value: string} = readAnimal",
+                "local badWrite: {@writeonly value: Animal} = writeString",
                 "local badOrdinary: {value: Animal} = ordinaryString",
             },
             "\n"
@@ -828,10 +828,10 @@ function M.propertyCapabilities()
         table.concat(
             {
                 "local type Animal = string | integer",
-                "local readIndex: {readonly [string]: string} = {}",
-                "local writeIndex: {writeonly [string]: Animal} = {}",
-                "local widerRead: {readonly [string]: Animal} = readIndex",
-                "local narrowerWrite: {writeonly [string]: string} = writeIndex",
+                "local readIndex: {@readonly [string]: string} = {}",
+                "local writeIndex: {@writeonly [string]: Animal} = {}",
+                "local widerRead: {@readonly [string]: Animal} = readIndex",
+                "local narrowerWrite: {@writeonly [string]: string} = writeIndex",
                 "return {widerRead, narrowerWrite}",
             },
             "\n"
@@ -851,14 +851,14 @@ function M.propertyCapabilities()
 
     assertClean(
         table.concat(
-            {"local out: {writeonly value: string} | {writeonly value: string | integer}", "out.value = 'ready'",},
+            {"local out: {@writeonly value: string} | {@writeonly value: string | integer}", "out.value = 'ready'",},
             "\n"
         )
     )
     assertEq(
         diagsOf(
             table.concat(
-                {"local out: {writeonly value: string} | {writeonly value: string | integer}", "out.value = 42",},
+                {"local out: {@writeonly value: string} | {@writeonly value: string | integer}", "out.value = 42",},
                 "\n"
             )
         ),
@@ -1388,7 +1388,7 @@ function M.aBoundLiteralIsNoLongerFresh()
             {
                 "",
                 "const kennel = {const tag = 'k', value = new Dog(name = 'rex', bark = 'woof')}",
-                "local pen: {readonly value: Animal} = kennel",
+                "local pen: {@readonly value: Animal} = kennel",
                 "return pen",
             },
             "\n"

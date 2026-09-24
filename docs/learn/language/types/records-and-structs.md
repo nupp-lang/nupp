@@ -170,7 +170,7 @@ declare field defaults.
 
 ### Private fields
 
-`private` keeps a record field inside the canonical module that declares the
+`@private` keeps a record field inside the canonical module that declares the
 record:
 
 ```nupp
@@ -192,7 +192,7 @@ generated Lua or explicit gradual interop.
 
 Records alone support private fields, and the checker says so anywhere else.
 Structs expose C layout and interfaces declare public contracts, so both reject
-the modifier.
+the annotation.
 
 ### Inline methods and static functions
 
@@ -478,7 +478,7 @@ values, or a hot field access you want to be an offset instead of a hash lookup.
 | Binding with no initializer | Rejected | Zero-initialized |
 | Memory | Garbage collected | Managed by the FFI |
 | Array field `{T}` | Allowed | Rejected |
-| Property capabilities | `readonly` / `writeonly` | Ordinary fields only |
+| Property capabilities | `@readonly` / `@writeonly` | Ordinary fields only |
 | Private fields | Allowed | Rejected |
 | Nested declarations | Allowed | Rejected |
 | Inline methods | Yes | Yes, through `ffi.metatype` |

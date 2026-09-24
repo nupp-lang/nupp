@@ -47,8 +47,8 @@ LPEG_DIRECTORY='lpeg-${LPEG_VERSION}'
 # the source the compiler actually loads is reproducible from the tag by anyone
 # who rebuilds it. `scripts/toolchain stage0` verifies it after decompressing
 # and before installing, and an offline builder may supply either spelling.
-STAGE0_TAG=v0.0.11
-STAGE0_SHA256=be7cd1a84a9964c10ec5281ab6b0846c491f309b2bc158220ce71ff89cb197b3
+STAGE0_TAG=v0.0.13
+STAGE0_SHA256=9df6075a2b00bec71bb692ee05ca2b007b98e83d687e44bdcad99d1e1259fcff
 STAGE0_URL='https://github.com/nupp-lang/nupp/releases/download/${STAGE0_TAG}/nupp-stage0-${STAGE0_TAG}.lua.gz'
 
 # Opt-in browser guest inputs. These do not change the native toolchain key.

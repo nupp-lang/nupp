@@ -420,7 +420,7 @@ function M.exportedComptimeAliasesKeepTheirBoundaryInTheHeader()
     local parsed = parser.parse(
         [[
 module sample
-@comptime export type Field = {readonly name: string, readonly read: type?}
+@comptime export type Field = {@readonly name: string, @readonly read: type?}
 ]],
         "sample.nupp"
     )
@@ -489,6 +489,7 @@ function M.internalModulesEnforcePackageBoundaries()
         },
         function(dir)
             local env = projectEnv(dir)
+
             local function inspect(source, filename)
                 local parsed = parser.parse(source, filename)
                 assertEq(#parsed.errors, 0, "privacy fixture parses")

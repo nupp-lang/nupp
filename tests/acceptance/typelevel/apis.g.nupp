@@ -1,7 +1,7 @@
 -- Dependent APIs: field-derived events, literal routes, and nested-container
 -- normalization through ordinary comptime functions.
 
-local type Events<T> = {readonly [K in keyof T as `${K}Changed`]: function(value: T.[K]): nil}
+local type Events<T> = {@readonly [K in keyof T as `${K}Changed`]: function(value: T.[K]): nil}
 
 @comptime
 local function RouteParameters(path: string): type

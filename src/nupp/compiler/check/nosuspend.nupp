@@ -41,14 +41,14 @@ local MAX_CHAIN = 8
 
 --- What `install` answers with.
 type nosuspend.Ops = {
-    readonly region: function(any),
-    readonly call: function(any),
-    readonly obligation: function(any),
-    readonly iterator: function(any, any),
-    readonly contract: function(any, string): any,
-    readonly callback: function(any, string),
-    readonly cleanup: function(any, any),
-    readonly sweep: function(any)
+    @readonly region: function(any),
+    @readonly call: function(any),
+    @readonly obligation: function(any),
+    @readonly iterator: function(any, any),
+    @readonly contract: function(any, string): any,
+    @readonly callback: function(any, string),
+    @readonly cleanup: function(any, any),
+    @readonly sweep: function(any)
 }
 
 --- Installs the region check on one run.
@@ -162,7 +162,7 @@ function nosuspend.install(c: state.Checker): nosuspend.Ops
     -- The regions themselves, walked at the sweep for what is discharged inside them.
     local regions: {any} = {}
 
-    --- Registers a `nosuspend` region.
+    --- Registers a `@nosuspend` region.
     ---
     --- What a region discharges -- an owner at its statement's boundary, a `with`
     --- acquisition, an explicit `drop` -- runs a terminal no call names, so the region
@@ -512,7 +512,7 @@ function nosuspend.install(c: state.Checker): nosuspend.Ops
                 end
                 c.diag(candidate.code, callee or call, message, nil, {
                     help = "call something that cannot suspend, declare the callee's type "
-                    .. "`nosuspend function(...)`, or move this out of the region",
+                    .. "`@nosuspend function(...)`, or move this out of the region",
                     related = info and chain(queries, info) or nil,
                 })
             end

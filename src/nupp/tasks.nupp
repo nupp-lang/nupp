@@ -1219,7 +1219,7 @@ end
 --- Raises where the current task has been cancelled or has run out of time.
 ---
 --- The one authored cancellation point, and the only thing that reaches a body
---- computing without parking. It never suspends, so a `nosuspend` region and a
+--- computing without parking. It never suspends, so a `@nosuspend` region and a
 --- worker lane can both call it, and outside any task it does nothing.
 ---
 --- ```nupp
@@ -1418,7 +1418,7 @@ end
 --- Every child has run, been cancelled, or unwound when this returns, and the worker
 --- scope, where one was opened, has been closed through the suspension-aware path.
 --- It is a settling terminal: it parks until that is so, and so is refused inside a
---- `nosuspend` region. Idempotent, so a scope settled by hand before its block ends
+--- `@nosuspend` region. Idempotent, so a scope settled by hand before its block ends
 --- settles once.
 ---
 --- A failure the block itself raises does not cancel the children: they run to

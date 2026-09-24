@@ -275,7 +275,7 @@ end
 --- Only a proven suspension is reported. A body that reaches something whose effects
 --- cannot be followed -- a call through `any`, or through a callable field with no
 --- guarantee on its type -- is not proved either way, and the declaration's claim
---- stands for it as a bodyless declaration's would; `nosuspend` regions ask more of a
+--- stands for it as a bodyless declaration's would; `@nosuspend` regions ask more of a
 --- callee, and say so where the call is made.
 ---
 --- @param c the run's state
@@ -306,7 +306,7 @@ function declare.checkEffectConformance(c: state.Checker): nil
                     nil,
                     {
                         help = "call only what cannot suspend in its body, "
-                        .. "or drop `nosuspend` from the interface member"
+                        .. "or drop `@nosuspend` from the interface member"
                     }
                 )
             end
@@ -433,7 +433,7 @@ function declare.install(
             end
             if e.kind == "fieldDecl" then
                 -- A capability is a property, which a struct has no way to install.
-                local hasCapability = e.capability ~= nil
+                local hasCapability = false
                 for _, application in ipairs(e.annotations or {}) do
                     local name = application.name and application.name.text or nil
                     hasCapability = hasCapability or name == "readonly" or name == "writeonly"
@@ -1008,7 +1008,7 @@ function declare.install(
     --- compare covariantly, with the capabilities held separately: a declaration may
     --- narrow what it inherits, which is how a tagged interface refines `kind: string`
     --- to `kind: "circle"` and a method implements a contract with a narrower result,
-    --- and what it declares `readonly` stays so whatever the contract grants. A
+    --- and what it declares `@readonly` stays so whatever the contract grants. A
     --- method's own suspension guarantee is not known until the file's effects have
     --- settled, so that part waits for `declare.checkEffectConformance`.
     ---
@@ -1062,7 +1062,7 @@ function declare.install(
                             name,
                             state.at,
                             ("%s declares %q write-only, but %s reads it"):format(n.name, name, superName),
-                            "drop `writeonly`, or declare the member `writeonly` in " .. superName
+                            "drop `@writeonly`, or declare the member `@writeonly` in " .. superName
                         )
                     elseif not relations.memberIsA(have, state.method and withoutYieldGuarantee(want) or want) then
                         conflict(
@@ -1087,7 +1087,7 @@ function declare.install(
                         name,
                         state.at,
                         ("%s declares %q read-only, but %s writes it"):format(n.name, name, superName),
-                        "drop `readonly`, or declare the member `readonly` in " .. superName
+                        "drop `@readonly`, or declare the member `@readonly` in " .. superName
                     )
                 end
             end
@@ -2124,8 +2124,8 @@ function declare.install(
                         c.raises.checkParams(e, (e.type as any).params or {})
                     end
                     local partitionApplication = nil
-                    local capabilityNode = e.capability
-                    local propertyCapability = capabilityNode and capabilityNode.propertyCapability or nil
+                    local capabilityNode = nil
+                    local propertyCapability = nil
                     for _, application in ipairs(e.annotations or {}) do
                         local definition2, valid = validateAnnotation(application, e, stat)
                         if definition2 and valid then
@@ -2317,7 +2317,7 @@ function declare.install(
                         n.writeFieldDefs[name] = definition
                     end
                     -- A capability the declaration withholds is withheld from what it
-                    -- inherits too: `readonly` beside `is I` keeps the field read-only
+                    -- inherits too: `@readonly` beside `is I` keeps the field read-only
                     -- whatever I grants, and the disagreement is reported with the rest
                     -- of the conformance check rather than papered over with I's entry.
                     if not grantsRead and not state.read then
@@ -2394,8 +2394,8 @@ function declare.install(
                         end
                     end
                 elseif e.kind == "indexerDecl" then
-                    local capabilityNode = e.capability
-                    local propertyCapability = capabilityNode and capabilityNode.propertyCapability or nil
+                    local capabilityNode = nil
+                    local propertyCapability = nil
                     for _, application in ipairs(e.annotations or {}) do
                         local definition2, valid = validateAnnotation(application, e, stat)
                         if definition2 and valid then
@@ -2424,12 +2424,12 @@ function declare.install(
                         local grantsRead = propertyCapability ~= "write"
                         local grantsWrite = propertyCapability ~= "read"
                         if grantsRead and n.indexReadValue then
-                            c.diag("NUPP2118", e, "duplicate readonly indexer capability")
+                            c.diag("NUPP2118", e, "duplicate @readonly indexer capability")
                         elseif grantsRead then
                             n.indexReadKey, n.indexReadValue = key, value
                         end
                         if grantsWrite and n.indexWriteValue then
-                            c.diag("NUPP2118", e, "duplicate writeonly indexer capability")
+                            c.diag("NUPP2118", e, "duplicate @writeonly indexer capability")
                         elseif grantsWrite then
                             n.indexWriteKey, n.indexWriteValue = key, value
                         end

@@ -54,7 +54,6 @@ local CONTEXTUAL_KEYWORDS = {
     keyof = true,
     satisfies = true,
     ["new"] = true,
-    nosuspend = true,
     out = true,
     preserves = true,
     record = true,
@@ -67,22 +66,19 @@ local CONTEXTUAL_KEYWORDS = {
     with = true,
     writekeyof = true,
     writeof = true,
-    readonly = true,
     releases = true,
     retains = true,
     resumes = true,
     struct = true,
     type = true,
-    writeonly = true,
     yields = true,
 }
 
 local LITERAL_KEYWORDS = {["false"] = true, ["nil"] = true, ["true"] = true}
 
--- `comptime` and `nosuspend` change when code runs rather than what it does, so they
--- get the directive colour used for annotations instead of blending into ordinary
--- control keywords -- matching the Scintillua and VS Code grammars.
-local DIRECTIVE_KEYWORDS = {comptime = true, nosuspend = true}
+-- `comptime` opens an evaluation block, so it gets the directive colour used for
+-- compile-time constructs instead of blending into ordinary control keywords.
+local DIRECTIVE_KEYWORDS = {comptime = true}
 
 local PUNCTUATION = {
     ["("] = true,

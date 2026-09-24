@@ -464,7 +464,7 @@ function index.install(c: state.Checker): state.ExprHandlers
             if base == T.any then
                 -- Nothing says what is indexed: a table with an `__index` that runs
                 -- user code, or a value that cannot be indexed at all. Either way the
-                -- access may raise, which is what a `noraise` region asks about.
+                -- access may raise, which is what a `@noraise` region asks about.
                 node.gradualIndex = true
             end
             return T.any

@@ -427,10 +427,6 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     --- what keeps `local record = 5` ordinary Lua.
     local function startsTypedecl(at: integer): boolean
         local kw = tokens[at]
-        if kw and kw.kind == "name" and kw.text == "affine" then
-            at = at + 1
-            kw = tokens[at]
-        end
         if kw and kw.kind == "sealed" then
             at = at + 1
             kw = tokens[at]
@@ -464,20 +460,6 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         return after.kind ~= "=" and after.kind ~= ","
     end
 
-    --- Whether `comptime type Name = ...` begins a compiler-only alias. Keeping this
-    --- narrower than `startsTypedecl` leaves `comptime record` and the ordinary
-    --- identifier uses of both words alone.
-    local function startsComptimeTypeAlias(at: integer): boolean
-        local comptimeTok, typeTok = tokens[at], tokens[at + 1]
-        return comptimeTok ~= nil
-            and comptimeTok.kind == "name"
-            and comptimeTok.text == "comptime"
-            and typeTok ~= nil
-            and typeTok.kind == "name"
-            and typeTok.text == "type"
-            and startsTypedecl(at + 1)
-    end
-
     local function startsExport(at: integer): boolean
         local nextToken = tokens[at + 1]
         if not nextToken then
@@ -488,9 +470,6 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         end
         if nextToken.kind ~= "name" then
             return false
-        end
-        if nextToken.text == "comptime" then
-            return tokens[at + 2] and tokens[at + 2].kind == "function" or startsComptimeTypeAlias(at + 1)
         end
         if nextToken.text == "const" then
             local declared = tokens[at + 2]
@@ -599,21 +578,6 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     -- type that happens to be named `const` [CS-12].
 
     --- Whether a type could begin at this token.
-    --- The contextual words that may open a type, each with the one other prefix it
-    --- may be written before -- a plain `function` always follows -- and the flag it
-    --- sets on what it qualifies. `nosuspend` and `sendable` mark only a function
-    --- type and accept each other in either order, since each re-enters the rule.
-    --- `comptime` marks whatever it opens, `function` or `type`.
-    local TYPE_PREFIXES: {[string]: {
-        orBefore: string,
-        flag: string,
-        functionOnly: boolean
-    }} = {
-        nosuspend = {orBefore = "sendable", flag = "noSuspend", functionOnly = true},
-        sendable = {orBefore = "nosuspend", flag = "sendable", functionOnly = true},
-        comptime = {orBefore = "type", flag = "comptimeOnly", functionOnly = false},
-    }
-
     local function startsType(tok: Token?): boolean
         if not tok then
             return false
@@ -623,6 +587,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         return k == "name"
             or k == "nil"
             or k == "{"
+            or k == "@"
             or k == "function"
             or k == "("
             or k == "string"
@@ -743,29 +708,6 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         -- `const T` is a read-only view of T. `const` is only a modifier when a type
         -- follows it; on its own it is a type name like any other, which is what keeps
         -- `local x: const` meaning what it did.
-        -- Contextual in type position on the rule it opens a region with: a name,
-        -- followed by the thing it qualifies. Read before the plain-name case, which
-        -- would otherwise take `nosuspend` for a type called that.
-        local prefix = kind == "name" and TYPE_PREFIXES[cur().text] or nil
-        local following = tokens[i + 1]
-        if prefix
-            and following
-            and (following.kind == "function" or following.kind == "name" and following.text == prefix.orBefore)
-        then
-            local keyword = advance()
-            keyword.contextualOp = true
-            errAt(keyword, "use @" .. keyword.text .. " on this type", "NUPP1005", "prefix the modifier with @", {
-                {title = "use @" .. keyword.text, edits = {{offset = keyword.offset, length = 0, newText = "@"}}}
-            })
-            local inner = parseTypePrimary()
-            if not prefix.functionOnly or inner.kind == "tfunc" then
-                (inner as any)[prefix.flag] = true
-            end
-            -- The keyword joins the node's children at the front, so reprinting is
-            -- exact and the formatter needs to know nothing new.
-            table.insert(inner, 1, keyword)
-            return inner
-        end
         if kind == "name" and cur().text == "const" and startsType(tokens[i + 1]) then
             local n = new cst.Tconst(kind = "tconst")
             add(n, advance())
@@ -853,25 +795,39 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             local n
             local addOpen = advance()
 
-            local function startsAnnotatedShapeMember(at: integer): boolean
+            local function annotatedShapeMemberKind(at: integer): string?
                 local found = false
                 while tokens[at] and tokens[at].kind == "@" do
                     local name = tokens[at + 1]
-                    if not name or name.kind ~= "name" then
-                        return false
+                    if not name or name.kind ~= "name" and name.kind ~= "sealed" then
+                        return nil
                     end
                     found = true
                     at = at + 2
+                    if tokens[at] and tokens[at].kind == "(" then
+                        local depth = 0
+                        repeat
+                            local token = tokens[at]
+                            if not token then
+                                return nil
+                            elseif token.kind == "(" then
+                                depth = depth + 1
+                            elseif token.kind == ")" then
+                                depth = depth - 1
+                            end
+                            at = at + 1
+                        until depth == 0
+                    end
                 end
                 local member = tokens[at]
                 if not found or not member then
-                    return false
+                    return nil
                 end
                 if member.kind == "[" then
-                    return true
+                    return "indexer"
                 end
 
-                return member.kind == "name" and tokens[at + 1] and tokens[at + 1].kind == ":"
+                return member.kind == "name" and tokens[at + 1] and tokens[at + 1].kind == ":" and "field" or nil
             end
 
             local function shapeMember(): Node
@@ -882,15 +838,6 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                     application.name.propertyCapability = true
                     annotations[#annotations + 1] = application
                 end
-                local capability = nil
-                if cur().kind == "name"
-                    and (cur().text == "readonly" or cur().text == "writeonly")
-                    and tokens[i + 1]
-                    and (tokens[i + 1].kind == "name" or tokens[i + 1].kind == "[")
-                then
-                    capability = advance()
-                    capability.propertyCapability = capability.text == "readonly" and "read" or "write"
-                end
                 local member
                 if cur().kind == "["
                     and tokens[i + 1]
@@ -898,12 +845,9 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                     and tokens[i + 2]
                     and tokens[i + 2].kind == "in"
                 then
-                    member = new cst.Tmapped(kind = "tmapped", capability = capability, annotations = annotations)
+                    member = new cst.Tmapped(kind = "tmapped", annotations = annotations)
                     for _, application in ipairs(annotations) do
                         add(member, application)
-                    end
-                    if capability then
-                        add(member, capability)
                     end
                     add(member, advance())
                     member.binder = add(member, advance())
@@ -917,13 +861,10 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                     annotationColon(member, "in mapped member")
                     member.value = add(member, parseType())
                 elseif cur().kind == "[" then
-                    member = new cst.Tmap(kind = "tmap", capability = capability)
+                    member = new cst.Tmap(kind = "tmap")
                     member.annotations = annotations
                     for _, application in ipairs(annotations) do
                         add(member, application)
-                    end
-                    if capability then
-                        add(member, capability)
                     end
                     add(member, advance())
                     member.key = add(member, parseType())
@@ -931,13 +872,10 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                     annotationColon(member, "in indexer type")
                     member.value = add(member, parseType())
                 else
-                    member = new cst.TshapeField(kind = "tshapeField", capability = capability)
+                    member = new cst.TshapeField(kind = "tshapeField")
                     member.annotations = annotations
                     for _, application in ipairs(annotations) do
                         add(member, application)
-                    end
-                    if capability then
-                        add(member, capability)
                     end
                     member.name = add(member, expectName("in shape field"))
                     annotationColon(member, "in shape field")
@@ -947,19 +885,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 return member
             end
 
-            if cur().kind == "["
-                or startsAnnotatedShapeMember(i)
-                or (
-                    cur().kind == "name"
-                    and (cur().text == "readonly" or cur().text == "writeonly")
-                    and tokens[i + 1]
-                    and tokens[i + 1].kind == "["
-                    and tokens[i + 2]
-                    and tokens[i + 2].kind == "name"
-                    and tokens[i + 3]
-                    and tokens[i + 3].kind == "in"
-                )
-            then
+            if cur().kind == "[" or annotatedShapeMemberKind(i) == "indexer" then
                 -- map: { [K]: V } [CS-8]
                 local first = shapeMember()
                 if first.kind == "tmapped" then
@@ -979,18 +905,11 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                     n = first
                     table.insert(n, 1, addOpen)
                 end
-            elseif cur().kind == "name"
-                and tokens[i + 1]
-                and (
-                    tokens[i + 1].kind == ":"
-                    or (
-                        (cur().text == "readonly" or cur().text == "writeonly")
-                        and (tokens[i + 1].kind == "name" or tokens[i + 1].kind == "[")
-                    )
-                )
+            elseif cur().kind == "name" and tokens[i + 1] and tokens[i + 1].kind == ":"
+                or annotatedShapeMemberKind(i) == "field"
             then
-                -- Inline shape members and capability indexers. `readonly` and
-                -- `writeonly` remain contextual: `{readonly: T}` is still a field.
+                -- Inline shape members. Capability annotations belong to the member
+                -- they precede; an unprefixed `readonly` remains an ordinary name.
                 n = new cst.Tshape(fields = {}, kind = "tshape")
                 add(n, addOpen)
                 repeat
@@ -1572,8 +1491,8 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     local TYPE_ARGUMENT_TOKEN: {[string]: boolean} = {}
 
     for kind in (
-        "name . , ? | & : < > >> ( ) { } [ ] number string nil true false function "
-        .. "... -> readonly writeonly const borrows takes scoped"
+        "name . , ? | & : < > >> ( ) { } [ ] @ number string nil true false function "
+        .. "... -> const borrows takes scoped"
     ):gmatch("%S+") do
         TYPE_ARGUMENT_TOKEN[kind] = true
     end
@@ -2128,7 +2047,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         return n
     end
 
-    -- Legacy forms are recognized only to recover their tree and offer a
+    -- Legacy unsafe forms are recognized only to recover their tree and offer a
     -- token-range migration. The diagnostic makes them invalid source.
     local function rejectLegacyUnsafe(token: Token, operation: string)
         errAt(
@@ -2138,10 +2057,6 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             "replace the marker with @unsafe; its operand and scope stay unchanged",
             {{title = "replace unsafe with @unsafe", edits = {{offset = token.offset, length = 0, newText = "@"}}}}
         )
-    end
-
-    local function rejectLegacyAnnotation(token: Token, replacement: string)
-        errAt(token, "use " .. replacement .. " instead", "NUPP1005", "move the annotation before the declaration")
     end
 
     local function sourceText(node: Node): string
@@ -2717,8 +2632,8 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     parseAnnotationApplication = function(n, typePosition: boolean?)
         add(n, expect("@"))
         local negated = cur().text == "!" and add(n, advance()) or nil
-        -- `sealed` remains reserved during the compatibility release so its old
-        -- declaration form still parses; after `@` it is an annotation name.
+        -- `sealed` is a declaration keyword; after `@` it is still parsed as an
+        -- annotation name so the checker can report that the annotation is unknown.
         n.name = add(n, cur().kind == "sealed" and advance() or expectName("after '@'"))
         if negated then
             errAt(n.name, "@!" .. n.name.text .. " is not supported; annotate one statement or expression", "NUPP2112")
@@ -2874,31 +2789,8 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 -- also a sequence declares `{T}` among its fields
                 e = new cst.ArrayPart(kind = "arrayPart")
                 e.type = add(e, parseType())
-            elseif cur().kind == "["
-                or (
-                    cur().kind == "name"
-                    and (cur().text == "readonly" or cur().text == "writeonly")
-                    and tokens[i + 1]
-                    and tokens[i + 1].kind == "["
-                )
-            then
+            elseif cur().kind == "[" then
                 e = new cst.IndexerDecl(kind = "indexerDecl")
-                if cur().kind == "name" then
-                    e.capability = add(e, advance())
-                    e.capability.propertyCapability = e.capability.text == "readonly" and "read" or "write"
-                    errAt(
-                        e.capability,
-                        "field capability uses @" .. e.capability.text,
-                        "NUPP1005",
-                        "prefix the capability with @",
-                        {
-                            {
-                                title = "use @" .. e.capability.text,
-                                edits = {{offset = e.capability.offset, length = 0, newText = "@"}}
-                            }
-                        }
-                    )
-                end
                 add(e, expect("[", "to open indexer key type"))
                 e.key = add(e, parseType())
                 add(e, expect("]", "to close indexer key type"))
@@ -2906,42 +2798,6 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 e.value = add(e, parseType())
             elseif cur().kind == "name" then
                 e = new cst.FieldDecl(kind = "fieldDecl")
-                if cur().text == "terminal" and tokens[i + 1] and tokens[i + 1].kind == "name" then
-                    local legacy = add(e, advance())
-                    errAt(
-                        legacy,
-                        "terminal fields use an Affine cleanup claim",
-                        "NUPP1005",
-                        "declare `is nupp.Affine<self." .. cur().text .. ">` on the interface"
-                    )
-                end
-                if cur().text == "private" and tokens[i + 1] and tokens[i + 1].kind == "name" then
-                    e.privacy = add(e, advance())
-                    errAt(e.privacy, "private fields use @private", "NUPP1005", "prefix private with @", {
-                        {title = "use @private", edits = {{offset = e.privacy.offset, length = 0, newText = "@"}}}
-                    })
-                end
-                if (cur().text == "readonly" or cur().text == "writeonly")
-                    and tokens[i + 1]
-                    and tokens[i + 1].kind == "name"
-                    and tokens[i + 2]
-                    and tokens[i + 2].kind == ":"
-                then
-                    e.capability = add(e, advance())
-                    e.capability.propertyCapability = e.capability.text == "readonly" and "read" or "write"
-                    errAt(
-                        e.capability,
-                        "field capability uses @" .. e.capability.text,
-                        "NUPP1005",
-                        "prefix the capability with @",
-                        {
-                            {
-                                title = "use @" .. e.capability.text,
-                                edits = {{offset = e.capability.offset, length = 0, newText = "@"}}
-                            }
-                        }
-                    )
-                end
                 e.name = add(e, advance())
                 if cur().kind == "," then
                     -- grouped fields ("x, y: float") are deliberately not part of the
@@ -2988,17 +2844,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     end
 
     --- A `type`, `record`, `interface` or `struct` declaration.
-    parseTypedecl = function(modifierTok: Token?, visibility: string?, comptimeTok: Token?): Node
-        local affineTok = nil
-        if cur().kind == "name" and cur().text == "affine" then
-            affineTok = advance()
-            errAt(
-                affineTok,
-                "affine interface uses an explicit Affine claim",
-                "NUPP1005",
-                "declare `is nupp.Affine<self.cleanup>` on the interface"
-            )
-        end
+    parseTypedecl = function(modifierTok: Token?, visibility: string?): Node
         local sealedTok = nil
         if cur().kind == "sealed" then
             sealedTok = advance()
@@ -3007,9 +2853,6 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         local which = kw.text
         if sealedTok and which ~= "interface" then
             errAt(sealedTok, "'sealed' may modify only an interface", "NUPP1002")
-        end
-        if affineTok and which ~= "interface" then
-            errAt(affineTok, "'affine' may modify only an interface", "NUPP1002")
         end
 
         -- Records where the declaration begins in source. A visibility fix writes
@@ -3022,14 +2865,8 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             if modifierTok then
                 add(n, modifierTok)
             end
-            if comptimeTok then
-                add(n, comptimeTok)
-            end
             if sealedTok then
                 add(n, sealedTok)
-            end
-            if affineTok then
-                add(n, affineTok)
             end
             add(n, kw)
 
@@ -3038,8 +2875,6 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
 
         if which == "type" then
             local n = introduce(new cst.TypeAlias(kind = "typeAlias"))
-            n.comptimeTok = comptimeTok
-            n.comptimeOnly = comptimeTok ~= nil
             parseDeclName(n, "after '" .. which .. "'")
             parseGenerics(n)
             add(n, expect("=", "in " .. which .. " declaration"))
@@ -3417,27 +3252,6 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             add(n, expect("end", "to close 'handle suspension'"))
             return n
 
-        elseif kind == "name" and cur().text == "nosuspend" and tokens[i + 1] and tokens[i + 1].kind == "do" then
-            local n = new cst.ErrorStmt(kind = "errorStmt")
-            rejectLegacyAnnotation(add(n, advance()), "@nosuspend do")
-            add(n, advance())
-            add(n, parseBlock())
-            add(n, expect("end", "to close 'nosuspend do'"))
-            return n
-
-        elseif kind == "name"
-            and (cur().text == "noalloc" or cur().text == "noraise")
-            and tokens[i + 1]
-            and tokens[i + 1].kind == "do"
-        then
-            local written = cur().text
-            local n = new cst.ErrorStmt(kind = "errorStmt")
-            rejectLegacyAnnotation(add(n, advance()), "@" .. written .. " do")
-            add(n, advance())
-            add(n, parseBlock())
-            add(n, expect("end", "to close '" .. written .. " do'"))
-            return n
-
         elseif kind == "name" and cur().text == "unsafe" and tokens[i + 1] and tokens[i + 1].kind == "do" then
             local n = new cst.UnsafeStmt(kind = "unsafeStmt")
             n.unsafeTok = add(n, advance())
@@ -3450,32 +3264,12 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         elseif startsTypedecl(i) then
             return parseTypedecl(nil, "module")
 
-        elseif startsComptimeTypeAlias(i) then
-            local comptimeTok = advance()
-            comptimeTok.contextualOp = true
-            rejectLegacyAnnotation(comptimeTok, "@comptime type")
-            return parseTypedecl(nil, "module", comptimeTok)
-
         elseif kind == "name" and cur().text == "global" and startsTypedecl(i + 1) then
             local globalTok = advance()
             return parseTypedecl(globalTok, "global")
 
-        elseif kind == "name" and cur().text == "global" and startsComptimeTypeAlias(i + 1) then
-            local globalTok = advance()
-            local comptimeTok = advance()
-            comptimeTok.contextualOp = true
-            rejectLegacyAnnotation(comptimeTok, "@comptime global type")
-            return parseTypedecl(globalTok, "global", comptimeTok)
-
-        elseif kind == "function"
-            or kind == "name" and cur().text == "comptime" and tokens[i + 1] and tokens[i + 1].kind == "function"
-        then
+        elseif kind == "function" then
             local n = new cst.FuncStmt(kind = "funcStmt")
-            if kind == "name" then
-                n.comptimeTok = add(n, advance())
-                n.comptimeTok.contextualOp = true
-                rejectLegacyAnnotation(n.comptimeTok, "@comptime function")
-            end
             add(n, advance())
             local fn = new cst.Funcname(kind = "funcname")
             fn.base = add(fn, expectName("after 'function'"))
@@ -3565,31 +3359,12 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             -- retain their ordinary identifier meanings.
             local isConst = kind == "name"
             local loctok = advance()
-            if cur().kind == "function"
-                or cur().kind == "name"
-                and cur().text == "comptime"
-                and tokens[i + 1]
-                and tokens[i + 1].kind == "function"
-            then
+            if cur().kind == "function" then
                 local n = new cst.LocalFuncStmt(kind = "localFuncStmt")
                 n.isConst = isConst
                 add(n, loctok)
-                if cur().kind == "name" then
-                    n.comptimeTok = add(n, advance())
-                    n.comptimeTok.contextualOp = true
-                    rejectLegacyAnnotation(
-                        n.comptimeTok,
-                        "@comptime " .. (isConst and "const" or "local") .. " function"
-                    )
-                end
                 add(n, advance())
-                n.name = add(
-                    n,
-                    expectName(
-                        isConst and (n.comptimeTok and "after 'const comptime function'" or "after 'const function'")
-                        or (n.comptimeTok and "after 'local comptime function'" or "after 'local function'")
-                    )
-                )
+                n.name = add(n, expectName(isConst and "after 'const function'" or "after 'local function'"))
                 n.body = add(n, parseFuncbody())
                 return n
             end
@@ -3598,12 +3373,6 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             -- stays a plain local.
             if not isConst and startsTypedecl(i) then
                 return parseTypedecl(loctok, "local")
-            end
-            if not isConst and startsComptimeTypeAlias(i) then
-                local comptimeTok = advance()
-                comptimeTok.contextualOp = true
-                rejectLegacyAnnotation(comptimeTok, "@comptime local type")
-                return parseTypedecl(loctok, "local", comptimeTok)
             end
             local n = new cst.LocalStmt(names = {}, types = {}, kind = "localStmt")
             n.isConst = isConst

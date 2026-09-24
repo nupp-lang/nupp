@@ -771,7 +771,7 @@ Repeated concatenation copies the growing string and costs O(n²).
 
 [](nupp.mem.indexed.range) validates an inclusive range for trusted Span or SoA
 views. Matching accesses in the numeric loop become non-raising at every level,
-including in `noraise` code. At `-O1`, they also become direct FFI accesses:
+including in `@noraise` code. At `-O1`, they also become direct FFI accesses:
 
 ::: code-group
 ```nupp [Nupp]

@@ -322,7 +322,7 @@ function M.constrainedOpenTypeCallsExposeOnlyTheirDeclaredBound()
     clean(
         table.concat(
             {
-                "@comptime local function ReadView(T: type): type<{readonly name: string}>",
+                "@comptime local function ReadView(T: type): type<{@readonly name: string}>",
                 "   return nupp.types.shape({{name = 'name', read = nupp.types.string}})",
                 "end",
                 "local function nameOf<T>(value: ReadView(T)): string",
@@ -337,7 +337,7 @@ function M.constrainedOpenTypeCallsExposeOnlyTheirDeclaredBound()
         codes(
             table.concat(
                 {
-                    "@comptime local function Bad(T: type): type<{readonly name: string}>",
+                    "@comptime local function Bad(T: type): type<{@readonly name: string}>",
                     "   return nupp.types.integer",
                     "end",
                     "local value: Bad(string)",
@@ -471,7 +471,7 @@ function M.keyAndIndexedMemberOperatorsRespectCapabilities()
     clean(
         table.concat(
             {
-                "local type Cell = {readonly value: string, writeonly value: string | integer}",
+                "local type Cell = {@readonly value: string, @writeonly value: string | integer}",
                 "local readKey: keyof Cell = 'value'",
                 "local writeKey: writekeyof Cell = 'value'",
                 "local readValue: Cell.['value'] = 'ready'",
@@ -482,7 +482,7 @@ function M.keyAndIndexedMemberOperatorsRespectCapabilities()
     )
     assertEq(
         codes(
-            table.concat({"local type Cell = {readonly value: string}", "local bad: writekeyof Cell = 'value'",}, "\n")
+            table.concat({"local type Cell = {@readonly value: string}", "local bad: writekeyof Cell = 'value'",}, "\n")
         ),
         "NUPP2001"
     )
@@ -513,8 +513,8 @@ function M.mappedShapesReduceAfterGenericSubstitution()
     clean(
         table.concat(
             {
-                "local type ReadonlyView<T> = {readonly [K in keyof T]: T.[K]}",
-                "local type Sink<T> = {writeonly [K in writekeyof T]: writeof T.[K]}",
+                "local type ReadonlyView<T> = {@readonly [K in keyof T]: T.[K]}",
+                "local type Sink<T> = {@writeonly [K in writekeyof T]: writeof T.[K]}",
                 "local source: ReadonlyView<{name: string, age: integer}> = {name = 'Ada', age = 37}",
                 "local sink: Sink<{name: string, age: integer}> = nil as any",
                 "sink.name = 'Grace'",
@@ -527,7 +527,7 @@ function M.mappedShapesReduceAfterGenericSubstitution()
 end
 
 function M.broadAndMissingMemberReductionsReportLocally()
-    assertEq(codes("local value: {readonly [K in string]: K}"), "NUPP2130")
+    assertEq(codes("local value: {@readonly [K in string]: K}"), "NUPP2130")
     assertEq(codes("local value: {name: string}.['missing']"), "NUPP2130")
 end
 
@@ -957,8 +957,8 @@ function M.comptimeTypeLibraryDoesNotLeakIntoRuntimeCode()
         table.concat(
             {
                 "local type TypeLibrary = {",
-                "   readonly string: @comptime type,",
-                "   readonly optional: @comptime function(value: type): type,",
+                "   @readonly string: @comptime type,",
+                "   @readonly optional: @comptime function(value: type): type,",
                 "}",
                 "@comptime local function Maybe(T: type): type",
                 "   return nupp.types.optional(T)",
@@ -987,7 +987,7 @@ function M.comptimeTypeLibraryDoesNotLeakIntoRuntimeCode()
     oneDiagnostic(
         table.concat(
             {
-                "local type ScalarLibrary = {readonly step: @comptime function(integer): integer}",
+                "local type ScalarLibrary = {@readonly step: @comptime function(integer): integer}",
                 "local library: ScalarLibrary = nil as any",
                 "local leaked = library.step",
                 "return leaked",
@@ -1023,7 +1023,7 @@ function M.mappedRemappingBuildsDependentEventAdapters()
         table.concat(
             {
                 "local type Events<T> = {",
-                "   readonly [K in keyof T as `${K}Changed`]: function(value: T.[K]): nil",
+                "   @readonly [K in keyof T as `${K}Changed`]: function(value: T.[K]): nil",
                 "}",
                 "local events: Events<{name: string, age: integer}> = nil as any",
                 "local onName: function(value: string): nil = events.nameChanged",
@@ -1033,7 +1033,7 @@ function M.mappedRemappingBuildsDependentEventAdapters()
                 "   if info.kind == 'literal' and info.value == 'password' then return nupp.types.never end",
                 "   return K",
                 "end",
-                "local type Public<T> = {readonly [K in keyof T as PublicKey(K)]: T.[K]}",
+                "local type Public<T> = {@readonly [K in keyof T as PublicKey(K)]: T.[K]}",
                 "local public: Public<{name: string, password: string}> = {name = 'Ada'}",
                 "local name: string = public.name",
             },
@@ -1047,7 +1047,7 @@ function M.remapCollisionsReportAtTheOperator()
         codes(
             table.concat(
                 {
-                    "local type Collision<T> = {readonly [K in keyof T as 'same']: T.[K]}",
+                    "local type Collision<T> = {@readonly [K in keyof T as 'same']: T.[K]}",
                     "local collision: Collision<{a: string, b: integer}> = nil as any",
                 },
                 "\n"
@@ -1086,10 +1086,10 @@ function M.boundsIntersectionsAndIndexersShareTheMemberVocabulary()
     clean(
         table.concat(
             {
-                "local type NamedKeys<T is {readonly name: string}> = keyof T",
-                "local named: NamedKeys<{readonly name: string, readonly age: integer}> = 'name'",
-                "local both: keyof ({readonly left: string} & {readonly right: integer}) = 'right'",
-                "local indexed: keyof {readonly [string]: integer} = 'arbitrary'",
+                "local type NamedKeys<T is {@readonly name: string}> = keyof T",
+                "local named: NamedKeys<{@readonly name: string, @readonly age: integer}> = 'name'",
+                "local both: keyof ({@readonly left: string} & {@readonly right: integer}) = 'right'",
+                "local indexed: keyof {@readonly [string]: integer} = 'arbitrary'",
             },
             "\n"
         )
@@ -1250,7 +1250,7 @@ function M.typeComputationAndConstBindersEraseFromGeneratedLua()
             "local function field<const Name: string>(name: Name): Name",
             "   return name",
             "end",
-            "local type View<T> = {readonly [K in keyof T]: T.[K]}",
+            "local type View<T> = {@readonly [K in keyof T]: T.[K]}",
             "local value: View<{name: string}> = {name = field('ok')}",
             "return value.name",
         },
@@ -2284,8 +2284,8 @@ function M.aConstraintBuiltAtComptimeIsTheOneWrittenInAType()
 end
 
 -- `pairs` takes a read-only indexer, and an array and a record shape both satisfy
--- one: `{T}` assigns to `{readonly [integer]: T}` and `{a: A, b: B}` to
--- `{readonly [string]: A | B}`. Unification did not follow, so iterating either
+-- one: `{T}` assigns to `{@readonly [integer]: T}` and `{a: A, b: B}` to
+-- `{@readonly [string]: A | B}`. Unification did not follow, so iterating either
 -- bound neither key nor value and the loop variables were `any`.
 function M.pairsBindsItsKeyAndValueOverAnArrayOrAShape()
     clean(

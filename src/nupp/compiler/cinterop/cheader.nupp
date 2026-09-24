@@ -34,10 +34,10 @@ type cheader.Resolver = function(tag: string): T.Type?
 --- How a header is read. `preprocess` runs the system compiler first, for headers whose
 --- declarations are written in a vocabulary their includes define.
 type cheader.Options = {
-    readonly preprocess: boolean?,
-    readonly cc: string?,
-    readonly ccArgs: {string}?,
-    readonly read: (function(path: string): string?)?
+    @readonly preprocess: boolean?,
+    @readonly cc: string?,
+    @readonly ccArgs: {string}?,
+    @readonly read: (function(path: string): string?)?
 }
 
 --- A header as the checker takes it: what it declares, and the text to hand the

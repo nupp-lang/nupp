@@ -116,23 +116,13 @@ function M.propertyCapabilities()
         "local x: {\n    @readonly [string]: string,\n    @writeonly [string]: integer\n}\n"
     )
     assertEq(
-        fmt1("local x:{readonly value:string,writeonly value:string|integer}"),
-        "local x: {\n    readonly value: string,\n    writeonly value: string | integer\n}\n"
-    )
-    assertEq(
-        fmt1("local x:{readonly [string]:string,writeonly [string]:integer}"),
-        "local x: {\n    readonly [string]: string,\n    writeonly [string]: integer\n}\n"
-    )
-    assertEq(
         fmt1("local interface Cell\n@readonly value:string\n@writeonly value:integer\nend"),
         "local interface Cell\n    @readonly\n    value: string\n    @writeonly\n    value: integer\nend\n"
     )
 end
 
-function M.rejectedCompatibilityFormsRemainUnchanged()
+function M.rejectedLexicalOwnershipFormsRemainUnchanged()
     for _, source in ipairs({
-        "local f: nosuspend function(): nil",
-        "local record R readonly value: integer end",
         "local owner = @unsafe adopt raw as affine(any)",
         "local raw = @unsafe release owner",
         "drop owner",

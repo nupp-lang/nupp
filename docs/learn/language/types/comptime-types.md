@@ -181,7 +181,7 @@ local record Settings
 end
 
 local type Events<T> = {
-    readonly [K in keyof T as `${K}Changed`]: function(value: T.[K]): nil
+    @readonly [K in keyof T as `${K}Changed`]: function(value: T.[K]): nil
 }
 ```
 

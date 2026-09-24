@@ -327,7 +327,7 @@ local function provenNonYielding(node: cst.Node?, body: cst.Node?): boolean
         -- Effect inference widens at external calls, but an exact callable type can
         -- still promise that the call does not suspend. This is the same proof cleanup
         -- contracts use: every reached call is either ownership syntax or carries the
-        -- public `nosuspend` guarantee. Nested functions are separate definitions.
+        -- public `@nosuspend` guarantee. Nested functions are separate definitions.
         local visited: {[cst.Node]: boolean} = {}
 
         local function callsAreNonYielding(current: cst.Node?): boolean
@@ -3164,7 +3164,7 @@ function checkMod.check(
         end
         -- An imported affine contract retains the terminal's stable
         -- `module#qualified.name` key. Exact exports transport the same positive
-        -- noRaise fact used by authored `noraise` regions, so a dependant can prove a
+        -- noRaise fact used by authored `@noraise` regions, so a dependant can prove a
         -- terminal harmless without importing its complete effect summary.
         local module, qualified
         if cleanup.key then
@@ -3272,7 +3272,7 @@ function checkMod.check(
     declare.checkEffectConformance(c)
     relations.invalidate()
     -- Structural bounds on generic terminals can depend on the inferred
-    -- `nosuspend` guarantee of an inline method. Nominal callable slots receive that
+    -- `@nosuspend` guarantee of an inline method. Nominal callable slots receive that
     -- guarantee only after effect analysis, so close deferred terminal bounds here.
     own.finalizeCleanupBounds()
     finalizeCallGuarantees(c, effectQueries)

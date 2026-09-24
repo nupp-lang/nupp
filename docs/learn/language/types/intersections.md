@@ -10,10 +10,10 @@ without a declaration that names the combination.
 
 ```nupp:playground
 local type Identified = {
-    readonly id: integer
+    @readonly id: integer
 }
 local type Labeled = {
-    readonly label: string
+    @readonly label: string
 }
 local type Item = Identified & Labeled
 
@@ -32,13 +32,13 @@ states the combination at the one place that needs it.
 
 ```nupp
 local type HasCode = {
-    readonly code: integer
+    @readonly code: integer
 }
 local type HasMessage = {
-    readonly message: string
+    @readonly message: string
 }
 local type Timeout = {
-    readonly timedOut: true
+    @readonly timedOut: true
 }
 
 local type Failure = Timeout | HasCode & HasMessage
@@ -61,10 +61,10 @@ accept:
 
 ```nupp
 local type NarrowRead = {
-    readonly value: string
+    @readonly value: string
 }
 local type WideWrite = {
-    writeonly value: string | integer
+    @writeonly value: string | integer
 }
 
 local type Cell = NarrowRead & WideWrite
@@ -86,15 +86,15 @@ provide the target's structural surface:
 
 ```nupp
 local type A = {
-    readonly a: number
+    @readonly a: number
 }
 local type B = {
-    readonly b: string
+    @readonly b: string
 }
 
 local function combined(value: A & B): {
-    readonly a: number,
-    readonly b: string
+    @readonly a: number,
+    @readonly b: string
 }
     return value
 end

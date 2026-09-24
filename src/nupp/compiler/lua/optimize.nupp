@@ -3136,26 +3136,26 @@ end
 --- What a pass works on: the tree it rewrites in place and the analysis the checker
 --- left beside it.
 type optimize.Checked = {
-    readonly root: cst.Chunk,
-    readonly analysis: any?,
-    readonly compat: string?
+    @readonly root: cst.Chunk,
+    @readonly analysis: any?,
+    @readonly compat: string?
 }
 
 --- What the passes were asked for.
 type optimize.Options = {
-    readonly level: integer?,
+    @readonly level: integer?,
 
     --- The sole source name used for ownership and remark attribution. Parse results
     --- deliberately do not carry a competing name.
-    readonly filename: string?,
-    readonly disabled: {[string]: boolean}?,
+    @readonly filename: string?,
+    @readonly disabled: {[string]: boolean}?,
 
     --- The dialect the result is generated for. `OPT-5` lowers to a `nupp.text` buffer,
     --- which is LuaJIT's, so a Lua 5.1 target does not get that pass.
-    readonly dialect: string?,
+    @readonly dialect: string?,
 
     --- Whole-deliverable const body selection, when a project build supplied it.
-    readonly constSelection: any?
+    @readonly constSelection: any?
 }
 
 --- Runs the passes a level asks for over a parsed and checked file, annotating it in

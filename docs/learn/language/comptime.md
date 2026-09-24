@@ -160,8 +160,8 @@ and leaves the rest of the file to be checked.
 
 ## Type functions
 
-A function that is available only during compilation carries the `comptime`
-modifier. One that accepts compiler-only `type` values and returns a `type` is
+A function that is available only during compilation carries the `@comptime`
+annotation. One that accepts compiler-only `type` values and returns a `type` is
 called with ordinary parentheses in type position, where it builds a structural
 type while the program is checked:
 
@@ -180,7 +180,7 @@ code. Both are erased and have no runtime value. `affine(T, cleanup)`,
 are compile-time type generators rather than runtime constructors; see
 [Ownership](../runtime/ownership/index.md) for what they promise.
 
-Types used only by these functions may likewise be declared with `comptime`, as in
+Types used only by these functions may likewise be declared with `@comptime`, as in
 `@comptime local type Field = {name: string, read: type?}`. That lets a helper name
 structures containing compiler-only `type` or `typepack` handles once. The alias
 body is checked in a comptime context, and naming the alias in runtime code is

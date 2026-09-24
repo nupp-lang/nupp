@@ -411,19 +411,19 @@ end
 --- `parser.ParseResult`, since a generator that took one would be claiming it runs
 --- before checking, which it never does.
 type gen.Checked = {
-    readonly root: cst.Chunk,
-    readonly tokens: {any}?,
-    readonly implicitSideEffects: {[string]: any}?,
+    @readonly root: cst.Chunk,
+    @readonly tokens: {any}?,
+    @readonly implicitSideEffects: {[string]: any}?,
 
     --- What the checker resolved this file to, and the native features it recorded.
-    readonly moduleName: string?,
-    readonly declaredModuleName: string?,
-    readonly sendableLiterals: {any}?,
-    readonly dialect: string?,
-    readonly host: string?,
-    readonly compat: string?,
-    readonly effects: {[string]: any}?,
-    readonly preludeRuntime: string?
+    @readonly moduleName: string?,
+    @readonly declaredModuleName: string?,
+    @readonly sendableLiterals: {any}?,
+    @readonly dialect: string?,
+    @readonly host: string?,
+    @readonly compat: string?,
+    @readonly effects: {[string]: any}?,
+    @readonly preludeRuntime: string?
 }
 
 --- How a coverage build is asked for: `true` to instrument and name the file after

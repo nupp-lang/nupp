@@ -487,8 +487,8 @@ body.
 
 The annotation does not promise that the function runs, becomes hot, receives
 stable runtime types, or stays compiled for every input. Compile-time-only
-helpers use the `@comptime function` declaration modifier rather than an
-annotation. See [jit-trace-checking.md](../learn/performance/jit-trace-checking.md) for
+helpers use the `@comptime` annotation. See
+[jit-trace-checking.md](../learn/performance/jit-trace-checking.md) for
 every current blocker, risk, expected stop, warning, call-path error, bytecode
 verdict, editor query, and runtime reason.
 

@@ -36,7 +36,7 @@ with `is`, so a shape or an undeclared record has to carry that member itself
 to satisfy the interface, and one that lacks it is refused rather than left to
 find nothing at the call.
 
-Members and indexers may be declared `readonly` and `writeonly` independently,
+Members and indexers may be declared `@readonly` and `@writeonly` independently,
 which controls both access and variance. See [properties.md](properties.md) for
 what each capability admits.
 
@@ -371,7 +371,7 @@ not a field copied into it.
 ::: seealso
 - [refinements.md](refinements.md) for the `satisfies` test an interface may
   carry
-- [properties.md](properties.md) for `readonly` and `writeonly` members
+- [properties.md](properties.md) for `@readonly` and `@writeonly` members
 - [metamethods.md](../metamethods.md) for generic indexing, runtime
   fulfillment, `metatable<T>`, and the full set of exclusions
 - [overloads.md](overloads.md#default-implementations-and-override) for

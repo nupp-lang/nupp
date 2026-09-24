@@ -76,7 +76,7 @@ local tonumber: @nosuspend function(v: any, base: number?): number?
 --- @typearg V the value type
 --- @param t the table to traverse
 --- @return an iterator yielding each key and its value, and nil when done
-local pairs: @nosuspend function<K, V>(t: {readonly [K]: V}): @nosuspend function(): (K, V)
+local pairs: @nosuspend function<K, V>(t: {@readonly [K]: V}): @nosuspend function(): (K, V)
 
 --- Returns an iterator over the array part of `t`, from index 1 up to the first missing
 --- element.
@@ -794,13 +794,13 @@ const table: {
     --- @param narray how many array slots to reserve
     --- @param nhash how many hash slots to reserve
     --- @return the new table
-    readonly new: function(narray: number, nhash: number): table,
+    @readonly new: function(narray: number, nhash: number): table,
 
     --- Removes every key from `t` while keeping the space it has already allocated, so
     --- it can be refilled without reallocating.
     ---
     --- @param t the table to empty
-    readonly clear: function(t: table),
+    @readonly clear: function(t: table),
 
     -- Nupp extensions
 
@@ -812,7 +812,7 @@ const table: {
     --- @typearg T the table type
     --- @param t the table to copy
     --- @return a new table holding the same keys, values and metatable
-    readonly clone: @nosuspend function<T is table>(t: T): T
+    @readonly clone: @nosuspend function<T is table>(t: T): T
 }
 
 ----------------------------------------------------------------------------
@@ -1407,7 +1407,7 @@ local coroutine: {
     isyieldable: function(): boolean
 }
 
--- The base functions below say `nosuspend`: calling one cannot suspend the caller.
+-- The base functions below say `@nosuspend`: calling one cannot suspend the caller.
 --
 -- Two of them are a stated trust rather than a proof, in the same category as a
 -- metamethod contract (`docs/learn/language/metamethods.md`). `tostring` reaches

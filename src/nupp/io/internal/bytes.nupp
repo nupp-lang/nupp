@@ -795,7 +795,7 @@ local record QueueReader is Reader
     --- Releases it as an ownership terminal.
     ---
     --- Repeated calls are safe. Declared rather than written inline: a cleanup
-    --- contract is `nosuspend`, and an inline method cannot carry one.
+    --- contract is `@nosuspend`, and an inline method cannot carry one.
     --- @param self this reader, spent by the call
     drop: @nosuspend function(takes self: QueueReader): nil
 

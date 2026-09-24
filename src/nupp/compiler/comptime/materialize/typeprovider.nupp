@@ -16,9 +16,9 @@ local stable = require("nupp.compiler.stable")
 ----------------------------------------------------------------------------
 
 type typeprovider.Failure = {
-    readonly code: string,
-    readonly message: string,
-    readonly help: string?
+    @readonly code: string,
+    @readonly message: string,
+    @readonly help: string?
 }
 
 local record typeprovider

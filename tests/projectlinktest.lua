@@ -805,9 +805,9 @@ function M.anExportedComptimeAliasCrossesOnlyIntoComptimeCode()
 module schema
 
 @comptime export type Field = {
-    readonly name: string,
-    readonly read: type?,
-    readonly write: type?
+    @readonly name: string,
+    @readonly read: type?,
+    @readonly write: type?
 }
 ]],
             [

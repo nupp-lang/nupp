@@ -300,16 +300,9 @@ function semantic.syntaxKinds(result: semantic.Parse): {[lexer.Token]: string}
             end
             mark(node.name, "parameter")
         elseif kind == "fieldDecl" or kind == "tshapeField" then
-            if node.capability then
-                mark(node.capability, keywordType)
-            end
             mark(node.name, "property")
         elseif kind == "fieldNamed" then
             mark(node.name, "property")
-        elseif kind == "indexerDecl" or kind == "tmap" then
-            if node.capability then
-                mark(node.capability, keywordType)
-            end
         end
     end)
 

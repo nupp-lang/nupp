@@ -15,9 +15,9 @@ local state = require("nupp.compiler.check.state")
 local effectregions = {}
 
 type effectregions.Ops = {
-    readonly region: function(any),
-    readonly free: function(any, string, any): boolean,
-    readonly sweep: function(any)
+    @readonly region: function(any),
+    @readonly free: function(any, string, any): boolean,
+    @readonly sweep: function(any)
 }
 
 local MAX_CHAIN = 8

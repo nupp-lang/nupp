@@ -265,7 +265,7 @@ a boolean: it says whether a path can raise, never what is raised. What is
 raised belongs in `@raises <Type> [text]` docblocks, one line per raised type,
 and `never` still describes a function that never returns normally.
 
-For the user-facing control-flow model, including `nosuspend`, cancellation,
+For the user-facing control-flow model, including `@nosuspend`, cancellation,
 coroutine inheritance, and concurrent combinators, see
 [suspension.md](../runtime/concurrency/suspension.md). See [Hosts supply scheduling
 policy](../runtime/concurrency/suspension.md#hosts-supply-scheduling-policy) for who owns the

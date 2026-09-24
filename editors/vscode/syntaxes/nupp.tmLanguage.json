@@ -451,11 +451,7 @@
         {
           "comment": "comptime changes when code runs, so it gets its own colour.",
           "name": "storage.modifier.directive.nupp",
-          "match": "\\bcomptime\\b(?=[ \\t]+(?:do|function)\\b)"
-        },
-        {
-          "name": "keyword.control.nupp",
-          "match": "\\bnosuspend\\b(?=[ \\t]+(?:do|function)\\b)"
+          "match": "\\bcomptime\\b(?=[ \\t]+do\\b)"
         },
         {
           "name": "keyword.control.nupp",
@@ -491,11 +487,6 @@
           "comment": "yield reads the value of a switch block arm; excluding '(', '{' and quotes after it keeps the preserved Lua call sugar yield(...)/yield{...}/yield \"...\" alone.",
           "name": "keyword.control.nupp",
           "match": "(?<![.:])\\byield\\b(?=[ \\t]*[^(){\"'=.\\s])"
-        },
-        {
-          "comment": "private is contextual: a field modifier only when a field name and type follow.",
-          "name": "keyword.control.nupp",
-          "match": "\\bprivate\\b(?=[ \\t]+(?:readonly|writeonly|[A-Za-z_][A-Za-z0-9_]*[ \\t]*:))"
         }
       ]
     },
@@ -533,10 +524,6 @@
         {
           "name": "storage.modifier.ownership.nupp",
           "match": "\\b(?:borrows|exclusive|out|scoped|takes|releases|retains)\\b(?=\\s+[A-Za-z_][A-Za-z0-9_]*\\s*:)"
-        },
-        {
-          "name": "keyword.other.property.nupp",
-          "match": "\\b(?:readonly|writeonly)\\b(?=\\s*(?:[A-Za-z_][A-Za-z0-9_]*|\\[))"
         },
         {
           "comment": "borrows after a return type names the parameter the result borrows from",

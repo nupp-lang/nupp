@@ -169,7 +169,7 @@ directly and allocates no container or interface wrapper.
 When the bounds and spans are const-bound in the same function, the successful
 range check proves matching indexed reads and writes non-raising inside
 the dominated numeric loop. This proof is part of checking at every optimization
-level: it is what permits those calls inside `noraise` code.
+level: it is what permits those calls inside `@noraise` code.
 
 See [`OPT-6`](docs/learn/performance/index.md#opt-6-indexed-views) for how that
 proof is spent at `-O1`, as direct FFI element access and virtual slices that

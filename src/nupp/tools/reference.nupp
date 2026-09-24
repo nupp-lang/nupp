@@ -364,7 +364,7 @@ return m
         codes = {"NUPP2130", "NUPP2132", "NUPP2133", "NUPP2421"},
         body = [=[
 `keyof T` and `writekeyof T` enumerate readable and writable keys. `T.[K]` and
-`writeof T.[K]` project their value types. A readonly or writeonly mapped shape
+`writeof T.[K]` project their value types. An `@readonly` or `@writeonly` mapped shape
 iterates finite literal keys and may remap them with `as`.
 
 Backtick template types concatenate finite string literal sets. Const
@@ -406,7 +406,7 @@ projecting one outside comptime code is `NUPP2421`.
         example = [=[
 local m = {}
 
-local type Events<T> = {readonly [K in keyof T as `${K}Changed`]: function(value: T.[K]): nil}
+local type Events<T> = {@readonly [K in keyof T as `${K}Changed`]: function(value: T.[K]): nil}
 
 @comptime local function DeepElement(T: type): type
     while nupp.types.kind(T) == "array" do
@@ -506,8 +506,8 @@ return m
         title = "Property capabilities",
         codes = {"NUPP2001", "NUPP2009"},
         body = [=[
-`readonly` and `writeonly` on shapes, and `@readonly` and `@writeonly` on
-declarations, grant member access independently. A readonly property is
+`@readonly` and `@writeonly` on shapes and declarations grant member access
+independently. A readonly property is
 covariant; a writeonly property is contravariant. Declaring both permits
 different types, while an unmodified property grants both capabilities at one
 invariant type.
@@ -519,10 +519,10 @@ These are views of members. `const T` makes a whole value read-only, and
 local m = {}
 
 local type Input = {
-    readonly value: string | integer
+    @readonly value: string | integer
 }
 local type Output = {
-    writeonly value: string
+    @writeonly value: string
 }
 
 record m.Cell
@@ -580,10 +580,10 @@ dynamic facades.
 ]=],
         example = [=[
 local type Named = {
-    readonly name: string
+    @readonly name: string
 }
 local type Counted = {
-    readonly count: integer
+    @readonly count: integer
 }
 local type Entry = Named & Counted
 
@@ -1791,8 +1791,8 @@ What is emitted follows what proof left. An unprovable admission is one call to
 a test declared once for the module and shared by every site carrying the same
 constraint; a proved one emits nothing at all. Writing the admission around a
 value that is already proved is deliberate rather than an error, because a bound
-can move. A retained admission raises, so a `noraise` region refuses one and a
-`noalloc` region does not mind it.
+can move. A retained admission raises, so a `@noraise` region refuses one and a
+`@noalloc` region does not mind it.
 
 An integer base is tested for integrality beside `type(x) == "number"`, which is
 what rejects a fraction, an infinity and a NaN that a pair of bounds alone would
@@ -1854,7 +1854,7 @@ supplied trusted `Span` or SoA view and returns ordinary `first` and `last`
 integers. Its typed borrowed vararg passes each original span unchanged and
 allocates no container. A const-bound range over const-bound spans proves
 matching indexed reads and writes non-raising in the dominated numeric loop,
-which is what admits them inside `noraise` code. That proof holds at every
+which is what admits them inside `@noraise` code. That proof holds at every
 optimization level, and at `-O1` the regular backend also lowers the exact
 access to direct rooted FFI indexing after the one range check. Arbitrary
 indexes, held frames, and accesses outside the same-function witness stay
@@ -2271,7 +2271,7 @@ thread or parked a coroutine is the host's business rather than the signature's.
 
 Whether a function may suspend is inferred from `coroutine.yield` and
 propagates through resolved calls and across modules, separately from parameter
-and result types. `nosuspend` refuses that fact rather than consuming it, and
+and result types. `@nosuspend` refuses that fact rather than consuming it, and
 the Suspension regions section covers it.
 
 `with installation = suspension.install(HANDLER) do ... end` installs a host's scheduling policy
@@ -2358,12 +2358,12 @@ substitution. An unmarked type remains may-yield; a `@nosuspend function` fits
 an ordinary slot, but not conversely. Pure library calls such as `math.floor`
 carry the same declaration rather than a special case.
 
-`nosuspend` says control cannot be suspended, not that a callback is
+`@nosuspend` says control cannot be suspended, not that a callback is
 effect-free. A yielding comparator or replacement still fails at its C-call
 boundary under `NUPP2702`.
 
-`nosuspend` opens a region when `do` follows it and qualifies a type when
-`function` does; elsewhere it is an ordinary name.
+`@nosuspend` annotates a `do` region or a function type; the unprefixed name has
+no special grammar.
 
 Handled exits release first, and `NUPP2706` rejects jumps in, which would bypass
 installation.
@@ -2408,7 +2408,7 @@ Write the modifier where a callable is held as a value and its source is no
 longer visible. A worker spawn supplies the expectation to its final argument,
 so an inline literal there needs no annotation.
 
-Like `nosuspend`, it is a positive guarantee that participates in identity,
+Like `@nosuspend`, it is a positive guarantee that participates in identity,
 subtyping, aliasing and substitution. A `@sendable function` fits an ordinary
 slot, but not conversely, and a choice between a sendable and a local-only reading
 promises only what both did.

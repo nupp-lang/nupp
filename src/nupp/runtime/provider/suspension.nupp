@@ -857,7 +857,7 @@ end
 
 --- Whether a suspension performed here would be permitted, handler barriers included.
 ---
---- The run-time backstop for what `nosuspend` checks while compiling, for the calls
+--- The run-time backstop for what `@nosuspend` checks while compiling, for the calls
 --- static analysis could not see.
 function suspension.canSuspend(): boolean
     local handler = effective()

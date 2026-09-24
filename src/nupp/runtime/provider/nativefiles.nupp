@@ -229,7 +229,7 @@ What that means depends on where the call runs, and on nothing the call says:
 | --- | --- |
 | an ordinary program | it sleeps, driving the readiness pump |
 | under an installed handler | it parks, and the handler resumes it |
-| inside a `nosuspend` region | it is refused, at compile time |
+| inside a `@nosuspend` region | it is refused, at compile time |
 
 One call site covers all three. A library that reads a file works inside a game
 frame and inside a command-line program without knowing which it is in, and a
@@ -675,7 +675,7 @@ export record File
     --- Closes the file as an ownership terminal.
     ---
     --- Repeated calls are safe. Declared rather than written inline because the
-    --- cleanup contract needs the `nosuspend`, and an inline method cannot carry
+    --- cleanup contract needs the `@nosuspend`, and an inline method cannot carry
     --- one.
     --- @param self this file, spent by the call
     drop: @nosuspend function(takes self: File): nil
@@ -734,7 +734,7 @@ export record FileReader is io.Reader
     --- Releases it as an ownership terminal.
     ---
     --- Repeated calls are safe. Declared rather than written inline: a cleanup
-    --- contract is `nosuspend`, and an inline method cannot carry one.
+    --- contract is `@nosuspend`, and an inline method cannot carry one.
     --- @param self this owner, spent by the call
     drop: @nosuspend function(takes self: FileReader): nil
 
@@ -856,7 +856,7 @@ export record FileWriter is io.Writer
     --- Releases it as an ownership terminal.
     ---
     --- Repeated calls are safe. Declared rather than written inline: a cleanup
-    --- contract is `nosuspend`, and an inline method cannot carry one.
+    --- contract is `@nosuspend`, and an inline method cannot carry one.
     --- @param self this owner, spent by the call
     drop: @nosuspend function(takes self: FileWriter): nil
 
@@ -976,7 +976,7 @@ export record TemporaryPath
     --- Removes the path as an ownership terminal.
     ---
     --- Repeated calls, and a call after `persist`, are safe and do nothing. Declared
-    --- rather than written inline because the cleanup contract needs the `nosuspend`,
+    --- rather than written inline because the cleanup contract needs the `@nosuspend`,
     --- and an inline method cannot carry one.
     --- @param self this temporary path, spent by the call
     drop: @nosuspend function(takes self: TemporaryPath): nil

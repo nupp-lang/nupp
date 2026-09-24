@@ -38,15 +38,16 @@ local record Cell
 end
 ```
 
-Structural shapes use `readonly` and `writeonly`. A caller can state the
-authority it needs without naming the declaration that supplies it:
+Structural shapes use the same `@readonly` and `@writeonly` annotations. A
+caller can state the authority it needs without naming the declaration that
+supplies it:
 
 ```nupp
 local input: {
-    readonly value: string
+    @readonly value: string
 } = Cell{value = "ready"}
 local output: {
-    writeonly value: string | integer
+    @writeonly value: string | integer
 } = Cell{value = "ready"}
 ```
 
@@ -64,8 +65,8 @@ local type Ordinary = {
 }
 
 local type Expanded = {
-    readonly value: string,
-    writeonly value: string
+    @readonly value: string,
+    @writeonly value: string
 }
 ```
 
@@ -84,11 +85,11 @@ a separate declaration form.
 ## Variance
 
 Readonly types are covariant. If `Dog` fits `Animal`, then
-`{readonly value: Dog}` fits `{readonly value: Animal}`, because every value
+`{@readonly value: Dog}` fits `{@readonly value: Animal}`, because every value
 read through it is still an animal.
 
-Writeonly types are contravariant. A `{writeonly value: Animal}` fits
-`{writeonly value: Dog}`, because it accepts every dog the narrower view may
+Writeonly types are contravariant. A `{@writeonly value: Animal}` fits
+`{@writeonly value: Dog}`, because it accepts every dog the narrower view may
 write.
 
 An ordinary property has both constraints, so it is invariant:
@@ -132,8 +133,8 @@ from what it returns:
 
 ```nupp
 local type Normalizing = {
-    readonly [string]: string,
-    writeonly [string]: string | integer
+    @readonly [string]: string,
+    @writeonly [string]: string | integer
 }
 ```
 
@@ -165,7 +166,7 @@ local record Counter
     value: integer
 end
 
-local sink: {writeonly value: integer} = new Counter(value = 0)
+local sink: {@writeonly value: integer} = new Counter(value = 0)
 sink.value = 1
 sink.value += 1 -- NUPP2009: `+=` reads `value` through a write-only view
 ```

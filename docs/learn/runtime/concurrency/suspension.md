@@ -277,7 +277,7 @@ library table, through a local bound to that table, or through a name bound to
 the function itself, as `local pause = coroutine.yield` is. A helper this file
 can see is judged by its body, so a call that reaches a raw yield through one or
 several visible functions is refused at the call while the obligation is live. A
-callee reached through a type is answered by that type, as `nosuspend` is. A
+callee reached through a type is answered by that type, as `@nosuspend` is. A
 yield written inside `@unsafe do` is the author's to answer for -- the shape a
 driver takes when it forwards a nested coroutine's park to whoever resumes it --
 and is not counted.
@@ -518,7 +518,7 @@ callers do not unwrap a future or acquire a second function type. The compiler
 tracks the possibility of suspension separately through [call
 propagation](#suspension-propagates-through-calls).
 
-### Should a callback be a `nosuspend` type or an `@effects` contract?
+### Should a callback be a `@nosuspend` type or an `@effects` contract?
 
 Use `@nosuspend function(...)` when suspension is the only thing that matters,
 which is the common case for a callback invoked inside a region or across a C

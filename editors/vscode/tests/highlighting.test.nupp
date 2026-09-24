@@ -61,9 +61,9 @@ local interface ResultSink
 -- ^^^^^^^^ keyword.other.property.nupp
    @writeonly result: string
 -- ^^^^^^^^^ keyword.other.property.nupp
-   readonly [string]: string
+   @readonly [string]: string
 -- ^^^^^^^^ keyword.other.property.nupp
-   writeonly [string]: string
+   @writeonly [string]: string
 -- ^^^^^^^^^ keyword.other.property.nupp
 end
 
@@ -343,7 +343,7 @@ local reply = handler?.:respond?.(payload) ?? fallback
 --                                         ^^ keyword.operator.nupp
 
 local type Events<T> = {
-   readonly [K in keyof T as `${K}Changed`]: @nosuspend function(value: T.[K]): nil
+   @readonly [K in keyof T as `${K}Changed`]: @nosuspend function(value: T.[K]): nil
 -- ^^^^^^^^ keyword.other.property.nupp
 --             ^^ keyword.control.nupp
 --                ^^^^^ keyword.operator.nupp
@@ -474,15 +474,6 @@ export sealed interface Ordered
 --     ^^^^^^ keyword.control.nupp
 --            ^^^^^^^^^ storage.type.declaration.nupp
 --                      ^^^^^^^ entity.name.type.nupp
-end
-
-affine interface Guard
--- <- storage.modifier.ownership.nupp
-end
-
-export affine interface Writer
--- <- storage.modifier.export.nupp
---     ^^^^^^ storage.modifier.ownership.nupp
 end
 
 local unsafe, adopt, release = f, g, h

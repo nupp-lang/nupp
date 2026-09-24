@@ -154,9 +154,8 @@ type lexer.Token = {
     --- it look like.
     contextualOp: boolean?,
 
-    --- The capability granted by a contextual `readonly` or `writeonly`
-    --- property/indexer modifier: "read" or "write".
-    propertyCapability: string?,
+    --- Whether this annotation name qualifies a structural property or indexer.
+    propertyCapability: boolean?,
 
     --- The last token of the type a `new` builds. A construction's brace stands off its
     --- type, as in `new R(x = 1)`, where the `f{...}` call sugar it otherwise looks

@@ -5,9 +5,9 @@ module nupp.compiler.comptime.materialize.fieldcodec
 local hash = require("nupp.compiler.hash")
 
 type fieldcodec.Failure = {
-    readonly code: string,
-    readonly message: string,
-    readonly help: string?
+    @readonly code: string,
+    @readonly message: string,
+    @readonly help: string?
 }
 
 local record fieldcodec

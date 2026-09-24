@@ -1768,7 +1768,7 @@ local function check(a: Type, b: Type): boolean, string?
                 -- A mode says what the callee does with an owner. Nothing owned ever
                 -- reaches a slot typed `any` or left untyped -- a capability cannot
                 -- disappear into any -- so against such a tail the mode is moot, and
-                -- `sendable function(...: any): any` admits a body that takes its
+                -- `@sendable function(...: any): any` admits a body that takes its
                 -- arguments the way it admits one that borrows them.
                 local moot = element == T.any or element == T.unknown
                 if not moot and am ~= (bExtra and bExtra.mode or "plain") then

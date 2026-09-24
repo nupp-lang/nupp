@@ -153,7 +153,7 @@ the current coroutine and lets other work run. If the answer is already ready,
 it returns without either path.
 
 The compiler tracks suspension separately from value types. Most code uses
-inference; a `nosuspend` region or function type asks for proof when a callback,
+inference; a `@nosuspend` region or function type asks for proof when a callback,
 C boundary, cleanup, or critical operation must not park. The runtime protocol
 requires every real park to provide cancellation, so abandoning a handled extent
 wakes suspended stacks far enough to run deterministic cleanup.

@@ -28,7 +28,7 @@ A lane is a thread with its own LuaJIT state, so nothing is shared: arguments
 and results cross as copies, and the two sides never see each other's tables,
 globals, userdata, or module state. What may cross is the whole of what makes
 this safe, and the type says it. A function `spawn` accepts is a
-`sendable function`: a member of a loaded module, which carries no captures at
+`@sendable function`: a member of a loaded module, which carries no captures at
 all, or a literal whose captures are each initialized once, never reassigned,
 and copyable. The checker holds every capture to its declared type; what an
 `any` or a table turns out to hold is verified when the message is built, and a

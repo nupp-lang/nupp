@@ -200,7 +200,7 @@ record state.Checker
 
     withUnsafe: function(enabled: boolean, action: function(): any): any
 
-    --- The `nosuspend` region check, which judges after inference settles.
+    --- The `@nosuspend` region check, which judges after inference settles.
     nosuspend: any
 
     --- The `@aot` source subset walk, run on a body once it has been checked.
@@ -209,7 +209,7 @@ record state.Checker
     --- Allocation- and raising-free region checks, judged after effect inference.
     effectRegions: any
 
-    --- How many `nosuspend` regions enclose the statement being checked. A call whose
+    --- How many `@nosuspend` regions enclose the statement being checked. A call whose
     --- callee may suspend is refused while this is above zero.
     noSuspendDepth: integer
 
@@ -218,7 +218,7 @@ record state.Checker
     --- to the binding has been seen.
     cleanupBindings: {any}
 
-    --- Active `noalloc` and `noraise` nesting, keyed by summary flag name.
+    --- Active `@noalloc` and `@noraise` nesting, keyed by summary flag name.
     effectRegionDepths: {[string]: integer}
 
     --- How deep inside function bodies it is, which is how a capture is recognized.
@@ -688,7 +688,7 @@ record state.Checker
     --- Result types, provenance and ownership exits for nested do expressions.
     blockYieldStack: {any}
 
-    --- Nonzero while checking a `comptime function` declaration.
+    --- Nonzero while checking an `@comptime function` declaration.
     comptimeFunctionDepth: integer
 
     --- File-private comptime helper declarations visible so far, by name.
