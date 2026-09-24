@@ -40,6 +40,9 @@ local function unsupported(what: string): never
     error(expressions.UNSUPPORTED .. what, 0)
 end
 
+local integralOperand: function(node: scalarIR.Expr): boolean
+local integerValue: function(ctx: context.Context, node: scalarIR.Expr): (string, string)
+
 local function emit(ctx: context.Context, instruction: string): string
     return builder.value(ctx.f, instruction)
 end
@@ -531,6 +534,29 @@ function expressions.helperCall(ctx: context.Context, call: scalarIR.HelperCall)
     )
 end
 
+--- Whether `node` is an integer, or a value binary64 holds exactly as one:
+--- a span count, or an integer promoted to binary64.
+integralOperand = function(node: scalarIR.Expr): boolean
+    if node.op == "span_count" then
+        return true
+    elseif node.op == "int_to_f64" then
+        return types.isInteger(tostring((node as scalarIR.Convert).value.type))
+    end
+
+    return types.isInteger(tostring(node.type))
+end
+
+--- The integer an `integralOperand` is.
+integerValue = function(ctx: context.Context, node: scalarIR.Expr): (string, string)
+    if node.op == "span_count" then
+        return context.count(ctx, (node as scalarIR.SpanCount).span), "u64"
+    elseif node.op == "int_to_f64" then
+        return expressions.value(ctx, (node as scalarIR.Convert).value)
+    end
+
+    return expressions.value(ctx, node)
+end
+
 --- Lowerings of operations defined outside this module (SIMD, reducers), by
 --- operation. Installed by `llvmProgram`.
 expressions.handlers = {} as {[string]: function(ctx: context.Context, node: scalarIR.Expr): (string, string)}
@@ -650,6 +676,14 @@ function expressions.value(ctx: context.Context, node: scalarIR.Expr): (string, 
         return logical(ctx, operation, binary.left, binary.right), "bool"
     elseif FLOAT_PREDICATE[operation] ~= nil then
         local binary = node as scalarIR.Binary
+        local counted = binary.left.op == "span_count" or binary.right.op == "span_count"
+        if counted and integralOperand(binary.left) and integralOperand(binary.right) then
+            -- A span count against an integer, promoted or not, compares as
+            -- integers: the bound the C lowering kept exact too.
+            local a, at = integerValue(ctx, binary.left)
+            local b, bt = integerValue(ctx, binary.right)
+            return expressions.compare(ctx, operation, a, at, b, bt), "bool"
+        end
         local a, at, b, bt = operands(ctx, binary.left, binary.right)
 
         return expressions.compare(ctx, operation, a, at, b, bt), "bool"
