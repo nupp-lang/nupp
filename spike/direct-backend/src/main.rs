@@ -3,11 +3,14 @@
 //! one against the C backend's output built by clang at -O3.
 
 mod asm;
+mod embedphase;
 mod emit;
+mod emit_x86;
 mod loader;
 mod lower;
 mod luaphase;
 mod mir;
+mod x86phase;
 
 use regalloc2::{Algorithm, RegallocOptions};
 use serde_json::Value as J;
@@ -168,6 +171,19 @@ fn c_words(dir: &std::path::Path, symbol: &str) -> usize {
 }
 
 fn main() {
+    if std::env::args().nth(1).as_deref() == Some("embed") {
+        let path = std::env::args().nth(2).expect("kernels.json");
+        let out = std::env::args().nth(3).expect("output directory");
+        embedphase::run(&path, &out);
+        return;
+    }
+    if std::env::args().nth(1).as_deref() == Some("x86") {
+        let path = std::env::args().nth(2).expect("kernels-avx2.json");
+        let out = std::env::args().nth(3).expect("output directory");
+        x86phase::run(&path, &out);
+        x86phase::avx512(&path, &out);
+        return;
+    }
     if std::env::args().nth(1).as_deref() == Some("lua") {
         let path = std::env::args().nth(2).expect("builders.json");
         luaphase::run(&path);

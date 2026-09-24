@@ -53,6 +53,18 @@ pub enum Op {
     LdrX { off: u32 },
     /// def = address of constant bytes in the image.
     AdrData { bytes: Vec<u8> },
+    /// One full-width vector register (AVX2 ymm): load, store, masked load
+    /// and store (fault-suppressing), horizontal sum, any-lane branch.
+    LoadV { off: i32 },
+    StoreV { off: i32 },
+    MaskLoadV,
+    MaskStoreV,
+    SumV,
+    AnyV,
+    /// A 32-byte constant.
+    LitY { bytes: [u8; 32] },
+    /// def = mask ? a : b with the mask in a k register (AVX-512).
+    Blend,
     /// Loads/stores the first `n` lanes: a mask known to be `simd_tail(n)`.
     TailLoad,
     TailStore,
@@ -85,7 +97,13 @@ impl MInst {
     pub fn is_branch(&self) -> bool {
         matches!(
             self.op,
-            Op::Jump | Op::CmpBr { .. } | Op::FCmpBr { .. } | Op::AnyBr | Op::CmpAndBr { .. } | Op::FCmpAndBr { .. }
+            Op::Jump
+                | Op::CmpBr { .. }
+                | Op::FCmpBr { .. }
+                | Op::AnyBr
+                | Op::AnyV
+                | Op::CmpAndBr { .. }
+                | Op::FCmpAndBr { .. }
         )
     }
 }
@@ -107,6 +125,11 @@ pub struct Func {
     pub locals: u32,
     /// Scalars and vectors in separate classes (see `emit::machine_env`).
     pub partitioned: bool,
+    /// Spill slot size of a vector register, in 8-byte units.
+    pub vector_slots: usize,
+    /// Spill slot size of the third class (AVX-512 k masks, or NEON-style
+    /// vectors when partitioned).
+    pub third_slots: usize,
 }
 
 impl Func {
@@ -141,7 +164,7 @@ impl Func {
                 infos[s.index()].preds.push(Block::new(b));
             }
         }
-        Func { insts, blocks: infos, num_vregs, imports: Vec::new(), locals: 0, partitioned: false }
+        Func { insts, blocks: infos, num_vregs, imports: Vec::new(), locals: 0, partitioned: false, vector_slots: 2, third_slots: 2 }
     }
 }
 
@@ -188,7 +211,8 @@ impl regalloc2::Function for Func {
     fn spillslot_size(&self, regclass: RegClass) -> usize {
         match regclass {
             RegClass::Int => 1,
-            _ => 2,
+            RegClass::Float => self.vector_slots,
+            RegClass::Vector => self.third_slots,
         }
     }
 }

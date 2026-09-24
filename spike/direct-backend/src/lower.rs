@@ -45,6 +45,16 @@ pub enum Class {
     Float,
 }
 
+/// What the lowering targets. AVX2 holds a `fixed4` f64 species in one
+/// ymm register, where NEON needs a pair of q registers.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Target {
+    Arm64,
+    X86Avx2,
+    /// AVX2's ymm vectors with masks in AVX-512 k registers.
+    X86Avx512,
+}
+
 pub struct Param {
     pub name: String,
     pub class: Class,
@@ -105,7 +115,7 @@ fn args(v: &J) -> &Vec<J> {
 }
 
 /// A branch target and the block arguments passed to it.
-type Target = (usize, Vec<VReg>);
+type Dest = (usize, Vec<VReg>);
 
 struct B {
     params: Vec<VReg>,
@@ -139,6 +149,7 @@ pub struct Lower {
     builder_size: u32,
     /// Vectors in their own register class; see `emit::machine_env_for`.
     partitioned: bool,
+    target: Target,
 }
 
 /// An argument to an imported function.
@@ -178,6 +189,24 @@ impl Lower {
     fn freg(&mut self) -> VReg {
         self.vreg(f_class())
     }
+    /// The registers a value occupies as block arguments or parameters. A
+    /// wide target holds a vector in one register, so its pair collapses.
+    fn regs_of(&self, v: &Val) -> Vec<VReg> {
+        match v {
+            Val::V(a, b) | Val::M(a, b) if self.wide() => {
+                debug_assert_eq!(a, b);
+                vec![*a]
+            }
+            other => other.regs(),
+        }
+    }
+    fn wide(&self) -> bool {
+        matches!(self.target, Target::X86Avx2 | Target::X86Avx512)
+    }
+    /// The class masks live in: k registers on AVX-512, vectors elsewhere.
+    fn mclass(&self) -> RegClass {
+        if self.target == Target::X86Avx512 { RegClass::Vector } else { self.vclass() }
+    }
     fn vclass(&self) -> RegClass {
         if self.partitioned { RegClass::Vector } else { f_class() }
     }
@@ -211,7 +240,7 @@ impl Lower {
     }
     /// A two-way branch whose successors are fresh single-predecessor blocks,
     /// so no edge is critical; each forwards to its real target.
-    fn branch(&mut self, op: Op, uses: &[VReg], t: &Target, f: &Target) {
+    fn branch(&mut self, op: Op, uses: &[VReg], t: &Dest, f: &Dest) {
         let (tb, fb) = (self.block(), self.block());
         let mut i = MInst::new(op, uses.iter().map(|u| Operand::reg_use(*u)).collect());
         i.succs = vec![Block::new(tb), Block::new(fb)];
@@ -238,6 +267,13 @@ impl Lower {
                 (1, b, f_class())
             }
             Op::LitQ { bytes } => (2, *bytes, self.vclass()),
+            Op::LitY { bytes } => {
+                // Keyed by the first 16 bytes plus a kind of its own.
+                let mut b = [0u8; 16];
+                b.copy_from_slice(&bytes[..16]);
+                b[15] ^= bytes[16..].iter().fold(0u8, |x, y| x.wrapping_mul(31).wrapping_add(*y));
+                (3, b, self.vclass())
+            }
             other => panic!("not a constant: {other:?}"),
         };
         if let Some(v) = self.consts.get(&(kind, bytes)) {
@@ -618,6 +654,20 @@ impl Lower {
                 let q = self.def1(Op::DupD, vc, &[d]);
                 Val::V(q, q)
             }
+            "simd_load" if self.wide() => {
+                let a = args(e);
+                let q = self.qreg();
+                if a.len() > 2 {
+                    let addr = self.address(&a[1], e["span"].as_str().unwrap());
+                    let m = self.expr(&a[2]);
+                    let (m0, _) = Self::pair(m);
+                    self.push(MInst::new(Op::MaskLoadV, vec![Operand::reg_def(q), Operand::reg_use(addr), Operand::reg_use(m0)]));
+                } else {
+                    let (addr, off) = self.address_at(&a[1], e["span"].as_str().unwrap());
+                    self.push(MInst::new(Op::LoadV { off }, vec![Operand::reg_def(q), Operand::reg_use(addr)]));
+                }
+                Val::V(q, q)
+            }
             "simd_load" => {
                 let a = args(e);
                 let (lo, hi) = (self.qreg(), self.qreg());
@@ -669,7 +719,7 @@ impl Lower {
                     other => panic!("simd_binary {other}"),
                 };
                 let intrinsic = e["intrinsic"].as_str().unwrap();
-                let vc = self.vclass();
+                let vc = if mask { self.mclass() } else { self.vclass() };
                 let lo = self.def1(o(intrinsic), vc, &[l0, r0]);
                 let hi = if l0 == l1 && r0 == r1 { lo } else { self.def1(o(intrinsic), vc, &[l1, r1]) };
                 if mask { Val::M(lo, hi) } else { Val::V(lo, hi) }
@@ -684,9 +734,9 @@ impl Lower {
                     "lt" => (r0, r1, l0, l1),
                     other => panic!("simd_compare {other}"),
                 };
-                let vc = self.vclass();
+                let vc = self.mclass();
                 let lo = self.def1(Op::VFCmGt, vc, &[x0, y0]);
-                let hi = self.def1(Op::VFCmGt, vc, &[x1, y1]);
+                let hi = if x0 == x1 && y0 == y1 { lo } else { self.def1(Op::VFCmGt, vc, &[x1, y1]) };
                 Val::M(lo, hi)
             }
             "simd_select" => {
@@ -696,7 +746,17 @@ impl Lower {
                 let f = self.expr(&a[2]);
                 let ((m0, m1), (t0, t1), (f0, f1)) = (Self::pair(m), Self::pair(t), Self::pair(f));
                 let mut halves = Vec::new();
-                for (m, t, f) in [(m0, t0, f0), (m1, t1, f1)] {
+                let pairs = if m0 == m1 && t0 == t1 && f0 == f1 { vec![(m0, t0, f0)] } else { vec![(m0, t0, f0), (m1, t1, f1)] };
+                if self.target == Target::X86Avx512 {
+                    let (m, t, f) = pairs[0];
+                    let d = self.qreg();
+                    self.push(MInst::new(
+                        Op::Blend,
+                        vec![Operand::reg_def(d), Operand::reg_use(m), Operand::reg_use(t), Operand::reg_use(f)],
+                    ));
+                    return Val::V(d, d);
+                }
+                for (m, t, f) in pairs {
                     let d = self.qreg();
                     self.push(MInst::new(
                         Op::Bsl,
@@ -704,7 +764,7 @@ impl Lower {
                     ));
                     halves.push(d);
                 }
-                Val::V(halves[0], halves[1])
+                Val::V(halves[0], *halves.last().unwrap())
             }
             "simd_tail" => {
                 let n = self.expr(&args(e)[0]);
@@ -717,6 +777,16 @@ impl Lower {
                     bytes[8..].copy_from_slice(&b.to_le_bytes());
                     bytes
                 };
+                if self.wide() {
+                    let mut bytes = [0u8; 32];
+                    for k in 0..4u64 {
+                        bytes[k as usize * 8..k as usize * 8 + 8].copy_from_slice(&k.to_le_bytes());
+                    }
+                    let idx = self.constant(Op::LitY { bytes });
+                    let mc = self.mclass();
+                    let m = self.def1(Op::VCmHi, mc, &[nv, idx]);
+                    return Val::M(m, m);
+                }
                 let lo_idx = self.constant(Op::LitQ { bytes: lanes(0, 1) });
                 let hi_idx = self.constant(Op::LitQ { bytes: lanes(2, 3) });
                 let lo = self.def1(Op::VCmHi, vc, &[nv, lo_idx]);
@@ -728,15 +798,18 @@ impl Lower {
                 assert_eq!(e["intrinsic"], "algebraic_sum");
                 let v = self.expr(&args(e)[0]);
                 let (a, b) = Self::pair(v);
+                if self.wide() {
+                    return Val::F(self.def1(Op::SumV, f_class(), &[a]));
+                }
                 Val::F(self.def1(Op::SumPair, f_class(), &[a, b]))
             }
             other => panic!("unsupported expression {other}"),
         }
     }
 
-    fn cond(&mut self, e: &J, t: &Target, f: &Target) {
+    fn cond(&mut self, e: &J, t: &Dest, f: &Dest) {
         match op(e) {
-            "and" if Self::compare(&e["left"]) && Self::compare(&e["right"]) => {
+            "and" if self.target == Target::Arm64 && Self::compare(&e["left"]) && Self::compare(&e["right"]) => {
                 // Tree pattern: two comparisons under `and` become a compare,
                 // a conditional compare and one branch.
                 let (l1, r1, c1, float1) = self.compare_operands(&e["left"]);
@@ -790,7 +863,11 @@ impl Lower {
             "simd_mask_any" => {
                 let m = self.expr(&args(e)[0]);
                 let (m0, m1) = Self::pair(m);
-                self.branch(Op::AnyBr, &[m0, m1], t, f);
+                if self.wide() {
+                    self.branch(Op::AnyV, &[m0], t, f);
+                } else {
+                    self.branch(Op::AnyBr, &[m0, m1], t, f);
+                }
             }
             other => panic!("unsupported condition {other}"),
         }
@@ -940,8 +1017,20 @@ impl Lower {
         match v {
             Val::I(_) => Val::I(self.ireg()),
             Val::F(_) => Val::F(self.freg()),
-            Val::V(..) => Val::V(self.qreg(), self.qreg()),
-            Val::M(..) => Val::M(self.qreg(), self.qreg()),
+            Val::V(a, b) => {
+                let _ = (a, b);
+                let x = self.qreg();
+                let y = if self.wide() { x } else { self.qreg() };
+                Val::V(x, y)
+            }
+            Val::M(a, b) => {
+                let c = self.mclass();
+                let x = self.vreg(c);
+                // A single-register mask stays single across a merge.
+                let _ = (a, b);
+                let y = if self.wide() { x } else { self.vreg(c) };
+                Val::M(x, y)
+            }
             other => panic!("cannot carry {other:?}"),
         }
     }
@@ -1017,6 +1106,23 @@ impl Lower {
                     }
                 }
                 let (v0, v1) = Self::pair(value.unwrap());
+                if self.wide() {
+                    match mask {
+                        Some(m) => {
+                            let addr = self.address(&a[1], s["span"].as_str().unwrap());
+                            let (m0, _) = Self::pair(m);
+                            self.push(MInst::new(
+                                Op::MaskStoreV,
+                                vec![Operand::reg_use(v0), Operand::reg_use(addr), Operand::reg_use(m0)],
+                            ));
+                        }
+                        None => {
+                            let (addr, off) = self.address_at(&a[1], s["span"].as_str().unwrap());
+                            self.push(MInst::new(Op::StoreV { off }, vec![Operand::reg_use(v0), Operand::reg_use(addr)]));
+                        }
+                    }
+                    return;
+                }
                 match mask {
                     Some(m) => {
                         let addr = self.address(&a[1], s["span"].as_str().unwrap());
@@ -1128,14 +1234,14 @@ impl Lower {
                     let now = self.env[c].clone();
                     let b = self.fresh_like(&now);
                     let x = self.fresh_like(&now);
-                    body_params.extend(b.regs());
-                    exit_params.extend(x.regs());
+                    body_params.extend(self.regs_of(&b));
+                    exit_params.extend(self.regs_of(&x));
                     body_env.push((c.clone(), b));
                     exit_env.push((c.clone(), x));
                 }
                 self.blocks[body].params = body_params;
                 self.blocks[exit].params = exit_params;
-                let before: Vec<VReg> = carried.iter().flat_map(|c| self.env[c].regs()).collect();
+                let before: Vec<VReg> = carried.iter().flat_map(|c| self.regs_of(&self.env[c])).collect();
                 let mut entry = vec![from];
                 entry.extend(before.iter().copied());
                 let le = crate::asm::cond::LS;
@@ -1148,7 +1254,7 @@ impl Lower {
                 self.stmts(&s["body"]);
                 let one = self.lit(1.0);
                 let next = self.def1(Op::FAdd, f_class(), &[counter, one]);
-                let after: Vec<VReg> = carried.iter().flat_map(|c| self.env[c].regs()).collect();
+                let after: Vec<VReg> = carried.iter().flat_map(|c| self.regs_of(&self.env[c])).collect();
                 let mut back = vec![next];
                 back.extend(after.iter().copied());
                 self.branch(Op::FCmpBr { cond: le }, &[next, last], &(body, back), &(exit, after));
@@ -1178,7 +1284,7 @@ impl Lower {
                 // takes the carried values as parameters.
                 let carried: Vec<String> =
                     s["carried"].as_array().unwrap().iter().map(|c| c["cName"].as_str().unwrap().to_string()).collect();
-                let mut entry_args: Vec<VReg> = carried.iter().flat_map(|c| self.env[c].regs()).collect();
+                let mut entry_args: Vec<VReg> = carried.iter().flat_map(|c| self.regs_of(&self.env[c])).collect();
                 // Pointer induction variables for the cursor this loop steps.
                 let plan = Self::iv_plan(s, &carried);
                 let mut iv_entry = Vec::new();
@@ -1200,8 +1306,8 @@ impl Lower {
                     let now = self.env[c].clone();
                     let b = self.fresh_like(&now);
                     let x = self.fresh_like(&now);
-                    body_params.extend(b.regs());
-                    exit_params.extend(x.regs());
+                    body_params.extend(self.regs_of(&b));
+                    exit_params.extend(self.regs_of(&x));
                     body_env.push((c.clone(), b));
                     exit_env.push((c.clone(), x));
                 }
@@ -1229,7 +1335,7 @@ impl Lower {
                     });
                 }
                 self.stmts(&s["body"]);
-                let mut back: Vec<VReg> = carried.iter().flat_map(|c| self.env[c].regs()).collect();
+                let mut back: Vec<VReg> = carried.iter().flat_map(|c| self.regs_of(&self.env[c])).collect();
                 if let Some(iv) = self.iv.take() {
                     let bytes = (iv.offset * 8) as u32;
                     for (_, p) in &iv.ptrs {
@@ -1256,7 +1362,7 @@ impl Lower {
                 let mut merged = Vec::new();
                 for c in &outer {
                     let fresh = self.fresh_like(&before[c]);
-                    params.extend(fresh.regs());
+                    params.extend(self.regs_of(&fresh));
                     merged.push((c.clone(), fresh));
                 }
                 self.blocks[merge].params = params;
@@ -1267,7 +1373,7 @@ impl Lower {
                     self.cond(&clause["condition"], &(then, vec![]), &(next, vec![]));
                     self.switch(then);
                     self.stmts(&clause["body"]);
-                    let out: Vec<VReg> = outer.iter().flat_map(|c| self.env[c].regs()).collect();
+                    let out: Vec<VReg> = outer.iter().flat_map(|c| self.regs_of(&self.env[c])).collect();
                     self.jump(merge, out);
                     self.switch(next);
                 }
@@ -1275,7 +1381,7 @@ impl Lower {
                 if let Some(e) = s.get("elseBody").filter(|e| !e.is_null()) {
                     self.stmts(e);
                 }
-                let out: Vec<VReg> = outer.iter().flat_map(|c| self.env[c].regs()).collect();
+                let out: Vec<VReg> = outer.iter().flat_map(|c| self.regs_of(&self.env[c])).collect();
                 self.jump(merge, out);
                 self.env = before;
                 for (k, v) in merged {
@@ -1330,6 +1436,7 @@ fn fresh() -> Lower {
         lua_locals: 0,
         builder_size: 0,
         partitioned: false,
+        target: Target::Arm64,
     }
 }
 
@@ -1337,11 +1444,14 @@ fn finish(l: Lower) -> Func {
     let imports = l.imports.clone();
     let locals = l.locals;
     let partitioned = l.partitioned;
+    let target = l.target;
     let blocks = l.blocks.into_iter().map(|b| (b.params, b.insts)).collect();
     let mut f = Func::build(&l.order, blocks, l.classes.len());
     f.imports = imports;
     f.locals = locals;
     f.partitioned = partitioned;
+    f.vector_slots = if matches!(target, Target::X86Avx2 | Target::X86Avx512) { 4 } else { 2 };
+    f.third_slots = if target == Target::X86Avx512 { 1 } else { 2 };
     f
 }
 
@@ -1409,7 +1519,17 @@ pub fn lower_builder(program: &J, builder_size: u32) -> Func {
 
 /// Lowers one program to machine IR.
 pub fn lower(program: &J, sig: &Signature) -> Func {
+    lower_for(program, sig, Target::Arm64)
+}
+
+/// SysV x86-64 integer argument registers, by hardware number.
+#[allow(dead_code)]
+const _TARGETS: [Target; 3] = [Target::Arm64, Target::X86Avx2, Target::X86Avx512];
+const SYSV_INT: [usize; 6] = [7, 6, 2, 1, 8, 9];
+
+pub fn lower_for(program: &J, sig: &Signature, target: Target) -> Func {
     let mut l = fresh();
+    l.target = target;
     l.partitioned = program.to_string().contains("\"op\":\"math\"") && std::env::var("NUPP_SPIKE_UNPARTITIONED").is_err();
     let entry = l.block();
     l.switch(entry);
@@ -1432,7 +1552,8 @@ pub fn lower(program: &J, sig: &Signature) -> Func {
         let preg = match p.class {
             Class::Int => {
                 ni += 1;
-                PReg::new(ni - 1, RegClass::Int)
+                let n = if target == Target::Arm64 { ni - 1 } else { SYSV_INT[ni - 1] };
+                PReg::new(n, RegClass::Int)
             }
             Class::Float => {
                 nf += 1;

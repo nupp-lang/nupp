@@ -335,6 +335,14 @@ pub fn emit_image(func: &Func, out: &Output) -> Emitted {
                                 a.bind(skip);
                             }
                         }
+                        Op::LoadV { .. }
+                        | Op::StoreV { .. }
+                        | Op::MaskLoadV
+                        | Op::MaskStoreV
+                        | Op::SumV
+                        | Op::AnyV
+                        | Op::LitY { .. }
+                        | Op::Blend => panic!("x86 operation in AArch64 emission"),
                         Op::Call { import } => {
                             a.ldr_slot(XS, *import);
                             a.emit(asm::blr(XS));
