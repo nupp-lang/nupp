@@ -62,10 +62,11 @@ function aotllvm.note(line: string): nil
 end
 
 --- One unit's programs as LLVM IR, or nil and why this backend cannot emit
---- them (the build then emits C for the unit).
+--- them (the build then emits C for the unit). `logical` keeps each entry's
+--- logical symbol rather than its tier's, the way an inspection names them.
 --- @raises string when emission fails for a reason other than coverage: a
 ---   defect in the backend, which must not be hidden by falling back
-function aotllvm.emit(programs: {scalarIR.Program}, tier: string, triple: string): (string?, string?)
+function aotllvm.emit(programs: {scalarIR.Program}, tier: string, triple: string, logical: boolean?): (string?, string?)
     local selected, profileErr = llvmProfile.of(triple)
     if selected == nil then
         return nil, profileErr
@@ -76,7 +77,11 @@ function aotllvm.emit(programs: {scalarIR.Program}, tier: string, triple: string
             cpu[#cpu + 1] = program
         end
     end
-    local ok, module = pcall(llvmProgram.module, cpu, tier, selected as llvmProfile.Profile)
+    local symbolTier: string? = tier
+    if logical == true then
+        symbolTier = nil
+    end
+    local ok, module = pcall(llvmProgram.module, cpu, symbolTier, selected as llvmProfile.Profile)
     if not ok then
         if llvmProgram.isUnsupported(module) then
             return nil, tostring(module)
@@ -116,6 +121,24 @@ function aotllvm.flags(triple: string, tier: string): {string}
     end
 
     return flags
+end
+
+--- One unit's programs as target assembly, or nil and why not: the IR
+--- this backend emits for them, compiled as a build would.
+function aotllvm.assembly(programs: {scalarIR.Program}, tier: string, triple: string): (string?, string?)
+    local ir, why = aotllvm.emit(programs, tier, triple, true)
+    if ir == nil then
+        return nil, why
+    end
+    local selected = llvmProfile.of(triple) as llvmProfile.Profile
+    local options = llvmProfile.options(selected, tier)
+    options.assembly = "1"
+    local compiled, err = codegen.compile(ir as string, "<aot>", options)
+    if compiled == nil or compiled.assembly == nil then
+        return nil, "compiling the LLVM IR failed: " .. tostring(err)
+    end
+
+    return compiled.assembly as string, nil
 end
 
 --- Compiles one emitted unit's IR file into `object`.

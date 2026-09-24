@@ -258,17 +258,33 @@ local function assembly(artifacts: any, selected: Target, wanted: string?, sourc
         ):format(selected.architecture, table.concat(instructionsMod.ARCHITECTURES, " and "))
     end
 
-    local chain, chainErr = buildAot.toolchain()
-    if chain == nil then
-        return nil, tostring(chainErr)
+    -- The LLVM route, while both exist, reads what LLVM made of the unit; a
+    -- unit it does not emit yet is read from the C as before.
+    local aotllvm = require("nupp.tools.build.aotllvm")
+    local text: string? = nil
+    local selectedChain: Toolchain? = nil
+    local debugFlags: {string} = {}
+    if aotllvm.selected() == true then
+        text = aotllvm.assembly(artifacts.programs, selected.tier, selected.triple)
+        if text ~= nil then
+            selectedChain = new buildAot.Toolchain(command = "<llvm>", version = aotllvm.version(), dialect = "llvm")
+        end
     end
-    local selectedChain = chain as Toolchain
-    local mapped = inspectionC(artifacts, sourceFile)
-    local debugFlags: {string} = {selectedChain.dialect == "clang" and "-gline-tables-only" or "-g"}
-    local text, assembleErr = buildAot.assemble(selectedChain, selected, mapped, debugFlags)
     if text == nil then
-        return nil, tostring(assembleErr)
+        local chain, chainErr = buildAot.toolchain()
+        if chain == nil then
+            return nil, tostring(chainErr)
+        end
+        selectedChain = chain as Toolchain
+        local mapped = inspectionC(artifacts, sourceFile)
+        debugFlags = {(chain as Toolchain).dialect == "clang" and "-gline-tables-only" or "-g"}
+        local assembled, assembleErr = buildAot.assemble(chain as Toolchain, selected, mapped, debugFlags)
+        if assembled == nil then
+            return nil, tostring(assembleErr)
+        end
+        text = assembled
     end
+    local chainUsed = selectedChain as Toolchain
 
     local listings = instructionsMod.parse(text as string, selected.architecture, targets.system(selected.triple))
     -- Which body a symbol is, rather than only what it is called. The oracle is
@@ -319,12 +335,8 @@ local function assembly(artifacts: any, selected: Target, wanted: string?, sourc
     end
 
     return {
-        toolchain = {
-            command = selectedChain.command,
-            version = selectedChain.version,
-            dialect = selectedChain.dialect,
-        },
-        flags = buildAot.compileFlags(selected, selectedChain, debugFlags),
+        toolchain = {command = chainUsed.command, version = chainUsed.version, dialect = chainUsed.dialect,},
+        flags = buildAot.compileFlags(selected, chainUsed, debugFlags),
         functions = shown,
     }, nil
 end

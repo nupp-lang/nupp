@@ -1,0 +1,154 @@
+module nupp.compiler.aot.llvm.simd.species
+
+--[[
+What an explicit SIMD type is in LLVM.
+
+A species is an element and a lane count. `preferred` takes as many lanes as
+one register of the tier holds; `fixed<N>` is N lanes whatever the tier. Both
+are one LLVM vector type, `<N x T>`, and LLVM legalizes a vector no register
+holds into registers that do, which is all the C lowering's composite chunks
+were for. A mask is `<N x i1>`, the form every comparison produces and every
+select and masked access takes.
+
+The IR spells the families `simd_vector_<element>_<shape>`, `simd_mask_...`,
+`simd_species_...` (the species itself, known at compile time, so it has no
+runtime value) and `simd_bitmask_...` (a lane bitmap in a u64).
+]]
+
+local species = {}
+
+record species.Species
+    family: 'vector' | 'mask' | 'species' | 'bitmask'
+
+    --- The IR element name: `f32`, `u8`, ...
+    element: string
+
+    lanes: integer
+
+    --- `preferred` or `fixed<N>`.
+    shape: string
+
+    --- The LLVM element type: `float`, `i8`, ...
+    scalar: string
+
+    --- `<N x T>`.
+    vector: string
+
+    --- `<N x i1>`.
+    mask: string
+
+    --- Bits in one element.
+    bits: integer
+
+    float: boolean
+    signed: boolean
+end
+
+const ELEMENTS: {
+    [string]: string
+} = {
+    ["f64"] = "double",
+    ["f32"] = "float",
+    ["i8"] = "i8",
+    ["u8"] = "i8",
+    ["i16"] = "i16",
+    ["u16"] = "i16",
+    ["i32"] = "i32",
+    ["u32"] = "i32",
+    ["i64"] = "i64",
+    ["u64"] = "i64",
+}
+
+--- The species an IR type names at `width` bytes per register, or nil when
+--- the type is not an explicit SIMD family.
+function species.of(width: integer, typeName: string): species.Species?
+    local family, element, shape = typeName:match("^simd_(%a+)_([fiu]%d+)_(.+)$")
+    if family == nil or element == nil or shape == nil then
+        return nil
+    end
+    if family ~= "vector" and family ~= "mask" and family ~= "species" and family ~= "bitmask" then
+        return nil
+    end
+    local scalar = ELEMENTS[element as string]
+    if scalar == nil then
+        return nil
+    end
+    local bits = tonumber((element as string):match("%d+")) as integer
+    local lanes: integer
+    if shape == "preferred" then
+        lanes = math.floor(width * 8 / bits) as integer
+    else
+        local fixed = tonumber((shape as string):match("^fixed(%d+)$"))
+        if fixed == nil then
+            return nil
+        end
+        lanes = fixed as integer
+    end
+    if lanes < 1 then
+        return nil
+    end
+    local laneText = tostring(lanes)
+
+    return new species.Species(
+        family = family as 'vector' | 'mask' | 'species' | 'bitmask',
+        element = element as string,
+        lanes = lanes,
+        shape = shape as string,
+        scalar = scalar as string,
+        vector = "<" .. laneText .. " x " .. (scalar as string) .. ">",
+        mask = "<" .. laneText .. " x i1>",
+        bits = bits,
+        float = (element as string):sub(1, 1) == "f",
+        signed = (element as string):sub(1, 1) == "i"
+    )
+end
+
+--- Like `of`, raising when the type is not a SIMD family.
+--- @raises string when the type names no species
+function species.require(width: integer, typeName: string): species.Species
+    local found = species.of(width, typeName)
+    if found == nil then
+        error("no SIMD species for " .. typeName, 0)
+    end
+
+    return found as species.Species
+end
+
+--- The LLVM type a value of this family is carried in: the vector, the
+--- mask, a lane bitmap as i64, or nothing for the species itself.
+function species.carrier(found: species.Species): string?
+    if found.family == "vector" then
+        return found.vector
+    elseif found.family == "mask" then
+        return found.mask
+    elseif found.family == "bitmask" then
+        return "i64"
+    else
+        return nil
+    end
+end
+
+--- The IR scalar type one lane of this species reads as: the element's own
+--- for 32 and 64 bits, and the 32-bit integer of its signedness below that,
+--- which is how the IR types a narrow lane it has extracted.
+function species.laneType(found: species.Species): string
+    if found.float then
+        return found.element
+    elseif found.bits == 64 then
+        return found.signed and "i64" or "u64"
+    end
+
+    return found.signed and "i32" or "u32"
+end
+
+--- A vector of `count` copies of the LLVM constant `value`.
+function species.splatConstant(found: species.Species, value: string): string
+    local lanes: {string} = {}
+    for index = 1, found.lanes do
+        lanes[index] = found.scalar .. " " .. value
+    end
+
+    return "<" .. table.concat(lanes, ", ") .. ">"
+end
+
+export = species
