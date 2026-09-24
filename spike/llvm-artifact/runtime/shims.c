@@ -18,3 +18,4 @@ int ks_rt_builder_finish(lua_State *L, KsLuaBuilder *b) { return ks_lua_builder_
 uint32_t ks_rt_string_byte(lua_State *L, const unsigned char *s, size_t n, uint32_t i) { return ks_lua_string_byte(L, s, n, i); }
 uint32_t ks_rt_string_u32(lua_State *L, const unsigned char *s, size_t n, uint32_t i) { return ks_lua_string_u32(L, s, n, i); }
 double ks_rt_sin(double x) { return nupp_sin(x); }
+double ks_rt_exp(double x) { return exp(x); }

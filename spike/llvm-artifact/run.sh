@@ -25,7 +25,7 @@ native() { if [ $ext = dll ]; then cygpath -m "$1"; else printf '%s' "$1"; fi; }
 args=(--kernels "$(native "$kernels")" --builders "$(native "$here/../direct-backend/builders.json")"
       --component "$(native "$component")" --luajit "$(native "$lj")" --runtime "$(native "$fixtures/runtime.$ext")")
 if [ $ext = dll ]; then
-  args+=(--import lua_=lua51.dll --import luaL_=lua51.dll --import ks_rt_=runtime.dll --import '*=msvcrt.dll')
+  args+=(--import exp=runtime.dll:ks_rt_exp --import sin=runtime.dll:ks_rt_sin --import lua_=lua51.dll --import luaL_=lua51.dll --import ks_rt_=runtime.dll --import '*=msvcrt.dll')
 fi
 status=0
 { uname -a; uptime 2>/dev/null || true; } | tee "$out/machine.txt"

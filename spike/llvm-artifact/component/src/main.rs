@@ -26,7 +26,7 @@ use std::time::Instant;
 
 unsafe extern "C" {
     fn nupp_lld(argc: i32, argv: *const *const c_char) -> i32;
-    fn nupp_import_library(dll: *const c_char, path: *const c_char, names: *const *const c_char, n: i32) -> i32;
+    fn nupp_import_library(dll: *const c_char, path: *const c_char, names: *const *const c_char, exports: *const *const c_char, n: i32) -> i32;
 }
 
 const KERNELS: &[&str] = &["map", "refine", "explicitMap", "explicitRefine", "explicitAlgebraic"];
@@ -349,33 +349,41 @@ fn link_library(os: Os, triple: &str, object: &Path, library: &Path, undefined: 
         Os::Windows => {
             let dir = library.parent().unwrap();
             let mut libs = Vec::new();
-            let mut providers: Vec<(String, Vec<String>)> = Vec::new();
-            let rules: Vec<(String, String)> = args
+            // `prefix=dll` imports every name with that prefix from `dll`
+            // (`*` matches all); `name=dll:export` imports one name under
+            // another, so AOT code binds the libm the C backend's code does.
+            let rules: Vec<(String, String, Option<String>)> = args
                 .values("--import")
                 .iter()
                 .map(|r| {
-                    let (prefix, dll) = r.split_once('=').expect("--import prefix=dll");
-                    (prefix.to_string(), dll.to_string())
+                    let (prefix, target) = r.split_once('=').expect("--import prefix=dll");
+                    match target.split_once(':') {
+                        Some((dll, export)) => (prefix.to_string(), dll.to_string(), Some(export.to_string())),
+                        None => (prefix.to_string(), target.to_string(), None),
+                    }
                 })
                 .collect();
+            let mut providers: Vec<(String, Vec<(String, String)>)> = Vec::new();
             for sym in undefined {
                 let name = sym.trim_start_matches("__imp_");
-                let dll = rules
+                let (dll, export) = rules
                     .iter()
-                    .find(|(p, _)| p == "*" || name.starts_with(p.as_str()))
-                    .map(|(_, d)| d.clone())
+                    .find(|(p, _, e)| if e.is_some() { p == name } else { p == "*" || name.starts_with(p.as_str()) })
+                    .map(|(_, d, e)| (d.clone(), e.clone().unwrap_or_default()))
                     .ok_or_else(|| format!("no provider for import {name}"))?;
                 match providers.iter_mut().find(|(d, _)| *d == dll) {
-                    Some((_, names)) => names.push(name.to_string()),
-                    None => providers.push((dll, vec![name.to_string()])),
+                    Some((_, names)) => names.push((name.to_string(), export)),
+                    None => providers.push((dll, vec![(name.to_string(), export)])),
                 }
             }
             for (dll, names) in &providers {
                 let path = dir.join(format!("{}.imp.a", dll.trim_end_matches(".dll").trim_end_matches(".exe")));
-                let c: Vec<CString> = names.iter().map(|n| CString::new(n.as_str()).unwrap()).collect();
+                let c: Vec<CString> = names.iter().map(|(n, _)| CString::new(n.as_str()).unwrap()).collect();
+                let e: Vec<CString> = names.iter().map(|(_, x)| CString::new(x.as_str()).unwrap()).collect();
                 let p: Vec<*const c_char> = c.iter().map(|n| n.as_ptr()).collect();
+                let q: Vec<*const c_char> = e.iter().map(|n| n.as_ptr()).collect();
                 let (d, pth) = (CString::new(dll.as_str()).unwrap(), CString::new(path.display().to_string()).unwrap());
-                if unsafe { nupp_import_library(d.as_ptr(), pth.as_ptr(), p.as_ptr(), p.len() as i32) } != 0 {
+                if unsafe { nupp_import_library(d.as_ptr(), pth.as_ptr(), p.as_ptr(), q.as_ptr(), p.len() as i32) } != 0 {
                     return Err(format!("import library for {dll}"));
                 }
                 libs.push(path.display().to_string());

@@ -51,11 +51,13 @@ extern "C" int nupp_lld(int, const char **) { return 99; }
 
 // An import library naming `dll` as the provider of `names`: what a MinGW
 // link against that DLL reads. llvm-dlltool writes the same.
-extern "C" int nupp_import_library(const char *dll, const char *path, const char **names, int n) {
+// A non-empty `renames[i]` imports `names[i]` under that export name instead.
+extern "C" int nupp_import_library(const char *dll, const char *path, const char **names, const char **renames, int n) {
     std::vector<llvm::object::COFFShortExport> exports;
     for (int i = 0; i < n; i++) {
         llvm::object::COFFShortExport e;
         e.Name = names[i];
+        e.ImportName = renames[i];
         exports.push_back(e);
     }
     if (auto err = llvm::object::writeImportLibrary(dll, path, exports, llvm::COFF::IMAGE_FILE_MACHINE_AMD64, true)) {
