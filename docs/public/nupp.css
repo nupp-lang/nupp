@@ -41,7 +41,7 @@
   --nuppdoc-dark-background: #1c1917;
   --nuppdoc-dark-background-alt: #1b2626;
   --nuppdoc-dark-border: color-mix(in srgb, #50676c 65%, black);
-  --nuppdoc-dark-code-background: #1f1c1b;
+  --nuppdoc-dark-code-background: #1a1d1d;
   --nuppdoc-dark-text: #d4c2b6;
   --nuppdoc-dark-muted: #bda892;
   --nuppdoc-accent-contrast: #ffffff;
@@ -91,12 +91,6 @@
 
   .nuppdoc-playground {
     --nuppdoc-text-faint: color-mix(in srgb, var(--nuppdoc-text-muted) 45%, transparent);
-    /* doc-app.js's --pg-border reads --nuppdoc-border directly, not
-     * --nuppdoc-playground-border (which nothing in the built site actually
-     * consumes) — scoped here the same way as --nuppdoc-text-faint above,
-     * so only the playground's own border moves to match the code-block
-     * border, not every other divider that uses --nuppdoc-border. */
-    --nuppdoc-border: #38312d;
   }
 }
 
@@ -106,7 +100,6 @@
 
 :root[data-theme="dark"] .nuppdoc-playground {
   --nuppdoc-text-faint: color-mix(in srgb, var(--nuppdoc-text-muted) 45%, transparent);
-  --nuppdoc-border: #38312d;
 }
 
 :root[data-theme="light"] .nuppdoc-line-numbers {
@@ -115,7 +108,6 @@
 
 :root[data-theme="light"] .nuppdoc-playground {
   --nuppdoc-text-faint: color-mix(in srgb, var(--nuppdoc-text-muted) 90%, transparent);
-  --nuppdoc-border: var(--nuppdoc-light-border);
 }
 
 /* The base theme sets nav links to the muted text color; pull them up to
@@ -257,21 +249,6 @@
 .nuppdoc-code-block[data-lang]::before {
   top: 3px;
   font-size: 0.55rem;
-}
-
-/* #253133 is a near-black — fine against the dark theme's own near-black
- * page, but far too heavy a line against the light theme's paper. Scoped to
- * dark only; light keeps the ordinary --nuppdoc-border it had before. */
-@media (prefers-color-scheme: dark) {
-  .nuppdoc-content pre,
-  .nuppdoc-code-group {
-    border-color: #38312d;
-  }
-}
-
-:root[data-theme="dark"] .nuppdoc-content pre,
-:root[data-theme="dark"] .nuppdoc-code-group {
-  border-color: #38312d;
 }
 
 /* Tabs live in their own row (.nuppdoc-code-tabs, added in html.nupp's
