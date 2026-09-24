@@ -1678,6 +1678,15 @@ function emit.scalar(context: emit.Context, node: scalarIR.Expr): string
             for _, argument in ipairs(args) do
                 rendered[#rendered + 1] = emit.scalar(context, argument)
             end
+            -- A splatted integer narrows to the lane as the operand's low bits;
+            -- written as a cast, so a constant past the lane's range is that
+            -- rather than a conversion C warns about.
+            local sign, bits = element:match("^([iu])(%d+)$")
+            if operation == "simd_splat" and sign ~= nil and #rendered == 1 then
+                rendered[
+                    1
+                ] = "((" .. (sign == "u" and "uint" or "int") .. tostring(bits) .. "_t)(" .. rendered[1] .. "))"
+            end
             return genericHelper .. tostring(verb) .. "_" .. genericSuffix .. "(" .. table.concat(rendered, ", ") .. ")"
         end
         error("no C form for SIMD operation " .. tostring(operation), 0)

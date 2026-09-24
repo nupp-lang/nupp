@@ -2,20 +2,19 @@ module base64simd
 
 --[[
 Base64 encoding a vector at a time, written on the general `nupp.simd`
-algebra: a byte species, `swizzle` over a pair of vectors for the byte
-shuffles, and `interleave` for the output layout. Three vectors of input become
-four of output per iteration -- forty-eight bytes to sixty-four on a
-sixteen-lane species.
+algebra: a byte species, `swizzle` over several vectors for the byte shuffles
+and the alphabet, and `interleave` for the output layout. Three vectors of
+input become four of output per iteration -- forty-eight bytes to sixty-four
+on a sixteen-lane species.
 
 The shape is the one the literature describes. Three vectors `a`, `b`, `c`
 hold `3 * lanes` consecutive bytes; the three bytes of every triple are
-gathered into `b0`, `b1`, `b2` by a paired swizzle whose index vector is an
-arithmetic sequence with stride three, and which reads `c` in a second swizzle
-for the triples that begin past the pair. Four six-bit indexes come out of
-shifts and masks. Comparisons select the four contiguous ranges of the Base64
-alphabet without assuming a particular native lane count. Two rounds of
-`interleave` put the four symbol vectors back into byte order, and four stores
-write them.
+gathered into `b0`, `b1`, `b2` by one swizzle over all three, whose index
+vector is an arithmetic sequence with stride three. Four six-bit indexes come
+out of shifts and masks, and each is looked up in the sixty-four-byte alphabet
+held as four table vectors -- one table instruction on NEON, whatever the
+lane count otherwise. Two rounds of `interleave` put the four symbol vectors
+back into byte order, and four stores write them.
 
 Every vector load and store is proved in range by the loop condition, which
 bounds the input by three vectors and the output by four. Every access is
@@ -35,13 +34,6 @@ const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789
 
 const ALPHABET_BYTES = span.fromString(ALPHABET)
 
---- Maps Base64 indexes to their alphabet bytes for every preferred width.
-local function alphabetByte(value: simd.Vector<uint8, simd.Preferred>): simd.Vector<uint8, simd.Preferred>
-    return (
-        value < 26
-    ):select(value + 65, (value < 52):select(value + 71, (value < 62):select(value - 4, (value == 62):select(43, 47))))
-end
-
 --- Encodes `source` into `output`, which must hold `4 * ceil(#source / 3)`
 --- bytes, and answers how many bytes it wrote. `alphabet` is the sixty-four
 --- symbols, which the byte tail reads by index.
@@ -59,34 +51,35 @@ local function encode(
     local out: uint32 = 0
     if species = simd.species(array.uint8) then
         local lanes: uint32 = species.lanes
-        -- Lane `i` of `b_k` is byte `3i + k` of the group. Within the first
-        -- two vectors that is index `3i + k + 1` of the pair; past them it is
-        -- the same index less two vectors, read from the third. Each index
-        -- vector is zero, and reads zero, where the other one applies.
+        -- Lane `i` of `b_k` is byte `3i + k` of the group: index `3i + k + 1`
+        -- across `a`, `b` and `c` numbered as one run.
         local gather0 = species:iota(1, 3)
         local gather1 = species:iota(2, 3)
         local gather2 = species:iota(3, 3)
-        local gather0c = gather0 - 2 * lanes
-        local gather1c = gather1 - 2 * lanes
-        local gather2c = gather2 - 2 * lanes
+        -- The alphabet as four table vectors. A wider species holds it in
+        -- fewer, and the loads past its end read zero.
+        local t0 = species:load(alphabet, 1)
+        local t1 = species:load(alphabet, lanes + 1)
+        local t2 = species:load(alphabet, 2 * lanes + 1)
+        local t3 = species:load(alphabet, 3 * lanes + 1)
         while at + 3 * lanes <= #source and out + 4 * lanes <= #output do
             local a = species:load(source, at + 1)
             local b = species:load(source, at + lanes + 1)
             local c = species:load(source, at + 2 * lanes + 1)
 
-            local b0 = a:swizzle(gather0, b) | c:swizzle(gather0c)
-            local b1 = a:swizzle(gather1, b) | c:swizzle(gather1c)
-            local b2 = a:swizzle(gather2, b) | c:swizzle(gather2c)
+            local b0 = a:swizzle(gather0, b, c)
+            local b1 = a:swizzle(gather1, b, c)
+            local b2 = a:swizzle(gather2, b, c)
 
             local d0 = b0 >> 2
             local d1 = ((b0 & 3) << 4) | (b1 >> 4)
             local d2 = ((b1 & 15) << 2) | (b2 >> 6)
             local d3 = b2 & 63
 
-            local e0 = alphabetByte(d0)
-            local e1 = alphabetByte(d1)
-            local e2 = alphabetByte(d2)
-            local e3 = alphabetByte(d3)
+            local e0 = t0:swizzle(d0 + 1, t1, t2, t3)
+            local e1 = t0:swizzle(d1 + 1, t1, t2, t3)
+            local e2 = t0:swizzle(d2 + 1, t1, t2, t3)
+            local e3 = t0:swizzle(d3 + 1, t1, t2, t3)
 
             -- Symbols of one quantum are consecutive in the output: first
             -- the even and odd symbols pair up, then the pairs do.

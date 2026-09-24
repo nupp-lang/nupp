@@ -5314,6 +5314,43 @@ return {scan = scan}
     )
 end
 
+function M.aByteLookupOverFourTablesIsOneTableInstruction()
+    -- `swizzle` with three or four tables continues one run of lanes; on a
+    -- sixteen-lane byte species NEON answers it with `tbl` over three or four
+    -- registers, and the scalar oracle walks the lanes.
+    local dir = project{
+        [
+            "lookup.nupp"
+        ] = [[
+local span = require("nupp.mem.span")
+local array = require("nupp.mem.array")
+local simd = require("nupp.simd")
+
+@aot
+local function lookup(exclusive output: span.WriteSpan<uint8>, borrows table: span.Span<uint8>, borrows input: span.Span<uint8>): nil
+    local s = assert(simd.species(array.uint8, 16))
+    local t0 = s:load(table, 1)
+    local t1 = s:load(table, 17)
+    local t2 = s:load(table, 33)
+    local t3 = s:load(table, 49)
+    local index = s:load(input, 1)
+    s:store(output, 1, t0:swizzle(index, t1, t2))
+    s:store(output, 17, t0:swizzle(index, t1, t2, t3))
+end
+return {lookup = lookup}
+]],
+    }
+    local decoded, raw, code = lowered(dir, "--target aarch64-apple-darwin --features neon --json lookup.nupp")
+    test.equal(code, 0, raw)
+    local c = decoded.c
+    local body = c:match("KS_API void ks_lookup%(.-\n}\n")
+    assert(body and body:find("ks_exp_swizzle_triple_u8x16(", 1, true), "three tables\n" .. c)
+    assert(body:find("ks_exp_swizzle_quad_u8x16(", 1, true), "four tables\n" .. body)
+    assert(c:find("vqtbl3q_u8(t, x)", 1, true) and c:find("vqtbl4q_u8(t, x)", 1, true), "one NEON table instruction each\n")
+    local oracle = c:match("KS_API void ks_lookup_forced_scalar%(.-\n}\n")
+    assert(oracle and oracle:find("ks_scalar_exp_swizzle_quad_u8x16(", 1, true), "the oracle walks the lanes\n" .. c)
+end
+
 function M.aLoopCarriedMaskStaysInItsRegister()
     -- A mask a loop reassigns is kept in its vector register, so the C
     -- compiler does not carry it as one bit a lane. The scalar oracle has no

@@ -242,6 +242,11 @@ KS_SCALAR_REGION_END
     for (uint32_t i = 0u; i < LANES##u; ++i) { uint32_t at = (uint32_t)indices[i]; out[i] = (at - 1u) < LANES##u ? value[at - 1u] : (CTYPE)0; }
 #define KS_EXP_SWIZZLE_PAIR_LOOP(CTYPE, LANES) \
     for (uint32_t i = 0u; i < LANES##u; ++i) { uint32_t at = (uint32_t)indices[i] - 1u; out[i] = at < LANES##u ? first[at] : (at - LANES##u) < LANES##u ? second[at - LANES##u] : (CTYPE)0; }
+/* Three and four tables in one run of lanes, the general form of the pair. */
+#define KS_EXP_SWIZZLE_TRIPLE_LOOP(CTYPE, LANES) \
+    for (uint32_t i = 0u; i < LANES##u; ++i) { uint32_t at = (uint32_t)indices[i] - 1u; out[i] = at < LANES##u ? first[at] : (at - LANES##u) < LANES##u ? second[at - LANES##u] : (at - 2u * LANES##u) < LANES##u ? third[at - 2u * LANES##u] : (CTYPE)0; }
+#define KS_EXP_SWIZZLE_QUAD_LOOP(CTYPE, LANES) \
+    for (uint32_t i = 0u; i < LANES##u; ++i) { uint32_t at = (uint32_t)indices[i] - 1u; out[i] = at < LANES##u ? first[at] : (at - LANES##u) < LANES##u ? second[at - LANES##u] : (at - 2u * LANES##u) < LANES##u ? third[at - 2u * LANES##u] : (at - 3u * LANES##u) < LANES##u ? fourth[at - 3u * LANES##u] : (CTYPE)0; }
 #if defined(__aarch64__)
 #define KS_EXP_BYTE_SWIZZLE_BODY_16(CTYPE, LANES) \
     uint8x16_t t, x; memcpy(&t, &value, 16u); memcpy(&x, &zeroBased, 16u); x = vqtbl1q_u8(t, x); memcpy(&out, &x, 16u);
@@ -253,6 +258,12 @@ KS_SCALAR_REGION_END
     uint8x16x2_t t; uint8x16_t x; memcpy(&t.val[0], &first, 16u); memcpy(&t.val[1], &second, 16u); memcpy(&x, &zeroBased, 16u); x = vqtbl2q_u8(t, x); memcpy(&out, &x, 16u);
 #define KS_EXP_BYTE_SWIZZLE_PAIR_BODY_32(CTYPE, LANES) \
     uint8x16x4_t t; memcpy(&t.val[0], &first, 16u); memcpy(&t.val[1], ((const uint8_t *)&first) + 16u, 16u); memcpy(&t.val[2], &second, 16u); memcpy(&t.val[3], ((const uint8_t *)&second) + 16u, 16u); uint8x16_t lo, hi; memcpy(&lo, &zeroBased, 16u); memcpy(&hi, ((const uint8_t *)&zeroBased) + 16u, 16u); lo = vqtbl4q_u8(t, lo); hi = vqtbl4q_u8(t, hi); memcpy(&out, &lo, 16u); memcpy(((uint8_t *)&out) + 16u, &hi, 16u);
+#define KS_EXP_BYTE_SWIZZLE_TRIPLE_BODY_16(CTYPE, LANES) \
+    uint8x16x3_t t; uint8x16_t x; memcpy(&t.val[0], &first, 16u); memcpy(&t.val[1], &second, 16u); memcpy(&t.val[2], &third, 16u); memcpy(&x, &zeroBased, 16u); x = vqtbl3q_u8(t, x); memcpy(&out, &x, 16u);
+#define KS_EXP_BYTE_SWIZZLE_QUAD_BODY_16(CTYPE, LANES) \
+    uint8x16x4_t t; uint8x16_t x; memcpy(&t.val[0], &first, 16u); memcpy(&t.val[1], &second, 16u); memcpy(&t.val[2], &third, 16u); memcpy(&t.val[3], &fourth, 16u); memcpy(&x, &zeroBased, 16u); x = vqtbl4q_u8(t, x); memcpy(&out, &x, 16u);
+#define KS_EXP_BYTE_SWIZZLE_TRIPLE_BODY_32(CTYPE, LANES) KS_EXP_SWIZZLE_TRIPLE_LOOP(CTYPE, LANES)
+#define KS_EXP_BYTE_SWIZZLE_QUAD_BODY_32(CTYPE, LANES) KS_EXP_SWIZZLE_QUAD_LOOP(CTYPE, LANES)
 #elif defined(__SSSE3__)
 #define KS_EXP_BYTE_SWIZZLE_BODY_16(CTYPE, LANES) \
     __m128i t, x, high, shuffled; memcpy(&t, &value, 16u); memcpy(&x, &zeroBased, 16u); high = _mm_and_si128(x, _mm_set1_epi8((char)0xf0)); shuffled = _mm_shuffle_epi8(t, x); shuffled = _mm_and_si128(shuffled, _mm_cmpeq_epi8(high, _mm_setzero_si128())); memcpy(&out, &shuffled, 16u);
@@ -263,6 +274,10 @@ KS_SCALAR_REGION_END
 #define KS_EXP_BYTE_SWIZZLE_PAIR_BODY_16(CTYPE, LANES) \
     __m128i a, b, x, y, keepA, keepB; memcpy(&a, &first, 16u); memcpy(&b, &second, 16u); memcpy(&x, &zeroBased, 16u); y = _mm_sub_epi8(x, _mm_set1_epi8(16)); keepA = _mm_cmpeq_epi8(_mm_and_si128(x, _mm_set1_epi8((char)0xf0)), _mm_setzero_si128()); keepB = _mm_cmpeq_epi8(_mm_and_si128(y, _mm_set1_epi8((char)0xf0)), _mm_setzero_si128()); x = _mm_or_si128(_mm_and_si128(_mm_shuffle_epi8(a, x), keepA), _mm_and_si128(_mm_shuffle_epi8(b, y), keepB)); memcpy(&out, &x, 16u);
 #define KS_EXP_BYTE_SWIZZLE_PAIR_BODY_32(CTYPE, LANES) KS_EXP_SWIZZLE_PAIR_LOOP(CTYPE, LANES)
+#define KS_EXP_BYTE_SWIZZLE_TRIPLE_BODY_16(CTYPE, LANES) KS_EXP_SWIZZLE_TRIPLE_LOOP(CTYPE, LANES)
+#define KS_EXP_BYTE_SWIZZLE_QUAD_BODY_16(CTYPE, LANES) KS_EXP_SWIZZLE_QUAD_LOOP(CTYPE, LANES)
+#define KS_EXP_BYTE_SWIZZLE_TRIPLE_BODY_32(CTYPE, LANES) KS_EXP_SWIZZLE_TRIPLE_LOOP(CTYPE, LANES)
+#define KS_EXP_BYTE_SWIZZLE_QUAD_BODY_32(CTYPE, LANES) KS_EXP_SWIZZLE_QUAD_LOOP(CTYPE, LANES)
 #elif defined(__wasm_simd128__)
 /* `i8x16.swizzle` is exactly this, zero for out of range. */
 #define KS_EXP_BYTE_SWIZZLE_BODY_16(CTYPE, LANES) \
@@ -278,11 +293,25 @@ KS_SCALAR_REGION_END
     KsSwizzle a, b, x, y; memcpy(&a, &first, 16u); memcpy(&b, &second, 16u); memcpy(&x, &zeroBased, 16u); \
     y = __builtin_wasm_swizzle_i8x16(a, x) | __builtin_wasm_swizzle_i8x16(b, x - 16); memcpy(&out, &y, 16u);
 #define KS_EXP_BYTE_SWIZZLE_PAIR_BODY_32(CTYPE, LANES) KS_EXP_SWIZZLE_PAIR_LOOP(CTYPE, LANES)
+#define KS_EXP_BYTE_SWIZZLE_TRIPLE_BODY_16(CTYPE, LANES) \
+    typedef signed char KsSwizzle __attribute__((vector_size(16))); \
+    KsSwizzle a, b, c, x, y; memcpy(&a, &first, 16u); memcpy(&b, &second, 16u); memcpy(&c, &third, 16u); memcpy(&x, &zeroBased, 16u); \
+    y = __builtin_wasm_swizzle_i8x16(a, x) | __builtin_wasm_swizzle_i8x16(b, x - 16) | __builtin_wasm_swizzle_i8x16(c, x - 32); memcpy(&out, &y, 16u);
+#define KS_EXP_BYTE_SWIZZLE_QUAD_BODY_16(CTYPE, LANES) \
+    typedef signed char KsSwizzle __attribute__((vector_size(16))); \
+    KsSwizzle a, b, c, d, x, y; memcpy(&a, &first, 16u); memcpy(&b, &second, 16u); memcpy(&c, &third, 16u); memcpy(&d, &fourth, 16u); memcpy(&x, &zeroBased, 16u); \
+    y = __builtin_wasm_swizzle_i8x16(a, x) | __builtin_wasm_swizzle_i8x16(b, x - 16) | __builtin_wasm_swizzle_i8x16(c, x - 32) | __builtin_wasm_swizzle_i8x16(d, x - 48); memcpy(&out, &y, 16u);
+#define KS_EXP_BYTE_SWIZZLE_TRIPLE_BODY_32(CTYPE, LANES) KS_EXP_SWIZZLE_TRIPLE_LOOP(CTYPE, LANES)
+#define KS_EXP_BYTE_SWIZZLE_QUAD_BODY_32(CTYPE, LANES) KS_EXP_SWIZZLE_QUAD_LOOP(CTYPE, LANES)
 #else
 #define KS_EXP_BYTE_SWIZZLE_BODY_16(CTYPE, LANES) KS_EXP_SWIZZLE_LOOP(CTYPE, LANES)
 #define KS_EXP_BYTE_SWIZZLE_BODY_32(CTYPE, LANES) KS_EXP_SWIZZLE_LOOP(CTYPE, LANES)
 #define KS_EXP_BYTE_SWIZZLE_PAIR_BODY_16(CTYPE, LANES) KS_EXP_SWIZZLE_PAIR_LOOP(CTYPE, LANES)
 #define KS_EXP_BYTE_SWIZZLE_PAIR_BODY_32(CTYPE, LANES) KS_EXP_SWIZZLE_PAIR_LOOP(CTYPE, LANES)
+#define KS_EXP_BYTE_SWIZZLE_TRIPLE_BODY_16(CTYPE, LANES) KS_EXP_SWIZZLE_TRIPLE_LOOP(CTYPE, LANES)
+#define KS_EXP_BYTE_SWIZZLE_QUAD_BODY_16(CTYPE, LANES) KS_EXP_SWIZZLE_QUAD_LOOP(CTYPE, LANES)
+#define KS_EXP_BYTE_SWIZZLE_TRIPLE_BODY_32(CTYPE, LANES) KS_EXP_SWIZZLE_TRIPLE_LOOP(CTYPE, LANES)
+#define KS_EXP_BYTE_SWIZZLE_QUAD_BODY_32(CTYPE, LANES) KS_EXP_SWIZZLE_QUAD_LOOP(CTYPE, LANES)
 #endif
 /* A 64-byte vector exists only under AVX-512F, whose byte shuffle needs
  * the BW extension that tier does not promise; the lanes are walked. Both
@@ -290,6 +319,8 @@ KS_SCALAR_REGION_END
  * missing from the paired swizzle exactly as it is from the single one. */
 #define KS_EXP_BYTE_SWIZZLE_BODY_64(CTYPE, LANES) KS_EXP_SWIZZLE_LOOP(CTYPE, LANES)
 #define KS_EXP_BYTE_SWIZZLE_PAIR_BODY_64(CTYPE, LANES) KS_EXP_SWIZZLE_PAIR_LOOP(CTYPE, LANES)
+#define KS_EXP_BYTE_SWIZZLE_TRIPLE_BODY_64(CTYPE, LANES) KS_EXP_SWIZZLE_TRIPLE_LOOP(CTYPE, LANES)
+#define KS_EXP_BYTE_SWIZZLE_QUAD_BODY_64(CTYPE, LANES) KS_EXP_SWIZZLE_QUAD_LOOP(CTYPE, LANES)
 #define KS_EXP_SWIZZLE_1(W, ELEM, CTYPE, LANES) \
 static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_swizzle_##ELEM(ks_exp_##ELEM value, ks_exp_##ELEM indices) { \
     ks_exp_##ELEM out = {0}; ks_exp_##ELEM zeroBased KS_UNUSED = indices - 1; \
@@ -300,10 +331,22 @@ static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_swizzle_pair_##ELEM(k
     ks_exp_##ELEM out = {0}; ks_exp_##ELEM zeroBased KS_UNUSED = indices - 1; \
     KS_EXP_BYTE_SWIZZLE_PAIR_BODY_##W(CTYPE, LANES) \
     return out; \
+} \
+static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_swizzle_triple_##ELEM(ks_exp_##ELEM first, ks_exp_##ELEM indices, ks_exp_##ELEM second, ks_exp_##ELEM third) { \
+    ks_exp_##ELEM out = {0}; ks_exp_##ELEM zeroBased KS_UNUSED = indices - 1; \
+    KS_EXP_BYTE_SWIZZLE_TRIPLE_BODY_##W(CTYPE, LANES) \
+    return out; \
+} \
+static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_swizzle_quad_##ELEM(ks_exp_##ELEM first, ks_exp_##ELEM indices, ks_exp_##ELEM second, ks_exp_##ELEM third, ks_exp_##ELEM fourth) { \
+    ks_exp_##ELEM out = {0}; ks_exp_##ELEM zeroBased KS_UNUSED = indices - 1; \
+    KS_EXP_BYTE_SWIZZLE_QUAD_BODY_##W(CTYPE, LANES) \
+    return out; \
 }
 #define KS_EXP_SWIZZLE_WIDE(W, ELEM, CTYPE, LANES) \
 static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_swizzle_##ELEM(ks_exp_##ELEM value, ks_exp_##ELEM indices) { ks_exp_##ELEM out = {0}; KS_EXP_SWIZZLE_LOOP(CTYPE, LANES) return out; } \
-static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_swizzle_pair_##ELEM(ks_exp_##ELEM first, ks_exp_##ELEM indices, ks_exp_##ELEM second) { ks_exp_##ELEM out = {0}; KS_EXP_SWIZZLE_PAIR_LOOP(CTYPE, LANES) return out; }
+static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_swizzle_pair_##ELEM(ks_exp_##ELEM first, ks_exp_##ELEM indices, ks_exp_##ELEM second) { ks_exp_##ELEM out = {0}; KS_EXP_SWIZZLE_PAIR_LOOP(CTYPE, LANES) return out; } \
+static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_swizzle_triple_##ELEM(ks_exp_##ELEM first, ks_exp_##ELEM indices, ks_exp_##ELEM second, ks_exp_##ELEM third) { ks_exp_##ELEM out = {0}; KS_EXP_SWIZZLE_TRIPLE_LOOP(CTYPE, LANES) return out; } \
+static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_swizzle_quad_##ELEM(ks_exp_##ELEM first, ks_exp_##ELEM indices, ks_exp_##ELEM second, ks_exp_##ELEM third, ks_exp_##ELEM fourth) { ks_exp_##ELEM out = {0}; KS_EXP_SWIZZLE_QUAD_LOOP(CTYPE, LANES) return out; }
 #define KS_EXP_SWIZZLE_2 KS_EXP_SWIZZLE_WIDE
 #define KS_EXP_SWIZZLE_4 KS_EXP_SWIZZLE_WIDE
 #define KS_EXP_SWIZZLE_8 KS_EXP_SWIZZLE_WIDE
@@ -420,6 +463,8 @@ static inline __attribute__((unused)) uint32_t ks_scalar_exp_first_##ELEM(ks_sca
 static inline __attribute__((unused)) CTYPE ks_scalar_exp_extract_##ELEM(ks_scalar_exp_##ELEM value, double lane) { return value.lane[(uint32_t)lane - 1u]; } \
 static inline __attribute__((unused)) ks_scalar_exp_##ELEM ks_scalar_exp_insert_##ELEM(ks_scalar_exp_##ELEM value, double lane, CTYPE replacement) { value.lane[(uint32_t)lane - 1u] = replacement; return value; } \
 static inline __attribute__((unused)) ks_scalar_exp_##ELEM ks_scalar_exp_swizzle_pair_##ELEM(ks_scalar_exp_##ELEM first, ks_scalar_exp_##ELEM indices, ks_scalar_exp_##ELEM second) { ks_scalar_exp_##ELEM out; for (uint32_t i = 0u; i < LANES##u; ++i) { uint32_t at = (uint32_t)indices.lane[i] - 1u; out.lane[i] = at < LANES##u ? first.lane[at] : (at - LANES##u) < LANES##u ? second.lane[at - LANES##u] : (CTYPE)0; } return out; } \
+static inline __attribute__((unused)) ks_scalar_exp_##ELEM ks_scalar_exp_swizzle_triple_##ELEM(ks_scalar_exp_##ELEM first, ks_scalar_exp_##ELEM indices, ks_scalar_exp_##ELEM second, ks_scalar_exp_##ELEM third) { ks_scalar_exp_##ELEM out; for (uint32_t i = 0u; i < LANES##u; ++i) { uint32_t at = (uint32_t)indices.lane[i] - 1u; out.lane[i] = at < LANES##u ? first.lane[at] : (at - LANES##u) < LANES##u ? second.lane[at - LANES##u] : (at - 2u * LANES##u) < LANES##u ? third.lane[at - 2u * LANES##u] : (CTYPE)0; } return out; } \
+static inline __attribute__((unused)) ks_scalar_exp_##ELEM ks_scalar_exp_swizzle_quad_##ELEM(ks_scalar_exp_##ELEM first, ks_scalar_exp_##ELEM indices, ks_scalar_exp_##ELEM second, ks_scalar_exp_##ELEM third, ks_scalar_exp_##ELEM fourth) { ks_scalar_exp_##ELEM out; for (uint32_t i = 0u; i < LANES##u; ++i) { uint32_t at = (uint32_t)indices.lane[i] - 1u; out.lane[i] = at < LANES##u ? first.lane[at] : (at - LANES##u) < LANES##u ? second.lane[at - LANES##u] : (at - 2u * LANES##u) < LANES##u ? third.lane[at - 2u * LANES##u] : (at - 3u * LANES##u) < LANES##u ? fourth.lane[at - 3u * LANES##u] : (CTYPE)0; } return out; } \
 static inline __attribute__((unused)) ks_scalar_exp_##ELEM ks_scalar_exp_swizzle_##ELEM(ks_scalar_exp_##ELEM value, ks_scalar_exp_##ELEM indices) { ks_scalar_exp_##ELEM out; for (uint32_t i = 0u; i < LANES##u; ++i) { uint32_t at = (uint32_t)indices.lane[i]; out.lane[i] = (at - 1u) < LANES##u ? value.lane[at - 1u] : (CTYPE)0; } return out; } \
 static inline __attribute__((unused)) ks_scalar_exp_##ELEM ks_scalar_exp_reverse_##ELEM(ks_scalar_exp_##ELEM value) { ks_scalar_exp_##ELEM out; for (uint32_t i = 0u; i < LANES##u; ++i) out.lane[i] = value.lane[LANES##u - 1u - i]; return out; } \
 static inline __attribute__((unused)) ks_scalar_exp_##ELEM ks_scalar_exp_rotate_left_##ELEM(ks_scalar_exp_##ELEM value, double count) { ks_scalar_exp_##ELEM out; uint32_t n = (uint32_t)count % LANES##u; for (uint32_t i = 0u; i < LANES##u; ++i) out.lane[i] = value.lane[(i + n) % LANES##u]; return out; } \
@@ -612,6 +657,8 @@ static inline __attribute__((unused)) uint32_t ks_exp_first_##ELEM(ks_exp_mask_#
 static inline __attribute__((unused)) CTYPE ks_exp_extract_##ELEM(ks_exp_##ELEM value, double lane) { uint32_t index = (uint32_t)lane - 1u; return value.chunk[index / NLANES##u][index % NLANES##u]; } \
 static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_insert_##ELEM(ks_exp_##ELEM value, double lane, CTYPE replacement) { uint32_t index = (uint32_t)lane - 1u; value.chunk[index / NLANES##u][index % NLANES##u] = replacement; return value; } \
 static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_swizzle_pair_##ELEM(ks_exp_##ELEM first, ks_exp_##ELEM indices, ks_exp_##ELEM second) { ks_exp_##ELEM out = ks_exp_splat_##ELEM((CTYPE)0); for (uint32_t i = 0u; i < LANES##u; ++i) { uint32_t at = (uint32_t)ks_exp_extract_##ELEM(indices, (double)(i + 1u)) - 1u; CTYPE picked = (CTYPE)0; bool found = false; if (at < LANES##u) { picked = ks_exp_extract_##ELEM(first, (double)(at + 1u)); found = true; } else if ((at - LANES##u) < LANES##u) { picked = ks_exp_extract_##ELEM(second, (double)(at - LANES##u + 1u)); found = true; } if (found) { out = ks_exp_insert_##ELEM(out, (double)(i + 1u), picked); } } return out; } \
+static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_swizzle_triple_##ELEM(ks_exp_##ELEM first, ks_exp_##ELEM indices, ks_exp_##ELEM second, ks_exp_##ELEM third) { ks_exp_##ELEM out = ks_exp_splat_##ELEM((CTYPE)0); for (uint32_t i = 0u; i < LANES##u; ++i) { uint32_t at = (uint32_t)ks_exp_extract_##ELEM(indices, (double)(i + 1u)) - 1u; CTYPE picked = (CTYPE)0; bool found = false; if (at < LANES##u) { picked = ks_exp_extract_##ELEM(first, (double)(at + 1u)); found = true; } else if ((at - 1u * LANES##u) < LANES##u) { picked = ks_exp_extract_##ELEM(second, (double)(at - 1u * LANES##u + 1u)); found = true; } else if ((at - 2u * LANES##u) < LANES##u) { picked = ks_exp_extract_##ELEM(third, (double)(at - 2u * LANES##u + 1u)); found = true; } if (found) { out = ks_exp_insert_##ELEM(out, (double)(i + 1u), picked); } } return out; } \
+static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_swizzle_quad_##ELEM(ks_exp_##ELEM first, ks_exp_##ELEM indices, ks_exp_##ELEM second, ks_exp_##ELEM third, ks_exp_##ELEM fourth) { ks_exp_##ELEM out = ks_exp_splat_##ELEM((CTYPE)0); for (uint32_t i = 0u; i < LANES##u; ++i) { uint32_t at = (uint32_t)ks_exp_extract_##ELEM(indices, (double)(i + 1u)) - 1u; CTYPE picked = (CTYPE)0; bool found = false; if (at < LANES##u) { picked = ks_exp_extract_##ELEM(first, (double)(at + 1u)); found = true; } else if ((at - 1u * LANES##u) < LANES##u) { picked = ks_exp_extract_##ELEM(second, (double)(at - 1u * LANES##u + 1u)); found = true; } else if ((at - 2u * LANES##u) < LANES##u) { picked = ks_exp_extract_##ELEM(third, (double)(at - 2u * LANES##u + 1u)); found = true; } else if ((at - 3u * LANES##u) < LANES##u) { picked = ks_exp_extract_##ELEM(fourth, (double)(at - 3u * LANES##u + 1u)); found = true; } if (found) { out = ks_exp_insert_##ELEM(out, (double)(i + 1u), picked); } } return out; } \
 static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_swizzle_##ELEM(ks_exp_##ELEM value, ks_exp_##ELEM indices) { ks_exp_##ELEM out = ks_exp_splat_##ELEM((CTYPE)0); for (uint32_t i = 0u; i < LANES##u; ++i) { uint32_t at = (uint32_t)ks_exp_extract_##ELEM(indices, (double)(i + 1u)); if ((at - 1u) < LANES##u) out = ks_exp_insert_##ELEM(out, (double)(i + 1u), ks_exp_extract_##ELEM(value, (double)at)); } return out; } \
 static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_reverse_##ELEM(ks_exp_##ELEM value) { ks_exp_##ELEM out = ks_exp_splat_##ELEM((CTYPE)0); for (uint32_t i = 0u; i < LANES##u; ++i) out = ks_exp_insert_##ELEM(out, (double)(i + 1u), ks_exp_extract_##ELEM(value, (double)(LANES##u - 1u - i + 1u))); return out; } \
 static inline __attribute__((unused)) ks_exp_##ELEM ks_exp_rotate_left_##ELEM(ks_exp_##ELEM value, double count) { ks_exp_##ELEM out = ks_exp_splat_##ELEM((CTYPE)0); uint32_t n = (uint32_t)count % LANES##u; for (uint32_t i = 0u; i < LANES##u; ++i) out = ks_exp_insert_##ELEM(out, (double)(i + 1u), ks_exp_extract_##ELEM(value, (double)((i + n) % LANES##u + 1u))); return out; } \

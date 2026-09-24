@@ -200,6 +200,20 @@ UTF-8 library as `compare`'s second argument
 | mixed | 1,024 | 70.6 ns | 70.1 ns | 1.01x |
 | mixed | 65,539 | 4.52 us | 4.48 us | 1.01x |
 
+Base64 encoding compares `bench/base64simd`'s encoder with
+`bench/base64/base64_control.c`'s NEON one, which de-interleaves with `vld3q`,
+looks the alphabet up with `vqtbl4q` and interleaves with `vst4q`;
+`handwritten/base64.c` says how to build the comparison. The generated
+encoder gathers with a three-table `swizzle` and looks up with a four-table
+one, both single table instructions on NEON, and still interleaves in two
+rounds of `interleave`.
+
+| n | Generated | Hand NEON | Scalar C | Generated / hand |
+| ---: | ---: | ---: | ---: | ---: |
+| 64 | 9.4 ns | 6.0 ns | 14.8 ns | 1.57x |
+| 1,024 | 51.1 ns | 46.4 ns | 282 ns | 1.10x |
+| 65,536 | 3.13 us | 2.85 us | 17.0 us | 1.10x |
+
 Map's scalar source is vectorized by clang, so all three map columns run the
 same vector loop. What remains behind is the 63-element tails, where a
 four-lane masked step costs a few cycles more than the hand versions' two-lane

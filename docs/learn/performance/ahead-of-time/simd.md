@@ -81,6 +81,20 @@ while live:any() do
 end
 ```
 
+## Table lookups
+
+`value:swizzle(indices)` reads lane `indices[i]` of `value` into lane `i`, and zero where the index is outside `1..lanes`. A small table is a vector, so a lookup is one swizzle. Up to three more vectors continue the run of lanes: an index in `lanes+1..2*lanes` reads the second, and so on through the fourth. A sixty-four-byte alphabet on a sixteen-lane byte species is four table vectors and one lookup:
+
+```nupp
+local t0 = species:load(alphabet, 1)
+local t1 = species:load(alphabet, species.lanes + 1)
+local t2 = species:load(alphabet, 2 * species.lanes + 1)
+local t3 = species:load(alphabet, 3 * species.lanes + 1)
+local symbols = t0:swizzle(sextets + 1, t1, t2, t3)
+```
+
+On NEON a byte lookup over one to four tables is a single table instruction. A wider species holds the same table in fewer vectors, and loads past its end read zero. An index a lane cannot hold, past 255 for bytes, is not reachable.
+
 ## Reductions
 
 `simd.reducer` names the numerical contract. Scalar contributions remain scalar; vector contributions pass a matching mask inside one `do` region. Finalize once after that region.

@@ -1302,8 +1302,15 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
                     valid = valid and args[i].type == node.type
                 end
                 holds(valid, "invalid generic SIMD rearrangement")
-            elseif intrinsic == "swizzle" or intrinsic == "swizzle_pair" then
-                local operands = intrinsic == "swizzle_pair" and 3 or 2
+            elseif intrinsic == "swizzle"
+                or intrinsic == "swizzle_pair"
+                or intrinsic == "swizzle_triple"
+                or intrinsic == "swizzle_quad"
+            then
+                local operands = intrinsic == "swizzle_quad" and 5
+                    or intrinsic == "swizzle_triple" and 4
+                    or intrinsic == "swizzle_pair" and 3
+                    or 2
                 local sameShape = #args == operands
                 for position = 1, operands do
                     sameShape = sameShape and args[position] ~= nil and args[position].type == node.type

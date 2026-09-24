@@ -70,6 +70,15 @@ local integerOperations = {
         "a:swizzle(indices, b)",
         "indicesRef[i] >= 1 and indicesRef[i] <= n and a[indicesRef[i]] or (indicesRef[i] > n and indicesRef[i] <= 2 * n and 2 or 0)"
     },
+    -- Shifted by one and two tables so every lane reaches the last table's
+    -- first lane, the tables before it and, where a lane cannot hold the
+    -- index, nothing.
+    {"tripleSwizzle", "a:swizzle(indices + laneCount, b, a)", "lookup(normalize(indicesRef[i] + n), n, {a, twos, a})"},
+    {
+        "quadSwizzle",
+        "b:swizzle(indices + laneCount + laneCount, b, b, a)",
+        "lookup(normalize(normalize(indicesRef[i] + n) + n), n, {twos, twos, twos, a})"
+    },
 }
 
 local prelude = [[
@@ -104,6 +113,14 @@ local function binary(a: number, b: number, operation: integer): number
         place = place * 2
     end
     return answer
+end
+
+local function lookup(index: number, n: integer, tables: {{number}}): number
+    if index < 1 or index > #tables * n then
+        return 0
+    end
+    local table = math.floor((index - 1) / n) + 1
+    return tables[table][math.floor(index - (table - 1) * n)]
 end
 ]]
 
@@ -149,6 +166,7 @@ local function %s(exclusive output: span.WriteSpan<%s>, borrows input: span.Span
             source[
                 #source + 1
             ] = [[    local indices = s:iota(0, 1):insert(2, (s:iota(1, 1):reverse() + 1):extract(1))
+    local laneCount = s:iota(1, 1):reverse():extract(1)
 ]]
         end
         for i, op in ipairs(ops) do
@@ -229,6 +247,7 @@ end
             local prefix: {number} = {}
             local xorPrefix: {number} = {}
             local indicesRef: {integer} = {}
+            local twos: {number} = {}
             local selectedLanes: {boolean} = {}
             local ranks: {integer} = {}
             local sum = 0
@@ -243,6 +262,7 @@ end
                 prefix[i] = sum
                 xorPrefix[i] = xor
                 indicesRef[i] = i == 2 and n + 1 or i - 1
+                twos[i] = 2
                 selectedLanes[i] = i <= active and a[i] > 7
                 if selectedLanes[i] then
                     packed[#packed + 1] = a[i]
